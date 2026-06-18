@@ -57,9 +57,36 @@ func TestExecuteCommand_UpdateMinerPassword_InsertsMissingProtoCredentials(t *te
 	svc, db, encryptSvc, dbDeviceID, deviceIdentifier := setupPasswordCommandDevice(t, models.DriverNameProto, false)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	wirePasswordCommandMocks(t, ctrl, svc, dbDeviceID, deviceIdentifier, models.DriverNameProto)
 
-	_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
+	mockDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDevice.EXPECT().
+		UpdateMinerPassword(gomock.Any(), "old-password", "new-password").
+		Return(nil)
+
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		NewDevice(gomock.Any(), deviceIdentifier, gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+			userPass, ok := secret.Kind.(sdk.UsernamePassword)
+			require.True(t, ok, "expected password-update resolver to synthesize username/password secret")
+			assert.Equal(t, protoDefaultUsername, userPass.Username)
+			assert.Equal(t, "old-password", userPass.Password)
+			return sdk.NewDeviceResult{Device: mockDevice}, nil
+		})
+
+	filesSvc, err := files.NewService(files.Config{})
+	require.NoError(t, err)
+	svc.minerService = minerDomain.NewMinerService(
+		db,
+		sqlstores.NewSQLUserStore(db),
+		encryptSvc,
+		filesSvc,
+		nil,
+		&commandTestPluginManager{driverName: models.DriverNameProto, driver: mockDriver},
+	)
+	svc.deviceStore = sqlstores.NewSQLDeviceStore(db)
+
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
 
 	require.NoError(t, err)
 	username, password := storedCredentials(t, db, encryptSvc, dbDeviceID)
@@ -139,7 +166,7 @@ func TestExecuteCommand_UpdateMinerPassword_FleetNodeMinerFailsBeforeDispatch(t 
 	mockMinerGetter := commandMocks.NewMockCachedMinerGetter(ctrl)
 	svc := &ExecutionService{minerService: mockMinerGetter}
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), dbDeviceID).
+		GetMinerForPasswordUpdate(gomock.Any(), dbDeviceID, "old-password").
 		Return(remoteMiner, nil)
 
 	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
@@ -163,7 +190,7 @@ func TestExecuteCommand_UpdateMinerPassword_MissingNonProtoCredentialsFails(t *t
 	svc.minerService = mockMinerGetter
 	svc.deviceStore = mockDeviceStore
 
-	mockMinerGetter.EXPECT().GetMiner(gomock.Any(), dbDeviceID).Return(mockMiner, nil)
+	mockMinerGetter.EXPECT().GetMinerForPasswordUpdate(gomock.Any(), dbDeviceID, "old-password").Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("antminer").AnyTimes()
@@ -398,7 +425,7 @@ func wirePasswordCommandMocks(t *testing.T, ctrl *gomock.Controller, svc *Execut
 	svc.minerService = mockMinerGetter
 	svc.deviceStore = mockDeviceStore
 
-	mockMinerGetter.EXPECT().GetMiner(gomock.Any(), dbDeviceID).Return(mockMiner, nil)
+	mockMinerGetter.EXPECT().GetMinerForPasswordUpdate(gomock.Any(), dbDeviceID, "old-password").Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return(driverName).AnyTimes()

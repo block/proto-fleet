@@ -2223,6 +2223,106 @@ func TestGetPairedDeviceByMACAddress_DefaultPasswordDevice(t *testing.T) {
 	require.Equal(t, "default-pw-device", pairedDevice.DeviceIdentifier)
 }
 
+func seedReconcileTestOrg(t *testing.T, conn *sql.DB) {
+	t.Helper()
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	require.NoError(t, err)
+}
+
+func seedReconcileTestDevice(
+	t *testing.T,
+	ctx context.Context,
+	conn *sql.DB,
+	discoveredID int64,
+	deviceID int64,
+	deviceIdentifier string,
+	macAddress string,
+	status sqlc.PairingStatusEnum,
+) {
+	t.Helper()
+
+	_, err := conn.ExecContext(ctx, `
+		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+		VALUES ($1, 1, $2, 'test-model', 'Proto', 'proto', '192.168.10.30', '443', 'https', TRUE)
+	`, discoveredID, deviceIdentifier)
+	require.NoError(t, err)
+
+	_, err = conn.ExecContext(ctx, `
+		INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+		VALUES ($1, 1, $2, $3, $4)
+	`, deviceID, discoveredID, deviceIdentifier, macAddress)
+	require.NoError(t, err)
+
+	_, err = conn.ExecContext(ctx, `
+		INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+		VALUES ($1, $2, NOW())
+	`, deviceID, status)
+	require.NoError(t, err)
+}
+
+type reconcileResult struct {
+	eligible bool
+	updated  bool
+	err      error
+}
+
+func assertConcurrentUnpairWinsReconcile(
+	t *testing.T,
+	ctx context.Context,
+	conn *sql.DB,
+	deviceID int64,
+	reconcile func(context.Context) (bool, bool, error),
+	updatedMessage string,
+) {
+	t.Helper()
+
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE device_pairing
+		SET pairing_status = 'UNPAIRED'
+		WHERE device_id = $1
+	`, deviceID)
+	require.NoError(t, err)
+
+	resultCh := make(chan reconcileResult, 1)
+	go func() {
+		reconcileCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		eligible, updated, reconcileErr := reconcile(reconcileCtx)
+		resultCh <- reconcileResult{eligible: eligible, updated: updated, err: reconcileErr}
+	}()
+
+	select {
+	case result := <-resultCh:
+		require.NoError(t, result.err)
+		require.Fail(t, "expected reconcile to wait behind the concurrent pairing-status transition")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	require.NoError(t, tx.Commit())
+
+	var result reconcileResult
+	select {
+	case result = <-resultCh:
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "timed out waiting for reconcile result")
+	}
+	require.NoError(t, result.err)
+	require.False(t, result.updated, updatedMessage)
+
+	finalStatus, err := sqlc.New(conn).GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
+	require.NoError(t, err)
+	require.Equal(t, sqlc.PairingStatusEnumUNPAIRED, finalStatus)
+}
+
 func TestReconcileDefaultPasswordPairingStatusByIdentifier_OnlyPairedLikeStates(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -2231,13 +2331,7 @@ func TestReconcileDefaultPasswordPairingStatusByIdentifier_OnlyPairedLikeStates(
 	conn := testutil.GetTestDB(t)
 	ctx := t.Context()
 	store := sqlstores.NewSQLDeviceStore(conn)
-
-	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
-		ON CONFLICT (id) DO NOTHING
-	`)
-	require.NoError(t, err)
+	seedReconcileTestOrg(t, conn)
 
 	q := sqlc.New(conn)
 	tests := []struct {
@@ -2295,24 +2389,7 @@ func TestReconcileDefaultPasswordPairingStatusByIdentifier_OnlyPairedLikeStates(
 			discoveredID := int64(5200 + i)
 			deviceID := int64(6200 + i)
 			deviceIdentifier := fmt.Sprintf("default-password-reconcile-%d", i)
-
-			_, err := conn.ExecContext(ctx, `
-				INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
-				VALUES ($1, 1, $2, 'test-model', 'Proto', 'proto', '192.168.10.30', '443', 'https', TRUE)
-			`, discoveredID, deviceIdentifier)
-			require.NoError(t, err)
-
-			_, err = conn.ExecContext(ctx, `
-				INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
-				VALUES ($1, 1, $2, $3, $4)
-			`, deviceID, discoveredID, deviceIdentifier, fmt.Sprintf("AA:BB:CC:DD:EE:%02X", i+10))
-			require.NoError(t, err)
-
-			_, err = conn.ExecContext(ctx, `
-				INSERT INTO device_pairing (device_id, pairing_status, paired_at)
-				VALUES ($1, $2, NOW())
-			`, deviceID, tt.initialStatus)
-			require.NoError(t, err)
+			seedReconcileTestDevice(t, ctx, conn, discoveredID, deviceID, deviceIdentifier, fmt.Sprintf("AA:BB:CC:DD:EE:%02X", i+10), tt.initialStatus)
 
 			eligible, updated, err := store.ReconcileDefaultPasswordPairingStatusByIdentifier(ctx, deviceIdentifier, string(tt.targetStatus))
 			require.NoError(t, err)
@@ -2334,84 +2411,19 @@ func TestReconcileDefaultPasswordPairingStatusByIdentifier_ConcurrentTransitionD
 	conn := testutil.GetTestDB(t)
 	ctx := t.Context()
 	store := sqlstores.NewSQLDeviceStore(conn)
-	q := sqlc.New(conn)
-
-	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
-		ON CONFLICT (id) DO NOTHING
-	`)
-	require.NoError(t, err)
+	seedReconcileTestOrg(t, conn)
 
 	const deviceID int64 = 7200
 	const deviceIdentifier = "default-password-reconcile-concurrent"
-	_, err = conn.ExecContext(ctx, `
-		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
-		VALUES ($1, 1, $2, 'test-model', 'Proto', 'proto', '192.168.10.31', '443', 'https', TRUE)
-	`, deviceID, deviceIdentifier)
-	require.NoError(t, err)
+	seedReconcileTestDevice(t, ctx, conn, deviceID, deviceID, deviceIdentifier, "AA:BB:CC:DD:EE:77", sqlc.PairingStatusEnumPAIRED)
 
-	_, err = conn.ExecContext(ctx, `
-		INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
-		VALUES ($1, 1, $1, $2, 'AA:BB:CC:DD:EE:77')
-	`, deviceID, deviceIdentifier)
-	require.NoError(t, err)
-
-	_, err = conn.ExecContext(ctx, `
-		INSERT INTO device_pairing (device_id, pairing_status, paired_at)
-		VALUES ($1, 'PAIRED', NOW())
-	`, deviceID)
-	require.NoError(t, err)
-
-	tx, err := conn.BeginTx(ctx, nil)
-	require.NoError(t, err)
-	defer func() { _ = tx.Rollback() }()
-
-	_, err = tx.ExecContext(ctx, `
-		UPDATE device_pairing
-		SET pairing_status = 'UNPAIRED'
-		WHERE device_id = $1
-	`, deviceID)
-	require.NoError(t, err)
-
-	type reconcileResult struct {
-		eligible bool
-		updated  bool
-		err      error
-	}
-	resultCh := make(chan reconcileResult, 1)
-	go func() {
-		reconcileCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		eligible, updated, reconcileErr := store.ReconcileDefaultPasswordPairingStatusByIdentifier(
+	assertConcurrentUnpairWinsReconcile(t, ctx, conn, deviceID, func(reconcileCtx context.Context) (bool, bool, error) {
+		return store.ReconcileDefaultPasswordPairingStatusByIdentifier(
 			reconcileCtx,
 			deviceIdentifier,
 			string(sqlc.PairingStatusEnumDEFAULTPASSWORD),
 		)
-		resultCh <- reconcileResult{eligible: eligible, updated: updated, err: reconcileErr}
-	}()
-
-	select {
-	case result := <-resultCh:
-		require.NoError(t, result.err)
-		require.Fail(t, "expected reconcile to wait behind the concurrent pairing-status transition")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	require.NoError(t, tx.Commit())
-
-	var result reconcileResult
-	select {
-	case result = <-resultCh:
-	case <-time.After(5 * time.Second):
-		require.Fail(t, "timed out waiting for reconcile result")
-	}
-	require.NoError(t, result.err)
-	require.False(t, result.updated, "stale reconcile must not rewrite a row that moved out of paired-like state")
-
-	finalStatus, err := q.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
-	require.NoError(t, err)
-	require.Equal(t, sqlc.PairingStatusEnumUNPAIRED, finalStatus)
+	}, "stale reconcile must not rewrite a row that moved out of paired-like state")
 }
 
 func TestReconcileAuthenticationNeededPairingStatusByIdentifier_OnlyEligibleStates(t *testing.T) {
@@ -2422,13 +2434,7 @@ func TestReconcileAuthenticationNeededPairingStatusByIdentifier_OnlyEligibleStat
 	conn := testutil.GetTestDB(t)
 	ctx := t.Context()
 	store := sqlstores.NewSQLDeviceStore(conn)
-
-	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
-		ON CONFLICT (id) DO NOTHING
-	`)
-	require.NoError(t, err)
+	seedReconcileTestOrg(t, conn)
 
 	q := sqlc.New(conn)
 	tests := []struct {
@@ -2487,24 +2493,7 @@ func TestReconcileAuthenticationNeededPairingStatusByIdentifier_OnlyEligibleStat
 			discoveredID := int64(7300 + i)
 			deviceID := int64(8300 + i)
 			deviceIdentifier := fmt.Sprintf("auth-needed-reconcile-%d", i)
-
-			_, err := conn.ExecContext(ctx, `
-				INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
-				VALUES ($1, 1, $2, 'test-model', 'Proto', 'proto', '192.168.10.32', '443', 'https', TRUE)
-			`, discoveredID, deviceIdentifier)
-			require.NoError(t, err)
-
-			_, err = conn.ExecContext(ctx, `
-				INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
-				VALUES ($1, 1, $2, $3, $4)
-			`, deviceID, discoveredID, deviceIdentifier, fmt.Sprintf("AA:BB:CC:DD:EF:%02X", i+10))
-			require.NoError(t, err)
-
-			_, err = conn.ExecContext(ctx, `
-				INSERT INTO device_pairing (device_id, pairing_status, paired_at)
-				VALUES ($1, $2, NOW())
-			`, deviceID, tt.initialStatus)
-			require.NoError(t, err)
+			seedReconcileTestDevice(t, ctx, conn, discoveredID, deviceID, deviceIdentifier, fmt.Sprintf("AA:BB:CC:DD:EF:%02X", i+10), tt.initialStatus)
 
 			eligible, updated, err := store.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier)
 			require.NoError(t, err)
@@ -2526,83 +2515,15 @@ func TestReconcileAuthenticationNeededPairingStatusByIdentifier_ConcurrentTransi
 	conn := testutil.GetTestDB(t)
 	ctx := t.Context()
 	store := sqlstores.NewSQLDeviceStore(conn)
-	q := sqlc.New(conn)
-
-	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
-		ON CONFLICT (id) DO NOTHING
-	`)
-	require.NoError(t, err)
+	seedReconcileTestOrg(t, conn)
 
 	const deviceID int64 = 7400
 	const deviceIdentifier = "auth-needed-reconcile-concurrent"
-	_, err = conn.ExecContext(ctx, `
-		INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
-		VALUES ($1, 1, $2, 'test-model', 'Proto', 'proto', '192.168.10.33', '443', 'https', TRUE)
-	`, deviceID, deviceIdentifier)
-	require.NoError(t, err)
+	seedReconcileTestDevice(t, ctx, conn, deviceID, deviceID, deviceIdentifier, "AA:BB:CC:DD:EF:77", sqlc.PairingStatusEnumPAIRED)
 
-	_, err = conn.ExecContext(ctx, `
-		INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
-		VALUES ($1, 1, $1, $2, 'AA:BB:CC:DD:EF:77')
-	`, deviceID, deviceIdentifier)
-	require.NoError(t, err)
-
-	_, err = conn.ExecContext(ctx, `
-		INSERT INTO device_pairing (device_id, pairing_status, paired_at)
-		VALUES ($1, 'PAIRED', NOW())
-	`, deviceID)
-	require.NoError(t, err)
-
-	tx, err := conn.BeginTx(ctx, nil)
-	require.NoError(t, err)
-	defer func() { _ = tx.Rollback() }()
-
-	_, err = tx.ExecContext(ctx, `
-		UPDATE device_pairing
-		SET pairing_status = 'UNPAIRED'
-		WHERE device_id = $1
-	`, deviceID)
-	require.NoError(t, err)
-
-	type reconcileResult struct {
-		eligible bool
-		updated  bool
-		err      error
-	}
-	resultCh := make(chan reconcileResult, 1)
-	go func() {
-		reconcileCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		eligible, updated, reconcileErr := store.ReconcileAuthenticationNeededPairingStatusByIdentifier(
-			reconcileCtx,
-			deviceIdentifier,
-		)
-		resultCh <- reconcileResult{eligible: eligible, updated: updated, err: reconcileErr}
-	}()
-
-	select {
-	case result := <-resultCh:
-		require.NoError(t, result.err)
-		require.Fail(t, "expected reconcile to wait behind the concurrent pairing-status transition")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	require.NoError(t, tx.Commit())
-
-	var result reconcileResult
-	select {
-	case result = <-resultCh:
-	case <-time.After(5 * time.Second):
-		require.Fail(t, "timed out waiting for reconcile result")
-	}
-	require.NoError(t, result.err)
-	require.False(t, result.updated, "stale auth remediation must not rewrite a row that moved out of eligible state")
-
-	finalStatus, err := q.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
-	require.NoError(t, err)
-	require.Equal(t, sqlc.PairingStatusEnumUNPAIRED, finalStatus)
+	assertConcurrentUnpairWinsReconcile(t, ctx, conn, deviceID, func(reconcileCtx context.Context) (bool, bool, error) {
+		return store.ReconcileAuthenticationNeededPairingStatusByIdentifier(reconcileCtx, deviceIdentifier)
+	}, "stale auth remediation must not rewrite a row that moved out of eligible state")
 }
 
 func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {

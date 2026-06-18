@@ -40,6 +40,7 @@ const (
 //go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter,CachedMinerGetter
 type MinerGetter interface {
 	GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error)
+	GetMinerForPasswordUpdate(ctx context.Context, deviceID int64, currentPassword string) (interfaces.Miner, error)
 }
 
 // CachedMinerGetter extends MinerGetter with cache invalidation. Services that
@@ -454,7 +455,16 @@ func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.
 // id along with the execution error (if any). It does NOT mark queue message
 // status — the caller is responsible for that.
 func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandType commandtype.Type, message queue.Message) (int64, int64, error) {
-	minerInfo, err := es.resolveMinerForCommand(ctx, commandType, message.DeviceID)
+	var passwordPayload *dto.UpdateMinerPasswordPayload
+	if commandType == commandtype.UpdateMinerPassword {
+		var p dto.UpdateMinerPasswordPayload
+		if err := json.Unmarshal(message.Payload, &p); err != nil {
+			return message.OrgID, 0, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", err)
+		}
+		passwordPayload = &p
+	}
+
+	minerInfo, err := es.resolveMinerForCommand(ctx, commandType, message.DeviceID, passwordPayload)
 	if err != nil {
 		if fleeterror.IsFailedPreconditionError(err) {
 			return message.OrgID, 0, err
@@ -580,11 +590,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 	case commandtype.Uncurtail:
 		err = minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{})
 	case commandtype.UpdateMinerPassword:
-		var p dto.UpdateMinerPasswordPayload
-		credExtractErr := json.Unmarshal(message.Payload, &p)
-		if credExtractErr != nil {
-			return orgID, siteID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", credExtractErr)
-		}
+		p := *passwordPayload
 
 		// Update device via plugin
 		err = minerInfo.UpdateMinerPassword(ctx, p)
@@ -626,24 +632,28 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 	return orgID, siteID, err
 }
 
-func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandType commandtype.Type, deviceID int64) (interfaces.Miner, error) {
+func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandType commandtype.Type, deviceID int64, passwordPayload *dto.UpdateMinerPasswordPayload) (interfaces.Miner, error) {
+	var (
+		miner interfaces.Miner
+		err   error
+	)
+	if commandType == commandtype.UpdateMinerPassword && passwordPayload != nil {
+		miner, err = es.minerService.GetMinerForPasswordUpdate(ctx, deviceID, passwordPayload.CurrentPassword)
+	} else {
+		miner, err = es.minerService.GetMiner(ctx, deviceID)
+	}
+	if err != nil {
+		return nil, err
+	}
 	if commandType == commandtype.UpdateMinerPassword {
-		miner, err := es.minerService.GetMiner(ctx, deviceID)
-		if err != nil {
-			return nil, err
-		}
 		if _, ok := miner.(*remotenode.Miner); ok {
 			return nil, fleeterror.NewFailedPreconditionErrorf(
 				"device %d is paired through a fleet node; password update remediation is not supported through fleet nodes yet",
 				deviceID,
 			)
 		}
-		return miner, nil
 	}
-	if commandType == commandtype.Unpair {
-		return es.minerService.GetMiner(ctx, deviceID)
-	}
-	return es.minerService.GetMiner(ctx, deviceID)
+	return miner, nil
 }
 
 func (es *ExecutionService) applyMinerNameToPoolUsernames(

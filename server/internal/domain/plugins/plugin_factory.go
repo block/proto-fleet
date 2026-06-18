@@ -90,9 +90,9 @@ func NewPluginMinerWithCredentials(
 		MacAddress:   config.MacAddress,
 	}
 
-	// Build SDK SecretBundle from stored credentials. Proto devices now require
-	// persisted credentials; legacy key-auth rows are repaired by the auth-needed
-	// failed-poll path instead of receiving a bearer-token fallback.
+	// Build SDK SecretBundle from stored credentials. Regular Proto resolution
+	// requires persisted credentials; password remediation may pass a transient
+	// current-password secret through the command-specific resolver.
 	var secretBundle sdk.SecretBundle
 
 	if config.DriverName == models.DriverNameProto && config.DeviceUsername == "" && config.DevicePassword == "" {

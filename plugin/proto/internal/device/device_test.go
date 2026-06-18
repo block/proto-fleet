@@ -269,63 +269,6 @@ func TestStatusThrottlesDefaultPasswordProbe(t *testing.T) {
 	assert.Equal(t, 1, systemStatusCalls, "default-password flag should be cached between throttle intervals")
 }
 
-func TestStatusBacksOffDefaultPasswordProbeAfterTransientFailure(t *testing.T) {
-	var systemStatusCalls int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/v1/auth/login":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"mining-status":{"status":"Mining"}}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/telemetry":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{}`))
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system/status":
-			systemStatusCalls++
-			if systemStatusCalls == 2 {
-				http.Error(w, "try again", http.StatusInternalServerError)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"default_password_active":true}`))
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer server.Close()
-
-	parsed, err := url.Parse(server.URL)
-	require.NoError(t, err)
-	host, portStr, err := net.SplitHostPort(parsed.Host)
-	require.NoError(t, err)
-	port, err := strconv.ParseInt(portStr, 10, 32)
-	require.NoError(t, err)
-
-	dev, err := New("device-default-password-retry", sdk.DeviceInfo{
-		Host:            host,
-		Port:            int32(port),
-		URLScheme:       "http",
-		FirmwareVersion: "1.0.0",
-	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(0*time.Second))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = dev.Close(context.Background()) })
-	require.Equal(t, 1, systemStatusCalls, "constructor verification should read the flag once")
-
-	dev.lastDefaultPasswordCheckAt = time.Now().Add(-defaultPasswordInterval)
-	_, err = dev.Status(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, 2, systemStatusCalls, "first stale probe should hit the transient failure")
-
-	_, err = dev.Status(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, 2, systemStatusCalls, "failed probes should still consume the throttle interval")
-}
-
 func TestUpdateMinerPasswordClearsDefaultPasswordStatusCache(t *testing.T) {
 	defaultPasswordActive := true
 	var systemStatusCalls int

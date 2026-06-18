@@ -57,6 +57,21 @@ func (mr *MockMinerGetterMockRecorder) GetMiner(ctx, deviceID any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMiner", reflect.TypeOf((*MockMinerGetter)(nil).GetMiner), ctx, deviceID)
 }
 
+// GetMinerForPasswordUpdate mocks base method.
+func (m *MockMinerGetter) GetMinerForPasswordUpdate(ctx context.Context, deviceID int64, currentPassword string) (interfaces.Miner, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMinerForPasswordUpdate", ctx, deviceID, currentPassword)
+	ret0, _ := ret[0].(interfaces.Miner)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMinerForPasswordUpdate indicates an expected call of GetMinerForPasswordUpdate.
+func (mr *MockMinerGetterMockRecorder) GetMinerForPasswordUpdate(ctx, deviceID, currentPassword any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerForPasswordUpdate", reflect.TypeOf((*MockMinerGetter)(nil).GetMinerForPasswordUpdate), ctx, deviceID, currentPassword)
+}
+
 // MockCachedMinerGetter is a mock of CachedMinerGetter interface.
 type MockCachedMinerGetter struct {
 	ctrl     *gomock.Controller
@@ -94,6 +109,21 @@ func (m *MockCachedMinerGetter) GetMiner(ctx context.Context, deviceID int64) (i
 func (mr *MockCachedMinerGetterMockRecorder) GetMiner(ctx, deviceID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMiner", reflect.TypeOf((*MockCachedMinerGetter)(nil).GetMiner), ctx, deviceID)
+}
+
+// GetMinerForPasswordUpdate mocks base method.
+func (m *MockCachedMinerGetter) GetMinerForPasswordUpdate(ctx context.Context, deviceID int64, currentPassword string) (interfaces.Miner, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMinerForPasswordUpdate", ctx, deviceID, currentPassword)
+	ret0, _ := ret[0].(interfaces.Miner)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMinerForPasswordUpdate indicates an expected call of GetMinerForPasswordUpdate.
+func (mr *MockCachedMinerGetterMockRecorder) GetMinerForPasswordUpdate(ctx, deviceID, currentPassword any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerForPasswordUpdate", reflect.TypeOf((*MockCachedMinerGetter)(nil).GetMinerForPasswordUpdate), ctx, deviceID, currentPassword)
 }
 
 // InvalidateMiner mocks base method.
