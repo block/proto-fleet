@@ -86,6 +86,9 @@ func (s *listStubStore) ListCandidates(context.Context, interfaces.ListCandidate
 func (s *listStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by List handler tests")
 }
+func (s *listStubStore) InsertTargetsForFullFleetCurtailmentPhase(context.Context, int64, int64, []models.InsertTargetParams) ([]*models.Target, error) {
+	panic("InsertTargetsForFullFleetCurtailmentPhase not exercised by List handler tests")
+}
 func (s *listStubStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
 	s.lastGetOrgID = orgID
 	s.lastGetUUID = eventUUID

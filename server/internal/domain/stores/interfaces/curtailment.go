@@ -204,6 +204,19 @@ type CurtailmentStore interface {
 		targets []models.InsertTargetParams,
 	) (*models.InsertEventResult, error)
 
+	// InsertTargetsForFullFleetCurtailmentPhase appends targets discovered by
+	// the reconciler's live FULL_FLEET sweep. The store must guard the parent
+	// event state/mode so no target can be added after the event leaves the
+	// pending/active curtailment phase. Duplicate or concurrently-claimed
+	// targets may be skipped; the returned slice contains only rows inserted by
+	// this call.
+	InsertTargetsForFullFleetCurtailmentPhase(
+		ctx context.Context,
+		orgID int64,
+		eventID int64,
+		targets []models.InsertTargetParams,
+	) ([]*models.Target, error)
+
 	// Heartbeat singleton row used by liveness alerts.
 	GetHeartbeat(ctx context.Context) (*models.Heartbeat, error)
 

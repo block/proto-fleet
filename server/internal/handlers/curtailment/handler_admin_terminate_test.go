@@ -77,6 +77,9 @@ func (s *adminTerminateStubStore) ListCandidates(context.Context, interfaces.Lis
 func (s *adminTerminateStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by AdminTerminate handler tests")
 }
+func (s *adminTerminateStubStore) InsertTargetsForFullFleetCurtailmentPhase(context.Context, int64, int64, []models.InsertTargetParams) ([]*models.Target, error) {
+	panic("InsertTargetsForFullFleetCurtailmentPhase not exercised by AdminTerminate handler tests")
+}
 func (s *adminTerminateStubStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	if s.authEvent != nil {
 		return s.authEvent, nil

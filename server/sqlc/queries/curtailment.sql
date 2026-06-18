@@ -455,6 +455,50 @@ FROM jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
     selector_rationale_jsonb  JSONB
 );
 
+-- name: InsertCurtailmentTargetsForFullFleetCurtailmentPhase :many
+-- Dynamic FULL_FLEET fan-out. The parent row lock serializes with Stop /
+-- AdminTerminate / target state writes; the state+mode guard prevents adding
+-- targets after the event leaves the pending/active curtailment phase.
+-- Duplicates or devices concurrently claimed by another non-terminal event are
+-- skipped.
+WITH locked_event AS MATERIALIZED (
+    SELECT id
+    FROM curtailment_event
+    WHERE id = sqlc.arg('curtailment_event_id')
+        AND org_id = sqlc.arg('org_id')
+        AND state IN ('pending', 'active')
+        AND mode = 'FULL_FLEET'
+    FOR UPDATE
+)
+INSERT INTO curtailment_target (
+    curtailment_event_id,
+    device_identifier,
+    target_type,
+    state,
+    desired_state,
+    baseline_power_w,
+    selector_rationale_jsonb
+)
+SELECT
+    locked_event.id,
+    t.device_identifier,
+    t.target_type,
+    t.state,
+    t.desired_state,
+    t.baseline_power_w,
+    t.selector_rationale_jsonb
+FROM locked_event
+CROSS JOIN jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
+    device_identifier         TEXT,
+    target_type               TEXT,
+    state                     TEXT,
+    desired_state             TEXT,
+    baseline_power_w          NUMERIC(12,3),
+    selector_rationale_jsonb  JSONB
+)
+ON CONFLICT DO NOTHING
+RETURNING *;
+
 -- name: ListCurtailmentTargetsByEvent :many
 -- Org-scoped via the join.
 SELECT ct.*

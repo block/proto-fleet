@@ -131,8 +131,13 @@ func BuildPlan(
 		deadMonitor    int32
 	}
 
+	fullFleetMode := isFullFleetMode(mode)
 	eligible := make([]CandidateInput, 0, len(inputs))
 	for _, c := range inputs {
+		if fullFleetMode {
+			eligible = append(eligible, c)
+			continue
+		}
 		switch {
 		case c.PowerW < float64(candidateMinPowerW) && c.HashRateHS <= 0:
 			// Both signals fail — most likely a fully-idle/dead miner.
@@ -226,4 +231,9 @@ func BuildPlan(
 		Outcome:                   res.Outcome,
 		InsufficientLoadDetail:    res.InsufficientDetail,
 	}
+}
+
+func isFullFleetMode(mode modes.Mode) bool {
+	_, ok := mode.(modes.FullFleet)
+	return ok
 }

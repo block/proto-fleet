@@ -92,6 +92,10 @@ func (s *startStubStore) InsertEventWithTargets(
 	}, nil
 }
 
+func (s *startStubStore) InsertTargetsForFullFleetCurtailmentPhase(context.Context, int64, int64, []models.InsertTargetParams) ([]*models.Target, error) {
+	panic("InsertTargetsForFullFleetCurtailmentPhase not exercised by handler Start tests")
+}
+
 // --- panic stubs for surface the handler-level tests don't reach ---
 
 func (s *startStubStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {

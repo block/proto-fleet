@@ -137,6 +137,9 @@ func (s *updateStubStore) ListCandidates(context.Context, interfaces.ListCandida
 func (s *updateStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by Update handler tests")
 }
+func (s *updateStubStore) InsertTargetsForFullFleetCurtailmentPhase(context.Context, int64, int64, []models.InsertTargetParams) ([]*models.Target, error) {
+	panic("InsertTargetsForFullFleetCurtailmentPhase not exercised by Update handler tests")
+}
 func (s *updateStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
 	panic("ListActiveEvents not exercised by Update handler tests")
 }

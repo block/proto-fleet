@@ -501,6 +501,10 @@ func (f *fakeStore) InsertEventWithTargets(
 	}, nil
 }
 
+func (f *fakeStore) InsertTargetsForFullFleetCurtailmentPhase(context.Context, int64, int64, []models.InsertTargetParams) ([]*models.Target, error) {
+	panic("InsertTargetsForFullFleetCurtailmentPhase not exercised")
+}
+
 // --- helpers ---
 
 func miner(id string, status, pairing string, powerW, hashRateHS float64) *models.Candidate {

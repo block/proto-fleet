@@ -722,6 +722,37 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	})
 }
 
+func (s *SQLCurtailmentStore) InsertTargetsForFullFleetCurtailmentPhase(
+	ctx context.Context,
+	orgID int64,
+	eventID int64,
+	targets []models.InsertTargetParams,
+) ([]*models.Target, error) {
+	if len(targets) == 0 {
+		return nil, nil
+	}
+	payload, err := buildBulkTargetPayload(targets)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf(
+			"failed to encode curtailment target payload: %v",
+			err,
+		)
+	}
+	rows, err := s.GetQueries(ctx).InsertCurtailmentTargetsForFullFleetCurtailmentPhase(ctx, sqlc.InsertCurtailmentTargetsForFullFleetCurtailmentPhaseParams{
+		OrgID:              orgID,
+		CurtailmentEventID: eventID,
+		TargetsJsonb:       payload,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to insert full-fleet curtailment phase targets: %v", err)
+	}
+	out := make([]*models.Target, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, convertTargetRow(row))
+	}
+	return out, nil
+}
+
 func (s *SQLCurtailmentStore) GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
 	row, err := s.GetQueries(ctx).GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
 		EventUuid: eventUUID,

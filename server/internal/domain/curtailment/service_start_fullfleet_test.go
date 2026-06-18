@@ -69,7 +69,6 @@ func TestService_Preview_FullFleet_AllSkippedReturnsInsufficientDetail(t *testin
 		miner("offline", "OFFLINE", "PAIRED", 0, 0),
 		miner("updating", "UPDATING", "PAIRED", 0, 0),
 		staleMiner("stale"),
-		miner("below-floor", "ACTIVE", "PAIRED", 100, 0),
 	}
 	svc := NewService(store)
 	req := validRequest(orgID)
@@ -82,13 +81,40 @@ func TestService_Preview_FullFleet_AllSkippedReturnsInsufficientDetail(t *testin
 	require.NotNil(t, plan.InsufficientLoadDetail)
 	assert.Equal(t, modes.OutcomeInsufficientLoad, plan.Outcome)
 	assert.Empty(t, plan.Selected)
-	assert.Len(t, plan.Skipped, 4)
+	assert.Len(t, plan.Skipped, 3)
 	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedOffline)
 	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedUpdating)
 	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedStale)
-	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedBelowThreshold)
+	assert.Zero(t, plan.InsufficientLoadDetail.ExcludedBelowThreshold)
 	assert.Equal(t, int32(1500), plan.InsufficientLoadDetail.CandidateMinPowerW)
 	assert.Zero(t, store.insertEventCalls, "Preview must not persist")
+}
+
+func TestService_Start_FullFleet_SelectsLowPowerAndZeroHashrate(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("low-power", 100, 100, 40),
+		minerWithEff("not-yet-hashing", 1800, 0, 45),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	assert.Len(t, plan.Selected, 2, "full_fleet must not apply the FIXED_KW power/hash gates")
+	assert.Empty(t, plan.Skipped)
+	require.Len(t, store.lastInsertTargets, 2)
+	targetIDs := []string{
+		store.lastInsertTargets[0].DeviceIdentifier,
+		store.lastInsertTargets[1].DeviceIdentifier,
+	}
+	assert.ElementsMatch(t, []string{"low-power", "not-yet-hashing"}, targetIDs)
 }
 
 func TestService_Start_FullFleet_AllSkippedDoesNotPersist(t *testing.T) {

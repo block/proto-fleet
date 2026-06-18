@@ -5,6 +5,7 @@ package reconciler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -31,6 +32,7 @@ const (
 	reconcilerActorName = "curtailment-reconciler"
 
 	defaultTickInterval           = 30 * time.Second
+	minTickInterval               = time.Second
 	defaultShutdownDeadline       = 10 * time.Second
 	defaultMaxRetries       int32 = 3
 
@@ -39,6 +41,8 @@ const (
 
 	// 10× tick interval; ages out restore-phase targets via retry budget.
 	defaultRestoreDispatchTimeoutSec = 300
+
+	targetTypeMiner = "miner"
 )
 
 // CommandDispatcher is the subset of command.Service the reconciler needs;
@@ -50,17 +54,17 @@ type CommandDispatcher interface {
 
 // Config carries runtime tunables. Zero-valued fields use defaults.
 type Config struct {
-	TickInterval         time.Duration
-	ShutdownDeadline     time.Duration
-	MaxRetries           int32
-	DriftThresholdFactor float64
+	TickInterval         time.Duration `help:"Interval between curtailment reconciler sweeps. Must be at least 1s." default:"30s" env:"TICK_INTERVAL"`
+	ShutdownDeadline     time.Duration `help:"Maximum time to wait for an in-flight curtailment reconciler tick to drain on shutdown." default:"10s" env:"SHUTDOWN_DEADLINE"`
+	MaxRetries           int32         `help:"Retry budget for bounded curtailment target dispatch failures." default:"3" env:"MAX_RETRIES"`
+	DriftThresholdFactor float64       `help:"Power threshold factor used to decide whether a curtailed miner drifted back on." default:"0.5" env:"DRIFT_THRESHOLD_FACTOR"`
 	// RestoreDispatchTimeoutSec ages out restore-phase targets stuck in
 	// Dispatched without confirming telemetry (burns retry budget).
-	RestoreDispatchTimeoutSec int
+	RestoreDispatchTimeoutSec int `help:"Seconds before restore-phase dispatch without confirming telemetry consumes retry budget." default:"300" env:"RESTORE_DISPATCH_TIMEOUT_SEC"`
 }
 
 func (c Config) withDefaults() Config {
-	if c.TickInterval <= 0 {
+	if c.TickInterval == 0 {
 		c.TickInterval = defaultTickInterval
 	}
 	if c.ShutdownDeadline <= 0 {
@@ -76,6 +80,13 @@ func (c Config) withDefaults() Config {
 		c.RestoreDispatchTimeoutSec = defaultRestoreDispatchTimeoutSec
 	}
 	return c
+}
+
+func (c Config) validate() error {
+	if c.TickInterval < minTickInterval {
+		return fmt.Errorf("curtailment reconciler: tick_interval must be at least %s, got %s", minTickInterval, c.TickInterval)
+	}
+	return nil
 }
 
 // Reconciler is a singleton goroutine ticking every config.TickInterval.
@@ -133,6 +144,9 @@ func (r *Reconciler) Start(_ context.Context) error {
 	}
 	if r.cmd == nil {
 		return fmt.Errorf("curtailment reconciler: command dispatcher is required")
+	}
+	if err := r.cfg.validate(); err != nil {
+		return err
 	}
 
 	r.mu.Lock()
@@ -296,6 +310,7 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
+	targets = r.expandFullFleetCurtailmentPhaseTargets(ctx, ev, targets)
 	if len(targets) == 0 {
 		// Service.Start rejects empty plans; zero targets is a contract
 		// violation needing manual recovery.
@@ -543,7 +558,7 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
 	newRetry := t.RetryCount + 1
 	state := nonTerminalFailureState
-	if newRetry >= r.cfg.MaxRetries {
+	if newRetry >= r.cfg.MaxRetries && !keepsCurtailRetryingDuringActiveSignal(ev) {
 		state = models.TargetStateRestoreFailed
 	}
 	params := interfaces.UpdateCurtailmentTargetStateParams{
@@ -612,12 +627,22 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
-	if len(targets) == 0 {
+	if len(targets) == 0 && ev.Mode != models.ModeFullFleet {
 		return
 	}
 
 	if r.enforceMaxDuration(ctx, ev, targets) {
 		return
+	}
+
+	targets = r.expandFullFleetCurtailmentPhaseTargets(ctx, ev, targets)
+	if len(targets) == 0 {
+		return
+	}
+
+	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
+	if ev.Mode == models.ModeFullFleet {
+		r.dispatchPendingCurtailBatches(cmdCtx, ev, targets)
 	}
 
 	deviceIDs := make([]string, 0, len(targets))
@@ -639,7 +664,6 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 	if !r.eventStillDispatchable(ctx, ev) {
 		return
 	}
-	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
 	for _, t := range targets {
 		switch t.State {
 		case models.TargetStateConfirmed:
@@ -648,6 +672,11 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 			// Re-entry: drifted-then-redispatched, waiting on confirmation.
 			r.confirmOneDispatched(cmdCtx, ev, t, candByID[t.DeviceIdentifier], models.TargetStateDispatched)
 		case models.TargetStateDispatching:
+			if ev.Mode == models.ModeFullFleet {
+				// Orphan from an interrupted prior tick; handled by
+				// dispatchPendingCurtailBatches above so batch gates apply.
+				continue
+			}
 			// Orphan from an interrupted prior tick; redispatch.
 			if t.RetryCount >= r.cfg.MaxRetries {
 				// Escalate via recordDispatchFailure so the target reaches
@@ -661,23 +690,160 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 				continue
 			}
 			r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDispatching)
-		case models.TargetStateDrifted:
-			if t.RetryCount >= r.cfg.MaxRetries {
-				// Symmetric to the DISPATCHING arm: a Drifted target whose
-				// retry budget was bumped past MaxRetries by the
-				// BumpTargetRetry fallback must terminalize, not loop.
-				r.recordDispatchFailure(cmdCtx, ev, t,
-					"retry budget exhausted on drifted target",
-					models.TargetStateDrifted)
+		case models.TargetStatePending:
+			if ev.Mode == models.ModeFullFleet {
+				// Newly appended active-phase targets are handled by
+				// dispatchPendingCurtailBatches above so batch gates apply.
 				continue
 			}
+		case models.TargetStateDrifted:
+			if t.RetryCount >= r.cfg.MaxRetries {
+				if !keepsCurtailRetryingDuringActiveSignal(ev) {
+					// A Drifted target whose retry budget was bumped past
+					// MaxRetries by the BumpTargetRetry fallback must
+					// terminalize for open-loop events, not loop.
+					r.recordDispatchFailure(cmdCtx, ev, t,
+						"retry budget exhausted on drifted target",
+						models.TargetStateDrifted)
+					continue
+				}
+			}
 			r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDrifted)
-		case models.TargetStatePending,
-			models.TargetStateResolved, models.TargetStateReleased,
+		case models.TargetStateResolved, models.TargetStateReleased,
 			models.TargetStateRestoreFailed:
-			// Pending unreachable on active; terminal states are restorer-owned.
+			// Terminal states are restorer-owned.
 		}
 	}
+}
+
+func (r *Reconciler) expandFullFleetCurtailmentPhaseTargets(ctx context.Context, ev *models.Event, targets []*models.Target) []*models.Target {
+	if ev.Mode != models.ModeFullFleet || (ev.State != models.EventStatePending && ev.State != models.EventStateActive) {
+		return targets
+	}
+	params, err := candidateParamsForEventScope(ev)
+	if err != nil {
+		slog.Error("curtailment reconciler: failed to decode full-fleet scope",
+			"event_id", ev.ID, "event_uuid", ev.EventUUID, "error", err)
+		return targets
+	}
+
+	candidates, err := r.store.ListCandidates(ctx, params)
+	if err != nil {
+		slog.Error("curtailment reconciler: list candidates (full-fleet sweep) failed",
+			"event_id", ev.ID, "error", err)
+		return targets
+	}
+	activeDevices, err := r.store.ListActiveCurtailedDevices(ctx, ev.OrgID)
+	if err != nil {
+		slog.Error("curtailment reconciler: list active devices (full-fleet sweep) failed",
+			"event_id", ev.ID, "error", err)
+		return targets
+	}
+
+	existingTargets := targetDeviceSet(targets)
+	activeDevicesSet := toSet(activeDevices)
+	for deviceID := range existingTargets {
+		delete(activeDevicesSet, deviceID)
+	}
+
+	plan := curtailment.BuildFullFleetCandidatePlan(candidates, curtailment.FullFleetCandidatePlanOptions{
+		IncludeMaintenance: ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
+		ActiveEventDevices: activeDevicesSet,
+	})
+	if len(plan.Selected) == 0 {
+		return targets
+	}
+
+	insertTargets := make([]models.InsertTargetParams, 0, len(plan.Selected))
+	for _, selected := range plan.Selected {
+		if _, exists := existingTargets[selected.DeviceIdentifier]; exists {
+			continue
+		}
+		insertTargets = append(insertTargets, insertTargetFromSelected(selected))
+	}
+	if len(insertTargets) == 0 {
+		return targets
+	}
+
+	inserted, err := r.store.InsertTargetsForFullFleetCurtailmentPhase(ctx, ev.OrgID, ev.ID, insertTargets)
+	if err != nil {
+		slog.Error("curtailment reconciler: insert full-fleet curtailment phase targets failed",
+			"event_id", ev.ID, "error", err)
+		return targets
+	}
+	if len(inserted) == 0 {
+		return targets
+	}
+	slog.Info("curtailment reconciler: added full-fleet curtailment phase targets",
+		"event_id", ev.ID, "event_uuid", ev.EventUUID, "target_count", len(inserted))
+	return append(targets, inserted...)
+}
+
+func candidateParamsForEventScope(ev *models.Event) (interfaces.ListCandidatesParams, error) {
+	params := interfaces.ListCandidatesParams{OrgID: ev.OrgID}
+	switch ev.ScopeType {
+	case models.ScopeTypeWholeOrg, "":
+		return params, nil
+	case models.ScopeTypeSite:
+		var scope struct {
+			SiteID int64 `json:"site_id"`
+		}
+		if err := json.Unmarshal(ev.ScopeJSON, &scope); err != nil {
+			return interfaces.ListCandidatesParams{}, fmt.Errorf("decode site scope: %w", err)
+		}
+		if scope.SiteID <= 0 {
+			return interfaces.ListCandidatesParams{}, fmt.Errorf("site scope missing site_id")
+		}
+		params.SiteID = &scope.SiteID
+		return params, nil
+	case models.ScopeTypeDeviceList:
+		var scope struct {
+			DeviceIdentifiers []string `json:"device_identifiers"`
+		}
+		if err := json.Unmarshal(ev.ScopeJSON, &scope); err != nil {
+			return interfaces.ListCandidatesParams{}, fmt.Errorf("decode device-list scope: %w", err)
+		}
+		if len(scope.DeviceIdentifiers) == 0 {
+			return interfaces.ListCandidatesParams{}, fmt.Errorf("device-list scope missing device_identifiers")
+		}
+		params.DeviceIdentifiers = scope.DeviceIdentifiers
+		return params, nil
+	case models.ScopeTypeDeviceSets:
+		return interfaces.ListCandidatesParams{}, fmt.Errorf("device-set scope is not supported for dynamic full-fleet sweep")
+	default:
+		return interfaces.ListCandidatesParams{}, fmt.Errorf("unsupported scope type %q", ev.ScopeType)
+	}
+}
+
+func insertTargetFromSelected(selected curtailment.SelectedDevice) models.InsertTargetParams {
+	var baseline *float64
+	if selected.PowerW > 0 {
+		power := selected.PowerW
+		baseline = &power
+	}
+	return models.InsertTargetParams{
+		DeviceIdentifier: selected.DeviceIdentifier,
+		TargetType:       targetTypeMiner,
+		State:            models.TargetStatePending,
+		DesiredState:     models.DesiredStateCurtailed,
+		BaselinePowerW:   baseline,
+	}
+}
+
+func targetDeviceSet(targets []*models.Target) map[string]struct{} {
+	out := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		out[target.DeviceIdentifier] = struct{}{}
+	}
+	return out
+}
+
+func toSet(values []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		out[value] = struct{}{}
+	}
+	return out
 }
 
 // confirmOneDispatched promotes Dispatched → Confirmed when telemetry
@@ -749,7 +915,7 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 			t.ObservedPowerW = params.ObservedPowerW
 		}
 		// Budget exhausted: stay Drifted (matches observeActive's drift arm).
-		if t.RetryCount >= r.cfg.MaxRetries {
+		if t.RetryCount >= r.cfg.MaxRetries && !keepsCurtailRetryingDuringActiveSignal(ev) {
 			return
 		}
 		r.dispatchOneCurtail(ctx, ev, t, models.TargetStateDrifted)
@@ -872,6 +1038,12 @@ func expectedDesiredStateForEventState(state models.EventState) string {
 		return ""
 	}
 	return ""
+}
+
+func keepsCurtailRetryingDuringActiveSignal(ev *models.Event) bool {
+	return ev != nil &&
+		ev.Mode == models.ModeFullFleet &&
+		ev.State == models.EventStateActive
 }
 
 // reconcilerContext stamps synthetic session.Info on the dispatch ctx.

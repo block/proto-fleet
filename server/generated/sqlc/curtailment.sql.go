@@ -882,6 +882,112 @@ func (q *Queries) InsertCurtailmentEvent(ctx context.Context, arg InsertCurtailm
 	return i, err
 }
 
+const insertCurtailmentTargetsForFullFleetCurtailmentPhase = `-- name: InsertCurtailmentTargetsForFullFleetCurtailmentPhase :many
+WITH locked_event AS MATERIALIZED (
+    SELECT id
+    FROM curtailment_event
+    WHERE id = $2
+        AND org_id = $3
+        AND state IN ('pending', 'active')
+        AND mode = 'FULL_FLEET'
+    FOR UPDATE
+)
+INSERT INTO curtailment_target (
+    curtailment_event_id,
+    device_identifier,
+    target_type,
+    state,
+    desired_state,
+    baseline_power_w,
+    selector_rationale_jsonb
+)
+SELECT
+    locked_event.id,
+    t.device_identifier,
+    t.target_type,
+    t.state,
+    t.desired_state,
+    t.baseline_power_w,
+    t.selector_rationale_jsonb
+FROM locked_event
+CROSS JOIN jsonb_to_recordset($1::JSONB) AS t(
+    device_identifier         TEXT,
+    target_type               TEXT,
+    state                     TEXT,
+    desired_state             TEXT,
+    baseline_power_w          NUMERIC(12,3),
+    selector_rationale_jsonb  JSONB
+)
+ON CONFLICT DO NOTHING
+RETURNING curtailment_event_id, device_identifier, target_type, state, desired_state, baseline_power_w, added_at, released_at, last_dispatched_at, last_batch_uuid, observed_power_w, observed_at, confirmed_at, retry_count, last_error, selector_rationale_jsonb, curtail_state, curtail_dispatched_at, curtail_batch_uuid, curtail_completed_at, curtail_retry_count, curtail_failure_count, curtail_last_error, restore_state, restore_started_at, restore_dispatched_at, restore_batch_uuid, restore_completed_at, restore_retry_count, restore_failure_count, restore_last_error
+`
+
+type InsertCurtailmentTargetsForFullFleetCurtailmentPhaseParams struct {
+	TargetsJsonb       json.RawMessage
+	CurtailmentEventID int64
+	OrgID              int64
+}
+
+// Dynamic FULL_FLEET fan-out. The parent row lock serializes with Stop /
+// AdminTerminate / target state writes; the state+mode guard prevents adding
+// targets after the event leaves the pending/active curtailment phase.
+// Duplicates or devices concurrently claimed by another non-terminal event are
+// skipped.
+func (q *Queries) InsertCurtailmentTargetsForFullFleetCurtailmentPhase(ctx context.Context, arg InsertCurtailmentTargetsForFullFleetCurtailmentPhaseParams) ([]CurtailmentTarget, error) {
+	rows, err := q.query(ctx, q.insertCurtailmentTargetsForFullFleetCurtailmentPhaseStmt, insertCurtailmentTargetsForFullFleetCurtailmentPhase, arg.TargetsJsonb, arg.CurtailmentEventID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CurtailmentTarget
+	for rows.Next() {
+		var i CurtailmentTarget
+		if err := rows.Scan(
+			&i.CurtailmentEventID,
+			&i.DeviceIdentifier,
+			&i.TargetType,
+			&i.State,
+			&i.DesiredState,
+			&i.BaselinePowerW,
+			&i.AddedAt,
+			&i.ReleasedAt,
+			&i.LastDispatchedAt,
+			&i.LastBatchUuid,
+			&i.ObservedPowerW,
+			&i.ObservedAt,
+			&i.ConfirmedAt,
+			&i.RetryCount,
+			&i.LastError,
+			&i.SelectorRationaleJsonb,
+			&i.CurtailState,
+			&i.CurtailDispatchedAt,
+			&i.CurtailBatchUuid,
+			&i.CurtailCompletedAt,
+			&i.CurtailRetryCount,
+			&i.CurtailFailureCount,
+			&i.CurtailLastError,
+			&i.RestoreState,
+			&i.RestoreStartedAt,
+			&i.RestoreDispatchedAt,
+			&i.RestoreBatchUuid,
+			&i.RestoreCompletedAt,
+			&i.RestoreRetryCount,
+			&i.RestoreFailureCount,
+			&i.RestoreLastError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listActiveCurtailedDevicesByOrg = `-- name: ListActiveCurtailedDevicesByOrg :many
 SELECT DISTINCT ct.device_identifier
 FROM curtailment_target ct

@@ -56,6 +56,9 @@ func (s *stopStubStore) ListCandidates(context.Context, interfaces.ListCandidate
 func (s *stopStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by Stop handler tests")
 }
+func (s *stopStubStore) InsertTargetsForFullFleetCurtailmentPhase(context.Context, int64, int64, []models.InsertTargetParams) ([]*models.Target, error) {
+	panic("InsertTargetsForFullFleetCurtailmentPhase not exercised by Stop handler tests")
+}
 func (s *stopStubStore) GetEventByUUID(_ context.Context, _ int64, _ uuid.UUID) (*models.Event, error) {
 	if s.getEventErr != nil {
 		return nil, s.getEventErr

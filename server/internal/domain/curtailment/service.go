@@ -992,6 +992,25 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	return &plan, minPowerW, orgConfig, nil
 }
 
+// FullFleetCandidatePlanOptions carries the non-mode gates needed when the
+// reconciler re-sweeps a persisted FULL_FLEET event scope during ACTIVE.
+type FullFleetCandidatePlanOptions struct {
+	IncludeMaintenance bool
+	ActiveEventDevices map[string]struct{}
+}
+
+// BuildFullFleetCandidatePlan applies the same FULL_FLEET eligibility rules as
+// Start/Preview without consulting org cooldown or the candidate power floor.
+// The reconciler uses it for dynamic active-event targeting.
+func BuildFullFleetCandidatePlan(candidates []*models.Candidate, opts FullFleetCandidatePlanOptions) Plan {
+	eligible, preFiltered, _ := classifyCandidates(candidates, classifyOpts{
+		IncludeMaintenance: opts.IncludeMaintenance,
+		ActiveEventDevices: opts.ActiveEventDevices,
+		CandidateMinPowerW: 0,
+	})
+	return BuildPlan(eligible, preFiltered, 0, modes.FullFleet{})
+}
+
 func fullFleetAllSkippedDetail(skipped []SkippedDevice, minPowerW int32) modes.InsufficientLoadDetail {
 	detail := modes.InsufficientLoadDetail{CandidateMinPowerW: minPowerW}
 	for _, skip := range skipped {
@@ -1361,7 +1380,7 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			continue
 		}
 		// NaN/Inf would slip past the dual-signal filter; treat as stale.
-		if !isFiniteFloat(c.LatestPowerW) || !isFiniteFloat(c.LatestHashRateHS) {
+		if !isPresentFiniteFloat(c.LatestPowerW) || !isPresentFiniteFloat(c.LatestHashRateHS) {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
 			summary.ExcludedStale++
 			continue
@@ -1425,6 +1444,13 @@ func derefFloat(p *float64) float64 {
 func isFiniteFloat(p *float64) bool {
 	if p == nil {
 		return true
+	}
+	return !math.IsNaN(*p) && !math.IsInf(*p, 0)
+}
+
+func isPresentFiniteFloat(p *float64) bool {
+	if p == nil {
+		return false
 	}
 	return !math.IsNaN(*p) && !math.IsInf(*p, 0)
 }
