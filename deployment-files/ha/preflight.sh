@@ -34,18 +34,28 @@ done
 require_command docker
 docker compose version >/dev/null 2>&1 || die "docker compose is required"
 
-if [ "$(uname -s)" != "Linux" ]; then
-  die "HA installs are supported on Linux only"
-fi
+os_type=$(uname -s)
+case "$os_type" in
+  Linux|Darwin) ;;
+  *) die "HA installs are supported on Linux and macOS only" ;;
+esac
 
 case "$(uname -m)" in
   aarch64|arm64|x86_64|amd64) ;;
   *) die "unsupported architecture: $(uname -m)" ;;
 esac
 
-page_size=$(getconf PAGESIZE)
-if [ "$page_size" != "4096" ]; then
-  die "system page size is $page_size; HA requires 4096-byte pages"
+if [ "$os_type" = "Linux" ]; then
+  page_size=$(getconf PAGESIZE)
+  if [ "$page_size" != "4096" ]; then
+    die "system page size is $page_size; HA requires 4096-byte pages"
+  fi
+fi
+
+if [ "$os_type" = "Darwin" ]; then
+  warn "macOS HA installs are for local lab testing only"
+  warn "Docker Desktop host networking must be enabled for --network host"
+  warn "systemd is unavailable on macOS; Fleet follower automation must run manually or on the Linux data node"
 fi
 
 if ! docker info >/dev/null 2>&1; then

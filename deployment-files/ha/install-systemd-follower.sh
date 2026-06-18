@@ -6,7 +6,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$script_dir/lib.sh"
 
 if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
-  warn "systemd is not available; run ha/fleet-follows-primary.sh manually or install your own scheduler"
+  warn "systemd is not available; run ha/fleet-follows-primary.sh manually or rely on the Linux peer's timer"
   exit 0
 fi
 

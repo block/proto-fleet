@@ -1,7 +1,9 @@
 # Proto Fleet Docker HA Lab Runbook
 
 This is the fast HA path for on-prem curtailment deployments where PostgreSQL
-and TimescaleDB stay in Docker.
+and TimescaleDB stay in Docker. The intended production topology is Raspberry
+Pi OS, but macOS is supported for local lab testing when Docker Desktop host
+networking is enabled.
 
 ## Topology
 
@@ -18,6 +20,12 @@ running, but `fleet-api` and `fleet-client` stay stopped.
 `pi-3` is not in the steady-state curtailment path. If `pi-3` goes down, the
 already-active Fleet node keeps running, but no new automatic failover can be
 confirmed until the monitor returns.
+
+For a local-machine-plus-one-Pi smoke test, the local machine may run the
+monitor and one data node while the Pi runs the second data node. On macOS,
+systemd is unavailable, so the local machine does not get an automatic
+`fleet-follows-primary.timer`; run `./ha/fleet-follows-primary.sh` manually if
+you need Fleet to follow a local role change.
 
 ## Lab Baseline
 
@@ -39,6 +47,9 @@ Pass criteria:
 - `getconf PAGESIZE` returns `4096`.
 - Docker and Docker Compose work.
 - `pi-1`, `pi-2`, and `pi-3` resolve each other by hostname.
+
+On macOS lab hosts, also confirm Docker Desktop host networking is enabled
+before running HA containers.
 
 ## Image Validation
 

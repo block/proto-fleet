@@ -66,10 +66,15 @@ The script will:
 
 ### Raspberry Pi HA lab installs
 
-HA mode is a Linux-only lab path for 3 Raspberry Pis where PostgreSQL remains
-Dockerized. It runs a Dockerized `pg_auto_failover` monitor on one Pi and one
-Dockerized TimescaleDB data node on each Fleet Pi. Fleet starts only on the
-data node whose local DB container is primary.
+HA mode is a lab path where PostgreSQL remains Dockerized. The intended
+production topology is 3 Raspberry Pis, but macOS is supported for local lab
+testing when Docker Desktop host networking is enabled. The HA stack runs a
+Dockerized `pg_auto_failover` monitor and Dockerized TimescaleDB data nodes.
+Fleet starts only on the data node whose local DB container is primary.
+
+On macOS, systemd is unavailable, so `fleet-follows-primary.timer` is not
+installed. Run `ha/fleet-follows-primary.sh` manually for local role changes,
+or rely on the Linux data node's timer when testing failover to a Pi.
 
 Start with the full runbook in `ha/README.md`. Minimal command shapes:
 
