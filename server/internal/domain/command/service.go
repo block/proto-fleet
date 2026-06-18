@@ -608,7 +608,7 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 
 			return q.GetFilteredDeviceIdentifiers(ctx, sqlc.GetFilteredDeviceIdentifiersParams{
 				OrgID:               info.OrganizationID,
-				PairingStatusValues: pairingStatusValuesForSelector(filter, commandType),
+				PairingStatusValues: pairingStatusValuesForSelector(filter),
 				DeviceStatus:        deviceStatus,
 				ModelFilter:         modelFilter,
 				ManufacturerFilter:  manufacturerFilter,
@@ -627,7 +627,7 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 	}
 }
 
-func pairingStatusValuesForSelector(filter *pb.DeviceFilter, _ commandtype.Type) []string {
+func pairingStatusValuesForSelector(filter *pb.DeviceFilter) []string {
 	if filter != nil && len(filter.PairingStatus) > 0 {
 		values := make([]string, 0, len(filter.PairingStatus))
 		seen := make(map[string]struct{}, len(filter.PairingStatus))

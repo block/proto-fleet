@@ -40,7 +40,6 @@ const (
 //go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter,CachedMinerGetter
 type MinerGetter interface {
 	GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error)
-	GetMinerForCredentialRemediation(ctx context.Context, deviceID int64) (interfaces.Miner, error)
 }
 
 // CachedMinerGetter extends MinerGetter with cache invalidation. Services that
@@ -629,7 +628,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 
 func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandType commandtype.Type, deviceID int64) (interfaces.Miner, error) {
 	if commandType == commandtype.UpdateMinerPassword {
-		miner, err := es.minerService.GetMinerForCredentialRemediation(ctx, deviceID)
+		miner, err := es.minerService.GetMiner(ctx, deviceID)
 		if err != nil {
 			return nil, err
 		}
@@ -642,7 +641,7 @@ func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandT
 		return miner, nil
 	}
 	if commandType == commandtype.Unpair {
-		return es.minerService.GetMinerForCredentialRemediation(ctx, deviceID)
+		return es.minerService.GetMiner(ctx, deviceID)
 	}
 	return es.minerService.GetMiner(ctx, deviceID)
 }

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -254,6 +255,54 @@ func TestDoRequest_LazyLogin(t *testing.T) {
 	// Assert
 	assert.Equal(t, 1, loginCount, "should log in once and reuse the cached token")
 	assert.Equal(t, "Bearer tok-1", lastAuth, "requests should carry the access token")
+}
+
+func TestDoRequest_ConcurrentLazyLoginCoalesces(t *testing.T) {
+	var loginCount int32
+	loginStarted := make(chan struct{})
+	releaseLogin := make(chan struct{})
+	var once sync.Once
+	var badAuthCount int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			atomic.AddInt32(&loginCount, 1)
+			once.Do(func() { close(loginStarted) })
+			<-releaseLogin
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"tok-1","refresh_token":"r"}`))
+		default:
+			if r.Header.Get("Authorization") != "Bearer tok-1" {
+				atomic.AddInt32(&badAuthCount, 1)
+			}
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	require.NoError(t, client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "proto"}))
+
+	const requestCount = 5
+	errs := make(chan error, requestCount)
+	for range requestCount {
+		go func() {
+			resp, err := client.doRequest(context.Background(), http.MethodGet, "/api/v1/system", nil)
+			if resp != nil {
+				resp.Body.Close()
+			}
+			errs <- err
+		}()
+	}
+
+	<-loginStarted
+	close(releaseLogin)
+	for range requestCount {
+		require.NoError(t, <-errs)
+	}
+	assert.Equal(t, int32(1), atomic.LoadInt32(&loginCount))
+	assert.Equal(t, int32(0), atomic.LoadInt32(&badAuthCount))
 }
 
 // TestDoRequest_ReloginOn401 verifies that a rejected token triggers exactly one

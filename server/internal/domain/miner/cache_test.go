@@ -81,7 +81,7 @@ func TestMinerService_GetMinerFromDeviceIdentifier_CachesAfterFirstLookup(t *tes
 	assert.True(t, miner1 == miner2, "expected cache to return the same miner instance")
 }
 
-func TestMinerService_GetMinerForTelemetry_ResolvesDefaultPasswordDevice(t *testing.T) {
+func TestMinerService_GetMinerFromDeviceIdentifier_ResolvesDefaultPasswordDevice(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -127,7 +127,7 @@ func TestMinerService_GetMinerForTelemetry_ResolvesDefaultPasswordDevice(t *test
 	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "proto"}
 	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
 
-	resolvedMiner, err := service.GetMinerForTelemetry(t.Context(), deviceIdentifier)
+	resolvedMiner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceIdentifier)
 
 	require.NoError(t, err)
 	require.NotNil(t, resolvedMiner)
@@ -138,7 +138,7 @@ func TestMinerService_GetMinerForTelemetry_ResolvesDefaultPasswordDevice(t *test
 	assert.Equal(t, deviceIdentifier, resolvedByDefaultPath.GetID())
 }
 
-func TestMinerService_GetMinerForTelemetry_ProtoWithoutCredentialsReturnsAuthenticationError(t *testing.T) {
+func TestMinerService_GetMinerFromDeviceIdentifier_ProtoWithoutCredentialsReturnsAuthenticationError(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -155,7 +155,7 @@ func TestMinerService_GetMinerForTelemetry_ProtoWithoutCredentialsReturnsAuthent
 	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: models.DriverNameProto}
 	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
 
-	resolvedMiner, err := service.GetMinerForTelemetry(t.Context(), deviceIdentifier)
+	resolvedMiner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceIdentifier)
 
 	require.Error(t, err)
 	assert.Nil(t, resolvedMiner)

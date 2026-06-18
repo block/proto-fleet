@@ -106,14 +106,6 @@ func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *enc
 // It performs a lightweight identifier lookup then delegates to
 // GetMinerFromDeviceIdentifier so both lookup paths share the same cache.
 func (s *Service) GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
-	return s.getMinerByDatabaseID(ctx, deviceID)
-}
-
-func (s *Service) GetMinerForCredentialRemediation(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
-	return s.getMinerByDatabaseID(ctx, deviceID)
-}
-
-func (s *Service) getMinerByDatabaseID(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
 	identifier, err := s.GetQueries(ctx).GetDeviceIdentifierByID(ctx, deviceID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -187,10 +179,6 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 
 	s.cache.Add(string(deviceID), m)
 	return m, nil
-}
-
-func (s *Service) GetMinerForTelemetry(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
-	return s.GetMinerFromDeviceIdentifier(ctx, deviceID)
 }
 
 // tryFleetNodeMiner returns a remote-node Miner if the device is paired to an active

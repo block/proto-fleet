@@ -329,13 +329,13 @@ func (d *Device) refreshDefaultPasswordStatus(ctx context.Context, metrics *sdk.
 		return
 	}
 	defaultPasswordActive, err := d.client.IsDefaultPasswordActive(ctx)
+	d.lastDefaultPasswordCheckAt = time.Now()
 	if err != nil {
 		// Leave unset (nil) on an initial read failure so the server treats it as
 		// undetermined and doesn't demote a still-default-password device.
 		slog.Debug("failed to read default-password status", "device_id", d.id, "error", err)
 		return
 	}
-	d.lastDefaultPasswordCheckAt = time.Now()
 	d.lastDefaultPasswordActive = &defaultPasswordActive
 	metrics.DefaultPasswordActive = &defaultPasswordActive
 }

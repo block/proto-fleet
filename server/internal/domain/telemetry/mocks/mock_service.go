@@ -306,19 +306,19 @@ func (m *MockMinerGetter) EXPECT() *MockMinerGetterMockRecorder {
 	return m.recorder
 }
 
-// GetMinerForTelemetry mocks base method.
-func (m *MockMinerGetter) GetMinerForTelemetry(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error) {
+// GetMinerFromDeviceIdentifier mocks base method.
+func (m *MockMinerGetter) GetMinerFromDeviceIdentifier(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetMinerForTelemetry", ctx, deviceIdentifier)
+	ret := m.ctrl.Call(m, "GetMinerFromDeviceIdentifier", ctx, deviceIdentifier)
 	ret0, _ := ret[0].(interfaces.Miner)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetMinerForTelemetry indicates an expected call of GetMinerForTelemetry.
-func (mr *MockMinerGetterMockRecorder) GetMinerForTelemetry(ctx, deviceIdentifier any) *gomock.Call {
+// GetMinerFromDeviceIdentifier indicates an expected call of GetMinerFromDeviceIdentifier.
+func (mr *MockMinerGetterMockRecorder) GetMinerFromDeviceIdentifier(ctx, deviceIdentifier any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerForTelemetry", reflect.TypeOf((*MockMinerGetter)(nil).GetMinerForTelemetry), ctx, deviceIdentifier)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerFromDeviceIdentifier", reflect.TypeOf((*MockMinerGetter)(nil).GetMinerFromDeviceIdentifier), ctx, deviceIdentifier)
 }
 
 // MockCachedMinerGetter is a mock of CachedMinerGetter interface.
@@ -345,19 +345,19 @@ func (m *MockCachedMinerGetter) EXPECT() *MockCachedMinerGetterMockRecorder {
 	return m.recorder
 }
 
-// GetMinerForTelemetry mocks base method.
-func (m *MockCachedMinerGetter) GetMinerForTelemetry(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error) {
+// GetMinerFromDeviceIdentifier mocks base method.
+func (m *MockCachedMinerGetter) GetMinerFromDeviceIdentifier(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetMinerForTelemetry", ctx, deviceIdentifier)
+	ret := m.ctrl.Call(m, "GetMinerFromDeviceIdentifier", ctx, deviceIdentifier)
 	ret0, _ := ret[0].(interfaces.Miner)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetMinerForTelemetry indicates an expected call of GetMinerForTelemetry.
-func (mr *MockCachedMinerGetterMockRecorder) GetMinerForTelemetry(ctx, deviceIdentifier any) *gomock.Call {
+// GetMinerFromDeviceIdentifier indicates an expected call of GetMinerFromDeviceIdentifier.
+func (mr *MockCachedMinerGetterMockRecorder) GetMinerFromDeviceIdentifier(ctx, deviceIdentifier any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerForTelemetry", reflect.TypeOf((*MockCachedMinerGetter)(nil).GetMinerForTelemetry), ctx, deviceIdentifier)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerFromDeviceIdentifier", reflect.TypeOf((*MockCachedMinerGetter)(nil).GetMinerFromDeviceIdentifier), ctx, deviceIdentifier)
 }
 
 // InvalidateMiner mocks base method.

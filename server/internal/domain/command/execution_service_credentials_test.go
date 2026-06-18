@@ -139,7 +139,7 @@ func TestExecuteCommand_UpdateMinerPassword_FleetNodeMinerFailsBeforeDispatch(t 
 	mockMinerGetter := commandMocks.NewMockCachedMinerGetter(ctrl)
 	svc := &ExecutionService{minerService: mockMinerGetter}
 	mockMinerGetter.EXPECT().
-		GetMinerForCredentialRemediation(gomock.Any(), dbDeviceID).
+		GetMiner(gomock.Any(), dbDeviceID).
 		Return(remoteMiner, nil)
 
 	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
@@ -163,7 +163,7 @@ func TestExecuteCommand_UpdateMinerPassword_MissingNonProtoCredentialsFails(t *t
 	svc.minerService = mockMinerGetter
 	svc.deviceStore = mockDeviceStore
 
-	mockMinerGetter.EXPECT().GetMinerForCredentialRemediation(gomock.Any(), dbDeviceID).Return(mockMiner, nil)
+	mockMinerGetter.EXPECT().GetMiner(gomock.Any(), dbDeviceID).Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("antminer").AnyTimes()
@@ -397,7 +397,7 @@ func wirePasswordCommandMocks(t *testing.T, ctrl *gomock.Controller, svc *Execut
 	svc.minerService = mockMinerGetter
 	svc.deviceStore = mockDeviceStore
 
-	mockMinerGetter.EXPECT().GetMinerForCredentialRemediation(gomock.Any(), dbDeviceID).Return(mockMiner, nil)
+	mockMinerGetter.EXPECT().GetMiner(gomock.Any(), dbDeviceID).Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return(driverName).AnyTimes()

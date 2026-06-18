@@ -56,8 +56,10 @@ type Client struct {
 	baseURL    string
 	httpClient *http.Client
 
-	// authMu guards credentials and accessToken.
+	// authMu guards credentials and accessToken. loginMu serializes auth
+	// round-trips so concurrent requests do not stampede the login endpoint.
 	authMu      sync.Mutex
+	loginMu     sync.Mutex
 	credentials sdk.UsernamePassword
 	accessToken string
 }
@@ -520,6 +522,28 @@ func (c *Client) freshToken(ctx context.Context) (string, error) {
 }
 
 func (c *Client) loginAndCache(ctx context.Context, credentials sdk.UsernamePassword, oldToken string) (string, error) {
+	c.loginMu.Lock()
+	defer c.loginMu.Unlock()
+
+	c.authMu.Lock()
+	if c.credentials != credentials {
+		if c.accessToken != "" {
+			token := c.accessToken
+			c.authMu.Unlock()
+			return token, nil
+		}
+		c.authMu.Unlock()
+		return "", fmt.Errorf("credentials changed during login")
+	}
+	if c.accessToken != "" {
+		if oldToken == "" || c.accessToken != oldToken {
+			token := c.accessToken
+			c.authMu.Unlock()
+			return token, nil
+		}
+	}
+	c.authMu.Unlock()
+
 	token, err := c.loginWithPassword(ctx, credentials.Password)
 	if err != nil {
 		if errors.Is(err, errInvalidCredentials) {

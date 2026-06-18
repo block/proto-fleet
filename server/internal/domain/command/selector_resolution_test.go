@@ -8,19 +8,16 @@ import (
 	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
-	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 )
 
 func TestPairingStatusValuesForSelector(t *testing.T) {
 	tests := []struct {
-		name        string
-		filter      *pb.DeviceFilter
-		commandType commandtype.Type
-		want        []string
+		name   string
+		filter *pb.DeviceFilter
+		want   []string
 	}{
 		{
-			name:        "normal commands include default password targets",
-			commandType: commandtype.Reboot,
+			name: "default includes default password targets",
 			want: []string{
 				string(sqlc.PairingStatusEnumPAIRED),
 				string(sqlc.PairingStatusEnumDEFAULTPASSWORD),
@@ -31,8 +28,7 @@ func TestPairingStatusValuesForSelector(t *testing.T) {
 			filter: &pb.DeviceFilter{
 				PairingStatus: []fleetpb.PairingStatus{fleetpb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED},
 			},
-			commandType: commandtype.UpdateMinerPassword,
-			want:        []string{string(sqlc.PairingStatusEnumAUTHENTICATIONNEEDED)},
+			want: []string{string(sqlc.PairingStatusEnumAUTHENTICATIONNEEDED)},
 		},
 		{
 			name: "explicit multiple pairing filters are honored",
@@ -43,7 +39,6 @@ func TestPairingStatusValuesForSelector(t *testing.T) {
 					fleetpb.PairingStatus_PAIRING_STATUS_PAIRED,
 				},
 			},
-			commandType: commandtype.UpdateMinerPassword,
 			want: []string{
 				string(sqlc.PairingStatusEnumPAIRED),
 				string(sqlc.PairingStatusEnumDEFAULTPASSWORD),
@@ -53,7 +48,7 @@ func TestPairingStatusValuesForSelector(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, pairingStatusValuesForSelector(tt.filter, tt.commandType))
+			assert.Equal(t, tt.want, pairingStatusValuesForSelector(tt.filter))
 		})
 	}
 }

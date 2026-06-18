@@ -399,7 +399,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 			for _, scenario := range test.devicesScenario {
 				if scenario.hasDiscoveryError {
 					mockMinerGetter.EXPECT().
-						GetMinerForTelemetry(gomock.Any(), scenario.device.ID).
+						GetMinerFromDeviceIdentifier(gomock.Any(), scenario.device.ID).
 						Return(nil, errors.New("discovery error"))
 					mockDeviceStore.EXPECT().
 						GetDeviceOrgDriverAndSite(gomock.Any(), scenario.device.ID).
@@ -409,7 +409,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 				}
 				mockMiner := minerMocks.NewMockMiner(ctrl)
 				mockMinerGetter.EXPECT().
-					GetMinerForTelemetry(gomock.Any(), scenario.device.ID).
+					GetMinerFromDeviceIdentifier(gomock.Any(), scenario.device.ID).
 					Return(mockMiner, nil)
 				mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 				mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -480,7 +480,7 @@ func TestGetTelemetryFromDevice_DropsMismatchedDeviceIdentifier(t *testing.T) {
 	device := models.Device{ID: trustedID, LastUpdatedAt: time.Now().Add(-5 * time.Minute)}
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), trustedID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), trustedID).
 		Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(42)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -541,7 +541,7 @@ func TestGetTelemetryFromDevice_NormalizesEmptyDeviceIdentifier(t *testing.T) {
 	device := models.Device{ID: trustedID, LastUpdatedAt: time.Now().Add(-5 * time.Minute)}
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), trustedID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), trustedID).
 		Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -681,7 +681,7 @@ func TestTelemetryService_Integration(t *testing.T) {
 			AnyTimes()
 
 		mockMinerGetter.EXPECT().
-			GetMinerForTelemetry(gomock.Any(), deviceID).
+			GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 			Return(nil, nil).AnyTimes()
 
 		mockDataStore.EXPECT().
@@ -841,7 +841,7 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		deviceIDs := []models.DeviceIdentifier{"700", "701", "702"}
 
 		mockMinerGetter.EXPECT().
-			GetMinerForTelemetry(gomock.Any(), deviceIDs[0]).
+			GetMinerFromDeviceIdentifier(gomock.Any(), deviceIDs[0]).
 			Return(nil, nil).AnyTimes()
 
 		// Add devices
@@ -1241,7 +1241,7 @@ func TestPollErrorsForDevice_WithValidMiner_ShouldCallPollErrors(t *testing.T) {
 
 	// Expect miner lookup to succeed
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
 	// Expect PollErrors to be called with the miner
@@ -1276,7 +1276,7 @@ func TestPollErrorsForDevice_WhenMinerLookupFails_ShouldNotCallPollErrors(t *tes
 
 	// Miner lookup fails
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(nil, errors.New("miner not found"))
 
 	// No expectations on mockErrorPoller - PollErrors should NOT be called
@@ -1309,7 +1309,7 @@ func TestPollErrorsForDevice_WithUpsertFailures_ShouldComplete(t *testing.T) {
 
 	// Miner lookup succeeds
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
 	// PollErrors returns a result with some upsert failures
@@ -1395,7 +1395,7 @@ func TestStatusWriterRoutine_BatchFlushesOnInterval(t *testing.T) {
 	deviceID := models.DeviceIdentifier("test-device-1")
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), gomock.Any()).
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("metrics observer stub")).
 		AnyTimes()
 
@@ -1452,7 +1452,7 @@ func TestStatusWriterRoutine_BroadcastsStatusChanges(t *testing.T) {
 	deviceID := models.DeviceIdentifier("test-device-1")
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), gomock.Any()).
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("metrics observer stub")).
 		AnyTimes()
 
@@ -1507,7 +1507,7 @@ func TestStatusWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 	deviceID := models.DeviceIdentifier("test-device-1")
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), gomock.Any()).
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("metrics observer stub")).
 		AnyTimes()
 
@@ -1583,7 +1583,7 @@ func TestStatusWriterRoutine_FlushUsesWorkerSuppliedLabels(t *testing.T) {
 	// for org/driver labels. The .Times(0) fails the test if a regression
 	// brings back the per-device miner lookups.
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), gomock.Any()).
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
 		Times(0)
 
 	rec := &recordingEmitter{}
@@ -1663,7 +1663,7 @@ func TestStatusWriterRoutine_FlushRequestChunksDrainedStatuses(t *testing.T) {
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), gomock.Any()).
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("metrics observer stub")).
 		AnyTimes()
 
@@ -1843,7 +1843,7 @@ func TestMetricsWriterRoutine_FlushesOnInterval(t *testing.T) {
 	metric := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-1"}
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), gomock.Any()).
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("metrics observer stub")).
 		AnyTimes()
 
@@ -1887,7 +1887,7 @@ func TestMetricsWriterRoutine_FlushesOnRequest(t *testing.T) {
 	metric := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-1"}
 
 	mockCachedMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), gomock.Any()).
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
 		Return(mockMiner, nil).
 		AnyTimes()
 
@@ -1929,7 +1929,7 @@ func TestMetricsWriterRoutine_FlushRequestChunksDrainedMetrics(t *testing.T) {
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), gomock.Any()).
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("metrics observer stub")).
 		AnyTimes()
 
@@ -2025,7 +2025,7 @@ func TestMetricsWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 	metric := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-1"}
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), gomock.Any()).
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("metrics observer stub")).
 		AnyTimes()
 
@@ -2079,7 +2079,7 @@ func TestMetricsWriterRoutine_DrainsChannelOnContextCancel(t *testing.T) {
 	metric2 := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-2"}
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), gomock.Any()).
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("metrics observer stub")).
 		AnyTimes()
 
@@ -2137,7 +2137,7 @@ func TestMetricsWriterRoutine_RetriesIndividuallyOnBatchError(t *testing.T) {
 	batchErr := errors.New("batch write failed")
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), gomock.Any()).
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("metrics observer stub")).
 		AnyTimes()
 
@@ -2199,7 +2199,7 @@ func TestRefreshDevice_WaitsForExistingInFlightCollectionAndFlushesWriters(t *te
 	status := mm.MinerStatusActive
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
 		Times(2)
 
@@ -2276,7 +2276,7 @@ func TestRefreshDevice_ConnectionErrorFlushesOfflineStatusAndSucceeds(t *testing
 	connErr := fleeterror.NewConnectionError(string(deviceID), errors.New("connection refused"))
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(nil, connErr).
 		Times(3)
 	mockDeviceStore.EXPECT().
@@ -2339,7 +2339,7 @@ func TestRefreshDevice_IgnoresUnrelatedMetricFlushError(t *testing.T) {
 	unrelatedErr := errors.New("unrelated metric insert failed")
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
 		Times(2)
 	mockMiner.EXPECT().GetOrgID().Return(int64(42)).AnyTimes()
@@ -2422,7 +2422,7 @@ func TestRefreshDevice_ReturnsRequestedMetricFlushError(t *testing.T) {
 	requestedErr := errors.New("requested metric insert failed")
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
 		Times(2)
 	mockMiner.EXPECT().GetOrgID().Return(int64(42)).AnyTimes()
@@ -2489,7 +2489,7 @@ func TestRefreshDevice_RunsCollectionAndReturnsErrorAfterFullTelemetryInFlightCl
 	collectionErr := errors.New("collection failed")
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(nil, collectionErr).
 		Times(2)
 	mockDeviceStore.EXPECT().
@@ -2646,7 +2646,7 @@ func TestProcessStatusOnly_RecoversFailedDevice(t *testing.T) {
 	failedAt := time.Now().Add(-5 * time.Minute)
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
@@ -2710,7 +2710,7 @@ func TestProcessStatusOnly_DoesNotRecoverNonFailedDevice(t *testing.T) {
 	deviceID := models.DeviceIdentifier("normal-device-123")
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
@@ -2766,7 +2766,7 @@ func TestProcessStatusOnly_ConnectionError_SetsStatusOffline(t *testing.T) {
 	deviceID := models.DeviceIdentifier("offline-device-123")
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
@@ -2826,7 +2826,7 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
 		Times(2) // Telemetry and error polling.
 
@@ -2912,9 +2912,9 @@ func TestProcessDevice_HealthHealthyInactive_CallsGetDeviceStatus(t *testing.T) 
 	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
 
 	// Telemetry fetch (fetchTelemetryFromMiner),
-	// status fetch (fetchStatusFromMiner), and error polling each call GetMinerForTelemetry.
+	// status fetch (fetchStatusFromMiner), and error polling each call GetMinerFromDeviceIdentifier.
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
 		Times(3)
 
@@ -2997,10 +2997,10 @@ func TestProcessDevice_HealthHealthyActive_SkipsGetDeviceStatus(t *testing.T) {
 	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
 
 	// Telemetry fetch and error polling
-	// each call GetMinerForTelemetry — two calls total.
+	// each call GetMinerFromDeviceIdentifier — two calls total.
 	// GetDeviceStatus must NOT be called when hasMetricsStatus == true.
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
 		Times(2)
 
@@ -3084,9 +3084,9 @@ func TestProcessDevice_MetricsFail_CallsGetDeviceStatus(t *testing.T) {
 	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
 
 	// Telemetry fetch, status fetch, and error polling each
-	// call GetMinerForTelemetry — three calls total.
+	// call GetMinerFromDeviceIdentifier — three calls total.
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
 		Times(3)
 
@@ -3626,7 +3626,7 @@ func TestFetchStatusFromMiner_ConnectionErrorResolvesOrgFromDeviceStore(t *testi
 	connErr := fleeterror.NewConnectionError(string(deviceID), errors.New("dial tcp: i/o timeout"))
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(nil, connErr)
 
 	mockDeviceStore.EXPECT().
@@ -3665,7 +3665,7 @@ func TestFetchStatusFromMiner_ConnectionErrorWithMissingDeviceRowDowngradesGrace
 	connErr := fleeterror.NewConnectionError(string(deviceID), errors.New("connection refused"))
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(nil, connErr)
 
 	mockDeviceStore.EXPECT().
@@ -3688,7 +3688,7 @@ func TestFetchStatusFromMiner_ConnectionErrorWithMissingDeviceRowDowngradesGrace
 
 // Tests for fetchStatusFromMiner auth error → InvalidateMiner
 
-func TestFetchStatusFromMiner_AuthErrorFromGetMinerForTelemetry_InvalidatesMinerCache(t *testing.T) {
+func TestFetchStatusFromMiner_AuthErrorFromGetMinerFromDeviceIdentifier_InvalidatesMinerCache(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -3702,7 +3702,7 @@ func TestFetchStatusFromMiner_AuthErrorFromGetMinerForTelemetry_InvalidatesMiner
 	authErr := fleeterror.NewUnauthenticatedErrorf("invalid credentials for device %s", deviceID)
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(nil, authErr)
 
 	// fetchStatusFromMiner calls InvalidateMiner on auth error
@@ -3743,9 +3743,9 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 	deviceID := models.DeviceIdentifier("device-expired-token")
 	authErr := fleeterror.NewUnauthenticatedErrorf("token expired for device %s", deviceID)
 
-	// GetMinerForTelemetry succeeds (miner in cache)
+	// GetMinerFromDeviceIdentifier succeeds (miner in cache)
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
@@ -3795,7 +3795,7 @@ func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {
 	forbiddenErr := fleeterror.NewForbiddenErrorf("default password must be changed for device %s", deviceID)
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
@@ -3890,7 +3890,7 @@ func TestReconcileDefaultPasswordState_EligibleNoopDoesNotInvalidateMiner(t *tes
 	service.reconcileDefaultPasswordState(ctx, deviceID, &active)
 }
 
-func TestReconcileDefaultPasswordState_IneligibleRowsAreNotCached(t *testing.T) {
+func TestReconcileDefaultPasswordState_IneligibleRowsAreCached(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -3906,7 +3906,7 @@ func TestReconcileDefaultPasswordState_IneligibleRowsAreNotCached(t *testing.T) 
 	mockDeviceStore.EXPECT().
 		ReconcileDefaultPasswordPairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusPaired).
 		Return(false, false, nil).
-		Times(2)
+		Times(1)
 
 	service.reconcileDefaultPasswordState(ctx, deviceID, &active)
 	service.reconcileDefaultPasswordState(ctx, deviceID, &active)
@@ -3926,7 +3926,7 @@ func TestProcessStatusOnly_GenericForbiddenDoesNotUpdatePairingStatus(t *testing
 	forbiddenErr := fleeterror.NewForbiddenErrorf("permission denied while reading telemetry for device %s", deviceID)
 
 	mockMinerGetter.EXPECT().
-		GetMinerForTelemetry(gomock.Any(), deviceID).
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()

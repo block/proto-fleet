@@ -161,7 +161,7 @@ type TelemetryDataStore interface {
 }
 
 type MinerGetter interface {
-	GetMinerForTelemetry(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error)
+	GetMinerFromDeviceIdentifier(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error)
 }
 
 // CachedMinerGetter extends MinerGetter with cache invalidation. Services that
@@ -316,7 +316,7 @@ type TelemetryService struct {
 	lastKnownStatuses sync.Map // map[DeviceIdentifier]MinerStatus
 	lastKnownFirmware sync.Map // map[DeviceIdentifier]string
 	// lastDefaultPwActive caches the last-seen default-password flag per device so
-	// the poll only writes a pairing-status change on transitions, not every poll.
+	// the poll only checks for a pairing-status change on transitions, not every poll.
 	lastDefaultPwActive sync.Map // map[DeviceIdentifier]bool
 	// inFlight tracks devices currently being processed by a worker via the tasks channel.
 	// statusPollingRoutine skips devices in this map to avoid double-processing the same
@@ -355,6 +355,7 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 	for _, id := range deviceID {
 		s.tasks <- models.Device{ID: id, LastUpdatedAt: time.Now().Add(-s.config.NewDeviceLookback)}
 		s.devicesForStatusPolling.Store(id, struct{}{})
+		s.lastDefaultPwActive.Delete(id)
 	}
 	return s.updateScheduler.AddNewDevices(ctx, deviceID...)
 }
@@ -1108,7 +1109,7 @@ func (s *TelemetryService) pollErrorsForDevice(ctx context.Context, device model
 		return
 	}
 
-	miner, err := s.minerManager.GetMinerForTelemetry(ctx, device.ID)
+	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
 	if err != nil {
 		slog.Debug("failed to get miner for error polling", "deviceID", device.ID, "error", err)
 		return
@@ -1173,7 +1174,7 @@ func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, de
 		return
 	}
 	if !eligible {
-		s.lastDefaultPwActive.Delete(deviceID)
+		s.lastDefaultPwActive.Store(deviceID, active)
 		slog.Debug("skipping default-password pairing reconciliation for non paired-like device",
 			"device_id", deviceID, "default_password_active", active, "target_status", status)
 		return
@@ -1185,7 +1186,7 @@ func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, de
 }
 
 func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device models.Device) (*deviceResult, error) {
-	miner, err := s.minerManager.GetMinerForTelemetry(ctx, device.ID)
+	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1237,7 +1238,7 @@ func healthStatusToMinerStatus(health modelsV2.HealthStatus) (mm.MinerStatus, bo
 // Connection errors are treated as a valid "offline" state and return (MinerStatusOffline, orgID, driver, nil).
 // Only non-connection errors (e.g., authentication failures) return an error.
 func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID models.DeviceIdentifier) (mm.MinerStatus, int64, string, int64, error) {
-	miner, err := s.minerManager.GetMinerForTelemetry(ctx, deviceID)
+	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, deviceID)
 	if err != nil {
 		if fleeterror.IsConnectionError(err) {
 			orgID, driverName, siteID := s.resolveTrustedDeviceMetadata(ctx, deviceID)

@@ -1524,7 +1524,7 @@ func TestExecuteCommand_UpdateMinerPassword_PersistFailureFailsCommand(t *testin
 	require.NoError(t, err)
 	message := queue.Message{ID: 7, DeviceID: 50, CommandType: commandtype.UpdateMinerPassword, Payload: payload}
 
-	mockMinerGetter.EXPECT().GetMinerForCredentialRemediation(gomock.Any(), int64(50)).Return(mockMiner, nil)
+	mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(50)).Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("antminer").AnyTimes()

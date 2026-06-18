@@ -269,7 +269,7 @@ func TestStatusThrottlesDefaultPasswordProbe(t *testing.T) {
 	assert.Equal(t, 1, systemStatusCalls, "default-password flag should be cached between throttle intervals")
 }
 
-func TestStatusRetriesDefaultPasswordProbeAfterTransientFailure(t *testing.T) {
+func TestStatusBacksOffDefaultPasswordProbeAfterTransientFailure(t *testing.T) {
 	var systemStatusCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -323,7 +323,7 @@ func TestStatusRetriesDefaultPasswordProbeAfterTransientFailure(t *testing.T) {
 
 	_, err = dev.Status(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, 3, systemStatusCalls, "failed probes should not consume the throttle interval")
+	assert.Equal(t, 2, systemStatusCalls, "failed probes should still consume the throttle interval")
 }
 
 func TestUpdateMinerPasswordClearsDefaultPasswordStatusCache(t *testing.T) {
