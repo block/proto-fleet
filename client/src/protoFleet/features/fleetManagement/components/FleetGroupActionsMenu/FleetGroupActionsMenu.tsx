@@ -347,9 +347,15 @@ const FleetGroupActionsMenu = ({
 
   const topWiredEntries = useMemo(() => TOP_WIRED_KEYS.filter(keepEntry), [keepEntry]);
   const bottomWiredEntries = useMemo(() => BOTTOM_WIRED_KEYS.filter(keepEntry), [keepEntry]);
+  // Pick the extra-action set by presentation, not selected count: the
+  // bulk action bar (presentation="bulk") always wants bulkExtraActions
+  // even when exactly one row is checkbox-selected, while the row menu
+  // (presentation="row") wants the per-row extras. Keying on
+  // scopes.length dropped the bulk reparent actions for a single
+  // selection.
   const visibleExtraActions = useMemo(
-    () => (scopes.length > 1 ? bulkExtraActions : extraActions).filter((entry) => !entry.hidden),
-    [bulkExtraActions, extraActions, scopes.length],
+    () => (presentation === "bulk" ? bulkExtraActions : extraActions).filter((entry) => !entry.hidden),
+    [bulkExtraActions, extraActions, presentation],
   );
 
   // Cluster boundary rules: divider between top↔extras and (when no
