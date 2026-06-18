@@ -444,6 +444,11 @@ func TestAssignDevicesToRack_HappyPathAssigns(t *testing.T) {
 		h.collectionStore.EXPECT().
 			CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).
 			Return(int64(1), nil),
+		// Building cascade peer — fires after the site cascade so new
+		// rack members inherit the rack's building_id too.
+		h.collectionStore.EXPECT().
+			CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).
+			Return(int64(0), nil),
 	)
 
 	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
