@@ -22,6 +22,12 @@ services:
       PLUGINS_ENABLED: "true"
     restart: always
     network_mode: host
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:4000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
     logging:
       driver: "json-file"
       options:
@@ -33,7 +39,8 @@ services:
     build:
       context: ./client
     depends_on:
-      - fleet-api
+      fleet-api:
+        condition: service_healthy
     restart: always
     network_mode: host
     volumes:

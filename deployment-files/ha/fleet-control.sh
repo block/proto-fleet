@@ -7,7 +7,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'EOF'
-Usage: ha/fleet-control.sh start|stop|status
+Usage: ha/fleet-control.sh start|stop|restart|status
 EOF
 }
 
@@ -22,6 +22,9 @@ case "$action" in
     ;;
   stop)
     compose_with_env "${compose_args[@]}" stop fleet-api fleet-client
+    ;;
+  restart)
+    compose_with_env "${compose_args[@]}" restart fleet-api fleet-client
     ;;
   status)
     compose_with_env "${compose_args[@]}" ps fleet-api fleet-client

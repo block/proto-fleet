@@ -1,6 +1,6 @@
 FROM alpine:3.22.0
 
-RUN apk add --no-cache nmap gcompat
+RUN apk add --no-cache nmap gcompat wget
 
 WORKDIR /app
 

@@ -17,6 +17,13 @@ Fleet runs on exactly one data node: the node whose local `fleet-ha-db`
 container is the writable primary. The standby data node keeps its DB container
 running, but `fleet-api` and `fleet-client` stay stopped.
 
+The local follower also acts as a Fleet watchdog on the confirmed primary. If
+`fleet-api` fails its Docker healthcheck, the follower restarts Fleet once. If
+Fleet still does not become healthy, the follower stops local Fleet and the
+local `fleet-ha-db` container so `pg_auto_failover` can promote the standby.
+This app-triggered failover only runs when the monitor currently confirms the
+local node is primary.
+
 `pi-3` is not in the steady-state curtailment path. If `pi-3` goes down, the
 already-active Fleet node keeps running, but no new automatic failover can be
 confirmed until the monitor returns.
@@ -145,6 +152,7 @@ Pass criteria:
 - One data node is primary.
 - One data node is standby.
 - Fleet runs only on the primary.
+- `fleet-api` reports healthy on the primary.
 
 ## Validate Extensions And Migrations
 
@@ -207,6 +215,26 @@ Capture:
 | MQTT source active |  |
 | First curtailment dispatch succeeds |  |
 
+## Active Fleet Failure Gate
+
+With active curtailment load running on the primary:
+
+1. Confirm the current primary with `./ha/status.sh`.
+2. Inject a Fleet failure on the primary, for example by blocking or stopping
+   `fleet-api` so its healthcheck becomes unhealthy.
+3. Wait for `fleet-follows-primary.timer` to restart Fleet once.
+4. If Fleet does not recover, confirm the primary's local `fleet-ha-db`
+   container is stopped by the follower.
+5. Confirm `pg_auto_failover` promotes the standby.
+6. Confirm Fleet starts on the promoted node and curtailment dispatch resumes.
+
+Pass criteria:
+
+- A transient Fleet failure recovers locally with one restart.
+- A persistent Fleet failure triggers DB failover instead of leaving the
+  unhealthy primary active.
+- No tested case starts Fleet on both data nodes.
+
 ## Monitor Failure Gate
 
 On `pi-3`:
@@ -222,6 +250,8 @@ Pass criteria:
 - Active curtailment continues.
 - Standby Fleet does not start.
 - No automatic failover occurs while the monitor is unavailable.
+- App-triggered failover does not stop the primary DB while the monitor is
+  unavailable.
 
 Restart:
 
@@ -236,8 +266,20 @@ docker start fleet-ha-monitor
 ./ha/status.sh --json
 ./ha/fleet-control.sh start
 ./ha/fleet-control.sh stop
+./ha/fleet-control.sh restart
 systemctl status fleet-follows-primary.timer
 journalctl -u fleet-follows-primary.service -n 100
+```
+
+Tunable watchdog settings live in `.env` or `ha/ha.env`:
+
+```bash
+FLEET_HA_HEALTH_URL=http://127.0.0.1:4000/health
+FLEET_HA_HEALTH_TIMEOUT=3
+FLEET_HA_RESTART_WAIT_SECONDS=20
+FLEET_HA_APP_FAILOVER_ENABLED=true
+FLEET_HA_APP_FAILOVER_COOLDOWN_SECONDS=300
+FLEET_HA_DB_STOP_TIMEOUT=10
 ```
 
 ## Deferred From V1

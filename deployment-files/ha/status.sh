@@ -44,6 +44,12 @@ if compose_with_env -f "$project_root/docker-compose.ha.yaml" ps --status runnin
   fleet_state="running"
 fi
 
+fleet_health="missing"
+fleet_container_id=$(compose_with_env -f "$project_root/docker-compose.ha.yaml" ps -q fleet-api 2>/dev/null || true)
+if [ -n "$fleet_container_id" ]; then
+  fleet_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$fleet_container_id" 2>/dev/null || printf 'unknown')
+fi
+
 fingerprint="unavailable"
 if [ -f "$project_root/.env" ]; then
   fingerprint=$("$script_dir/config-fingerprint.sh" 2>/dev/null || printf 'unavailable')
@@ -56,7 +62,7 @@ fi
 
 if [ "$json" = "true" ]; then
   cat <<EOF
-{"node_host":"${HA_NODE_HOST:-}","db_role":"$db_role","monitor_reachable":$monitor_reachable,"fleet_state":"$fleet_state","active_api_url":"$api_url","config_fingerprint":"$fingerprint","last_confirmed_primary":"$last_confirmed_primary"}
+{"node_host":"${HA_NODE_HOST:-}","db_role":"$db_role","monitor_reachable":$monitor_reachable,"fleet_state":"$fleet_state","fleet_health":"$fleet_health","active_api_url":"$api_url","config_fingerprint":"$fingerprint","last_confirmed_primary":"$last_confirmed_primary"}
 EOF
   exit 0
 fi
@@ -66,6 +72,7 @@ Node host:              ${HA_NODE_HOST:-unknown}
 Local DB role:          $db_role
 Monitor reachable:      $monitor_reachable
 Fleet state:            $fleet_state
+Fleet health:           $fleet_health
 Active API URL:         $api_url
 Config fingerprint:     $fingerprint
 Last confirmed primary: ${last_confirmed_primary:-none}
