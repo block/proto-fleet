@@ -27,7 +27,9 @@ import {
   mockCombinedMetrics,
   mockDeviceSetStats,
   mockGetBuilding,
+  mockGetRack,
   mockListMiners,
+  mockListRackMembers,
   mockListRacks,
   mockListRackZones,
   mockMinerModelGroups,
@@ -208,8 +210,16 @@ export const mockTransport = createRouterTransport((router) => {
   // Device sets
   // -----------------------------------------------------------------------
   router.service(DeviceSetService, {
+    getDeviceSet(req) {
+      const deviceSet = mockGetRack(req.deviceSetId);
+      if (!deviceSet) throw new Error("not found");
+      return { deviceSet };
+    },
     listDeviceSets(req) {
       return mockListRacks(req.pageSize, req.pageToken, req.buildingIds);
+    },
+    listDeviceSetMembers(req) {
+      return mockListRackMembers(req.deviceSetId);
     },
     getDeviceSetStats(req) {
       return { stats: mockDeviceSetStats(req.deviceSetIds) };

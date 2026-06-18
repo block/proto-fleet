@@ -12,6 +12,7 @@ import { FleetListStatsSchema } from "@/protoFleet/api/generated/common/v1/fleet
 import { MeasurementSchema, MeasurementUnit } from "@/protoFleet/api/generated/common/v1/measurement_pb";
 import {
   type DeviceSet,
+  DeviceSetMemberSchema,
   DeviceSetSchema,
   type DeviceSetStats,
   DeviceSetStatsSchema,
@@ -663,6 +664,31 @@ export function mockCombinedMetrics(measurementTypes: number[], aggregationTypes
 // ---------------------------------------------------------------------------
 // Exported site/building fixtures (unchanged below)
 // ---------------------------------------------------------------------------
+
+export function mockGetRack(rackId: bigint): DeviceSet | undefined {
+  return ALL_RACK_DEVICE_SETS.find((r) => r.id === rackId);
+}
+
+export function mockListRackMembers(deviceSetId: bigint) {
+  const rack = ALL_RACK_DEVICE_SETS.find((r) => r.id === deviceSetId);
+  if (!rack) return { members: [], nextPageToken: "" };
+  const bId = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value.buildingId : undefined;
+  const minerList = bId
+    ? ALL_MINERS.filter((m) => {
+        const rackHealth = (RACK_HEALTH_BY_BUILDING.get(bId) ?? []).find((rh) => rh.rackId === deviceSetId);
+        if (!rackHealth) return false;
+        return m.rackLabel === rackHealth.rackLabel && m.siteId === BUILDINGS_RAW.find((b) => b.id === bId)?.siteId;
+      })
+    : [];
+  return {
+    members: minerList.map((m) =>
+      create(DeviceSetMemberSchema, {
+        deviceIdentifier: m.deviceIdentifier,
+      }),
+    ),
+    nextPageToken: "",
+  };
+}
 
 export function mockBuildingStats(buildingId: bigint) {
   const bDef = BUILDINGS_RAW.find((b) => b.id === buildingId);

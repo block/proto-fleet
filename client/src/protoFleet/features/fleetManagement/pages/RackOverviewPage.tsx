@@ -3,13 +3,17 @@ import { useParams } from "react-router-dom";
 
 import { create } from "@bufbuild/protobuf";
 
+import { useBuildings } from "@/protoFleet/api/buildings";
+import { type Building } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import {
   type DeviceSet,
   type RackCoolingType,
   type RackOrderIndex,
   RackSlotPositionSchema,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { useSites } from "@/protoFleet/api/sites";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { useDeviceSetStateCounts } from "@/protoFleet/api/useDeviceSetStateCounts";
@@ -25,7 +29,8 @@ import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/componen
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
-import { ChevronDown } from "@/shared/assets/icons";
+import { Breadcrumb } from "@/shared/components/Breadcrumb";
+import type { BreadcrumbSegment } from "@/shared/components/Breadcrumb";
 import Button, { variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
@@ -59,7 +64,15 @@ const RackOverviewPage = () => {
   const sleepActionRef = useRef<(() => void) | null>(null);
   const actionActiveRef = useRef(false);
 
-  const { getDeviceSet, listGroupMembers, assignDevicesToRack, setRackSlotPosition, deleteGroup } = useDeviceSets();
+  const { getDeviceSet, listGroupMembers, listRacks, assignDevicesToRack, setRackSlotPosition, deleteGroup } =
+    useDeviceSets();
+  const { listSites } = useSites();
+  const { getBuilding } = useBuildings();
+
+  // Breadcrumb hierarchy state
+  const [parentSite, setParentSite] = useState<SiteWithCounts | undefined>(undefined);
+  const [parentBuilding, setParentBuilding] = useState<Building | undefined>(undefined);
+  const [siblingRacks, setSiblingRacks] = useState<DeviceSet[] | undefined>(undefined);
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);
@@ -174,6 +187,38 @@ const RackOverviewPage = () => {
   const orderIndex = rackInfo?.orderIndex;
   const numberingOrigin = orderIndex !== undefined ? orderIndexToOrigin(orderIndex) : "bottom-left";
 
+  // Fetch parent site, parent building, and sibling racks for breadcrumb
+  const resolvedBuildingId = rackInfo?.buildingId;
+  const resolvedSiteId = rackInfo?.siteId;
+
+  useEffect(() => {
+    if (!rack) return;
+    const controller = new AbortController();
+
+    if (resolvedSiteId) {
+      void listSites({
+        signal: controller.signal,
+        onSuccess: (sites) => {
+          setParentSite(sites.find((s) => s.site?.id === resolvedSiteId));
+        },
+      });
+    }
+
+    if (resolvedBuildingId) {
+      void getBuilding({
+        id: resolvedBuildingId,
+        signal: controller.signal,
+        onSuccess: (b) => setParentBuilding(b),
+      });
+      void listRacks({
+        buildingIds: [resolvedBuildingId],
+        onSuccess: (racks) => setSiblingRacks(racks),
+      });
+    }
+
+    return () => controller.abort();
+  }, [rack, resolvedSiteId, resolvedBuildingId, listSites, getBuilding, listRacks]);
+
   const duration = useDuration();
   const setDuration = useSetDuration();
   const { refs } = useStickyState();
@@ -241,6 +286,33 @@ const RackOverviewPage = () => {
   // For empty racks, treat as "loaded with no data" so panels show "No data" not skeleton
   const metrics = isEmptyRack ? [] : telemetryData?.metrics;
 
+  // Breadcrumb: Site (link) / Building (link) / Rack (sibling switcher)
+  const breadcrumbSegments: BreadcrumbSegment[] = useMemo(() => {
+    if (!rack) return [];
+    const segments: BreadcrumbSegment[] = [];
+    if (parentSite?.site) {
+      segments.push({
+        label: parentSite.site.name,
+        to: `/sites/${parentSite.site.id.toString()}`,
+      });
+    }
+    if (parentBuilding) {
+      segments.push({
+        label: parentBuilding.name || "(unnamed building)",
+        to: `/buildings/${parentBuilding.id.toString()}`,
+      });
+    }
+    segments.push({
+      label: rack.label || "(unnamed rack)",
+      siblings: siblingRacks?.map((r) => ({
+        label: r.label || "(unnamed)",
+        to: `/racks/${r.id.toString()}`,
+        isActive: r.id === rack.id,
+      })),
+    });
+    return segments;
+  }, [rack, parentSite, parentBuilding, siblingRacks]);
+
   if (loading || (rack && !statsLoaded)) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -272,48 +344,50 @@ const RackOverviewPage = () => {
       <div className="flex flex-col">
         {/* Header */}
         <div className="p-6 pb-0 laptop:p-10 laptop:pb-0">
-          <Header
-            title={rack?.label ?? ""}
-            titleSize="text-heading-300"
-            subtitle={rackInfo?.zone || undefined}
-            subtitleSize="text-300"
-            subtitleClassName="text-text-primary"
-            inline
-            icon={<ChevronDown className="rotate-90" />}
-            iconAriaLabel="Back to racks"
-            iconOnClick={() => navigate("/racks")}
-          >
-            <div className="ml-3 flex items-center gap-3">
-              <Button variant={variants.secondary} onClick={() => navigate(`/miners?rack=${rack?.id}`)}>
-                View miners
-              </Button>
-              <Button
-                variant={variants.secondary}
-                onClick={() => sleepActionRef.current?.()}
-                disabled={!memberDeviceIds || memberDeviceIds.length === 0}
-              >
-                Sleep all miners
-              </Button>
-              <Button variant={variants.secondary} onClick={() => setShowEditModal(true)}>
-                Edit rack
-              </Button>
-              <DeviceSetActionsMenu
-                memberDeviceIds={memberDeviceIds ?? []}
-                deviceSetId={rack?.id}
-                deviceSetType="rack"
-                onEdit={() => setShowEditModal(true)}
-                editLabel="Edit rack"
-                onActionComplete={() => {
-                  if (rack) {
-                    resolveRack(rack.id);
-                    void refetchStats();
-                  }
-                }}
-                sleepActionRef={sleepActionRef}
-                actionActiveRef={actionActiveRef}
-              />
-            </div>
-          </Header>
+          <div className="flex flex-col gap-6">
+            {breadcrumbSegments.length > 0 ? (
+              <Breadcrumb segments={breadcrumbSegments} testId="rack-page-breadcrumb" />
+            ) : null}
+            <Header
+              title={rack?.label ?? ""}
+              titleSize="text-heading-300"
+              subtitle={rackInfo?.zone || undefined}
+              subtitleSize="text-300"
+              subtitleClassName="text-text-primary"
+              inline
+            >
+              <div className="ml-3 flex items-center gap-3">
+                <Button variant={variants.secondary} onClick={() => navigate(`/miners?rack=${rack?.id}`)}>
+                  View miners
+                </Button>
+                <Button
+                  variant={variants.secondary}
+                  onClick={() => sleepActionRef.current?.()}
+                  disabled={!memberDeviceIds || memberDeviceIds.length === 0}
+                >
+                  Sleep all miners
+                </Button>
+                <Button variant={variants.secondary} onClick={() => setShowEditModal(true)}>
+                  Edit rack
+                </Button>
+                <DeviceSetActionsMenu
+                  memberDeviceIds={memberDeviceIds ?? []}
+                  deviceSetId={rack?.id}
+                  deviceSetType="rack"
+                  onEdit={() => setShowEditModal(true)}
+                  editLabel="Edit rack"
+                  onActionComplete={() => {
+                    if (rack) {
+                      resolveRack(rack.id);
+                      void refetchStats();
+                    }
+                  }}
+                  sleepActionRef={sleepActionRef}
+                  actionActiveRef={actionActiveRef}
+                />
+              </div>
+            </Header>
+          </div>
         </div>
 
         {/* Health Overview Section */}

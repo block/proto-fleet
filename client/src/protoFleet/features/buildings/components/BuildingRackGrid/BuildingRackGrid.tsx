@@ -31,7 +31,7 @@ const MINIMAP_COLORS: Record<MinimapStatus, string> = {
 };
 
 const SORT_SEGMENTS = [
-  { key: "name", title: "Name" },
+  { key: "name", title: "Layout" },
   { key: "issues", title: "Issues" },
 ];
 
@@ -197,7 +197,7 @@ const BuildingRackGrid = ({
                   className="flex cursor-pointer flex-col items-center gap-2.5 rounded-xl bg-surface-5 p-4 transition-opacity duration-[120ms] hover:opacity-[0.82]"
                   data-testid={`${testId}-tile-${rack.rackLabel}`}
                 >
-                  <span className="text-[14px] font-medium text-text-primary">{rack.rackLabel}</span>
+                  <span className="max-w-full truncate text-[14px] font-medium text-text-primary">{rack.rackLabel}</span>
                   <div className="w-full">
                     <HealthBar
                       healthy={rack.hashingCount}
@@ -209,7 +209,7 @@ const BuildingRackGrid = ({
                   </div>
                 </div>
               ) : (
-                <div key={`empty-${ci}`} />
+                <div key={`empty-${ci}`} className="rounded-xl bg-surface-5 opacity-40" />
               ),
             )}
           </div>
@@ -263,7 +263,14 @@ const BuildingRackGrid = ({
               style={popoverStyle}
               data-testid={`${testId}-popover`}
             >
-              <div className="mb-2 text-[14px] font-medium text-text-primary">{hoverInfo.rack.rackLabel}</div>
+              <div className="mb-2">
+                <div className="text-[14px] font-medium text-text-primary">{hoverInfo.rack.rackLabel}</div>
+                {hoverInfo.rack.aisleIndex != null && hoverInfo.rack.positionInAisle != null ? (
+                  <div className="text-200 text-text-primary-70">
+                    Aisle {hoverInfo.rack.aisleIndex + 1}, Position {hoverInfo.rack.positionInAisle + 1}
+                  </div>
+                ) : null}
+              </div>
               {hoverInfo.rack.hashingCount > 0 ? (
                 <div className="flex items-center gap-2 text-[14px] text-text-primary">
                   <span className="inline-block size-2 shrink-0 rounded-full bg-text-primary" />
@@ -319,8 +326,8 @@ const Minimap = ({ floorPlan, racksPerAisle, posStart, posEnd, testId }: Minimap
           <div
             key={p}
             className={clsx(
-              "grid gap-0.5 rounded-sm p-0.5",
-              isCurrent && "border-2 border-text-primary",
+              "grid gap-0.5 rounded-sm border-2 p-0.5",
+              isCurrent ? "border-text-primary" : "border-transparent",
             )}
             style={{
               gridTemplateColumns: `repeat(${pEnd - pStart}, 4px)`,
