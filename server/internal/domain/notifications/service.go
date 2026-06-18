@@ -465,12 +465,15 @@ func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
 		}
 		out = append(out, grafanaRuleToDomain(orgID, gr))
 	}
-	paused := s.pauseSilencedRules(ctx, orgID)
-	if len(paused) > 0 {
-		for i := range out {
-			if paused[out[i].ID] {
-				out[i].Enabled = false
-			}
+	// Fail closed: without pause-silence state we can't trust the Enabled flag, so error
+	// rather than render a muted rule as enabled.
+	paused, err := s.pauseSilencedRules(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if paused[out[i].ID] {
+			out[i].Enabled = false
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -551,11 +554,13 @@ func (s *Service) requireRule(ctx context.Context, orgID int64, id string) (*Rul
 	return nil, ErrNotFound
 }
 
-// Best-effort: a fetch error returns an empty map so the list still renders.
-func (s *Service) pauseSilencedRules(ctx context.Context, orgID int64) map[string]bool {
+// Propagates the silences-read error so ListRules can fail closed: without pause state we
+// can't tell a muted rule from an enabled one, and silently showing it enabled would mislead
+// operators (and let PauseRule write a duplicate pause silence during an outage).
+func (s *Service) pauseSilencedRules(ctx context.Context, orgID int64) (map[string]bool, error) {
 	sils, err := s.grafana.ListSilences(ctx)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	want := strconv.FormatInt(orgID, 10)
 	now := s.now()
@@ -576,7 +581,7 @@ func (s *Service) pauseSilencedRules(ctx context.Context, orgID int64) map[strin
 			}
 		}
 	}
-	return out
+	return out, nil
 }
 
 func (s *Service) ListMaintenanceWindows(ctx context.Context, orgID int64) ([]MaintenanceWindow, error) {

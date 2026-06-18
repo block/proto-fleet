@@ -820,6 +820,27 @@ func TestListMaintenanceWindowsIgnoresUnmarkedSilences(t *testing.T) {
 	require.ErrorIs(t, svc.DeleteMaintenanceWindow(context.Background(), 7, "external"), ErrNotFound)
 }
 
+// Without pause-silence state, a muted rule is indistinguishable from an enabled one, so
+// ListRules must surface the error rather than render the rule as confidently enabled.
+func TestListRulesFailsClosedWhenSilencesUnavailable(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/provisioning/alert-rules", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode([]GrafanaAlertRule{
+			{UID: "rule-9", Title: "Rule 9", Labels: map[string]string{ruleLabelScope: ruleScopeShared}},
+		}))
+	})
+	mux.HandleFunc("GET /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{})
+
+	_, err := svc.ListRules(context.Background(), 7)
+	require.Error(t, err, "ListRules must fail closed when pause-silence state can't be loaded")
+}
+
 // The pause marker must never be an alert matcher: Alertmanager ANDs every matcher
 // against an alert's labels, and no rule emits a marker label, so a marker matcher
 // would mute nothing while the rule still showed as paused.
