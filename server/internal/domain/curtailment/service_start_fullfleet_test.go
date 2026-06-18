@@ -59,6 +59,30 @@ func TestService_Start_FullFleet_CurtailsLowPowerHashingMiner(t *testing.T) {
 	assert.Len(t, store.lastInsertTargets, 1)
 }
 
+func TestService_Start_FullFleet_CurtailsBelowFloorHashlessMiner(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("hashless-low-power", 100, 0, 0),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	assert.Empty(t, plan.Skipped)
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, "hashless-low-power", plan.Selected[0].DeviceIdentifier)
+	assert.Equal(t, 1, store.insertEventCalls)
+	require.Len(t, store.lastInsertTargets, 1)
+	assert.Equal(t, "hashless-low-power", store.lastInsertTargets[0].DeviceIdentifier)
+}
+
 // The empty-eligible case is the chosen behavior: persist a vacuously COMPLETED
 // event with no targets, not an insufficient-load rejection.
 func TestService_Start_FullFleet_NoEligibleMinersPersistsCompleted(t *testing.T) {

@@ -40,11 +40,13 @@ const (
 // CandidateInput is one device's pre-aggregated state at selection time.
 type CandidateInput struct {
 	DeviceIdentifier string
-	// PowerW is the latest power_w sample; used by both the dual-signal
-	// filter and realized-kW accumulation.
+	// PowerW is the latest power_w sample; fixed-kW modes use it for the
+	// load-accounting filter and realized-kW accumulation. FULL_FLEET carries
+	// it for reporting/baseline only; low-load miners still need targeting.
 	PowerW float64
-	// HashRateHS is the latest hash_rate_hs sample; dual-signal filter
-	// requires > 0 to admit.
+	// HashRateHS is the latest hash_rate_hs sample. Fixed-kW modes require
+	// positive hash to count a candidate toward measurable load; FULL_FLEET
+	// does not because the goal is command coverage, not kW accounting.
 	HashRateHS float64
 	// AvgEfficiencyJH is the hourly j/h aggregate used for ranking. nil =
 	// unknown efficiency, ranked last (avoids COALESCE-to-zero artifact).
@@ -106,8 +108,8 @@ type SelectedDevice struct {
 	EfficiencyJH     float64
 }
 
-// BuildPlan runs the selection pipeline (mode-specific load filter, rank by
-// worst avg_efficiency first, hand off to the mode for the stop condition).
+// BuildPlan runs the selection pipeline (mode-specific load accounting filter,
+// rank by worst avg_efficiency first, hand off to the mode for the stop condition).
 // `preFiltered` carries upstream skips (status/pairing/cooldown/capability)
 // through to the Plan's Skipped list unchanged.
 //
@@ -132,9 +134,12 @@ func BuildPlan(
 	}
 
 	eligible := make([]CandidateInput, 0, len(inputs))
-	applyLoadTelemetryFilter := appliesLoadTelemetryFilter(mode)
+	applyLoadAccountingFilter := appliesLoadAccountingFilter(mode)
 	for _, c := range inputs {
-		if !applyLoadTelemetryFilter {
+		if !applyLoadAccountingFilter {
+			// FULL_FLEET is a command-coverage mode: every otherwise-actionable
+			// candidate should be targeted for sleep/curtail, even when it would
+			// not be useful for fixed-kW load accounting.
 			eligible = append(eligible, c)
 			continue
 		}
@@ -233,7 +238,7 @@ func BuildPlan(
 	}
 }
 
-func appliesLoadTelemetryFilter(mode modes.Mode) bool {
+func appliesLoadAccountingFilter(mode modes.Mode) bool {
 	switch mode.(type) {
 	case modes.FullFleet, *modes.FullFleet:
 		return false
