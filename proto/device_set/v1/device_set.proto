@@ -658,6 +658,13 @@ message AssignDevicesToRackRequest {
     // intended operation. Filter-based selectors are reserved for a
     // future expansion.
     common.v1.DeviceSelector device_selector = 2 [(buf.validate.field).required = true];
+
+    // When adding miners to a site-less (fully-unassigned) rack, any
+    // miner that currently has a site would have that site stripped to
+    // stay consistent with the rack. Defaults false: the server returns
+    // `conflicts` and writes nothing. Set true to proceed and clear the
+    // conflicting miners' site (and building) as part of the move.
+    optional bool force_clear_conflicting_site = 3;
 }
 
 message AssignDevicesToRackResponse {
@@ -674,4 +681,23 @@ message AssignDevicesToRackResponse {
     // that were in a rack. On a re-assign this counts the prior rack
     // membership rows that were deleted before the new ones inserted.
     int64 removed_count = 3;
+    // Populated only when force_clear_conflicting_site is false and one
+    // or more selected miners would lose a site by joining a site-less
+    // rack. When non-empty, NO write happened — the caller confirms and
+    // retries with force_clear_conflicting_site = true.
+    repeated PerDeviceRackConflict conflicts = 4;
+}
+
+// PerDeviceRackConflictReason enumerates why a device blocked an
+// AssignDevicesToRack batch.
+enum PerDeviceRackConflictReason {
+    PER_DEVICE_RACK_CONFLICT_REASON_UNSPECIFIED = 0;
+    // The target rack has no site, but the device currently has one, so
+    // joining the rack would strip the device's site (and building).
+    PER_DEVICE_RACK_CONFLICT_REASON_DEVICE_LOSES_SITE = 1;
+}
+
+message PerDeviceRackConflict {
+    string device_identifier = 1;
+    PerDeviceRackConflictReason reason = 2;
 }

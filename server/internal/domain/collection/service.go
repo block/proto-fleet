@@ -3,6 +3,7 @@ package collection
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -904,6 +905,29 @@ type AssignDevicesToRackParams struct {
 	OrgID             int64
 	TargetRackID      *int64
 	DeviceIdentifiers []string
+	// ForceClearConflictingSite proceeds with an add to a site-less
+	// (fully-unassigned) rack even when some miners currently have a
+	// site, stripping their site/building to match the rack. When false
+	// (default) such an add returns Conflicts and writes nothing.
+	ForceClearConflictingSite bool
+}
+
+// PerDeviceRackConflictReason enumerates why a device blocked an
+// AssignDevicesToRack batch.
+type PerDeviceRackConflictReason int
+
+const (
+	RackConflictReasonUnspecified PerDeviceRackConflictReason = 0
+	// RackConflictReasonDeviceLosesSite — the target rack has no site,
+	// but the device currently has one, so joining the rack would strip
+	// the device's site (and building).
+	RackConflictReasonDeviceLosesSite PerDeviceRackConflictReason = 1
+)
+
+// PerDeviceRackConflict reports a single device that blocked the batch.
+type PerDeviceRackConflict struct {
+	DeviceIdentifier string
+	Reason           PerDeviceRackConflictReason
 }
 
 // AssignDevicesToRackResult carries the per-step row counts the
@@ -923,6 +947,10 @@ type AssignDevicesToRackResult struct {
 	NewlyAssignedCount  int64
 	RemovedCount        int64
 	SiteReassignedCount int64
+	// Conflicts is non-empty only when adding to a site-less rack would
+	// strip a miner's site and the caller didn't pass
+	// ForceClearConflictingSite. When set, no write happened.
+	Conflicts []PerDeviceRackConflict
 }
 
 // AssignDevicesToRack atomically moves devices into target_rack_id (or
@@ -950,6 +978,7 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 		finalSiteID       *int64
 		deviceSiteChanges []map[string]any
 		totalAffected     int
+		conflicts         []PerDeviceRackConflict
 	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		var (
@@ -1004,6 +1033,32 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			targetSiteID = placement.SiteID
 			targetBuildingID = placement.BuildingID
 			targetLabel = coll.Label
+		}
+
+		// Site-consistency guard for a site-less (fully-unassigned) target
+		// rack. Such a rack dictates "no placement", so any added miner
+		// that currently has a site would have it stripped to NULL. Detect
+		// those up-front: without force, reject with the conflict list and
+		// write NOTHING; with force, the strip happens after the add
+		// below. A rack WITH a site/building doesn't need this — the
+		// CascadeAdded* queries already bring members into line with the
+		// rack's placement.
+		if params.TargetRackID != nil && targetSiteID == nil && targetBuildingID == nil {
+			withSite, err := s.collectionStore.FindDevicesWithSite(ctx, params.OrgID, params.DeviceIdentifiers)
+			if err != nil {
+				return nil, err
+			}
+			if len(withSite) > 0 && !params.ForceClearConflictingSite {
+				sort.Strings(withSite)
+				conflicts := make([]PerDeviceRackConflict, 0, len(withSite))
+				for _, id := range withSite {
+					conflicts = append(conflicts, PerDeviceRackConflict{
+						DeviceIdentifier: id,
+						Reason:           RackConflictReasonDeviceLosesSite,
+					})
+				}
+				return &txOut{conflicts: conflicts}, nil
+			}
 		}
 
 		// Clear existing rack membership for the given devices regardless
@@ -1084,6 +1139,20 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			if _, err := s.collectionStore.CascadeAddedDeviceBuildings(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers); err != nil {
 				return nil, err
 			}
+
+			// Site-less target rack: the CascadeAdded* gate above skips
+			// fully-unassigned racks to preserve direct assignments, so we
+			// strip the added members' site/building here instead. Reached
+			// only past the conflict pre-check — i.e. nothing had a site,
+			// or the caller forced it. Idempotent (no-op when already
+			// clear); count the stripped rows as the site reassignment.
+			if targetSiteID == nil && targetBuildingID == nil {
+				stripped, err := s.collectionStore.ClearDeviceSitesAndBuildings(ctx, params.OrgID, params.DeviceIdentifiers)
+				if err != nil {
+					return nil, err
+				}
+				siteReassigned = stripped
+			}
 		}
 
 		return &txOut{
@@ -1103,6 +1172,13 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 	out, ok := result.(*txOut)
 	if !ok {
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+
+	// Conflict short-circuit: the tx wrote nothing (it returned before
+	// the remove/add), so surface the conflicts without logging an
+	// activity event. The caller confirms and retries with force.
+	if len(out.conflicts) > 0 {
+		return &AssignDevicesToRackResult{Conflicts: out.conflicts}, nil
 	}
 
 	info, _ := session.GetInfo(ctx)

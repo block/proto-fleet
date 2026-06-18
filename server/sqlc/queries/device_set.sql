@@ -646,3 +646,30 @@ WHERE dsm.device_set_id = $1
   AND dsm.org_id = $2
   AND ds.org_id = $2
   AND ds.deleted_at IS NULL;
+
+-- name: FindDevicesWithSite :many
+-- Returns the requested device identifiers that currently have a
+-- non-NULL site_id. Used by AssignDevicesToRack to detect miners that
+-- would lose their site by joining a site-less (fully-unassigned) rack,
+-- so the caller can confirm before stripping it.
+SELECT device_identifier
+FROM device
+WHERE org_id = sqlc.arg('org_id')
+  AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND deleted_at IS NULL
+  AND site_id IS NOT NULL;
+
+-- name: ClearDeviceSitesAndBuildings :execrows
+-- Nulls device.site_id AND device.building_id for the given identifiers.
+-- Used by AssignDevicesToRack's force path when adding miners to a
+-- site-less rack: the rack dictates "no placement", so member devices
+-- can't keep a direct site/building. IS DISTINCT FROM guard skips rows
+-- already fully cleared. Returns the count actually stripped.
+UPDATE device
+SET site_id     = NULL,
+    building_id = NULL,
+    updated_at  = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id')
+  AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND deleted_at IS NULL
+  AND (site_id IS NOT NULL OR building_id IS NOT NULL);

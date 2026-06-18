@@ -239,6 +239,35 @@ func (q *Queries) CascadeRackDeviceSitesBulk(ctx context.Context, arg CascadeRac
 	return result.RowsAffected()
 }
 
+const clearDeviceSitesAndBuildings = `-- name: ClearDeviceSitesAndBuildings :execrows
+UPDATE device
+SET site_id     = NULL,
+    building_id = NULL,
+    updated_at  = CURRENT_TIMESTAMP
+WHERE org_id = $1
+  AND device_identifier = ANY($2::text[])
+  AND deleted_at IS NULL
+  AND (site_id IS NOT NULL OR building_id IS NOT NULL)
+`
+
+type ClearDeviceSitesAndBuildingsParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Nulls device.site_id AND device.building_id for the given identifiers.
+// Used by AssignDevicesToRack's force path when adding miners to a
+// site-less rack: the rack dictates "no placement", so member devices
+// can't keep a direct site/building. IS DISTINCT FROM guard skips rows
+// already fully cleared. Returns the count actually stripped.
+func (q *Queries) ClearDeviceSitesAndBuildings(ctx context.Context, arg ClearDeviceSitesAndBuildingsParams) (int64, error) {
+	result, err := q.exec(ctx, q.clearDeviceSitesAndBuildingsStmt, clearDeviceSitesAndBuildings, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const clearRackPlacementForSoftDelete = `-- name: ClearRackPlacementForSoftDelete :exec
 UPDATE device_set_rack
 SET aisle_index = NULL,
@@ -383,6 +412,47 @@ func (q *Queries) DeviceSetBelongsToOrg(ctx context.Context, arg DeviceSetBelong
 	var belongs bool
 	err := row.Scan(&belongs)
 	return belongs, err
+}
+
+const findDevicesWithSite = `-- name: FindDevicesWithSite :many
+SELECT device_identifier
+FROM device
+WHERE org_id = $1
+  AND device_identifier = ANY($2::text[])
+  AND deleted_at IS NULL
+  AND site_id IS NOT NULL
+`
+
+type FindDevicesWithSiteParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Returns the requested device identifiers that currently have a
+// non-NULL site_id. Used by AssignDevicesToRack to detect miners that
+// would lose their site by joining a site-less (fully-unassigned) rack,
+// so the caller can confirm before stripping it.
+func (q *Queries) FindDevicesWithSite(ctx context.Context, arg FindDevicesWithSiteParams) ([]string, error) {
+	rows, err := q.query(ctx, q.findDevicesWithSiteStmt, findDevicesWithSite, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getAddedDeviceSiteConflicts = `-- name: GetAddedDeviceSiteConflicts :many

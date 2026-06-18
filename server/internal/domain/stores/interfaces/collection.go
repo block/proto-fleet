@@ -238,6 +238,20 @@ type CollectionStore interface {
 	// (caller intends to unassign).
 	RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) (int64, error)
 
+	// FindDevicesWithSite returns the requested identifiers whose
+	// device.site_id is currently non-NULL. AssignDevicesToRack uses it
+	// to detect miners that would lose their site by joining a site-less
+	// rack, so the caller can confirm before stripping it.
+	FindDevicesWithSite(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
+
+	// ClearDeviceSitesAndBuildings nulls device.site_id and
+	// device.building_id for the given identifiers (skipping rows already
+	// fully cleared). AssignDevicesToRack's force path calls it when
+	// adding miners to a site-less rack — the rack dictates no placement,
+	// so members can't keep a direct site/building. Returns the count
+	// actually stripped.
+	ClearDeviceSitesAndBuildings(ctx context.Context, orgID int64, deviceIdentifiers []string) (int64, error)
+
 	// LockRacksForReparent takes FOR UPDATE locks on every rack involved
 	// in a reparent -- every source rack currently holding any of the
 	// given devices PLUS targetRackID (when non-zero) -- in ascending

@@ -633,6 +633,28 @@ func (s *SQLCollectionStore) RemoveDevicesFromAnyRack(ctx context.Context, orgID
 	return count, nil
 }
 
+func (s *SQLCollectionStore) FindDevicesWithSite(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	rows, err := s.GetQueries(ctx).FindDevicesWithSite(ctx, sqlc.FindDevicesWithSiteParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to find devices with site: %w", err)
+	}
+	return rows, nil
+}
+
+func (s *SQLCollectionStore) ClearDeviceSitesAndBuildings(ctx context.Context, orgID int64, deviceIdentifiers []string) (int64, error) {
+	count, err := s.GetQueries(ctx).ClearDeviceSitesAndBuildings(ctx, sqlc.ClearDeviceSitesAndBuildingsParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to clear device sites and buildings: %w", err)
+	}
+	return count, nil
+}
+
 func (s *SQLCollectionStore) LockRacksForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) ([]int64, error) {
 	ids, err := s.GetQueries(ctx).LockRacksForReparent(ctx, sqlc.LockRacksForReparentParams{
 		OrgID:             orgID,

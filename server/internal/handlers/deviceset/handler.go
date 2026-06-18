@@ -337,6 +337,13 @@ func (h *Handler) AssignDevicesToRack(ctx context.Context, r *connect.Request[ds
 	if err != nil {
 		return nil, err
 	}
+	// Site-strip conflicts: the batch wrote nothing; return the per-device
+	// list so the client can confirm and retry with force.
+	if len(result.Conflicts) > 0 {
+		return connect.NewResponse(&dspb.AssignDevicesToRackResponse{
+			Conflicts: toProtoRackConflicts(result.Conflicts),
+		}), nil
+	}
 	return connect.NewResponse(&dspb.AssignDevicesToRackResponse{
 		AssignedCount:       result.AssignedCount,
 		RemovedCount:        result.RemovedCount,

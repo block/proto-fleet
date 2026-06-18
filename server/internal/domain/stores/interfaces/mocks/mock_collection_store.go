@@ -147,6 +147,21 @@ func (mr *MockCollectionStoreMockRecorder) CascadeRackDeviceSitesBulk(ctx, orgID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CascadeRackDeviceSitesBulk", reflect.TypeOf((*MockCollectionStore)(nil).CascadeRackDeviceSitesBulk), ctx, orgID, rackIDs, targetSiteID)
 }
 
+// ClearDeviceSitesAndBuildings mocks base method.
+func (m *MockCollectionStore) ClearDeviceSitesAndBuildings(ctx context.Context, orgID int64, deviceIdentifiers []string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearDeviceSitesAndBuildings", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearDeviceSitesAndBuildings indicates an expected call of ClearDeviceSitesAndBuildings.
+func (mr *MockCollectionStoreMockRecorder) ClearDeviceSitesAndBuildings(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearDeviceSitesAndBuildings", reflect.TypeOf((*MockCollectionStore)(nil).ClearDeviceSitesAndBuildings), ctx, orgID, deviceIdentifiers)
+}
+
 // ClearRackPlacementForSoftDelete mocks base method.
 func (m *MockCollectionStore) ClearRackPlacementForSoftDelete(ctx context.Context, orgID, collectionID int64) error {
 	m.ctrl.T.Helper()
@@ -217,6 +232,21 @@ func (m *MockCollectionStore) CreateRackExtension(ctx context.Context, params in
 func (mr *MockCollectionStoreMockRecorder) CreateRackExtension(ctx, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRackExtension", reflect.TypeOf((*MockCollectionStore)(nil).CreateRackExtension), ctx, params)
+}
+
+// FindDevicesWithSite mocks base method.
+func (m *MockCollectionStore) FindDevicesWithSite(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindDevicesWithSite", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindDevicesWithSite indicates an expected call of FindDevicesWithSite.
+func (mr *MockCollectionStoreMockRecorder) FindDevicesWithSite(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDevicesWithSite", reflect.TypeOf((*MockCollectionStore)(nil).FindDevicesWithSite), ctx, orgID, deviceIdentifiers)
 }
 
 // GetAddedDeviceSiteConflicts mocks base method.

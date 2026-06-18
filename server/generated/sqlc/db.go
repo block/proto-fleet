@@ -120,6 +120,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.clearDeviceBuildingsOnSiteMismatchStmt, err = db.PrepareContext(ctx, clearDeviceBuildingsOnSiteMismatch); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearDeviceBuildingsOnSiteMismatch: %w", err)
 	}
+	if q.clearDeviceSitesAndBuildingsStmt, err = db.PrepareContext(ctx, clearDeviceSitesAndBuildings); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearDeviceSitesAndBuildings: %w", err)
+	}
 	if q.clearRackPlacementForSoftDeleteStmt, err = db.PrepareContext(ctx, clearRackPlacementForSoftDelete); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearRackPlacementForSoftDelete: %w", err)
 	}
@@ -281,6 +284,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.findDevicesInSiteLessRacksStmt, err = db.PrepareContext(ctx, findDevicesInSiteLessRacks); err != nil {
 		return nil, fmt.Errorf("error preparing query FindDevicesInSiteLessRacks: %w", err)
+	}
+	if q.findDevicesWithSiteStmt, err = db.PrepareContext(ctx, findDevicesWithSite); err != nil {
+		return nil, fmt.Errorf("error preparing query FindDevicesWithSite: %w", err)
 	}
 	if q.getActiveFleetNodeForDeviceStmt, err = db.PrepareContext(ctx, getActiveFleetNodeForDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveFleetNodeForDevice: %w", err)
@@ -1440,6 +1446,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing clearDeviceBuildingsOnSiteMismatchStmt: %w", cerr)
 		}
 	}
+	if q.clearDeviceSitesAndBuildingsStmt != nil {
+		if cerr := q.clearDeviceSitesAndBuildingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearDeviceSitesAndBuildingsStmt: %w", cerr)
+		}
+	}
 	if q.clearRackPlacementForSoftDeleteStmt != nil {
 		if cerr := q.clearRackPlacementForSoftDeleteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing clearRackPlacementForSoftDeleteStmt: %w", cerr)
@@ -1708,6 +1719,11 @@ func (q *Queries) Close() error {
 	if q.findDevicesInSiteLessRacksStmt != nil {
 		if cerr := q.findDevicesInSiteLessRacksStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing findDevicesInSiteLessRacksStmt: %w", cerr)
+		}
+	}
+	if q.findDevicesWithSiteStmt != nil {
+		if cerr := q.findDevicesWithSiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing findDevicesWithSiteStmt: %w", cerr)
 		}
 	}
 	if q.getActiveFleetNodeForDeviceStmt != nil {
@@ -3436,6 +3452,7 @@ type Queries struct {
 	clearDeviceBuildingsByBuildingStmt                    *sql.Stmt
 	clearDeviceBuildingsBySiteStmt                        *sql.Stmt
 	clearDeviceBuildingsOnSiteMismatchStmt                *sql.Stmt
+	clearDeviceSitesAndBuildingsStmt                      *sql.Stmt
 	clearRackPlacementForSoftDeleteStmt                   *sql.Stmt
 	clearRackSlotPositionStmt                             *sql.Stmt
 	clearRolePermissionsStmt                              *sql.Stmt
@@ -3490,6 +3507,7 @@ type Queries struct {
 	findDeviceSiteConflictsStmt                           *sql.Stmt
 	findDevicesInBuildingLessPlacedRacksStmt              *sql.Stmt
 	findDevicesInSiteLessRacksStmt                        *sql.Stmt
+	findDevicesWithSiteStmt                               *sql.Stmt
 	getActiveFleetNodeForDeviceStmt                       *sql.Stmt
 	getActiveSchedulesStmt                                *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt                *sql.Stmt
@@ -3859,6 +3877,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		clearDeviceBuildingsByBuildingStmt:                    q.clearDeviceBuildingsByBuildingStmt,
 		clearDeviceBuildingsBySiteStmt:                        q.clearDeviceBuildingsBySiteStmt,
 		clearDeviceBuildingsOnSiteMismatchStmt:                q.clearDeviceBuildingsOnSiteMismatchStmt,
+		clearDeviceSitesAndBuildingsStmt:                      q.clearDeviceSitesAndBuildingsStmt,
 		clearRackPlacementForSoftDeleteStmt:                   q.clearRackPlacementForSoftDeleteStmt,
 		clearRackSlotPositionStmt:                             q.clearRackSlotPositionStmt,
 		clearRolePermissionsStmt:                              q.clearRolePermissionsStmt,
@@ -3913,6 +3932,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		findDeviceSiteConflictsStmt:                           q.findDeviceSiteConflictsStmt,
 		findDevicesInBuildingLessPlacedRacksStmt:              q.findDevicesInBuildingLessPlacedRacksStmt,
 		findDevicesInSiteLessRacksStmt:                        q.findDevicesInSiteLessRacksStmt,
+		findDevicesWithSiteStmt:                               q.findDevicesWithSiteStmt,
 		getActiveFleetNodeForDeviceStmt:                       q.getActiveFleetNodeForDeviceStmt,
 		getActiveSchedulesStmt:                                q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:                q.getActiveUnpairedDiscoveredDevicesStmt,
