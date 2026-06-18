@@ -86,8 +86,17 @@ const FleetBuildingsPage = () => {
 
   // Gate the poll on site:read — same gate FleetLayout uses to redirect.
   const canReadBuildings = useHasPermission("site:read");
+  // usePoll keeps fetchData in a ref and doesn't re-run on its identity
+  // change, so a site-filter switch wouldn't refetch until the next poll
+  // tick. Feed the filter as `params` (a stable string key) so the poll
+  // effect restarts immediately when the active site changes.
+  const siteFilterKey = useMemo(
+    () => `${requestSiteFilter.siteIds.map(String).join(",")}|${requestSiteFilter.includeUnassigned}`,
+    [requestSiteFilter],
+  );
   usePoll({
     fetchData: fetchBuildings,
+    params: siteFilterKey,
     poll: true,
     pollIntervalMs: POLL_INTERVAL_MS,
     enabled: canReadBuildings,
