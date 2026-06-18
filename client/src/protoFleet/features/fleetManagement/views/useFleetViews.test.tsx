@@ -1,12 +1,12 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getSavedViewsStorageKey } from "./savedViews";
-import useMinerViews from "./useMinerViews";
+import useFleetViews from "./useFleetViews";
 
 const KEY_ALICE = getSavedViewsStorageKey("alice");
 const KEY_BOB = getSavedViewsStorageKey("bob");
 
-describe("useMinerViews", () => {
+describe("useFleetViews", () => {
   beforeEach(() => {
     localStorage.clear();
   });
@@ -16,12 +16,11 @@ describe("useMinerViews", () => {
   });
 
   it("starts with default record when storage is empty", () => {
-    const { result } = renderHook(() => useMinerViews("alice"));
+    const { result } = renderHook(() => useFleetViews("alice"));
     expect(result.current.record.views).toEqual([]);
-    expect(result.current.record.deletedBuiltInIds).toEqual([]);
   });
 
-  it("hydrates from existing localStorage payload", () => {
+  it("hydrates and migrates v1 payloads, defaulting legacy entries to tab=miners", () => {
     localStorage.setItem(
       KEY_ALICE,
       JSON.stringify({
@@ -31,38 +30,49 @@ describe("useMinerViews", () => {
       }),
     );
 
-    const { result } = renderHook(() => useMinerViews("alice"));
+    const { result } = renderHook(() => useFleetViews("alice"));
     expect(result.current.record.views).toHaveLength(1);
     expect(result.current.record.views[0].name).toBe("User one");
-    expect(result.current.record.deletedBuiltInIds).toEqual(["offline"]);
+    expect(result.current.record.views[0].tab).toBe("miners");
   });
 
   it("falls back to default record on corrupt JSON", () => {
     localStorage.setItem(KEY_ALICE, "{not json");
-    const { result } = renderHook(() => useMinerViews("alice"));
+    const { result } = renderHook(() => useFleetViews("alice"));
     expect(result.current.record.views).toEqual([]);
-    expect(result.current.record.deletedBuiltInIds).toEqual([]);
   });
 
   it("addUserView roundtrips through localStorage", () => {
-    const { result } = renderHook(() => useMinerViews("alice"));
+    const { result } = renderHook(() => useFleetViews("alice"));
 
     act(() => {
-      result.current.addUserView({ name: "S21", searchParams: "status=hashing&model=S21" });
+      result.current.addUserView({ name: "S21", tab: "miners", searchParams: "status=hashing&model=S21" });
     });
 
     expect(result.current.record.views).toHaveLength(1);
     expect(result.current.record.views[0].name).toBe("S21");
+    expect(result.current.record.views[0].tab).toBe("miners");
     expect(result.current.record.views[0].searchParams).toBe("model=S21&status=hashing");
 
     const stored = JSON.parse(localStorage.getItem(KEY_ALICE) ?? "{}");
     expect(stored.views[0].name).toBe("S21");
+    expect(stored.views[0].tab).toBe("miners");
+  });
+
+  it("addUserView accepts non-miners tabs and canonicalizes against that tab's whitelist", () => {
+    const { result } = renderHook(() => useFleetViews("alice"));
+    act(() => {
+      // status is a miners-only key — should be stripped against the racks whitelist.
+      result.current.addUserView({ name: "DC1 racks", tab: "racks", searchParams: "zone=DC1&status=offline" });
+    });
+    expect(result.current.record.views[0].tab).toBe("racks");
+    expect(result.current.record.views[0].searchParams).toBe("zone=DC1");
   });
 
   it("renameUserView updates the stored name", () => {
-    const { result } = renderHook(() => useMinerViews("alice"));
+    const { result } = renderHook(() => useFleetViews("alice"));
     act(() => {
-      result.current.addUserView({ name: "First", searchParams: "" });
+      result.current.addUserView({ name: "First", tab: "miners", searchParams: "" });
     });
     const id = result.current.record.views[0].id;
     act(() => {
@@ -72,9 +82,9 @@ describe("useMinerViews", () => {
   });
 
   it("renameUserView ignores empty/whitespace names", () => {
-    const { result } = renderHook(() => useMinerViews("alice"));
+    const { result } = renderHook(() => useFleetViews("alice"));
     act(() => {
-      result.current.addUserView({ name: "Keep", searchParams: "" });
+      result.current.addUserView({ name: "Keep", tab: "miners", searchParams: "" });
     });
     const id = result.current.record.views[0].id;
     act(() => {
@@ -83,10 +93,10 @@ describe("useMinerViews", () => {
     expect(result.current.record.views[0].name).toBe("Keep");
   });
 
-  it("updateUserViewParams canonicalizes new params", () => {
-    const { result } = renderHook(() => useMinerViews("alice"));
+  it("updateUserViewParams canonicalizes new params against the view's own tab", () => {
+    const { result } = renderHook(() => useFleetViews("alice"));
     act(() => {
-      result.current.addUserView({ name: "Mixed", searchParams: "status=offline" });
+      result.current.addUserView({ name: "Mixed", tab: "miners", searchParams: "status=offline" });
     });
     const id = result.current.record.views[0].id;
     act(() => {
@@ -96,10 +106,10 @@ describe("useMinerViews", () => {
   });
 
   it("deleteUserView removes the entry", () => {
-    const { result } = renderHook(() => useMinerViews("alice"));
+    const { result } = renderHook(() => useFleetViews("alice"));
     act(() => {
-      result.current.addUserView({ name: "A", searchParams: "" });
-      result.current.addUserView({ name: "B", searchParams: "model=S21" });
+      result.current.addUserView({ name: "A", tab: "miners", searchParams: "" });
+      result.current.addUserView({ name: "B", tab: "miners", searchParams: "model=S21" });
     });
     const idA = result.current.record.views[0].id;
     act(() => {
@@ -109,11 +119,11 @@ describe("useMinerViews", () => {
   });
 
   it("reorderUserViews respects the supplied id order", () => {
-    const { result } = renderHook(() => useMinerViews("alice"));
+    const { result } = renderHook(() => useFleetViews("alice"));
     act(() => {
-      result.current.addUserView({ name: "A", searchParams: "" });
-      result.current.addUserView({ name: "B", searchParams: "model=S21" });
-      result.current.addUserView({ name: "C", searchParams: "status=offline" });
+      result.current.addUserView({ name: "A", tab: "miners", searchParams: "" });
+      result.current.addUserView({ name: "B", tab: "miners", searchParams: "model=S21" });
+      result.current.addUserView({ name: "C", tab: "miners", searchParams: "status=offline" });
     });
     const ids = result.current.record.views.map((view) => view.id);
     act(() => {
@@ -122,59 +132,22 @@ describe("useMinerViews", () => {
     expect(result.current.record.views.map((view) => view.name)).toEqual(["C", "A", "B"]);
   });
 
-  it("dismissBuiltInView and restoreBuiltInView toggle the dismissal", () => {
-    const { result } = renderHook(() => useMinerViews("alice"));
-    act(() => {
-      result.current.dismissBuiltInView("offline");
-    });
-    expect(result.current.record.deletedBuiltInIds).toEqual(["offline"]);
-    act(() => {
-      result.current.dismissBuiltInView("offline");
-    });
-    expect(result.current.record.deletedBuiltInIds).toEqual(["offline"]);
-    act(() => {
-      result.current.restoreBuiltInView("offline");
-    });
-    expect(result.current.record.deletedBuiltInIds).toEqual([]);
-  });
-
-  it("dismissBuiltInView ignores unknown ids", () => {
-    const { result } = renderHook(() => useMinerViews("alice"));
-    act(() => {
-      result.current.dismissBuiltInView("not-a-builtin");
-    });
-    expect(result.current.record.deletedBuiltInIds).toEqual([]);
-  });
-
   it("scopes records by username", () => {
-    const alice = renderHook(() => useMinerViews("alice"));
+    const alice = renderHook(() => useFleetViews("alice"));
     act(() => {
-      alice.result.current.addUserView({ name: "Alice view", searchParams: "model=S21" });
+      alice.result.current.addUserView({ name: "Alice view", tab: "miners", searchParams: "model=S21" });
     });
     expect(localStorage.getItem(KEY_ALICE)).toBeTruthy();
     expect(localStorage.getItem(KEY_BOB)).toBeNull();
 
-    const bob = renderHook(() => useMinerViews("bob"));
+    const bob = renderHook(() => useFleetViews("bob"));
     expect(bob.result.current.record.views).toEqual([]);
   });
 
-  it("clearing storage restores built-ins (no dismissals on next read)", () => {
-    const first = renderHook(() => useMinerViews("alice"));
-    act(() => {
-      first.result.current.dismissBuiltInView("offline");
-    });
-    expect(first.result.current.record.deletedBuiltInIds).toEqual(["offline"]);
-
-    localStorage.clear();
-
-    const second = renderHook(() => useMinerViews("alice"));
-    expect(second.result.current.record.deletedBuiltInIds).toEqual([]);
-  });
-
   it("removes the storage entry when reverting to default state", () => {
-    const { result } = renderHook(() => useMinerViews("alice"));
+    const { result } = renderHook(() => useFleetViews("alice"));
     act(() => {
-      result.current.addUserView({ name: "Temp", searchParams: "" });
+      result.current.addUserView({ name: "Temp", tab: "miners", searchParams: "" });
     });
     expect(localStorage.getItem(KEY_ALICE)).not.toBeNull();
     const id = result.current.record.views[0].id;

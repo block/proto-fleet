@@ -44,6 +44,7 @@ export function useDeviceSetListState(
   getErrorComponentTypes?: () => number[],
   getZones?: () => string[],
   getBuildingIds?: () => bigint[],
+  initialSort?: () => { field: DeviceSetColumn; direction: SortDirection },
 ) {
   const { getDeviceSetStats } = useDeviceSets();
   const [deviceSets, setDeviceSets] = useState<DeviceSet[]>([]);
@@ -59,8 +60,18 @@ export function useDeviceSetListState(
   const [hasNextPage, setHasNextPage] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
 
-  // Sort state
-  const [sortConfig, setSortConfig] = useState<SortConfig>(DEFAULT_SORT);
+  // Sort state. `initialSort` lets the page seed the initial sort from an
+  // external source (typically URL params), so a deep-link or saved-view
+  // activation lands with the right ordering on the very first fetch. After
+  // mount, sort lives in this hook and is updated via `handleSort`; callers
+  // that want URL ↔ hook sync should react to `currentSort` changes.
+  const [sortConfig, setSortConfig] = useState<SortConfig>(() => {
+    if (initialSort) {
+      const s = initialSort();
+      return toProtoSort(s.field, s.direction);
+    }
+    return DEFAULT_SORT;
+  });
   const sortRef = useRef(sortConfig);
   useEffect(() => {
     sortRef.current = sortConfig;

@@ -1,27 +1,25 @@
 /**
- * Saved miner-list views: filters + sort bundled into named, persistable
- * presets. See docs/plans/2026-04-30-custom-views.md.
+ * Saved fleet views: tab + filters + sort bundled into named, persistable
+ * presets. See docs/plans/2026-04-30-custom-views.md and issue #398.
  */
 
 import { TELEMETRY_FILTER_BOUNDS } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 
 const STORAGE_KEY_PREFIX = "proto-fleet-miner-views";
 
-export const VIEWS_SCHEMA_VERSION = 1;
+export const VIEWS_SCHEMA_VERSION = 2;
 
 /** URL search-param key that records the active view id. */
 export const VIEW_URL_PARAM = "view";
 
-/** Built-in view id for the unfiltered default — kept as a clean URL. */
-export const ALL_MINERS_VIEW_ID = "all-miners";
+/** Top-level Fleet tabs that can own a saved view. */
+export const FLEET_TAB_IDS = ["sites", "buildings", "racks", "miners"] as const;
+export type FleetTabId = (typeof FLEET_TAB_IDS)[number];
 
-/**
- * URL keys owned by filter + sort + view machinery. Numeric range keys are
- * derived from `TELEMETRY_FILTER_BOUNDS` so adding a new telemetry filter
- * auto-extends the whitelist; we don't need to remember to update this list
- * in two places.
- */
-const FILTER_AND_SORT_KEYS: ReadonlySet<string> = new Set([
+const isFleetTabId = (value: unknown): value is FleetTabId =>
+  typeof value === "string" && (FLEET_TAB_IDS as readonly string[]).includes(value);
+
+const MINER_FILTER_KEYS: readonly string[] = [
   "status",
   "issues",
   "model",
@@ -32,9 +30,36 @@ const FILTER_AND_SORT_KEYS: ReadonlySet<string> = new Set([
   "zone",
   "subnet",
   ...Object.keys(TELEMETRY_FILTER_BOUNDS).flatMap((key) => [`${key}_min`, `${key}_max`]),
-  "sort",
-  "dir",
-]);
+];
+
+// Racks tab URL-tracks `building`, `site`, `zone`, `issues`, `display`
+// (grid/list segmented control), and `sort`/`dir`. `site` is a multi-site
+// deep-link shortcut; the rest are page filters / view-mode toggles operators
+// can capture into a saved view. Sort is shared by the grid dropdown and the
+// list column headers — both write to the same `?sort=&dir=` URL state.
+const RACK_FILTER_KEYS: readonly string[] = ["building", "site", "zone", "issues", "display"];
+
+const SORT_KEYS: readonly string[] = ["sort", "dir"];
+
+/**
+ * Per-tab whitelist of URL keys that participate in filter+sort+view
+ * canonicalization. Only keys in the active tab's set are persisted into a
+ * saved view; everything else is treated as transient URL state and stripped
+ * on canonicalize.
+ */
+const FILTER_AND_SORT_KEYS_BY_TAB: Record<FleetTabId, ReadonlySet<string>> = {
+  miners: new Set([...MINER_FILTER_KEYS, ...SORT_KEYS]),
+  racks: new Set([...RACK_FILTER_KEYS, ...SORT_KEYS]),
+  buildings: new Set<string>(),
+  sites: new Set<string>(),
+};
+
+/** Tabs that expose a save-worthy filter/sort surface. Used to gate "+ New view". */
+export const TABS_WITH_SAVEABLE_STATE: ReadonlySet<FleetTabId> = new Set(
+  (Object.entries(FILTER_AND_SORT_KEYS_BY_TAB) as [FleetTabId, ReadonlySet<string>][])
+    .filter(([, keys]) => keys.size > 0)
+    .map(([tab]) => tab),
+);
 
 /**
  * Build the URL params for activating a view. Layers the view's own
@@ -44,10 +69,11 @@ const FILTER_AND_SORT_KEYS: ReadonlySet<string> = new Set([
 export const buildUrlForView = (view: SavedView, currentParams: URLSearchParams): string => {
   const next = new URLSearchParams(view.searchParams);
   next.set(VIEW_URL_PARAM, view.id);
+  const whitelist = FILTER_AND_SORT_KEYS_BY_TAB[view.tab];
   currentParams.forEach((value, key) => {
     if (key === VIEW_URL_PARAM) return;
     if (next.has(key)) return;
-    if (FILTER_AND_SORT_KEYS.has(key)) return;
+    if (whitelist.has(key)) return;
     next.append(key, value);
   });
   return next.toString();
@@ -56,6 +82,8 @@ export const buildUrlForView = (view: SavedView, currentParams: URLSearchParams)
 export type SavedView = {
   id: string;
   name: string;
+  /** Top-level Fleet tab the view restores on activation. */
+  tab: FleetTabId;
   /** Canonical URLSearchParams string, sans the `view` key. */
   searchParams: string;
   createdAt: string;
@@ -64,59 +92,28 @@ export type SavedView = {
 export type SavedViewsRecord = {
   version: typeof VIEWS_SCHEMA_VERSION;
   views: SavedView[];
-  deletedBuiltInIds: string[];
 };
-
-export type BuiltInView = SavedView & { builtIn: true };
-
-export const BUILT_IN_VIEWS: readonly BuiltInView[] = [
-  {
-    id: ALL_MINERS_VIEW_ID,
-    name: "All miners",
-    searchParams: "",
-    createdAt: "1970-01-01T00:00:00.000Z",
-    builtIn: true,
-  },
-  {
-    id: "needs-attention",
-    name: "Needs attention",
-    searchParams: "status=needs-attention",
-    createdAt: "1970-01-01T00:00:00.000Z",
-    builtIn: true,
-  },
-  {
-    id: "offline",
-    name: "Offline",
-    searchParams: "status=offline",
-    createdAt: "1970-01-01T00:00:00.000Z",
-    builtIn: true,
-  },
-];
-
-const BUILT_IN_IDS: ReadonlySet<string> = new Set(BUILT_IN_VIEWS.map((view) => view.id));
-
-export const isBuiltInViewId = (id: string): boolean => BUILT_IN_IDS.has(id);
 
 export const createDefaultSavedViewsRecord = (): SavedViewsRecord => ({
   version: VIEWS_SCHEMA_VERSION,
   views: [],
-  deletedBuiltInIds: [],
 });
 
 export const getSavedViewsStorageKey = (username: string): string => `${STORAGE_KEY_PREFIX}:${username || "anonymous"}`;
 
 /**
  * Sort the filter+sort URL entries deterministically so two states can be
- * compared by string equality. Keys outside the filter+sort set (including
- * the `view` key and any unrelated URL state) are dropped, so a saved view
- * never accidentally captures transient query params.
+ * compared by string equality. Keys outside the tab's filter+sort set
+ * (including the `view` key and any unrelated URL state) are dropped, so a
+ * saved view never accidentally captures transient query params.
  */
-export const canonicalizeSearchParams = (params: URLSearchParams | string): string => {
+export const canonicalizeSearchParams = (params: URLSearchParams | string, tab: FleetTabId): string => {
   const source = typeof params === "string" ? new URLSearchParams(params) : new URLSearchParams(params);
+  const whitelist = FILTER_AND_SORT_KEYS_BY_TAB[tab];
 
   const entries: [string, string][] = [];
   source.forEach((value, key) => {
-    if (FILTER_AND_SORT_KEYS.has(key)) {
+    if (whitelist.has(key)) {
       entries.push([key, value]);
     }
   });
@@ -135,21 +132,26 @@ export const canonicalizeSearchParams = (params: URLSearchParams | string): stri
 
 const isNonEmptyString = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
+/**
+ * Tab is required in v2. v1 entries (no `tab` field) migrate to "miners"
+ * since the miners surface was the only tab that owned views before #398.
+ */
 const normalizeSavedView = (raw: unknown): SavedView | null => {
   if (typeof raw !== "object" || raw === null) return null;
-  const candidate = raw as Partial<SavedView>;
+  const candidate = raw as Partial<SavedView> & { tab?: unknown };
 
   if (!isNonEmptyString(candidate.id)) return null;
-  if (isBuiltInViewId(candidate.id)) return null;
   if (!isNonEmptyString(candidate.name)) return null;
   if (typeof candidate.searchParams !== "string") return null;
 
+  const tab: FleetTabId = isFleetTabId(candidate.tab) ? candidate.tab : "miners";
   const createdAt = isNonEmptyString(candidate.createdAt) ? candidate.createdAt : new Date().toISOString();
 
   return {
     id: candidate.id,
     name: candidate.name,
-    searchParams: canonicalizeSearchParams(candidate.searchParams),
+    tab,
+    searchParams: canonicalizeSearchParams(candidate.searchParams, tab),
     createdAt,
   };
 };
@@ -169,39 +171,16 @@ export const normalizeSavedViewsRecord = (raw: unknown): SavedViewsRecord => {
     views.push(normalized);
   }
 
-  const deletedBuiltInIds: string[] = [];
-  const seenDeleted = new Set<string>();
-  for (const id of Array.isArray(candidate.deletedBuiltInIds) ? candidate.deletedBuiltInIds : []) {
-    if (typeof id !== "string" || seenDeleted.has(id)) continue;
-    seenDeleted.add(id);
-    deletedBuiltInIds.push(id);
-  }
-
   return {
     version: VIEWS_SCHEMA_VERSION,
     views,
-    deletedBuiltInIds,
   };
 };
 
-export const isSavedViewsRecordDefault = (record: SavedViewsRecord): boolean =>
-  record.views.length === 0 && record.deletedBuiltInIds.length === 0;
+export const isSavedViewsRecordDefault = (record: SavedViewsRecord): boolean => record.views.length === 0;
 
-/**
- * Built-in views the user hasn't dismissed, in declaration order.
- */
-export const visibleBuiltInViews = (record: SavedViewsRecord): BuiltInView[] => {
-  const dismissed = new Set(record.deletedBuiltInIds);
-  return BUILT_IN_VIEWS.filter((view) => !dismissed.has(view.id));
-};
-
-export const findView = (id: string, record: SavedViewsRecord): SavedView | undefined => {
-  if (isBuiltInViewId(id)) {
-    if (record.deletedBuiltInIds.includes(id)) return undefined;
-    return BUILT_IN_VIEWS.find((view) => view.id === id);
-  }
-  return record.views.find((view) => view.id === id);
-};
+export const findView = (id: string, record: SavedViewsRecord): SavedView | undefined =>
+  record.views.find((view) => view.id === id);
 
 const generateUserViewId = (): string => {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -210,9 +189,10 @@ const generateUserViewId = (): string => {
   return `view-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 };
 
-export const createUserView = (input: { name: string; searchParams: string }): SavedView => ({
+export const createUserView = (input: { name: string; tab: FleetTabId; searchParams: string }): SavedView => ({
   id: generateUserViewId(),
   name: input.name,
-  searchParams: canonicalizeSearchParams(input.searchParams),
+  tab: input.tab,
+  searchParams: canonicalizeSearchParams(input.searchParams, input.tab),
   createdAt: new Date().toISOString(),
 });

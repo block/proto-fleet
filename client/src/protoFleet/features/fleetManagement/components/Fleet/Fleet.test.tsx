@@ -79,6 +79,7 @@ vi.mock("@/protoFleet/features/fleetManagement/components/FleetLayout", () => ({
     refetchSites: vi.fn(),
     notifyPairingCompleted: vi.fn(),
     minersChangedAt: 0,
+    publishViewFilterContext: vi.fn(),
   }),
 }));
 

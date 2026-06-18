@@ -52,6 +52,7 @@ const hasPermissionMock = vi.hoisted(() => ({ current: (_key: string): boolean =
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: (key: string) => hasPermissionMock.current(key),
   useAuthErrors: () => ({ handleAuthErrors: vi.fn() }),
+  useUsername: () => "alice",
 }));
 
 // CompleteSetup renders inside FleetLayout's chrome but isn't under test

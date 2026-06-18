@@ -35,7 +35,6 @@ import AuthenticateFleetModal from "@/protoFleet/features/auth/components/Authen
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
-import ViewsBar from "@/protoFleet/features/fleetManagement/components/ViewsBar";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
 import {
@@ -51,7 +50,6 @@ import {
   type TelemetryFilterKey,
 } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { VIEW_URL_PARAM } from "@/protoFleet/features/fleetManagement/views/savedViews";
-import useMinerViews from "@/protoFleet/features/fleetManagement/views/useMinerViews";
 import { useUsername } from "@/protoFleet/store";
 
 import { ChevronDown, LogoAlt, Plus, Slider } from "@/shared/assets/icons";
@@ -499,7 +497,6 @@ const MinerList = ({
   const username = useUsername();
   const { preferences: columnPreferences, setPreferences: setColumnPreferences } =
     useMinerTableColumnPreferences(username);
-  const viewsState = useMinerViews(username);
 
   const [modalFlow, setModalFlow] = useState<MinerModalFlow>({ kind: "closed" });
   const [showManageColumnsModal, setShowManageColumnsModal] = useState(false);
@@ -1073,8 +1070,6 @@ const MinerList = ({
           ? `${totalMiners} of ${totalUnfilteredMiners} miners`
           : `${totalMiners ?? 0} miners`}
       </div>
-
-      <ViewsBar viewsState={viewsState} availableGroups={availableGroups} availableRacks={availableRacks} />
 
       {loading ? (
         <div className="flex justify-center py-20">

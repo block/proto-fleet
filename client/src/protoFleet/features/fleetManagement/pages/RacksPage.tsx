@@ -10,7 +10,11 @@ import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
 import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "@/protoFleet/components/DeviceSetList";
-import { getNextSortFromSelection, RACK_SORT_OPTIONS } from "@/protoFleet/components/DeviceSetList/sortConfig";
+import {
+  getNextSortFromSelection,
+  RACK_SORT_OPTIONS,
+  SORTABLE_COLUMNS,
+} from "@/protoFleet/components/DeviceSetList/sortConfig";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
@@ -18,6 +22,7 @@ import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
 import FleetGroupListActionBar from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar";
+import { useOptionalFleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout";
 import { ManageRackModal, type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal";
 import { RackCard } from "@/protoFleet/features/fleetManagement/components/RackCard";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
@@ -35,6 +40,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import FilterChipsBar from "@/shared/components/List/Filters/FilterChipsBar";
+import { SORT_ASC, SORT_DESC, type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -79,8 +85,34 @@ const RacksPage = () => {
   const { pathname } = useLocation();
   const insideFleetShell = pathname.startsWith("/fleet/");
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
-  const [selectedZones, setSelectedZones] = useState<string[]>([]);
-  const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
+  // Zones + issues are URL-driven so saved views can capture them. Values
+  // are written via repeated keys (`?zone=A&zone=B`), so reading uses
+  // `getAll` without comma-splitting — zone labels may legitimately contain
+  // commas (e.g. "DC1, Row A").
+  const selectedZones = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          searchParams
+            .getAll("zone")
+            .map((v) => v.trim())
+            .filter(Boolean),
+        ),
+      ),
+    [searchParams],
+  );
+  const selectedIssues = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          searchParams
+            .getAll("issues")
+            .map((v) => v.trim())
+            .filter(Boolean),
+        ),
+      ),
+    [searchParams],
+  );
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
   const [allBuildings, setAllBuildings] = useState<{ id: string; label: string; siteId: string }[]>([]);
   // Distinguishes "buildings still loading" from "site has zero buildings"
@@ -132,8 +164,33 @@ const RacksPage = () => {
 
   const { selectedIssuesRef, getErrorComponentTypes } = useIssueFilter();
 
-  const selectedZonesRef = useRef<string[]>([]);
+  // Seed the refs with the URL-derived initial values so the first
+  // useDeviceSetListState fetch (which runs in a child effect, before
+  // RacksPage's own effects) picks up filters from a `?issues=` / `?zone=`
+  // deep link or a restored saved view. Render-time writes are idempotent on
+  // re-render and avoid a stale-ref window on mount.
+  const selectedZonesRef = useRef<string[]>(selectedZones);
+  // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; initial mount + subsequent URL changes
+  selectedZonesRef.current = selectedZones;
   const getZones = useCallback(() => selectedZonesRef.current, []);
+  // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; selectedIssuesRef comes from useIssueFilter so we can't seed it via useRef init
+  selectedIssuesRef.current = selectedIssues;
+
+  // Rack sort is URL-driven so saved views can capture and restore it (and so
+  // deep-links carrying `?sort=&dir=` land on the right ordering). Grid mode
+  // sets sort via the dropdown; list mode sets it via column headers; both
+  // resolve to the same `?sort=field&dir=asc|desc` URL state.
+  const urlRackSort = useMemo<{ field: DeviceSetColumn; direction: SortDirection } | undefined>(() => {
+    const fieldRaw = searchParams.get("sort");
+    if (!fieldRaw || !SORTABLE_COLUMNS.has(fieldRaw as DeviceSetColumn)) return undefined;
+    const dirRaw = searchParams.get("dir");
+    const direction: SortDirection = dirRaw === SORT_DESC ? SORT_DESC : SORT_ASC;
+    return { field: fieldRaw as DeviceSetColumn, direction };
+  }, [searchParams]);
+  // Capture-once initializer for the hook — only the value at mount matters,
+  // since subsequent URL changes flow through the sync effect below.
+  const initialSortRef = useRef(urlRackSort);
+  const getInitialRackSort = useCallback(() => initialSortRef.current ?? { field: "name", direction: SORT_ASC }, []);
 
   const {
     deviceSets: racks,
@@ -151,11 +208,62 @@ const RacksPage = () => {
     handlePrevPage,
     resetAndFetch,
     refreshCurrentPage,
-  } = useDeviceSetListState(listRacks, DEFAULT_PAGE_SIZE, getErrorComponentTypes, getZones, getBuildingIds);
+  } = useDeviceSetListState(
+    listRacks,
+    DEFAULT_PAGE_SIZE,
+    getErrorComponentTypes,
+    getZones,
+    getBuildingIds,
+    getInitialRackSort,
+  );
 
-  const racksViewMode = useFleetStore((s) => s.ui.racksViewMode);
-  const setRacksViewMode = useFleetStore((s) => s.ui.setRacksViewMode);
+  // Propagate external URL sort changes (saved view activation, deep-link
+  // nav) into the hook. When the page itself drives the change via
+  // handleRackSort, currentSort and urlRackSort end up in sync on the same
+  // render and this effect no-ops.
+  useEffect(() => {
+    const urlField = urlRackSort?.field ?? "name";
+    const urlDirection = urlRackSort?.direction ?? SORT_ASC;
+    if (urlField !== currentSort.field || urlDirection !== currentSort.direction) {
+      handleSort(urlField, urlDirection);
+    }
+  }, [urlRackSort, currentSort, handleSort]);
+
+  const storedRacksViewMode = useFleetStore((s) => s.ui.racksViewMode);
+  const setStoredRacksViewMode = useFleetStore((s) => s.ui.setRacksViewMode);
   const temperatureUnit = useFleetStore((s) => s.ui.temperatureUnit);
+
+  // URL is the source of truth for the segmented control so a saved view's
+  // `display` param can dictate grid vs. list. Falls back to the persisted
+  // Zustand preference when the param is absent so default sessions keep
+  // the operator's last choice.
+  //
+  // We deliberately do NOT auto-write the stored mode into the URL: doing so
+  // would re-add `display=` immediately after a user activates a view that
+  // intentionally omits display via the "Include display mode" toggle, making
+  // that view permanently dirty.
+  const urlRacksViewMode: "grid" | "list" | undefined = (() => {
+    const raw = searchParams.get("display");
+    return raw === "grid" || raw === "list" ? raw : undefined;
+  })();
+  const racksViewMode = urlRacksViewMode ?? storedRacksViewMode;
+
+  const setRacksViewMode = useCallback(
+    (mode: "grid" | "list") => {
+      // Mirror to both: URL for view-snapshot capture, Zustand so the
+      // preference survives navigating away from a `?display=...` URL.
+      setStoredRacksViewMode(mode);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("display", mode);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setStoredRacksViewMode, setSearchParams],
+  );
 
   // Fetch all rack zones once on mount
   const zonesRequestId = useRef(0);
@@ -211,6 +319,19 @@ const RacksPage = () => {
   const siteNameById = useMemo(() => new Map(allSites.map((s) => [s.id, s.label])), [allSites]);
   const buildingNameById = useMemo(() => new Map(allBuildings.map((b) => [b.id, b.label])), [allBuildings]);
 
+  // Surface buildings + sites to FleetLayout so the saved-view modal can
+  // render human-readable labels when a view captures `building=` or
+  // `site=` params. Guarded — RacksPage also mounts at standalone /racks
+  // where there is no parent Outlet.
+  const outletContext = useOptionalFleetOutletContext();
+  const buildingSources = useMemo(() => allBuildings.map(({ id, label }) => ({ id, label })), [allBuildings]);
+  useEffect(() => {
+    outletContext?.publishViewFilterContext({
+      availableBuildings: buildingSources,
+      availableSites: allSites,
+    });
+  }, [outletContext, buildingSources, allSites]);
+
   const setBuildingFilter = useCallback(
     (ids: string[]) => {
       setSearchParams(
@@ -232,35 +353,63 @@ const RacksPage = () => {
   // Refetch on resolved building-filter change (explicit + site-expanded).
   // useDeviceSetListState reads the ref; this effect just kicks pagination.
   const effectiveBuildingKey = useMemo(() => effectiveBuildingIds.map(String).join(","), [effectiveBuildingIds]);
-  const prevBuildingKey = useRef<string | null>(null);
-  useEffect(() => {
-    if (prevBuildingKey.current !== null && prevBuildingKey.current !== effectiveBuildingKey) {
-      resetAndFetch();
-    }
-    prevBuildingKey.current = effectiveBuildingKey;
-  }, [effectiveBuildingKey, resetAndFetch]);
+
+  const writeMultiParam = useCallback(
+    (key: string, values: string[]) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete(key);
+          values.forEach((v) => {
+            const trimmed = v.trim();
+            if (trimmed) next.append(key, trimmed);
+          });
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
       setSelectedRackIds([]);
       if (key === "zone") {
-        setSelectedZones(values);
-        selectedZonesRef.current = values;
-        resetAndFetch();
+        writeMultiParam("zone", values);
         return;
       }
       if (key === "issues") {
-        setSelectedIssues(values);
-        selectedIssuesRef.current = values;
-        resetAndFetch();
+        writeMultiParam("issues", values);
         return;
       }
       if (key === "building") {
         setBuildingFilter(values);
       }
     },
-    [resetAndFetch, selectedIssuesRef, selectedZonesRef, setBuildingFilter],
+    [setBuildingFilter, writeMultiParam],
   );
+
+  // Refetch when any URL-derived filter input changes. Building, zone, and
+  // issues are combined into a single effect so a navigation that updates
+  // more than one of them (e.g. "Clear filters" or activating a saved view)
+  // produces one fetch, not several.
+  //
+  // `JSON.stringify` (not a delimiter-joined string) is used to encode the
+  // arrays so values containing the delimiter character — e.g. a zone label
+  // like "DC1, Row A" — can't collide with a different selection that
+  // happens to produce the same joined output.
+  const filterFetchKey = useMemo(
+    () => JSON.stringify([effectiveBuildingKey, selectedZones, selectedIssues]),
+    [effectiveBuildingKey, selectedZones, selectedIssues],
+  );
+  const prevFilterFetchKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevFilterFetchKey.current !== null && prevFilterFetchKey.current !== filterFetchKey) {
+      resetAndFetch();
+    }
+    prevFilterFetchKey.current = filterFetchKey;
+  }, [filterFetchKey, resetAndFetch]);
 
   const filterChipsBarFilters = useMemo(
     () => [
@@ -321,35 +470,31 @@ const RacksPage = () => {
 
   const handleClearFilters = useCallback(() => {
     setSelectedRackIds([]);
-    // Snapshot before state changes — these flags drive the "ride the
-    // URL-change effect" branch below.
-    const hadBuildingFilter = selectedBuildingIdStrings.length > 0;
-    const hadSiteFilter = urlSiteIds.size > 0;
-    setSelectedZones([]);
-    selectedZonesRef.current = [];
-    setSelectedIssues([]);
-    selectedIssuesRef.current = [];
-    // Single setSearchParams call so the second writer doesn't see a
-    // stale `prev` (react-router resolves the updater against the
-    // current location, not the value set by an earlier call in the
-    // same render).
-    if (hadBuildingFilter || hadSiteFilter) {
+    // All four URL-driven filter keys cleared in a single updater so they
+    // batch into one history entry (react-router resolves the prev against
+    // the current location, not a value set by an earlier call this render).
+    const hadAny =
+      selectedBuildingIdStrings.length > 0 ||
+      urlSiteIds.size > 0 ||
+      selectedZones.length > 0 ||
+      selectedIssues.length > 0;
+    if (hadAny) {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
           next.delete("site");
           next.delete(BUILDING_URL_PARAM);
+          next.delete("zone");
+          next.delete("issues");
           return next;
         },
         { replace: true },
       );
-    }
-    // URL changes trigger refetch via prevBuildingKey effect; call
-    // manually only when there's no URL transition to avoid double-fetch.
-    if (!hadBuildingFilter && !hadSiteFilter) {
+    } else {
+      // No URL transition → manually kick the refetch (URL effects skip).
       resetAndFetch();
     }
-  }, [resetAndFetch, selectedBuildingIdStrings, selectedIssuesRef, selectedZonesRef, setSearchParams, urlSiteIds]);
+  }, [resetAndFetch, selectedBuildingIdStrings, selectedIssues, selectedZones, setSearchParams, urlSiteIds]);
 
   const emptyStateRow: ReactNode = useMemo(() => {
     if (isLoading || totalCount > 0) return undefined;
@@ -507,13 +652,22 @@ const RacksPage = () => {
     return () => clearInterval(intervalId);
   }, [hasCompletedInitialFetch, isModalOpen, refreshCurrentPage]);
 
-  // Sort dropdown handler for grid view
+  // Sort handler shared by the grid dropdown and the list column headers.
+  // Writes the URL first; the sync effect above propagates to the hook.
   const handleRackSort: typeof handleSort = useCallback(
     (field, direction) => {
       setSelectedRackIds([]);
-      handleSort(field, direction);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("sort", field);
+          next.set("dir", direction);
+          return next;
+        },
+        { replace: true },
+      );
     },
-    [handleSort],
+    [setSearchParams],
   );
 
   const handleSortSelect = useCallback(
