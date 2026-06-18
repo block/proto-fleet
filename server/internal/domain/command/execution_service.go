@@ -469,6 +469,9 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		if fleeterror.IsFailedPreconditionError(err) {
 			return message.OrgID, 0, err
 		}
+		if commandType == commandtype.UpdateMinerPassword && fleeterror.IsAuthenticationError(err) {
+			return message.OrgID, 0, fleeterror.NewFailedPreconditionErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
+		}
 		return message.OrgID, 0, fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
 	}
 	orgID := minerInfo.GetOrgID()

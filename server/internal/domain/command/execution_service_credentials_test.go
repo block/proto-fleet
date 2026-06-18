@@ -177,6 +177,25 @@ func TestExecuteCommand_UpdateMinerPassword_FleetNodeMinerFailsBeforeDispatch(t 
 	assert.False(t, sender.called, "password update should fail before dispatching an unsupported fleet-node command")
 }
 
+func TestExecuteCommand_UpdateMinerPassword_ResolverAuthErrorFailsPrecondition(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	const dbDeviceID int64 = 124
+
+	mockMinerGetter := commandMocks.NewMockCachedMinerGetter(ctrl)
+	svc := &ExecutionService{minerService: mockMinerGetter}
+	mockMinerGetter.EXPECT().
+		GetMinerForPasswordUpdate(gomock.Any(), dbDeviceID, "old-password").
+		Return(nil, fleeterror.NewUnauthenticatedError("bad current password"))
+
+	_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
+	assert.Contains(t, err.Error(), "bad current password")
+}
+
 func TestExecuteCommand_UpdateMinerPassword_MissingNonProtoCredentialsFails(t *testing.T) {
 	svc, _, _, dbDeviceID, deviceIdentifier := setupPasswordCommandDevice(t, "antminer", false)
 	ctrl := gomock.NewController(t)
