@@ -294,6 +294,17 @@ func (s *SQLDeviceStore) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx c
 	return row.Eligible, row.Updated, nil
 }
 
+// ReconcileAuthenticationNeededPairingStatusByIdentifier moves only paired-like
+// rows to AUTHENTICATION_NEEDED. eligible=false means the current row was
+// deleted, missing, or in a lifecycle state telemetry must not resurrect.
+func (s *SQLDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (eligible bool, updated bool, err error) {
+	row, err := s.getQueries(ctx).ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier)
+	if err != nil {
+		return false, false, fleeterror.NewInternalErrorf("failed to reconcile auth-needed pairing status for device %s: %v", deviceIdentifier, err)
+	}
+	return row.Eligible, row.Updated, nil
+}
+
 func (s *SQLDeviceStore) GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error) {
 	device, err := s.getQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
 		DeviceIdentifier: deviceIdentifier,

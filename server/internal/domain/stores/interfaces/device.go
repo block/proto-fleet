@@ -167,6 +167,7 @@ type DeviceStore interface {
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, device *pb.Device, orgID int64) (bool, error)
 	UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) error
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) (eligible bool, updated bool, err error)
+	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (eligible bool, updated bool, err error)
 	GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error)
 	GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error)
 	GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error)

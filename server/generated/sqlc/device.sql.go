@@ -1849,6 +1849,43 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 	return items, nil
 }
 
+const reconcileAuthenticationNeededPairingStatusByIdentifier = `-- name: ReconcileAuthenticationNeededPairingStatusByIdentifier :one
+WITH candidate AS (
+  SELECT device_pairing.device_id
+  FROM device_pairing
+  JOIN device d ON device_pairing.device_id = d.id
+  WHERE d.device_identifier = $1
+    AND d.deleted_at IS NULL
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+),
+updated AS (
+  UPDATE device_pairing
+  SET pairing_status = 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  FROM candidate
+  WHERE device_pairing.device_id = candidate.device_id
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+    AND device_pairing.pairing_status IS DISTINCT FROM 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  RETURNING 1
+)
+SELECT
+  EXISTS(SELECT 1 FROM candidate) AS eligible,
+  EXISTS(SELECT 1 FROM updated) AS updated
+`
+
+type ReconcileAuthenticationNeededPairingStatusByIdentifierRow struct {
+	Eligible bool
+	Updated  bool
+}
+
+// Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
+// but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
+func (q *Queries) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error) {
+	row := q.queryRow(ctx, q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt, reconcileAuthenticationNeededPairingStatusByIdentifier, deviceIdentifier)
+	var i ReconcileAuthenticationNeededPairingStatusByIdentifierRow
+	err := row.Scan(&i.Eligible, &i.Updated)
+	return i, err
+}
+
 const reconcileDefaultPasswordPairingStatusByIdentifier = `-- name: ReconcileDefaultPasswordPairingStatusByIdentifier :one
 WITH candidate AS (
   SELECT device_pairing.device_id

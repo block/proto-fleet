@@ -134,6 +134,30 @@ SELECT
   EXISTS(SELECT 1 FROM candidate) AS eligible,
   EXISTS(SELECT 1 FROM updated) AS updated;
 
+-- name: ReconcileAuthenticationNeededPairingStatusByIdentifier :one
+-- Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
+-- but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
+WITH candidate AS (
+  SELECT device_pairing.device_id
+  FROM device_pairing
+  JOIN device d ON device_pairing.device_id = d.id
+  WHERE d.device_identifier = sqlc.arg('device_identifier')
+    AND d.deleted_at IS NULL
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+),
+updated AS (
+  UPDATE device_pairing
+  SET pairing_status = 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  FROM candidate
+  WHERE device_pairing.device_id = candidate.device_id
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+    AND device_pairing.pairing_status IS DISTINCT FROM 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  RETURNING 1
+)
+SELECT
+  EXISTS(SELECT 1 FROM candidate) AS eligible,
+  EXISTS(SELECT 1 FROM updated) AS updated;
+
 -- name: GetDeviceByID :one
 SELECT *
 FROM device

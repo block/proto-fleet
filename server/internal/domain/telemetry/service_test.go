@@ -3705,14 +3705,16 @@ func TestFetchStatusFromMiner_AuthErrorFromGetMinerFromDeviceIdentifier_Invalida
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(nil, authErr)
 
-	// fetchStatusFromMiner calls InvalidateMiner on auth error
+	// fetchStatusFromMiner invalidates on auth error; guarded remediation
+	// invalidates again when it changes pairing state.
 	mockMinerGetter.EXPECT().
-		InvalidateMiner(deviceID)
+		InvalidateMiner(deviceID).
+		Times(2)
 
-	// processStatusOnly calls handleAuthenticationFailure on auth error
+	// processStatusOnly routes auth remediation through a guarded transition.
 	mockDeviceStore.EXPECT().
-		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), gomock.Any()).
-		Return(nil)
+		ReconcileAuthenticationNeededPairingStatusByIdentifier(gomock.Any(), string(deviceID)).
+		Return(true, true, nil)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -3757,14 +3759,17 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 		GetDeviceStatus(gomock.Any()).
 		Return(mm.MinerStatusUnknown, authErr)
 
-	// fetchStatusFromMiner calls InvalidateMiner on auth error from GetDeviceStatus
+	// fetchStatusFromMiner invalidates on auth error; guarded remediation
+	// invalidates again when it changes pairing state.
 	mockMinerGetter.EXPECT().
-		InvalidateMiner(deviceID)
+		InvalidateMiner(deviceID).
+		Times(2)
 
-	// An auth error moves the device into the AUTHENTICATION_NEEDED state.
+	// An auth error moves the device into AUTHENTICATION_NEEDED only through
+	// the guarded remediation transition.
 	mockDeviceStore.EXPECT().
-		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusAuthenticationNeeded).
-		Return(nil)
+		ReconcileAuthenticationNeededPairingStatusByIdentifier(gomock.Any(), string(deviceID)).
+		Return(true, true, nil)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -3809,8 +3814,10 @@ func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {
 	// A default-password forbidden error moves the device into the distinct
 	// DEFAULT_PASSWORD remediation state (not AUTHENTICATION_NEEDED).
 	mockDeviceStore.EXPECT().
-		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusDefaultPassword).
-		Return(nil)
+		ReconcileDefaultPasswordPairingStatusByIdentifier(gomock.Any(), string(deviceID), pairing.StatusDefaultPassword).
+		Return(true, true, nil)
+	mockMinerGetter.EXPECT().
+		InvalidateMiner(deviceID)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
