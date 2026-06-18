@@ -33,14 +33,20 @@ var (
 )
 
 func (h *Handler) authorize(ctx context.Context, permission string) (int64, error) {
+	orgID, _, err := h.authorizeActor(ctx, permission)
+	return orgID, err
+}
+
+// Like authorize, but also returns the authenticated username for actions that record an actor.
+func (h *Handler) authorizeActor(ctx context.Context, permission string) (int64, string, error) {
 	info, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	if info.OrganizationID == 0 {
-		return 0, fleeterror.NewUnauthenticatedError("organization id missing on session")
+		return 0, "", fleeterror.NewUnauthenticatedError("organization id missing on session")
 	}
-	return info.OrganizationID, nil
+	return info.OrganizationID, info.Username, nil
 }
 
 func mapErr(err error) error {
@@ -150,11 +156,11 @@ func (h *Handler) ListRules(ctx context.Context, _ *connect.Request[notification
 }
 
 func (h *Handler) PauseRule(ctx context.Context, req *connect.Request[notificationsv1.PauseRuleRequest]) (*connect.Response[notificationsv1.PauseRuleResponse], error) {
-	orgID, err := h.authorize(ctx, authz.PermNotificationManage)
+	orgID, actor, err := h.authorizeActor(ctx, authz.PermNotificationManage)
 	if err != nil {
 		return nil, err
 	}
-	rule, err := h.svc.PauseRule(ctx, orgID, req.Msg.GetId())
+	rule, err := h.svc.PauseRule(ctx, orgID, req.Msg.GetId(), actor)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -190,7 +196,7 @@ func (h *Handler) ListMaintenanceWindows(ctx context.Context, _ *connect.Request
 }
 
 func (h *Handler) CreateMaintenanceWindow(ctx context.Context, req *connect.Request[notificationsv1.CreateMaintenanceWindowRequest]) (*connect.Response[notificationsv1.CreateMaintenanceWindowResponse], error) {
-	orgID, err := h.authorize(ctx, authz.PermNotificationManage)
+	orgID, actor, err := h.authorizeActor(ctx, authz.PermNotificationManage)
 	if err != nil {
 		return nil, err
 	}
@@ -198,9 +204,7 @@ func (h *Handler) CreateMaintenanceWindow(ctx context.Context, req *connect.Requ
 	if err != nil {
 		return nil, err
 	}
-	if info, infoErr := middleware.RequirePermission(ctx, authz.PermNotificationManage, authz.ResourceContext{}); infoErr == nil {
-		dom.CreatedBy = info.Username
-	}
+	dom.CreatedBy = actor
 	created, err := h.svc.CreateMaintenanceWindow(ctx, orgID, dom)
 	if err != nil {
 		return nil, mapErr(err)

@@ -483,7 +483,7 @@ func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
 }
 
 // Mutes via a marker pause-silence rather than flipping isPaused: Grafana 11.6+ forbids the provisioning API from editing YAML-provisioned rules.
-func (s *Service) PauseRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
+func (s *Service) PauseRule(ctx context.Context, orgID int64, id, actor string) (*Rule, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
 	}
@@ -494,7 +494,7 @@ func (s *Service) PauseRule(ctx context.Context, orgID int64, id string) (*Rule,
 	if !rule.Enabled {
 		return rule, nil
 	}
-	silence := buildPauseSilence(orgID, id, s.now())
+	silence := buildPauseSilence(orgID, id, actor, s.now())
 	if _, err := s.grafana.PutSilence(ctx, silence); err != nil {
 		return nil, err
 	}
@@ -615,6 +615,9 @@ func (s *Service) CreateMaintenanceWindow(ctx context.Context, orgID int64, sil 
 	if err := validateMaintenanceWindowComment(sil.Comment); err != nil {
 		return nil, err
 	}
+	if err := s.requireScopeTargetVisible(ctx, orgID, sil.Scope); err != nil {
+		return nil, err
+	}
 	sil.OrganizationID = orgID
 	sil.CreatedAt = s.now()
 	gs := maintenanceWindowToGrafanaSilence(orgID, sil)
@@ -639,6 +642,9 @@ func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, sil 
 		return nil, err
 	}
 	if err := validateMaintenanceWindowComment(sil.Comment); err != nil {
+		return nil, err
+	}
+	if err := s.requireScopeTargetVisible(ctx, orgID, sil.Scope); err != nil {
 		return nil, err
 	}
 	existing, err := s.ListMaintenanceWindows(ctx, orgID)
@@ -727,6 +733,17 @@ func validateMaintenanceWindowScope(scope MaintenanceWindowScope) error {
 	return nil
 }
 
+// For a rule-scoped window, confirm the target rule is one the caller can actually see
+// (same check PauseRule uses), so a manage user can't silence a rule they can't list or a
+// guessed/future rule UID. Group/site/device scopes carry no such existence check yet.
+func (s *Service) requireScopeTargetVisible(ctx context.Context, orgID int64, scope MaintenanceWindowScope) error {
+	if scope.Kind != MaintenanceWindowScopeRule {
+		return nil
+	}
+	_, err := s.requireRule(ctx, orgID, scope.RuleID)
+	return err
+}
+
 // A maintenance window and a pause silence are distinguished only by the pause comment
 // marker, so reject a window comment that carries it: otherwise a same-org caller could
 // hide a window from the list and have it overlaid as a paused rule.
@@ -755,12 +772,21 @@ const alertRuleUIDMatcher = "__alert_rule_uid__"
 // Far-future end time making a pause behave as indefinite; Resume removes the silence before it expires.
 var pauseSilenceEndsAt = time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
 
-func buildPauseSilence(orgID int64, ruleID string, now time.Time) GrafanaSilence {
+func buildPauseSilence(orgID int64, ruleID, actor string, now time.Time) GrafanaSilence {
+	// Attribute the indefinite mute to the operator who paused, so suppression of a
+	// critical rule is auditable; fall back to the app name when the actor is unknown.
+	createdBy := actor
+	comment := pauseSilenceCommentMarker + " Paused via Proto Fleet UI"
+	if createdBy == "" {
+		createdBy = "Proto Fleet"
+	} else {
+		comment += " by " + actor
+	}
 	return GrafanaSilence{
 		StartsAt:  now,
 		EndsAt:    pauseSilenceEndsAt,
-		CreatedBy: "Proto Fleet",
-		Comment:   pauseSilenceCommentMarker + " Paused via Proto Fleet UI",
+		CreatedBy: createdBy,
+		Comment:   comment,
 		Matchers: []GrafanaSilenceMatcher{
 			{
 				Name:    silenceLabelOrganizationID,

@@ -723,6 +723,14 @@ func TestUpdateChannelRejectsForeignOrg(t *testing.T) {
 func fakeGrafanaSilences(t *testing.T, listed []GrafanaSilence, postBody *[]byte) *Grafana {
 	t.Helper()
 	mux := http.NewServeMux()
+	// rule-9 is globally visible so the rule-scoped maintenance-window/pause paths,
+	// which now resolve the target through requireRule, can find it for any org.
+	mux.HandleFunc("GET /api/v1/provisioning/alert-rules", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode([]GrafanaAlertRule{
+			{UID: "rule-9", Title: "Rule 9", Labels: map[string]string{ruleLabelScope: ruleScopeGlobal}},
+		}))
+	})
 	mux.HandleFunc("GET /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode(listed))
@@ -770,13 +778,38 @@ func TestUpdateMaintenanceWindowPreservesCreator(t *testing.T) {
 // against an alert's labels, and no rule emits a marker label, so a marker matcher
 // would mute nothing while the rule still showed as paused.
 func TestPauseSilenceMarkerIsNotAMatcher(t *testing.T) {
-	sil := buildPauseSilence(7, "rule-9", time.Unix(0, 0).UTC())
+	sil := buildPauseSilence(7, "rule-9", "alice@example.com", time.Unix(0, 0).UTC())
 	for _, m := range sil.Matchers {
 		assert.Contains(t, []string{silenceLabelOrganizationID, alertRuleUIDMatcher}, m.Name,
 			"pause silence may only carry org and alert-rule-UID matchers")
 	}
 	assert.True(t, isPauseSilence(sil), "comment marker must identify a pause silence")
 	assert.True(t, isPauseSilenceFor(sil, "7", "rule-9"))
+}
+
+// A rule pause is an indefinite mute of a (possibly critical) rule, so the silence must
+// attribute it to the operator who paused rather than a generic app name.
+func TestPauseSilenceRecordsActor(t *testing.T) {
+	withActor := buildPauseSilence(7, "rule-9", "alice@example.com", time.Unix(0, 0).UTC())
+	assert.Equal(t, "alice@example.com", withActor.CreatedBy)
+	assert.Contains(t, withActor.Comment, "alice@example.com")
+	assert.True(t, isPauseSilence(withActor), "actor in the comment must not break marker detection")
+
+	anon := buildPauseSilence(7, "rule-9", "", time.Unix(0, 0).UTC())
+	assert.Equal(t, "Proto Fleet", anon.CreatedBy, "fall back to app name when actor is unknown")
+}
+
+// A rule-scoped maintenance window must resolve its target through the same visibility
+// check as PauseRule, so a manage user can't silence a rule they can't list.
+func TestMaintenanceWindowRequiresVisibleRule(t *testing.T) {
+	var postBody []byte
+	svc := NewService(fakeGrafanaSilences(t, nil, &postBody), DestinationPolicy{})
+
+	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		Scope: MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-does-not-exist"},
+	})
+	require.ErrorIs(t, err, ErrNotFound)
+	assert.Nil(t, postBody, "window for an unknown rule must not reach Grafana")
 }
 
 // A rule-scoped maintenance window is structurally identical to a pause silence, so a
