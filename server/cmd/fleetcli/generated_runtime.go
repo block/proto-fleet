@@ -106,8 +106,17 @@ func generatedCallAndPrintWithClient(
 }
 
 func generatedMinerSelectorFlags() []cli.Flag {
-	return []cli.Flag{
+	return append([]cli.Flag{
 		&cli.BoolFlag{Name: "all-devices", Usage: "Select all devices"},
+	}, generatedBoundedMinerSelectorFlags()...)
+}
+
+// generatedBoundedMinerSelectorFlags returns the miner selector flags that name
+// a bounded set of devices (explicit ids, groups, or racks), without the
+// fleet-wide --all-devices flag. Commands that must never target every device,
+// such as firmware deploy, register these flags directly.
+func generatedBoundedMinerSelectorFlags() []cli.Flag {
+	return []cli.Flag{
 		&cli.StringSliceFlag{Name: "device", Usage: "Select one or more device identifiers"},
 		&cli.StringSliceFlag{Name: "group-id", Usage: "Select devices from one or more group ids"},
 		&cli.StringSliceFlag{Name: "group", Usage: "Select devices from one or more group labels"},
@@ -127,7 +136,13 @@ func generatedCommonSelectorFlags() []cli.Flag {
 // set. It mirrors generatedMinerSelectorFlags so the set of selector flags
 // lives in one place, even when a command also accepts a --json request body.
 func generatedMinerSelectorProvided(cmd *cli.Command) bool {
-	return cmd.IsSet("all-devices") || cmd.IsSet("device") || cmd.IsSet("group-id") ||
+	return cmd.IsSet("all-devices") || generatedBoundedMinerSelectorProvided(cmd)
+}
+
+// generatedBoundedMinerSelectorProvided reports whether any bounded miner
+// selector flag (device, group, or rack) was set.
+func generatedBoundedMinerSelectorProvided(cmd *cli.Command) bool {
+	return cmd.IsSet("device") || cmd.IsSet("group-id") ||
 		cmd.IsSet("group") || cmd.IsSet("rack-id") || cmd.IsSet("rack")
 }
 
@@ -160,8 +175,27 @@ func generatedBuildCommonSelector(cmd *cli.Command) (*commonv1.DeviceSelector, e
 }
 
 func generatedBuildMinerSelector(ctx context.Context, cmd *cli.Command, client *Client) (*minercommandv1.DeviceSelector, error) {
-	allDevices := cmd.Bool("all-devices")
-	deviceIDs := append([]string{}, cmd.StringSlice("device")...)
+	if cmd.Bool("all-devices") {
+		if generatedBoundedMinerSelectorProvided(cmd) {
+			return nil, fmt.Errorf("use either --all-devices or explicit device/group/rack selectors, not both")
+		}
+		return &minercommandv1.DeviceSelector{
+			SelectionType: &minercommandv1.DeviceSelector_AllDevices{
+				AllDevices: &minercommandv1.DeviceFilter{},
+			},
+		}, nil
+	}
+	return generatedBuildBoundedMinerSelector(ctx, cmd, client)
+}
+
+// generatedBuildBoundedMinerSelector resolves the explicit device/group/rack
+// selector flags into a DeviceSelector that names a concrete set of devices.
+// Group and rack selectors (by id or label) are expanded client-side to their
+// member device identifiers, so the result is always an explicit include list
+// and never targets all devices. It is shared by generated miner commands and
+// by firmware deploy.
+func generatedBuildBoundedMinerSelector(ctx context.Context, cmd *cli.Command, client *Client) (*minercommandv1.DeviceSelector, error) {
+	deviceIDs := trimNonEmpty(cmd.StringSlice("device"))
 	groupIDs, err := parseInt64Slice(cmd.StringSlice("group-id"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid group-id value: %w", err)
@@ -172,17 +206,6 @@ func generatedBuildMinerSelector(ctx context.Context, cmd *cli.Command, client *
 		return nil, fmt.Errorf("invalid rack-id value: %w", err)
 	}
 	rackLabels := dedupeStrings(cmd.StringSlice("rack"))
-
-	if allDevices && (len(deviceIDs) > 0 || len(groupIDs) > 0 || len(groupLabels) > 0 || len(rackIDs) > 0 || len(rackLabels) > 0) {
-		return nil, fmt.Errorf("use either --all-devices or explicit device/group/rack selectors, not both")
-	}
-	if allDevices {
-		return &minercommandv1.DeviceSelector{
-			SelectionType: &minercommandv1.DeviceSelector_AllDevices{
-				AllDevices: &minercommandv1.DeviceFilter{},
-			},
-		}, nil
-	}
 
 	if len(groupLabels) > 0 {
 		labelIDs, err := generatedResolveCollectionIDsByLabel(ctx, client, collectionv1.CollectionType_COLLECTION_TYPE_GROUP, groupLabels)
@@ -215,7 +238,7 @@ func generatedBuildMinerSelector(ctx context.Context, cmd *cli.Command, client *
 
 	deviceIDs = dedupeStrings(deviceIDs)
 	if len(deviceIDs) == 0 {
-		return nil, fmt.Errorf("one of --all-devices, --device, --group-id, --group, --rack-id, or --rack is required")
+		return nil, fmt.Errorf("one of --device, --group-id, --group, --rack-id, or --rack is required")
 	}
 
 	return &minercommandv1.DeviceSelector{
@@ -320,6 +343,18 @@ func generatedCollectionTypeName(collectionType collectionv1.CollectionType) str
 	default:
 		return "collection"
 	}
+}
+
+// trimNonEmpty trims surrounding whitespace from each value and drops the
+// blanks, preserving order.
+func trimNonEmpty(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func dedupeStrings(values []string) []string {

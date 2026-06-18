@@ -540,12 +540,12 @@ func buildFirmwareDeployRequestFromArgs(t *testing.T, args ...string) (*minercom
 	var req *minercommandv1.FirmwareUpdateRequest
 	var buildErr error
 	cmd := firmwareDeployCommand()
-	cmd.Action = func(_ context.Context, cmd *cli.Command) error {
-		req, buildErr = buildFirmwareDeployRequest(cmd)
+	cmd.Action = func(ctx context.Context, cmd *cli.Command) error {
+		req, buildErr = buildFirmwareDeployRequest(ctx, cmd, nil)
 		return nil
 	}
 	if err := cmd.Run(context.Background(), append([]string{"deploy"}, args...)); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("run firmware deploy command: %w", err)
 	}
 	return req, buildErr
 }
@@ -583,8 +583,8 @@ func TestFirmwareDeployRequiresFirmwareFileIDAndDevice(t *testing.T) {
 		wantErr string
 	}{
 		{name: "missing firmware file id", args: []string{"--device", "device-a"}, wantErr: "firmware-file-id"},
-		{name: "missing device", args: []string{"--firmware-file-id", "firmware-1"}, wantErr: "device"},
-		{name: "blank device", args: []string{"--firmware-file-id", "firmware-1", "--device", "  "}, wantErr: "at least one --device is required"},
+		{name: "missing selector", args: []string{"--firmware-file-id", "firmware-1"}, wantErr: "one of --device"},
+		{name: "blank device", args: []string{"--firmware-file-id", "firmware-1", "--device", "  "}, wantErr: "one of --device"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -596,7 +596,7 @@ func TestFirmwareDeployRequiresFirmwareFileIDAndDevice(t *testing.T) {
 	}
 }
 
-func TestFirmwareDeployRejectsUnsupportedSelectorsBeforeRequest(t *testing.T) {
+func TestFirmwareDeployRejectsAllDevicesBeforeRequest(t *testing.T) {
 	pinFleetAuthEnv(t, nil)
 
 	requestCount := 0
@@ -609,29 +609,17 @@ func TestFirmwareDeployRejectsUnsupportedSelectorsBeforeRequest(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	tests := [][]string{
-		{"--all-devices"},
-		{"--group", "rack-a"},
-		{"--group-id", "1"},
-		{"--rack", "rack-a"},
-		{"--rack-id", "1"},
+	// --all-devices is intentionally not a deploy flag, so it must be rejected
+	// during parsing before any RPC is issued.
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"firmware", "deploy", "--firmware-file-id", "firmware-1", "--device", "device-a", "--all-devices",
+	})
+	if err == nil {
+		t.Fatal("firmware deploy accepted --all-devices")
 	}
-	for _, unsupportedSelector := range tests {
-		t.Run(strings.Join(unsupportedSelector, " "), func(t *testing.T) {
-			args := []string{
-				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-				"firmware", "deploy", "--firmware-file-id", "firmware-1", "--device", "device-a",
-			}
-			args = append(args, unsupportedSelector...)
-
-			err := newRootCommand().Run(context.Background(), args)
-			if err == nil {
-				t.Fatalf("firmware deploy accepted unsupported selector %s", strings.Join(unsupportedSelector, " "))
-			}
-			if requestCount != 0 {
-				t.Fatalf("request count = %d, want 0", requestCount)
-			}
-		})
+	if requestCount != 0 {
+		t.Fatalf("request count = %d, want 0", requestCount)
 	}
 }
 
@@ -692,6 +680,61 @@ func TestFirmwareDeployCallsFirmwareUpdateAndPrintsBatch(t *testing.T) {
 	}
 	if decoded["batch_identifier"] != "batch-1" {
 		t.Fatalf("batch_identifier = %v, want batch-1", decoded["batch_identifier"])
+	}
+}
+
+func TestFirmwareDeployResolvesGroupToDevices(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+	oldNoColor := color.NoColor
+	color.NoColor = true
+	t.Cleanup(func() { color.NoColor = oldNoColor })
+
+	var gotReq minercommandv1.FirmwareUpdateRequest
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /collection.v1.DeviceCollectionService/ListCollections", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{"collections":[{"id":"7","label":"group-a"}]}`))
+	})
+	mux.HandleFunc("POST /collection.v1.DeviceCollectionService/ListCollectionMembers", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{"members":[{"device_identifier":"device-b"},{"device_identifier":"device-a"}]}`))
+	})
+	mux.HandleFunc("POST /minercommand.v1.MinerCommandService/FirmwareUpdate", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read firmware deploy request: %v", err)
+		}
+		if err := protojson.Unmarshal(body, &gotReq); err != nil {
+			t.Errorf("decode firmware deploy request: %v", err)
+		}
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{"batch_identifier":"batch-1"}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	_ = captureStdout(t, func() {
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+			"firmware", "deploy", "--firmware-file-id", "firmware-1", "--group", "group-a",
+		})
+		if err != nil {
+			t.Fatalf("firmware deploy error = %v", err)
+		}
+	})
+
+	wantReq := &minercommandv1.FirmwareUpdateRequest{
+		FirmwareFileId: "firmware-1",
+		DeviceSelector: &minercommandv1.DeviceSelector{
+			SelectionType: &minercommandv1.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: []string{"device-a", "device-b"},
+				},
+			},
+		},
+	}
+	if !proto.Equal(&gotReq, wantReq) {
+		t.Fatalf("request = %v, want %v", &gotReq, wantReq)
 	}
 }
 
