@@ -25,12 +25,18 @@ interface NotificationsState {
   removeMaintenanceWindow: (id: string) => Promise<void>;
 }
 
-const withActive = (s: MaintenanceWindow): MaintenanceWindowWithActive => {
-  const now = Date.now();
+// `now` is injectable so callers can recompute against a ticking clock at render time
+// rather than trusting the snapshot taken when the window was loaded.
+export const isMaintenanceWindowActive = (s: MaintenanceWindow, now: number = Date.now()): boolean => {
   const start = new Date(s.starts_at).getTime();
   const end = s.ends_at ? new Date(s.ends_at).getTime() : Infinity;
-  return { ...s, active: now >= start && now < end };
+  return now >= start && now < end;
 };
+
+const withActive = (s: MaintenanceWindow, now?: number): MaintenanceWindowWithActive => ({
+  ...s,
+  active: isMaintenanceWindowActive(s, now),
+});
 
 const upsertById = <T extends { id: string }>(list: T[], next: T): T[] => {
   const idx = list.findIndex((item) => item.id === next.id);
@@ -90,6 +96,12 @@ export const useNotificationsStore = create<NotificationsState>()(
     updateMaintenanceWindow: async (input) => {
       const updated = await api.updateMaintenanceWindow(input);
       set((state) => {
+        // A history-affecting edit (e.g. changing scope) makes Alertmanager expire the
+        // original silence and assign a new id; drop the stale row so the edited window
+        // isn't listed twice (with the old one still showing active).
+        if (updated.id !== input.id) {
+          state.maintenanceWindows = state.maintenanceWindows.filter((s) => s.id !== input.id);
+        }
         state.maintenanceWindows = upsertById(state.maintenanceWindows, withActive(updated));
       });
       return updated;
@@ -103,8 +115,6 @@ export const useNotificationsStore = create<NotificationsState>()(
     },
   })),
 );
-
-export const computeMaintenanceWindowActive = withActive;
 
 export type { MaintenanceWindowScope };
 

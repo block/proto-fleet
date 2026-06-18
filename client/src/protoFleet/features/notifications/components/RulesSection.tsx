@@ -1,7 +1,11 @@
 import { useCallback, useMemo, useState } from "react";
 import AddMaintenanceWindowModal from "./AddMaintenanceWindowModal";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { useNotificationsStore } from "@/protoFleet/features/notifications/store/notificationsStore";
+import { useNow } from "@/protoFleet/features/notifications/lib/useNow";
+import {
+  isMaintenanceWindowActive,
+  useNotificationsStore,
+} from "@/protoFleet/features/notifications/store/notificationsStore";
 import type { Rule } from "@/protoFleet/features/notifications/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { Pause, Play, Stop } from "@/shared/assets/icons";
@@ -37,15 +41,16 @@ const RulesSection = () => {
   const [maintenanceWindowPrefillRuleId, setMaintenanceWindowPrefillRuleId] = useState<string | null>(null);
   const [showMaintenanceWindowModal, setShowMaintenanceWindowModal] = useState(false);
 
+  const now = useNow();
   const activeMaintenanceWindowByRule = useMemo(() => {
     const map = new Map<string, string>();
     maintenanceWindows.forEach((sil) => {
-      if (sil.active && sil.scope.kind === "rule" && sil.scope.rule_id) {
+      if (isMaintenanceWindowActive(sil, now) && sil.scope.kind === "rule" && sil.scope.rule_id) {
         map.set(sil.scope.rule_id, sil.id);
       }
     });
     return map;
-  }, [maintenanceWindows]);
+  }, [maintenanceWindows, now]);
 
   const sortedRules = useMemo(
     () =>

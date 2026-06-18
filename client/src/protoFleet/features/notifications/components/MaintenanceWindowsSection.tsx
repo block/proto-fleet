@@ -1,7 +1,11 @@
 import { useCallback, useMemo, useState } from "react";
 import AddMaintenanceWindowModal from "./AddMaintenanceWindowModal";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { useNotificationsStore } from "@/protoFleet/features/notifications/store/notificationsStore";
+import { useNow } from "@/protoFleet/features/notifications/lib/useNow";
+import {
+  isMaintenanceWindowActive,
+  useNotificationsStore,
+} from "@/protoFleet/features/notifications/store/notificationsStore";
 import type { MaintenanceWindowWithActive } from "@/protoFleet/features/notifications/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { Edit, Stop } from "@/shared/assets/icons";
@@ -36,12 +40,15 @@ const MaintenanceWindowsSection = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingMaintenanceWindow, setEditingMaintenanceWindow] = useState<MaintenanceWindowWithActive | null>(null);
 
+  // Recompute active against a ticking clock so the badge/sort flip at the window's
+  // start/end boundary instead of freezing at the value computed when it was loaded.
+  const now = useNow();
   const sortedMaintenanceWindows = useMemo<MaintenanceWindowWithActive[]>(
     () =>
       maintenanceWindows
-        .slice()
+        .map((w) => ({ ...w, active: isMaintenanceWindowActive(w, now) }))
         .sort((a, b) => Number(b.active) - Number(a.active) || a.starts_at.localeCompare(b.starts_at)),
-    [maintenanceWindows],
+    [maintenanceWindows, now],
   );
 
   const ruleNameById = useCallback((id: string) => rules.find((r) => r.id === id)?.name ?? id, [rules]);
