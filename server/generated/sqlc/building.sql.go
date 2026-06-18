@@ -513,11 +513,17 @@ func (q *Queries) FindDevicesInBuildingLessPlacedRacks(ctx context.Context, arg 
 }
 
 const getBuilding = `-- name: GetBuilding :one
-SELECT id, org_id, site_id, name, description, power_kw, overhead_kw, aisles, physical_rack_count, racks_per_aisle, default_rack_rows, default_rack_columns, default_rack_order_index, created_at, updated_at, deleted_at
-FROM building
-WHERE id = $1
-  AND org_id = $2
-  AND deleted_at IS NULL
+SELECT
+    b.id, b.org_id, b.site_id, b.name, b.description, b.power_kw, b.overhead_kw, b.aisles, b.physical_rack_count, b.racks_per_aisle, b.default_rack_rows, b.default_rack_columns, b.default_rack_order_index, b.created_at, b.updated_at, b.deleted_at,
+    COALESCE(s.name, '') AS site_label
+FROM building b
+LEFT JOIN site s
+  ON s.id = b.site_id
+ AND s.org_id = b.org_id
+ AND s.deleted_at IS NULL
+WHERE b.id = $1
+  AND b.org_id = $2
+  AND b.deleted_at IS NULL
 `
 
 type GetBuildingParams struct {
@@ -525,9 +531,29 @@ type GetBuildingParams struct {
 	OrgID int64
 }
 
-func (q *Queries) GetBuilding(ctx context.Context, arg GetBuildingParams) (Building, error) {
+type GetBuildingRow struct {
+	ID                    int64
+	OrgID                 int64
+	SiteID                sql.NullInt64
+	Name                  string
+	Description           sql.NullString
+	PowerKw               sql.NullString
+	OverheadKw            sql.NullString
+	Aisles                sql.NullInt32
+	PhysicalRackCount     sql.NullInt32
+	RacksPerAisle         sql.NullInt32
+	DefaultRackRows       sql.NullInt32
+	DefaultRackColumns    sql.NullInt32
+	DefaultRackOrderIndex int16
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	DeletedAt             sql.NullTime
+	SiteLabel             string
+}
+
+func (q *Queries) GetBuilding(ctx context.Context, arg GetBuildingParams) (GetBuildingRow, error) {
 	row := q.queryRow(ctx, q.getBuildingStmt, getBuilding, arg.ID, arg.OrgID)
-	var i Building
+	var i GetBuildingRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -545,6 +571,7 @@ func (q *Queries) GetBuilding(ctx context.Context, arg GetBuildingParams) (Build
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.SiteLabel,
 	)
 	return i, err
 }
@@ -654,9 +681,14 @@ func (q *Queries) ListBuildingRacks(ctx context.Context, arg ListBuildingRacksPa
 const listBuildingsByOrg = `-- name: ListBuildingsByOrg :many
 SELECT
     b.id, b.org_id, b.site_id, b.name, b.description, b.power_kw, b.overhead_kw, b.aisles, b.physical_rack_count, b.racks_per_aisle, b.default_rack_rows, b.default_rack_columns, b.default_rack_order_index, b.created_at, b.updated_at, b.deleted_at,
+    COALESCE(s.name, '') AS site_label,
     COALESCE(r.rack_count, 0)::bigint AS rack_count,
     COALESCE(d.device_count, 0)::bigint AS device_count
 FROM building b
+LEFT JOIN site s
+  ON s.id = b.site_id
+ AND s.org_id = b.org_id
+ AND s.deleted_at IS NULL
 LEFT JOIN (
     SELECT dsr.building_id, COUNT(*) AS rack_count
     FROM device_set_rack dsr
@@ -711,6 +743,7 @@ type ListBuildingsByOrgRow struct {
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 	DeletedAt             sql.NullTime
+	SiteLabel             string
 	RackCount             int64
 	DeviceCount           int64
 }
@@ -746,6 +779,7 @@ func (q *Queries) ListBuildingsByOrg(ctx context.Context, arg ListBuildingsByOrg
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.SiteLabel,
 			&i.RackCount,
 			&i.DeviceCount,
 		); err != nil {

@@ -28,6 +28,7 @@ type Building struct {
 	ID                    int64
 	OrgID                 int64
 	SiteID                *int64 // nil = unassigned
+	SiteLabel             string
 	Name                  string
 	Description           string
 	PowerKw               float64

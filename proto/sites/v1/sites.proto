@@ -3,6 +3,7 @@ syntax = "proto3";
 package sites.v1;
 
 import "buf/validate/validate.proto";
+import "common/v1/common.proto";
 import "common/v1/fleet_list_stats.proto";
 import "errors/v1/errors.proto";
 import "google/protobuf/timestamp.proto";
@@ -100,6 +101,9 @@ message Site {
     string country     = 14;
     // Free-form operator notes. No structure enforced.
     string notes       = 15;
+    // Sites are root placements, so this is currently empty. Present
+    // for shape consistency with building, rack, and miner list rows.
+    common.v1.PlacementRefs placement = 16;
 }
 
 // SiteWithCounts pairs a Site with its attachment counts. Returned by

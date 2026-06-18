@@ -298,10 +298,14 @@ func buildCollectionListQuery(orgID int64, collectionType pb.CollectionType, cur
 		issueCountSelect = collectionIssueCountExpr
 	}
 	sb.WriteString(fmt.Sprintf(`SELECT dc.id, dc.type, dc.label, dc.description, dc.created_at, dc.updated_at,
-       COUNT(dcm.id)::int AS device_count, %s AS issue_count, dcr.zone
+       COUNT(dcm.id)::int AS device_count, %s AS issue_count, dcr.zone,
+       dcr.site_id, COALESCE(s.name, '') AS site_label,
+       dcr.building_id, COALESCE(b.name, '') AS building_label
 FROM device_set dc
 LEFT JOIN device_set_membership dcm ON dc.id = dcm.device_set_id
 LEFT JOIN device_set_rack dcr ON dcr.device_set_id = dc.id
+LEFT JOIN site s ON s.id = dcr.site_id AND s.org_id = dc.org_id AND s.deleted_at IS NULL
+LEFT JOIN building b ON b.id = dcr.building_id AND b.org_id = dc.org_id AND b.deleted_at IS NULL
 `, issueCountSelect))
 	if sortField == collectionSortFieldIssueCount {
 		sb.WriteString(collectionIssueCountJoin)
@@ -395,7 +399,7 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 		}
 	}
 
-	sb.WriteString(" GROUP BY dc.id, dcr.zone")
+	sb.WriteString(" GROUP BY dc.id, dcr.zone, dcr.site_id, s.name, dcr.building_id, b.name")
 
 	// Keyset cursor for aggregate fields (HAVING after GROUP BY)
 	if cursor != nil && sortField == collectionSortFieldDeviceCount {

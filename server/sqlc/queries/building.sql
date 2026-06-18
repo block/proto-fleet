@@ -33,11 +33,17 @@ INSERT INTO building (
 RETURNING *;
 
 -- name: GetBuilding :one
-SELECT *
-FROM building
-WHERE id = sqlc.arg('id')
-  AND org_id = sqlc.arg('org_id')
-  AND deleted_at IS NULL;
+SELECT
+    b.*,
+    COALESCE(s.name, '') AS site_label
+FROM building b
+LEFT JOIN site s
+  ON s.id = b.site_id
+ AND s.org_id = b.org_id
+ AND s.deleted_at IS NULL
+WHERE b.id = sqlc.arg('id')
+  AND b.org_id = sqlc.arg('org_id')
+  AND b.deleted_at IS NULL;
 
 -- name: ListBuildingsByOrg :many
 -- Lists every live building in the org with its rack count. The site
@@ -47,9 +53,14 @@ WHERE id = sqlc.arg('id')
 -- in the org).
 SELECT
     b.*,
+    COALESCE(s.name, '') AS site_label,
     COALESCE(r.rack_count, 0)::bigint AS rack_count,
     COALESCE(d.device_count, 0)::bigint AS device_count
 FROM building b
+LEFT JOIN site s
+  ON s.id = b.site_id
+ AND s.org_id = b.org_id
+ AND s.deleted_at IS NULL
 LEFT JOIN (
     SELECT dsr.building_id, COUNT(*) AS rack_count
     FROM device_set_rack dsr

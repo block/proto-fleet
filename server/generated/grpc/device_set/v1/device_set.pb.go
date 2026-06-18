@@ -7,15 +7,16 @@
 package device_setv1
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	v1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	v11 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -316,7 +317,10 @@ type DeviceSet struct {
 	//
 	//	*DeviceSet_RackInfo
 	//	*DeviceSet_GroupInfo
-	TypeDetails   isDeviceSet_TypeDetails `protobuf_oneof:"type_details"`
+	TypeDetails isDeviceSet_TypeDetails `protobuf_oneof:"type_details"`
+	// Parent placement refs for display/filter rows. Populated for
+	// racks; groups leave this unset.
+	Placement     *v1.PlacementRefs `protobuf:"bytes,10,opt,name=placement,proto3" json:"placement,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -421,6 +425,13 @@ func (x *DeviceSet) GetGroupInfo() *GroupInfo {
 		if x, ok := x.TypeDetails.(*DeviceSet_GroupInfo); ok {
 			return x.GroupInfo
 		}
+	}
+	return nil
+}
+
+func (x *DeviceSet) GetPlacement() *v1.PlacementRefs {
+	if x != nil {
+		return x.Placement
 	}
 	return nil
 }
@@ -3384,41 +3395,46 @@ var file_device_set_v1_device_set_proto_rawDesc = string([]byte{
 	0x1f, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66,
 	0x2f, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f,
 	0x1a, 0x1b, 0x62, 0x75, 0x66, 0x2f, 0x76, 0x61, 0x6c, 0x69, 0x64, 0x61, 0x74, 0x65, 0x2f, 0x76,
-	0x61, 0x6c, 0x69, 0x64, 0x61, 0x74, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x1f, 0x63,
-	0x6f, 0x6d, 0x6d, 0x6f, 0x6e, 0x2f, 0x76, 0x31, 0x2f, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x5f,
-	0x73, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x20,
-	0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x6e, 0x2f, 0x76, 0x31, 0x2f, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x5f,
-	0x6c, 0x69, 0x73, 0x74, 0x5f, 0x73, 0x74, 0x61, 0x74, 0x73, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x1a, 0x14, 0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x6e, 0x2f, 0x76, 0x31, 0x2f, 0x73, 0x6f, 0x72, 0x74,
-	0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x14, 0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x6e, 0x2f, 0x76,
-	0x31, 0x2f, 0x7a, 0x6f, 0x6e, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x16, 0x65, 0x72,
-	0x72, 0x6f, 0x72, 0x73, 0x2f, 0x76, 0x31, 0x2f, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x73, 0x2e, 0x70,
-	0x72, 0x6f, 0x74, 0x6f, 0x22, 0xa1, 0x03, 0x0a, 0x09, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x53,
-	0x65, 0x74, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x52, 0x02,
-	0x69, 0x64, 0x12, 0x30, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0e,
-	0x32, 0x1c, 0x2e, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x73, 0x65, 0x74, 0x2e, 0x76, 0x31,
-	0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x53, 0x65, 0x74, 0x54, 0x79, 0x70, 0x65, 0x52, 0x04,
-	0x74, 0x79, 0x70, 0x65, 0x12, 0x14, 0x0a, 0x05, 0x6c, 0x61, 0x62, 0x65, 0x6c, 0x18, 0x03, 0x20,
-	0x01, 0x28, 0x09, 0x52, 0x05, 0x6c, 0x61, 0x62, 0x65, 0x6c, 0x12, 0x20, 0x0a, 0x0b, 0x64, 0x65,
-	0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52,
-	0x0b, 0x64, 0x65, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x21, 0x0a, 0x0c,
-	0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x05, 0x20, 0x01,
-	0x28, 0x05, 0x52, 0x0b, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x12,
-	0x39, 0x0a, 0x0a, 0x63, 0x72, 0x65, 0x61, 0x74, 0x65, 0x64, 0x5f, 0x61, 0x74, 0x18, 0x06, 0x20,
-	0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f,
-	0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52,
-	0x09, 0x63, 0x72, 0x65, 0x61, 0x74, 0x65, 0x64, 0x41, 0x74, 0x12, 0x39, 0x0a, 0x0a, 0x75, 0x70,
-	0x64, 0x61, 0x74, 0x65, 0x64, 0x5f, 0x61, 0x74, 0x18, 0x07, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a,
-	0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66,
-	0x2e, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x09, 0x75, 0x70, 0x64, 0x61,
-	0x74, 0x65, 0x64, 0x41, 0x74, 0x12, 0x36, 0x0a, 0x09, 0x72, 0x61, 0x63, 0x6b, 0x5f, 0x69, 0x6e,
-	0x66, 0x6f, 0x18, 0x08, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x17, 0x2e, 0x64, 0x65, 0x76, 0x69, 0x63,
-	0x65, 0x5f, 0x73, 0x65, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x61, 0x63, 0x6b, 0x49, 0x6e, 0x66,
-	0x6f, 0x48, 0x00, 0x52, 0x08, 0x72, 0x61, 0x63, 0x6b, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x39, 0x0a,
-	0x0a, 0x67, 0x72, 0x6f, 0x75, 0x70, 0x5f, 0x69, 0x6e, 0x66, 0x6f, 0x18, 0x09, 0x20, 0x01, 0x28,
-	0x0b, 0x32, 0x18, 0x2e, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x73, 0x65, 0x74, 0x2e, 0x76,
-	0x31, 0x2e, 0x47, 0x72, 0x6f, 0x75, 0x70, 0x49, 0x6e, 0x66, 0x6f, 0x48, 0x00, 0x52, 0x09, 0x67,
-	0x72, 0x6f, 0x75, 0x70, 0x49, 0x6e, 0x66, 0x6f, 0x42, 0x0e, 0x0a, 0x0c, 0x74, 0x79, 0x70, 0x65,
+	0x61, 0x6c, 0x69, 0x64, 0x61, 0x74, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x16, 0x63,
+	0x6f, 0x6d, 0x6d, 0x6f, 0x6e, 0x2f, 0x76, 0x31, 0x2f, 0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x6e, 0x2e,
+	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x1f, 0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x6e, 0x2f, 0x76, 0x31,
+	0x2f, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x73, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x6f, 0x72,
+	0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x20, 0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x6e, 0x2f, 0x76,
+	0x31, 0x2f, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x5f, 0x6c, 0x69, 0x73, 0x74, 0x5f, 0x73, 0x74, 0x61,
+	0x74, 0x73, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x14, 0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x6e,
+	0x2f, 0x76, 0x31, 0x2f, 0x73, 0x6f, 0x72, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x14,
+	0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x6e, 0x2f, 0x76, 0x31, 0x2f, 0x7a, 0x6f, 0x6e, 0x65, 0x2e, 0x70,
+	0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x16, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x73, 0x2f, 0x76, 0x31, 0x2f,
+	0x65, 0x72, 0x72, 0x6f, 0x72, 0x73, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x22, 0xd9, 0x03, 0x0a,
+	0x09, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x53, 0x65, 0x74, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x64,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x52, 0x02, 0x69, 0x64, 0x12, 0x30, 0x0a, 0x04, 0x74, 0x79,
+	0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x1c, 0x2e, 0x64, 0x65, 0x76, 0x69, 0x63,
+	0x65, 0x5f, 0x73, 0x65, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x53,
+	0x65, 0x74, 0x54, 0x79, 0x70, 0x65, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x12, 0x14, 0x0a, 0x05,
+	0x6c, 0x61, 0x62, 0x65, 0x6c, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x6c, 0x61, 0x62,
+	0x65, 0x6c, 0x12, 0x20, 0x0a, 0x0b, 0x64, 0x65, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x69, 0x6f,
+	0x6e, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x64, 0x65, 0x73, 0x63, 0x72, 0x69, 0x70,
+	0x74, 0x69, 0x6f, 0x6e, 0x12, 0x21, 0x0a, 0x0c, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x63,
+	0x6f, 0x75, 0x6e, 0x74, 0x18, 0x05, 0x20, 0x01, 0x28, 0x05, 0x52, 0x0b, 0x64, 0x65, 0x76, 0x69,
+	0x63, 0x65, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x39, 0x0a, 0x0a, 0x63, 0x72, 0x65, 0x61, 0x74,
+	0x65, 0x64, 0x5f, 0x61, 0x74, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x67, 0x6f,
+	0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x54, 0x69,
+	0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x09, 0x63, 0x72, 0x65, 0x61, 0x74, 0x65, 0x64,
+	0x41, 0x74, 0x12, 0x39, 0x0a, 0x0a, 0x75, 0x70, 0x64, 0x61, 0x74, 0x65, 0x64, 0x5f, 0x61, 0x74,
+	0x18, 0x07, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e,
+	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61,
+	0x6d, 0x70, 0x52, 0x09, 0x75, 0x70, 0x64, 0x61, 0x74, 0x65, 0x64, 0x41, 0x74, 0x12, 0x36, 0x0a,
+	0x09, 0x72, 0x61, 0x63, 0x6b, 0x5f, 0x69, 0x6e, 0x66, 0x6f, 0x18, 0x08, 0x20, 0x01, 0x28, 0x0b,
+	0x32, 0x17, 0x2e, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x73, 0x65, 0x74, 0x2e, 0x76, 0x31,
+	0x2e, 0x52, 0x61, 0x63, 0x6b, 0x49, 0x6e, 0x66, 0x6f, 0x48, 0x00, 0x52, 0x08, 0x72, 0x61, 0x63,
+	0x6b, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x39, 0x0a, 0x0a, 0x67, 0x72, 0x6f, 0x75, 0x70, 0x5f, 0x69,
+	0x6e, 0x66, 0x6f, 0x18, 0x09, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x18, 0x2e, 0x64, 0x65, 0x76, 0x69,
+	0x63, 0x65, 0x5f, 0x73, 0x65, 0x74, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x72, 0x6f, 0x75, 0x70, 0x49,
+	0x6e, 0x66, 0x6f, 0x48, 0x00, 0x52, 0x09, 0x67, 0x72, 0x6f, 0x75, 0x70, 0x49, 0x6e, 0x66, 0x6f,
+	0x12, 0x36, 0x0a, 0x09, 0x70, 0x6c, 0x61, 0x63, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x18, 0x0a, 0x20,
+	0x01, 0x28, 0x0b, 0x32, 0x18, 0x2e, 0x63, 0x6f, 0x6d, 0x6d, 0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e,
+	0x50, 0x6c, 0x61, 0x63, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x52, 0x65, 0x66, 0x73, 0x52, 0x09, 0x70,
+	0x6c, 0x61, 0x63, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x42, 0x0e, 0x0a, 0x0c, 0x74, 0x79, 0x70, 0x65,
 	0x5f, 0x64, 0x65, 0x74, 0x61, 0x69, 0x6c, 0x73, 0x22, 0xca, 0x02, 0x0a, 0x08, 0x52, 0x61, 0x63,
 	0x6b, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x1b, 0x0a, 0x04, 0x72, 0x6f, 0x77, 0x73, 0x18, 0x01, 0x20,
 	0x01, 0x28, 0x05, 0x42, 0x07, 0xba, 0x48, 0x04, 0x1a, 0x02, 0x20, 0x00, 0x52, 0x04, 0x72, 0x6f,
@@ -4112,12 +4128,13 @@ var file_device_set_v1_device_set_proto_goTypes = []any{
 	(*AssignDevicesToRackResponse)(nil),      // 50: device_set.v1.AssignDevicesToRackResponse
 	(*PerDeviceRackConflict)(nil),            // 51: device_set.v1.PerDeviceRackConflict
 	(*timestamppb.Timestamp)(nil),            // 52: google.protobuf.Timestamp
-	(*v1.DeviceSelector)(nil),                // 53: common.v1.DeviceSelector
-	(*v1.SortConfig)(nil),                    // 54: common.v1.SortConfig
-	(v11.ComponentType)(0),                   // 55: errors.v1.ComponentType
-	(*v1.ZoneKey)(nil),                       // 56: common.v1.ZoneKey
-	(*v1.FleetListTelemetryRangeFilter)(nil), // 57: common.v1.FleetListTelemetryRangeFilter
-	(*v1.ZoneRef)(nil),                       // 58: common.v1.ZoneRef
+	(*v1.PlacementRefs)(nil),                 // 53: common.v1.PlacementRefs
+	(*v1.DeviceSelector)(nil),                // 54: common.v1.DeviceSelector
+	(*v1.SortConfig)(nil),                    // 55: common.v1.SortConfig
+	(v11.ComponentType)(0),                   // 56: errors.v1.ComponentType
+	(*v1.ZoneKey)(nil),                       // 57: common.v1.ZoneKey
+	(*v1.FleetListTelemetryRangeFilter)(nil), // 58: common.v1.FleetListTelemetryRangeFilter
+	(*v1.ZoneRef)(nil),                       // 59: common.v1.ZoneRef
 }
 var file_device_set_v1_device_set_proto_depIdxs = []int32{
 	0,  // 0: device_set.v1.DeviceSet.type:type_name -> device_set.v1.DeviceSetType
@@ -4125,89 +4142,90 @@ var file_device_set_v1_device_set_proto_depIdxs = []int32{
 	52, // 2: device_set.v1.DeviceSet.updated_at:type_name -> google.protobuf.Timestamp
 	6,  // 3: device_set.v1.DeviceSet.rack_info:type_name -> device_set.v1.RackInfo
 	7,  // 4: device_set.v1.DeviceSet.group_info:type_name -> device_set.v1.GroupInfo
-	1,  // 5: device_set.v1.RackInfo.order_index:type_name -> device_set.v1.RackOrderIndex
-	2,  // 6: device_set.v1.RackInfo.cooling_type:type_name -> device_set.v1.RackCoolingType
-	52, // 7: device_set.v1.DeviceSetMember.added_at:type_name -> google.protobuf.Timestamp
-	9,  // 8: device_set.v1.DeviceSetMember.rack:type_name -> device_set.v1.RackMemberDetails
-	10, // 9: device_set.v1.RackMemberDetails.slot_position:type_name -> device_set.v1.RackSlotPosition
-	0,  // 10: device_set.v1.CreateDeviceSetRequest.type:type_name -> device_set.v1.DeviceSetType
-	6,  // 11: device_set.v1.CreateDeviceSetRequest.rack_info:type_name -> device_set.v1.RackInfo
-	7,  // 12: device_set.v1.CreateDeviceSetRequest.group_info:type_name -> device_set.v1.GroupInfo
-	53, // 13: device_set.v1.CreateDeviceSetRequest.device_selector:type_name -> common.v1.DeviceSelector
-	5,  // 14: device_set.v1.CreateDeviceSetResponse.device_set:type_name -> device_set.v1.DeviceSet
-	5,  // 15: device_set.v1.GetDeviceSetResponse.device_set:type_name -> device_set.v1.DeviceSet
-	6,  // 16: device_set.v1.UpdateDeviceSetRequest.rack_info:type_name -> device_set.v1.RackInfo
-	7,  // 17: device_set.v1.UpdateDeviceSetRequest.group_info:type_name -> device_set.v1.GroupInfo
-	53, // 18: device_set.v1.UpdateDeviceSetRequest.device_selector:type_name -> common.v1.DeviceSelector
-	5,  // 19: device_set.v1.UpdateDeviceSetResponse.device_set:type_name -> device_set.v1.DeviceSet
-	0,  // 20: device_set.v1.ListDeviceSetsRequest.type:type_name -> device_set.v1.DeviceSetType
-	54, // 21: device_set.v1.ListDeviceSetsRequest.sort:type_name -> common.v1.SortConfig
-	55, // 22: device_set.v1.ListDeviceSetsRequest.error_component_types:type_name -> errors.v1.ComponentType
-	56, // 23: device_set.v1.ListDeviceSetsRequest.zone_keys:type_name -> common.v1.ZoneKey
-	57, // 24: device_set.v1.ListDeviceSetsRequest.telemetry_ranges:type_name -> common.v1.FleetListTelemetryRangeFilter
-	5,  // 25: device_set.v1.ListDeviceSetsResponse.device_sets:type_name -> device_set.v1.DeviceSet
-	53, // 26: device_set.v1.AddDevicesToGroupRequest.device_selector:type_name -> common.v1.DeviceSelector
-	53, // 27: device_set.v1.RemoveDevicesFromGroupRequest.device_selector:type_name -> common.v1.DeviceSelector
-	8,  // 28: device_set.v1.ListDeviceSetMembersResponse.members:type_name -> device_set.v1.DeviceSetMember
-	0,  // 29: device_set.v1.GetDeviceDeviceSetsRequest.type:type_name -> device_set.v1.DeviceSetType
-	5,  // 30: device_set.v1.GetDeviceDeviceSetsResponse.device_sets:type_name -> device_set.v1.DeviceSet
-	10, // 31: device_set.v1.SetRackSlotPositionRequest.position:type_name -> device_set.v1.RackSlotPosition
-	34, // 32: device_set.v1.SetRackSlotPositionResponse.slot:type_name -> device_set.v1.RackSlot
-	10, // 33: device_set.v1.RackSlot.position:type_name -> device_set.v1.RackSlotPosition
-	34, // 34: device_set.v1.GetRackSlotsResponse.slots:type_name -> device_set.v1.RackSlot
-	39, // 35: device_set.v1.DeviceSetStats.slot_statuses:type_name -> device_set.v1.RackSlotStatus
-	36, // 36: device_set.v1.GetDeviceSetStatsResponse.stats:type_name -> device_set.v1.DeviceSetStats
-	3,  // 37: device_set.v1.RackSlotStatus.status:type_name -> device_set.v1.SlotDeviceStatus
-	58, // 38: device_set.v1.ListRackZoneRefsResponse.zones:type_name -> common.v1.ZoneRef
-	45, // 39: device_set.v1.ListRackTypesResponse.rack_types:type_name -> device_set.v1.RackType
-	6,  // 40: device_set.v1.SaveRackRequest.rack_info:type_name -> device_set.v1.RackInfo
-	53, // 41: device_set.v1.SaveRackRequest.device_selector:type_name -> common.v1.DeviceSelector
-	34, // 42: device_set.v1.SaveRackRequest.slot_assignments:type_name -> device_set.v1.RackSlot
-	5,  // 43: device_set.v1.SaveRackResponse.device_set:type_name -> device_set.v1.DeviceSet
-	53, // 44: device_set.v1.AssignDevicesToRackRequest.device_selector:type_name -> common.v1.DeviceSelector
-	51, // 45: device_set.v1.AssignDevicesToRackResponse.conflicts:type_name -> device_set.v1.PerDeviceRackConflict
-	4,  // 46: device_set.v1.PerDeviceRackConflict.reason:type_name -> device_set.v1.PerDeviceRackConflictReason
-	11, // 47: device_set.v1.DeviceSetService.CreateDeviceSet:input_type -> device_set.v1.CreateDeviceSetRequest
-	13, // 48: device_set.v1.DeviceSetService.GetDeviceSet:input_type -> device_set.v1.GetDeviceSetRequest
-	15, // 49: device_set.v1.DeviceSetService.UpdateDeviceSet:input_type -> device_set.v1.UpdateDeviceSetRequest
-	17, // 50: device_set.v1.DeviceSetService.DeleteDeviceSet:input_type -> device_set.v1.DeleteDeviceSetRequest
-	19, // 51: device_set.v1.DeviceSetService.ListDeviceSets:input_type -> device_set.v1.ListDeviceSetsRequest
-	21, // 52: device_set.v1.DeviceSetService.AddDevicesToGroup:input_type -> device_set.v1.AddDevicesToGroupRequest
-	23, // 53: device_set.v1.DeviceSetService.RemoveDevicesFromGroup:input_type -> device_set.v1.RemoveDevicesFromGroupRequest
-	25, // 54: device_set.v1.DeviceSetService.ListDeviceSetMembers:input_type -> device_set.v1.ListDeviceSetMembersRequest
-	27, // 55: device_set.v1.DeviceSetService.GetDeviceDeviceSets:input_type -> device_set.v1.GetDeviceDeviceSetsRequest
-	29, // 56: device_set.v1.DeviceSetService.SetRackSlotPosition:input_type -> device_set.v1.SetRackSlotPositionRequest
-	31, // 57: device_set.v1.DeviceSetService.ClearRackSlotPosition:input_type -> device_set.v1.ClearRackSlotPositionRequest
-	33, // 58: device_set.v1.DeviceSetService.GetRackSlots:input_type -> device_set.v1.GetRackSlotsRequest
-	37, // 59: device_set.v1.DeviceSetService.GetDeviceSetStats:input_type -> device_set.v1.GetDeviceSetStatsRequest
-	40, // 60: device_set.v1.DeviceSetService.ListRackZones:input_type -> device_set.v1.ListRackZonesRequest
-	42, // 61: device_set.v1.DeviceSetService.ListRackZoneRefs:input_type -> device_set.v1.ListRackZoneRefsRequest
-	44, // 62: device_set.v1.DeviceSetService.ListRackTypes:input_type -> device_set.v1.ListRackTypesRequest
-	47, // 63: device_set.v1.DeviceSetService.SaveRack:input_type -> device_set.v1.SaveRackRequest
-	49, // 64: device_set.v1.DeviceSetService.AssignDevicesToRack:input_type -> device_set.v1.AssignDevicesToRackRequest
-	12, // 65: device_set.v1.DeviceSetService.CreateDeviceSet:output_type -> device_set.v1.CreateDeviceSetResponse
-	14, // 66: device_set.v1.DeviceSetService.GetDeviceSet:output_type -> device_set.v1.GetDeviceSetResponse
-	16, // 67: device_set.v1.DeviceSetService.UpdateDeviceSet:output_type -> device_set.v1.UpdateDeviceSetResponse
-	18, // 68: device_set.v1.DeviceSetService.DeleteDeviceSet:output_type -> device_set.v1.DeleteDeviceSetResponse
-	20, // 69: device_set.v1.DeviceSetService.ListDeviceSets:output_type -> device_set.v1.ListDeviceSetsResponse
-	22, // 70: device_set.v1.DeviceSetService.AddDevicesToGroup:output_type -> device_set.v1.AddDevicesToGroupResponse
-	24, // 71: device_set.v1.DeviceSetService.RemoveDevicesFromGroup:output_type -> device_set.v1.RemoveDevicesFromGroupResponse
-	26, // 72: device_set.v1.DeviceSetService.ListDeviceSetMembers:output_type -> device_set.v1.ListDeviceSetMembersResponse
-	28, // 73: device_set.v1.DeviceSetService.GetDeviceDeviceSets:output_type -> device_set.v1.GetDeviceDeviceSetsResponse
-	30, // 74: device_set.v1.DeviceSetService.SetRackSlotPosition:output_type -> device_set.v1.SetRackSlotPositionResponse
-	32, // 75: device_set.v1.DeviceSetService.ClearRackSlotPosition:output_type -> device_set.v1.ClearRackSlotPositionResponse
-	35, // 76: device_set.v1.DeviceSetService.GetRackSlots:output_type -> device_set.v1.GetRackSlotsResponse
-	38, // 77: device_set.v1.DeviceSetService.GetDeviceSetStats:output_type -> device_set.v1.GetDeviceSetStatsResponse
-	41, // 78: device_set.v1.DeviceSetService.ListRackZones:output_type -> device_set.v1.ListRackZonesResponse
-	43, // 79: device_set.v1.DeviceSetService.ListRackZoneRefs:output_type -> device_set.v1.ListRackZoneRefsResponse
-	46, // 80: device_set.v1.DeviceSetService.ListRackTypes:output_type -> device_set.v1.ListRackTypesResponse
-	48, // 81: device_set.v1.DeviceSetService.SaveRack:output_type -> device_set.v1.SaveRackResponse
-	50, // 82: device_set.v1.DeviceSetService.AssignDevicesToRack:output_type -> device_set.v1.AssignDevicesToRackResponse
-	65, // [65:83] is the sub-list for method output_type
-	47, // [47:65] is the sub-list for method input_type
-	47, // [47:47] is the sub-list for extension type_name
-	47, // [47:47] is the sub-list for extension extendee
-	0,  // [0:47] is the sub-list for field type_name
+	53, // 5: device_set.v1.DeviceSet.placement:type_name -> common.v1.PlacementRefs
+	1,  // 6: device_set.v1.RackInfo.order_index:type_name -> device_set.v1.RackOrderIndex
+	2,  // 7: device_set.v1.RackInfo.cooling_type:type_name -> device_set.v1.RackCoolingType
+	52, // 8: device_set.v1.DeviceSetMember.added_at:type_name -> google.protobuf.Timestamp
+	9,  // 9: device_set.v1.DeviceSetMember.rack:type_name -> device_set.v1.RackMemberDetails
+	10, // 10: device_set.v1.RackMemberDetails.slot_position:type_name -> device_set.v1.RackSlotPosition
+	0,  // 11: device_set.v1.CreateDeviceSetRequest.type:type_name -> device_set.v1.DeviceSetType
+	6,  // 12: device_set.v1.CreateDeviceSetRequest.rack_info:type_name -> device_set.v1.RackInfo
+	7,  // 13: device_set.v1.CreateDeviceSetRequest.group_info:type_name -> device_set.v1.GroupInfo
+	54, // 14: device_set.v1.CreateDeviceSetRequest.device_selector:type_name -> common.v1.DeviceSelector
+	5,  // 15: device_set.v1.CreateDeviceSetResponse.device_set:type_name -> device_set.v1.DeviceSet
+	5,  // 16: device_set.v1.GetDeviceSetResponse.device_set:type_name -> device_set.v1.DeviceSet
+	6,  // 17: device_set.v1.UpdateDeviceSetRequest.rack_info:type_name -> device_set.v1.RackInfo
+	7,  // 18: device_set.v1.UpdateDeviceSetRequest.group_info:type_name -> device_set.v1.GroupInfo
+	54, // 19: device_set.v1.UpdateDeviceSetRequest.device_selector:type_name -> common.v1.DeviceSelector
+	5,  // 20: device_set.v1.UpdateDeviceSetResponse.device_set:type_name -> device_set.v1.DeviceSet
+	0,  // 21: device_set.v1.ListDeviceSetsRequest.type:type_name -> device_set.v1.DeviceSetType
+	55, // 22: device_set.v1.ListDeviceSetsRequest.sort:type_name -> common.v1.SortConfig
+	56, // 23: device_set.v1.ListDeviceSetsRequest.error_component_types:type_name -> errors.v1.ComponentType
+	57, // 24: device_set.v1.ListDeviceSetsRequest.zone_keys:type_name -> common.v1.ZoneKey
+	58, // 25: device_set.v1.ListDeviceSetsRequest.telemetry_ranges:type_name -> common.v1.FleetListTelemetryRangeFilter
+	5,  // 26: device_set.v1.ListDeviceSetsResponse.device_sets:type_name -> device_set.v1.DeviceSet
+	54, // 27: device_set.v1.AddDevicesToGroupRequest.device_selector:type_name -> common.v1.DeviceSelector
+	54, // 28: device_set.v1.RemoveDevicesFromGroupRequest.device_selector:type_name -> common.v1.DeviceSelector
+	8,  // 29: device_set.v1.ListDeviceSetMembersResponse.members:type_name -> device_set.v1.DeviceSetMember
+	0,  // 30: device_set.v1.GetDeviceDeviceSetsRequest.type:type_name -> device_set.v1.DeviceSetType
+	5,  // 31: device_set.v1.GetDeviceDeviceSetsResponse.device_sets:type_name -> device_set.v1.DeviceSet
+	10, // 32: device_set.v1.SetRackSlotPositionRequest.position:type_name -> device_set.v1.RackSlotPosition
+	34, // 33: device_set.v1.SetRackSlotPositionResponse.slot:type_name -> device_set.v1.RackSlot
+	10, // 34: device_set.v1.RackSlot.position:type_name -> device_set.v1.RackSlotPosition
+	34, // 35: device_set.v1.GetRackSlotsResponse.slots:type_name -> device_set.v1.RackSlot
+	39, // 36: device_set.v1.DeviceSetStats.slot_statuses:type_name -> device_set.v1.RackSlotStatus
+	36, // 37: device_set.v1.GetDeviceSetStatsResponse.stats:type_name -> device_set.v1.DeviceSetStats
+	3,  // 38: device_set.v1.RackSlotStatus.status:type_name -> device_set.v1.SlotDeviceStatus
+	59, // 39: device_set.v1.ListRackZoneRefsResponse.zones:type_name -> common.v1.ZoneRef
+	45, // 40: device_set.v1.ListRackTypesResponse.rack_types:type_name -> device_set.v1.RackType
+	6,  // 41: device_set.v1.SaveRackRequest.rack_info:type_name -> device_set.v1.RackInfo
+	54, // 42: device_set.v1.SaveRackRequest.device_selector:type_name -> common.v1.DeviceSelector
+	34, // 43: device_set.v1.SaveRackRequest.slot_assignments:type_name -> device_set.v1.RackSlot
+	5,  // 44: device_set.v1.SaveRackResponse.device_set:type_name -> device_set.v1.DeviceSet
+	54, // 45: device_set.v1.AssignDevicesToRackRequest.device_selector:type_name -> common.v1.DeviceSelector
+	51, // 46: device_set.v1.AssignDevicesToRackResponse.conflicts:type_name -> device_set.v1.PerDeviceRackConflict
+	4,  // 47: device_set.v1.PerDeviceRackConflict.reason:type_name -> device_set.v1.PerDeviceRackConflictReason
+	11, // 48: device_set.v1.DeviceSetService.CreateDeviceSet:input_type -> device_set.v1.CreateDeviceSetRequest
+	13, // 49: device_set.v1.DeviceSetService.GetDeviceSet:input_type -> device_set.v1.GetDeviceSetRequest
+	15, // 50: device_set.v1.DeviceSetService.UpdateDeviceSet:input_type -> device_set.v1.UpdateDeviceSetRequest
+	17, // 51: device_set.v1.DeviceSetService.DeleteDeviceSet:input_type -> device_set.v1.DeleteDeviceSetRequest
+	19, // 52: device_set.v1.DeviceSetService.ListDeviceSets:input_type -> device_set.v1.ListDeviceSetsRequest
+	21, // 53: device_set.v1.DeviceSetService.AddDevicesToGroup:input_type -> device_set.v1.AddDevicesToGroupRequest
+	23, // 54: device_set.v1.DeviceSetService.RemoveDevicesFromGroup:input_type -> device_set.v1.RemoveDevicesFromGroupRequest
+	25, // 55: device_set.v1.DeviceSetService.ListDeviceSetMembers:input_type -> device_set.v1.ListDeviceSetMembersRequest
+	27, // 56: device_set.v1.DeviceSetService.GetDeviceDeviceSets:input_type -> device_set.v1.GetDeviceDeviceSetsRequest
+	29, // 57: device_set.v1.DeviceSetService.SetRackSlotPosition:input_type -> device_set.v1.SetRackSlotPositionRequest
+	31, // 58: device_set.v1.DeviceSetService.ClearRackSlotPosition:input_type -> device_set.v1.ClearRackSlotPositionRequest
+	33, // 59: device_set.v1.DeviceSetService.GetRackSlots:input_type -> device_set.v1.GetRackSlotsRequest
+	37, // 60: device_set.v1.DeviceSetService.GetDeviceSetStats:input_type -> device_set.v1.GetDeviceSetStatsRequest
+	40, // 61: device_set.v1.DeviceSetService.ListRackZones:input_type -> device_set.v1.ListRackZonesRequest
+	42, // 62: device_set.v1.DeviceSetService.ListRackZoneRefs:input_type -> device_set.v1.ListRackZoneRefsRequest
+	44, // 63: device_set.v1.DeviceSetService.ListRackTypes:input_type -> device_set.v1.ListRackTypesRequest
+	47, // 64: device_set.v1.DeviceSetService.SaveRack:input_type -> device_set.v1.SaveRackRequest
+	49, // 65: device_set.v1.DeviceSetService.AssignDevicesToRack:input_type -> device_set.v1.AssignDevicesToRackRequest
+	12, // 66: device_set.v1.DeviceSetService.CreateDeviceSet:output_type -> device_set.v1.CreateDeviceSetResponse
+	14, // 67: device_set.v1.DeviceSetService.GetDeviceSet:output_type -> device_set.v1.GetDeviceSetResponse
+	16, // 68: device_set.v1.DeviceSetService.UpdateDeviceSet:output_type -> device_set.v1.UpdateDeviceSetResponse
+	18, // 69: device_set.v1.DeviceSetService.DeleteDeviceSet:output_type -> device_set.v1.DeleteDeviceSetResponse
+	20, // 70: device_set.v1.DeviceSetService.ListDeviceSets:output_type -> device_set.v1.ListDeviceSetsResponse
+	22, // 71: device_set.v1.DeviceSetService.AddDevicesToGroup:output_type -> device_set.v1.AddDevicesToGroupResponse
+	24, // 72: device_set.v1.DeviceSetService.RemoveDevicesFromGroup:output_type -> device_set.v1.RemoveDevicesFromGroupResponse
+	26, // 73: device_set.v1.DeviceSetService.ListDeviceSetMembers:output_type -> device_set.v1.ListDeviceSetMembersResponse
+	28, // 74: device_set.v1.DeviceSetService.GetDeviceDeviceSets:output_type -> device_set.v1.GetDeviceDeviceSetsResponse
+	30, // 75: device_set.v1.DeviceSetService.SetRackSlotPosition:output_type -> device_set.v1.SetRackSlotPositionResponse
+	32, // 76: device_set.v1.DeviceSetService.ClearRackSlotPosition:output_type -> device_set.v1.ClearRackSlotPositionResponse
+	35, // 77: device_set.v1.DeviceSetService.GetRackSlots:output_type -> device_set.v1.GetRackSlotsResponse
+	38, // 78: device_set.v1.DeviceSetService.GetDeviceSetStats:output_type -> device_set.v1.GetDeviceSetStatsResponse
+	41, // 79: device_set.v1.DeviceSetService.ListRackZones:output_type -> device_set.v1.ListRackZonesResponse
+	43, // 80: device_set.v1.DeviceSetService.ListRackZoneRefs:output_type -> device_set.v1.ListRackZoneRefsResponse
+	46, // 81: device_set.v1.DeviceSetService.ListRackTypes:output_type -> device_set.v1.ListRackTypesResponse
+	48, // 82: device_set.v1.DeviceSetService.SaveRack:output_type -> device_set.v1.SaveRackResponse
+	50, // 83: device_set.v1.DeviceSetService.AssignDevicesToRack:output_type -> device_set.v1.AssignDevicesToRackResponse
+	66, // [66:84] is the sub-list for method output_type
+	48, // [48:66] is the sub-list for method input_type
+	48, // [48:48] is the sub-list for extension type_name
+	48, // [48:48] is the sub-list for extension extendee
+	0,  // [0:48] is the sub-list for field type_name
 }
 
 func init() { file_device_set_v1_device_set_proto_init() }

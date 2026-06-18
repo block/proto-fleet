@@ -44,8 +44,7 @@ func (s *SQLBuildingStore) CreateBuilding(ctx context.Context, params models.Cre
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to create building: %v", err)
 	}
-	out := buildingFromRow(row)
-	return &out, nil
+	return s.GetBuilding(ctx, params.OrgID, row.ID)
 }
 
 func (s *SQLBuildingStore) GetBuilding(ctx context.Context, orgID, id int64) (*models.Building, error) {
@@ -56,7 +55,7 @@ func (s *SQLBuildingStore) GetBuilding(ctx context.Context, orgID, id int64) (*m
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to get building: %v", err)
 	}
-	out := buildingFromRow(row)
+	out := buildingFromGetRow(row)
 	return &out, nil
 }
 
@@ -80,6 +79,7 @@ func (s *SQLBuildingStore) ListBuildings(ctx context.Context, filter models.List
 				ID:                    row.ID,
 				OrgID:                 row.OrgID,
 				SiteID:                nullInt64ToPtr(row.SiteID),
+				SiteLabel:             row.SiteLabel,
 				Name:                  row.Name,
 				Description:           row.Description.String,
 				PowerKw:               floatFromNumeric(row.PowerKw),
@@ -395,11 +395,12 @@ func (s *SQLBuildingStore) ClearDeviceBuildingsOnSiteMismatch(ctx context.Contex
 	return n, nil
 }
 
-func buildingFromRow(row sqlc.Building) models.Building {
+func buildingFromGetRow(row sqlc.GetBuildingRow) models.Building {
 	return models.Building{
 		ID:                    row.ID,
 		OrgID:                 row.OrgID,
 		SiteID:                nullInt64ToPtr(row.SiteID),
+		SiteLabel:             row.SiteLabel,
 		Name:                  row.Name,
 		Description:           row.Description.String,
 		PowerKw:               floatFromNumeric(row.PowerKw),

@@ -682,11 +682,24 @@ func (q *Queries) GetDeviceIdentifiersByDeviceSetID(ctx context.Context, arg Get
 
 const getDeviceSet = `-- name: GetDeviceSet :one
 SELECT ds.id, ds.type, ds.label, ds.description, ds.created_at, ds.updated_at,
-       COUNT(dsm.id)::int AS device_count
+       COUNT(dsm.id)::int AS device_count,
+       dsr.site_id,
+       COALESCE(s.name, '') AS site_label,
+       dsr.building_id,
+       COALESCE(b.name, '') AS building_label
 FROM device_set ds
 LEFT JOIN device_set_membership dsm ON ds.id = dsm.device_set_id
+LEFT JOIN device_set_rack dsr ON dsr.device_set_id = ds.id
+LEFT JOIN site s
+  ON s.id = dsr.site_id
+ AND s.org_id = ds.org_id
+ AND s.deleted_at IS NULL
+LEFT JOIN building b
+  ON b.id = dsr.building_id
+ AND b.org_id = ds.org_id
+ AND b.deleted_at IS NULL
 WHERE ds.id = $1 AND ds.org_id = $2 AND ds.deleted_at IS NULL
-GROUP BY ds.id
+GROUP BY ds.id, dsr.site_id, s.name, dsr.building_id, b.name
 `
 
 type GetDeviceSetParams struct {
@@ -695,13 +708,17 @@ type GetDeviceSetParams struct {
 }
 
 type GetDeviceSetRow struct {
-	ID          int64
-	Type        DeviceSetType
-	Label       string
-	Description sql.NullString
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeviceCount int32
+	ID            int64
+	Type          DeviceSetType
+	Label         string
+	Description   sql.NullString
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	DeviceCount   int32
+	SiteID        sql.NullInt64
+	SiteLabel     string
+	BuildingID    sql.NullInt64
+	BuildingLabel string
 }
 
 func (q *Queries) GetDeviceSet(ctx context.Context, arg GetDeviceSetParams) (GetDeviceSetRow, error) {
@@ -715,6 +732,10 @@ func (q *Queries) GetDeviceSet(ctx context.Context, arg GetDeviceSetParams) (Get
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeviceCount,
+		&i.SiteID,
+		&i.SiteLabel,
+		&i.BuildingID,
+		&i.BuildingLabel,
 	)
 	return i, err
 }

@@ -51,6 +51,7 @@ func toDeviceSet(c *collectionpb.DeviceCollection) *dspb.DeviceSet {
 		DeviceCount: c.DeviceCount,
 		CreatedAt:   c.CreatedAt,
 		UpdatedAt:   c.UpdatedAt,
+		Placement:   c.Placement,
 	}
 	switch td := c.TypeDetails.(type) {
 	case *collectionpb.DeviceCollection_RackInfo:

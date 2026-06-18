@@ -203,6 +203,32 @@ func TestHandler_ListBuildings_filterCombined(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestHandler_ListBuildings_includesPlacementRefs(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	siteID := int64(42)
+
+	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
+		Return([]models.BuildingWithCounts{{
+			Building: models.Building{
+				ID:        7,
+				SiteID:    &siteID,
+				SiteLabel: "Austin",
+				Name:      "Building A",
+			},
+		}}, nil)
+
+	resp, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetBuildings(), 1)
+
+	building := resp.Msg.GetBuildings()[0].GetBuilding()
+	require.NotNil(t, building.GetPlacement())
+	require.NotNil(t, building.GetPlacement().GetSite())
+	assert.Equal(t, siteID, building.GetPlacement().GetSite().GetId())
+	assert.Equal(t, "Austin", building.GetPlacement().GetSite().GetLabel())
+}
+
 func TestHandler_ListBuildings_omitsStatsForNarrowedBuildingSite(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)

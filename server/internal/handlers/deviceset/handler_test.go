@@ -123,7 +123,14 @@ func TestListDeviceSets_HappyPath(t *testing.T) {
 			assert.Equal(t, []int64{7}, filter.BuildingIDs)
 			require.Len(t, filter.ZoneKeys, 1)
 			assert.Equal(t, interfaces.ZoneKey{BuildingID: 7, Zone: "Room 2"}, filter.ZoneKeys[0])
-			return []*collectionpb.DeviceCollection{{Id: 42, Label: "Rack 1"}}, "next-token", 1, nil
+			return []*collectionpb.DeviceCollection{{
+				Id:    42,
+				Label: "Rack 1",
+				Placement: &commonpb.PlacementRefs{
+					Site:     &commonpb.ResourceRef{Id: 3, Label: "Austin"},
+					Building: &commonpb.ResourceRef{Id: 7, Label: "Building A"},
+				},
+			}}, "next-token", 1, nil
 		})
 
 	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
@@ -140,7 +147,15 @@ func TestListDeviceSets_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.Len(t, resp.Msg.DeviceSets, 1)
-	assert.Equal(t, int64(42), resp.Msg.DeviceSets[0].Id)
+	deviceSet := resp.Msg.DeviceSets[0]
+	assert.Equal(t, int64(42), deviceSet.Id)
+	require.NotNil(t, deviceSet.GetPlacement())
+	require.NotNil(t, deviceSet.GetPlacement().GetSite())
+	assert.Equal(t, int64(3), deviceSet.GetPlacement().GetSite().GetId())
+	assert.Equal(t, "Austin", deviceSet.GetPlacement().GetSite().GetLabel())
+	require.NotNil(t, deviceSet.GetPlacement().GetBuilding())
+	assert.Equal(t, int64(7), deviceSet.GetPlacement().GetBuilding().GetId())
+	assert.Equal(t, "Building A", deviceSet.GetPlacement().GetBuilding().GetLabel())
 	assert.Equal(t, "next-token", resp.Msg.NextPageToken)
 	assert.Equal(t, int32(1), resp.Msg.TotalCount)
 }

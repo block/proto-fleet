@@ -4,6 +4,7 @@ package collection.v1;
 
 import "google/protobuf/timestamp.proto";
 import "buf/validate/validate.proto";
+import "common/v1/common.proto";
 import "common/v1/device_selector.proto";
 import "common/v1/sort.proto";
 import "errors/v1/errors.proto";
@@ -94,6 +95,10 @@ message DeviceCollection {
         RackInfo rack_info = 8;
         GroupInfo group_info = 9;
     }
+
+    // Parent placement refs for display/filter rows. Populated for
+    // racks; groups leave this unset.
+    common.v1.PlacementRefs placement = 10;
 }
 
 // Order index defining where row/column numbering starts in a rack

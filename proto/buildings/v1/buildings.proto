@@ -3,6 +3,7 @@ syntax = "proto3";
 package buildings.v1;
 
 import "buf/validate/validate.proto";
+import "common/v1/common.proto";
 import "common/v1/fleet_list_stats.proto";
 import "errors/v1/errors.proto";
 import "google/protobuf/timestamp.proto";
@@ -111,6 +112,10 @@ message Building {
 
     google.protobuf.Timestamp created_at = 13;
     google.protobuf.Timestamp updated_at = 14;
+
+    // Parent placement refs for display/filter rows. site is unset
+    // when this building is unassigned.
+    common.v1.PlacementRefs placement = 15;
 }
 
 // BuildingWithCounts pairs a Building with its rack_count for the
