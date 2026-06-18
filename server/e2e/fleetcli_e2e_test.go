@@ -22,9 +22,8 @@ import (
 // test binary never triggers the docker compose watch on server/.
 const fleetCLIBinaryPath = "../../.cache/fleet-cli/fleetcli-e2e"
 
-// TestFleetCLIWorkflow drives the local sim-rig workflow through the fleetcli
-// binary: create admin -> pairing discover -> pairing pair -> miners list ->
-// performance get.
+// TestFleetCLIWorkflow drives the local control-plane workflow through the
+// fleetcli binary: create admin -> miners list -> performance get.
 //
 // Prerequisites: the docker-compose stack must be running with fleet-api on
 // localhost:4000 and proto-sim reachable at 127.0.0.1:8080 (e.g. `just dev`).
@@ -71,51 +70,7 @@ func TestFleetCLIWorkflow(t *testing.T) {
 
 	var deviceIdentifier string
 
-	t.Run("PairingDiscover", func(t *testing.T) {
-		output, err := runFleetCLI(ctx, env,
-			"pairing", "discover",
-			"--ip", protoSimDiscoveryHost,
-			"--port", protoSimPort,
-		)
-		require.NoError(t, err, "pairing discover should succeed")
-
-		var resp struct {
-			Devices []struct {
-				DeviceIdentifier string `json:"device_identifier"`
-				IPAddress        string `json:"ip_address"`
-				DriverName       string `json:"driver_name"`
-			} `json:"devices"`
-			Error string `json:"error"`
-		}
-		require.NoError(t, json.Unmarshal([]byte(output), &resp), "discover output should be JSON: %s", output)
-		require.Empty(t, resp.Error, "discover should not report an in-band error")
-		require.Len(t, resp.Devices, 1, "should discover exactly one device")
-
-		device := resp.Devices[0]
-		deviceIdentifier = device.DeviceIdentifier
-		require.NotEmpty(t, deviceIdentifier, "device identifier should not be empty")
-		assert.NotEmpty(t, device.IPAddress, "discovery should resolve the sim hostname to an IP")
-		assert.Equal(t, "proto", device.DriverName, "device driver should be proto")
-		t.Logf("✓ Discovered device: %s (driver: %s, ip: %s)", deviceIdentifier, device.DriverName, device.IPAddress)
-	})
-
-	t.Run("PairingPair", func(t *testing.T) {
-		require.NotEmpty(t, deviceIdentifier, "deviceIdentifier must be set from discovery step")
-
-		output, err := runFleetCLI(ctx, env, "pairing", "pair", "--device", deviceIdentifier)
-		require.NoError(t, err, "pairing pair should succeed")
-
-		var resp struct {
-			FailedDeviceIDs []string `json:"failed_device_ids"`
-		}
-		require.NoError(t, json.Unmarshal([]byte(output), &resp), "pair output should be JSON: %s", output)
-		require.Empty(t, resp.FailedDeviceIDs, "no devices should fail pairing")
-		t.Logf("✓ Paired device: %s", deviceIdentifier)
-	})
-
 	t.Run("MinersList", func(t *testing.T) {
-		require.NotEmpty(t, deviceIdentifier, "deviceIdentifier must be set from discovery step")
-
 		output, err := runFleetCLI(ctx, env, "miners", "list")
 		require.NoError(t, err, "miners list should succeed")
 
@@ -125,20 +80,15 @@ func TestFleetCLIWorkflow(t *testing.T) {
 			} `json:"miners"`
 		}
 		require.NoError(t, json.Unmarshal([]byte(output), &resp), "miners list output should be JSON: %s", output)
-
-		var foundDiscovered bool
-		var foundProtoSim bool
+		require.NotEmpty(t, resp.Miners, "miners list should return at least one miner")
 		for _, miner := range resp.Miners {
-			if miner.DeviceIdentifier == deviceIdentifier {
-				foundDiscovered = true
-			}
 			if miner.DeviceIdentifier != "" {
-				foundProtoSim = true
+				deviceIdentifier = miner.DeviceIdentifier
+				break
 			}
 		}
-		assert.Truef(t, foundDiscovered || foundProtoSim,
-			"paired device %s or an already-paired proto-sim miner should appear in miners list", deviceIdentifier)
-		t.Logf("✓ Miners list contains %d miner(s) including the paired device", len(resp.Miners))
+		require.NotEmpty(t, deviceIdentifier, "miners list should expose a usable miner identifier")
+		t.Logf("✓ Miners list contains %d miner(s)", len(resp.Miners))
 	})
 
 	t.Run("PerformanceGet", func(t *testing.T) {

@@ -13,13 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"connectrpc.com/connect"
 	apikeyv1 "github.com/block/proto-fleet/server/generated/grpc/apikey/v1"
 	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	fleetperformancev1 "github.com/block/proto-fleet/server/generated/grpc/fleetperformance/v1"
-	pairingv1 "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -178,56 +175,6 @@ func (c *Client) GetCombinedMetrics(ctx context.Context, req *telemetryv1.GetCom
 		return nil, err
 	}
 	return resp, nil
-}
-
-// DiscoverDevices runs the server-streaming pairing.v1.PairingService/Discover
-// RPC through the generated Connect client and aggregates every streamed
-// response into a single DiscoverResponse.
-func (c *Client) DiscoverDevices(ctx context.Context, req *pairingv1.DiscoverRequest) (*pairingv1.DiscoverResponse, error) {
-	const method = "/pairing.v1.PairingService/Discover"
-	connectReq := connect.NewRequest(req)
-	if err := c.applyBearerAuth(ctx, connectReq.Header(), method); err != nil {
-		return nil, err
-	}
-
-	// Discovery scans (nmap, IP ranges) can outlive the default per-request
-	// timeout, so the stream gets a client without an overall deadline.
-	stream, err := pairingv1connect.NewPairingServiceClient(c.transferClient(), c.baseURL.String()).Discover(ctx, connectReq)
-	if err != nil {
-		return nil, fmt.Errorf("%s failed: %w", method, err)
-	}
-	defer func() { _ = stream.Close() }()
-
-	aggregated := &pairingv1.DiscoverResponse{}
-	var errorMessages []string
-	for stream.Receive() {
-		msg := stream.Msg()
-		aggregated.Devices = append(aggregated.Devices, msg.GetDevices()...)
-		if msg.GetError() != "" {
-			errorMessages = append(errorMessages, msg.GetError())
-		}
-	}
-	if err := stream.Err(); err != nil {
-		return nil, fmt.Errorf("%s stream failed: %w", method, err)
-	}
-	aggregated.Error = strings.Join(errorMessages, "; ")
-	return aggregated, nil
-}
-
-// PairDevices calls pairing.v1.PairingService/Pair through the generated
-// Connect client.
-func (c *Client) PairDevices(ctx context.Context, req *pairingv1.PairRequest) (*pairingv1.PairResponse, error) {
-	const method = "/pairing.v1.PairingService/Pair"
-	connectReq := connect.NewRequest(req)
-	if err := c.applyBearerAuth(ctx, connectReq.Header(), method); err != nil {
-		return nil, err
-	}
-
-	resp, err := pairingv1connect.NewPairingServiceClient(c.httpClient, c.baseURL.String()).Pair(ctx, connectReq)
-	if err != nil {
-		return nil, fmt.Errorf("%s failed: %w", method, err)
-	}
-	return resp.Msg, nil
 }
 
 // applyBearerAuth applies the same auth policy as bearer-mode JSON calls: the

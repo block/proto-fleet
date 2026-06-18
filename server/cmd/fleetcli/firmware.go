@@ -10,13 +10,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/urfave/cli/v3"
 )
 
 // firmwareCommand stays handwritten: the firmware file lifecycle is plain
 // multipart/chunked HTTP rather than protobuf RPC, so the CLI generator does
-// not cover it. Applying an uploaded file to miners remains the generated
-// `minercommand firmware-update` command.
+// not cover it. Deploying an uploaded file is kept as a narrow explicit-device
+// RPC wrapper for rig deployment automation.
 func firmwareCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "firmware",
@@ -28,6 +30,7 @@ func firmwareCommand() *cli.Command {
 			firmwareListCommand(),
 			firmwareDeleteCommand(),
 			firmwareDeleteAllCommand(),
+			firmwareDeployCommand(),
 		},
 	}
 }
@@ -186,6 +189,72 @@ func firmwareDeleteAllCommand() *cli.Command {
 			return printJSON(resp)
 		},
 	}
+}
+
+func firmwareDeployCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "deploy",
+		Usage: "Deploy an uploaded firmware file to explicitly selected devices",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "firmware-file-id", Usage: "Uploaded firmware file id", Required: true},
+			&cli.StringSliceFlag{Name: "device", Usage: "Device identifier to update; repeat for multiple devices", Required: true},
+		},
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			client, err := openClient(ctx, cmd)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = client.Close() }()
+
+			req, err := buildFirmwareDeployRequest(cmd)
+			if err != nil {
+				return err
+			}
+			resp := &minercommandv1.FirmwareUpdateResponse{}
+			return generatedCallAndPrintWithClient(
+				ctx,
+				client,
+				generatedAuthBearer,
+				"/minercommand.v1.MinerCommandService/FirmwareUpdate",
+				req,
+				resp,
+			)
+		},
+	}
+}
+
+func buildFirmwareDeployRequest(cmd *cli.Command) (*minercommandv1.FirmwareUpdateRequest, error) {
+	firmwareFileID := strings.TrimSpace(cmd.String("firmware-file-id"))
+	if firmwareFileID == "" {
+		return nil, fmt.Errorf("--firmware-file-id is required")
+	}
+
+	deviceIDs := normalizeDeviceIDs(cmd.StringSlice("device"))
+	if len(deviceIDs) == 0 {
+		return nil, fmt.Errorf("at least one --device is required")
+	}
+
+	return &minercommandv1.FirmwareUpdateRequest{
+		FirmwareFileId: firmwareFileID,
+		DeviceSelector: &minercommandv1.DeviceSelector{
+			SelectionType: &minercommandv1.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+	}, nil
+}
+
+func normalizeDeviceIDs(values []string) []string {
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			normalized = append(normalized, value)
+		}
+	}
+	return dedupeStrings(normalized)
 }
 
 type firmwareUploadResult struct {
