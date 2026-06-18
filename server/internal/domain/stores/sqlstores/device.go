@@ -1158,26 +1158,26 @@ func (s *SQLDeviceStore) buildStateCountsQuerySQL(orgID int64, fp minerFilterPar
 SELECT
     COALESCE(SUM(CASE
         WHEN filtered.status = 'OFFLINE'
-             OR (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             OR (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1 ELSE 0
     END), 0)::bigint AS offline_count,
     COALESCE(SUM(CASE
         WHEN filtered.status IN ('MAINTENANCE', 'INACTIVE')
-             AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1 ELSE 0
     END), 0)::bigint AS sleeping_count,
     COALESCE(SUM(CASE
         WHEN filtered.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
-             AND NOT (filtered.status IN ('MAINTENANCE', 'INACTIVE') AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (filtered.status IN ('MAINTENANCE', 'INACTIVE') AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
              AND (filtered.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR filtered.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+                  OR filtered.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR filtered.has_open_error)
         THEN 1 ELSE 0
     END), 0)::bigint AS broken_count,
     COALESCE(SUM(CASE
         WHEN filtered.status = 'ACTIVE'
-             AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND NOT filtered.has_open_error
         THEN 1 ELSE 0
     END), 0)::bigint AS hashing_count
@@ -1411,29 +1411,29 @@ func (s *SQLDeviceStore) GetMinerStateCountsByCollections(ctx context.Context, o
     -- Offline
     COALESCE(SUM(CASE
         WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1 ELSE 0
     END), 0)::int AS offline_count,
     -- Sleeping
     COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1 ELSE 0
     END), 0)::int AS sleeping_count,
     -- Broken
     COALESCE(SUM(CASE
         WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1 ELSE 0
     END), 0)::int AS broken_count,
     -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND open_errors.device_id IS NULL
         THEN 1 ELSE 0
     END), 0)::int AS hashing_count

@@ -1008,10 +1008,10 @@ func TestGetMinerStateCountsByCollections_AuthNeededInactiveStatus(t *testing.T)
 	require.Equal(t, int32(0), c.HashingCount, "no hashing devices")
 }
 
-// TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsBroken verifies the
-// site/building stats query (by device IDs) buckets a DEFAULT_PASSWORD device as
-// broken/needs-attention rather than dropping it from every state bucket.
-func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsBroken(t *testing.T) {
+// TestGetMinerStateCountsByDeviceIDs_DefaultPasswordUsesDeviceStatus verifies
+// the site/building stats query (by device IDs) treats DEFAULT_PASSWORD like a
+// paired device for rollups.
+func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordUsesDeviceStatus(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -1020,7 +1020,7 @@ func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsBroken(t *testing.T) {
 	ctx := t.Context()
 
 	devices := []testDevice{
-		{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "DEFAULT_PASSWORD"}, // default-pw active → broken
+		{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "DEFAULT_PASSWORD"}, // default-pw active -> hashing
 		{id: 2, identifier: "device-002", status: "ACTIVE", pairingStatus: "PAIRED"},           // active paired → hashing
 	}
 	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{devices: devices})
@@ -1029,8 +1029,8 @@ func TestGetMinerStateCountsByDeviceIDs_DefaultPasswordIsBroken(t *testing.T) {
 	c, err := store.GetMinerStateCountsByDeviceIDs(ctx, 1, []string{"device-001", "device-002"})
 	require.NoError(t, err)
 
-	require.Equal(t, int32(1), c.BrokenCount, "default-password device should be broken, not dropped from buckets")
-	require.Equal(t, int32(1), c.HashingCount, "active paired should be hashing")
+	require.Equal(t, int32(0), c.BrokenCount, "default-password should not be a needs-attention status")
+	require.Equal(t, int32(2), c.HashingCount, "active paired-like devices should be hashing")
 	require.Equal(t, int32(0), c.OfflineCount, "no offline devices")
 	require.Equal(t, int32(0), c.SleepingCount, "no sleeping devices")
 }
