@@ -308,11 +308,15 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 					}
 					cascadeCount = n
 				}
-				// Building cascade — initial members of a rack created
-				// inside a building inherit that building_id, matching the
-				// add-to-existing-rack path. No-op when the rack has no
-				// building.
-				if buildingID != nil {
+				// Building peer of the site cascade above — placement-gated
+				// the same way. Initial members of a rack created inside a
+				// building inherit that building_id; for a site-level rack
+				// (site set, building NULL) buildingID is nil and this
+				// clears any stale direct device.building_id so members stop
+				// pointing at a building their rack is not in. Fully-
+				// unassigned racks (no site, no building) skip it so
+				// cascading NULL doesn't clobber direct assignments.
+				if siteID != nil || buildingID != nil {
 					if _, err := s.collectionStore.CascadeRackDeviceBuildings(ctx, collection.Id, info.OrganizationID, buildingID); err != nil {
 						return nil, err
 					}
@@ -466,10 +470,14 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 						return nil, err
 					}
 				}
-				// Building peer of the site cascade above. Same skip-on-
-				// nil rationale: cascading NULL would wipe direct
-				// AssignDevicesToBuilding assignments for the new members.
-				if isRack && rackBuildingID != nil {
+				// Building peer of the site cascade above — placement-gated
+				// the same way. For a site-level rack (site set, building
+				// NULL) rackBuildingID is nil and this clears any stale
+				// direct device.building_id so new members stop pointing at
+				// a building their rack is not in. Fully-unassigned racks
+				// (no site, no building) skip it so cascading NULL doesn't
+				// wipe direct AssignDevicesToBuilding assignments.
+				if isRack && (rackSiteID != nil || rackBuildingID != nil) {
 					if _, err := s.collectionStore.CascadeRackDeviceBuildings(ctx, req.CollectionId, info.OrganizationID, rackBuildingID); err != nil {
 						return nil, err
 					}
