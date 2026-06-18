@@ -821,12 +821,12 @@ func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
 
 const ruleLabelOrganizationID = "organization_id"
 
-// Shared YAML-provisioned rules opt into cross-org visibility with this label. A rule
-// that is neither org-labeled nor marked global is invisible (fail closed), so a
-// tenant-specific rule provisioned without its org label can't leak across orgs.
+// Operator-only rules (e.g. self-monitoring) set proto_fleet_scope=internal to stay hidden
+// from every org. A rule with no org label and no internal marker is a shared default that
+// monitors all orgs' devices and is visible to each of them.
 const (
-	ruleLabelScope  = "proto_fleet_scope"
-	ruleScopeGlobal = "global"
+	ruleLabelScope    = "proto_fleet_scope"
+	ruleScopeInternal = "internal"
 )
 
 const silenceLabelOrganizationID = "organization_id"
@@ -953,13 +953,16 @@ func contactPointToChannel(orgID int64, cp GrafanaContactPoint) (Channel, error)
 }
 
 func ruleVisibleToOrg(r GrafanaAlertRule, wantOrgID string) bool {
-	if r.Labels == nil {
+	// Operator-only rules (self-monitoring) are hidden from every org.
+	if r.Labels[ruleLabelScope] == ruleScopeInternal {
 		return false
 	}
-	if r.Labels[ruleLabelScope] == ruleScopeGlobal {
-		return true
+	// A tenant-specific rule carries an org label and is visible only to that org.
+	if got, ok := r.Labels[ruleLabelOrganizationID]; ok {
+		return got == wantOrgID
 	}
-	return r.Labels[ruleLabelOrganizationID] == wantOrgID
+	// Otherwise it's a shared default rule that monitors every org's devices.
+	return true
 }
 
 func grafanaRuleToDomain(orgID int64, r GrafanaAlertRule) Rule {

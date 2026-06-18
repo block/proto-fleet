@@ -40,8 +40,8 @@ groups:
         execErrState: Error
         for: 5m
         labels:
-          # Shared default rule: visible to every org (proto-fleet ruleVisibleToOrg fails closed without this).
-          proto_fleet_scope: global
+          # Shared default rule: no org label, so every org sees it and can pause it for
+          # their own devices (the pause silence is scoped by organization_id).
           severity: warning
           rule_group: proto-fleet-defaults
           template: offline
@@ -92,8 +92,8 @@ groups:
         execErrState: Error
         for: 10m
         labels:
-          # Shared default rule: visible to every org (proto-fleet ruleVisibleToOrg fails closed without this).
-          proto_fleet_scope: global
+          # Shared default rule: no org label, so every org sees it and can pause it for
+          # their own devices (the pause silence is scoped by organization_id).
           severity: warning
           rule_group: proto-fleet-defaults
           template: temperature
@@ -141,8 +141,8 @@ groups:
         execErrState: Error
         for: 10m
         labels:
-          # Shared default rule: visible to every org (proto-fleet ruleVisibleToOrg fails closed without this).
-          proto_fleet_scope: global
+          # Shared default rule: no org label, so every org sees it and can pause it for
+          # their own devices (the pause silence is scoped by organization_id).
           severity: warning
           rule_group: proto-fleet-defaults
           template: telemetry-poll
@@ -202,11 +202,12 @@ groups:
         execErrState: Error
         for: 5m
         labels:
-          # No proto_fleet_scope:global here, unlike the device rules above: this rule's
+          # Operator-only, unlike the shared device rules above: this rule's
           # noDataState=Alerting path emits a single unscoped instance (no organization_id),
           # which an org-scoped pause/maintenance silence can never match. Exposing it per-org
-          # would offer a Pause that reports success yet leaves the alert firing, so it stays
-          # operator-only (ruleVisibleToOrg fails closed without the marker).
+          # would offer a Pause that reports success yet leaves the alert firing, so the
+          # internal marker hides it from every org's rule list.
+          proto_fleet_scope: internal
           severity: critical
           rule_group: proto-fleet-self
           component: metric-ingest
