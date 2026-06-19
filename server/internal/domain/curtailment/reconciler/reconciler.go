@@ -757,14 +757,21 @@ func (r *Reconciler) recordCurtailConfirmationTimeout(ctx context.Context, ev *m
 	// issue the compensating restore command if the miner did go to sleep.
 	newRetry := t.RetryCount + 1
 	state := retryState
+	var confirmedAt *time.Time
+	var observedAt *time.Time
 	if newRetry >= r.cfg.MaxRetries {
-		state = models.TargetStateDispatched
+		state = models.TargetStateConfirmed
+		now := r.now()
+		confirmedAt = &now
+		observedAt = &now
 	}
 	errMsg := "curtail telemetry timeout"
 	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:      state,
-		LastError:  &errMsg,
-		RetryCount: &newRetry,
+		State:       state,
+		LastError:   &errMsg,
+		RetryCount:  &newRetry,
+		ConfirmedAt: confirmedAt,
+		ObservedAt:  observedAt,
 	}
 	err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params)
 	if err == nil {
