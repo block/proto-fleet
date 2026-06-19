@@ -61,6 +61,35 @@ func TestService_Start_FullFleet_CurtailsLowPowerAndZeroHashrateMiners(t *testin
 	assert.Len(t, store.lastInsertTargets, 2)
 }
 
+func TestService_Preview_FullFleet_SkipsMissingTelemetrySamples(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+
+	missingPower := miner("missing-power", "ACTIVE", "PAIRED", 0, 100)
+	missingPower.LatestPowerW = nil
+	missingHash := miner("missing-hash", "ACTIVE", "PAIRED", 100, 0)
+	missingHash.LatestHashRateHS = nil
+	measuredZero := minerWithEff("measured-zero", 0, 0, 40)
+	store.candidatesByOrg[orgID] = []*models.Candidate{missingPower, missingHash, measuredZero}
+
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+
+	plan, err := svc.Preview(t.Context(), req)
+	require.NoError(t, err)
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, "measured-zero", plan.Selected[0].DeviceIdentifier,
+		"measured zero values are valid for full_fleet; missing samples are not")
+	require.Len(t, plan.Skipped, 2)
+	assert.Equal(t, SkipStaleTelemetry, plan.Skipped[0].Reason)
+	assert.Equal(t, SkipStaleTelemetry, plan.Skipped[1].Reason)
+}
+
 // The empty-eligible case is the chosen behavior: persist a vacuously COMPLETED
 // event with no targets, not an insufficient-load rejection.
 func TestService_Start_FullFleet_NoEligibleMinersPersistsCompleted(t *testing.T) {

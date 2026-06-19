@@ -1360,8 +1360,9 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			summary.ExcludedStale++
 			continue
 		}
-		// NaN/Inf would slip past the dual-signal filter; treat as stale.
-		if !isFiniteFloat(c.LatestPowerW) || !isFiniteFloat(c.LatestHashRateHS) {
+		// Missing/non-finite power or hash samples cannot prove the miner is
+		// observable after dispatch; treat them as stale telemetry.
+		if !hasFiniteFloat(c.LatestPowerW) || !hasFiniteFloat(c.LatestHashRateHS) {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
 			summary.ExcludedStale++
 			continue
@@ -1418,6 +1419,10 @@ func derefFloat(p *float64) float64 {
 		return 0
 	}
 	return *p
+}
+
+func hasFiniteFloat(p *float64) bool {
+	return p != nil && isFiniteFloat(p)
 }
 
 // isFiniteFloat returns true for nil pointers; otherwise checks the
