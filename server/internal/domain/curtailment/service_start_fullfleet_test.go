@@ -58,7 +58,12 @@ func TestService_Start_FullFleet_CurtailsLowPowerAndZeroHashrateMiners(t *testin
 		"full_fleet still ranks by efficiency when selecting all eligible miners")
 	assert.Equal(t, "low-power-hashing", plan.Selected[1].DeviceIdentifier)
 	assert.Empty(t, plan.Skipped)
-	assert.Len(t, store.lastInsertTargets, 2)
+	require.Len(t, store.lastInsertTargets, 2)
+	require.NotNil(t, store.lastInsertTargets[0].BaselinePowerW,
+		"above-floor full_fleet targets keep a power baseline")
+	assert.InDelta(t, 2000, *store.lastInsertTargets[0].BaselinePowerW, 0.001)
+	assert.Nil(t, store.lastInsertTargets[1].BaselinePowerW,
+		"below-floor full_fleet targets confirm via hash-rate fallback")
 }
 
 func TestService_Preview_FullFleet_SkipsMissingTelemetrySamples(t *testing.T) {
@@ -71,8 +76,16 @@ func TestService_Preview_FullFleet_SkipsMissingTelemetrySamples(t *testing.T) {
 	missingPower.LatestPowerW = nil
 	missingHash := miner("missing-hash", "ACTIVE", "PAIRED", 100, 0)
 	missingHash.LatestHashRateHS = nil
+	negativePower := miner("negative-power", "ACTIVE", "PAIRED", -1, 100)
+	negativeHash := miner("negative-hash", "ACTIVE", "PAIRED", 100, -1)
 	measuredZero := minerWithEff("measured-zero", 0, 0, 40)
-	store.candidatesByOrg[orgID] = []*models.Candidate{missingPower, missingHash, measuredZero}
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		missingPower,
+		missingHash,
+		negativePower,
+		negativeHash,
+		measuredZero,
+	}
 
 	svc := NewService(store)
 	req := validRequest(orgID)
@@ -85,9 +98,10 @@ func TestService_Preview_FullFleet_SkipsMissingTelemetrySamples(t *testing.T) {
 	require.Len(t, plan.Selected, 1)
 	assert.Equal(t, "measured-zero", plan.Selected[0].DeviceIdentifier,
 		"measured zero values are valid for full_fleet; missing samples are not")
-	require.Len(t, plan.Skipped, 2)
-	assert.Equal(t, SkipStaleTelemetry, plan.Skipped[0].Reason)
-	assert.Equal(t, SkipStaleTelemetry, plan.Skipped[1].Reason)
+	require.Len(t, plan.Skipped, 4)
+	for _, skipped := range plan.Skipped {
+		assert.Equal(t, SkipStaleTelemetry, skipped.Reason)
+	}
 }
 
 // The empty-eligible case is the chosen behavior: persist a vacuously COMPLETED

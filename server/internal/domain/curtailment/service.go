@@ -1360,9 +1360,9 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			summary.ExcludedStale++
 			continue
 		}
-		// Missing/non-finite power or hash samples cannot prove the miner is
-		// observable after dispatch; treat them as stale telemetry.
-		if !hasFiniteFloat(c.LatestPowerW) || !hasFiniteFloat(c.LatestHashRateHS) {
+		// Missing, non-finite, or negative power/hash samples cannot prove the
+		// miner is observable after dispatch; treat them as stale telemetry.
+		if !hasNonNegativeFiniteFloat(c.LatestPowerW) || !hasNonNegativeFiniteFloat(c.LatestHashRateHS) {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
 			summary.ExcludedStale++
 			continue
@@ -1421,8 +1421,8 @@ func derefFloat(p *float64) float64 {
 	return *p
 }
 
-func hasFiniteFloat(p *float64) bool {
-	return p != nil && isFiniteFloat(p)
+func hasNonNegativeFiniteFloat(p *float64) bool {
+	return p != nil && isFiniteFloat(p) && *p >= 0
 }
 
 // isFiniteFloat returns true for nil pointers; otherwise checks the
@@ -1510,7 +1510,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 	targets := make([]models.InsertTargetParams, len(plan.Selected))
 	for i, sel := range plan.Selected {
 		var baseline *float64
-		if sel.PowerW > 0 {
+		if shouldPersistBaselinePowerW(mode, sel.PowerW, minPowerW) {
 			v := sel.PowerW
 			baseline = &v
 		}
@@ -1523,6 +1523,16 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		}
 	}
 	return event, targets, nil
+}
+
+func shouldPersistBaselinePowerW(mode models.Mode, powerW float64, minPowerW int32) bool {
+	if powerW <= 0 {
+		return false
+	}
+	if mode == models.ModeFullFleet && powerW < float64(minPowerW) {
+		return false
+	}
+	return true
 }
 
 // eventStartState is the state a freshly-built event is inserted with. A
