@@ -15,6 +15,10 @@ import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_
 import { Settings } from "@/shared/assets/icons";
 import * as toaster from "@/shared/features/toaster";
 
+const { mockFetchAllMinerSnapshots } = vi.hoisted(() => ({
+  mockFetchAllMinerSnapshots: vi.fn(),
+}));
+
 // Create mock functions at module level
 const mockStartBatchOperation = vi.fn();
 const mockCompleteBatchOperation = vi.fn();
@@ -65,6 +69,10 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
   }),
 }));
 
+vi.mock("@/protoFleet/api/fetchAllMinerSnapshots", () => ({
+  fetchAllMinerSnapshots: mockFetchAllMinerSnapshots,
+}));
+
 const mockFetchCoolingMode = vi.fn(() => Promise.resolve(0)); // CoolingMode.UNSPECIFIED
 vi.mock("@/protoFleet/api/useMinerCoolingMode", () => ({
   default: () => ({
@@ -113,10 +121,36 @@ describe("useMinerActions", () => {
     miners: testMiners,
   });
 
+  const makeSnapshot = (
+    deviceIdentifier: string,
+    overrides: Partial<Omit<MinerStateSnapshot, "$typeName" | "$unknown">> = {},
+  ) =>
+    createProto(MinerStateSnapshotSchema, {
+      deviceIdentifier,
+      manufacturer: "",
+      model: "",
+      name: "",
+      driverName: "",
+      deviceStatus: DeviceStatus.ONLINE,
+      pairingStatus: PairingStatus.PAIRED,
+      macAddress: "",
+      serialNumber: "",
+      ipAddress: "",
+      url: "",
+      firmwareVersion: "",
+      powerUsage: [],
+      temperature: [],
+      hashrate: [],
+      efficiency: [],
+      temperatureStatus: 0,
+      ...overrides,
+    });
+
   beforeEach(async () => {
     vi.clearAllMocks();
     mockGetMinerModelGroups.mockResolvedValue([]);
     testMiners = {};
+    mockFetchAllMinerSnapshots.mockImplementation(async () => testMiners);
   });
 
   describe("Basic hook initialization", () => {
@@ -374,7 +408,7 @@ describe("useMinerActions", () => {
   });
 
   describe("Blink LEDs action (immediate execution, no confirmation)", () => {
-    it("should call blinkLED API when blink action handler is called", () => {
+    it("should call blinkLED API when blink action handler is called", async () => {
       mockBlinkLED.mockImplementation(({ onSuccess }: any) => {
         onSuccess({ batchIdentifier: "batch-blink" });
       });
@@ -389,8 +423,8 @@ describe("useMinerActions", () => {
 
       const blinkAction = result.current.popoverActions.find((a) => a.action === deviceActions.blinkLEDs);
 
-      act(() => {
-        blinkAction?.actionHandler();
+      await act(async () => {
+        await blinkAction?.actionHandler();
       });
 
       expect(mockBlinkLED).toHaveBeenCalled();
@@ -401,7 +435,7 @@ describe("useMinerActions", () => {
       });
     });
 
-    it("should push loading toast when blink action is triggered", () => {
+    it("should push loading toast when blink action is triggered", async () => {
       mockBlinkLED.mockImplementation(({ onSuccess }: any) => {
         onSuccess({ batchIdentifier: "batch-blink" });
       });
@@ -416,8 +450,8 @@ describe("useMinerActions", () => {
 
       const blinkAction = result.current.popoverActions.find((a) => a.action === deviceActions.blinkLEDs);
 
-      act(() => {
-        blinkAction?.actionHandler();
+      await act(async () => {
+        await blinkAction?.actionHandler();
       });
 
       expect(toaster.pushToast).toHaveBeenCalledWith({
@@ -819,6 +853,66 @@ describe("useMinerActions", () => {
       expect(mockSetPowerTarget).toHaveBeenCalled();
     });
 
+    it("resolves all-mode command actions with the full active filter before dispatch", async () => {
+      mockSetPowerTarget.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-power" });
+      });
+      testMiners = {
+        "device-10": makeSnapshot("device-10"),
+        "device-20": makeSnapshot("device-20"),
+      };
+      const activeFilter = createProto(MinerListFilterSchema, {
+        deviceStatus: [DeviceStatus.ERROR],
+        siteIds: [10n],
+        buildingIds: [20n],
+        rackIds: [30n],
+        groupIds: [40n],
+        ipCidrs: ["172.16.0.0/16"],
+        firmwareVersions: ["2026.1"],
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "placeholder", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+          totalCount: 2,
+          currentFilter: activeFilter,
+        }),
+      );
+
+      const managePowerAction = result.current.popoverActions.find((a) => a.action === performanceActions.managePower);
+
+      await act(async () => {
+        await managePowerAction?.actionHandler();
+      });
+
+      expect(mockFetchAllMinerSnapshots).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deviceStatus: [DeviceStatus.ERROR],
+          siteIds: [10n],
+          buildingIds: [20n],
+          rackIds: [30n],
+          groupIds: [40n],
+          ipCidrs: ["172.16.0.0/16"],
+          firmwareVersions: ["2026.1"],
+          pairingStatuses: [PairingStatus.PAIRED],
+        }),
+      );
+      expect(mockCheckCommandCapabilities.mock.calls[0][0].deviceSelector.selectionType.case).toBe("includeDevices");
+      expect(
+        mockCheckCommandCapabilities.mock.calls[0][0].deviceSelector.selectionType.value.deviceIdentifiers,
+      ).toEqual(["device-10", "device-20"]);
+
+      act(() => {
+        result.current.handleManagePowerConfirm(PerformanceMode.MAXIMUM_HASHRATE);
+      });
+
+      const setPowerTargetSelector = mockSetPowerTarget.mock.calls[0][0].deviceSelector;
+      expect(setPowerTargetSelector.selectionType.case).toBe("includeDevices");
+      expect(setPowerTargetSelector.selectionType.value.deviceIdentifiers).toEqual(["device-10", "device-20"]);
+    });
+
     it("should handle manage power dismiss", async () => {
       const onActionComplete = vi.fn();
 
@@ -1172,9 +1266,19 @@ describe("useMinerActions", () => {
       mockDeleteMiners.mockImplementation(({ onSuccess }: any) => {
         onSuccess({ deletedCount: 10 });
       });
+      testMiners = {
+        "device-1": makeSnapshot("device-1"),
+        "device-2": makeSnapshot("device-2"),
+      };
 
       const activeFilter = createProto(MinerListFilterSchema, {
         deviceStatus: [DeviceStatus.ERROR],
+        siteIds: [1n],
+        buildingIds: [2n],
+        rackIds: [3n],
+        groupIds: [4n],
+        ipCidrs: ["172.16.0.0/16"],
+        firmwareVersions: ["2026.1"],
       });
 
       const { result } = renderHook(() =>
@@ -1211,6 +1315,24 @@ describe("useMinerActions", () => {
       const selector = calledWith.deleteMinersRequest.deviceSelector;
       expect(selector.selectionType.case).toBe("allDevices");
       expect(selector.selectionType.value.deviceStatus).toEqual([DeviceStatus.ERROR]);
+      expect(selector.selectionType.value.siteIds).toEqual([1n]);
+      expect(selector.selectionType.value.buildingIds).toEqual([2n]);
+      expect(selector.selectionType.value.rackIds).toEqual([3n]);
+      expect(selector.selectionType.value.groupIds).toEqual([4n]);
+      expect(selector.selectionType.value.ipCidrs).toEqual(["172.16.0.0/16"]);
+      expect(selector.selectionType.value.firmwareVersions).toEqual(["2026.1"]);
+      expect(mockFetchAllMinerSnapshots).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deviceStatus: [DeviceStatus.ERROR],
+          siteIds: [1n],
+          buildingIds: [2n],
+          rackIds: [3n],
+          groupIds: [4n],
+          ipCidrs: ["172.16.0.0/16"],
+          firmwareVersions: ["2026.1"],
+          pairingStatuses: [PairingStatus.PAIRED],
+        }),
+      );
       expect(mockCompleteBatchOperation).toHaveBeenCalled();
       expect(toaster.updateToast).toHaveBeenCalledWith(
         expect.any(Number),
@@ -1225,6 +1347,10 @@ describe("useMinerActions", () => {
       mockDeleteMiners.mockImplementation(({ onSuccess }: any) => {
         onSuccess({ deletedCount: 5 });
       });
+      testMiners = {
+        "device-1": makeSnapshot("device-1"),
+        "device-2": makeSnapshot("device-2"),
+      };
 
       const { result } = renderHook(() =>
         useMinerActions({
@@ -1253,6 +1379,7 @@ describe("useMinerActions", () => {
       const selector = calledWith.deleteMinersRequest.deviceSelector;
       expect(selector.selectionType.case).toBe("allDevices");
       expect(selector.selectionType.value).toBeDefined();
+      expect(selector.selectionType.value.pairingStatuses).toEqual([PairingStatus.PAIRED]);
     });
 
     it("should use includeDevices selector in subset mode even with active filter", async () => {
@@ -2949,8 +3076,12 @@ describe("useMinerActions", () => {
       expect(result.current.minerGroups.length).toBeGreaterThan(0);
     });
 
-    it("uses allDevices selector with model and manufacturer filter in handlePasswordConfirm", async () => {
+    it("resolves selected all-mode model group before handlePasswordConfirm dispatch", async () => {
       mockGetMinerModelGroups.mockResolvedValue([{ model: "Rig", manufacturer: "Proto", count: 6 }]);
+      mockFetchAllMinerSnapshots.mockResolvedValue({
+        "device-1": makeSnapshot("device-1", { model: "Rig", manufacturer: "Proto" }),
+        "device-2": makeSnapshot("device-2", { model: "Rig", manufacturer: "Proto" }),
+      });
       mockUpdateMinerPassword.mockImplementation(({ onSuccess }: any) => {
         onSuccess({ batchIdentifier: "batch-security-all" });
       });
@@ -2974,9 +3105,14 @@ describe("useMinerActions", () => {
       });
 
       const callArgs = mockUpdateMinerPassword.mock.calls[0][0];
-      expect(callArgs.deviceSelector.selectionType.case).toBe("allDevices");
-      expect(callArgs.deviceSelector.selectionType.value.models).toEqual(["Rig"]);
-      expect(callArgs.deviceSelector.selectionType.value.manufacturers).toEqual(["Proto"]);
+      expect(callArgs.deviceSelector.selectionType.case).toBe("includeDevices");
+      expect(callArgs.deviceSelector.selectionType.value.deviceIdentifiers).toEqual(["device-1", "device-2"]);
+      expect(mockFetchAllMinerSnapshots).toHaveBeenCalledWith(
+        expect.objectContaining({
+          models: ["Rig"],
+          pairingStatuses: [PairingStatus.PAIRED],
+        }),
+      );
     });
   });
 

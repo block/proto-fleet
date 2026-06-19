@@ -35,6 +35,14 @@ const applyAllowedPairingStatuses = (
     rackIds: filter?.rackIds ?? [],
     firmwareVersions: filter?.firmwareVersions ?? [],
     zones: filter?.zones ?? [],
+    numericRanges: filter?.numericRanges ?? [],
+    ipCidrs: filter?.ipCidrs ?? [],
+    siteIds: filter?.siteIds ?? [],
+    includeUnassigned: filter?.includeUnassigned ?? false,
+    buildingIds: filter?.buildingIds ?? [],
+    includeNoBuilding: filter?.includeNoBuilding ?? false,
+    zoneKeys: filter?.zoneKeys ?? [],
+    includeNoRack: filter?.includeNoRack ?? false,
   });
 };
 

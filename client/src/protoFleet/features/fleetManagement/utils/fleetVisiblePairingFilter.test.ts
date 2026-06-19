@@ -70,15 +70,31 @@ describe("applyFleetSelectablePairingStatuses", () => {
     expect(applyFleetSelectablePairingStatuses(filter).pairingStatuses).toEqual([]);
   });
 
-  it("copies firmware and zone filters through so bulk actions respect them", () => {
+  it("copies active fleet filters through so bulk actions respect them", () => {
     const filter: MinerListFilter = create(MinerListFilterSchema, {
       firmwareVersions: ["v3.5.1"],
       zones: ["Austin, Building 1"],
+      siteIds: [1n],
+      buildingIds: [2n],
+      rackIds: [3n],
+      groupIds: [4n],
+      ipCidrs: ["172.16.0.0/16"],
+      includeUnassigned: true,
+      includeNoBuilding: true,
+      includeNoRack: true,
     });
 
     const result = applyFleetSelectablePairingStatuses(filter);
     expect(result.firmwareVersions).toEqual(["v3.5.1"]);
     expect(result.zones).toEqual(["Austin, Building 1"]);
+    expect(result.siteIds).toEqual([1n]);
+    expect(result.buildingIds).toEqual([2n]);
+    expect(result.rackIds).toEqual([3n]);
+    expect(result.groupIds).toEqual([4n]);
+    expect(result.ipCidrs).toEqual(["172.16.0.0/16"]);
+    expect(result.includeUnassigned).toBe(true);
+    expect(result.includeNoBuilding).toBe(true);
+    expect(result.includeNoRack).toBe(true);
   });
 });
 
