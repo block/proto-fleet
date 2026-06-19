@@ -101,7 +101,9 @@ func TestSecretBundleFor(t *testing.T) {
 		nodeKey  string
 		creds    *pairingpb.Credentials
 		wantOK   bool
+		wantErr  error
 		wantKind any
+		wantAuth bool
 	}{
 		{
 			name:     "asymmetric uses node key",
@@ -111,9 +113,9 @@ func TestSecretBundleFor(t *testing.T) {
 			wantKind: sdk.APIKey{Key: "node-pub"},
 		},
 		{
-			name:   "asymmetric without node key falls through",
-			caps:   sdk.Capabilities{sdk.CapabilityAsymmetricAuth: true},
-			wantOK: false,
+			name:    "asymmetric without node key errors",
+			caps:    sdk.Capabilities{sdk.CapabilityAsymmetricAuth: true},
+			wantErr: errMissingMinerSigningKey,
 		},
 		{
 			name:     "basic auth uses supplied creds",
@@ -121,6 +123,7 @@ func TestSecretBundleFor(t *testing.T) {
 			creds:    &pairingpb.Credentials{Username: "root", Password: &pw},
 			wantOK:   true,
 			wantKind: sdk.UsernamePassword{Username: "root", Password: "secret"},
+			wantAuth: true,
 		},
 		{
 			name:   "no creds and not asymmetric falls through",
@@ -137,12 +140,18 @@ func TestSecretBundleFor(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Act
-			bundle, ok := secretBundleFor(tc.caps, tc.nodeKey, tc.creds)
+			secret, ok, err := secretBundleFor(tc.caps, tc.nodeKey, tc.creds)
 
 			// Assert
+			if tc.wantErr != nil {
+				assert.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
 			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.wantAuth, secret.basicAuth)
 			if tc.wantOK {
-				assert.Equal(t, tc.wantKind, bundle.Kind)
+				assert.Equal(t, tc.wantKind, secret.bundle.Kind)
 			}
 		})
 	}
