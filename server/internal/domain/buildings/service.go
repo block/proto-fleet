@@ -1000,12 +1000,24 @@ func (s *Service) computeReassignBuildingConflicts(ctx context.Context, orgID in
 		// the building's site, leaving the device with a site while
 		// still in a site-less rack. Flag those (clearable) so the
 		// force-clear path drops the rack membership first.
+		//
+		// FindDevicesInSiteLessRacks keys only on rack.site_id IS NULL,
+		// which ALSO matches a rack in a site-less building (its site is
+		// NULL but its building is set). Skip those: a device whose rack
+		// has a building is already handled by the building-conflict
+		// branch above (same building → no conflict, so it stays out of
+		// `flagged`; different building → already flagged there). Only a
+		// rack with no building at all (absent from buildingByDevice) is
+		// the genuinely-unassigned case this guard targets.
 		siteLess, err := s.siteStore.FindDevicesInSiteLessRacks(ctx, orgID, identifiers)
 		if err != nil {
 			return nil, err
 		}
 		for _, ident := range siteLess {
 			if _, ok := flagged[ident]; ok {
+				continue
+			}
+			if _, rackHasBuilding := buildingByDevice[ident]; rackHasBuilding {
 				continue
 			}
 			flagged[ident] = models.PerDeviceBuildingConflict{

@@ -1205,6 +1205,58 @@ func TestAssignDevicesToBuilding_flagsFullyUnassignedRack(t *testing.T) {
 	}
 }
 
+// TestAssignDevicesToBuilding_siteLessRackAlreadyInTargetBuildingNoConflict
+// pins the fix for the false positive where a miner already in a rack at
+// the target SITE-LESS building was re-flagged. The rack has site NULL
+// (its building is site-less) so FindDevicesInSiteLessRacks returns it,
+// but its building already equals the target — the building probe treats
+// it as a no-op, and the site-less guard must skip it too (rack has a
+// building → not a fully-unassigned rack).
+func TestAssignDevicesToBuilding_siteLessRackAlreadyInTargetBuildingNoConflict(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	identifiers := []string{"d1"}
+	targetBuilding := int64(42)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuilding).Return(nil)
+	// Target building is site-less.
+	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, targetBuilding).Return(nil, nil)
+	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	// d1's rack is already at the target building → not a conflict.
+	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
+		"d1": targetBuilding,
+	}, nil)
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	// Rack is site-less (building is site-less) so this returns d1 — the
+	// guard must NOT flag it because its rack already has the target
+	// building.
+	siteStore.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return([]string{"d1"}, nil)
+	// No conflict → the move proceeds.
+	store.EXPECT().AssignDevicesToBuilding(inTxCtx, testOrgID, &targetBuilding, identifiers).Return(int64(1), nil)
+	store.EXPECT().CascadeDevicesSiteForBuilding(inTxCtx, testOrgID, identifiers, gomock.Nil()).Return(int64(0), nil)
+
+	result, conflicts, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+		OrgID:             testOrgID,
+		TargetBuildingID:  &targetBuilding,
+		DeviceIdentifiers: identifiers,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("expected no conflict for a miner already in the target site-less building, got %v", conflicts)
+	}
+	if result.ReassignedCount != 1 {
+		t.Fatalf("expected 1 reassigned, got %d", result.ReassignedCount)
+	}
+}
+
 // TestAssignRacksToBuilding_sameSiteCascadesBuilding covers the gap the
 // site cascade alone leaves: moving a rack to a different building
 // inside the same site doesn't touch device.site_id, but

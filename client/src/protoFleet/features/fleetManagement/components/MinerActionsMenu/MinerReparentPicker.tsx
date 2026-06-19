@@ -731,8 +731,8 @@ const MinerReparentPicker = ({
       {rackSiteStripConfirmation ? (
         <Dialog
           open
-          title="Move miners to a rack with no site?"
-          subtitle={`This rack isn't assigned to a site, so ${rackSiteStripConfirmation.conflictCount} of the selected miner${rackSiteStripConfirmation.conflictCount === 1 ? " is" : "s are"} currently assigned to one. Continuing will remove ${rackSiteStripConfirmation.conflictCount === 1 ? "its" : "their"} site assignment to match the rack.`}
+          title="Move miners to an unassigned rack?"
+          subtitle={`This rack has no site or building, so ${rackSiteStripConfirmation.conflictCount} of the selected miner${rackSiteStripConfirmation.conflictCount === 1 ? " is" : "s are"} currently assigned to one. Continuing will clear ${rackSiteStripConfirmation.conflictCount === 1 ? "its site/building assignment" : "their site/building assignments"} to match the rack.`}
           onDismiss={() => {
             if (rackStripInFlight) return;
             handleRackStripDialogCancel();

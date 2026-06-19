@@ -143,7 +143,7 @@ describe("MinerReparentPicker — building force-clear flow", () => {
   });
 });
 
-const RACK_STRIP_TITLE = "Move miners to a rack with no site?";
+const RACK_STRIP_TITLE = "Move miners to an unassigned rack?";
 
 const renderRackPicker = () =>
   render(

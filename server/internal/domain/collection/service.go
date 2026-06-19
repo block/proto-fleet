@@ -1036,23 +1036,23 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			targetLabel = coll.Label
 		}
 
-		// Site-consistency guard for a site-less (fully-unassigned) target
-		// rack. Such a rack dictates "no placement", so any added miner
-		// that currently has a site would have it stripped to NULL. Detect
-		// those up-front: without force, reject with the conflict list and
-		// write NOTHING; with force, the strip happens after the add
-		// below. A rack WITH a site/building doesn't need this — the
-		// CascadeAdded* queries already bring members into line with the
-		// rack's placement.
+		// Placement-consistency guard for a site-less (fully-unassigned)
+		// target rack. Such a rack dictates "no placement", so any added
+		// miner that currently has a site OR a building would have it
+		// stripped to NULL. Detect those up-front: without force, reject
+		// with the conflict list and write NOTHING; with force, the strip
+		// happens after the add below. A rack WITH a site/building doesn't
+		// need this — the CascadeAdded* queries already bring members into
+		// line with the rack's placement.
 		if params.TargetRackID != nil && targetSiteID == nil && targetBuildingID == nil {
-			withSite, err := s.collectionStore.FindDevicesWithSite(ctx, params.OrgID, params.DeviceIdentifiers)
+			withPlacement, err := s.collectionStore.FindDevicesWithSiteOrBuilding(ctx, params.OrgID, params.DeviceIdentifiers)
 			if err != nil {
 				return nil, err
 			}
-			if len(withSite) > 0 && !params.ForceClearConflictingSite {
-				sort.Strings(withSite)
-				conflicts := make([]PerDeviceRackConflict, 0, len(withSite))
-				for _, id := range withSite {
+			if len(withPlacement) > 0 && !params.ForceClearConflictingSite {
+				sort.Strings(withPlacement)
+				conflicts := make([]PerDeviceRackConflict, 0, len(withPlacement))
+				for _, id := range withPlacement {
 					conflicts = append(conflicts, PerDeviceRackConflict{
 						DeviceIdentifier: id,
 						Reason:           RackConflictReasonDeviceLosesSite,

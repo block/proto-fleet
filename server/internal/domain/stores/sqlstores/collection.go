@@ -633,13 +633,13 @@ func (s *SQLCollectionStore) RemoveDevicesFromAnyRack(ctx context.Context, orgID
 	return count, nil
 }
 
-func (s *SQLCollectionStore) FindDevicesWithSite(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
-	rows, err := s.GetQueries(ctx).FindDevicesWithSite(ctx, sqlc.FindDevicesWithSiteParams{
+func (s *SQLCollectionStore) FindDevicesWithSiteOrBuilding(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	rows, err := s.GetQueries(ctx).FindDevicesWithSiteOrBuilding(ctx, sqlc.FindDevicesWithSiteOrBuildingParams{
 		OrgID:             orgID,
 		DeviceIdentifiers: deviceIdentifiers,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to find devices with site: %w", err)
+		return nil, fleeterror.NewInternalErrorf("failed to find devices with site or building: %w", err)
 	}
 	return rows, nil
 }

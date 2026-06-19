@@ -238,11 +238,12 @@ type CollectionStore interface {
 	// (caller intends to unassign).
 	RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) (int64, error)
 
-	// FindDevicesWithSite returns the requested identifiers whose
-	// device.site_id is currently non-NULL. AssignDevicesToRack uses it
-	// to detect miners that would lose their site by joining a site-less
-	// rack, so the caller can confirm before stripping it.
-	FindDevicesWithSite(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
+	// FindDevicesWithSiteOrBuilding returns the requested identifiers
+	// whose device.site_id OR device.building_id is currently non-NULL.
+	// AssignDevicesToRack uses it to detect miners that would lose a
+	// placement by joining a site-less rack (the force path clears both
+	// columns), so the caller can confirm before stripping.
+	FindDevicesWithSiteOrBuilding(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
 
 	// ClearDeviceSitesAndBuildings nulls device.site_id and
 	// device.building_id for the given identifiers (skipping rows already

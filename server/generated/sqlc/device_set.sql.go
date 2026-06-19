@@ -414,26 +414,28 @@ func (q *Queries) DeviceSetBelongsToOrg(ctx context.Context, arg DeviceSetBelong
 	return belongs, err
 }
 
-const findDevicesWithSite = `-- name: FindDevicesWithSite :many
+const findDevicesWithSiteOrBuilding = `-- name: FindDevicesWithSiteOrBuilding :many
 SELECT device_identifier
 FROM device
 WHERE org_id = $1
   AND device_identifier = ANY($2::text[])
   AND deleted_at IS NULL
-  AND site_id IS NOT NULL
+  AND (site_id IS NOT NULL OR building_id IS NOT NULL)
 `
 
-type FindDevicesWithSiteParams struct {
+type FindDevicesWithSiteOrBuildingParams struct {
 	OrgID             int64
 	DeviceIdentifiers []string
 }
 
 // Returns the requested device identifiers that currently have a
-// non-NULL site_id. Used by AssignDevicesToRack to detect miners that
-// would lose their site by joining a site-less (fully-unassigned) rack,
-// so the caller can confirm before stripping it.
-func (q *Queries) FindDevicesWithSite(ctx context.Context, arg FindDevicesWithSiteParams) ([]string, error) {
-	rows, err := q.query(ctx, q.findDevicesWithSiteStmt, findDevicesWithSite, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+// non-NULL site_id OR building_id. Used by AssignDevicesToRack to detect
+// miners that would lose a placement by joining a site-less
+// (fully-unassigned) rack — the force path clears BOTH columns, so a
+// miner with only a direct building (site NULL, building set, e.g. one
+// assigned to a site-less building) must trip the confirm too.
+func (q *Queries) FindDevicesWithSiteOrBuilding(ctx context.Context, arg FindDevicesWithSiteOrBuildingParams) ([]string, error) {
+	rows, err := q.query(ctx, q.findDevicesWithSiteOrBuildingStmt, findDevicesWithSiteOrBuilding, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
 		return nil, err
 	}

@@ -234,19 +234,19 @@ func (mr *MockCollectionStoreMockRecorder) CreateRackExtension(ctx, params any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRackExtension", reflect.TypeOf((*MockCollectionStore)(nil).CreateRackExtension), ctx, params)
 }
 
-// FindDevicesWithSite mocks base method.
-func (m *MockCollectionStore) FindDevicesWithSite(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+// FindDevicesWithSiteOrBuilding mocks base method.
+func (m *MockCollectionStore) FindDevicesWithSiteOrBuilding(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindDevicesWithSite", ctx, orgID, deviceIdentifiers)
+	ret := m.ctrl.Call(m, "FindDevicesWithSiteOrBuilding", ctx, orgID, deviceIdentifiers)
 	ret0, _ := ret[0].([]string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// FindDevicesWithSite indicates an expected call of FindDevicesWithSite.
-func (mr *MockCollectionStoreMockRecorder) FindDevicesWithSite(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+// FindDevicesWithSiteOrBuilding indicates an expected call of FindDevicesWithSiteOrBuilding.
+func (mr *MockCollectionStoreMockRecorder) FindDevicesWithSiteOrBuilding(ctx, orgID, deviceIdentifiers any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDevicesWithSite", reflect.TypeOf((*MockCollectionStore)(nil).FindDevicesWithSite), ctx, orgID, deviceIdentifiers)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDevicesWithSiteOrBuilding", reflect.TypeOf((*MockCollectionStore)(nil).FindDevicesWithSiteOrBuilding), ctx, orgID, deviceIdentifiers)
 }
 
 // GetAddedDeviceSiteConflicts mocks base method.
