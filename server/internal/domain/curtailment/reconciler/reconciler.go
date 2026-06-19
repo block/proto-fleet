@@ -43,6 +43,8 @@ const (
 
 	// 10× tick interval; ages out restore-phase targets via retry budget.
 	defaultRestoreDispatchTimeoutSec = 300
+
+	curtailTelemetryTimeoutError = "curtail telemetry timeout"
 )
 
 // CommandDispatcher is the subset of command.Service the reconciler needs;
@@ -735,6 +737,7 @@ func (r *Reconciler) maybeAgeOutCurtailConfirmation(ctx context.Context, ev *mod
 		return
 	}
 	if t.RetryCount >= r.cfg.MaxRetries {
+		r.markCurtailConfirmationTimeoutExhausted(ctx, ev, t, t.RetryCount)
 		return
 	}
 	timeout := time.Duration(r.cfg.CurtailConfirmTimeoutSec) * time.Second
@@ -756,28 +759,20 @@ func (r *Reconciler) recordCurtailConfirmationTimeout(ctx context.Context, ev *m
 	// the miner failed to curtail. Keep the row non-terminal so Stop can still
 	// issue the compensating restore command if the miner did go to sleep.
 	newRetry := t.RetryCount + 1
-	state := retryState
-	var confirmedAt *time.Time
-	var observedAt *time.Time
 	if newRetry >= r.cfg.MaxRetries {
-		state = models.TargetStateConfirmed
-		now := r.now()
-		confirmedAt = &now
-		observedAt = &now
+		r.markCurtailConfirmationTimeoutExhausted(ctx, ev, t, newRetry)
+		return
 	}
-	errMsg := "curtail telemetry timeout"
 	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:       state,
-		LastError:   &errMsg,
-		RetryCount:  &newRetry,
-		ConfirmedAt: confirmedAt,
-		ObservedAt:  observedAt,
+		State:      retryState,
+		LastError:  ptrString(curtailTelemetryTimeoutError),
+		RetryCount: &newRetry,
 	}
 	err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params)
 	if err == nil {
-		t.State = state
+		t.State = retryState
 		t.RetryCount = newRetry
-		t.LastError = &errMsg
+		t.LastError = ptrString(curtailTelemetryTimeoutError)
 		return
 	}
 	if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
@@ -796,9 +791,46 @@ func (r *Reconciler) recordCurtailConfirmationTimeout(ctx context.Context, ev *m
 	t.RetryCount = newRetry
 }
 
+func (r *Reconciler) markCurtailConfirmationTimeoutExhausted(ctx context.Context, ev *models.Event, t *models.Target, retryCount int32) {
+	now := r.now()
+	params := interfaces.UpdateCurtailmentTargetStateParams{
+		State:       models.TargetStateConfirmed,
+		LastError:   ptrString(curtailTelemetryTimeoutError),
+		RetryCount:  &retryCount,
+		ConfirmedAt: &now,
+		ObservedAt:  &now,
+	}
+	err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params)
+	if err == nil {
+		t.State = models.TargetStateConfirmed
+		t.RetryCount = retryCount
+		t.LastError = ptrString(curtailTelemetryTimeoutError)
+		t.ConfirmedAt = &now
+		t.ObservedAt = &now
+		return
+	}
+	if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+		return
+	}
+	slog.Error("curtailment reconciler: target update after exhausted curtail telemetry timeout failed",
+		"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+	if bumpErr := r.store.BumpTargetRetry(ctx, ev.ID, t.DeviceIdentifier); bumpErr != nil {
+		if !errors.Is(bumpErr, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			r.metrics.IncTargetWriteFailure()
+			slog.Error("curtailment reconciler: retry-budget bump fallback failed",
+				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", bumpErr)
+		}
+		return
+	}
+	t.RetryCount = retryCount
+}
+
 // checkDrift evaluates a confirmed target against telemetry. Uncurtailed
 // → Drifted, re-dispatch if budget remains.
 func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
+	if t.LastError != nil && *t.LastError == curtailTelemetryTimeoutError {
+		return
+	}
 	if c == nil {
 		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", models.TargetStateDrifted)
 		return
@@ -1062,6 +1094,10 @@ func isCurtailed(latestPowerW *float64, baselinePowerW *float64, latestHashRateH
 
 func isFinite(v float64) bool {
 	return !math.IsNaN(v) && !math.IsInf(v, 0)
+}
+
+func ptrString(v string) *string {
+	return &v
 }
 
 // enforceMaxDuration transitions an active event to restoring when the
