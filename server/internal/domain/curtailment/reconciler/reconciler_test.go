@@ -1710,12 +1710,11 @@ func TestReconciler_FullFleetCurtailConfirmTimeoutExhaustionStaysRestorable(t *t
 	r.runTick(context.Background())
 
 	target := store.targetsByEventID[eventID][0]
-	assert.Equal(t, models.TargetStateConfirmed, target.State, "exhausted timeout target advances from pending without becoming terminal")
+	assert.Equal(t, models.TargetStateDrifted, target.State, "exhausted timeout target advances without being counted as confirmed")
 	assert.Equal(t, models.EventStateActive, store.events[0].State)
 	assert.Equal(t, int32(3), target.RetryCount)
 	require.NotNil(t, target.LastError)
 	assert.Contains(t, *target.LastError, "curtail telemetry timeout")
-	require.NotNil(t, target.ConfirmedAt)
 
 	r.runTick(context.Background())
 	assert.Equal(t, 0, disp.curtailCalls, "exhausted timeout target must not loop curtail commands")
@@ -1787,7 +1786,7 @@ func TestReconciler_FullFleetCurtailConfirmTimeoutFallbackCleansUpNextTick(t *te
 	}
 	failConfirmWrite := true
 	store.updateTargetStateHook = func(_ string, params interfaces.UpdateCurtailmentTargetStateParams, _ int) error {
-		if failConfirmWrite && params.State == models.TargetStateConfirmed {
+		if failConfirmWrite && params.State == models.TargetStateDrifted {
 			failConfirmWrite = false
 			return errors.New("transient write failure")
 		}
@@ -1804,7 +1803,7 @@ func TestReconciler_FullFleetCurtailConfirmTimeoutFallbackCleansUpNextTick(t *te
 	r.runTick(context.Background())
 
 	target = store.targetsByEventID[eventID][0]
-	assert.Equal(t, models.TargetStateConfirmed, target.State, "next tick finalizes the exhausted timeout state")
+	assert.Equal(t, models.TargetStateDrifted, target.State, "next tick finalizes the exhausted timeout state")
 	assert.Equal(t, models.EventStateActive, store.events[0].State)
 	assert.Equal(t, 0, disp.curtailCalls)
 }

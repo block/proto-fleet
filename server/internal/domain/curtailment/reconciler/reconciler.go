@@ -674,6 +674,9 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 			}
 			r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDispatching)
 		case models.TargetStateDrifted:
+			if r.isCurtailTelemetryTimeoutExhausted(t) {
+				continue
+			}
 			if t.RetryCount >= r.cfg.MaxRetries {
 				// Symmetric to the DISPATCHING arm: a Drifted target whose
 				// retry budget was bumped past MaxRetries by the
@@ -690,6 +693,12 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 			// Pending unreachable on active; terminal states are restorer-owned.
 		}
 	}
+}
+
+func (r *Reconciler) isCurtailTelemetryTimeoutExhausted(t *models.Target) bool {
+	return t.LastError != nil &&
+		*t.LastError == curtailTelemetryTimeoutError &&
+		t.RetryCount >= r.cfg.MaxRetries
 }
 
 // confirmOneDispatched promotes Dispatched → Confirmed when telemetry
@@ -797,21 +806,18 @@ func (r *Reconciler) markCurtailConfirmationTimeoutExhausted(ctx context.Context
 		r.recordDispatchFailure(ctx, ev, t, curtailTelemetryTimeoutError, models.TargetStateDispatched)
 		return
 	}
-	now := r.now()
 	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:       models.TargetStateConfirmed,
-		LastError:   ptrString(curtailTelemetryTimeoutError),
-		RetryCount:  &retryCount,
-		ConfirmedAt: &now,
-		ObservedAt:  &now,
+		State:      models.TargetStateDrifted,
+		LastError:  ptrString(curtailTelemetryTimeoutError),
+		RetryCount: &retryCount,
+		ObservedAt: ptrTime(r.now()),
 	}
 	err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params)
 	if err == nil {
-		t.State = models.TargetStateConfirmed
+		t.State = models.TargetStateDrifted
 		t.RetryCount = retryCount
 		t.LastError = ptrString(curtailTelemetryTimeoutError)
-		t.ConfirmedAt = &now
-		t.ObservedAt = &now
+		t.ObservedAt = params.ObservedAt
 		return
 	}
 	if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
@@ -901,9 +907,13 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 		case models.TargetStateRestoreFailed:
 			terminalFailures++
 		case models.TargetStatePending, models.TargetStateDispatching,
-			models.TargetStateDispatched, models.TargetStateDrifted:
+			models.TargetStateDispatched:
 			// In flight.
 			return
+		case models.TargetStateDrifted:
+			if !r.isCurtailTelemetryTimeoutExhausted(t) {
+				return
+			}
 		case models.TargetStateResolved, models.TargetStateReleased:
 			// Unreachable on a pending event; hold for manual cleanup.
 			return
@@ -1114,6 +1124,10 @@ func isFinite(v float64) bool {
 }
 
 func ptrString(v string) *string {
+	return &v
+}
+
+func ptrTime(v time.Time) *time.Time {
 	return &v
 }
 
