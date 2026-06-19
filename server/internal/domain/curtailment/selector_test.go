@@ -19,6 +19,10 @@ type fakeMode struct {
 	result   modes.Result
 }
 
+func (f *fakeMode) RequiresDualSignalTelemetry() bool {
+	return true
+}
+
 func (f *fakeMode) Select(ranked []modes.Candidate) modes.Result {
 	f.captured = make([]modes.Candidate, len(ranked))
 	copy(f.captured, ranked)
@@ -68,6 +72,45 @@ func TestBuildPlan_DualSignalFilter_BelowThreshold(t *testing.T) {
 
 	require.Len(t, plan.Skipped, 1)
 	assert.Equal(t, SkipBelowThreshold, plan.Skipped[0].Reason)
+}
+
+func TestBuildPlan_FullFleetBypassesDualSignalFilter(t *testing.T) {
+	t.Parallel()
+
+	inputs := []CandidateInput{
+		{DeviceIdentifier: "low-power-hashing", PowerW: 100, HashRateHS: 100, AvgEfficiencyJH: eff(40)},
+		{DeviceIdentifier: "not-yet-hashing", PowerW: 2000, HashRateHS: 0, AvgEfficiencyJH: eff(35)},
+		{DeviceIdentifier: "idle-low-power", PowerW: 5, HashRateHS: 0, AvgEfficiencyJH: nil},
+	}
+
+	plan := BuildPlan(inputs, nil, 1500, modes.FullFleet{})
+
+	assert.Empty(t, plan.Skipped)
+	require.Len(t, plan.Selected, 3)
+	assert.Equal(t, "low-power-hashing", plan.Selected[0].DeviceIdentifier)
+	assert.Equal(t, "not-yet-hashing", plan.Selected[1].DeviceIdentifier)
+	assert.Equal(t, "idle-low-power", plan.Selected[2].DeviceIdentifier)
+	assert.Equal(t, modes.OutcomeTargetReached, plan.Outcome)
+}
+
+func TestBuildPlan_FixedKwStillAppliesDualSignalFilter(t *testing.T) {
+	t.Parallel()
+
+	inputs := []CandidateInput{
+		{DeviceIdentifier: "eligible", PowerW: 3000, HashRateHS: 100, AvgEfficiencyJH: eff(40)},
+		{DeviceIdentifier: "low-power-hashing", PowerW: 100, HashRateHS: 100, AvgEfficiencyJH: eff(35)},
+		{DeviceIdentifier: "not-yet-hashing", PowerW: 2000, HashRateHS: 0, AvgEfficiencyJH: eff(30)},
+	}
+	mode, err := modes.NewFixedKw(1, 0, modes.InsufficientLoadDetail{CandidateMinPowerW: 1500})
+	require.NoError(t, err)
+
+	plan := BuildPlan(inputs, nil, 1500, mode)
+
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, "eligible", plan.Selected[0].DeviceIdentifier)
+	require.Len(t, plan.Skipped, 2)
+	assert.Equal(t, SkipPowerTelemetryUnreliable, plan.Skipped[0].Reason)
+	assert.Equal(t, SkipPhantomLoadNoHash, plan.Skipped[1].Reason)
 }
 
 func TestBuildPlan_PreFilteredSkippedAreForwarded(t *testing.T) {

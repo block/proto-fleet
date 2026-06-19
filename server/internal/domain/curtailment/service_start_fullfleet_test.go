@@ -36,6 +36,31 @@ func TestService_Start_FullFleet_CurtailsAllEligible(t *testing.T) {
 	assert.Len(t, store.lastInsertTargets, 2)
 }
 
+func TestService_Start_FullFleet_CurtailsLowPowerAndZeroHashrateMiners(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("low-power-hashing", 100, 100, 40),
+		minerWithEff("not-yet-hashing", 2000, 0, 45),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.Len(t, plan.Selected, 2)
+	assert.Equal(t, "not-yet-hashing", plan.Selected[0].DeviceIdentifier,
+		"full_fleet still ranks by efficiency when selecting all eligible miners")
+	assert.Equal(t, "low-power-hashing", plan.Selected[1].DeviceIdentifier)
+	assert.Empty(t, plan.Skipped)
+	assert.Len(t, store.lastInsertTargets, 2)
+}
+
 // The empty-eligible case is the chosen behavior: persist a vacuously COMPLETED
 // event with no targets, not an insufficient-load rejection.
 func TestService_Start_FullFleet_NoEligibleMinersPersistsCompleted(t *testing.T) {
@@ -69,7 +94,6 @@ func TestService_Preview_FullFleet_AllSkippedReturnsInsufficientDetail(t *testin
 		miner("offline", "OFFLINE", "PAIRED", 0, 0),
 		miner("updating", "UPDATING", "PAIRED", 0, 0),
 		staleMiner("stale"),
-		miner("below-floor", "ACTIVE", "PAIRED", 100, 0),
 	}
 	svc := NewService(store)
 	req := validRequest(orgID)
@@ -82,11 +106,11 @@ func TestService_Preview_FullFleet_AllSkippedReturnsInsufficientDetail(t *testin
 	require.NotNil(t, plan.InsufficientLoadDetail)
 	assert.Equal(t, modes.OutcomeInsufficientLoad, plan.Outcome)
 	assert.Empty(t, plan.Selected)
-	assert.Len(t, plan.Skipped, 4)
+	assert.Len(t, plan.Skipped, 3)
 	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedOffline)
 	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedUpdating)
 	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedStale)
-	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedBelowThreshold)
+	assert.Zero(t, plan.InsufficientLoadDetail.ExcludedBelowThreshold)
 	assert.Equal(t, int32(1500), plan.InsufficientLoadDetail.CandidateMinPowerW)
 	assert.Zero(t, store.insertEventCalls, "Preview must not persist")
 }

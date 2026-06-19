@@ -9,6 +9,10 @@ type FullFleet struct{}
 // Select implements Mode: take all ranked candidates in dispatch order and sum
 // their power. Empty input yields an empty Selected with OutcomeTargetReached
 // (RealizedReductionW 0) — never OutcomeInsufficientLoad.
+func (FullFleet) RequiresDualSignalTelemetry() bool {
+	return false
+}
+
 func (FullFleet) Select(ranked []Candidate) Result {
 	selected := make([]Candidate, len(ranked))
 	copy(selected, ranked)
