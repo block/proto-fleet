@@ -66,7 +66,13 @@ export class FleetLocationsPage extends BasePage {
     await row.click();
     await expect(this.page.getByTestId("site-settings-single-view")).toBeVisible();
     await this.page.getByTestId("site-settings-manage").click();
-    await this.page.getByRole("button", { name: "Edit details", exact: true }).click();
+    const overflowTrigger = this.page.getByTestId("overflow-menu-trigger");
+    if (await overflowTrigger.isVisible().catch(() => false)) {
+      await overflowTrigger.click();
+      await this.page.getByText("Edit details", { exact: true }).click();
+    } else {
+      await this.page.getByRole("button", { name: "Edit details", exact: true }).click();
+    }
     await expect(this.page.getByTestId("site-settings-modal")).toBeVisible();
     await this.page.getByTestId("site-settings-modal-delete").click();
     await expect(this.page.getByTestId("site-delete-dialog")).toBeVisible();
