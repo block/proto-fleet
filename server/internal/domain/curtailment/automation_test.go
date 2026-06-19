@@ -296,6 +296,8 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 		h.curtailments.lastInsertEvent.Reason,
 	)
 	assert.Equal(t, models.SourceActorAutomation, h.curtailments.lastInsertEvent.SourceActorType)
+	assert.True(t, h.curtailments.lastInsertEvent.AllowUnbounded)
+	assert.Nil(t, h.curtailments.lastInsertEvent.MaxDurationSeconds)
 	assert.Equal(t, h.source.ServiceUserID, h.curtailments.lastInsertEvent.CreatedByUserID)
 	assert.Equal(t, automationExternalSource, *h.curtailments.lastInsertEvent.ExternalSource)
 	assert.Equal(t, "9001", *h.curtailments.lastInsertEvent.ExternalReference)
