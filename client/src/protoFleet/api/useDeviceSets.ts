@@ -1007,4 +1007,3 @@ const useDeviceSets = () => {
 };
 
 export { useDeviceSets };
-export type { ListDeviceSetsProps };

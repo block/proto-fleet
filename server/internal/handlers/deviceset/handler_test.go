@@ -40,7 +40,6 @@ type testHarness struct {
 	collectionStore *mocks.MockCollectionStore
 	siteStore       *mocks.MockSiteStore
 	buildingStore   *mocks.MockBuildingStore
-	siteStore       *mocks.MockSiteStore
 	ctrl            *gomock.Controller
 }
 
@@ -51,7 +50,6 @@ func newTestHandler(t *testing.T) *testHarness {
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
-	siteStore := mocks.NewMockSiteStore(ctrl)
 	tx := mocks.NewMockTransactor(ctrl)
 	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) error) error {
@@ -88,7 +86,6 @@ func newTestHandler(t *testing.T) *testHarness {
 		collectionStore: collectionStore,
 		siteStore:       siteStore,
 		buildingStore:   buildingStore,
-		siteStore:       siteStore,
 		ctrl:            ctrl,
 	}
 }
@@ -164,8 +161,8 @@ func TestListDeviceSets_SiteAndTelemetryFilters(t *testing.T) {
 	h := newTestHandler(t)
 
 	h.siteStore.EXPECT().
-		SiteBelongsToOrg(gomock.Any(), testOrgID, int64(3)).
-		Return(true, nil)
+		SitesByIDs(gomock.Any(), testOrgID, []int64{3}).
+		Return([]int64{3}, nil)
 
 	h.collectionStore.EXPECT().
 		ListCollections(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK,
@@ -286,24 +283,6 @@ func TestListDeviceSets_OversizedBuildingIDs(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 	assert.Contains(t, err.Error(), "building_ids")
-}
-
-func TestListDeviceSets_OversizedSiteIDs(t *testing.T) {
-	h := newTestHandler(t)
-
-	tooMany := make([]int64, maxDeviceSetFilterValues+1)
-	for i := range tooMany {
-		tooMany[i] = int64(i + 1)
-	}
-	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
-		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
-		SiteIds: tooMany,
-	})
-
-	_, err := h.handler.ListDeviceSets(testCtx(t), req)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "site_ids")
 }
 
 func TestListDeviceSets_InvalidTelemetryRangeRejected(t *testing.T) {

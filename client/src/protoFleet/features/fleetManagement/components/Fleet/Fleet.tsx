@@ -70,7 +70,7 @@ const Fleet = () => {
   const { listAllBuildings } = useBuildings();
   const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
   const [availableRacks, setAvailableRacks] = useState<DeviceSet[]>([]);
-  const { sites } = useFleetOutletContext();
+  const { sites, notifyPairingCompleted, minersChangedAt, publishViewFilterContext } = useFleetOutletContext();
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
   const { siteIds: activeSiteIds, includeUnassigned: activeIncludeUnassigned } = useMemo(
@@ -251,7 +251,6 @@ const Fleet = () => {
   // Chrome-level coordination: CompleteSetup lives in FleetLayout and pulses
   // these timestamps. We forward our pairing completion up, and refetch when
   // an in-banner flow (e.g. pool assignment) signals the miner list is stale.
-  const { sites, notifyPairingCompleted, minersChangedAt, publishViewFilterContext } = useFleetOutletContext();
   const availableSites = useMemo<FilterLabelSource[]>(
     () =>
       (sites ?? [])
