@@ -83,7 +83,7 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 	persisted := StatusAuthenticationNeeded
 	if outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
 		persisted = StatusPaired
-		if result.GetDefaultPasswordActive() {
+		if result.DefaultPasswordActive != nil && result.GetDefaultPasswordActive() {
 			persisted = StatusDefaultPassword
 		}
 	}
@@ -105,6 +105,21 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 		existing, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, identifier, orgID)
 		if err != nil && !fleeterror.IsNotFoundError(err) {
 			return fleeterror.LogInternal(component, "lookup device", clientErrLookupDeviceForPairing, err)
+		}
+
+		// default_password_active is tri-state: absent means the node/plugin could
+		// not determine whether factory credentials are still active. Preserve an
+		// existing DEFAULT_PASSWORD remediation state unless the report explicitly
+		// says false.
+		if outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED && result.DefaultPasswordActive == nil && existing != nil {
+			status, err := s.deviceStore.GetDevicePairingStatusByIdentifier(ctx, identifier, orgID)
+			if err != nil {
+				if !fleeterror.IsNotFoundError(err) {
+					return fleeterror.LogInternal(component, "load existing pairing status", clientErrPair, err)
+				}
+			} else if status == StatusDefaultPassword {
+				persisted = StatusDefaultPassword
+			}
 		}
 
 		// A non-PAIRED report must not downgrade an already-PAIRED device: between
