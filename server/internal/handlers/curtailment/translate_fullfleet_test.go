@@ -77,7 +77,9 @@ func TestPopulateEventModeParams_FullFleet(t *testing.T) {
 func TestToStartResponse_ClosedLoopFullFleetReturnsActiveTargetlessEvent(t *testing.T) {
 	t.Parallel()
 
+	startedAt := time.Date(2026, 6, 4, 11, 0, 0, 0, time.UTC)
 	plan := &curtailment.Plan{
+		StartedAt: &startedAt,
 		Selected: []curtailment.SelectedDevice{
 			{DeviceIdentifier: "miner-a", PowerW: 3000},
 		},
@@ -92,6 +94,8 @@ func TestToStartResponse_ClosedLoopFullFleetReturnsActiveTargetlessEvent(t *test
 	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, event.GetState())
 	assert.Empty(t, event.GetTargets())
 	assert.Equal(t, int32(0), event.GetTargetRollup().GetTotal())
+	require.NotNil(t, event.GetStartedAt())
+	assert.Equal(t, plan.StartedAt.Unix(), event.GetStartedAt().AsTime().Unix())
 	assert.Nil(t, event.GetEndedAt())
 }
 

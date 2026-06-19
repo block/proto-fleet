@@ -71,6 +71,9 @@ type Plan struct {
 	InsufficientLoadDetail *modes.InsufficientLoadDetail
 	// EventUUID is set by Service.Start after persisting; nil for Preview.
 	EventUUID *uuid.UUID
+	// StartedAt is set by Service.Start for events inserted already active;
+	// echoed in the Start response so it matches the stamped row.
+	StartedAt *time.Time
 	// EndedAt is set by Service.Start only when an event is persisted already
 	// terminal (an empty FULL_FLEET start); echoed in the Start response so it
 	// matches the stamped row. nil otherwise.

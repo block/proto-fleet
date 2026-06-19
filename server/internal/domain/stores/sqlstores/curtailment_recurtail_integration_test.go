@@ -174,7 +174,7 @@ func TestSQLCurtailmentStore_ClosedLoopScopeHierarchyConflicts(t *testing.T) {
 	siteB, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: user.OrganizationID, Name: "site-b"})
 	require.NoError(t, err)
 
-	_, err = store.InsertEventWithTargets(
+	wholeOrg, err := store.InsertEventWithTargets(
 		ctx,
 		curtailmentStoreClosedLoopFullFleetEvent(user.OrganizationID, user.DatabaseID, uuid.New(), models.ScopeTypeWholeOrg, 0, "whole-org"),
 		nil,
@@ -189,7 +189,7 @@ func TestSQLCurtailmentStore_ClosedLoopScopeHierarchyConflicts(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsAlreadyExistsError(err), "org watcher must block site starts, got %v", err)
 
-	_, err = db.ExecContext(ctx, `UPDATE curtailment_event SET state = 'completed', ended_at = NOW() WHERE org_id = $1`, user.OrganizationID)
+	_, err = store.BeginRestoreTransition(ctx, user.OrganizationID, wholeOrg.EventUUID, interfaces.BeginRestoreTransitionParams{})
 	require.NoError(t, err)
 
 	_, err = store.InsertEventWithTargets(

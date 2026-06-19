@@ -954,7 +954,7 @@ func TestService_Preview_MaintenancePairAdmitsMiners(t *testing.T) {
 
 // --- cooldown ---
 
-func TestService_Preview_NormalPriority_AppliesCooldown(t *testing.T) {
+func TestService_Preview_NormalPriority_DoesNotApplyCooldown(t *testing.T) {
 	t.Parallel()
 
 	const orgID = int64(1)
@@ -972,20 +972,12 @@ func TestService_Preview_NormalPriority_AppliesCooldown(t *testing.T) {
 	plan, err := svc.Preview(t.Context(), req)
 	require.NoError(t, err)
 
-	require.Equal(t, 1, store.cooldownCalls, "NORMAL priority must consult cooldown")
-	assert.Equal(t, int32(600), store.lastCooldownSec, "cooldown sec must come from org config")
-
-	// recent miner gets skipped with cooldown reason; ok miner is selected.
-	reasons := map[string]SkipReason{}
-	for _, s := range plan.Skipped {
-		reasons[s.DeviceIdentifier] = s.Reason
-	}
-	assert.Equal(t, SkipCooldown, reasons["recent"])
+	assert.Zero(t, store.cooldownCalls, "curtailment should not be gated by cooldown")
 	require.Len(t, plan.Selected, 1)
-	assert.Equal(t, "ok", plan.Selected[0].DeviceIdentifier)
+	assert.Equal(t, "recent", plan.Selected[0].DeviceIdentifier)
 }
 
-func TestService_Preview_EmergencyPriority_BypassesCooldown(t *testing.T) {
+func TestService_Preview_EmergencyPriority_DoesNotConsultCooldown(t *testing.T) {
 	t.Parallel()
 
 	const orgID = int64(1)
@@ -1003,7 +995,7 @@ func TestService_Preview_EmergencyPriority_BypassesCooldown(t *testing.T) {
 	plan, err := svc.Preview(t.Context(), req)
 	require.NoError(t, err)
 
-	assert.Zero(t, store.cooldownCalls, "EMERGENCY must skip the cooldown lookup entirely")
+	assert.Zero(t, store.cooldownCalls, "cooldown lookup is not part of selection")
 	require.Len(t, plan.Selected, 1, "recent miner is admitted under EMERGENCY")
 	assert.Equal(t, "recent", plan.Selected[0].DeviceIdentifier)
 }
@@ -1089,8 +1081,6 @@ func TestService_Preview_PassesCallerOrgIDToEveryStoreCall(t *testing.T) {
 	store.orgConfigByOrg[otherOrg] = defaultOrgConfig(otherOrg)
 	store.activeDevicesByOrg[callerOrg] = []string{"caller-locked"}
 	store.activeDevicesByOrg[otherOrg] = []string{"other-locked"}
-	store.cooldownDevicesByOrg[callerOrg] = []string{"caller-cooldown"}
-	store.cooldownDevicesByOrg[otherOrg] = []string{"other-cooldown"}
 	store.candidatesByOrg[callerOrg] = []*models.Candidate{minerWithEff("caller-miner", 3000, 100, 40)}
 	store.candidatesByOrg[otherOrg] = []*models.Candidate{minerWithEff("other-miner", 3000, 100, 40)}
 
@@ -1099,7 +1089,6 @@ func TestService_Preview_PassesCallerOrgIDToEveryStoreCall(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, callerOrg, store.lastActiveDevicesOrgID, "active-event lookup must use caller's org_id")
-	assert.Equal(t, callerOrg, store.lastCooldownOrgID, "cooldown lookup must use caller's org_id")
 	assert.Equal(t, callerOrg, store.lastListCandidatesOrgID, "candidate listing must use caller's org_id")
 
 	// Plan must contain only the caller's devices — no leakage from otherOrg.

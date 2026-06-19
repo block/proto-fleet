@@ -346,7 +346,7 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 	r.maybeMarkActive(ctx, ev, targets)
 }
 
-// dispatchPendingCurtailBatches drains pending-event Curtail work in command
+// dispatchPendingCurtailBatches drains retryable Curtail work in command
 // batches. Orphaned DISPATCHING rows from an interrupted prior tick are
 // recovered before fresh PENDING rows. curtail_batch_size=NULL dispatches all
 // remaining targets; a positive interval paces fresh pending batches.
@@ -563,14 +563,13 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	return true
 }
 
-// recordDispatchFailure bumps retry_count; transitions to RestoreFailed
-// at MaxRetries so the event can still proceed. On non-race-loss write
-// failure, falls back to BumpTargetRetry so the budget still advances
-// across ticks even when the rich state-change UPDATE can't land.
+// recordDispatchFailure bumps retry_count. Restore targets transition to
+// RestoreFailed at MaxRetries so the event can complete; curtail targets stay
+// retryable while OFF remains asserted, with retry_count surfacing the alert.
 func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
 	newRetry := t.RetryCount + 1
 	state := nonTerminalFailureState
-	if newRetry >= r.maxRetriesForTarget(t) {
+	if r.retryBudgetTerminalizes(t, newRetry) {
 		state = models.TargetStateRestoreFailed
 	}
 	params := interfaces.UpdateCurtailmentTargetStateParams{
@@ -590,9 +589,8 @@ func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event
 	}
 	slog.Error("curtailment reconciler: target update after dispatch failure failed",
 		"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
-	// Fallback: advance retry budget only. State stays at the prior value
-	// (next tick re-issues the dispatch); MaxRetries → RESTORE_FAILED
-	// escalation lands on the next successful UpdateTargetState.
+	// Fallback: advance retry budget only. State stays at the prior value;
+	// terminal restore escalation lands on the next successful UpdateTargetState.
 	if bumpErr := r.store.BumpTargetRetry(ctx, ev.ID, t.DeviceIdentifier); bumpErr != nil {
 		if !errors.Is(bumpErr, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			r.metrics.IncTargetWriteFailure()
@@ -605,10 +603,18 @@ func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event
 }
 
 func (r *Reconciler) maxRetriesForTarget(t *models.Target) int32 {
-	if t != nil && t.DesiredState == models.DesiredStateCurtailed {
+	if isCurtailRetryTarget(t) {
 		return r.cfg.CurtailMaxRetries
 	}
 	return r.cfg.MaxRetries
+}
+
+func (r *Reconciler) retryBudgetTerminalizes(t *models.Target, retryCount int32) bool {
+	return t == nil || (!isCurtailRetryTarget(t) && retryCount >= r.maxRetriesForTarget(t))
+}
+
+func isCurtailRetryTarget(t *models.Target) bool {
+	return t != nil && (t.DesiredState == "" || t.DesiredState == models.DesiredStateCurtailed)
 }
 
 // candidatesByDeviceID indexes a candidate slice by device identifier for
@@ -655,7 +661,6 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 		return
 	}
 	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
-	r.confirmDispatched(ctx, ev, targets)
 	if len(targets) > 0 {
 		deviceIDs := make([]string, 0, len(targets))
 		for _, t := range targets {
@@ -678,21 +683,18 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 					// Re-entry: drifted-then-redispatched, waiting on confirmation.
 					r.confirmOneDispatched(cmdCtx, ev, t, candByID[t.DeviceIdentifier], models.TargetStateDispatched)
 				case models.TargetStateDispatching:
-					// Orphan from an interrupted prior tick; redispatch.
-					if t.RetryCount >= r.maxRetriesForTarget(t) {
-						// Escalate via recordDispatchFailure so the target reaches
-						// the terminal state. Skipping with `continue` would leave
-						// the row pinned in DISPATCHING after BumpTargetRetry's
-						// fallback path bumped retry_count past MaxRetries without
-						// a state transition.
+					// Orphan from an interrupted prior tick; redispatched after
+					// observation in batch-aware order.
+					if r.retryBudgetTerminalizes(t, t.RetryCount) {
+						// Escalate restore targets instead of leaving the row pinned
+						// in DISPATCHING after retry_count passes MaxRetries.
 						r.recordDispatchFailure(cmdCtx, ev, t,
 							"retry budget exhausted from interrupted dispatch",
 							models.TargetStateDispatching)
 						continue
 					}
-					r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDispatching)
 				case models.TargetStateDrifted:
-					if t.RetryCount >= r.maxRetriesForTarget(t) {
+					if r.retryBudgetTerminalizes(t, t.RetryCount) {
 						// Symmetric to the DISPATCHING arm: a Drifted target whose
 						// retry budget was bumped past MaxRetries by the
 						// BumpTargetRetry fallback must terminalize, not loop.
@@ -706,9 +708,10 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 					models.TargetStateResolved, models.TargetStateReleased,
 					models.TargetStateRestoreFailed:
 					// Pending rows are handled by the active closed-loop dispatch pass
-					// above. Terminal states are restorer-owned.
+					// below. Terminal states are restorer-owned.
 				}
 			}
+			r.dispatchPendingCurtailBatches(cmdCtx, ev, targets)
 		}
 	}
 	claimed := r.claimClosedLoopFullFleetTargets(ctx, ev, targets)
@@ -747,7 +750,7 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 	targets, _ := curtailment.BuildFullFleetAdmissionTargets(
 		candidates,
 		ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
-		orgConfig.CandidateMinPowerW,
+		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
 	)
 	targets = excludeExistingTargetParams(targets, existingTargets)
 	activeDevices, err := r.store.ListActiveCurtailmentTargetDevices(ctx, ev.OrgID)
@@ -783,6 +786,19 @@ func hasInFlightCurtailDispatch(targets []*models.Target) bool {
 		}
 	}
 	return false
+}
+
+func candidateMinPowerWForEvent(ev *models.Event, fallback int32) int32 {
+	if ev == nil || len(ev.DecisionSnapshotJSON) == 0 {
+		return fallback
+	}
+	var snapshot struct {
+		CandidateMinPowerW int32 `json:"candidate_min_power_w"`
+	}
+	if err := json.Unmarshal(ev.DecisionSnapshotJSON, &snapshot); err != nil || snapshot.CandidateMinPowerW <= 0 {
+		return fallback
+	}
+	return snapshot.CandidateMinPowerW
 }
 
 func excludeExistingTargetParams(targets []models.InsertTargetParams, existingTargets []*models.Target) []models.InsertTargetParams {
@@ -868,10 +884,7 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 					"timeout_sec", r.cfg.CurtailDispatchTimeoutSec)
 				r.recordDispatchFailure(ctx, ev, t,
 					"curtail telemetry timeout",
-					nonTerminalState)
-				if t.State != models.TargetStateRestoreFailed {
-					r.dispatchOneCurtail(ctx, ev, t, nonTerminalState)
-				}
+					models.TargetStateDispatching)
 			}
 		}
 		return
@@ -933,8 +946,9 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 		if params.ObservedPowerW != nil {
 			t.ObservedPowerW = params.ObservedPowerW
 		}
-		// Budget exhausted: stay Drifted (matches observeActive's drift arm).
-		if t.RetryCount >= r.maxRetriesForTarget(t) {
+		// Restore targets terminalize at budget; curtail targets keep retrying
+		// while OFF is asserted.
+		if r.retryBudgetTerminalizes(t, t.RetryCount) {
 			return
 		}
 		r.dispatchOneCurtail(ctx, ev, t, models.TargetStateDrifted)

@@ -33,15 +33,12 @@ type Scope struct {
 
 // PreviewRequest is the service-level shape of a Preview call.
 type PreviewRequest struct {
-	OrgID    int64
-	Scope    Scope
-	Mode     models.Mode     // must be ModeFixedKw
-	Strategy models.Strategy // default StrategyLeastEfficientFirst
-	Level    models.Level    // must be LevelFull
-	Priority models.Priority // PriorityNormal or PriorityEmergency (cooldown bypass)
-	// BypassCooldown lets trusted internal callers skip post-event cooldown
-	// without changing the persisted priority/audit value on the event.
-	BypassCooldown             bool
+	OrgID                      int64
+	Scope                      Scope
+	Mode                       models.Mode     // must be ModeFixedKw
+	Strategy                   models.Strategy // default StrategyLeastEfficientFirst
+	Level                      models.Level    // must be LevelFull
+	Priority                   models.Priority // PriorityNormal or PriorityEmergency
 	TargetKW                   float64
 	ToleranceKW                float64
 	IncludeMaintenance         bool
@@ -253,10 +250,10 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		now := time.Now().UTC()
 		eventParams.EndedAt = &now
 	}
-	// Carry the stamped completion time into the Plan so the synchronous Start
-	// response matches the persisted row (otherwise a later Get/List shows
-	// ended_at but the Start response does not).
+	// Carry stamped lifecycle times into the Plan so the synchronous Start
+	// response matches the persisted row (otherwise a later Get/List diverges).
 	plan.EndedAt = eventParams.EndedAt
+	plan.StartedAt = eventParams.StartedAt
 
 	result, err := s.store.InsertEventWithTargets(ctx, eventParams, targetParams)
 	if err != nil {
@@ -935,23 +932,11 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 		minPowerW = *req.CandidateMinPowerWOverride
 	}
 
-	// EMERGENCY and trusted automation starts skip post_event_cooldown_sec.
-	bypassCooldown := req.Priority == models.PriorityEmergency || req.BypassCooldown
-
 	activeDevices, err := s.store.ListActiveCurtailedDevices(ctx, req.OrgID)
 	if err != nil {
 		return nil, 0, nil, err
 	}
 	activeSet := toStringSet(activeDevices)
-
-	cooldownSet := map[string]struct{}{}
-	if !bypassCooldown {
-		cd, err := s.store.ListRecentlyResolvedCurtailedDevices(ctx, req.OrgID, orgConfig.PostEventCooldownSec)
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		cooldownSet = toStringSet(cd)
-	}
 
 	candidateFilter.OrgID = req.OrgID
 	candidates, err := s.store.ListCandidates(ctx, candidateFilter)
@@ -975,7 +960,6 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	eligible, preFiltered, summary := classifyCandidates(candidates, classifyOpts{
 		IncludeMaintenance: req.IncludeMaintenance && req.ForceIncludeMaintenance,
 		ActiveEventDevices: activeSet,
-		CooldownDevices:    cooldownSet,
 		CandidateMinPowerW: minPowerW,
 	})
 
@@ -1254,7 +1238,6 @@ func resolveScope(s Scope) (interfaces.ListCandidatesParams, error) {
 type classifyOpts struct {
 	IncludeMaintenance bool
 	ActiveEventDevices map[string]struct{}
-	CooldownDevices    map[string]struct{}
 	CandidateMinPowerW int32
 }
 
@@ -1326,11 +1309,6 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 		if !hasNonNegativeFiniteFloat(c.LatestPowerW) || !hasNonNegativeFiniteFloat(c.LatestHashRateHS) {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
 			summary.ExcludedStale++
-			continue
-		}
-		if _, cooled := opts.CooldownDevices[c.DeviceIdentifier]; cooled {
-			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipCooldown})
-			summary.ExcludedCooldown++
 			continue
 		}
 		// Non-finite avg_efficiency breaks sort transitivity; rank last.

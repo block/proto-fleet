@@ -239,6 +239,13 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 				profile.ForceIncludeMaintenance = true
 			},
 		},
+		{
+			name: "full fleet mode",
+			mutate: func(profile *models.ResponseProfile) {
+				profile.Mode = models.ModeFullFleet
+				profile.TargetKW = nil
+			},
+		},
 	}
 
 	for _, tc := range tests {

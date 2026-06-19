@@ -282,6 +282,9 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	if plan.EventUUID != nil {
 		event.EventUuid = plan.EventUUID.String()
 	}
+	if plan.StartedAt != nil {
+		event.StartedAt = timestamppb.New(*plan.StartedAt)
+	}
 	if plan.EndedAt != nil {
 		event.EndedAt = timestamppb.New(*plan.EndedAt)
 	}

@@ -193,6 +193,9 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 	if profile.Mode == models.ModeFullFleet && (profile.TargetKW != nil || profile.ToleranceKW != nil) {
 		return fleeterror.NewInvalidArgumentError("target_kw and tolerance_kw must be unset for FULL_FLEET response profiles")
 	}
+	if responseProfileRequiresAdminControls(profile) && !canUseAdminControls {
+		return fleeterror.NewForbiddenError("only admins can save response profiles with admin-only controls")
+	}
 	if profile.TargetKW != nil && math.IsInf(*profile.TargetKW, 0) {
 		return fleeterror.NewInvalidArgumentErrorf("target_kw must be finite, got %v", *profile.TargetKW)
 	}

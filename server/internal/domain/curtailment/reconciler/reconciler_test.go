@@ -752,6 +752,51 @@ func TestReconciler_ActiveClosedLoopFullFleetAdmitsAndDispatchesNewTarget(t *tes
 	assert.Equal(t, models.TargetStateDispatched, target.State)
 }
 
+func TestReconciler_ActiveClosedLoopFullFleetUsesPersistedCandidateFloor(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.orgConfig = &models.OrgConfig{OrgID: 1, CandidateMinPowerW: 1500}
+	store.events = []*models.Event{
+		{
+			ID:                   eventID,
+			EventUUID:            eventUUID,
+			OrgID:                1,
+			State:                models.EventStateActive,
+			Mode:                 models.ModeFullFleet,
+			LoopType:             models.LoopTypeClosed,
+			ScopeType:            models.ScopeTypeWholeOrg,
+			DecisionSnapshotJSON: []byte(`{"candidate_min_power_w":500}`),
+			CreatedByUserID:      99,
+		},
+	}
+	driver := "antminer"
+	now := time.Now()
+	store.candidates = []*models.Candidate{
+		{
+			DeviceIdentifier: "miner-low",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestPowerW:     ptrFloat64(800),
+			LatestHashRateHS: ptrFloat64(100),
+			AvgEfficiencyJH:  ptrFloat64(40),
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	require.Len(t, store.targetsByEventID[eventID], 1)
+	target := store.targetsByEventID[eventID][0]
+	require.NotNil(t, target.BaselinePowerW,
+		"dynamic admission must use the floor resolved at Start, not a later org default")
+	assert.Equal(t, 800.0, *target.BaselinePowerW)
+}
+
 func TestReconciler_ActiveClosedLoopFullFleetClaimsOnlyOneCurtailBatch(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -1415,9 +1460,9 @@ func TestReconciler_RecoversOrphanedDispatchingTargetOnActiveEvent(t *testing.T)
 // terminalize on the next tick rather than loop forever in DISPATCHING.
 // The recordDispatchFailure fallback (BumpTargetRetry on writeTargetState
 // failure) can leave a target in DISPATCHING with a bumped retry count,
-// so observeActive must escalate exhausted orphans through the same
-// helper to reach RESTORE_FAILED.
-func TestReconciler_ObserveActive_ExhaustedDispatchingOrphanEscalates(t *testing.T) {
+// so observeActive must keep curtailed targets retryable even after the alert
+// threshold is reached.
+func TestReconciler_ObserveActive_ExhaustedCurtailDispatchingOrphanKeepsRetrying(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
@@ -1443,14 +1488,12 @@ func TestReconciler_ObserveActive_ExhaustedDispatchingOrphanEscalates(t *testing
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
 
-	assert.Equal(t, 0, disp.curtailCalls,
-		"exhausted DISPATCHING orphan must not be redispatched")
+	assert.Equal(t, 1, disp.curtailCalls,
+		"curtailment retry threshold surfaces an alert but does not abandon an asserted OFF policy")
 	final := store.targetsByEventID[eventID][0]
-	assert.Equal(t, models.TargetStateRestoreFailed, final.State,
-		"exhausted DISPATCHING orphan must escalate to RESTORE_FAILED via recordDispatchFailure")
-	assert.Equal(t, int32(4), final.RetryCount,
-		"recordDispatchFailure bumps retry_count once more on escalation")
-	require.NotNil(t, final.LastError, "escalation records a last_error")
+	assert.Equal(t, models.TargetStateDispatched, final.State)
+	assert.Equal(t, int32(3), final.RetryCount)
+	assert.Nil(t, final.LastError, "successful redispatch clears the alert error")
 }
 
 // A race-loss on the orphan-redispatch pre-write must not fire Curtail
@@ -1620,9 +1663,9 @@ func TestReconciler_DriftDetectionRetriesDispatch(t *testing.T) {
 // A Drifted target whose retry_count already sits at MaxRetries must
 // escalate to the terminal state rather than loop in Drifted. Mirrors
 // the DISPATCHING arm: BumpTargetRetry's fallback can bump retry_count
-// past the budget without a state transition, so observeActive routes
-// exhausted Drifted through recordDispatchFailure to reach RESTORE_FAILED.
-func TestReconciler_RetryExhaustedDriftedEscalatesToRestoreFailed(t *testing.T) {
+// past the alert threshold without a state transition, so observeActive keeps
+// curtailed Drifted targets retryable while OFF is asserted.
+func TestReconciler_RetryExhaustedCurtailDriftedKeepsRetrying(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
@@ -1638,14 +1681,12 @@ func TestReconciler_RetryExhaustedDriftedEscalatesToRestoreFailed(t *testing.T) 
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
 
-	assert.Equal(t, 0, disp.curtailCalls,
-		"exhausted Drifted target must not be re-dispatched")
+	assert.Equal(t, 1, disp.curtailCalls,
+		"curtailment retry threshold surfaces an alert but does not abandon an asserted OFF policy")
 	final := store.targetsByEventID[eventID][0]
-	assert.Equal(t, models.TargetStateRestoreFailed, final.State,
-		"exhausted Drifted target must escalate to RESTORE_FAILED via recordDispatchFailure")
-	assert.Equal(t, int32(4), final.RetryCount,
-		"recordDispatchFailure bumps retry_count once more on escalation")
-	require.NotNil(t, final.LastError, "escalation records a last_error")
+	assert.Equal(t, models.TargetStateDispatched, final.State)
+	assert.Equal(t, int32(3), final.RetryCount)
+	assert.Nil(t, final.LastError, "successful redispatch clears the alert error")
 }
 
 func TestReconciler_PerEventErrorIsolation(t *testing.T) {
@@ -1886,10 +1927,55 @@ func TestReconciler_CurtailConfirmationTimeoutConsumesRetryBudget(t *testing.T) 
 	r.runTick(context.Background())
 
 	final := store.targetsByEventID[eventID][0]
-	assert.Equal(t, models.TargetStateDispatched, final.State)
+	assert.Equal(t, models.TargetStateDispatching, final.State)
 	assert.Equal(t, int32(1), final.RetryCount)
-	assert.Nil(t, final.LastError, "successful redispatch clears the transient timeout error")
-	assert.Equal(t, 1, disp.curtailCalls, "timed-out curtail target should be retried")
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "curtail telemetry timeout")
+	assert.Equal(t, 0, disp.curtailCalls, "timeout retry should wait for the batch-aware dispatch path")
+}
+
+func TestReconciler_ActiveCurtailConfirmationTimeoutRespectsBatchLimit(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	dispatchedAt := time.Date(2026, 5, 7, 11, 59, 40, 0, time.UTC)
+	store.events = []*models.Event{
+		{
+			ID:                      eventID,
+			EventUUID:               eventUUID,
+			OrgID:                   1,
+			State:                   models.EventStateActive,
+			CurtailBatchSize:        &batchSize,
+			CurtailBatchIntervalSec: 60,
+		},
+	}
+	for _, id := range []string{"slow-a", "slow-b"} {
+		store.targetsByEventID[eventID] = append(store.targetsByEventID[eventID], &models.Target{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   id,
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastDispatchedAt:   &dispatchedAt,
+			BaselinePowerW:     ptrFloat64(3000),
+		})
+		store.candidates = append(store.candidates, &models.Candidate{
+			DeviceIdentifier: id,
+			LatestPowerW:     ptrFloat64(3000),
+			LatestHashRateHS: ptrFloat64(100),
+		})
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	require.Equal(t, 1, disp.curtailCalls, "timed-out retries must drain through the configured batch limit")
+	require.Len(t, disp.curtailCallIDs, 1)
+	assert.Len(t, disp.curtailCallIDs[0], 1)
+	assert.Equal(t, int32(1), store.targetsByEventID[eventID][0].RetryCount)
+	assert.Equal(t, int32(1), store.targetsByEventID[eventID][1].RetryCount)
 }
 
 // Mirror of MissingCandidateDuringConfirm for the drift path: a
@@ -1948,11 +2034,10 @@ func TestReconciler_DispatchEmptyBatchKeepsTargetPending(t *testing.T) {
 	assert.Equal(t, int32(1), final.RetryCount, "empty batch counts toward retry budget")
 }
 
-// TestReconciler_DispatchFailureExhaustionMarksRestoreFailedAndEventActive:
-// after MaxRetries dispatch failures the target moves to RestoreFailed; the
-// event then promotes to active because every other target has confirmed
-// (here: a single failing target → completed_with_failures).
-func TestReconciler_DispatchFailureExhaustionTransitionsTerminal(t *testing.T) {
+// TestReconciler_DispatchFailureExhaustionKeepsCurtailRetrying:
+// after CurtailMaxRetries dispatch failures the target remains retryable while
+// the curtailment demand is asserted; retry_count is the operator alert.
+func TestReconciler_DispatchFailureExhaustionKeepsCurtailRetrying(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{curtailErr: errors.New("queue down")}
 
@@ -1976,12 +2061,11 @@ func TestReconciler_DispatchFailureExhaustionTransitionsTerminal(t *testing.T) {
 	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
 	assert.Equal(t, int32(2), store.targetsByEventID[eventID][0].RetryCount)
 
-	// Tick 3 hits MaxRetries=3 and promotes the target to RestoreFailed; the
-	// event has no confirmed target so it transitions to completed_with_failures.
+	// Tick 3 hits CurtailMaxRetries=3 but stays pending for the next retry.
 	r.runTick(context.Background())
-	assert.Equal(t, models.TargetStateRestoreFailed, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
 	assert.Equal(t, int32(3), store.targetsByEventID[eventID][0].RetryCount)
-	assert.Equal(t, models.EventStateCompletedWithFailures, store.updateEventLast[eventID])
+	assert.Empty(t, store.updateEventLast[eventID])
 }
 
 // TestReconciler_PendingPromotesActiveWithMixedTerminalTargets: a confirmed
@@ -2150,16 +2234,17 @@ func TestReconciler_DriftFailedRedispatchConsumesOneBudgetPerAttempt(t *testing.
 	assert.Equal(t, models.TargetStateDrifted, final.State)
 	assert.Equal(t, int32(2), final.RetryCount)
 
-	// Tick 3: drifted → redispatch fails → RetryCount=3 hits cap → RestoreFailed.
+	// Tick 3: drifted → redispatch fails → RetryCount=3 reaches the alert
+	// threshold but stays retryable while OFF is asserted.
 	r.runTick(context.Background())
 	final = store.targetsByEventID[eventID][0]
-	assert.Equal(t, models.TargetStateRestoreFailed, final.State)
+	assert.Equal(t, models.TargetStateDrifted, final.State)
 	assert.Equal(t, int32(3), final.RetryCount)
 
-	// Exactly 3 dispatch attempts — not 6. Each cycle consumes one budget slot,
+	// Exactly 3 dispatch attempts — not 6. Each cycle consumes one alert slot,
 	// not two. (Old bug: checkDrift bumped retry, then recordDispatchFailure
 	// bumped again, halving the effective budget.)
-	assert.Equal(t, 3, disp.curtailCalls, "MaxRetries=3 should map to exactly 3 dispatch attempts")
+	assert.Equal(t, 3, disp.curtailCalls, "CurtailMaxRetries=3 should map to exactly 3 alert-counted attempts")
 }
 
 // TestReconciler_DriftFailedRedispatchStaysDriftedNotPending: when an
