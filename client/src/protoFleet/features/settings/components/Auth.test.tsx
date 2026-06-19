@@ -193,14 +193,17 @@ describe("AuthenticationSettings", () => {
       expect(screen.queryByText("Antminer S21")).not.toBeInTheDocument();
     });
 
-    it("hides the default-password callout when no Proto Rig miners use default passwords", async () => {
+    it("hides the Devices card when no Proto Rig miners use default passwords", async () => {
       mockGetMinerModelGroups.mockImplementation(async (filter) =>
         filter?.pairingStatuses?.includes(PairingStatus.DEFAULT_PASSWORD) ? [] : totalModelGroups,
       );
 
       render(<AuthenticationSettings />);
 
-      expect(await screen.findByText("Proto Rig")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.queryByText("Devices")).not.toBeInTheDocument();
+      });
+      expect(screen.queryByText("Proto Rig")).not.toBeInTheDocument();
       expect(screen.queryByText(/using default passwords/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/with default username\/password/i)).not.toBeInTheDocument();
       expect(screen.queryByTestId("default-password-update-button")).not.toBeInTheDocument();

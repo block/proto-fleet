@@ -571,13 +571,15 @@ const AuthenticationSettings = () => {
             </div>
           </div>
 
-          <DevicesCard
-            rows={deviceRows}
-            defaultPasswordCount={defaultPasswordCount}
-            isLoading={isLoadingDeviceRows}
-            updateLoading={isStartingDefaultPasswordUpdate}
-            onUpdateClick={handleUpdateDefaultPasswords}
-          />
+          {isLoadingDeviceRows || defaultPasswordCount > 0 ? (
+            <DevicesCard
+              rows={deviceRows}
+              defaultPasswordCount={defaultPasswordCount}
+              isLoading={isLoadingDeviceRows}
+              updateLoading={isStartingDefaultPasswordUpdate}
+              onUpdateClick={handleUpdateDefaultPasswords}
+            />
+          ) : null}
 
           <Modal
             open={showModal}
