@@ -1701,6 +1701,13 @@ func TestReconciler_FullFleetCurtailConfirmTimeoutExhaustionStaysRestorable(t *t
 			LastDispatchedAt:   &lastDispatchedAt,
 			RetryCount:         2,
 		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "confirmed-peer",
+			State:              models.TargetStateConfirmed,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
 	}
 	store.candidates = []*models.Candidate{
 		{DeviceIdentifier: "maybe-asleep", LatestPowerW: nil, LatestHashRateHS: nil},
@@ -1724,6 +1731,38 @@ func TestReconciler_FullFleetCurtailConfirmTimeoutExhaustionStaysRestorable(t *t
 	target = store.targetsByEventID[eventID][0]
 	assert.Equal(t, models.DesiredStateActive, target.DesiredState)
 	assert.Equal(t, models.TargetStatePending, target.State, "timeout-exhausted target remains in restore queue")
+}
+
+func TestReconciler_FullFleetCurtailConfirmTimeoutAllUnconfirmedCompletesWithFailures(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	lastDispatchedAt := time.Date(2026, 5, 7, 11, 54, 0, 0, time.UTC)
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, Mode: models.ModeFullFleet},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "maybe-asleep",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+			LastDispatchedAt:   &lastDispatchedAt,
+			RetryCount:         2,
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "maybe-asleep", LatestPowerW: nil, LatestHashRateHS: nil},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, models.TargetStateDrifted, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, models.EventStateCompletedWithFailures, store.events[0].State)
 }
 
 func TestReconciler_FullFleetCurtailConfirmTimeoutExhaustionWithAwakeTelemetryFails(t *testing.T) {
@@ -1779,6 +1818,13 @@ func TestReconciler_FullFleetCurtailConfirmTimeoutFallbackCleansUpNextTick(t *te
 			BaselinePowerW:     ptrFloat64(3000),
 			LastDispatchedAt:   &lastDispatchedAt,
 			RetryCount:         2,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "confirmed-peer",
+			State:              models.TargetStateConfirmed,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
 		},
 	}
 	store.candidates = []*models.Candidate{

@@ -899,7 +899,7 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 // terminally failed. All-failed events skip past Active to
 // completed_with_failures so they can't sit indefinitely.
 func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targets []*models.Target) {
-	confirmed, terminalFailures := 0, 0
+	confirmed, terminalFailures, timeoutFailures := 0, 0, 0
 	for _, t := range targets {
 		switch t.State {
 		case models.TargetStateConfirmed:
@@ -914,25 +914,26 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 			if !r.isCurtailTelemetryTimeoutExhausted(t) {
 				return
 			}
+			timeoutFailures++
 		case models.TargetStateResolved, models.TargetStateReleased:
 			// Unreachable on a pending event; hold for manual cleanup.
 			return
 		}
 	}
-	if confirmed == 0 && terminalFailures > 0 {
+	if confirmed == 0 && (terminalFailures > 0 || timeoutFailures > 0) {
 		// All-failed: nothing curtailed → skip Active.
 		now := r.now()
 		slog.Warn("curtailment reconciler: pending event has all-terminal targets; marking completed_with_failures",
-			"event_id", ev.ID, "failed_target_count", terminalFailures)
+			"event_id", ev.ID, "failed_target_count", terminalFailures+timeoutFailures)
 		if err := r.store.UpdateEventState(ctx, ev.ID, ev.State, models.EventStateCompletedWithFailures, nil, &now); err != nil {
 			r.logEventStateUpdateError(ev, "pending→completed_with_failures", err)
 		}
 		return
 	}
 	now := r.now()
-	if terminalFailures > 0 {
+	if terminalFailures > 0 || timeoutFailures > 0 {
 		slog.Warn("curtailment reconciler: pending→active with terminal-failed targets",
-			"event_id", ev.ID, "failed_target_count", terminalFailures, "confirmed_count", confirmed)
+			"event_id", ev.ID, "failed_target_count", terminalFailures+timeoutFailures, "confirmed_count", confirmed)
 	}
 	if err := r.store.UpdateEventState(ctx, ev.ID, ev.State, models.EventStateActive, &now, nil); err != nil {
 		r.logEventStateUpdateError(ev, "pending→active", err)
