@@ -54,6 +54,8 @@ func toProtoRackConflicts(conflicts []collection.PerDeviceRackConflict) []*dspb.
 
 func toProtoRackConflictReason(r collection.PerDeviceRackConflictReason) dspb.PerDeviceRackConflictReason {
 	switch r {
+	case collection.RackConflictReasonUnspecified:
+		return dspb.PerDeviceRackConflictReason_PER_DEVICE_RACK_CONFLICT_REASON_UNSPECIFIED
 	case collection.RackConflictReasonDeviceLosesSite:
 		return dspb.PerDeviceRackConflictReason_PER_DEVICE_RACK_CONFLICT_REASON_DEVICE_LOSES_SITE
 	default:
