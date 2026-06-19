@@ -1608,6 +1608,38 @@ func TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget(t *testing.
 	assert.Contains(t, *final.LastError, "candidate row missing")
 }
 
+func TestReconciler_PendingFullFleetHashOnlyTargetConfirmsFromZeroHash(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, Mode: models.ModeFullFleet},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "hash-only",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     nil,
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "hash-only", LatestPowerW: nil, LatestHashRateHS: ptrFloat64(0)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateConfirmed, final.State)
+	assert.Equal(t, models.EventStateActive, store.events[0].State)
+	assert.Equal(t, int32(0), final.RetryCount)
+	assert.Equal(t, 0, disp.curtailCalls, "hash-only confirmation must not redrive a successful curtail")
+}
+
 func TestReconciler_PendingFullFleetCurtailConfirmTimeoutRequeuesTarget(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -2222,8 +2254,10 @@ func TestIsCurtailed_ConfirmPath_RequiresEvidence(t *testing.T) {
 	// Above threshold → not confirmed.
 	assert.False(t, isCurtailed(ptrFloat64(2500), &baseline, ptrFloat64(0), 0.5, true))
 
-	// Missing power → not confirmed (asymmetric vs. drift detection).
-	assert.False(t, isCurtailed(nil, &baseline, ptrFloat64(0), 0.5, true))
+	// Missing power can still confirm from finite zero hash evidence.
+	assert.True(t, isCurtailed(nil, &baseline, ptrFloat64(0), 0.5, true))
+	assert.False(t, isCurtailed(nil, &baseline, ptrFloat64(100), 0.5, true))
+	assert.False(t, isCurtailed(nil, &baseline, nil, 0.5, true), "no power + missing hash → no evidence")
 	// Non-finite power → not confirmed.
 	assert.False(t, isCurtailed(&nan, &baseline, ptrFloat64(0), 0.5, true))
 	assert.False(t, isCurtailed(&inf, &baseline, ptrFloat64(0), 0.5, true))

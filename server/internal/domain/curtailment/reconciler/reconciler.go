@@ -979,17 +979,22 @@ func (r *Reconciler) curtailBatchIntervalElapsed(ev *models.Event, targets []*mo
 
 // isCurtailed decides whether telemetry shows the target is curtailed.
 // Power-vs-baseline ranks above hash_rate; missing baseline falls back
-// to hash. requirePositiveEvidence=true is the confirm path (no sample
-// → not curtailed); false is the drift path (missing sample preserves
+// to hash. requirePositiveEvidence=true is the confirm path (no usable
+// sample → not curtailed); false is the drift path (missing samples preserve
 // curtailed so a flaky sensor doesn't restorm).
 func isCurtailed(latestPowerW *float64, baselinePowerW *float64, latestHashRateHS *float64, driftThresholdFactor float64, requirePositiveEvidence bool) bool {
-	if latestPowerW == nil || !isFinite(*latestPowerW) {
+	if latestPowerW != nil && !isFinite(*latestPowerW) {
 		if requirePositiveEvidence {
 			return false
 		}
-		// Drift path: zero/missing hash → still curtailed; positive hash → resumed.
 		if latestHashRateHS == nil || !isFinite(*latestHashRateHS) {
 			return true
+		}
+		return *latestHashRateHS <= 0
+	}
+	if latestPowerW == nil {
+		if latestHashRateHS == nil || !isFinite(*latestHashRateHS) {
+			return !requirePositiveEvidence
 		}
 		return *latestHashRateHS <= 0
 	}
