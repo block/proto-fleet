@@ -150,7 +150,7 @@ func TestGetSiteStats_rollsUpEverything(t *testing.T) {
 	}
 }
 
-func TestGetSiteStats_includesAuthNeededInFilter(t *testing.T) {
+func TestGetSiteStats_includesActionablePairingStatusesInFilter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
 	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
@@ -169,7 +169,7 @@ func TestGetSiteStats_includesAuthNeededInFilter(t *testing.T) {
 	if devices.lastFilter == nil {
 		t.Fatal("expected filter to be passed to GetDeviceIdentifiersByOrgWithFilter")
 	}
-	hasPaired, hasAuthNeeded := false, false
+	hasPaired, hasAuthNeeded, hasDefaultPassword := false, false, false
 	for _, s := range devices.lastFilter.PairingStatuses {
 		if s == fm.PairingStatus_PAIRING_STATUS_PAIRED {
 			hasPaired = true
@@ -177,9 +177,12 @@ func TestGetSiteStats_includesAuthNeededInFilter(t *testing.T) {
 		if s == fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
 			hasAuthNeeded = true
 		}
+		if s == fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD {
+			hasDefaultPassword = true
+		}
 	}
-	if !hasPaired || !hasAuthNeeded {
-		t.Errorf("expected PAIRED+AUTH_NEEDED filter; got %v", devices.lastFilter.PairingStatuses)
+	if !hasPaired || !hasAuthNeeded || !hasDefaultPassword {
+		t.Errorf("expected PAIRED+AUTH_NEEDED+DEFAULT_PASSWORD filter; got %v", devices.lastFilter.PairingStatuses)
 	}
 	if devices.lastFilter.Limit != MaxDevicesPerSiteStatsRequest+1 {
 		t.Errorf("expected SQL-level Limit=cap+1 (%d); got %d", MaxDevicesPerSiteStatsRequest+1, devices.lastFilter.Limit)
@@ -287,6 +290,16 @@ func TestListSites_degradesWhenListTelemetryFails(t *testing.T) {
 	}
 	if stats.ReportingCount != 0 || stats.HashrateReportingCount != 0 || stats.PowerReportingCount != 0 || stats.TemperatureReportingCount != 0 {
 		t.Fatalf("telemetry reporting counts should be zero after telemetry failure: %+v", stats)
+	}
+	hasDefaultPassword := false
+	for _, s := range devices.lastFilter.PairingStatuses {
+		if s == fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD {
+			hasDefaultPassword = true
+			break
+		}
+	}
+	if !hasDefaultPassword {
+		t.Fatalf("expected site list stats to include DEFAULT_PASSWORD pairing status; got %v", devices.lastFilter.PairingStatuses)
 	}
 }
 

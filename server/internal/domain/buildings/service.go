@@ -1426,6 +1426,7 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 			PairingStatuses: []fm.PairingStatus{
 				fm.PairingStatus_PAIRING_STATUS_PAIRED,
 				fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+				fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 			},
 			Limit: MaxDevicesPerStatsResponse + 1,
 		}
