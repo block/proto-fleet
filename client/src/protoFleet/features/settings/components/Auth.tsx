@@ -15,7 +15,7 @@ import { settingsActions } from "@/protoFleet/features/fleetManagement/component
 import MinerActionModalStack from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/MinerActionModalStack";
 import { useMinerActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
 import { minerTypes } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
-import { useUsername } from "@/protoFleet/store";
+import { useHasPermission, useUsername } from "@/protoFleet/store";
 import { Alert, LogoAlt } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -146,11 +146,13 @@ const DevicesCard = ({
   rows,
   defaultPasswordCount,
   isLoading,
+  canUpdateDefaultPasswords,
   onUpdateClick,
 }: {
   rows: SecurityDeviceRow[];
   defaultPasswordCount: number;
   isLoading: boolean;
+  canUpdateDefaultPasswords: boolean;
   onUpdateClick: () => void;
 }) => {
   const hasDefaultPasswords = defaultPasswordCount > 0;
@@ -177,9 +179,11 @@ const DevicesCard = ({
                 </div>
                 <div className="min-w-0 truncate text-300">{defaultPasswordCalloutText}</div>
               </div>
-              <Button variant="secondary" testId="default-password-update-button" onClick={onUpdateClick}>
-                Update
-              </Button>
+              {canUpdateDefaultPasswords ? (
+                <Button variant="secondary" testId="default-password-update-button" onClick={onUpdateClick}>
+                  Update
+                </Button>
+              ) : null}
             </div>
           ) : null}
           <div>
@@ -197,6 +201,7 @@ const DevicesCard = ({
 
 const AuthenticationSettings = () => {
   const username = useUsername();
+  const canUpdateDefaultPasswords = useHasPermission("miner:update_password");
 
   const { updatePassword, updateUsername, passwordLastUpdatedAt } = useAuth();
   const login = useLogin();
@@ -547,6 +552,7 @@ const AuthenticationSettings = () => {
               rows={deviceRows}
               defaultPasswordCount={defaultPasswordCount}
               isLoading={isLoadingDeviceRows}
+              canUpdateDefaultPasswords={canUpdateDefaultPasswords}
               onUpdateClick={handleUpdateDefaultPasswords}
             />
           ) : null}

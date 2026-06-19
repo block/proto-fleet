@@ -8,7 +8,7 @@ import useDefaultPasswordMiners from "@/protoFleet/api/useDefaultPasswordMiners"
 import { useLogin } from "@/protoFleet/api/useLogin";
 import useMinerModelGroups from "@/protoFleet/api/useMinerModelGroups";
 import { useMinerActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
-import { useUsername } from "@/protoFleet/store";
+import { useHasPermission, useUsername } from "@/protoFleet/store";
 
 vi.mock("@/protoFleet/api/useAuth");
 vi.mock("@/protoFleet/api/useDefaultPasswordMiners");
@@ -72,6 +72,7 @@ beforeEach(() => {
   vi.mocked(useMinerActions).mockReturnValue({
     popoverActions: [{ action: "security", actionHandler: mockSecurityActionHandler }],
   } as unknown as ReturnType<typeof useMinerActions>);
+  vi.mocked(useHasPermission).mockReturnValue(true);
   vi.mocked(useUsername).mockReturnValue("testuser");
 });
 
@@ -240,6 +241,16 @@ describe("AuthenticationSettings", () => {
           create(MinerModelGroupSchema, { model: "Rig", manufacturer: "Bitmain", count: 1 }),
         ),
       ).toBe(false);
+    });
+
+    it("hides the default-password update button without miner password permission", async () => {
+      vi.mocked(useHasPermission).mockReturnValue(false);
+
+      render(<AuthenticationSettings />);
+
+      expect(await screen.findByText("64 miners are using default passwords")).toBeInTheDocument();
+      expect(screen.queryByTestId("default-password-update-button")).not.toBeInTheDocument();
+      expect(mockSecurityActionHandler).not.toHaveBeenCalled();
     });
 
     it("refreshes default-password data after the security action completes", async () => {

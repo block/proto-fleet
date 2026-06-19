@@ -36,12 +36,10 @@ function isProtoRig(manufacturer: string): boolean {
 
 const getMinerModelKey = (manufacturer: string, model: string) => `${manufacturer}:${model}`;
 
-function supportsAutoAuth(supportedMethods: AuthenticationMethod[]): boolean {
-  // The server auto-pairs using the plugin's default credentials for both
-  // basic-auth (username/password) and asymmetric-key drivers.
+function supportsAutoAuth(manufacturer: string, supportedMethods: AuthenticationMethod[]): boolean {
   return (
     supportedMethods.includes(AuthenticationMethod.ASYMMETRIC_KEY) ||
-    supportedMethods.includes(AuthenticationMethod.BASIC)
+    (isProtoRig(manufacturer) && supportedMethods.includes(AuthenticationMethod.BASIC))
   );
 }
 
@@ -157,7 +155,7 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
                     <div className="h-6 text-emphasis-300">
                       {model.manufacturer} {model.model}
                     </div>
-                    {supportsAutoAuth(model.supportedAuthenticationMethods) ? (
+                    {supportsAutoAuth(model.manufacturer, model.supportedAuthenticationMethods) ? (
                       <div className="text-200 text-text-primary-70">Authenticated with default username/password</div>
                     ) : (
                       <div className="text-200 text-text-primary-70">You will need to log in after setup</div>
