@@ -306,6 +306,10 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		return err
 	}
 	startReq := startRequestFromAutomationProfile(rule, profile, signal)
+	if startReq.Mode == models.ModeFullFleet {
+		startReq.AllowUnbounded = true
+		startReq.MaxDurationSeconds = nil
+	}
 	plan, err := s.curtailment.Start(ctx, startReq)
 	if err != nil {
 		return err

@@ -1167,9 +1167,6 @@ func isFinite(v float64) bool {
 // caller skips further active-phase work this tick. AllowUnbounded events
 // and events without started_at short-circuit out.
 func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
-	if ev.Mode == models.ModeFullFleet && ev.SourceActorType == models.SourceActorAutomation {
-		return false
-	}
 	if ev.AllowUnbounded || ev.MaxDurationSeconds == nil || *ev.MaxDurationSeconds <= 0 {
 		return false
 	}
