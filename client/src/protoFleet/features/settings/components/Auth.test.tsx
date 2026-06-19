@@ -210,6 +210,25 @@ describe("AuthenticationSettings", () => {
       expect(screen.queryByTestId("default-password-update-button")).not.toBeInTheDocument();
     });
 
+    it("keeps the Devices card visible with retry when default-password counts fail to load", async () => {
+      mockGetMinerModelGroups.mockImplementationOnce(async () => {
+        throw new Error("unavailable");
+      });
+
+      render(<AuthenticationSettings />);
+
+      expect(await screen.findByTestId("default-password-load-error")).toBeInTheDocument();
+      expect(screen.getByText("Devices")).toBeInTheDocument();
+      expect(screen.queryByText("No Proto Rig miners found.")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("default-password-update-button")).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByText("Retry"));
+
+      expect(await screen.findByText("64 miners are using default passwords")).toBeInTheDocument();
+      expect(screen.queryByTestId("default-password-load-error")).not.toBeInTheDocument();
+      expect(screen.getByTestId("default-password-update-button")).toBeInTheDocument();
+    });
+
     it("starts the all-default-password security flow from the Devices card", async () => {
       render(<AuthenticationSettings />);
 

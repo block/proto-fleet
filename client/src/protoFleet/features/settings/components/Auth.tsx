@@ -146,13 +146,17 @@ const DevicesCard = ({
   rows,
   defaultPasswordCount,
   isLoading,
+  hasLoadError,
   canUpdateDefaultPasswords,
+  onRetry,
   onUpdateClick,
 }: {
   rows: SecurityDeviceRow[];
   defaultPasswordCount: number;
   isLoading: boolean;
+  hasLoadError: boolean;
   canUpdateDefaultPasswords: boolean;
+  onRetry: () => void;
   onUpdateClick: () => void;
 }) => {
   const hasDefaultPasswords = defaultPasswordCount > 0;
@@ -171,6 +175,17 @@ const DevicesCard = ({
         </div>
       ) : (
         <>
+          {hasLoadError ? (
+            <Callout
+              intent="danger"
+              prefixIcon={<Alert />}
+              title="Couldn't load device security status."
+              subtitle="Retry to check whether Proto Rig miners are using default passwords."
+              buttonText="Retry"
+              buttonOnClick={onRetry}
+              testId="default-password-load-error"
+            />
+          ) : null}
           {hasDefaultPasswords ? (
             <div className="flex items-center justify-between gap-4 rounded-xl border border-border-5 bg-surface-base px-4 py-3 shadow-50">
               <div className="flex min-w-0 items-center gap-3">
@@ -189,7 +204,7 @@ const DevicesCard = ({
           <div>
             {rows.length > 0 ? (
               rows.map((row) => <DeviceModelRow key={row.key} row={row} />)
-            ) : (
+            ) : hasLoadError ? null : (
               <div className="py-4 text-300 text-text-primary-50">No Proto Rig miners found.</div>
             )}
           </div>
@@ -221,6 +236,7 @@ const AuthenticationSettings = () => {
   const [usernameErrorMsg, setUsernameErrorMsg] = useState("");
   const [deviceRows, setDeviceRows] = useState<SecurityDeviceRow[]>([]);
   const [isLoadingDeviceRows, setIsLoadingDeviceRows] = useState(true);
+  const [hasDeviceRowsLoadError, setHasDeviceRowsLoadError] = useState(false);
 
   // API error states
   const [authApiError, setAuthApiError] = useState<string | null>(null);
@@ -280,11 +296,12 @@ const AuthenticationSettings = () => {
       .then((rows) => {
         if (!ignore) {
           setDeviceRows(rows);
+          setHasDeviceRowsLoadError(false);
         }
       })
       .catch(() => {
         if (!ignore) {
-          setDeviceRows([]);
+          setHasDeviceRowsLoadError(true);
         }
       })
       .finally(() => {
@@ -303,8 +320,9 @@ const AuthenticationSettings = () => {
 
     try {
       setDeviceRows(await fetchDeviceRows());
+      setHasDeviceRowsLoadError(false);
     } catch {
-      setDeviceRows([]);
+      setHasDeviceRowsLoadError(true);
     } finally {
       setIsLoadingDeviceRows(false);
     }
@@ -547,12 +565,14 @@ const AuthenticationSettings = () => {
             </div>
           </div>
 
-          {isLoadingDeviceRows || defaultPasswordCount > 0 ? (
+          {isLoadingDeviceRows || hasDeviceRowsLoadError || defaultPasswordCount > 0 ? (
             <DevicesCard
               rows={deviceRows}
               defaultPasswordCount={defaultPasswordCount}
               isLoading={isLoadingDeviceRows}
+              hasLoadError={hasDeviceRowsLoadError}
               canUpdateDefaultPasswords={canUpdateDefaultPasswords}
+              onRetry={refreshDeviceRows}
               onUpdateClick={handleUpdateDefaultPasswords}
             />
           ) : null}
