@@ -760,7 +760,7 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 	if len(targets) == 0 {
 		return nil
 	}
-	if batchSize := curtailBatchSizeForEvent(ev, len(targets)); int32(len(targets)) > batchSize {
+	if batchSize := curtailBatchSizeForEvent(ev, len(targets)); len(targets) > int(batchSize) {
 		targets = targets[:batchSize]
 	}
 	claimed, err := r.store.ClaimClosedLoopFullFleetTargets(ctx, ev.ID, targets)
@@ -844,6 +844,8 @@ func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandida
 			return interfaces.ListCandidatesParams{}, false
 		}
 		return interfaces.ListCandidatesParams{SiteID: &scope.SiteID}, true
+	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
+		return interfaces.ListCandidatesParams{}, false
 	default:
 		return interfaces.ListCandidatesParams{}, false
 	}

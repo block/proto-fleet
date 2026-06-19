@@ -777,6 +777,8 @@ func usesHierarchicalCurtailmentScope(event models.InsertEventParams) bool {
 	switch event.ScopeType {
 	case models.ScopeTypeWholeOrg, models.ScopeTypeSite:
 		return true
+	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
+		return false
 	default:
 		return false
 	}
