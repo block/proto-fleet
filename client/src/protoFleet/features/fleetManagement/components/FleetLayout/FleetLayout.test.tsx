@@ -136,9 +136,8 @@ describe("FleetLayout redirect logic", () => {
   });
 
   test("Sites tab redirects to /sites/:id when SitePicker selects a single site", async () => {
-    // Legacy "Manage sites" entry points (e.g. /settings/sites → /fleet/sites)
-    // resolve to that site's management detail page when the picker is
-    // pinned, rather than bouncing to Buildings.
+    // Fleet Sites entry points resolve to that site's management detail page
+    // when the picker is pinned, rather than bouncing to Buildings.
     activeSiteMock.current = { kind: "site", id: "1" };
     renderAt("/fleet/sites");
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/sites/1"));

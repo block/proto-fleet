@@ -38,8 +38,8 @@ export interface SiteModalsApi {
   openCreate: () => void;
   openManageEdit: (site: Site) => void;
   // Resolve a SiteWithCounts from the page's sites cache and open the
-  // cascade dialog. The hook does the lookup so /sites and /settings/sites
-  // don't duplicate the same id-matching logic.
+  // cascade dialog. The hook does the lookup so callers don't duplicate the
+  // same id-matching logic.
   requestDeleteCurrent: (sites: SiteWithCounts[] | undefined) => void;
   // Closes the topmost modal: drops details if details is stacked on
   // manage, otherwise closes everything to none.

@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
 import { type ActiveSite, useActiveSite } from "./useActiveSite";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
+import { scopeCurrentOrDashboardPath } from "@/protoFleet/routing/siteScope";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -30,15 +31,20 @@ interface SitePickerProps {
 }
 
 // Phase 1b (#202): the picker now scopes the buildings, racks, and miner
-// tabs in addition to the new multi-site routes (/sites, /settings/sites,
-// /buildings/:id). History pages (errors, activity, telemetry,
+// tabs in addition to the new multi-site routes (/sites, /buildings/:id).
+// History pages (errors, activity, telemetry,
 // dashboards) still ignore the selection — they remain org-wide until
 // Phase 2 (#194).
 const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
+  const knownSiteIds = useMemo(() => {
+    if (sites === undefined) return undefined;
+    if (sites.length === 0 && error != null) return undefined;
+    return buildKnownSiteIds(sites);
+  }, [error, sites]);
 
   const orderedSites = useMemo(
     () =>
@@ -111,6 +117,7 @@ const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
   const select = (next: ActiveSite) => {
     setActiveSite(next);
     setIsOpen(false);
+    navigate(scopeCurrentOrDashboardPath(location.pathname, location.search, location.hash, next));
   };
 
   const isSelected = (entry: ActiveSite): boolean => {
@@ -145,12 +152,11 @@ const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
           {
             variant: variants.secondary,
             text: "Manage sites",
-            // Routes to /settings/sites; site CRUD modals (#261) attach to
-            // that page so this button is the entry point for full
-            // management rather than carrying its own actions.
+            // Routes to the Fleet Sites tab so this button is the entry point
+            // for full site management rather than carrying its own actions.
             onClick: () => {
               setIsOpen(false);
-              navigate("/settings/sites");
+              navigate("/fleet/sites");
             },
             testId: "site-picker-manage-sites",
           },

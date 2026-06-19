@@ -41,6 +41,7 @@ type ListFn = (props: ListDeviceSetsProps) => Promise<void>;
 export interface DeviceSetSiteFilter {
   siteIds: bigint[];
   includeUnassigned: boolean;
+  matchNone?: boolean;
 }
 
 export function useDeviceSetListState(
@@ -112,6 +113,16 @@ export function useDeviceSetListState(
       setIsLoading(true);
       setError(null);
       const siteFilter = getSiteFilter?.() ?? { siteIds: [], includeUnassigned: false };
+      if (siteFilter.matchNone) {
+        setHasCompletedInitialFetch(true);
+        setDeviceSets([]);
+        setStatsMap(new Map());
+        setCurrentPage(page);
+        setHasNextPage(false);
+        setTotalCount(0);
+        setIsLoading(false);
+        return;
+      }
       listFn({
         pageSize,
         pageToken,

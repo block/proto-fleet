@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { scopedPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
+import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFloatingPosition } from "@/shared/hooks/useFloatingPosition";
 
 type MinerGroupsProps = {
@@ -11,6 +13,7 @@ type MinerGroupsProps = {
 };
 
 const MinerGroups = ({ miner, availableGroups }: MinerGroupsProps) => {
+  const activeSite = useRouteSiteScope() ?? DEFAULT_ACTIVE_SITE;
   const groupLabels = miner.groupLabels;
   const { triggerRef, floatingStyle, isVisible, show, hide } = useFloatingPosition<HTMLSpanElement>({
     placement: "bottom-start",
@@ -39,7 +42,7 @@ const MinerGroups = ({ miner, availableGroups }: MinerGroupsProps) => {
 
   const getGroupLink = (label: string) => {
     const groupId = availableGroups.find((g) => g.label === label)?.id;
-    return groupId ? `/groups/${encodeURIComponent(label)}` : undefined;
+    return groupId ? scopedPath(`/groups/${encodeURIComponent(label)}`, activeSite) : undefined;
   };
 
   if (groupLabels.length === 1) {

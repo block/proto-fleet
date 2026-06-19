@@ -10,8 +10,7 @@
 
 /**
  * Multi-site UI. When on:
- * - `/sites`, `/settings/sites`, `/buildings/:id` routes are
- *   discoverable via the sidenav and settings subnav.
+ * - `/sites` and `/buildings/:id` routes are discoverable via nav entry points.
  * - The topbar SitePicker replaces the placeholder LocationSelector.
  * Override with `VITE_MULTI_SITE_ENABLED=true`.
  */

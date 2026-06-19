@@ -18,7 +18,11 @@ import {
 } from "@/protoFleet/components/DeviceSetList/sortConfig";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
-import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import {
+  intersectSiteFilters,
+  siteFilterFromActive,
+  useActiveSite,
+} from "@/protoFleet/components/PageHeader/SitePicker";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
@@ -35,6 +39,7 @@ import {
 } from "@/protoFleet/features/fleetManagement/utils/buildingFilterUrl";
 import { mapRackToCardProps } from "@/protoFleet/features/fleetManagement/utils/rackCardMapper";
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
+import { isPathScopable } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
@@ -103,7 +108,7 @@ const RacksPage = () => {
   const { listSites, assignRacksToSite } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();
   const { pathname } = useLocation();
-  const insideFleetShell = pathname.startsWith("/fleet/");
+  const insideFleetShell = isPathScopable(pathname);
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
   // Zones + issues are URL-driven so saved views can capture them. Values
   // are written via repeated keys (`?zone=A&zone=B`), so reading uses
@@ -135,7 +140,7 @@ const RacksPage = () => {
   );
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
   const [allBuildings, setAllBuildings] = useState<{ id: string; label: string; siteId: string }[]>([]);
-  const [allSites, setAllSites] = useState<{ id: string; label: string }[]>([]);
+  const [allSites, setAllSites] = useState<{ id: string; label: string }[] | undefined>(undefined);
   const [selectedRackIds, setSelectedRackIds] = useState<string[]>([]);
   const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
   const [bulkReparentKind, setBulkReparentKind] = useState<"building" | "site" | null>(null);
@@ -155,19 +160,17 @@ const RacksPage = () => {
   } | null>(null);
   const [siteClearInFlight, setSiteClearInFlight] = useState(false);
 
-  // SitePicker active site → server-side site_ids / include_unassigned.
-  // URL `?site=` deep links still win when present (legacy / cross-link
-  // scoping) so the picker doesn't fight a user-explicit URL.
+  // Path scope → server-side site_ids / include_unassigned. URL `?site=`
+  // remains a list filter and composes with scope below.
   // allSites already holds the decimal-string site IDs, so derive the
   // known-id set directly rather than round-tripping through a partial
   // SiteWithCounts cast.
-  const knownSiteIds = useMemo(() => new Set(allSites.map((s) => s.id)), [allSites]);
+  const knownSiteIds = useMemo(() => (allSites ? new Set(allSites.map((s) => s.id)) : undefined), [allSites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
   const activeSiteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
 
   // `?site=` URL deep links carry one or more comma-separated site IDs.
-  // Forwarded server-side via the new ListDeviceSets.site_ids filter; the
-  // SitePicker drives when the URL doesn't pin a site.
+  // They are a list filter, not the active view scope.
   const urlSiteIds = useMemo(
     () =>
       new Set(
@@ -188,18 +191,13 @@ const RacksPage = () => {
   }, [selectedBuildingIds]);
   const getBuildingIds = useCallback(() => effectiveBuildingIdsRef.current, []);
 
-  // Effective site filter: URL `?site=` deep link wins over SitePicker
-  // selection (lets users link directly to a site scope without
-  // mutating the persisted picker state). When neither is set the
-  // filter is empty and the server returns every rack in the org.
+  // Effective site filter: path scope ∩ `?site=` list filter. When neither
+  // is set the filter is empty and the server returns every rack in the org.
   const effectiveSiteFilter = useMemo(() => {
-    if (urlSiteIds.size > 0) {
-      return {
-        siteIds: Array.from(urlSiteIds, (id) => BigInt(id)),
-        includeUnassigned: false,
-      };
-    }
-    return activeSiteFilter;
+    return intersectSiteFilters(activeSiteFilter, {
+      siteIds: Array.from(urlSiteIds, (id) => BigInt(id)),
+      includeUnassigned: false,
+    });
   }, [urlSiteIds, activeSiteFilter]);
   const effectiveSiteFilterRef = useRef(effectiveSiteFilter);
   useEffect(() => {
@@ -360,12 +358,12 @@ const RacksPage = () => {
           sites.filter((s) => s.site !== undefined).map((s) => ({ id: s.site!.id.toString(), label: s.site!.name })),
         );
       },
-      onError: () => setAllSites([]),
+      onError: () => setAllSites((prev) => prev),
     });
     return () => controller.abort();
   }, [listSites]);
 
-  const siteNameById = useMemo(() => new Map(allSites.map((s) => [s.id, s.label])), [allSites]);
+  const siteNameById = useMemo(() => new Map((allSites ?? []).map((s) => [s.id, s.label])), [allSites]);
   const buildingNameById = useMemo(() => new Map(allBuildings.map((b) => [b.id, b.label])), [allBuildings]);
   const buildingById = useMemo(() => new Map(allBuildings.map((b) => [b.id, b])), [allBuildings]);
 
@@ -526,7 +524,7 @@ const RacksPage = () => {
   useEffect(() => {
     outletContext?.publishViewFilterContext({
       availableBuildings: buildingSources,
-      availableSites: allSites,
+      availableSites: allSites ?? [],
     });
   }, [outletContext, buildingSources, allSites]);
 
@@ -581,7 +579,8 @@ const RacksPage = () => {
   // Refetch on resolved site-filter change (URL `?site=` or SitePicker
   // selection). Same ref-read pattern as the building effect above.
   const effectiveSiteKey = useMemo(
-    () => `${effectiveSiteFilter.siteIds.map(String).join(",")}|${effectiveSiteFilter.includeUnassigned}`,
+    () =>
+      `${effectiveSiteFilter.siteIds.map(String).join(",")}|${effectiveSiteFilter.includeUnassigned}|${effectiveSiteFilter.matchNone ?? false}`,
     [effectiveSiteFilter],
   );
   const prevSiteKey = useRef<string | null>(null);

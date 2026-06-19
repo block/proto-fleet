@@ -31,10 +31,10 @@ export const parseBigIntId = (value: unknown): bigint | null => {
 };
 
 // Build the set of known site ids (decimal-string form) from a ListSites
-// response. Centralised so SitePicker, SitesPage, SettingsSitesPage, and
-// SitesAllTable can't drift on the derivation rule.
-export const buildKnownSiteIds = (sites: SiteWithCounts[] | undefined): Set<string> => {
-  if (!sites) return new Set();
+// response. Centralised so SitePicker, SitesPage, and Fleet tabs can't drift
+// on the derivation rule.
+export const buildKnownSiteIds = (sites: SiteWithCounts[] | undefined): Set<string> | undefined => {
+  if (!sites) return undefined;
   return new Set(sites.map((s) => (s.site?.id ?? 0n).toString()).filter((id) => id !== "0"));
 };
 

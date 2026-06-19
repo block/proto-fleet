@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- lazy() route components colocated with route config; not HMR-relevant */
 import { createElement, lazy, ReactNode } from "react";
-import { createBrowserRouter, LoaderFunction, Outlet, redirect } from "react-router-dom";
+import { createBrowserRouter, LoaderFunction, Navigate, Outlet, redirect } from "react-router-dom";
 
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
@@ -34,7 +34,6 @@ import {
   importSettingsNotifications,
   importSettingsRoles,
   importSettingsSchedules,
-  importSettingsSitesPage,
   importSettingsTeam,
   importSiteDetailPage,
   importSitesPage,
@@ -48,6 +47,9 @@ import {
   racksRedirectLoader,
   sitesRedirectLoader,
 } from "@/protoFleet/features/fleetManagement/redirectLoaders";
+import { appEntryPath, SiteScopeLayout, SiteScopeProvider } from "@/protoFleet/routing/siteScope";
+import { sanitizeActiveSite } from "@/protoFleet/store/types/activeSite";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
@@ -83,7 +85,6 @@ const SettingsNotifications = lazy(importSettingsNotifications);
 const SettingsApiKeys = lazy(importSettingsApiKeys);
 const SiteDetailPage = lazy(importSiteDetailPage);
 const SitesPage = lazy(importSitesPage);
-const SettingsSitesPage = lazy(importSettingsSitesPage);
 const BuildingPage = lazy(importBuildingPage);
 const FleetLayout = lazy(importFleetLayout);
 const FleetBuildingsPage = lazy(importFleetBuildingsPage);
@@ -122,6 +123,8 @@ const welcomeLoader = async () => {
   return null;
 };
 
+const appEntryLoader = () => redirect(appEntryPath(sanitizeActiveSite(useFleetStore.getState().ui.activeSite)));
+
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
   fullscreen?: boolean;
@@ -135,6 +138,36 @@ const createRoute = (path: string, children: ReactNode, options: CreateRouteOpti
   ...(options.loader && { loader: options.loader }),
   ...(options.bg && { handle: { bg: options.bg } }),
 });
+
+const createFleetChildren = () => [
+  { index: true, element: null },
+  { path: "miners", element: <Miners /> },
+  { path: "racks", element: <RacksPage /> },
+  { path: "buildings", element: <FleetBuildingsPage /> },
+  { path: "sites", element: <FleetSitesPage /> },
+];
+
+const fleetRouteElement = (
+  <App>
+    <FleetLayout />
+  </App>
+);
+
+const createFleetRoute = (path: string) => ({
+  path,
+  element: fleetRouteElement,
+  children: createFleetChildren(),
+});
+
+const createScopableRoutes = (absolute: boolean) => [
+  ...(absolute ? [] : [{ index: true, element: <Navigate to="dashboard" replace /> }]),
+  createRoute(absolute ? "/dashboard" : "dashboard", <Dashboard />, { bg: "surface-5" }),
+  createFleetRoute(absolute ? "/fleet" : "fleet"),
+  createRoute(absolute ? "/groups" : "groups", <GroupsPage />),
+  createRoute(absolute ? "/groups/:groupLabel" : "groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
+  createRoute(absolute ? "/energy" : "energy", <EnergyPage />),
+  createRoute(absolute ? "/activity" : "activity", <ActivityPage />),
+];
 
 // Wrap protoOS routes with SingleMinerWrapper for /miners/:id/* paths
 const wrappedMinerRoutes = singleMinerRoutes.map((route) => {
@@ -152,32 +185,27 @@ const wrappedMinerRoutes = singleMinerRoutes.map((route) => {
  * Router configuration - defines actual route tree with React elements
  */
 const router = createBrowserRouter([
-  // Dashboard (Home)
-  createRoute("/", <Dashboard />, { bg: "surface-5" }),
-
-  // FleetLayout wraps tab children through its <Outlet />; nesting under
-  // <App> preserves the global PageHeader and page-background hook.
   {
-    path: "/fleet",
+    path: "/",
+    loader: appEntryLoader,
+  },
+
+  {
     element: (
-      <App>
-        <FleetLayout />
-      </App>
+      <SiteScopeProvider value={{ kind: "all" }}>
+        <Outlet />
+      </SiteScopeProvider>
     ),
-    children: [
-      { index: true, element: null },
-      { path: "miners", element: <Miners /> },
-      { path: "racks", element: <RacksPage /> },
-      { path: "buildings", element: <FleetBuildingsPage /> },
-      { path: "sites", element: <FleetSitesPage /> },
-    ],
+    children: createScopableRoutes(true),
+  },
+  {
+    path: "/:siteScope",
+    element: <SiteScopeLayout />,
+    children: createScopableRoutes(false),
   },
 
   { path: "/miners", loader: minersRedirectLoader },
   { path: "/racks", loader: racksRedirectLoader },
-
-  createRoute("/groups", <GroupsPage />),
-  createRoute("/groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
 
   createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
 
@@ -188,12 +216,6 @@ const router = createBrowserRouter([
   MULTI_SITE_ENABLED ? { path: "/sites", loader: sitesRedirectLoader } : createRoute("/sites", <SitesPage />),
   createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5" }),
   createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
-
-  // Energy
-  createRoute("/energy", <EnergyPage />),
-
-  // Activity
-  createRoute("/activity", <ActivityPage />),
 
   // Single miner (fullscreen - protoOS routes handle layout)
   {
@@ -272,17 +294,6 @@ const router = createBrowserRouter([
       <ServerLogsPage />
     </SettingsLayout>,
   ),
-  // Same flag-conditional as /sites — keep the legacy SettingsSitesPage
-  // reachable for QA/dogfood when MULTI_SITE_ENABLED is off.
-  MULTI_SITE_ENABLED
-    ? { path: "/settings/sites", loader: sitesRedirectLoader }
-    : createRoute(
-        "/settings/sites",
-        <SettingsLayout>
-          <SettingsSitesPage />
-        </SettingsLayout>,
-      ),
-
   // Auth routes (fullscreen)
   createRoute("/auth", <Auth />, { fullscreen: true, loader: authLoader }),
   createRoute("/update-password", <UpdatePassword />, { fullscreen: true }),

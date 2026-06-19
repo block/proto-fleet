@@ -101,16 +101,22 @@ const renderList = ({
   onEditBuilding,
   selectedIds,
   onSelectedIdsChange,
+  activeSite,
+  initialEntry = "/fleet/buildings",
+  routePath = "/fleet/buildings",
 }: {
   onEditBuilding?: EditBuildingCallback;
   selectedIds?: string[];
   onSelectedIdsChange?: (ids: string[]) => void;
+  activeSite?: { kind: "site"; id: string };
+  initialEntry?: string;
+  routePath?: string;
 } = {}) =>
   render(
-    <MemoryRouter initialEntries={["/fleet/buildings"]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route
-          path="/fleet/buildings"
+          path={routePath}
           element={
             <>
               <BuildingList
@@ -119,6 +125,7 @@ const renderList = ({
                 onEditBuilding={onEditBuilding}
                 selectedIds={selectedIds}
                 onSelectedIdsChange={onSelectedIdsChange}
+                activeSite={activeSite}
               />
               <PathProbe />
             </>
@@ -127,6 +134,8 @@ const renderList = ({
         <Route path="/buildings/:id" element={<PathProbe />} />
         <Route path="/fleet/racks" element={<PathProbe />} />
         <Route path="/fleet/miners" element={<PathProbe />} />
+        <Route path="/:siteScope/fleet/racks" element={<PathProbe />} />
+        <Route path="/:siteScope/fleet/miners" element={<PathProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -158,6 +167,17 @@ describe("BuildingList row actions menu", () => {
     fireEvent.click(trigger());
     fireEvent.click(screen.getByText("View racks"));
     expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/racks?building=42");
+  });
+
+  it("View racks preserves the active site path scope", () => {
+    renderList({
+      activeSite: { kind: "site", id: "7" },
+      initialEntry: "/7/fleet/buildings",
+      routePath: "/:siteScope/fleet/buildings",
+    });
+    fireEvent.click(trigger());
+    fireEvent.click(screen.getByText("View racks"));
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/7/fleet/racks?building=42");
   });
 
   it("View miners scopes the /fleet/miners redirect to the building", () => {

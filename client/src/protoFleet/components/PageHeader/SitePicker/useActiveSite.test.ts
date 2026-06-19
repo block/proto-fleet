@@ -5,10 +5,12 @@
 // more per-username localStorage slots), matching the model already used
 // for `duration`, theme, etc. The deleted per-username isolation test is
 // intentionally gone — that contract no longer exists.
-import { act, renderHook } from "@testing-library/react";
+import { createElement, type ReactNode } from "react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useActiveSite } from "./useActiveSite";
+import { SiteScopeProvider } from "@/protoFleet/routing/siteScope";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
@@ -43,18 +45,51 @@ describe("useActiveSite", () => {
     expect(result.current.activeSite).toEqual({ kind: "all" });
   });
 
-  it("preserves a stored selection while known set is empty (pre-fetch window)", () => {
+  it("preserves a stored selection while known set is undefined (pre-fetch window)", () => {
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "12" };
+    });
+    const { result } = renderHook(() => useActiveSite({ knownSiteIds: undefined }));
+    // ListSites hasn't returned yet; do not clobber the selection.
+    expect(result.current.activeSite).toEqual({ kind: "site", id: "12" });
+  });
+
+  it("falls back to { kind: 'all' } when the loaded known set is empty", () => {
     useFleetStore.setState((state) => {
       state.ui.activeSite = { kind: "site", id: "12" };
     });
     const { result } = renderHook(() => useActiveSite({ knownSiteIds: new Set() }));
-    // ListSites hasn't returned yet; do not clobber the selection.
-    expect(result.current.activeSite).toEqual({ kind: "site", id: "12" });
+    expect(result.current.activeSite).toEqual({ kind: "all" });
   });
 
   it("supports the unassigned selection variant", () => {
     const { result } = renderHook(() => useActiveSite({ knownSiteIds: new Set(["1"]) }));
     act(() => result.current.setActiveSite({ kind: "unassigned" }));
     expect(result.current.activeSite).toEqual({ kind: "unassigned" });
+  });
+
+  it("uses route scope as the source of truth and mirrors it to the store", async () => {
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "all" };
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(SiteScopeProvider, { value: { kind: "site", id: "7" }, children });
+
+    const { result } = renderHook(() => useActiveSite({ knownSiteIds: new Set(["7"]) }), { wrapper });
+
+    expect(result.current.activeSite).toEqual({ kind: "site", id: "7" });
+    await waitFor(() => expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7" }));
+  });
+
+  it("falls back to { kind: 'all' } when a route-scoped site is missing from an empty loaded set", () => {
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "all" };
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(SiteScopeProvider, { value: { kind: "site", id: "999" }, children });
+
+    const { result } = renderHook(() => useActiveSite({ knownSiteIds: new Set() }), { wrapper });
+
+    expect(result.current.activeSite).toEqual({ kind: "all" });
   });
 });

@@ -1,14 +1,15 @@
 // SitePicker now persists its selection via the Zustand UI slice (org-wide,
 // not per-username localStorage). The persistence contract is covered by
 // useActiveSite.test.ts; these tests focus on render shapes, modal options,
-// the new error/retry affordance, and the useNavigate handoff to /settings/sites.
+// the new error/retry affordance, and the useNavigate handoff to /fleet/sites.
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import SitePicker from "./SitePicker";
 import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { SiteScopeProvider } from "@/protoFleet/routing/siteScope";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
@@ -36,9 +37,9 @@ const makeSiteWithCounts = (id: bigint, name: string) =>
     rackCount: 0n,
   });
 
-const renderPicker = (props: Parameters<typeof SitePicker>[0]) =>
+const renderPicker = (props: Parameters<typeof SitePicker>[0], initialEntries = ["/"]) =>
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <SitePicker {...props} />
     </MemoryRouter>,
   );
@@ -64,6 +65,18 @@ describe("SitePicker", () => {
     expect(screen.getByTestId("site-picker-retry")).toHaveClass("shrink-0");
     fireEvent.click(screen.getByTestId("site-picker-retry"));
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reset a route-scoped site when ListSites failed before loading", async () => {
+    render(
+      <MemoryRouter initialEntries={["/7/fleet/miners"]}>
+        <SiteScopeProvider value={{ kind: "site", id: "7" }}>
+          <SitePicker sites={[]} error="network down" />
+        </SiteScopeProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7" }));
   });
 
   it("renders the current label and opens a list of options on click", () => {
@@ -103,11 +116,27 @@ describe("SitePicker", () => {
     expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "1" });
   });
 
-  it("navigates to /settings/sites via react-router when Manage sites is clicked", () => {
+  it("navigates to the selected scope for the current Fleet path", () => {
+    const sites = [makeSiteWithCounts(1n, "Austin")];
+    renderPicker({ sites }, ["/fleet/miners?model=s19#rows"]);
+    fireEvent.click(screen.getByTestId("site-picker-trigger"));
+    fireEvent.click(screen.getByTestId("site-picker-option-1"));
+    expect(mockNavigate).toHaveBeenCalledWith("/1/fleet/miners?model=s19#rows");
+  });
+
+  it("navigates to scoped Dashboard when selecting from a non-scopable path", () => {
+    const sites = [makeSiteWithCounts(1n, "Austin")];
+    renderPicker({ sites }, ["/settings/general"]);
+    fireEvent.click(screen.getByTestId("site-picker-trigger"));
+    fireEvent.click(screen.getByTestId("site-picker-option-1"));
+    expect(mockNavigate).toHaveBeenCalledWith("/1/dashboard");
+  });
+
+  it("navigates to /fleet/sites via react-router when Manage sites is clicked", () => {
     const sites = [makeSiteWithCounts(1n, "Austin")];
     renderPicker({ sites });
     fireEvent.click(screen.getByTestId("site-picker-trigger"));
     fireEvent.click(screen.getByTestId("site-picker-manage-sites"));
-    expect(mockNavigate).toHaveBeenCalledWith("/settings/sites");
+    expect(mockNavigate).toHaveBeenCalledWith("/fleet/sites");
   });
 });

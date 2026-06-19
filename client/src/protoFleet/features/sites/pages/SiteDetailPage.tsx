@@ -23,6 +23,7 @@ const SiteDetailPage = () => {
 
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
+  const [sitesLoaded, setSitesLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchSites = useCallback(() => {
@@ -31,6 +32,7 @@ const SiteDetailPage = () => {
       signal: controller.signal,
       onSuccess: (rows) => {
         setSites(rows);
+        setSitesLoaded(true);
         setError(null);
       },
       onError: (msg) => {
@@ -52,7 +54,7 @@ const SiteDetailPage = () => {
 
   // Bounce to /fleet when SitePicker switches to a different specific
   // site — "All sites" / "Unassigned" don't conflict with this view.
-  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
+  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
   const { activeSite } = useActiveSite({ knownSiteIds });
   useEffect(() => {
     if (activeSite.kind !== "site") return;

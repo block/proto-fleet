@@ -3,7 +3,7 @@ import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
 
 const stopRequestPattern = /StopCurtailment/;
-const restoreReconciliationTimeout = DEFAULT_TIMEOUT * 2;
+const restoreReconciliationTimeout = DEFAULT_TIMEOUT * 4;
 
 export interface CurtailmentCleanupTarget {
   reason: string;

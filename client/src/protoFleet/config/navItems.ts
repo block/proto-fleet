@@ -16,6 +16,7 @@ export interface NavItem {
   // useHasPermission. Entries without a requiredPermission are visible to
   // every authenticated user.
   requiredPermission?: string;
+  scopable?: boolean;
 }
 
 export interface SecondaryNavItem {
@@ -30,25 +31,29 @@ export interface SecondaryNavItem {
 // Primary navigation items (shown in main nav menu)
 export const primaryNavItems: NavItem[] = [
   {
-    path: "/",
+    path: "/dashboard",
     label: "Home",
     icon: Home,
+    scopable: true,
   },
   {
     path: "/fleet",
     label: "Fleet",
     icon: Fleet,
+    scopable: true,
   },
   {
     path: "/groups",
     label: "Groups",
     icon: Groups,
+    scopable: true,
   },
   {
     path: "/energy",
     label: "Energy",
     icon: LightningAlt,
     requiredPermission: "curtailment:read",
+    scopable: true,
   },
   {
     path: "/activity",
@@ -56,6 +61,7 @@ export const primaryNavItems: NavItem[] = [
     icon: Activity,
     // ActivityService is server-gated on activity:read (PR #347).
     requiredPermission: "activity:read",
+    scopable: true,
   },
   {
     path: "/settings",

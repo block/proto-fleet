@@ -14,6 +14,8 @@ import NullState from "@/protoFleet/components/NullState";
 import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
 import GroupNameCell from "@/protoFleet/features/groupManagement/components/GroupsTable/GroupNameCell";
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
+import { scopedPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
+import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 
 import { Alert, Groups } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -25,6 +27,7 @@ const GROUPS_PAGE_SIZE = 50;
 
 const GroupsPage = () => {
   const navigate = useNavigate();
+  const activeSite = useRouteSiteScope() ?? DEFAULT_ACTIVE_SITE;
   const { listGroups } = useDeviceSets();
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [editGroup, setEditGroup] = useState<DeviceSet | null>(null);
@@ -84,31 +87,41 @@ const GroupsPage = () => {
     return <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />;
   }, [hasActiveFilters, isLoading, totalCount, handleClearFilters]);
 
+  const groupDetailHref = useCallback(
+    (label: string) => scopedPath(`/groups/${encodeURIComponent(label)}`, activeSite),
+    [activeSite],
+  );
+
   const renderName = useCallback(
     (item: DeviceSetListItem) => (
-      <GroupNameCell group={item.deviceSet} onEdit={setEditGroup} onActionComplete={resetAndFetch} />
+      <GroupNameCell
+        group={item.deviceSet}
+        onEdit={setEditGroup}
+        onActionComplete={resetAndFetch}
+        href={groupDetailHref(item.deviceSet.label)}
+      />
     ),
-    [resetAndFetch],
+    [groupDetailHref, resetAndFetch],
   );
 
   const handleRowClick = useCallback(
     (item: DeviceSetListItem) => {
-      navigate(`/groups/${encodeURIComponent(item.deviceSet.label)}`);
+      navigate(groupDetailHref(item.deviceSet.label));
     },
-    [navigate],
+    [groupDetailHref, navigate],
   );
 
   const renderMiners = useCallback(
     (item: DeviceSetListItem) => (
       <Link
-        to={`/miners?group=${item.deviceSet.id}`}
+        to={scopedPath(`/fleet/miners?group=${item.deviceSet.id}`, activeSite)}
         className="hover:underline"
         aria-label={`View miners in ${item.deviceSet.label}`}
       >
         {item.deviceSet.deviceCount}
       </Link>
     ),
-    [],
+    [activeSite],
   );
 
   if (isLoading && !hasEverLoaded) {

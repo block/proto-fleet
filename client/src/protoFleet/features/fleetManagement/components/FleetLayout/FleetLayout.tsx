@@ -16,6 +16,7 @@ import { type FleetTabId } from "@/protoFleet/features/fleetManagement/views/sav
 import useFleetViews from "@/protoFleet/features/fleetManagement/views/useFleetViews";
 import { type FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
+import { activeSiteFromScopablePath, scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { useHasPermission, useUsername } from "@/protoFleet/store";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 import { usePoll } from "@/shared/hooks/usePoll";
@@ -44,7 +45,7 @@ const ALL_TAB_IDS = new Set<FleetTabId>(["sites", "buildings", "racks", "miners"
 const isFleetTabId = (s: string): s is FleetTabId => ALL_TAB_IDS.has(s as FleetTabId);
 
 const tabFromPath = (pathname: string): FleetTabId | undefined => {
-  const m = pathname.match(/^\/fleet\/([^/]+)/);
+  const m = unscopedScopablePath(pathname).match(/^\/fleet\/([^/]+)/);
   if (!m) return undefined;
   return isFleetTabId(m[1]) ? m[1] : undefined;
 };
@@ -104,13 +105,15 @@ const FleetLayout = () => {
   usePoll({ fetchData: fetchSites, poll: true, pollIntervalMs: POLL_INTERVAL_MS, enabled: canReadSites });
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
-  const { activeSite } = useActiveSite({ knownSiteIds });
-  // A stale "single site" selection pointing at a deleted site (knownSiteIds
-  // is empty and useActiveSite can't reset) must keep the tab visible so the
-  // operator can still create a new site.
-  const sitesTabHidden = activeSite.kind === "site" && knownSiteIds.has(activeSite.id);
+  const validatedKnownSiteIds = sitesLoaded ? knownSiteIds : undefined;
+  const { activeSite } = useActiveSite({ knownSiteIds: validatedKnownSiteIds });
+  // A stale "single site" selection pointing at a deleted site must keep the
+  // tab visible so the operator can still create a new site.
+  const sitesTabHidden = activeSite.kind === "site" && (validatedKnownSiteIds?.has(activeSite.id) ?? false);
 
   const currentTab = tabFromPath(location.pathname);
+  const rawPathScope = useMemo(() => activeSiteFromScopablePath(location.pathname), [location.pathname]);
+  const pathScope = useMemo(() => rawPathScope ?? activeSite, [rawPathScope, activeSite]);
 
   const sitesAccessBlocked = !canReadSites || sitesPermissionDenied;
 
@@ -142,6 +145,20 @@ const FleetLayout = () => {
   useEffect(() => {
     if (sites === undefined) return;
 
+    if (
+      rawPathScope?.kind === "site" &&
+      validatedKnownSiteIds !== undefined &&
+      !validatedKnownSiteIds.has(rawPathScope.id)
+    ) {
+      navigate(
+        scopedPath(`${unscopedScopablePath(location.pathname)}${location.search}${location.hash}`, { kind: "all" }),
+        {
+          replace: true,
+        },
+      );
+      return;
+    }
+
     // Special shortcut: a pinned single-site picker on /fleet/sites lands on
     // that site's management detail page so legacy "Manage sites" entry
     // points stay useful.
@@ -150,12 +167,27 @@ const FleetLayout = () => {
       return;
     }
 
-    const onBareFleet = location.pathname === "/fleet" || location.pathname === "/fleet/";
+    const unscopedPath = unscopedScopablePath(location.pathname);
+    const onBareFleet = unscopedPath === "/fleet" || unscopedPath === "/fleet/";
     const currentTabHidden = currentTab !== undefined && !visibleTabs.includes(currentTab);
     if (onBareFleet || currentTabHidden) {
-      navigate(`/fleet/${targetTab}`, { replace: true });
+      navigate(scopedPath(`/fleet/${targetTab}`, pathScope), { replace: true });
     }
-  }, [sites, location.pathname, currentTab, sitesTabHidden, activeSite, visibleTabs, targetTab, navigate]);
+  }, [
+    sites,
+    location.pathname,
+    location.search,
+    location.hash,
+    currentTab,
+    sitesTabHidden,
+    activeSite,
+    pathScope,
+    rawPathScope,
+    validatedKnownSiteIds,
+    visibleTabs,
+    targetTab,
+    navigate,
+  ]);
 
   useEffect(() => {
     if (currentTab && currentTab !== lastTab) {
@@ -165,9 +197,9 @@ const FleetLayout = () => {
 
   const onSelect = useCallback(
     (id: string) => {
-      if (isFleetTabId(id)) navigate(`/fleet/${id}`);
+      if (isFleetTabId(id)) navigate(scopedPath(`/fleet/${id}`, pathScope));
     },
-    [navigate],
+    [navigate, pathScope],
   );
 
   const [viewFilterContext, setViewFilterContext] = useState<{

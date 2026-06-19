@@ -13,7 +13,9 @@ import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/componen
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
+import { scopedPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
+import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
@@ -36,6 +38,7 @@ const GroupOverviewPage = () => {
   const { groupLabel } = useParams<{ groupLabel: string }>();
   const label = groupLabel ?? "";
   const navigate = useNavigate();
+  const activeSite = useRouteSiteScope() ?? DEFAULT_ACTIVE_SITE;
 
   // Group resolution state
   const [group, setGroup] = useState<DeviceSet | null>(null);
@@ -46,6 +49,11 @@ const GroupOverviewPage = () => {
   const [showEditModal, setShowEditModal] = useState(false);
 
   const { listGroups, listGroupMembers } = useDeviceSets();
+
+  const groupDetailHref = useCallback(
+    (nextLabel: string) => scopedPath(`/groups/${encodeURIComponent(nextLabel)}`, activeSite),
+    [activeSite],
+  );
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);
@@ -74,7 +82,7 @@ const GroupOverviewPage = () => {
           setGroup(match);
           // If the label changed (e.g., after edit), navigate to the new URL
           if (match.label !== resolveLabel) {
-            navigate(`/groups/${encodeURIComponent(match.label)}`);
+            navigate(groupDetailHref(match.label));
             return;
           }
           listGroupMembers({
@@ -98,7 +106,7 @@ const GroupOverviewPage = () => {
         },
       });
     },
-    [listGroups, listGroupMembers, navigate],
+    [groupDetailHref, listGroups, listGroupMembers, navigate],
   );
 
   // Resolve group label → group object → device IDs
@@ -201,10 +209,13 @@ const GroupOverviewPage = () => {
             inline
             icon={<ChevronDown className="rotate-90" />}
             iconAriaLabel="Back to groups"
-            iconOnClick={() => navigate("/groups")}
+            iconOnClick={() => navigate(scopedPath("/groups", activeSite))}
           >
             <div className="ml-3 flex items-center gap-3">
-              <Button variant={variants.secondary} onClick={() => navigate(`/miners?group=${group?.id}`)}>
+              <Button
+                variant={variants.secondary}
+                onClick={() => navigate(scopedPath(`/fleet/miners?group=${group?.id}`, activeSite))}
+              >
                 View miners
               </Button>
               <Button variant={variants.secondary} onClick={() => setShowEditModal(true)}>

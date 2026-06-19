@@ -99,7 +99,7 @@ const SitesPage = () => {
   usePoll({ fetchData: fetchSites, poll: true, pollIntervalMs: POLL_INTERVAL_MS });
   usePoll({ fetchData: fetchBuildings, poll: true, pollIntervalMs: POLL_INTERVAL_MS });
 
-  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
+  const knownSiteIds = useMemo(() => (sitesLoadedRef.current ? buildKnownSiteIds(sites) : undefined), [sites]);
 
   const { activeSite } = useActiveSite({ knownSiteIds });
 
@@ -167,8 +167,7 @@ const SitesPage = () => {
 
   // "Add a site" only makes sense from the All Sites view; once a specific
   // site is selected the operator is in single-site context and the CTA
-  // would be misleading. SettingsSitesPage already swaps the header out in
-  // its single-site branch, so this gating is /sites-specific.
+  // would be misleading.
   const showAddSite = activeSite.kind === "all";
 
   return (

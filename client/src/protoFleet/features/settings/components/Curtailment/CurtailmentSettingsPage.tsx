@@ -30,7 +30,9 @@ import {
   type ResponseProfile,
   type ResponseProfileFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { Alert, Info, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -1837,7 +1839,7 @@ function CurtailmentSettingsPage(): ReactElement {
       try {
         await startCurtailment(curtailmentValues);
         setIsTestingResponseProfileCurtailment(false);
-        navigate("/energy");
+        navigate(scopedPath("/energy", useFleetStore.getState().ui.activeSite));
       } catch (error) {
         pushToast({
           message: getErrorMessage(error, "Failed to run curtailment."),
