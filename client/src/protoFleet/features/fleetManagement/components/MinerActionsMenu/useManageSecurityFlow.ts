@@ -129,6 +129,7 @@ interface UseManageSecurityFlowParams {
   miners?: Record<string, MinerStateSnapshot>;
   currentFilter?: MinerListFilter;
   securityModelGroupFilter?: SecurityModelGroupFilter;
+  useCurrentFilterForAllModePasswordUpdate?: boolean;
 }
 
 export const useManageSecurityFlow = ({
@@ -147,6 +148,7 @@ export const useManageSecurityFlow = ({
   miners = {} as Record<string, MinerStateSnapshot>,
   currentFilter,
   securityModelGroupFilter,
+  useCurrentFilterForAllModePasswordUpdate = false,
 }: UseManageSecurityFlowParams) => {
   const [showUpdatePasswordModal, setShowUpdatePasswordModal] = useState(false);
   const [securityFilteredDeviceIds, setSecurityFilteredDeviceIds] = useState<string[] | undefined>(undefined);
@@ -225,7 +227,19 @@ export const useManageSecurityFlow = ({
       let selectorToUse: DeviceSelector;
       let deviceIdsToUse: string[];
 
-      if (selectionMode === "all" && currentGroupForUpdate) {
+      if (selectionMode === "all" && currentGroupForUpdate && useCurrentFilterForAllModePasswordUpdate) {
+        selectorToUse = create(DeviceSelectorSchema, {
+          selectionType: {
+            case: "allDevices",
+            value: create(DeviceFilterSchema, {
+              models: currentFilter?.models ?? [],
+              deviceStatus: currentFilter?.deviceStatus ?? [],
+              pairingStatus: currentFilter?.pairingStatuses ?? [],
+            }),
+          },
+        });
+        deviceIdsToUse = currentGroupForUpdate.deviceIdentifiers;
+      } else if (selectionMode === "all" && currentGroupForUpdate) {
         // For "all" selection, use a model-scoped all_devices selector so the command
         // targets every fleet miner of this model, not just the visible page.
         // Note: error_component_types filter has no equivalent in DeviceFilter and is not applied here.
@@ -319,6 +333,7 @@ export const useManageSecurityFlow = ({
       startBatchOperation,
       setCurrentAction,
       currentFilter,
+      useCurrentFilterForAllModePasswordUpdate,
     ],
   );
 

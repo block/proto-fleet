@@ -220,6 +220,7 @@ describe("AuthenticationSettings", () => {
       expect(lastUseMinerActionsCall).toMatchObject({
         selectionMode: "all",
         totalCount: 64,
+        securityUseCurrentFilterForAllModePasswordUpdate: true,
         currentFilter: expect.objectContaining({
           models: ["Rig"],
           pairingStatuses: [PairingStatus.DEFAULT_PASSWORD],

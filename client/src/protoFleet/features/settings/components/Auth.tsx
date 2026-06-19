@@ -318,6 +318,7 @@ const AuthenticationSettings = () => {
     miners: defaultPasswordMiners,
     onActionComplete: handleDefaultPasswordActionComplete,
     securityModelGroupFilter: isProtoGroup,
+    securityUseCurrentFilterForAllModePasswordUpdate: true,
   });
 
   const handleUpdateDefaultPasswords = useCallback(() => {
