@@ -65,6 +65,9 @@ func (s *adminTerminateStubStore) UpdateOrgConfigPostEventCooldown(context.Conte
 func (s *adminTerminateStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
 	panic("ListActiveCurtailedDevices not exercised by AdminTerminate handler tests")
 }
+func (s *adminTerminateStubStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
+	panic("ListActiveCurtailmentTargetDevices not exercised by AdminTerminate handler tests")
+}
 func (s *adminTerminateStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by AdminTerminate handler tests")
 }
@@ -76,6 +79,9 @@ func (s *adminTerminateStubStore) ListCandidates(context.Context, interfaces.Lis
 }
 func (s *adminTerminateStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by AdminTerminate handler tests")
+}
+func (s *adminTerminateStubStore) ClaimClosedLoopFullFleetTargets(context.Context, int64, []models.InsertTargetParams) ([]*models.Target, error) {
+	panic("ClaimClosedLoopFullFleetTargets not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	if s.authEvent != nil {
