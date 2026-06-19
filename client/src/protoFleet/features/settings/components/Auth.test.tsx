@@ -212,7 +212,9 @@ describe("AuthenticationSettings", () => {
       await screen.findByText("64 miners are using default passwords");
       fireEvent.click(screen.getByTestId("default-password-update-button"));
 
-      expect(mockSecurityActionHandler).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(mockSecurityActionHandler).toHaveBeenCalledTimes(1);
+      });
       expect(screen.getByTestId("miner-action-modal-stack")).toHaveAttribute("data-display-count", "64");
 
       const useMinerActionsCalls = vi.mocked(useMinerActions).mock.calls;
@@ -236,6 +238,29 @@ describe("AuthenticationSettings", () => {
           create(MinerModelGroupSchema, { model: "Rig", manufacturer: "Bitmain", count: 1 }),
         ),
       ).toBe(false);
+    });
+
+    it("refreshes before opening security flow and skips stale zero-count updates", async () => {
+      let defaultPasswordGroupCalls = 0;
+      mockGetMinerModelGroups.mockImplementation(async (filter) => {
+        if (filter?.pairingStatuses?.includes(PairingStatus.DEFAULT_PASSWORD)) {
+          defaultPasswordGroupCalls += 1;
+          return defaultPasswordGroupCalls === 1 ? defaultPasswordModelGroups : [];
+        }
+
+        return totalModelGroups;
+      });
+
+      render(<AuthenticationSettings />);
+
+      await screen.findByText("64 miners are using default passwords");
+      fireEvent.click(screen.getByTestId("default-password-update-button"));
+
+      await waitFor(() => {
+        expect(screen.queryByText(/using default passwords/i)).not.toBeInTheDocument();
+      });
+      expect(mockRefetchDefaultPasswordMiners).toHaveBeenCalledTimes(1);
+      expect(mockSecurityActionHandler).not.toHaveBeenCalled();
     });
 
     it("refreshes default-password data after the security action completes", async () => {

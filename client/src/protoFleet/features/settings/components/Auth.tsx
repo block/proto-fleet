@@ -146,11 +146,13 @@ const DevicesCard = ({
   rows,
   defaultPasswordCount,
   isLoading,
+  updateLoading,
   onUpdateClick,
 }: {
   rows: SecurityDeviceRow[];
   defaultPasswordCount: number;
   isLoading: boolean;
+  updateLoading: boolean;
   onUpdateClick: () => void;
 }) => {
   const hasDefaultPasswords = defaultPasswordCount > 0;
@@ -177,7 +179,12 @@ const DevicesCard = ({
                 </div>
                 <div className="min-w-0 truncate text-300">{defaultPasswordCalloutText}</div>
               </div>
-              <Button variant="secondary" testId="default-password-update-button" onClick={onUpdateClick}>
+              <Button
+                variant="secondary"
+                testId="default-password-update-button"
+                onClick={onUpdateClick}
+                loading={updateLoading}
+              >
                 Update
               </Button>
             </div>
@@ -216,6 +223,7 @@ const AuthenticationSettings = () => {
   const [usernameErrorMsg, setUsernameErrorMsg] = useState("");
   const [deviceRows, setDeviceRows] = useState<SecurityDeviceRow[]>([]);
   const [isLoadingDeviceRows, setIsLoadingDeviceRows] = useState(true);
+  const [isStartingDefaultPasswordUpdate, setIsStartingDefaultPasswordUpdate] = useState(false);
 
   // API error states
   const [authApiError, setAuthApiError] = useState<string | null>(null);
@@ -297,9 +305,12 @@ const AuthenticationSettings = () => {
     setIsLoadingDeviceRows(true);
 
     try {
-      setDeviceRows(await fetchDeviceRows());
+      const rows = await fetchDeviceRows();
+      setDeviceRows(rows);
+      return rows;
     } catch {
       setDeviceRows([]);
+      return [];
     } finally {
       setIsLoadingDeviceRows(false);
     }
@@ -321,13 +332,30 @@ const AuthenticationSettings = () => {
     securityUseCurrentFilterForAllModePasswordUpdate: true,
   });
 
-  const handleUpdateDefaultPasswords = useCallback(() => {
-    const securityAction = defaultPasswordActions.popoverActions.find(
-      (action) => action.action === settingsActions.security,
-    );
+  const handleUpdateDefaultPasswords = useCallback(async () => {
+    setIsStartingDefaultPasswordUpdate(true);
 
-    securityAction?.actionHandler();
-  }, [defaultPasswordActions.popoverActions]);
+    try {
+      const latestRows = await refreshDeviceRows();
+      refetchDefaultPasswordMiners();
+
+      const latestDefaultPasswordCount = latestRows.reduce((total, row) => total + row.defaultPasswordCount, 0);
+      if (latestDefaultPasswordCount === 0) {
+        pushToast({
+          message: "No Proto Rig miners are using default passwords.",
+          status: TOAST_STATUSES.success,
+        });
+        return;
+      }
+
+      const securityAction = defaultPasswordActions.popoverActions.find(
+        (action) => action.action === settingsActions.security,
+      );
+      securityAction?.actionHandler();
+    } finally {
+      setIsStartingDefaultPasswordUpdate(false);
+    }
+  }, [defaultPasswordActions.popoverActions, refetchDefaultPasswordMiners, refreshDeviceRows]);
 
   // Reset form state when modal closes
   const [prevShowModal, setPrevShowModal] = useState(showModal);
@@ -547,6 +575,7 @@ const AuthenticationSettings = () => {
             rows={deviceRows}
             defaultPasswordCount={defaultPasswordCount}
             isLoading={isLoadingDeviceRows}
+            updateLoading={isStartingDefaultPasswordUpdate}
             onUpdateClick={handleUpdateDefaultPasswords}
           />
 
