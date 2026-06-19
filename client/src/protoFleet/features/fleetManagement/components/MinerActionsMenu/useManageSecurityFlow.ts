@@ -2,19 +2,17 @@ import { useCallback, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { getLoadingMessage, minersMessage, settingsActions, SupportedAction } from "./constants";
 import { type MinerGroup } from "./ManageSecurity";
+import { fetchAllMinerSnapshots } from "@/protoFleet/api/fetchAllMinerSnapshots";
 import {
   type MinerListFilter,
+  MinerListFilterSchema,
   type MinerModelGroup,
   type MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import {
-  DeviceFilterSchema,
-  DeviceSelector,
-  DeviceSelectorSchema,
-  UpdateMinerPasswordResponse,
-} from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import { DeviceSelector, UpdateMinerPasswordResponse } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { minerTypes } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
+import { applyFleetSelectablePairingStatuses } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import { type SelectionMode } from "@/shared/components/List";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
@@ -87,7 +85,7 @@ export interface SecurityActionsProps {
   showUpdatePasswordModal: boolean;
   hasThirdPartyMiners: boolean;
   handleFleetAuthenticated: (username: string, password: string) => void;
-  handlePasswordConfirm: (currentPassword: string, newPassword: string) => void;
+  handlePasswordConfirm: (currentPassword: string, newPassword: string) => void | Promise<void>;
   handlePasswordDismiss: () => void;
   handleAuthDismiss: () => void;
   showManageSecurityModal: boolean;
@@ -178,7 +176,7 @@ export const useManageSecurityFlow = ({
       if (selectionMode === "all") {
         // For "all" selection, query backend for accurate model groups across the full fleet
         try {
-          const groups = await getMinerModelGroups(currentFilter ?? null);
+          const groups = await getMinerModelGroups(applyFleetSelectablePairingStatuses(currentFilter));
           setMinerGroups(
             groups
               .filter((group) => securityModelGroupFilter?.(group) ?? true)
@@ -221,26 +219,33 @@ export const useManageSecurityFlow = ({
   }, [setCurrentAction, resetAuthState, onActionComplete]);
 
   const handlePasswordConfirm = useCallback(
-    (currentPassword: string, newPassword: string) => {
+    async (currentPassword: string, newPassword: string) => {
       let selectorToUse: DeviceSelector;
       let deviceIdsToUse: string[];
 
       if (selectionMode === "all" && currentGroupForUpdate) {
-        // For "all" selection, use a model-scoped all_devices selector so the command
-        // targets every fleet miner of this model, not just the visible page.
-        // Note: error_component_types filter has no equivalent in DeviceFilter and is not applied here.
-        selectorToUse = create(DeviceSelectorSchema, {
-          selectionType: {
-            case: "allDevices",
-            value: create(DeviceFilterSchema, {
-              models: [currentGroupForUpdate.model],
-              ...(currentGroupForUpdate.manufacturer ? { manufacturers: [currentGroupForUpdate.manufacturer] } : {}),
-              deviceStatus: currentFilter?.deviceStatus ?? [],
-              pairingStatus: currentFilter?.pairingStatuses ?? [],
-            }),
-          },
+        const scopedFilter = create(MinerListFilterSchema, {
+          ...applyFleetSelectablePairingStatuses(currentFilter),
+          models: [currentGroupForUpdate.model],
         });
-        deviceIdsToUse = currentGroupForUpdate.deviceIdentifiers;
+        const snapshots = await fetchAllMinerSnapshots(scopedFilter);
+        deviceIdsToUse = Object.values(snapshots)
+          .filter(
+            (miner) =>
+              miner.model === currentGroupForUpdate.model &&
+              (!currentGroupForUpdate.manufacturer || miner.manufacturer === currentGroupForUpdate.manufacturer),
+          )
+          .map((miner) => miner.deviceIdentifier);
+
+        if (deviceIdsToUse.length === 0) {
+          pushToast({
+            message: "No miners matched the selected filters.",
+            status: TOAST_STATUSES.error,
+          });
+          return;
+        }
+
+        selectorToUse = createDeviceSelector("subset", deviceIdsToUse);
       } else {
         const rawDeviceIds = currentGroupForUpdate
           ? currentGroupForUpdate.deviceIdentifiers

@@ -158,6 +158,11 @@ interface UnsupportedMinersState extends UnsupportedMinersInfo {
   pendingAction: PendingActionCallback | null;
 }
 
+interface ResolvedCommandScope {
+  deviceSelector: DeviceSelector;
+  deviceIdentifiers: string[];
+}
+
 const initialUnsupportedMinersState: UnsupportedMinersState = {
   visible: false,
   unsupportedGroups: [],
@@ -347,6 +352,40 @@ export const useMinerActions = ({
     });
   }, [selectionMode, deviceIdentifiers, effectiveAllModeFilter]);
 
+  const resolveCommandScope = useCallback(async (): Promise<ResolvedCommandScope | undefined> => {
+    if (selectionMode === "none" || !deviceSelector) return undefined;
+
+    if (selectionMode !== "all") {
+      return { deviceSelector, deviceIdentifiers };
+    }
+
+    try {
+      const snapshots = await fetchAllMinerSnapshots(effectiveAllModeFilter);
+      const resolvedDeviceIdentifiers = Object.keys(snapshots);
+
+      if (resolvedDeviceIdentifiers.length === 0) {
+        pushToast({
+          message: "No miners matched the selected filters.",
+          status: TOAST_STATUSES.error,
+        });
+        onActionComplete?.();
+        return undefined;
+      }
+
+      return {
+        deviceSelector: createDeviceSelector("subset", resolvedDeviceIdentifiers),
+        deviceIdentifiers: resolvedDeviceIdentifiers,
+      };
+    } catch {
+      pushToast({
+        message: "Unable to load the selected miners. Please try again.",
+        status: TOAST_STATUSES.error,
+      });
+      onActionComplete?.();
+      return undefined;
+    }
+  }, [selectionMode, deviceSelector, deviceIdentifiers, effectiveAllModeFilter, onActionComplete]);
+
   // Determine device status for power state actions
   const deviceStatus = useMemo(() => {
     if (selectedMiners.length === 0) return undefined;
@@ -360,16 +399,20 @@ export const useMinerActions = ({
   // Check for unsupported miners using server-side capability checking.
   // Returns a promise that resolves to true if the modal was shown.
   const checkAndShowUnsupportedMinersModal = useCallback(
-    async (action: SupportedAction, proceedAction: PendingActionCallback): Promise<boolean> => {
+    async (
+      action: SupportedAction,
+      proceedAction: PendingActionCallback,
+      commandScope: ResolvedCommandScope,
+    ): Promise<boolean> => {
       const metadata = actionCapabilityMetadata[action];
 
-      if (!metadata || metadata.commandType === CommandType.UNSPECIFIED || !deviceSelector) {
+      if (!metadata || metadata.commandType === CommandType.UNSPECIFIED) {
         return false;
       }
 
       return new Promise((resolve) => {
         checkCommandCapabilities({
-          deviceSelector,
+          deviceSelector: commandScope.deviceSelector,
           commandType: metadata.commandType,
           onSuccess: (result) => {
             if (result.allSupported) {
@@ -407,7 +450,7 @@ export const useMinerActions = ({
         });
       });
     },
-    [deviceSelector, checkCommandCapabilities, onActionComplete],
+    [checkCommandCapabilities, onActionComplete],
   );
 
   // Wraps checkAndShowUnsupportedMinersModal with the common proceed pattern:
@@ -419,12 +462,20 @@ export const useMinerActions = ({
       action: SupportedAction,
       onProceed: (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[]) => void,
     ): Promise<void> => {
-      const modalShown = await checkAndShowUnsupportedMinersModal(action, onProceed);
+      const commandScope = await resolveCommandScope();
+      if (!commandScope) return;
+
+      const modalShown = await checkAndShowUnsupportedMinersModal(action, onProceed, commandScope);
       if (!modalShown) {
+        if (selectionMode === "all") {
+          onProceed(commandScope.deviceSelector, commandScope.deviceIdentifiers);
+          return;
+        }
+
         onProceed(undefined, undefined);
       }
     },
-    [checkAndShowUnsupportedMinersModal],
+    [checkAndShowUnsupportedMinersModal, resolveCommandScope, selectionMode],
   );
 
   // Handle continuing from unsupported miners modal
@@ -1028,12 +1079,20 @@ export const useMinerActions = ({
     async (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[], actionOverride?: SupportedAction) => {
       // Use filtered selector/identifiers if provided (from unsupported miners modal),
       // otherwise use the default selector/identifiers for all selected miners
-      const selectorToUse = filteredSelector ?? deviceSelector;
-      const deviceIdsToUse = filteredDeviceIds ?? deviceIdentifiers;
+      let selectorToUse = filteredSelector;
+      let deviceIdsToUse = filteredDeviceIds;
+
+      if (!selectorToUse || !deviceIdsToUse) {
+        const commandScope = await resolveCommandScope();
+        if (!commandScope) return;
+        selectorToUse = commandScope.deviceSelector;
+        deviceIdsToUse = commandScope.deviceIdentifiers;
+      }
+
       // Use actionOverride when called from unsupported miners modal (where currentAction is null)
       const action = actionOverride ?? currentAction;
 
-      if (action === null || !selectorToUse) return;
+      if (action === null) return;
 
       // Handle device action API calls
       switch (action) {
@@ -1139,7 +1198,7 @@ export const useMinerActions = ({
     [
       currentAction,
       onActionComplete,
-      deviceSelector,
+      resolveCommandScope,
       selectionMode,
       startMining,
       stopMining,
@@ -1148,7 +1207,6 @@ export const useMinerActions = ({
       handleError,
       startBatchOperation,
       completeBatchOperation,
-      deviceIdentifiers,
       effectiveAllModeFilter,
       onRefetchMiners,
       executeBulkActionWithRetry,
@@ -1164,14 +1222,15 @@ export const useMinerActions = ({
 
   const popoverActions = useMemo(() => {
     // Device actions handlers
-    const handleBlinkLEDs = () => {
-      if (!deviceSelector) return;
+    const handleBlinkLEDs = async () => {
+      const commandScope = await resolveCommandScope();
+      if (!commandScope) return;
       setCurrentAction(deviceActions.blinkLEDs);
 
       executeBulkActionWithRetry({
         action: deviceActions.blinkLEDs,
-        deviceSelector,
-        deviceIdentifiers,
+        deviceSelector: commandScope.deviceSelector,
+        deviceIdentifiers: commandScope.deviceIdentifiers,
         loadingMessage: loadingMessages[deviceActions.blinkLEDs],
         runAction: ({ deviceSelector: selector, onSuccess, onError }) =>
           blinkLED({
@@ -1183,11 +1242,11 @@ export const useMinerActions = ({
     };
 
     const handleDownloadLogs = async () => {
-      if (!deviceSelector) return;
       onActionStart?.();
 
       await withCapabilityCheck(deviceActions.downloadLogs, (filteredSelector) => {
         const selectorToUse = filteredSelector ?? deviceSelector;
+        if (!selectorToUse) return;
 
         const id = pushToast({
           message: loadingMessages[deviceActions.downloadLogs],
@@ -1277,6 +1336,9 @@ export const useMinerActions = ({
 
     const handleReboot = async () => {
       onActionStart?.();
+      const commandScope = await resolveCommandScope();
+      if (!commandScope) return;
+
       // Check for unsupported miners first - only show confirmation dialog if all supported
       const modalShown = await checkAndShowUnsupportedMinersModal(
         deviceActions.reboot,
@@ -1285,6 +1347,7 @@ export const useMinerActions = ({
           // The confirmation dialog will not be shown, action executes directly
           handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.reboot);
         },
+        commandScope,
       );
       // Only show confirmation dialog if capability modal was not shown
       if (!modalShown) {
@@ -1294,11 +1357,15 @@ export const useMinerActions = ({
 
     const handleShutDown = async () => {
       onActionStart?.();
+      const commandScope = await resolveCommandScope();
+      if (!commandScope) return;
+
       const modalShown = await checkAndShowUnsupportedMinersModal(
         deviceActions.shutdown,
         (filteredSelector, filteredDeviceIds) => {
           handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.shutdown);
         },
+        commandScope,
       );
       if (!modalShown) {
         setCurrentAction(deviceActions.shutdown);
@@ -1307,11 +1374,15 @@ export const useMinerActions = ({
 
     const handleWakeUp = async () => {
       onActionStart?.();
+      const commandScope = await resolveCommandScope();
+      if (!commandScope) return;
+
       const modalShown = await checkAndShowUnsupportedMinersModal(
         deviceActions.wakeUp,
         (filteredSelector, filteredDeviceIds) => {
           handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.wakeUp);
         },
+        commandScope,
       );
       if (!modalShown) {
         setCurrentAction(deviceActions.wakeUp);
@@ -1608,6 +1679,7 @@ export const useMinerActions = ({
     withCapabilityCheck,
     checkAndShowUnsupportedMinersModal,
     handleConfirmation,
+    resolveCommandScope,
     deviceIdentifiers,
     selectionMode,
     selectedMiners,

@@ -312,7 +312,7 @@ const MinerActionsMenu = ({
       <PoolSelectionPageWrapper
         open={showPoolSelectionPage ? !!fleetCredentials : false}
         selectedMiners={poolMiners}
-        selectionMode={selectionMode}
+        selectionMode={poolFilteredDeviceIds ? "subset" : selectionMode}
         poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : totalCount}
         userUsername={fleetCredentials?.username}
         userPassword={fleetCredentials?.password}
