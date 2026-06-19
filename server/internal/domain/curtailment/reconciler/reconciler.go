@@ -734,6 +734,9 @@ func (r *Reconciler) maybeAgeOutCurtailConfirmation(ctx context.Context, ev *mod
 	if ev.Mode != models.ModeFullFleet || t.LastDispatchedAt == nil || r.cfg.CurtailConfirmTimeoutSec <= 0 {
 		return
 	}
+	if t.RetryCount >= r.cfg.MaxRetries {
+		return
+	}
 	timeout := time.Duration(r.cfg.CurtailConfirmTimeoutSec) * time.Second
 	if r.now().Sub(*t.LastDispatchedAt) <= timeout {
 		return
@@ -753,15 +756,19 @@ func (r *Reconciler) recordCurtailConfirmationTimeout(ctx context.Context, ev *m
 	// the miner failed to curtail. Keep the row non-terminal so Stop can still
 	// issue the compensating restore command if the miner did go to sleep.
 	newRetry := t.RetryCount + 1
+	state := retryState
+	if newRetry >= r.cfg.MaxRetries {
+		state = models.TargetStateDispatched
+	}
 	errMsg := "curtail telemetry timeout"
 	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:      retryState,
+		State:      state,
 		LastError:  &errMsg,
 		RetryCount: &newRetry,
 	}
 	err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params)
 	if err == nil {
-		t.State = retryState
+		t.State = state
 		t.RetryCount = newRetry
 		t.LastError = &errMsg
 		return
@@ -1027,6 +1034,9 @@ func isCurtailed(latestPowerW *float64, baselinePowerW *float64, latestHashRateH
 		return *latestHashRateHS <= 0
 	}
 	if latestPowerW == nil {
+		if requirePositiveEvidence && baselinePowerW != nil && isFinite(*baselinePowerW) && *baselinePowerW > 0 {
+			return false
+		}
 		if latestHashRateHS == nil || !isFinite(*latestHashRateHS) {
 			return !requirePositiveEvidence
 		}

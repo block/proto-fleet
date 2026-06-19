@@ -1699,7 +1699,7 @@ func TestReconciler_FullFleetCurtailConfirmTimeoutExhaustionStaysRestorable(t *t
 			DesiredState:       models.DesiredStateCurtailed,
 			BaselinePowerW:     ptrFloat64(3000),
 			LastDispatchedAt:   &lastDispatchedAt,
-			RetryCount:         3,
+			RetryCount:         2,
 		},
 	}
 	store.candidates = []*models.Candidate{
@@ -1710,10 +1710,13 @@ func TestReconciler_FullFleetCurtailConfirmTimeoutExhaustionStaysRestorable(t *t
 	r.runTick(context.Background())
 
 	target := store.targetsByEventID[eventID][0]
-	assert.Equal(t, models.TargetStatePending, target.State)
-	assert.Equal(t, int32(4), target.RetryCount)
+	assert.Equal(t, models.TargetStateDispatched, target.State, "exhausted timeout target stops automatic redrive")
+	assert.Equal(t, int32(3), target.RetryCount)
 	require.NotNil(t, target.LastError)
 	assert.Contains(t, *target.LastError, "curtail telemetry timeout")
+
+	r.runTick(context.Background())
+	assert.Equal(t, 0, disp.curtailCalls, "exhausted timeout target must not loop curtail commands")
 
 	_, err := store.BeginRestoreTransition(context.Background(), 1, eventUUID, interfaces.BeginRestoreTransitionParams{})
 	require.NoError(t, err)
@@ -2295,8 +2298,8 @@ func TestIsCurtailed_ConfirmPath_RequiresEvidence(t *testing.T) {
 	// Above threshold → not confirmed.
 	assert.False(t, isCurtailed(ptrFloat64(2500), &baseline, ptrFloat64(0), 0.5, true))
 
-	// Missing power can still confirm from finite zero hash evidence.
-	assert.True(t, isCurtailed(nil, &baseline, ptrFloat64(0), 0.5, true))
+	// Positive baseline requires power evidence on the confirm path.
+	assert.False(t, isCurtailed(nil, &baseline, ptrFloat64(0), 0.5, true))
 	assert.False(t, isCurtailed(nil, &baseline, ptrFloat64(100), 0.5, true))
 	assert.False(t, isCurtailed(nil, &baseline, nil, 0.5, true), "no power + missing hash → no evidence")
 	// Non-finite power → not confirmed.
@@ -2305,6 +2308,7 @@ func TestIsCurtailed_ConfirmPath_RequiresEvidence(t *testing.T) {
 
 	// Baseline missing: dual-signal fallback requires finite zero-or-negative hash.
 	assert.True(t, isCurtailed(ptrFloat64(1000), nil, ptrFloat64(0), 0.5, true))
+	assert.True(t, isCurtailed(nil, nil, ptrFloat64(0), 0.5, true), "no baseline + no power + zero hash → curtailed")
 	assert.False(t, isCurtailed(ptrFloat64(1000), nil, nil, 0.5, true), "no baseline + missing hash → no evidence")
 	assert.False(t, isCurtailed(ptrFloat64(1000), nil, &nan, 0.5, true), "no baseline + non-finite hash → no evidence")
 	assert.False(t, isCurtailed(ptrFloat64(1000), nil, ptrFloat64(100), 0.5, true), "no baseline + positive hash → drifted")
