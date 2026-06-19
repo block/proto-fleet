@@ -745,7 +745,41 @@ func (r *Reconciler) maybeAgeOutCurtailConfirmation(ctx context.Context, ev *mod
 	slog.Info("curtailment reconciler: curtail telemetry timeout aging initiated",
 		"event_id", ev.ID, "device", t.DeviceIdentifier,
 		"timeout_sec", r.cfg.CurtailConfirmTimeoutSec)
-	r.recordDispatchFailure(ctx, ev, t, "curtail telemetry timeout", retryState)
+	r.recordCurtailConfirmationTimeout(ctx, ev, t, retryState)
+}
+
+func (r *Reconciler) recordCurtailConfirmationTimeout(ctx context.Context, ev *models.Event, t *models.Target, retryState models.TargetState) {
+	// A successful command enqueue with missing confirmation is not proof that
+	// the miner failed to curtail. Keep the row non-terminal so Stop can still
+	// issue the compensating restore command if the miner did go to sleep.
+	newRetry := t.RetryCount + 1
+	errMsg := "curtail telemetry timeout"
+	params := interfaces.UpdateCurtailmentTargetStateParams{
+		State:      retryState,
+		LastError:  &errMsg,
+		RetryCount: &newRetry,
+	}
+	err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params)
+	if err == nil {
+		t.State = retryState
+		t.RetryCount = newRetry
+		t.LastError = &errMsg
+		return
+	}
+	if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+		return
+	}
+	slog.Error("curtailment reconciler: target update after curtail telemetry timeout failed",
+		"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+	if bumpErr := r.store.BumpTargetRetry(ctx, ev.ID, t.DeviceIdentifier); bumpErr != nil {
+		if !errors.Is(bumpErr, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			r.metrics.IncTargetWriteFailure()
+			slog.Error("curtailment reconciler: retry-budget bump fallback failed",
+				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", bumpErr)
+		}
+		return
+	}
+	t.RetryCount = newRetry
 }
 
 // checkDrift evaluates a confirmed target against telemetry. Uncurtailed

@@ -1681,6 +1681,47 @@ func TestReconciler_PendingFullFleetCurtailConfirmTimeoutRequeuesTarget(t *testi
 	assert.Equal(t, models.TargetStateDispatched, final.State)
 }
 
+func TestReconciler_FullFleetCurtailConfirmTimeoutExhaustionStaysRestorable(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	lastDispatchedAt := time.Date(2026, 5, 7, 11, 54, 0, 0, time.UTC)
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, Mode: models.ModeFullFleet},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "maybe-asleep",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+			LastDispatchedAt:   &lastDispatchedAt,
+			RetryCount:         3,
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "maybe-asleep", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	target := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, target.State)
+	assert.Equal(t, int32(4), target.RetryCount)
+	require.NotNil(t, target.LastError)
+	assert.Contains(t, *target.LastError, "curtail telemetry timeout")
+
+	_, err := store.BeginRestoreTransition(context.Background(), 1, eventUUID, interfaces.BeginRestoreTransitionParams{})
+	require.NoError(t, err)
+	target = store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.DesiredStateActive, target.DesiredState)
+	assert.Equal(t, models.TargetStatePending, target.State, "timeout-exhausted target remains in restore queue")
+}
+
 func TestReconciler_ActiveFullFleetCurtailConfirmTimeoutMarksDrifted(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
