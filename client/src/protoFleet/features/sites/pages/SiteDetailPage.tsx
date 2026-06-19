@@ -166,13 +166,7 @@ const SiteDetailPage = () => {
           <PlaceholderBlock label="Buildings grid — coming soon" className="h-40" />
         </div>
       </div>
-      <SiteModals
-        modals={modals}
-        sites={sites}
-        onAddBuilding={(siteId, siteName) => buildingModals.openDetailsCreate(siteId, siteName)}
-        onEditBuilding={(row, siteName) => buildingModals.openDetailsEdit(row, siteName)}
-        buildingsRefreshKey={buildingsRefreshKey}
-      />
+      <SiteModals modals={modals} sites={sites} buildingsRefreshKey={buildingsRefreshKey} />
       <BuildingModals modals={buildingModals} sites={sites} />
     </>
   );
