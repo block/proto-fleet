@@ -35,7 +35,11 @@ message RegisterRequest {
     string name                 = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
     bytes  identity_pubkey      = 3 [(buf.validate.field).bytes.len = 32];
     // Legacy key-auth field retained until phase 3; credentials-only nodes omit it.
-    bytes  miner_signing_pubkey = 4;
+    bytes  miner_signing_pubkey = 4 [(buf.validate.field).cel = {
+        id: "miner_signing_pubkey.empty_or_len",
+        message: "miner_signing_pubkey must be empty or 32 bytes",
+        expression: "size(this) == 0 || size(this) == 32"
+    }];
 }
 
 message RegisterResponse {
