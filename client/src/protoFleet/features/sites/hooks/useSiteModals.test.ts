@@ -170,8 +170,9 @@ describe("useSiteModals", () => {
       create(AssignBuildingsToSiteResponseSchema, { reassignedRackCount: 0n, reassignedDeviceCount: 0n }),
     );
     const refetchSites = vi.fn();
+    const refetchBuildings = vi.fn();
     const site = create(SiteSchema, { id: 3n, name: "North DC" });
-    const { result } = renderHook(() => useSiteModals({ refetchSites }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites, refetchBuildings }));
     act(() => result.current.openManageEdit(site));
 
     let saveResult: { closeOnSuccess: boolean } | null | undefined;
@@ -193,6 +194,8 @@ describe("useSiteModals", () => {
     );
     expect(saveResult?.closeOnSuccess).toBe(true);
     expect(refetchSites).toHaveBeenCalled();
+    // Membership changed building rows, so the building table refresh fires too.
+    expect(refetchBuildings).toHaveBeenCalled();
   });
 
   it("manageSave on manageEdit with an empty delta closes without an RPC", async () => {

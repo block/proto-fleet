@@ -785,6 +785,22 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   }, [customSetSelectedItems, onSelectionModeChange]);
 
   const handleSelectAll = (checked: boolean) => {
+    // Paginated lists pass only the current page as `items`, so the header
+    // checkbox can only see this page. When the parent manages selection
+    // across pages (preserveOffPageSelection), replacing the selection with
+    // just this page would silently drop off-page selections. Instead toggle
+    // only this page's keys into / out of the existing selection.
+    if (preserveOffPageSelection) {
+      const pageKeys = getSelectableItems(filteredItems).map((item) => item[itemKey] as ItemKeyValueType);
+      const next = checked
+        ? Array.from(new Set([...currentSelectedItems, ...pageKeys]))
+        : currentSelectedItems.filter((key) => !pageKeys.includes(key));
+      customSetSelectedItems ? customSetSelectedItems(next) : setSelectedItems(next);
+      const newMode = next.length === 0 ? "none" : "subset";
+      setSelectionMode(newMode);
+      onSelectionModeChange?.(newMode);
+      return;
+    }
     if (checked) {
       // Select only filtered items (respects both client-side and server-side filters)
       const selectableItems = getSelectableItems(filteredItems);

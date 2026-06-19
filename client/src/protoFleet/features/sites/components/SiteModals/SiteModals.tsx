@@ -44,6 +44,12 @@ const SiteModals = ({ modals, sites, buildingsRefreshKey }: SiteModalsProps) => 
           later in the DOM and naturally stacks on top at the same z-50. */}
       {showManage && manageDraft ? (
         <ManageSiteModal
+          // Key on the site id so switching directly between sites (or
+          // create → edit) remounts the modal with a fresh building working
+          // set + load-time snapshot, instead of briefly rendering the prior
+          // site's entries until the new fetch resolves. Mirrors how the host
+          // keys ManageBuildingModal on building.id.
+          key={manageSite ? manageSite.id.toString() : "create"}
           open
           mode={manageMode}
           draft={manageDraft}

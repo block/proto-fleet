@@ -283,7 +283,11 @@ const ManageSiteModal = ({
             text: saving ? "Saving…" : "Save",
             variant: variants.primary,
             onClick: handleSave,
-            disabled: saving,
+            // Block Save until the edit-mode building list has loaded.
+            // handleSave diffs the working set against initialIdsRef; firing
+            // it while entries are still undefined would diff against an empty
+            // (or stale) working set and unassign buildings on save.
+            disabled: buildingsBusy,
             testId: "manage-site-modal-save",
           },
         ]}

@@ -68,6 +68,26 @@ describe("ManageSiteModal", () => {
     await waitFor(() => expect(onDismiss).toHaveBeenCalled());
   });
 
+  it("disables Save in edit mode until the building list has loaded", () => {
+    // No seed → listBuildingsBySite never calls onSuccess, so the working
+    // set stays in the loading (undefined) state.
+    const site = create(SiteSchema, { id: 7n, name: "East DC" });
+    render(
+      <ManageSiteModal
+        open
+        mode="edit"
+        site={site}
+        draft={draft({ name: "East DC" })}
+        onSave={vi.fn()}
+        onEditDetails={noop}
+        onDeleteRequested={noop}
+        onDismiss={noop}
+      />,
+    );
+
+    expect(screen.getAllByTestId("manage-site-modal-save")[0]).toBeDisabled();
+  });
+
   it("Site settings fires the parent callback", () => {
     const onEditDetails = vi.fn();
     render(

@@ -25,6 +25,10 @@ export type SiteModalState =
 
 interface UseSiteModalsOptions {
   refetchSites: () => void;
+  // Bumps the page's building-refresh signal so any sibling building list
+  // (e.g. SiteSettingsSingleView's table) re-fetches after a membership
+  // change. Optional so hosts without a building table can omit it.
+  refetchBuildings?: () => void;
 }
 
 export interface SiteModalsApi {
@@ -64,7 +68,7 @@ export interface SiteModalsApi {
   deleteConfirm: () => Promise<void>;
 }
 
-const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi => {
+const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions): SiteModalsApi => {
   const [state, setState] = useState<SiteModalState>({ kind: "none" });
   const [deleteTarget, setDeleteTarget] = useState<SiteWithCounts | null>(null);
   const [saving, setSaving] = useState(false);
@@ -282,10 +286,18 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
           } catch (err) {
             const detail = err instanceof Error ? err.message : "Failed to save buildings";
             pushToast({ message: `Failed to save site: ${detail}`, status: STATUSES.error });
+            // The two AssignBuildingsToSite calls aren't atomic across each
+            // other: the `removed` batch may have already cascaded buildings
+            // out of the site before the `added` batch failed. Refresh so the
+            // counts + building table reflect what actually committed rather
+            // than the now-stale pre-save view.
+            refetchSites();
+            refetchBuildings?.();
             return null;
           }
           pushToast({ message: `Site "${name}" saved`, status: STATUSES.success });
           refetchSites();
+          refetchBuildings?.();
           return { closeOnSuccess: true };
         } finally {
           savingRef.current = false;
@@ -295,7 +307,7 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
 
       return null;
     },
-    [state, createSite, assignBuildingsToSite, refetchSites],
+    [state, createSite, assignBuildingsToSite, refetchSites, refetchBuildings],
   );
 
   const deleteConfirm = useCallback(async () => {

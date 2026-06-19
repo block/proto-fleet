@@ -953,6 +953,68 @@ describe("List", () => {
     expect(customSetSelectedItems).not.toHaveBeenCalled();
   });
 
+  it("merges the current page into selection on header select-all when preserveOffPageSelection is true", () => {
+    const customSetSelectedItems = vi.fn();
+    const pageOneItems = [testItems[0], testItems[1]];
+    // item3 is selected but lives on another page (not in items).
+    const selectedAcrossPages = [testItems[2].id];
+
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={pageOneItems}
+        itemKey="id"
+        itemSelectable
+        customSelectedItems={selectedAcrossPages}
+        customSetSelectedItems={customSetSelectedItems}
+        preserveOffPageSelection
+      />,
+    );
+
+    const selectAllCheckbox = screen
+      .getByTestId("list-header")
+      .querySelector("input[type='checkbox']") as HTMLInputElement;
+    fireEvent.click(selectAllCheckbox);
+
+    // Page keys are added without dropping the off-page selection (item3).
+    expect(customSetSelectedItems).toHaveBeenCalledWith(
+      expect.arrayContaining([testItems[2].id, testItems[0].id, testItems[1].id]),
+    );
+    expect(customSetSelectedItems.mock.calls[0][0]).toHaveLength(3);
+  });
+
+  it("removes only the current page from selection on header deselect when preserveOffPageSelection is true", () => {
+    const customSetSelectedItems = vi.fn();
+    const pageOneItems = [testItems[0], testItems[1]];
+    // All of page one plus an off-page selection.
+    const selectedAcrossPages = [testItems[0].id, testItems[1].id, testItems[2].id];
+
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={pageOneItems}
+        itemKey="id"
+        itemSelectable
+        customSelectedItems={selectedAcrossPages}
+        customSetSelectedItems={customSetSelectedItems}
+        preserveOffPageSelection
+      />,
+    );
+
+    const selectAllCheckbox = screen
+      .getByTestId("list-header")
+      .querySelector("input[type='checkbox']") as HTMLInputElement;
+    // Page-one items are all selected, so the header checkbox is checked;
+    // clicking it clears just this page and keeps the off-page item3.
+    fireEvent.click(selectAllCheckbox);
+
+    expect(customSetSelectedItems).toHaveBeenCalledWith([testItems[2].id]);
+  });
+
   it("does not show the header checkbox as partially checked for off-page selections", () => {
     render(
       <List<TestItem, TestItemKey>
