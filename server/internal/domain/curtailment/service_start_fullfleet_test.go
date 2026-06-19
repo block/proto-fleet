@@ -11,8 +11,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// FULL_FLEET curtails every eligible miner regardless of target_kw and persists
-// the event with mode=FULL_FLEET in the normal PENDING lifecycle.
+// FULL_FLEET selects every eligible miner regardless of target_kw and persists
+// a closed-loop event; the reconciler claims per-miner rows at dispatch time.
 func TestService_Start_FullFleet_CurtailsAllEligible(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
@@ -32,8 +32,9 @@ func TestService_Start_FullFleet_CurtailsAllEligible(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, plan.Selected, 2, "full_fleet curtails every eligible miner")
 	assert.Equal(t, models.ModeFullFleet, store.lastInsertEvent.Mode)
-	assert.Equal(t, models.EventStatePending, store.lastInsertEvent.State)
-	assert.Len(t, store.lastInsertTargets, 2)
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
+	assert.Empty(t, store.lastInsertTargets)
 }
 
 func TestService_Start_FullFleet_CurtailsLowPowerAndZeroHashrateMiners(t *testing.T) {
@@ -58,12 +59,8 @@ func TestService_Start_FullFleet_CurtailsLowPowerAndZeroHashrateMiners(t *testin
 		"full_fleet still ranks by efficiency when selecting all eligible miners")
 	assert.Equal(t, "low-power-hashing", plan.Selected[1].DeviceIdentifier)
 	assert.Empty(t, plan.Skipped)
-	require.Len(t, store.lastInsertTargets, 2)
-	require.NotNil(t, store.lastInsertTargets[0].BaselinePowerW,
-		"above-floor full_fleet targets keep a power baseline")
-	assert.InDelta(t, 2000, *store.lastInsertTargets[0].BaselinePowerW, 0.001)
-	assert.Nil(t, store.lastInsertTargets[1].BaselinePowerW,
-		"below-floor full_fleet targets confirm via hash-rate fallback")
+	assert.Empty(t, store.lastInsertTargets,
+		"closed-loop full_fleet claims per-miner rows at dispatch time")
 }
 
 func TestService_Preview_FullFleet_SkipsMissingTelemetrySamples(t *testing.T) {
@@ -104,9 +101,9 @@ func TestService_Preview_FullFleet_SkipsMissingTelemetrySamples(t *testing.T) {
 	}
 }
 
-// The empty-eligible case is the chosen behavior: persist a vacuously COMPLETED
-// event with no targets, not an insufficient-load rejection.
-func TestService_Start_FullFleet_NoEligibleMinersPersistsCompleted(t *testing.T) {
+// The empty-eligible case persists an active closed-loop watcher so newly
+// eligible miners can be admitted while the signal remains asserted.
+func TestService_Start_FullFleet_NoEligibleMinersPersistsActiveWatcher(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
@@ -122,13 +119,14 @@ func TestService_Start_FullFleet_NoEligibleMinersPersistsCompleted(t *testing.T)
 	require.NoError(t, err, "empty full_fleet is valid, not an insufficient-load rejection")
 	assert.Empty(t, plan.Selected)
 	assert.Equal(t, models.ModeFullFleet, store.lastInsertEvent.Mode)
-	assert.Equal(t, models.EventStateCompleted, store.lastInsertEvent.State,
-		"nothing eligible == vacuously complete on arrival")
-	assert.NotNil(t, store.lastInsertEvent.EndedAt, "a completed-empty event records its completion time")
-	assert.Empty(t, store.lastInsertTargets, "a completed-empty event has no targets")
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State,
+		"nothing currently eligible still needs an active enforcement window")
+	assert.NotNil(t, store.lastInsertEvent.StartedAt, "active watcher records when enforcement began")
+	assert.Empty(t, store.lastInsertTargets, "an empty watcher starts with no targets")
 }
 
-func TestService_Preview_FullFleet_AllSkippedReturnsInsufficientDetail(t *testing.T) {
+func TestService_Preview_FullFleet_AllSkippedReturnsTargetReachedWithSkips(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
@@ -146,19 +144,14 @@ func TestService_Preview_FullFleet_AllSkippedReturnsInsufficientDetail(t *testin
 
 	plan, err := svc.Preview(t.Context(), req)
 	require.NoError(t, err)
-	require.NotNil(t, plan.InsufficientLoadDetail)
-	assert.Equal(t, modes.OutcomeInsufficientLoad, plan.Outcome)
+	require.Nil(t, plan.InsufficientLoadDetail)
+	assert.Equal(t, modes.OutcomeTargetReached, plan.Outcome)
 	assert.Empty(t, plan.Selected)
 	assert.Len(t, plan.Skipped, 3)
-	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedOffline)
-	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedUpdating)
-	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedStale)
-	assert.Zero(t, plan.InsufficientLoadDetail.ExcludedBelowThreshold)
-	assert.Equal(t, int32(1500), plan.InsufficientLoadDetail.CandidateMinPowerW)
 	assert.Zero(t, store.insertEventCalls, "Preview must not persist")
 }
 
-func TestService_Start_FullFleet_AllSkippedDoesNotPersist(t *testing.T) {
+func TestService_Start_FullFleet_AllSkippedPersistsActiveWatcher(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
@@ -174,11 +167,37 @@ func TestService_Start_FullFleet_AllSkippedDoesNotPersist(t *testing.T) {
 	req.TargetKW = 0
 
 	plan, err := svc.Start(t.Context(), req)
-	require.NoError(t, err, "all-skipped full_fleet surfaces via Plan, not as a service error")
-	require.NotNil(t, plan.InsufficientLoadDetail)
-	assert.Equal(t, modes.OutcomeInsufficientLoad, plan.Outcome)
-	assert.Nil(t, plan.EventUUID, "no event must be persisted when no miner was actionable")
-	assert.Zero(t, store.insertEventCalls, "all-skipped full_fleet must not persist a completed event")
+	require.NoError(t, err)
+	require.Nil(t, plan.InsufficientLoadDetail)
+	assert.Equal(t, modes.OutcomeTargetReached, plan.Outcome)
+	assert.NotNil(t, plan.EventUUID, "closed-loop full_fleet persists a watcher even when no miner is actionable yet")
+	assert.Equal(t, 1, store.insertEventCalls)
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
+	assert.Empty(t, store.lastInsertTargets)
+}
+
+func TestService_Start_FullFleet_DeviceListNoTargetsPersistsCompleted(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		miner("offline-device", "OFFLINE", "PAIRED", 0, 0),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeDeviceList, DeviceIdentifiers: []string{"offline-device"}}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	assert.Empty(t, plan.Selected)
+	assert.Equal(t, models.LoopTypeOpen, store.lastInsertEvent.LoopType)
+	assert.Equal(t, models.EventStateCompleted, store.lastInsertEvent.State)
+	assert.NotNil(t, store.lastInsertEvent.EndedAt)
+	assert.Empty(t, store.lastInsertTargets)
 }
 
 func TestService_Start_FullFleet_MixedSelectedAndSkippedPersists(t *testing.T) {
@@ -203,8 +222,9 @@ func TestService_Start_FullFleet_MixedSelectedAndSkippedPersists(t *testing.T) {
 	assert.Equal(t, "eligible", plan.Selected[0].DeviceIdentifier)
 	assert.Len(t, plan.Skipped, 1)
 	assert.Equal(t, 1, store.insertEventCalls)
-	assert.Equal(t, models.EventStatePending, store.lastInsertEvent.State)
-	assert.Len(t, store.lastInsertTargets, 1)
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
+	assert.Empty(t, store.lastInsertTargets)
 }
 
 // FIXED_KW still requires a positive target_kw; FULL_FLEET does not.

@@ -33,6 +33,8 @@ type fakeStore struct {
 	events           []*models.Event
 	targetsByEventID map[int64][]*models.Target
 	candidates       []*models.Candidate
+	orgConfig        *models.OrgConfig
+	activeDevices    []string
 
 	listEventsErr      error
 	listEventsCalls    int
@@ -52,10 +54,13 @@ type fakeStore struct {
 	bumpTargetRetryErr   error
 
 	listTargetsByEventCalls int
+	claimTargetsCalls       int
+	claimedTargetParams     []models.InsertTargetParams
 
-	heartbeatCalls        int
-	lastHeartbeatActive   int32
-	lastHeartbeatTickUUID uuid.UUID
+	heartbeatCalls           int
+	lastHeartbeatActive      int32
+	lastHeartbeatTickUUID    uuid.UUID
+	lastListCandidatesSiteID *int64
 
 	// BeginRestoreTransition captures, exercised by max_duration tests.
 	beginRestoreCalls       int
@@ -77,14 +82,23 @@ func newFakeStore() *fakeStore {
 	}
 }
 
-func (f *fakeStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
-	panic("GetOrgConfig not exercised")
+func (f *fakeStore) GetOrgConfig(_ context.Context, orgID int64) (*models.OrgConfig, error) {
+	if f.orgConfig != nil {
+		return f.orgConfig, nil
+	}
+	return &models.OrgConfig{
+		OrgID:              orgID,
+		CandidateMinPowerW: 1500,
+	}, nil
 }
 func (f *fakeStore) UpdateOrgConfigPostEventCooldown(context.Context, int64, int32) (*models.OrgConfig, error) {
 	panic("UpdateOrgConfigPostEventCooldown not exercised")
 }
 func (f *fakeStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
-	panic("ListActiveCurtailedDevices not exercised")
+	return append([]string(nil), f.activeDevices...), nil
+}
+func (f *fakeStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
+	return append([]string(nil), f.activeDevices...), nil
 }
 func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised")
@@ -108,6 +122,32 @@ func (f *fakeStore) ListActiveEvents(context.Context, int64) ([]*models.Event, e
 }
 func (f *fakeStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised")
+}
+func (f *fakeStore) ClaimClosedLoopFullFleetTargets(_ context.Context, eventID int64, targets []models.InsertTargetParams) ([]*models.Target, error) {
+	f.claimTargetsCalls++
+	f.claimedTargetParams = append([]models.InsertTargetParams(nil), targets...)
+	existing := map[string]struct{}{}
+	for _, t := range f.targetsByEventID[eventID] {
+		existing[t.DeviceIdentifier] = struct{}{}
+	}
+	var claimed []*models.Target
+	for _, target := range targets {
+		if _, ok := existing[target.DeviceIdentifier]; ok {
+			continue
+		}
+		row := &models.Target{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   target.DeviceIdentifier,
+			TargetType:         target.TargetType,
+			State:              models.TargetStateDispatching,
+			DesiredState:       target.DesiredState,
+			BaselinePowerW:     target.BaselinePowerW,
+		}
+		f.targetsByEventID[eventID] = append(f.targetsByEventID[eventID], row)
+		claimed = append(claimed, row)
+		existing[target.DeviceIdentifier] = struct{}{}
+	}
+	return claimed, nil
 }
 func (f *fakeStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
 	panic("GetHeartbeat not exercised")
@@ -144,6 +184,10 @@ func (f *fakeStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*
 }
 
 func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
+	if params.SiteID != nil {
+		siteID := *params.SiteID
+		f.lastListCandidatesSiteID = &siteID
+	}
 	if len(params.DeviceIdentifiers) == 0 {
 		return f.candidates, nil
 	}
@@ -527,6 +571,7 @@ func newReconcilerForTest(store *fakeStore, disp *fakeDispatcher) *Reconciler {
 		TickInterval:         time.Hour, // tests drive runTick directly
 		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
+		CurtailMaxRetries:    3,
 		DriftThresholdFactor: 0.5,
 	}, store, disp)
 	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
@@ -633,6 +678,211 @@ func TestReconciler_PendingDispatchesLargeEventInBoundedBatches(t *testing.T) {
 	for _, target := range store.targetsByEventID[eventID] {
 		assert.Equal(t, models.TargetStateDispatched, target.State)
 	}
+}
+
+func TestReconciler_PendingClosedLoopFullFleetWithoutTargetsMarksActive(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{
+			ID:        eventID,
+			EventUUID: eventUUID,
+			OrgID:     1,
+			State:     models.EventStatePending,
+			Mode:      models.ModeFullFleet,
+			LoopType:  models.LoopTypeClosed,
+			ScopeType: models.ScopeTypeWholeOrg,
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.curtailCalls)
+	assert.Equal(t, models.EventStateActive, store.updateEventLast[eventID],
+		"empty closed-loop full_fleet pending event should become an active watcher")
+}
+
+func TestReconciler_ActiveClosedLoopFullFleetAdmitsAndDispatchesNewTarget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{
+			ID:              eventID,
+			EventUUID:       eventUUID,
+			OrgID:           1,
+			State:           models.EventStateActive,
+			Mode:            models.ModeFullFleet,
+			LoopType:        models.LoopTypeClosed,
+			ScopeType:       models.ScopeTypeWholeOrg,
+			CreatedByUserID: 99,
+		},
+	}
+	driver := "antminer"
+	now := time.Now()
+	store.candidates = []*models.Candidate{
+		{
+			DeviceIdentifier: "miner-new",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestPowerW:     ptrFloat64(100),
+			LatestHashRateHS: ptrFloat64(100),
+			AvgEfficiencyJH:  ptrFloat64(40),
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.claimTargetsCalls)
+	require.Len(t, store.targetsByEventID[eventID], 1)
+	target := store.targetsByEventID[eventID][0]
+	assert.Equal(t, "miner-new", target.DeviceIdentifier)
+	assert.Nil(t, target.BaselinePowerW, "below-floor full_fleet target should use hash confirmation fallback")
+	assert.Equal(t, 1, disp.curtailCalls)
+	assert.ElementsMatch(t, []string{"miner-new"}, disp.curtailLastIDs)
+	assert.Equal(t, models.TargetStateDispatched, target.State)
+}
+
+func TestReconciler_ActiveClosedLoopFullFleetClaimsOnlyOneCurtailBatch(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(2)
+	store.events = []*models.Event{
+		{
+			ID:               eventID,
+			EventUUID:        eventUUID,
+			OrgID:            1,
+			State:            models.EventStateActive,
+			Mode:             models.ModeFullFleet,
+			LoopType:         models.LoopTypeClosed,
+			ScopeType:        models.ScopeTypeWholeOrg,
+			CurtailBatchSize: &batchSize,
+			CreatedByUserID:  99,
+		},
+	}
+	driver := "antminer"
+	now := time.Now()
+	for _, id := range []string{"miner-a", "miner-b", "miner-c"} {
+		store.candidates = append(store.candidates, &models.Candidate{
+			DeviceIdentifier: id,
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestPowerW:     ptrFloat64(3000),
+			LatestHashRateHS: ptrFloat64(100),
+			AvgEfficiencyJH:  ptrFloat64(40),
+		})
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.claimTargetsCalls)
+	require.Len(t, store.claimedTargetParams, 2,
+		"dynamic claims must respect curtail_batch_size before inserting DISPATCHING rows")
+	assert.Equal(t, 1, disp.curtailCalls)
+	assert.Len(t, disp.curtailLastIDs, 2)
+	assert.Len(t, store.targetsByEventID[eventID], 2)
+}
+
+func TestReconciler_ActiveClosedLoopFullFleetSkipsConflictsBeforeBatchLimit(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(2)
+	store.events = []*models.Event{
+		{
+			ID:               eventID,
+			EventUUID:        eventUUID,
+			OrgID:            1,
+			State:            models.EventStateActive,
+			Mode:             models.ModeFullFleet,
+			LoopType:         models.LoopTypeClosed,
+			ScopeType:        models.ScopeTypeWholeOrg,
+			CurtailBatchSize: &batchSize,
+			CreatedByUserID:  99,
+		},
+	}
+	driver := "antminer"
+	now := time.Now()
+	for _, id := range []string{"conflict-a", "conflict-b", "miner-c", "miner-d"} {
+		store.candidates = append(store.candidates, &models.Candidate{
+			DeviceIdentifier: id,
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestPowerW:     ptrFloat64(3000),
+			LatestHashRateHS: ptrFloat64(100),
+			AvgEfficiencyJH:  ptrFloat64(40),
+		})
+	}
+	store.activeDevices = []string{"conflict-a", "conflict-b"}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	require.Len(t, store.claimedTargetParams, 2)
+	assert.Equal(t, "miner-c", store.claimedTargetParams[0].DeviceIdentifier)
+	assert.Equal(t, "miner-d", store.claimedTargetParams[1].DeviceIdentifier)
+	assert.ElementsMatch(t, []string{"miner-c", "miner-d"}, disp.curtailLastIDs)
+}
+
+func TestReconciler_ActiveClosedLoopFullFleetUsesPersistedSiteScope(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	siteID := int64(77)
+	store.events = []*models.Event{
+		{
+			ID:              eventID,
+			EventUUID:       eventUUID,
+			OrgID:           1,
+			State:           models.EventStateActive,
+			Mode:            models.ModeFullFleet,
+			LoopType:        models.LoopTypeClosed,
+			ScopeType:       models.ScopeTypeSite,
+			ScopeJSON:       []byte(`{"site_id":77}`),
+			CreatedByUserID: 99,
+		},
+	}
+	driver := "antminer"
+	now := time.Now()
+	store.candidates = []*models.Candidate{
+		{
+			DeviceIdentifier: "site-miner",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestPowerW:     ptrFloat64(3000),
+			LatestHashRateHS: ptrFloat64(100),
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	require.NotNil(t, store.lastListCandidatesSiteID)
+	assert.Equal(t, siteID, *store.lastListCandidatesSiteID)
+	assert.ElementsMatch(t, []string{"site-miner"}, disp.curtailLastIDs)
 }
 
 func TestReconciler_DispatchingFailureDoesNotRetryAgainAsPendingInSameTick(t *testing.T) {
@@ -1608,6 +1858,40 @@ func TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget(t *testing.
 	assert.Contains(t, *final.LastError, "candidate row missing")
 }
 
+func TestReconciler_CurtailConfirmationTimeoutConsumesRetryBudget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	dispatchedAt := time.Date(2026, 5, 7, 11, 59, 40, 0, time.UTC)
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "slow-confirm",
+			State:              models.TargetStateDispatched,
+			LastDispatchedAt:   &dispatchedAt,
+			BaselinePowerW:     ptrFloat64(3000),
+			RetryCount:         0,
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "slow-confirm", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatched, final.State)
+	assert.Equal(t, int32(1), final.RetryCount)
+	assert.Nil(t, final.LastError, "successful redispatch clears the transient timeout error")
+	assert.Equal(t, 1, disp.curtailCalls, "timed-out curtail target should be retried")
+}
+
 // Mirror of MissingCandidateDuringConfirm for the drift path: a
 // vanished candidate burns retry budget toward RestoreFailed.
 func TestReconciler_MissingCandidateDuringDriftConsumesRetryBudget(t *testing.T) {
@@ -2099,6 +2383,41 @@ func TestReconciler_StartIdempotency(t *testing.T) {
 	require.NoError(t, r.Stop())
 	// Second Stop is a no-op too; verify no panic / goroutine deadlock.
 	require.NoError(t, r.Stop())
+}
+
+func TestReconciler_StartRejectsSubSecondTickInterval(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	r := New(Config{TickInterval: 500 * time.Millisecond, ShutdownDeadline: time.Second}, store, disp)
+
+	err := r.Start(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tick_interval must be at least 1s")
+}
+
+func TestReconciler_StartRejectsInvalidCurtailDispatchTimeout(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	r := New(Config{
+		TickInterval:              time.Hour,
+		ShutdownDeadline:          time.Second,
+		CurtailDispatchTimeoutSec: -1,
+	}, store, disp)
+
+	err := r.Start(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "curtail_dispatch_timeout_sec must be at least 1")
+}
+
+func TestReconciler_ConfigDefaultsDispatchTimeouts(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	r := New(Config{TickInterval: time.Hour, ShutdownDeadline: time.Second}, store, disp)
+
+	assert.Equal(t, int32(10), r.cfg.MaxRetries)
+	assert.Equal(t, int32(50), r.cfg.CurtailMaxRetries)
+	assert.Equal(t, 5, r.cfg.CurtailDispatchTimeoutSec)
+	assert.Equal(t, 30, r.cfg.RestoreDispatchTimeoutSec)
 }
 
 // --- isCurtailed unit tests ---

@@ -154,6 +154,7 @@ type CurtailmentStore interface {
 
 	// Selector exclusion sets — org-scoped device IDs subtracted from candidates.
 	ListActiveCurtailedDevices(ctx context.Context, orgID int64) ([]string, error)
+	ListActiveCurtailmentTargetDevices(ctx context.Context, orgID int64) ([]string, error)
 	ListRecentlyResolvedCurtailedDevices(ctx context.Context, orgID int64, cooldownSec int32) ([]string, error)
 	SiteBelongsToOrg(ctx context.Context, orgID, siteID int64) (bool, error)
 
@@ -203,6 +204,12 @@ type CurtailmentStore interface {
 		event models.InsertEventParams,
 		targets []models.InsertTargetParams,
 	) (*models.InsertEventResult, error)
+
+	// ClaimClosedLoopFullFleetTargets inserts missing closed-loop FULL_FLEET
+	// targets as DISPATCHING while the parent event is still pending/active.
+	// Existing same-event rows and cross-event conflicts are skipped so
+	// reconciliation can retry later.
+	ClaimClosedLoopFullFleetTargets(ctx context.Context, eventID int64, targets []models.InsertTargetParams) ([]*models.Target, error)
 
 	// Heartbeat singleton row used by liveness alerts.
 	GetHeartbeat(ctx context.Context) (*models.Heartbeat, error)

@@ -482,7 +482,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	curtailmentRec := curtailmentReconciler.New(curtailmentReconciler.Config{}, curtailmentStore, commandSvc, curtailmentReconciler.WithMetrics(curtailmentMetrics))
+	curtailmentRec := curtailmentReconciler.New(config.Curtailment, curtailmentStore, commandSvc, curtailmentReconciler.WithMetrics(curtailmentMetrics))
 	if err := curtailmentRec.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
 	}

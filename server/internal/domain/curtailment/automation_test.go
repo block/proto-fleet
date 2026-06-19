@@ -322,9 +322,10 @@ func TestAutomationService_HandleMQTTSignal_OffBypassesPostRestoreCooldown(t *te
 	assert.Equal(t, 0, h.curtailments.cooldownCalls)
 	assert.Equal(t, 1, h.curtailments.insertEventCalls)
 	assert.Equal(t, models.PriorityNormal, h.curtailments.lastInsertEvent.Priority)
-	require.Len(t, h.curtailments.lastInsertTargets, 2)
-	assert.Equal(t, "miner-a", h.curtailments.lastInsertTargets[0].DeviceIdentifier)
-	assert.Equal(t, "miner-b", h.curtailments.lastInsertTargets[1].DeviceIdentifier)
+	assert.Equal(t, models.ModeFullFleet, h.curtailments.lastInsertEvent.Mode)
+	assert.Equal(t, models.LoopTypeClosed, h.curtailments.lastInsertEvent.LoopType)
+	assert.Empty(t, h.curtailments.lastInsertTargets,
+		"closed-loop full_fleet claims per-miner targets at dispatch time")
 }
 
 func TestAutomationService_HandleMQTTSignal_RepeatedOffNoopsWhenEventIsActive(t *testing.T) {

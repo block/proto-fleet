@@ -161,6 +161,10 @@ func (f *fakeStore) ListActiveCurtailedDevices(_ context.Context, orgID int64) (
 	return append([]string(nil), f.activeDevicesByOrg[orgID]...), nil
 }
 
+func (f *fakeStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
+	panic("ListActiveCurtailmentTargetDevices not exercised")
+}
+
 func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(_ context.Context, orgID int64, cooldownSec int32) ([]string, error) {
 	f.cooldownCalls++
 	f.lastCooldownOrgID = orgID
@@ -481,8 +485,10 @@ func (f *fakeStore) InsertEventWithTargets(
 	event models.InsertEventParams,
 	targets []models.InsertTargetParams,
 ) (*models.InsertEventResult, error) {
-	// Mirror the SQL store: only a terminal event may have zero targets.
-	if len(targets) == 0 && !event.State.IsTerminal() {
+	// Mirror the SQL store: only terminal or closed-loop full-fleet events may
+	// have zero targets.
+	if len(targets) == 0 && !event.State.IsTerminal() &&
+		!(event.Mode == models.ModeFullFleet && event.LoopType == models.LoopTypeClosed) {
 		return nil, fleeterror.NewInvalidArgumentError(
 			"InsertEventWithTargets requires a non-empty targets slice for a non-terminal event",
 		)
@@ -499,6 +505,10 @@ func (f *fakeStore) InsertEventWithTargets(
 		ID:        id,
 		EventUUID: event.EventUUID,
 	}, nil
+}
+
+func (f *fakeStore) ClaimClosedLoopFullFleetTargets(context.Context, int64, []models.InsertTargetParams) ([]*models.Target, error) {
+	panic("ClaimClosedLoopFullFleetTargets not exercised")
 }
 
 // --- helpers ---

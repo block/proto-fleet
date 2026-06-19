@@ -232,6 +232,165 @@ func (q *Queries) BumpCurtailmentTargetRetry(ctx context.Context, arg BumpCurtai
 	return result.RowsAffected()
 }
 
+const claimClosedLoopFullFleetTargets = `-- name: ClaimClosedLoopFullFleetTargets :many
+WITH locked_event AS MATERIALIZED (
+    SELECT id
+    FROM curtailment_event
+    WHERE id = $2
+      AND state IN ('pending', 'active')
+      AND mode = 'FULL_FLEET'
+      AND loop_type = 'closed'
+    FOR UPDATE
+)
+INSERT INTO curtailment_target (
+    curtailment_event_id,
+    device_identifier,
+    target_type,
+    state,
+    desired_state,
+    baseline_power_w,
+    selector_rationale_jsonb
+)
+SELECT
+    locked_event.id,
+    t.device_identifier,
+    t.target_type,
+    'dispatching',
+    t.desired_state,
+    t.baseline_power_w,
+    t.selector_rationale_jsonb
+FROM locked_event
+JOIN jsonb_to_recordset($1::JSONB) AS t(
+    device_identifier         TEXT,
+    target_type               TEXT,
+    state                     TEXT,
+    desired_state             TEXT,
+    baseline_power_w          NUMERIC(12,3),
+    selector_rationale_jsonb  JSONB
+) ON TRUE
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM curtailment_target existing
+    WHERE existing.curtailment_event_id = locked_event.id
+      AND existing.device_identifier = t.device_identifier
+)
+ON CONFLICT DO NOTHING
+RETURNING curtailment_target.curtailment_event_id, curtailment_target.device_identifier, curtailment_target.target_type, curtailment_target.state, curtailment_target.desired_state, curtailment_target.baseline_power_w, curtailment_target.added_at, curtailment_target.released_at, curtailment_target.last_dispatched_at, curtailment_target.last_batch_uuid, curtailment_target.observed_power_w, curtailment_target.observed_at, curtailment_target.confirmed_at, curtailment_target.retry_count, curtailment_target.last_error, curtailment_target.selector_rationale_jsonb, curtailment_target.curtail_state, curtailment_target.curtail_dispatched_at, curtailment_target.curtail_batch_uuid, curtailment_target.curtail_completed_at, curtailment_target.curtail_retry_count, curtailment_target.curtail_failure_count, curtailment_target.curtail_last_error, curtailment_target.restore_state, curtailment_target.restore_started_at, curtailment_target.restore_dispatched_at, curtailment_target.restore_batch_uuid, curtailment_target.restore_completed_at, curtailment_target.restore_retry_count, curtailment_target.restore_failure_count, curtailment_target.restore_last_error
+`
+
+type ClaimClosedLoopFullFleetTargetsParams struct {
+	TargetsJsonb       json.RawMessage
+	CurtailmentEventID int64
+}
+
+// Closed-loop FULL_FLEET dispatch claim. Locks the parent event so
+// Stop/AdminTerminate and dynamic target claims serialize on lifecycle state.
+// Same-event duplicates and cross-event target conflicts are no-ops; the
+// reconciler retries on a later tick if a conflicting event resolves.
+func (q *Queries) ClaimClosedLoopFullFleetTargets(ctx context.Context, arg ClaimClosedLoopFullFleetTargetsParams) ([]CurtailmentTarget, error) {
+	rows, err := q.query(ctx, q.claimClosedLoopFullFleetTargetsStmt, claimClosedLoopFullFleetTargets, arg.TargetsJsonb, arg.CurtailmentEventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CurtailmentTarget
+	for rows.Next() {
+		var i CurtailmentTarget
+		if err := rows.Scan(
+			&i.CurtailmentEventID,
+			&i.DeviceIdentifier,
+			&i.TargetType,
+			&i.State,
+			&i.DesiredState,
+			&i.BaselinePowerW,
+			&i.AddedAt,
+			&i.ReleasedAt,
+			&i.LastDispatchedAt,
+			&i.LastBatchUuid,
+			&i.ObservedPowerW,
+			&i.ObservedAt,
+			&i.ConfirmedAt,
+			&i.RetryCount,
+			&i.LastError,
+			&i.SelectorRationaleJsonb,
+			&i.CurtailState,
+			&i.CurtailDispatchedAt,
+			&i.CurtailBatchUuid,
+			&i.CurtailCompletedAt,
+			&i.CurtailRetryCount,
+			&i.CurtailFailureCount,
+			&i.CurtailLastError,
+			&i.RestoreState,
+			&i.RestoreStartedAt,
+			&i.RestoreDispatchedAt,
+			&i.RestoreBatchUuid,
+			&i.RestoreCompletedAt,
+			&i.RestoreRetryCount,
+			&i.RestoreFailureCount,
+			&i.RestoreLastError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const countCurtailmentScopeConflicts = `-- name: CountCurtailmentScopeConflicts :one
+SELECT count(*)::BIGINT
+FROM curtailment_event
+WHERE org_id = $1
+  AND state IN ('pending', 'active', 'restoring')
+  AND $2::TEXT = 'FULL_FLEET'
+  AND $3::TEXT = 'closed'
+  AND (
+    (
+      $4::TEXT = 'whole_org'
+      AND scope_type IN ('whole_org', 'site')
+    )
+    OR (
+      $4::TEXT = 'site'
+      AND (
+        scope_type = 'whole_org'
+        OR (
+          scope_type = 'site'
+          AND scope_jsonb->>'site_id' = $5::TEXT
+        )
+      )
+    )
+  )
+`
+
+type CountCurtailmentScopeConflictsParams struct {
+	OrgID     int64
+	Mode      string
+	LoopType  string
+	ScopeType string
+	SiteID    string
+}
+
+// Hierarchy for currently supported scopes: org > site.
+// A new whole-org event conflicts with existing whole-org or site events.
+// A new site event conflicts with existing whole-org or same-site events.
+func (q *Queries) CountCurtailmentScopeConflicts(ctx context.Context, arg CountCurtailmentScopeConflictsParams) (int64, error) {
+	row := q.queryRow(ctx, q.countCurtailmentScopeConflictsStmt, countCurtailmentScopeConflicts,
+		arg.OrgID,
+		arg.Mode,
+		arg.LoopType,
+		arg.ScopeType,
+		arg.SiteID,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const curtailmentEventHasInFlightTargets = `-- name: CurtailmentEventHasInFlightTargets :one
 SELECT EXISTS (
     SELECT 1
@@ -756,6 +915,7 @@ INSERT INTO curtailment_event (
     idempotency_key,
     reason,
     scheduled_start_at,
+    started_at,
     ended_at,
     created_by_user_id,
     effective_batch_size
@@ -790,7 +950,8 @@ INSERT INTO curtailment_event (
     $28,
     $29,
     $30,
-    $31
+    $31,
+    $32
 )
 RETURNING id, event_uuid, created_at, updated_at
 `
@@ -824,6 +985,7 @@ type InsertCurtailmentEventParams struct {
 	IdempotencyKey          sql.NullString
 	Reason                  string
 	ScheduledStartAt        sql.NullTime
+	StartedAt               sql.NullTime
 	EndedAt                 sql.NullTime
 	CreatedByUserID         int64
 	EffectiveBatchSize      sql.NullInt32
@@ -868,6 +1030,7 @@ func (q *Queries) InsertCurtailmentEvent(ctx context.Context, arg InsertCurtailm
 		arg.IdempotencyKey,
 		arg.Reason,
 		arg.ScheduledStartAt,
+		arg.StartedAt,
 		arg.EndedAt,
 		arg.CreatedByUserID,
 		arg.EffectiveBatchSize,
@@ -889,6 +1052,22 @@ JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
 WHERE ce.org_id = $1
     AND ce.state IN ('pending', 'active', 'restoring')
     AND ct.state NOT IN ('resolved', 'restore_failed', 'released')
+UNION
+SELECT d.device_identifier
+FROM curtailment_event ce
+JOIN device d ON d.org_id = ce.org_id
+    AND d.deleted_at IS NULL
+    AND (
+        ce.scope_type = 'whole_org'
+        OR (
+            ce.scope_type = 'site'
+            AND d.site_id = (ce.scope_jsonb->>'site_id')::BIGINT
+        )
+    )
+WHERE ce.org_id = $1
+    AND ce.state IN ('pending', 'active', 'restoring')
+    AND ce.mode = 'FULL_FLEET'
+    AND ce.loop_type = 'closed'
 `
 
 // Devices locked in a non-terminal event; excluded from candidates to
@@ -1031,6 +1210,41 @@ func (q *Queries) ListActiveCurtailmentEvents(ctx context.Context, orgID int64) 
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActiveCurtailmentTargetDevicesByOrg = `-- name: ListActiveCurtailmentTargetDevicesByOrg :many
+SELECT DISTINCT ct.device_identifier
+FROM curtailment_target ct
+JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
+WHERE ce.org_id = $1
+    AND ce.state IN ('pending', 'active', 'restoring')
+    AND ct.state NOT IN ('resolved', 'restore_failed', 'released')
+`
+
+// Devices with concrete non-terminal target rows; used by closed-loop
+// admission to skip miners already owned by other events without excluding
+// the current targetless scope watcher.
+func (q *Queries) ListActiveCurtailmentTargetDevicesByOrg(ctx context.Context, orgID int64) ([]string, error) {
+	rows, err := q.query(ctx, q.listActiveCurtailmentTargetDevicesByOrgStmt, listActiveCurtailmentTargetDevicesByOrg, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1635,6 +1849,17 @@ func (q *Queries) ListRecentlyResolvedCurtailedDevicesByOrg(ctx context.Context,
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockCurtailmentScopeForWrite = `-- name: LockCurtailmentScopeForWrite :exec
+SELECT pg_advisory_xact_lock(hashtextextended('curtailment_scope:' || $1::text, 0))
+`
+
+// Serialize hierarchy start checks by org so conflict detection and event
+// insertion happen under one database-backed critical section.
+func (q *Queries) LockCurtailmentScopeForWrite(ctx context.Context, orgID string) error {
+	_, err := q.exec(ctx, q.lockCurtailmentScopeForWriteStmt, lockCurtailmentScopeForWrite, orgID)
+	return err
 }
 
 const resetCurtailmentTargetsForRecurtail = `-- name: ResetCurtailmentTargetsForRecurtail :one

@@ -105,6 +105,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.cascadeRackDeviceSitesBulkStmt, err = db.PrepareContext(ctx, cascadeRackDeviceSitesBulk); err != nil {
 		return nil, fmt.Errorf("error preparing query CascadeRackDeviceSitesBulk: %w", err)
 	}
+	if q.claimClosedLoopFullFleetTargetsStmt, err = db.PrepareContext(ctx, claimClosedLoopFullFleetTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ClaimClosedLoopFullFleetTargets: %w", err)
+	}
 	if q.claimMessageForProcessingStmt, err = db.PrepareContext(ctx, claimMessageForProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimMessageForProcessing: %w", err)
 	}
@@ -161,6 +164,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.countCurtailmentAutomationRulesByResponseProfileStmt, err = db.PrepareContext(ctx, countCurtailmentAutomationRulesByResponseProfile); err != nil {
 		return nil, fmt.Errorf("error preparing query CountCurtailmentAutomationRulesByResponseProfile: %w", err)
+	}
+	if q.countCurtailmentScopeConflictsStmt, err = db.PrepareContext(ctx, countCurtailmentScopeConflicts); err != nil {
+		return nil, fmt.Errorf("error preparing query CountCurtailmentScopeConflicts: %w", err)
 	}
 	if q.countDevicesWithErrorsStmt, err = db.PrepareContext(ctx, countDevicesWithErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CountDevicesWithErrors: %w", err)
@@ -717,6 +723,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listActiveCurtailmentEventsStmt, err = db.PrepareContext(ctx, listActiveCurtailmentEvents); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveCurtailmentEvents: %w", err)
 	}
+	if q.listActiveCurtailmentTargetDevicesByOrgStmt, err = db.PrepareContext(ctx, listActiveCurtailmentTargetDevicesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveCurtailmentTargetDevicesByOrg: %w", err)
+	}
 	if q.listActiveOrganizationIDsStmt, err = db.PrepareContext(ctx, listActiveOrganizationIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveOrganizationIDs: %w", err)
 	}
@@ -869,6 +878,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockBuildingsBySiteForWriteStmt, err = db.PrepareContext(ctx, lockBuildingsBySiteForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockBuildingsBySiteForWrite: %w", err)
+	}
+	if q.lockCurtailmentScopeForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentScopeForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentScopeForWrite: %w", err)
 	}
 	if q.lockDevicesForReassignStmt, err = db.PrepareContext(ctx, lockDevicesForReassign); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDevicesForReassign: %w", err)
@@ -1424,6 +1436,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing cascadeRackDeviceSitesBulkStmt: %w", cerr)
 		}
 	}
+	if q.claimClosedLoopFullFleetTargetsStmt != nil {
+		if cerr := q.claimClosedLoopFullFleetTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing claimClosedLoopFullFleetTargetsStmt: %w", cerr)
+		}
+	}
 	if q.claimMessageForProcessingStmt != nil {
 		if cerr := q.claimMessageForProcessingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing claimMessageForProcessingStmt: %w", cerr)
@@ -1517,6 +1534,11 @@ func (q *Queries) Close() error {
 	if q.countCurtailmentAutomationRulesByResponseProfileStmt != nil {
 		if cerr := q.countCurtailmentAutomationRulesByResponseProfileStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countCurtailmentAutomationRulesByResponseProfileStmt: %w", cerr)
+		}
+	}
+	if q.countCurtailmentScopeConflictsStmt != nil {
+		if cerr := q.countCurtailmentScopeConflictsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countCurtailmentScopeConflictsStmt: %w", cerr)
 		}
 	}
 	if q.countDevicesWithErrorsStmt != nil {
@@ -2444,6 +2466,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listActiveCurtailmentEventsStmt: %w", cerr)
 		}
 	}
+	if q.listActiveCurtailmentTargetDevicesByOrgStmt != nil {
+		if cerr := q.listActiveCurtailmentTargetDevicesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveCurtailmentTargetDevicesByOrgStmt: %w", cerr)
+		}
+	}
 	if q.listActiveOrganizationIDsStmt != nil {
 		if cerr := q.listActiveOrganizationIDsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActiveOrganizationIDsStmt: %w", cerr)
@@ -2697,6 +2724,11 @@ func (q *Queries) Close() error {
 	if q.lockBuildingsBySiteForWriteStmt != nil {
 		if cerr := q.lockBuildingsBySiteForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockBuildingsBySiteForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentScopeForWriteStmt != nil {
+		if cerr := q.lockCurtailmentScopeForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentScopeForWriteStmt: %w", cerr)
 		}
 	}
 	if q.lockDevicesForReassignStmt != nil {
@@ -3455,6 +3487,7 @@ type Queries struct {
 	cascadeRackDeviceBuildingsBulkStmt                         *sql.Stmt
 	cascadeRackDeviceSitesStmt                                 *sql.Stmt
 	cascadeRackDeviceSitesBulkStmt                             *sql.Stmt
+	claimClosedLoopFullFleetTargetsStmt                        *sql.Stmt
 	claimMessageForProcessingStmt                              *sql.Stmt
 	clearCurtailmentAutomationActiveEventStmt                  *sql.Stmt
 	clearDeviceBuildingsByBuildingStmt                         *sql.Stmt
@@ -3474,6 +3507,7 @@ type Queries struct {
 	countComponentsWithErrorsStmt                              *sql.Stmt
 	countCurtailmentAutomationRulesByMQTTSourceStmt            *sql.Stmt
 	countCurtailmentAutomationRulesByResponseProfileStmt       *sql.Stmt
+	countCurtailmentScopeConflictsStmt                         *sql.Stmt
 	countDevicesWithErrorsStmt                                 *sql.Stmt
 	countErrorsStmt                                            *sql.Stmt
 	countMinersByStateStmt                                     *sql.Stmt
@@ -3659,6 +3693,7 @@ type Queries struct {
 	isDeviceOwnedByFleetNodeStmt                               *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                        *sql.Stmt
 	listActiveCurtailmentEventsStmt                            *sql.Stmt
+	listActiveCurtailmentTargetDevicesByOrgStmt                *sql.Stmt
 	listActiveOrganizationIDsStmt                              *sql.Stmt
 	listActivityLogsStmt                                       *sql.Stmt
 	listApiKeysByOrganizationStmt                              *sql.Stmt
@@ -3710,6 +3745,7 @@ type Queries struct {
 	lockAndCountOrgScopeSuperAdminsStmt                        *sql.Stmt
 	lockBuildingForWriteStmt                                   *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                            *sql.Stmt
+	lockCurtailmentScopeForWriteStmt                           *sql.Stmt
 	lockDevicesForReassignStmt                                 *sql.Stmt
 	lockFleetNodeByIDStmt                                      *sql.Stmt
 	lockRackPlacementForWriteStmt                              *sql.Stmt
@@ -3881,6 +3917,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		cascadeRackDeviceBuildingsBulkStmt:                         q.cascadeRackDeviceBuildingsBulkStmt,
 		cascadeRackDeviceSitesStmt:                                 q.cascadeRackDeviceSitesStmt,
 		cascadeRackDeviceSitesBulkStmt:                             q.cascadeRackDeviceSitesBulkStmt,
+		claimClosedLoopFullFleetTargetsStmt:                        q.claimClosedLoopFullFleetTargetsStmt,
 		claimMessageForProcessingStmt:                              q.claimMessageForProcessingStmt,
 		clearCurtailmentAutomationActiveEventStmt:                  q.clearCurtailmentAutomationActiveEventStmt,
 		clearDeviceBuildingsByBuildingStmt:                         q.clearDeviceBuildingsByBuildingStmt,
@@ -3900,6 +3937,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countComponentsWithErrorsStmt:                              q.countComponentsWithErrorsStmt,
 		countCurtailmentAutomationRulesByMQTTSourceStmt:            q.countCurtailmentAutomationRulesByMQTTSourceStmt,
 		countCurtailmentAutomationRulesByResponseProfileStmt:       q.countCurtailmentAutomationRulesByResponseProfileStmt,
+		countCurtailmentScopeConflictsStmt:                         q.countCurtailmentScopeConflictsStmt,
 		countDevicesWithErrorsStmt:                                 q.countDevicesWithErrorsStmt,
 		countErrorsStmt:                                            q.countErrorsStmt,
 		countMinersByStateStmt:                                     q.countMinersByStateStmt,
@@ -4085,6 +4123,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		isDeviceOwnedByFleetNodeStmt:                               q.isDeviceOwnedByFleetNodeStmt,
 		listActiveCurtailedDevicesByOrgStmt:                        q.listActiveCurtailedDevicesByOrgStmt,
 		listActiveCurtailmentEventsStmt:                            q.listActiveCurtailmentEventsStmt,
+		listActiveCurtailmentTargetDevicesByOrgStmt:                q.listActiveCurtailmentTargetDevicesByOrgStmt,
 		listActiveOrganizationIDsStmt:                              q.listActiveOrganizationIDsStmt,
 		listActivityLogsStmt:                                       q.listActivityLogsStmt,
 		listApiKeysByOrganizationStmt:                              q.listApiKeysByOrganizationStmt,
@@ -4136,6 +4175,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockAndCountOrgScopeSuperAdminsStmt:                        q.lockAndCountOrgScopeSuperAdminsStmt,
 		lockBuildingForWriteStmt:                                   q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                            q.lockBuildingsBySiteForWriteStmt,
+		lockCurtailmentScopeForWriteStmt:                           q.lockCurtailmentScopeForWriteStmt,
 		lockDevicesForReassignStmt:                                 q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                                      q.lockFleetNodeByIDStmt,
 		lockRackPlacementForWriteStmt:                              q.lockRackPlacementForWriteStmt,
