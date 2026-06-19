@@ -10,6 +10,7 @@ import { RacksPage } from "../pages/racks";
 const RACK_ZONE = "Automation Zone";
 
 type ReparentCleanupState = {
+  buildings: Array<{ siteName: string; buildingName: string }>;
   rackNames: string[];
   siteNames: string[];
 };
@@ -18,13 +19,17 @@ test.describe("Fleet reparent flows", () => {
   let cleanupState: ReparentCleanupState;
 
   test.beforeEach(async ({ page, commonSteps }) => {
-    cleanupState = { rackNames: [], siteNames: [] };
+    cleanupState = { buildings: [], rackNames: [], siteNames: [] };
     await page.goto("/");
     await commonSteps.loginAsAdmin();
   });
 
   test.afterEach("CLEANUP: Delete created reparent test data", async ({ browser }, testInfo) => {
-    if (cleanupState.rackNames.length === 0 && cleanupState.siteNames.length === 0) {
+    if (
+      cleanupState.rackNames.length === 0 &&
+      cleanupState.buildings.length === 0 &&
+      cleanupState.siteNames.length === 0
+    ) {
       return;
     }
 
@@ -45,12 +50,16 @@ test.describe("Fleet reparent flows", () => {
 
       await commonSteps.loginAsAdmin();
 
-      for (const siteName of [...cleanupState.siteNames].reverse()) {
-        await fleetLocationsPage.deleteSiteByNameIfVisible(siteName);
-      }
-
       for (const rackName of [...cleanupState.rackNames].reverse()) {
         await racksPage.deleteRackByNameIfVisible(rackName);
+      }
+
+      for (const { siteName, buildingName } of [...cleanupState.buildings].reverse()) {
+        await fleetLocationsPage.deleteBuildingInSiteByNameIfVisible(siteName, buildingName);
+      }
+
+      for (const siteName of [...cleanupState.siteNames].reverse()) {
+        await fleetLocationsPage.deleteSiteByNameIfVisible(siteName);
       }
     } finally {
       await context.close();
@@ -77,6 +86,10 @@ test.describe("Fleet reparent flows", () => {
       await fleetLocationsPage.openSiteSettings(siteName);
       sourceBuildingId = await fleetLocationsPage.createBuildingInSelectedSite(sourceBuildingName);
       targetBuildingId = await fleetLocationsPage.createBuildingInSelectedSite(targetBuildingName);
+      cleanupState.buildings.push(
+        { siteName, buildingName: sourceBuildingName },
+        { siteName, buildingName: targetBuildingName },
+      );
 
       await racksPage.navigateToRacksPage();
       await racksPage.createEmptyRack(rackName, RACK_ZONE);

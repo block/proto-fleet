@@ -82,6 +82,36 @@ export class FleetLocationsPage extends BasePage {
     return true;
   }
 
+  async deleteBuildingInSiteByNameIfVisible(siteName: string, buildingName: string): Promise<boolean> {
+    await this.navigateToSitesPage();
+    const siteRow = this.getSiteRow(siteName);
+    if (!(await siteRow.isVisible().catch(() => false))) {
+      return false;
+    }
+
+    await siteRow.click();
+    await expect(this.page.getByTestId("site-settings-single-view")).toBeVisible();
+
+    const buildingRow = this.getSingleSiteBuildingRow(buildingName);
+    if (!(await buildingRow.isVisible().catch(() => false))) {
+      return false;
+    }
+
+    await buildingRow.click();
+    const overflowTrigger = this.page.getByTestId("overflow-menu-trigger");
+    if (await overflowTrigger.isVisible().catch(() => false)) {
+      await overflowTrigger.click();
+      await this.page.getByText("Delete building", { exact: true }).click();
+    } else {
+      await this.page.getByTestId("manage-building-delete").click();
+    }
+    await expect(this.page.getByTestId("building-delete-dialog")).toBeVisible();
+    await this.page.getByTestId("building-delete-dialog-confirm").click();
+    await this.validateTextInToast(`Building "${buildingName}" deleted`);
+    await expect(this.getSingleSiteBuildingRow(buildingName)).toHaveCount(0);
+    return true;
+  }
+
   private getSiteRow(siteName: string): Locator {
     return this.page.getByTestId("sites-all-table").getByRole("button").filter({ hasText: siteName }).first();
   }
