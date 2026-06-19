@@ -33,7 +33,6 @@ func TestOnboarding_FoundingUserGetsOrgScopeSuperAdminAssignment(t *testing.T) {
 		"dummy-hash",
 		"Onboarding Test Org",
 		uniqueToken("ext-org"),
-		"dummy-private-key",
 		"SUPER_ADMIN",
 		"Super admin role",
 	))
@@ -132,9 +131,9 @@ func TestSeed_SoftDeletedOrgStillGetsBuiltins(t *testing.T) {
 	var deletedOrgID int64
 	require.NoError(t,
 		db.QueryRowContext(ctx,
-			`INSERT INTO organization (org_id, name, miner_auth_private_key, deleted_at)
-             VALUES ($1, $2, $3, CURRENT_TIMESTAMP) RETURNING id`,
-			uniqueToken("deleted-org"), "Soft Deleted Org", "dummy-key",
+			`INSERT INTO organization (org_id, name, deleted_at)
+             VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id`,
+			uniqueToken("deleted-org"), "Soft Deleted Org",
 		).Scan(&deletedOrgID),
 	)
 
@@ -389,8 +388,8 @@ func insertTestOrganization(t *testing.T, db *sql.DB) int64 {
 	var id int64
 	require.NoError(t,
 		db.QueryRowContext(t.Context(),
-			`INSERT INTO organization (org_id, name, miner_auth_private_key) VALUES ($1, $2, $3) RETURNING id`,
-			uniqueToken("org"), "Backfill Test Org", "dummy-key",
+			`INSERT INTO organization (org_id, name) VALUES ($1, $2) RETURNING id`,
+			uniqueToken("org"), "Backfill Test Org",
 		).Scan(&id),
 	)
 	return id

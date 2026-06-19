@@ -143,7 +143,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	// children mid-startup.
 	if resolvedPluginsDir != "" {
 		reapOrphanedPlugins(ctx, resolvedPluginsDir, logger)
-		disc, prr, cleanup, bootstrapErr := newPluginComponents(ctx, resolvedPluginsDir, st.FleetNodeID, st.MinerSigningPrivateKeyHex)
+		disc, prr, cleanup, bootstrapErr := newPluginComponents(ctx, resolvedPluginsDir, st.FleetNodeID)
 		if bootstrapErr != nil {
 			return fmt.Errorf("bootstrap plugins: %w", bootstrapErr)
 		}

@@ -332,7 +332,7 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, tokenSvc, pluginManager).
+	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, pluginManager).
 		WithCommandSender(fleetNodeControlRegistry)
 
 	// Create diagnostics service for error polling and auto-closing stale errors
@@ -371,7 +371,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	pluginPairer := plugins.NewPairer(pluginManager, transactor, discoveredDeviceStore, deviceStore, userStore, tokenSvc, encryptSvc)
+	pluginPairer := plugins.NewPairer(pluginManager, transactor, discoveredDeviceStore, deviceStore, encryptSvc)
 
 	pairingSvc := pairingDomain.NewService(
 		discoveredDeviceStore,
@@ -442,7 +442,7 @@ func start(config *Config) error {
 	buildingStore := sqlstores.NewSQLBuildingStore(conn)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, buildingStore, commandSvc, activitySvc)
 	fleetMgmtSvc.WithOptionsCache(fleetOptionsCache)
-	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
+	defer fleetMgmtSvc.WaitForPendingUnpairs(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)
 	scheduleStore := sqlstores.NewSQLScheduleStore(conn)

@@ -48,7 +48,7 @@ function isProtoRig(manufacturer: string): boolean {
 }
 
 function supportsAutoAuth(supportedMethods: AuthenticationMethod[]): boolean {
-  return supportedMethods.includes(AuthenticationMethod.ASYMMETRIC_KEY);
+  return supportedMethods.includes(AuthenticationMethod.BASIC);
 }
 
 const SKELETON_INDICES = [0, 1, 2];

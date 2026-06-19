@@ -1205,7 +1205,8 @@ type PairDiscoveredDevicesOnFleetNodeRequest struct {
 	DeviceIdentifiers []string `protobuf:"bytes,2,rep,name=device_identifiers,json=deviceIdentifiers,proto3" json:"device_identifiers,omitempty"`
 	// Pair every not-yet-paired device discovered on this node.
 	PairAllUnpaired bool `protobuf:"varint,3,opt,name=pair_all_unpaired,json=pairAllUnpaired,proto3" json:"pair_all_unpaired,omitempty"`
-	// Applied to basic-auth devices in the batch; omitted for asymmetric-auth.
+	// Applied to devices in the batch. When omitted, drivers may use their
+	// default credentials.
 	Credentials   *v1.Credentials `protobuf:"bytes,4,opt,name=credentials,proto3" json:"credentials,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

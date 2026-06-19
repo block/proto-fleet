@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRegisterFleetNode_NormalizesMissingMinerSigningPubkeyToEmptyBytes(t *testing.T) {
+func TestRegisterFleetNode_CreatesFleetNodeWithIdentityOnly(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
@@ -17,15 +17,15 @@ func TestRegisterFleetNode_NormalizesMissingMinerSigningPubkeyToEmptyBytes(t *te
 	svc := NewService(store, nil, inlineTransactor{}, nil)
 
 	// Act
-	agent, _, err := svc.RegisterFleetNode(t.Context(), "enroll-code", "node-1", []byte("identity"), nil)
+	agent, _, err := svc.RegisterFleetNode(t.Context(), "enroll-code", "node-1", []byte("identity"))
 
 	// Assert
 	require.NoError(t, err)
 	require.NotNil(t, agent)
-	assert.NotNil(t, store.gotMinerSigningPubkey)
-	assert.Empty(t, store.gotMinerSigningPubkey)
-	assert.NotNil(t, agent.MinerSigningPubkey)
-	assert.Empty(t, agent.MinerSigningPubkey)
+	assert.Equal(t, int64(11), store.gotOrgID)
+	assert.Equal(t, "node-1", store.gotName)
+	assert.Equal(t, []byte("identity"), store.gotIdentityPubkey)
+	assert.Equal(t, []byte("identity"), agent.IdentityPubkey)
 }
 
 type inlineTransactor struct{}
@@ -39,7 +39,9 @@ func (inlineTransactor) RunInTxWithResult(ctx context.Context, fn func(context.C
 }
 
 type registerFleetNodeStore struct {
-	gotMinerSigningPubkey []byte
+	gotOrgID          int64
+	gotName           string
+	gotIdentityPubkey []byte
 }
 
 func (s *registerFleetNodeStore) CreatePendingEnrollment(context.Context, string, int64, int64, time.Time) (*PendingEnrollment, error) {
@@ -79,15 +81,16 @@ func (s *registerFleetNodeStore) SweepExpiredEnrollments(context.Context, time.T
 	panic("unexpected SweepExpiredEnrollments")
 }
 
-func (s *registerFleetNodeStore) CreateFleetNode(_ context.Context, orgID int64, name string, identityPubkey, minerSigningPubkey []byte) (*FleetNode, error) {
-	s.gotMinerSigningPubkey = minerSigningPubkey
+func (s *registerFleetNodeStore) CreateFleetNode(_ context.Context, orgID int64, name string, identityPubkey []byte) (*FleetNode, error) {
+	s.gotOrgID = orgID
+	s.gotName = name
+	s.gotIdentityPubkey = append([]byte(nil), identityPubkey...)
 	return &FleetNode{
-		ID:                 99,
-		OrgID:              orgID,
-		Name:               name,
-		IdentityPubkey:     identityPubkey,
-		MinerSigningPubkey: minerSigningPubkey,
-		EnrollmentStatus:   FleetNodeStatusPending,
+		ID:               99,
+		OrgID:            orgID,
+		Name:             name,
+		IdentityPubkey:   identityPubkey,
+		EnrollmentStatus: FleetNodeStatusPending,
 	}, nil
 }
 

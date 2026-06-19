@@ -5,16 +5,16 @@ import (
 	"errors"
 	"fmt"
 
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
+
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
-	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
-	"google.golang.org/grpc/codes"
-	grpcstatus "google.golang.org/grpc/status"
 )
 
 // PluginDriverGetter defines the interface for getting SDK drivers
@@ -37,17 +37,15 @@ type PluginMinerConfig struct {
 	MacAddress         string
 
 	// Credentials (encrypted)
-	DeviceUsername string // May be empty for Proto
-	DevicePassword string // May be empty for Proto
-	OrgID          int64  // Organization ID for retrieving Proto private key
-	SiteID         int64  // Site the device is placed at; 0 when unassigned
+	DeviceUsername string
+	DevicePassword string
+	OrgID          int64
+	SiteID         int64 // Site the device is placed at; 0 when unassigned
 
 	// Services and dependencies
-	EncryptService   *encrypt.Service
-	TokenService     *token.Service // Required for Proto miners to generate JWT tokens
-	FilesService     *files.Service
-	GetOrgPrivateKey func(ctx context.Context, orgID int64) ([]byte, error)
-	DriverGetter     PluginDriverGetter
+	EncryptService *encrypt.Service
+	FilesService   *files.Service
+	DriverGetter   PluginDriverGetter
 }
 
 // NewPluginMinerWithCredentials creates a PluginMiner from the provided configuration.
@@ -95,35 +93,7 @@ func NewPluginMinerWithCredentials(
 	// current-password secret through the command-specific resolver.
 	var secretBundle sdk.SecretBundle
 
-	if config.DriverName == models.DriverNameProto && config.DeviceUsername == "" && config.DevicePassword == "" {
-		return nil, fleeterror.NewUnauthenticatedErrorf(
-			"proto device %s requires stored credentials",
-			config.DeviceIdentifier,
-		)
-	}
-
-	if config.Caps[sdk.CapabilityAsymmetricAuth] {
-		if config.TokenService == nil {
-			return nil, fmt.Errorf("TokenService is required for bearer auth but was nil")
-		}
-		if config.DeviceSerialNumber == "" {
-			return nil, fmt.Errorf("DeviceSerialNumber is required for bearer auth")
-		}
-
-		privateKey, err := config.GetOrgPrivateKey(ctx, config.OrgID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get org private key: %w", err)
-		}
-
-		jwtToken, _, err := config.TokenService.GenerateMinerAuthJWT(config.DeviceSerialNumber, privateKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate JWT: %w", err)
-		}
-
-		secretBundle.Kind = sdk.BearerToken{
-			Token: jwtToken,
-		}
-	} else if config.DeviceUsername != "" && config.DevicePassword != "" {
+	if config.DeviceUsername != "" && config.DevicePassword != "" {
 		decryptedUsername, err := config.EncryptService.Decrypt(config.DeviceUsername)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decrypt username: %w", err)

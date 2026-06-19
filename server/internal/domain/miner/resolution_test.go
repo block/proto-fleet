@@ -33,16 +33,16 @@ func TestMinerService_ResolvesFleetNodePairedDeviceToRemoteMiner(t *testing.T) {
 	}
 
 	// Arrange
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceIdentifier := "fleetnode-routed-device"
 	deviceID := createTestDevice(t, db, deviceIdentifier)
 
 	var fleetNodeID int64
 	require.NoError(t, db.QueryRow(
-		`INSERT INTO fleet_node (org_id, name, identity_pubkey, miner_signing_pubkey, enrollment_status)
-		 VALUES (1, $1, $2, $3, 'CONFIRMED') RETURNING id`,
-		"test-fleet-node", []byte("identity-pubkey"), []byte("signing-pubkey"),
+		`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
+		 VALUES (1, $1, $2, 'CONFIRMED') RETURNING id`,
+		"test-fleet-node", []byte("identity-pubkey"),
 	).Scan(&fleetNodeID))
 	_, err := db.Exec(
 		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
@@ -50,8 +50,7 @@ func TestMinerService_ResolvesFleetNodePairedDeviceToRemoteMiner(t *testing.T) {
 	require.NoError(t, err)
 
 	sender := &fakeCommandSender{}
-	svc := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService,
-		&fakePluginManager{driverName: "antminer"}).
+	svc := miner.NewMinerService(db, userStore, encryptService, filesService, &fakePluginManager{driverName: "antminer"}).
 		WithCommandSender(sender)
 
 	// Act
@@ -76,16 +75,16 @@ func TestMinerService_DoesNotRouteUnpairedFleetNodeBoundDevice(t *testing.T) {
 	}
 
 	// Arrange: a fleet-node-bound device whose pairing status is not PAIRED.
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceIdentifier := "fleetnode-bound-unpaired"
 	deviceID := createTestDevice(t, db, deviceIdentifier)
 
 	var fleetNodeID int64
 	require.NoError(t, db.QueryRow(
-		`INSERT INTO fleet_node (org_id, name, identity_pubkey, miner_signing_pubkey, enrollment_status)
-		 VALUES (1, $1, $2, $3, 'CONFIRMED') RETURNING id`,
-		"unpaired-fleet-node", []byte("identity-pubkey"), []byte("signing-pubkey"),
+		`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
+		 VALUES (1, $1, $2, 'CONFIRMED') RETURNING id`,
+		"unpaired-fleet-node", []byte("identity-pubkey"),
 	).Scan(&fleetNodeID))
 	_, err := db.Exec(
 		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
@@ -94,8 +93,7 @@ func TestMinerService_DoesNotRouteUnpairedFleetNodeBoundDevice(t *testing.T) {
 	_, err = db.Exec(`UPDATE device_pairing SET pairing_status = 'UNPAIRED' WHERE device_id = $1`, deviceID)
 	require.NoError(t, err)
 
-	svc := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService,
-		&fakePluginManager{driverName: "antminer"}).
+	svc := miner.NewMinerService(db, userStore, encryptService, filesService, &fakePluginManager{driverName: "antminer"}).
 		WithCommandSender(&fakeCommandSender{})
 
 	// Act
@@ -110,16 +108,16 @@ func TestMinerService_RoutesDefaultPasswordFleetNodeDeviceForCommands(t *testing
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceIdentifier := "fleetnode-default-password-device"
 	deviceID := createTestDevice(t, db, deviceIdentifier)
 
 	var fleetNodeID int64
 	require.NoError(t, db.QueryRow(
-		`INSERT INTO fleet_node (org_id, name, identity_pubkey, miner_signing_pubkey, enrollment_status)
-		 VALUES (1, $1, $2, $3, 'CONFIRMED') RETURNING id`,
-		"default-password-fleet-node", []byte("identity-pubkey"), []byte("signing-pubkey"),
+		`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
+		 VALUES (1, $1, $2, 'CONFIRMED') RETURNING id`,
+		"default-password-fleet-node", []byte("identity-pubkey"),
 	).Scan(&fleetNodeID))
 	_, err := db.Exec(
 		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
@@ -129,8 +127,7 @@ func TestMinerService_RoutesDefaultPasswordFleetNodeDeviceForCommands(t *testing
 	require.NoError(t, err)
 
 	sender := &fakeCommandSender{}
-	svc := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService,
-		&fakePluginManager{driverName: "antminer"}).
+	svc := miner.NewMinerService(db, userStore, encryptService, filesService, &fakePluginManager{driverName: "antminer"}).
 		WithCommandSender(sender)
 
 	m, err := svc.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(deviceIdentifier))
@@ -153,7 +150,7 @@ func TestGetDeviceWithCredentialsAndIP_ResolvesDeviceWithSoftDeletedDiscoveryRow
 	}
 
 	// Arrange: a cloud-paired device whose linked discovery row is then soft-deleted.
-	db, _, _, _ := setupTestDB(t)
+	db, _, _ := setupTestDB(t)
 	deviceIdentifier := "cloud-paired-stale-dd"
 	deviceID := createTestDevice(t, db, deviceIdentifier)
 	_, err := db.Exec(

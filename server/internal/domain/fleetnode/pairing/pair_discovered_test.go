@@ -83,23 +83,24 @@ func deviceExists(t *testing.T, db *sql.DB, orgID int64, identifier string) bool
 	return n > 0
 }
 
-func TestPersistFleetNodePairResult_PairedAsymmetric(t *testing.T) {
+func TestPersistFleetNodePairResult_PairedWithoutReportedCredentials(t *testing.T) {
 	// Arrange
 	ctx := t.Context()
 	db, orgID, pairing, enrollment := setupPairingTest(t)
-	node := createFleetNode(t, enrollment, orgID, "node-persist-asym")
-	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-asym")
+	node := createFleetNode(t, enrollment, orgID, "node-persist-no-creds")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-no-creds")
 	assignedBy := int64(1)
 
-	// Act: asymmetric pairing carries no credentials.
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:p-asym", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
+	// Act: a paired report may omit credentials when the driver did not use
+	// reportable auth material.
+	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:p-no-creds", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
 
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, fleetnodepairing.StatusPaired, status)
-	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, "mac:p-asym"))
-	assert.True(t, deviceBoundToNode(t, db, orgID, node, "mac:p-asym"), "PAIRED device must be bound to the node")
-	assert.False(t, hasMinerCredentials(t, db, orgID, "mac:p-asym"), "asymmetric pairing stores no credentials")
+	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, "mac:p-no-creds"))
+	assert.True(t, deviceBoundToNode(t, db, orgID, node, "mac:p-no-creds"), "PAIRED device must be bound to the node")
+	assert.False(t, hasMinerCredentials(t, db, orgID, "mac:p-no-creds"), "pairing without reported credentials stores no credentials")
 }
 
 func TestPersistFleetNodePairResult_PairedBasicAuthStoresCredentials(t *testing.T) {

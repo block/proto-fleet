@@ -43,32 +43,17 @@ func (m *MockUserStore) EXPECT() *MockUserStoreMockRecorder {
 }
 
 // CreateAdminUserWithOrganization mocks base method.
-func (m *MockUserStore) CreateAdminUserWithOrganization(ctx context.Context, userID, username, passwordHash, orgName, orgID, minerAuthPrivateKey, roleName, roleDescription string) error {
+func (m *MockUserStore) CreateAdminUserWithOrganization(ctx context.Context, userID, username, passwordHash, orgName, orgID, roleName, roleDescription string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateAdminUserWithOrganization", ctx, userID, username, passwordHash, orgName, orgID, minerAuthPrivateKey, roleName, roleDescription)
+	ret := m.ctrl.Call(m, "CreateAdminUserWithOrganization", ctx, userID, username, passwordHash, orgName, orgID, roleName, roleDescription)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // CreateAdminUserWithOrganization indicates an expected call of CreateAdminUserWithOrganization.
-func (mr *MockUserStoreMockRecorder) CreateAdminUserWithOrganization(ctx, userID, username, passwordHash, orgName, orgID, minerAuthPrivateKey, roleName, roleDescription any) *gomock.Call {
+func (mr *MockUserStoreMockRecorder) CreateAdminUserWithOrganization(ctx, userID, username, passwordHash, orgName, orgID, roleName, roleDescription any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAdminUserWithOrganization", reflect.TypeOf((*MockUserStore)(nil).CreateAdminUserWithOrganization), ctx, userID, username, passwordHash, orgName, orgID, minerAuthPrivateKey, roleName, roleDescription)
-}
-
-// GetOrganizationPrivateKey mocks base method.
-func (m *MockUserStore) GetOrganizationPrivateKey(ctx context.Context, orgID int64) (string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetOrganizationPrivateKey", ctx, orgID)
-	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetOrganizationPrivateKey indicates an expected call of GetOrganizationPrivateKey.
-func (mr *MockUserStoreMockRecorder) GetOrganizationPrivateKey(ctx, orgID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrganizationPrivateKey", reflect.TypeOf((*MockUserStore)(nil).GetOrganizationPrivateKey), ctx, orgID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAdminUserWithOrganization", reflect.TypeOf((*MockUserStore)(nil).CreateAdminUserWithOrganization), ctx, userID, username, passwordHash, orgName, orgID, roleName, roleDescription)
 }
 
 // GetOrganizationsForUser mocks base method.

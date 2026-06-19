@@ -94,10 +94,9 @@ func (s *SQLUserStore) GetOrganizationsForUser(ctx context.Context, userID int64
 	result := make([]interfaces.Organization, len(orgs))
 	for i, org := range orgs {
 		result[i] = interfaces.Organization{
-			ID:                  org.ID,
-			Name:                org.Name,
-			OrgID:               org.OrgID,
-			MinerAuthPrivateKey: org.MinerAuthPrivateKey,
+			ID:    org.ID,
+			Name:  org.Name,
+			OrgID: org.OrgID,
 		}
 	}
 
@@ -105,7 +104,7 @@ func (s *SQLUserStore) GetOrganizationsForUser(ctx context.Context, userID int64
 }
 
 func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, userID string, username string, passwordHash string,
-	orgName string, orgID string, minerAuthPrivateKey string, roleName string, roleDescription string) error {
+	orgName string, orgID string, roleName string, roleDescription string) error {
 
 	q := s.getQueries(ctx)
 
@@ -120,9 +119,8 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 	}
 
 	orgInternalID, err := q.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		Name:                orgName,
-		OrgID:               orgID,
-		MinerAuthPrivateKey: minerAuthPrivateKey,
+		Name:  orgName,
+		OrgID: orgID,
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error creating organization: %v", err)
@@ -180,10 +178,6 @@ func (s *SQLUserStore) PasswordUpdatedAt(ctx context.Context, userID int64) (tim
 		return time.Time{}, err
 	}
 	return sqlTimeToTime(result), nil
-}
-
-func (s *SQLUserStore) GetOrganizationPrivateKey(ctx context.Context, orgID int64) (string, error) {
-	return s.getQueries(ctx).GetOrganizationPrivateKey(ctx, orgID)
 }
 
 func (s *SQLUserStore) GetUserByExternalID(ctx context.Context, userID string) (interfaces.User, error) {

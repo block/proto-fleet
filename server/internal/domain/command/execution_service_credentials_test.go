@@ -81,7 +81,6 @@ func TestExecuteCommand_UpdateMinerPassword_InsertsMissingProtoCredentials(t *te
 		sqlstores.NewSQLUserStore(db),
 		encryptSvc,
 		filesSvc,
-		nil,
 		&commandTestPluginManager{driverName: models.DriverNameProto, driver: mockDriver},
 	)
 	svc.deviceStore = sqlstores.NewSQLDeviceStore(db)
@@ -127,7 +126,6 @@ func TestExecuteCommand_UpdateMinerPassword_DefaultPasswordDevicePersistsAndPair
 		sqlstores.NewSQLUserStore(db),
 		encryptSvc,
 		filesSvc,
-		nil,
 		&commandTestPluginManager{driverName: models.DriverNameProto, driver: mockDriver},
 	)
 	svc.deviceStore = sqlstores.NewSQLDeviceStore(db)
@@ -235,10 +233,10 @@ func setupPasswordCommandDeviceWithStatus(t *testing.T, driverName string, withC
 
 	conn := newCommandTestDB(t)
 	_, err := conn.ExecContext(t.Context(), `
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, 'test-org-1', 'Test Organization 1', $1)
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, 'test-org-1', 'Test Organization 1')
 		ON CONFLICT DO NOTHING
-	`, testMinerAuthPrivateKey)
+	`)
 	require.NoError(t, err)
 
 	encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: testServiceMasterKey})

@@ -2,9 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"strings"
 	"sync"
@@ -20,7 +17,6 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
-	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -47,86 +43,24 @@ func (s *stubPairer) Pair(_ context.Context, target *pairingpb.FleetNodePairTarg
 	}
 }
 
-func TestMinerSigningPublicKeySPKIBase64_MatchesTokenService(t *testing.T) {
-	// Arrange: a fresh ed25519 key, hex-encoded like bootstrap.State stores it.
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	ts, err := token.NewService(token.Config{
-		ClientToken:                token.AuthTokenConfig{SecretKey: "0123456789abcdef0123456789abcdef", ExpirationPeriod: time.Minute},
-		MinerTokenExpirationPeriod: time.Minute,
-	})
-	require.NoError(t, err)
-	want, err := ts.ExtractPublicKeyFromPrivateKey(priv)
-	require.NoError(t, err)
-
-	// Act
-	got, err := minerSigningPublicKeySPKIBase64(hex.EncodeToString(priv))
-
-	// Assert: the node-derived key must equal the server's byte for byte, or a
-	// miner paired here would reject the JWTs the node signs at runtime.
-	require.NoError(t, err)
-	assert.Equal(t, want, got)
-}
-
-func TestMinerSigningPublicKeySPKIBase64_RejectsBadKey(t *testing.T) {
-	cases := []struct{ name, hexKey string }{
-		{name: "not hex", hexKey: "zzzz"},
-		{name: "wrong length", hexKey: "abcd"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Act
-			_, err := minerSigningPublicKeySPKIBase64(tc.hexKey)
-
-			// Assert
-			require.Error(t, err)
-		})
-	}
-}
-
-func TestNewPluginPairer_AllowsMissingLegacySigningKey(t *testing.T) {
-	// Act
-	p, err := newPluginPairer(plugins.NewManager(&plugins.Config{}), "")
-
-	// Assert
-	require.NoError(t, err)
-	assert.Empty(t, p.minerSigningPubKey)
-}
-
 func TestSecretBundleFor(t *testing.T) {
 	pw := "secret"
 	cases := []struct {
 		name     string
 		caps     sdk.Capabilities
-		nodeKey  string
 		creds    *pairingpb.Credentials
 		wantOK   bool
-		wantErr  error
 		wantKind any
-		wantAuth bool
 	}{
-		{
-			name:     "asymmetric uses node key",
-			caps:     sdk.Capabilities{sdk.CapabilityAsymmetricAuth: true},
-			nodeKey:  "node-pub",
-			wantOK:   true,
-			wantKind: sdk.APIKey{Key: "node-pub"},
-		},
-		{
-			name:    "asymmetric without node key errors",
-			caps:    sdk.Capabilities{sdk.CapabilityAsymmetricAuth: true},
-			wantErr: errMissingMinerSigningKey,
-		},
 		{
 			name:     "basic auth uses supplied creds",
 			caps:     sdk.Capabilities{},
 			creds:    &pairingpb.Credentials{Username: "root", Password: &pw},
 			wantOK:   true,
 			wantKind: sdk.UsernamePassword{Username: "root", Password: "secret"},
-			wantAuth: true,
 		},
 		{
-			name:   "no creds and not asymmetric falls through",
+			name:   "no creds falls through",
 			caps:   sdk.Capabilities{},
 			wantOK: false,
 		},
@@ -140,18 +74,12 @@ func TestSecretBundleFor(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Act
-			secret, ok, err := secretBundleFor(tc.caps, tc.nodeKey, tc.creds)
+			bundle, ok := secretBundleFor(tc.caps, tc.creds)
 
 			// Assert
-			if tc.wantErr != nil {
-				assert.ErrorIs(t, err, tc.wantErr)
-			} else {
-				require.NoError(t, err)
-			}
 			assert.Equal(t, tc.wantOK, ok)
-			assert.Equal(t, tc.wantAuth, secret.basicAuth)
 			if tc.wantOK {
-				assert.Equal(t, tc.wantKind, secret.bundle.Kind)
+				assert.Equal(t, tc.wantKind, bundle.Kind)
 			}
 		})
 	}
@@ -463,10 +391,7 @@ func (d *fakePairDriver) GetDefaultCredentials(context.Context, string, string) 
 
 func newTestPairer(t *testing.T, caps sdk.Capabilities, driver sdk.Driver) *pluginPairer {
 	t.Helper()
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	p, err := newPluginPairer(plugins.NewManager(&plugins.Config{}), hex.EncodeToString(priv))
-	require.NoError(t, err)
+	p := newPluginPairer(plugins.NewManager(&plugins.Config{}))
 	require.NoError(t, p.manager.RegisterPluginForTest(&plugins.LoadedPlugin{
 		Name:       "fake",
 		Identifier: sdk.DriverIdentifier{DriverName: "fakedrv"},
@@ -523,44 +448,6 @@ func TestPluginPairer_BasicAuthReportsUsedCredentials(t *testing.T) {
 	require.NotNil(t, res.GetUsedCredentials())
 	assert.Equal(t, "root", res.GetUsedCredentials().GetUsername())
 	assert.Equal(t, "hunter2", res.GetUsedCredentials().GetPassword())
-}
-
-func TestPluginPairer_AsymmetricReportsNoCredentials(t *testing.T) {
-	// Arrange: an asymmetric-auth driver pairs with the node's signing key.
-	drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
-	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true, sdk.CapabilityAsymmetricAuth: true}, drv)
-	pw := "ignored"
-
-	// Act
-	res := p.Pair(context.Background(), fakePairTarget(), &pairingpb.Credentials{Username: "root", Password: &pw})
-
-	// Assert: paired with the node key, no credentials reported back.
-	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
-	assert.Nil(t, res.GetUsedCredentials())
-	require.Len(t, drv.gotBundles, 1)
-	_, isAPIKey := drv.gotBundles[0].Kind.(sdk.APIKey)
-	assert.True(t, isAPIKey)
-}
-
-func TestPluginPairer_AsymmetricWithoutSigningKeyErrors(t *testing.T) {
-	// Arrange: new credentials-only enrollments do not provision this legacy key.
-	drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
-	p, err := newPluginPairer(plugins.NewManager(&plugins.Config{}), "")
-	require.NoError(t, err)
-	require.NoError(t, p.manager.RegisterPluginForTest(&plugins.LoadedPlugin{
-		Name:       "fake",
-		Identifier: sdk.DriverIdentifier{DriverName: "fakedrv"},
-		Driver:     drv,
-		Caps:       sdk.Capabilities{sdk.CapabilityPairing: true, sdk.CapabilityAsymmetricAuth: true},
-	}))
-
-	// Act
-	res := p.Pair(context.Background(), fakePairTarget(), nil)
-
-	// Assert
-	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_ERROR, res.GetOutcome())
-	assert.Contains(t, res.GetErrorMessage(), "no miner-signing key")
-	assert.Empty(t, drv.gotBundles)
 }
 
 func TestPluginPairer_DefaultCredentialsReportsUsedCredentials(t *testing.T) {

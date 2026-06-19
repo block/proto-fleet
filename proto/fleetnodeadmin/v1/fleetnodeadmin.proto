@@ -151,7 +151,8 @@ message PairDiscoveredDevicesOnFleetNodeRequest {
     repeated string device_identifiers = 2 [(buf.validate.field).repeated = {max_items: 1024, items: {string: {min_len: 1, max_len: 255}}}];
     // Pair every not-yet-paired device discovered on this node.
     bool pair_all_unpaired = 3;
-    // Applied to basic-auth devices in the batch; omitted for asymmetric-auth.
+    // Applied to devices in the batch. When omitted, drivers may use their
+    // default credentials.
     pairing.v1.Credentials credentials = 4;
 }
 

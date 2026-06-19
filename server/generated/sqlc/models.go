@@ -798,16 +798,15 @@ type Error struct {
 }
 
 type FleetNode struct {
-	ID                 int64
-	OrgID              int64
-	Name               string
-	IdentityPubkey     []byte
-	MinerSigningPubkey []byte
-	EnrollmentStatus   string
-	LastSeenAt         sql.NullTime
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	DeletedAt          sql.NullTime
+	ID               int64
+	OrgID            int64
+	Name             string
+	IdentityPubkey   []byte
+	EnrollmentStatus string
+	LastSeenAt       sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	DeletedAt        sql.NullTime
 }
 
 type FleetNodeAuthChallenge struct {
@@ -888,13 +887,12 @@ type NotificationMetricSample struct {
 }
 
 type Organization struct {
-	ID                  int64
-	OrgID               string
-	Name                string
-	MinerAuthPrivateKey string
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	DeletedAt           sql.NullTime
+	ID        int64
+	OrgID     string
+	Name      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt sql.NullTime
 }
 
 type PendingEnrollment struct {

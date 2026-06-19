@@ -2,7 +2,6 @@ services:
   fleet-api:
     environment:
       AUTH_CLIENT_EXPIRATION_PERIOD: "24h"
-      AUTH_MINER_EXPIRATION_PERIOD: "24h"
       DB_NAME: "fleet"
       DB_ADDRESS: "timescaledb:5432"
       DB_USERNAME: "fleet"
