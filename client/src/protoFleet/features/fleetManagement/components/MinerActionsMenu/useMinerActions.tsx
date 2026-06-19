@@ -330,17 +330,20 @@ export const useMinerActions = ({
     [selectedMiners, selectionMode, displayCount, miners, currentFilter],
   );
 
+  const effectiveAllModeFilter = useMemo(() => applyFleetSelectablePairingStatuses(currentFilter), [currentFilter]);
+  const effectiveCurrentFilter = selectionMode === "all" ? effectiveAllModeFilter : currentFilter;
+
   // Create device selector based on selection mode (undefined when nothing selected)
   const deviceSelector = useMemo(() => {
     if (selectionMode === "none") return undefined;
     if (selectionMode === "subset") return createDeviceSelector(selectionMode, deviceIdentifiers);
 
     return createDeviceSelector(selectionMode, deviceIdentifiers, {
-      deviceStatuses: currentFilter?.deviceStatus ?? [],
-      pairingStatuses: currentFilter?.pairingStatuses ?? [],
-      models: currentFilter?.models ?? [],
+      deviceStatuses: effectiveAllModeFilter.deviceStatus,
+      pairingStatuses: effectiveAllModeFilter.pairingStatuses,
+      models: effectiveAllModeFilter.models,
     });
-  }, [selectionMode, deviceIdentifiers, currentFilter]);
+  }, [selectionMode, deviceIdentifiers, effectiveAllModeFilter]);
 
   // Determine device status for power state actions
   const deviceStatus = useMemo(() => {
@@ -1010,7 +1013,7 @@ export const useMinerActions = ({
     fleetCredentials,
     resetAuthState,
     miners,
-    currentFilter,
+    currentFilter: effectiveCurrentFilter,
     securityModelGroupFilter,
   });
 
@@ -1081,7 +1084,7 @@ export const useMinerActions = ({
             deviceSelector: create(DeviceSelectorSchema, {
               selectionType:
                 selectionMode === "all"
-                  ? { case: "allDevices", value: applyFleetSelectablePairingStatuses(currentFilter) }
+                  ? { case: "allDevices", value: effectiveAllModeFilter }
                   : {
                       case: "includeDevices",
                       value: create(DeviceIdentifierListSchema, { deviceIdentifiers: deviceIdsToUse }),
@@ -1143,7 +1146,7 @@ export const useMinerActions = ({
       startBatchOperation,
       completeBatchOperation,
       deviceIdentifiers,
-      currentFilter,
+      effectiveAllModeFilter,
       onRefetchMiners,
       executeBulkActionWithRetry,
     ],

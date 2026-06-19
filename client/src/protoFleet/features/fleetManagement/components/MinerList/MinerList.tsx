@@ -272,7 +272,6 @@ const ScopedMinerListBody = ({
   overflowContainer,
   totalMiners,
   totalDisabledMiners,
-  totalDisabledMinersFresh,
   itemRef,
   hasActiveFilters,
   onAddMiners,
@@ -324,19 +323,17 @@ const ScopedMinerListBody = ({
     setSelectionMode("none");
   }, []);
 
-  // All-mode fails safe: when the auth-needed count hasn't settled yet, treat
-  // the selection as if it includes one (off-page auth-needed miners are
-  // otherwise invisible to the gate). Once the count is loaded, OR the
-  // fleet-wide count with a page-local check so the gate trips on visible
-  // rows even if the count refresh hasn't caught up.
+  // All-mode selection represents all selectable rows. Auth-needed rows are
+  // disabled and excluded from that scope, so they should not gate actions just
+  // because they exist outside the selected set.
   const selectedIncludesUnauthenticatedMiner = useMemo(
     () =>
       selectionMode === "all"
-        ? !totalDisabledMinersFresh || totalDisabledMiners > 0 || deviceItems.some(isRowDisabled)
+        ? false
         : selectedMinerIds.some((id) =>
             deviceItems.some((item) => item.deviceIdentifier === id && isRowDisabled(item)),
           ),
-    [deviceItems, isRowDisabled, selectedMinerIds, selectionMode, totalDisabledMiners, totalDisabledMinersFresh],
+    [deviceItems, isRowDisabled, selectedMinerIds, selectionMode],
   );
 
   return (

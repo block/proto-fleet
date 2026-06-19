@@ -1064,7 +1064,7 @@ describe("MinerList", () => {
       await user.click(screen.getByTestId("mock-action-bar-select-all"));
 
       expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m2,m3");
-      expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("true");
+      expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("false");
       expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("2");
     });
 
@@ -1092,7 +1092,7 @@ describe("MinerList", () => {
       expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("false");
     });
 
-    it("flags all-mode selections as auth-needed while the fleet-wide count is unsettled (loading or refetching)", async () => {
+    it("does not flag all-mode selections as auth-needed while disabled counts settle", async () => {
       const user = userEvent.setup();
 
       renderMinerList({
@@ -1115,7 +1115,7 @@ describe("MinerList", () => {
       await user.click(screen.getByTestId("mock-action-bar-select-all"));
 
       expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
-      expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("true");
+      expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("false");
     });
   });
 

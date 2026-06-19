@@ -1811,6 +1811,51 @@ describe("useMinerActions", () => {
       expect(result.current.unsupportedMinersInfo.unsupportedGroups).toHaveLength(1);
     });
 
+    it("uses the selectable pairing filter for all-mode capability checks", async () => {
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: true,
+          noneSupported: false,
+          supportedCount: 2,
+          unsupportedCount: 0,
+          totalCount: 2,
+          unsupportedGroups: [],
+          supportedDeviceIdentifiers: ["device-1", "device-2"],
+        });
+      });
+
+      const activeFilter = createProto(MinerListFilterSchema, {
+        deviceStatus: [DeviceStatus.ERROR],
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "all",
+          totalCount: 2,
+          currentFilter: activeFilter,
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+
+      const selector = mockCheckCommandCapabilities.mock.calls[0][0].deviceSelector;
+      expect(selector.selectionType.case).toBe("allDevices");
+      expect(selector.selectionType.value.deviceStatus).toEqual([DeviceStatus.ERROR]);
+      expect(selector.selectionType.value.pairingStatus).toEqual([
+        PairingStatus.PAIRED,
+        PairingStatus.DEFAULT_PASSWORD,
+      ]);
+    });
+
     it("should show unsupported miners modal with noneSupported flag when no miners support the action", async () => {
       mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
         onSuccess({
