@@ -46,18 +46,18 @@ describe("savedViews helpers", () => {
       expect(canonicalizeSearchParams("status=offline&zone=DC1&sort=name", "racks")).toBe("sort=name&zone=DC1");
     });
 
-    it("scopes filter keys to the active tab — buildings retain site, issue, telemetry, and sort state", () => {
+    it("scopes filter keys to the active tab — buildings retain site, issue, and telemetry state", () => {
       expect(
         canonicalizeSearchParams(
           "zone=DC1&sort=name&site=7&site=null&issues=fan&hashrate_min=10&temperature_max=90",
           "buildings",
         ),
-      ).toBe("hashrate_min=10&issues=fan&site=7&site=null&sort=name&temperature_max=90");
+      ).toBe("hashrate_min=10&issues=fan&site=7&site=null&temperature_max=90");
     });
 
-    it("scopes filter keys to the active tab — sites retain issue, telemetry, and sort state", () => {
+    it("scopes filter keys to the active tab — sites retain issue and telemetry state", () => {
       expect(canonicalizeSearchParams("site=7&issues=psu&power_max=4.2&sort=name", "sites")).toBe(
-        "issues=psu&power_max=4.2&sort=name",
+        "issues=psu&power_max=4.2",
       );
     });
   });

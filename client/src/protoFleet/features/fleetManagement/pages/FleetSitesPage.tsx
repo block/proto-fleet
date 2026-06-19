@@ -71,7 +71,6 @@ const FleetSitesPage = () => {
   // CreateSite + UpdateSite require site:manage server-side.
   const canManageSites = useHasPermission("site:manage");
 
-  const modals = useSiteModals({ refetchSites });
   const fetchFilteredSites = useCallback(
     (signal?: AbortSignal) => {
       void listSites({
@@ -91,6 +90,11 @@ const FleetSitesPage = () => {
     },
     [listSites, errorComponentTypes, telemetryRanges],
   );
+  const handleModalRefreshSites = useCallback(() => {
+    refetchSites();
+    if (hasListFilters) fetchFilteredSites();
+  }, [fetchFilteredSites, hasListFilters, refetchSites]);
+  const modals = useSiteModals({ refetchSites: handleModalRefreshSites });
   useEffect(() => {
     if (!hasListFilters) {
       /* eslint-disable react-hooks/set-state-in-effect -- clear the filtered-only cache when URL list filters are removed */
@@ -108,7 +112,13 @@ const FleetSitesPage = () => {
   const displaySites = hasListFilters ? filteredSites : sites;
   const displaySitesError = hasListFilters ? filteredSitesError : sitesError;
   const displaySitesLoaded = hasListFilters ? filteredSitesLoaded : sitesLoaded;
-  const handleRetrySites = hasListFilters ? () => fetchFilteredSites() : refetchSites;
+  const handleRetrySites = useCallback(() => {
+    if (hasListFilters) {
+      fetchFilteredSites();
+      return;
+    }
+    refetchSites();
+  }, [fetchFilteredSites, hasListFilters, refetchSites]);
   const visibleSiteScopes = useMemo(
     () =>
       displaySites?.flatMap((site) => {

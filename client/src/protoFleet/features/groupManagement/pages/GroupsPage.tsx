@@ -219,7 +219,7 @@ const GroupsPage = () => {
     );
   }
 
-  const hasGroups = groups.length > 0 || hasEverLoaded;
+  const hasGroups = groups.length > 0 || hasEverLoaded || hasActiveFilters;
 
   return (
     <>

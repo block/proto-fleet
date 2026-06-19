@@ -127,15 +127,9 @@ describe("summarizeSort", () => {
     });
   });
 
-  it("surfaces sort on saved-view tabs", () => {
-    expect(summarizeSort(new URLSearchParams("sort=name&dir=asc"), "buildings")).toEqual({
-      fieldLabel: "Name",
-      direction: "asc",
-    });
-    expect(summarizeSort(new URLSearchParams("sort=name&dir=asc"), "sites")).toEqual({
-      fieldLabel: "Name",
-      direction: "asc",
-    });
+  it("ignores inert sort params on sites and buildings", () => {
+    expect(summarizeSort(new URLSearchParams("sort=name&dir=asc"), "buildings")).toBeUndefined();
+    expect(summarizeSort(new URLSearchParams("sort=name&dir=asc"), "sites")).toBeUndefined();
   });
 });
 

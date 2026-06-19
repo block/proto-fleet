@@ -253,7 +253,7 @@ export const summarizeFilters = (
  * Tabs that own `sort`/`dir` URL params and persist those keys into saved
  * views. Tabs outside this set may carry cross-navigation residue.
  */
-const TABS_WITH_SORT: ReadonlySet<FleetTabId> = new Set(["miners", "racks", "buildings", "sites"]);
+const TABS_WITH_SORT: ReadonlySet<FleetTabId> = new Set(["miners", "racks"]);
 
 export const summarizeSort = (params: URLSearchParams, tab: FleetTabId): SortSummary | undefined => {
   if (!TABS_WITH_SORT.has(tab)) return undefined;
