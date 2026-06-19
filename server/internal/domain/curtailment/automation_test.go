@@ -30,6 +30,7 @@ func TestAutomationService_CreateValidatesSourceAndProfile(t *testing.T) {
 			MQTTSourceID:      h.source.ID,
 			ResponseProfileID: h.profile.ID,
 		},
+		CanUseAdminControls: true,
 	})
 
 	require.NoError(t, err)
@@ -100,6 +101,12 @@ func TestAutomationService_CreateRejectsAdminOnlyProfileWithoutAdminControls(t *
 		mutate func(*models.ResponseProfile)
 	}{
 		{
+			name: "full fleet automation",
+			mutate: func(profile *models.ResponseProfile) {
+				profile.Mode = models.ModeFullFleet
+			},
+		},
+		{
 			name: "force maintenance",
 			mutate: func(profile *models.ResponseProfile) {
 				profile.IncludeMaintenance = true
@@ -125,6 +132,7 @@ func TestAutomationService_CreateRejectsAdminOnlyProfileWithoutAdminControls(t *
 			t.Parallel()
 
 			h := newAutomationHarness(t)
+			h.profile.Mode = models.ModeFixedKw
 			tc.mutate(h.profile)
 
 			_, err := h.automation.Create(t.Context(), SaveAutomationRuleRequest{
@@ -201,6 +209,7 @@ func TestAutomationService_UpdateRejectsWhenRuleOwnsActiveEvent(t *testing.T) {
 			MQTTSourceID:      h.source.ID,
 			ResponseProfileID: h.profile.ID,
 		},
+		CanUseAdminControls: true,
 	})
 
 	require.Error(t, err)

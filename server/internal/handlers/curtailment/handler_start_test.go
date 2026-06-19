@@ -310,6 +310,7 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 		wantMode    models.Mode
 		wantCode    connect.Code
 		wantPersist bool
+		wantTargets int
 	}{
 		{
 			name:        "fixed kw whole org without manage is rejected",
@@ -351,6 +352,7 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 			permissions: []string{authz.PermCurtailmentManage},
 			wantMode:    models.ModeFixedKw,
 			wantPersist: true,
+			wantTargets: 1,
 		},
 		{
 			name: "full fleet whole org with manage can start",
@@ -361,6 +363,7 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 			permissions: []string{authz.PermCurtailmentManage},
 			wantMode:    models.ModeFullFleet,
 			wantPersist: true,
+			wantTargets: 0,
 		},
 	}
 
@@ -387,7 +390,7 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 			if tc.wantPersist {
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantMode, store.lastEvent.Mode)
-				assert.Len(t, store.lastTargets, 1)
+				assert.Len(t, store.lastTargets, tc.wantTargets)
 				return
 			}
 
@@ -525,7 +528,7 @@ func TestHandler_StartCurtailment_InsufficientLoadSurfacesAsInvalidArgument(t *t
 	assert.Empty(t, store.lastTargets)
 }
 
-func TestHandler_StartCurtailment_FullFleetAllSkippedSurfacesSkippedReasons(t *testing.T) {
+func TestHandler_StartCurtailment_FullFleetAllSkippedReturnsActiveWatcher(t *testing.T) {
 	t.Parallel()
 
 	store := newStartStubStore()
@@ -546,15 +549,13 @@ func TestHandler_StartCurtailment_FullFleetAllSkippedSurfacesSkippedReasons(t *t
 	req.Mode = pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET
 	req.ModeParams = nil
 
-	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
-	assert.Contains(t, err.Error(), "insufficient curtailable load")
-	assert.Contains(t, err.Error(), "unreachable_residual_load=1")
-	assert.Contains(t, err.Error(), "updating=1")
-	assert.Empty(t, store.lastTargets, "all-skipped full_fleet must not persist a completed event")
+	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.GetEvent())
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, resp.Msg.GetEvent().GetState())
+	assert.Empty(t, resp.Msg.GetEvent().GetTargets())
+	assert.Equal(t, int32(0), resp.Msg.GetEvent().GetTargetRollup().GetTotal())
+	assert.Empty(t, store.lastTargets)
 }
 
 // TestHandler_StartCurtailment_RejectsMissingSession pins the auth gate:

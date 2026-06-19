@@ -347,6 +347,8 @@ SELECT count(*)::BIGINT
 FROM curtailment_event
 WHERE org_id = $1
   AND state IN ('pending', 'active', 'restoring')
+  AND mode = 'FULL_FLEET'
+  AND loop_type = 'closed'
   AND $2::TEXT = 'FULL_FLEET'
   AND $3::TEXT = 'closed'
   AND (

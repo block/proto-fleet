@@ -74,17 +74,37 @@ func TestPopulateEventModeParams_FullFleet(t *testing.T) {
 	assert.Nil(t, out.GetFixedKw())
 }
 
-// An empty FULL_FLEET start persists a COMPLETED event with a stamped ended_at;
-// the synchronous Start response must carry that completion time too, so it
-// agrees with a later Get/List.
-func TestToStartResponse_FullFleetEmptyCarriesEndedAt(t *testing.T) {
+func TestToStartResponse_ClosedLoopFullFleetReturnsActiveTargetlessEvent(t *testing.T) {
+	t.Parallel()
+
+	plan := &curtailment.Plan{
+		Selected: []curtailment.SelectedDevice{
+			{DeviceIdentifier: "miner-a", PowerW: 3000},
+		},
+	}
+	req := &pb.StartCurtailmentRequest{
+		Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+		Scope: &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+	}
+
+	event := toStartResponse(plan, req).GetEvent()
+	require.NotNil(t, event)
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, event.GetState())
+	assert.Empty(t, event.GetTargets())
+	assert.Equal(t, int32(0), event.GetTargetRollup().GetTotal())
+	assert.Nil(t, event.GetEndedAt())
+}
+
+// Device-list FULL_FLEET remains an open-loop snapshot. Empty snapshots complete
+// on arrival and the synchronous Start response must carry the completion time.
+func TestToStartResponse_DeviceListFullFleetEmptyCarriesEndedAt(t *testing.T) {
 	t.Parallel()
 
 	endedAt := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	plan := &curtailment.Plan{EndedAt: &endedAt} // no Selected -> empty full_fleet
 	req := &pb.StartCurtailmentRequest{
 		Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
-		Scope: &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+		Scope: &pb.StartCurtailmentRequest_DeviceIdentifiers{DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"miner-a"}}},
 	}
 
 	event := toStartResponse(plan, req).GetEvent()

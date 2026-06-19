@@ -497,6 +497,8 @@ SELECT count(*)::BIGINT
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
   AND state IN ('pending', 'active', 'restoring')
+  AND mode = 'FULL_FLEET'
+  AND loop_type = 'closed'
   AND sqlc.arg('mode')::TEXT = 'FULL_FLEET'
   AND sqlc.arg('loop_type')::TEXT = 'closed'
   AND (

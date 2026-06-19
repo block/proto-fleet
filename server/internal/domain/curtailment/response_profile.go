@@ -281,7 +281,8 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 }
 
 func responseProfileRequiresAdminControls(profile models.ResponseProfile) bool {
-	return profile.ForceIncludeMaintenance ||
+	return profile.Mode == models.ModeFullFleet ||
+		profile.ForceIncludeMaintenance ||
 		profile.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
 		profile.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax
 }

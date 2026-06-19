@@ -220,6 +220,32 @@ func TestSQLCurtailmentStore_ClosedLoopScopeHierarchyConflicts(t *testing.T) {
 	assert.True(t, fleeterror.IsAlreadyExistsError(err), "site watcher must block org starts, got %v", err)
 }
 
+func TestSQLCurtailmentStore_FixedKwDoesNotBlockClosedLoopScope(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+
+	fixedKw := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, uuid.New(), models.EventStateActive, "fixed-kw")
+	fixedKw.ScopeType = models.ScopeTypeWholeOrg
+	fixedKw.ScopeJSON = []byte(`{}`)
+	_, err := store.InsertEventWithTargets(ctx, fixedKw, []models.InsertTargetParams{
+		curtailmentStoreTestTarget("fixed-kw-miner", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+	})
+	require.NoError(t, err)
+
+	_, err = store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreClosedLoopFullFleetEvent(user.OrganizationID, user.DatabaseID, uuid.New(), models.ScopeTypeWholeOrg, 0, "full-fleet-after-fixed-kw"),
+		nil,
+	)
+	require.NoError(t, err, "fixed-kW target ownership should not block a closed-loop full-fleet scope")
+}
+
 func TestSQLCurtailmentStore_ClosedLoopScopeConflictPreservesIdempotentReplay(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
