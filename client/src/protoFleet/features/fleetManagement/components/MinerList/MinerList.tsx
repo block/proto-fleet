@@ -699,7 +699,19 @@ const MinerList = ({
   const selectionFilterKey = useMemo(() => {
     return encodeActiveFiltersToURL(initialActiveFilters).toString();
   }, [initialActiveFilters]);
-  const selectionScopeKey = useMemo(() => `${selectionFilterKey}:${currentPage}`, [currentPage, selectionFilterKey]);
+  // The SitePicker scope lives in the store, not the URL, so it isn't in
+  // selectionFilterKey. Fold the effective filter's site scope in too, so
+  // switching the active site resets the selection — otherwise the bulk
+  // bar would stay actionable on the prior site's miners after a scope
+  // change (the row data is already protected by useFleet's request-id guard).
+  const siteScopeKey = useMemo(
+    () => `${(currentFilter?.siteIds ?? []).map(String).join(",")}|${currentFilter?.includeUnassigned ?? false}`,
+    [currentFilter],
+  );
+  const selectionScopeKey = useMemo(
+    () => `${selectionFilterKey}:${currentPage}:${siteScopeKey}`,
+    [currentPage, selectionFilterKey, siteScopeKey],
+  );
 
   const handleClearFilters = useCallback(() => {
     const nextSearchParams = new URLSearchParams(searchParams);
