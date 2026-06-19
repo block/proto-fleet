@@ -56,6 +56,26 @@ export class FleetLocationsPage extends BasePage {
     return testId.replace("site-settings-building-row-", "");
   }
 
+  async deleteSiteByNameIfVisible(siteName: string): Promise<boolean> {
+    await this.navigateToSitesPage();
+    const row = this.getSiteRow(siteName);
+    if (!(await row.isVisible().catch(() => false))) {
+      return false;
+    }
+
+    await row.click();
+    await expect(this.page.getByTestId("site-settings-single-view")).toBeVisible();
+    await this.page.getByTestId("site-settings-manage").click();
+    await this.page.getByRole("button", { name: "Edit details", exact: true }).click();
+    await expect(this.page.getByTestId("site-settings-modal")).toBeVisible();
+    await this.page.getByTestId("site-settings-modal-delete").click();
+    await expect(this.page.getByTestId("site-delete-dialog")).toBeVisible();
+    await this.page.getByTestId("site-delete-dialog-confirm").click();
+    await this.validateTextInToast(`Site "${siteName}" deleted`);
+    await expect(this.getSiteRow(siteName)).toHaveCount(0);
+    return true;
+  }
+
   private getSiteRow(siteName: string): Locator {
     return this.page.getByTestId("sites-all-table").getByRole("button").filter({ hasText: siteName }).first();
   }

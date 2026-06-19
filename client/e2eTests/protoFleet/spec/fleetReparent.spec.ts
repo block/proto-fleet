@@ -1,12 +1,60 @@
+import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
+import { CommonSteps } from "../helpers/commonSteps";
 import { generateRandomText } from "../helpers/testDataHelper";
+import { AuthPage } from "../pages/auth";
+import { FleetLocationsPage } from "../pages/fleetLocations";
+import { MinersPage } from "../pages/miners";
+import { RacksPage } from "../pages/racks";
 
 const RACK_ZONE = "Automation Zone";
 
+type ReparentCleanupState = {
+  rackNames: string[];
+  siteNames: string[];
+};
+
 test.describe("Fleet reparent flows", () => {
+  let cleanupState: ReparentCleanupState;
+
   test.beforeEach(async ({ page, commonSteps }) => {
+    cleanupState = { rackNames: [], siteNames: [] };
     await page.goto("/");
     await commonSteps.loginAsAdmin();
+  });
+
+  test.afterEach("CLEANUP: Delete created reparent test data", async ({ browser }, testInfo) => {
+    if (cleanupState.rackNames.length === 0 && cleanupState.siteNames.length === 0) {
+      return;
+    }
+
+    const context = await browser.newContext({
+      baseURL: testConfig.baseUrl,
+      viewport: testInfo.project.use?.viewport,
+    });
+
+    try {
+      const page = await context.newPage();
+      await page.goto("/");
+
+      const authPage = new AuthPage(page, testInfo.project.use?.isMobile ?? false);
+      const minersPage = new MinersPage(page, testInfo.project.use?.isMobile ?? false);
+      const commonSteps = new CommonSteps(authPage, minersPage);
+      const fleetLocationsPage = new FleetLocationsPage(page, testInfo.project.use?.isMobile ?? false);
+      const racksPage = new RacksPage(page, testInfo.project.use?.isMobile ?? false);
+
+      await commonSteps.loginAsAdmin();
+
+      for (const siteName of [...cleanupState.siteNames].reverse()) {
+        await fleetLocationsPage.deleteSiteByNameIfVisible(siteName);
+      }
+
+      for (const rackName of [...cleanupState.rackNames].reverse()) {
+        await racksPage.deleteRackByNameIfVisible(rackName);
+      }
+    } finally {
+      await context.close();
+    }
   });
 
   test("Move a rack to a building from the Racks tab", async ({
@@ -25,6 +73,7 @@ test.describe("Fleet reparent flows", () => {
     await test.step("Create a site, two buildings, and an empty rack", async () => {
       await fleetLocationsPage.navigateToSitesPage();
       await fleetLocationsPage.createSite(siteName);
+      cleanupState.siteNames.push(siteName);
       await fleetLocationsPage.openSiteSettings(siteName);
       sourceBuildingId = await fleetLocationsPage.createBuildingInSelectedSite(sourceBuildingName);
       targetBuildingId = await fleetLocationsPage.createBuildingInSelectedSite(targetBuildingName);
@@ -82,6 +131,7 @@ test.describe("Fleet reparent flows", () => {
     await test.step("Create a target site and capture a miner to move", async () => {
       await fleetLocationsPage.navigateToSitesPage();
       await fleetLocationsPage.createSite(siteName);
+      cleanupState.siteNames.push(siteName);
 
       await minersPage.navigateToMinersPage();
       await minersPage.waitForMinersTitle();
@@ -111,6 +161,7 @@ test.describe("Fleet reparent flows", () => {
     await test.step("Create an empty rack and capture a miner to move", async () => {
       await racksPage.navigateToRacksPage();
       await racksPage.createEmptyRack(rackName, RACK_ZONE);
+      cleanupState.rackNames.push(rackName);
       await racksPage.clickViewList();
       await racksPage.waitForRackListToLoad({ allowEmpty: false });
       await racksPage.validateRackRow(rackName, RACK_ZONE, 0);

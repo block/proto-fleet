@@ -510,6 +510,29 @@ export class RacksPage extends BasePage {
     await this.page.getByText(actionLabel, { exact: true }).click();
   }
 
+  async deleteRackByNameIfVisible(label: string): Promise<boolean> {
+    await this.navigateToRacksPage();
+    await this.tryAction(() => this.clickViewList());
+    await this.waitForRackListToLoad();
+
+    const row = this.getRackListRow(label);
+    if (!(await row.isVisible().catch(() => false))) {
+      return false;
+    }
+
+    await this.openRackFromList(label);
+    await this.clickEditRack();
+    await this.clickDeleteRack();
+    await this.clickDeleteConfirm();
+    await this.validateRackDeletedToast();
+
+    await this.navigateToRacksPage();
+    await this.tryAction(() => this.clickViewList());
+    await this.waitForRackListToLoad();
+    await expect(this.getRackListRow(label)).toHaveCount(0);
+    return true;
+  }
+
   async validateRackBuilding(label: string, buildingName: string) {
     await expect(this.getRackListRow(label).getByTestId("building")).toHaveText(buildingName);
   }
