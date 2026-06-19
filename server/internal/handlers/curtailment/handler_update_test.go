@@ -125,6 +125,9 @@ func (s *updateStubStore) UpdateOrgConfigPostEventCooldown(context.Context, int6
 func (s *updateStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
 	panic("ListActiveCurtailedDevices not exercised by Update handler tests")
 }
+func (s *updateStubStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
+	panic("ListActiveCurtailmentTargetDevices not exercised by Update handler tests")
+}
 func (s *updateStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by Update handler tests")
 }
@@ -136,6 +139,9 @@ func (s *updateStubStore) ListCandidates(context.Context, interfaces.ListCandida
 }
 func (s *updateStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by Update handler tests")
+}
+func (s *updateStubStore) ClaimClosedLoopFullFleetTargets(context.Context, int64, []models.InsertTargetParams) ([]*models.Target, error) {
+	panic("ClaimClosedLoopFullFleetTargets not exercised by Update handler tests")
 }
 func (s *updateStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
 	panic("ListActiveEvents not exercised by Update handler tests")

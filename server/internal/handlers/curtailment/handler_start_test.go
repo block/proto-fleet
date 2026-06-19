@@ -66,6 +66,9 @@ func (s *startStubStore) UpdateOrgConfigPostEventCooldown(_ context.Context, org
 func (s *startStubStore) ListActiveCurtailedDevices(_ context.Context, _ int64) ([]string, error) {
 	return nil, nil
 }
+func (s *startStubStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
+	panic("ListActiveCurtailmentTargetDevices not exercised by handler Start tests")
+}
 
 func (s *startStubStore) ListRecentlyResolvedCurtailedDevices(_ context.Context, _ int64, _ int32) ([]string, error) {
 	return nil, nil
@@ -90,6 +93,9 @@ func (s *startStubStore) InsertEventWithTargets(
 		ID:        1,
 		EventUUID: event.EventUUID,
 	}, nil
+}
+func (s *startStubStore) ClaimClosedLoopFullFleetTargets(context.Context, int64, []models.InsertTargetParams) ([]*models.Target, error) {
+	panic("ClaimClosedLoopFullFleetTargets not exercised by handler Start tests")
 }
 
 // --- panic stubs for surface the handler-level tests don't reach ---
