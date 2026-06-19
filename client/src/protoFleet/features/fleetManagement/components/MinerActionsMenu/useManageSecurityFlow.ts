@@ -19,8 +19,13 @@ import { type SelectionMode } from "@/shared/components/List";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 
 type PendingActionCallback = (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[]) => void;
+export type SecurityModelGroupFilter = (group: Pick<MinerModelGroup, "manufacturer" | "model" | "count">) => boolean;
 
-function groupMinersByModel(deviceIds: string[], miners: Record<string, MinerStateSnapshot>): MinerGroup[] {
+function groupMinersByModel(
+  deviceIds: string[],
+  miners: Record<string, MinerStateSnapshot>,
+  groupFilter?: SecurityModelGroupFilter,
+): MinerGroup[] {
   const groupMap = new Map<string, MinerGroup>();
 
   deviceIds.forEach((id) => {
@@ -32,6 +37,8 @@ function groupMinersByModel(deviceIds: string[], miners: Record<string, MinerSta
     const key = `${manufacturer}-${model}`;
 
     if (!groupMap.has(key)) {
+      if (groupFilter && !groupFilter({ manufacturer, model, count: 0 })) return;
+
       groupMap.set(key, {
         name: miner.name || model,
         model,
@@ -121,6 +128,7 @@ interface UseManageSecurityFlowParams {
   resetAuthState: () => void;
   miners?: Record<string, MinerStateSnapshot>;
   currentFilter?: MinerListFilter;
+  securityModelGroupFilter?: SecurityModelGroupFilter;
 }
 
 export const useManageSecurityFlow = ({
@@ -138,6 +146,7 @@ export const useManageSecurityFlow = ({
   resetAuthState,
   miners = {} as Record<string, MinerStateSnapshot>,
   currentFilter,
+  securityModelGroupFilter,
 }: UseManageSecurityFlowParams) => {
   const [showUpdatePasswordModal, setShowUpdatePasswordModal] = useState(false);
   const [securityFilteredDeviceIds, setSecurityFilteredDeviceIds] = useState<string[] | undefined>(undefined);
@@ -157,10 +166,10 @@ export const useManageSecurityFlow = ({
       const deviceIdsToUse = filteredDeviceIds ?? deviceIdentifiers;
       setSecurityFilteredDeviceIds(filteredDeviceIds);
       setCurrentAction(settingsActions.security);
-      setMinerGroups(groupMinersByModel(deviceIdsToUse, miners));
+      setMinerGroups(groupMinersByModel(deviceIdsToUse, miners, securityModelGroupFilter));
       setShowManageSecurityModal(true);
     });
-  }, [withCapabilityCheck, deviceIdentifiers, setCurrentAction, miners]);
+  }, [withCapabilityCheck, deviceIdentifiers, setCurrentAction, miners, securityModelGroupFilter]);
 
   // Called by useMinerActions once fleet auth completes with purpose="security".
   // Credentials are not needed here — they're read from the fleetCredentials param at confirm time.
@@ -171,17 +180,19 @@ export const useManageSecurityFlow = ({
         try {
           const groups = await getMinerModelGroups(currentFilter ?? null);
           setMinerGroups(
-            groups.map((g) => {
-              const isProto = g.manufacturer.toLowerCase() === minerTypes.protoRig;
-              return {
-                name: isProto ? `${g.manufacturer} ${g.model}`.trim() : g.model,
-                model: g.model,
-                manufacturer: g.manufacturer,
-                count: g.count,
-                deviceIdentifiers: [],
-                status: "pending" as const,
-              };
-            }),
+            groups
+              .filter((group) => securityModelGroupFilter?.(group) ?? true)
+              .map((g) => {
+                const isProto = g.manufacturer.toLowerCase() === minerTypes.protoRig;
+                return {
+                  name: isProto ? `${g.manufacturer} ${g.model}`.trim() : g.model,
+                  model: g.model,
+                  manufacturer: g.manufacturer,
+                  count: g.count,
+                  deviceIdentifiers: [],
+                  status: "pending" as const,
+                };
+              }),
           );
           setShowManageSecurityModal(true);
         } catch {
@@ -191,7 +202,7 @@ export const useManageSecurityFlow = ({
         await openSecurityModalViaCapabilityCheck();
       }
     },
-    [selectionMode, getMinerModelGroups, openSecurityModalViaCapabilityCheck, currentFilter],
+    [selectionMode, getMinerModelGroups, openSecurityModalViaCapabilityCheck, currentFilter, securityModelGroupFilter],
   );
 
   const handleUpdateGroup = useCallback((group: MinerGroup) => {

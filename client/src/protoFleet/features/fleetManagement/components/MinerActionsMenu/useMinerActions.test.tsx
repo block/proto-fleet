@@ -1211,6 +1211,10 @@ describe("useMinerActions", () => {
       const selector = calledWith.deleteMinersRequest.deviceSelector;
       expect(selector.selectionType.case).toBe("allDevices");
       expect(selector.selectionType.value.deviceStatus).toEqual([DeviceStatus.ERROR]);
+      expect(selector.selectionType.value.pairingStatuses).toEqual([
+        PairingStatus.PAIRED,
+        PairingStatus.DEFAULT_PASSWORD,
+      ]);
       expect(mockCompleteBatchOperation).toHaveBeenCalled();
       expect(toaster.updateToast).toHaveBeenCalledWith(
         expect.any(Number),
@@ -1252,7 +1256,48 @@ describe("useMinerActions", () => {
       const calledWith = mockDeleteMiners.mock.calls[0][0];
       const selector = calledWith.deleteMinersRequest.deviceSelector;
       expect(selector.selectionType.case).toBe("allDevices");
-      expect(selector.selectionType.value).toBeDefined();
+      expect(selector.selectionType.value.pairingStatuses).toEqual([
+        PairingStatus.PAIRED,
+        PairingStatus.DEFAULT_PASSWORD,
+      ]);
+    });
+
+    it("preserves explicit default-password filters for all-mode unpair", async () => {
+      mockDeleteMiners.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ deletedCount: 2 });
+      });
+
+      const activeFilter = createProto(MinerListFilterSchema, {
+        pairingStatuses: [PairingStatus.DEFAULT_PASSWORD],
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "all",
+          totalCount: 2,
+          currentFilter: activeFilter,
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
+
+      act(() => {
+        deleteAction?.actionHandler();
+      });
+
+      await act(async () => {
+        await result.current.handleConfirmation();
+      });
+
+      const calledWith = mockDeleteMiners.mock.calls[0][0];
+      const selector = calledWith.deleteMinersRequest.deviceSelector;
+      expect(selector.selectionType.case).toBe("allDevices");
+      expect(selector.selectionType.value.pairingStatuses).toEqual([PairingStatus.DEFAULT_PASSWORD]);
     });
 
     it("should use includeDevices selector in subset mode even with active filter", async () => {
@@ -2912,6 +2957,31 @@ describe("useMinerActions", () => {
       expect(group.manufacturer).toBe("Bitmain");
     });
 
+    it("filters all-mode security groups when a security model-group filter is provided", async () => {
+      mockGetMinerModelGroups.mockResolvedValue([
+        { model: "Rig", manufacturer: "Proto", count: 6 },
+        { model: "Rig", manufacturer: "Bitmain", count: 2 },
+      ]);
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+          securityModelGroupFilter: (group) => group.manufacturer.toLowerCase() === "proto",
+        }),
+      );
+
+      await triggerSecurityAndAuthenticate(result);
+
+      expect(result.current.minerGroups).toHaveLength(1);
+      expect(result.current.minerGroups[0]).toMatchObject({
+        manufacturer: "Proto",
+        model: "Rig",
+        count: 6,
+      });
+    });
+
     it("falls back to capability check path when getMinerModelGroups throws", async () => {
       mockGetMinerModelGroups.mockRejectedValue(new Error("Network error"));
 
@@ -2934,19 +3004,47 @@ describe("useMinerActions", () => {
         efficiency: [],
         temperatureStatus: 0,
       } as unknown as MinerStateSnapshot;
+      testMiners["device-2"] = {
+        deviceIdentifier: "device-2",
+        manufacturer: "Bitmain",
+        model: "Rig",
+        name: "Bitmain Rig",
+        driverName: "antminer",
+        deviceStatus: 0,
+        pairingStatus: 0,
+        macAddress: "",
+        serialNumber: "",
+        ipAddress: "",
+        url: "",
+        firmwareVersion: "",
+        powerUsage: [],
+        temperature: [],
+        hashrate: [],
+        efficiency: [],
+        temperatureStatus: 0,
+      } as unknown as MinerStateSnapshot;
 
       const { result } = renderHook(() =>
         useMinerActions({
           ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
           selectionMode: "all",
+          securityModelGroupFilter: (group) => group.manufacturer.toLowerCase() === "proto",
         }),
       );
 
       await triggerSecurityAndAuthenticate(result);
 
       expect(result.current.showManageSecurityModal).toBe(true);
-      expect(result.current.minerGroups.length).toBeGreaterThan(0);
+      expect(result.current.minerGroups).toHaveLength(1);
+      expect(result.current.minerGroups[0]).toMatchObject({
+        manufacturer: "proto",
+        model: "Rig",
+        count: 1,
+      });
     });
 
     it("uses allDevices selector with model and manufacturer filter in handlePasswordConfirm", async () => {

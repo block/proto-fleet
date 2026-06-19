@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import AuthenticationSettings from "./Auth";
-import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { MinerModelGroupSchema, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useAuth } from "@/protoFleet/api/useAuth";
 import useDefaultPasswordMiners from "@/protoFleet/api/useDefaultPasswordMiners";
 import { useLogin } from "@/protoFleet/api/useLogin";
@@ -224,6 +225,16 @@ describe("AuthenticationSettings", () => {
           pairingStatuses: [PairingStatus.DEFAULT_PASSWORD],
         }),
       });
+      expect(
+        lastUseMinerActionsCall?.securityModelGroupFilter?.(
+          create(MinerModelGroupSchema, { model: "Rig", manufacturer: "Proto", count: 1 }),
+        ),
+      ).toBe(true);
+      expect(
+        lastUseMinerActionsCall?.securityModelGroupFilter?.(
+          create(MinerModelGroupSchema, { model: "Rig", manufacturer: "Bitmain", count: 1 }),
+        ),
+      ).toBe(false);
     });
 
     it("refreshes default-password data after the security action completes", async () => {

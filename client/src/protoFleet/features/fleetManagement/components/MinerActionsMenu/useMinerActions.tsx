@@ -14,7 +14,7 @@ import {
   SupportedAction,
 } from "./constants";
 import { useFleetAuthentication } from "./useFleetAuthentication";
-import { useManageSecurityFlow } from "./useManageSecurityFlow";
+import { type SecurityModelGroupFilter, useManageSecurityFlow } from "./useManageSecurityFlow";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import {
@@ -22,7 +22,6 @@ import {
   type DeleteMinersResponse,
   DeviceSelectorSchema,
   type MinerListFilter,
-  MinerListFilterSchema,
   type MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -58,6 +57,7 @@ import {
 } from "@/protoFleet/features/fleetManagement/components/BulkActions/types";
 import type { BatchOperationInput } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
+import { applyFleetSelectablePairingStatuses } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import {
   Fan,
   LEDIndicator,
@@ -101,6 +101,8 @@ interface UseMinerActionsParams {
   miners?: Record<string, MinerStateSnapshot>;
   /** Replaces store-based refetchMiners — called after unpair completes */
   onRefetchMiners?: () => void;
+  /** Optional group filter for all-mode security flows that need narrower model groups than MinerListFilter supports. */
+  securityModelGroupFilter?: SecurityModelGroupFilter;
 }
 
 /**
@@ -269,6 +271,7 @@ export const useMinerActions = ({
   removeDevicesFromBatch = noop as (batchIdentifier: string, deviceIds: string[]) => void,
   miners = {} as Record<string, MinerStateSnapshot>,
   onRefetchMiners,
+  securityModelGroupFilter,
 }: UseMinerActionsParams) => {
   const {
     startMining,
@@ -1008,6 +1011,7 @@ export const useMinerActions = ({
     resetAuthState,
     miners,
     currentFilter,
+    securityModelGroupFilter,
   });
 
   useEffect(() => {
@@ -1077,7 +1081,7 @@ export const useMinerActions = ({
             deviceSelector: create(DeviceSelectorSchema, {
               selectionType:
                 selectionMode === "all"
-                  ? { case: "allDevices", value: currentFilter ?? create(MinerListFilterSchema) }
+                  ? { case: "allDevices", value: applyFleetSelectablePairingStatuses(currentFilter) }
                   : {
                       case: "includeDevices",
                       value: create(DeviceIdentifierListSchema, { deviceIdentifiers: deviceIdsToUse }),

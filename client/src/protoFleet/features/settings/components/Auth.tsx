@@ -75,7 +75,8 @@ type SecurityDeviceRow = {
   defaultPasswordCount: number;
 };
 
-const isProtoGroup = (group: MinerModelGroup) => group.manufacturer.toLowerCase() === minerTypes.protoRig;
+const isProtoGroup = (group: Pick<MinerModelGroup, "manufacturer">) =>
+  group.manufacturer.toLowerCase() === minerTypes.protoRig;
 
 const getGroupKey = (group: Pick<MinerModelGroup, "manufacturer" | "model">) =>
   `${group.manufacturer.toLowerCase()}::${group.model.toLowerCase()}`;
@@ -316,6 +317,7 @@ const AuthenticationSettings = () => {
     currentFilter: defaultPasswordActionFilter,
     miners: defaultPasswordMiners,
     onActionComplete: handleDefaultPasswordActionComplete,
+    securityModelGroupFilter: isProtoGroup,
   });
 
   const handleUpdateDefaultPasswords = useCallback(() => {
