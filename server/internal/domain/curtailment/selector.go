@@ -136,6 +136,14 @@ func BuildPlan(
 	eligible := make([]CandidateInput, 0, len(inputs))
 	applyLoadAccountingFilter := appliesLoadAccountingFilter(mode)
 	for _, c := range inputs {
+		if c.PowerW <= 0 && c.HashRateHS <= 0 {
+			skipped = append(skipped, SkippedDevice{
+				DeviceIdentifier: c.DeviceIdentifier,
+				Reason:           SkipBelowThreshold,
+			})
+			dualSignalCounts.belowThreshold++
+			continue
+		}
 		if !applyLoadAccountingFilter {
 			// FULL_FLEET is a command-coverage mode: every otherwise-actionable
 			// candidate should be targeted for sleep/curtail, even when it would

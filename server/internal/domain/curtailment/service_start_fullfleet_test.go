@@ -84,7 +84,50 @@ func TestService_Start_FullFleet_CurtailsBelowFloorHashlessMiner(t *testing.T) {
 	assert.Equal(t, "hashless-low-power", store.lastInsertTargets[0].DeviceIdentifier)
 }
 
-func TestService_Start_FullFleet_IncompleteTelemetrySkipsAsStale(t *testing.T) {
+func TestService_Start_FullFleet_SingleSignalTelemetryRemainsEligible(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	driver := "antminer"
+	power := 2500.0
+	hashRate := 100e12
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		{
+			DeviceIdentifier: "power-only",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestPowerW:     &power,
+		},
+		{
+			DeviceIdentifier: "hash-only",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestHashRateHS: &hashRate,
+		},
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	assert.Empty(t, plan.Skipped)
+	require.Len(t, plan.Selected, 2)
+	assert.Equal(t, "power-only", plan.Selected[0].DeviceIdentifier)
+	assert.Equal(t, "hash-only", plan.Selected[1].DeviceIdentifier)
+	assert.Equal(t, 1, store.insertEventCalls)
+	require.Len(t, store.lastInsertTargets, 2)
+}
+
+func TestService_Start_FullFleet_MissingTelemetrySkipsAsStale(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
@@ -113,6 +156,29 @@ func TestService_Start_FullFleet_IncompleteTelemetrySkipsAsStale(t *testing.T) {
 	require.Len(t, plan.Skipped, 1)
 	assert.Equal(t, SkipStaleTelemetry, plan.Skipped[0].Reason)
 	assert.Zero(t, store.insertEventCalls, "all-stale full_fleet must not persist")
+}
+
+func TestService_Start_FullFleet_ZeroSignalSkipsBelowThreshold(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("zero-signal", 0, 0, 0),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan.InsufficientLoadDetail)
+	assert.Empty(t, plan.Selected)
+	require.Len(t, plan.Skipped, 1)
+	assert.Equal(t, SkipBelowThreshold, plan.Skipped[0].Reason)
+	assert.Zero(t, store.insertEventCalls, "all-zero-signal full_fleet must not persist")
 }
 
 // The empty-eligible case is the chosen behavior: persist a vacuously COMPLETED

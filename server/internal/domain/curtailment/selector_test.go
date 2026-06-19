@@ -77,11 +77,14 @@ func TestBuildPlan_FullFleetBypassesDualSignalFilter(t *testing.T) {
 		{DeviceIdentifier: "low-power-hashing", PowerW: 100, HashRateHS: 100e12, AvgEfficiencyJH: eff(40)},
 		{DeviceIdentifier: "below-threshold-no-hash", PowerW: 100, HashRateHS: 0, AvgEfficiencyJH: eff(30)},
 		{DeviceIdentifier: "above-threshold-no-hash", PowerW: 2000, HashRateHS: 0, AvgEfficiencyJH: eff(20)},
+		{DeviceIdentifier: "zero-signal", PowerW: 0, HashRateHS: 0, AvgEfficiencyJH: nil},
 	}
 
 	plan := BuildPlan(inputs, nil, 1500, modes.FullFleet{})
 
-	assert.Empty(t, plan.Skipped)
+	require.Len(t, plan.Skipped, 1)
+	assert.Equal(t, "zero-signal", plan.Skipped[0].DeviceIdentifier)
+	assert.Equal(t, SkipBelowThreshold, plan.Skipped[0].Reason)
 	require.Len(t, plan.Selected, 3)
 	assert.Equal(t, "low-power-hashing", plan.Selected[0].DeviceIdentifier)
 	assert.Equal(t, "below-threshold-no-hash", plan.Selected[1].DeviceIdentifier)

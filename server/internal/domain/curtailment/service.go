@@ -1360,9 +1360,11 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			summary.ExcludedStale++
 			continue
 		}
-		// Missing or non-finite telemetry cannot prove commandability or
-		// confirmation later; treat it like a stale sample.
-		if !isPresentFiniteFloat(c.LatestPowerW) || !isPresentFiniteFloat(c.LatestHashRateHS) {
+		// Missing both metrics or non-finite telemetry cannot prove
+		// commandability or confirmation later; treat it like a stale sample.
+		if !hasAnyTelemetry(c.LatestPowerW, c.LatestHashRateHS) ||
+			!isFiniteFloat(c.LatestPowerW) ||
+			!isFiniteFloat(c.LatestHashRateHS) {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
 			summary.ExcludedStale++
 			continue
@@ -1430,11 +1432,8 @@ func isFiniteFloat(p *float64) bool {
 	return !math.IsNaN(*p) && !math.IsInf(*p, 0)
 }
 
-func isPresentFiniteFloat(p *float64) bool {
-	if p == nil {
-		return false
-	}
-	return !math.IsNaN(*p) && !math.IsInf(*p, 0)
+func hasAnyTelemetry(powerW *float64, hashRateHS *float64) bool {
+	return powerW != nil || hashRateHS != nil
 }
 
 // curtailment_target column values written at Start.
