@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import FilterRow from "../components/FilterRow";
@@ -9,6 +9,7 @@ import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { issueOptions } from "@/protoFleet/components/DeviceSetList";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import {
   FILTER_URL_PARAM_KEYS,
   fleetListTelemetryRangesFromURL,
@@ -30,6 +31,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import FilterChipsBar, { type FilterChipsBarNumericFilter } from "@/shared/components/List/Filters/FilterChipsBar";
+import { usePoll } from "@/shared/hooks/usePoll";
 import type { NumericRangeValue } from "@/shared/utils/filterValidation";
 
 const LIST_WRAPPER = "pt-6";
@@ -68,53 +70,88 @@ const FleetSitesPage = () => {
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
+  // Filtered sites use the same site:read gate as FleetLayout's unfiltered
+  // cache, but keep their own cache because the request shape is URL-driven.
+  const canReadSites = useHasPermission("site:read");
   // CreateSite + UpdateSite require site:manage server-side.
   const canManageSites = useHasPermission("site:manage");
 
-  const fetchFilteredSites = useCallback(
-    (signal?: AbortSignal) => {
-      void listSites({
-        signal,
-        errorComponentTypes,
-        telemetryRanges,
-        onSuccess: (rows) => {
-          setFilteredSites(rows);
-          setFilteredSitesError(null);
-          setFilteredSitesLoaded(true);
-        },
-        onError: (msg) => {
-          setFilteredSitesError(msg);
-          setFilteredSites((prev) => prev ?? []);
-        },
-      });
-    },
-    [listSites, errorComponentTypes, telemetryRanges],
-  );
-  const handleModalRefreshSites = useCallback(() => {
-    refetchSites();
-    if (hasListFilters) fetchFilteredSites();
-  }, [fetchFilteredSites, hasListFilters, refetchSites]);
-  const modals = useSiteModals({ refetchSites: handleModalRefreshSites });
+  const filteredSitesKey = useMemo(() => {
+    const telemetryKey = telemetryRanges
+      .map(
+        (range) =>
+          `${range.field}:${range.min ?? ""}:${range.max ?? ""}:${range.minInclusive ? "1" : "0"}:${range.maxInclusive ? "1" : "0"}`,
+      )
+      .join(",");
+    return [errorComponentTypes.join(","), telemetryKey].join("|");
+  }, [errorComponentTypes, telemetryRanges]);
+
+  const filteredSitesKeyRef = useRef(filteredSitesKey);
+  useEffect(() => {
+    filteredSitesKeyRef.current = filteredSitesKey;
+  }, [filteredSitesKey]);
+
+  const fetchFilteredSites = useCallback(() => {
+    const requestedFilterKey = filteredSitesKey;
+    return listSites({
+      errorComponentTypes,
+      telemetryRanges,
+      onSuccess: (rows) => {
+        if (filteredSitesKeyRef.current !== requestedFilterKey) return;
+        setFilteredSites(rows);
+        setFilteredSitesError(null);
+        setFilteredSitesLoaded(true);
+      },
+      onError: (msg) => {
+        if (filteredSitesKeyRef.current !== requestedFilterKey) return;
+        setFilteredSitesError(msg);
+        setFilteredSites((prev) => prev ?? []);
+      },
+    });
+  }, [listSites, errorComponentTypes, telemetryRanges, filteredSitesKey]);
+
+  const previousFilteredSitesKey = useRef(filteredSitesKey);
   useEffect(() => {
     if (!hasListFilters) {
+      previousFilteredSitesKey.current = filteredSitesKey;
       /* eslint-disable react-hooks/set-state-in-effect -- clear the filtered-only cache when URL list filters are removed */
       setFilteredSites(undefined);
       setFilteredSitesError(null);
       setFilteredSitesLoaded(false);
+      setSelectedSiteIds([]);
       /* eslint-enable react-hooks/set-state-in-effect */
       return;
     }
-    const controller = new AbortController();
-    fetchFilteredSites(controller.signal);
-    return () => controller.abort();
-  }, [hasListFilters, fetchFilteredSites]);
+    if (previousFilteredSitesKey.current === filteredSitesKey) return;
+    previousFilteredSitesKey.current = filteredSitesKey;
+    /* eslint-disable react-hooks/set-state-in-effect -- hide stale filtered rows while the new filtered poll request loads */
+    setFilteredSites(undefined);
+    setFilteredSitesError(null);
+    setFilteredSitesLoaded(false);
+    setSelectedSiteIds([]);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [hasListFilters, filteredSitesKey]);
+
+  usePoll({
+    fetchData: fetchFilteredSites,
+    params: filteredSitesKey,
+    poll: true,
+    pollIntervalMs: POLL_INTERVAL_MS,
+    enabled: canReadSites && hasListFilters,
+  });
+
+  const handleModalRefreshSites = useCallback(() => {
+    refetchSites();
+    if (hasListFilters) void fetchFilteredSites();
+  }, [fetchFilteredSites, hasListFilters, refetchSites]);
+  const modals = useSiteModals({ refetchSites: handleModalRefreshSites });
 
   const displaySites = hasListFilters ? filteredSites : sites;
   const displaySitesError = hasListFilters ? filteredSitesError : sitesError;
   const displaySitesLoaded = hasListFilters ? filteredSitesLoaded : sitesLoaded;
   const handleRetrySites = useCallback(() => {
     if (hasListFilters) {
-      fetchFilteredSites();
+      void fetchFilteredSites();
       return;
     }
     refetchSites();

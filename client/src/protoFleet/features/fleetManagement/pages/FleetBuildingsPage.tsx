@@ -96,51 +96,61 @@ const FleetBuildingsPage = () => {
     return siteFilterFromActive(activeSite);
   }, [urlSiteFilter, urlSiteIds, activeSite]);
 
-  // Latest scope, read at response time. usePoll has no per-request
-  // cancellation, so a slow ListBuildings for a previous scope can resolve
-  // after a newer one; comparing the captured scope against this ref lets
-  // the stale (out-of-order) response be ignored instead of clobbering the
-  // current scope's rows.
-  const requestSiteFilterRef = useRef(requestSiteFilter);
+  // usePoll keeps fetchData in a ref and doesn't re-run on its identity
+  // change, so a site/filter switch wouldn't refetch until the next poll
+  // tick. Feed the full request filter as `params` (a stable string key) so
+  // the poll effect restarts immediately when the active site or filter URL
+  // changes.
+  const listFilterKey = useMemo(() => {
+    const telemetryKey = telemetryRanges
+      .map(
+        (range) =>
+          `${range.field}:${range.min ?? ""}:${range.max ?? ""}:${range.minInclusive ? "1" : "0"}:${range.maxInclusive ? "1" : "0"}`,
+      )
+      .join(",");
+    return [
+      requestSiteFilter.siteIds.map(String).join(","),
+      requestSiteFilter.includeUnassigned ? "1" : "0",
+      errorComponentTypes.join(","),
+      telemetryKey,
+    ].join("|");
+  }, [requestSiteFilter, errorComponentTypes, telemetryRanges]);
+
+  // Latest request key, read at response time. usePoll has no per-request
+  // cancellation, so a slow ListBuildings for a previous filter can resolve
+  // after a newer one; comparing the captured key against this ref lets the
+  // stale (out-of-order) response be ignored instead of clobbering rows.
+  const listFilterKeyRef = useRef(listFilterKey);
   useEffect(() => {
-    requestSiteFilterRef.current = requestSiteFilter;
-  }, [requestSiteFilter]);
+    listFilterKeyRef.current = listFilterKey;
+  }, [listFilterKey]);
 
   // Returning the promise lets usePoll schedule the next tick from response
   // completion (not from request start) so slow responses can't overlap.
   const fetchBuildings = useCallback(() => {
-    const requestedFilter = requestSiteFilter; // captured for the staleness check
+    const requestedFilterKey = listFilterKey; // captured for the staleness check
     return listBuildings({
       siteIds: requestSiteFilter.siteIds,
       includeUnassigned: requestSiteFilter.includeUnassigned,
       errorComponentTypes,
       telemetryRanges,
       onSuccess: (rows) => {
-        if (requestSiteFilterRef.current !== requestedFilter) return; // scope changed mid-flight
+        if (listFilterKeyRef.current !== requestedFilterKey) return; // filter changed mid-flight
         setBuildings(rows);
         setBuildingsError(null);
       },
       onError: (msg) => {
-        if (requestSiteFilterRef.current !== requestedFilter) return; // scope changed mid-flight
+        if (listFilterKeyRef.current !== requestedFilterKey) return; // filter changed mid-flight
         setBuildingsError(msg);
         // Preserve last-good list across transient errors; only fall to []
         // on the initial-load failure path.
         setBuildings((prev) => prev ?? []);
       },
     });
-  }, [listBuildings, requestSiteFilter, errorComponentTypes, telemetryRanges]);
+  }, [listBuildings, requestSiteFilter, errorComponentTypes, telemetryRanges, listFilterKey]);
 
   // Gate the poll on site:read — same gate FleetLayout uses to redirect.
   const canReadBuildings = useHasPermission("site:read");
-  // usePoll keeps fetchData in a ref and doesn't re-run on its identity
-  // change, so a site-filter switch wouldn't refetch until the next poll
-  // tick. Feed the filter as `params` (a stable string key) so the poll
-  // effect restarts immediately when the active site or filter URL changes.
-  const listFilterKey = useMemo(
-    () =>
-      `${requestSiteFilter.siteIds.map(String).join(",")}|${requestSiteFilter.includeUnassigned}|${searchParams.toString()}`,
-    [requestSiteFilter, searchParams],
-  );
   usePoll({
     fetchData: fetchBuildings,
     params: listFilterKey,
