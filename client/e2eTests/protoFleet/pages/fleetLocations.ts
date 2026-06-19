@@ -13,7 +13,7 @@ export class FleetLocationsPage extends BasePage {
     await expect(this.page.getByText("Site settings", { exact: true })).toBeVisible();
     await this.page.locator("#site-settings-name").fill(siteName);
     await this.page.getByRole("button", { name: "Continue", exact: true }).click();
-    await this.page.getByTestId("manage-site-modal-save").last().click();
+    await this.page.locator('[data-testid="manage-site-modal-save"]:visible').click();
     await this.validateTextInToast(`Site "${siteName}" created`);
     const row = this.getSiteRow(siteName);
     await expect(row).toBeVisible();
