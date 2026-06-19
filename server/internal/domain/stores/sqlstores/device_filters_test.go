@@ -691,6 +691,7 @@ func TestAppendFilterSQL_BuildingIDsOnly(t *testing.T) {
 	resultArgs, _ := appendFilterSQL(&sb, args, argNum, orgID, fp)
 
 	sql := sb.String()
+	assert.Contains(t, sql, "device.building_id = ANY($3::bigint[])")
 	assert.Contains(t, sql, "dsr.building_id = ANY($3::bigint[])")
 	assert.Contains(t, sql, "dcm.org_id = $2")
 	assert.Len(t, resultArgs, 3) // initial + orgID + buildingIDs
@@ -733,6 +734,7 @@ func TestAppendFilterSQL_BuildingFiltersORTogether(t *testing.T) {
 	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
 
 	sql := sb.String()
+	assert.Contains(t, sql, "device.building_id = ANY")
 	assert.Contains(t, sql, "dsr.building_id = ANY")
 	assert.Contains(t, sql, "dsr.building_id IS NULL")
 	assert.Contains(t, sql, "NOT EXISTS")
