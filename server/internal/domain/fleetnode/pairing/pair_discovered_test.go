@@ -55,6 +55,12 @@ func deviceBoundToNode(t *testing.T, db *sql.DB, orgID, fleetNodeID int64, ident
 	return n > 0
 }
 
+func bindDeviceToNode(t *testing.T, db *sql.DB, orgID, fleetNodeID, deviceID int64) {
+	t.Helper()
+	_, err := db.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, $3)`, fleetNodeID, deviceID, orgID)
+	require.NoError(t, err)
+}
+
 func hasMinerCredentials(t *testing.T, db *sql.DB, orgID int64, identifier string) bool {
 	t.Helper()
 	var n int
@@ -180,6 +186,7 @@ func TestPersistFleetNodePairResult_DefaultPasswordUnknownPreservesExistingRemed
 		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
 		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
 		identifier, "aa:bb:cc:00:d0:01", "sn-default-unknown", orgID, ddID).Scan(&dev))
+	bindDeviceToNode(t, db, orgID, node, dev)
 	setPairingStatus(t, db, dev, "DEFAULT_PASSWORD")
 	result := pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
 	result.UsedCredentials = &gatewaypb.UsedCredentials{Username: "root", Password: "admin"}
@@ -214,6 +221,7 @@ func TestPersistFleetNodePairResult_DefaultPasswordInactiveClearsExistingRemedia
 		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
 		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
 		identifier, "aa:bb:cc:00:d1:01", "sn-default-inactive", orgID, ddID).Scan(&dev))
+	bindDeviceToNode(t, db, orgID, node, dev)
 	setPairingStatus(t, db, dev, "DEFAULT_PASSWORD")
 	inactive := false
 	result := pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)

@@ -26,6 +26,7 @@ const (
 
 type Store interface {
 	PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error)
+	DeviceBoundToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64) (bool, error)
 	TransferDiscoveredDeviceAttribution(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
 	DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	DeviceHasActivePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
@@ -123,6 +124,13 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 		return fleeterror.LogInternal(component, "pair device", clientErrPair, pairErr)
 	}
 	if rows == 0 {
+		sameNode, boundErr := s.store.DeviceBoundToFleetNode(ctx, fleetNodeID, deviceID, orgID)
+		if boundErr != nil {
+			return fleeterror.LogInternal(component, "check fleet node binding", clientErrPair, boundErr)
+		}
+		if sameNode {
+			return nil
+		}
 		return fleeterror.NewFailedPreconditionError("device already paired; unpair first")
 	}
 	// Make the paired node the discovery owner so its future reports refresh the row

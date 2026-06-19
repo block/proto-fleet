@@ -32,6 +32,29 @@ func (q *Queries) DeletePairingsForFleetNode(ctx context.Context, arg DeletePair
 	return result.RowsAffected()
 }
 
+const deviceBoundToFleetNode = `-- name: DeviceBoundToFleetNode :one
+SELECT EXISTS (
+    SELECT 1
+    FROM fleet_node_device
+    WHERE fleet_node_id = $1
+      AND device_id = $2
+      AND org_id = $3
+)
+`
+
+type DeviceBoundToFleetNodeParams struct {
+	FleetNodeID int64
+	DeviceID    int64
+	OrgID       int64
+}
+
+func (q *Queries) DeviceBoundToFleetNode(ctx context.Context, arg DeviceBoundToFleetNodeParams) (bool, error) {
+	row := q.queryRow(ctx, q.deviceBoundToFleetNodeStmt, deviceBoundToFleetNode, arg.FleetNodeID, arg.DeviceID, arg.OrgID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const deviceHasActiveCloudPairing = `-- name: DeviceHasActiveCloudPairing :one
 SELECT EXISTS (
     SELECT 1

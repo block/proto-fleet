@@ -32,6 +32,14 @@ func (s *SQLFleetNodePairingStore) PairDeviceToFleetNode(ctx context.Context, fl
 	})
 }
 
+func (s *SQLFleetNodePairingStore) DeviceBoundToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64) (bool, error) {
+	return s.q(ctx).DeviceBoundToFleetNode(ctx, sqlc.DeviceBoundToFleetNodeParams{
+		FleetNodeID: fleetNodeID,
+		DeviceID:    deviceID,
+		OrgID:       orgID,
+	})
+}
+
 func (s *SQLFleetNodePairingStore) TransferDiscoveredDeviceAttribution(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error) {
 	return s.q(ctx).TransferDiscoveredDeviceAttribution(ctx, sqlc.TransferDiscoveredDeviceAttributionParams{
 		FleetNodeID: fleetNodeID,
