@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -91,6 +92,13 @@ func TestGetMinerModelGroups_IncludesDefaultPasswordAndExcludesAuthNeeded(t *tes
 	require.NoError(t, err)
 	require.Len(t, dynamicGroups, 1)
 	assert.Equal(t, int32(2), dynamicGroups[0].Count, "dynamic filters must match the static password-update grouping")
+
+	defaultPasswordGroups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
+		PairingStatuses: []fm.PairingStatus{fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD},
+	})
+	require.NoError(t, err)
+	require.Len(t, defaultPasswordGroups, 1)
+	assert.Equal(t, int32(1), defaultPasswordGroups[0].Count, "pairing-status filters must narrow model-group counts")
 }
 
 // setDiscoveredDeviceModel patches discovered_device.model directly because
