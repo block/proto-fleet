@@ -576,12 +576,15 @@ SELECT
     dd.driver_name,
     d.custom_name,
     d.site_id,
-    COALESCE(s.name, '') as site_label
+    COALESCE(s.name, '') as site_label,
+    d.building_id,
+    COALESCE(b.name, '') as building_label
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN site s ON s.id = d.site_id
+LEFT JOIN building b ON b.id = d.building_id
 WHERE FALSE;
 
 -- name: GetDevicePropertiesForRename :many

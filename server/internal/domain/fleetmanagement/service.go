@@ -682,6 +682,13 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 				Label: row.SiteLabel,
 			}
 		}
+		if row.BuildingID.Valid {
+			id := row.BuildingID.Int64
+			ensureSnapshotPlacement(snapshot).Building = &commonpb.ResourceRef{
+				Id:    id,
+				Label: row.BuildingLabel,
+			}
+		}
 
 		if row.Model.Valid {
 			snapshot.Model = row.Model.String
