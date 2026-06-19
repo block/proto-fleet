@@ -10,6 +10,8 @@ import {
 import {
   type MinerListFilter,
   MinerListFilterSchema,
+  NumericField,
+  NumericRangeFilterSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
@@ -73,15 +75,55 @@ describe("applyFleetSelectablePairingStatuses", () => {
     expect(applyFleetSelectablePairingStatuses(filter).pairingStatuses).toEqual([]);
   });
 
-  it("copies firmware and zone filters through so bulk actions respect them", () => {
+  it("preserves every active filter field and only changes pairing statuses", () => {
     const filter: MinerListFilter = create(MinerListFilterSchema, {
+      deviceStatus: [1],
+      errorComponentTypes: [1],
+      models: ["Rig"],
+      pairingStatuses: [PairingStatus.AUTHENTICATION_NEEDED, PairingStatus.DEFAULT_PASSWORD],
+      groupIds: [101n],
+      rackIds: [202n],
       firmwareVersions: ["v3.5.1"],
       zones: ["Austin, Building 1"],
+      numericRanges: [
+        create(NumericRangeFilterSchema, {
+          field: NumericField.HASHRATE_THS,
+          min: 90,
+          max: 110,
+          minInclusive: true,
+          maxInclusive: true,
+        }),
+      ],
+      ipCidrs: ["192.168.1.0/24"],
+      siteIds: [303n],
+      includeUnassigned: true,
+      buildingIds: [404n],
+      includeNoBuilding: true,
+      zoneKeys: [{ buildingId: 404n, zone: "A1" }],
+      includeNoRack: true,
     });
 
     const result = applyFleetSelectablePairingStatuses(filter);
-    expect(result.firmwareVersions).toEqual(["v3.5.1"]);
-    expect(result.zones).toEqual(["Austin, Building 1"]);
+    expect(result).toMatchObject({
+      deviceStatus: [1],
+      errorComponentTypes: [1],
+      models: ["Rig"],
+      pairingStatuses: [PairingStatus.DEFAULT_PASSWORD],
+      groupIds: [101n],
+      rackIds: [202n],
+      firmwareVersions: ["v3.5.1"],
+      zones: ["Austin, Building 1"],
+      ipCidrs: ["192.168.1.0/24"],
+      siteIds: [303n],
+      includeUnassigned: true,
+      buildingIds: [404n],
+      includeNoBuilding: true,
+      zoneKeys: [{ buildingId: 404n, zone: "A1" }],
+      includeNoRack: true,
+    });
+    expect(result.numericRanges).toEqual(filter.numericRanges);
+    expect(result.numericRanges).not.toBe(filter.numericRanges);
+    expect(filter.pairingStatuses).toEqual([PairingStatus.AUTHENTICATION_NEEDED, PairingStatus.DEFAULT_PASSWORD]);
   });
 });
 

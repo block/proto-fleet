@@ -1,4 +1,4 @@
-import { create } from "@bufbuild/protobuf";
+import { clone, create } from "@bufbuild/protobuf";
 import {
   type MinerListFilter,
   MinerListFilterSchema,
@@ -28,17 +28,10 @@ const applyAllowedPairingStatuses = (
   const pairingStatuses = requestedPairingStatuses.filter((status) => allowedPairingStatusSet.has(status));
   const hasExplicitPairingStatuses = requestedPairingStatuses.length > 0;
 
-  return create(MinerListFilterSchema, {
-    deviceStatus: filter?.deviceStatus ?? [],
-    errorComponentTypes: filter?.errorComponentTypes ?? [],
-    models: filter?.models ?? [],
-    pairingStatuses:
-      pairingStatuses.length > 0 || hasExplicitPairingStatuses ? pairingStatuses : [...allowedPairingStatuses],
-    groupIds: filter?.groupIds ?? [],
-    rackIds: filter?.rackIds ?? [],
-    firmwareVersions: filter?.firmwareVersions ?? [],
-    zones: filter?.zones ?? [],
-  });
+  const result = filter ? clone(MinerListFilterSchema, filter) : create(MinerListFilterSchema);
+  result.pairingStatuses =
+    pairingStatuses.length > 0 || hasExplicitPairingStatuses ? pairingStatuses : [...allowedPairingStatuses];
+  return result;
 };
 
 export const isFleetSelectablePairingStatus = (pairingStatus: PairingStatus): boolean =>
