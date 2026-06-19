@@ -204,8 +204,8 @@ func TestListDeviceSets_SiteFilterCrossOrgRejected(t *testing.T) {
 	h := newTestHandler(t)
 
 	h.siteStore.EXPECT().
-		SiteBelongsToOrg(gomock.Any(), testOrgID, int64(99)).
-		Return(false, nil)
+		SitesByIDs(gomock.Any(), testOrgID, []int64{99}).
+		Return([]int64{}, nil)
 
 	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
 		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
