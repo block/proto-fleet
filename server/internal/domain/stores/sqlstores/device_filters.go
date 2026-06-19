@@ -303,8 +303,9 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 	}
 
 	if fp.rackIDsFilter.Valid {
+		sb.WriteString(" AND (")
 		fmt.Fprintf(sb,
-			" AND EXISTS (SELECT 1 FROM device_set_membership dcm"+
+			"EXISTS (SELECT 1 FROM device_set_membership dcm"+
 				" WHERE dcm.device_id = device.id"+
 				" AND dcm.org_id = $%d"+
 				" AND dcm.device_set_type = 'rack'"+
@@ -312,6 +313,20 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			argNum, argNum+1)
 		args = append(args, orgID, pq.Array(fp.rackIDValues))
 		argNum += 2
+		if fp.includeNoRack {
+			sb.WriteString(" OR ")
+			fmt.Fprintf(sb,
+				"NOT EXISTS (SELECT 1 FROM device_set_membership dcm"+
+					" JOIN device_set ds ON ds.id = dcm.device_set_id"+
+					" WHERE dcm.device_id = device.id"+
+					" AND dcm.org_id = $%d"+
+					" AND dcm.device_set_type = 'rack'"+
+					" AND ds.deleted_at IS NULL)",
+				argNum)
+			args = append(args, orgID)
+			argNum++
+		}
+		sb.WriteString(")")
 	}
 
 	if fp.firmwareVersionsFilter.Valid {
@@ -384,7 +399,12 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 	// device_set_rack. Every emitted rack-membership predicate carries
 	// the dcm.org_id = $orgID clause — see
 	// device_filters_orgid_audit_test.go.
-	if fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.includeNoRack {
+	// When explicit rack IDs are present, include_no_rack belongs to the
+	// rack bucket above (rack IDs OR no rack). Re-emitting it here would
+	// turn that into "rack ID AND no rack" unless the building filter also
+	// explicitly selected its unassigned bucket.
+	includeNoRackInBuildingFilter := fp.includeNoRack && (!fp.rackIDsFilter.Valid || fp.includeNoBuilding)
+	if fp.buildingIDsFilter.Valid || fp.includeNoBuilding || includeNoRackInBuildingFilter {
 		sb.WriteString(" AND (")
 		first := true
 		if fp.buildingIDsFilter.Valid {
@@ -421,7 +441,7 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			argNum++
 			first = false
 		}
-		if fp.includeNoRack {
+		if includeNoRackInBuildingFilter {
 			if !first {
 				sb.WriteString(" OR ")
 			}
