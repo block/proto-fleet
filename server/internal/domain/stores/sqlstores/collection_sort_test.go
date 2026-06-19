@@ -281,6 +281,27 @@ func TestBuildCollectionListQuery_TelemetryRanges(t *testing.T) {
 	assert.Equal(t, int32(51), args[4])
 }
 
+func TestBuildCollectionListQuery_TelemetryStatsFilterInvalidValues(t *testing.T) {
+	minHashrate := 10.0
+	filter := &stores.DeviceSetFilter{TelemetryRanges: []stores.NumericRange{{
+		Field: stores.NumericFilterFieldHashrateTHs,
+		Min:   &minHashrate,
+	}}}
+
+	query, _ := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_GROUP, nil, "name", "ASC", 51, filter)
+
+	assert.Contains(t, query, "COUNT(lm.hash_rate_hs) FILTER (WHERE isfinite(lm.hash_rate_hs) AND lm.hash_rate_hs >= 0)::int AS hashrate_reporting_count")
+	assert.Contains(t, query, "SUM(lm.hash_rate_hs) FILTER (WHERE isfinite(lm.hash_rate_hs) AND lm.hash_rate_hs >= 0)")
+	assert.Contains(t, query, "COUNT(lm.efficiency_jh) FILTER (WHERE isfinite(lm.efficiency_jh) AND lm.efficiency_jh >= 0)::int AS efficiency_reporting_count")
+	assert.Contains(t, query, "AVG(lm.efficiency_jh * 1e12) FILTER (WHERE isfinite(lm.efficiency_jh) AND lm.efficiency_jh >= 0)")
+	assert.Contains(t, query, "COUNT(lm.power_w) FILTER (WHERE isfinite(lm.power_w) AND lm.power_w >= 0)::int AS power_reporting_count")
+	assert.Contains(t, query, "SUM(lm.power_w) FILTER (WHERE isfinite(lm.power_w) AND lm.power_w >= 0)")
+	assert.Contains(t, query, "COUNT(lm.temp_c) FILTER (WHERE isfinite(lm.temp_c))::int AS temperature_reporting_count")
+	assert.Contains(t, query, "MIN(lm.temp_c) FILTER (WHERE isfinite(lm.temp_c))")
+	assert.Contains(t, query, "MAX(lm.temp_c) FILTER (WHERE isfinite(lm.temp_c))")
+	assert.NotContains(t, query, "lm.temp_c >= 0")
+}
+
 func TestBuildCollectionCountQuery_IssueAndTelemetryFiltersKeepArgumentOrder(t *testing.T) {
 	minPower := 30.0
 	errorTypes := []int32{2, 4}

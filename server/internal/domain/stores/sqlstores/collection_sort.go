@@ -45,15 +45,15 @@ var collectionIssueCountJoin = fmt.Sprintf(`LEFT JOIN (
 var collectionTelemetryStatsJoin = fmt.Sprintf(`LEFT JOIN (
 	SELECT
 		dcm_stats.device_set_id,
-		COUNT(lm.hash_rate_hs)::int AS hashrate_reporting_count,
-		COALESCE(SUM(lm.hash_rate_hs) / 1e12, 0)::double precision AS total_hashrate_ths,
-		COUNT(lm.efficiency_jh)::int AS efficiency_reporting_count,
-		COALESCE(AVG(lm.efficiency_jh * 1e12), 0)::double precision AS avg_efficiency_jth,
-		COUNT(lm.power_w)::int AS power_reporting_count,
-		COALESCE(SUM(lm.power_w) / 1e3, 0)::double precision AS total_power_kw,
-		COUNT(lm.temp_c)::int AS temperature_reporting_count,
-		COALESCE(MIN(lm.temp_c), 0)::double precision AS min_temperature_c,
-		COALESCE(MAX(lm.temp_c), 0)::double precision AS max_temperature_c
+		COUNT(lm.hash_rate_hs) FILTER (WHERE isfinite(lm.hash_rate_hs) AND lm.hash_rate_hs >= 0)::int AS hashrate_reporting_count,
+		COALESCE(SUM(lm.hash_rate_hs) FILTER (WHERE isfinite(lm.hash_rate_hs) AND lm.hash_rate_hs >= 0) / 1e12, 0)::double precision AS total_hashrate_ths,
+		COUNT(lm.efficiency_jh) FILTER (WHERE isfinite(lm.efficiency_jh) AND lm.efficiency_jh >= 0)::int AS efficiency_reporting_count,
+		COALESCE(AVG(lm.efficiency_jh * 1e12) FILTER (WHERE isfinite(lm.efficiency_jh) AND lm.efficiency_jh >= 0), 0)::double precision AS avg_efficiency_jth,
+		COUNT(lm.power_w) FILTER (WHERE isfinite(lm.power_w) AND lm.power_w >= 0)::int AS power_reporting_count,
+		COALESCE(SUM(lm.power_w) FILTER (WHERE isfinite(lm.power_w) AND lm.power_w >= 0) / 1e3, 0)::double precision AS total_power_kw,
+		COUNT(lm.temp_c) FILTER (WHERE isfinite(lm.temp_c))::int AS temperature_reporting_count,
+		COALESCE(MIN(lm.temp_c) FILTER (WHERE isfinite(lm.temp_c)), 0)::double precision AS min_temperature_c,
+		COALESCE(MAX(lm.temp_c) FILTER (WHERE isfinite(lm.temp_c)), 0)::double precision AS max_temperature_c
 	FROM device_set_membership dcm_stats
 	JOIN device d_stats ON dcm_stats.device_id = d_stats.id AND d_stats.deleted_at IS NULL
 	JOIN discovered_device dd_stats ON d_stats.discovered_device_id = dd_stats.id AND dd_stats.is_active = TRUE
