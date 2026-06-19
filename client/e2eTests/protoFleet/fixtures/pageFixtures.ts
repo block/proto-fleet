@@ -6,8 +6,10 @@ import { ActivityPage } from "../pages/activity";
 import { AddMinersPage } from "../pages/addMiners";
 import { AuthPage } from "../pages/auth";
 import { LoginModalComponent } from "../pages/components/loginModal";
+import { ParentPickerModalComponent } from "../pages/components/parentPickerModal";
 import { EditPoolPage } from "../pages/editPool";
 import { EnergyPage } from "../pages/energy";
+import { FleetLocationsPage } from "../pages/fleetLocations";
 import { GroupsPage } from "../pages/groups";
 import { HomePage } from "../pages/home";
 import { MinersPage } from "../pages/miners";
@@ -27,6 +29,7 @@ type PageFixtures = {
   activityPage: ActivityPage;
   authPage: AuthPage;
   homePage: HomePage;
+  fleetLocationsPage: FleetLocationsPage;
   minersPage: MinersPage;
   groupsPage: GroupsPage;
   racksPage: RacksPage;
@@ -44,6 +47,7 @@ type PageFixtures = {
   energyPage: EnergyPage;
   newPoolModal: NewPoolModalPage;
   loginModal: LoginModalComponent;
+  parentPickerModal: ParentPickerModalComponent;
   commonSteps: CommonSteps;
 };
 
@@ -56,6 +60,9 @@ export const test = base.extend<PageFixtures>({
   },
   homePage: async ({ page, isMobile }, use) => {
     await use(new HomePage(page, isMobile));
+  },
+  fleetLocationsPage: async ({ page, isMobile }, use) => {
+    await use(new FleetLocationsPage(page, isMobile));
   },
   minersPage: async ({ page, isMobile }, use) => {
     await use(new MinersPage(page, isMobile));
@@ -107,6 +114,9 @@ export const test = base.extend<PageFixtures>({
   },
   loginModal: async ({ page, isMobile }, use) => {
     await use(new LoginModalComponent(page, isMobile));
+  },
+  parentPickerModal: async ({ page, isMobile }, use) => {
+    await use(new ParentPickerModalComponent(page, isMobile));
   },
   commonSteps: async ({ authPage, minersPage }, use) => {
     await use(new CommonSteps(authPage, minersPage));

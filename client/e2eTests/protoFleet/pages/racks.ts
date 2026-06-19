@@ -485,10 +485,37 @@ export class RacksPage extends BasePage {
     await expect(row.getByTestId("miners")).toHaveText(String(miners));
   }
 
+  async createEmptyRack(label: string, zone: string, columns: number = 1, rows: number = 1) {
+    await this.clickAddRackButton();
+    await this.inputZone(zone);
+    await this.inputRackLabel(label);
+    await this.enableCustomRackLayout();
+    await this.inputColumns(columns);
+    await this.inputRows(rows);
+    await this.clickContinueFromRackSettings();
+    await this.clickSaveRack();
+    await this.validateRackToast(label);
+  }
+
   async openRackFromList(label: string) {
     const row = this.getRackListRow(label);
     await expect(row).toBeVisible();
     await row.getByTestId("name").getByRole("button", { name: label, exact: true }).click();
+  }
+
+  async clickRackRowAction(label: string, actionLabel: string) {
+    const row = this.getRackListRow(label);
+    await expect(row).toBeVisible();
+    await row.locator('[data-testid$="-actions-trigger"]').click();
+    await this.page.getByText(actionLabel, { exact: true }).click();
+  }
+
+  async validateRackBuilding(label: string, buildingName: string) {
+    await expect(this.getRackListRow(label).getByTestId("building")).toHaveText(buildingName);
+  }
+
+  async validateRackSite(label: string, siteName: string) {
+    await expect(this.getRackListRow(label).getByTestId("site")).toHaveText(siteName);
   }
 
   async clickEditRack() {

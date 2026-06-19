@@ -211,6 +211,11 @@ export class MinersPage extends BasePage {
     const minerRow = await this.getMinerRowByIp(ipAddress);
     await minerRow.getByTestId(`single-miner-actions-menu-button`).click();
   }
+
+  async clickMinerActionMenuItem(actionLabel: string) {
+    await this.page.getByText(actionLabel, { exact: true }).click();
+  }
+
   async clickMinerCheckbox(ipAddress: string) {
     const minerRow = await this.getMinerRowByIp(ipAddress);
     await minerRow.locator(`//input[@type='checkbox']`).click();
