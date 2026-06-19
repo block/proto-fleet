@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create as createProto } from "@bufbuild/protobuf";
-import { deviceActions, performanceActions, settingsActions, type SupportedAction } from "./constants";
+import { deviceActions, groupActions, performanceActions, settingsActions, type SupportedAction } from "./constants";
 import { useMinerActions } from "./useMinerActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import {
@@ -33,6 +33,7 @@ const mockDownloadLogs = vi.fn();
 const mockFirmwareUpdate = vi.fn();
 const mockGetCommandBatchLogBundle = vi.fn();
 const mockRenameSingleMiner = vi.fn();
+const mockListMinerStateSnapshots = vi.hoisted(() => vi.fn());
 const mockCheckCommandCapabilities = vi.fn(({ onSuccess }) => {
   // Default to all supported (no modal shown)
   onSuccess({
@@ -63,6 +64,12 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
     firmwareUpdate: mockFirmwareUpdate,
     getCommandBatchLogBundle: mockGetCommandBatchLogBundle,
   }),
+}));
+
+vi.mock("@/protoFleet/api/clients", () => ({
+  fleetManagementClient: {
+    listMinerStateSnapshots: mockListMinerStateSnapshots,
+  },
 }));
 
 const mockFetchCoolingMode = vi.fn(() => Promise.resolve(0)); // CoolingMode.UNSPECIFIED
@@ -116,6 +123,7 @@ describe("useMinerActions", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockGetMinerModelGroups.mockResolvedValue([]);
+    mockListMinerStateSnapshots.mockResolvedValue({ miners: [], cursor: "" });
     testMiners = {};
   });
 
@@ -1854,6 +1862,51 @@ describe("useMinerActions", () => {
         PairingStatus.PAIRED,
         PairingStatus.DEFAULT_PASSWORD,
       ]);
+    });
+
+    it("resolves all-mode add-to-group actions to selectable device identifiers", async () => {
+      mockListMinerStateSnapshots.mockResolvedValueOnce({
+        miners: [
+          createProto(MinerStateSnapshotSchema, { deviceIdentifier: "paired-miner" }),
+          createProto(MinerStateSnapshotSchema, { deviceIdentifier: "default-password-miner" }),
+        ],
+        cursor: "",
+      });
+
+      const activeFilter = createProto(MinerListFilterSchema, {
+        deviceStatus: [DeviceStatus.ERROR],
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "page-miner", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+          totalCount: 2,
+          currentFilter: activeFilter,
+        }),
+      );
+
+      const addToGroupAction = result.current.popoverActions.find((a) => a.action === groupActions.addToGroup);
+
+      await act(async () => {
+        await addToGroupAction?.actionHandler();
+      });
+
+      expect(mockListMinerStateSnapshots).toHaveBeenCalledWith(
+        {
+          pageSize: 1000,
+          cursor: "",
+          filter: expect.objectContaining({
+            deviceStatus: [DeviceStatus.ERROR],
+            pairingStatuses: [PairingStatus.PAIRED, PairingStatus.DEFAULT_PASSWORD],
+          }),
+        },
+        { signal: undefined },
+      );
+      expect(result.current.groupActionDeviceIds).toEqual(["paired-miner", "default-password-miner"]);
+      expect(result.current.currentAction).toBe(groupActions.addToGroup);
+      expect(result.current.showAddToGroupModal).toBe(true);
     });
 
     it("should show unsupported miners modal with noneSupported flag when no miners support the action", async () => {

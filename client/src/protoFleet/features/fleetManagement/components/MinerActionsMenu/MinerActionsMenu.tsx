@@ -242,6 +242,9 @@ const MinerActionsMenu = ({
     }
     return selectedMinersWithStatus;
   }, [poolFilteredDeviceIds, selectedMinersWithStatus]);
+  const groupActionSelectedMinerIds = minerActionsResult.groupActionDeviceIds ?? selectedMiners;
+  const groupActionSelectionMode: SelectionMode = minerActionsResult.groupActionDeviceIds ? "subset" : selectionMode;
+  const groupActionDisplayCount = minerActionsResult.groupActionDeviceIds?.length ?? displayCount;
 
   const showQuickActions = !isPhone && !isTablet;
   const quickActions = useMemo(() => {
@@ -320,9 +323,9 @@ const MinerActionsMenu = ({
       />
       <MinerActionModalStack
         minerActions={minerActionsResult}
-        selectedMinerIds={selectedMiners}
-        selectionMode={selectionMode}
-        displayCount={displayCount}
+        selectedMinerIds={groupActionSelectedMinerIds}
+        selectionMode={groupActionSelectionMode}
+        displayCount={groupActionDisplayCount}
       />
       {/* The second AuthenticateFleetModal is specific to the worker-name
           flow, which only this menu hosts — keep it inline. */}

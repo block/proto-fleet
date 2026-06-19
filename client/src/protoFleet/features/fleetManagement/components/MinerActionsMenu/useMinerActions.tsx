@@ -15,6 +15,7 @@ import {
 } from "./constants";
 import { useFleetAuthentication } from "./useFleetAuthentication";
 import { type SecurityModelGroupFilter, useManageSecurityFlow } from "./useManageSecurityFlow";
+import { fetchAllMinerSnapshots } from "@/protoFleet/api/fetchAllMinerSnapshots";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import {
@@ -303,6 +304,7 @@ export const useMinerActions = ({
   const [coolingModeFilteredDeviceIds, setCoolingModeFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [currentCoolingMode, setCurrentCoolingMode] = useState<CoolingMode | undefined>(undefined);
   const [showAddToGroupModal, setShowAddToGroupModal] = useState(false);
+  const [groupActionDeviceIds, setGroupActionDeviceIds] = useState<string[] | undefined>(undefined);
   const [showFirmwareUpdateModal, setShowFirmwareUpdateModal] = useState(false);
   const [firmwareUpdateFilteredSelector, setFirmwareUpdateFilteredSelector] = useState<DeviceSelector | undefined>();
   const [firmwareUpdateFilteredDeviceIds, setFirmwareUpdateFilteredDeviceIds] = useState<string[] | undefined>(
@@ -956,6 +958,7 @@ export const useMinerActions = ({
 
   const handleAddToGroupDismiss = useCallback(() => {
     setShowAddToGroupModal(false);
+    setGroupActionDeviceIds(undefined);
     setCurrentAction(null);
     onActionComplete?.();
   }, [onActionComplete]);
@@ -1366,10 +1369,31 @@ export const useMinerActions = ({
       startAuthentication("security");
     };
 
-    const handleAddToGroup = () => {
+    const handleAddToGroup = async () => {
+      onActionStart?.();
+      setGroupActionDeviceIds(undefined);
+
+      if (selectionMode === "all") {
+        try {
+          const snapshots = await fetchAllMinerSnapshots(effectiveAllModeFilter);
+          const filteredDeviceIds = Object.keys(snapshots);
+
+          if (filteredDeviceIds.length === 0) {
+            pushToast({ message: "No miners selected.", status: TOAST_STATUSES.error });
+            onActionComplete?.();
+            return;
+          }
+
+          setGroupActionDeviceIds(filteredDeviceIds);
+        } catch {
+          pushToast({ message: "Couldn't load selected miners. Try again.", status: TOAST_STATUSES.error });
+          onActionComplete?.();
+          return;
+        }
+      }
+
       setCurrentAction(groupActions.addToGroup);
       setShowAddToGroupModal(true);
-      onActionStart?.();
     };
 
     const handleFirmwareUpdate = async () => {
@@ -1578,6 +1602,7 @@ export const useMinerActions = ({
     displayCount,
     onActionStart,
     onActionComplete,
+    effectiveAllModeFilter,
     deviceSelector,
     deviceStatus,
     withCapabilityCheck,
@@ -1646,6 +1671,7 @@ export const useMinerActions = ({
     handleRenameConfirm,
     handleRenameDismiss,
     showAddToGroupModal,
+    groupActionDeviceIds,
     handleAddToGroupDismiss,
   };
 };

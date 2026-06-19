@@ -13,6 +13,7 @@ import {
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
+import { applyFleetSelectablePairingStatuses } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import { pushToast, removeToast, STATUSES, updateToast } from "@/shared/features/toaster";
@@ -634,8 +635,7 @@ const MinerReparentPicker = ({
           let ids: string[];
           let snapshots: Record<string, MinerStateSnapshot> | undefined;
           if (selectionMode === "all") {
-            // Undefined filter = no URL filter params = full fleet.
-            const effectiveFilter = currentFilter ?? create(MinerListFilterSchema);
+            const effectiveFilter = applyFleetSelectablePairingStatuses(currentFilter);
             const loadingToast = pushToast({
               message: "Loading selected miners…",
               status: STATUSES.loading,

@@ -1,8 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 
 import MinerReparentPicker from "./MinerReparentPicker";
 import { PerDeviceBuildingConflictReason } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { MinerListFilterSchema, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 // Building-reparent flow only. The two-step force-clear confirm is the
 // part with branching logic: the server enumerates per-device conflicts,
@@ -92,8 +95,10 @@ const DIALOG_TITLE = "Move miners between buildings?";
 describe("MinerReparentPicker — building force-clear flow", () => {
   beforeEach(() => {
     mockAssignDevicesToBuilding.mockReset();
+    mockListMinerStateSnapshots.mockReset();
     mockPushToast.mockReset();
     mockPushToast.mockReturnValue(1);
+    mockListMinerStateSnapshots.mockResolvedValue({ miners: [], cursor: "" });
   });
 
   it("all-clearable conflicts open the confirm dialog; Continue re-dispatches with force=true", async () => {
@@ -140,6 +145,48 @@ describe("MinerReparentPicker — building force-clear flow", () => {
     );
     expect(screen.queryByText(DIALOG_TITLE)).not.toBeInTheDocument();
     expect(mockAssignDevicesToBuilding).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses selectable pairing statuses when resolving all-mode building moves", async () => {
+    mockListMinerStateSnapshots.mockResolvedValueOnce({
+      miners: [{ deviceIdentifier: "paired-miner" }, { deviceIdentifier: "default-password-miner" }],
+      cursor: "",
+    });
+    mockAssignDevicesToBuilding.mockImplementationOnce(({ onSuccess }) => {
+      onSuccess(2n, 2n);
+    });
+
+    render(
+      <MinerReparentPicker
+        kind="building"
+        deviceIdentifiers={["visible-page-miner"]}
+        selectionMode="all"
+        currentFilter={create(MinerListFilterSchema, { deviceStatus: [DeviceStatus.ERROR] })}
+        totalCount={2}
+        sourceLabel="2 miners"
+        successMessage={(count) => `Moved ${count} miner(s).`}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("pick-target"));
+
+    await waitFor(() => expect(mockAssignDevicesToBuilding).toHaveBeenCalledTimes(1));
+    expect(mockListMinerStateSnapshots).toHaveBeenCalledWith(
+      {
+        pageSize: 1000,
+        cursor: "",
+        filter: expect.objectContaining({
+          deviceStatus: [DeviceStatus.ERROR],
+          pairingStatuses: [PairingStatus.PAIRED, PairingStatus.DEFAULT_PASSWORD],
+        }),
+      },
+      { signal: expect.any(AbortSignal) },
+    );
+    expect(mockAssignDevicesToBuilding.mock.calls[0][0].deviceIdentifiers).toEqual([
+      "paired-miner",
+      "default-password-miner",
+    ]);
   });
 });
 
