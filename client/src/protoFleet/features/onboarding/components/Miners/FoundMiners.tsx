@@ -3,6 +3,7 @@ import clsx from "clsx";
 import type { MinerWithModel } from "./types";
 import { AuthenticationMethod } from "@/protoFleet/api/generated/capabilities/v1/capabilities_pb";
 import { type Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import { minerTypes } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import { Fleet, LogoAlt } from "@/shared/assets/icons";
 import Divider from "@/shared/components/Divider";
 import Header from "@/shared/components/Header";
@@ -22,20 +23,6 @@ type MinersByModel = {
   [key: string]: MinersByModelItem;
 };
 
-class MinerKey {
-  manufacturer: string;
-  model: string;
-
-  constructor(manufacturer: string, model: string) {
-    this.manufacturer = manufacturer;
-    this.model = model;
-  }
-
-  toString(): string {
-    return `${this.manufacturer}:${this.model}`;
-  }
-}
-
 type MinersByModelItem = {
   model: string;
   manufacturer: string;
@@ -44,8 +31,10 @@ type MinersByModelItem = {
 };
 
 function isProtoRig(manufacturer: string): boolean {
-  return manufacturer === "Proto";
+  return manufacturer.toLowerCase() === minerTypes.protoRig;
 }
+
+const getMinerModelKey = (manufacturer: string, model: string) => `${manufacturer}:${model}`;
 
 function supportsAutoAuth(supportedMethods: AuthenticationMethod[]): boolean {
   // The server auto-pairs using the plugin's default credentials for both
@@ -105,12 +94,12 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
     const _minersByModel: MinersByModel = {};
 
     miners.forEach((miner) => {
-      const minerKey = new MinerKey(miner.manufacturer || "unknown", miner.model || "unknown");
+      const minerKey = getMinerModelKey(miner.manufacturer || "unknown", miner.model || "unknown");
 
-      if (!_minersByModel[minerKey.toString()]) {
+      if (!_minersByModel[minerKey]) {
         const supportedMethods = miner.capabilities?.authentication?.supportedMethods || [];
 
-        _minersByModel[minerKey.toString()] = {
+        _minersByModel[minerKey] = {
           model: miner.model,
           manufacturer: miner.manufacturer || "unknown",
           supportedAuthenticationMethods: supportedMethods,
@@ -119,9 +108,9 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
       } else if (
         // if miner is already in our state dont add it again
         // so that we dont have duplicates
-        !_minersByModel[minerKey.toString()].miners.find((m) => m.ipAddress === miner.ipAddress)
+        !_minersByModel[minerKey].miners.find((m) => m.ipAddress === miner.ipAddress)
       ) {
-        _minersByModel[minerKey.toString()].miners.push(miner);
+        _minersByModel[minerKey].miners.push(miner);
       }
     });
 

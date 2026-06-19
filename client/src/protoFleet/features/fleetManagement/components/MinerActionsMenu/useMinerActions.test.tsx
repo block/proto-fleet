@@ -3092,10 +3092,14 @@ describe("useMinerActions", () => {
       });
     });
 
-    it("uses allDevices selector with model and manufacturer filter in handlePasswordConfirm", async () => {
+    it("uses allDevices selector with model, manufacturer, and pairing filter in handlePasswordConfirm", async () => {
       mockGetMinerModelGroups.mockResolvedValue([{ model: "Rig", manufacturer: "Proto", count: 6 }]);
       mockUpdateMinerPassword.mockImplementation(({ onSuccess }: any) => {
         onSuccess({ batchIdentifier: "batch-security-all" });
+      });
+
+      const currentFilter = createProto(MinerListFilterSchema, {
+        pairingStatuses: [PairingStatus.DEFAULT_PASSWORD],
       });
 
       const { result } = renderHook(() =>
@@ -3103,6 +3107,7 @@ describe("useMinerActions", () => {
           ...batchOpsParams(),
           selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
           selectionMode: "all",
+          currentFilter,
         }),
       );
 
@@ -3120,44 +3125,7 @@ describe("useMinerActions", () => {
       expect(callArgs.deviceSelector.selectionType.case).toBe("allDevices");
       expect(callArgs.deviceSelector.selectionType.value.models).toEqual(["Rig"]);
       expect(callArgs.deviceSelector.selectionType.value.manufacturers).toEqual(["Proto"]);
-    });
-
-    it("can use the current filter directly for all-mode password updates", async () => {
-      mockGetMinerModelGroups.mockResolvedValue([{ model: "Rig", manufacturer: "Proto", count: 6 }]);
-      mockUpdateMinerPassword.mockImplementation(({ onSuccess }: any) => {
-        onSuccess({ batchIdentifier: "batch-security-all" });
-      });
-
-      const currentFilter = createProto(MinerListFilterSchema, {
-        models: ["Rig"],
-        pairingStatuses: [PairingStatus.DEFAULT_PASSWORD],
-      });
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [],
-          selectionMode: "all",
-          currentFilter,
-          securityUseCurrentFilterForAllModePasswordUpdate: true,
-        }),
-      );
-
-      await triggerSecurityAndAuthenticate(result);
-
-      const group = result.current.minerGroups[0];
-      await act(async () => {
-        result.current.handleUpdateGroup(group);
-      });
-      await act(async () => {
-        result.current.handlePasswordConfirm("oldpass", "newpass");
-      });
-
-      const callArgs = mockUpdateMinerPassword.mock.calls[0][0];
-      expect(callArgs.deviceSelector.selectionType.case).toBe("allDevices");
-      expect(callArgs.deviceSelector.selectionType.value.models).toEqual(["Rig"]);
       expect(callArgs.deviceSelector.selectionType.value.pairingStatus).toEqual([PairingStatus.DEFAULT_PASSWORD]);
-      expect(callArgs.deviceSelector.selectionType.value.manufacturers).toEqual([]);
     });
   });
 

@@ -103,8 +103,6 @@ interface UseMinerActionsParams {
   onRefetchMiners?: () => void;
   /** Optional group filter for all-mode security flows that need narrower model groups than MinerListFilter supports. */
   securityModelGroupFilter?: SecurityModelGroupFilter;
-  /** When true, all-mode password updates use currentFilter directly instead of re-scoping to the clicked group. */
-  securityUseCurrentFilterForAllModePasswordUpdate?: boolean;
 }
 
 /**
@@ -274,7 +272,6 @@ export const useMinerActions = ({
   miners = {} as Record<string, MinerStateSnapshot>,
   onRefetchMiners,
   securityModelGroupFilter,
-  securityUseCurrentFilterForAllModePasswordUpdate,
 }: UseMinerActionsParams) => {
   const {
     startMining,
@@ -1018,7 +1015,6 @@ export const useMinerActions = ({
     miners,
     currentFilter: effectiveCurrentFilter,
     securityModelGroupFilter,
-    useCurrentFilterForAllModePasswordUpdate: securityUseCurrentFilterForAllModePasswordUpdate,
   });
 
   useEffect(() => {
