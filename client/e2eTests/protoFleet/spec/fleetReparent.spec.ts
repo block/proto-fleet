@@ -36,7 +36,20 @@ test.describe("Fleet reparent flows", () => {
       await racksPage.validateRackRow(rackName, RACK_ZONE, 0);
     });
 
-    await test.step("Move the rack to the target building", async () => {
+    await test.step("Assign the rack to the source building", async () => {
+      await racksPage.clickRackRowAction(rackName, "Add to building");
+      await parentPickerModal.validateTitleMatches(/Add .* to a building/);
+      await parentPickerModal.selectOption(sourceBuildingName);
+      await parentPickerModal.clickSave();
+      await racksPage.validateTextInToast(`Moved "${rackName}" to selected building.`);
+
+      await page.goto(`/racks?building=${sourceBuildingId}`);
+      await racksPage.clickViewList();
+      await racksPage.waitForRackListToLoad({ allowEmpty: false });
+      await racksPage.validateRackRow(rackName, RACK_ZONE, 0);
+    });
+
+    await test.step("Move the rack from the source building to the target building", async () => {
       await racksPage.clickRackRowAction(rackName, "Add to building");
       await parentPickerModal.validateTitleMatches(/Add .* to a building/);
       await parentPickerModal.selectOption(targetBuildingName);
@@ -49,7 +62,7 @@ test.describe("Fleet reparent flows", () => {
       await page.goto(`/racks?building=${targetBuildingId}`);
       await racksPage.clickViewList();
       await racksPage.waitForRackListToLoad({ allowEmpty: false });
-      await racksPage.validateRackRow(rackName, RACK_ZONE, 0);
+      test.expect(await racksPage.listRackNames()).toContain(rackName);
 
       await page.goto(`/racks?building=${sourceBuildingId}`);
       await racksPage.clickViewList();

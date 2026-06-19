@@ -56,11 +56,6 @@ export class FleetLocationsPage extends BasePage {
     return testId.replace("site-settings-building-row-", "");
   }
 
-  private async selectOption(testId: string, optionLabel: string) {
-    await this.page.getByTestId(testId).click();
-    await this.page.getByRole("option", { name: optionLabel, exact: true }).click();
-  }
-
   private getSiteRow(siteName: string): Locator {
     return this.page.getByTestId("sites-all-table").getByRole("button").filter({ hasText: siteName }).first();
   }
