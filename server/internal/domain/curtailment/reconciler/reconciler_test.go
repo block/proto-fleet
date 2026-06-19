@@ -1703,7 +1703,7 @@ func TestReconciler_FullFleetCurtailConfirmTimeoutExhaustionStaysRestorable(t *t
 		},
 	}
 	store.candidates = []*models.Candidate{
-		{DeviceIdentifier: "maybe-asleep", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+		{DeviceIdentifier: "maybe-asleep", LatestPowerW: nil, LatestHashRateHS: nil},
 	}
 
 	r := newReconcilerForTest(store, disp)
@@ -1725,6 +1725,40 @@ func TestReconciler_FullFleetCurtailConfirmTimeoutExhaustionStaysRestorable(t *t
 	target = store.targetsByEventID[eventID][0]
 	assert.Equal(t, models.DesiredStateActive, target.DesiredState)
 	assert.Equal(t, models.TargetStatePending, target.State, "timeout-exhausted target remains in restore queue")
+}
+
+func TestReconciler_FullFleetCurtailConfirmTimeoutExhaustionWithAwakeTelemetryFails(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	lastDispatchedAt := time.Date(2026, 5, 7, 11, 54, 0, 0, time.UTC)
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending, Mode: models.ModeFullFleet},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "still-awake",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+			LastDispatchedAt:   &lastDispatchedAt,
+			RetryCount:         2,
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "still-awake", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	target := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateRestoreFailed, target.State)
+	assert.Equal(t, int32(3), target.RetryCount)
+	assert.Equal(t, models.EventStateCompletedWithFailures, store.events[0].State)
 }
 
 func TestReconciler_FullFleetCurtailConfirmTimeoutFallbackCleansUpNextTick(t *testing.T) {
@@ -1749,7 +1783,7 @@ func TestReconciler_FullFleetCurtailConfirmTimeoutFallbackCleansUpNextTick(t *te
 		},
 	}
 	store.candidates = []*models.Candidate{
-		{DeviceIdentifier: "maybe-asleep", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+		{DeviceIdentifier: "maybe-asleep", LatestPowerW: nil, LatestHashRateHS: nil},
 	}
 	failConfirmWrite := true
 	store.updateTargetStateHook = func(_ string, params interfaces.UpdateCurtailmentTargetStateParams, _ int) error {

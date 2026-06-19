@@ -701,7 +701,7 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 		return
 	}
 	if !isCurtailed(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor, true) {
-		r.maybeAgeOutCurtailConfirmation(ctx, ev, t)
+		r.maybeAgeOutCurtailConfirmation(ctx, ev, t, c)
 		return
 	}
 	now := r.now()
@@ -732,12 +732,12 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 	}
 }
 
-func (r *Reconciler) maybeAgeOutCurtailConfirmation(ctx context.Context, ev *models.Event, t *models.Target) {
+func (r *Reconciler) maybeAgeOutCurtailConfirmation(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
 	if ev.Mode != models.ModeFullFleet || t.LastDispatchedAt == nil || r.cfg.CurtailConfirmTimeoutSec <= 0 {
 		return
 	}
 	if t.RetryCount >= r.cfg.MaxRetries {
-		r.markCurtailConfirmationTimeoutExhausted(ctx, ev, t, t.RetryCount)
+		r.markCurtailConfirmationTimeoutExhausted(ctx, ev, t, c, t.RetryCount)
 		return
 	}
 	timeout := time.Duration(r.cfg.CurtailConfirmTimeoutSec) * time.Second
@@ -751,16 +751,16 @@ func (r *Reconciler) maybeAgeOutCurtailConfirmation(ctx context.Context, ev *mod
 	slog.Info("curtailment reconciler: curtail telemetry timeout aging initiated",
 		"event_id", ev.ID, "device", t.DeviceIdentifier,
 		"timeout_sec", r.cfg.CurtailConfirmTimeoutSec)
-	r.recordCurtailConfirmationTimeout(ctx, ev, t, retryState)
+	r.recordCurtailConfirmationTimeout(ctx, ev, t, c, retryState)
 }
 
-func (r *Reconciler) recordCurtailConfirmationTimeout(ctx context.Context, ev *models.Event, t *models.Target, retryState models.TargetState) {
+func (r *Reconciler) recordCurtailConfirmationTimeout(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate, retryState models.TargetState) {
 	// A successful command enqueue with missing confirmation is not proof that
 	// the miner failed to curtail. Keep the row non-terminal so Stop can still
 	// issue the compensating restore command if the miner did go to sleep.
 	newRetry := t.RetryCount + 1
 	if newRetry >= r.cfg.MaxRetries {
-		r.markCurtailConfirmationTimeoutExhausted(ctx, ev, t, newRetry)
+		r.markCurtailConfirmationTimeoutExhausted(ctx, ev, t, c, newRetry)
 		return
 	}
 	params := interfaces.UpdateCurtailmentTargetStateParams{
@@ -791,7 +791,12 @@ func (r *Reconciler) recordCurtailConfirmationTimeout(ctx context.Context, ev *m
 	t.RetryCount = newRetry
 }
 
-func (r *Reconciler) markCurtailConfirmationTimeoutExhausted(ctx context.Context, ev *models.Event, t *models.Target, retryCount int32) {
+func (r *Reconciler) markCurtailConfirmationTimeoutExhausted(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate, retryCount int32) {
+	if hasAwakeTelemetryEvidence(c, t.BaselinePowerW, r.cfg.DriftThresholdFactor) {
+		t.RetryCount = retryCount - 1
+		r.recordDispatchFailure(ctx, ev, t, curtailTelemetryTimeoutError, models.TargetStateDispatched)
+		return
+	}
 	now := r.now()
 	params := interfaces.UpdateCurtailmentTargetStateParams{
 		State:       models.TargetStateConfirmed,
@@ -828,9 +833,6 @@ func (r *Reconciler) markCurtailConfirmationTimeoutExhausted(ctx context.Context
 // checkDrift evaluates a confirmed target against telemetry. Uncurtailed
 // → Drifted, re-dispatch if budget remains.
 func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
-	if t.LastError != nil && *t.LastError == curtailTelemetryTimeoutError {
-		return
-	}
 	if c == nil {
 		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", models.TargetStateDrifted)
 		return
@@ -1090,6 +1092,21 @@ func isCurtailed(latestPowerW *float64, baselinePowerW *float64, latestHashRateH
 		return !requirePositiveEvidence
 	}
 	return *latestHashRateHS <= 0
+}
+
+func hasAwakeTelemetryEvidence(c *models.Candidate, baselinePowerW *float64, driftThresholdFactor float64) bool {
+	if c == nil {
+		return false
+	}
+	if c.LatestPowerW != nil &&
+		isFinite(*c.LatestPowerW) &&
+		baselinePowerW != nil &&
+		isFinite(*baselinePowerW) &&
+		*baselinePowerW > 0 &&
+		*c.LatestPowerW > *baselinePowerW*driftThresholdFactor {
+		return true
+	}
+	return c.LatestHashRateHS != nil && isFinite(*c.LatestHashRateHS) && *c.LatestHashRateHS > 0
 }
 
 func isFinite(v float64) bool {
