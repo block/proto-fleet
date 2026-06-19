@@ -110,6 +110,14 @@ func (s *SQLCurtailmentStore) ListActiveCurtailedDevices(ctx context.Context, or
 	return devices, nil
 }
 
+func (s *SQLCurtailmentStore) ListActiveCurtailmentTargetDevices(ctx context.Context, orgID int64) ([]string, error) {
+	devices, err := s.GetQueries(ctx).ListActiveCurtailmentTargetDevicesByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list active curtailment target devices: %v", err)
+	}
+	return devices, nil
+}
+
 func (s *SQLCurtailmentStore) ListRecentlyResolvedCurtailedDevices(ctx context.Context, orgID int64, cooldownSec int32) ([]string, error) {
 	devices, err := s.GetQueries(ctx).ListRecentlyResolvedCurtailedDevicesByOrg(ctx, sqlc.ListRecentlyResolvedCurtailedDevicesByOrgParams{
 		OrgID:       orgID,
@@ -624,15 +632,43 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	event models.InsertEventParams,
 	targets []models.InsertTargetParams,
 ) (*models.InsertEventResult, error) {
-	// A terminal event (a vacuously-COMPLETED FULL_FLEET start with nothing
-	// eligible) legitimately has no targets; a non-terminal event with none is
-	// a caller bug.
-	if len(targets) == 0 && !event.State.IsTerminal() {
+	// A closed-loop FULL_FLEET event may begin as a targetless active watcher.
+	// Other non-terminal events with no targets are caller bugs.
+	if len(targets) == 0 && !event.State.IsTerminal() && !isClosedLoopFullFleetInsert(event) {
 		return nil, fleeterror.NewInvalidArgumentError(
 			"InsertEventWithTargets requires a non-empty targets slice for a non-terminal event",
 		)
 	}
-	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.InsertEventResult, error) {
+	replayRace := false
+	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.InsertEventResult, error) {
+		if usesHierarchicalCurtailmentScope(event) {
+			if err := q.LockCurtailmentScopeForWrite(ctx, strconv.FormatInt(event.OrgID, 10)); err != nil {
+				return nil, fleeterror.NewInternalErrorf("failed to lock curtailment scope: %v", err)
+			}
+			if replay, err := lookupReplayEventInTx(ctx, q, event); err != nil {
+				return nil, err
+			} else if replay != nil {
+				replayRace = true
+				return nil, nil
+			}
+			scopeSiteID, err := hierarchicalScopeSiteID(event)
+			if err != nil {
+				return nil, err
+			}
+			conflicts, err := q.CountCurtailmentScopeConflicts(ctx, sqlc.CountCurtailmentScopeConflictsParams{
+				OrgID:     event.OrgID,
+				Mode:      string(event.Mode),
+				LoopType:  string(event.LoopType),
+				ScopeType: string(event.ScopeType),
+				SiteID:    scopeSiteID,
+			})
+			if err != nil {
+				return nil, fleeterror.NewInternalErrorf("failed to check curtailment scope conflicts: %v", err)
+			}
+			if conflicts > 0 {
+				return nil, fleeterror.NewAlreadyExistsError("a non-terminal curtailment event already owns this scope")
+			}
+		}
 		row, err := q.InsertCurtailmentEvent(ctx, sqlc.InsertCurtailmentEventParams{
 			EventUuid:               event.EventUUID,
 			OrgID:                   event.OrgID,
@@ -662,6 +698,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			IdempotencyKey:          ptrToNullString(event.IdempotencyKey),
 			Reason:                  event.Reason,
 			ScheduledStartAt:        ptrToNullTime(event.ScheduledStartAt),
+			StartedAt:               ptrToNullTime(event.StartedAt),
 			EndedAt:                 ptrToNullTime(event.EndedAt),
 			CreatedByUserID:         event.CreatedByUserID,
 			EffectiveBatchSize:      sql.NullInt32{Int32: event.EffectiveBatchSize, Valid: true},
@@ -672,7 +709,8 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				switch pgErr.ConstraintName {
 				case idempotencyKeyUniqueIndex, externalReferenceUniqueIndex:
 					// Replay path: caller re-issues the matching lookup.
-					return nil, interfaces.ErrCurtailmentReplayRaceLoss
+					replayRace = true
+					return nil, nil
 				}
 				// Unknown constraint: sanitize the response and log the
 				// name server-side so it doesn't leak through %v.
@@ -682,36 +720,38 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			}
 			return nil, fleeterror.NewInternalErrorf("failed to insert curtailment event: %v", err)
 		}
-		payload, err := buildBulkTargetPayload(targets)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf(
-				"failed to encode curtailment target payload: %v", err,
-			)
-		}
-		inserted, err := q.BulkInsertCurtailmentTargets(ctx, sqlc.BulkInsertCurtailmentTargetsParams{
-			CurtailmentEventID: row.ID,
-			TargetsJsonb:       payload,
-		})
-		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == pgErrCodeUniqueViolation &&
-				pgErr.ConstraintName == deviceNonTerminalUniqueIndex {
-				// The device-exclusivity index rejected a target: another
-				// non-terminal event already curtails one of these devices
-				// (selector/insert race). Return a FleetError directly —
-				// WithTransaction converts plain sentinels to Internal.
-				return nil, fleeterror.NewAlreadyExistsError(
-					"one or more selected devices are already in a non-terminal curtailment; retry",
+		if len(targets) > 0 {
+			payload, err := buildBulkTargetPayload(targets)
+			if err != nil {
+				return nil, fleeterror.NewInternalErrorf(
+					"failed to encode curtailment target payload: %v", err,
 				)
 			}
-			return nil, fleeterror.NewInternalErrorf("failed to bulk insert curtailment targets: %v", err)
-		}
-		if inserted != int64(len(targets)) {
-			// jsonb_to_recordset silently drops rows that fail column-type
-			// cast; bail so the tx rolls back instead of partial fanout.
-			return nil, fleeterror.NewInternalErrorf(
-				"bulk insert wrote %d targets, expected %d", inserted, len(targets),
-			)
+			inserted, err := q.BulkInsertCurtailmentTargets(ctx, sqlc.BulkInsertCurtailmentTargetsParams{
+				CurtailmentEventID: row.ID,
+				TargetsJsonb:       payload,
+			})
+			if err != nil {
+				var pgErr *pgconn.PgError
+				if errors.As(err, &pgErr) && pgErr.Code == pgErrCodeUniqueViolation &&
+					pgErr.ConstraintName == deviceNonTerminalUniqueIndex {
+					// The device-exclusivity index rejected a target: another
+					// non-terminal event already curtails one of these devices
+					// (selector/insert race). Return a FleetError directly —
+					// WithTransaction converts plain sentinels to Internal.
+					return nil, fleeterror.NewAlreadyExistsError(
+						"one or more selected devices are already in a non-terminal curtailment; retry",
+					)
+				}
+				return nil, fleeterror.NewInternalErrorf("failed to bulk insert curtailment targets: %v", err)
+			}
+			if inserted != int64(len(targets)) {
+				// jsonb_to_recordset silently drops rows that fail column-type
+				// cast; bail so the tx rolls back instead of partial fanout.
+				return nil, fleeterror.NewInternalErrorf(
+					"bulk insert wrote %d targets, expected %d", inserted, len(targets),
+				)
+			}
 		}
 		return &models.InsertEventResult{
 			ID:        row.ID,
@@ -720,6 +760,68 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			UpdatedAt: row.UpdatedAt,
 		}, nil
 	})
+	if replayRace {
+		return nil, interfaces.ErrCurtailmentReplayRaceLoss
+	}
+	return result, err
+}
+
+func isClosedLoopFullFleetInsert(event models.InsertEventParams) bool {
+	return event.Mode == models.ModeFullFleet && event.LoopType == models.LoopTypeClosed
+}
+
+func usesHierarchicalCurtailmentScope(event models.InsertEventParams) bool {
+	if event.State.IsTerminal() {
+		return false
+	}
+	switch event.ScopeType {
+	case models.ScopeTypeWholeOrg, models.ScopeTypeSite:
+		return true
+	default:
+		return false
+	}
+}
+
+func hierarchicalScopeSiteID(event models.InsertEventParams) (string, error) {
+	if event.ScopeType != models.ScopeTypeSite {
+		return "", nil
+	}
+	var scope struct {
+		SiteID int64 `json:"site_id"`
+	}
+	if err := json.Unmarshal(event.ScopeJSON, &scope); err != nil || scope.SiteID <= 0 {
+		return "", fleeterror.NewInternalErrorf("invalid site scope for closed-loop curtailment event")
+	}
+	return strconv.FormatInt(scope.SiteID, 10), nil
+}
+
+func lookupReplayEventInTx(ctx context.Context, q *sqlc.Queries, event models.InsertEventParams) (*models.Event, error) {
+	if event.IdempotencyKey != nil {
+		row, err := q.GetCurtailmentEventByIdempotencyKey(ctx, sqlc.GetCurtailmentEventByIdempotencyKeyParams{
+			OrgID:          event.OrgID,
+			IdempotencyKey: sql.NullString{String: *event.IdempotencyKey, Valid: true},
+		})
+		if err == nil {
+			return convertEventRow(row), nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewInternalErrorf("failed to replay-check curtailment event by idempotency_key: %v", err)
+		}
+	}
+	if event.ExternalSource != nil && event.ExternalReference != nil {
+		row, err := q.GetCurtailmentEventByExternalReference(ctx, sqlc.GetCurtailmentEventByExternalReferenceParams{
+			OrgID:             event.OrgID,
+			ExternalSource:    sql.NullString{String: *event.ExternalSource, Valid: true},
+			ExternalReference: sql.NullString{String: *event.ExternalReference, Valid: true},
+		})
+		if err == nil {
+			return convertEventRow(row), nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewInternalErrorf("failed to replay-check curtailment event by external reference: %v", err)
+		}
+	}
+	return nil, nil
 }
 
 func (s *SQLCurtailmentStore) GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
@@ -1285,6 +1387,30 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 			return nil, fleeterror.NewInternalErrorf("failed to begin curtailment restoration: %v", err)
 		}
 
+		rollup, err := q.GetCurtailmentTargetRollupByEvent(ctx, sqlc.GetCurtailmentTargetRollupByEventParams{
+			OrgID:     orgID,
+			EventUuid: eventUUID,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to get curtailment target rollup before restore: %v", err)
+		}
+		if rollup.Total == 0 {
+			now := time.Now().UTC()
+			if rows, err := q.UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
+				ID:            current.ID,
+				ExpectedState: string(models.EventStateRestoring),
+				State:         string(models.EventStateCompleted),
+				EndedAt:       sql.NullTime{Time: now, Valid: true},
+			}); err != nil {
+				return nil, fleeterror.NewInternalErrorf("failed to complete empty curtailment event: %v", err)
+			} else if rows == 0 {
+				return nil, interfaces.ErrCurtailmentEventStateRaceLoss
+			}
+			updated.State = string(models.EventStateCompleted)
+			updated.EndedAt = sql.NullTime{Time: now, Valid: true}
+			return convertEventRow(updated), nil
+		}
+
 		if err := q.ResetCurtailmentTargetsForRestore(ctx, current.ID); err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to reset curtailment targets for restore: %v", err)
 		}
@@ -1397,6 +1523,28 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 
 		return convertEventRow(updated), nil
 	})
+}
+
+func (s *SQLCurtailmentStore) ClaimClosedLoopFullFleetTargets(ctx context.Context, eventID int64, targets []models.InsertTargetParams) ([]*models.Target, error) {
+	if len(targets) == 0 {
+		return nil, nil
+	}
+	payload, err := buildBulkTargetPayload(targets)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to encode curtailment target payload: %v", err)
+	}
+	rows, err := s.GetQueries(ctx).ClaimClosedLoopFullFleetTargets(ctx, sqlc.ClaimClosedLoopFullFleetTargetsParams{
+		CurtailmentEventID: eventID,
+		TargetsJsonb:       payload,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to claim curtailment targets: %v", err)
+	}
+	claimed := make([]*models.Target, len(rows))
+	for i, row := range rows {
+		claimed[i] = convertTargetRow(row)
+	}
+	return claimed, nil
 }
 
 func (s *SQLCurtailmentStore) GetHeartbeat(ctx context.Context) (*models.Heartbeat, error) {

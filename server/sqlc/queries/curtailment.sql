@@ -73,6 +73,33 @@ FROM curtailment_target ct
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
 WHERE ce.org_id = sqlc.arg('org_id')
     AND ce.state IN ('pending', 'active', 'restoring')
+    AND ct.state NOT IN ('resolved', 'restore_failed', 'released')
+UNION
+SELECT d.device_identifier
+FROM curtailment_event ce
+JOIN device d ON d.org_id = ce.org_id
+    AND d.deleted_at IS NULL
+    AND (
+        ce.scope_type = 'whole_org'
+        OR (
+            ce.scope_type = 'site'
+            AND d.site_id = (ce.scope_jsonb->>'site_id')::BIGINT
+        )
+    )
+WHERE ce.org_id = sqlc.arg('org_id')
+    AND ce.state IN ('pending', 'active', 'restoring')
+    AND ce.mode = 'FULL_FLEET'
+    AND ce.loop_type = 'closed';
+
+-- name: ListActiveCurtailmentTargetDevicesByOrg :many
+-- Devices with concrete non-terminal target rows; used by closed-loop
+-- admission to skip miners already owned by other events without excluding
+-- the current targetless scope watcher.
+SELECT DISTINCT ct.device_identifier
+FROM curtailment_target ct
+JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
+WHERE ce.org_id = sqlc.arg('org_id')
+    AND ce.state IN ('pending', 'active', 'restoring')
     AND ct.state NOT IN ('resolved', 'restore_failed', 'released');
 
 -- name: ListRecentlyResolvedCurtailedDevicesByOrg :many
@@ -122,6 +149,7 @@ INSERT INTO curtailment_event (
     idempotency_key,
     reason,
     scheduled_start_at,
+    started_at,
     ended_at,
     created_by_user_id,
     effective_batch_size
@@ -154,6 +182,7 @@ INSERT INTO curtailment_event (
     sqlc.narg('idempotency_key'),
     sqlc.arg('reason'),
     sqlc.narg('scheduled_start_at'),
+    sqlc.narg('started_at'),
     sqlc.narg('ended_at'),
     sqlc.arg('created_by_user_id'),
     sqlc.arg('effective_batch_size')
@@ -454,6 +483,87 @@ FROM jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
     baseline_power_w          NUMERIC(12,3),
     selector_rationale_jsonb  JSONB
 );
+
+-- name: LockCurtailmentScopeForWrite :exec
+-- Serialize hierarchy start checks by org so conflict detection and event
+-- insertion happen under one database-backed critical section.
+SELECT pg_advisory_xact_lock(hashtextextended('curtailment_scope:' || sqlc.arg('org_id')::text, 0));
+
+-- name: CountCurtailmentScopeConflicts :one
+-- Hierarchy for currently supported scopes: org > site.
+-- A new whole-org event conflicts with existing whole-org or site events.
+-- A new site event conflicts with existing whole-org or same-site events.
+SELECT count(*)::BIGINT
+FROM curtailment_event
+WHERE org_id = sqlc.arg('org_id')
+  AND state IN ('pending', 'active', 'restoring')
+  AND sqlc.arg('mode')::TEXT = 'FULL_FLEET'
+  AND sqlc.arg('loop_type')::TEXT = 'closed'
+  AND (
+    (
+      sqlc.arg('scope_type')::TEXT = 'whole_org'
+      AND scope_type IN ('whole_org', 'site')
+    )
+    OR (
+      sqlc.arg('scope_type')::TEXT = 'site'
+      AND (
+        scope_type = 'whole_org'
+        OR (
+          scope_type = 'site'
+          AND scope_jsonb->>'site_id' = sqlc.arg('site_id')::TEXT
+        )
+      )
+    )
+  );
+
+-- name: ClaimClosedLoopFullFleetTargets :many
+-- Closed-loop FULL_FLEET dispatch claim. Locks the parent event so
+-- Stop/AdminTerminate and dynamic target claims serialize on lifecycle state.
+-- Same-event duplicates and cross-event target conflicts are no-ops; the
+-- reconciler retries on a later tick if a conflicting event resolves.
+WITH locked_event AS MATERIALIZED (
+    SELECT id
+    FROM curtailment_event
+    WHERE id = sqlc.arg('curtailment_event_id')
+      AND state IN ('pending', 'active')
+      AND mode = 'FULL_FLEET'
+      AND loop_type = 'closed'
+    FOR UPDATE
+)
+INSERT INTO curtailment_target (
+    curtailment_event_id,
+    device_identifier,
+    target_type,
+    state,
+    desired_state,
+    baseline_power_w,
+    selector_rationale_jsonb
+)
+SELECT
+    locked_event.id,
+    t.device_identifier,
+    t.target_type,
+    'dispatching',
+    t.desired_state,
+    t.baseline_power_w,
+    t.selector_rationale_jsonb
+FROM locked_event
+JOIN jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
+    device_identifier         TEXT,
+    target_type               TEXT,
+    state                     TEXT,
+    desired_state             TEXT,
+    baseline_power_w          NUMERIC(12,3),
+    selector_rationale_jsonb  JSONB
+) ON TRUE
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM curtailment_target existing
+    WHERE existing.curtailment_event_id = locked_event.id
+      AND existing.device_identifier = t.device_identifier
+)
+ON CONFLICT DO NOTHING
+RETURNING curtailment_target.*;
 
 -- name: ListCurtailmentTargetsByEvent :many
 -- Org-scoped via the join.

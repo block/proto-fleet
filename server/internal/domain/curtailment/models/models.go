@@ -284,6 +284,7 @@ type InsertEventParams struct {
 	IdempotencyKey          *string
 	Reason                  string
 	ScheduledStartAt        *time.Time
+	StartedAt               *time.Time
 	// EndedAt is set only when an event is inserted already terminal — a
 	// vacuously-COMPLETED FULL_FLEET start with no eligible targets — so the
 	// completion time is recorded; the reconciler/restorer set it otherwise.
