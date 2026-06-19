@@ -116,11 +116,13 @@ const FleetBuildingsPage = () => {
     ].join("|");
   }, [requestSiteFilter, errorComponentTypes, telemetryRanges]);
 
-  // Latest request key, read at response time. usePoll has no per-request
-  // cancellation, so a slow ListBuildings for a previous filter can resolve
-  // after a newer one; comparing the captured key against this ref lets the
-  // stale (out-of-order) response be ignored instead of clobbering rows.
+  // Latest request key/id, read at response time. usePoll has no
+  // per-request cancellation, and manual modal refreshes can overlap an
+  // in-flight poll, so a slow ListBuildings response can resolve after a
+  // newer one. The key rejects old filters; the request id rejects older
+  // same-filter refreshes.
   const listFilterKeyRef = useRef(listFilterKey);
+  const listRequestIdRef = useRef(0);
   useEffect(() => {
     listFilterKeyRef.current = listFilterKey;
   }, [listFilterKey]);
@@ -129,18 +131,19 @@ const FleetBuildingsPage = () => {
   // completion (not from request start) so slow responses can't overlap.
   const fetchBuildings = useCallback(() => {
     const requestedFilterKey = listFilterKey; // captured for the staleness check
+    const requestId = ++listRequestIdRef.current;
     return listBuildings({
       siteIds: requestSiteFilter.siteIds,
       includeUnassigned: requestSiteFilter.includeUnassigned,
       errorComponentTypes,
       telemetryRanges,
       onSuccess: (rows) => {
-        if (listFilterKeyRef.current !== requestedFilterKey) return; // filter changed mid-flight
+        if (requestId !== listRequestIdRef.current || listFilterKeyRef.current !== requestedFilterKey) return;
         setBuildings(rows);
         setBuildingsError(null);
       },
       onError: (msg) => {
-        if (listFilterKeyRef.current !== requestedFilterKey) return; // filter changed mid-flight
+        if (requestId !== listRequestIdRef.current || listFilterKeyRef.current !== requestedFilterKey) return;
         setBuildingsError(msg);
         // Preserve last-good list across transient errors; only fall to []
         // on the initial-load failure path.

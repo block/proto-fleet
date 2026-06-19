@@ -87,23 +87,29 @@ const FleetSitesPage = () => {
   }, [errorComponentTypes, telemetryRanges]);
 
   const filteredSitesKeyRef = useRef(filteredSitesKey);
+  const filteredSitesRequestIdRef = useRef(0);
   useEffect(() => {
     filteredSitesKeyRef.current = filteredSitesKey;
   }, [filteredSitesKey]);
 
   const fetchFilteredSites = useCallback(() => {
     const requestedFilterKey = filteredSitesKey;
+    const requestId = ++filteredSitesRequestIdRef.current;
     return listSites({
       errorComponentTypes,
       telemetryRanges,
       onSuccess: (rows) => {
-        if (filteredSitesKeyRef.current !== requestedFilterKey) return;
+        if (requestId !== filteredSitesRequestIdRef.current || filteredSitesKeyRef.current !== requestedFilterKey) {
+          return;
+        }
         setFilteredSites(rows);
         setFilteredSitesError(null);
         setFilteredSitesLoaded(true);
       },
       onError: (msg) => {
-        if (filteredSitesKeyRef.current !== requestedFilterKey) return;
+        if (requestId !== filteredSitesRequestIdRef.current || filteredSitesKeyRef.current !== requestedFilterKey) {
+          return;
+        }
         setFilteredSitesError(msg);
         setFilteredSites((prev) => prev ?? []);
       },
