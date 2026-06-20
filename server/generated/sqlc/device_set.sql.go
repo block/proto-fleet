@@ -843,7 +843,7 @@ func (q *Queries) GetDeviceSiteIDsByMembership(ctx context.Context, arg GetDevic
 const getGroupRefsForDevices = `-- name: GetGroupRefsForDevices :many
 SELECT dsm.device_identifier, ds.id, ds.label
 FROM device_set_membership dsm
-JOIN device_set ds ON dsm.device_set_id = ds.id
+JOIN device_set ds ON dsm.device_set_id = ds.id AND ds.org_id = dsm.org_id
 WHERE dsm.device_identifier = ANY($2::text[])
   AND dsm.org_id = $1
   AND ds.type = 'group'
@@ -924,8 +924,8 @@ SELECT
     )
   END::text AS position
 FROM device_set_membership dsm
-JOIN device_set ds ON dsm.device_set_id = ds.id
-LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id
+JOIN device_set ds ON dsm.device_set_id = ds.id AND ds.org_id = dsm.org_id
+LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id AND dsr.org_id = dsm.org_id
 LEFT JOIN building b ON b.id = dsr.building_id
   AND b.org_id = dsm.org_id
   AND b.deleted_at IS NULL
