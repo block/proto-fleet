@@ -41,7 +41,9 @@ const minerSelectColumns = `SELECT
     discovered_device.driver_name,
     device.custom_name,
     device.site_id,
-    COALESCE(site.name, '') as site_label`
+    COALESCE(site.name, '') as site_label,
+    device.building_id,
+    COALESCE(building.name, '') as building_label`
 
 // minerFromJoins contains the FROM clause and LEFT JOINs for miner state queries.
 // Parameter: $1 = org_id (used in device join condition)
@@ -59,7 +61,10 @@ LEFT JOIN device_pairing ON device.id = device_pairing.device_id
 LEFT JOIN device_status ON device.id = device_status.device_id
 LEFT JOIN site ON site.id = device.site_id
     AND site.org_id = $1
-    AND site.deleted_at IS NULL`
+    AND site.deleted_at IS NULL
+LEFT JOIN building ON building.id = device.building_id
+    AND building.org_id = $1
+    AND building.deleted_at IS NULL`
 
 // minerWhereClause constrains results to the org's active, non-deleted devices.
 // Parameter: $1 = org_id

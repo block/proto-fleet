@@ -336,7 +336,7 @@ func TestCollectionStore_GetDeviceCollections(t *testing.T) {
 	assert.Len(t, racks, 1)
 }
 
-func TestCollectionStore_GetGroupLabelsForDevices(t *testing.T) {
+func TestCollectionStore_GetGroupRefsForDevices(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -355,21 +355,24 @@ func TestCollectionStore_GetGroupLabelsForDevices(t *testing.T) {
 	_, err = store.AddDevicesToCollection(ctx, orgID, groupB.Id, deviceIDs[:1])
 	require.NoError(t, err)
 
-	// Also add device[0] to a rack - should NOT appear in group labels
+	// Also add device[0] to a rack - should NOT appear in group refs
 	rack, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack 1", "")
 	require.NoError(t, err)
 	_, err = store.AddDevicesToCollection(ctx, orgID, rack.Id, deviceIDs[:1])
 	require.NoError(t, err)
 
 	// Act
-	labels, err := store.GetGroupLabelsForDevices(ctx, orgID, deviceIDs)
+	refs, err := store.GetGroupRefsForDevices(ctx, orgID, deviceIDs)
 
 	// Assert
 	require.NoError(t, err)
-	assert.Len(t, labels[deviceIDs[0]], 2)
-	assert.Len(t, labels[deviceIDs[1]], 1)
-	assert.ElementsMatch(t, []string{"Alpha", "Beta"}, labels[deviceIDs[0]])
-	assert.Equal(t, []string{"Alpha"}, labels[deviceIDs[1]])
+	assert.Len(t, refs[deviceIDs[0]], 2)
+	assert.Len(t, refs[deviceIDs[1]], 1)
+	labels0 := []string{refs[deviceIDs[0]][0].Label, refs[deviceIDs[0]][1].Label}
+	assert.ElementsMatch(t, []string{"Alpha", "Beta"}, labels0)
+	assert.Equal(t, "Alpha", refs[deviceIDs[1]][0].Label)
+	assert.NotZero(t, refs[deviceIDs[0]][0].ID)
+	assert.NotZero(t, refs[deviceIDs[0]][1].ID)
 }
 
 func TestCollectionStore_GetRackDetailsForDevices(t *testing.T) {
@@ -398,8 +401,10 @@ func TestCollectionStore_GetRackDetailsForDevices(t *testing.T) {
 	details, err := store.GetRackDetailsForDevices(ctx, orgID, deviceIDs)
 	require.NoError(t, err)
 	require.Len(t, details, 2)
+	assert.Equal(t, rack.Id, details[deviceIDs[0]].ID)
 	assert.Equal(t, "Floor 1", details[deviceIDs[0]].Label)
 	assert.Equal(t, "01", details[deviceIDs[0]].Position)
+	assert.Equal(t, rack.Id, details[deviceIDs[1]].ID)
 	assert.Equal(t, "Floor 1", details[deviceIDs[1]].Label)
 	assert.Equal(t, "100", details[deviceIDs[1]].Position)
 }

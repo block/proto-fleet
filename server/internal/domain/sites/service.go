@@ -17,6 +17,7 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -188,10 +189,17 @@ type ListStatsAuthorizer func(siteID int64) bool
 
 // ListSites returns sites with attachment counts for the delete-confirm
 // dialog impact numbers.
-func (s *Service) ListSites(ctx context.Context, orgID int64, includeStatsForSite ListStatsAuthorizer) ([]models.SiteWithCounts, error) {
+func (s *Service) ListSites(ctx context.Context, orgID int64, statsFilter fleetlistfilter.Filter, includeStatsForSite ListStatsAuthorizer) ([]models.SiteWithCounts, error) {
 	rows, err := s.store.ListSites(ctx, orgID)
-	if err != nil || includeStatsForSite == nil {
+	if err != nil {
 		return rows, err
+	}
+	hasStatsFilter := fleetlistfilter.HasFilters(statsFilter)
+	if includeStatsForSite == nil {
+		if hasStatsFilter {
+			return nil, fleeterror.NewInternalErrorf("sites.ListSites filters require stats authorization")
+		}
+		return rows, nil
 	}
 	hasStatsRow := false
 	for _, row := range rows {
@@ -201,13 +209,19 @@ func (s *Service) ListSites(ctx context.Context, orgID int64, includeStatsForSit
 		}
 	}
 	if !hasStatsRow {
+		if hasStatsFilter {
+			return rows[:0], nil
+		}
 		return rows, nil
 	}
 	if s.deviceQueryer == nil || s.telemetry == nil {
 		return nil, fleeterror.NewInternalErrorf("sites.ListSites stats requires deviceQueryer and telemetry")
 	}
-	if err := s.populateListStats(ctx, orgID, rows, includeStatsForSite); err != nil {
+	if err := s.populateListStats(ctx, orgID, rows, includeStatsForSite, len(statsFilter.TelemetryRanges) > 0); err != nil {
 		return nil, err
+	}
+	if hasStatsFilter {
+		rows = filterSiteRowsByListStats(rows, statsFilter)
 	}
 	return rows, nil
 }
@@ -1041,7 +1055,7 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	return stats, nil
 }
 
-func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.SiteWithCounts, includeStatsForSite ListStatsAuthorizer) error {
+func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.SiteWithCounts, includeStatsForSite ListStatsAuthorizer, requireTelemetry bool) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -1064,6 +1078,7 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 			PairingStatuses: []fm.PairingStatus{
 				fm.PairingStatus_PAIRING_STATUS_PAIRED,
 				fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+				fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 			},
 			Limit: MaxDevicesPerSiteStatsRequest + 1,
 		})
@@ -1098,6 +1113,9 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 		}
 		metrics, err = s.telemetry.GetLatestDeviceMetrics(ctx, devicerollup.ToDeviceIdentifiers(uniqueTelemetryIDs))
 		if err != nil {
+			if requireTelemetry {
+				return fleeterror.NewInternalErrorf("failed to fetch site list telemetry: %v", err)
+			}
 			slog.WarnContext(ctx, "failed to fetch site list telemetry", "error", err)
 			metrics = nil
 		}
@@ -1141,4 +1159,32 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 		stats.PsuIssueCount = issues.PsuIssueCount
 	}
 	return nil
+}
+
+func filterSiteRowsByListStats(rows []models.SiteWithCounts, filter fleetlistfilter.Filter) []models.SiteWithCounts {
+	out := rows[:0]
+	for _, row := range rows {
+		if row.ListStats == nil {
+			continue
+		}
+		stats := row.ListStats
+		if fleetlistfilter.Matches(fleetlistfilter.Stats{
+			HashrateReportingCount:    stats.HashrateReportingCount,
+			EfficiencyReportingCount:  stats.EfficiencyReportingCount,
+			PowerReportingCount:       stats.PowerReportingCount,
+			TemperatureReportingCount: stats.TemperatureReportingCount,
+			TotalHashrateThs:          stats.TotalHashrateThs,
+			AvgEfficiencyJth:          stats.AvgEfficiencyJth,
+			TotalPowerKw:              stats.TotalPowerKw,
+			MinTemperatureC:           stats.MinTemperatureC,
+			MaxTemperatureC:           stats.MaxTemperatureC,
+			ControlBoardIssueCount:    stats.ControlBoardIssueCount,
+			FanIssueCount:             stats.FanIssueCount,
+			HashBoardIssueCount:       stats.HashBoardIssueCount,
+			PsuIssueCount:             stats.PsuIssueCount,
+		}, filter) {
+			out = append(out, row)
+		}
+	}
+	return out
 }

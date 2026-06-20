@@ -11,6 +11,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -28,8 +29,12 @@ func NewHandler(service *sites.Service) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) ListSites(ctx context.Context, _ *connect.Request[pb.ListSitesRequest]) (*connect.Response[pb.ListSitesResponse], error) {
+func (h *Handler) ListSites(ctx context.Context, req *connect.Request[pb.ListSitesRequest]) (*connect.Response[pb.ListSitesResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	statsFilter, err := fleetlistfilter.Parse(req.Msg.GetErrorComponentTypes(), req.Msg.GetTelemetryRanges())
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +42,7 @@ func (h *Handler) ListSites(ctx context.Context, _ *connect.Request[pb.ListSites
 		_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: &siteID})
 		return err == nil
 	}
-	out, err := h.service.ListSites(ctx, info.OrganizationID, includeStatsForSite)
+	out, err := h.service.ListSites(ctx, info.OrganizationID, statsFilter, includeStatsForSite)
 	if err != nil {
 		return nil, err
 	}

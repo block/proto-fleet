@@ -12,6 +12,7 @@ import (
 	"github.com/lib/pq"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -88,7 +89,9 @@ func (s *SQLCollectionStore) GetCollection(ctx context.Context, orgID int64, col
 		return nil, fleeterror.NewInternalErrorf("failed to get collection: %v", err)
 	}
 
-	return newDeviceCollection(row.ID, row.Type, row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt), nil
+	collection := newDeviceCollection(row.ID, row.Type, row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt)
+	collection.Placement = collectionPlacementRefs(row.SiteID, row.SiteLabel, row.BuildingID, row.BuildingLabel)
+	return collection, nil
 }
 
 func (s *SQLCollectionStore) GetRackInfo(ctx context.Context, collectionID int64, orgID int64) (*pb.RackInfo, error) {
@@ -479,21 +482,25 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 	defer sqlRows.Close()
 
 	type collectionRow struct {
-		ID          int64
-		Type        string
-		Label       string
-		Description sql.NullString
-		DeviceCount int32
-		IssueCount  int32
-		CreatedAt   time.Time
-		UpdatedAt   time.Time
-		Zone        sql.NullString
+		ID            int64
+		Type          string
+		Label         string
+		Description   sql.NullString
+		DeviceCount   int32
+		IssueCount    int32
+		CreatedAt     time.Time
+		UpdatedAt     time.Time
+		Zone          sql.NullString
+		SiteID        sql.NullInt64
+		SiteLabel     string
+		BuildingID    sql.NullInt64
+		BuildingLabel string
 	}
 
 	var rows []collectionRow
 	for sqlRows.Next() {
 		var r collectionRow
-		if err := sqlRows.Scan(&r.ID, &r.Type, &r.Label, &r.Description, &r.CreatedAt, &r.UpdatedAt, &r.DeviceCount, &r.IssueCount, &r.Zone); err != nil {
+		if err := sqlRows.Scan(&r.ID, &r.Type, &r.Label, &r.Description, &r.CreatedAt, &r.UpdatedAt, &r.DeviceCount, &r.IssueCount, &r.Zone, &r.SiteID, &r.SiteLabel, &r.BuildingID, &r.BuildingLabel); err != nil {
 			return nil, "", 0, fleeterror.NewInternalErrorf("failed to scan collection row: %v", err)
 		}
 		rows = append(rows, r)
@@ -524,6 +531,7 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 	var rackIDs []int64
 	for i, row := range rows {
 		result[i] = newDeviceCollection(row.ID, sqlc.DeviceSetType(row.Type), row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt)
+		result[i].Placement = collectionPlacementRefs(row.SiteID, row.SiteLabel, row.BuildingID, row.BuildingLabel)
 		if sqlc.DeviceSetType(row.Type) == sqlc.DeviceSetTypeRack {
 			rackIDs = append(rackIDs, row.ID)
 		}
@@ -774,22 +782,25 @@ func (s *SQLCollectionStore) GetDeviceCollections(ctx context.Context, orgID int
 	return result, nil
 }
 
-func (s *SQLCollectionStore) GetGroupLabelsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]string, error) {
+func (s *SQLCollectionStore) GetGroupRefsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]interfaces.DeviceGroupRef, error) {
 	if len(deviceIdentifiers) == 0 {
-		return make(map[string][]string), nil
+		return make(map[string][]interfaces.DeviceGroupRef), nil
 	}
 
-	rows, err := s.GetQueries(ctx).GetGroupLabelsForDevices(ctx, sqlc.GetGroupLabelsForDevicesParams{
+	rows, err := s.GetQueries(ctx).GetGroupRefsForDevices(ctx, sqlc.GetGroupRefsForDevicesParams{
 		OrgID:             orgID,
 		DeviceIdentifiers: deviceIdentifiers,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get group labels: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to get group refs: %v", err)
 	}
 
-	result := make(map[string][]string)
+	result := make(map[string][]interfaces.DeviceGroupRef)
 	for _, row := range rows {
-		result[row.DeviceIdentifier] = append(result[row.DeviceIdentifier], row.Label)
+		result[row.DeviceIdentifier] = append(result[row.DeviceIdentifier], interfaces.DeviceGroupRef{
+			ID:    row.ID,
+			Label: row.Label,
+		})
 	}
 	return result, nil
 }
@@ -809,9 +820,16 @@ func (s *SQLCollectionStore) GetRackDetailsForDevices(ctx context.Context, orgID
 
 	result := make(map[string]interfaces.DeviceRackDetails)
 	for _, row := range rows {
+		var buildingID *int64
+		if row.BuildingID.Valid {
+			buildingID = &row.BuildingID.Int64
+		}
 		result[row.DeviceIdentifier] = interfaces.DeviceRackDetails{
-			Label:    row.Label,
-			Position: row.Position,
+			ID:            row.RackID,
+			Label:         row.Label,
+			Position:      row.Position,
+			BuildingID:    buildingID,
+			BuildingLabel: row.BuildingLabel,
 		}
 	}
 	return result, nil
@@ -1061,6 +1079,28 @@ func newDeviceCollection(id int64, ct sqlc.DeviceSetType, label string, descript
 		CreatedAt:   timestamppb.New(createdAt),
 		UpdatedAt:   timestamppb.New(updatedAt),
 	}
+}
+
+func collectionPlacementRefs(siteID sql.NullInt64, siteLabel string, buildingID sql.NullInt64, buildingLabel string) *commonpb.PlacementRefs {
+	var placement *commonpb.PlacementRefs
+	if siteID.Valid {
+		placement = &commonpb.PlacementRefs{
+			Site: &commonpb.ResourceRef{
+				Id:    siteID.Int64,
+				Label: siteLabel,
+			},
+		}
+	}
+	if buildingID.Valid {
+		if placement == nil {
+			placement = &commonpb.PlacementRefs{}
+		}
+		placement.Building = &commonpb.ResourceRef{
+			Id:    buildingID.Int64,
+			Label: buildingLabel,
+		}
+	}
+	return placement
 }
 
 func (s *SQLCollectionStore) GetDeviceIdentifiersByDeviceSetID(ctx context.Context, deviceSetID, orgID int64) ([]string, error) {

@@ -660,10 +660,10 @@ func (s *Service) ListCollectionsDomain(ctx context.Context, params ListCollecti
 		}
 	}
 
-	if err := s.validateFilterBuildings(ctx, info.OrganizationID, params.Filter); err != nil {
+	if err := s.validateFilterSites(ctx, info.OrganizationID, params.Filter); err != nil {
 		return nil, err
 	}
-	if err := s.validateFilterSites(ctx, info.OrganizationID, params.Filter); err != nil {
+	if err := s.validateFilterBuildings(ctx, info.OrganizationID, params.Filter); err != nil {
 		return nil, err
 	}
 

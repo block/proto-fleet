@@ -3,7 +3,9 @@ syntax = "proto3";
 package buildings.v1;
 
 import "buf/validate/validate.proto";
+import "common/v1/common.proto";
 import "common/v1/fleet_list_stats.proto";
+import "errors/v1/errors.proto";
 import "google/protobuf/timestamp.proto";
 
 // BuildingService is the admin surface for buildings: per-building
@@ -110,6 +112,10 @@ message Building {
 
     google.protobuf.Timestamp created_at = 13;
     google.protobuf.Timestamp updated_at = 14;
+
+    // Parent placement refs for display/filter rows. site is unset
+    // when this building is unassigned.
+    common.v1.PlacementRefs placement = 15;
 }
 
 // BuildingWithCounts pairs a Building with its rack_count for the
@@ -142,6 +148,15 @@ message ListBuildingsRequest {
     // Independent of site_ids — set only this for the unassigned
     // bucket alone, set both to combine specific sites with unassigned.
     bool include_unassigned = 2;
+
+    // Filter buildings whose rolled-up devices have any open issue
+    // matching these component types. OR within the list, AND with
+    // other filters.
+    repeated errors.v1.ComponentType error_component_types = 3;
+
+    // Filter by rolled-up telemetry values for the building. Multiple
+    // ranges are AND'd.
+    repeated common.v1.FleetListTelemetryRangeFilter telemetry_ranges = 4;
 }
 
 message ListBuildingsResponse {

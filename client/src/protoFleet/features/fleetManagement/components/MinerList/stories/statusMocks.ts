@@ -75,10 +75,7 @@ const baseMeasurements = {
     } as Measurement,
   ],
   workerName: "worker-base",
-  groupLabels: [] as string[],
-  rackLabel: "",
   rackPosition: "",
-  siteLabel: "",
 };
 
 // ============================================================================
@@ -125,10 +122,7 @@ export const offlineMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
-  groupLabels: [],
-  rackLabel: "",
   rackPosition: "",
-  siteLabel: "",
 };
 
 export const sleepingMiner: MinerStateSnapshot = {
@@ -157,10 +151,7 @@ export const sleepingMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
-  groupLabels: [],
-  rackLabel: "",
   rackPosition: "",
-  siteLabel: "",
 };
 
 // ============================================================================
@@ -188,10 +179,7 @@ export const authRequiredMiner: MinerStateSnapshot = {
   temperatureStatus: TemperatureStatus.OK,
   firmwareVersion: "2.0.0",
   capabilities: baseCapabilities,
-  groupLabels: [],
-  rackLabel: "",
   rackPosition: "",
-  siteLabel: "",
 };
 
 export const poolRequiredMiner: MinerStateSnapshot = {

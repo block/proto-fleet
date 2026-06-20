@@ -8,6 +8,8 @@ import {
   type BuildingWithCounts,
   RackOrderIndex,
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import type { FleetListTelemetryRangeFilter } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
+import type { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -23,6 +25,8 @@ interface ListBuildingsProps {
   siteIds?: bigint[];
   includeUnassigned?: boolean;
   signal?: AbortSignal;
+  errorComponentTypes?: ComponentType[];
+  telemetryRanges?: FleetListTelemetryRangeFilter[];
   onSuccess?: (buildings: BuildingWithCounts[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -30,6 +34,8 @@ interface ListBuildingsProps {
 
 interface ListAllBuildingsProps {
   signal?: AbortSignal;
+  errorComponentTypes?: ComponentType[];
+  telemetryRanges?: FleetListTelemetryRangeFilter[];
   onSuccess?: (buildings: BuildingWithCounts[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -210,12 +216,23 @@ const useBuildings = () => {
   // Used by the Buildings tab to push the SitePicker selection
   // server-side instead of client-filtering the full org list.
   const listBuildings = useCallback(
-    async ({ siteIds, includeUnassigned, signal, onSuccess, onError, onFinally }: ListBuildingsProps = {}) => {
+    async ({
+      siteIds,
+      includeUnassigned,
+      signal,
+      errorComponentTypes,
+      telemetryRanges,
+      onSuccess,
+      onError,
+      onFinally,
+    }: ListBuildingsProps = {}) => {
       try {
         const response = await buildingsClient.listBuildings(
           {
             siteIds: siteIds ?? [],
             includeUnassigned: includeUnassigned ?? false,
+            errorComponentTypes: errorComponentTypes ?? [],
+            telemetryRanges: telemetryRanges ?? [],
           },
           { signal },
         );
@@ -240,9 +257,22 @@ const useBuildings = () => {
   // /sites to avoid N+1 ListBuildings calls when rendering per-site overview
   // sections.
   const listAllBuildings = useCallback(
-    async ({ signal, onSuccess, onError, onFinally }: ListAllBuildingsProps = {}) => {
+    async ({
+      signal,
+      errorComponentTypes,
+      telemetryRanges,
+      onSuccess,
+      onError,
+      onFinally,
+    }: ListAllBuildingsProps = {}) => {
       try {
-        const response = await buildingsClient.listBuildings({}, { signal });
+        const response = await buildingsClient.listBuildings(
+          {
+            errorComponentTypes: errorComponentTypes ?? [],
+            telemetryRanges: telemetryRanges ?? [],
+          },
+          { signal },
+        );
         if (signal?.aborted) return;
         onSuccess?.(response.buildings);
       } catch (err) {

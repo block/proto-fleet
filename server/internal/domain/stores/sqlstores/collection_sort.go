@@ -42,6 +42,40 @@ var collectionIssueCountJoin = fmt.Sprintf(`LEFT JOIN (
 ) issue_counts ON issue_counts.device_set_id = dc.id
 `, actionablePairingStatusesExpr("dp_issue"), actionableErrorSeveritiesExpr("e"), actionableErrorComponentTypesExpr("e"))
 
+var collectionTelemetryStatsJoin = fmt.Sprintf(`LEFT JOIN (
+	SELECT
+		dcm_stats.device_set_id,
+		COUNT(lm.hash_rate_hs) FILTER (WHERE isfinite(lm.hash_rate_hs) AND lm.hash_rate_hs >= 0)::int AS hashrate_reporting_count,
+		COALESCE(SUM(lm.hash_rate_hs) FILTER (WHERE isfinite(lm.hash_rate_hs) AND lm.hash_rate_hs >= 0) / 1e12, 0)::double precision AS total_hashrate_ths,
+		COUNT(lm.efficiency_jh) FILTER (WHERE isfinite(lm.efficiency_jh) AND lm.efficiency_jh >= 0)::int AS efficiency_reporting_count,
+		COALESCE(AVG(lm.efficiency_jh * 1e12) FILTER (WHERE isfinite(lm.efficiency_jh) AND lm.efficiency_jh >= 0), 0)::double precision AS avg_efficiency_jth,
+		COUNT(lm.power_w) FILTER (WHERE isfinite(lm.power_w) AND lm.power_w >= 0)::int AS power_reporting_count,
+		COALESCE(SUM(lm.power_w) FILTER (WHERE isfinite(lm.power_w) AND lm.power_w >= 0) / 1e3, 0)::double precision AS total_power_kw,
+		COUNT(lm.temp_c) FILTER (WHERE isfinite(lm.temp_c))::int AS temperature_reporting_count,
+		COALESCE(MIN(lm.temp_c) FILTER (WHERE isfinite(lm.temp_c)), 0)::double precision AS min_temperature_c,
+		COALESCE(MAX(lm.temp_c) FILTER (WHERE isfinite(lm.temp_c)), 0)::double precision AS max_temperature_c
+	FROM device_set_membership dcm_stats
+	JOIN device d_stats ON dcm_stats.device_id = d_stats.id AND d_stats.deleted_at IS NULL
+	JOIN discovered_device dd_stats ON d_stats.discovered_device_id = dd_stats.id AND dd_stats.is_active = TRUE
+	JOIN device_pairing dp_stats ON d_stats.id = dp_stats.device_id
+		AND %s
+	LEFT JOIN LATERAL (
+		SELECT
+			dm.hash_rate_hs,
+			dm.efficiency_jh,
+			dm.power_w,
+			dm.temp_c
+		FROM device_metrics dm
+		WHERE dm.device_identifier = d_stats.device_identifier
+			AND dm.time > NOW() - INTERVAL '`+telemetryFreshnessWindow+`'
+		ORDER BY dm.time DESC
+		LIMIT 1
+	) lm ON TRUE
+	WHERE dcm_stats.org_id = $1
+	GROUP BY dcm_stats.device_set_id
+) telemetry_stats ON telemetry_stats.device_set_id = dc.id
+`, actionablePairingStatusesExpr("dp_stats"))
+
 // resolveCollectionSort converts a SortConfig into a canonical field name and SQL direction.
 // Defaults to name ASC when unspecified.
 func resolveCollectionSort(sort *stores.SortConfig) (field, dir string) {
@@ -91,10 +125,15 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, fi
 			filter.IncludeNoBuilding ||
 			len(filter.ZoneKeys) > 0
 	}
+	needsTelemetryFilter := filter != nil && len(filter.TelemetryRanges) > 0
 
 	sb.WriteString("SELECT COUNT(*)::int FROM device_set dc")
 	if needsRackJoin {
 		sb.WriteString(" LEFT JOIN device_set_rack dcr ON dcr.device_set_id = dc.id")
+	}
+	if needsTelemetryFilter {
+		sb.WriteString("\n")
+		sb.WriteString(collectionTelemetryStatsJoin)
 	}
 
 	sb.WriteString(" WHERE dc.org_id = $1 AND dc.deleted_at IS NULL")
@@ -129,6 +168,10 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, fi
 			WHERE dcm_err.device_set_id = dc.id AND dcm_err.org_id = $1
 		)`, actionablePairingStatusesExpr("dp_err"), actionableErrorSeveritiesExpr("e"), argNum))
 		args = append(args, pq.Array(errorComponentTypes))
+		argNum++
+	}
+	if needsTelemetryFilter {
+		args, _ = appendCollectionTelemetryFilterSQL(&sb, args, argNum, filter.TelemetryRanges)
 	}
 
 	return sb.String(), args
@@ -192,6 +235,54 @@ func appendDeviceSetRackFilterSQL(sb *strings.Builder, args []any, argNum int, f
 	return args, argNum
 }
 
+func appendCollectionTelemetryFilterSQL(sb *strings.Builder, args []any, argNum int, ranges []stores.NumericRange) ([]any, int) {
+	for _, r := range ranges {
+		countColumn, minColumn, maxColumn := collectionTelemetryRangeColumns(r.Field)
+		if countColumn == "" {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf(" AND COALESCE(telemetry_stats.%s, 0) > 0", countColumn))
+		if r.Min != nil {
+			op := ">"
+			if r.MinInclusive {
+				op = ">="
+			}
+			sb.WriteString(fmt.Sprintf(" AND telemetry_stats.%s %s $%d", minColumn, op, argNum))
+			args = append(args, *r.Min)
+			argNum++
+		}
+		if r.Max != nil {
+			op := "<"
+			if r.MaxInclusive {
+				op = "<="
+			}
+			sb.WriteString(fmt.Sprintf(" AND telemetry_stats.%s %s $%d", maxColumn, op, argNum))
+			args = append(args, *r.Max)
+			argNum++
+		}
+	}
+	return args, argNum
+}
+
+func collectionTelemetryRangeColumns(field stores.NumericFilterField) (countColumn, minColumn, maxColumn string) {
+	switch field {
+	case stores.NumericFilterFieldHashrateTHs:
+		return "hashrate_reporting_count", "total_hashrate_ths", "total_hashrate_ths"
+	case stores.NumericFilterFieldEfficiencyJTH:
+		return "efficiency_reporting_count", "avg_efficiency_jth", "avg_efficiency_jth"
+	case stores.NumericFilterFieldPowerKW:
+		return "power_reporting_count", "total_power_kw", "total_power_kw"
+	case stores.NumericFilterFieldTemperatureC:
+		return "temperature_reporting_count", "min_temperature_c", "max_temperature_c"
+	case stores.NumericFilterFieldUnspecified,
+		stores.NumericFilterFieldVoltageV,
+		stores.NumericFilterFieldCurrentA:
+		return "", "", ""
+	default:
+		return "", "", ""
+	}
+}
+
 // buildCollectionListQuery generates a dynamic SQL query for listing collections
 // with sort and cursor-based keyset pagination.
 func buildCollectionListQuery(orgID int64, collectionType pb.CollectionType, cursor *collectionCursor, sortField, sortDir string, limit int32, filter *stores.DeviceSetFilter) (string, []any) {
@@ -207,13 +298,20 @@ func buildCollectionListQuery(orgID int64, collectionType pb.CollectionType, cur
 		issueCountSelect = collectionIssueCountExpr
 	}
 	sb.WriteString(fmt.Sprintf(`SELECT dc.id, dc.type, dc.label, dc.description, dc.created_at, dc.updated_at,
-       COUNT(dcm.id)::int AS device_count, %s AS issue_count, dcr.zone
+       COUNT(dcm.id)::int AS device_count, %s AS issue_count, dcr.zone,
+       dcr.site_id, COALESCE(s.name, '') AS site_label,
+       dcr.building_id, COALESCE(b.name, '') AS building_label
 FROM device_set dc
 LEFT JOIN device_set_membership dcm ON dc.id = dcm.device_set_id
 LEFT JOIN device_set_rack dcr ON dcr.device_set_id = dc.id
+LEFT JOIN site s ON s.id = dcr.site_id AND s.org_id = dc.org_id AND s.deleted_at IS NULL
+LEFT JOIN building b ON b.id = dcr.building_id AND b.org_id = dc.org_id AND b.deleted_at IS NULL
 `, issueCountSelect))
 	if sortField == collectionSortFieldIssueCount {
 		sb.WriteString(collectionIssueCountJoin)
+	}
+	if filter != nil && len(filter.TelemetryRanges) > 0 {
+		sb.WriteString(collectionTelemetryStatsJoin)
 	}
 	sb.WriteString(`
 WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
@@ -254,6 +352,9 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 		)`, actionablePairingStatusesExpr("dp_err"), actionableErrorSeveritiesExpr("e"), argNum))
 		args = append(args, pq.Array(errorComponentTypes))
 		argNum++
+	}
+	if filter != nil && len(filter.TelemetryRanges) > 0 {
+		args, argNum = appendCollectionTelemetryFilterSQL(&sb, args, argNum, filter.TelemetryRanges)
 	}
 
 	// Keyset cursor for non-aggregate fields (WHERE before GROUP BY)
@@ -298,7 +399,7 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 		}
 	}
 
-	sb.WriteString(" GROUP BY dc.id, dcr.zone")
+	sb.WriteString(" GROUP BY dc.id, dcr.zone, dcr.site_id, s.name, dcr.building_id, b.name")
 
 	// Keyset cursor for aggregate fields (HAVING after GROUP BY)
 	if cursor != nil && sortField == collectionSortFieldDeviceCount {

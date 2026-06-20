@@ -382,12 +382,12 @@ func (s *Service) RefreshMinerResourceContexts(ctx context.Context, req *pb.Refr
 	snapshotDeviceIDs := make(map[string]struct{}, len(snapshots))
 	for _, snapshot := range snapshots {
 		snapshotDeviceIDs[snapshot.DeviceIdentifier] = struct{}{}
-		if snapshot.SiteId == nil {
+		if snapshot.Placement == nil || snapshot.Placement.Site == nil {
 			contexts[snapshot.DeviceIdentifier] = authz.ResourceContext{}
 			continue
 		}
 
-		siteID := *snapshot.SiteId
+		siteID := snapshot.Placement.Site.Id
 		contexts[snapshot.DeviceIdentifier] = authz.ResourceContext{SiteID: &siteID}
 	}
 
@@ -548,7 +548,7 @@ func (s *Service) buildSnapshot(
 	// Enrich snapshots with telemetry and collection labels for paired devices
 	pairedDeviceIDs := collectPairedDeviceIdentifiers(snapshots)
 	s.populateTelemetryData(ctx, snapshots, pairedDeviceIDs)
-	s.populateGroupLabels(ctx, orgID, snapshots, pairedDeviceIDs)
+	s.populateGroupRefs(ctx, orgID, snapshots, pairedDeviceIDs)
 	s.populateRackDetails(ctx, orgID, snapshots, pairedDeviceIDs)
 
 	var stateCounts *telemetrypb.MinerStateCounts
@@ -591,7 +591,7 @@ func (s *Service) getMinerStateSnapshotsByIDs(ctx context.Context, orgID int64, 
 
 	pairedDeviceIDs := collectPairedDeviceIdentifiers(snapshots)
 	s.populateTelemetryData(ctx, snapshots, pairedDeviceIDs)
-	s.populateGroupLabels(ctx, orgID, snapshots, pairedDeviceIDs)
+	s.populateGroupRefs(ctx, orgID, snapshots, pairedDeviceIDs)
 	s.populateRackDetails(ctx, orgID, snapshots, pairedDeviceIDs)
 
 	return snapshots, nil
@@ -677,8 +677,17 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 
 		if row.SiteID.Valid {
 			id := row.SiteID.Int64
-			snapshot.SiteId = &id
-			snapshot.SiteLabel = row.SiteLabel
+			ensureSnapshotPlacement(snapshot).Site = &commonpb.ResourceRef{
+				Id:    id,
+				Label: row.SiteLabel,
+			}
+		}
+		if row.BuildingID.Valid {
+			id := row.BuildingID.Int64
+			ensureSnapshotPlacement(snapshot).Building = &commonpb.ResourceRef{
+				Id:    id,
+				Label: row.BuildingLabel,
+			}
 		}
 
 		if row.Model.Valid {
@@ -825,22 +834,29 @@ func (s *Service) populateTelemetryData(ctx context.Context, snapshots []*pb.Min
 	}
 }
 
-// populateGroupLabels fetches group labels for paired devices and populates the GroupLabels field.
-func (s *Service) populateGroupLabels(ctx context.Context, orgID int64, snapshots []*pb.MinerStateSnapshot, pairedDeviceIDs []string) {
+// populateGroupRefs fetches group refs for paired devices and populates snapshot placement.
+func (s *Service) populateGroupRefs(ctx context.Context, orgID int64, snapshots []*pb.MinerStateSnapshot, pairedDeviceIDs []string) {
 	if len(pairedDeviceIDs) == 0 {
 		return
 	}
 
-	groupLabels, err := s.collectionStore.GetGroupLabelsForDevices(ctx, orgID, pairedDeviceIDs)
+	groupRefs, err := s.collectionStore.GetGroupRefsForDevices(ctx, orgID, pairedDeviceIDs)
 	if err != nil {
-		slog.Warn("failed to fetch group labels for snapshots", "error", err)
+		slog.Warn("failed to fetch group refs for snapshots", "error", err)
 		return
 	}
 
-	// Populate group labels on snapshots
+	// Populate group refs on snapshots
 	for _, snapshot := range snapshots {
-		if labels, ok := groupLabels[snapshot.DeviceIdentifier]; ok {
-			snapshot.GroupLabels = labels
+		if refs, ok := groupRefs[snapshot.DeviceIdentifier]; ok {
+			placement := ensureSnapshotPlacement(snapshot)
+			placement.Groups = make([]*commonpb.ResourceRef, 0, len(refs))
+			for _, ref := range refs {
+				placement.Groups = append(placement.Groups, &commonpb.ResourceRef{
+					Id:    ref.ID,
+					Label: ref.Label,
+				})
+			}
 		}
 	}
 }
@@ -860,10 +876,27 @@ func (s *Service) populateRackDetails(ctx context.Context, orgID int64, snapshot
 	// Populate rack details on snapshots
 	for _, snapshot := range snapshots {
 		if details, ok := rackDetails[snapshot.DeviceIdentifier]; ok {
-			snapshot.RackLabel = details.Label
+			placement := ensureSnapshotPlacement(snapshot)
+			placement.Rack = &commonpb.ResourceRef{
+				Id:    details.ID,
+				Label: details.Label,
+			}
 			snapshot.RackPosition = details.Position
+			if details.BuildingID != nil {
+				placement.Building = &commonpb.ResourceRef{
+					Id:    *details.BuildingID,
+					Label: details.BuildingLabel,
+				}
+			}
 		}
 	}
+}
+
+func ensureSnapshotPlacement(snapshot *pb.MinerStateSnapshot) *commonpb.PlacementRefs {
+	if snapshot.Placement == nil {
+		snapshot.Placement = &commonpb.PlacementRefs{}
+	}
+	return snapshot.Placement
 }
 
 // convertToMeasurement converts a MetricValue to a proto Measurement by dividing by the conversion factor.

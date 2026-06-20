@@ -221,6 +221,17 @@ func TestBuildCollectionListQuery_BuildingIDs(t *testing.T) {
 	assert.Equal(t, pq.Array([]int64{7, 9}), args[2])
 }
 
+func TestBuildCollectionListQuery_SiteIDsAndIncludeUnassigned(t *testing.T) {
+	filter := &stores.DeviceSetFilter{
+		SiteIDs:           []int64{3, 5},
+		IncludeUnassigned: true,
+	}
+	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, "name", "ASC", 51, filter)
+	assert.Contains(t, query, "LEFT JOIN device_set_rack dcr ON dcr.device_set_id = dc.id")
+	assert.Contains(t, query, "AND (dcr.site_id = ANY($3::bigint[]) OR dcr.site_id IS NULL)")
+	assert.Equal(t, pq.Array([]int64{3, 5}), args[2])
+}
+
 func TestBuildCollectionListQuery_IncludeNoBuilding(t *testing.T) {
 	filter := &stores.DeviceSetFilter{IncludeNoBuilding: true}
 	query, _ := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, "name", "ASC", 51, filter)
@@ -245,4 +256,68 @@ func TestBuildCollectionCountQuery_ErrorComponentTypes(t *testing.T) {
 	assert.Contains(t, query, "e.component_type = ANY($2::int[])")
 	assert.Len(t, args, 2)
 	assert.Equal(t, pq.Array(errorTypes), args[1])
+}
+
+func TestBuildCollectionListQuery_TelemetryRanges(t *testing.T) {
+	minTemp := 40.0
+	maxTemp := 80.0
+	filter := &stores.DeviceSetFilter{TelemetryRanges: []stores.NumericRange{{
+		Field:        stores.NumericFilterFieldTemperatureC,
+		Min:          &minTemp,
+		Max:          &maxTemp,
+		MinInclusive: true,
+	}}}
+
+	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_GROUP, nil, "name", "ASC", 51, filter)
+
+	assert.Contains(t, query, "telemetry_stats ON telemetry_stats.device_set_id = dc.id")
+	assert.Contains(t, query, "COALESCE(telemetry_stats.temperature_reporting_count, 0) > 0")
+	assert.Contains(t, query, "telemetry_stats.min_temperature_c >= $3")
+	assert.Contains(t, query, "telemetry_stats.max_temperature_c < $4")
+	assert.Len(t, args, 5)
+	assert.Equal(t, int64(1), args[0])
+	assert.Equal(t, minTemp, args[2])
+	assert.Equal(t, maxTemp, args[3])
+	assert.Equal(t, int32(51), args[4])
+}
+
+func TestBuildCollectionListQuery_TelemetryStatsFilterInvalidValues(t *testing.T) {
+	minHashrate := 10.0
+	filter := &stores.DeviceSetFilter{TelemetryRanges: []stores.NumericRange{{
+		Field: stores.NumericFilterFieldHashrateTHs,
+		Min:   &minHashrate,
+	}}}
+
+	query, _ := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_GROUP, nil, "name", "ASC", 51, filter)
+
+	assert.Contains(t, query, "COUNT(lm.hash_rate_hs) FILTER (WHERE isfinite(lm.hash_rate_hs) AND lm.hash_rate_hs >= 0)::int AS hashrate_reporting_count")
+	assert.Contains(t, query, "SUM(lm.hash_rate_hs) FILTER (WHERE isfinite(lm.hash_rate_hs) AND lm.hash_rate_hs >= 0)")
+	assert.Contains(t, query, "COUNT(lm.efficiency_jh) FILTER (WHERE isfinite(lm.efficiency_jh) AND lm.efficiency_jh >= 0)::int AS efficiency_reporting_count")
+	assert.Contains(t, query, "AVG(lm.efficiency_jh * 1e12) FILTER (WHERE isfinite(lm.efficiency_jh) AND lm.efficiency_jh >= 0)")
+	assert.Contains(t, query, "COUNT(lm.power_w) FILTER (WHERE isfinite(lm.power_w) AND lm.power_w >= 0)::int AS power_reporting_count")
+	assert.Contains(t, query, "SUM(lm.power_w) FILTER (WHERE isfinite(lm.power_w) AND lm.power_w >= 0)")
+	assert.Contains(t, query, "COUNT(lm.temp_c) FILTER (WHERE isfinite(lm.temp_c))::int AS temperature_reporting_count")
+	assert.Contains(t, query, "MIN(lm.temp_c) FILTER (WHERE isfinite(lm.temp_c))")
+	assert.Contains(t, query, "MAX(lm.temp_c) FILTER (WHERE isfinite(lm.temp_c))")
+	assert.NotContains(t, query, "lm.temp_c >= 0")
+}
+
+func TestBuildCollectionCountQuery_IssueAndTelemetryFiltersKeepArgumentOrder(t *testing.T) {
+	minPower := 30.0
+	errorTypes := []int32{2, 4}
+	filter := &stores.DeviceSetFilter{
+		ErrorComponentTypes: errorTypes,
+		TelemetryRanges: []stores.NumericRange{{
+			Field: stores.NumericFilterFieldPowerKW,
+			Min:   &minPower,
+		}},
+	}
+
+	query, args := buildCollectionCountQuery(1, pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, filter)
+
+	assert.Contains(t, query, "e.component_type = ANY($2::int[])")
+	assert.Contains(t, query, "COALESCE(telemetry_stats.power_reporting_count, 0) > 0")
+	assert.Contains(t, query, "telemetry_stats.total_power_kw > $3")
+	assert.Equal(t, pq.Array(errorTypes), args[1])
+	assert.Equal(t, minPower, args[2])
 }

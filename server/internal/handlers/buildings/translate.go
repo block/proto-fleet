@@ -81,6 +81,12 @@ func toProtoBuilding(b *models.Building) *pb.Building {
 	if b.SiteID != nil {
 		v := *b.SiteID
 		out.SiteId = &v
+		out.Placement = &commonpb.PlacementRefs{
+			Site: &commonpb.ResourceRef{
+				Id:    v,
+				Label: b.SiteLabel,
+			},
+		}
 	}
 	return out
 }

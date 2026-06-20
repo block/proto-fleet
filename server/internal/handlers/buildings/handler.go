@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/buildings"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -34,11 +35,15 @@ func (h *Handler) ListBuildings(ctx context.Context, req *connect.Request[pb.Lis
 	}
 	filter := toListFilter(req.Msg, info.OrganizationID)
 	filter.IncludeStats = true
+	statsFilter, err := fleetlistfilter.Parse(req.Msg.GetErrorComponentTypes(), req.Msg.GetTelemetryRanges())
+	if err != nil {
+		return nil, err
+	}
 	includeStatsForSite := func(siteID *int64) bool {
 		_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: siteID})
 		return err == nil
 	}
-	rows, err := h.service.ListBuildings(ctx, filter, includeStatsForSite)
+	rows, err := h.service.ListBuildings(ctx, filter, statsFilter, includeStatsForSite)
 	if err != nil {
 		return nil, err
 	}

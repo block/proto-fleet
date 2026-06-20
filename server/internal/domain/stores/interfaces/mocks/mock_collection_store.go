@@ -369,19 +369,19 @@ func (mr *MockCollectionStoreMockRecorder) GetDeviceSiteIDsByMembership(ctx, col
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceSiteIDsByMembership", reflect.TypeOf((*MockCollectionStore)(nil).GetDeviceSiteIDsByMembership), ctx, collectionID, orgID)
 }
 
-// GetGroupLabelsForDevices mocks base method.
-func (m *MockCollectionStore) GetGroupLabelsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]string, error) {
+// GetGroupRefsForDevices mocks base method.
+func (m *MockCollectionStore) GetGroupRefsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]interfaces.DeviceGroupRef, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetGroupLabelsForDevices", ctx, orgID, deviceIdentifiers)
-	ret0, _ := ret[0].(map[string][]string)
+	ret := m.ctrl.Call(m, "GetGroupRefsForDevices", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].(map[string][]interfaces.DeviceGroupRef)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetGroupLabelsForDevices indicates an expected call of GetGroupLabelsForDevices.
-func (mr *MockCollectionStoreMockRecorder) GetGroupLabelsForDevices(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+// GetGroupRefsForDevices indicates an expected call of GetGroupRefsForDevices.
+func (mr *MockCollectionStoreMockRecorder) GetGroupRefsForDevices(ctx, orgID, deviceIdentifiers any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGroupLabelsForDevices", reflect.TypeOf((*MockCollectionStore)(nil).GetGroupLabelsForDevices), ctx, orgID, deviceIdentifiers)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGroupRefsForDevices", reflect.TypeOf((*MockCollectionStore)(nil).GetGroupRefsForDevices), ctx, orgID, deviceIdentifiers)
 }
 
 // GetRackDetailsForDevices mocks base method.

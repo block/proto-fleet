@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package common.v1;
 
+import "google/protobuf/wrappers.proto";
+
 // FleetListStats is the lightweight telemetry + health rollup used by
 // list/table rows. It intentionally excludes detail-only payloads such
 // as device identifiers, rack floor-plan health, and slot statuses.
@@ -27,4 +29,24 @@ message FleetListStats {
     int32  fan_issue_count             = 19;
     int32  hash_board_issue_count      = 20;
     int32  psu_issue_count             = 21;
+}
+
+// Aggregate telemetry fields exposed as filters on fleet list rows.
+enum FleetListTelemetryField {
+    FLEET_LIST_TELEMETRY_FIELD_UNSPECIFIED = 0;
+    FLEET_LIST_TELEMETRY_FIELD_HASHRATE_THS = 1;
+    FLEET_LIST_TELEMETRY_FIELD_EFFICIENCY_JTH = 2;
+    FLEET_LIST_TELEMETRY_FIELD_POWER_KW = 3;
+    FLEET_LIST_TELEMETRY_FIELD_TEMPERATURE_C = 4;
+}
+
+// Range predicate on a single aggregate telemetry field. At least one
+// of min/max must be set. Temperature is evaluated against the aggregate
+// min_temperature_c for min bounds and max_temperature_c for max bounds.
+message FleetListTelemetryRangeFilter {
+    FleetListTelemetryField field = 1;
+    google.protobuf.DoubleValue min = 2;
+    google.protobuf.DoubleValue max = 3;
+    bool min_inclusive = 4;
+    bool max_inclusive = 5;
 }

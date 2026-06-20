@@ -59,10 +59,7 @@ export const miners: MinerStateSnapshot[] = [
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
-    groupLabels: [],
-    rackLabel: "",
     rackPosition: "",
-    siteLabel: "",
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -116,10 +113,7 @@ export const miners: MinerStateSnapshot[] = [
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
-    groupLabels: [],
-    rackLabel: "",
     rackPosition: "",
-    siteLabel: "",
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -173,10 +167,7 @@ export const miners: MinerStateSnapshot[] = [
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
-    groupLabels: [],
-    rackLabel: "",
     rackPosition: "",
-    siteLabel: "",
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -230,9 +221,6 @@ export const miners: MinerStateSnapshot[] = [
     deviceStatus: DeviceStatus.ONLINE,
     temperatureStatus: TemperatureStatus.OK,
     firmwareVersion: "2.0.0",
-    groupLabels: [],
-    rackLabel: "",
     rackPosition: "",
-    siteLabel: "",
   },
 ];

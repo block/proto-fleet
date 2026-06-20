@@ -8,6 +8,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
@@ -179,7 +180,7 @@ func TestListBuildings_rejectsZeroSiteID(t *testing.T) {
 	_, err := svc.ListBuildings(context.Background(), models.ListFilter{
 		OrgID:   testOrgID,
 		SiteIDs: []int64{5, 0},
-	}, nil)
+	}, fleetlistfilter.Filter{}, nil)
 	if err == nil {
 		t.Fatal("expected InvalidArgument error, got nil")
 	}

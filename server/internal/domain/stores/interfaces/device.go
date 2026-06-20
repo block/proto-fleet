@@ -67,7 +67,7 @@ type MinerFilter struct {
 	IPCIDRs             []netip.Prefix                    // CIDR membership filter (OR logic across entries). Already normalized via Prefix.Masked().
 	SiteIDs             []int64                           // Filter by site (OR logic). Combined with IncludeUnassigned, OR also includes site_id IS NULL rows.
 	IncludeUnassigned   bool                              // When true, include devices with site_id IS NULL. Independent of SiteIDs; alone selects only the Unassigned bucket.
-	BuildingIDs         []int64                           // Filter by building (OR logic). Joins rack → building_id. Combined with IncludeNoBuilding OR also includes rack rows with NULL building_id.
+	BuildingIDs         []int64                           // Filter by building (OR logic). Matches direct device.building_id and rack → building_id. Combined with IncludeNoBuilding OR also includes rack rows with NULL building_id.
 	IncludeNoBuilding   bool                              // When true, include devices whose rack has building_id IS NULL. Does NOT include devices with no rack at all (see IncludeNoRack).
 	ZoneKeys            []ZoneKey                         // Filter by (building_id, zone) pairs. BuildingID == 0 wildcards across buildings. Excludes miners not in any rack.
 	IncludeNoRack       bool                              // When true, include devices with no rack membership at all. Distinct from IncludeNoBuilding.

@@ -4,7 +4,9 @@ package device_set.v1;
 
 import "google/protobuf/timestamp.proto";
 import "buf/validate/validate.proto";
+import "common/v1/common.proto";
 import "common/v1/device_selector.proto";
+import "common/v1/fleet_list_stats.proto";
 import "common/v1/sort.proto";
 import "common/v1/zone.proto";
 import "errors/v1/errors.proto";
@@ -129,6 +131,10 @@ message DeviceSet {
         RackInfo rack_info = 8;
         GroupInfo group_info = 9;
     }
+
+    // Parent placement refs for display/filter rows. Populated for
+    // racks; groups leave this unset.
+    common.v1.PlacementRefs placement = 10;
 }
 
 // Order index defining where row/column numbering starts in a rack
@@ -366,6 +372,10 @@ message ListDeviceSetsRequest {
     // both to combine specific sites with the no-site bucket. Only
     // valid when type is RACK; otherwise returns INVALID_ARGUMENT.
     bool include_unassigned = 11;
+
+    // Filter by rolled-up telemetry values for each rack or group.
+    // Multiple ranges are AND'd. Only valid when type is RACK or GROUP.
+    repeated common.v1.FleetListTelemetryRangeFilter telemetry_ranges = 12;
 }
 
 // Response containing device sets

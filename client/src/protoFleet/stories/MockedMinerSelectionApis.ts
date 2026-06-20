@@ -88,24 +88,27 @@ const mockMiners = [
     name: "Miner 9",
     model: "S21 Pro",
     ipAddress: "10.0.0.9",
-    rackLabel: "Rack A1",
-    groupLabels: ["High priority"],
+    placement: {
+      rack: { id: 101n, label: "Rack A1" },
+      groups: [{ id: 201n, label: "High priority" }],
+    },
   }),
   create(MinerStateSnapshotSchema, {
     deviceIdentifier: "miner-14",
     name: "Miner 14",
     model: "S19 XP",
     ipAddress: "10.0.0.14",
-    rackLabel: "Rack B4",
-    groupLabels: ["Low efficiency"],
+    placement: {
+      rack: { id: 102n, label: "Rack B4" },
+      groups: [{ id: 202n, label: "Low efficiency" }],
+    },
   }),
   create(MinerStateSnapshotSchema, {
     deviceIdentifier: "miner-22",
     name: "Miner 22",
     model: "S21 Pro",
     ipAddress: "10.0.0.22",
-    rackLabel: "Rack B4",
-    groupLabels: [],
+    placement: { rack: { id: 102n, label: "Rack B4" } },
   }),
 ];
 

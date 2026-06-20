@@ -2,12 +2,16 @@ import { useCallback } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { sitesClient } from "@/protoFleet/api/clients";
+import type { FleetListTelemetryRangeFilter } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
+import type { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { type PerDeviceConflict, type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface ListSitesProps {
   signal?: AbortSignal;
+  errorComponentTypes?: ComponentType[];
+  telemetryRanges?: FleetListTelemetryRangeFilter[];
   onSuccess?: (sites: SiteWithCounts[]) => void;
   // ListSites is gated server-side on org-scoped site:read; useHasPermission
   // returns true even for site-scoped-only roles, so callers that fall back
@@ -167,9 +171,15 @@ const useSites = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const listSites = useCallback(
-    async ({ signal, onSuccess, onError, onFinally }: ListSitesProps = {}) => {
+    async ({ signal, errorComponentTypes, telemetryRanges, onSuccess, onError, onFinally }: ListSitesProps = {}) => {
       try {
-        const response = await sitesClient.listSites({}, { signal });
+        const response = await sitesClient.listSites(
+          {
+            errorComponentTypes: errorComponentTypes ?? [],
+            telemetryRanges: telemetryRanges ?? [],
+          },
+          { signal },
+        );
         if (signal?.aborted) return;
         onSuccess?.(response.sites);
       } catch (err) {

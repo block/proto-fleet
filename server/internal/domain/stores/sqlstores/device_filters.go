@@ -36,8 +36,9 @@ type minerFilterParams struct {
 	siteIDsFilter     sql.NullString
 	siteIDValues      []int64
 	includeUnassigned bool
-	// Building filter: building_ids OR (rack.building_id IS NULL when
-	// includeNoBuilding). includeNoRack widens to devices with no rack
+	// Building filter: building_ids match direct device.building_id and
+	// rack-derived placement. includeNoBuilding matches rack rows with
+	// no building. includeNoRack widens to devices with no rack
 	// membership at all.
 	buildingIDsFilter sql.NullString
 	buildingIDValues  []int64
@@ -302,8 +303,9 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 	}
 
 	if fp.rackIDsFilter.Valid {
+		sb.WriteString(" AND (")
 		fmt.Fprintf(sb,
-			" AND EXISTS (SELECT 1 FROM device_set_membership dcm"+
+			"EXISTS (SELECT 1 FROM device_set_membership dcm"+
 				" WHERE dcm.device_id = device.id"+
 				" AND dcm.org_id = $%d"+
 				" AND dcm.device_set_type = 'rack'"+
@@ -311,6 +313,20 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			argNum, argNum+1)
 		args = append(args, orgID, pq.Array(fp.rackIDValues))
 		argNum += 2
+		if fp.includeNoRack {
+			sb.WriteString(" OR ")
+			fmt.Fprintf(sb,
+				"NOT EXISTS (SELECT 1 FROM device_set_membership dcm"+
+					" JOIN device_set ds ON ds.id = dcm.device_set_id"+
+					" WHERE dcm.device_id = device.id"+
+					" AND dcm.org_id = $%d"+
+					" AND dcm.device_set_type = 'rack'"+
+					" AND ds.deleted_at IS NULL)",
+				argNum)
+			args = append(args, orgID)
+			argNum++
+		}
+		sb.WriteString(")")
 	}
 
 	if fp.firmwareVersionsFilter.Valid {
@@ -376,27 +392,33 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		sb.WriteString(")")
 	}
 
-	// Building filter: building_ids and include_no_building are OR'd
-	// together at the top level. Each branch emits its own EXISTS
-	// subquery so the predicate composes cleanly with other filters.
-	// include_no_rack is OR'd on top to widen to devices with no rack
-	// membership row at all. Every emitted predicate carries the
-	// dcm.org_id = $orgID clause — see
+	// Building filter: building_ids, include_no_building, and
+	// include_no_rack are OR'd together at the top level. Explicit
+	// building IDs must match both the direct device FK written by
+	// AssignDevicesToBuilding and rack-derived placement from
+	// device_set_rack. Every emitted rack-membership predicate carries
+	// the dcm.org_id = $orgID clause — see
 	// device_filters_orgid_audit_test.go.
-	if fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.includeNoRack {
+	// When explicit rack IDs are present, include_no_rack belongs to the
+	// rack bucket above (rack IDs OR no rack). Re-emitting it here would
+	// turn that into "rack ID AND no rack" unless the building filter also
+	// explicitly selected its unassigned bucket.
+	includeNoRackInBuildingFilter := fp.includeNoRack && (!fp.rackIDsFilter.Valid || fp.includeNoBuilding)
+	if fp.buildingIDsFilter.Valid || fp.includeNoBuilding || includeNoRackInBuildingFilter {
 		sb.WriteString(" AND (")
 		first := true
 		if fp.buildingIDsFilter.Valid {
 			fmt.Fprintf(sb,
-				"EXISTS (SELECT 1 FROM device_set_membership dcm"+
+				"(device.building_id = ANY($%d::bigint[])"+
+					" OR EXISTS (SELECT 1 FROM device_set_membership dcm"+
 					" JOIN device_set ds ON ds.id = dcm.device_set_id"+
 					" JOIN device_set_rack dsr ON dsr.device_set_id = dcm.device_set_id"+
 					" WHERE dcm.device_id = device.id"+
 					" AND dcm.org_id = $%d"+
 					" AND dcm.device_set_type = 'rack'"+
 					" AND ds.deleted_at IS NULL"+
-					" AND dsr.building_id = ANY($%d::bigint[]))",
-				argNum, argNum+1)
+					" AND dsr.building_id = ANY($%d::bigint[])))",
+				argNum+1, argNum, argNum+1)
 			args = append(args, orgID, pq.Array(fp.buildingIDValues))
 			argNum += 2
 			first = false
@@ -419,7 +441,7 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			argNum++
 			first = false
 		}
-		if fp.includeNoRack {
+		if includeNoRackInBuildingFilter {
 			if !first {
 				sb.WriteString(" OR ")
 			}

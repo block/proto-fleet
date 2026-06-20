@@ -10,6 +10,7 @@ import "telemetry/v1/telemetry.proto";
 import "capabilities/v1/capabilities.proto";
 import "errors/v1/errors.proto";
 import "common/v1/device_selector.proto";
+import "common/v1/common.proto";
 import "common/v1/sort.proto";
 import "common/v1/zone.proto";
 import "buf/validate/validate.proto";
@@ -137,13 +138,8 @@ message MinerStateSnapshot {
   // Firmware version installed on the device
   string firmware_version = 19;
 
-  // Labels of groups this device belongs to
-  // Empty if the device is not a member of any group
-  repeated string group_labels = 20;
-
-  // Label of the rack this device belongs to (single value since device can only be in one rack)
-  // Empty if the device is not assigned to a rack
-  string rack_label = 21;
+  reserved 20, 21, 25, 26, 27;
+  reserved "group_labels", "rack_label", "site_id", "site_label", "building_label";
 
   // Driver name identifies which plugin handles this device (e.g., "proto", "antminer").
   string driver_name = 22;
@@ -155,13 +151,10 @@ message MinerStateSnapshot {
   // Empty if the device is not assigned to a numbered rack slot.
   string rack_position = 24;
 
-  // Site this device is assigned to, if any. Unset when the device is in
-  // the Unassigned bucket or the org has no sites configured.
-  optional int64 site_id = 25;
-
-  // Human-readable label of the site this device is assigned to.
-  // Empty if site_id is unset.
-  string site_label = 26;
+  // Placement references for this device. Individual refs are unset when the
+  // device is not assigned at that level; groups is empty when the device is
+  // not a member of any group.
+  common.v1.PlacementRefs placement = 28;
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering

@@ -5,6 +5,7 @@ import (
 	dspb "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
@@ -50,6 +51,7 @@ func toDeviceSet(c *collectionpb.DeviceCollection) *dspb.DeviceSet {
 		DeviceCount: c.DeviceCount,
 		CreatedAt:   c.CreatedAt,
 		UpdatedAt:   c.UpdatedAt,
+		Placement:   c.Placement,
 	}
 	switch td := c.TypeDetails.(type) {
 	case *collectionpb.DeviceCollection_RackInfo:
@@ -244,6 +246,10 @@ func toListCollectionsParams(r *dspb.ListDeviceSetsRequest) (collection.ListColl
 		return collection.ListCollectionsParams{}, fleeterror.NewInvalidArgumentErrorf(
 			"building_ids exceeds maximum of %d values", maxDeviceSetFilterValues)
 	}
+	if len(r.SiteIds) > maxDeviceSetFilterValues {
+		return collection.ListCollectionsParams{}, fleeterror.NewInvalidArgumentErrorf(
+			"site_ids exceeds maximum of %d values", maxDeviceSetFilterValues)
+	}
 	if len(r.ZoneKeys) > maxDeviceSetFilterValues {
 		return collection.ListCollectionsParams{}, fleeterror.NewInvalidArgumentErrorf(
 			"zone_keys exceeds maximum of %d values", maxDeviceSetFilterValues)
@@ -261,6 +267,10 @@ func toListCollectionsParams(r *dspb.ListDeviceSetsRequest) (collection.ListColl
 			return collection.ListCollectionsParams{}, fleeterror.NewInvalidArgumentErrorf(
 				"site_ids[%d] must be positive", i)
 		}
+	}
+	statsFilter, err := fleetlistfilter.Parse(nil, r.GetTelemetryRanges())
+	if err != nil {
+		return collection.ListCollectionsParams{}, err
 	}
 
 	errorComponentTypes := make([]int32, len(r.ErrorComponentTypes))
@@ -307,6 +317,7 @@ func toListCollectionsParams(r *dspb.ListDeviceSetsRequest) (collection.ListColl
 		BuildingIDs:         r.BuildingIds,
 		IncludeNoBuilding:   r.IncludeNoBuilding,
 		ZoneKeys:            zoneKeys,
+		TelemetryRanges:     statsFilter.TelemetryRanges,
 	}
 
 	return collection.ListCollectionsParams{

@@ -510,8 +510,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getFleetNodeSessionByTokenHashStmt, err = db.PrepareContext(ctx, getFleetNodeSessionByTokenHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodeSessionByTokenHash: %w", err)
 	}
-	if q.getGroupLabelsForDevicesStmt, err = db.PrepareContext(ctx, getGroupLabelsForDevices); err != nil {
-		return nil, fmt.Errorf("error preparing query GetGroupLabelsForDevices: %w", err)
+	if q.getGroupRefsForDevicesStmt, err = db.PrepareContext(ctx, getGroupRefsForDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query GetGroupRefsForDevices: %w", err)
 	}
 	if q.getKnownSubnetsStmt, err = db.PrepareContext(ctx, getKnownSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetKnownSubnets: %w", err)
@@ -2114,9 +2114,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getFleetNodeSessionByTokenHashStmt: %w", cerr)
 		}
 	}
-	if q.getGroupLabelsForDevicesStmt != nil {
-		if cerr := q.getGroupLabelsForDevicesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getGroupLabelsForDevicesStmt: %w", cerr)
+	if q.getGroupRefsForDevicesStmt != nil {
+		if cerr := q.getGroupRefsForDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getGroupRefsForDevicesStmt: %w", cerr)
 		}
 	}
 	if q.getKnownSubnetsStmt != nil {
@@ -3630,7 +3630,7 @@ type Queries struct {
 	getFleetNodeByIDStmt                                       *sql.Stmt
 	getFleetNodeByIDUnscopedStmt                               *sql.Stmt
 	getFleetNodeSessionByTokenHashStmt                         *sql.Stmt
-	getGroupLabelsForDevicesStmt                               *sql.Stmt
+	getGroupRefsForDevicesStmt                                 *sql.Stmt
 	getKnownSubnetsStmt                                        *sql.Stmt
 	getLatestAllDeviceMetricsStmt                              *sql.Stmt
 	getLatestDeviceMetricsStmt                                 *sql.Stmt
@@ -4061,7 +4061,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFleetNodeByIDStmt:                                       q.getFleetNodeByIDStmt,
 		getFleetNodeByIDUnscopedStmt:                               q.getFleetNodeByIDUnscopedStmt,
 		getFleetNodeSessionByTokenHashStmt:                         q.getFleetNodeSessionByTokenHashStmt,
-		getGroupLabelsForDevicesStmt:                               q.getGroupLabelsForDevicesStmt,
+		getGroupRefsForDevicesStmt:                                 q.getGroupRefsForDevicesStmt,
 		getKnownSubnetsStmt:                                        q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                              q.getLatestAllDeviceMetricsStmt,
 		getLatestDeviceMetricsStmt:                                 q.getLatestDeviceMetricsStmt,
