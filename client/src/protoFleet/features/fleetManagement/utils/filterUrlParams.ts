@@ -1,6 +1,14 @@
 import { create } from "@bufbuild/protobuf";
 import { componentIssues, deviceStatusFilterStates } from "../components/MinerList/constants";
-import { protoFieldForTelemetryKey, type TelemetryFilterKey } from "./telemetryFilterBounds";
+import {
+  fleetListTelemetryFieldForTelemetryKey,
+  protoFieldForTelemetryKey,
+  type TelemetryFilterKey,
+} from "./telemetryFilterBounds";
+import {
+  type FleetListTelemetryRangeFilter,
+  FleetListTelemetryRangeFilterSchema,
+} from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
   DeviceStatus,
@@ -25,11 +33,25 @@ const URL_PARAMS = {
   SUBNET: "subnet",
 } as const;
 
+export const UNASSIGNED_URL_VALUE = "null";
+export const UNASSIGNED_FILTER_OPTION = { id: UNASSIGNED_URL_VALUE, label: "Unassigned" };
+
 // Telemetry numeric filters use `${key}_min` / `${key}_max` URL params, one
 // pair per field. Missing key = unbounded on that side.
 const NUMERIC_KEYS: TelemetryFilterKey[] = ["hashrate", "efficiency", "power", "temperature"];
 const numericMinParam = (key: TelemetryFilterKey) => `${key}_min`;
 const numericMaxParam = (key: TelemetryFilterKey) => `${key}_max`;
+
+export const setTelemetryNumericFilterURLParams = (
+  params: URLSearchParams,
+  key: TelemetryFilterKey,
+  value: NumericRangeValue,
+): void => {
+  params.delete(numericMinParam(key));
+  params.delete(numericMaxParam(key));
+  if (value.min !== undefined) params.set(numericMinParam(key), String(value.min));
+  if (value.max !== undefined) params.set(numericMaxParam(key), String(value.max));
+};
 
 export const FILTER_URL_PARAM_KEYS: readonly string[] = [
   ...Object.values(URL_PARAMS),
@@ -89,6 +111,85 @@ const getMulti = (params: URLSearchParams, key: string): string[] => params.getA
 // values are guaranteed to not contain commas (enum strings, numeric IDs).
 const getMultiLegacy = (params: URLSearchParams, key: string): string[] =>
   params.getAll(key).flatMap((raw) => raw.split(",").filter((piece) => piece !== ""));
+
+const parseIdBucketValues = (params: URLSearchParams, key: string): { ids: bigint[]; includeUnassigned: boolean } => {
+  const ids: bigint[] = [];
+  let includeUnassigned = false;
+  getMultiLegacy(params, key).forEach((raw) => {
+    const trimmed = raw.trim();
+    if (trimmed === UNASSIGNED_URL_VALUE) {
+      includeUnassigned = true;
+      return;
+    }
+    if (trimmed && /^\d+$/.test(trimmed)) {
+      ids.push(BigInt(trimmed));
+    }
+  });
+  return { ids, includeUnassigned };
+};
+
+export const parseIdFilterValuesFromURL = (
+  params: URLSearchParams,
+  key: "site" | "building" | "rack" | "group",
+): { values: string[]; includeUnassigned: boolean } => {
+  const values: string[] = [];
+  let includeUnassigned = false;
+  getMultiLegacy(params, key).forEach((raw) => {
+    const trimmed = raw.trim();
+    if (trimmed === UNASSIGNED_URL_VALUE) {
+      includeUnassigned = true;
+      values.push(UNASSIGNED_URL_VALUE);
+      return;
+    }
+    if (trimmed && /^\d+$/.test(trimmed)) values.push(trimmed);
+  });
+  return { values: Array.from(new Set(values)), includeUnassigned };
+};
+
+export const issueComponentTypesFromValues = (issueValues: string[]): ComponentType[] => {
+  const out: ComponentType[] = [];
+  issueValues.forEach((issue) => {
+    switch (issue) {
+      case componentIssues.controlBoard:
+        out.push(ComponentType.CONTROL_BOARD);
+        break;
+      case componentIssues.fans:
+        out.push(ComponentType.FAN);
+        break;
+      case componentIssues.hashBoards:
+        out.push(ComponentType.HASH_BOARD);
+        break;
+      case componentIssues.psu:
+        out.push(ComponentType.PSU);
+        break;
+    }
+  });
+  return out;
+};
+
+export const issueComponentTypesFromURL = (params: URLSearchParams): ComponentType[] =>
+  issueComponentTypesFromValues(getMultiLegacy(params, URL_PARAMS.ISSUES));
+
+export const fleetListTelemetryRangesFromActiveFilters = (filters: ActiveFilters): FleetListTelemetryRangeFilter[] => {
+  const ranges: FleetListTelemetryRangeFilter[] = [];
+  Object.entries(filters.numericFilters).forEach(([key, value]) => {
+    if (value.min === undefined && value.max === undefined) return;
+    const field = fleetListTelemetryFieldForTelemetryKey[key as TelemetryFilterKey];
+    if (field === undefined) return;
+    const range = create(FleetListTelemetryRangeFilterSchema, {
+      field,
+      minInclusive: true,
+      maxInclusive: true,
+    });
+    if (value.min !== undefined) range.min = value.min;
+    if (value.max !== undefined) range.max = value.max;
+    ranges.push(range);
+  });
+  return ranges;
+};
+
+export const fleetListTelemetryRangesFromURL = (params: URLSearchParams): FleetListTelemetryRangeFilter[] =>
+  fleetListTelemetryRangesFromActiveFilters(parseUrlToActiveFilters(params));
 
 /**
  * Encodes a MinerListFilter to URL search parameters
@@ -150,16 +251,22 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
     setMulti(params, URL_PARAMS.GROUP, filter.groupIds.map(String).sort());
   }
 
-  if (filter.rackIds.length > 0) {
-    setMulti(params, URL_PARAMS.RACK, filter.rackIds.map(String).sort());
+  if (filter.rackIds.length > 0 || filter.includeNoRack) {
+    const rackValues = filter.rackIds.map(String);
+    if (filter.includeNoRack) rackValues.push(UNASSIGNED_URL_VALUE);
+    setMulti(params, URL_PARAMS.RACK, rackValues.sort());
   }
 
-  if (filter.buildingIds.length > 0) {
-    setMulti(params, URL_PARAMS.BUILDING, filter.buildingIds.map(String).sort());
+  if (filter.buildingIds.length > 0 || filter.includeNoBuilding) {
+    const buildingValues = filter.buildingIds.map(String);
+    if (filter.includeNoBuilding) buildingValues.push(UNASSIGNED_URL_VALUE);
+    setMulti(params, URL_PARAMS.BUILDING, buildingValues.sort());
   }
 
-  if (filter.siteIds.length > 0) {
-    setMulti(params, URL_PARAMS.SITE, filter.siteIds.map(String).sort());
+  if (filter.siteIds.length > 0 || filter.includeUnassigned) {
+    const siteValues = filter.siteIds.map(String);
+    if (filter.includeUnassigned) siteValues.push(UNASSIGNED_URL_VALUE);
+    setMulti(params, URL_PARAMS.SITE, siteValues.sort());
   }
 
   if (filter.firmwareVersions.length > 0) {
@@ -219,22 +326,7 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
     }
   });
 
-  getMultiLegacy(params, URL_PARAMS.ISSUES).forEach((issue) => {
-    switch (issue) {
-      case componentIssues.controlBoard:
-        filter.errorComponentTypes.push(ComponentType.CONTROL_BOARD);
-        break;
-      case componentIssues.fans:
-        filter.errorComponentTypes.push(ComponentType.FAN);
-        break;
-      case componentIssues.hashBoards:
-        filter.errorComponentTypes.push(ComponentType.HASH_BOARD);
-        break;
-      case componentIssues.psu:
-        filter.errorComponentTypes.push(ComponentType.PSU);
-        break;
-    }
-  });
+  filter.errorComponentTypes.push(...issueComponentTypesFromURL(params));
 
   getMultiLegacy(params, URL_PARAMS.MODEL).forEach((model) => {
     if (model) filter.models.push(model);
@@ -247,26 +339,17 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
     }
   });
 
-  getMultiLegacy(params, URL_PARAMS.RACK).forEach((id) => {
-    const trimmed = id.trim();
-    if (trimmed && /^\d+$/.test(trimmed)) {
-      filter.rackIds.push(BigInt(trimmed));
-    }
-  });
+  const rackBucket = parseIdBucketValues(params, URL_PARAMS.RACK);
+  filter.rackIds.push(...rackBucket.ids);
+  filter.includeNoRack = rackBucket.includeUnassigned;
 
-  getMultiLegacy(params, URL_PARAMS.BUILDING).forEach((id) => {
-    const trimmed = id.trim();
-    if (trimmed && /^\d+$/.test(trimmed)) {
-      filter.buildingIds.push(BigInt(trimmed));
-    }
-  });
+  const buildingBucket = parseIdBucketValues(params, URL_PARAMS.BUILDING);
+  filter.buildingIds.push(...buildingBucket.ids);
+  filter.includeNoBuilding = buildingBucket.includeUnassigned;
 
-  getMultiLegacy(params, URL_PARAMS.SITE).forEach((id) => {
-    const trimmed = id.trim();
-    if (trimmed && /^\d+$/.test(trimmed)) {
-      filter.siteIds.push(BigInt(trimmed));
-    }
-  });
+  const siteBucket = parseIdBucketValues(params, URL_PARAMS.SITE);
+  filter.siteIds.push(...siteBucket.ids);
+  filter.includeUnassigned = siteBucket.includeUnassigned;
 
   getMulti(params, URL_PARAMS.FIRMWARE).forEach((value) => {
     if (value) filter.firmwareVersions.push(value);
@@ -356,25 +439,19 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
     activeFilters.dropdownFilters.group = Array.from(new Set(groupValues));
   }
 
-  const rackValues = getMultiLegacy(params, URL_PARAMS.RACK)
-    .map((value) => value.trim())
-    .filter((value) => value !== "" && /^\d+$/.test(value));
+  const rackValues = parseIdFilterValuesFromURL(params, URL_PARAMS.RACK).values;
   if (rackValues.length > 0) {
-    activeFilters.dropdownFilters.rack = Array.from(new Set(rackValues));
+    activeFilters.dropdownFilters.rack = rackValues;
   }
 
-  const buildingValues = getMultiLegacy(params, URL_PARAMS.BUILDING)
-    .map((value) => value.trim())
-    .filter((value) => value !== "" && /^\d+$/.test(value));
+  const buildingValues = parseIdFilterValuesFromURL(params, URL_PARAMS.BUILDING).values;
   if (buildingValues.length > 0) {
-    activeFilters.dropdownFilters.building = Array.from(new Set(buildingValues));
+    activeFilters.dropdownFilters.building = buildingValues;
   }
 
-  const siteValues = getMultiLegacy(params, URL_PARAMS.SITE)
-    .map((value) => value.trim())
-    .filter((value) => value !== "" && /^\d+$/.test(value));
+  const siteValues = parseIdFilterValuesFromURL(params, URL_PARAMS.SITE).values;
   if (siteValues.length > 0) {
-    activeFilters.dropdownFilters.site = Array.from(new Set(siteValues));
+    activeFilters.dropdownFilters.site = siteValues;
   }
 
   const firmwareValues = getMulti(params, URL_PARAMS.FIRMWARE).filter((v) => v !== "");

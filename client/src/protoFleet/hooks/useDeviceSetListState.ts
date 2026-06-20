@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
+import type { FleetListTelemetryRangeFilter } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
 import {
   SortDirection as ProtoSortDirection,
   type SortConfig,
@@ -52,6 +53,10 @@ export function useDeviceSetListState(
   getBuildingIds?: () => bigint[],
   getSiteFilter?: () => DeviceSetSiteFilter,
   initialSort?: () => { field: DeviceSetColumn; direction: SortDirection },
+  getSiteIds?: () => bigint[],
+  getIncludeUnassigned?: () => boolean,
+  getIncludeNoBuilding?: () => boolean,
+  getTelemetryRanges?: () => FleetListTelemetryRangeFilter[],
 ) {
   const { getDeviceSetStats } = useDeviceSets();
   const [deviceSets, setDeviceSets] = useState<DeviceSet[]>([]);
@@ -112,7 +117,10 @@ export function useDeviceSetListState(
       const requestId = ++listRequestId.current;
       setIsLoading(true);
       setError(null);
-      const siteFilter = getSiteFilter?.() ?? { siteIds: [], includeUnassigned: false };
+      const siteFilter = getSiteFilter?.() ?? {
+        siteIds: getSiteIds?.() ?? [],
+        includeUnassigned: getIncludeUnassigned?.() ?? false,
+      };
       if (siteFilter.matchNone) {
         setHasCompletedInitialFetch(true);
         setDeviceSets([]);
@@ -130,8 +138,10 @@ export function useDeviceSetListState(
         errorComponentTypes: getErrorComponentTypes?.() ?? [],
         zones: getZones?.() ?? [],
         buildingIds: getBuildingIds?.() ?? [],
+        includeNoBuilding: getIncludeNoBuilding?.() ?? false,
         siteIds: siteFilter.siteIds,
         includeUnassigned: siteFilter.includeUnassigned,
+        telemetryRanges: getTelemetryRanges?.() ?? [],
         onSuccess: (items, nextPageToken, total) => {
           if (requestId !== listRequestId.current) return;
           if (total > 0) setHasEverLoaded(true);
@@ -159,7 +169,19 @@ export function useDeviceSetListState(
         },
       });
     },
-    [listFn, pageSize, fetchStats, getErrorComponentTypes, getZones, getBuildingIds, getSiteFilter],
+    [
+      listFn,
+      pageSize,
+      fetchStats,
+      getErrorComponentTypes,
+      getZones,
+      getBuildingIds,
+      getSiteFilter,
+      getSiteIds,
+      getIncludeUnassigned,
+      getIncludeNoBuilding,
+      getTelemetryRanges,
+    ],
   );
 
   const resetAndFetch = useCallback(() => {

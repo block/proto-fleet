@@ -46,8 +46,14 @@ describe("summarizeFilters", () => {
     expect(result).toContainEqual({ key: "firmware", label: "Firmware", values: ["1.0.5"] });
   });
 
-  it("looks up group and rack ids against available device sets", () => {
-    const result = summarizeFilters(new URLSearchParams("group=1&group=2&rack=10"), "miners", ctx);
+  it("looks up site, building, group, and rack ids against available labels", () => {
+    const result = summarizeFilters(
+      new URLSearchParams("site=200&building=100&group=1&group=2&rack=10"),
+      "miners",
+      ctx,
+    );
+    expect(result).toContainEqual({ key: "site", label: "Sites", values: ["Houston"] });
+    expect(result).toContainEqual({ key: "building", label: "Buildings", values: ["DC1"] });
     expect(result).toContainEqual({ key: "group", label: "Groups", values: ["Site A", "Site B"] });
     expect(result).toContainEqual({ key: "rack", label: "Racks", values: ["R1"] });
   });
@@ -67,13 +73,31 @@ describe("summarizeFilters", () => {
     expect(result).toContainEqual({ key: "site", label: "Sites", values: ["Houston"] });
   });
 
+  it("renders issue and telemetry filters on the racks tab", () => {
+    const result = summarizeFilters(new URLSearchParams("issues=psu&hashrate_min=10"), "racks", ctx);
+    expect(result).toContainEqual({ key: "issues", label: "Issues", values: ["PSU"] });
+    expect(result).toContainEqual({ key: "hashrate", label: "Hashrate", values: ["≥ 10 TH/s"] });
+  });
+
   it("ignores miner-only filter keys on the racks tab", () => {
     expect(summarizeFilters(new URLSearchParams("status=offline&model=S21"), "racks", ctx)).toEqual([]);
   });
 
-  it("returns empty for tabs without a filter surface (buildings, sites)", () => {
-    expect(summarizeFilters(new URLSearchParams("anything=goes"), "buildings", ctx)).toEqual([]);
-    expect(summarizeFilters(new URLSearchParams("anything=goes"), "sites", ctx)).toEqual([]);
+  it("renders site, issue, and telemetry filters on the buildings tab", () => {
+    const result = summarizeFilters(
+      new URLSearchParams("site=200&site=null&issues=fans&temperature_max=85"),
+      "buildings",
+      ctx,
+    );
+    expect(result).toContainEqual({ key: "issues", label: "Issues", values: ["Fans"] });
+    expect(result).toContainEqual({ key: "site", label: "Sites", values: ["Houston", "Unassigned"] });
+    expect(result).toContainEqual({ key: "temperature", label: "Temperature", values: ["≤ 85 °C"] });
+  });
+
+  it("renders issue and telemetry filters on the sites tab", () => {
+    const result = summarizeFilters(new URLSearchParams("issues=psu&power_max=4.2"), "sites", ctx);
+    expect(result).toContainEqual({ key: "issues", label: "Issues", values: ["PSU"] });
+    expect(result).toContainEqual({ key: "power", label: "Power", values: ["≤ 4.2 kW"] });
   });
 });
 
@@ -103,9 +127,7 @@ describe("summarizeSort", () => {
     });
   });
 
-  it("ignores sort params on tabs that don't own sort", () => {
-    // Cross-tab navigation can leave `?sort=` behind; tabs without a sort
-    // UI must not surface it as a saveable setting.
+  it("ignores inert sort params on sites and buildings", () => {
     expect(summarizeSort(new URLSearchParams("sort=name&dir=asc"), "buildings")).toBeUndefined();
     expect(summarizeSort(new URLSearchParams("sort=name&dir=asc"), "sites")).toBeUndefined();
   });

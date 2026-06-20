@@ -1,3 +1,4 @@
+import { FleetListTelemetryField } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
 import { NumericField } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { NumericRangeBounds } from "@/shared/utils/filterValidation";
 
@@ -19,6 +20,8 @@ export const TELEMETRY_FILTER_BOUNDS = {
 } as const satisfies Record<string, NumericRangeBounds & { label: string }>;
 
 export type TelemetryFilterKey = keyof typeof TELEMETRY_FILTER_BOUNDS;
+
+export const TELEMETRY_FILTER_KEYS: readonly TelemetryFilterKey[] = ["hashrate", "temperature", "efficiency", "power"];
 
 /**
  * Maps a `NumericField` proto enum value to the matching bounds entry, or
@@ -55,4 +58,11 @@ export const protoFieldForTelemetryKey: Record<TelemetryFilterKey, NumericField>
   efficiency: NumericField.EFFICIENCY_JTH,
   power: NumericField.POWER_KW,
   temperature: NumericField.TEMPERATURE_C,
+};
+
+export const fleetListTelemetryFieldForTelemetryKey: Record<TelemetryFilterKey, FleetListTelemetryField> = {
+  hashrate: FleetListTelemetryField.HASHRATE_THS,
+  efficiency: FleetListTelemetryField.EFFICIENCY_JTH,
+  power: FleetListTelemetryField.POWER_KW,
+  temperature: FleetListTelemetryField.TEMPERATURE_C,
 };

@@ -43,6 +43,8 @@ import {
   encodeFilterToURL,
   FILTER_URL_PARAM_KEYS,
   parseUrlToActiveFilters,
+  UNASSIGNED_FILTER_OPTION,
+  UNASSIGNED_URL_VALUE,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
 import {
@@ -51,6 +53,7 @@ import {
   type TelemetryFilterKey,
 } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { VIEW_URL_PARAM } from "@/protoFleet/features/fleetManagement/views/savedViews";
+import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import { useUsername } from "@/protoFleet/store";
 
 import { ChevronDown, LogoAlt, Plus, Slider } from "@/shared/assets/icons";
@@ -188,6 +191,14 @@ type MinerListProps = {
    * Available racks for the rack filter dropdown.
    */
   availableRacks?: DeviceSet[];
+  /**
+   * Available sites for the site filter dropdown.
+   */
+  availableSites?: FilterLabelSource[];
+  /**
+   * Available buildings for the building filter dropdown.
+   */
+  availableBuildings?: FilterLabelSource[];
   /**
    * Exports the full paired miner list as CSV.
    */
@@ -502,6 +513,8 @@ const MinerList = ({
   availableFirmwareVersions = [],
   availableGroups = [],
   availableRacks = [],
+  availableSites = [],
+  availableBuildings = [],
   onExportCsv,
   exportCsvLoading = false,
   currentFilter,
@@ -793,13 +806,37 @@ const MinerList = ({
     [availableGroups],
   );
 
+  const sitesFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Sites",
+      pluralTitle: "sites",
+      value: "site",
+      options: [...availableSites, UNASSIGNED_FILTER_OPTION],
+      defaultOptionIds: [],
+    }),
+    [availableSites],
+  );
+
+  const buildingsFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Buildings",
+      pluralTitle: "buildings",
+      value: "building",
+      options: [...availableBuildings, UNASSIGNED_FILTER_OPTION],
+      defaultOptionIds: [],
+    }),
+    [availableBuildings],
+  );
+
   const racksFilter: DropdownFilterItem = useMemo(
     () => ({
       type: "dropdown",
       title: "Racks",
       pluralTitle: "racks",
       value: "rack",
-      options: availableRacks.map((r) => ({ id: String(r.id), label: r.label })),
+      options: [...availableRacks.map((r) => ({ id: String(r.id), label: r.label })), UNASSIGNED_FILTER_OPTION],
       defaultOptionIds: [],
     }),
     [availableRacks],
@@ -871,6 +908,8 @@ const MinerList = ({
           { ...issuesFilter, showGroupDivider: true },
           modelFilter,
           { ...firmwareFilter, showGroupDivider: true },
+          sitesFilter,
+          buildingsFilter,
           racksFilter,
           zonesFilter,
           { ...groupsFilter, showGroupDivider: true },
@@ -887,6 +926,8 @@ const MinerList = ({
       issuesFilter,
       modelFilter,
       groupsFilter,
+      sitesFilter,
+      buildingsFilter,
       racksFilter,
       firmwareFilter,
       zonesFilter,
@@ -962,14 +1003,22 @@ const MinerList = ({
       const rackFilters = filters.dropdownFilters.rack;
       if (rackFilters && rackFilters.length > 0) {
         rackFilters.forEach((id) => {
-          minerFilter.rackIds.push(BigInt(id));
+          if (id === UNASSIGNED_URL_VALUE) {
+            minerFilter.includeNoRack = true;
+          } else {
+            minerFilter.rackIds.push(BigInt(id));
+          }
         });
       }
 
       const buildingFilters = filters.dropdownFilters.building;
       if (buildingFilters && buildingFilters.length > 0) {
         buildingFilters.forEach((id) => {
-          minerFilter.buildingIds.push(BigInt(id));
+          if (id === UNASSIGNED_URL_VALUE) {
+            minerFilter.includeNoBuilding = true;
+          } else {
+            minerFilter.buildingIds.push(BigInt(id));
+          }
         });
       }
 
@@ -980,7 +1029,11 @@ const MinerList = ({
       const siteFilters = filters.dropdownFilters.site;
       if (siteFilters && siteFilters.length > 0) {
         siteFilters.forEach((id) => {
-          minerFilter.siteIds.push(BigInt(id));
+          if (id === UNASSIGNED_URL_VALUE) {
+            minerFilter.includeUnassigned = true;
+          } else {
+            minerFilter.siteIds.push(BigInt(id));
+          }
         });
       }
 

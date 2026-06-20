@@ -33,8 +33,16 @@ const applyAllowedPairingStatuses = (
       pairingStatuses.length > 0 || hasExplicitPairingStatuses ? pairingStatuses : [...allowedPairingStatuses],
     groupIds: filter?.groupIds ?? [],
     rackIds: filter?.rackIds ?? [],
+    includeNoRack: filter?.includeNoRack ?? false,
+    siteIds: filter?.siteIds ?? [],
+    includeUnassigned: filter?.includeUnassigned ?? false,
+    buildingIds: filter?.buildingIds ?? [],
+    includeNoBuilding: filter?.includeNoBuilding ?? false,
     firmwareVersions: filter?.firmwareVersions ?? [],
     zones: filter?.zones ?? [],
+    zoneKeys: filter?.zoneKeys ?? [],
+    numericRanges: filter?.numericRanges ?? [],
+    ipCidrs: filter?.ipCidrs ?? [],
   });
 };
 
