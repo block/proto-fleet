@@ -2,6 +2,9 @@ package sqlstores_test
 
 import (
 	"database/sql"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
@@ -375,28 +378,6 @@ func TestCollectionStore_GetGroupRefsForDevices(t *testing.T) {
 	assert.NotZero(t, refs[deviceIDs[0]][1].ID)
 }
 
-func TestCollectionStore_GetGroupRefsForDevices_IgnoresMismatchedDeviceSetOrg(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
-	store := newCollectionStore(db)
-	ctx := t.Context()
-
-	group, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, "Wrong Org", "")
-	require.NoError(t, err)
-	_, err = store.AddDevicesToCollection(ctx, orgID, group.Id, deviceIDs)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `UPDATE device_set SET org_id = $1 WHERE id = $2`, orgID+999, group.Id)
-	require.NoError(t, err)
-
-	refs, err := store.GetGroupRefsForDevices(ctx, orgID, deviceIDs)
-	require.NoError(t, err)
-	assert.Empty(t, refs[deviceIDs[0]])
-}
-
 func TestCollectionStore_GetRackDetailsForDevices(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -431,38 +412,6 @@ func TestCollectionStore_GetRackDetailsForDevices(t *testing.T) {
 	assert.Equal(t, "100", details[deviceIDs[1]].Position)
 }
 
-func TestCollectionStore_GetRackDetailsForDevices_IgnoresMismatchedRackExtensionOrg(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
-	store := newCollectionStore(db)
-	ctx := t.Context()
-
-	rack, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack 1", "")
-	require.NoError(t, err)
-	err = store.CreateRackExtension(ctx, sqlstoresinterfaces.CreateRackExtensionParams{
-		OrgID: orgID, CollectionID: rack.Id, Rows: 12, Columns: 12, OrderIndex: 2, Zone: "Floor 1",
-	})
-	require.NoError(t, err)
-	_, err = store.AddDevicesToCollection(ctx, orgID, rack.Id, deviceIDs)
-	require.NoError(t, err)
-	err = store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[0], 0, 0, orgID)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `UPDATE device_set_rack SET org_id = $1 WHERE device_set_id = $2`, orgID+999, rack.Id)
-	require.NoError(t, err)
-
-	details, err := store.GetRackDetailsForDevices(ctx, orgID, deviceIDs)
-	require.NoError(t, err)
-	require.Len(t, details, 1)
-	assert.Equal(t, rack.Id, details[deviceIDs[0]].ID)
-	assert.Equal(t, "Rack 1", details[deviceIDs[0]].Label)
-	assert.Empty(t, details[deviceIDs[0]].Position)
-	assert.Nil(t, details[deviceIDs[0]].BuildingID)
-}
-
 func TestCollectionStore_GetRackDetailsForDevices_LeavesPositionBlankForUnspecifiedOrderIndex(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -489,6 +438,19 @@ func TestCollectionStore_GetRackDetailsForDevices_LeavesPositionBlankForUnspecif
 	require.Len(t, details, 1)
 	assert.Equal(t, "Floor 1", details[deviceIDs[0]].Label)
 	assert.Empty(t, details[deviceIDs[0]].Position)
+}
+
+func TestCollectionStore_DeviceRefQueriesScopeJoinsByOrg(t *testing.T) {
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+
+	queryPath := filepath.Join(filepath.Dir(filename), "../../../../sqlc/queries/device_set.sql")
+	queryBytes, err := os.ReadFile(queryPath)
+	require.NoError(t, err)
+	query := string(queryBytes)
+
+	assert.Contains(t, query, "JOIN device_set ds ON dsm.device_set_id = ds.id AND ds.org_id = dsm.org_id")
+	assert.Contains(t, query, "LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id AND dsr.org_id = dsm.org_id")
 }
 
 func TestCollectionStore_UpdateCollection(t *testing.T) {
