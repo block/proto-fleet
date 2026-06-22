@@ -36,11 +36,14 @@ const RulesSection = () => {
   const [showMaintenanceWindowModal, setShowMaintenanceWindowModal] = useState(false);
 
   const now = useNow();
-  const activeMaintenanceWindowByRule = useMemo(() => {
-    const map = new Map<string, string>();
+  const activeMaintenanceWindowIdsByRule = useMemo(() => {
+    // Track every active window per rule, not just the last one, so lifting a rule clears all of them.
+    const map = new Map<string, string[]>();
     maintenanceWindows.forEach((sil) => {
       if (isMaintenanceWindowActive(sil, now) && sil.scope.kind === "rule" && sil.scope.rule_id) {
-        map.set(sil.scope.rule_id, sil.id);
+        const ids = map.get(sil.scope.rule_id) ?? [];
+        ids.push(sil.id);
+        map.set(sil.scope.rule_id, ids);
       }
     });
     return map;
@@ -79,11 +82,15 @@ const RulesSection = () => {
 
   const handleMaintenanceWindowOrLift = useCallback(
     async (rule: Rule) => {
-      const activeMaintenanceWindowId = activeMaintenanceWindowByRule.get(rule.id);
-      if (activeMaintenanceWindowId) {
+      const activeIds = activeMaintenanceWindowIdsByRule.get(rule.id) ?? [];
+      if (activeIds.length > 0) {
         try {
-          await removeMaintenanceWindow(activeMaintenanceWindowId);
-          pushToast({ message: "Maintenance window lifted", status: STATUSES.success });
+          // Lift every active window for the rule so it isn't left muted by an overlapping one.
+          await Promise.all(activeIds.map((id) => removeMaintenanceWindow(id)));
+          pushToast({
+            message: activeIds.length > 1 ? "Maintenance windows lifted" : "Maintenance window lifted",
+            status: STATUSES.success,
+          });
         } catch (error) {
           pushToast({
             message: getErrorMessage(error, "Failed to lift maintenance window"),
@@ -95,7 +102,7 @@ const RulesSection = () => {
         setShowMaintenanceWindowModal(true);
       }
     },
-    [activeMaintenanceWindowByRule, removeMaintenanceWindow],
+    [activeMaintenanceWindowIdsByRule, removeMaintenanceWindow],
   );
 
   const actions: ListAction<Rule>[] = useMemo(
@@ -109,14 +116,14 @@ const RulesSection = () => {
       },
       {
         title: (rule) =>
-          activeMaintenanceWindowByRule.has(rule.id) ? "Lift maintenance window" : "Maintenance window",
+          activeMaintenanceWindowIdsByRule.has(rule.id) ? "Lift maintenance window" : "Maintenance window",
         icon: <Stop />,
         actionHandler: (rule) => {
           void handleMaintenanceWindowOrLift(rule);
         },
       },
     ],
-    [handleTogglePause, handleMaintenanceWindowOrLift, activeMaintenanceWindowByRule],
+    [handleTogglePause, handleMaintenanceWindowOrLift, activeMaintenanceWindowIdsByRule],
   );
 
   const colConfig: ColConfig<Rule, string, RuleColumns> = useMemo(
