@@ -5,7 +5,7 @@ import clsx from "clsx";
 import { type ActiveSite, useActiveSite } from "./useActiveSite";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
-import { scopedPath, scopeCurrentOrDashboardPath } from "@/protoFleet/routing/siteScope";
+import { scopeCurrentOrDashboardPath, scopedPath } from "@/protoFleet/routing/siteScope";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import SiteDetailPage from "./SiteDetailPage";
-import { type SiteWithCounts, SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
