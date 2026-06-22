@@ -106,6 +106,7 @@ test.describe("Fleet reparent flows", () => {
       await racksPage.validateTextInToast(`Moved "${rackName}" to selected building.`);
 
       await page.goto(`/racks?building=${sourceBuildingId}`);
+      await racksPage.validateRacksPageOpened();
       await racksPage.clickViewList();
       await racksPage.waitForRackListToLoad({ allowEmpty: false });
       await racksPage.validateRackRow(rackName, RACK_ZONE, 0);
@@ -122,11 +123,13 @@ test.describe("Fleet reparent flows", () => {
       await racksPage.validateTextInToast(`Moved "${rackName}" to selected building.`);
 
       await page.goto(`/racks?building=${targetBuildingId}`);
+      await racksPage.validateRacksPageOpened();
       await racksPage.clickViewList();
       await racksPage.waitForRackListToLoad({ allowEmpty: false });
       test.expect(await racksPage.listRackNames()).toContain(rackName);
 
       await page.goto(`/racks?building=${sourceBuildingId}`);
+      await racksPage.validateRacksPageOpened();
       await racksPage.clickViewList();
       await racksPage.waitForRackListToLoad();
       test.expect(await racksPage.listRackNames()).not.toContain(rackName);

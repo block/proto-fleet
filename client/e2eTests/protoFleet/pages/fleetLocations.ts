@@ -69,10 +69,13 @@ export class FleetLocationsPage extends BasePage {
     const overflowTrigger = this.page.getByTestId("overflow-menu-trigger");
     if (await overflowTrigger.isVisible().catch(() => false)) {
       await overflowTrigger.click();
-      await this.page.getByText("Edit details", { exact: true }).click();
-    } else {
-      await this.page.getByRole("button", { name: "Edit details", exact: true }).click();
     }
+    const editDetailsButton = await this.getVisibleButton("Edit details");
+    if (!editDetailsButton) {
+      throw new Error('Expected to find a visible "Edit details" button.');
+    }
+
+    await editDetailsButton.click();
     await expect(this.page.getByTestId("site-settings-modal")).toBeVisible();
     await this.page.getByTestId("site-settings-modal-delete").click();
     await expect(this.page.getByTestId("site-delete-dialog")).toBeVisible();
@@ -98,12 +101,19 @@ export class FleetLocationsPage extends BasePage {
     }
 
     await buildingRow.click();
-    const overflowTrigger = this.page.getByTestId("overflow-menu-trigger");
-    if (await overflowTrigger.isVisible().catch(() => false)) {
-      await overflowTrigger.click();
-      await this.page.getByText("Delete building", { exact: true }).click();
+    const buildingSettingsModal = this.page.getByTestId("building-settings-modal");
+    await buildingSettingsModal.waitFor({ state: "visible", timeout: 3000 }).catch(() => null);
+
+    if (await buildingSettingsModal.isVisible().catch(() => false)) {
+      await this.page.getByTestId("building-settings-modal-delete").click();
     } else {
-      await this.page.getByTestId("manage-building-delete").click();
+      const overflowTrigger = this.page.getByTestId("overflow-menu-trigger");
+      if (await overflowTrigger.isVisible().catch(() => false)) {
+        await overflowTrigger.click();
+        await this.page.getByText("Delete building", { exact: true }).click();
+      } else {
+        await this.page.getByTestId("manage-building-delete").click();
+      }
     }
     await expect(this.page.getByTestId("building-delete-dialog")).toBeVisible();
     await this.page.getByTestId("building-delete-dialog-confirm").click();
@@ -118,5 +128,19 @@ export class FleetLocationsPage extends BasePage {
 
   private getSingleSiteBuildingRow(buildingName: string): Locator {
     return this.page.getByTestId("site-settings-single-view").getByRole("button").filter({ hasText: buildingName });
+  }
+
+  private async getVisibleButton(name: string): Promise<Locator | null> {
+    const buttons = this.page.getByRole("button", { name, exact: true });
+    const count = await buttons.count();
+
+    for (let i = 0; i < count; i++) {
+      const button = buttons.nth(i);
+      if (await button.isVisible().catch(() => false)) {
+        return button;
+      }
+    }
+
+    return null;
   }
 }

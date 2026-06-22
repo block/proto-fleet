@@ -316,11 +316,47 @@ export class RacksPage extends BasePage {
   }
 
   async clickViewList() {
-    await this.clickButton("View list");
+    const emptyState = this.page.getByText("You haven't set up any racks");
+    await expect(async () => {
+      const viewListButton = await this.getVisibleButton("View list");
+      const isEmptyStateVisible = await emptyState.isVisible().catch(() => false);
+      expect(Boolean(viewListButton) || isEmptyStateVisible).toBe(true);
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
+
+    const viewListButton = await this.getVisibleButton("View list");
+    if (viewListButton) {
+      await viewListButton.click();
+      return;
+    }
+
+    if (await emptyState.isVisible().catch(() => false)) {
+      return;
+    }
+
+    throw new Error('Expected to find a visible "View list" button or empty rack state.');
   }
 
   async clickViewGrid() {
-    await this.clickButton("View grid");
+    const viewGridButton = await this.getVisibleButton("View grid");
+    if (!viewGridButton) {
+      throw new Error('Expected to find a visible "View grid" button.');
+    }
+
+    await viewGridButton.click();
+  }
+
+  private async getVisibleButton(name: string): Promise<Locator | null> {
+    const buttons = this.page.getByRole("button", { name, exact: true });
+    const count = await buttons.count();
+
+    for (let i = 0; i < count; i++) {
+      const button = buttons.nth(i);
+      if (await button.isVisible().catch(() => false)) {
+        return button;
+      }
+    }
+
+    return null;
   }
 
   private async getVisibleAddFilterTrigger(): Promise<Locator> {
