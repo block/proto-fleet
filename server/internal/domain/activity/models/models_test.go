@@ -81,7 +81,7 @@ func TestOrgLevelCategories(t *testing.T) {
 	t.Parallel()
 
 	got := OrgLevelCategories()
-	want := []string{"auth", "system", "pool", "schedule", "curtailment"}
+	want := []string{"auth", "system", "pool", "schedule", "curtailment", "device_command"}
 	assert.ElementsMatch(t, want, got)
 }
 
@@ -96,7 +96,7 @@ func TestOrgLevelCategoriesIsImmutable(t *testing.T) {
 	}
 
 	assert.ElementsMatch(t,
-		[]string{"auth", "system", "pool", "schedule", "curtailment"},
+		[]string{"auth", "system", "pool", "schedule", "curtailment", "device_command"},
 		OrgLevelCategories(),
 	)
 }

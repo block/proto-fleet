@@ -34,13 +34,21 @@ const (
 	ResultFailure ResultType = "failure"
 )
 
-// orgLevelCategories are the event categories that have no single-site
-// concept: login/auth, system events, mining-pool config, schedules, and
-// curtailment — all of which are fleet/org-wide and whose emitters never stamp
-// a scalar site_id. They are the single source of truth for the "unassigned"
-// activity bucket: a direct (non-batch) row with site_id IS NULL only belongs
-// in /{unassigned}/activity if its category is NOT one of these, so org-level
-// events surface only in the all-sites feed and never pollute a site bucket.
+// orgLevelCategories are the event categories with no single-site concept for
+// their DIRECT (non-batch) rows: login/auth, system events, mining-pool config,
+// schedules, curtailment, and device-command audits. They are the single source
+// of truth for the "unassigned" activity bucket: a direct (batch_id IS NULL) row
+// with site_id IS NULL only belongs in /{unassigned}/activity if its category is
+// NOT one of these, so org-level events surface only in the all-sites feed and
+// never pollute a site bucket.
+//
+// Note this only governs the direct-event branch. device_command BATCH rows
+// carry a batch_id and are scoped via command_on_device_log (the EXISTS branch),
+// independent of this list; the only direct device_command rows are the
+// preflight-blocked / filter-skip audits, which span the requested device set
+// (no single site) and so are org-level. Site-scoped curtailment rows stamp a
+// site_id and thus never reach the unassigned sub-condition; only whole-org /
+// device curtailments stay NULL and lean on this list.
 //
 // Backed by an array (not a slice) so the source can't be mutated; callers get
 // a fresh copy via OrgLevelCategories().
@@ -50,6 +58,7 @@ var orgLevelCategories = [...]EventCategory{
 	CategoryPool,
 	CategorySchedule,
 	CategoryCurtailment,
+	CategoryDeviceCommand,
 }
 
 // OrgLevelCategories returns the org-level categories as a fresh string slice

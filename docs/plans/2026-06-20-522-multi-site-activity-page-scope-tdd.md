@@ -171,7 +171,7 @@ A row qualifies through one of **two branches**, chosen by `batch_id`:
 - **Non-batch rows (`batch_id IS NULL`)** — direct, single-site events.
   Use the scalar `site_id` with Option B semantics: the unassigned bucket
   is `site_id IS NULL` minus org-level categories (`auth`, `system`,
-  `pool`, `schedule`, `curtailment`).
+  `pool`, `schedule`, `curtailment`, `device_command`).
 - **Batch rows (`batch_id IS NOT NULL`)** — device-command batches. The
   scalar `site_id` is ignored (always NULL here); relevance is derived
   from `command_on_device_log` (`codl`), which already stamps each
@@ -269,17 +269,23 @@ evaluated only for the page's candidate rows.
     from `ScopeJSON`) so they match the `curtailment_started` row, instead
     of only the start being site-attributed.
   - Org-level (leave NULL; category is in `OrgLevelCategories()`):
-    `auth`, `system`, `pool`, `schedule`, `curtailment`. Note `curtailment`
-    is **mixed** — site-scoped curtailments stamp `site_id` (above) and so
-    are filtered by site; only whole-org / device-list / device-set
-    curtailments have no single site, stay NULL, and (being org-level)
-    surface in the all-sites feed rather than the unassigned bucket. The
-    other four categories never have a single-site concept.
+    `auth`, `system`, `pool`, `schedule`, `curtailment`, `device_command`.
+    Two categories are **mixed**, handled by branch not by blanket
+    exclusion: (a) site-scoped `curtailment` stamps `site_id` (above) and is
+    filtered by site — only whole-org / device curtailments stay NULL and
+    lean on this list; (b) `device_command` BATCH rows carry a `batch_id`
+    and are scoped via the `codl` EXISTS branch below, so the org-level list
+    only affects the direct (non-batch) command audits. `auth`, `system`,
+    `pool`, `schedule` never have a single-site concept.
   - **Device-command batches (`command/service.go`): no change.** They
     keep `site_id` NULL; the read query derives their touched sites from
     `command_on_device_log`, which already stamps per-device site at
     completion time. No new stamping, no single-site limitation, no
     backfill.
+  - **Non-batch command audits** (`command_preflight_blocked`,
+    `command_filter_skip`) have no `batch_id` and no single site (they span
+    the requested device set), so they are org-level (`device_command`)
+    and surface only in the all-sites feed — not the unassigned bucket.
   - **Known limitation (follow-up):** a few remaining multi-device
     `fleet_management` events (miner rename / unpair, building delete) and
     other `collection` mutations (update/delete/add/remove) still write
@@ -395,8 +401,9 @@ keeps the operator in-scope, matching `buildingTabHref`'s pattern.
 
 1. **Unassigned semantics (direct events) → Option B.** Category-aware
    NULL bucket: site-shaped rows only; org-level categories (`auth`,
-   `system`, `pool`, `schedule`, `curtailment`) excluded. Rack-slot
-   collection events are stamped with their site so they scope correctly.
+   `system`, `pool`, `schedule`, `curtailment`, `device_command`) excluded.
+   Rack-slot collection events and site-scoped curtailment lifecycle rows
+   are stamped with their site so they scope correctly.
 2. **Command batch site scope → derived from `command_on_device_log`.**
    No array column, no extra stamping, no backfill. A batch appears under
    every site it touched. Keeps the FK / CHECK / pagination index intact.

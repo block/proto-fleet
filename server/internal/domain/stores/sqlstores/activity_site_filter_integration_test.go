@@ -46,6 +46,7 @@ const (
 	descPoolOrg   = "org-level pool config event"
 	descSchedOrg  = "org-level schedule event"
 	descCurtOrg   = "org-level curtailment event"
+	descCmdOrg    = "org-level non-batch command audit event"
 	descBatchAB   = "command batch touching sites A and B"
 	descBatchUn   = "command batch touching unassigned devices"
 	descBatchMix  = "command batch touching site A and unassigned"
@@ -95,6 +96,11 @@ func buildActivitySiteFixture(t *testing.T, ctx context.Context, tc *testutil.Te
 	insertDirect(descPoolOrg, models.CategoryPool, nil)
 	insertDirect(descSchedOrg, models.CategorySchedule, nil)
 	insertDirect(descCurtOrg, models.CategoryCurtailment, nil)
+	// A non-batch device-command audit (preflight-blocked / filter-skip): no
+	// batch_id, no site_id. device_command is org-level for the direct branch,
+	// so it must be excluded from the unassigned bucket (batch command rows are
+	// handled separately by the codl join, exercised by the descBatch* rows).
+	insertDirect(descCmdOrg, models.CategoryDeviceCommand, nil)
 
 	// Command-batch events. The activity_log row stamps batch_id + NULL
 	// site_id; relevance derives from the per-device command_on_device_log
@@ -199,7 +205,7 @@ func TestActivityLogs_SiteScopeFilter(t *testing.T) {
 			siteIDs: nil,
 			want: []string{
 				descDirA, descDirB, descDirNull, descDirAuth,
-				descCollA, descPoolOrg, descSchedOrg, descCurtOrg,
+				descCollA, descPoolOrg, descSchedOrg, descCurtOrg, descCmdOrg,
 				descBatchAB, descBatchUn, descBatchMix, descBatchNone,
 			},
 		},
@@ -224,7 +230,7 @@ func TestActivityLogs_SiteScopeFilter(t *testing.T) {
 			want:    []string{},
 		},
 		{
-			name:              "unassigned bucket: site-shaped NULL + unassigned batches, excludes org-level (auth/pool/schedule/curtailment)",
+			name:              "unassigned bucket: site-shaped NULL + unassigned batches, excludes org-level (auth/pool/schedule/curtailment/device_command)",
 			includeUnassigned: true,
 			want:              []string{descDirNull, descBatchUn, descBatchMix},
 		},
