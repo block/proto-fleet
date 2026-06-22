@@ -148,7 +148,8 @@ const fieldHelp = {
   curtailBatchInterval: "Seconds to wait between each curtailment wave.",
   restoreBatchSize: "Number of miners to bring back online in each wave.",
   restoreBatchInterval: "Seconds to wait between each restore wave.",
-  postEventCooldown: "Seconds a restored miner must wait before it can be curtailed again.",
+  postEventCooldown:
+    "Seconds a restored miner must wait before it can be curtailed again. Skipped for emergency or MQTT-triggered automated curtailments.",
 } as const;
 const defaultValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
