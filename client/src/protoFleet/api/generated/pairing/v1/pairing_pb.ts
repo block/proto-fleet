@@ -733,8 +733,8 @@ export type FleetNodePairRequest = Message<"pairing.v1.FleetNodePairRequest"> & 
   targets: FleetNodePairTarget[];
 
   /**
-   * Applied to basic-auth targets in the batch; omitted for asymmetric-auth
-   * drivers, which pair with the node's own miner-signing key.
+   * Applied to targets in the batch. When omitted, drivers may use their
+   * default credentials.
    *
    * @generated from field: pairing.v1.Credentials credentials = 2;
    */

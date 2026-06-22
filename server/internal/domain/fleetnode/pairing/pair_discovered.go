@@ -237,7 +237,7 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 // nodeUsedCredentials returns the credentials to persist for a successful pairing.
 // The cloud can't verify a driver's auth mechanism in server mode, so the node's
 // used_credentials presence is the password-auth signal: present (even blank) ->
-// store as reported; nil -> asymmetric auth, store nothing.
+// store as reported; nil -> store nothing.
 func nodeUsedCredentials(result *gatewaypb.FleetNodePairResult) *pairingpb.Credentials {
 	uc := result.GetUsedCredentials()
 	if uc == nil {

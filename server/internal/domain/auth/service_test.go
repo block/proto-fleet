@@ -77,7 +77,7 @@ func (m *mockUserStoreForVerify) UpdateUserUsername(ctx context.Context, userID 
 func (m *mockUserStoreForVerify) GetOrganizationsForUser(ctx context.Context, userID int64) ([]interfaces.Organization, error) {
 	return m.orgs, nil
 }
-func (m *mockUserStoreForVerify) CreateAdminUserWithOrganization(ctx context.Context, userID string, username string, passwordHash string, orgName string, orgID string, minerAuthPrivateKey string, roleName string, roleDescription string) error {
+func (m *mockUserStoreForVerify) CreateAdminUserWithOrganization(ctx context.Context, userID string, username string, passwordHash string, orgName string, orgID string, roleName string, roleDescription string) error {
 	return nil
 }
 func (m *mockUserStoreForVerify) HasUser(ctx context.Context) (bool, error) {
@@ -86,10 +86,6 @@ func (m *mockUserStoreForVerify) HasUser(ctx context.Context) (bool, error) {
 func (m *mockUserStoreForVerify) PasswordUpdatedAt(ctx context.Context, userID int64) (time.Time, error) {
 	return time.Time{}, nil
 }
-func (m *mockUserStoreForVerify) GetOrganizationPrivateKey(ctx context.Context, orgID int64) (string, error) {
-	return "", nil
-}
-
 func newActivitySvc(ctrl *gomock.Controller) (*activity.Service, *mocks.MockActivityStore) {
 	mockStore := mocks.NewMockActivityStore(ctrl)
 	return activity.NewService(mockStore), mockStore

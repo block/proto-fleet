@@ -267,15 +267,6 @@ type CurtailRequest struct {
 // UncurtailRequest describes a request to restore a previously curtailed device.
 type UncurtailRequest struct{}
 
-// APIKey represents API key authentication
-type APIKey struct {
-	Key string
-}
-
-func (a APIKey) String() string {
-	return "APIKey(*****)"
-}
-
 // UsernamePassword represents username/password authentication
 type UsernamePassword struct {
 	Username string
@@ -309,7 +300,7 @@ func (t TLSClientCert) String() string {
 // SecretBundle represents authentication credentials
 type SecretBundle struct {
 	Version string
-	Kind    interface{} // can be APIKey, UsernamePassword, BearerToken, or TLSClientCert
+	Kind    interface{} // can be UsernamePassword, BearerToken, or TLSClientCert
 	TTL     *time.Duration
 }
 
@@ -570,6 +561,5 @@ const (
 	CapabilityManualUpload = "manual_upload" // Manual firmware upload support
 
 	// Authentication capabilities
-	CapabilityBasicAuth      = "basic_auth"      // Basic (username/password) authentication
-	CapabilityAsymmetricAuth = "asymmetric_auth" // Asymmetric key authentication
+	CapabilityBasicAuth = "basic_auth" // Basic (username/password) authentication
 )

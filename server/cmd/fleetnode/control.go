@@ -563,7 +563,7 @@ type pluginDiscoverer struct {
 
 // newPluginComponents builds the discoverer and pairer over one shared manager
 // so the node loads plugins only once.
-func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID int64, minerSigningPrivKeyHex string) (*pluginDiscoverer, *pluginPairer, func(), error) {
+func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID int64) (*pluginDiscoverer, *pluginPairer, func(), error) {
 	// Manager.Shutdown waits the full grace period even when a plugin already
 	// exited, so keep it tight; a stuck plugin still gets killed.
 	manager := plugins.NewManager(&plugins.Config{
@@ -591,11 +591,7 @@ func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID 
 		defer shutdownCancel()
 		_ = manager.Shutdown(shutdownCtx)
 	}
-	prr, err := newPluginPairer(manager, minerSigningPrivKeyHex)
-	if err != nil {
-		cleanup()
-		return nil, nil, func() {}, fmt.Errorf("init pairer: %w", err)
-	}
+	prr := newPluginPairer(manager)
 	disc := &pluginDiscoverer{
 		multi:       plugins.NewMultiTypeDiscoverer(manager),
 		svc:         plugins.NewService(manager),

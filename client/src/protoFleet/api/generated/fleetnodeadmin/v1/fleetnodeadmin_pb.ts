@@ -569,7 +569,8 @@ export type PairDiscoveredDevicesOnFleetNodeRequest =
     pairAllUnpaired: boolean;
 
     /**
-     * Applied to basic-auth devices in the batch; omitted for asymmetric-auth.
+     * Applied to devices in the batch. When omitted, drivers may use their
+     * default credentials.
      *
      * @generated from field: pairing.v1.Credentials credentials = 4;
      */

@@ -564,9 +564,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getOrganizationByOrgIDStmt, err = db.PrepareContext(ctx, getOrganizationByOrgID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationByOrgID: %w", err)
 	}
-	if q.getOrganizationPrivateKeyStmt, err = db.PrepareContext(ctx, getOrganizationPrivateKey); err != nil {
-		return nil, fmt.Errorf("error preparing query GetOrganizationPrivateKey: %w", err)
-	}
 	if q.getOrganizationsForUserStmt, err = db.PrepareContext(ctx, getOrganizationsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationsForUser: %w", err)
 	}
@@ -2204,11 +2201,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getOrganizationByOrgIDStmt: %w", cerr)
 		}
 	}
-	if q.getOrganizationPrivateKeyStmt != nil {
-		if cerr := q.getOrganizationPrivateKeyStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getOrganizationPrivateKeyStmt: %w", cerr)
-		}
-	}
 	if q.getOrganizationsForUserStmt != nil {
 		if cerr := q.getOrganizationsForUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOrganizationsForUserStmt: %w", cerr)
@@ -3648,7 +3640,6 @@ type Queries struct {
 	getOrganizationByIDStmt                                    *sql.Stmt
 	getOrganizationByNameStmt                                  *sql.Stmt
 	getOrganizationByOrgIDStmt                                 *sql.Stmt
-	getOrganizationPrivateKeyStmt                              *sql.Stmt
 	getOrganizationsForUserStmt                                *sql.Stmt
 	getPairedDeviceByMACAddressStmt                            *sql.Stmt
 	getPairedDeviceBySerialNumberStmt                          *sql.Stmt
@@ -4079,7 +4070,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getOrganizationByIDStmt:                                    q.getOrganizationByIDStmt,
 		getOrganizationByNameStmt:                                  q.getOrganizationByNameStmt,
 		getOrganizationByOrgIDStmt:                                 q.getOrganizationByOrgIDStmt,
-		getOrganizationPrivateKeyStmt:                              q.getOrganizationPrivateKeyStmt,
 		getOrganizationsForUserStmt:                                q.getOrganizationsForUserStmt,
 		getPairedDeviceByMACAddressStmt:                            q.getPairedDeviceByMACAddressStmt,
 		getPairedDeviceBySerialNumberStmt:                          q.getPairedDeviceBySerialNumberStmt,

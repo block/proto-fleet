@@ -124,10 +124,10 @@ func TestGetKnownSubnets(t *testing.T) {
 	store := sqlstores.NewSQLDeviceStore(conn)
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		INSERT INTO organization (id, org_id, name)
 		VALUES
-			(1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key'),
-			(2, '00000000-0000-0000-0000-000000000002', 'Other Org', 'test-private-key')
+			(1, '00000000-0000-0000-0000-000000000001', 'Test Org'),
+			(2, '00000000-0000-0000-0000-000000000002', 'Other Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -205,8 +205,8 @@ func setupOfflineDeviceTestData(t *testing.T, conn *sql.DB) {
 
 	// Insert organization
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 	`)
 	require.NoError(t, err)
 
@@ -1149,8 +1149,8 @@ func setupCountMinersByStateTestData(t *testing.T, conn *sql.DB, setup *countMin
 
 	// Insert organization
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 	`)
 	require.NoError(t, err)
 
@@ -1493,8 +1493,8 @@ func setupUpsertDeviceStatusesTestData(t *testing.T, conn *sql.DB, devices []tes
 
 	// Insert organization
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 	`)
 	require.NoError(t, err)
 
@@ -1533,8 +1533,8 @@ func setupUpsertDeviceStatusesTestDataNoStatus(t *testing.T, conn *sql.DB, devic
 
 	// Insert organization
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 	`)
 	require.NoError(t, err)
 
@@ -1899,8 +1899,8 @@ func setupManufacturerFilterTestData(t *testing.T, conn *sql.DB) {
 	t.Helper()
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 	`)
 	require.NoError(t, err)
 
@@ -1951,8 +1951,8 @@ func setupFilteredDeviceIdsTestData(t *testing.T, conn *sql.DB) {
 
 	// Insert organization
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 	`)
 	require.NoError(t, err)
 
@@ -2065,8 +2065,8 @@ func setupTelemetrySortingTestData(t *testing.T, conn *sql.DB) {
 
 	// Insert organization
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2211,8 +2211,8 @@ func TestGetPairedDeviceByMACAddress_LegacyDashFormat(t *testing.T) {
 	store := sqlstores.NewSQLDeviceStore(conn)
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2256,8 +2256,8 @@ func TestGetPairedDeviceByMACAddress_DefaultPasswordDevice(t *testing.T) {
 	store := sqlstores.NewSQLDeviceStore(conn)
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2289,8 +2289,8 @@ func seedReconcileTestOrg(t *testing.T, conn *sql.DB) {
 	t.Helper()
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2598,8 +2598,8 @@ func TestGetPairedDeviceByMACAddress_BareInput(t *testing.T) {
 	store := sqlstores.NewSQLDeviceStore(conn)
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2639,8 +2639,8 @@ func TestUpdateWorkerName_StoresWorkerNameWithoutTouchingPoolSyncStatus(t *testi
 	store := sqlstores.NewSQLDeviceStore(conn)
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2683,8 +2683,8 @@ func TestGetPairedDeviceByMACAddress_AmbiguousMatches(t *testing.T) {
 	store := sqlstores.NewSQLDeviceStore(conn)
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2726,8 +2726,8 @@ func setupIPAddressSortingTestData(t *testing.T, conn *sql.DB) {
 	t.Helper()
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)
@@ -2766,8 +2766,8 @@ func seedAvailableFiltersFixtures(t *testing.T, conn *sql.DB, fixtures []availab
 	t.Helper()
 
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 		ON CONFLICT (id) DO NOTHING
 	`)
 	require.NoError(t, err)

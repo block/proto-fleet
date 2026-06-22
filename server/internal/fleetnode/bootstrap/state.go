@@ -11,17 +11,15 @@ import (
 )
 
 type State struct {
-	ServerURL                 string    `yaml:"server_url"`
-	AllowInsecureTransport    bool      `yaml:"allow_insecure_transport,omitempty"`
-	FleetNodeID               int64     `yaml:"fleet_node_id"`
-	IdentityFingerprint       string    `yaml:"identity_fingerprint"`
-	IdentityPrivateKeyHex     string    `yaml:"identity_private_key_hex"`
-	IdentityPublicKeyHex      string    `yaml:"identity_public_key_hex"`
-	MinerSigningPrivateKeyHex string    `yaml:"miner_signing_private_key_hex"`
-	MinerSigningPublicKeyHex  string    `yaml:"miner_signing_public_key_hex"`
-	APIKey                    string    `yaml:"api_key,omitempty"`
-	SessionToken              string    `yaml:"session_token,omitempty"`
-	SessionExpiresAt          time.Time `yaml:"session_expires_at,omitempty"`
+	ServerURL              string    `yaml:"server_url"`
+	AllowInsecureTransport bool      `yaml:"allow_insecure_transport,omitempty"`
+	FleetNodeID            int64     `yaml:"fleet_node_id"`
+	IdentityFingerprint    string    `yaml:"identity_fingerprint"`
+	IdentityPrivateKeyHex  string    `yaml:"identity_private_key_hex"`
+	IdentityPublicKeyHex   string    `yaml:"identity_public_key_hex"`
+	APIKey                 string    `yaml:"api_key,omitempty"`
+	SessionToken           string    `yaml:"session_token,omitempty"`
+	SessionExpiresAt       time.Time `yaml:"session_expires_at,omitempty"`
 }
 
 func ResolveStateDir(override string) (string, error) {

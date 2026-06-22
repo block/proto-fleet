@@ -51,7 +51,7 @@ func TestMinerService_GetMinerFromDeviceIdentifier_CachesAfterFirstLookup(t *tes
 	defer ctrl.Finish()
 
 	// Arrange
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceIdentifier := models.DeviceIdentifier("cache-identifier-test")
 	createTestDeviceWithCredentials(t, db, encryptService, string(deviceIdentifier))
@@ -65,7 +65,7 @@ func TestMinerService_GetMinerFromDeviceIdentifier_CachesAfterFirstLookup(t *tes
 		Times(1)
 
 	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "antminer"}
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, pluginMgr)
 
 	// Act — first call: DB lookup + plugin NewDevice
 	miner1, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceIdentifier)
@@ -89,7 +89,7 @@ func TestMinerService_GetMinerFromDeviceIdentifier_ResolvesDefaultPasswordDevice
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceIdentifier := models.DeviceIdentifier("default-password-resolution-test")
 	discoveredDeviceID := createDiscoveredDevice(t, db, "Proto Miner", "Proto", "proto")
@@ -125,7 +125,7 @@ func TestMinerService_GetMinerFromDeviceIdentifier_ResolvesDefaultPasswordDevice
 		Times(1)
 
 	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "proto"}
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, pluginMgr)
 
 	resolvedMiner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceIdentifier)
 
@@ -146,14 +146,18 @@ func TestMinerService_GetMinerFromDeviceIdentifier_ProtoWithoutCredentialsReturn
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceIdentifier := models.DeviceIdentifier("proto-without-credentials")
 	createTestProtoMinerWithToken(t, db, string(deviceIdentifier))
 
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		NewDevice(gomock.Any(), string(deviceIdentifier), gomock.Any(), gomock.Any()).
+		Return(sdk.NewDeviceResult{}, sdk.SDKError{Code: sdk.ErrCodeAuthenticationFailed, Message: "missing credentials"}).
+		Times(1)
 	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: models.DriverNameProto}
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, pluginMgr)
 
 	resolvedMiner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceIdentifier)
 
@@ -173,7 +177,7 @@ func TestMinerService_GetMiner_CachesAfterFirstLookup(t *testing.T) {
 	defer ctrl.Finish()
 
 	// Arrange
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceIdentifier := "cache-id-test"
 	dbDeviceID := createTestDevice(t, db, deviceIdentifier)
@@ -188,7 +192,7 @@ func TestMinerService_GetMiner_CachesAfterFirstLookup(t *testing.T) {
 		Times(1)
 
 	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "antminer"}
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, pluginMgr)
 
 	// Act — first call: DB lookup + plugin NewDevice
 	miner1, err := service.GetMiner(t.Context(), dbDeviceID)
@@ -215,7 +219,7 @@ func TestMinerService_InvalidateMiner_ForcesRefreshOnNextLookup(t *testing.T) {
 	defer ctrl.Finish()
 
 	// Arrange
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceIdentifier := models.DeviceIdentifier("invalidate-test-device")
 	createTestDeviceWithCredentials(t, db, encryptService, string(deviceIdentifier))
@@ -230,7 +234,7 @@ func TestMinerService_InvalidateMiner_ForcesRefreshOnNextLookup(t *testing.T) {
 		Times(1)
 
 	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "antminer"}
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, pluginMgr)
 
 	// Populate the cache
 	miner1, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceIdentifier)
@@ -262,7 +266,7 @@ func TestMinerService_InvalidateMiner_ForcesRefreshForBothLookupPaths(t *testing
 	defer ctrl.Finish()
 
 	// Arrange
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceIdentifier := "dual-cache-invalidate-device"
 	dbDeviceID := createTestDevice(t, db, deviceIdentifier)
@@ -278,7 +282,7 @@ func TestMinerService_InvalidateMiner_ForcesRefreshForBothLookupPaths(t *testing
 		Times(1)
 
 	pluginMgr := &fakePluginManager{driver: mockDriver, driverName: "antminer"}
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginMgr)
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, pluginMgr)
 
 	// Populate the shared cache via GetMiner.
 	_, err := service.GetMiner(t.Context(), dbDeviceID)

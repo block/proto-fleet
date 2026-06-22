@@ -47,7 +47,6 @@ logging:
 	require.True(t, config.Log.JSON)
 	require.Equal(t, "test-client-secret", config.Auth.ClientToken.SecretKey)
 	require.Equal(t, time.Hour, config.Auth.ClientToken.ExpirationPeriod)
-	require.Equal(t, 30*time.Minute, config.Auth.MinerTokenExpirationPeriod)
 	require.Equal(t, "test-master-key", config.Encrypt.ServiceMasterKey)
 }
 

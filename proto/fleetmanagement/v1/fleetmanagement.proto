@@ -46,7 +46,7 @@ service FleetManagementService {
 
   // Delete miners from the fleet by soft-deleting their database records.
   // Immediately removes devices from the fleet and telemetry collection.
-  // Attempts best-effort ClearAuthKey on Proto rigs in the background.
+  // Attempts best-effort unpairing on Proto rigs in the background.
   rpc DeleteMiners(DeleteMinersRequest) returns (DeleteMinersResponse);
 
   // Get miner model groups with counts, optionally filtered by the current fleet filter

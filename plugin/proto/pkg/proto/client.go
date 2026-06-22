@@ -191,10 +191,6 @@ type pairingInfoResponse struct {
 	CbSn string `json:"cb_sn"`
 }
 
-type setAuthKeyRequest struct {
-	PublicKey string `json:"public_key"`
-}
-
 type messageResponse struct {
 	Message string `json:"message"`
 }
@@ -696,7 +692,7 @@ func (c *Client) doPost(ctx context.Context, path string) error {
 	}
 	defer resp.Body.Close()
 
-	return checkResponse(resp, "request failed", "unauthenticated: missing or invalid credentials", http.StatusOK, http.StatusAccepted)
+	return checkResponse(resp, "request failed", http.StatusOK, http.StatusAccepted)
 }
 
 // defaultPasswordMessageMarker is the Proto firmware's free-text 403 substring
@@ -738,7 +734,7 @@ func classifyForbiddenResponse(body []byte) error {
 	return fmt.Errorf("forbidden: access denied")
 }
 
-func checkResponse(resp *http.Response, failurePrefix, unauthorizedMessage string, okStatuses ...int) error {
+func checkResponse(resp *http.Response, failurePrefix string, okStatuses ...int) error {
 	for _, okStatus := range okStatuses {
 		if resp.StatusCode == okStatus {
 			_, _ = io.Copy(io.Discard, resp.Body)
@@ -748,7 +744,7 @@ func checkResponse(resp *http.Response, failurePrefix, unauthorizedMessage strin
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return errors.New(unauthorizedMessage)
+		return errors.New("unauthenticated: missing or invalid credentials")
 	}
 
 	if resp.StatusCode == http.StatusForbidden {
@@ -1028,35 +1024,6 @@ func convertTelemetryResponse(resp *telemetryResponse) *TelemetryValues {
 	return result
 }
 
-// Pair performs device pairing by setting the authentication public key.
-// If the device is already paired, the request includes the bearer token
-// for authentication as required by the API for key rotation.
-func (c *Client) Pair(ctx context.Context, key sdk.APIKey) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/v1/pairing/auth-key", setAuthKeyRequest{
-		PublicKey: key.Key,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to set auth key: %w", err)
-	}
-	defer resp.Body.Close()
-	return checkResponse(
-		resp,
-		"set auth key failed",
-		"unauthenticated: device is already paired and requires valid credentials for key rotation",
-		http.StatusOK,
-	)
-}
-
-// ClearAuthKey clears the authentication key from the device during unpairing.
-func (c *Client) ClearAuthKey(ctx context.Context) error {
-	resp, err := c.doRequest(ctx, http.MethodDelete, "/api/v1/pairing/auth-key", nil)
-	if err != nil {
-		return fmt.Errorf("failed to clear auth key: %w", err)
-	}
-	defer resp.Body.Close()
-	return checkResponse(resp, "clear auth key failed", "unauthenticated: missing or invalid credentials", http.StatusOK)
-}
-
 // loginWithPassword authenticates via the miner's login endpoint and returns an access token.
 // This deliberately bypasses doRequest to avoid sending the fleet bearer token.
 func (c *Client) loginWithPassword(ctx context.Context, password string) (string, error) {
@@ -1170,7 +1137,7 @@ func (c *Client) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error
 		return fmt.Errorf("failed to set cooling mode: %w", err)
 	}
 	defer resp.Body.Close()
-	return checkResponse(resp, "set cooling mode failed", "unauthenticated: missing or invalid credentials", http.StatusOK)
+	return checkResponse(resp, "set cooling mode failed", http.StatusOK)
 }
 
 // GetCoolingMode retrieves the current cooling mode configuration from the miner.
@@ -1215,7 +1182,7 @@ func (c *Client) SetPowerTarget(ctx context.Context, powerTargetW uint32, perfor
 		return fmt.Errorf("failed to set power target: %w", err)
 	}
 	defer resp.Body.Close()
-	return checkResponse(resp, "set power target failed", "unauthenticated: missing or invalid credentials", http.StatusOK)
+	return checkResponse(resp, "set power target failed", http.StatusOK)
 }
 
 // GetPowerTarget retrieves the current power target configuration and bounds from the miner.
@@ -1276,7 +1243,7 @@ func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 		return fmt.Errorf("failed to update pools: %w", err)
 	}
 	defer resp.Body.Close()
-	return checkResponse(resp, "update pools failed", "unauthenticated: missing or invalid credentials", http.StatusOK, http.StatusCreated)
+	return checkResponse(resp, "update pools failed", http.StatusOK, http.StatusCreated)
 }
 
 // BlinkLED triggers LED identification.

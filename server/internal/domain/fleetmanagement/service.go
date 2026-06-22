@@ -48,12 +48,12 @@ const (
 	// maxPageSize is the maximum number of items that can be returned per page
 	maxPageSize = 1000
 
-	// concurrentClearAuthKeyLimit bounds the number of parallel ClearAuthKey RPCs
+	// concurrentUnpairLimit bounds the number of parallel Unpair RPCs
 	// fired in the background after a delete operation
-	concurrentClearAuthKeyLimit = 20
+	concurrentUnpairLimit = 20
 
-	// clearAuthKeyTimeout is the per-device timeout for best-effort ClearAuthKey calls
-	clearAuthKeyTimeout = 5 * time.Second
+	// unpairTimeout is the per-device timeout for best-effort Unpair calls
+	unpairTimeout = 5 * time.Second
 
 	// fleetOptionsFetchTimeout bounds the singleflight fetch that hydrates
 	// the per-org option cache. The fetch runs on a context detached from
@@ -136,14 +136,14 @@ type Service struct {
 	optionsCache  *fleetoptions.Cache
 	optionsSingle singleflight.Group
 
-	// backgroundWg tracks in-flight background ClearAuthKey goroutines so they can
-	// be awaited during graceful shutdown via WaitForPendingClearAuthKeys.
+	// backgroundWg tracks in-flight background Unpair goroutines so they can
+	// be awaited during graceful shutdown via WaitForPendingUnpairs.
 	backgroundWg sync.WaitGroup
 
-	// clearAuthKeySem bounds the total number of concurrent ClearAuthKey RPCs
+	// unpairSem bounds the total number of concurrent Unpair RPCs
 	// across all delete operations. Shared at the service level so that multiple
 	// concurrent DeleteMiners calls don't exceed the limit.
-	clearAuthKeySem chan struct{}
+	unpairSem chan struct{}
 
 	// refreshMinerSem bounds row refresh network fanout across all callers.
 	refreshMinerSem chan struct{}
@@ -176,7 +176,7 @@ func NewService(
 		activitySvc:           activitySvc,
 		deviceResolver:        deviceresolver.New(deviceStore),
 		optionsCache:          fleetoptions.NewCache(fleetoptions.DefaultTTL, 1024),
-		clearAuthKeySem:       make(chan struct{}, concurrentClearAuthKeyLimit),
+		unpairSem:             make(chan struct{}, concurrentUnpairLimit),
 		refreshMinerSem:       make(chan struct{}, refreshMinersConcurrencyLimit),
 	}
 }
@@ -194,9 +194,9 @@ func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
 	}
 }
 
-// WaitForPendingClearAuthKeys blocks until all background ClearAuthKey goroutines
+// WaitForPendingUnpairs blocks until all background Unpair goroutines
 // complete or the timeout expires. Call during graceful server shutdown.
-func (s *Service) WaitForPendingClearAuthKeys(timeout time.Duration) {
+func (s *Service) WaitForPendingUnpairs(timeout time.Duration) {
 	done := make(chan struct{})
 	go func() {
 		s.backgroundWg.Wait()
@@ -205,7 +205,7 @@ func (s *Service) WaitForPendingClearAuthKeys(timeout time.Duration) {
 	select {
 	case <-done:
 	case <-time.After(timeout):
-		slog.Warn("timed out waiting for pending ClearAuthKey operations during shutdown")
+		slog.Warn("timed out waiting for pending Unpair operations during shutdown")
 	}
 }
 
@@ -1403,8 +1403,8 @@ func poolUsernameMatchCandidates(username string) []string {
 	return []string{trimmed, baseUsername}
 }
 
-// DeleteMiners soft-deletes devices from the fleet and attempts best-effort ClearAuthKey on Proto devices.
-// The DB deletion always succeeds immediately. ClearAuthKey runs in background goroutines and
+// DeleteMiners soft-deletes devices from the fleet and attempts best-effort Unpair on Proto devices.
+// The DB deletion always succeeds immediately. Unpair runs in background goroutines and
 // failures are logged but never surfaced to the caller.
 func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest) (*pb.DeleteMinersResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -1422,7 +1422,7 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 	}
 
 	// Collect Proto miner objects BEFORE soft-delete (lookups filter deleted_at IS NULL)
-	miners := s.collectProtoMinersForClearAuthKey(ctx, deviceIdentifiers)
+	miners := s.collectProtoMinersForUnpair(ctx, deviceIdentifiers)
 
 	// SoftDeleteDevices verifies ownership and deletes in a single transaction
 	// to prevent TOCTOU races between the check and the delete.
@@ -1450,9 +1450,9 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 		OrganizationID: &info.OrganizationID,
 	})
 
-	// Best-effort background ClearAuthKey for Proto rigs using a bounded worker pool.
+	// Best-effort background Unpair for Proto rigs using a bounded worker pool.
 	// Workers are tracked by s.backgroundWg so the server can await completion
-	// during graceful shutdown via WaitForPendingClearAuthKeys.
+	// during graceful shutdown via WaitForPendingUnpairs.
 	// The shared semaphore limits total concurrent RPCs across all delete calls.
 	if len(miners) > 0 {
 		minerCh := make(chan minerInterfaces.Miner, len(miners))
@@ -1461,22 +1461,22 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 		}
 		close(minerCh)
 
-		numWorkers := min(len(miners), concurrentClearAuthKeyLimit)
+		numWorkers := min(len(miners), concurrentUnpairLimit)
 		for range numWorkers {
 			s.backgroundWg.Add(1)
 			go func() {
 				defer s.backgroundWg.Done()
 				for miner := range minerCh {
-					s.clearAuthKeySem <- struct{}{}
+					s.unpairSem <- struct{}{}
 
-					clearCtx, cancel := context.WithTimeout(context.Background(), clearAuthKeyTimeout)
+					clearCtx, cancel := context.WithTimeout(context.Background(), unpairTimeout)
 					err := miner.Unpair(clearCtx)
 					cancel()
 					if err != nil {
-						slog.Warn("best-effort ClearAuthKey failed", "deviceID", miner.GetID(), "error", err)
+						slog.Warn("best-effort Unpair failed", "deviceID", miner.GetID(), "error", err)
 					}
 
-					<-s.clearAuthKeySem
+					<-s.unpairSem
 				}
 			}()
 		}
@@ -1511,15 +1511,15 @@ func (s *Service) ResolveDeviceIdentifiers(ctx context.Context, selector *pb.Dev
 	}
 }
 
-// collectProtoMinersForClearAuthKey collects Miner objects only for Proto rigs.
-// Per the RFC, ClearAuthKey is only attempted for Proto devices; 3rd-party miners
+// collectProtoMinersForUnpair collects Miner objects only for Proto rigs.
+// Per the RFC, Unpair is only attempted for Proto devices; 3rd-party miners
 // (Antminer, etc.) require no device communication on delete.
-func (s *Service) collectProtoMinersForClearAuthKey(ctx context.Context, deviceIdentifiers []string) []minerInterfaces.Miner {
+func (s *Service) collectProtoMinersForUnpair(ctx context.Context, deviceIdentifiers []string) []minerInterfaces.Miner {
 	var miners []minerInterfaces.Miner
 	for _, id := range deviceIdentifiers {
 		m, err := s.minerService.GetMinerFromDeviceIdentifier(ctx, mm.DeviceIdentifier(id))
 		if err != nil {
-			slog.Debug("skipping ClearAuthKey for device", "deviceID", id, "error", err)
+			slog.Debug("skipping Unpair for device", "deviceID", id, "error", err)
 			continue
 		}
 		if m.GetDriverName() != mm.DriverNameProto {

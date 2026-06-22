@@ -33,8 +33,8 @@ func TestHandler_ListRoles_AcceptsUserManageOnlyCaller(t *testing.T) {
 	// any assignment in the DB — the in-memory EffectivePermissions
 	// below is what the gate consults.
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO organization (org_id, name, miner_auth_private_key) VALUES ($1, $2, $3) RETURNING id`,
-		"listroles-gate-org", "ListRoles Gate Org", "dummy-key",
+		`INSERT INTO organization (org_id, name) VALUES ($1, $2) RETURNING id`,
+		"listroles-gate-org", "ListRoles Gate Org",
 	)
 	require.NoError(t, err)
 	var orgID int64
@@ -63,8 +63,8 @@ func TestHandler_ListRoles_DeniesWhenNeitherKeyHeld(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO organization (org_id, name, miner_auth_private_key) VALUES ($1, $2, $3)`,
-		"listroles-deny-org", "ListRoles Deny Org", "dummy-key",
+		`INSERT INTO organization (org_id, name) VALUES ($1, $2)`,
+		"listroles-deny-org", "ListRoles Deny Org",
 	)
 	require.NoError(t, err)
 	var orgID int64

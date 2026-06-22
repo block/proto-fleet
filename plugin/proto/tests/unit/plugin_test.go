@@ -37,8 +37,6 @@ func TestDriverDescribe(t *testing.T) {
 		assert.True(t, caps[cap], "Expected capability '%s' to be true", cap)
 	}
 
-	assert.False(t, caps[sdk.CapabilityAsymmetricAuth], "Credentials-auth driver must not advertise asymmetric auth")
-
 	assert.Equal(t, []string{"443"}, driver.GetDiscoveryPorts(ctx))
 }
 
@@ -66,7 +64,7 @@ func TestNewDevice_WrongSecretKind(t *testing.T) {
 	deviceInfo := sdk.DeviceInfo{Host: "192.168.1.100", Port: 443, URLScheme: "https", SerialNumber: "PROTO123"}
 
 	// Act
-	_, err = d.NewDevice(t.Context(), deviceInfo.SerialNumber, deviceInfo, sdk.SecretBundle{Kind: sdk.APIKey{Key: "x"}})
+	_, err = d.NewDevice(t.Context(), deviceInfo.SerialNumber, deviceInfo, sdk.SecretBundle{Kind: sdk.BearerToken{Token: "x"}})
 
 	// Assert
 	require.Error(t, err)

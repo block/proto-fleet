@@ -29,7 +29,7 @@ func setupPairingTest(t *testing.T) (*sql.DB, int64, *fleetnodepairing.Service, 
 	}
 
 	db := testutil.GetTestDB(t)
-	_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES (1, 'test-org', 'Test Org', 'dummy-key') ON CONFLICT DO NOTHING`)
+	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org', 'Test Org') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO "user" (id, user_id, username, password_hash) VALUES (1, 'test-user', 'op', 'dummy') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
@@ -60,11 +60,9 @@ func createPendingFleetNode(t *testing.T, enrollment *fleetnodeenrollment.Servic
 	t.Helper()
 	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	signing, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
 	code, _, err := enrollment.CreateCode(t.Context(), 1, orgID, time.Hour)
 	require.NoError(t, err)
-	node, _, err := enrollment.RegisterFleetNode(t.Context(), code, name, pubKey, signing)
+	node, _, err := enrollment.RegisterFleetNode(t.Context(), code, name, pubKey)
 	require.NoError(t, err)
 	return node.ID
 }
@@ -229,7 +227,7 @@ func TestPairRejectsFleetNodeFromDifferentOrg(t *testing.T) {
 	// Arrange
 	ctx := t.Context()
 	db, orgID, pairing, enrollment := setupPairingTest(t)
-	_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES (2, 'other-org', 'Other Org', 'k') ON CONFLICT DO NOTHING`)
+	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (2, 'other-org', 'Other Org') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
 	otherNodeID := createFleetNode(t, enrollment, 2, "node-other-org")
 	deviceID := insertDevice(t, db, orgID)

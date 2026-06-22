@@ -92,7 +92,7 @@ type FleetManagementServiceClient interface {
 	GetMinerCoolingMode(context.Context, *connect.Request[v1.GetMinerCoolingModeRequest]) (*connect.Response[v1.GetMinerCoolingModeResponse], error)
 	// Delete miners from the fleet by soft-deleting their database records.
 	// Immediately removes devices from the fleet and telemetry collection.
-	// Attempts best-effort ClearAuthKey on Proto rigs in the background.
+	// Attempts best-effort unpairing on Proto rigs in the background.
 	DeleteMiners(context.Context, *connect.Request[v1.DeleteMinersRequest]) (*connect.Response[v1.DeleteMinersResponse], error)
 	// Get miner model groups with counts, optionally filtered by the current fleet filter
 	// Used for bulk password update to show accurate model groups across the full fleet
@@ -260,7 +260,7 @@ type FleetManagementServiceHandler interface {
 	GetMinerCoolingMode(context.Context, *connect.Request[v1.GetMinerCoolingModeRequest]) (*connect.Response[v1.GetMinerCoolingModeResponse], error)
 	// Delete miners from the fleet by soft-deleting their database records.
 	// Immediately removes devices from the fleet and telemetry collection.
-	// Attempts best-effort ClearAuthKey on Proto rigs in the background.
+	// Attempts best-effort unpairing on Proto rigs in the background.
 	DeleteMiners(context.Context, *connect.Request[v1.DeleteMinersRequest]) (*connect.Response[v1.DeleteMinersResponse], error)
 	// Get miner model groups with counts, optionally filtered by the current fleet filter
 	// Used for bulk password update to show accurate model groups across the full fleet

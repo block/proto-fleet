@@ -1862,7 +1862,7 @@ export const FleetManagementService: GenService<{
   /**
    * Delete miners from the fleet by soft-deleting their database records.
    * Immediately removes devices from the fleet and telemetry collection.
-   * Attempts best-effort ClearAuthKey on Proto rigs in the background.
+   * Attempts best-effort unpairing on Proto rigs in the background.
    *
    * @generated from rpc fleetmanagement.v1.FleetManagementService.DeleteMiners
    */

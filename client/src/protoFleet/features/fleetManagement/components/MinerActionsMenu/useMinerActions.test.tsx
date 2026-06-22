@@ -2020,7 +2020,7 @@ describe("useMinerActions", () => {
       });
     };
 
-    it("should show auth-key-cleared message for single online paired Proto rig", () => {
+    it("should show unpaired message for single online paired Proto rig", () => {
       setStoreMiners([
         { id: "device-1", driverName: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
       ]);
@@ -2035,7 +2035,7 @@ describe("useMinerActions", () => {
 
       const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toBe(
-        "This miner will be removed from your fleet and its auth key will be cleared.",
+        "This miner will be removed from your fleet and unpaired from Proto Fleet.",
       );
     });
 
@@ -2111,7 +2111,7 @@ describe("useMinerActions", () => {
       );
     });
 
-    it("should show auth-key-cleared message for multiple online paired Proto rigs", () => {
+    it("should show unpaired message for multiple online paired Proto rigs", () => {
       setStoreMiners([
         { id: "device-1", driverName: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
         { id: "device-2", driverName: "proto", deviceStatus: DeviceStatus.ONLINE, pairingStatus: PairingStatus.PAIRED },
@@ -2130,7 +2130,7 @@ describe("useMinerActions", () => {
 
       const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
       expect(deleteAction?.confirmation?.subtitle).toBe(
-        "These miners will be removed from your fleet and their auth keys will be cleared.",
+        "These miners will be removed from your fleet and unpaired from Proto Fleet.",
       );
     });
 

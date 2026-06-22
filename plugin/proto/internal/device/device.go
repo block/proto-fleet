@@ -956,23 +956,11 @@ func (d *Device) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpda
 
 // Unpair implements the SDK Device interface.
 //
-// This method clears the authentication key from the device during fleet unpairing.
+// This method disconnects the device from Fleet's local management state.
 func (d *Device) Unpair(ctx context.Context) error {
 	slog.Info("Plugin device starting unpair",
 		"device_id", d.id,
 		"host", d.deviceInfo.Host)
-
-	// Credentials-paired rigs have no auth key to clear, and the firmware gates
-	// DELETE /pairing/auth-key while the default password is active. Tolerate that
-	// 403 so a factory-password rig can still be unpaired.
-	if err := d.client.ClearAuthKey(ctx); err != nil {
-		if isDefaultPasswordError(err) {
-			slog.Info("Skipping auth-key clear during unpair: rig is on the default password",
-				"device_id", d.id, "host", d.deviceInfo.Host)
-		} else {
-			return fmt.Errorf("failed to clear auth key: %w", err)
-		}
-	}
 
 	// Clear cached status to force fresh data on next query.
 	d.invalidateStatusCache()

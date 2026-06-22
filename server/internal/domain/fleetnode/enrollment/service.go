@@ -49,7 +49,7 @@ type PendingEnrollmentStore interface {
 }
 
 type AgentStore interface {
-	CreateFleetNode(ctx context.Context, orgID int64, name string, identityPubkey, minerSigningPubkey []byte) (*FleetNode, error)
+	CreateFleetNode(ctx context.Context, orgID int64, name string, identityPubkey []byte) (*FleetNode, error)
 	GetFleetNodeByID(ctx context.Context, agentID, orgID int64) (*FleetNode, error)
 	GetFleetNodeByIDUnscoped(ctx context.Context, agentID int64) (*FleetNode, error)
 	// LockFleetNodeByID is GetFleetNodeByID with SELECT ... FOR UPDATE. Both Confirm
@@ -124,21 +124,18 @@ func (s *Service) resolveCode(ctx context.Context, plaintextCode string) (*Pendi
 
 // RegisterFleetNode runs in a transaction so a partial failure cannot leave an
 // orphan fleet_node row behind a still-PENDING enrollment code.
-func (s *Service) RegisterFleetNode(ctx context.Context, plaintextCode, name string, identityPubkey, minerSigningPubkey []byte) (*FleetNode, *PendingEnrollment, error) {
+func (s *Service) RegisterFleetNode(ctx context.Context, plaintextCode, name string, identityPubkey []byte) (*FleetNode, *PendingEnrollment, error) {
 	var (
 		agent *FleetNode
 		pe    *PendingEnrollment
 	)
-	if minerSigningPubkey == nil {
-		minerSigningPubkey = []byte{}
-	}
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		var err error
 		pe, err = s.resolveCode(ctx, plaintextCode)
 		if err != nil {
 			return err
 		}
-		agent, err = s.store.CreateFleetNode(ctx, pe.OrgID, name, identityPubkey, minerSigningPubkey)
+		agent, err = s.store.CreateFleetNode(ctx, pe.OrgID, name, identityPubkey)
 		if err != nil {
 			// Concurrent Register calls with the same identity_pubkey or
 			// (org_id, name) lose on the partial unique indexes; surface as

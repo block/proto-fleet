@@ -49,7 +49,7 @@ func newControlHarness(t *testing.T) *controlHarness {
 	}
 
 	db := testutil.GetTestDB(t)
-	_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES (1, 'test-org', 'Test Org', 'dummy-key') ON CONFLICT DO NOTHING`)
+	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org', 'Test Org') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO "user" (id, user_id, username, password_hash) VALUES (1, 'test-user', 'op', 'dummy') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
@@ -69,10 +69,9 @@ func newControlHarness(t *testing.T) *controlHarness {
 		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), encryptSvc, registry)
 
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, err := enrollmentSvc.CreateCode(t.Context(), 1, 1, time.Hour)
 	require.NoError(t, err)
-	agent, _, err := enrollmentSvc.RegisterFleetNode(t.Context(), code, "agent-control", pubKey, signing)
+	agent, _, err := enrollmentSvc.RegisterFleetNode(t.Context(), code, "agent-control", pubKey)
 	require.NoError(t, err)
 	// Confirm the node so pairDeviceLocked (which requires CONFIRMED) can bind
 	// devices during ReportPairedDevices persistence.
