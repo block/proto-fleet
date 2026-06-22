@@ -7,10 +7,18 @@ import (
 	"github.com/stretchr/testify/require"
 	gomock "go.uber.org/mock/gomock"
 
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
+
+// pairedLikeStatuses mirrors the fleet-visible set the site resolver requests.
+var pairedLikeStatuses = []fm.PairingStatus{
+	fm.PairingStatus_PAIRING_STATUS_PAIRED,
+	fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+	fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+}
 
 // TestApplySiteScope covers translating a site scope into device identifiers
 // for the errors query: the errors path has no site_id join, so a site filter
@@ -44,7 +52,7 @@ func TestApplySiteScope(t *testing.T) {
 	t.Run("resolves site to device identifiers", func(t *testing.T) {
 		svc, resolver := newSvc(t)
 		resolver.EXPECT().
-			GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(1), &stores.MinerFilter{SiteIDs: []int64{7}}).
+			GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(1), &stores.MinerFilter{SiteIDs: []int64{7}, PairingStatuses: pairedLikeStatuses}).
 			Return([]string{"d1", "d2"}, nil)
 
 		opts := &models.QueryOptions{OrgID: 1, Filter: &models.QueryFilter{SiteIDs: []int64{7}}}

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerInterfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
@@ -188,6 +189,15 @@ func (s *Service) applySiteScope(ctx context.Context, opts *models.QueryOptions)
 	identifiers, err := s.deviceScope.GetDeviceIdentifiersByOrgWithFilter(ctx, opts.OrgID, &storeInterfaces.MinerFilter{
 		SiteIDs:           opts.Filter.SiteIDs,
 		IncludeUnassigned: opts.Filter.IncludeUnassigned,
+		// Resolve the same paired-like set the dashboard counts (PAIRED +
+		// AUTHENTICATION_NEEDED + DEFAULT_PASSWORD); the resolver otherwise
+		// defaults to PAIRED-only and would drop auth-needed/default-password
+		// devices, under-reporting the scoped FleetErrors tile.
+		PairingStatuses: []fm.PairingStatus{
+			fm.PairingStatus_PAIRING_STATUS_PAIRED,
+			fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+			fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+		},
 	})
 	if err != nil {
 		return false, err

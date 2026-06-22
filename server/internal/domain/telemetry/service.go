@@ -80,6 +80,7 @@ import (
 	"sync"
 	"time"
 
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -1486,6 +1487,11 @@ func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.
 		identifiers, err := s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, query.OrganizationID, &stores.MinerFilter{
 			SiteIDs:           query.SiteIDs,
 			IncludeUnassigned: query.IncludeUnassigned,
+			// Resolve the same paired-like set the dashboard counts (PAIRED +
+			// AUTHENTICATION_NEEDED + DEFAULT_PASSWORD); the resolver otherwise
+			// defaults to PAIRED-only and would drop auth-needed/default-password
+			// devices that FleetHealth still counts.
+			PairingStatuses: pairedLikeStatuses,
 		})
 		if err != nil {
 			return models.CombinedMetric{}, err
@@ -1536,6 +1542,14 @@ func (s *TelemetryService) appendLiveUptimeBar(ctx context.Context, orgID int64,
 		BrokenCount:     counts.BrokenCount,
 		NotHashingCount: counts.OfflineCount + counts.SleepingCount,
 	})
+}
+
+// pairedLikeStatuses is the fleet-visible "paired-like" set the dashboard
+// reports on (matches GetMinerStateCounts / the site-stats device resolution).
+var pairedLikeStatuses = []fm.PairingStatus{
+	fm.PairingStatus_PAIRING_STATUS_PAIRED,
+	fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+	fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 }
 
 // intersectDeviceIDs returns the device IDs present in both sets. When the

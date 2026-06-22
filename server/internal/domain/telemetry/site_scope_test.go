@@ -37,7 +37,7 @@ func TestGetCombinedMetrics_SiteScope(t *testing.T) {
 		svc, dataStore, deviceStore := newSiteScopeService(t)
 
 		deviceStore.EXPECT().
-			GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(42), &stores.MinerFilter{SiteIDs: []int64{7}}).
+			GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(42), &stores.MinerFilter{SiteIDs: []int64{7}, PairingStatuses: pairedLikeStatuses}).
 			Return([]string{"device-a", "device-b"}, nil)
 
 		// The metrics query must carry the resolved device identifiers.
@@ -64,7 +64,7 @@ func TestGetCombinedMetrics_SiteScope(t *testing.T) {
 		svc, dataStore, deviceStore := newSiteScopeService(t)
 
 		deviceStore.EXPECT().
-			GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(42), &stores.MinerFilter{IncludeUnassigned: true}).
+			GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(42), &stores.MinerFilter{IncludeUnassigned: true, PairingStatuses: pairedLikeStatuses}).
 			Return([]string{"device-c"}, nil)
 		dataStore.EXPECT().GetCombinedMetrics(gomock.Any(), gomock.Any()).
 			Return(models.CombinedMetric{}, nil)
@@ -115,7 +115,7 @@ func TestGetCombinedMetrics_SiteScope(t *testing.T) {
 
 		// Site 7 currently has device-a and device-b; caller asked for a and c.
 		deviceStore.EXPECT().
-			GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(42), &stores.MinerFilter{SiteIDs: []int64{7}}).
+			GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(42), &stores.MinerFilter{SiteIDs: []int64{7}, PairingStatuses: pairedLikeStatuses}).
 			Return([]string{"device-a", "device-b"}, nil)
 
 		// Only the intersection (device-a) is queried — site scope is AND'd
