@@ -364,7 +364,10 @@ const Minimap = ({ floorPlan, racksPerAisle, colsPerPage, posStart, testId }: Mi
         return (
           <div
             key={p}
-            className={clsx("grid gap-0.5 rounded-sm border-2 p-0.5", isCurrent ? "border-text-primary" : "border-transparent")}
+            className={clsx(
+              "grid gap-0.5 rounded-sm border-2 p-0.5",
+              isCurrent ? "border-text-primary" : "border-transparent",
+            )}
             style={{
               gridTemplateColumns: `repeat(${colsPerPage}, 4px)`,
               gridTemplateRows: `repeat(${floorPlan.length}, 1fr)`,

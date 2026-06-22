@@ -50,7 +50,6 @@ const makeStats = (
   const offline = opts.offline ?? 0;
   const sleeping = opts.sleeping ?? 0;
   const rackCount = opts.rackCount ?? 20;
-  const aisles = opts.aisles ?? 2;
   const racksPerAisle = opts.racksPerAisle ?? 10;
 
   return create(GetBuildingStatsResponseSchema, {
@@ -211,10 +210,7 @@ export const Loading: Story = {
 export const StatsError: Story = {
   name: "Error",
   render: () => (
-    <StoryWrapper
-      building={makeBuilding(6, "Building Zeta")}
-      errorMessage="Failed to fetch building stats"
-    />
+    <StoryWrapper building={makeBuilding(6, "Building Zeta")} errorMessage="Failed to fetch building stats" />
   ),
 };
 
