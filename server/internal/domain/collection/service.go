@@ -520,6 +520,9 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
+		// Stamp the collection's site (racks under a site/building) so the
+		// update lands in /{site}/activity; nil for site-less groups.
+		SiteID: collectionSiteID(collection),
 	})
 
 	return &pb.UpdateCollectionResponse{Collection: collection}, nil
@@ -1357,7 +1360,7 @@ func (s *Service) SetRackSlotPosition(ctx context.Context, req *pb.SetRackSlotPo
 		// Stamp the rack's site so this single-site event lands in the
 		// site's activity feed rather than the unassigned bucket. Nil when
 		// the rack itself is unassigned (genuinely no site).
-		SiteID: rackSiteID(coll),
+		SiteID: collectionSiteID(coll),
 	})
 
 	return &pb.SetRackSlotPositionResponse{
@@ -1410,18 +1413,18 @@ func (s *Service) ClearRackSlotPosition(ctx context.Context, req *pb.ClearRackSl
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
 		// See SetRackSlotPosition: stamp the rack's site (nil if unassigned).
-		SiteID: rackSiteID(coll),
+		SiteID: collectionSiteID(coll),
 	})
 
 	return &pb.ClearRackSlotPositionResponse{}, nil
 }
 
-// rackSiteID returns the rack collection's effective site id as a nil-able
+// collectionSiteID returns the collection's effective site id as a nil-able
 // pointer, preserving the distinction between "assigned to site N" and
 // "unassigned" (nil). It reads from Placement, which GetCollection populates
 // (and which reflects the building-derived site); TypeDetails.RackInfo is NOT
 // filled by GetCollection, so it must not be relied on here.
-func rackSiteID(coll *pb.DeviceCollection) *int64 {
+func collectionSiteID(coll *pb.DeviceCollection) *int64 {
 	site := coll.GetPlacement().GetSite()
 	if site == nil {
 		return nil

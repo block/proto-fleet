@@ -9,10 +9,10 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 )
 
-// rackSiteID must read the site from Placement (what GetCollection populates),
+// collectionSiteID must read the site from Placement (what GetCollection populates),
 // NOT from TypeDetails.RackInfo (which GetCollection leaves nil). A regression
 // here silently routes rack slot-position activity into /unassigned/activity.
-func TestRackSiteID(t *testing.T) {
+func TestCollectionSiteID(t *testing.T) {
 	t.Parallel()
 
 	siteID := int64(7)
@@ -51,7 +51,7 @@ func TestRackSiteID(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := rackSiteID(tc.coll)
+			got := collectionSiteID(tc.coll)
 			if tc.want == nil {
 				assert.Nil(t, got)
 				return
