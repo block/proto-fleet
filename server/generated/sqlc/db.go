@@ -261,9 +261,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteScheduleTargetsStmt, err = db.PrepareContext(ctx, deleteScheduleTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteScheduleTargets: %w", err)
 	}
-	if q.deviceBoundToFleetNodeStmt, err = db.PrepareContext(ctx, deviceBoundToFleetNode); err != nil {
-		return nil, fmt.Errorf("error preparing query DeviceBoundToFleetNode: %w", err)
-	}
 	if q.deviceHasActiveCloudPairingStmt, err = db.PrepareContext(ctx, deviceHasActiveCloudPairing); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceHasActiveCloudPairing: %w", err)
 	}
@@ -1685,11 +1682,6 @@ func (q *Queries) Close() error {
 	if q.deleteScheduleTargetsStmt != nil {
 		if cerr := q.deleteScheduleTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteScheduleTargetsStmt: %w", cerr)
-		}
-	}
-	if q.deviceBoundToFleetNodeStmt != nil {
-		if cerr := q.deviceBoundToFleetNodeStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing deviceBoundToFleetNodeStmt: %w", cerr)
 		}
 	}
 	if q.deviceHasActiveCloudPairingStmt != nil {
@@ -3515,7 +3507,6 @@ type Queries struct {
 	deletePairingsForFleetNodeStmt                             *sql.Stmt
 	deletePoolStmt                                             *sql.Stmt
 	deleteScheduleTargetsStmt                                  *sql.Stmt
-	deviceBoundToFleetNodeStmt                                 *sql.Stmt
 	deviceHasActiveCloudPairingStmt                            *sql.Stmt
 	deviceHasActivePairingStmt                                 *sql.Stmt
 	deviceSetBelongsToOrgStmt                                  *sql.Stmt
@@ -3942,7 +3933,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deletePairingsForFleetNodeStmt:                             q.deletePairingsForFleetNodeStmt,
 		deletePoolStmt:                                             q.deletePoolStmt,
 		deleteScheduleTargetsStmt:                                  q.deleteScheduleTargetsStmt,
-		deviceBoundToFleetNodeStmt:                                 q.deviceBoundToFleetNodeStmt,
 		deviceHasActiveCloudPairingStmt:                            q.deviceHasActiveCloudPairingStmt,
 		deviceHasActivePairingStmt:                                 q.deviceHasActivePairingStmt,
 		deviceSetBelongsToOrgStmt:                                  q.deviceSetBelongsToOrgStmt,

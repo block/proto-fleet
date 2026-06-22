@@ -88,15 +88,6 @@ INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id, assigned_by)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (device_id) DO NOTHING;
 
--- name: DeviceBoundToFleetNode :one
-SELECT EXISTS (
-    SELECT 1
-    FROM fleet_node_device
-    WHERE fleet_node_id = $1
-      AND device_id = $2
-      AND org_id = $3
-);
-
 -- name: DeviceHasActiveCloudPairing :one
 -- True when the device is cloud-dialed: paired-like and not bound to any fleet node.
 -- A device paired to a fleet node is also paired-like (so it reads as paired in
