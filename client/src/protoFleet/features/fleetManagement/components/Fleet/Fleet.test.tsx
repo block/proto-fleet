@@ -10,7 +10,7 @@ const { mockMinerList, mockRefetchAuthNeededMiners, mockRefetchErrors, mockListA
     mockRefetchAuthNeededMiners: vi.fn(),
     mockRefetchErrors: vi.fn(),
     mockListAllBuildings: vi.fn(),
-    mockUseHasPermission: vi.fn(() => true),
+    mockUseHasPermission: vi.fn((_permission: string) => true),
   }));
 
 // Mock all dependencies
