@@ -68,7 +68,7 @@ const BuildingSummaryCard = ({ building }: BuildingSummaryCardProps) => {
         }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        className="flex h-full cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl bg-surface-5 px-5 py-6 transition-opacity hover:opacity-80"
+        className="flex h-full cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl bg-surface-overlay px-5 py-6 transition-opacity hover:opacity-80"
         data-testid={`building-card-${idText}`}
       >
         <span

@@ -212,7 +212,7 @@ const BuildingRackGrid = ({
                   }}
                   onMouseMove={(e) => handleTileMouseMove(e, rack)}
                   onMouseLeave={handleTileMouseLeave}
-                  className="flex cursor-pointer flex-col items-center gap-2.5 rounded-xl bg-surface-5 p-4 transition-opacity duration-[120ms] hover:opacity-[0.82]"
+                  className="flex cursor-pointer flex-col items-center gap-2.5 rounded-xl bg-surface-overlay p-4 transition-opacity duration-[120ms] hover:opacity-[0.82]"
                   data-testid={`${testId}-tile-${rack.rackLabel}`}
                 >
                   <span className="text-[14px] font-medium text-text-primary">{rack.rackLabel}</span>
@@ -273,6 +273,7 @@ const BuildingRackGrid = ({
             racksPerAisle={racksPerAisle}
             colsPerPage={cols}
             posStart={posStart}
+            onPageSelect={setPage}
             testId={`${testId}-minimap`}
           />
           <div className="flex shrink-0 items-center gap-3 text-300 text-text-primary-70">
@@ -351,10 +352,11 @@ interface MinimapProps {
   racksPerAisle: number;
   colsPerPage: number;
   posStart: number;
+  onPageSelect: (page: number) => void;
   testId: string;
 }
 
-const Minimap = ({ floorPlan, racksPerAisle, colsPerPage, posStart, testId }: MinimapProps) => {
+const Minimap = ({ floorPlan, racksPerAisle, colsPerPage, posStart, onPageSelect, testId }: MinimapProps) => {
   const totalPages = Math.ceil(racksPerAisle / colsPerPage);
 
   return (
@@ -364,10 +366,13 @@ const Minimap = ({ floorPlan, racksPerAisle, colsPerPage, posStart, testId }: Mi
         const pEnd = Math.min(pStart + colsPerPage, racksPerAisle);
         const isCurrent = pStart === posStart;
         return (
-          <div
+          <button
+            type="button"
             key={p}
+            onClick={() => onPageSelect(p)}
+            aria-label={`Page ${p + 1}`}
             className={clsx(
-              "grid gap-0.5 rounded-sm border-2 p-0.5",
+              "grid cursor-pointer gap-0.5 rounded-sm border-2 p-0.5",
               isCurrent ? "border-text-primary" : "border-transparent",
             )}
             style={{
@@ -388,7 +393,7 @@ const Minimap = ({ floorPlan, racksPerAisle, colsPerPage, posStart, testId }: Mi
                   />
                 )),
             )}
-          </div>
+          </button>
         );
       })}
     </div>

@@ -32,13 +32,13 @@ const healthHeatBand = (ratio: number): HeatBand => {
   return 5;
 };
 
-const HEAT_BG: Record<HeatBand, string> = {
-  0: "rgba(0,0,0,0.06)",
-  1: "rgba(239,68,68,0.08)",
-  2: "rgba(239,68,68,0.18)",
-  3: "rgba(239,68,68,0.32)",
-  4: "rgba(239,68,68,0.50)",
-  5: "rgba(239,68,68,0.72)",
+const HEAT_CLASS: Record<HeatBand, string> = {
+  0: "bg-core-primary-fill/10",
+  1: "bg-intent-critical-fill/8",
+  2: "bg-intent-critical-fill/18",
+  3: "bg-intent-critical-fill/32",
+  4: "bg-intent-critical-fill/50",
+  5: "bg-intent-critical-fill/72",
 };
 
 interface RackGridProps {
@@ -61,8 +61,6 @@ const cellKey = (aisle: number, position: number) => `${aisle}:${position}`;
 const MAX_CELL_PX = 16;
 const MIN_CELL_PX = 2;
 const CELL_GAP_PX = 4;
-
-const UNASSIGNED_BG = "rgba(0,0,0,0.03)";
 
 const RackGrid = ({ aisles, racksPerAisle, heatBands, testId }: RackGridProps) => {
   if (aisles <= 0 || racksPerAisle <= 0) {
@@ -113,11 +111,12 @@ const RackGrid = ({ aisles, racksPerAisle, heatBands, testId }: RackGridProps) =
               key={p}
               aria-hidden
               data-heat-band={band ?? "unassigned"}
-              className="aspect-square shrink-0 rounded-[3px]"
-              style={{
-                width: "var(--cell-size)",
-                backgroundColor: band !== null ? HEAT_BG[band] : UNASSIGNED_BG,
-              }}
+              className={
+                band !== null
+                  ? `aspect-square shrink-0 rounded-[3px] ${HEAT_CLASS[band]}`
+                  : "aspect-square shrink-0 rounded-[3px] border border-core-primary-10"
+              }
+              style={{ width: "var(--cell-size)" }}
             />
           ))}
         </div>
@@ -218,7 +217,7 @@ const BuildingCard = ({ building }: BuildingCardProps) => {
         e.preventDefault();
         goToDetail();
       }}
-      className="flex h-full cursor-pointer flex-col rounded-2xl bg-surface-5 transition-opacity hover:opacity-80"
+      className="flex h-full cursor-pointer flex-col rounded-2xl bg-surface-overlay transition-opacity hover:opacity-80"
       data-testid={`building-card-${idText}`}
     >
       <div className="flex items-center justify-between gap-2 px-5 pt-4">
