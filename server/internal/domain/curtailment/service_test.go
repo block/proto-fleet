@@ -996,7 +996,7 @@ func TestService_Preview_PositiveCooldownExcludesRecentlyResolvedDevices(t *test
 	assert.Equal(t, SkipCooldown, reasons["recent"])
 }
 
-func TestService_Preview_EmergencyPriorityAppliesSuppliedCooldown(t *testing.T) {
+func TestService_Preview_EmergencyPriorityBypassesSuppliedCooldown(t *testing.T) {
 	t.Parallel()
 
 	const orgID = int64(1)
@@ -1016,15 +1016,9 @@ func TestService_Preview_EmergencyPriorityAppliesSuppliedCooldown(t *testing.T) 
 	plan, err := svc.Preview(t.Context(), req)
 	require.NoError(t, err)
 
-	assert.Equal(t, 1, store.cooldownCalls)
-	assert.Equal(t, int32(600), store.lastCooldownSec)
+	assert.Zero(t, store.cooldownCalls)
 	require.Len(t, plan.Selected, 1)
-	assert.Equal(t, "ok", plan.Selected[0].DeviceIdentifier)
-	reasons := map[string]SkipReason{}
-	for _, skipped := range plan.Skipped {
-		reasons[skipped.DeviceIdentifier] = skipped.Reason
-	}
-	assert.Equal(t, SkipCooldown, reasons["recent"])
+	assert.Equal(t, "recent", plan.Selected[0].DeviceIdentifier)
 }
 
 // --- active-event ---

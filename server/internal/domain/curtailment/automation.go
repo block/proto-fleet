@@ -504,7 +504,9 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 			ToleranceKW:             toleranceKW,
 			IncludeMaintenance:      profile.IncludeMaintenance,
 			ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
-			PostEventCooldownSec:    profile.PostEventCooldownSec,
+			// MQTT demand-response signals must execute immediately; profile
+			// cooldown applies only to non-emergency user-driven starts.
+			PostEventCooldownSec: 0,
 		},
 		Reason:                    reason,
 		RestoreBatchSize:          profile.RestoreBatchSize,

@@ -317,7 +317,7 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	assert.Equal(t, receivedAt, h.rules.lastActiveAt)
 }
 
-func TestAutomationService_HandleMQTTSignal_OffUsesResponseProfileCooldown(t *testing.T) {
+func TestAutomationService_HandleMQTTSignal_OffBypassesResponseProfileCooldown(t *testing.T) {
 	t.Parallel()
 
 	h := newAutomationHarness(t)
@@ -331,8 +331,7 @@ func TestAutomationService_HandleMQTTSignal_OffUsesResponseProfileCooldown(t *te
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, 1, h.curtailments.cooldownCalls)
-	assert.Equal(t, int32(600), h.curtailments.lastCooldownSec)
+	assert.Zero(t, h.curtailments.cooldownCalls)
 	assert.Equal(t, 1, h.curtailments.insertEventCalls)
 	assert.Equal(t, models.PriorityNormal, h.curtailments.lastInsertEvent.Priority)
 	assert.Equal(t, models.ModeFullFleet, h.curtailments.lastInsertEvent.Mode)

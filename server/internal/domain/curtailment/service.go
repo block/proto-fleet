@@ -140,6 +140,7 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	if err := validatePreviewRequest(req); err != nil {
 		return nil, err
 	}
+	req.PostEventCooldownSec = effectivePostEventCooldownSec(req)
 	plan, _, _, err := s.runSelector(ctx, req)
 	if err != nil {
 		return nil, err
@@ -154,6 +155,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	if err := validateStartRequest(req); err != nil {
 		return nil, err
 	}
+	req.PostEventCooldownSec = effectivePostEventCooldownSec(req.PreviewRequest)
 
 	// Idempotent-replay lookup: a prior persisted match short-circuits
 	// before selection so duplicate webhook deliveries don't re-run the
@@ -1202,6 +1204,13 @@ func validatePreviewRequest(req PreviewRequest) error {
 		)
 	}
 	return nil
+}
+
+func effectivePostEventCooldownSec(req PreviewRequest) int32 {
+	if req.Priority == models.PriorityEmergency {
+		return 0
+	}
+	return req.PostEventCooldownSec
 }
 
 func resolveScope(s Scope) (interfaces.ListCandidatesParams, error) {
