@@ -64,6 +64,8 @@ const BuildingRackGrid = ({
     setPage(0);
   }, []);
 
+  const hasRacks = rackHealth.length > 0;
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -73,7 +75,7 @@ const BuildingRackGrid = ({
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [rackHealth.length > 0]);
+  }, [hasRacks]);
 
   // 2D floor plan: floorPlan[aisle][position] = rack | null
   const floorPlan = useMemo(() => {
