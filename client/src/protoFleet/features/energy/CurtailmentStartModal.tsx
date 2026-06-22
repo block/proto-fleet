@@ -750,7 +750,11 @@ function CurtailmentStartModalContent({
       return nextValues;
     }
 
-    return { ...nextValues, responseProfileId: customResponseProfileId };
+    return {
+      ...nextValues,
+      responseProfileId: customResponseProfileId,
+      postEventCooldownSec: defaultValues.postEventCooldownSec,
+    };
   };
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) => {
     setEditedFields((current) => (current.has(key) ? current : new Set(current).add(key)));
@@ -883,7 +887,11 @@ function CurtailmentStartModalContent({
 
   const handleResponseProfileChange = (responseProfileId: string) => {
     if (responseProfileId === customResponseProfileId) {
-      setValues((current) => ({ ...current, responseProfileId: customResponseProfileId }));
+      setValues((current) => ({
+        ...current,
+        responseProfileId: customResponseProfileId,
+        postEventCooldownSec: defaultValues.postEventCooldownSec,
+      }));
       return;
     }
 

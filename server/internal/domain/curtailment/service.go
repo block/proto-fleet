@@ -941,19 +941,6 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	}
 	activeSet := toStringSet(activeDevices)
 
-	cooldownSet := map[string]struct{}{}
-	if req.PostEventCooldownSec > 0 {
-		cooldownDevices, err := s.store.ListRecentlyResolvedCurtailedDevices(
-			ctx,
-			req.OrgID,
-			req.PostEventCooldownSec,
-		)
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		cooldownSet = toStringSet(cooldownDevices)
-	}
-
 	candidateFilter.OrgID = req.OrgID
 	candidates, err := s.store.ListCandidates(ctx, candidateFilter)
 	if err != nil {
@@ -968,6 +955,23 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 				"device_identifiers not found in caller's org: %v", missing,
 			)
 		}
+	}
+
+	cooldownSet := map[string]struct{}{}
+	if req.PostEventCooldownSec > 0 {
+		cooldownDevices, err := s.store.ListRecentlyResolvedCurtailedDevices(
+			ctx,
+			interfaces.ListRecentlyResolvedCurtailedDevicesParams{
+				OrgID:             req.OrgID,
+				CooldownSec:       req.PostEventCooldownSec,
+				DeviceIdentifiers: candidateFilter.DeviceIdentifiers,
+				SiteID:            candidateFilter.SiteID,
+			},
+		)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		cooldownSet = toStringSet(cooldownDevices)
 	}
 
 	// TODO: registry-driven curtail_full capability check. classifyCandidates

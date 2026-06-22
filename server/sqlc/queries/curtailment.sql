@@ -101,6 +101,32 @@ WHERE ce.org_id = sqlc.arg('org_id')
         OR ce.ended_at >= CURRENT_TIMESTAMP - (sqlc.arg('cooldown_sec')::int * INTERVAL '1 second')
     );
 
+-- name: ListRecentlyResolvedCurtailedDevicesByScope :many
+-- Scoped cooldown lookup: enumerate the request's live candidate devices first,
+-- then probe terminal target history by device identifier.
+WITH scoped_devices AS MATERIALIZED (
+    SELECT unnest(sqlc.narg('device_identifiers')::text[]) AS device_identifier
+    WHERE sqlc.narg('device_identifiers')::text[] IS NOT NULL
+    UNION
+    SELECT d.device_identifier
+    FROM device d
+    WHERE d.org_id = sqlc.arg('org_id')
+        AND d.deleted_at IS NULL
+        AND sqlc.narg('device_identifiers')::text[] IS NULL
+        AND sqlc.narg('site_id')::BIGINT IS NOT NULL
+        AND d.site_id = sqlc.narg('site_id')::BIGINT
+)
+SELECT DISTINCT ct.device_identifier
+FROM scoped_devices sd
+JOIN curtailment_target ct ON ct.device_identifier = sd.device_identifier
+JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
+WHERE ce.org_id = sqlc.arg('org_id')
+    AND ct.state IN ('resolved', 'restore_failed')
+    AND (
+        ce.state IN ('pending', 'active', 'restoring')
+        OR ce.ended_at >= CURRENT_TIMESTAMP - (sqlc.arg('cooldown_sec')::int * INTERVAL '1 second')
+    );
+
 -- name: InsertCurtailmentEvent :one
 -- Full column list mirrors the migration so callers can't rely on DEFAULTs
 -- for values the API layer should be normalizing.
@@ -466,7 +492,21 @@ FROM jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
     desired_state             TEXT,
     baseline_power_w          NUMERIC(12,3),
     selector_rationale_jsonb  JSONB
-);
+)
+WHERE sqlc.arg('cooldown_sec')::INT <= 0
+    OR NOT EXISTS (
+        SELECT 1
+        FROM curtailment_target cooldown_target
+        JOIN curtailment_event cooldown_event
+            ON cooldown_event.id = cooldown_target.curtailment_event_id
+        WHERE cooldown_event.org_id = sqlc.arg('org_id')
+            AND cooldown_target.device_identifier = t.device_identifier
+            AND cooldown_target.state IN ('resolved', 'restore_failed')
+            AND (
+                cooldown_event.state IN ('pending', 'active', 'restoring')
+                OR cooldown_event.ended_at >= CURRENT_TIMESTAMP - (sqlc.arg('cooldown_sec')::INT * INTERVAL '1 second')
+            )
+    );
 
 -- name: LockCurtailmentScopeForWrite :exec
 -- Serialize hierarchy start checks by org so conflict detection and event
@@ -508,12 +548,15 @@ WHERE org_id = sqlc.arg('org_id')
 -- Same-event duplicates and cross-event target conflicts are no-ops; the
 -- reconciler retries on a later tick if a conflicting event resolves.
 WITH locked_event AS MATERIALIZED (
-    SELECT id
+    SELECT
+        curtailment_event.id,
+        curtailment_event.org_id,
+        curtailment_event.decision_snapshot_jsonb
     FROM curtailment_event
-    WHERE id = sqlc.arg('curtailment_event_id')
-      AND state IN ('pending', 'active')
-      AND mode = 'FULL_FLEET'
-      AND loop_type = 'closed'
+    WHERE curtailment_event.id = sqlc.arg('curtailment_event_id')
+      AND curtailment_event.state IN ('pending', 'active')
+      AND curtailment_event.mode = 'FULL_FLEET'
+      AND curtailment_event.loop_type = 'closed'
     FOR UPDATE
 )
 INSERT INTO curtailment_target (
@@ -547,6 +590,22 @@ WHERE NOT EXISTS (
     FROM curtailment_target existing
     WHERE existing.curtailment_event_id = locked_event.id
       AND existing.device_identifier = t.device_identifier
+)
+AND NOT EXISTS (
+    SELECT 1
+    FROM curtailment_target cooldown_target
+    JOIN curtailment_event cooldown_event
+        ON cooldown_event.id = cooldown_target.curtailment_event_id
+    WHERE cooldown_event.org_id = locked_event.org_id
+      AND cooldown_target.device_identifier = t.device_identifier
+      AND cooldown_target.state IN ('resolved', 'restore_failed')
+      AND COALESCE((locked_event.decision_snapshot_jsonb->>'post_event_cooldown_sec')::INT, 0) > 0
+      AND (
+        cooldown_event.state IN ('pending', 'active', 'restoring')
+        OR cooldown_event.ended_at >= CURRENT_TIMESTAMP - (
+            COALESCE((locked_event.decision_snapshot_jsonb->>'post_event_cooldown_sec')::INT, 0) * INTERVAL '1 second'
+        )
+      )
 )
 ON CONFLICT DO NOTHING
 RETURNING curtailment_target.*;

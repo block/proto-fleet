@@ -98,10 +98,25 @@ func (s *SQLCurtailmentStore) ListActiveCurtailmentTargetDevices(ctx context.Con
 	return devices, nil
 }
 
-func (s *SQLCurtailmentStore) ListRecentlyResolvedCurtailedDevices(ctx context.Context, orgID int64, cooldownSec int32) ([]string, error) {
+func (s *SQLCurtailmentStore) ListRecentlyResolvedCurtailedDevices(
+	ctx context.Context,
+	params interfaces.ListRecentlyResolvedCurtailedDevicesParams,
+) ([]string, error) {
+	if params.SiteID != nil || len(params.DeviceIdentifiers) > 0 {
+		devices, err := s.GetQueries(ctx).ListRecentlyResolvedCurtailedDevicesByScope(ctx, sqlc.ListRecentlyResolvedCurtailedDevicesByScopeParams{
+			OrgID:             params.OrgID,
+			SiteID:            ptrToNullInt64(params.SiteID),
+			DeviceIdentifiers: params.DeviceIdentifiers,
+			CooldownSec:       params.CooldownSec,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to list recently resolved curtailed devices: %v", err)
+		}
+		return devices, nil
+	}
 	devices, err := s.GetQueries(ctx).ListRecentlyResolvedCurtailedDevicesByOrg(ctx, sqlc.ListRecentlyResolvedCurtailedDevicesByOrgParams{
-		OrgID:       orgID,
-		CooldownSec: cooldownSec,
+		OrgID:       params.OrgID,
+		CooldownSec: params.CooldownSec,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list recently resolved curtailed devices: %v", err)
@@ -710,6 +725,8 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			inserted, err := q.BulkInsertCurtailmentTargets(ctx, sqlc.BulkInsertCurtailmentTargetsParams{
 				CurtailmentEventID: row.ID,
 				TargetsJsonb:       payload,
+				OrgID:              event.OrgID,
+				CooldownSec:        cooldownSecFromDecisionSnapshot(event.DecisionSnapshotJSON),
 			})
 			if err != nil {
 				var pgErr *pgconn.PgError
@@ -726,11 +743,20 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				return nil, fleeterror.NewInternalErrorf("failed to bulk insert curtailment targets: %v", err)
 			}
 			if inserted != int64(len(targets)) {
-				// jsonb_to_recordset silently drops rows that fail column-type
-				// cast; bail so the tx rolls back instead of partial fanout.
-				return nil, fleeterror.NewInternalErrorf(
-					"bulk insert wrote %d targets, expected %d", inserted, len(targets),
+				return nil, fleeterror.NewFailedPreconditionErrorf(
+					"one or more selected devices entered cooldown before start; inserted %d of %d targets, retry",
+					inserted,
+					len(targets),
 				)
+			}
+			if err := ensureTargetsOutsideCooldown(
+				ctx,
+				q,
+				event.OrgID,
+				cooldownSecFromDecisionSnapshot(event.DecisionSnapshotJSON),
+				insertTargetDeviceIdentifiers(targets),
+			); err != nil {
+				return nil, err
 			}
 		}
 		return &models.InsertEventResult{
@@ -748,6 +774,19 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 
 func isClosedLoopFullFleetInsert(event models.InsertEventParams) bool {
 	return event.Mode == models.ModeFullFleet && event.LoopType == models.LoopTypeClosed
+}
+
+func cooldownSecFromDecisionSnapshot(snapshotJSON []byte) int32 {
+	if len(snapshotJSON) == 0 {
+		return 0
+	}
+	var snapshot struct {
+		PostEventCooldownSec int32 `json:"post_event_cooldown_sec"`
+	}
+	if err := json.Unmarshal(snapshotJSON, &snapshot); err != nil || snapshot.PostEventCooldownSec <= 0 {
+		return 0
+	}
+	return snapshot.PostEventCooldownSec
 }
 
 func usesHierarchicalCurtailmentScope(event models.InsertEventParams) bool {
@@ -1507,7 +1546,13 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 	})
 }
 
-func (s *SQLCurtailmentStore) ClaimClosedLoopFullFleetTargets(ctx context.Context, eventID int64, targets []models.InsertTargetParams) ([]*models.Target, error) {
+func (s *SQLCurtailmentStore) ClaimClosedLoopFullFleetTargets(
+	ctx context.Context,
+	eventID int64,
+	orgID int64,
+	cooldownSec int32,
+	targets []models.InsertTargetParams,
+) ([]*models.Target, error) {
 	if len(targets) == 0 {
 		return nil, nil
 	}
@@ -1515,11 +1560,24 @@ func (s *SQLCurtailmentStore) ClaimClosedLoopFullFleetTargets(ctx context.Contex
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to encode curtailment target payload: %v", err)
 	}
-	rows, err := s.GetQueries(ctx).ClaimClosedLoopFullFleetTargets(ctx, sqlc.ClaimClosedLoopFullFleetTargetsParams{
-		CurtailmentEventID: eventID,
-		TargetsJsonb:       payload,
+	rows, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) ([]sqlc.CurtailmentTarget, error) {
+		rows, err := q.ClaimClosedLoopFullFleetTargets(ctx, sqlc.ClaimClosedLoopFullFleetTargetsParams{
+			CurtailmentEventID: eventID,
+			TargetsJsonb:       payload,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := ensureTargetsOutsideCooldown(ctx, q, orgID, cooldownSec, targetDeviceIdentifiers(rows)); err != nil {
+			return nil, err
+		}
+		return rows, nil
 	})
 	if err != nil {
+		var fleetErr fleeterror.FleetError
+		if errors.As(err, &fleetErr) {
+			return nil, fleetErr
+		}
 		return nil, fleeterror.NewInternalErrorf("failed to claim curtailment targets: %v", err)
 	}
 	claimed := make([]*models.Target, len(rows))
@@ -1527,6 +1585,49 @@ func (s *SQLCurtailmentStore) ClaimClosedLoopFullFleetTargets(ctx context.Contex
 		claimed[i] = convertTargetRow(row)
 	}
 	return claimed, nil
+}
+
+func ensureTargetsOutsideCooldown(
+	ctx context.Context,
+	q *sqlc.Queries,
+	orgID int64,
+	cooldownSec int32,
+	deviceIdentifiers []string,
+) error {
+	if cooldownSec <= 0 || len(deviceIdentifiers) == 0 {
+		return nil
+	}
+	cooldownDevices, err := q.ListRecentlyResolvedCurtailedDevicesByScope(
+		ctx,
+		sqlc.ListRecentlyResolvedCurtailedDevicesByScopeParams{
+			OrgID:             orgID,
+			DeviceIdentifiers: deviceIdentifiers,
+			CooldownSec:       cooldownSec,
+		},
+	)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to recheck curtailment cooldown: %v", err)
+	}
+	if len(cooldownDevices) > 0 {
+		return fleeterror.NewFailedPreconditionError("one or more selected devices entered cooldown; retry")
+	}
+	return nil
+}
+
+func insertTargetDeviceIdentifiers(targets []models.InsertTargetParams) []string {
+	out := make([]string, 0, len(targets))
+	for _, target := range targets {
+		out = append(out, target.DeviceIdentifier)
+	}
+	return out
+}
+
+func targetDeviceIdentifiers(targets []sqlc.CurtailmentTarget) []string {
+	out := make([]string, 0, len(targets))
+	for _, target := range targets {
+		out = append(out, target.DeviceIdentifier)
+	}
+	return out
 }
 
 func (s *SQLCurtailmentStore) GetHeartbeat(ctx context.Context) (*models.Heartbeat, error) {

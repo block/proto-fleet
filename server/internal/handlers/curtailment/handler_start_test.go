@@ -61,7 +61,10 @@ func (s *startStubStore) ListActiveCurtailmentTargetDevices(context.Context, int
 	panic("ListActiveCurtailmentTargetDevices not exercised by handler Start tests")
 }
 
-func (s *startStubStore) ListRecentlyResolvedCurtailedDevices(_ context.Context, _ int64, _ int32) ([]string, error) {
+func (s *startStubStore) ListRecentlyResolvedCurtailedDevices(
+	context.Context,
+	interfaces.ListRecentlyResolvedCurtailedDevicesParams,
+) ([]string, error) {
 	return nil, nil
 }
 
@@ -85,7 +88,13 @@ func (s *startStubStore) InsertEventWithTargets(
 		EventUUID: event.EventUUID,
 	}, nil
 }
-func (s *startStubStore) ClaimClosedLoopFullFleetTargets(context.Context, int64, []models.InsertTargetParams) ([]*models.Target, error) {
+func (s *startStubStore) ClaimClosedLoopFullFleetTargets(
+	context.Context,
+	int64,
+	int64,
+	int32,
+	[]models.InsertTargetParams,
+) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by handler Start tests")
 }
 

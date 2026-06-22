@@ -846,6 +846,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRecentlyResolvedCurtailedDevicesByOrgStmt, err = db.PrepareContext(ctx, listRecentlyResolvedCurtailedDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRecentlyResolvedCurtailedDevicesByOrg: %w", err)
 	}
+	if q.listRecentlyResolvedCurtailedDevicesByScopeStmt, err = db.PrepareContext(ctx, listRecentlyResolvedCurtailedDevicesByScope); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRecentlyResolvedCurtailedDevicesByScope: %w", err)
+	}
 	if q.listRolePermissionKeysStmt, err = db.PrepareContext(ctx, listRolePermissionKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolePermissionKeys: %w", err)
 	}
@@ -2671,6 +2674,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRecentlyResolvedCurtailedDevicesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listRecentlyResolvedCurtailedDevicesByScopeStmt != nil {
+		if cerr := q.listRecentlyResolvedCurtailedDevicesByScopeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRecentlyResolvedCurtailedDevicesByScopeStmt: %w", cerr)
+		}
+	}
 	if q.listRolePermissionKeysStmt != nil {
 		if cerr := q.listRolePermissionKeysStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRolePermissionKeysStmt: %w", cerr)
@@ -3734,6 +3742,7 @@ type Queries struct {
 	listRackZonesStmt                                          *sql.Stmt
 	listRacksOutsideBuildingBoundsStmt                         *sql.Stmt
 	listRecentlyResolvedCurtailedDevicesByOrgStmt              *sql.Stmt
+	listRecentlyResolvedCurtailedDevicesByScopeStmt            *sql.Stmt
 	listRolePermissionKeysStmt                                 *sql.Stmt
 	listRolesStmt                                              *sql.Stmt
 	listRolesWithDetailsForOrgStmt                             *sql.Stmt
@@ -4164,6 +4173,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRackZonesStmt:                                          q.listRackZonesStmt,
 		listRacksOutsideBuildingBoundsStmt:                         q.listRacksOutsideBuildingBoundsStmt,
 		listRecentlyResolvedCurtailedDevicesByOrgStmt:              q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
+		listRecentlyResolvedCurtailedDevicesByScopeStmt:            q.listRecentlyResolvedCurtailedDevicesByScopeStmt,
 		listRolePermissionKeysStmt:                                 q.listRolePermissionKeysStmt,
 		listRolesStmt:                                              q.listRolesStmt,
 		listRolesWithDetailsForOrgStmt:                             q.listRolesWithDetailsForOrgStmt,

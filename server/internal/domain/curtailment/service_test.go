@@ -39,6 +39,8 @@ type fakeStore struct {
 	cooldownCalls            int
 	lastCooldownOrgID        int64
 	lastCooldownSec          int32
+	lastCooldownFilter       []string
+	lastCooldownSiteID       *int64
 	activeDevicesCalls       int
 	lastActiveDevicesOrgID   int64
 
@@ -154,11 +156,16 @@ func (f *fakeStore) ListActiveCurtailmentTargetDevices(context.Context, int64) (
 	panic("ListActiveCurtailmentTargetDevices not exercised")
 }
 
-func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(_ context.Context, orgID int64, cooldownSec int32) ([]string, error) {
+func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(
+	_ context.Context,
+	params interfaces.ListRecentlyResolvedCurtailedDevicesParams,
+) ([]string, error) {
 	f.cooldownCalls++
-	f.lastCooldownOrgID = orgID
-	f.lastCooldownSec = cooldownSec
-	return append([]string(nil), f.cooldownDevicesByOrg[orgID]...), nil
+	f.lastCooldownOrgID = params.OrgID
+	f.lastCooldownSec = params.CooldownSec
+	f.lastCooldownFilter = append([]string(nil), params.DeviceIdentifiers...)
+	f.lastCooldownSiteID = params.SiteID
+	return append([]string(nil), f.cooldownDevicesByOrg[params.OrgID]...), nil
 }
 
 func (f *fakeStore) SiteBelongsToOrg(_ context.Context, orgID, siteID int64) (bool, error) {
@@ -496,7 +503,13 @@ func (f *fakeStore) InsertEventWithTargets(
 	}, nil
 }
 
-func (f *fakeStore) ClaimClosedLoopFullFleetTargets(context.Context, int64, []models.InsertTargetParams) ([]*models.Target, error) {
+func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
+	context.Context,
+	int64,
+	int64,
+	int32,
+	[]models.InsertTargetParams,
+) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised")
 }
 
@@ -979,6 +992,10 @@ func TestService_Preview_PositiveCooldownExcludesRecentlyResolvedDevices(t *test
 
 	svc := NewService(store)
 	req := validRequest(orgID)
+	req.Scope = Scope{
+		Type:              models.ScopeTypeDeviceList,
+		DeviceIdentifiers: []string{"recent", "ok"},
+	}
 	req.PostEventCooldownSec = 600
 	req.TargetKW = 1
 	plan, err := svc.Preview(t.Context(), req)
@@ -987,6 +1004,8 @@ func TestService_Preview_PositiveCooldownExcludesRecentlyResolvedDevices(t *test
 	assert.Equal(t, 1, store.cooldownCalls)
 	assert.Equal(t, orgID, store.lastCooldownOrgID)
 	assert.Equal(t, int32(600), store.lastCooldownSec)
+	assert.ElementsMatch(t, []string{"recent", "ok"}, store.lastCooldownFilter)
+	assert.Nil(t, store.lastCooldownSiteID)
 	require.Len(t, plan.Selected, 1)
 	assert.Equal(t, "ok", plan.Selected[0].DeviceIdentifier)
 	reasons := map[string]SkipReason{}

@@ -60,6 +60,8 @@ type fakeStore struct {
 	cooldownCalls           int
 	lastCooldownOrgID       int64
 	lastCooldownSec         int32
+	lastCooldownFilter      []string
+	lastCooldownSiteID      *int64
 
 	heartbeatCalls           int
 	lastHeartbeatActive      int32
@@ -101,10 +103,15 @@ func (f *fakeStore) ListActiveCurtailedDevices(context.Context, int64) ([]string
 func (f *fakeStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
 	return append([]string(nil), f.activeDevices...), nil
 }
-func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(_ context.Context, orgID int64, cooldownSec int32) ([]string, error) {
+func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(
+	_ context.Context,
+	params interfaces.ListRecentlyResolvedCurtailedDevicesParams,
+) ([]string, error) {
 	f.cooldownCalls++
-	f.lastCooldownOrgID = orgID
-	f.lastCooldownSec = cooldownSec
+	f.lastCooldownOrgID = params.OrgID
+	f.lastCooldownSec = params.CooldownSec
+	f.lastCooldownFilter = append([]string(nil), params.DeviceIdentifiers...)
+	f.lastCooldownSiteID = params.SiteID
 	return append([]string(nil), f.cooldownDevices...), nil
 }
 func (f *fakeStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
@@ -127,7 +134,13 @@ func (f *fakeStore) ListActiveEvents(context.Context, int64) ([]*models.Event, e
 func (f *fakeStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised")
 }
-func (f *fakeStore) ClaimClosedLoopFullFleetTargets(_ context.Context, eventID int64, targets []models.InsertTargetParams) ([]*models.Target, error) {
+func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
+	_ context.Context,
+	eventID int64,
+	_ int64,
+	_ int32,
+	targets []models.InsertTargetParams,
+) ([]*models.Target, error) {
 	f.claimTargetsCalls++
 	f.claimedTargetParams = append([]models.InsertTargetParams(nil), targets...)
 	existing := map[string]struct{}{}
@@ -947,15 +960,16 @@ func TestReconciler_ActiveClosedLoopFullFleetUsesPersistedSiteScope(t *testing.T
 	siteID := int64(77)
 	store.events = []*models.Event{
 		{
-			ID:              eventID,
-			EventUUID:       eventUUID,
-			OrgID:           1,
-			State:           models.EventStateActive,
-			Mode:            models.ModeFullFleet,
-			LoopType:        models.LoopTypeClosed,
-			ScopeType:       models.ScopeTypeSite,
-			ScopeJSON:       []byte(`{"site_id":77}`),
-			CreatedByUserID: 99,
+			ID:                   eventID,
+			EventUUID:            eventUUID,
+			OrgID:                1,
+			State:                models.EventStateActive,
+			Mode:                 models.ModeFullFleet,
+			LoopType:             models.LoopTypeClosed,
+			ScopeType:            models.ScopeTypeSite,
+			ScopeJSON:            []byte(`{"site_id":77}`),
+			DecisionSnapshotJSON: []byte(`{"post_event_cooldown_sec":600}`),
+			CreatedByUserID:      99,
 		},
 	}
 	driver := "antminer"
@@ -977,6 +991,9 @@ func TestReconciler_ActiveClosedLoopFullFleetUsesPersistedSiteScope(t *testing.T
 
 	require.NotNil(t, store.lastListCandidatesSiteID)
 	assert.Equal(t, siteID, *store.lastListCandidatesSiteID)
+	assert.Equal(t, 1, store.cooldownCalls)
+	require.NotNil(t, store.lastCooldownSiteID)
+	assert.Equal(t, siteID, *store.lastCooldownSiteID)
 	assert.ElementsMatch(t, []string{"site-miner"}, disp.curtailLastIDs)
 }
 

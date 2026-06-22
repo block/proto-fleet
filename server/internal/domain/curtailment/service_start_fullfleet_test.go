@@ -1,6 +1,7 @@
 package curtailment
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,6 +36,40 @@ func TestService_Start_FullFleet_CurtailsAllEligible(t *testing.T) {
 	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
 	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
 	assert.Empty(t, store.lastInsertTargets)
+}
+
+func TestService_Start_FullFleet_PersistsCooldownForClosedLoopAdmission(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.cooldownDevicesByOrg[orgID] = []string{"recent"}
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("recent", 6000, 100, 40),
+		minerWithEff("fresh", 5000, 100, 45),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+	req.PostEventCooldownSec = 600
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, store.cooldownCalls)
+	assert.Equal(t, int32(600), store.lastCooldownSec)
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, "fresh", plan.Selected[0].DeviceIdentifier)
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	assert.Empty(t, store.lastInsertTargets)
+
+	var snapshot struct {
+		PostEventCooldownSec int32 `json:"post_event_cooldown_sec"`
+	}
+	require.NoError(t, json.Unmarshal(store.lastInsertEvent.DecisionSnapshotJSON, &snapshot))
+	assert.Equal(t, int32(600), snapshot.PostEventCooldownSec)
 }
 
 func TestService_Start_FullFleet_CurtailsLowPowerAndZeroHashrateMiners(t *testing.T) {

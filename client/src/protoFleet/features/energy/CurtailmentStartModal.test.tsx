@@ -292,7 +292,11 @@ describe("CurtailmentStartModal", () => {
 
   it("applies response profile values and switches back to custom plan after edits", async () => {
     const user = userEvent.setup();
-    renderModal({ responseProfiles });
+    const customResponseProfiles: CurtailmentResponseProfileOption[] = responseProfiles.map((profile) => ({
+      ...profile,
+      values: { ...profile.values, includeMaintenance: false },
+    }));
+    const { onSubmit } = renderModal({ responseProfiles: customResponseProfiles });
 
     await user.type(screen.getByLabelText("Reason"), "Operator-requested event");
     await user.click(screen.getByRole("button", { name: "Profile" }));
@@ -319,6 +323,41 @@ describe("CurtailmentStartModal", () => {
     await user.type(screen.getByLabelText("Fixed target reduction (kW)"), "75");
 
     expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Custom plan");
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseProfileId: "customPlan",
+        postEventCooldownSec: "0",
+      }),
+    );
+  });
+
+  it("clears hidden response profile cooldown when custom plan is selected", async () => {
+    const user = userEvent.setup();
+    const customResponseProfiles: CurtailmentResponseProfileOption[] = responseProfiles.map((profile) => ({
+      ...profile,
+      values: { ...profile.values, includeMaintenance: false },
+    }));
+    const { onSubmit } = renderModal({ responseProfiles: customResponseProfiles });
+
+    await user.type(screen.getByLabelText("Reason"), "Operator-requested event");
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Standard shed"));
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Standard shed");
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Custom plan"));
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Custom plan");
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ postEventCooldownSec: "0" }));
   });
 
   it("restores the selected response profile scope after a target selection", async () => {

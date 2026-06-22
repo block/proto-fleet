@@ -74,7 +74,10 @@ func (s *listStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]st
 func (s *listStubStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
 	panic("ListActiveCurtailmentTargetDevices not exercised by List handler tests")
 }
-func (s *listStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
+func (s *listStubStore) ListRecentlyResolvedCurtailedDevices(
+	context.Context,
+	interfaces.ListRecentlyResolvedCurtailedDevicesParams,
+) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by List handler tests")
 }
 func (s *listStubStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
@@ -86,7 +89,13 @@ func (s *listStubStore) ListCandidates(context.Context, interfaces.ListCandidate
 func (s *listStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by List handler tests")
 }
-func (s *listStubStore) ClaimClosedLoopFullFleetTargets(context.Context, int64, []models.InsertTargetParams) ([]*models.Target, error) {
+func (s *listStubStore) ClaimClosedLoopFullFleetTargets(
+	context.Context,
+	int64,
+	int64,
+	int32,
+	[]models.InsertTargetParams,
+) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by List handler tests")
 }
 func (s *listStubStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
