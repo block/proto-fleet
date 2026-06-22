@@ -52,7 +52,7 @@ interface FleetHealthProps {
   title?: string;
   /** Extra URL search params to append to miner list links (e.g., "group=123") */
   extraFilterParams?: string;
-  /** Link URL for the total miners count (e.g., "/miners?group=123") */
+  /** Link URL for the total miners count (e.g., "/fleet/miners?group=123" or a scoped variant) */
   totalMinersLink?: string;
   activeSite?: ActiveSite;
 }

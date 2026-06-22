@@ -196,7 +196,7 @@ const BuildingPage = () => {
         <Header title="Building not found" titleSize="text-heading-300" />
         <p className="text-300 text-text-primary-70">
           Either the building has been deleted or the URL is invalid. Return to{" "}
-          <Link to={scopedPath("/fleet/sites", activeSite)}>/sites</Link> to find your building.
+          <Link to={scopedPath("/fleet/sites", activeSite)}>Fleet sites</Link> to find your building.
         </p>
       </div>
     );
