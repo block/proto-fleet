@@ -95,10 +95,10 @@ const RacksPage = () => {
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
   const { listAllBuildings, assignRacksToBuilding } = useBuildings();
-  const canEditRack = useHasPermission("rack:manage");
+  const canEditRack = useHasPermission("rack:manage", { scope: "org" });
   // Both "Add to building" and "Add to site" reparent actions are gated
   // by site:manage (server enforces the same). One flag, two actions.
-  const canManageSitePlacement = useHasPermission("site:manage");
+  const canManageSitePlacement = useHasPermission("site:manage", { scope: "org" });
   const [reparentTarget, setReparentTarget] = useState<{ rack: DeviceSet; kind: "building" | "site" } | null>(null);
   const { listSites, assignRacksToSite } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();

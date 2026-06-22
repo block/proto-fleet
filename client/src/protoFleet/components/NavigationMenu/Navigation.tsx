@@ -6,7 +6,7 @@ import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
-import { usePermissions } from "@/protoFleet/store";
+import { useOrgPermissions } from "@/protoFleet/store";
 import { Logo, LogoAlt } from "@/shared/assets/icons";
 import { ArrowLeftCompact } from "@/shared/assets/icons";
 import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
@@ -26,12 +26,12 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const logout = useLogoutAction();
   const { bg } = usePageBackground();
-  const permissions = usePermissions();
+  const orgPermissions = useOrgPermissions();
   const featureEnabled = useNavFeatureEnabled();
   const [settingsManuallyToggled, setSettingsManuallyToggled] = useState(false);
   const hasPermission = useCallback(
-    (key: string | undefined) => key === undefined || permissions.includes(key),
-    [permissions],
+    (key: string | undefined) => key === undefined || orgPermissions.includes(key),
+    [orgPermissions],
   );
   const visibleItems = useMemo(
     () => items.filter((item) => hasPermission(item.requiredPermission)),

@@ -173,10 +173,9 @@ describe("FleetLayout lastTab persistence", () => {
 
 describe("FleetLayout scoped-permission fallback", () => {
   test("falls back to /fleet/miners when listSites returns PermissionDenied", async () => {
-    // useHasPermission("site:read") returns true (flat union across scopes),
-    // but the org-scoped ListSites call is denied for site-scoped-only roles.
-    // The layout must treat that as an access-blocked signal and land the
-    // operator on the still-accessible Miners tab.
+    // Keep the runtime PermissionDenied fallback for stale sessions or
+    // server-side authz changes that can still deny the org-scoped ListSites
+    // call after the client gate passes.
     listSitesMock.mockImplementation(async ({ onError }) => {
       onError?.("access denied", Code.PermissionDenied);
     });

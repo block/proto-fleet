@@ -24,7 +24,7 @@ const colTitles: ColTitles<RoleColumns> = {
 const activeCols: RoleColumns[] = ["name", "permissions", "members", "updatedAt"];
 
 const Roles = () => {
-  const canManageRoles = useHasPermission("role:manage");
+  const canManageRoles = useHasPermission("role:manage", { scope: "org" });
   const { listRoles, deleteRole } = useRoleManagement();
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);

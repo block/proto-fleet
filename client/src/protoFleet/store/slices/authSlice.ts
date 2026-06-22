@@ -16,6 +16,10 @@ export interface AuthSlice {
   // from UserInfo.permissions on login. UI gates query this via
   // useHasPermission; the server still enforces every gate.
   permissions: string[];
+  // orgPermissions is the caller's org-scoped effective permission keys,
+  // populated from UserInfo.org_permissions on login. UI gates for org-scoped
+  // RPCs query this via useHasPermission(..., { scope: "org" }).
+  orgPermissions: string[];
   authLoading: boolean;
   temporaryPassword: string | null;
 
@@ -25,6 +29,7 @@ export interface AuthSlice {
   setUsername: (username: string) => void;
   setRole: (role: string) => void;
   setPermissions: (permissions: string[]) => void;
+  setOrgPermissions: (permissions: string[]) => void;
   setAuthLoading: (loading: boolean) => void;
   setTemporaryPassword: (password: string | null) => void;
   logout: () => void;
@@ -41,6 +46,7 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
   username: "",
   role: "",
   permissions: [],
+  orgPermissions: [],
   authLoading: true,
   temporaryPassword: null,
 
@@ -70,6 +76,11 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
       state.auth.permissions = permissions;
     }),
 
+  setOrgPermissions: (permissions) =>
+    set((state) => {
+      state.auth.orgPermissions = permissions;
+    }),
+
   setAuthLoading: (loading) =>
     set((state) => {
       state.auth.authLoading = loading;
@@ -88,6 +99,7 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
       state.auth.username = "";
       state.auth.role = "";
       state.auth.permissions = [];
+      state.auth.orgPermissions = [];
       state.auth.authLoading = false;
       state.auth.temporaryPassword = null;
       // Reset multi-site active selection on logout so user B doesn't

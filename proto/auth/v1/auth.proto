@@ -172,6 +172,11 @@ message UserInfo {
     // queries belong on a dedicated authz RPC, not bundled into peer
     // listing where they would leak authority across the org.
     repeated string permissions = 7;
+
+    // Org-scoped effective permission keys for the caller, sorted. Populated
+    // only when the UserInfo represents the caller's own identity. Use this
+    // for UI gates that map to RPCs with an empty ResourceContext.
+    repeated string org_permissions = 8;
 }
 
 message ListUsersResponse {

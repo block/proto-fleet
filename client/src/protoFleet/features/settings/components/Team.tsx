@@ -37,7 +37,7 @@ const Team = () => {
   // Gate the team-management UI on user:manage; the server's parity
   // check still bounds which roles a caller can assign at create or
   // update time.
-  const canAddTeamMembers = useHasPermission("user:manage");
+  const canAddTeamMembers = useHasPermission("user:manage", { scope: "org" });
   const currentUsername = useUsername();
   const currentRole = useRole();
   const callerIsOwner = currentRole === "SUPER_ADMIN";

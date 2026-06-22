@@ -59,12 +59,12 @@ const FleetLayout = () => {
   // ListSites and ListBuildings both sit behind PermSiteRead server-side.
   // Reading from the catalog (instead of inferring from a failed RPC) keeps
   // transient transport errors out of the access-blocked branch.
-  const canReadSites = useHasPermission("site:read");
+  const canReadSites = useHasPermission("site:read", { scope: "org" });
   // CompleteSetup calls ListMinerStateSnapshots (gated on PermMinerRead) via
   // useAuthNeededMiners + usePoolNeededCount before deciding whether to show.
   // Skip the banner entirely for roles without miner:read so they don't get
   // permission-denied toasts just by opening a non-miner Fleet tab.
-  const canReadMiners = useHasPermission("miner:read");
+  const canReadMiners = useHasPermission("miner:read", { scope: "org" });
 
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canReadSites ? undefined : []);
@@ -73,10 +73,8 @@ const FleetLayout = () => {
   // failures. Lets consumers tell "we have last-good data" from "we've
   // never seen data" when sites is [].
   const [sitesLoaded, setSitesLoaded] = useState(false);
-  // useHasPermission is a flat union across scopes, so a user with only
-  // site-scoped site:read passes `canReadSites` even though ListSites is
-  // gated on org-scoped site:read. Flip this flag when the RPC returns
-  // PermissionDenied so the redirect waterfall can fall back to Miners.
+  // Keep a defensive PermissionDenied branch for stale sessions or server-side
+  // auth changes so the redirect waterfall can fall back to Miners.
   const [sitesPermissionDenied, setSitesPermissionDenied] = useState(false);
 
   const fetchSites = useCallback(

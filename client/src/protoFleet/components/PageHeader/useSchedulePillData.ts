@@ -27,7 +27,7 @@ export const useSchedulePillData = (): UseSchedulePillDataResult => {
   // without :manage means a read-only schedule:read role has no header
   // pill that 403s on every action — same outcome as the Pools and
   // Schedules secondary-nav entries.
-  const canManageSchedules = useHasPermission("schedule:manage");
+  const canManageSchedules = useHasPermission("schedule:manage", { scope: "org" });
 
   useEffect(() => {
     if (!canManageSchedules) {

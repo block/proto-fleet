@@ -1716,7 +1716,7 @@ export function CurtailmentSettingsContent({
 }
 
 function CurtailmentSettingsPage(): ReactElement {
-  const canManageCurtailment = useHasPermission("curtailment:manage");
+  const canManageCurtailment = useHasPermission("curtailment:manage", { scope: "org" });
   const navigate = useNavigate();
   const { startCurtailment } = useCurtailmentApi();
   const [isTestingResponseProfileCurtailment, setIsTestingResponseProfileCurtailment] = useState(false);

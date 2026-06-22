@@ -502,7 +502,7 @@ describe("CurtailmentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
+    expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage", { scope: "org" });
     expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(true);
     expect(useMqttCurtailmentSources).toHaveBeenCalledWith(true);
     expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(true);
@@ -1543,7 +1543,7 @@ describe("CurtailmentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
+    expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage", { scope: "org" });
     expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(false);
     expect(useMqttCurtailmentSources).toHaveBeenCalledWith(false);
     expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(false);

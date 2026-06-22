@@ -16,12 +16,25 @@ export const useRole = () => useFleetStore((state) => state.auth.role);
 
 export const usePermissions = () => useFleetStore((state) => state.auth.permissions);
 
+export const useOrgPermissions = () => useFleetStore((state) => state.auth.orgPermissions);
+
+type PermissionScope = "any" | "org";
+
+type UseHasPermissionOptions = {
+  scope?: PermissionScope;
+};
+
 // useHasPermission is the canonical UI gate for capability checks.
-// Returns true when the caller's session-loaded effective permissions
-// include the requested catalog key. The server enforces every gate
-// regardless; this selector is purely for show/hide decisions.
-export const useHasPermission = (key: string): boolean =>
-  useFleetStore((state) => state.auth.permissions.includes(key));
+// By default it checks UserInfo.permissions, a flat "has this anywhere"
+// projection. Pass { scope: "org" } for UI gates that call org-scoped RPCs;
+// that mirrors server authz.Has(key, empty ResourceContext). The server still
+// enforces every gate regardless; this selector is purely for show/hide
+// decisions.
+export const useHasPermission = (key: string, options: UseHasPermissionOptions = {}): boolean =>
+  useFleetStore((state) => {
+    const permissions = options.scope === "org" ? state.auth.orgPermissions : state.auth.permissions;
+    return permissions.includes(key);
+  });
 
 export const useAuthLoading = () => useFleetStore((state) => state.auth.authLoading);
 
@@ -40,6 +53,8 @@ export const useSetUsername = () => useFleetStore((state) => state.auth.setUsern
 export const useSetRole = () => useFleetStore((state) => state.auth.setRole);
 
 export const useSetPermissions = () => useFleetStore((state) => state.auth.setPermissions);
+
+export const useSetOrgPermissions = () => useFleetStore((state) => state.auth.setOrgPermissions);
 
 export const useSetAuthLoading = () => useFleetStore((state) => state.auth.setAuthLoading);
 

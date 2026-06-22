@@ -223,7 +223,7 @@ describe("PageHeader", () => {
       </MemoryRouter>,
     );
 
-    expect(useHasPermission).toHaveBeenCalledWith("curtailment:read");
+    expect(useHasPermission).toHaveBeenCalledWith("curtailment:read", { scope: "org" });
     expect(screen.queryByText("Curtailment pill")).not.toBeInTheDocument();
     expect(mockCurtailmentPill).not.toHaveBeenCalled();
   });

@@ -28,7 +28,7 @@ const activeCols: ApiKeyColumns[] = ["name", "prefix", "createdAt", "expiresAt",
 
 const ApiKeys = () => {
   const { listApiKeys, revokeApiKey } = useApiKeys();
-  const canManageApiKeys = useHasPermission("apikey:manage");
+  const canManageApiKeys = useHasPermission("apikey:manage", { scope: "org" });
   const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);

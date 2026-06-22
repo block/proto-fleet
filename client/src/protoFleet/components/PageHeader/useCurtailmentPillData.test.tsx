@@ -113,7 +113,7 @@ describe("useCurtailmentPillData", () => {
       window.dispatchEvent(new CustomEvent(CURTAILMENT_CHANGED_EVENT));
     });
 
-    expect(mockUseHasPermission).toHaveBeenCalledWith("curtailment:read");
+    expect(mockUseHasPermission).toHaveBeenCalledWith("curtailment:read", { scope: "org" });
     expect(mockListActiveCurtailments).not.toHaveBeenCalled();
   });
 

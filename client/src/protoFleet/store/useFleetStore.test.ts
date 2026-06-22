@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const UI_KEY = "proto-ui-preferences";
+const AUTH_KEY = "proto-fleet-auth";
 
 const seedPersistedDuration = (duration: string) => {
   localStorage.setItem(
@@ -11,6 +12,16 @@ const seedPersistedDuration = (duration: string) => {
           duration,
         },
       },
+      version: 0,
+    }),
+  );
+};
+
+const seedPersistedAuth = (auth: Record<string, unknown>) => {
+  localStorage.setItem(
+    AUTH_KEY,
+    JSON.stringify({
+      state: { auth },
       version: 0,
     }),
   );
@@ -42,5 +53,40 @@ describe("useFleetStore persistence", () => {
     useFleetStore.persist.rehydrate();
 
     expect(useFleetStore.getState().ui.duration).toBe("7d");
+  });
+
+  it("preserves persisted org-scoped permissions", async () => {
+    seedPersistedAuth({
+      sessionExpiry: new Date(Date.now() + 60_000),
+      isAuthenticated: true,
+      username: "alice@example.com",
+      role: "ADMIN",
+      permissions: ["curtailment:manage", "site:read"],
+      orgPermissions: ["site:read"],
+    });
+
+    const { useFleetStore } = await import("./useFleetStore");
+    useFleetStore.persist.rehydrate();
+
+    expect(useFleetStore.getState().auth.permissions).toEqual(["curtailment:manage", "site:read"]);
+    expect(useFleetStore.getState().auth.orgPermissions).toEqual(["site:read"]);
+    expect(useFleetStore.getState().auth.isAuthenticated).toBe(true);
+  });
+
+  it("drops persisted sessions missing org-scoped permissions", async () => {
+    seedPersistedAuth({
+      sessionExpiry: new Date(Date.now() + 60_000),
+      isAuthenticated: true,
+      username: "alice@example.com",
+      role: "ADMIN",
+      permissions: ["curtailment:manage"],
+    });
+
+    const { useFleetStore } = await import("./useFleetStore");
+    useFleetStore.persist.rehydrate();
+
+    expect(useFleetStore.getState().auth.isAuthenticated).toBe(false);
+    expect(useFleetStore.getState().auth.permissions).toEqual([]);
+    expect(useFleetStore.getState().auth.orgPermissions).toEqual([]);
   });
 });

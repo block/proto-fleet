@@ -3,7 +3,7 @@ import { clsx } from "clsx";
 
 import { type SecondaryNavItem } from "@/protoFleet/config/navItems";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
-import { usePermissions } from "@/protoFleet/store";
+import { useOrgPermissions } from "@/protoFleet/store";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
@@ -14,7 +14,7 @@ type SecondaryNavigationProps = {
 const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone, isTablet } = useWindowDimensions();
-  const permissions = usePermissions();
+  const orgPermissions = useOrgPermissions();
   const featureEnabled = useNavFeatureEnabled();
 
   // Hide on mobile and tablet since secondary nav items are shown in main menu
@@ -25,7 +25,7 @@ const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
     const _pathname = stripLeadingSlash(pathname);
     const _parent = stripLeadingSlash(item.parent);
     const pathMatch = _pathname === _parent || _pathname.startsWith(`${_parent}/`);
-    const permissionMatch = !item.requiredPermission || permissions.includes(item.requiredPermission);
+    const permissionMatch = !item.requiredPermission || orgPermissions.includes(item.requiredPermission);
     const featureMatch = !item.requiredFeature || featureEnabled[item.requiredFeature];
     return pathMatch && permissionMatch && featureMatch;
   });

@@ -21,7 +21,7 @@ const activeCurtailmentPollIntervalMs = 3_000;
 
 export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
   const { handleAuthErrors } = useAuthErrors();
-  const canReadCurtailment = useHasPermission("curtailment:read");
+  const canReadCurtailment = useHasPermission("curtailment:read", { scope: "org" });
   const activeCurtailmentEvent = useActiveCurtailmentEvent();
   const activeCurtailmentEvents = useActiveCurtailmentEvents();
   const activeEvent = useMemo<CurtailmentPillEvent | null>(() => {

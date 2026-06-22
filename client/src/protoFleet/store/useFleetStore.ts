@@ -29,7 +29,7 @@ export interface FleetStore {
 
 // Type for the partial state that we persist
 type PersistedFleetState = {
-  auth: Pick<AuthSlice, "sessionExpiry" | "isAuthenticated" | "username" | "role" | "permissions">;
+  auth: Pick<AuthSlice, "sessionExpiry" | "isAuthenticated" | "username" | "role" | "permissions" | "orgPermissions">;
   ui: Pick<
     UISlice,
     | "theme"
@@ -98,6 +98,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
                 username: state.auth.username,
                 role: state.auth.role,
                 permissions: state.auth.permissions,
+                orgPermissions: state.auth.orgPermissions,
               },
             },
             version: value.version,
@@ -174,6 +175,7 @@ export const useFleetStore = create<FleetStore>()(
               username: state.auth.username,
               role: state.auth.role,
               permissions: state.auth.permissions,
+              orgPermissions: state.auth.orgPermissions,
             },
             ui: {
               theme: state.ui.theme,
@@ -193,9 +195,12 @@ export const useFleetStore = create<FleetStore>()(
             // in with permissions:[], losing every permission-gated UI
             // surface (nav, schedule pill, settings pages). Drop the
             // session so the next request triggers a fresh Authenticate
-            // and the new field is populated from UserInfo.permissions.
+            // and the new fields are populated from UserInfo.permissions and
+            // UserInfo.org_permissions.
             const hasPersistedPermissions = Array.isArray(persisted?.auth?.permissions);
-            const sessionIsStalePreU10a = hasPersistedSession && !hasPersistedPermissions;
+            const hasPersistedOrgPermissions = Array.isArray(persisted?.auth?.orgPermissions);
+            const sessionIsStalePreU10a =
+              hasPersistedSession && (!hasPersistedPermissions || !hasPersistedOrgPermissions);
             const persistedDuration = persisted?.ui?.duration;
 
             return {
@@ -214,7 +219,16 @@ export const useFleetStore = create<FleetStore>()(
                 role: sessionIsStalePreU10a
                   ? currentState.auth.role
                   : (persisted?.auth?.role ?? currentState.auth.role),
-                permissions: hasPersistedPermissions ? persisted.auth.permissions : currentState.auth.permissions,
+                permissions: sessionIsStalePreU10a
+                  ? currentState.auth.permissions
+                  : hasPersistedPermissions
+                    ? persisted.auth.permissions
+                    : currentState.auth.permissions,
+                orgPermissions: sessionIsStalePreU10a
+                  ? currentState.auth.orgPermissions
+                  : hasPersistedOrgPermissions
+                    ? persisted.auth.orgPermissions
+                    : currentState.auth.orgPermissions,
                 // If we have persisted session, set loading to false.
                 // Stale pre-U10a sessions also stop loading so the
                 // login redirect path engages immediately.

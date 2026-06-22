@@ -205,3 +205,19 @@ func (e *EffectivePermissions) FlatKeys() []string {
 	sort.Strings(out)
 	return out
 }
+
+// OrgKeys returns every distinct permission key the user holds at org scope,
+// sorted lexicographically. UserInfo.org_permissions is projected from this so
+// the client can gate org-scoped RPCs without confusing site-only grants for
+// org-wide authority.
+func (e *EffectivePermissions) OrgKeys() []string {
+	if e == nil {
+		return nil
+	}
+	out := make([]string, 0, len(e.orgScope))
+	for k := range e.orgScope {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}

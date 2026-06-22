@@ -170,6 +170,18 @@ func TestEffective_FlatPermissionsForUserInfo(t *testing.T) {
 	require.Equal(t, []string{authz.PermFleetRead, authz.PermMinerBlinkLED, authz.PermMinerRead}, got)
 }
 
+func TestEffective_OrgPermissionsForUserInfo(t *testing.T) {
+	// UserInfo.org_permissions is the org-only projection the client uses for
+	// org-scoped RPC gates. Site-only permissions must not leak into it.
+	eff := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermFleetRead, authz.PermMinerRead),
+		siteScope(1,
+			authz.PermFleetRead, authz.PermMinerBlinkLED),
+	})
+	got := eff.OrgKeys()
+	require.Equal(t, []string{authz.PermFleetRead, authz.PermMinerRead}, got)
+}
+
 // FIELD_TECH on the AE (a tech can call BlinkLED but not Reboot).
 func TestEffective_FieldTechCanBlinkButNotReboot(t *testing.T) {
 	eff := authz.NewEffectivePermissions([]authz.Assignment{

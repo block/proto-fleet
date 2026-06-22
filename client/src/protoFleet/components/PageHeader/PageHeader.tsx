@@ -117,7 +117,7 @@ function PageHeader({
   const { bgClass } = usePageBackground();
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const hasDismissedSetup = Boolean(dismissedSetup);
-  const canReadCurtailment = useHasPermission("curtailment:read");
+  const canReadCurtailment = useHasPermission("curtailment:read", { scope: "org" });
 
   // Multi-site: the SitePicker replaces today's LocationSelector when the
   // feature flag is on. Sites are fetched once on mount and held here so the
