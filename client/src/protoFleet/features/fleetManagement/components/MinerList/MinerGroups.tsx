@@ -3,9 +3,9 @@ import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { getMinerGroupRefs } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { scopedPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
-import { getMinerGroupRefs } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { useFloatingPosition } from "@/shared/hooks/useFloatingPosition";
 
 type MinerGroupsProps = {
