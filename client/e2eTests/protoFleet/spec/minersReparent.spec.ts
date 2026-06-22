@@ -14,6 +14,7 @@ type VisibleMinerSnapshot = {
   name: string;
   pairingStatus: PairingStatus;
   rackLabel: string;
+  rackPosition: string;
   siteId?: string;
   siteLabel: string;
 };
@@ -109,6 +110,19 @@ async function openLegacySiteSettings(page: Page, siteName: string) {
 
   await test.expect(page.getByTestId("site-settings-single-view")).toBeVisible();
   await test.expect(page.getByText(siteName, { exact: true })).toBeVisible();
+}
+
+async function clickManageSiteEditDetails(page: Page) {
+  const editDetailsButton = page.locator('[data-testid="manage-site-modal-edit-details"]:visible');
+  if (await editDetailsButton.isVisible().catch(() => false)) {
+    await editDetailsButton.click();
+    return;
+  }
+
+  const overflowTrigger = page.getByTestId("full-screen-two-pane-modal").getByTestId("overflow-menu-trigger");
+  await test.expect(overflowTrigger).toBeVisible();
+  await overflowTrigger.click();
+  await page.locator("div.fixed.inset-0.z-60").getByText("Edit details", { exact: true }).click();
 }
 
 async function getScopeIdFromRowName(page: Page, name: string, scope: "site" | "building" | "rack"): Promise<bigint> {
@@ -271,7 +285,7 @@ async function deleteSite(page: Page, name: string, mode: SiteManagementMode) {
     await openSitesManagementPage(page, mode);
     await openRowActions(page, name);
     await clickRowAction(page, "Edit site");
-    await page.locator('[data-testid="manage-site-modal-edit-details"]:visible').click();
+    await clickManageSiteEditDetails(page);
     await page.locator('[data-testid="site-settings-modal-delete"]:visible').click();
     await page.getByTestId("site-delete-dialog-confirm").click();
     await test.expect(page.getByTestId("toaster-container").getByText(`Site "${name}" deleted`)).toBeVisible();
@@ -280,7 +294,7 @@ async function deleteSite(page: Page, name: string, mode: SiteManagementMode) {
 
   await openLegacySiteSettings(page, name);
   await page.getByTestId("site-settings-manage").click();
-  await page.locator('[data-testid="manage-site-modal-edit-details"]:visible').click();
+  await clickManageSiteEditDetails(page);
   await page.locator('[data-testid="site-settings-modal-delete"]:visible').click();
   await page.getByTestId("site-delete-dialog-confirm").click();
   await openSitesManagementPage(page, "legacy");
@@ -510,6 +524,95 @@ async function restoreMinerSiteIfNeeded({
   await moveSingleMinerToSite({ page, minersPage, minerIp, siteName: originalSiteLabel });
 }
 
+async function restoreMinerRackSlotIfNeeded({
+  page,
+  racksPage,
+  minerIp,
+  originalRackLabel,
+  originalRackPosition,
+}: {
+  page: Page;
+  racksPage: RacksPage;
+  minerIp: string;
+  originalRackLabel?: string;
+  originalRackPosition?: string;
+}) {
+  if (!originalRackLabel || !originalRackPosition) {
+    return;
+  }
+
+  const slotNumber = Number(originalRackPosition);
+  if (Number.isNaN(slotNumber)) {
+    throw new Error(`Could not parse original rack position "${originalRackPosition}"`);
+  }
+
+  await page.goto("/fleet/racks");
+  await racksPage.clickViewList();
+  await racksPage.waitForRackListToLoad({ allowEmpty: false });
+  await racksPage.openRackFromList(originalRackLabel);
+  await racksPage.clickRackOverviewEmptySlot(slotNumber);
+  await racksPage.assignSearchMinerByIpAddress(minerIp);
+  await racksPage.validateRackOverviewAssignedSlots([slotNumber]);
+}
+
+async function restoreMinerRackIfNeeded({
+  page,
+  minersPage,
+  minerIp,
+  originalRackLabel,
+}: {
+  page: Page;
+  minersPage: MinersPage;
+  minerIp: string;
+  originalRackLabel?: string;
+}) {
+  if (!originalRackLabel) {
+    return;
+  }
+
+  await page.goto("/fleet/miners");
+  await minersPage.waitForMinersListToLoad();
+  await moveSingleMinerToRack({ page, minersPage, minerIp, rackLabel: originalRackLabel });
+}
+
+async function restoreMinerPlacementIfNeeded({
+  page,
+  minersPage,
+  racksPage,
+  minerIp,
+  originalSiteLabel,
+  originalRackLabel,
+  originalRackPosition,
+}: {
+  page: Page;
+  minersPage: MinersPage;
+  racksPage: RacksPage;
+  minerIp: string;
+  originalSiteLabel?: string;
+  originalRackLabel?: string;
+  originalRackPosition?: string;
+}) {
+  if (!originalRackLabel) {
+    await restoreMinerSiteIfNeeded({ page, minersPage, minerIp, originalSiteLabel });
+    return;
+  }
+
+  await restoreMinerSiteIfNeeded({ page, minersPage, minerIp, originalSiteLabel });
+
+  if (originalRackPosition) {
+    await restoreMinerRackSlotIfNeeded({
+      page,
+      racksPage,
+      minerIp,
+      originalRackLabel,
+      originalRackPosition,
+    });
+    return;
+  }
+
+  await restoreMinerRackIfNeeded({ page, minersPage, minerIp, originalRackLabel });
+}
+
 async function deleteRackIfCreated({
   racksPage,
   created,
@@ -637,18 +740,24 @@ test.describe("Miners reparent", () => {
     }
   });
 
-  test("Assign a single miner to a site from the Miners tab", async ({ page, commonSteps, minersPage }) => {
+  test("Assign a single miner to a site from the Miners tab", async ({ page, commonSteps, minersPage, racksPage }) => {
     await commonSteps.loginAsAdmin();
 
     const siteManagementMode = await detectSiteManagementMode(page);
     const targetSiteName = generateRandomText("miner_site");
     let createdSite = false;
+    let minerIp = "";
     let originalSiteLabel: string | undefined;
+    let originalRackLabel: string | undefined;
+    let originalRackPosition: string | undefined;
 
     try {
       const snapshots = await loadVisibleMiners({ page, commonSteps });
       const miner = pickUnrackedPairedMiner(snapshots);
+      minerIp = miner.ipAddress;
       originalSiteLabel = miner.siteLabel || undefined;
+      originalRackLabel = miner.rackLabel || undefined;
+      originalRackPosition = miner.rackPosition || undefined;
 
       const targetSiteId = await createSite(page, targetSiteName, siteManagementMode);
       createdSite = true;
@@ -659,7 +768,7 @@ test.describe("Miners reparent", () => {
       await page.goto("/fleet/miners");
       await minersPage.waitForMinersListToLoad();
 
-      await test.step("Move one unracked miner into the target site", async () => {
+      await test.step("Move one miner into the target site", async () => {
         await moveSingleMinerToSite({ page, minersPage, minerIp: miner.ipAddress, siteName: targetSiteName });
       });
 
@@ -682,14 +791,16 @@ test.describe("Miners reparent", () => {
           expectedCount: 1,
         });
       });
-
-      await restoreMinerSiteIfNeeded({
+    } finally {
+      await restoreMinerPlacementIfNeeded({
         page,
         minersPage,
-        minerIp: miner.ipAddress,
+        racksPage,
+        minerIp,
         originalSiteLabel,
+        originalRackLabel,
+        originalRackPosition,
       });
-    } finally {
       await deleteSiteIfCreated({ page, created: createdSite, siteName: targetSiteName, mode: siteManagementMode });
     }
   });
@@ -703,12 +814,18 @@ test.describe("Miners reparent", () => {
 
     let createdSite = false;
     let createdRack = false;
+    let minerIp = "";
     let originalSiteLabel: string | undefined;
+    let originalRackLabel: string | undefined;
+    let originalRackPosition: string | undefined;
 
     try {
       const snapshots = await loadVisibleMiners({ page, commonSteps });
       const miner = pickUnrackedPairedMiner(snapshots);
+      minerIp = miner.ipAddress;
       originalSiteLabel = miner.siteLabel || undefined;
+      originalRackLabel = miner.rackLabel || undefined;
+      originalRackPosition = miner.rackPosition || undefined;
 
       await createSite(page, targetSiteName, siteManagementMode);
       createdSite = true;
@@ -722,7 +839,7 @@ test.describe("Miners reparent", () => {
       await page.goto("/fleet/miners");
       await minersPage.waitForMinersListToLoad();
 
-      await test.step("Move one unracked miner into the target rack", async () => {
+      await test.step("Move one miner into the target rack", async () => {
         await moveSingleMinerToRack({ page, minersPage, minerIp: miner.ipAddress, rackLabel });
       });
 
@@ -748,14 +865,16 @@ test.describe("Miners reparent", () => {
         const row = getListRowByName(page, rackLabel);
         await assertRackMembershipForMode({ row, mode: siteManagementMode, targetSiteName });
       });
-
-      await restoreMinerSiteIfNeeded({
+    } finally {
+      await restoreMinerPlacementIfNeeded({
         page,
         minersPage,
-        minerIp: miner.ipAddress,
+        racksPage,
+        minerIp,
         originalSiteLabel,
+        originalRackLabel,
+        originalRackPosition,
       });
-    } finally {
       await deleteRackIfCreated({ racksPage, created: createdRack, rackLabel });
       await deleteSiteIfCreated({ page, created: createdSite, siteName: targetSiteName, mode: siteManagementMode });
     }
