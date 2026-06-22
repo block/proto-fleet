@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -25,6 +26,12 @@ const (
 	defaultBaselineVariancePercent = 10.0
 	// Temperature varies less than other metrics because it's more stable in real miners
 	tempVarianceDivisor = 2.0
+
+	// Environment overrides used by deployed installs.
+	envMinerCount              = "VIRTUAL_MINER_COUNT"
+	envMinerSerialPrefix       = "VIRTUAL_MINER_SERIAL_PREFIX"
+	envMinerIPStart            = "VIRTUAL_MINER_IP_START"
+	envBaselineVariancePercent = "VIRTUAL_MINER_BASELINE_VARIANCE_PERCENT"
 )
 
 // BehaviorConfig defines runtime behavior settings for a virtual miner.
@@ -33,8 +40,28 @@ type BehaviorConfig struct {
 	HashrateVariancePercent float64 `json:"hashrate_variance_percent"`
 	// TempVarianceC controls temperature fluctuation in Celsius.
 	TempVarianceC float64 `json:"temp_variance_c"`
+	// NetworkLatency simulates transport overhead between Fleet and the miner.
+	NetworkLatency LatencyConfig `json:"network_latency"`
+	// InternalLatency simulates time spent inside the miner processing a request.
+	InternalLatency LatencyConfig `json:"internal_latency"`
 	// ErrorInjection controls simulated error conditions.
 	ErrorInjection ErrorInjectionConfig `json:"error_injection"`
+}
+
+// LatencyConfig controls simulated latency in milliseconds.
+type LatencyConfig struct {
+	// Enabled controls whether this latency component is sampled. Nil means use defaults.
+	Enabled *bool `json:"enabled,omitempty"`
+	// MinMS is the lower bound for normal latency in milliseconds.
+	MinMS int `json:"min_ms"`
+	// MaxMS is the upper bound for normal latency in milliseconds.
+	MaxMS int `json:"max_ms"`
+	// OutlierProbability is the chance (0-1) of sampling from the outlier range.
+	OutlierProbability float64 `json:"outlier_probability"`
+	// OutlierMinMS is the lower bound for outlier latency in milliseconds.
+	OutlierMinMS int `json:"outlier_min_ms"`
+	// OutlierMaxMS is the upper bound for outlier latency in milliseconds.
+	OutlierMaxMS int `json:"outlier_max_ms"`
 }
 
 // ErrorInjectionConfig allows simulation of error conditions.
@@ -136,6 +163,10 @@ func LoadFromFile(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	if err := applyEnvironmentOverrides(&cfg); err != nil {
+		return nil, err
+	}
+
 	// Generate miners if configured
 	if cfg.Generate != nil && cfg.Generate.Count > 0 {
 		generated, err := generateMiners(cfg.Generate)
@@ -154,6 +185,37 @@ func LoadFromFile(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func applyEnvironmentOverrides(cfg *Config) error {
+	if countText, ok := os.LookupEnv(envMinerCount); ok && countText != "" {
+		count, err := strconv.Atoi(countText)
+		if err != nil || count < 0 {
+			return fmt.Errorf("%s must be a non-negative integer", envMinerCount)
+		}
+		ensureGenerateConfig(cfg).Count = count
+	}
+	if serialPrefix, ok := os.LookupEnv(envMinerSerialPrefix); ok && serialPrefix != "" {
+		ensureGenerateConfig(cfg).SerialPrefix = serialPrefix
+	}
+	if ipStart, ok := os.LookupEnv(envMinerIPStart); ok && ipStart != "" {
+		ensureGenerateConfig(cfg).IPStart = ipStart
+	}
+	if varianceText, ok := os.LookupEnv(envBaselineVariancePercent); ok && varianceText != "" {
+		variance, err := strconv.ParseFloat(varianceText, 64)
+		if err != nil || variance < 0 || variance > 50 {
+			return fmt.Errorf("%s must be a number between 0 and 50", envBaselineVariancePercent)
+		}
+		ensureGenerateConfig(cfg).BaselineVariancePercent = variance
+	}
+	return nil
+}
+
+func ensureGenerateConfig(cfg *Config) *GenerateConfig {
+	if cfg.Generate == nil {
+		cfg.Generate = &GenerateConfig{}
+	}
+	return cfg.Generate
 }
 
 // generateMiners creates miners based on the generation config.
@@ -419,6 +481,100 @@ func validateAndSetDefaults(m *VirtualMinerConfig) error {
 	if m.Behavior.TempVarianceC == 0 {
 		m.Behavior.TempVarianceC = 3.0
 	}
+	if err := validateAndSetLatencyDefaults("network_latency", &m.Behavior.NetworkLatency, defaultNetworkLatency()); err != nil {
+		return err
+	}
+	if err := validateAndSetLatencyDefaults("internal_latency", &m.Behavior.InternalLatency, defaultInternalLatency()); err != nil {
+		return err
+	}
 
 	return nil
+}
+
+func validateAndSetLatencyDefaults(name string, latency *LatencyConfig, defaults LatencyConfig) error {
+	if latency.Enabled != nil && !*latency.Enabled {
+		return nil
+	}
+	if latency.Enabled == nil && latency.MinMS == 0 && latency.MaxMS == 0 &&
+		latency.OutlierProbability == 0 && latency.OutlierMinMS == 0 && latency.OutlierMaxMS == 0 {
+		*latency = defaults
+		return nil
+	}
+
+	if latency.Enabled == nil {
+		latency.Enabled = boolPtr(true)
+	}
+	if latency.MinMS < 0 || latency.MaxMS < 0 || latency.OutlierMinMS < 0 || latency.OutlierMaxMS < 0 {
+		return fmt.Errorf("%s latency values must be non-negative", name)
+	}
+	if latency.MaxMS == 0 {
+		latency.MaxMS = latency.MinMS
+	}
+	if latency.MaxMS < latency.MinMS {
+		return fmt.Errorf("%s max_ms must be greater than or equal to min_ms", name)
+	}
+	if latency.OutlierProbability < 0 || latency.OutlierProbability > 1 {
+		return fmt.Errorf("%s outlier_probability must be between 0 and 1", name)
+	}
+	if latency.OutlierProbability > 0 {
+		if latency.OutlierMinMS == 0 {
+			latency.OutlierMinMS = defaults.OutlierMinMS
+		}
+		if latency.OutlierMaxMS == 0 {
+			latency.OutlierMaxMS = latency.OutlierMinMS
+		}
+		if latency.OutlierMaxMS < latency.OutlierMinMS {
+			return fmt.Errorf("%s outlier_max_ms must be greater than or equal to outlier_min_ms", name)
+		}
+	}
+	return nil
+}
+
+func defaultNetworkLatency() LatencyConfig {
+	return LatencyConfig{
+		Enabled:            boolPtr(true),
+		MinMS:              5,
+		MaxMS:              50,
+		OutlierProbability: 0.01,
+		OutlierMinMS:       250,
+		OutlierMaxMS:       1000,
+	}
+}
+
+func defaultInternalLatency() LatencyConfig {
+	return LatencyConfig{
+		Enabled:            boolPtr(true),
+		MinMS:              200,
+		MaxMS:              500,
+		OutlierProbability: 0.01,
+		OutlierMinMS:       5000,
+		OutlierMaxMS:       8000,
+	}
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+// Sample returns a latency duration from this config. It is safe to call with
+// zero-value latency configs; those sample as no latency.
+func (l LatencyConfig) Sample(rng *rand.Rand) time.Duration {
+	if l.Enabled != nil && !*l.Enabled {
+		return 0
+	}
+	if l.MaxMS <= 0 {
+		return 0
+	}
+	if rng == nil {
+		rng = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 3))
+	}
+
+	minMS, maxMS := l.MinMS, l.MaxMS
+	if l.OutlierProbability > 0 && rng.Float64() < l.OutlierProbability && l.OutlierMaxMS > 0 {
+		minMS, maxMS = l.OutlierMinMS, l.OutlierMaxMS
+	}
+	if maxMS <= minMS {
+		return time.Duration(minMS) * time.Millisecond
+	}
+	return time.Duration(minMS+rng.IntN(maxMS-minMS+1)) * time.Millisecond
 }

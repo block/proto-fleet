@@ -53,6 +53,30 @@ The script will:
 - Preserve existing configuration files if present
 - Run the deployment script automatically
 
+## Optional Virtual Miners
+
+Deployment bundles include the virtual miner plugin for stress testing, but it
+is disabled by default and is not loaded during a regular fleet install. To
+enable it, set `ENABLE_VIRTUAL_MINERS=true` in the deployment `.env` file and
+rerun `./run-fleet.sh`.
+
+The bundled `server/virtual-plugin.json` generates 1000 miners by default in
+the `10.255.x.x` range; discover them from ProtoFleet with IP List discovery
+starting at `10.255.0.2`.
+
+For larger curtailment stress tests, add generation overrides to `.env`:
+
+```bash
+ENABLE_VIRTUAL_MINERS=true
+VIRTUAL_MINER_COUNT=5000
+VIRTUAL_MINER_IP_START=10.255.0.2
+VIRTUAL_MINER_SERIAL_PREFIX=VM
+VIRTUAL_MINER_BASELINE_VARIANCE_PERCENT=10
+```
+
+Virtual miners simulate both network latency and miner processing latency. The
+default miner-internal latency is 200-500ms, with occasional 5-8s outliers.
+
 ## Uninstalling Proto Fleet
 
 ```bash
