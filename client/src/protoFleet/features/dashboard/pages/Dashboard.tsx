@@ -1,5 +1,7 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { MeasurementType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
@@ -39,9 +41,25 @@ const Dashboard = () => {
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
 
-  // Active site comes from the route path (`/`, `/:site`, `/unassigned`).
-  // All-sites yields an empty filter, so `/dashboard` stays org-wide.
-  const { activeSite } = useActiveSite({});
+  // Load the org's sites so useActiveSite can validate the route scope: a
+  // stale/deleted site id (route or persisted activeSite) falls back to
+  // all-sites instead of resolving zero devices into an empty dashboard.
+  const { listSites } = useSites();
+  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
+  useEffect(() => {
+    const controller = new AbortController();
+    void listSites({
+      signal: controller.signal,
+      onSuccess: setSites,
+    });
+    return () => controller.abort();
+  }, [listSites]);
+
+  // Active site comes from the route path (`/`, `/:site`, `/unassigned`),
+  // validated against knownSiteIds. All-sites yields an empty filter, so
+  // `/dashboard` stays org-wide.
+  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
+  const { activeSite } = useActiveSite({ knownSiteIds });
   const siteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
 
   // Fleet counts — polled for fresh minerStateCounts, scoped to the active site
