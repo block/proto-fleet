@@ -56,12 +56,10 @@ func TestDeleteBuilding_cascadeUnassignsRacks(t *testing.T) {
 	tx := &fakeTransactor{}
 	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
-	// All calls happen inside RunInTx; assert via inTxCtx. GetBuildingSiteID
-	// is read pre-delete so the audit row can be stamped with the building's
-	// site.
+	// All calls happen inside RunInTx; assert via inTxCtx. SoftDeleteBuilding
+	// returns the deleted row's site so the audit row is stamped with it.
 	deletedSite := int64(7)
-	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, int64(33)).Return(&deletedSite, nil)
-	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(1), nil)
+	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(33)).Return(&deletedSite, true, nil)
 	store.EXPECT().UnassignRacksFromBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(5), nil)
 	store.EXPECT().ClearDeviceBuildingsByBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(0), nil)
 
@@ -84,10 +82,9 @@ func TestDeleteBuilding_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	tx := &fakeTransactor{}
 	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
-	// GetBuildingSiteID is read first; SoftDeleteBuilding then returns 0 and
-	// the cascade short-circuits to NotFound.
-	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, int64(99)).Return(nil, nil)
-	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
+	// SoftDeleteBuilding reports found=false (no live row) and the cascade
+	// short-circuits to NotFound.
+	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(99)).Return(nil, false, nil)
 
 	_, err := svc.DeleteBuilding(context.Background(), testOrgID, 99)
 	if !fleeterror.IsNotFoundError(err) {

@@ -245,7 +245,7 @@ func TestGetBuildingSite(t *testing.T) {
 	require.NotNil(t, siteID)
 	assert.Equal(t, site.ID, *siteID)
 
-	_, err = buildingStore.SoftDeleteBuilding(ctx, orgID, building.ID)
+	_, _, err = buildingStore.SoftDeleteBuilding(ctx, orgID, building.ID)
 	require.NoError(t, err)
 	_, err = collectionStore.GetBuildingSite(ctx, orgID, building.ID)
 	assert.Error(t, err, "GetBuildingSite must NotFound for soft-deleted buildings")

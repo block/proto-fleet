@@ -120,14 +120,18 @@ WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
--- name: SoftDeleteBuilding :execrows
+-- name: SoftDeleteBuilding :one
 -- Caller is expected to also unassign the building's racks in the same
--- transaction (cascade-unassign — see plan J3).
+-- transaction (cascade-unassign — see plan J3). RETURNING site_id lets the
+-- caller stamp the delete audit row with the site of the row actually deleted,
+-- race-free: a concurrent site move can't slip between a separate read and the
+-- delete. sql.ErrNoRows when the building is missing/already-deleted/cross-org.
 UPDATE building
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
-  AND deleted_at IS NULL;
+  AND deleted_at IS NULL
+RETURNING site_id;
 
 -- name: UnassignRacksFromBuilding :execrows
 -- Sets device_set_rack.building_id = NULL (and clears the free-form

@@ -969,12 +969,13 @@ func (q *Queries) SetRackBuildingPositionBulkPlace(ctx context.Context, arg SetR
 	return err
 }
 
-const softDeleteBuilding = `-- name: SoftDeleteBuilding :execrows
+const softDeleteBuilding = `-- name: SoftDeleteBuilding :one
 UPDATE building
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = $1
   AND org_id = $2
   AND deleted_at IS NULL
+RETURNING site_id
 `
 
 type SoftDeleteBuildingParams struct {
@@ -983,13 +984,15 @@ type SoftDeleteBuildingParams struct {
 }
 
 // Caller is expected to also unassign the building's racks in the same
-// transaction (cascade-unassign — see plan J3).
-func (q *Queries) SoftDeleteBuilding(ctx context.Context, arg SoftDeleteBuildingParams) (int64, error) {
-	result, err := q.exec(ctx, q.softDeleteBuildingStmt, softDeleteBuilding, arg.ID, arg.OrgID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+// transaction (cascade-unassign — see plan J3). RETURNING site_id lets the
+// caller stamp the delete audit row with the site of the row actually deleted,
+// race-free: a concurrent site move can't slip between a separate read and the
+// delete. sql.ErrNoRows when the building is missing/already-deleted/cross-org.
+func (q *Queries) SoftDeleteBuilding(ctx context.Context, arg SoftDeleteBuildingParams) (sql.NullInt64, error) {
+	row := q.queryRow(ctx, q.softDeleteBuildingStmt, softDeleteBuilding, arg.ID, arg.OrgID)
+	var site_id sql.NullInt64
+	err := row.Scan(&site_id)
+	return site_id, err
 }
 
 const unassignRacksFromBuilding = `-- name: UnassignRacksFromBuilding :execrows

@@ -289,8 +289,9 @@ evaluated only for the page's candidate rows.
   - **Also newly stamped (single-site, cheap):** `update_collection` and
     `delete_collection` (`collection/service.go`, from the collection's
     `Placement.Site`); building delete (`buildings/service.go`
-    `DeleteBuilding`, from the building's site captured pre-delete via
-    `GetBuildingSiteID`); and rack building-unassign
+    `DeleteBuilding`, from the deleted row's `site_id` returned by the
+    `SoftDeleteBuilding … RETURNING` statement — race-free against a
+    concurrent site move, no separate read); and rack building-unassign
     (`AssignRacksToBuilding` with `TargetBuildingID == nil`) — the source
     site is recorded when the cleared batch shares one (single-rack or
     same-site multi-rack), reusing the per-rack `SiteID` already read under

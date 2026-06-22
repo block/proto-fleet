@@ -1136,22 +1136,20 @@ func (s *Service) DeleteBuilding(ctx context.Context, orgID, id int64) (*models.
 	var out models.DeleteResult
 	var siteID *int64
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		// Capture the building's site BEFORE the soft-delete so the audit row
-		// can be stamped with it (the building is site-scoped; without this the
-		// delete event would fall into the unassigned bucket). Read inside the
-		// tx so it reflects the row we're about to delete.
-		sid, err := s.store.GetBuildingSiteID(txCtx, orgID, id)
+		// Soft-delete returns the deleted row's site_id so the audit row is
+		// stamped with the site actually deleted (the building is site-scoped;
+		// without this the delete event would fall into the unassigned bucket).
+		// Reading the site as part of the same UPDATE … RETURNING is race-free —
+		// a concurrent site move can't slip between a separate read and the
+		// delete.
+		sid, found, err := s.store.SoftDeleteBuilding(txCtx, orgID, id)
 		if err != nil {
 			return err
 		}
-		siteID = sid
-		rowsAffected, err := s.store.SoftDeleteBuilding(txCtx, orgID, id)
-		if err != nil {
-			return err
-		}
-		if rowsAffected == 0 {
+		if !found {
 			return fleeterror.NewNotFoundErrorf("building %d not found", id)
 		}
+		siteID = sid
 		rackCount, err := s.store.UnassignRacksFromBuilding(txCtx, orgID, id)
 		if err != nil {
 			return err

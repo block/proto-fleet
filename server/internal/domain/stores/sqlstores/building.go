@@ -123,12 +123,19 @@ func (s *SQLBuildingStore) UpdateBuilding(ctx context.Context, params models.Upd
 	return s.GetBuilding(ctx, params.OrgID, params.ID)
 }
 
-func (s *SQLBuildingStore) SoftDeleteBuilding(ctx context.Context, orgID, id int64) (int64, error) {
-	rowsAffected, err := s.GetQueries(ctx).SoftDeleteBuilding(ctx, sqlc.SoftDeleteBuildingParams{ID: id, OrgID: orgID})
+// SoftDeleteBuilding marks the building deleted and returns the deleted row's
+// site_id (nil when unassigned) so the caller can stamp the audit row with the
+// site actually deleted, race-free. found is false when no live building
+// matched (missing / already-deleted / cross-org).
+func (s *SQLBuildingStore) SoftDeleteBuilding(ctx context.Context, orgID, id int64) (siteID *int64, found bool, err error) {
+	site, err := s.GetQueries(ctx).SoftDeleteBuilding(ctx, sqlc.SoftDeleteBuildingParams{ID: id, OrgID: orgID})
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to soft-delete building: %v", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fleeterror.NewInternalErrorf("failed to soft-delete building: %v", err)
 	}
-	return rowsAffected, nil
+	return nullInt64ToPtr(site), true, nil
 }
 
 func (s *SQLBuildingStore) UnassignRacksFromBuilding(ctx context.Context, orgID, buildingID int64) (int64, error) {
