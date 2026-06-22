@@ -619,6 +619,7 @@ func (s *Service) emitAdminTerminateAuditTrail(ctx context.Context, req AdminTer
 		ActorType:   activitymodels.ActorUser,
 	}
 	activity.StampActor(ctx, &row)
+	stampCurtailmentSite(&row, event)
 	if err := s.audit.LogStrict(ctx, row); err != nil {
 		slog.Error("curtailment audit log failed",
 			"activity_type", eventType, "event_uuid", event.EventUUID, "error", err)
@@ -665,10 +666,37 @@ func (s *Service) emitUpdateAuditTrail(ctx context.Context, event *models.Event,
 		ActorType:   activitymodels.ActorUser,
 	}
 	activity.StampActor(ctx, &row)
+	stampCurtailmentSite(&row, event)
 	if err := s.audit.LogStrict(ctx, row); err != nil {
 		slog.Error("curtailment audit log failed",
 			"activity_type", ActivityTypeUpdated, "event_uuid", event.EventUUID, "error", err)
 		s.metrics.IncAuditWriteFailure(ActivityTypeUpdated)
+	}
+}
+
+// stampCurtailmentSite stamps the activity row with the curtailment's site so
+// lifecycle rows (Updated / AdminTerminated) land in /{site}/activity exactly
+// like the curtailment_started row does. Site-scoped curtailments persist
+// {"site_id": N} in ScopeJSON; whole-org / device-list / device-set scopes have
+// no single site and stay NULL (CategoryCurtailment is org-level, so those rows
+// surface only in the all-sites feed). The composite site FK / CHECK requires
+// organization_id alongside site_id, so we ensure org_id is set (StampActor
+// fills it from the session; fall back to the event's org for system actors).
+func stampCurtailmentSite(row *activitymodels.Event, event *models.Event) {
+	if event == nil || event.ScopeType != models.ScopeTypeSite {
+		return
+	}
+	var scope struct {
+		SiteID int64 `json:"site_id"`
+	}
+	if err := json.Unmarshal(event.ScopeJSON, &scope); err != nil || scope.SiteID <= 0 {
+		return
+	}
+	siteID := scope.SiteID
+	row.SiteID = &siteID
+	if row.OrganizationID == nil {
+		orgID := event.OrgID
+		row.OrganizationID = &orgID
 	}
 }
 

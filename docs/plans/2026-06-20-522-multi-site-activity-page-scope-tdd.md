@@ -263,10 +263,18 @@ evaluated only for the page's candidate rows.
     `SetRackSlotPosition` / `ClearRackSlotPosition`) — single-rack events
     that previously left `site_id` NULL and so leaked into the unassigned
     bucket. They now stamp the rack's `site_id` (nil only when the rack is
-    genuinely unassigned).
+    genuinely unassigned). Likewise, **site-scoped curtailment lifecycle
+    rows** (`curtailment/service.go` `emitUpdateAuditTrail` /
+    `emitAdminTerminateAuditTrail`) now stamp the event's site (recovered
+    from `ScopeJSON`) so they match the `curtailment_started` row, instead
+    of only the start being site-attributed.
   - Org-level (leave NULL; category is in `OrgLevelCategories()`):
-    `auth`, `system`, `pool`, `schedule`, `curtailment` — none have a
-    single-site concept, so they surface only in the all-sites feed.
+    `auth`, `system`, `pool`, `schedule`, `curtailment`. Note `curtailment`
+    is **mixed** — site-scoped curtailments stamp `site_id` (above) and so
+    are filtered by site; only whole-org / device-list / device-set
+    curtailments have no single site, stay NULL, and (being org-level)
+    surface in the all-sites feed rather than the unassigned bucket. The
+    other four categories never have a single-site concept.
   - **Device-command batches (`command/service.go`): no change.** They
     keep `site_id` NULL; the read query derives their touched sites from
     `command_on_device_log`, which already stamps per-device site at
