@@ -1,11 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
 import AddMaintenanceWindowModal from "./AddMaintenanceWindowModal";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { useNotificationsContext } from "@/protoFleet/features/notifications/api/NotificationsContext";
+import { isMaintenanceWindowActive } from "@/protoFleet/features/notifications/api/useNotifications";
 import { useNow } from "@/protoFleet/features/notifications/lib/useNow";
-import {
-  isMaintenanceWindowActive,
-  useNotificationsStore,
-} from "@/protoFleet/features/notifications/store/notificationsStore";
 import type { MaintenanceWindowWithActive } from "@/protoFleet/features/notifications/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { Edit, Stop } from "@/shared/assets/icons";
@@ -32,9 +30,7 @@ const formatWindow = (maintenanceWindow: MaintenanceWindowWithActive): string =>
 };
 
 const MaintenanceWindowsSection = () => {
-  const maintenanceWindows = useNotificationsStore((s) => s.maintenanceWindows);
-  const rules = useNotificationsStore((s) => s.rules);
-  const removeMaintenanceWindow = useNotificationsStore((s) => s.removeMaintenanceWindow);
+  const { maintenanceWindows, rules, removeMaintenanceWindow } = useNotificationsContext();
   const canManage = useHasPermission("notification:manage");
 
   const [showModal, setShowModal] = useState(false);
@@ -170,7 +166,7 @@ const MaintenanceWindowsSection = () => {
         itemName={{ singular: "maintenance window", plural: "maintenance windows" }}
         noDataElement={
           <div className="py-10 text-center text-text-primary-50">
-            No maintenanceWindows right now — click Add maintenanceWindow to mute during planned work.
+            No maintenance windows right now — click Add maintenance window to mute during planned work.
           </div>
         }
         actions={canManage ? actions : []}

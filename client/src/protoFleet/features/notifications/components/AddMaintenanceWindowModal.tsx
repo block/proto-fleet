@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
 import SinglePickerField from "./SinglePickerField";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { useNotificationsContext } from "@/protoFleet/features/notifications/api/NotificationsContext";
 import {
   MAINTENANCE_WINDOW_QUICK_OPTIONS,
   MAINTENANCE_WINDOW_SCOPE_OPTIONS,
   toLocalDatetimeValue,
 } from "@/protoFleet/features/notifications/lib/maintenanceWindowOptions";
-import { useNotificationsStore } from "@/protoFleet/features/notifications/store/notificationsStore";
 import type {
   MaintenanceWindowScope,
   MaintenanceWindowScopeKind,
@@ -40,9 +40,7 @@ const AddMaintenanceWindowModal = ({
   prefillRuleId,
   onDismiss,
 }: AddMaintenanceWindowModalProps) => {
-  const rules = useNotificationsStore((s) => s.rules);
-  const createMaintenanceWindow = useNotificationsStore((s) => s.createMaintenanceWindow);
-  const updateMaintenanceWindow = useNotificationsStore((s) => s.updateMaintenanceWindow);
+  const { rules, createMaintenanceWindow, updateMaintenanceWindow } = useNotificationsContext();
 
   const isEditing = editingMaintenanceWindow != null;
 
@@ -178,7 +176,7 @@ const AddMaintenanceWindowModal = ({
       open={open}
       onDismiss={onDismiss}
       title={isEditing ? "Edit maintenance window" : "Add maintenance window"}
-      description="Mute alerts during planned work. Suppressed events still record to the activity log so you can audit what would have fired."
+      description="Mute alerts during planned work."
       buttons={[
         {
           text: saving ? "Saving…" : "Save maintenance window",

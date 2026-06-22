@@ -1,14 +1,16 @@
 import { useEffect } from "react";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { NotificationsContext } from "@/protoFleet/features/notifications/api/NotificationsContext";
+import { useNotifications } from "@/protoFleet/features/notifications/api/useNotifications";
 import ChannelsSection from "@/protoFleet/features/notifications/components/ChannelsSection";
 import MaintenanceWindowsSection from "@/protoFleet/features/notifications/components/MaintenanceWindowsSection";
 import RulesSection from "@/protoFleet/features/notifications/components/RulesSection";
-import { useNotificationsStore } from "@/protoFleet/features/notifications/store/notificationsStore";
 import Header from "@/shared/components/Header";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const Notifications = () => {
-  const refresh = useNotificationsStore((s) => s.refresh);
+  const notifications = useNotifications();
+  const { refresh } = notifications;
 
   useEffect(() => {
     void refresh().catch((error) => {
@@ -20,14 +22,16 @@ const Notifications = () => {
   }, [refresh]);
 
   return (
-    <div className="flex flex-col gap-6 pb-10">
-      <Header title="Notifications" titleSize="text-heading-300" />
-      <div className="flex flex-col gap-4">
-        <RulesSection />
-        <ChannelsSection />
-        <MaintenanceWindowsSection />
+    <NotificationsContext.Provider value={notifications}>
+      <div className="flex flex-col gap-6 pb-10">
+        <Header title="Notifications" titleSize="text-heading-300" />
+        <div className="flex flex-col gap-4">
+          <RulesSection />
+          <ChannelsSection />
+          <MaintenanceWindowsSection />
+        </div>
       </div>
-    </div>
+    </NotificationsContext.Provider>
   );
 };
 

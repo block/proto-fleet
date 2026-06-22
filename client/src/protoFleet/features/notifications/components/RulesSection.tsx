@@ -1,11 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
 import AddMaintenanceWindowModal from "./AddMaintenanceWindowModal";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { useNotificationsContext } from "@/protoFleet/features/notifications/api/NotificationsContext";
+import { isMaintenanceWindowActive } from "@/protoFleet/features/notifications/api/useNotifications";
 import { useNow } from "@/protoFleet/features/notifications/lib/useNow";
-import {
-  isMaintenanceWindowActive,
-  useNotificationsStore,
-} from "@/protoFleet/features/notifications/store/notificationsStore";
 import type { Rule } from "@/protoFleet/features/notifications/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { Pause, Play, Stop } from "@/shared/assets/icons";
@@ -31,11 +29,7 @@ const formatRuleCondition = (rule: Rule): string => {
 };
 
 const RulesSection = () => {
-  const rules = useNotificationsStore((s) => s.rules);
-  const maintenanceWindows = useNotificationsStore((s) => s.maintenanceWindows);
-  const pauseRule = useNotificationsStore((s) => s.pauseRule);
-  const resumeRule = useNotificationsStore((s) => s.resumeRule);
-  const removeMaintenanceWindow = useNotificationsStore((s) => s.removeMaintenanceWindow);
+  const { rules, maintenanceWindows, pauseRule, resumeRule, removeMaintenanceWindow } = useNotificationsContext();
   const canManage = useHasPermission("notification:manage");
 
   const [maintenanceWindowPrefillRuleId, setMaintenanceWindowPrefillRuleId] = useState<string | null>(null);
@@ -156,7 +150,7 @@ const RulesSection = () => {
       <Header title="Rules" titleSize="text-heading-200" />
       <p className="text-300 text-text-primary-50">
         Provisioned conditions that decide when a notification fires. The rule set is managed by ops — pause one to
-        maintenanceWindow it indefinitely, or attach a maintenanceWindow to mute it for a finite maintenance window.
+        silence it indefinitely, or attach a maintenance window to mute it for a finite period.
       </p>
 
       <List<Rule, string, RuleColumns>
