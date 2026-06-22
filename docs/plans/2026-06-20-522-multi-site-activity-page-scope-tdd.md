@@ -10,7 +10,7 @@ tracker: https://github.com/block/proto-fleet/issues/522
 
 ## Context
 
-PR [#516](https://github.com/block/proto-fleet/issues/511) added
+PR [#516](https://github.com/block/proto-fleet/pull/516) added
 path-based Fleet site scope routing. The router already registers both
 `/activity` and `/:siteScope/activity` (`activity` is a member of
 `SCOPABLE_ROOT_SEGMENTS` in
@@ -70,10 +70,13 @@ with no site metadata' unless that is the intended product behavior").
 **Decisions (locked):**
 
 - **Direct (single-site) events → scalar `site_id`, Option B.** Site /
-  building / collection / curtailment / device-reassign events already
-  stamp the row's authoritative `site_id` at write time. The unassigned
-  bucket is "site-shaped events whose `site_id` is NULL," with org-level
-  categories (`auth`, `system`) excluded.
+  building / collection / device-reassign events stamp the row's
+  authoritative `site_id` at write time. The unassigned bucket is
+  "site-shaped events whose `site_id` is NULL," with org-level categories
+  excluded. Per the writer audit, org-level = `auth`, `system`, `pool`,
+  `schedule`, `curtailment` — categories whose emitters have no single-site
+  concept (see Server Go > Writer audit for the remaining multi-device
+  limitation).
 - **Command batch events → derived from `command_on_device_log`, no array,
   no extra stamping.** `command_on_device_log` **already** row-stamps
   `site_id` per device at command-completion time (`command.sql`,
@@ -167,7 +170,8 @@ A row qualifies through one of **two branches**, chosen by `batch_id`:
 
 - **Non-batch rows (`batch_id IS NULL`)** — direct, single-site events.
   Use the scalar `site_id` with Option B semantics: the unassigned bucket
-  is `site_id IS NULL` minus org-level categories (`auth`, `system`).
+  is `site_id IS NULL` minus org-level categories (`auth`, `system`,
+  `pool`, `schedule`, `curtailment`).
 - **Batch rows (`batch_id IS NOT NULL`)** — device-command batches. The
   scalar `site_id` is ignored (always NULL here); relevance is derived
   from `command_on_device_log` (`codl`), which already stamps each
@@ -223,37 +227,58 @@ evaluated only for the page's candidate rows.
 > **`is_site_scoped` discriminator column** needs a migration + writer
 > changes for no gain over the category exclusion.
 
-> **sqlc array contract** (already documented in `activity.sql`): the Go
-> store must pass `nil` (not an empty slice) for inactive array filters.
-> `site_ids` follows the same rule — nil when no site filter is active.
+> **sqlc array contract** (already documented in `activity.sql`): the
+> existing `narg` text[] filters (categories, event_types, …) take `nil`
+> (not an empty slice) when inactive — `nil` marshals to SQL NULL, which the
+> `IS NULL OR …` guard reads as "no filter". **`site_ids` is the opposite:**
+> it is an `arg` whose all-sites case is detected via
+> `cardinality(...) = 0`, so the Go store must pass an **empty (non-nil)**
+> `bigint[]` when no site filter is active — `nil` would marshal to NULL
+> (cardinality NULL, not 0) and silently match nothing. This mirrors the
+> ListBuildings / ListRacks / ListMiners stores (`emptyIfNilInt64`).
 
 ### Server Go
 
 - Add `SiteIDs []int64` + `IncludeUnassigned bool` to the domain activity
   `Filter`
   ([`server/internal/domain/activity/...`](../../server/internal/domain/activity/)).
-- Map them into the sqlc params in the store layer (with the nil-not-empty
-  contract), alongside `org_level_categories` from `activity/models`.
+- Map them into the sqlc params in the store layer — `site_ids` uses the
+  **empty-not-nil** array contract (`emptyIfNilInt64`; see the sqlc array
+  contract note above), alongside `org_level_categories` from
+  `activity/models`.
 - Handler translate layer
   ([`server/internal/handlers/activity/`](../../server/internal/handlers/activity/))
   copies `filter.site_ids` / `filter.include_unassigned` from the proto
   request into the domain filter, for all three RPCs.
-- Define `OrgLevelCategories` in `activity/models` (the single source of
-  truth: `auth`, `system`) and pass it to the store as the
-  `org_level_categories` query arg.
+- Define `OrgLevelCategories()` in `activity/models` (the single source of
+  truth) and pass it to the store as the `org_level_categories` query arg.
+  It is backed by an unexported array and returns a fresh copy per call so
+  the set can't be mutated by callers.
 - **Writer audit** (the scope-sensitive sweep). Confirm `SiteID` stamping
   per emitter so the direct-event branch is meaningful:
-  - Already stamping (keep): curtailment site-scoped events
-    (`curtailment/service.go`), device→site reassign
-    (`sites/service.go`), building/rack/collection assignment
-    (`buildings/service.go`, `collection/service.go`).
-  - Org-level (leave NULL, ensure category is in `OrgLevelCategories`):
-    auth/login, system events.
+  - Already stamping (keep): device→site reassign (`sites/service.go`),
+    building/site/rack CRUD and assignment (`buildings/service.go`,
+    `sites/service.go`, `collection/service.go` create/save-rack/assign).
+  - **Newly stamped:** rack slot set/clear (`collection/service.go`
+    `SetRackSlotPosition` / `ClearRackSlotPosition`) — single-rack events
+    that previously left `site_id` NULL and so leaked into the unassigned
+    bucket. They now stamp the rack's `site_id` (nil only when the rack is
+    genuinely unassigned).
+  - Org-level (leave NULL; category is in `OrgLevelCategories()`):
+    `auth`, `system`, `pool`, `schedule`, `curtailment` — none have a
+    single-site concept, so they surface only in the all-sites feed.
   - **Device-command batches (`command/service.go`): no change.** They
     keep `site_id` NULL; the read query derives their touched sites from
     `command_on_device_log`, which already stamps per-device site at
     completion time. No new stamping, no single-site limitation, no
     backfill.
+  - **Known limitation (follow-up):** a few remaining multi-device
+    `fleet_management` events (miner rename / unpair, building delete) and
+    other `collection` mutations (update/delete/add/remove) still write
+    `site_id` NULL with a non-org-level category, so they currently fall in
+    the unassigned bucket. They span multiple sites (or need an extra
+    lookup), so a clean fix needs per-event scope stamping or explicit
+    scope metadata — out of scope here, tracked as a follow-up.
 
 ### Client
 
@@ -295,7 +320,9 @@ keeps the operator in-scope, matching `buildingTabHref`'s pattern.
 - single site: only rows with matching scalar `site_id`.
 - multi site: OR across `site_ids`.
 - unassigned (Option B): direct rows with `site_id IS NULL` **and** a
-  site-shaped category; **excludes** `auth` / `system`.
+  site-shaped category; **excludes** org-level (`auth` / `system` / `pool` /
+  `schedule` / `curtailment`). A site-stamped collection event (rack slot)
+  appears under its site, never here.
 - site + unassigned combined: union of the two.
 
 *Command batch events (the `codl` join):*
@@ -359,7 +386,9 @@ keeps the operator in-scope, matching `buildingTabHref`'s pattern.
 ## Resolved decisions
 
 1. **Unassigned semantics (direct events) → Option B.** Category-aware
-   NULL bucket: site-shaped rows only; `auth` / `system` excluded.
+   NULL bucket: site-shaped rows only; org-level categories (`auth`,
+   `system`, `pool`, `schedule`, `curtailment`) excluded. Rack-slot
+   collection events are stamped with their site so they scope correctly.
 2. **Command batch site scope → derived from `command_on_device_log`.**
    No array column, no extra stamping, no backfill. A batch appears under
    every site it touched. Keeps the FK / CHECK / pagination index intact.

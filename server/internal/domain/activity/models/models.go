@@ -34,15 +34,33 @@ const (
 	ResultFailure ResultType = "failure"
 )
 
-// OrgLevelCategories are the event categories that have no site concept
-// (login/auth, system events). They are the single source of truth for the
-// "unassigned" activity bucket: a direct (non-batch) row with site_id IS NULL
-// only belongs in /{unassigned}/activity if its category is NOT one of these,
-// so logins and system events never leak into the unassigned site feed. Passed
-// to the read queries as the org_level_categories arg.
-var OrgLevelCategories = []string{
-	string(CategoryAuth),
-	string(CategorySystem),
+// orgLevelCategories are the event categories that have no single-site
+// concept: login/auth, system events, mining-pool config, schedules, and
+// curtailment — all of which are fleet/org-wide and whose emitters never stamp
+// a scalar site_id. They are the single source of truth for the "unassigned"
+// activity bucket: a direct (non-batch) row with site_id IS NULL only belongs
+// in /{unassigned}/activity if its category is NOT one of these, so org-level
+// events surface only in the all-sites feed and never pollute a site bucket.
+//
+// Backed by an array (not a slice) so the source can't be mutated; callers get
+// a fresh copy via OrgLevelCategories().
+var orgLevelCategories = [...]EventCategory{
+	CategoryAuth,
+	CategorySystem,
+	CategoryPool,
+	CategorySchedule,
+	CategoryCurtailment,
+}
+
+// OrgLevelCategories returns the org-level categories as a fresh string slice
+// (the read queries take []string). A new slice per call keeps the package-level
+// source immutable from the caller's side.
+func OrgLevelCategories() []string {
+	out := make([]string, len(orgLevelCategories))
+	for i, c := range orgLevelCategories {
+		out[i] = string(c)
+	}
+	return out
 }
 
 func (c EventCategory) Valid() bool {

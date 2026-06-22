@@ -187,7 +187,7 @@ func toListParams(f models.Filter) sqlc.ListActivityLogsParams {
 		PageSize:           clampPageSize(f.PageSize),
 		SiteIds:            emptyIfNilInt64(f.SiteIDs),
 		IncludeUnassigned:  f.IncludeUnassigned,
-		OrgLevelCategories: models.OrgLevelCategories,
+		OrgLevelCategories: models.OrgLevelCategories(),
 	}
 }
 
@@ -203,7 +203,7 @@ func toCountParams(f models.Filter) sqlc.CountActivityLogsParams {
 		EndTime:            nullTimeFromPtr(f.EndTime),
 		SiteIds:            emptyIfNilInt64(f.SiteIDs),
 		IncludeUnassigned:  f.IncludeUnassigned,
-		OrgLevelCategories: models.OrgLevelCategories,
+		OrgLevelCategories: models.OrgLevelCategories(),
 	}
 }
 

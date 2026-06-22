@@ -1354,6 +1354,10 @@ func (s *Service) SetRackSlotPosition(ctx context.Context, req *pb.SetRackSlotPo
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
+		// Stamp the rack's site so this single-site event lands in the
+		// site's activity feed rather than the unassigned bucket. Nil when
+		// the rack itself is unassigned (genuinely no site).
+		SiteID: rackSiteID(coll),
 	})
 
 	return &pb.SetRackSlotPositionResponse{
@@ -1405,9 +1409,22 @@ func (s *Service) ClearRackSlotPosition(ctx context.Context, req *pb.ClearRackSl
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
+		// See SetRackSlotPosition: stamp the rack's site (nil if unassigned).
+		SiteID: rackSiteID(coll),
 	})
 
 	return &pb.ClearRackSlotPositionResponse{}, nil
+}
+
+// rackSiteID returns the rack collection's site id as a nil-able pointer,
+// preserving the distinction between "assigned to site N" and "unassigned"
+// (nil). Safe when rack_info is absent.
+func rackSiteID(coll *pb.DeviceCollection) *int64 {
+	ri := coll.GetRackInfo()
+	if ri == nil {
+		return nil
+	}
+	return ri.SiteId
 }
 
 // GetRackSlots lists all occupied slot positions in a rack.

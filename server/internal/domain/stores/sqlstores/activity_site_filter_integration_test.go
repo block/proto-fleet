@@ -42,6 +42,10 @@ const (
 	descDirB      = "direct event in site B"
 	descDirNull   = "direct site-shaped unassigned event"
 	descDirAuth   = "direct org-level auth event"
+	descCollA     = "site-stamped collection event in site A"
+	descPoolOrg   = "org-level pool config event"
+	descSchedOrg  = "org-level schedule event"
+	descCurtOrg   = "org-level curtailment event"
 	descBatchAB   = "command batch touching sites A and B"
 	descBatchUn   = "command batch touching unassigned devices"
 	descBatchMix  = "command batch touching site A and unassigned"
@@ -82,6 +86,15 @@ func buildActivitySiteFixture(t *testing.T, ctx context.Context, tc *testutil.Te
 	insertDirect(descDirB, models.CategoryFleetManagement, &siteB.ID)
 	insertDirect(descDirNull, models.CategoryFleetManagement, nil)
 	insertDirect(descDirAuth, models.CategoryAuth, nil)
+	// A site-scoped collection event that DOES stamp site_id (e.g. the
+	// rack-slot emitters): belongs to its site, never the unassigned bucket.
+	insertDirect(descCollA, models.CategoryCollection, &siteA.ID)
+	// Org-level categories with NULL site_id: pool/schedule/curtailment have
+	// no single-site concept, so they surface only in the all-sites feed and
+	// must be excluded from the unassigned bucket (Option B category list).
+	insertDirect(descPoolOrg, models.CategoryPool, nil)
+	insertDirect(descSchedOrg, models.CategorySchedule, nil)
+	insertDirect(descCurtOrg, models.CategoryCurtailment, nil)
 
 	// Command-batch events. The activity_log row stamps batch_id + NULL
 	// site_id; relevance derives from the per-device command_on_device_log
@@ -186,13 +199,14 @@ func TestActivityLogs_SiteScopeFilter(t *testing.T) {
 			siteIDs: nil,
 			want: []string{
 				descDirA, descDirB, descDirNull, descDirAuth,
+				descCollA, descPoolOrg, descSchedOrg, descCurtOrg,
 				descBatchAB, descBatchUn, descBatchMix, descBatchNone,
 			},
 		},
 		{
-			name:    "single site A: direct A + batches touching A",
+			name:    "single site A: direct A (incl. stamped collection) + batches touching A",
 			siteIDs: []int64{fx.siteA},
-			want:    []string{descDirA, descBatchAB, descBatchMix},
+			want:    []string{descDirA, descCollA, descBatchAB, descBatchMix},
 		},
 		{
 			name:    "single site B: direct B + batch touching B (not the A-only mix)",
@@ -202,7 +216,7 @@ func TestActivityLogs_SiteScopeFilter(t *testing.T) {
 		{
 			name:    "multi site A+B: OR across both",
 			siteIDs: []int64{fx.siteA, fx.siteB},
-			want:    []string{descDirA, descDirB, descBatchAB, descBatchMix},
+			want:    []string{descDirA, descDirB, descCollA, descBatchAB, descBatchMix},
 		},
 		{
 			name:    "site C: nothing touched it",
@@ -210,7 +224,7 @@ func TestActivityLogs_SiteScopeFilter(t *testing.T) {
 			want:    []string{},
 		},
 		{
-			name:              "unassigned bucket: site-shaped NULL + unassigned batches, excludes auth",
+			name:              "unassigned bucket: site-shaped NULL + unassigned batches, excludes org-level (auth/pool/schedule/curtailment)",
 			includeUnassigned: true,
 			want:              []string{descDirNull, descBatchUn, descBatchMix},
 		},
@@ -218,7 +232,7 @@ func TestActivityLogs_SiteScopeFilter(t *testing.T) {
 			name:              "site A + unassigned: union of both branches",
 			siteIDs:           []int64{fx.siteA},
 			includeUnassigned: true,
-			want:              []string{descDirA, descDirNull, descBatchAB, descBatchUn, descBatchMix},
+			want:              []string{descDirA, descCollA, descDirNull, descBatchAB, descBatchUn, descBatchMix},
 		},
 	}
 
