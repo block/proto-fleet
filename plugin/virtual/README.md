@@ -83,7 +83,7 @@ Generate a fleet of miners with randomized but realistic telemetry:
 }
 ```
 
-- **count**: Number of miners to generate
+- **count**: Number of miners to generate, capped at 50,000 per plugin process
 - **serial_prefix**: Prefix for serial numbers (e.g., "VM" → "VM0001")
 - **ip_start**: First IP address (increments sequentially)
 - **baseline_variance_percent**: Random variance applied to telemetry values (±%)
@@ -177,8 +177,9 @@ To test with thousands of miners from a source checkout:
 3. Use IP List discovery starting at `10.255.0.2`
 
 For an installed deployment, set `ENABLE_VIRTUAL_MINERS=true` and
-`VIRTUAL_MINER_COUNT` in `.env`, then rerun `./run-fleet.sh`. The virtual IP
-range supports roughly 65,000 configured miners, so curtailment stress tests
-can exercise batches well beyond the default 1000-miner config.
+`VIRTUAL_MINER_COUNT` in `.env`, then rerun `./run-fleet.sh`. Generation is
+capped at 50,000 miners per plugin process, so curtailment stress tests can
+exercise batches well beyond the default 1000-miner config without allowing
+accidental oversized startup allocations.
 
 Discovery time depends on count, system load, and timeout settings.

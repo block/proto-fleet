@@ -4,7 +4,8 @@
 // Virtual miners don't require any network hardware and can be configured via JSON.
 //
 // Usage:
-//  1. Place config.json in the same directory as the plugin binary
+//  1. Set VIRTUAL_MINER_CONFIG, place virtual-plugin.json next to the deployed
+//     binary, or place config.json next to a local development binary.
 //  2. Use IP List discovery mode with IPs from the 10.255.x.x range
 //  3. Pair discovered virtual miners (any credentials work)
 package main

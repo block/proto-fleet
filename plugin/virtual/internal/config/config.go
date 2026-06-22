@@ -26,6 +26,9 @@ const (
 	defaultBaselineVariancePercent = 10.0
 	// Temperature varies less than other metrics because it's more stable in real miners
 	tempVarianceDivisor = 2.0
+	// maxGeneratedMinerCount prevents accidental startup allocations that can
+	// OOM the virtual plugin while still supporting large stress-test fleets.
+	maxGeneratedMinerCount = 50000
 
 	// Environment overrides used by deployed installs.
 	envMinerCount              = "VIRTUAL_MINER_COUNT"
@@ -138,7 +141,7 @@ type GenerateConfig struct {
 	// IPStart is the starting IP address (e.g., "10.255.0.2")
 	IPStart string `json:"ip_start"`
 	// BaselineVariancePercent adds per-miner variance to baseline metrics (0-50)
-	BaselineVariancePercent float64 `json:"baseline_variance_percent"`
+	BaselineVariancePercent *float64 `json:"baseline_variance_percent"`
 	// Profiles defines miner templates to use; if empty, uses default profile
 	Profiles []MinerProfile `json:"profiles"`
 }
@@ -206,7 +209,7 @@ func applyEnvironmentOverrides(cfg *Config) error {
 		if err != nil || variance < 0 || variance > 50 {
 			return fmt.Errorf("%s must be a number between 0 and 50", envBaselineVariancePercent)
 		}
-		ensureGenerateConfig(cfg).BaselineVariancePercent = variance
+		ensureGenerateConfig(cfg).BaselineVariancePercent = &variance
 	}
 	return nil
 }
@@ -229,15 +232,18 @@ func generateMiners(gen *GenerateConfig) ([]VirtualMinerConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid ip_start: %w", err)
 	}
+	if err := validateGenerateConfig(gen, thirdOctet, fourthOctet); err != nil {
+		return nil, err
+	}
 
 	// Set defaults
 	prefix := gen.SerialPrefix
 	if prefix == "" {
 		prefix = "VM"
 	}
-	variancePercent := gen.BaselineVariancePercent
-	if variancePercent <= 0 {
-		variancePercent = defaultBaselineVariancePercent
+	variancePercent := defaultBaselineVariancePercent
+	if gen.BaselineVariancePercent != nil {
+		variancePercent = *gen.BaselineVariancePercent
 	}
 
 	// Build profile selector
@@ -294,6 +300,29 @@ func generateMiners(gen *GenerateConfig) ([]VirtualMinerConfig, error) {
 	return miners, nil
 }
 
+func validateGenerateConfig(gen *GenerateConfig, thirdOctet, fourthOctet int) error {
+	if gen.Count > maxGeneratedMinerCount {
+		return fmt.Errorf("count must be <= %d", maxGeneratedMinerCount)
+	}
+	availableIPs := generatedMinerIPCapacity(thirdOctet, fourthOctet)
+	if gen.Count > availableIPs {
+		return fmt.Errorf("count %d exceeds available virtual IP addresses from %s (%d available)", gen.Count, virtualIPStart(thirdOctet, fourthOctet), availableIPs)
+	}
+	if gen.BaselineVariancePercent != nil && (*gen.BaselineVariancePercent < 0 || *gen.BaselineVariancePercent > 50) {
+		return fmt.Errorf("baseline_variance_percent must be between 0 and 50")
+	}
+	return nil
+}
+
+func generatedMinerIPCapacity(thirdOctet, fourthOctet int) int {
+	hostsPerThirdOctet := maxHostOctet - minHostOctet + 1
+	return (maxThirdOctet-thirdOctet)*hostsPerThirdOctet + (maxHostOctet - fourthOctet + 1)
+}
+
+func virtualIPStart(thirdOctet, fourthOctet int) string {
+	return fmt.Sprintf("%d.%d.%d.%d", virtualIPFirstOctet, virtualIPSecondOctet, thirdOctet, fourthOctet)
+}
+
 // parseVirtualIP extracts third and fourth octets from a 10.255.x.y IP.
 func parseVirtualIP(ip string) (thirdOctet, fourthOctet int, err error) {
 	if ip == "" {
@@ -308,6 +337,10 @@ func parseVirtualIP(ip string) (thirdOctet, fourthOctet int, err error) {
 
 	if first != virtualIPFirstOctet || second != virtualIPSecondOctet {
 		return 0, 0, fmt.Errorf("IP must be in 10.255.x.x range: %s", ip)
+	}
+
+	if thirdOctet < 0 || thirdOctet > maxThirdOctet {
+		return 0, 0, fmt.Errorf("third octet must be 0-%d: %s", maxThirdOctet, ip)
 	}
 
 	if fourthOctet < minHostOctet || fourthOctet > maxHostOctet {

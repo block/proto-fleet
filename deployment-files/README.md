@@ -76,6 +76,7 @@ VIRTUAL_MINER_BASELINE_VARIANCE_PERCENT=10
 
 Virtual miners simulate both network latency and miner processing latency. The
 default miner-internal latency is 200-500ms, with occasional 5-8s outliers.
+Generation is capped at 50,000 virtual miners per plugin process.
 
 ## Uninstalling Proto Fleet
 
