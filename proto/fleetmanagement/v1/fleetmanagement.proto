@@ -436,7 +436,15 @@ message ExportMinerListCsvResponse {
 
 // Request for getting miner state counts without fetching miner data
 message GetMinerStateCountsRequest {
-  // Reserved for future use
+  // Filter by site IDs. Counts miners assigned to ANY of the specified
+  // sites (acts as OR condition). When combined with include_unassigned,
+  // miners with site_id IS NULL are also included.
+  repeated int64 site_ids = 1;
+
+  // When true, miners with site_id IS NULL are included in the counts.
+  // Independent of site_ids — set only this to count the Unassigned
+  // bucket alone; set both to combine specific sites with Unassigned.
+  bool include_unassigned = 2;
 }
 
 // Response containing miner state counts

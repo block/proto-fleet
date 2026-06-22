@@ -468,18 +468,26 @@ func refreshMinersRequestTimeout(deviceCount int, refreshDeviceTimeout time.Dura
 }
 
 // GetMinerStateCounts returns counts of miners in different states without fetching miner data
-func (s *Service) GetMinerStateCounts(ctx context.Context, _ *pb.GetMinerStateCountsRequest) (*pb.GetMinerStateCountsResponse, error) {
+func (s *Service) GetMinerStateCounts(ctx context.Context, req *pb.GetMinerStateCountsRequest) (*pb.GetMinerStateCountsResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, nil)
+	filter, err := stateCountsFilter(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Both the total and the per-state breakdown must share the same scope,
+	// otherwise the dashboard FleetHealth bar mixes a scoped breakdown with
+	// an org-wide total.
+	total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, filter)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 	}
 
-	stateCounts, err := s.deviceStore.GetMinerStateCounts(ctx, info.OrganizationID, nil)
+	stateCounts, err := s.deviceStore.GetMinerStateCounts(ctx, info.OrganizationID, filter)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get state counts: %v", err)
 	}
@@ -487,6 +495,28 @@ func (s *Service) GetMinerStateCounts(ctx context.Context, _ *pb.GetMinerStateCo
 	return &pb.GetMinerStateCountsResponse{
 		TotalMiners: int32(total), //nolint:gosec
 		StateCounts: stateCounts,
+	}, nil
+}
+
+// stateCountsFilter builds the site-scope filter for GetMinerStateCounts,
+// applying the same validation as the miner-list site filter. Returns nil
+// when no site scope is requested (all-sites).
+func stateCountsFilter(req *pb.GetMinerStateCountsRequest) (*interfaces.MinerFilter, error) {
+	if len(req.SiteIds) == 0 && !req.IncludeUnassigned {
+		return nil, nil
+	}
+	if len(req.SiteIds) > maxFreeFormFilterValues {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"site_ids exceeds maximum of %d values", maxFreeFormFilterValues)
+	}
+	for i, id := range req.SiteIds {
+		if id <= 0 {
+			return nil, fleeterror.NewInvalidArgumentErrorf("site_ids[%d] must be positive", i)
+		}
+	}
+	return &interfaces.MinerFilter{
+		SiteIDs:           req.SiteIds,
+		IncludeUnassigned: req.IncludeUnassigned,
 	}, nil
 }
 

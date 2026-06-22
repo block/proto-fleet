@@ -1477,6 +1477,27 @@ func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query 
 }
 
 func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	// Site scope is applied by resolving the in-scope device identifiers and
+	// feeding the existing device-list paths: the telemetry continuous
+	// aggregates have no site_id column, so we cannot filter them directly.
+	// This scopes line metrics, status counts, and the live uptime bar
+	// uniformly to the site's current devices.
+	if len(query.SiteIDs) > 0 || query.IncludeUnassigned {
+		identifiers, err := s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, query.OrganizationID, &stores.MinerFilter{
+			SiteIDs:           query.SiteIDs,
+			IncludeUnassigned: query.IncludeUnassigned,
+		})
+		if err != nil {
+			return models.CombinedMetric{}, err
+		}
+		// No devices in scope: return empty rather than falling through to
+		// the "empty device list = all devices" path.
+		if len(identifiers) == 0 {
+			return models.CombinedMetric{}, nil
+		}
+		query.DeviceIDs = models.ToDeviceIdentifiers(identifiers)
+	}
+
 	// Returns raw values (H/s, W, J/H) - conversion to display units happens in the handler layer
 	result, err := s.telemetryDataStore.GetCombinedMetrics(ctx, query)
 	if err != nil {

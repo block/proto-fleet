@@ -33,6 +33,12 @@ type CombinedMetricsQuery struct {
 	PageSize         int                `json:"page_size,omitempty"`
 	SlideInterval    *time.Duration     `json:"slide_interval,omitempty"`
 	OrganizationID   int64              `json:"organization_id,omitempty"`
+	// SiteIDs scopes metrics to devices assigned to ANY of these sites (OR),
+	// AND'd with DeviceIDs. Empty + IncludeUnassigned=false applies no site
+	// restriction. Matched on the metric row's recorded site_id.
+	SiteIDs []int64 `json:"site_ids,omitempty"`
+	// IncludeUnassigned adds metrics for devices with site_id IS NULL.
+	IncludeUnassigned bool `json:"include_unassigned,omitempty"`
 }
 
 type StreamCombinedMetricsQuery struct {

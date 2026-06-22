@@ -5,8 +5,16 @@ import { GetMinerStateCountsRequestSchema } from "@/protoFleet/api/generated/fle
 import { MinerStateCounts } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useAuthErrors } from "@/protoFleet/store";
 
+// Stable empty default so an absent siteIds option doesn't change scopeKey
+// identity between renders.
+const EMPTY_SITE_IDS: bigint[] = [];
+
 interface UseFleetCountsOptions {
   pollIntervalMs?: number;
+  /** Scope counts to specific sites (OR). Empty = all sites. */
+  siteIds?: bigint[];
+  /** Include miners with no site assignment (site_id IS NULL). */
+  includeUnassigned?: boolean;
 }
 
 type UseFleetCountsReturn = {
@@ -40,6 +48,12 @@ type UseFleetCountsReturn = {
 const useFleetCounts = (options?: UseFleetCountsOptions): UseFleetCountsReturn => {
   const { handleAuthErrors } = useAuthErrors();
 
+  const siteIds = options?.siteIds ?? EMPTY_SITE_IDS;
+  const includeUnassigned = options?.includeUnassigned ?? false;
+  // Stable key for the requested site scope; changing it re-fetches and
+  // discards in-flight responses from the previous scope.
+  const scopeKey = `${siteIds.map(String).join(",")}|${includeUnassigned}`;
+
   const [totalMiners, setTotalMiners] = useState(0);
   const [stateCounts, setStateCounts] = useState<MinerStateCounts | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
@@ -49,6 +63,21 @@ const useFleetCounts = (options?: UseFleetCountsOptions): UseFleetCountsReturn =
   const requestIdRef = useRef(0);
   // Track whether we've loaded at least once to suppress loading flash on poll refreshes
   const hasLoadedRef = useRef(false);
+  // Ref so fetchCounts reads the latest scope without being recreated each render.
+  const scopeRef = useRef({ siteIds, includeUnassigned });
+  scopeRef.current = { siteIds, includeUnassigned };
+
+  // Reset on scope change so we never show the previous site's counts and
+  // any in-flight request from the old scope is invalidated. Adjust-during-
+  // render keeps the reset in the same pass that detects the change.
+  const prevScopeRef = useRef(scopeKey);
+  if (prevScopeRef.current !== scopeKey) {
+    prevScopeRef.current = scopeKey;
+    ++requestIdRef.current;
+    hasLoadedRef.current = false;
+    setHasLoaded(false);
+    setStateCounts(undefined);
+  }
 
   const fetchCounts = useCallback(async () => {
     const thisRequestId = ++requestIdRef.current;
@@ -59,7 +88,10 @@ const useFleetCounts = (options?: UseFleetCountsOptions): UseFleetCountsReturn =
     }
 
     try {
-      const request = create(GetMinerStateCountsRequestSchema, {});
+      const request = create(GetMinerStateCountsRequestSchema, {
+        siteIds: scopeRef.current.siteIds,
+        includeUnassigned: scopeRef.current.includeUnassigned,
+      });
       const response = await fleetManagementClient.getMinerStateCounts(request);
 
       // Discard stale response if a newer request was issued
@@ -85,13 +117,11 @@ const useFleetCounts = (options?: UseFleetCountsOptions): UseFleetCountsReturn =
     }
   }, [handleAuthErrors]);
 
-  // Fetch on mount only — polling handles subsequent refreshes
-  const hasFetchedRef = useRef(false);
+  // Fetch on mount and whenever the site scope changes; polling handles
+  // subsequent refreshes within a scope.
   useEffect(() => {
-    if (hasFetchedRef.current) return;
-    hasFetchedRef.current = true;
     void fetchCounts();
-  }, [fetchCounts]);
+  }, [fetchCounts, scopeKey]);
 
   // Polling
   useEffect(() => {

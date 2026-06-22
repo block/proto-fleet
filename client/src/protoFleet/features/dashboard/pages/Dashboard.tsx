@@ -4,6 +4,7 @@ import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
+import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
@@ -38,12 +39,27 @@ const Dashboard = () => {
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
 
-  // Fleet counts — polled for fresh minerStateCounts
-  const { totalMiners, stateCounts, hasLoaded: countsLoaded } = useFleetCounts({ pollIntervalMs: POLL_INTERVAL_MS });
+  // Active site comes from the route path (`/`, `/:site`, `/unassigned`).
+  // All-sites yields an empty filter, so `/dashboard` stays org-wide.
+  const { activeSite } = useActiveSite({});
+  const siteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
 
-  // Component errors — polled, local state (no store)
+  // Fleet counts — polled for fresh minerStateCounts, scoped to the active site
+  const {
+    totalMiners,
+    stateCounts,
+    hasLoaded: countsLoaded,
+  } = useFleetCounts({
+    pollIntervalMs: POLL_INTERVAL_MS,
+    siteIds: siteFilter.siteIds,
+    includeUnassigned: siteFilter.includeUnassigned,
+  });
+
+  // Component errors — polled, local state (no store), scoped to the active site
   const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors({
     pollIntervalMs: POLL_INTERVAL_MS,
+    siteIds: siteFilter.siteIds,
+    includeUnassigned: siteFilter.includeUnassigned,
   });
 
   // Combined telemetry — polled, replaces data each cycle (no streaming merge)
@@ -54,8 +70,10 @@ const Dashboard = () => {
       duration,
       enabled: true,
       pollIntervalMs: POLL_INTERVAL_MS,
+      siteIds: siteFilter.siteIds,
+      includeUnassigned: siteFilter.includeUnassigned,
     }),
-    [duration],
+    [duration, siteFilter],
   );
 
   const { data: telemetryData } = useTelemetryMetrics(telemetryOptions);

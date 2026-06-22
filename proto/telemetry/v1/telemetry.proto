@@ -232,6 +232,16 @@ message GetCombinedMetricsRequest {
 
     string page_token = 8; // for pagination
     int32 page_size = 9; // max 1000, default 100
+
+    // Filter metrics to devices assigned to ANY of these sites (OR). AND'd
+    // with device_selector. Empty + include_unassigned=false applies no
+    // site restriction. Site is matched on the metric row's recorded site,
+    // i.e. where the device was when the reading was taken.
+    repeated int64 site_ids = 10;
+
+    // When true, include metrics for devices with no site assignment
+    // (site_id IS NULL). Independent of site_ids.
+    bool include_unassigned = 11;
 }
 
 message AggregatedValue {

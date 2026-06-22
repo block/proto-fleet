@@ -339,7 +339,8 @@ func start(config *Config) error {
 	diagnosticsCtx, diagnosticsCancel := context.WithCancel(context.Background())
 	defer diagnosticsCancel()
 	errorStore := sqlstores.NewSQLErrorStore(conn, transactor)
-	diagnosticsService := diagnostics.NewService(diagnosticsCtx, config.Diagnostics, errorStore, transactor)
+	diagnosticsService := diagnostics.NewService(diagnosticsCtx, config.Diagnostics, errorStore, transactor).
+		WithDeviceScopeResolver(deviceStore)
 
 	// Shared per-org cache for ListMinerStateSnapshots option arrays
 	// (models, firmware versions). The TTL is the primary freshness
