@@ -224,7 +224,7 @@ func (h *Handler) ReportPairedDevices(ctx context.Context, req *connect.Request[
 
 // pairOutcomeForStatus maps the persisted device_pairing status back to the pair
 // outcome forwarded to the operator, so the live display reflects what was stored
-// (PAIRED / AUTHENTICATION_NEEDED / FAILED) rather than the raw node report.
+// (paired-like / AUTHENTICATION_NEEDED / FAILED) rather than the raw node report.
 func pairOutcomeForStatus(status string) pb.PairOutcome {
 	switch status {
 	case pairing.StatusPaired, pairing.StatusDefaultPassword:

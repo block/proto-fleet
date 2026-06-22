@@ -614,7 +614,8 @@ export type DevicePairingResult = Message<"fleetnodeadmin.v1.DevicePairingResult
 
   /**
    * Shares the operator-facing enum with fleetmanagement; a fleet-node pair
-   * result is always PAIRED, AUTHENTICATION_NEEDED, or FAILED.
+   * result is always PAIRED, DEFAULT_PASSWORD, AUTHENTICATION_NEEDED, or
+   * FAILED.
    *
    * @generated from field: fleetmanagement.v1.PairingStatus pairing_status = 2;
    */
