@@ -127,8 +127,7 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 // secretBundleFor returns the supplied username/password bundle. ok is false
 // when no credentials apply (the caller falls back to plugin defaults or reports
 // AUTH_NEEDED).
-func secretBundleFor(caps sdk.Capabilities, creds *pairingpb.Credentials) (sdk.SecretBundle, bool) {
-	_ = caps
+func secretBundleFor(_ sdk.Capabilities, creds *pairingpb.Credentials) (sdk.SecretBundle, bool) {
 	if creds != nil && creds.Password != nil {
 		return sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: creds.GetUsername(), Password: creds.GetPassword()}}, true
 	}

@@ -73,12 +73,6 @@ func NewPluginMinerWithCredentials(
 		return nil, fmt.Errorf("failed to create connection info: %w", err)
 	}
 
-	// Get the plugin driver for this device's driver name
-	driver, err := config.DriverGetter.GetDriverByDriverName(config.DriverName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get plugin driver: %w", err)
-	}
-
 	// Build SDK DeviceInfo from database fields
 	sdkDeviceInfo := sdk.DeviceInfo{
 		Host:         config.DeviceIPAddress,
@@ -91,7 +85,11 @@ func NewPluginMinerWithCredentials(
 	// Build SDK SecretBundle from stored credentials. Regular Proto resolution
 	// requires persisted credentials; password remediation may pass a transient
 	// current-password secret through the command-specific resolver.
-	var secretBundle sdk.SecretBundle
+	secretBundle := sdk.SecretBundle{Version: "v1"}
+
+	if config.Caps[sdk.CapabilityBasicAuth] && (config.DeviceUsername == "" || config.DevicePassword == "") {
+		return nil, fleeterror.NewUnauthenticatedErrorf("device %s credentials are required", config.DeviceIdentifier)
+	}
 
 	if config.DeviceUsername != "" && config.DevicePassword != "" {
 		decryptedUsername, err := config.EncryptService.Decrypt(config.DeviceUsername)
@@ -111,6 +109,12 @@ func NewPluginMinerWithCredentials(
 
 	if config.FilesService == nil {
 		return nil, fmt.Errorf("FilesService is required but was nil")
+	}
+
+	// Get the plugin driver for this device's driver name
+	driver, err := config.DriverGetter.GetDriverByDriverName(config.DriverName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get plugin driver: %w", err)
 	}
 
 	// Create the SDK device via the plugin driver, which establishes the connection

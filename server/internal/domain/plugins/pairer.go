@@ -561,8 +561,6 @@ func (p *Pairer) createSecretBundle(credentials *pb.Credentials) (sdk.SecretBund
 
 // getSecretBundleForDeviceInfo builds the SecretBundle used when describing a device via plugins.
 func (p *Pairer) getSecretBundleForDeviceInfo(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) (sdk.SecretBundle, error) {
-	_ = ctx
-	_ = device
 	return p.createSecretBundle(credentials)
 }
 
