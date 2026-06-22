@@ -734,6 +734,10 @@ func validateMaintenanceWindowScope(scope MaintenanceWindowScope) error {
 		}
 		// Restrict ids to the identifier alphabet so a crafted id like ".*" can't broaden the silence to the whole org.
 		for _, id := range scope.DeviceIDs {
+			// Bound length before the regex so an oversized id can't force avoidable matcher work.
+			if len(id) > maxDeviceIDLength {
+				return fleeterror.NewInvalidArgumentErrorf("device id too long: %d (max %d)", len(id), maxDeviceIDLength)
+			}
 			if !deviceIDPattern.MatchString(id) {
 				return fleeterror.NewInvalidArgumentErrorf("invalid device id: %q", id)
 			}
@@ -782,6 +786,9 @@ func validateMaintenanceWindowTimes(startsAt, endsAt time.Time) error {
 }
 
 const maxMaintenanceWindowDeviceIDs = 500
+
+// Matches the device_identifier bound in pairing.proto; caps matcher work on a direct-RPC device-scoped window.
+const maxDeviceIDLength = 255
 
 // Excludes every regex metacharacter except "." (which maintenanceWindowToGrafanaSilence escapes).
 var deviceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)

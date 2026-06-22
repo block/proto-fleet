@@ -37,6 +37,8 @@ func TestValidateMaintenanceWindowScope(t *testing.T) {
 		{"device id regex wildcard rejected", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{".*"}}, true},
 		{"device id regex alternation rejected", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{"a|b"}}, true},
 		{"device id with anchors rejected", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{"^d1$"}}, true},
+		{"device id at max length allowed", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{strings.Repeat("d", maxDeviceIDLength)}}, false},
+		{"device id over max length rejected", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{strings.Repeat("d", maxDeviceIDLength+1)}}, true},
 		{"unknown kind", MaintenanceWindowScope{Kind: "everything"}, true},
 	}
 	for _, tc := range cases {
