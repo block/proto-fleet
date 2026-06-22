@@ -183,7 +183,7 @@ const BuildingRackGrid = ({
   return (
     <div
       ref={containerRef}
-      className="flex flex-col gap-4 rounded-2xl border border-border-5 bg-surface-base p-10 shadow-[0_4px_24px_rgba(0,0,0,0.05)] phone:p-6"
+      className="flex flex-col gap-4 rounded-2xl border border-border-5 bg-surface-base p-10 shadow-100 phone:p-6"
       data-testid={testId}
     >
       {/* Sort control */}
