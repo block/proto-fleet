@@ -316,33 +316,42 @@ export class RacksPage extends BasePage {
   }
 
   async clickViewList() {
-    const emptyState = this.page.getByText("You haven't set up any racks");
-    await expect(async () => {
-      const viewListButton = await this.getVisibleButton("View list");
-      const isEmptyStateVisible = await emptyState.isVisible().catch(() => false);
-      expect(Boolean(viewListButton) || isEmptyStateVisible).toBe(true);
-    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
-
     const viewListButton = await this.getVisibleButton("View list");
     if (viewListButton) {
       await viewListButton.click();
       return;
     }
 
-    if (await emptyState.isVisible().catch(() => false)) {
+    const viewGridButton = await this.getVisibleButton("View grid");
+    if (viewGridButton) {
       return;
     }
 
-    throw new Error('Expected to find a visible "View list" button or empty rack state.');
+    const emptyState = this.page.getByText("You haven't set up any racks");
+    const listRows = this.page.getByTestId("list-row");
+    await expect(async () => {
+      const isEmptyStateVisible = await emptyState.isVisible().catch(() => false);
+      const rowCount = await listRows.count().catch(() => 0);
+      expect(isEmptyStateVisible || rowCount > 0).toBe(true);
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 
   async clickViewGrid() {
-    const viewGridButton = await this.getVisibleButton("View grid");
-    if (!viewGridButton) {
-      throw new Error('Expected to find a visible "View grid" button.');
+    const viewListButton = await this.getVisibleButton("View list");
+    if (viewListButton) {
+      return;
     }
 
-    await viewGridButton.click();
+    const viewGridButton = await this.getVisibleButton("View grid");
+    if (viewGridButton) {
+      await viewGridButton.click();
+      return;
+    }
+
+    const rackCards = this.page.getByTestId("rack-card");
+    await expect(async () => {
+      expect(await rackCards.count().catch(() => 0)).toBeGreaterThan(0);
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 
   private async getVisibleButton(name: string): Promise<Locator | null> {
