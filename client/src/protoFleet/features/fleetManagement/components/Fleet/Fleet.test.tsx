@@ -4,14 +4,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POLL_INTERVAL_MS } from "./constants";
 import Fleet from "./Fleet";
 
-const { mockMinerList, mockRefetchAuthNeededMiners, mockRefetchErrors, mockListAllBuildings, mockUseHasPermission } =
-  vi.hoisted(() => ({
-    mockMinerList: vi.fn(() => <div data-testid="miner-list">MinerList</div>),
-    mockRefetchAuthNeededMiners: vi.fn(),
-    mockRefetchErrors: vi.fn(),
-    mockListAllBuildings: vi.fn(),
-    mockUseHasPermission: vi.fn((_permission: string) => true),
-  }));
+const {
+  mockMinerList,
+  mockRefetchAuthNeededMiners,
+  mockRefetchErrors,
+  mockListAllBuildings,
+  mockUseHasPermission,
+  mockFleetOutletContext,
+} = vi.hoisted(() => ({
+  mockMinerList: vi.fn(() => <div data-testid="miner-list">MinerList</div>),
+  mockRefetchAuthNeededMiners: vi.fn(),
+  mockRefetchErrors: vi.fn(),
+  mockListAllBuildings: vi.fn(),
+  mockUseHasPermission: vi.fn((_permission: string) => true),
+  mockFleetOutletContext: {
+    sites: [],
+    sitesError: null,
+    sitesLoaded: true,
+    siteCatalogAccessGranted: true,
+    refetchSites: vi.fn(),
+    notifyPairingCompleted: vi.fn(),
+    minersChangedAt: 0,
+    publishViewFilterContext: vi.fn(),
+  },
+}));
 
 // Mock all dependencies
 vi.mock("@/protoFleet/api/useFleet", () => ({
@@ -82,15 +98,7 @@ vi.mock("@/protoFleet/features/fleetManagement/components/MinerList", () => ({
 // Fleet now reads pairing/refetch coordination from FleetLayout's outlet
 // context; stub the hook so the component can mount without a real layout.
 vi.mock("@/protoFleet/features/fleetManagement/components/FleetLayout", () => ({
-  useFleetOutletContext: () => ({
-    sites: [],
-    sitesError: null,
-    sitesLoaded: true,
-    refetchSites: vi.fn(),
-    notifyPairingCompleted: vi.fn(),
-    minersChangedAt: 0,
-    publishViewFilterContext: vi.fn(),
-  }),
+  useFleetOutletContext: () => mockFleetOutletContext,
 }));
 
 vi.mock("@/protoFleet/features/onboarding/components/Miners", () => ({
@@ -134,6 +142,13 @@ describe("Fleet - Polling", () => {
     vi.resetModules();
     vi.clearAllMocks();
     vi.useFakeTimers();
+    Object.assign(mockFleetOutletContext, {
+      sites: [],
+      sitesError: null,
+      sitesLoaded: true,
+      siteCatalogAccessGranted: true,
+      minersChangedAt: 0,
+    });
 
     mockRefreshCurrentPage = vi.fn();
   });
@@ -300,8 +315,9 @@ describe("Fleet - Component Integration", () => {
     expect(mockRefetch).not.toHaveBeenCalled();
   });
 
-  it("does not request building filter labels without site read permission", async () => {
-    mockUseHasPermission.mockImplementation((permission: string) => permission !== "site:read");
+  it("does not request building filter labels until org-scoped site catalog access is confirmed", async () => {
+    mockUseHasPermission.mockImplementation(() => true);
+    mockFleetOutletContext.siteCatalogAccessGranted = false;
 
     renderFleet();
 

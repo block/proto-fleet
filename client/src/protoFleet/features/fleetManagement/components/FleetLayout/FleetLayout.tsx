@@ -116,6 +116,7 @@ const FleetLayout = () => {
   const pathScope = useMemo(() => rawPathScope ?? activeSite, [rawPathScope, activeSite]);
 
   const sitesAccessBlocked = !canReadSites || sitesPermissionDenied;
+  const siteCatalogAccessGranted = canReadSites && sitesLoaded && !sitesPermissionDenied;
 
   // Source of truth for "which tabs are reachable right now." Hide-rule
   // changes only need to touch this filter; the redirect effect, the tab
@@ -240,12 +241,22 @@ const FleetLayout = () => {
       sites,
       sitesError,
       sitesLoaded,
+      siteCatalogAccessGranted,
       refetchSites: fetchSites,
       notifyPairingCompleted,
       minersChangedAt,
       publishViewFilterContext,
     }),
-    [sites, sitesError, sitesLoaded, fetchSites, notifyPairingCompleted, minersChangedAt, publishViewFilterContext],
+    [
+      sites,
+      sitesError,
+      sitesLoaded,
+      siteCatalogAccessGranted,
+      fetchSites,
+      notifyPairingCompleted,
+      minersChangedAt,
+      publishViewFilterContext,
+    ],
   );
 
   // Mobile docks the views selector beside the Fleet heading to keep the

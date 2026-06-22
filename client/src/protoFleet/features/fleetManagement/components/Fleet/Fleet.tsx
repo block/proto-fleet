@@ -42,7 +42,6 @@ import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetMa
 import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
 import { isPathScopable } from "@/protoFleet/routing/siteScope";
-import { useHasPermission } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
 
@@ -89,8 +88,14 @@ const Fleet = () => {
   const { listAllBuildings } = useBuildings();
   const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
   const [availableRacks, setAvailableRacks] = useState<DeviceSet[]>([]);
-  const { sites, sitesLoaded, notifyPairingCompleted, minersChangedAt, publishViewFilterContext } =
-    useFleetOutletContext();
+  const {
+    sites,
+    sitesLoaded,
+    siteCatalogAccessGranted,
+    notifyPairingCompleted,
+    minersChangedAt,
+    publishViewFilterContext,
+  } = useFleetOutletContext();
   const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
   const { activeSite } = useActiveSite({ knownSiteIds });
   const { siteIds: activeSiteIds, includeUnassigned: activeIncludeUnassigned } = useMemo(
@@ -98,10 +103,9 @@ const Fleet = () => {
     [activeSite],
   );
   const [availableBuildings, setAvailableBuildings] = useState<FilterLabelSource[]>([]);
-  const canReadBuildings = useHasPermission("site:read");
   const readableAvailableBuildings = useMemo(
-    () => (canReadBuildings ? availableBuildings : []),
-    [availableBuildings, canReadBuildings],
+    () => (siteCatalogAccessGranted ? availableBuildings : []),
+    [availableBuildings, siteCatalogAccessGranted],
   );
 
   useEffect(() => {
@@ -115,9 +119,11 @@ const Fleet = () => {
         setAvailableRacks(deviceSets);
       },
     });
-    if (!canReadBuildings) {
-      return;
-    }
+  }, [listGroups, listRacks]);
+
+  useEffect(() => {
+    if (!siteCatalogAccessGranted) return;
+
     listAllBuildings({
       onSuccess: (buildings) => {
         setAvailableBuildings(
@@ -127,7 +133,7 @@ const Fleet = () => {
         );
       },
     });
-  }, [listGroups, listRacks, listAllBuildings, canReadBuildings]);
+  }, [listAllBuildings, siteCatalogAccessGranted]);
 
   const { pathname } = useLocation();
   const insideFleetShell = isPathScopable(pathname);
