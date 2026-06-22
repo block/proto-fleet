@@ -24,12 +24,18 @@ var _ interfaces.CollectionStore = &SQLCollectionStore{}
 // SQLCollectionStore implements CollectionStore using PostgreSQL via sqlc.
 type SQLCollectionStore struct {
 	SQLConnectionManager
+	collectionTelemetryMaxAge time.Duration
 }
 
 // NewSQLCollectionStore creates a new SQLCollectionStore.
-func NewSQLCollectionStore(conn *sql.DB) *SQLCollectionStore {
+func NewSQLCollectionStore(conn *sql.DB, telemetryMaxAge ...time.Duration) *SQLCollectionStore {
+	maxAge := defaultCollectionTelemetryMaxAge
+	if len(telemetryMaxAge) > 0 {
+		maxAge = telemetryMaxAge[0]
+	}
 	return &SQLCollectionStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager:      NewSQLConnectionManager(conn),
+		collectionTelemetryMaxAge: maxAge,
 	}
 }
 
@@ -466,14 +472,14 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 
 	// Count total
 	var totalCount int32
-	countQuery, countArgs := buildCollectionCountQuery(orgID, collectionType, filter)
+	countQuery, countArgs := buildCollectionCountQueryWithTelemetryMaxAge(orgID, collectionType, filter, s.collectionTelemetryMaxAge)
 	if err := s.conn.QueryRowContext(ctx, countQuery, countArgs...).Scan(&totalCount); err != nil {
 		return nil, "", 0, fleeterror.NewInternalErrorf("failed to count collections: %v", err)
 	}
 
 	// Build list query
 	fetchLimit := pageSize + 1
-	query, args := buildCollectionListQuery(orgID, collectionType, cursor, sortField, sortDir, fetchLimit, filter)
+	query, args := buildCollectionListQueryWithTelemetryMaxAge(orgID, collectionType, cursor, sortField, sortDir, fetchLimit, filter, s.collectionTelemetryMaxAge)
 
 	sqlRows, err := s.conn.QueryContext(ctx, query, args...)
 	if err != nil {

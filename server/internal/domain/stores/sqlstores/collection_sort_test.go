@@ -2,6 +2,7 @@ package sqlstores
 
 import (
 	"testing"
+	"time"
 
 	"github.com/lib/pq"
 
@@ -261,6 +262,7 @@ func TestBuildCollectionCountQuery_ErrorComponentTypes(t *testing.T) {
 func TestBuildCollectionListQuery_TelemetryRanges(t *testing.T) {
 	minTemp := 40.0
 	maxTemp := 80.0
+	telemetryMaxAge := 3*time.Hour + 15*time.Minute
 	filter := &stores.DeviceSetFilter{TelemetryRanges: []stores.NumericRange{{
 		Field:        stores.NumericFilterFieldTemperatureC,
 		Min:          &minTemp,
@@ -268,17 +270,20 @@ func TestBuildCollectionListQuery_TelemetryRanges(t *testing.T) {
 		MinInclusive: true,
 	}}}
 
-	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_GROUP, nil, "name", "ASC", 51, filter)
+	query, args := buildCollectionListQueryWithTelemetryMaxAge(1, pb.CollectionType_COLLECTION_TYPE_GROUP, nil, "name", "ASC", 51, filter, telemetryMaxAge)
 
 	assert.Contains(t, query, "telemetry_stats ON telemetry_stats.device_set_id = dc.id")
+	assert.Contains(t, query, "dm.time > NOW() - ($2::double precision * INTERVAL '1 second')")
+	assert.NotContains(t, query, "10 minutes")
 	assert.Contains(t, query, "COALESCE(telemetry_stats.temperature_reporting_count, 0) > 0")
-	assert.Contains(t, query, "telemetry_stats.min_temperature_c >= $3")
-	assert.Contains(t, query, "telemetry_stats.max_temperature_c < $4")
-	assert.Len(t, args, 5)
+	assert.Contains(t, query, "telemetry_stats.min_temperature_c >= $4")
+	assert.Contains(t, query, "telemetry_stats.max_temperature_c < $5")
+	assert.Len(t, args, 6)
 	assert.Equal(t, int64(1), args[0])
-	assert.Equal(t, minTemp, args[2])
-	assert.Equal(t, maxTemp, args[3])
-	assert.Equal(t, int32(51), args[4])
+	assert.Equal(t, telemetryMaxAge.Seconds(), args[1])
+	assert.Equal(t, minTemp, args[3])
+	assert.Equal(t, maxTemp, args[4])
+	assert.Equal(t, int32(51), args[5])
 }
 
 func TestBuildCollectionListQuery_TelemetryStatsFilterInvalidValues(t *testing.T) {
@@ -315,9 +320,11 @@ func TestBuildCollectionCountQuery_IssueAndTelemetryFiltersKeepArgumentOrder(t *
 
 	query, args := buildCollectionCountQuery(1, pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, filter)
 
-	assert.Contains(t, query, "e.component_type = ANY($2::int[])")
+	assert.Contains(t, query, "dm.time > NOW() - ($2::double precision * INTERVAL '1 second')")
+	assert.Contains(t, query, "e.component_type = ANY($3::int[])")
 	assert.Contains(t, query, "COALESCE(telemetry_stats.power_reporting_count, 0) > 0")
-	assert.Contains(t, query, "telemetry_stats.total_power_kw > $3")
-	assert.Equal(t, pq.Array(errorTypes), args[1])
-	assert.Equal(t, minPower, args[2])
+	assert.Contains(t, query, "telemetry_stats.total_power_kw > $4")
+	assert.Equal(t, defaultCollectionTelemetryMaxAge.Seconds(), args[1])
+	assert.Equal(t, pq.Array(errorTypes), args[2])
+	assert.Equal(t, minPower, args[3])
 }

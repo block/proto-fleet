@@ -3,6 +3,7 @@ package sqlstores
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/lib/pq"
 
@@ -11,13 +12,14 @@ import (
 )
 
 const (
-	collectionSortFieldName        = "name"
-	collectionSortFieldDeviceCount = "device_count"
-	collectionSortFieldIssueCount  = "issue_count"
-	collectionSortFieldZone        = "zone"
-	collectionSortDirASC           = "ASC"
-	collectionSortDirDESC          = "DESC"
-	collectionIssueCountExpr       = "MAX(COALESCE(issue_counts.issue_count, 0))::int"
+	collectionSortFieldName          = "name"
+	collectionSortFieldDeviceCount   = "device_count"
+	collectionSortFieldIssueCount    = "issue_count"
+	collectionSortFieldZone          = "zone"
+	collectionSortDirASC             = "ASC"
+	collectionSortDirDESC            = "DESC"
+	collectionIssueCountExpr         = "MAX(COALESCE(issue_counts.issue_count, 0))::int"
+	defaultCollectionTelemetryMaxAge = 24 * time.Hour
 )
 
 var collectionIssueCountJoin = fmt.Sprintf(`LEFT JOIN (
@@ -42,7 +44,8 @@ var collectionIssueCountJoin = fmt.Sprintf(`LEFT JOIN (
 ) issue_counts ON issue_counts.device_set_id = dc.id
 `, actionablePairingStatusesExpr("dp_issue"), actionableErrorSeveritiesExpr("e"), actionableErrorComponentTypesExpr("e"))
 
-var collectionTelemetryStatsJoin = fmt.Sprintf(`LEFT JOIN (
+func collectionTelemetryStatsJoin(maxAgeArg int) string {
+	return fmt.Sprintf(`LEFT JOIN (
 	SELECT
 		dcm_stats.device_set_id,
 		COUNT(lm.hash_rate_hs) FILTER (WHERE isfinite(lm.hash_rate_hs) AND lm.hash_rate_hs >= 0)::int AS hashrate_reporting_count,
@@ -67,14 +70,15 @@ var collectionTelemetryStatsJoin = fmt.Sprintf(`LEFT JOIN (
 			dm.temp_c
 		FROM device_metrics dm
 		WHERE dm.device_identifier = d_stats.device_identifier
-			AND dm.time > NOW() - INTERVAL '`+telemetryFreshnessWindow+`'
+			AND dm.time > NOW() - ($%d::double precision * INTERVAL '1 second')
 		ORDER BY dm.time DESC
 		LIMIT 1
 	) lm ON TRUE
 	WHERE dcm_stats.org_id = $1
 	GROUP BY dcm_stats.device_set_id
 ) telemetry_stats ON telemetry_stats.device_set_id = dc.id
-`, actionablePairingStatusesExpr("dp_stats"))
+`, actionablePairingStatusesExpr("dp_stats"), maxAgeArg)
+}
 
 // resolveCollectionSort converts a SortConfig into a canonical field name and SQL direction.
 // Defaults to name ASC when unspecified.
@@ -109,6 +113,10 @@ func resolveCollectionSort(sort *stores.SortConfig) (field, dir string) {
 
 // buildCollectionCountQuery returns the SQL and args for counting collections.
 func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, filter *stores.DeviceSetFilter) (string, []any) {
+	return buildCollectionCountQueryWithTelemetryMaxAge(orgID, collectionType, filter, defaultCollectionTelemetryMaxAge)
+}
+
+func buildCollectionCountQueryWithTelemetryMaxAge(orgID int64, collectionType pb.CollectionType, filter *stores.DeviceSetFilter, telemetryMaxAge time.Duration) (string, []any) {
 	var sb strings.Builder
 	args := []any{orgID}
 	argNum := 2
@@ -133,7 +141,9 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, fi
 	}
 	if needsTelemetryFilter {
 		sb.WriteString("\n")
-		sb.WriteString(collectionTelemetryStatsJoin)
+		sb.WriteString(collectionTelemetryStatsJoin(argNum))
+		args = append(args, telemetryMaxAge.Seconds())
+		argNum++
 	}
 
 	sb.WriteString(" WHERE dc.org_id = $1 AND dc.deleted_at IS NULL")
@@ -286,6 +296,10 @@ func collectionTelemetryRangeColumns(field stores.NumericFilterField) (countColu
 // buildCollectionListQuery generates a dynamic SQL query for listing collections
 // with sort and cursor-based keyset pagination.
 func buildCollectionListQuery(orgID int64, collectionType pb.CollectionType, cursor *collectionCursor, sortField, sortDir string, limit int32, filter *stores.DeviceSetFilter) (string, []any) {
+	return buildCollectionListQueryWithTelemetryMaxAge(orgID, collectionType, cursor, sortField, sortDir, limit, filter, defaultCollectionTelemetryMaxAge)
+}
+
+func buildCollectionListQueryWithTelemetryMaxAge(orgID int64, collectionType pb.CollectionType, cursor *collectionCursor, sortField, sortDir string, limit int32, filter *stores.DeviceSetFilter, telemetryMaxAge time.Duration) (string, []any) {
 	var sb strings.Builder
 	args := []any{orgID}
 	argNum := 2
@@ -311,7 +325,9 @@ LEFT JOIN building b ON b.id = dcr.building_id AND b.org_id = dc.org_id AND b.de
 		sb.WriteString(collectionIssueCountJoin)
 	}
 	if filter != nil && len(filter.TelemetryRanges) > 0 {
-		sb.WriteString(collectionTelemetryStatsJoin)
+		sb.WriteString(collectionTelemetryStatsJoin(argNum))
+		args = append(args, telemetryMaxAge.Seconds())
+		argNum++
 	}
 	sb.WriteString(`
 WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)

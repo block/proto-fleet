@@ -218,7 +218,7 @@ func start(config *Config) error {
 	userStore := sqlstores.NewSQLUserStore(conn)
 	poolStore := sqlstores.NewSQLPoolStore(conn, encryptSvc)
 	deviceStore := sqlstores.NewSQLDeviceStore(conn)
-	collectionStore := sqlstores.NewSQLCollectionStore(conn)
+	collectionStore := sqlstores.NewSQLCollectionStore(conn, config.TimescaleDB.MaxAge)
 	activityStore := sqlstores.NewSQLActivityStore(conn)
 	notificationHistoryStore := sqlstores.NewSQLNotificationHistoryStore(conn)
 
