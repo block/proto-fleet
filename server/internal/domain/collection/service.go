@@ -1416,15 +1416,18 @@ func (s *Service) ClearRackSlotPosition(ctx context.Context, req *pb.ClearRackSl
 	return &pb.ClearRackSlotPositionResponse{}, nil
 }
 
-// rackSiteID returns the rack collection's site id as a nil-able pointer,
-// preserving the distinction between "assigned to site N" and "unassigned"
-// (nil). Safe when rack_info is absent.
+// rackSiteID returns the rack collection's effective site id as a nil-able
+// pointer, preserving the distinction between "assigned to site N" and
+// "unassigned" (nil). It reads from Placement, which GetCollection populates
+// (and which reflects the building-derived site); TypeDetails.RackInfo is NOT
+// filled by GetCollection, so it must not be relied on here.
 func rackSiteID(coll *pb.DeviceCollection) *int64 {
-	ri := coll.GetRackInfo()
-	if ri == nil {
+	site := coll.GetPlacement().GetSite()
+	if site == nil {
 		return nil
 	}
-	return ri.SiteId
+	id := site.GetId()
+	return &id
 }
 
 // GetRackSlots lists all occupied slot positions in a rack.
