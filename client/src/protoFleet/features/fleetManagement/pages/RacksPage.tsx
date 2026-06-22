@@ -235,7 +235,6 @@ const RacksPage = () => {
   const getSiteFilter = useCallback(() => effectiveSiteFilterRef.current, []);
   const getSiteIds = useCallback(() => effectiveSiteFilterRef.current.siteIds, []);
   const getIncludeUnassigned = useCallback(() => effectiveSiteFilterRef.current.includeUnassigned, []);
-  const includeUnassigned = effectiveSiteFilter.includeUnassigned;
 
   // ManageRackModal state
   const [manageRackFormData, setManageRackFormData] = useState<RackFormData | null>(null);
@@ -584,17 +583,9 @@ const RacksPage = () => {
     [setSearchParams],
   );
 
-  // Refetch on resolved building-filter change (explicit only now — site
-  // scoping moved to the server-side site_ids filter below).
-  // useDeviceSetListState reads the ref; this effect just kicks pagination.
+  // Resolved building-filter key used by the combined URL-filter refetch below.
+  // Site scoping moved to the server-side site_ids filter.
   const effectiveBuildingKey = useMemo(() => selectedBuildingIds.map(String).join(","), [selectedBuildingIds]);
-  const prevBuildingKey = useRef<string | null>(null);
-  useEffect(() => {
-    if (prevBuildingKey.current !== null && prevBuildingKey.current !== effectiveBuildingKey) {
-      resetAndFetch();
-    }
-    prevBuildingKey.current = effectiveBuildingKey;
-  }, [effectiveBuildingKey, resetAndFetch]);
 
   const writeMultiParam = useCallback(
     (key: string, values: string[]) => {
@@ -614,8 +605,6 @@ const RacksPage = () => {
     [setSearchParams],
   );
 
-  // Refetch on resolved site-filter change (URL `?site=` or SitePicker
-  // selection). Same ref-read pattern as the building effect above.
   const effectiveSiteKey = useMemo(
     () =>
       `${effectiveSiteFilter.siteIds.map(String).join(",")}|${effectiveSiteFilter.includeUnassigned}|${effectiveSiteFilter.matchNone ?? false}`,
@@ -629,10 +618,9 @@ const RacksPage = () => {
       // (Out-of-order list responses are already dropped by
       // useDeviceSetListState's request-id guard, so rows can't go stale.)
       setSelectedRackIds([]);
-      resetAndFetch();
     }
     prevSiteKey.current = effectiveSiteKey;
-  }, [effectiveSiteKey, resetAndFetch]);
+  }, [effectiveSiteKey]);
 
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
@@ -671,8 +659,8 @@ const RacksPage = () => {
     [setSearchParams],
   );
 
-  // Refetch when any URL-derived filter input changes. Building, zone, and
-  // issues are combined into a single effect so a navigation that updates
+  // Refetch when any URL-derived filter input changes. Site, building, zone,
+  // and issues are combined into a single effect so a navigation that updates
   // more than one of them (e.g. "Clear filters" or activating a saved view)
   // produces one fetch, not several.
   //
@@ -683,23 +671,14 @@ const RacksPage = () => {
   const filterFetchKey = useMemo(
     () =>
       JSON.stringify([
-        selectedSiteValues,
-        includeUnassigned,
+        effectiveSiteKey,
         effectiveBuildingKey,
         includeNoBuilding,
         selectedZones,
         selectedIssues,
         telemetryRanges,
       ]),
-    [
-      selectedSiteValues,
-      includeUnassigned,
-      effectiveBuildingKey,
-      includeNoBuilding,
-      selectedZones,
-      selectedIssues,
-      telemetryRanges,
-    ],
+    [effectiveSiteKey, effectiveBuildingKey, includeNoBuilding, selectedZones, selectedIssues, telemetryRanges],
   );
   const prevFilterFetchKey = useRef<string | null>(null);
   useEffect(() => {
