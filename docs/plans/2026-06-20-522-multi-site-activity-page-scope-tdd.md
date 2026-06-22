@@ -286,10 +286,11 @@ evaluated only for the page's candidate rows.
     `command_filter_skip`) have no `batch_id` and no single site (they span
     the requested device set), so they are org-level (`device_command`)
     and surface only in the all-sites feed — not the unassigned bucket.
-  - **Also newly stamped (single-site, cheap):** `update_collection`
-    (`collection/service.go`, from the collection's `Placement.Site`) and
-    building delete (`buildings/service.go` `DeleteBuilding`, from the
-    building's site captured pre-delete via `GetBuildingSiteID`).
+  - **Also newly stamped (single-site, cheap):** `update_collection` and
+    `delete_collection` (`collection/service.go`, from the collection's
+    `Placement.Site`) and building delete (`buildings/service.go`
+    `DeleteBuilding`, from the building's site captured pre-delete via
+    `GetBuildingSiteID`).
   - **Known limitation (follow-up):** the genuinely multi-device events
     still write `site_id` NULL with a non-org-level category and so fall in
     the unassigned bucket — `fleet_management` miner rename / unpair, and

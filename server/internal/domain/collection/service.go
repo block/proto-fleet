@@ -605,6 +605,9 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 			UserID:         &info.ExternalUserID,
 			Username:       &info.Username,
 			OrganizationID: &info.OrganizationID,
+			// Stamp the prefetched collection's site so a site-scoped rack
+			// delete lands in /{site}/activity; nil for site-less groups.
+			SiteID: collectionSiteID(collection),
 		}
 		if siteUnassignedCount > 0 {
 			event.Metadata = map[string]any{
