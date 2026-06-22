@@ -119,7 +119,6 @@ describe("BuildingCard", () => {
     statsMock.mockReturnValue({ stats: undefined, isLoading: true, hasLoaded: false, error: null, refetch: vi.fn() });
     renderCard({ rackCount: 3n });
     expect(screen.getByTestId("building-card-7-name")).toHaveTextContent("Building A");
-    expect(screen.getByTestId("building-card-7-stat-racks")).toHaveTextContent("3 racks");
     expect(screen.getByTestId("building-card-7-status").querySelector("[data-testid='skeleton-bar']")).not.toBeNull();
     expect(
       screen.getByTestId("building-card-7-stat-hashrate").querySelector("[data-testid='skeleton-bar']"),
@@ -212,7 +211,6 @@ describe("BuildingCard", () => {
     expect(screen.getByTestId("building-card-7-stat-hashrate")).toHaveTextContent("275.9 PH/s");
     expect(screen.getByTestId("building-card-7-stat-efficiency")).toHaveTextContent("3,766.4 J/TH");
     expect(screen.getByTestId("building-card-7-stat-power")).toHaveTextContent("1,039.1 MW");
-    expect(screen.getByTestId("building-card-7-stat-racks")).toHaveTextContent("20 racks");
   });
 
   it("renders em dashes in the footer when nothing is reporting", () => {
@@ -229,17 +227,17 @@ describe("BuildingCard", () => {
     expect(screen.getByTestId("building-card-7-stat-efficiency")).toHaveTextContent("—");
   });
 
-  it("paints assigned cells with their worst rack state and leaves the rest unassigned", () => {
+  it("assigns heat bands based on issue ratio and marks empty positions as unassigned", () => {
     statsMock.mockReturnValue({
       stats: buildStats({
         rackHealth: [
-          // R1 (0:0) — broken miner present → needsAttention.
+          // R1 (0:0) — 1 broken out of 6 total → ~17% → band 3
           rackHealth({ rackId: 1, aisleIndex: 0, positionInAisle: 0, brokenCount: 1, hashingCount: 5 }),
-          // R2 (0:1) — only sleeping → sleeping.
+          // R2 (0:1) — 3 sleeping out of 3 → 100% → band 5
           rackHealth({ rackId: 2, aisleIndex: 0, positionInAisle: 1, sleepingCount: 3 }),
-          // R3 (1:0) — offline beats sleeping per priority.
+          // R3 (1:0) — 3 issues out of 3 → 100% → band 5
           rackHealth({ rackId: 3, aisleIndex: 1, positionInAisle: 0, offlineCount: 2, sleepingCount: 1 }),
-          // R4 (1:1) — only hashing miners → healthy.
+          // R4 (1:1) — 0 issues out of 4 → 0% → band 0
           rackHealth({ rackId: 4, aisleIndex: 1, positionInAisle: 1, hashingCount: 4 }),
         ],
       }),
@@ -251,12 +249,12 @@ describe("BuildingCard", () => {
     renderCard({ aisles: 2, racksPerAisle: 3 });
     const cells = screen.getByTestId("building-card-7-grid").querySelectorAll("span[aria-hidden='true']");
     expect(cells.length).toBe(6);
-    expect(cells[0].getAttribute("data-cell-state")).toBe("needsAttention");
-    expect(cells[1].getAttribute("data-cell-state")).toBe("sleeping");
-    expect(cells[2].getAttribute("data-cell-state")).toBe("unassigned");
-    expect(cells[3].getAttribute("data-cell-state")).toBe("offline");
-    expect(cells[4].getAttribute("data-cell-state")).toBe("healthy");
-    expect(cells[5].getAttribute("data-cell-state")).toBe("unassigned");
+    expect(cells[0].getAttribute("data-heat-band")).toBe("3");
+    expect(cells[1].getAttribute("data-heat-band")).toBe("5");
+    expect(cells[2].getAttribute("data-heat-band")).toBe("unassigned");
+    expect(cells[3].getAttribute("data-heat-band")).toBe("5");
+    expect(cells[4].getAttribute("data-heat-band")).toBe("0");
+    expect(cells[5].getAttribute("data-heat-band")).toBe("unassigned");
   });
 
   it("navigates to /buildings/:id when the card body is clicked", () => {
