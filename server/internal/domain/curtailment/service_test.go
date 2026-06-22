@@ -144,17 +144,6 @@ func (f *fakeStore) GetOrgConfig(_ context.Context, orgID int64) (*models.OrgCon
 	return nil, fleeterror.NewNotFoundErrorf("no org config for %d", orgID)
 }
 
-func (f *fakeStore) UpdateOrgConfigPostEventCooldown(_ context.Context, orgID int64, cooldownSec int32) (*models.OrgConfig, error) {
-	cfg, ok := f.orgConfigByOrg[orgID]
-	if !ok {
-		return nil, fleeterror.NewNotFoundErrorf("no org config for %d", orgID)
-	}
-	next := *cfg
-	next.PostEventCooldownSec = cooldownSec
-	f.orgConfigByOrg[orgID] = &next
-	return &next, nil
-}
-
 func (f *fakeStore) ListActiveCurtailedDevices(_ context.Context, orgID int64) ([]string, error) {
 	f.activeDevicesCalls++
 	f.lastActiveDevicesOrgID = orgID
@@ -551,7 +540,6 @@ func defaultOrgConfig(orgID int64) *models.OrgConfig {
 		OrgID:                 orgID,
 		MaxDurationDefaultSec: 14400,
 		CandidateMinPowerW:    1500,
-		PostEventCooldownSec:  600,
 	}
 }
 
@@ -954,7 +942,7 @@ func TestService_Preview_MaintenancePairAdmitsMiners(t *testing.T) {
 
 // --- cooldown ---
 
-func TestService_Preview_NormalPriority_DoesNotApplyCooldown(t *testing.T) {
+func TestService_Preview_CooldownZeroDoesNotQueryRecentlyResolvedDevices(t *testing.T) {
 	t.Parallel()
 
 	const orgID = int64(1)
@@ -972,32 +960,71 @@ func TestService_Preview_NormalPriority_DoesNotApplyCooldown(t *testing.T) {
 	plan, err := svc.Preview(t.Context(), req)
 	require.NoError(t, err)
 
-	assert.Zero(t, store.cooldownCalls, "curtailment should not be gated by cooldown")
+	assert.Zero(t, store.cooldownCalls)
 	require.Len(t, plan.Selected, 1)
 	assert.Equal(t, "recent", plan.Selected[0].DeviceIdentifier)
 }
 
-func TestService_Preview_EmergencyPriority_DoesNotConsultCooldown(t *testing.T) {
+func TestService_Preview_PositiveCooldownExcludesRecentlyResolvedDevices(t *testing.T) {
 	t.Parallel()
 
 	const orgID = int64(1)
 	store := newFakeStore()
 	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
-	store.cooldownDevicesByOrg[orgID] = []string{"recent"} // would skip if cooldown applied
+	store.cooldownDevicesByOrg[orgID] = []string{"recent"}
 	store.candidatesByOrg[orgID] = []*models.Candidate{
 		minerWithEff("recent", 3000, 100, 40),
+		minerWithEff("ok", 3000, 100, 40),
+	}
+
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.PostEventCooldownSec = 600
+	req.TargetKW = 1
+	plan, err := svc.Preview(t.Context(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, store.cooldownCalls)
+	assert.Equal(t, orgID, store.lastCooldownOrgID)
+	assert.Equal(t, int32(600), store.lastCooldownSec)
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, "ok", plan.Selected[0].DeviceIdentifier)
+	reasons := map[string]SkipReason{}
+	for _, skipped := range plan.Skipped {
+		reasons[skipped.DeviceIdentifier] = skipped.Reason
+	}
+	assert.Equal(t, SkipCooldown, reasons["recent"])
+}
+
+func TestService_Preview_EmergencyPriorityAppliesSuppliedCooldown(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.cooldownDevicesByOrg[orgID] = []string{"recent"}
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("recent", 3000, 100, 40),
+		minerWithEff("ok", 3000, 100, 40),
 	}
 
 	svc := NewService(store)
 	req := validRequest(orgID)
 	req.Priority = models.PriorityEmergency
+	req.PostEventCooldownSec = 600
 	req.TargetKW = 1
 	plan, err := svc.Preview(t.Context(), req)
 	require.NoError(t, err)
 
-	assert.Zero(t, store.cooldownCalls, "cooldown lookup is not part of selection")
-	require.Len(t, plan.Selected, 1, "recent miner is admitted under EMERGENCY")
-	assert.Equal(t, "recent", plan.Selected[0].DeviceIdentifier)
+	assert.Equal(t, 1, store.cooldownCalls)
+	assert.Equal(t, int32(600), store.lastCooldownSec)
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, "ok", plan.Selected[0].DeviceIdentifier)
+	reasons := map[string]SkipReason{}
+	for _, skipped := range plan.Skipped {
+		reasons[skipped.DeviceIdentifier] = skipped.Reason
+	}
+	assert.Equal(t, SkipCooldown, reasons["recent"])
 }
 
 // --- active-event ---

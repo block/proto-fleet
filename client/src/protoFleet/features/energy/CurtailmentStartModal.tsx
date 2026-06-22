@@ -52,6 +52,7 @@ export interface CurtailmentFormValues {
   curtailBatchIntervalSec: string;
   restoreBatchSize: string;
   restoreIntervalSec: string;
+  postEventCooldownSec: string;
   reason: string;
   includeMaintenance: boolean;
 }
@@ -147,6 +148,7 @@ const fieldHelp = {
   curtailBatchInterval: "Seconds to wait between each curtailment wave.",
   restoreBatchSize: "Number of miners to bring back online in each wave.",
   restoreBatchInterval: "Seconds to wait between each restore wave.",
+  postEventCooldown: "Seconds a restored miner must wait before it can be curtailed again.",
 } as const;
 const defaultValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
@@ -166,6 +168,7 @@ const defaultValues: CurtailmentFormValues = {
   curtailBatchIntervalSec: "",
   restoreBatchSize: "",
   restoreIntervalSec: "",
+  postEventCooldownSec: "0",
   reason: "",
   includeMaintenance: true,
 };
@@ -357,6 +360,10 @@ function validateCurtailmentFormValues(
     label: "batch interval",
     max: curtailmentNumericFieldLimits.curtailBatchIntervalSec,
   });
+  const postEventCooldown = parseOptionalUint32Field(values.postEventCooldownSec, {
+    label: "post-event cooldown",
+    max: curtailmentNumericFieldLimits.postEventCooldownSec,
+  });
 
   if (values.reason.trim() === "") {
     localErrors.reason = variant === "responseProfile" ? "Enter a profile name." : "Enter a reason.";
@@ -372,6 +379,11 @@ function validateCurtailmentFormValues(
   }
   if (shouldValidateCurtailBatchFields && curtailBatchInterval.error) {
     localErrors.curtailBatchIntervalSec = curtailBatchInterval.error;
+  }
+  if (isResponseProfileVariant && values.postEventCooldownSec.trim() === "") {
+    localErrors.postEventCooldownSec = "Enter post-event cooldown.";
+  } else if (postEventCooldown.error) {
+    localErrors.postEventCooldownSec = postEventCooldown.error;
   }
   if (isEditMode && restoreInterval.error === undefined && restoreInterval.parsed === 0) {
     localErrors.restoreIntervalSec = "Enter batch interval greater than 0.";
@@ -1226,6 +1238,25 @@ function CurtailmentStartModalContent({
                   }
                   onChange={(value) => updateValue("restoreIntervalSec", value)}
                 />
+                {isResponseProfileVariant ? (
+                  <Input
+                    id="response-profile-post-event-cooldown"
+                    label="Post-event cooldown (sec)"
+                    initValue={values.postEventCooldownSec}
+                    inputMode="numeric"
+                    error={effectiveErrors.postEventCooldownSec}
+                    testId="response-profile-post-event-cooldown"
+                    suffixAction={
+                      <FieldInfoToggle
+                        ariaLabel="About post-event cooldown"
+                        body={fieldHelp.postEventCooldown}
+                        testId="post-event-cooldown-info-button"
+                        popoverTestId="post-event-cooldown-info-popover"
+                      />
+                    }
+                    onChange={(value) => updateValue("postEventCooldownSec", value)}
+                  />
+                ) : null}
               </div>
             </Section>
 

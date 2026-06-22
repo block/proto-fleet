@@ -91,9 +91,6 @@ func (f *fakeStore) GetOrgConfig(_ context.Context, orgID int64) (*models.OrgCon
 		CandidateMinPowerW: 1500,
 	}, nil
 }
-func (f *fakeStore) UpdateOrgConfigPostEventCooldown(context.Context, int64, int32) (*models.OrgConfig, error) {
-	panic("UpdateOrgConfigPostEventCooldown not exercised")
-}
 func (f *fakeStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
 	return append([]string(nil), f.activeDevices...), nil
 }

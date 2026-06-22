@@ -5,7 +5,6 @@ SELECT
     org_id,
     max_duration_default_sec,
     candidate_min_power_w,
-    post_event_cooldown_sec,
     created_at,
     updated_at
 FROM curtailment_org_config
@@ -28,7 +27,6 @@ ins AS (
         org_id,
         max_duration_default_sec,
         candidate_min_power_w,
-        post_event_cooldown_sec,
         created_at,
         updated_at
 )
@@ -36,7 +34,6 @@ SELECT
     org_id,
     max_duration_default_sec,
     candidate_min_power_w,
-    post_event_cooldown_sec,
     created_at,
     updated_at
 FROM ins
@@ -45,25 +42,12 @@ SELECT
     c.org_id,
     c.max_duration_default_sec,
     c.candidate_min_power_w,
-    c.post_event_cooldown_sec,
     c.created_at,
     c.updated_at
 FROM curtailment_org_config c
 INNER JOIN active a ON a.id = c.org_id
 WHERE NOT EXISTS (SELECT 1 FROM ins)
 LIMIT 1;
-
--- name: UpdateCurtailmentOrgConfigPostEventCooldown :one
-UPDATE curtailment_org_config
-SET post_event_cooldown_sec = sqlc.arg('post_event_cooldown_sec')
-WHERE org_id = sqlc.arg('org_id')
-RETURNING
-    org_id,
-    max_duration_default_sec,
-    candidate_min_power_w,
-    post_event_cooldown_sec,
-    created_at,
-    updated_at;
 
 -- name: ListActiveCurtailedDevicesByOrg :many
 -- Devices locked in a non-terminal event; excluded from candidates to

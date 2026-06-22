@@ -67,6 +67,10 @@ func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curta
 	if fixedKw != nil && fixedKw.ToleranceKw != nil {
 		tolerance = *fixedKw.ToleranceKw
 	}
+	postEventCooldownSec, err := uint32ToInt32Strict("post_event_cooldown_sec", msg.GetPostEventCooldownSec())
+	if err != nil {
+		return curtailment.PreviewRequest{}, err
+	}
 
 	out := curtailment.PreviewRequest{
 		OrgID:                   orgID,
@@ -79,6 +83,7 @@ func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curta
 		ToleranceKW:             tolerance,
 		IncludeMaintenance:      msg.GetIncludeMaintenance(),
 		ForceIncludeMaintenance: msg.GetForceIncludeMaintenance(),
+		PostEventCooldownSec:    postEventCooldownSec,
 	}
 	if override := msg.CandidateMinPowerWOverride; override != nil {
 		// Defense-in-depth: proto validator already caps below MaxInt32,
@@ -136,6 +141,10 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	if fixedKw != nil && fixedKw.ToleranceKw != nil {
 		tolerance = *fixedKw.ToleranceKw
 	}
+	postEventCooldownSec, err := uint32ToInt32Strict("post_event_cooldown_sec", msg.GetPostEventCooldownSec())
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
 
 	preview := curtailment.PreviewRequest{
 		OrgID:                   info.OrganizationID,
@@ -148,6 +157,7 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 		ToleranceKW:             tolerance,
 		IncludeMaintenance:      msg.GetIncludeMaintenance(),
 		ForceIncludeMaintenance: msg.GetForceIncludeMaintenance(),
+		PostEventCooldownSec:    postEventCooldownSec,
 	}
 	if override := msg.CandidateMinPowerWOverride; override != nil {
 		// Proto validator already bounds this; backstop for non-Connect callers.

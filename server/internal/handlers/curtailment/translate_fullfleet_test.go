@@ -10,6 +10,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
 func TestToRequestMode_FullFleetTakesNoParams(t *testing.T) {
@@ -62,6 +63,46 @@ func TestStrategyNameMapsExplicitLeastEfficientFirst(t *testing.T) {
 		models.StrategyLeastEfficientFirst,
 		strategyName(pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST),
 	)
+}
+
+func TestToPreviewRequestMapsPostEventCooldown(t *testing.T) {
+	t.Parallel()
+
+	req := &pb.PreviewCurtailmentPlanRequest{
+		Mode:     pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+		Strategy: pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
+		Level:    pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
+		Priority: pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL,
+		Scope:    &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+		ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
+			FixedKw: &pb.FixedKwParams{TargetKw: 100},
+		},
+		PostEventCooldownSec: 600,
+	}
+
+	preview, err := toPreviewRequest(req, 42)
+	require.NoError(t, err)
+	assert.Equal(t, int32(600), preview.PostEventCooldownSec)
+}
+
+func TestToStartRequestMapsPostEventCooldown(t *testing.T) {
+	t.Parallel()
+
+	req := &pb.StartCurtailmentRequest{
+		Mode:     pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+		Strategy: pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
+		Level:    pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
+		Priority: pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL,
+		Scope:    &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+		ModeParams: &pb.StartCurtailmentRequest_FixedKw{
+			FixedKw: &pb.FixedKwParams{TargetKw: 100},
+		},
+		PostEventCooldownSec: 900,
+	}
+
+	start, err := toStartRequest(req, &session.Info{OrganizationID: 42, UserID: 7})
+	require.NoError(t, err)
+	assert.Equal(t, int32(900), start.PostEventCooldownSec)
 }
 
 // A full_fleet event echoes the (empty) full_fleet mode params on the wire.

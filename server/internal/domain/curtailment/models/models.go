@@ -8,13 +8,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// OrgConfig is the per-org tunable triple: max-duration default,
-// candidate-power floor, and cooldown window.
+// OrgConfig is the per-org default duration and candidate-power floor.
 type OrgConfig struct {
 	OrgID                 int64
 	MaxDurationDefaultSec int32
 	CandidateMinPowerW    int32
-	PostEventCooldownSec  int32
 }
 
 // ResponseProfile is reusable curtailment response behavior. Automation rules
@@ -36,6 +34,7 @@ type ResponseProfile struct {
 	RestoreBatchIntervalSec int32
 	IncludeMaintenance      bool
 	ForceIncludeMaintenance bool
+	PostEventCooldownSec    int32
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 }
@@ -187,8 +186,8 @@ const (
 	LevelFull Level = "FULL"
 )
 
-// Priority controls cooldown / hysteresis bypass. EMERGENCY skips both;
-// HIGH is proto-reserved but rejected by the validator.
+// Priority controls curtailment urgency. HIGH is proto-reserved but rejected
+// by the validator.
 type Priority string
 
 const (

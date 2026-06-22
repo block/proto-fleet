@@ -1,0 +1,12 @@
+ALTER TABLE curtailment_response_profile
+    ADD COLUMN post_event_cooldown_sec INT NOT NULL DEFAULT 0;
+
+ALTER TABLE curtailment_response_profile
+    ADD CONSTRAINT ck_curtailment_response_profile_post_event_cooldown
+        CHECK (post_event_cooldown_sec >= 0 AND post_event_cooldown_sec <= 86400);
+
+ALTER TABLE curtailment_org_config
+    DROP CONSTRAINT IF EXISTS ck_curtailment_org_config_cooldown_nonneg;
+
+ALTER TABLE curtailment_org_config
+    DROP COLUMN post_event_cooldown_sec;

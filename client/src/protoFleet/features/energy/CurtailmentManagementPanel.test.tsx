@@ -22,7 +22,7 @@ const mocks = vi.hoisted(() => ({
   setHistoryStatusFilters: vi.fn(),
   startCurtailment: vi.fn(),
   stopCurtailment: vi.fn(),
-  submitValues: { reason: "Grid peak" },
+  submitValues: { reason: "Grid peak", postEventCooldownSec: "0" },
   updateCurtailment: vi.fn(),
   useCurtailmentApi: vi.fn(),
   useCurtailmentResponseProfiles: vi.fn(),
@@ -224,6 +224,7 @@ const activeEventFormValues = {
   curtailBatchIntervalSec: "",
   restoreBatchSize: "1",
   restoreIntervalSec: "60",
+  postEventCooldownSec: "0",
   includeMaintenance: true,
 } satisfies CurtailmentSubmitValues;
 const historyEvent = { id: "curt-1" } as CurtailmentHistoryEvent;
@@ -372,6 +373,7 @@ describe("CurtailmentManagementPanel", () => {
             curtailBatchIntervalSec: "60",
             restoreBatchSize: "10",
             restoreIntervalSec: "120",
+            postEventCooldownSec: "600",
             responseDeadlineMinutes: "15",
             includeMaintenance: true,
           },
@@ -398,6 +400,7 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"siteId":"101"');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"deviceIdentifiers":[]');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"targetKw":"50"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"postEventCooldownSec":"600"');
   });
 
   it("opens a new plan while a curtailment is already active", async () => {

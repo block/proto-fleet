@@ -44,7 +44,6 @@ func newStartStubStore() *startStubStore {
 			OrgID:                 1,
 			MaxDurationDefaultSec: 14400,
 			CandidateMinPowerW:    1500,
-			PostEventCooldownSec:  600,
 		},
 	}
 }
@@ -52,14 +51,6 @@ func newStartStubStore() *startStubStore {
 func (s *startStubStore) GetOrgConfig(_ context.Context, orgID int64) (*models.OrgConfig, error) {
 	cfg := *s.orgConfig
 	cfg.OrgID = orgID
-	return &cfg, nil
-}
-
-func (s *startStubStore) UpdateOrgConfigPostEventCooldown(_ context.Context, orgID int64, cooldownSec int32) (*models.OrgConfig, error) {
-	cfg := *s.orgConfig
-	cfg.OrgID = orgID
-	cfg.PostEventCooldownSec = cooldownSec
-	s.orgConfig = &cfg
 	return &cfg, nil
 }
 

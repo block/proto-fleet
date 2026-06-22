@@ -61,6 +61,7 @@ const fixedKwFormValues: ResponseProfileFormValues = {
   curtailBatchIntervalSec: "30",
   restoreBatchSize: "10000",
   restoreIntervalSec: "0",
+  postEventCooldownSec: "600",
   responseDeadlineMinutes: "15",
   includeMaintenance: false,
 };
@@ -82,6 +83,7 @@ function apiProfile(overrides: Partial<CurtailmentResponseProfile> = {}): Curtai
     curtailBatchIntervalSec: 30,
     restoreBatchSize: 10_000,
     restoreBatchIntervalSec: 0,
+    postEventCooldownSec: 600,
   });
 
   return Object.assign(profile, overrides);
@@ -146,6 +148,7 @@ describe("useCurtailmentResponseProfiles", () => {
         curtailBatchIntervalSec: 30,
         restoreBatchSize: 10_000,
         restoreBatchIntervalSec: 0,
+        postEventCooldownSec: 600,
       }),
     );
     expect(mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0]?.site).toBeUndefined();
@@ -158,6 +161,7 @@ describe("useCurtailmentResponseProfiles", () => {
       expect.objectContaining({
         profileId: 7n,
         profileName: "Updated",
+        postEventCooldownSec: 600,
       }),
     );
     expect(mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0]?.site).toBeUndefined();

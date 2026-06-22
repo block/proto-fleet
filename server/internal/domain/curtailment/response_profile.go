@@ -19,6 +19,7 @@ const (
 	DefaultResponseProfileCurtailBatchIntervalSec int32 = 0
 	DefaultResponseProfileRestoreBatchSize        int32 = 50
 	DefaultResponseProfileRestoreBatchIntervalSec int32 = 5
+	MaxPostEventCooldownSec                       int32 = 24 * 60 * 60
 
 	responseProfileBatchSizeMax int32   = 10000
 	responseProfileNumericMax   float64 = 999999999.999
@@ -279,6 +280,23 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 	}
 	if profile.ForceIncludeMaintenance && !canUseAdminControls {
 		return fleeterror.NewForbiddenError("only admins can set force_include_maintenance")
+	}
+	if err := validatePostEventCooldownSec(profile.PostEventCooldownSec); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validatePostEventCooldownSec(value int32) error {
+	if value < 0 {
+		return fleeterror.NewInvalidArgumentError("post_event_cooldown_sec must be >= 0")
+	}
+	if value > MaxPostEventCooldownSec {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"post_event_cooldown_sec must be <= %d, got %d",
+			MaxPostEventCooldownSec,
+			value,
+		)
 	}
 	return nil
 }

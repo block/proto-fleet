@@ -57,7 +57,7 @@ func NewHandlerWithResponseProfiles(
 	return h
 }
 
-func NewHandlerWithCurtailmentSettings(
+func NewHandlerWithAutomation(
 	service *curtailment.Service,
 	profiles *curtailment.ResponseProfileService,
 	automation *curtailment.AutomationService,

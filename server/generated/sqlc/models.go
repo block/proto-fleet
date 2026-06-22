@@ -514,7 +514,6 @@ type CurtailmentOrgConfig struct {
 	OrgID                 int64
 	MaxDurationDefaultSec int32
 	CandidateMinPowerW    int32
-	PostEventCooldownSec  int32
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 }
@@ -546,6 +545,7 @@ type CurtailmentResponseProfile struct {
 	ForceIncludeMaintenance bool
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
+	PostEventCooldownSec    int32
 }
 
 type CurtailmentTarget struct {

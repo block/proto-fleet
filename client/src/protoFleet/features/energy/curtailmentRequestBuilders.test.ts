@@ -25,6 +25,7 @@ const baseValues: CurtailmentSubmitValues = {
   curtailBatchIntervalSec: "",
   restoreBatchSize: "",
   restoreIntervalSec: "",
+  postEventCooldownSec: "0",
   reason: "Grid peak",
   includeMaintenance: false,
 };
@@ -60,12 +61,14 @@ describe("curtailmentRequestBuilders", () => {
       maxDurationSec: "1800",
       restoreBatchSize: "10",
       restoreIntervalSec: "120",
+      postEventCooldownSec: "600",
     });
 
     expect(request.minCurtailedDurationSec).toBe(300);
     expect(request.maxDurationSeconds).toBe(1800);
     expect(request.restoreBatchSize).toBe(10);
     expect(request.restoreBatchIntervalSec).toBe(120);
+    expect(request.postEventCooldownSec).toBe(600);
   });
 
   it("keeps unsupported scope state from falling back to the whole fleet", () => {
@@ -137,6 +140,13 @@ describe("curtailmentRequestBuilders", () => {
         maxDurationSec: "604801",
       }),
     ).toThrow("Enter max duration of 604,800 or less.");
+
+    expect(() =>
+      buildStartCurtailmentRequest({
+        ...baseValues,
+        postEventCooldownSec: "86401",
+      }),
+    ).toThrow("Enter post-event cooldown of 86,400 or less.");
   });
 
   it("builds update requests with changed operator-safe fields only", () => {

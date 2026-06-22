@@ -190,6 +190,7 @@ func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResp
 		msg.RestoreBatchIntervalSec,
 		msg.GetIncludeMaintenance(),
 		msg.GetForceIncludeMaintenance(),
+		msg.GetPostEventCooldownSec(),
 	)
 	if err != nil {
 		return models.ResponseProfile{}, err
@@ -215,6 +216,7 @@ func responseProfileFromUpdateRequest(orgID int64, msg *pb.UpdateCurtailmentResp
 		msg.RestoreBatchIntervalSec,
 		msg.GetIncludeMaintenance(),
 		msg.GetForceIncludeMaintenance(),
+		msg.GetPostEventCooldownSec(),
 	)
 }
 
@@ -235,6 +237,7 @@ func responseProfileFromPayload(
 	restoreBatchIntervalSec *uint32,
 	includeMaintenance bool,
 	forceIncludeMaintenance bool,
+	postEventCooldownSec uint32,
 ) (models.ResponseProfile, error) {
 	mode, fixedKw, err := toRequestMode(modeProto, fixedKw, hasModeParams)
 	if err != nil {
@@ -268,6 +271,10 @@ func responseProfileFromPayload(
 	if err != nil {
 		return models.ResponseProfile{}, err
 	}
+	postEventCooldownInt, err := uint32ToInt32Strict("post_event_cooldown_sec", postEventCooldownSec)
+	if err != nil {
+		return models.ResponseProfile{}, err
+	}
 	var targetKW *float64
 	var toleranceKW *float64
 	if fixedKw != nil {
@@ -294,6 +301,7 @@ func responseProfileFromPayload(
 		RestoreBatchIntervalSec: restoreBatchIntervalInt,
 		IncludeMaintenance:      includeMaintenance,
 		ForceIncludeMaintenance: forceIncludeMaintenance,
+		PostEventCooldownSec:    postEventCooldownInt,
 	}
 	if site != nil {
 		siteID := site.GetSiteId()
@@ -319,6 +327,7 @@ func toResponseProfileProto(profile *models.ResponseProfile) *pb.CurtailmentResp
 		RestoreBatchIntervalSec: uint32Saturating(profile.RestoreBatchIntervalSec),
 		IncludeMaintenance:      profile.IncludeMaintenance,
 		ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
+		PostEventCooldownSec:    uint32Saturating(profile.PostEventCooldownSec),
 		CreatedAt:               profileTimeProto(profile.CreatedAt),
 		UpdatedAt:               profileTimeProto(profile.UpdatedAt),
 	}

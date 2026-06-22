@@ -317,11 +317,12 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	assert.Equal(t, receivedAt, h.rules.lastActiveAt)
 }
 
-func TestAutomationService_HandleMQTTSignal_OffBypassesPostRestoreCooldown(t *testing.T) {
+func TestAutomationService_HandleMQTTSignal_OffUsesResponseProfileCooldown(t *testing.T) {
 	t.Parallel()
 
 	h := newAutomationHarness(t)
 	h.seedRunnableProfile()
+	h.profile.PostEventCooldownSec = 600
 	h.curtailments.cooldownDevicesByOrg[h.orgID] = []string{"miner-a", "miner-b"}
 
 	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
@@ -330,7 +331,8 @@ func TestAutomationService_HandleMQTTSignal_OffBypassesPostRestoreCooldown(t *te
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, 0, h.curtailments.cooldownCalls)
+	assert.Equal(t, 1, h.curtailments.cooldownCalls)
+	assert.Equal(t, int32(600), h.curtailments.lastCooldownSec)
 	assert.Equal(t, 1, h.curtailments.insertEventCalls)
 	assert.Equal(t, models.PriorityNormal, h.curtailments.lastInsertEvent.Priority)
 	assert.Equal(t, models.ModeFullFleet, h.curtailments.lastInsertEvent.Mode)

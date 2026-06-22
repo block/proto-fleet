@@ -32,7 +32,7 @@ func (q *Queries) DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg
 }
 
 const getCurtailmentResponseProfileByOrg = `-- name: GetCurtailmentResponseProfileByOrg :one
-SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at
+SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec
 FROM curtailment_response_profile
 WHERE id = $1
   AND org_id = $2
@@ -65,6 +65,7 @@ func (q *Queries) GetCurtailmentResponseProfileByOrg(ctx context.Context, arg Ge
 		&i.ForceIncludeMaintenance,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PostEventCooldownSec,
 	)
 	return i, err
 }
@@ -85,7 +86,8 @@ INSERT INTO curtailment_response_profile (
     restore_batch_size,
     restore_batch_interval_sec,
     include_maintenance,
-    force_include_maintenance
+    force_include_maintenance,
+    post_event_cooldown_sec
 ) VALUES (
     $1,
     $2,
@@ -101,9 +103,10 @@ INSERT INTO curtailment_response_profile (
     $12,
     $13,
     $14,
-    $15
+    $15,
+    $16
 )
-RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at
+RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec
 `
 
 type InsertCurtailmentResponseProfileParams struct {
@@ -122,6 +125,7 @@ type InsertCurtailmentResponseProfileParams struct {
 	RestoreBatchIntervalSec int32
 	IncludeMaintenance      bool
 	ForceIncludeMaintenance bool
+	PostEventCooldownSec    int32
 }
 
 func (q *Queries) InsertCurtailmentResponseProfile(ctx context.Context, arg InsertCurtailmentResponseProfileParams) (CurtailmentResponseProfile, error) {
@@ -141,6 +145,7 @@ func (q *Queries) InsertCurtailmentResponseProfile(ctx context.Context, arg Inse
 		arg.RestoreBatchIntervalSec,
 		arg.IncludeMaintenance,
 		arg.ForceIncludeMaintenance,
+		arg.PostEventCooldownSec,
 	)
 	var i CurtailmentResponseProfile
 	err := row.Scan(
@@ -162,12 +167,13 @@ func (q *Queries) InsertCurtailmentResponseProfile(ctx context.Context, arg Inse
 		&i.ForceIncludeMaintenance,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PostEventCooldownSec,
 	)
 	return i, err
 }
 
 const listCurtailmentResponseProfilesByOrg = `-- name: ListCurtailmentResponseProfilesByOrg :many
-SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at
+SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec
 FROM curtailment_response_profile
 WHERE org_id = $1
 ORDER BY profile_name, id
@@ -201,6 +207,7 @@ func (q *Queries) ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgI
 			&i.ForceIncludeMaintenance,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PostEventCooldownSec,
 		); err != nil {
 			return nil, err
 		}
@@ -231,11 +238,12 @@ SET
     restore_batch_size = $11,
     restore_batch_interval_sec = $12,
     include_maintenance = $13,
-    force_include_maintenance = $14
-WHERE id = $15
-  AND org_id = $16
-  AND site_id IS NOT DISTINCT FROM $17
-RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at
+    force_include_maintenance = $14,
+    post_event_cooldown_sec = $15
+WHERE id = $16
+  AND org_id = $17
+  AND site_id IS NOT DISTINCT FROM $18
+RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec
 `
 
 type UpdateCurtailmentResponseProfileParams struct {
@@ -253,6 +261,7 @@ type UpdateCurtailmentResponseProfileParams struct {
 	RestoreBatchIntervalSec int32
 	IncludeMaintenance      bool
 	ForceIncludeMaintenance bool
+	PostEventCooldownSec    int32
 	ID                      int64
 	OrgID                   int64
 	ExpectedSiteID          sql.NullInt64
@@ -274,6 +283,7 @@ func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg Upda
 		arg.RestoreBatchIntervalSec,
 		arg.IncludeMaintenance,
 		arg.ForceIncludeMaintenance,
+		arg.PostEventCooldownSec,
 		arg.ID,
 		arg.OrgID,
 		arg.ExpectedSiteID,
@@ -298,6 +308,7 @@ func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg Upda
 		&i.ForceIncludeMaintenance,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PostEventCooldownSec,
 	)
 	return i, err
 }

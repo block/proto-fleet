@@ -79,26 +79,6 @@ func (s *SQLCurtailmentStore) GetOrgConfig(ctx context.Context, orgID int64) (*m
 		OrgID:                 row.OrgID,
 		MaxDurationDefaultSec: row.MaxDurationDefaultSec,
 		CandidateMinPowerW:    row.CandidateMinPowerW,
-		PostEventCooldownSec:  row.PostEventCooldownSec,
-	}, nil
-}
-
-func (s *SQLCurtailmentStore) UpdateOrgConfigPostEventCooldown(ctx context.Context, orgID int64, cooldownSec int32) (*models.OrgConfig, error) {
-	if _, err := s.GetOrgConfig(ctx, orgID); err != nil {
-		return nil, err
-	}
-	row, err := s.GetQueries(ctx).UpdateCurtailmentOrgConfigPostEventCooldown(ctx, sqlc.UpdateCurtailmentOrgConfigPostEventCooldownParams{
-		OrgID:                orgID,
-		PostEventCooldownSec: cooldownSec,
-	})
-	if err != nil {
-		return nil, mapOrgConfigError(err, orgID)
-	}
-	return &models.OrgConfig{
-		OrgID:                 row.OrgID,
-		MaxDurationDefaultSec: row.MaxDurationDefaultSec,
-		CandidateMinPowerW:    row.CandidateMinPowerW,
-		PostEventCooldownSec:  row.PostEventCooldownSec,
 	}, nil
 }
 
@@ -1933,6 +1913,7 @@ func responseProfileFromRow(row sqlc.CurtailmentResponseProfile) *models.Respons
 		RestoreBatchIntervalSec: row.RestoreBatchIntervalSec,
 		IncludeMaintenance:      row.IncludeMaintenance,
 		ForceIncludeMaintenance: row.ForceIncludeMaintenance,
+		PostEventCooldownSec:    row.PostEventCooldownSec,
 		CreatedAt:               row.CreatedAt,
 		UpdatedAt:               row.UpdatedAt,
 	}
@@ -1955,6 +1936,7 @@ func insertResponseProfileParams(profile models.ResponseProfile) sqlc.InsertCurt
 		RestoreBatchIntervalSec: profile.RestoreBatchIntervalSec,
 		IncludeMaintenance:      profile.IncludeMaintenance,
 		ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
+		PostEventCooldownSec:    profile.PostEventCooldownSec,
 	}
 }
 
@@ -1977,6 +1959,7 @@ func updateResponseProfileParams(profile models.ResponseProfile, expectedSiteID 
 		RestoreBatchIntervalSec: profile.RestoreBatchIntervalSec,
 		IncludeMaintenance:      profile.IncludeMaintenance,
 		ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
+		PostEventCooldownSec:    profile.PostEventCooldownSec,
 	}
 }
 

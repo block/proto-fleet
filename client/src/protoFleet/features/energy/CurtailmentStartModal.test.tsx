@@ -122,6 +122,7 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
       curtailBatchIntervalSec: "60",
       restoreBatchSize: "10",
       restoreIntervalSec: "120",
+      postEventCooldownSec: "600",
       includeMaintenance: true,
     },
   },
@@ -135,6 +136,7 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
       curtailBatchIntervalSec: "30",
       restoreBatchSize: "20",
       restoreIntervalSec: "120",
+      postEventCooldownSec: "0",
       includeMaintenance: true,
     },
   },
@@ -353,6 +355,7 @@ describe("CurtailmentStartModal", () => {
         siteId: "",
         deviceSetIds: [],
         deviceIdentifiers: [],
+        postEventCooldownSec: "600",
       }),
     );
   });
@@ -478,6 +481,10 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
     expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("120");
+    const cooldownInput = screen.getByTestId("response-profile-post-event-cooldown");
+    expect(cooldownInput).toHaveValue("0");
+    await user.clear(cooldownInput);
+    await user.type(cooldownInput, "600");
     expect(mockUseCurtailmentPlanPreview).toHaveBeenCalledWith(expect.objectContaining({ disabled: false }));
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
 
@@ -502,6 +509,7 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
+        postEventCooldownSec: "600",
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         deviceSetIds: [],
@@ -521,6 +529,7 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
+        postEventCooldownSec: "600",
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         deviceSetIds: [],
@@ -650,6 +659,7 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10000",
         restoreIntervalSec: "0",
+        postEventCooldownSec: "900",
         includeMaintenance: false,
       },
     });
@@ -669,6 +679,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
     expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
+    expect(screen.getByTestId("response-profile-post-event-cooldown")).toHaveValue("900");
     expect(screen.queryByText("Apply to")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
@@ -699,6 +710,7 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10000",
         restoreIntervalSec: "0",
+        postEventCooldownSec: "900",
       }),
     );
 
@@ -715,6 +727,7 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10000",
         restoreIntervalSec: "0",
+        postEventCooldownSec: "900",
       }),
     );
 
@@ -1206,19 +1219,49 @@ describe("CurtailmentStartModal", () => {
     const saveButton = screen.getByRole("button", { name: "Save profile" });
     const batchSizeInput = screen.getByTestId("response-profile-curtail-batch-size");
     const batchIntervalInput = screen.getByTestId("response-profile-curtail-batch-interval");
+    const cooldownInput = screen.getByTestId("response-profile-post-event-cooldown");
 
     await user.clear(batchSizeInput);
     await user.type(batchSizeInput, "10001");
     await user.clear(batchIntervalInput);
     await user.type(batchIntervalInput, "1.5");
+    await user.clear(cooldownInput);
+    await user.type(cooldownInput, "86401");
 
     expect(screen.getByText("Enter batch size of 10,000 or less.")).toBeInTheDocument();
     expect(screen.getByText("Enter batch interval as a whole number.")).toBeInTheDocument();
+    expect(screen.getByText("Enter post-event cooldown of 86,400 or less.")).toBeInTheDocument();
     expect(batchSizeInput).toHaveAttribute("aria-invalid", "true");
     expect(batchIntervalInput).toHaveAttribute("aria-invalid", "true");
+    expect(cooldownInput).toHaveAttribute("aria-invalid", "true");
     expect(saveButton).toBeEnabled();
 
     await user.click(saveButton);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["", "Enter post-event cooldown."],
+    ["-1", "Enter post-event cooldown of 0 or more."],
+    ["1.5", "Enter post-event cooldown as a whole number."],
+  ])("blocks invalid post-event cooldown value %s", async (value, message) => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+    });
+    const cooldownInput = screen.getByTestId("response-profile-post-event-cooldown");
+
+    await user.clear(cooldownInput);
+    if (value !== "") {
+      await user.type(cooldownInput, value);
+    }
+
+    expect(screen.getByText(message)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
     expect(onSubmit).not.toHaveBeenCalled();
   });
 

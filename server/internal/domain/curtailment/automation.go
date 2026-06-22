@@ -504,6 +504,7 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 			ToleranceKW:             toleranceKW,
 			IncludeMaintenance:      profile.IncludeMaintenance,
 			ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
+			PostEventCooldownSec:    profile.PostEventCooldownSec,
 		},
 		Reason:                    reason,
 		RestoreBatchSize:          profile.RestoreBatchSize,
