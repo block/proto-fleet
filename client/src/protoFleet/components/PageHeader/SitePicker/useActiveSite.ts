@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
-import { useRouteSiteScope } from "@/protoFleet/routing/siteScope";
+import { unscopedScopablePath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { type ActiveSite, DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
@@ -28,20 +29,32 @@ const useActiveSite = ({ knownSiteIds }: UseActiveSiteOptions): UseActiveSiteRes
   const stored = useFleetStore((state) => state.ui.activeSite);
   const setStored = useFleetStore((state) => state.ui.setActiveSite);
   const routeScope = useRouteSiteScope();
+  const navigate = useNavigate();
+  const { pathname, search, hash } = useLocation();
   const knownSiteIdsLoaded = knownSiteIds !== undefined;
   const routeScopeStale = routeScope?.kind === "site" && knownSiteIdsLoaded && !knownSiteIds.has(routeScope.id);
 
   useEffect(() => {
     if (!routeScope) return;
     if (routeScopeStale) {
+      // The URL points at a site that no longer exists or is inaccessible.
+      // Heal the URL by stripping the stale scope segment so every consumer
+      // (header picker, page feeds, CSV exports) agrees on all-sites rather
+      // than silently filtering to a non-existent site. Resetting the stored
+      // selection keeps the picker correct through the redirect.
       if (!activeSitesEqual(stored, DEFAULT_ACTIVE_SITE)) {
         setStored(DEFAULT_ACTIVE_SITE);
+      }
+      const current = `${pathname}${search}${hash}`;
+      const healed = `${unscopedScopablePath(pathname)}${search}${hash}`;
+      if (healed !== current) {
+        navigate(healed, { replace: true });
       }
       return;
     }
     if (activeSitesEqual(stored, routeScope)) return;
     setStored(routeScope);
-  }, [routeScope, routeScopeStale, stored, setStored]);
+  }, [routeScope, routeScopeStale, stored, setStored, navigate, pathname, search, hash]);
 
   // If the stored selection points at a site that no longer exists (deleted,
   // reassigned, or the user lost access), reset to "all" once ListSites has
