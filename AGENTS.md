@@ -106,7 +106,10 @@ code does, not the decisions made getting there. Structure it as:
 4. **Diagrams** — mermaid in fenced code blocks labeled `mermaid` so they render on
    GitHub. At least a component/flow diagram of the main path; add a state or
    sequence diagram where lifecycle or ordering matters. Keep syntax
-   GitHub-safe: quote labels with special characters, avoid fragile edge styles.
+   GitHub-safe: quote labels with special characters, avoid fragile edge styles,
+   and use explicit node IDs with bracketed labels (`A["Label"] --> B["Other"]`).
+   Do not use bare quoted string nodes (`"Label" --> "Other"`); GitHub's Mermaid
+   parser rejects that form in flowcharts.
 5. **Areas of the code involved** — a table mapping each changed area to its
    role so reviewers know where to focus: `| Area / package / file | What
    changed | Why it matters for review |`. Group by subsystem (`proto/`,
