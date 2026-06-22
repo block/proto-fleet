@@ -286,9 +286,11 @@ evaluated only for the page's candidate rows.
     `command_filter_skip`) have no `batch_id` and no single site (they span
     the requested device set), so they are org-level (`device_command`)
     and surface only in the all-sites feed — not the unassigned bucket.
-  - **Also newly stamped (single-site, cheap):** `update_collection` and
-    `delete_collection` (`collection/service.go`, from the collection's
-    `Placement.Site`); building delete (`buildings/service.go`
+  - **Also newly stamped (single-site, cheap):** `update_collection` (from the
+    post-update collection's `Placement.Site`) and `delete_collection` (from
+    the in-tx locked rack placement, not the best-effort prefetch — race-free
+    against a concurrent rack move) in `collection/service.go`; building delete
+    (`buildings/service.go`
     `DeleteBuilding`, from the deleted row's `site_id` returned by the
     `SoftDeleteBuilding … RETURNING` statement — race-free against a
     concurrent site move, no separate read); and rack building-unassign

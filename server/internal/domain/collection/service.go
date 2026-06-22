@@ -539,7 +539,13 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 	collection, prefetchErr := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
 
 	var siteUnassignedCount int64
+	// Site for the delete audit row, captured from the in-tx locked placement
+	// (not the best-effort prefetch) so a rack move racing the delete can't
+	// file the event under the old site. Nil for non-rack collections (groups
+	// have no site) and unassigned racks.
+	var lockedRackSiteID *int64
 	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		lockedRackSiteID = nil // reset in case RunInTx retries the closure
 		collType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, req.CollectionId)
 		if err != nil {
 			return err
@@ -548,8 +554,13 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 			// Lock the rack FOR UPDATE so concurrent AddDevicesToCollection
 			// / SaveRack can't slip a new member or cascade in between our
 			// unassign + membership-drop + soft-delete steps.
-			if _, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID); err != nil {
+			placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID)
+			if err != nil {
 				return err
+			}
+			if placement.SiteID != nil {
+				sid := *placement.SiteID
+				lockedRackSiteID = &sid
 			}
 			n, err := s.collectionStore.UnassignDeviceSitesByRack(ctx, req.CollectionId, info.OrganizationID)
 			if err != nil {
@@ -605,9 +616,10 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 			UserID:         &info.ExternalUserID,
 			Username:       &info.Username,
 			OrganizationID: &info.OrganizationID,
-			// Stamp the prefetched collection's site so a site-scoped rack
-			// delete lands in /{site}/activity; nil for site-less groups.
-			SiteID: collectionSiteID(collection),
+			// Stamp the site from the in-tx locked placement so a site-scoped
+			// rack delete lands in /{site}/activity; nil for site-less groups
+			// and unassigned racks.
+			SiteID: lockedRackSiteID,
 		}
 		if siteUnassignedCount > 0 {
 			event.Metadata = map[string]any{
