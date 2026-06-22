@@ -42,6 +42,7 @@ import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetMa
 import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
 import { isPathScopable } from "@/protoFleet/routing/siteScope";
+import { useHasPermission } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
 
@@ -97,6 +98,11 @@ const Fleet = () => {
     [activeSite],
   );
   const [availableBuildings, setAvailableBuildings] = useState<FilterLabelSource[]>([]);
+  const canReadBuildings = useHasPermission("site:read");
+  const readableAvailableBuildings = useMemo(
+    () => (canReadBuildings ? availableBuildings : []),
+    [availableBuildings, canReadBuildings],
+  );
 
   useEffect(() => {
     listGroups({
@@ -109,6 +115,9 @@ const Fleet = () => {
         setAvailableRacks(deviceSets);
       },
     });
+    if (!canReadBuildings) {
+      return;
+    }
     listAllBuildings({
       onSuccess: (buildings) => {
         setAvailableBuildings(
@@ -118,7 +127,7 @@ const Fleet = () => {
         );
       },
     });
-  }, [listGroups, listRacks, listAllBuildings]);
+  }, [listGroups, listRacks, listAllBuildings, canReadBuildings]);
 
   const { pathname } = useLocation();
   const insideFleetShell = isPathScopable(pathname);
@@ -285,8 +294,13 @@ const Fleet = () => {
   // (mounted in the top tab strip) can show human-readable labels for any
   // group/rack ids referenced by an active filter.
   useEffect(() => {
-    publishViewFilterContext({ availableGroups, availableRacks, availableBuildings, availableSites });
-  }, [publishViewFilterContext, availableGroups, availableRacks, availableBuildings, availableSites]);
+    publishViewFilterContext({
+      availableGroups,
+      availableRacks,
+      availableBuildings: readableAvailableBuildings,
+      availableSites,
+    });
+  }, [publishViewFilterContext, availableGroups, availableRacks, readableAvailableBuildings, availableSites]);
 
   const refetchAll = useCallback(() => {
     refetch();
@@ -367,7 +381,7 @@ const Fleet = () => {
           availableGroups={availableGroups}
           availableRacks={availableRacks}
           availableSites={availableSites}
-          availableBuildings={availableBuildings}
+          availableBuildings={readableAvailableBuildings}
           currentFilter={currentFilter}
           currentSortConfig={currentSortConfig}
           onExportCsv={siteScopeMatchesNoRows ? () => undefined : exportCsv}

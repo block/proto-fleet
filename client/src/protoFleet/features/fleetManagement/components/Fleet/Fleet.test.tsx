@@ -4,11 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POLL_INTERVAL_MS } from "./constants";
 import Fleet from "./Fleet";
 
-const { mockMinerList, mockRefetchAuthNeededMiners, mockRefetchErrors } = vi.hoisted(() => ({
-  mockMinerList: vi.fn(() => <div data-testid="miner-list">MinerList</div>),
-  mockRefetchAuthNeededMiners: vi.fn(),
-  mockRefetchErrors: vi.fn(),
-}));
+const { mockMinerList, mockRefetchAuthNeededMiners, mockRefetchErrors, mockListAllBuildings, mockUseHasPermission } =
+  vi.hoisted(() => ({
+    mockMinerList: vi.fn(() => <div data-testid="miner-list">MinerList</div>),
+    mockRefetchAuthNeededMiners: vi.fn(),
+    mockRefetchErrors: vi.fn(),
+    mockListAllBuildings: vi.fn(),
+    mockUseHasPermission: vi.fn(() => true),
+  }));
 
 // Mock all dependencies
 vi.mock("@/protoFleet/api/useFleet", () => ({
@@ -41,8 +44,15 @@ vi.mock("@/protoFleet/store", () => ({
   useCompleteBatchOperation: vi.fn(() => vi.fn()),
   useRemoveDevicesFromBatch: vi.fn(() => vi.fn()),
   useCleanupStaleBatches: vi.fn(() => vi.fn()),
+  useHasPermission: mockUseHasPermission,
   getActiveBatches: vi.fn(() => []),
   getAllBatches: vi.fn(() => []),
+}));
+
+vi.mock("@/protoFleet/api/buildings", () => ({
+  useBuildings: vi.fn(() => ({
+    listAllBuildings: mockListAllBuildings,
+  })),
 }));
 
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
@@ -227,6 +237,7 @@ describe("Fleet - Component Integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockMinerList.mockClear();
+    mockUseHasPermission.mockReturnValue(true);
   });
 
   it("should render MinerList component", () => {
@@ -287,5 +298,13 @@ describe("Fleet - Component Integration", () => {
     expect(mockRefetchErrors).toHaveBeenCalledTimes(1);
     expect(mockRefetchAuthNeededMiners).toHaveBeenCalledTimes(1);
     expect(mockRefetch).not.toHaveBeenCalled();
+  });
+
+  it("does not request building filter labels without site read permission", async () => {
+    mockUseHasPermission.mockImplementation((permission: string) => permission !== "site:read");
+
+    renderFleet();
+
+    expect(mockListAllBuildings).not.toHaveBeenCalled();
   });
 });
