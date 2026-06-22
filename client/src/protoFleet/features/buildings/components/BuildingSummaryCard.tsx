@@ -71,7 +71,7 @@ const BuildingSummaryCard = ({ building }: BuildingSummaryCardProps) => {
         className="flex h-full cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl bg-surface-5 px-5 py-6 transition-opacity hover:opacity-80"
         data-testid={`building-card-${idText}`}
       >
-        <span className="truncate text-emphasis-300 text-text-primary" data-testid={`building-card-${idText}-name`}>
+        <span className="max-w-full min-w-0 truncate text-emphasis-300 text-text-primary" data-testid={`building-card-${idText}-name`}>
           {label}
         </span>
 

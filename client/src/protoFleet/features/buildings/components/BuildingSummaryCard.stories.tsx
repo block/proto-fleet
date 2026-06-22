@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
 
-import BuildingCard from "./BuildingCard";
+import BuildingSummaryCard from "./BuildingSummaryCard";
 import { buildingsClient } from "@/protoFleet/api/clients";
 import {
   BuildingRackHealthSchema,
@@ -96,20 +96,20 @@ const StoryWrapper = ({
 
   return (
     <div className="w-48">
-      <BuildingCard building={building} />
+      <BuildingSummaryCard building={building} />
     </div>
   );
 };
 
 const meta: Meta = {
-  title: "Proto Fleet/BuildingCard",
-  component: BuildingCard,
+  title: "Proto Fleet/BuildingSummaryCard",
+  component: BuildingSummaryCard,
   parameters: {
     layout: "centered",
     docs: {
       description: {
         component:
-          "Card for a single building on the site detail page. Shows a HealthBar summary and a cursor-following hover popover with per-status breakdowns.",
+          "Compact card for a single building on the site detail page. Shows a HealthBar summary and a cursor-following hover popover with per-status breakdowns.",
       },
     },
   },

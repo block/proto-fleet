@@ -31,7 +31,7 @@ const MINIMAP_COLORS: Record<MinimapStatus, string> = {
 };
 
 const SORT_SEGMENTS = [
-  { key: "name", title: "Name" },
+  { key: "name", title: "Layout" },
   { key: "issues", title: "Issues" },
 ];
 
@@ -225,7 +225,12 @@ const BuildingRackGrid = ({
                   </div>
                 </div>
               ) : (
-                <div key={`empty-${ci}`} style={{ minHeight: `${TILE_MIN_PX}px` }} />
+                <div
+                  key={`empty-${ci}`}
+                  className="rounded-xl bg-surface-5/50"
+                  style={{ minHeight: `${TILE_MIN_PX}px` }}
+                  data-testid={`${testId}-empty-${ri}-${ci}`}
+                />
               ),
             )}
           </div>
@@ -359,7 +364,7 @@ const Minimap = ({ floorPlan, racksPerAisle, colsPerPage, posStart, testId }: Mi
         return (
           <div
             key={p}
-            className={clsx("grid gap-0.5 rounded-sm p-0.5", isCurrent && "border-2 border-text-primary")}
+            className={clsx("grid gap-0.5 rounded-sm border-2 p-0.5", isCurrent ? "border-text-primary" : "border-transparent")}
             style={{
               gridTemplateColumns: `repeat(${colsPerPage}, 4px)`,
               gridTemplateRows: `repeat(${floorPlan.length}, 1fr)`,
