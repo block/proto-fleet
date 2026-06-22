@@ -288,15 +288,21 @@ evaluated only for the page's candidate rows.
     and surface only in the all-sites feed — not the unassigned bucket.
   - **Also newly stamped (single-site, cheap):** `update_collection` and
     `delete_collection` (`collection/service.go`, from the collection's
-    `Placement.Site`) and building delete (`buildings/service.go`
+    `Placement.Site`); building delete (`buildings/service.go`
     `DeleteBuilding`, from the building's site captured pre-delete via
-    `GetBuildingSiteID`).
+    `GetBuildingSiteID`); and rack building-unassign
+    (`AssignRacksToBuilding` with `TargetBuildingID == nil`) — the source
+    site is recorded when the cleared batch shares one (single-rack or
+    same-site multi-rack), reusing the per-rack `SiteID` already read under
+    lock; a batch straddling sites (or with a site-less rack) stays NULL.
   - **Known limitation (follow-up):** the genuinely multi-device events
     still write `site_id` NULL with a non-org-level category and so fall in
-    the unassigned bucket — `fleet_management` miner rename / unpair, and
-    `collection` add/remove-devices. These span multiple sites, so a clean
-    fix needs per-event scope stamping or explicit scope metadata — out of
-    scope here, tracked as a follow-up.
+    the unassigned bucket — device building-unassign
+    (`AssignDevicesToBuilding` with no target; devices carry a direct
+    `device.site_id` not read on this path, and a bulk set may straddle
+    sites), `fleet_management` miner rename / unpair, and `collection`
+    add/remove-devices. A clean fix needs per-event scope resolution or
+    explicit scope metadata — out of scope here, tracked as a follow-up.
 
 ### Client
 

@@ -431,11 +431,15 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			// (move within one site) hits buildings but not sites.
 			cascadeBuildingRackIDs []int64
 			positionedRackIDs      []int64
-			// For a building-only unassign (TargetBuildingID == nil) of a
-			// single rack, capture the rack's current SiteID so the activity
-			// log preserves "the site this rack lives in" instead of nil
-			// (which would make the event look site-less).
-			fallbackSiteID *int64
+			// For a building-only unassign (TargetBuildingID == nil), capture
+			// the source site so the activity log preserves "the site this
+			// rack lives in" instead of nil. clearSourceSite holds the single
+			// site shared by the batch; clearSourceAmbiguous trips when the
+			// batch straddles sites or includes a site-less rack, in which
+			// case no single site is recorded (surfacing one would mislead).
+			fallbackSiteID       *int64
+			clearSourceSite      *int64
+			clearSourceAmbiguous bool
 		)
 		// Lock the target building first (canonical lock order:
 		// building -> rack). Skip when unassigning — there is no
@@ -491,13 +495,22 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			}
 			allRackIDs = append(allRackIDs, rp.RackID)
 
-			// Capture the source SiteID for a single-rack building-only
-			// unassign so the activity log carries the rack's site
-			// instead of nil. Only meaningful when the batch is exactly
-			// one rack — multi-rack batches may straddle sites and
-			// surfacing the first rack's site would be misleading.
-			if params.TargetBuildingID == nil && len(racks) == 1 {
-				fallbackSiteID = current.SiteID
+			// Capture the source site for a building-only unassign so the
+			// activity log carries the rack's site instead of nil. A single
+			// shared site (one rack, or same-site multi-rack) is recorded;
+			// a batch straddling sites — or including a site-less rack — is
+			// left ambiguous so the event stays site-less rather than
+			// misattributing one rack's site to the whole batch.
+			if params.TargetBuildingID == nil {
+				switch {
+				case current.SiteID == nil:
+					clearSourceAmbiguous = true
+				case clearSourceSite == nil:
+					site := *current.SiteID
+					clearSourceSite = &site
+				case *clearSourceSite != *current.SiteID:
+					clearSourceAmbiguous = true
+				}
 			}
 
 			// Building-only unassign must NOT cascade-clear the rack's
@@ -532,6 +545,12 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 					cascadeRackIDs = append(cascadeRackIDs, rp.RackID)
 				}
 			}
+		}
+
+		// Record the source site on a building-only unassign only when the
+		// whole batch shares one (see clearSourceSite above).
+		if params.TargetBuildingID == nil && !clearSourceAmbiguous {
+			fallbackSiteID = clearSourceSite
 		}
 
 		// Phase B1: single bulk write for site_id + building_id + zone
