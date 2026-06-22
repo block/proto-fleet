@@ -99,6 +99,7 @@ beforeEach(() => {
     onSuccess?.([buildSite(1), buildSite(2)]);
   });
   activeSiteMock.current = { kind: "all" };
+  hasPermissionMock.current = () => true;
   localStorage.clear();
 });
 
@@ -172,7 +173,7 @@ describe("FleetLayout lastTab persistence", () => {
 });
 
 describe("FleetLayout scoped-permission fallback", () => {
-  test("falls back to /fleet/miners when listSites returns PermissionDenied", async () => {
+  test("falls back to the first visible tab when listSites returns PermissionDenied", async () => {
     // Keep the runtime PermissionDenied fallback for stale sessions or
     // server-side authz changes that can still deny the org-scoped ListSites
     // call after the client gate passes.
@@ -180,17 +181,25 @@ describe("FleetLayout scoped-permission fallback", () => {
       onError?.("access denied", Code.PermissionDenied);
     });
     renderAt("/fleet");
-    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks"));
   });
 
-  test("ignores stored lastTab=racks when site access is blocked", async () => {
-    // A persisted "racks" pick must not override the Miners safe path —
-    // rack:read can be denied for the same role that lacks site:read,
-    // and landing on /fleet/racks would just show another permission error.
+  test("keeps stored lastTab=racks when site access is blocked but rack access is allowed", async () => {
     localStorage.setItem("fleet:lastActiveTab", JSON.stringify("racks"));
     hasPermissionMock.current = (key: string) => key !== "site:read";
     renderAt("/fleet");
-    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks"));
+  });
+
+  test("does not mount a Fleet tab when no org-scoped Fleet read permissions are held", async () => {
+    hasPermissionMock.current = () => false;
+    renderAt("/fleet");
+    await waitFor(() => {
+      expect(screen.getByText("You do not have permission to view Fleet sections.")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("location-probe").textContent).toBe("/fleet");
+    expect(screen.queryByTestId("tab-content-miners")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tab-content-racks")).not.toBeInTheDocument();
   });
 });
 
