@@ -181,12 +181,94 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, req *pairing
 	}
 }
 
+// RunPairOnNode dispatches a pairing command to a single CONFIRMED node and
+// invokes onResults for each persisted pair-result batch the node reports.
+func (s *Service) RunPairOnNode(ctx context.Context, fleetNodeID int64, req *pairingpb.FleetNodePairRequest, onResults func([]*gatewaypb.FleetNodePairResult) error) error {
+	if len(req.GetTargets()) == 0 {
+		return fleeterror.NewInvalidArgumentError("pair request must include at least one target")
+	}
+	commandID := id.GenerateID()
+	payload, err := proto.Marshal(&pairingpb.AgentCommand{
+		Command: &pairingpb.AgentCommand_Pair{Pair: req},
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("marshal pair payload: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, DiscoverCommandTimeout)
+	defer cancel()
+
+	session, err := s.registry.Send(ctx, fleetNodeID, &gatewaypb.ControlCommand{
+		CommandId: commandID,
+		Payload:   payload,
+	}, nil)
+	if err != nil {
+		if errors.Is(err, control.ErrNoActiveStream) {
+			return fleeterror.NewFailedPreconditionError("fleet node has no active control stream")
+		}
+		return err
+	}
+	defer session.Close()
+
+	handleEvent := func(ev control.CommandEvent) (terminal bool, err error) {
+		switch {
+		case ev.PairResults != nil:
+			if sendErr := onResults(ev.PairResults); sendErr != nil {
+				return true, sendErr
+			}
+			return false, nil
+		case ev.Ack != nil:
+			if ev.Ack.GetCode() == gatewaypb.AckCode_ACK_CODE_PARTIAL {
+				slog.Warn("fleet node pairing completed partially",
+					"fleet_node_id", fleetNodeID, "detail", ev.Ack.GetErrorMessage())
+				return true, nil
+			}
+			if ev.Ack.GetCode() != gatewaypb.AckCode_ACK_CODE_OK || !ev.Ack.GetSucceeded() {
+				return true, commandAckFailure(ev.Ack, "pair")
+			}
+			return true, nil
+		default:
+			return false, nil
+		}
+	}
+
+	events := session.Events()
+	for {
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("pair command timed out after %s", DiscoverCommandTimeout))
+			}
+			return fleeterror.NewCanceledError()
+		case ev := <-events:
+			if terminal, err := handleEvent(ev); terminal {
+				return err
+			}
+		case <-session.Done():
+			for {
+				select {
+				case ev := <-events:
+					if terminal, err := handleEvent(ev); terminal {
+						return err
+					}
+				default:
+					return fleeterror.NewFailedPreconditionError("fleet node control stream closed before command completed")
+				}
+			}
+		}
+	}
+}
+
 // discoverAckFailure maps a non-OK ack to an operator-facing error, even when
 // error_message is empty. The structured AckCode drives the gRPC code so the
 // operator can tell a retryable condition (BUSY) and a capability gap
 // (AGENT_INCAPABLE) apart from a malformed request (BAD_REQUEST); anything else
 // is an opaque Internal failure.
 func discoverAckFailure(ack *gatewaypb.ControlAck) error {
+	return commandAckFailure(ack, "discovery")
+}
+
+func commandAckFailure(ack *gatewaypb.ControlAck, commandName string) error {
 	reason := ack.GetErrorMessage()
 	if reason == "" {
 		reason = "code " + ack.GetCode().String()
@@ -195,7 +277,7 @@ func discoverAckFailure(ack *gatewaypb.ControlAck) error {
 	// AckCode; everything outside these three is an opaque Internal failure.
 	code := ack.GetCode()
 	if code == gatewaypb.AckCode_ACK_CODE_BAD_REQUEST {
-		return fleeterror.NewInvalidArgumentErrorf("fleet node rejected discovery command: %s", reason)
+		return fleeterror.NewInvalidArgumentErrorf("fleet node rejected %s command: %s", commandName, reason)
 	}
 	if code == gatewaypb.AckCode_ACK_CODE_BUSY {
 		return fleeterror.NewPlainError(
@@ -204,9 +286,9 @@ func discoverAckFailure(ack *gatewaypb.ControlAck) error {
 		)
 	}
 	if code == gatewaypb.AckCode_ACK_CODE_AGENT_INCAPABLE {
-		return fleeterror.NewFailedPreconditionErrorf("fleet node cannot service this discovery request; try another node: %s", reason)
+		return fleeterror.NewFailedPreconditionErrorf("fleet node cannot service this %s request; try another node: %s", commandName, reason)
 	}
-	return fleeterror.NewInternalErrorf("fleet node reported discovery failure: %s", reason)
+	return fleeterror.NewInternalErrorf("fleet node reported %s failure: %s", commandName, reason)
 }
 
 func normalizeDiscoverRequest(in *pairingpb.DiscoverRequest) (*pairingpb.DiscoverRequest, error) {

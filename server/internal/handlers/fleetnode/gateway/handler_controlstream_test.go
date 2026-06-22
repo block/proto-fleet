@@ -59,7 +59,8 @@ func newControlHarness(t *testing.T) *controlHarness {
 	authStore := sqlstores.NewSQLFleetNodeAuthStore(db)
 	authSvc := auth.NewService(authStore, enrollmentStore, apiKeySvc)
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
-	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor)
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor, deviceStore)
 	registry := control.NewRegistry()
 
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)

@@ -71,11 +71,12 @@ var (
 	errDuplicateCommandID = errors.New("duplicate command_id in flight for fleet_node")
 )
 
-// CommandEvent is one message of a report-bearing command's result stream: exactly
-// one of Batch or Ack is set.
+// CommandEvent is one message of a report-bearing command's result stream:
+// exactly one of Batch, PairResults, or Ack is set.
 type CommandEvent struct {
-	Batch *pairingpb.DiscoverResponse
-	Ack   *gatewaypb.ControlAck
+	Batch       *pairingpb.DiscoverResponse
+	PairResults []*gatewaypb.FleetNodePairResult
+	Ack         *gatewaypb.ControlAck
 }
 
 // ReportScope reports whether a device discovered at (ipAddress, port) falls

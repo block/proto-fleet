@@ -2,11 +2,15 @@ package pairing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"regexp"
 	"strconv"
 
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -20,9 +24,13 @@ const (
 	clientErrUpsertDiscoveredDevice    = "discovery upsert failed"
 	clientErrLookupDeviceForPairing    = "device lookup failed"
 	clientErrLookupFleetNodeForPairing = "fleet node lookup failed"
+	statusPaired                       = "PAIRED"
+	statusAuthenticationNeeded         = "AUTHENTICATION_NEEDED"
+	statusFailed                       = "FAILED"
 )
 
 type Store interface {
+	DeviceIDByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (int64, error)
 	PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error)
 	TransferDiscoveredDeviceAttribution(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
 	DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error)
@@ -37,10 +45,15 @@ type Service struct {
 	store           Store
 	enrollmentStore enrollment.AgentStore
 	transactor      stores.Transactor
+	deviceStore     stores.DeviceStore
 }
 
-func NewService(store Store, enrollmentStore enrollment.AgentStore, transactor stores.Transactor) *Service {
-	return &Service{store: store, enrollmentStore: enrollmentStore, transactor: transactor}
+func NewService(store Store, enrollmentStore enrollment.AgentStore, transactor stores.Transactor, deviceStore ...stores.DeviceStore) *Service {
+	s := &Service{store: store, enrollmentStore: enrollmentStore, transactor: transactor}
+	if len(deviceStore) > 0 {
+		s.deviceStore = deviceStore[0]
+	}
+	return s
 }
 
 func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error {
@@ -132,6 +145,204 @@ func (s *Service) ListDiscoveredDevicesForFleetNode(ctx context.Context, orgID i
 		nextCursor = &last
 	}
 	return devices, nextCursor, nil
+}
+
+func (s *Service) PairTargetsForDiscoveredDevices(ctx context.Context, orgID, fleetNodeID int64, deviceIdentifiers []string, pairAll bool) ([]*pairingpb.FleetNodePairTarget, error) {
+	if fleetNodeID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("fleet_node_id is required")
+	}
+	if !pairAll && len(deviceIdentifiers) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("device_identifiers must not be empty unless pair_all_unpaired is true")
+	}
+
+	devices, _, err := s.ListDiscoveredDevicesForFleetNode(ctx, orgID, &fleetNodeID, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	byIdentifier := make(map[string]FleetNodeDiscoveredDevice, len(devices))
+	for _, d := range devices {
+		byIdentifier[d.DeviceIdentifier] = d
+	}
+
+	selected := devices
+	if !pairAll {
+		selected = make([]FleetNodeDiscoveredDevice, 0, len(deviceIdentifiers))
+		seen := make(map[string]struct{}, len(deviceIdentifiers))
+		for _, id := range deviceIdentifiers {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			d, ok := byIdentifier[id]
+			if !ok {
+				return nil, fleeterror.NewInvalidArgumentErrorf("device_identifier %q is not available for pairing on this fleet node", id)
+			}
+			selected = append(selected, d)
+		}
+	}
+	if len(selected) == 0 {
+		return nil, fleeterror.NewFailedPreconditionError("no unpaired discovered devices are available for pairing")
+	}
+
+	targets := make([]*pairingpb.FleetNodePairTarget, 0, len(selected))
+	for _, d := range selected {
+		targets = append(targets, &pairingpb.FleetNodePairTarget{
+			DeviceIdentifier: d.DeviceIdentifier,
+			IpAddress:        d.IPAddress,
+			Port:             d.Port,
+			UrlScheme:        d.URLScheme,
+			DriverName:       d.DriverName,
+			Manufacturer:     d.Manufacturer,
+			FirmwareVersion:  d.FirmwareVersion,
+		})
+	}
+	return targets, nil
+}
+
+func (s *Service) ApplyPairResults(ctx context.Context, fleetNodeID, orgID int64, results []*gatewaypb.FleetNodePairResult) (accepted []*gatewaypb.FleetNodePairResult, rejected int64, err error) {
+	if s.deviceStore == nil {
+		return nil, 0, fleeterror.NewInternalError("fleet node pairing device store is not configured")
+	}
+	devices, _, err := s.ListDiscoveredDevicesForFleetNode(ctx, orgID, &fleetNodeID, nil, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	candidates := make(map[string]FleetNodeDiscoveredDevice, len(devices))
+	for _, d := range devices {
+		candidates[d.DeviceIdentifier] = d
+	}
+
+	accepted = make([]*gatewaypb.FleetNodePairResult, 0, len(results))
+	for _, res := range results {
+		if res == nil {
+			rejected++
+			continue
+		}
+		candidate, ok := candidates[res.GetDeviceIdentifier()]
+		if !ok {
+			rejected++
+			continue
+		}
+		if err := s.applyPairResult(ctx, fleetNodeID, orgID, candidate, res); err != nil {
+			if errors.Is(err, errPairResultRejected) {
+				rejected++
+				continue
+			}
+			return nil, 0, err
+		}
+		accepted = append(accepted, res)
+	}
+	return accepted, rejected, nil
+}
+
+var errPairResultRejected = errors.New("pair result rejected")
+
+func (s *Service) applyPairResult(ctx context.Context, fleetNodeID, orgID int64, candidate FleetNodeDiscoveredDevice, res *gatewaypb.FleetNodePairResult) error {
+	status, attachToNode, ok := statusForPairOutcome(res.GetOutcome())
+	if !ok {
+		return errPairResultRejected
+	}
+	device := deviceFromPairResult(candidate, res)
+	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		if err := s.upsertPairResultDevice(ctx, orgID, device); err != nil {
+			return err
+		}
+		if err := s.deviceStore.UpsertDevicePairing(ctx, device, orgID, status); err != nil {
+			return fleeterror.LogInternal(component, "upsert pair result status", clientErrPair, err)
+		}
+		if !attachToNode {
+			return nil
+		}
+		deviceID, err := s.store.DeviceIDByIdentifier(ctx, device.GetDeviceIdentifier(), orgID)
+		if err != nil {
+			return fleeterror.LogInternal(component, "lookup pair result device id", clientErrPair, err)
+		}
+		rows, err := s.store.PairDeviceToFleetNode(ctx, fleetNodeID, deviceID, orgID, nil)
+		if err != nil {
+			return fleeterror.LogInternal(component, "pair reported device", clientErrPair, err)
+		}
+		if rows == 0 {
+			return errPairResultRejected
+		}
+		if _, attrErr := s.store.TransferDiscoveredDeviceAttribution(ctx, fleetNodeID, deviceID, orgID); attrErr != nil {
+			return fleeterror.LogInternal(component, "transfer pair result attribution", clientErrPair, attrErr)
+		}
+		return nil
+	})
+}
+
+func (s *Service) upsertPairResultDevice(ctx context.Context, orgID int64, device *pairingpb.Device) error {
+	existing, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, device.GetDeviceIdentifier(), orgID)
+	if err != nil {
+		if !fleeterror.IsNotFoundError(err) {
+			return fleeterror.LogInternal(component, "lookup pair result device", clientErrPair, err)
+		}
+		if err := s.deviceStore.InsertDevice(ctx, device, orgID, device.GetDeviceIdentifier()); err != nil {
+			return fleeterror.LogInternal(component, "insert pair result device", clientErrPair, err)
+		}
+		return nil
+	}
+	if device.GetMacAddress() == "" && device.GetSerialNumber() == "" {
+		return nil
+	}
+	if device.GetMacAddress() == "" {
+		device.MacAddress = existing.GetMacAddress()
+	}
+	if device.GetSerialNumber() == "" {
+		device.SerialNumber = existing.GetSerialNumber()
+	}
+	if err := s.deviceStore.UpdateDeviceInfo(ctx, device, orgID); err != nil {
+		return fleeterror.LogInternal(component, "update pair result device", clientErrPair, err)
+	}
+	return nil
+}
+
+func statusForPairOutcome(outcome gatewaypb.PairOutcome) (status string, attachToNode bool, ok bool) {
+	switch outcome {
+	case gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED:
+		return statusPaired, true, true
+	case gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED:
+		return statusAuthenticationNeeded, false, true
+	case gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_FAILED, gatewaypb.PairOutcome_PAIR_OUTCOME_ERROR:
+		return statusFailed, false, true
+	default:
+		return "", false, false
+	}
+}
+
+func deviceFromPairResult(candidate FleetNodeDiscoveredDevice, res *gatewaypb.FleetNodePairResult) *pairingpb.Device {
+	return &pairingpb.Device{
+		DeviceIdentifier: candidate.DeviceIdentifier,
+		IpAddress:        candidate.IPAddress,
+		Port:             candidate.Port,
+		UrlScheme:        candidate.URLScheme,
+		DriverName:       candidate.DriverName,
+		Model:            coalesce(res.GetModel(), candidate.Model),
+		Manufacturer:     coalesce(res.GetManufacturer(), candidate.Manufacturer),
+		FirmwareVersion:  coalesce(res.GetFirmwareVersion(), candidate.FirmwareVersion),
+		SerialNumber:     res.GetSerialNumber(),
+		MacAddress:       res.GetMacAddress(),
+	}
+}
+
+func PairingStatusForOutcome(outcome gatewaypb.PairOutcome) fm.PairingStatus {
+	switch outcome {
+	case gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED:
+		return fm.PairingStatus_PAIRING_STATUS_PAIRED
+	case gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED:
+		return fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED
+	case gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_FAILED, gatewaypb.PairOutcome_PAIR_OUTCOME_ERROR:
+		return fm.PairingStatus_PAIRING_STATUS_FAILED
+	default:
+		return fm.PairingStatus_PAIRING_STATUS_UNSPECIFIED
+	}
+}
+
+func coalesce(first, fallback string) string {
+	if first != "" {
+		return first
+	}
+	return fallback
 }
 
 // UpsertDiscoveredDevices validates the whole batch up front, then runs

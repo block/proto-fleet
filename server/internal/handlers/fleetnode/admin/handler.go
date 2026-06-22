@@ -8,6 +8,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -153,6 +154,50 @@ func (h *Handler) ListFleetNodeDevices(ctx context.Context, req *connect.Request
 	return connect.NewResponse(resp), nil
 }
 
+func (h *Handler) ListFleetNodeDiscoveredDevices(ctx context.Context, req *connect.Request[pb.ListFleetNodeDiscoveredDevicesRequest]) (*connect.Response[pb.ListFleetNodeDiscoveredDevicesResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetnodeRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	var fleetNodeID *int64
+	if id := req.Msg.GetFleetNodeId(); id > 0 {
+		fleetNodeID = &id
+	}
+	var cursor *int64
+	if c := req.Msg.GetCursor(); c > 0 {
+		cursor = &c
+	}
+	var limit *int64
+	if l := req.Msg.GetLimit(); l > 0 {
+		v := int64(l)
+		limit = &v
+	}
+	devices, nextCursor, err := h.pairing.ListDiscoveredDevicesForFleetNode(ctx, info.OrganizationID, fleetNodeID, cursor, limit)
+	if err != nil {
+		return nil, err
+	}
+	resp := &pb.ListFleetNodeDiscoveredDevicesResponse{Devices: make([]*pb.FleetNodeDiscoveredDevice, 0, len(devices))}
+	if nextCursor != nil {
+		resp.NextCursor = *nextCursor
+	}
+	for _, d := range devices {
+		resp.Devices = append(resp.Devices, &pb.FleetNodeDiscoveredDevice{
+			FleetNodeId:      d.FleetNodeID,
+			DeviceIdentifier: d.DeviceIdentifier,
+			IpAddress:        d.IPAddress,
+			Port:             d.Port,
+			UrlScheme:        d.URLScheme,
+			DriverName:       d.DriverName,
+			Model:            d.Model,
+			Manufacturer:     d.Manufacturer,
+			FirmwareVersion:  d.FirmwareVersion,
+			LastSeen:         timestamppb.New(d.LastSeen),
+			PairingStatus:    d.PairingStatus,
+		})
+	}
+	return connect.NewResponse(resp), nil
+}
+
 // DiscoverOnFleetNode runs discovery on a single CONFIRMED node and streams the
 // node's device batches back to the operator. See discovery.RunOnNode for the
 // dispatch/drain loop.
@@ -181,6 +226,54 @@ func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[
 	return h.discovery.RunOnNode(ctx, fleetNodeID, discoverReq, func(batch *pairingpb.DiscoverResponse) error {
 		if sendErr := stream.Send(&pb.DiscoverOnFleetNodeResponse{Response: batch}); sendErr != nil {
 			return fleeterror.NewInternalErrorf("send batch to operator: %v", sendErr)
+		}
+		return nil
+	})
+}
+
+func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *connect.Request[pb.PairDiscoveredDevicesOnFleetNodeRequest], stream *connect.ServerStream[pb.PairDiscoveredDevicesOnFleetNodeResponse]) error {
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetnodeManage, authz.ResourceContext{})
+	if err != nil {
+		return err
+	}
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerPair, authz.ResourceContext{}); err != nil {
+		return err
+	}
+	fleetNodeID := req.Msg.GetFleetNodeId()
+	if fleetNodeID <= 0 {
+		return fleeterror.NewInvalidArgumentError("fleet_node_id is required")
+	}
+	if req.Msg.GetPairAllUnpaired() && len(req.Msg.GetDeviceIdentifiers()) > 0 {
+		return fleeterror.NewInvalidArgumentError("device_identifiers must be empty when pair_all_unpaired is true")
+	}
+
+	node, err := h.enrollment.GetFleetNodeByID(ctx, fleetNodeID, info.OrganizationID)
+	if err != nil {
+		return err
+	}
+	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
+		return fleeterror.NewFailedPreconditionError("fleet node is not CONFIRMED")
+	}
+
+	targets, err := h.pairing.PairTargetsForDiscoveredDevices(ctx, info.OrganizationID, fleetNodeID, req.Msg.GetDeviceIdentifiers(), req.Msg.GetPairAllUnpaired())
+	if err != nil {
+		return err
+	}
+	pairReq := &pairingpb.FleetNodePairRequest{
+		Targets:     targets,
+		Credentials: req.Msg.GetCredentials(),
+	}
+	return h.discovery.RunPairOnNode(ctx, fleetNodeID, pairReq, func(results []*gatewaypb.FleetNodePairResult) error {
+		resp := &pb.PairDiscoveredDevicesOnFleetNodeResponse{Results: make([]*pb.DevicePairingResult, 0, len(results))}
+		for _, r := range results {
+			resp.Results = append(resp.Results, &pb.DevicePairingResult{
+				DeviceIdentifier: r.GetDeviceIdentifier(),
+				PairingStatus:    pairing.PairingStatusForOutcome(r.GetOutcome()),
+				Error:            r.GetErrorMessage(),
+			})
+		}
+		if sendErr := stream.Send(resp); sendErr != nil {
+			return fleeterror.NewInternalErrorf("send pair results to operator: %v", sendErr)
 		}
 		return nil
 	})

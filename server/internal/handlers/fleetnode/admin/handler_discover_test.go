@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -80,6 +81,58 @@ func TestDiscoverOnFleetNode_StreamsBatchesAndStopsOnAck(t *testing.T) {
 	require.NoError(t, resp.Close())
 	require.Len(t, devices, 1)
 	assert.Equal(t, "auto:abc", devices[0].GetDeviceIdentifier())
+	<-agentDone
+}
+
+func TestPairDiscoveredDevicesOnFleetNode_StreamsPairResults(t *testing.T) {
+	// Arrange
+	h := newPairingHarness(t)
+	fleetNodeID := h.createFleetNode(t, "admin-pair-discovered")
+	h.insertDiscoveredDeviceForFleetNode(t, fleetNodeID, "auto:pair-1")
+	stream := h.registry.Register(fleetNodeID)
+	defer stream.Unregister()
+	client := startAdminServer(t, h)
+
+	agentDone := make(chan struct{})
+	go func() {
+		defer close(agentDone)
+		select {
+		case cmd, ok := <-stream.Outgoing:
+			if !ok {
+				return
+			}
+			var env pairingpb.AgentCommand
+			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
+			require.Len(t, env.GetPair().GetTargets(), 1)
+			assert.Equal(t, "auto:pair-1", env.GetPair().GetTargets()[0].GetDeviceIdentifier())
+
+			h.registry.PublishPairResults(fleetNodeID, cmd.GetCommandId(), []*gatewaypb.FleetNodePairResult{{
+				DeviceIdentifier: "auto:pair-1",
+				Outcome:          gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED,
+			}})
+			stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+		case <-time.After(2 * time.Second):
+			t.Errorf("agent goroutine timed out waiting for command")
+		}
+	}()
+
+	// Act
+	resp, err := client.PairDiscoveredDevicesOnFleetNode(context.Background(), connect.NewRequest(&pb.PairDiscoveredDevicesOnFleetNodeRequest{
+		FleetNodeId:       fleetNodeID,
+		DeviceIdentifiers: []string{"auto:pair-1"},
+	}))
+	require.NoError(t, err)
+
+	// Assert
+	var results []*pb.DevicePairingResult
+	for resp.Receive() {
+		results = append(results, resp.Msg().GetResults()...)
+	}
+	require.NoError(t, resp.Err())
+	require.NoError(t, resp.Close())
+	require.Len(t, results, 1)
+	assert.Equal(t, "auto:pair-1", results[0].GetDeviceIdentifier())
+	assert.Equal(t, fm.PairingStatus_PAIRING_STATUS_PAIRED, results[0].GetPairingStatus())
 	<-agentDone
 }
 
@@ -601,7 +654,7 @@ func startAdminServerWithRole(t *testing.T, h *pairingHarness, role string) flee
 	t.Helper()
 	var perms []string
 	if role == "ADMIN" || role == "SUPER_ADMIN" {
-		perms = []string{authz.PermFleetnodeManage, authz.PermFleetnodeRead}
+		perms = []string{authz.PermFleetnodeManage, authz.PermFleetnodeRead, authz.PermMinerPair}
 	}
 	injector := sessionInjector{role: role, orgID: h.orgID, userID: 1, perms: perms}
 	mux := http.NewServeMux()

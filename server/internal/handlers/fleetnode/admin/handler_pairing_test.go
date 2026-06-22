@@ -55,7 +55,8 @@ func newPairingHarness(t *testing.T) *pairingHarness {
 	enrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(db)
 	enrollmentSvc := enrollment.NewService(enrollmentStore, apiKeySvc, transactor, nil)
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
-	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor)
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor, deviceStore)
 
 	registry := control.NewRegistry()
 	discoverySvc := discovery.NewService(registry, enrollmentSvc)
@@ -82,7 +83,7 @@ func (h *pairingHarness) ctxWithPerms(perms ...string) context.Context {
 }
 
 func (h *pairingHarness) adminCtx() context.Context {
-	return h.ctxWithPerms(authz.PermFleetnodeManage, authz.PermFleetnodeRead)
+	return h.ctxWithPerms(authz.PermFleetnodeManage, authz.PermFleetnodeRead, authz.PermMinerPair)
 }
 
 func (h *pairingHarness) viewerCtx() context.Context {
@@ -123,6 +124,14 @@ func (h *pairingHarness) insertDevice(t *testing.T) int64 {
 	return devID
 }
 
+func (h *pairingHarness) insertDiscoveredDeviceForFleetNode(t *testing.T, fleetNodeID int64, identifier string) {
+	t.Helper()
+	_, err := h.db.Exec(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, model, manufacturer, firmware_version, is_active, discovered_by_fleet_node_id)
+		VALUES ($1, $2, '10.0.0.25', '4028', 'http', 'virtual', 'S21', 'Bitmain', 'v1', TRUE, $3)`,
+		h.orgID, identifier, fleetNodeID)
+	require.NoError(t, err)
+}
+
 func TestPairDeviceToFleetNode_HappyPath(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
@@ -140,6 +149,24 @@ func TestPairDeviceToFleetNode_HappyPath(t *testing.T) {
 	var paired int
 	require.NoError(t, h.db.QueryRow(`SELECT COUNT(*) FROM fleet_node_device WHERE fleet_node_id = $1 AND device_id = $2`, fleetNodeID, deviceID).Scan(&paired))
 	assert.Equal(t, 1, paired)
+}
+
+func TestListFleetNodeDiscoveredDevices_HappyPath(t *testing.T) {
+	// Arrange
+	h := newPairingHarness(t)
+	fleetNodeID := h.createFleetNode(t, "admin-list-discovered")
+	h.insertDiscoveredDeviceForFleetNode(t, fleetNodeID, "auto:list-1")
+
+	// Act
+	resp, err := h.handler.ListFleetNodeDiscoveredDevices(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodeDiscoveredDevicesRequest{FleetNodeId: fleetNodeID}))
+
+	// Assert
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetDevices(), 1)
+	got := resp.Msg.GetDevices()[0]
+	assert.Equal(t, fleetNodeID, got.GetFleetNodeId())
+	assert.Equal(t, "auto:list-1", got.GetDeviceIdentifier())
+	assert.Equal(t, "virtual", got.GetDriverName())
 }
 
 func TestPairDeviceToFleetNode_RequiresAdminSession(t *testing.T) {

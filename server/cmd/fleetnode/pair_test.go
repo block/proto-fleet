@@ -2,9 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
@@ -18,7 +15,6 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -45,73 +41,26 @@ func (s *stubPairer) Pair(_ context.Context, target *pairingpb.FleetNodePairTarg
 	}
 }
 
-func TestMinerSigningPublicKeySPKIBase64_MatchesTokenService(t *testing.T) {
-	// Arrange: a fresh ed25519 key, hex-encoded like bootstrap.State stores it.
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	ts, err := token.NewService(token.Config{
-		ClientToken:                token.AuthTokenConfig{SecretKey: "0123456789abcdef0123456789abcdef", ExpirationPeriod: time.Minute},
-		MinerTokenExpirationPeriod: time.Minute,
-	})
-	require.NoError(t, err)
-	want, err := ts.ExtractPublicKeyFromPrivateKey(priv)
-	require.NoError(t, err)
-
-	// Act
-	got, err := minerSigningPublicKeySPKIBase64(hex.EncodeToString(priv))
-
-	// Assert: the node-derived key must equal the server's byte for byte, or a
-	// miner paired here would reject the JWTs the node signs at runtime.
-	require.NoError(t, err)
-	assert.Equal(t, want, got)
-}
-
-func TestMinerSigningPublicKeySPKIBase64_RejectsBadKey(t *testing.T) {
-	cases := []struct{ name, hexKey string }{
-		{name: "not hex", hexKey: "zzzz"},
-		{name: "wrong length", hexKey: "abcd"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Act
-			_, err := minerSigningPublicKeySPKIBase64(tc.hexKey)
-
-			// Assert
-			require.Error(t, err)
-		})
-	}
-}
-
 func TestSecretBundleFor(t *testing.T) {
 	pw := "secret"
 	cases := []struct {
 		name     string
-		caps     sdk.Capabilities
 		creds    *pairingpb.Credentials
 		wantOK   bool
 		wantKind any
 	}{
 		{
-			name:     "asymmetric uses node key",
-			caps:     sdk.Capabilities{sdk.CapabilityAsymmetricAuth: true},
-			wantOK:   true,
-			wantKind: sdk.APIKey{Key: "node-pub"},
-		},
-		{
 			name:     "basic auth uses supplied creds",
-			caps:     sdk.Capabilities{},
 			creds:    &pairingpb.Credentials{Username: "root", Password: &pw},
 			wantOK:   true,
 			wantKind: sdk.UsernamePassword{Username: "root", Password: "secret"},
 		},
 		{
-			name:   "no creds and not asymmetric falls through",
-			caps:   sdk.Capabilities{},
+			name:   "no creds falls through",
 			wantOK: false,
 		},
 		{
 			name:   "username without password falls through",
-			caps:   sdk.Capabilities{},
 			creds:  &pairingpb.Credentials{Username: "root"},
 			wantOK: false,
 		},
@@ -119,7 +68,7 @@ func TestSecretBundleFor(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Act
-			bundle, ok := secretBundleFor(tc.caps, "node-pub", tc.creds)
+			bundle, ok := secretBundleFor(tc.creds)
 
 			// Assert
 			assert.Equal(t, tc.wantOK, ok)

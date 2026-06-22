@@ -23,6 +23,17 @@ func (s *SQLFleetNodePairingStore) q(ctx context.Context) *sqlc.Queries {
 	return s.GetQueries(ctx)
 }
 
+func (s *SQLFleetNodePairingStore) DeviceIDByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (int64, error) {
+	device, err := s.q(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
+		DeviceIdentifier: deviceIdentifier,
+		OrgID:            orgID,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return device.ID, nil
+}
+
 func (s *SQLFleetNodePairingStore) PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error) {
 	return s.q(ctx).PairDeviceToFleetNode(ctx, sqlc.PairDeviceToFleetNodeParams{
 		FleetNodeID: fleetNodeID,

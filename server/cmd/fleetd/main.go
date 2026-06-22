@@ -224,7 +224,7 @@ func start(config *Config) error {
 	fleetNodeEnrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(conn)
 	fleetNodeEnrollmentSvc := enrollment.NewService(fleetNodeEnrollmentStore, apiKeySvc, transactor, activitySvc)
 	fleetNodePairingStore := sqlstores.NewSQLFleetNodePairingStore(conn)
-	fleetNodePairingSvc := fleetnodepairing.NewService(fleetNodePairingStore, fleetNodeEnrollmentStore, transactor)
+	fleetNodePairingSvc := fleetnodepairing.NewService(fleetNodePairingStore, fleetNodeEnrollmentStore, transactor, deviceStore)
 	fleetNodeControlRegistry := control.NewRegistry()
 	fleetNodeDiscoverySvc := fleetnodediscovery.NewService(fleetNodeControlRegistry, fleetNodeEnrollmentSvc)
 	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)

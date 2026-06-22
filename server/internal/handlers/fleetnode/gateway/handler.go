@@ -157,6 +157,42 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 	}), nil
 }
 
+func (h *Handler) ReportPairedDevices(ctx context.Context, req *connect.Request[pb.ReportPairedDevicesRequest]) (*connect.Response[pb.ReportPairedDevicesResponse], error) {
+	subject, err := auth.GetSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	commandID := req.Msg.GetCommandId()
+	if commandID == "" {
+		return nil, fleeterror.NewFailedPreconditionError("pair report requires a command_id from a server-issued ControlCommand")
+	}
+	in := req.Msg.GetResults()
+	if admitErr := h.registry.AdmitReport(subject.FleetNodeID, commandID, len(in)); admitErr != nil {
+		if errors.Is(admitErr, control.ErrReportQuotaExceeded) {
+			return nil, connect.NewError(connect.CodeResourceExhausted, admitErr)
+		}
+		return nil, fleeterror.NewFailedPreconditionError("pair report does not match an in-flight server-issued command")
+	}
+	accepted, rejected, err := h.pairing.ApplyPairResults(ctx, subject.FleetNodeID, subject.OrgID, in)
+	if err != nil {
+		return nil, err
+	}
+	if rejected > 0 {
+		slog.Warn("fleet node reported pair results that were dropped",
+			"fleet_node_id", subject.FleetNodeID,
+			"org_id", subject.OrgID,
+			"rejected", rejected,
+		)
+	}
+	if len(accepted) > 0 {
+		h.registry.PublishPairResults(subject.FleetNodeID, commandID, accepted)
+	}
+	return connect.NewResponse(&pb.ReportPairedDevicesResponse{
+		AcceptedCount: int64(len(accepted)),
+		RejectedCount: rejected,
+	}), nil
+}
+
 func toPairingDevice(d *pb.DiscoveredDeviceReport) *pairingpb.Device {
 	return &pairingpb.Device{
 		DeviceIdentifier: d.GetDeviceIdentifier(),

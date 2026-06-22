@@ -92,6 +92,57 @@ func TestReportDiscoveredDevices_PublishesBatchToInFlightCommand(t *testing.T) {
 	}
 }
 
+func TestReportPairedDevices_PersistsAndPublishesAcceptedResults(t *testing.T) {
+	// Arrange
+	h := newControlHarness(t)
+	subject := &auth.Subject{FleetNodeID: h.fleetNodeID, OrgID: 1, Name: "agent-pair-report"}
+	_, err := h.db.Exec(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
+		VALUES (1, 'auto:paired-1', '10.0.0.80', '4028', 'http', 'virtual', TRUE, $1)`, h.fleetNodeID)
+	require.NoError(t, err)
+
+	stream := h.registry.Register(h.fleetNodeID)
+	defer stream.Unregister()
+	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "pair-cmd"}, nil)
+	require.NoError(t, err)
+	defer session.Close()
+	<-stream.Outgoing
+
+	ctx := authn.SetInfo(context.Background(), subject)
+
+	// Act
+	resp, err := h.handler.ReportPairedDevices(ctx, connect.NewRequest(&pb.ReportPairedDevicesRequest{
+		CommandId: "pair-cmd",
+		Results: []*pb.FleetNodePairResult{{
+			DeviceIdentifier: "auto:paired-1",
+			Outcome:          pb.PairOutcome_PAIR_OUTCOME_PAIRED,
+			SerialNumber:     "sn-paired-1",
+			MacAddress:       "aa:bb:cc:00:10:01",
+		}},
+	}))
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), resp.Msg.GetAcceptedCount())
+	select {
+	case ev := <-session.Events():
+		require.Len(t, ev.PairResults, 1)
+		assert.Equal(t, "auto:paired-1", ev.PairResults[0].GetDeviceIdentifier())
+	case <-time.After(time.Second):
+		t.Fatal("expected pair results on events channel")
+	}
+
+	var pairedRows int
+	require.NoError(t, h.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM fleet_node_device fnd
+		JOIN device d ON d.id = fnd.device_id
+		JOIN device_pairing dp ON dp.device_id = d.id
+		WHERE fnd.fleet_node_id = $1
+		  AND d.device_identifier = 'auto:paired-1'
+		  AND dp.pairing_status = 'PAIRED'`, h.fleetNodeID).Scan(&pairedRows))
+	assert.Equal(t, 1, pairedRows)
+}
+
 // A partially-accepted report must only forward accepted devices to the
 // operator. Rejected rows (e.g. ownership conflicts) must not surface,
 // since the operator-facing batch is a trust signal — the DB already

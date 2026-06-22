@@ -53,7 +53,8 @@ func newHeartbeatHandler(t *testing.T) (*gateway.Handler, *sql.DB, int64) {
 	require.NoError(t, err)
 
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
-	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor)
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor, deviceStore)
 
 	return gateway.NewHandler(enrollmentSvc, authSvc, pairingSvc, control.NewRegistry()), db, agent.ID
 }

@@ -62,6 +62,12 @@ func (r *Registry) PublishBatch(fleetNodeID int64, commandID string, batch *pair
 	r.deliverEvent(fleetNodeID, commandID, CommandEvent{Batch: batch})
 }
 
+// PublishPairResults routes an agent pairing result batch to the in-flight
+// report-bearing command.
+func (r *Registry) PublishPairResults(fleetNodeID int64, commandID string, results []*gatewaypb.FleetNodePairResult) {
+	r.deliverEvent(fleetNodeID, commandID, CommandEvent{PairResults: results})
+}
+
 // AdmitReport reserves quota for deviceCount devices against the in-flight
 // report-bearing command. Returns errNoInFlightCommand if commandID isn't an
 // in-flight report-bearing command, or ErrReportQuotaExceeded past maxReportsPerCommand.
