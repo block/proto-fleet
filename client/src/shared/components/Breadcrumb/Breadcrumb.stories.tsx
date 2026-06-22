@@ -81,9 +81,6 @@ export const RackLevel: Story = {
 export const NoSiblings: Story = {
   name: "No sibling switcher",
   args: {
-    segments: [
-      { label: "Denver", to: "/sites/3" },
-      { label: "Building 3" },
-    ],
+    segments: [{ label: "Denver", to: "/sites/3" }, { label: "Building 3" }],
   },
 };
