@@ -162,7 +162,8 @@ message PairDiscoveredDevicesOnFleetNodeResponse {
 message DevicePairingResult {
     string device_identifier = 1;
     // Shares the operator-facing enum with fleetmanagement; a fleet-node pair
-    // result is always PAIRED, AUTHENTICATION_NEEDED, or FAILED.
+    // result is always PAIRED, DEFAULT_PASSWORD, AUTHENTICATION_NEEDED, or
+    // FAILED.
     fleetmanagement.v1.PairingStatus pairing_status = 2;
     // Mirrors the gateway's FleetNodePairResult.error_message cap; the node's
     // error string is echoed through here.

@@ -84,20 +84,38 @@ func TestMinerSigningPublicKeySPKIBase64_RejectsBadKey(t *testing.T) {
 	}
 }
 
+func TestNewPluginPairer_AllowsMissingLegacySigningKey(t *testing.T) {
+	// Act
+	p, err := newPluginPairer(plugins.NewManager(&plugins.Config{}), "")
+
+	// Assert
+	require.NoError(t, err)
+	assert.Empty(t, p.minerSigningPubKey)
+}
+
 func TestSecretBundleFor(t *testing.T) {
 	pw := "secret"
 	cases := []struct {
 		name     string
 		caps     sdk.Capabilities
+		nodeKey  string
 		creds    *pairingpb.Credentials
 		wantOK   bool
+		wantErr  error
 		wantKind any
+		wantAuth bool
 	}{
 		{
 			name:     "asymmetric uses node key",
 			caps:     sdk.Capabilities{sdk.CapabilityAsymmetricAuth: true},
+			nodeKey:  "node-pub",
 			wantOK:   true,
 			wantKind: sdk.APIKey{Key: "node-pub"},
+		},
+		{
+			name:    "asymmetric without node key errors",
+			caps:    sdk.Capabilities{sdk.CapabilityAsymmetricAuth: true},
+			wantErr: errMissingMinerSigningKey,
 		},
 		{
 			name:     "basic auth uses supplied creds",
@@ -105,6 +123,7 @@ func TestSecretBundleFor(t *testing.T) {
 			creds:    &pairingpb.Credentials{Username: "root", Password: &pw},
 			wantOK:   true,
 			wantKind: sdk.UsernamePassword{Username: "root", Password: "secret"},
+			wantAuth: true,
 		},
 		{
 			name:   "no creds and not asymmetric falls through",
@@ -121,12 +140,18 @@ func TestSecretBundleFor(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Act
-			bundle, ok := secretBundleFor(tc.caps, "node-pub", tc.creds)
+			secret, ok, err := secretBundleFor(tc.caps, tc.nodeKey, tc.creds)
 
 			// Assert
+			if tc.wantErr != nil {
+				assert.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
 			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.wantAuth, secret.basicAuth)
 			if tc.wantOK {
-				assert.Equal(t, tc.wantKind, bundle.Kind)
+				assert.Equal(t, tc.wantKind, secret.bundle.Kind)
 			}
 		})
 	}
@@ -517,10 +542,32 @@ func TestPluginPairer_AsymmetricReportsNoCredentials(t *testing.T) {
 	assert.True(t, isAPIKey)
 }
 
+func TestPluginPairer_AsymmetricWithoutSigningKeyErrors(t *testing.T) {
+	// Arrange: new credentials-only enrollments do not provision this legacy key.
+	drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
+	p, err := newPluginPairer(plugins.NewManager(&plugins.Config{}), "")
+	require.NoError(t, err)
+	require.NoError(t, p.manager.RegisterPluginForTest(&plugins.LoadedPlugin{
+		Name:       "fake",
+		Identifier: sdk.DriverIdentifier{DriverName: "fakedrv"},
+		Driver:     drv,
+		Caps:       sdk.Capabilities{sdk.CapabilityPairing: true, sdk.CapabilityAsymmetricAuth: true},
+	}))
+
+	// Act
+	res := p.Pair(context.Background(), fakePairTarget(), nil)
+
+	// Assert
+	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_ERROR, res.GetOutcome())
+	assert.Contains(t, res.GetErrorMessage(), "no miner-signing key")
+	assert.Empty(t, drv.gotBundles)
+}
+
 func TestPluginPairer_DefaultCredentialsReportsUsedCredentials(t *testing.T) {
 	// Arrange: no operator creds; the driver provides a working default.
+	active := true
 	drv := &fakePairDriver{
-		pairResult: sdk.DeviceInfo{SerialNumber: "SN1"},
+		pairResult: sdk.DeviceInfo{SerialNumber: "SN1", DefaultPasswordActive: &active},
 		defaults:   []sdk.UsernamePassword{{Username: "admin", Password: "admin"}},
 	}
 	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
@@ -533,6 +580,8 @@ func TestPluginPairer_DefaultCredentialsReportsUsedCredentials(t *testing.T) {
 	require.NotNil(t, res.GetUsedCredentials())
 	assert.Equal(t, "admin", res.GetUsedCredentials().GetUsername())
 	assert.Equal(t, "admin", res.GetUsedCredentials().GetPassword())
+	require.NotNil(t, res.DefaultPasswordActive)
+	assert.True(t, res.GetDefaultPasswordActive())
 }
 
 func TestPluginPairer_DefaultCredentialsSkipsUnreportable(t *testing.T) {

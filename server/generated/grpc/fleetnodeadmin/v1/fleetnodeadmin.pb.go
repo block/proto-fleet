@@ -1317,7 +1317,8 @@ type DevicePairingResult struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	DeviceIdentifier string                 `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
 	// Shares the operator-facing enum with fleetmanagement; a fleet-node pair
-	// result is always PAIRED, AUTHENTICATION_NEEDED, or FAILED.
+	// result is always PAIRED, DEFAULT_PASSWORD, AUTHENTICATION_NEEDED, or
+	// FAILED.
 	PairingStatus v11.PairingStatus `protobuf:"varint,2,opt,name=pairing_status,json=pairingStatus,proto3,enum=fleetmanagement.v1.PairingStatus" json:"pairing_status,omitempty"`
 	// Mirrors the gateway's FleetNodePairResult.error_message cap; the node's
 	// error string is echoed through here.

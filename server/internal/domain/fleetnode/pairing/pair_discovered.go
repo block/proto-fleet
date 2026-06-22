@@ -80,13 +80,21 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 
 	doi := discoverymodels.DeviceOrgIdentifier{DeviceIdentifier: identifier, OrgID: orgID}
 	// Default to the outcome's status; the downgrade guard below may override it.
-	persisted := StatusAuthenticationNeeded
+	defaultPersisted := StatusAuthenticationNeeded
 	if outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
-		persisted = StatusPaired
+		defaultPersisted = StatusPaired
+		if result.DefaultPasswordActive != nil && result.GetDefaultPasswordActive() {
+			defaultPersisted = StatusDefaultPassword
+		}
 	}
+	persisted := defaultPersisted
 	conflict := false
 	var boundDeviceID int64
 	txErr := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		persisted = defaultPersisted
+		conflict = false
+		boundDeviceID = 0
+
 		dd, err := s.discoveredDeviceStore.GetDevice(ctx, doi)
 		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
@@ -102,6 +110,21 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 		existing, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, identifier, orgID)
 		if err != nil && !fleeterror.IsNotFoundError(err) {
 			return fleeterror.LogInternal(component, "lookup device", clientErrLookupDeviceForPairing, err)
+		}
+
+		// default_password_active is tri-state: absent means the node/plugin could
+		// not determine whether factory credentials are still active. Preserve an
+		// existing DEFAULT_PASSWORD remediation state unless the report explicitly
+		// says false.
+		if outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED && result.DefaultPasswordActive == nil && existing != nil {
+			status, err := s.deviceStore.GetDevicePairingStatusByIdentifier(ctx, identifier, orgID)
+			if err != nil {
+				if !fleeterror.IsNotFoundError(err) {
+					return fleeterror.LogInternal(component, "load existing pairing status", clientErrPair, err)
+				}
+			} else if status == StatusDefaultPassword {
+				persisted = StatusDefaultPassword
+			}
 		}
 
 		// A non-PAIRED report must not downgrade an already-PAIRED device: between

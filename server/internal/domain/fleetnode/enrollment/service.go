@@ -129,6 +129,9 @@ func (s *Service) RegisterFleetNode(ctx context.Context, plaintextCode, name str
 		agent *FleetNode
 		pe    *PendingEnrollment
 	)
+	if minerSigningPubkey == nil {
+		minerSigningPubkey = []byte{}
+	}
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		var err error
 		pe, err = s.resolveCode(ctx, plaintextCode)

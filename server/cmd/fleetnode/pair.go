@@ -36,6 +36,8 @@ const (
 	maxUsedPasswordBytes = 1024
 )
 
+var errMissingMinerSigningKey = errors.New("asymmetric auth pairing unavailable: fleet node has no miner-signing key")
+
 // credentialsReportable reports whether username/password fit the
 // FleetNodePairResult caps. We refuse an oversized credential rather than pair with
 // it: the node could authenticate but the cloud couldn't persist it back, leaving
@@ -62,10 +64,19 @@ type pluginPairer struct {
 	minerSigningPubKey string
 }
 
+type pairSecretBundle struct {
+	bundle    sdk.SecretBundle
+	basicAuth bool
+}
+
 func newPluginPairer(manager *plugins.Manager, minerSigningPrivKeyHex string) (*pluginPairer, error) {
-	pub, err := minerSigningPublicKeySPKIBase64(minerSigningPrivKeyHex)
-	if err != nil {
-		return nil, err
+	var pub string
+	if minerSigningPrivKeyHex != "" {
+		var err error
+		pub, err = minerSigningPublicKeySPKIBase64(minerSigningPrivKeyHex)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &pluginPairer{manager: manager, minerSigningPubKey: pub}, nil
 }
@@ -94,22 +105,25 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 		FirmwareVersion: target.GetFirmwareVersion(),
 	}
 
-	// Asymmetric-auth drivers (Proto) pair with the node's own miner-signing key;
-	// operator-supplied username/password covers basic-auth drivers.
-	if bundle, ok := secretBundleFor(plugin.Caps, p.minerSigningPubKey, creds); ok {
-		basicAuth := !plugin.Caps[sdk.CapabilityAsymmetricAuth]
-		if basicAuth && !credentialsReportable(creds.GetUsername(), creds.GetPassword()) {
+	secret, ok, bundleErr := secretBundleFor(plugin.Caps, p.minerSigningPubKey, creds)
+	if bundleErr != nil {
+		res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
+		res.ErrorMessage = bundleErr.Error()
+		return res
+	}
+	if ok {
+		if secret.basicAuth && !credentialsReportable(creds.GetUsername(), creds.GetPassword()) {
 			res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
 			res.ErrorMessage = "supplied credentials exceed the maximum reportable size"
 			return res
 		}
-		updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
+		updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, secret.bundle)
 		if pairErr != nil {
 			classifyNodePairError(pairErr, res)
 			return res
 		}
 		setPaired(res, updated)
-		if basicAuth {
+		if secret.basicAuth {
 			res.UsedCredentials = &pb.UsedCredentials{Username: creds.GetUsername(), Password: creds.GetPassword()}
 		}
 		return res
@@ -145,14 +159,22 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 // key for asymmetric-auth drivers, supplied username/password otherwise. ok is
 // false when no credentials apply (the caller falls back to plugin defaults or
 // reports AUTH_NEEDED).
-func secretBundleFor(caps sdk.Capabilities, nodePubKey string, creds *pairingpb.Credentials) (sdk.SecretBundle, bool) {
+func secretBundleFor(caps sdk.Capabilities, nodePubKey string, creds *pairingpb.Credentials) (pairSecretBundle, bool, error) {
 	if caps[sdk.CapabilityAsymmetricAuth] {
-		return sdk.SecretBundle{Version: "v1", Kind: sdk.APIKey{Key: nodePubKey}}, true
+		if nodePubKey == "" {
+			return pairSecretBundle{}, false, errMissingMinerSigningKey
+		}
+		return pairSecretBundle{
+			bundle: sdk.SecretBundle{Version: "v1", Kind: sdk.APIKey{Key: nodePubKey}},
+		}, true, nil
 	}
 	if creds != nil && creds.Password != nil {
-		return sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: creds.GetUsername(), Password: creds.GetPassword()}}, true
+		return pairSecretBundle{
+			bundle:    sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: creds.GetUsername(), Password: creds.GetPassword()}},
+			basicAuth: true,
+		}, true, nil
 	}
-	return sdk.SecretBundle{}, false
+	return pairSecretBundle{}, false, nil
 }
 
 func setPaired(res *pb.FleetNodePairResult, info sdk.DeviceInfo) {
@@ -162,6 +184,7 @@ func setPaired(res *pb.FleetNodePairResult, info sdk.DeviceInfo) {
 	res.Model = truncateUTF8(info.Model, maxPairIdentityBytes)
 	res.Manufacturer = truncateUTF8(info.Manufacturer, maxPairIdentityBytes)
 	res.FirmwareVersion = truncateUTF8(info.FirmwareVersion, maxPairIdentityBytes)
+	res.DefaultPasswordActive = info.DefaultPasswordActive
 }
 
 // classifyNodePairError maps a plugin pairing error to a per-device outcome.
