@@ -108,14 +108,7 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 			if ctx.Err() == nil {
 				out := &pb.PairDiscoveredDevicesOnFleetNodeResponse{Results: make([]*pb.DevicePairingResult, 0, len(results))}
 				for _, r := range results {
-					res := &pb.DevicePairingResult{
-						DeviceIdentifier: r.GetDeviceIdentifier(),
-						PairingStatus:    pairResultStatus(r),
-					}
-					if res.PairingStatus != fleetmanagementv1.PairingStatus_PAIRING_STATUS_PAIRED {
-						res.Error = r.GetErrorMessage()
-					}
-					out.Results = append(out.Results, res)
+					out.Results = append(out.Results, devicePairingResultFromGatewayResult(r))
 				}
 				if sendErr := stream.Send(out); sendErr != nil {
 					slog.Warn("operator pair stream send failed; pairing continues server-side",
@@ -124,6 +117,17 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 			}
 			return nil
 		})
+}
+
+func devicePairingResultFromGatewayResult(result *gatewaypb.FleetNodePairResult) *pb.DevicePairingResult {
+	res := &pb.DevicePairingResult{
+		DeviceIdentifier: result.GetDeviceIdentifier(),
+		PairingStatus:    pairResultStatus(result),
+	}
+	if !isSuccessfulPairingStatus(res.PairingStatus) {
+		res.Error = result.GetErrorMessage()
+	}
+	return res
 }
 
 // pairResultStatus maps a node pair result to the operator-facing enum, matching
@@ -142,4 +146,9 @@ func pairResultStatus(result *gatewaypb.FleetNodePairResult) fleetmanagementv1.P
 	default:
 		return fleetmanagementv1.PairingStatus_PAIRING_STATUS_FAILED
 	}
+}
+
+func isSuccessfulPairingStatus(status fleetmanagementv1.PairingStatus) bool {
+	return status == fleetmanagementv1.PairingStatus_PAIRING_STATUS_PAIRED ||
+		status == fleetmanagementv1.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD
 }
