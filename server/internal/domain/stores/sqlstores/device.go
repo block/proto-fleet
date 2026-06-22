@@ -389,14 +389,12 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context, orgID int64, filter *stores.MinerFilter) (int64, error) {
 	fp := buildFilterParams(filter)
 
-	// site_ids must be a non-nil slice so the cardinality()=0 "no filter"
-	// branch fires for the all-sites case.
-	siteIDs := []int64{}
+	// site_ids may be nil (all-sites); the query COALESCEs NULL to an empty
+	// array so the cardinality()=0 "no filter" branch fires.
+	var siteIDs []int64
 	includeUnassigned := false
 	if filter != nil {
-		if filter.SiteIDs != nil {
-			siteIDs = filter.SiteIDs
-		}
+		siteIDs = filter.SiteIDs
 		includeUnassigned = filter.IncludeUnassigned
 	}
 

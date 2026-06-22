@@ -51,8 +51,8 @@ WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD
     AND (sqlc.narg('status_filter')::text IS NULL OR ds.status::text = ANY(string_to_array(sqlc.narg('status_filter'), ',')))
     AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
     AND (
-         (cardinality(sqlc.arg('site_ids')::bigint[]) = 0 AND sqlc.arg('include_unassigned')::boolean = false)
-      OR d.site_id = ANY(sqlc.arg('site_ids')::bigint[])
+         (cardinality(COALESCE(sqlc.arg('site_ids')::bigint[], '{}')) = 0 AND sqlc.arg('include_unassigned')::boolean = false)
+      OR d.site_id = ANY(COALESCE(sqlc.arg('site_ids')::bigint[], '{}'))
       OR (sqlc.arg('include_unassigned')::boolean AND d.site_id IS NULL)
     );
 

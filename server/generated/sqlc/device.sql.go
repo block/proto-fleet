@@ -1673,8 +1673,8 @@ WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD
     AND ($2::text IS NULL OR ds.status::text = ANY(string_to_array($2, ',')))
     AND ($3::text IS NULL OR dd.model = ANY(string_to_array($3, ',')))
     AND (
-         (cardinality($4::bigint[]) = 0 AND $5::boolean = false)
-      OR d.site_id = ANY($4::bigint[])
+         (cardinality(COALESCE($4::bigint[], '{}')) = 0 AND $5::boolean = false)
+      OR d.site_id = ANY(COALESCE($4::bigint[], '{}'))
       OR ($5::boolean AND d.site_id IS NULL)
     )
 `
