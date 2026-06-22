@@ -1,7 +1,7 @@
 // SitePicker now persists its selection via the Zustand UI slice (org-wide,
 // not per-username localStorage). The persistence contract is covered by
 // useActiveSite.test.ts; these tests focus on render shapes, modal options,
-// the new error/retry affordance, and the useNavigate handoff to /fleet/sites.
+// the new error/retry affordance, and the useNavigate handoff to scoped /fleet/sites.
 import { MemoryRouter } from "react-router-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -132,11 +132,22 @@ describe("SitePicker", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/1/dashboard");
   });
 
-  it("navigates to /fleet/sites via react-router when Manage sites is clicked", () => {
+  it("navigates to /fleet/sites via react-router when Manage sites is clicked from all-sites", () => {
     const sites = [makeSiteWithCounts(1n, "Austin")];
     renderPicker({ sites });
     fireEvent.click(screen.getByTestId("site-picker-trigger"));
     fireEvent.click(screen.getByTestId("site-picker-manage-sites"));
     expect(mockNavigate).toHaveBeenCalledWith("/fleet/sites");
+  });
+
+  it("preserves the selected site when Manage sites is clicked from an unscoped page", () => {
+    const sites = [makeSiteWithCounts(1n, "Austin")];
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "1" };
+    });
+    renderPicker({ sites }, ["/sites/7"]);
+    fireEvent.click(screen.getByTestId("site-picker-trigger"));
+    fireEvent.click(screen.getByTestId("site-picker-manage-sites"));
+    expect(mockNavigate).toHaveBeenCalledWith("/1/fleet/sites");
   });
 });

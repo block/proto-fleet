@@ -16,7 +16,9 @@ import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
@@ -53,6 +55,7 @@ const BuildingPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { getBuilding, listBuildingRacks } = useBuildings();
+  const activeSite = useFleetStore((state) => state.ui.activeSite);
 
   const buildingId = useMemo(() => parseBigIntId(id), [id]);
 
@@ -107,7 +110,7 @@ const BuildingPage = () => {
     refetchBuildings: () => {
       if (buildingId !== null) fetchBuilding(buildingId);
     },
-    onDeleteFromManage: () => navigate("/sites"),
+    onDeleteFromManage: () => navigate(scopedPath("/fleet/sites", activeSite)),
   });
 
   useEffect(() => {
@@ -192,8 +195,8 @@ const BuildingPage = () => {
       <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="building-page-not-found">
         <Header title="Building not found" titleSize="text-heading-300" />
         <p className="text-300 text-text-primary-70">
-          Either the building has been deleted or the URL is invalid. Return to <Link to="/sites">/sites</Link> to find
-          your building.
+          Either the building has been deleted or the URL is invalid. Return to{" "}
+          <Link to={scopedPath("/fleet/sites", activeSite)}>/sites</Link> to find your building.
         </p>
       </div>
     );
@@ -288,6 +291,7 @@ const BuildingPage = () => {
               hashboardErrors={hashboardErrors}
               psuErrors={psuErrors}
               extraFilterParams={buildingFilterParam}
+              activeSite={activeSite}
             />
           </div>
         </section>

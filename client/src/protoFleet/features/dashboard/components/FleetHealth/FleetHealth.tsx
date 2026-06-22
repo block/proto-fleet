@@ -5,6 +5,8 @@ import ChartWidget from "../ChartWidget/ChartWidget";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { encodeFilterToURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
+import { type ActiveSite, DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { Triangle } from "@/shared/assets/icons";
 import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 import SkeletonBar from "@/shared/components/SkeletonBar";
@@ -52,6 +54,7 @@ interface FleetHealthProps {
   extraFilterParams?: string;
   /** Link URL for the total miners count (e.g., "/miners?group=123") */
   totalMinersLink?: string;
+  activeSite?: ActiveSite;
 }
 
 const FleetHealth = ({
@@ -63,6 +66,7 @@ const FleetHealth = ({
   title = "Your fleet",
   extraFilterParams,
   totalMinersLink,
+  activeSite = DEFAULT_ACTIVE_SITE,
 }: FleetHealthProps) => {
   // undefined = still loading (show skeleton), null = loaded but no data (show mdash)
   const isLoading =
@@ -141,7 +145,7 @@ const FleetHealth = ({
       }
       return {
         ...segment,
-        filterUrl: `/miners?${params.toString()}`,
+        filterUrl: scopedPath(`/fleet/miners?${params.toString()}`, activeSite),
         percentage: segment.count !== undefined ? Math.round((segment.count / totalMiners) * 100) : undefined,
       };
     });
@@ -154,6 +158,7 @@ const FleetHealth = ({
     isLoading,
     hasNoData,
     extraFilterParams,
+    activeSite,
   ]);
 
   // Extract basic segments for CompositionBar (without extra props)

@@ -24,7 +24,9 @@ import { SLOT_STATUS_MAP } from "@/protoFleet/features/fleetManagement/utils/rac
 import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/components/DeviceSetActionsMenu";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
@@ -47,6 +49,7 @@ const ALL_AGGREGATION_TYPES: AggregationType[] = [AggregationType.AVERAGE, Aggre
 const RackOverviewPage = () => {
   const { rackId: rackIdParam } = useParams<{ rackId: string }>();
   const navigate = useNavigate();
+  const activeSite = useFleetStore((state) => state.ui.activeSite);
 
   // Rack resolution state
   const [rack, setRack] = useState<DeviceSet | null>(null);
@@ -281,10 +284,13 @@ const RackOverviewPage = () => {
             inline
             icon={<ChevronDown className="rotate-90" />}
             iconAriaLabel="Back to racks"
-            iconOnClick={() => navigate("/racks")}
+            iconOnClick={() => navigate(scopedPath("/fleet/racks", activeSite))}
           >
             <div className="ml-3 flex items-center gap-3">
-              <Button variant={variants.secondary} onClick={() => navigate(`/miners?rack=${rack?.id}`)}>
+              <Button
+                variant={variants.secondary}
+                onClick={() => navigate(scopedPath(`/fleet/miners?rack=${rack?.id}`, activeSite))}
+              >
                 View miners
               </Button>
               <Button
@@ -330,6 +336,7 @@ const RackOverviewPage = () => {
               offlineCount={stateCounts?.offlineCount ?? (isEmptyRack ? 0 : statsLoaded ? null : undefined)}
               sleepingCount={stateCounts?.sleepingCount ?? (isEmptyRack ? 0 : statsLoaded ? null : undefined)}
               rackFilterParam={rack ? `rack=${rack.id}` : undefined}
+              activeSite={activeSite}
             />
             <FleetErrors
               controlBoardErrors={controlBoardErrors}
@@ -337,6 +344,7 @@ const RackOverviewPage = () => {
               hashboardErrors={hashboardErrors}
               psuErrors={psuErrors}
               extraFilterParams={rack ? `rack=${rack.id}` : undefined}
+              activeSite={activeSite}
             />
           </div>
         </section>
@@ -427,7 +435,7 @@ const RackOverviewPage = () => {
                 deviceSetId: rack.id,
                 onSuccess: () => {
                   pushToast({ message: "Rack deleted", status: STATUSES.success });
-                  navigate("/racks");
+                  navigate(scopedPath("/fleet/racks", activeSite));
                   resolve();
                 },
                 onError: (msg) => {

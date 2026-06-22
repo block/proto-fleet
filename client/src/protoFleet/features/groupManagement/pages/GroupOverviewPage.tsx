@@ -245,7 +245,8 @@ const GroupOverviewPage = () => {
               offlineMiners={stateCounts?.offlineCount ?? (isEmptyGroup ? 0 : statsLoaded ? null : undefined)}
               sleepingMiners={stateCounts?.sleepingCount ?? (isEmptyGroup ? 0 : statsLoaded ? null : undefined)}
               extraFilterParams={group ? `group=${group.id}` : undefined}
-              totalMinersLink={group ? `/miners?group=${group.id}` : undefined}
+              totalMinersLink={group ? scopedPath(`/fleet/miners?group=${group.id}`, activeSite) : undefined}
+              activeSite={activeSite}
             />
             <FleetErrors
               controlBoardErrors={controlBoardErrors}
@@ -253,6 +254,7 @@ const GroupOverviewPage = () => {
               hashboardErrors={hashboardErrors}
               psuErrors={psuErrors}
               extraFilterParams={group ? `group=${group.id}` : undefined}
+              activeSite={activeSite}
             />
           </div>
         </section>

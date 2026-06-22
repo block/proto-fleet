@@ -9,6 +9,7 @@ import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -59,7 +60,7 @@ const SiteDetailPage = () => {
   useEffect(() => {
     if (activeSite.kind !== "site") return;
     if (activeSite.id === targetId) return;
-    navigate("/fleet", { replace: true });
+    navigate(scopedPath("/fleet", activeSite), { replace: true });
   }, [activeSite, navigate, targetId]);
 
   const site = useMemo(() => {
@@ -114,7 +115,7 @@ const SiteDetailPage = () => {
           variant={variants.primary}
           size={sizes.compact}
           text="Back to sites"
-          onClick={() => navigate("/fleet/sites")}
+          onClick={() => navigate(scopedPath("/fleet/sites", activeSite))}
           testId="site-detail-back"
         />
       </div>
