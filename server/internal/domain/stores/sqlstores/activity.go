@@ -174,30 +174,36 @@ func toListParams(f models.Filter) sqlc.ListActivityLogsParams {
 	}
 
 	return sqlc.ListActivityLogsParams{
-		OrgID:         validNullInt64(f.OrganizationID),
-		Categories:    nilIfEmpty(f.EventCategories),
-		EventTypes:    nilIfEmpty(f.EventTypes),
-		UserIds:       nilIfEmpty(f.UserIDs),
-		ScopeTypes:    nilIfEmpty(f.ScopeTypes),
-		SearchPattern: nullStringFromSearch(f.SearchText),
-		StartTime:     nullTimeFromPtr(f.StartTime),
-		EndTime:       nullTimeFromPtr(f.EndTime),
-		CursorTime:    nullTimeFromPtr(cursorTime),
-		CursorID:      nullInt64FromPtr(cursorID),
-		PageSize:      clampPageSize(f.PageSize),
+		OrgID:              validNullInt64(f.OrganizationID),
+		Categories:         nilIfEmpty(f.EventCategories),
+		EventTypes:         nilIfEmpty(f.EventTypes),
+		UserIds:            nilIfEmpty(f.UserIDs),
+		ScopeTypes:         nilIfEmpty(f.ScopeTypes),
+		SearchPattern:      nullStringFromSearch(f.SearchText),
+		StartTime:          nullTimeFromPtr(f.StartTime),
+		EndTime:            nullTimeFromPtr(f.EndTime),
+		CursorTime:         nullTimeFromPtr(cursorTime),
+		CursorID:           nullInt64FromPtr(cursorID),
+		PageSize:           clampPageSize(f.PageSize),
+		SiteIds:            emptyIfNilInt64(f.SiteIDs),
+		IncludeUnassigned:  f.IncludeUnassigned,
+		OrgLevelCategories: models.OrgLevelCategories,
 	}
 }
 
 func toCountParams(f models.Filter) sqlc.CountActivityLogsParams {
 	return sqlc.CountActivityLogsParams{
-		OrgID:         validNullInt64(f.OrganizationID),
-		Categories:    nilIfEmpty(f.EventCategories),
-		EventTypes:    nilIfEmpty(f.EventTypes),
-		UserIds:       nilIfEmpty(f.UserIDs),
-		ScopeTypes:    nilIfEmpty(f.ScopeTypes),
-		SearchPattern: nullStringFromSearch(f.SearchText),
-		StartTime:     nullTimeFromPtr(f.StartTime),
-		EndTime:       nullTimeFromPtr(f.EndTime),
+		OrgID:              validNullInt64(f.OrganizationID),
+		Categories:         nilIfEmpty(f.EventCategories),
+		EventTypes:         nilIfEmpty(f.EventTypes),
+		UserIds:            nilIfEmpty(f.UserIDs),
+		ScopeTypes:         nilIfEmpty(f.ScopeTypes),
+		SearchPattern:      nullStringFromSearch(f.SearchText),
+		StartTime:          nullTimeFromPtr(f.StartTime),
+		EndTime:            nullTimeFromPtr(f.EndTime),
+		SiteIds:            emptyIfNilInt64(f.SiteIDs),
+		IncludeUnassigned:  f.IncludeUnassigned,
+		OrgLevelCategories: models.OrgLevelCategories,
 	}
 }
 
@@ -299,6 +305,18 @@ func intPtrFromNullInt32(n sql.NullInt32) *int {
 func nilIfEmpty(s []string) []string {
 	if len(s) == 0 {
 		return nil
+	}
+	return s
+}
+
+// emptyIfNilInt64 is the inverse contract for the site_ids filter, which is an
+// arg (not narg) detected via cardinality(...) = 0. A nil slice would marshal
+// to SQL NULL (cardinality NULL ≠ 0), silently disabling the all-sites branch
+// and matching nothing; an empty non-nil slice marshals to '{}' (cardinality 0)
+// as the all-sites branch expects. Mirrors the buildings/racks/miners stores.
+func emptyIfNilInt64(s []int64) []int64 {
+	if s == nil {
+		return []int64{}
 	}
 	return s
 }

@@ -34,6 +34,17 @@ const (
 	ResultFailure ResultType = "failure"
 )
 
+// OrgLevelCategories are the event categories that have no site concept
+// (login/auth, system events). They are the single source of truth for the
+// "unassigned" activity bucket: a direct (non-batch) row with site_id IS NULL
+// only belongs in /{unassigned}/activity if its category is NOT one of these,
+// so logins and system events never leak into the unassigned site feed. Passed
+// to the read queries as the org_level_categories arg.
+var OrgLevelCategories = []string{
+	string(CategoryAuth),
+	string(CategorySystem),
+}
+
 func (c EventCategory) Valid() bool {
 	switch c {
 	case CategoryAuth, CategoryDeviceCommand, CategoryFleetManagement,
@@ -115,6 +126,13 @@ type Filter struct {
 	PageSize        int
 	CursorTime      *time.Time
 	CursorID        *int64
+
+	// SiteIDs / IncludeUnassigned form the additive site scope, identical in
+	// shape to the buildings/racks/miners filters. Empty SiteIDs + false →
+	// no site filter (org-wide feed). See OrgLevelCategories for how the
+	// unassigned bucket excludes org-level events.
+	SiteIDs           []int64
+	IncludeUnassigned bool
 }
 
 // Entry is the read model returned by Service.List().

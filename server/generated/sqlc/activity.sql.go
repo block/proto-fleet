@@ -17,28 +17,56 @@ import (
 
 const countActivityLogs = `-- name: CountActivityLogs :one
 SELECT COUNT(*)
-FROM activity_log
-WHERE organization_id = $1
-    AND ($2::text[] IS NULL OR event_category = ANY($2::text[]))
-    AND ($3::text[] IS NULL OR event_type = ANY($3::text[]))
-    AND ($4::text[] IS NULL OR user_id = ANY($4::text[]))
-    AND ($5::text[] IS NULL OR scope_type = ANY($5::text[]))
-    AND ($6::text IS NULL OR description ILIKE $6 ESCAPE '\')
-    AND ($7::timestamptz IS NULL OR created_at >= $7)
-    AND ($8::timestamptz IS NULL OR created_at <= $8)
+FROM activity_log a
+WHERE a.organization_id = $1
+    AND ($2::text[] IS NULL OR a.event_category = ANY($2::text[]))
+    AND ($3::text[] IS NULL OR a.event_type = ANY($3::text[]))
+    AND ($4::text[] IS NULL OR a.user_id = ANY($4::text[]))
+    AND ($5::text[] IS NULL OR a.scope_type = ANY($5::text[]))
+    AND ($6::text IS NULL OR a.description ILIKE $6 ESCAPE '\')
+    AND ($7::timestamptz IS NULL OR a.created_at >= $7)
+    AND ($8::timestamptz IS NULL OR a.created_at <= $8)
+    AND (
+        (cardinality($9::bigint[]) = 0
+         AND $10::boolean = false)
+
+        OR (a.batch_id IS NULL AND (
+                a.site_id = ANY($9::bigint[])
+             OR ($10::boolean
+                 AND a.site_id IS NULL
+                 AND a.event_category <> ALL($11::text[]))
+        ))
+
+        OR (a.batch_id IS NOT NULL AND EXISTS (
+                SELECT 1
+                FROM command_on_device_log codl
+                JOIN command_batch_log cbl ON cbl.id = codl.command_batch_log_id
+                WHERE cbl.uuid = a.batch_id
+                  AND (
+                        codl.site_id = ANY($9::bigint[])
+                     OR ($10::boolean AND codl.site_id IS NULL)
+                  )
+        ))
+    )
 `
 
 type CountActivityLogsParams struct {
-	OrgID         sql.NullInt64
-	Categories    []string
-	EventTypes    []string
-	UserIds       []string
-	ScopeTypes    []string
-	SearchPattern sql.NullString
-	StartTime     sql.NullTime
-	EndTime       sql.NullTime
+	OrgID              sql.NullInt64
+	Categories         []string
+	EventTypes         []string
+	UserIds            []string
+	ScopeTypes         []string
+	SearchPattern      sql.NullString
+	StartTime          sql.NullTime
+	EndTime            sql.NullTime
+	SiteIds            []int64
+	IncludeUnassigned  bool
+	OrgLevelCategories []string
 }
 
+// Site filter must stay byte-for-byte identical to ListActivityLogs so the
+// pagination total never disagrees with the rendered feed (or the CSV export,
+// which reuses ListActivityLogs).
 func (q *Queries) CountActivityLogs(ctx context.Context, arg CountActivityLogsParams) (int64, error) {
 	row := q.queryRow(ctx, q.countActivityLogsStmt, countActivityLogs,
 		arg.OrgID,
@@ -49,6 +77,9 @@ func (q *Queries) CountActivityLogs(ctx context.Context, arg CountActivityLogsPa
 		arg.SearchPattern,
 		arg.StartTime,
 		arg.EndTime,
+		pq.Array(arg.SiteIds),
+		arg.IncludeUnassigned,
+		pq.Array(arg.OrgLevelCategories),
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -217,37 +248,65 @@ func (q *Queries) InsertActivityLog(ctx context.Context, arg InsertActivityLogPa
 
 const listActivityLogs = `-- name: ListActivityLogs :many
 SELECT
-    id, event_id, event_category, event_type, description,
-    result, error_message,
-    scope_type, scope_label, scope_count,
-    actor_type, user_id, username,
-    created_at, metadata, batch_id
-FROM activity_log
-WHERE organization_id = $1
-    AND ($2::text[] IS NULL OR event_category = ANY($2::text[]))
-    AND ($3::text[] IS NULL OR event_type = ANY($3::text[]))
-    AND ($4::text[] IS NULL OR user_id = ANY($4::text[]))
-    AND ($5::text[] IS NULL OR scope_type = ANY($5::text[]))
-    AND ($6::text IS NULL OR description ILIKE $6 ESCAPE '\')
-    AND ($7::timestamptz IS NULL OR created_at >= $7)
-    AND ($8::timestamptz IS NULL OR created_at <= $8)
-    AND ($9::timestamptz IS NULL OR (created_at, id) < ($9::timestamptz, $10::bigint))
-ORDER BY created_at DESC, id DESC
-LIMIT $11
+    a.id, a.event_id, a.event_category, a.event_type, a.description,
+    a.result, a.error_message,
+    a.scope_type, a.scope_label, a.scope_count,
+    a.actor_type, a.user_id, a.username,
+    a.created_at, a.metadata, a.batch_id
+FROM activity_log a
+WHERE a.organization_id = $1
+    AND ($2::text[] IS NULL OR a.event_category = ANY($2::text[]))
+    AND ($3::text[] IS NULL OR a.event_type = ANY($3::text[]))
+    AND ($4::text[] IS NULL OR a.user_id = ANY($4::text[]))
+    AND ($5::text[] IS NULL OR a.scope_type = ANY($5::text[]))
+    AND ($6::text IS NULL OR a.description ILIKE $6 ESCAPE '\')
+    AND ($7::timestamptz IS NULL OR a.created_at >= $7)
+    AND ($8::timestamptz IS NULL OR a.created_at <= $8)
+    AND ($9::timestamptz IS NULL OR (a.created_at, a.id) < ($9::timestamptz, $10::bigint))
+    AND (
+        -- all-sites: no site filter active
+        (cardinality($11::bigint[]) = 0
+         AND $12::boolean = false)
+
+        -- direct (non-batch) events: scalar site_id, Option B unassigned bucket
+        OR (a.batch_id IS NULL AND (
+                a.site_id = ANY($11::bigint[])
+             OR ($12::boolean
+                 AND a.site_id IS NULL
+                 AND a.event_category <> ALL($13::text[]))
+        ))
+
+        -- command-batch events: derive touched sites from command_on_device_log
+        OR (a.batch_id IS NOT NULL AND EXISTS (
+                SELECT 1
+                FROM command_on_device_log codl
+                JOIN command_batch_log cbl ON cbl.id = codl.command_batch_log_id
+                WHERE cbl.uuid = a.batch_id
+                  AND (
+                        codl.site_id = ANY($11::bigint[])
+                     OR ($12::boolean AND codl.site_id IS NULL)
+                  )
+        ))
+    )
+ORDER BY a.created_at DESC, a.id DESC
+LIMIT $14
 `
 
 type ListActivityLogsParams struct {
-	OrgID         sql.NullInt64
-	Categories    []string
-	EventTypes    []string
-	UserIds       []string
-	ScopeTypes    []string
-	SearchPattern sql.NullString
-	StartTime     sql.NullTime
-	EndTime       sql.NullTime
-	CursorTime    sql.NullTime
-	CursorID      sql.NullInt64
-	PageSize      int32
+	OrgID              sql.NullInt64
+	Categories         []string
+	EventTypes         []string
+	UserIds            []string
+	ScopeTypes         []string
+	SearchPattern      sql.NullString
+	StartTime          sql.NullTime
+	EndTime            sql.NullTime
+	CursorTime         sql.NullTime
+	CursorID           sql.NullInt64
+	SiteIds            []int64
+	IncludeUnassigned  bool
+	OrgLevelCategories []string
+	PageSize           int32
 }
 
 type ListActivityLogsRow struct {
@@ -270,8 +329,14 @@ type ListActivityLogsRow struct {
 }
 
 // Array filter contract: the Go store layer must pass nil (not empty slice)
-// for inactive filters. An empty non-nil array (pq.Array([]string{})) produces
-// '{}' which matches nothing via ANY, leading to zero results.
+// for the narg text[] filters below. An empty non-nil array
+// (pq.Array([]string{})) produces '{}' which matches nothing via ANY, leading
+// to zero results.
+//
+// The site filter (site_ids / include_unassigned / org_level_categories) is an
+// arg, not a narg: the all-sites case is detected via cardinality() = 0, so the
+// Go layer must pass an empty (non-nil) bigint[] when no site filter is active,
+// matching the ListBuildings / ListRacks / ListMiners contract.
 func (q *Queries) ListActivityLogs(ctx context.Context, arg ListActivityLogsParams) ([]ListActivityLogsRow, error) {
 	rows, err := q.query(ctx, q.listActivityLogsStmt, listActivityLogs,
 		arg.OrgID,
@@ -284,6 +349,9 @@ func (q *Queries) ListActivityLogs(ctx context.Context, arg ListActivityLogsPara
 		arg.EndTime,
 		arg.CursorTime,
 		arg.CursorID,
+		pq.Array(arg.SiteIds),
+		arg.IncludeUnassigned,
+		pq.Array(arg.OrgLevelCategories),
 		arg.PageSize,
 	)
 	if err != nil {
