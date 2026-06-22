@@ -723,7 +723,7 @@ const RacksPage = () => {
         key: "site",
         title: "Sites",
         pluralTitle: "sites",
-        options: [...allSites, UNASSIGNED_FILTER_OPTION],
+        options: [...(allSites ?? []), UNASSIGNED_FILTER_OPTION],
         selectedValues: selectedSiteValues,
       },
       {
