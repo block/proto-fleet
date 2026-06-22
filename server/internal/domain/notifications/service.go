@@ -569,6 +569,10 @@ func (s *Service) pauseSilencedRules(ctx context.Context, orgID int64) (map[stri
 		if !isPauseSilence(sil) {
 			continue
 		}
+		// Skip expired/deleted silences (they linger with the 2099 sentinel end time, as ResumeRule/ListMaintenanceWindows do) so a lifted pause doesn't keep reporting the rule disabled.
+		if sil.Status != nil && sil.Status.State == "expired" {
+			continue
+		}
 		if !silenceMatchesOrg(sil, want) {
 			continue
 		}

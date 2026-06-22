@@ -843,6 +843,43 @@ func TestListRulesFailsClosedWhenSilencesUnavailable(t *testing.T) {
 	require.Error(t, err, "ListRules must fail closed when pause-silence state can't be loaded")
 }
 
+// A lifted pause leaves an expired silence in the list that still carries the 2099 sentinel
+// end time, so it looks active by timestamp. ListRules must treat it as gone, otherwise the
+// rule reads as paused forever and PauseRule no-ops on a rule that is actually firing.
+func TestListRulesIgnoresExpiredPauseSilence(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/provisioning/alert-rules", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode([]GrafanaAlertRule{
+			{UID: "rule-9", Title: "Rule 9", Labels: map[string]string{ruleLabelScope: ruleScopeShared}},
+		}))
+	})
+	mux.HandleFunc("GET /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode([]GrafanaSilence{
+			{
+				ID:       "expired-pause",
+				Comment:  pauseSilenceCommentMarker + " Paused via Proto Fleet UI",
+				StartsAt: time.Unix(1000, 0),
+				EndsAt:   pauseSilenceEndsAt,
+				Status:   &GrafanaSilenceStatus{State: "expired"},
+				Matchers: []GrafanaSilenceMatcher{
+					{Name: "organization_id", Value: "7", IsEqual: true},
+					{Name: "__alert_rule_uid__", Value: "rule-9", IsEqual: true},
+				},
+			},
+		}))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{})
+
+	out, err := svc.ListRules(context.Background(), 7)
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	assert.True(t, out[0].Enabled, "an expired pause silence must not report the rule as paused")
+}
+
 // The pause marker must never be an alert matcher: Alertmanager ANDs every matcher
 // against an alert's labels, and no rule emits a marker label, so a marker matcher
 // would mute nothing while the rule still showed as paused.
