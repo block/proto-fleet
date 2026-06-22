@@ -624,6 +624,8 @@ func start(config *Config) error {
 
 	notifHandler := notificationsHandler.NewHandler(notificationsSvc, notificationHistoryStore)
 	mux.Handle(notificationsv1connect.NewChannelServiceHandler(notifHandler, li))
+	mux.Handle(notificationsv1connect.NewRuleServiceHandler(notifHandler, li))
+	mux.Handle(notificationsv1connect.NewMaintenanceWindowServiceHandler(notifHandler, li))
 	// Runtime capability probe so the prebuilt client can surface the Notifications
 	// nav only when the sidecar this feature proxies is actually enabled.
 	mux.HandleFunc("GET /api/v1/notifications/enabled", notificationsHandler.NewEnabledHandler(config.Metrics.Enabled))
