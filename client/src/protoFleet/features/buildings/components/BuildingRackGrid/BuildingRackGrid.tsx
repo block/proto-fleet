@@ -73,7 +73,7 @@ const BuildingRackGrid = ({
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [rackHealth.length > 0]);
 
   // 2D floor plan: floorPlan[aisle][position] = rack | null
   const floorPlan = useMemo(() => {
