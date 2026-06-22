@@ -302,7 +302,8 @@ evaluated only for the page's candidate rows.
     `device.site_id` not read on this path, and a bulk set may straddle
     sites), `fleet_management` miner rename / unpair, and `collection`
     add/remove-devices. A clean fix needs per-event scope resolution or
-    explicit scope metadata — out of scope here, tracked as a follow-up.
+    explicit scope metadata — out of scope here, tracked as a follow-up in
+    [#538](https://github.com/block/proto-fleet/issues/538).
 
 ### Client
 

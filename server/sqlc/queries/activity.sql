@@ -45,6 +45,11 @@ WHERE a.organization_id = sqlc.arg('org_id')
          AND sqlc.arg('include_unassigned')::boolean = false)
 
         -- direct (non-batch) events: scalar site_id, Option B unassigned bucket
+        -- TODO(#538): multi-device fleet writers (rename/unpair miners,
+        -- collection add/remove-devices, device building-unassign) still emit
+        -- NULL site_id with a non-org-level category, so they land here in the
+        -- unassigned bucket instead of /{site}. Scope-stamp (single-source) or
+        -- exclude them once they carry scope metadata.
         OR (a.batch_id IS NULL AND (
                 a.site_id = ANY(sqlc.arg('site_ids')::bigint[])
              OR (sqlc.arg('include_unassigned')::boolean
