@@ -1552,6 +1552,24 @@ export interface SecureResponse {
   secure: boolean;
 }
 
+/** Request to set the authentication public key */
+export interface SetAuthKeyRequest {
+  /**
+   * EdDSA public key as base64-encoded DER (SPKI)
+   * @example "MCowBQYDK2VwAyEAGb1gauf6Rn+VgMwMeMHFBjBLHaiv83R1RV5MhFqxTW0="
+   */
+  public_key: string;
+}
+
+/** Response after setting or clearing the auth key */
+export interface SetAuthKeyResponse {
+  /**
+   * Status message
+   * @example "Auth key set successfully"
+   */
+  message: string;
+}
+
 /** Configuration for SSH access */
 export interface SshConfig {
   /** SSH service status information */
@@ -3288,6 +3306,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<PairingInfoResponse, any>({
         path: `/api/v1/pairing/info`,
         method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Set the authentication public key for pairing. On first pair this endpoint does not require authentication. On key rotation, authentication is required.
+     *
+     * @tags Pairing
+     * @name SetAuthKey
+     * @request POST:/api/v1/pairing/auth-key
+     */
+    setAuthKey: (data: SetAuthKeyRequest, params: RequestParams = {}) =>
+      this.request<SetAuthKeyResponse, ErrorResponse>({
+        path: `/api/v1/pairing/auth-key`,
+        method: "POST",
+        body: data,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Clear the authentication public key. This endpoint requires authentication.
+     *
+     * @tags Pairing
+     * @name ClearAuthKey
+     * @request DELETE:/api/v1/pairing/auth-key
+     * @secure
+     */
+    clearAuthKey: (params: RequestParams = {}) =>
+      this.request<MessageResponse, ErrorResponse | MessageResponse>({
+        path: `/api/v1/pairing/auth-key`,
+        method: "DELETE",
+        secure: true,
         format: "json",
         ...params,
       }),
