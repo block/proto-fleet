@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import { ActivityFilterSchema } from "@/protoFleet/api/generated/activity/v1/activity_pb";
-import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActivity } from "@/protoFleet/api/useActivity";
 import { useActivityFilterOptions } from "@/protoFleet/api/useActivityFilterOptions";
 import { useExportActivity } from "@/protoFleet/api/useExportActivity";
@@ -29,27 +27,15 @@ const ActivityPage = () => {
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
 
   // Path scope (/{site}/activity) → server-side site_ids / include_unassigned,
-  // the same additive filter ListBuildings / ListRacks / ListMiners use.
-  // ListSites populates knownSiteIds so useActiveSite can drop a stale route
-  // scope (a deleted/inaccessible site) back to all-sites. Activity has no
-  // `?site=` deep-link facet, so the scope filter is passed straight through
+  // the same additive filter ListBuildings / ListRacks / ListMiners use. The
+  // route segment is the source of truth for the active site, so we only read
+  // it here — the globally-mounted SitePicker already fetches ListSites and
+  // owns the knownSiteIds staleness validation (resetting a deleted/inaccessible
+  // site back to all-sites), so this page does not re-fetch sites. Activity has
+  // no `?site=` deep-link facet, so the scope filter is passed straight through
   // (no intersectSiteFilters). `/activity` resolves to { kind: "all" } → both
   // empty → org-wide feed, unchanged from before.
-  const { listSites } = useSites();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
-  useEffect(() => {
-    const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: setSites,
-      // Keep the last-known set on transient/permission errors; useActiveSite
-      // simply skips staleness validation while knownSiteIds is undefined.
-      onError: () => setSites((prev) => prev),
-    });
-    return () => controller.abort();
-  }, [listSites]);
-  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
-  const { activeSite } = useActiveSite({ knownSiteIds });
+  const { activeSite } = useActiveSite({});
   const scopeFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
 
   const debouncedSetSearch = useMemo(() => debounce((text: string) => setDebouncedSearchText(text), 300), []);

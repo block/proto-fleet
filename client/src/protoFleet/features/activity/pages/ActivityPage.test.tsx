@@ -36,15 +36,10 @@ vi.mock("@/protoFleet/api/useExportActivity", () => ({
   useExportActivity: () => ({ exportCsv, isExportingCsv: false }),
 }));
 
-// ListSites is a no-op here; knownSiteIds stays undefined, exercising the
-// route-scope-only path (no `?site=` facet on Activity).
-vi.mock("@/protoFleet/api/sites", () => ({
-  useSites: () => ({ listSites: vi.fn() }),
-  buildKnownSiteIds: () => undefined,
-}));
-
 // Keep the real siteFilterFromActive (the translation under test) and only
-// stub useActiveSite so each case can pin a route scope.
+// stub useActiveSite so each case can pin a route scope. The page no longer
+// fetches sites itself — the global SitePicker owns ListSites — so there is
+// nothing else to mock here.
 let mockActiveSite: ActiveSite = { kind: "all" };
 vi.mock("@/protoFleet/components/PageHeader/SitePicker", async (importActual) => {
   const actual = await importActual<typeof import("@/protoFleet/components/PageHeader/SitePicker")>();
