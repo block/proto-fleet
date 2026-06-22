@@ -1,4 +1,12 @@
-import { Fragment, useCallback, useRef, useState } from "react";
+import {
+  forwardRef,
+  Fragment,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Link, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
@@ -12,6 +20,7 @@ export interface BreadcrumbSibling {
   isActive: boolean;
 }
 
+/** Only the last segment may carry `siblings` — earlier segments are ancestor links. */
 export interface BreadcrumbSegment {
   label: string;
   to?: string;
@@ -26,17 +35,58 @@ export interface BreadcrumbProps {
 const Breadcrumb = ({ segments, testId = "breadcrumb" }: BreadcrumbProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
-  useEscapeDismiss(menuOpen ? () => setMenuOpen(false) : undefined);
+  useEscapeDismiss(
+    menuOpen
+      ? () => {
+          setMenuOpen(false);
+          triggerRef.current?.focus();
+        }
+      : undefined,
+  );
+
+  useEffect(() => {
+    if (!menuOpen || !menuRef.current) return;
+    const firstItem = menuRef.current.querySelector<HTMLButtonElement>("[role='menuitem']");
+    firstItem?.focus();
+  }, [menuOpen]);
 
   const handleSelect = useCallback(
     (to: string) => {
       setMenuOpen(false);
+      triggerRef.current?.focus();
       navigate(to);
     },
     [navigate],
   );
+
+  const handleMenuKeyDown = useCallback((e: ReactKeyboardEvent) => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>("[role='menuitem']"));
+    const idx = items.indexOf(e.target as HTMLButtonElement);
+    if (idx < 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      items[(idx + 1) % items.length].focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      items[(idx - 1 + items.length) % items.length].focus();
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      items[0].focus();
+    } else if (e.key === "End") {
+      e.preventDefault();
+      items[items.length - 1].focus();
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      setMenuOpen(false);
+      triggerRef.current?.focus();
+    }
+  }, []);
 
   return (
     <nav className="flex items-center gap-2 text-300" data-testid={testId} aria-label="Breadcrumb">
@@ -71,9 +121,14 @@ const Breadcrumb = ({ segments, testId = "breadcrumb" }: BreadcrumbProps) => {
                 </button>
                 {menuOpen ? (
                   <SiblingMenu
+                    ref={menuRef}
                     siblings={seg.siblings!}
                     onSelect={handleSelect}
-                    onDismiss={() => setMenuOpen(false)}
+                    onDismiss={() => {
+                      setMenuOpen(false);
+                      triggerRef.current?.focus();
+                    }}
+                    onKeyDown={handleMenuKeyDown}
                     testId={`${testId}-menu`}
                   />
                 ) : null}
@@ -94,42 +149,50 @@ interface SiblingMenuProps {
   siblings: BreadcrumbSibling[];
   onSelect: (to: string) => void;
   onDismiss: () => void;
+  onKeyDown: (e: ReactKeyboardEvent) => void;
   testId: string;
 }
 
-const SiblingMenu = ({ siblings, onSelect, onDismiss, testId }: SiblingMenuProps) => (
-  <>
-    <div className="fixed inset-0 z-20" role="presentation" onClick={onDismiss} />
-    <div
-      role="menu"
-      data-testid={testId}
-      className="absolute top-full left-0 z-30 mt-1.5 max-h-72 min-w-44 overflow-y-auto rounded-2xl border border-border-5 bg-surface-elevated-base p-1.5 shadow-300"
-    >
-      {siblings.map((sib) => (
-        <button
-          key={sib.to}
-          type="button"
-          role="menuitem"
-          onClick={() => onSelect(sib.to)}
-          className={clsx(
-            "flex w-full items-center gap-3 rounded-lg p-3 text-left text-300 hover:bg-surface-5",
-            sib.isActive ? "font-medium text-text-primary" : "text-text-primary",
-          )}
-          data-testid={`${testId}-item-${sib.label}`}
-        >
-          <span
+const SiblingMenu = forwardRef<HTMLDivElement, SiblingMenuProps>(
+  ({ siblings, onSelect, onDismiss, onKeyDown, testId }, ref) => (
+    <>
+      <div className="fixed inset-0 z-20" role="presentation" onClick={onDismiss} />
+      <div
+        ref={ref}
+        role="menu"
+        data-testid={testId}
+        onKeyDown={onKeyDown}
+        className="absolute top-full left-0 z-30 mt-1.5 max-h-72 min-w-44 overflow-y-auto rounded-2xl border border-border-5 bg-surface-elevated-base p-1.5 shadow-300"
+      >
+        {siblings.map((sib) => (
+          <button
+            key={sib.to}
+            type="button"
+            role="menuitem"
+            tabIndex={-1}
+            onClick={() => onSelect(sib.to)}
             className={clsx(
-              "flex size-5 shrink-0 items-center justify-center rounded-full border-[1.5px]",
-              sib.isActive ? "border-transparent bg-intent-warning-fill" : "border-border-20",
+              "flex w-full items-center gap-3 rounded-lg p-3 text-left text-300 hover:bg-surface-5",
+              sib.isActive ? "font-medium text-text-primary" : "text-text-primary",
             )}
+            data-testid={`${testId}-item-${sib.label}`}
           >
-            {sib.isActive ? <span className="size-2.5 rounded-full bg-white" /> : null}
-          </span>
-          <span className="truncate">{sib.label}</span>
-        </button>
-      ))}
-    </div>
-  </>
+            <span
+              className={clsx(
+                "flex size-5 shrink-0 items-center justify-center rounded-full border-[1.5px]",
+                sib.isActive ? "border-transparent bg-intent-warning-fill" : "border-border-20",
+              )}
+            >
+              {sib.isActive ? <span className="size-2.5 rounded-full bg-white" /> : null}
+            </span>
+            <span className="truncate">{sib.label}</span>
+          </button>
+        ))}
+      </div>
+    </>
+  ),
 );
+
+SiblingMenu.displayName = "SiblingMenu";
 
 export default Breadcrumb;
