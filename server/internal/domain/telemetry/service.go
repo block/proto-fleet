@@ -1490,12 +1490,16 @@ func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.
 		if err != nil {
 			return models.CombinedMetric{}, err
 		}
-		// No devices in scope: return empty rather than falling through to
-		// the "empty device list = all devices" path.
-		if len(identifiers) == 0 {
+		// Site scope is AND'd with any explicit device selector: intersect the
+		// resolved in-scope devices with an existing device list rather than
+		// replacing it. No devices in scope (empty resolution or empty
+		// intersection) returns empty rather than falling through to the
+		// "empty device list = all devices" path.
+		scoped := intersectDeviceIDs(query.DeviceIDs, models.ToDeviceIdentifiers(identifiers))
+		if len(scoped) == 0 {
 			return models.CombinedMetric{}, nil
 		}
-		query.DeviceIDs = models.ToDeviceIdentifiers(identifiers)
+		query.DeviceIDs = scoped
 	}
 
 	// Returns raw values (H/s, W, J/H) - conversion to display units happens in the handler layer
@@ -1532,6 +1536,26 @@ func (s *TelemetryService) appendLiveUptimeBar(ctx context.Context, orgID int64,
 		BrokenCount:     counts.BrokenCount,
 		NotHashingCount: counts.OfflineCount + counts.SleepingCount,
 	})
+}
+
+// intersectDeviceIDs returns the device IDs present in both sets. When the
+// caller supplied no explicit device list (selected == empty), the site scope
+// alone applies and inScope is returned as-is.
+func intersectDeviceIDs(selected, inScope []models.DeviceIdentifier) []models.DeviceIdentifier {
+	if len(selected) == 0 {
+		return inScope
+	}
+	allowed := make(map[models.DeviceIdentifier]struct{}, len(inScope))
+	for _, id := range inScope {
+		allowed[id] = struct{}{}
+	}
+	result := make([]models.DeviceIdentifier, 0, len(selected))
+	for _, id := range selected {
+		if _, ok := allowed[id]; ok {
+			result = append(result, id)
+		}
+	}
+	return result
 }
 
 func minerFilterForDeviceIDs(deviceIDs []models.DeviceIdentifier) *stores.MinerFilter {

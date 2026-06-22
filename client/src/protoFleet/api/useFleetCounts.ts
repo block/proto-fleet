@@ -77,6 +77,10 @@ const useFleetCounts = (options?: UseFleetCountsOptions): UseFleetCountsReturn =
     hasLoadedRef.current = false;
     setHasLoaded(false);
     setStateCounts(undefined);
+    // Reset totalMiners too: otherwise a telemetry refetch can land first and
+    // panels compute "X of Y reporting" mixing the new scope's deviceCount
+    // with the previous scope's total.
+    setTotalMiners(0);
   }
 
   const fetchCounts = useCallback(async () => {

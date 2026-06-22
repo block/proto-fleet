@@ -524,16 +524,17 @@ export type GetCombinedMetricsRequest = Message<"telemetry.v1.GetCombinedMetrics
   /**
    * Filter metrics to devices assigned to ANY of these sites (OR). AND'd
    * with device_selector. Empty + include_unassigned=false applies no
-   * site restriction. Site is matched on the metric row's recorded site,
-   * i.e. where the device was when the reading was taken.
+   * site restriction. Scope is by current site membership: the server
+   * resolves the devices currently assigned to these sites and filters
+   * metrics by that device set.
    *
    * @generated from field: repeated int64 site_ids = 10;
    */
   siteIds: bigint[];
 
   /**
-   * When true, include metrics for devices with no site assignment
-   * (site_id IS NULL). Independent of site_ids.
+   * When true, include metrics for devices currently assigned to no site.
+   * Independent of site_ids.
    *
    * @generated from field: bool include_unassigned = 11;
    */

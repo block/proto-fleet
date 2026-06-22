@@ -342,16 +342,18 @@ Build inside-out so each layer is testable as it lands on the branch:
 - **`GetTotalPairedDevices`** → **must be changed too** (static query, no
   site support today); small SQL + filter-builder edit. Required so the
   FleetHealth total and breakdown share one scope. See RPC #1.
-- **Telemetry & errors filtering** → filter the **denormalized `site_id`
-  column** on the telemetry/errors tables directly (migration 000047);
-  no device-ID pre-resolution, no new joins. Unassigned = `site_id IS
-  NULL`, supported on all three RPCs.
-- **Point-in-time vs current site** → accepted as point-in-time for
-  history, current for counts. See "Data model" section. *Eng review to
-  bless.*
+- **Telemetry & errors filtering** → resolve the in-scope **current**
+  device identifiers and apply them through the existing device-list /
+  `device_identifiers` paths; the telemetry continuous aggregates have no
+  `site_id` column, so no direct-column filter is possible. No
+  `telemetry.sql` / `errors.sql` changes. Unassigned = devices currently
+  assigned to no site. Site scope is AND'd with any explicit device list.
+- **Current-membership everywhere (Option B)** → all panels mean "this
+  site's *current* devices." See "Data model" section.
 - **#526 reuse** → the `fleetlistfilter` package and `common.v1`
-  list-filter types are **not** applicable; #519 uses the existing
-  `device.site_id` / row-stamped `site_id` paths.
+  list-filter types are **not** applicable; #519 uses the
+  `device.site_id` filter (counts) and current-membership device
+  resolution (telemetry/errors).
 
 - **Pre-000047 NULL `site_id` rows** → **no backfill.** Decided: these
   legacy rows surface under `/unassigned`; immaterial for normal dashboard

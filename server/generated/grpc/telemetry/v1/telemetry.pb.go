@@ -1219,11 +1219,12 @@ type GetCombinedMetricsRequest struct {
 	PageSize         int32                  `protobuf:"varint,9,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`   // max 1000, default 100
 	// Filter metrics to devices assigned to ANY of these sites (OR). AND'd
 	// with device_selector. Empty + include_unassigned=false applies no
-	// site restriction. Site is matched on the metric row's recorded site,
-	// i.e. where the device was when the reading was taken.
+	// site restriction. Scope is by current site membership: the server
+	// resolves the devices currently assigned to these sites and filters
+	// metrics by that device set.
 	SiteIds []int64 `protobuf:"varint,10,rep,packed,name=site_ids,json=siteIds,proto3" json:"site_ids,omitempty"`
-	// When true, include metrics for devices with no site assignment
-	// (site_id IS NULL). Independent of site_ids.
+	// When true, include metrics for devices currently assigned to no site.
+	// Independent of site_ids.
 	IncludeUnassigned bool `protobuf:"varint,11,opt,name=include_unassigned,json=includeUnassigned,proto3" json:"include_unassigned,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache

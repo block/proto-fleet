@@ -109,4 +109,50 @@ func TestGetCombinedMetrics_SiteScope(t *testing.T) {
 		_, err := svc.GetCombinedMetrics(t.Context(), models.CombinedMetricsQuery{OrganizationID: 42})
 		require.NoError(t, err)
 	})
+
+	t.Run("intersects site scope with an explicit device list", func(t *testing.T) {
+		svc, dataStore, deviceStore := newSiteScopeService(t)
+
+		// Site 7 currently has device-a and device-b; caller asked for a and c.
+		deviceStore.EXPECT().
+			GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(42), &stores.MinerFilter{SiteIDs: []int64{7}}).
+			Return([]string{"device-a", "device-b"}, nil)
+
+		// Only the intersection (device-a) is queried — site scope is AND'd
+		// with the device list, not a replacement.
+		dataStore.EXPECT().
+			GetCombinedMetrics(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ any, q models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+				assert.Equal(t, []models.DeviceIdentifier{"device-a"}, q.DeviceIDs)
+				return models.CombinedMetric{}, nil
+			})
+		deviceStore.EXPECT().
+			GetMinerStateCounts(gomock.Any(), int64(42), &stores.MinerFilter{DeviceIdentifiers: []string{"device-a"}}).
+			Return(&telemetryv1.MinerStateCounts{}, nil)
+
+		_, err := svc.GetCombinedMetrics(t.Context(), models.CombinedMetricsQuery{
+			OrganizationID: 42,
+			SiteIDs:        []int64{7},
+			DeviceIDs:      []models.DeviceIdentifier{"device-a", "device-c"},
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("disjoint device list and site scope returns empty", func(t *testing.T) {
+		svc, dataStore, deviceStore := newSiteScopeService(t)
+
+		deviceStore.EXPECT().
+			GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(42), gomock.Any()).
+			Return([]string{"device-a"}, nil)
+		dataStore.EXPECT().GetCombinedMetrics(gomock.Any(), gomock.Any()).Times(0)
+		deviceStore.EXPECT().GetMinerStateCounts(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+
+		result, err := svc.GetCombinedMetrics(t.Context(), models.CombinedMetricsQuery{
+			OrganizationID: 42,
+			SiteIDs:        []int64{7},
+			DeviceIDs:      []models.DeviceIdentifier{"device-z"},
+		})
+		require.NoError(t, err)
+		assert.Empty(t, result.Metrics)
+	})
 }
