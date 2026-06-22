@@ -53,6 +53,16 @@ describe("computeBuildingSelectionDelta", () => {
     expect(out.added).toEqual([{ buildingId: 1n, label: "B-1" }]);
   });
 
+  it("does not remove a disabled seeded id (reassigned to another site since seeding)", () => {
+    // Building 2 was in this site when the working set was seeded, but has
+    // since been reassigned elsewhere, so the picker renders it disabled.
+    // "Select none" must not emit it as removed — that would unassign it
+    // from the other site.
+    const items = [eligible("1"), disabledItem("2")];
+    const out = computeBuildingSelectionDelta(items, [1n, 2n], []);
+    expect(out.removed).toEqual([1n]);
+  });
+
   it("mixed delta: one add + one remove + one untouched-missing", () => {
     const items = [eligible("1"), eligible("3"), eligible("4")];
     const out = computeBuildingSelectionDelta(items, [1n, 3n, 99n], ["1", "4"]);

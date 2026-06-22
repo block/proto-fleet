@@ -1015,6 +1015,44 @@ describe("List", () => {
     expect(customSetSelectedItems).toHaveBeenCalledWith([testItems[2].id]);
   });
 
+  it("keeps off-page selections when a row check fills the current page (preserveOffPageSelection)", () => {
+    const customSetSelectedItems = vi.fn();
+    const pageOneItems = [testItems[0], testItems[1]];
+    // item1 already selected on this page + item3 selected off-page. Checking
+    // item2 makes the page "full" — without the fix that flips to "all" mode
+    // and the sync effect rewrites selection to just the page keys, dropping
+    // item3.
+    const selectedAcrossPages = [testItems[0].id, testItems[2].id];
+
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={activeCols}
+        colTitles={testColTitles}
+        colConfig={testColConfig}
+        items={pageOneItems}
+        itemKey="id"
+        itemSelectable
+        customSelectedItems={selectedAcrossPages}
+        customSetSelectedItems={customSetSelectedItems}
+        preserveOffPageSelection
+      />,
+    );
+
+    const rowCheckboxes = Array.from(
+      screen.getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
+    ) as HTMLInputElement[];
+    // Check the second row (item2).
+    fireEvent.click(rowCheckboxes[1]);
+
+    // Every write keeps the off-page item3 — it is never dropped.
+    for (const call of customSetSelectedItems.mock.calls) {
+      expect(call[0]).toContain(testItems[2].id);
+    }
+    expect(customSetSelectedItems).toHaveBeenLastCalledWith(
+      expect.arrayContaining([testItems[0].id, testItems[1].id, testItems[2].id]),
+    );
+  });
+
   it("does not show the header checkbox as partially checked for off-page selections", () => {
     render(
       <List<TestItem, TestItemKey>

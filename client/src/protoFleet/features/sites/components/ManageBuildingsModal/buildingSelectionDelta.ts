@@ -22,6 +22,10 @@ export interface BuildingSelectionDelta {
 //   absent from items — that means we don't actually know whether the
 //   operator deselected it or whether listBuildings didn't return it. The
 //   safe default is to leave it alone so the caller preserves membership.
+//   Also skipped when the seeded item is now disabled: a building that was
+//   reassigned to another site since the working set was seeded renders
+//   ineligible, and "Select none" must not emit it as removed — doing so
+//   would unassign it from that other site.
 export const computeBuildingSelectionDelta = (
   items: BuildingPickerItem[],
   initialSelectedBuildingIds: bigint[],
@@ -42,7 +46,7 @@ export const computeBuildingSelectionDelta = (
   for (const id of initialSelectedBuildingIds) {
     if (selectedSet.has(id.toString())) continue;
     const seedItem = items.find((b) => b.id === id.toString());
-    if (!seedItem) continue;
+    if (!seedItem || seedItem.disabled) continue;
     removed.push(id);
   }
 

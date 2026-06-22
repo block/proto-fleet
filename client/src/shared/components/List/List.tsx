@@ -902,7 +902,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     const newMode =
       newSelectedItems.length === 0
         ? "none"
-        : pageScopedSelection
+        : // Paginated lists pass one page as `items`, so "all" here only
+          // means "all of this page". Promoting to "all" mode lets the
+          // sync effect rewrite the controlled selection with just the
+          // current-page keys, dropping off-page selections the parent
+          // holds. Stay in "subset" so cross-page selections survive.
+          pageScopedSelection || preserveOffPageSelection
           ? "subset"
           : allItemsSelected && !hasActiveFilters
             ? "all"
@@ -986,8 +991,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     const currentItemKeys = new Set(items.map((item) => item[itemKey] as ItemKeyValueType));
     const currentSelected = currentSelectedItems;
 
-    // In "all" mode, ensure all selectable current items are selected (handles Load More)
-    if (currentSelectionMode === "all") {
+    // In "all" mode, ensure all selectable current items are selected (handles Load More).
+    // Skipped under preserveOffPageSelection: there `items` is only the current
+    // page, so rewriting the selection to the page's keys would drop the
+    // parent's off-page selections. Those consumers never enter "all" mode via
+    // the row/header paths, but guard here too in case mode is driven externally.
+    if (currentSelectionMode === "all" && !preserveOffPageSelection) {
       const allSelectableItemKeys = selectableItems.map((item) => item[itemKey] as ItemKeyValueType);
       const currentSelectedSet = new Set(currentSelected);
       const needsUpdate = allSelectableItemKeys.some((key) => !currentSelectedSet.has(key));
