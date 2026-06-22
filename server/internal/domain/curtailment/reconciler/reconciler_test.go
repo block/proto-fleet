@@ -56,6 +56,10 @@ type fakeStore struct {
 	listTargetsByEventCalls int
 	claimTargetsCalls       int
 	claimedTargetParams     []models.InsertTargetParams
+	cooldownDevices         []string
+	cooldownCalls           int
+	lastCooldownOrgID       int64
+	lastCooldownSec         int32
 
 	heartbeatCalls           int
 	lastHeartbeatActive      int32
@@ -97,8 +101,11 @@ func (f *fakeStore) ListActiveCurtailedDevices(context.Context, int64) ([]string
 func (f *fakeStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
 	return append([]string(nil), f.activeDevices...), nil
 }
-func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
-	panic("ListRecentlyResolvedCurtailedDevices not exercised")
+func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(_ context.Context, orgID int64, cooldownSec int32) ([]string, error) {
+	f.cooldownCalls++
+	f.lastCooldownOrgID = orgID
+	f.lastCooldownSec = cooldownSec
+	return append([]string(nil), f.cooldownDevices...), nil
 }
 func (f *fakeStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
 	panic("SiteBelongsToOrg not exercised")
@@ -792,6 +799,52 @@ func TestReconciler_ActiveClosedLoopFullFleetUsesPersistedCandidateFloor(t *test
 	require.NotNil(t, target.BaselinePowerW,
 		"dynamic admission must use the floor resolved at Start, not a later org default")
 	assert.Equal(t, 800.0, *target.BaselinePowerW)
+}
+
+func TestReconciler_ActiveClosedLoopFullFleetSkipsCooldownDevices(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.cooldownDevices = []string{"miner-recent"}
+	store.events = []*models.Event{
+		{
+			ID:                   eventID,
+			EventUUID:            eventUUID,
+			OrgID:                1,
+			State:                models.EventStateActive,
+			Mode:                 models.ModeFullFleet,
+			LoopType:             models.LoopTypeClosed,
+			ScopeType:            models.ScopeTypeWholeOrg,
+			DecisionSnapshotJSON: []byte(`{"post_event_cooldown_sec":600}`),
+			CreatedByUserID:      99,
+		},
+	}
+	driver := "antminer"
+	now := time.Now()
+	for _, id := range []string{"miner-recent", "miner-fresh"} {
+		store.candidates = append(store.candidates, &models.Candidate{
+			DeviceIdentifier: id,
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestPowerW:     ptrFloat64(3000),
+			LatestHashRateHS: ptrFloat64(100),
+			AvgEfficiencyJH:  ptrFloat64(40),
+		})
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.cooldownCalls)
+	assert.Equal(t, int64(1), store.lastCooldownOrgID)
+	assert.Equal(t, int32(600), store.lastCooldownSec)
+	require.Len(t, store.claimedTargetParams, 1)
+	assert.Equal(t, "miner-fresh", store.claimedTargetParams[0].DeviceIdentifier)
+	assert.ElementsMatch(t, []string{"miner-fresh"}, disp.curtailLastIDs)
 }
 
 func TestReconciler_ActiveClosedLoopFullFleetClaimsOnlyOneCurtailBatch(t *testing.T) {

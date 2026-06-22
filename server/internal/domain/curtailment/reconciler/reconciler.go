@@ -760,6 +760,15 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 		return nil
 	}
 	targets = excludeDeviceIdentifiers(targets, activeDevices)
+	if cooldownSec := postEventCooldownSecForEvent(ev); cooldownSec > 0 {
+		cooldownDevices, err := r.store.ListRecentlyResolvedCurtailedDevices(ctx, ev.OrgID, cooldownSec)
+		if err != nil {
+			slog.Error("curtailment reconciler: list cooldown devices (full_fleet admission) failed",
+				"event_id", ev.ID, "error", err)
+			return nil
+		}
+		targets = excludeDeviceIdentifiers(targets, cooldownDevices)
+	}
 	if len(targets) == 0 {
 		return nil
 	}
@@ -799,6 +808,19 @@ func candidateMinPowerWForEvent(ev *models.Event, fallback int32) int32 {
 		return fallback
 	}
 	return snapshot.CandidateMinPowerW
+}
+
+func postEventCooldownSecForEvent(ev *models.Event) int32 {
+	if ev == nil || len(ev.DecisionSnapshotJSON) == 0 {
+		return 0
+	}
+	var snapshot struct {
+		PostEventCooldownSec int32 `json:"post_event_cooldown_sec"`
+	}
+	if err := json.Unmarshal(ev.DecisionSnapshotJSON, &snapshot); err != nil || snapshot.PostEventCooldownSec <= 0 {
+		return 0
+	}
+	return snapshot.PostEventCooldownSec
 }
 
 func excludeExistingTargetParams(targets []models.InsertTargetParams, existingTargets []*models.Target) []models.InsertTargetParams {
