@@ -32,10 +32,11 @@ const (
 	maxUsedPasswordBytes = 1024
 )
 
-// credentialsReportable reports whether username/password fit the
-// FleetNodePairResult caps. We refuse an oversized credential rather than pair with
-// it: the node could authenticate but the cloud couldn't persist it back, leaving
-// the device PAIRED but unusable.
+// credentialsReportable reports whether username/password fit inside the
+// encrypted credential report caps with conservative room for sealing overhead.
+// We refuse an oversized credential rather than pair with it: the node could
+// authenticate but the cloud couldn't persist it back, leaving the device PAIRED
+// but unusable.
 func credentialsReportable(username, password string) bool {
 	return len(username) <= maxPairIdentityBytes && len(password) <= maxUsedPasswordBytes
 }
@@ -93,7 +94,7 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 			res.ErrorMessage = "supplied credentials exceed the maximum reportable size"
 			return res
 		}
-		used, encrypted, err := p.credentialReport(bundle, &pb.UsedCredentials{Username: creds.GetUsername(), Password: creds.GetPassword()})
+		encrypted, err := p.credentialReport(bundle)
 		if err != nil {
 			res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
 			res.ErrorMessage = truncateUTF8(fmt.Sprintf("encrypt credentials: %v", err), maxAckErrorMessageBytes)
@@ -105,7 +106,6 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 			return res
 		}
 		setPaired(res, updated)
-		res.UsedCredentials = used
 		res.EncryptedCredentials = encrypted
 		return res
 	}
@@ -117,7 +117,7 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 				continue
 			}
 			bundle := sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: c.Username, Password: c.Password}}
-			used, encrypted, err := p.credentialReport(bundle, &pb.UsedCredentials{Username: c.Username, Password: c.Password})
+			encrypted, err := p.credentialReport(bundle)
 			if err != nil {
 				res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
 				res.ErrorMessage = truncateUTF8(fmt.Sprintf("encrypt credentials: %v", err), maxAckErrorMessageBytes)
@@ -132,7 +132,6 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 				return res
 			}
 			setPaired(res, updated)
-			res.UsedCredentials = used
 			res.EncryptedCredentials = encrypted
 			return res
 		}
@@ -143,18 +142,15 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 	return res
 }
 
-func (p *pluginPairer) credentialReport(bundle sdk.SecretBundle, used *pb.UsedCredentials) (*pb.UsedCredentials, *pb.EncryptedCredentials, error) {
+func (p *pluginPairer) credentialReport(bundle sdk.SecretBundle) (*pb.EncryptedCredentials, error) {
 	if p.credentials == nil {
-		return used, nil, nil
+		return nil, nil
 	}
 	encrypted, err := p.credentials.Seal(bundle)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	if encrypted == nil {
-		return used, nil, nil
-	}
-	return nil, encrypted, nil
+	return encrypted, nil
 }
 
 // secretBundleFor returns the supplied username/password bundle. ok is false
