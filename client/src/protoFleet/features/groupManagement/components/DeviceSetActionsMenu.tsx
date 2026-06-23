@@ -93,9 +93,7 @@ const DeviceSetActionsMenuInner = ({
   const isScopedGroupAction = deviceSetType === "group" && activeSite !== undefined && activeSite.kind !== "all";
   const siteScopeFilter = useMemo(
     () =>
-      isScopedGroupAction && activeSite
-        ? siteFilterFromActive(activeSite)
-        : { siteIds: [], includeUnassigned: false },
+      isScopedGroupAction && activeSite ? siteFilterFromActive(activeSite) : { siteIds: [], includeUnassigned: false },
     [activeSite, isScopedGroupAction],
   );
   const siteScopeLabel = useMemo(() => {
@@ -197,14 +195,19 @@ const DeviceSetActionsMenuInner = ({
       setFetchingMembers(false);
     }
 
-    const filter =
-      deviceSetType === "rack"
-        ? { rackIds: [deviceSetId] }
-        : {
-            groupIds: [deviceSetId],
-            siteIds: siteScopeFilter.siteIds,
-            includeUnassigned: siteScopeFilter.includeUnassigned,
-          };
+    const filter = (() => {
+      if (deviceSetType === "rack") {
+        return { rackIds: [deviceSetId] };
+      }
+      if (!isScopedGroupAction) {
+        return { groupIds: [deviceSetId] };
+      }
+      return {
+        groupIds: [deviceSetId],
+        siteIds: siteScopeFilter.siteIds,
+        includeUnassigned: siteScopeFilter.includeUnassigned,
+      };
+    })();
     setFetchedMiners({});
     setFetchingMiners(true);
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -231,7 +234,15 @@ const DeviceSetActionsMenuInner = ({
       setFetchingMembers(false);
       setFetchingMiners(false);
     };
-  }, [isOpen, deviceSetId, deviceSetType, listGroupMembers, siteScopeFilter.includeUnassigned, siteScopeFilter.siteIds]);
+  }, [
+    isOpen,
+    deviceSetId,
+    deviceSetType,
+    isScopedGroupAction,
+    listGroupMembers,
+    siteScopeFilter.includeUnassigned,
+    siteScopeFilter.siteIds,
+  ]);
 
   const selectedMinersWithStatus = useMemo(
     () => memberDeviceIds.map((id) => ({ deviceIdentifier: id })),

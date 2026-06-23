@@ -493,7 +493,15 @@ const useDeviceSets = () => {
   );
 
   const listGroupMembers = useCallback(
-    async ({ deviceSetId, siteIds, includeUnassigned, signal, onSuccess, onError, onFinally }: ListGroupMembersProps) => {
+    async ({
+      deviceSetId,
+      siteIds,
+      includeUnassigned,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: ListGroupMembersProps) => {
       try {
         const allIdentifiers: string[] = [];
         let pageToken = "";

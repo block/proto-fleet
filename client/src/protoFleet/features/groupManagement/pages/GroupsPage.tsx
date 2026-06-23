@@ -11,7 +11,7 @@ import {
 } from "@/protoFleet/components/DeviceSetList";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
-import { siteFilterFromActive, type SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
+import { type SiteFilterFields, siteFilterFromActive } from "@/protoFleet/components/PageHeader/SitePicker";
 import {
   FILTER_URL_PARAM_KEYS,
   fleetListTelemetryRangesFromURL,
