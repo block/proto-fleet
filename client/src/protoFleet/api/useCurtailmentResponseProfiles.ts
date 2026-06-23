@@ -47,6 +47,10 @@ function numberToNonNegativeInputValue(value: number | undefined): string {
   return value !== undefined && Number.isFinite(value) && value >= 0 ? value.toString() : "";
 }
 
+function curtailBatchIntervalInputValue(profile: ApiCurtailmentResponseProfile): string {
+  return (profile.curtailBatchSize ?? 0) > 0 ? numberToNonNegativeInputValue(profile.curtailBatchIntervalSec) : "";
+}
+
 function formatKw(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
@@ -105,7 +109,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile): Response
     minDurationSec: "",
     maxDurationSec: "",
     curtailBatchSize: numberToInputValue(profile.curtailBatchSize),
-    curtailBatchIntervalSec: numberToNonNegativeInputValue(profile.curtailBatchIntervalSec),
+    curtailBatchIntervalSec: curtailBatchIntervalInputValue(profile),
     restoreBatchSize: numberToInputValue(profile.restoreBatchSize),
     restoreIntervalSec: numberToNonNegativeInputValue(profile.restoreBatchIntervalSec),
     responseDeadlineMinutes,
