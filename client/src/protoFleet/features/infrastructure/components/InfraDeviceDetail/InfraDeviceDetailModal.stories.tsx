@@ -18,9 +18,9 @@ const findDevice = (id: string): InfraDeviceItem => {
   return device;
 };
 
-export const Online = () => {
+export const Running = () => {
   const [open, setOpen] = useState(true);
-  const device = findDevice("fan-den-1-1");
+  const device = findDevice("aus-b1-plc-01-zone-a");
   return (
     <>
       <Button variant={variants.primary} text="Open Modal" onClick={() => setOpen(true)} />
@@ -37,9 +37,9 @@ export const Online = () => {
   );
 };
 
-export const Degraded = () => {
+export const Faulted = () => {
   const [open, setOpen] = useState(true);
-  const device = findDevice("fan-den-5-2");
+  const device = findDevice("aus-b1-plc-01-zone-b");
   return (
     <>
       <Button variant={variants.primary} text="Open Modal" onClick={() => setOpen(true)} />
@@ -56,9 +56,9 @@ export const Degraded = () => {
   );
 };
 
-export const Offline = () => {
+export const Stopped = () => {
   const [open, setOpen] = useState(true);
-  const device = findDevice("fan-aus-1-3");
+  const device = findDevice("aus-b2-bridge-07");
   return (
     <>
       <Button variant={variants.primary} text="Open Modal" onClick={() => setOpen(true)} />

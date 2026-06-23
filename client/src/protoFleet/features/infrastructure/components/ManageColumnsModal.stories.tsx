@@ -8,18 +8,13 @@ export default {
 };
 
 const defaultColumns: InfraColumnPreference[] = [
-  { id: "ipAddress", label: "IP address", visible: true },
-  { id: "type", label: "Type", visible: true },
-  { id: "model", label: "Model", visible: false },
-  { id: "building", label: "Building", visible: true },
+  { id: "bridgeDeviceIdentifier", label: "ID", visible: true },
   { id: "site", label: "Site", visible: true },
+  { id: "building", label: "Building", visible: true },
   { id: "status", label: "Status", visible: true },
+  { id: "enabled", label: "Enabled", visible: true },
   { id: "issues", label: "Issues", visible: true },
-  { id: "reading", label: "Reading", visible: true },
-  { id: "powerUsage", label: "Power", visible: false },
-  { id: "temperature", label: "Temp", visible: false },
-  { id: "firmware", label: "Firmware", visible: false },
-  { id: "lastSeen", label: "Last seen", visible: false },
+  { id: "lastSeen", label: "Last seen", visible: true },
 ];
 
 export const Default = () => {

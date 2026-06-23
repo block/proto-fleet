@@ -10,10 +10,33 @@ import Modal from "@/shared/components/Modal";
 import Row from "@/shared/components/Row";
 import Select from "@/shared/components/Select";
 import StatusCircle from "@/shared/components/StatusCircle";
+import Switch from "@/shared/components/Switch";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const buildOptions = (values: string[], currentValue: string) =>
   [...new Set([currentValue, ...values].filter(Boolean))].sort().map((value) => ({ value, label: value }));
+
+const statusToCircle = (status: InfraDeviceItem["status"]) => {
+  switch (status) {
+    case "running":
+      return "normal" as const;
+    case "faulted":
+      return "error" as const;
+    case "unknown":
+      return "warning" as const;
+    default:
+      return "inactive" as const;
+  }
+};
+
+const formatLabel = (value: string | null) => (value ? value.replaceAll("_", " ") : "None");
+
+const formatDeviceType = (device: InfraDeviceItem) => {
+  if (device.endpointKind === "single_fan") return "Fan";
+  if (device.fanCount && device.fanCount > 1) return `Fan group (${device.fanCount} fans)`;
+  if (device.endpointKind === "fan_group") return "Fan group";
+  return "";
+};
 
 interface InfraDeviceDetailModalProps {
   device: InfraDeviceItem;
@@ -34,9 +57,10 @@ const InfraDeviceDetailModal = ({
     [buildingOptions, device.buildingName],
   );
   const [name, setName] = useState(device.name);
-  const [ipAddress, setIpAddress] = useState(device.ipAddress);
+  const [identifier, setIdentifier] = useState(device.bridgeDeviceIdentifier);
   const [site, setSite] = useState(device.siteName);
   const [building, setBuilding] = useState(device.buildingName);
+  const [enabled, setEnabled] = useState(device.enabled);
   const [isTesting, setIsTesting] = useState(false);
 
   const handleSave = useCallback(() => {
@@ -51,21 +75,21 @@ const InfraDeviceDetailModal = ({
     setIsTesting(true);
     setTimeout(() => {
       setIsTesting(false);
-      pushToast({ message: `${device.name} — connection successful (12ms)`, status: STATUSES.success });
+      pushToast({ message: `${device.name} — bridge connection successful (12ms)`, status: STATUSES.success });
     }, 1200);
   }, [device.name]);
 
-  const protocol = device.deviceType === "fan" ? "Modbus" : "SNMP";
-  const hasIssues = device.status === "degraded" || device.status === "offline" || device.issues > 0;
+  const hasUnackedIssue =
+    device.issueStatus === "pending" || device.issueStatus === "failed" || device.issueStatus === "timed_out";
 
   const statusIcon = (() => {
-    if (device.status === "offline")
+    if (device.status === "unknown" || device.status === "stopped")
       return (
-        <DialogIcon intent="info">
-          <Info />
+        <DialogIcon>
+          <Info className="text-text-primary" />
         </DialogIcon>
       );
-    if (hasIssues)
+    if (device.status === "faulted" || hasUnackedIssue)
       return (
         <DialogIcon intent="critical">
           <Alert />
@@ -78,20 +102,13 @@ const InfraDeviceDetailModal = ({
     );
   })();
 
-  const statusLabel = (() => {
-    if (device.status === "offline") return "Connection lost";
-    if (device.status === "degraded") return "Degraded performance";
-    return "Online";
-  })();
-
-  const subtextParts = [device.subtype, device.model].filter(Boolean).join(", ");
+  const statusLabel = formatLabel(device.status);
+  const description = formatDeviceType(device);
 
   return (
     <Modal
       open
       onDismiss={onDismiss}
-      title={device.name}
-      description={subtextParts}
       headerSpacingClassName="mt-6"
       buttons={[
         {
@@ -116,22 +133,17 @@ const InfraDeviceDetailModal = ({
       ]}
     >
       <div className="flex flex-col gap-6">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-3">
           {statusIcon}
-          <span className="flex items-center gap-1.5 text-text-primary">
-            <StatusCircle
-              status={device.status === "online" ? "normal" : device.status === "degraded" ? "warning" : "inactive"}
-              variant="simple"
-              width="w-[6px]"
-            />
-            {statusLabel}
-          </span>
+          <div className="flex flex-col gap-1">
+            <div className="text-heading-300 text-text-primary">{device.name}</div>
+            {description ? <div className="text-300 text-text-primary-70">{description}</div> : null}
+          </div>
         </div>
 
         {/* Editable fields */}
         <div className="flex flex-col gap-4">
-          <Input id="device-name" label="Device name" initValue={name} onChange={(v) => setName(v)} />
-          <Input id="device-ip" label="IP address" initValue={ipAddress} onChange={(v) => setIpAddress(v)} />
+          <Input id="device-name" label="Name" initValue={name} onChange={(v) => setName(v)} />
           <div className="grid grid-cols-2 gap-3">
             <Select
               id="device-site"
@@ -150,44 +162,45 @@ const InfraDeviceDetailModal = ({
               forceBelow
             />
           </div>
+          <Input
+            id="device-identifier"
+            label="Bridge/device identifier"
+            initValue={identifier}
+            onChange={(v) => setIdentifier(v)}
+          />
         </div>
 
         <Divider />
 
         {/* Device info */}
         <div className="flex flex-col">
-          {device.firmware ? (
-            <Row compact>
-              <div className="flex w-full items-center justify-between">
-                <span className="text-text-primary-70">Firmware</span>
-                <span>{device.firmware}</span>
-              </div>
-            </Row>
-          ) : null}
-          {device.rpm != null ? (
-            <Row compact>
-              <div className="flex w-full items-center justify-between">
-                <span className="text-text-primary-70">Reading</span>
-                <span>{device.rpm.toLocaleString()} RPM</span>
-              </div>
-            </Row>
-          ) : null}
-          {device.powerW != null ? (
-            <Row compact>
-              <div className="flex w-full items-center justify-between">
-                <span className="text-text-primary-70">Power</span>
-                <span>{device.powerW} W</span>
-              </div>
-            </Row>
-          ) : null}
-          {device.temperatureC != null ? (
-            <Row compact>
-              <div className="flex w-full items-center justify-between">
-                <span className="text-text-primary-70">Temperature</span>
-                <span>{device.temperatureC}°C</span>
-              </div>
-            </Row>
-          ) : null}
+          <Row compact>
+            <div className="flex w-full items-center justify-between">
+              <span className="text-text-primary-70">Enabled</span>
+              <Switch
+                checked={enabled === "auto"}
+                setChecked={(next) => {
+                  const checked = typeof next === "function" ? next(enabled === "auto") : next;
+                  setEnabled(checked ? "auto" : "off");
+                }}
+              />
+            </div>
+          </Row>
+          <Row compact>
+            <div className="flex w-full items-center justify-between">
+              <span className="text-text-primary-70">Status</span>
+              <span className="flex items-center gap-2 capitalize">
+                <StatusCircle status={statusToCircle(device.status)} variant="simple" width="w-[6px]" />
+                {statusLabel}
+              </span>
+            </div>
+          </Row>
+          <Row compact>
+            <div className="flex w-full items-center justify-between">
+              <span className="text-text-primary-70">Issues</span>
+              <span className="capitalize">{formatLabel(device.issueStatus)}</span>
+            </div>
+          </Row>
           <Row compact>
             <div className="flex w-full items-center justify-between">
               <span className="text-text-primary-70">Last seen</span>
@@ -196,8 +209,8 @@ const InfraDeviceDetailModal = ({
           </Row>
           <Row compact divider={false}>
             <div className="flex w-full items-center justify-between">
-              <span className="text-text-primary-70">Protocol</span>
-              <span>{protocol}</span>
+              <span className="text-text-primary-70">Fans</span>
+              <span>{device.fanCount ?? "—"}</span>
             </div>
           </Row>
         </div>
