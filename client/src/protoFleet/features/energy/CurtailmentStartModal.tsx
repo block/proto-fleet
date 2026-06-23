@@ -52,7 +52,6 @@ export interface CurtailmentFormValues {
   curtailBatchIntervalSec: string;
   restoreBatchSize: string;
   restoreIntervalSec: string;
-  postEventCooldownSec: string;
   reason: string;
   includeMaintenance: boolean;
 }
@@ -167,7 +166,6 @@ const defaultValues: CurtailmentFormValues = {
   curtailBatchIntervalSec: "",
   restoreBatchSize: "",
   restoreIntervalSec: "",
-  postEventCooldownSec: "0",
   reason: "",
   includeMaintenance: true,
 };
@@ -240,7 +238,6 @@ function withSelectedResponseProfileValues(
   const nextValues = {
     ...values,
     ...behaviorValues,
-    postEventCooldownSec: defaultValues.postEventCooldownSec,
   };
 
   if (!hasScopeValues) {
@@ -287,7 +284,6 @@ function getInitialValues(
   const values = {
     ...defaultValues,
     ...initialValues,
-    postEventCooldownSec: defaultValues.postEventCooldownSec,
   };
 
   return variant === "responseProfile" ? withResponseProfileScope(values, responseProfileMode) : values;

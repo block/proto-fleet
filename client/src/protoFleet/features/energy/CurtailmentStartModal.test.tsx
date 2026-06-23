@@ -122,7 +122,6 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
       curtailBatchIntervalSec: "60",
       restoreBatchSize: "10",
       restoreIntervalSec: "120",
-      postEventCooldownSec: "600",
       includeMaintenance: true,
     },
   },
@@ -136,7 +135,6 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
       curtailBatchIntervalSec: "30",
       restoreBatchSize: "20",
       restoreIntervalSec: "120",
-      postEventCooldownSec: "0",
       includeMaintenance: true,
     },
   },
@@ -341,7 +339,6 @@ describe("CurtailmentStartModal", () => {
         responseProfileId: "customPlan",
         curtailBatchSize: "20",
         curtailBatchIntervalSec: "60",
-        postEventCooldownSec: "0",
       }),
     );
   });
@@ -374,7 +371,6 @@ describe("CurtailmentStartModal", () => {
       expect.objectContaining({
         curtailBatchSize: "20",
         curtailBatchIntervalSec: "60",
-        postEventCooldownSec: "0",
       }),
     );
   });
@@ -413,7 +409,6 @@ describe("CurtailmentStartModal", () => {
         siteId: "",
         deviceSetIds: [],
         deviceIdentifiers: [],
-        postEventCooldownSec: "0",
       }),
     );
   });
@@ -564,7 +559,6 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
-        postEventCooldownSec: "0",
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         deviceSetIds: [],
@@ -584,7 +578,6 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
-        postEventCooldownSec: "0",
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         deviceSetIds: [],
@@ -714,7 +707,6 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10000",
         restoreIntervalSec: "0",
-        postEventCooldownSec: "0",
         includeMaintenance: false,
       },
     });
@@ -765,7 +757,6 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10000",
         restoreIntervalSec: "0",
-        postEventCooldownSec: "0",
       }),
     );
 
@@ -782,7 +773,6 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10000",
         restoreIntervalSec: "0",
-        postEventCooldownSec: "0",
       }),
     );
 

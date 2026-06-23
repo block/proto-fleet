@@ -98,7 +98,6 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     curtailBatchIntervalSec: "",
     restoreBatchSize: profile.restoreBehavior.toLowerCase().includes("immediate") ? immediateRestoreBatchSize : "",
     restoreIntervalSec: "",
-    postEventCooldownSec: "0",
     responseDeadlineMinutes,
     includeMaintenance: true,
   };
@@ -128,7 +127,6 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
       curtailBatchIntervalSec: values.curtailBatchIntervalSec,
       restoreBatchSize,
       restoreIntervalSec: values.restoreIntervalSec,
-      postEventCooldownSec: "0",
       includeMaintenance: values.includeMaintenance,
     },
   };

@@ -108,7 +108,6 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile): Response
     curtailBatchIntervalSec: numberToNonNegativeInputValue(profile.curtailBatchIntervalSec),
     restoreBatchSize: numberToInputValue(profile.restoreBatchSize),
     restoreIntervalSec: numberToNonNegativeInputValue(profile.restoreBatchIntervalSec),
-    postEventCooldownSec: "0",
     responseDeadlineMinutes,
     includeMaintenance: profile.includeMaintenance,
   };

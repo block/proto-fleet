@@ -25,7 +25,6 @@ const baseValues: CurtailmentSubmitValues = {
   curtailBatchIntervalSec: "",
   restoreBatchSize: "",
   restoreIntervalSec: "",
-  postEventCooldownSec: "0",
   reason: "Grid peak",
   includeMaintenance: false,
 };
@@ -63,7 +62,6 @@ describe("curtailmentRequestBuilders", () => {
       curtailBatchIntervalSec: "60",
       restoreBatchSize: "10",
       restoreIntervalSec: "120",
-      postEventCooldownSec: "600",
     });
 
     expect(request.minCurtailedDurationSec).toBe(300);
@@ -72,7 +70,6 @@ describe("curtailmentRequestBuilders", () => {
     expect(request.curtailBatchIntervalSec).toBe(60);
     expect(request.restoreBatchSize).toBe(10);
     expect(request.restoreBatchIntervalSec).toBe(120);
-    expect(request.postEventCooldownSec).toBe(0);
   });
 
   it("omits curtail batch settings when the start form leaves them blank", () => {
