@@ -35,7 +35,8 @@ CREATE INDEX idx_notification_active_org_recent
 -- only when the incoming event is more recent by Alertmanager lifecycle time (history_id breaks ties),
 -- so an out-of-order firing retry can't reopen an already-resolved alert and a stale resolve can't clear
 -- a newer firing. The alert key falls back to alert_name + device_id so fingerprintless alerts don't
--- collapse across devices.
+-- collapse across devices, then is hashed (md5, for bounded keying not security) so a webhook-controlled
+-- label can't push the primary key past the btree index tuple limit.
 CREATE OR REPLACE FUNCTION notification_active_sync()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -46,7 +47,7 @@ BEGIN
     IF NEW.organization_id IS NULL THEN
         RETURN NEW;
     END IF;
-    key := COALESCE(NULLIF(NEW.fingerprint, ''), NEW.alert_name || chr(31) || NEW.device_id);
+    key := md5(COALESCE(NULLIF(NEW.fingerprint, ''), NEW.alert_name || chr(31) || NEW.device_id));
     ev := CASE
               WHEN NEW.status = 'firing' THEN COALESCE(NEW.starts_at, NEW.received_at)
               ELSE COALESCE(NEW.ends_at, NEW.received_at)
@@ -87,7 +88,9 @@ CREATE TRIGGER notification_history_active_sync
 
 -- Backfill latest state per alert key from existing history. Seed resolved tombstones too (not just
 -- firing rows) so the event_at guard above has something to compare a later stale event against. Latest
--- is chosen by lifecycle event_at (id DESC as a tie-breaker), matching the trigger's ordering.
+-- is chosen by lifecycle event_at (id DESC as a tie-breaker), matching the trigger's ordering. The
+-- trigger above is already live, so a concurrent ingest during backfill may have written a row first;
+-- ON CONFLICT (with the same recency guard) keeps this idempotent instead of failing the migration.
 INSERT INTO notification_active (
     organization_id, alert_key, history_id, received_at, status, event_at, alert_name,
     severity, rule_group, fingerprint, device_id, template, summary, starts_at, ends_at
@@ -111,7 +114,7 @@ SELECT
 FROM (
     SELECT DISTINCT ON (organization_id, COALESCE(NULLIF(fingerprint, ''), alert_name || chr(31) || device_id))
         organization_id,
-        COALESCE(NULLIF(fingerprint, ''), alert_name || chr(31) || device_id) AS alert_key,
+        md5(COALESCE(NULLIF(fingerprint, ''), alert_name || chr(31) || device_id)) AS alert_key,
         id, received_at, status,
         CASE
             WHEN status = 'firing' THEN COALESCE(starts_at, received_at)
@@ -128,4 +131,21 @@ FROM (
             ELSE COALESCE(ends_at, received_at)
         END DESC,
         id DESC
-) latest;
+) latest
+ON CONFLICT (organization_id, alert_key) DO UPDATE SET
+    history_id  = EXCLUDED.history_id,
+    received_at = EXCLUDED.received_at,
+    status      = EXCLUDED.status,
+    event_at    = EXCLUDED.event_at,
+    alert_name  = EXCLUDED.alert_name,
+    severity    = EXCLUDED.severity,
+    rule_group  = EXCLUDED.rule_group,
+    fingerprint = EXCLUDED.fingerprint,
+    device_id   = EXCLUDED.device_id,
+    template    = EXCLUDED.template,
+    summary     = EXCLUDED.summary,
+    starts_at   = EXCLUDED.starts_at,
+    ends_at     = EXCLUDED.ends_at
+WHERE notification_active.event_at < EXCLUDED.event_at
+   OR (notification_active.event_at = EXCLUDED.event_at
+       AND notification_active.history_id < EXCLUDED.history_id);
