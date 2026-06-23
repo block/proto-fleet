@@ -91,6 +91,28 @@ func (s *SQLSiteStore) ListSites(ctx context.Context, orgID int64) ([]models.Sit
 	return out, nil
 }
 
+func (s *SQLSiteStore) CountRacksBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountRacksBySite(ctx, sqlc.CountRacksBySiteParams{
+		OrgID:  orgID,
+		SiteID: zeroToNullInt64(siteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count racks by site: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLSiteStore) CountBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountBuildingsBySite(ctx, sqlc.CountBuildingsBySiteParams{
+		OrgID:  orgID,
+		SiteID: zeroToNullInt64(siteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count buildings by site: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLSiteStore) UpdateSite(ctx context.Context, params models.UpdateSiteParams) (*models.Site, error) {
 	q := s.GetQueries(ctx)
 	if err := q.UpdateSite(ctx, sqlc.UpdateSiteParams{
@@ -186,6 +208,20 @@ func (s *SQLSiteStore) SiteBelongsToOrg(ctx context.Context, orgID, id int64) (b
 	return belongs, nil
 }
 
+func (s *SQLSiteStore) SitesByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.GetQueries(ctx).SitesByIDs(ctx, sqlc.SitesByIDsParams{
+		OrgID: orgID,
+		Ids:   ids,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to look up sites by ID: %v", err)
+	}
+	return rows, nil
+}
+
 func (s *SQLSiteStore) LockSiteForWrite(ctx context.Context, orgID, siteID int64) error {
 	if _, err := s.GetQueries(ctx).LockSiteForWrite(ctx, sqlc.LockSiteForWriteParams{ID: siteID, OrgID: orgID}); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -253,6 +289,17 @@ func (s *SQLSiteStore) FindDeviceSiteConflicts(ctx context.Context, orgID int64,
 		out[r.DeviceIdentifier] = r.ConflictingSiteID
 	}
 	return out, nil
+}
+
+func (s *SQLSiteStore) FindDevicesInSiteLessRacks(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	rows, err := s.GetQueries(ctx).FindDevicesInSiteLessRacks(ctx, sqlc.FindDevicesInSiteLessRacksParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to find devices in site-less racks: %v", err)
+	}
+	return rows, nil
 }
 
 func (s *SQLSiteStore) ListExistingDeviceIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {

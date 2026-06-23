@@ -3,6 +3,9 @@ syntax = "proto3";
 package sites.v1;
 
 import "buf/validate/validate.proto";
+import "common/v1/common.proto";
+import "common/v1/fleet_list_stats.proto";
+import "errors/v1/errors.proto";
 import "google/protobuf/timestamp.proto";
 
 // SiteService is the admin surface for sites: physical locations that
@@ -98,6 +101,9 @@ message Site {
     string country     = 14;
     // Free-form operator notes. No structure enforced.
     string notes       = 15;
+    // Sites are root placements, so this is currently empty. Present
+    // for shape consistency with building, rack, and miner list rows.
+    common.v1.PlacementRefs placement = 16;
 }
 
 // SiteWithCounts pairs a Site with its attachment counts. Returned by
@@ -107,11 +113,22 @@ message SiteWithCounts {
     int64 device_count = 2;
     int64 building_count = 3;
     int64 rack_count = 4;
+    // Lightweight list/table rollup. Omitted when the caller is not
+    // authorized for telemetry stats.
+    common.v1.FleetListStats list_stats = 5;
 }
 
 // ListSites
 
-message ListSitesRequest {}
+message ListSitesRequest {
+    // Filter sites whose rolled-up devices have any open issue matching
+    // these component types. OR within the list, AND with other filters.
+    repeated errors.v1.ComponentType error_component_types = 1;
+
+    // Filter by rolled-up telemetry values for the site. Multiple ranges
+    // are AND'd.
+    repeated common.v1.FleetListTelemetryRangeFilter telemetry_ranges = 2;
+}
 
 message ListSitesResponse {
     repeated SiteWithCounts sites = 1;
@@ -317,4 +334,12 @@ message GetSiteStatsResponse {
     int32  hashrate_reporting_count    = 12;
     int32  efficiency_reporting_count  = 13;
     int32  power_reporting_count       = 14;
+    double min_temperature_c           = 15;
+    double max_temperature_c           = 16;
+    int32  temperature_reporting_count = 17;
+    int32  control_board_issue_count   = 18;
+    int32  fan_issue_count             = 19;
+    int32  hash_board_issue_count      = 20;
+    int32  psu_issue_count             = 21;
+    int32  rack_count                  = 22;
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/buildings"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -32,7 +33,17 @@ func (h *Handler) ListBuildings(ctx context.Context, req *connect.Request[pb.Lis
 	if err != nil {
 		return nil, err
 	}
-	rows, err := h.service.ListBuildings(ctx, toListFilter(req.Msg, info.OrganizationID))
+	filter := toListFilter(req.Msg, info.OrganizationID)
+	filter.IncludeStats = true
+	statsFilter, err := fleetlistfilter.Parse(req.Msg.GetErrorComponentTypes(), req.Msg.GetTelemetryRanges())
+	if err != nil {
+		return nil, err
+	}
+	includeStatsForSite := func(siteID *int64) bool {
+		_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: siteID})
+		return err == nil
+	}
+	rows, err := h.service.ListBuildings(ctx, filter, statsFilter, includeStatsForSite)
 	if err != nil {
 		return nil, err
 	}
@@ -127,6 +138,35 @@ func (h *Handler) AssignRacksToBuilding(ctx context.Context, req *connect.Reques
 	}), nil
 }
 
+func (h *Handler) AssignDevicesToBuilding(ctx context.Context, req *connect.Request[pb.AssignDevicesToBuildingRequest]) (*connect.Response[pb.AssignDevicesToBuildingResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	// force_clear_conflicting_rack_membership deletes
+	// device_set_membership rows as a side effect — same auth gate
+	// pattern as AssignDevicesToSite so site-only operators can't
+	// bypass rack auth via this flag.
+	if req.Msg.GetForceClearConflictingRackMembership() {
+		if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
+	out, conflicts, err := h.service.AssignDevicesToBuilding(ctx, toAssignDevicesToBuildingParams(req.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	if len(conflicts) > 0 {
+		return connect.NewResponse(&pb.AssignDevicesToBuildingResponse{
+			Conflicts: toProtoBuildingConflicts(conflicts),
+		}), nil
+	}
+	return connect.NewResponse(&pb.AssignDevicesToBuildingResponse{
+		ReassignedCount:           out.ReassignedCount,
+		SiteReassignedDeviceCount: out.SiteReassignedDeviceCount,
+	}), nil
+}
+
 func (h *Handler) GetBuildingStats(ctx context.Context, req *connect.Request[pb.GetBuildingStatsRequest]) (*connect.Response[pb.GetBuildingStatsResponse], error) {
 	// GetBuildingStats returns telemetry rollups + per-rack health +
 	// device_identifiers, so it layers three permissions: site:read for
@@ -192,21 +232,28 @@ func (h *Handler) GetBuildingStats(ctx context.Context, req *connect.Request[pb.
 		})
 	}
 	return connect.NewResponse(&pb.GetBuildingStatsResponse{
-		BuildingId:               out.BuildingID,
-		RackCount:                out.RackCount,
-		DeviceCount:              out.DeviceCount,
-		ReportingCount:           out.ReportingCount,
-		HashrateReportingCount:   out.HashrateReportingCount,
-		EfficiencyReportingCount: out.EfficiencyReportingCount,
-		PowerReportingCount:      out.PowerReportingCount,
-		TotalHashrateThs:         out.TotalHashrateThs,
-		AvgEfficiencyJth:         out.AvgEfficiencyJth,
-		TotalPowerKw:             out.TotalPowerKw,
-		HashingCount:             out.HashingCount,
-		BrokenCount:              out.BrokenCount,
-		OfflineCount:             out.OfflineCount,
-		SleepingCount:            out.SleepingCount,
-		RackHealth:               rackHealth,
-		DeviceIdentifiers:        out.DeviceIdentifiers,
+		BuildingId:                out.BuildingID,
+		RackCount:                 out.RackCount,
+		DeviceCount:               out.DeviceCount,
+		ReportingCount:            out.ReportingCount,
+		HashrateReportingCount:    out.HashrateReportingCount,
+		EfficiencyReportingCount:  out.EfficiencyReportingCount,
+		PowerReportingCount:       out.PowerReportingCount,
+		TemperatureReportingCount: out.TemperatureReportingCount,
+		TotalHashrateThs:          out.TotalHashrateThs,
+		AvgEfficiencyJth:          out.AvgEfficiencyJth,
+		TotalPowerKw:              out.TotalPowerKw,
+		MinTemperatureC:           out.MinTemperatureC,
+		MaxTemperatureC:           out.MaxTemperatureC,
+		HashingCount:              out.HashingCount,
+		BrokenCount:               out.BrokenCount,
+		OfflineCount:              out.OfflineCount,
+		SleepingCount:             out.SleepingCount,
+		ControlBoardIssueCount:    out.ControlBoardIssueCount,
+		FanIssueCount:             out.FanIssueCount,
+		HashBoardIssueCount:       out.HashBoardIssueCount,
+		PsuIssueCount:             out.PsuIssueCount,
+		RackHealth:                rackHealth,
+		DeviceIdentifiers:         out.DeviceIdentifiers,
 	}), nil
 }

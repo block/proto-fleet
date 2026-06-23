@@ -31,11 +31,11 @@ import {
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
-import ViewsBar from "@/protoFleet/features/fleetManagement/components/ViewsBar";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
 import {
@@ -43,6 +43,8 @@ import {
   encodeFilterToURL,
   FILTER_URL_PARAM_KEYS,
   parseUrlToActiveFilters,
+  UNASSIGNED_FILTER_OPTION,
+  UNASSIGNED_URL_VALUE,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
 import {
@@ -51,7 +53,7 @@ import {
   type TelemetryFilterKey,
 } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { VIEW_URL_PARAM } from "@/protoFleet/features/fleetManagement/views/savedViews";
-import useMinerViews from "@/protoFleet/features/fleetManagement/views/useMinerViews";
+import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import { useUsername } from "@/protoFleet/store";
 
 import { ChevronDown, LogoAlt, Plus, Slider } from "@/shared/assets/icons";
@@ -99,6 +101,13 @@ type MinerListProps = {
   batchStateVersion?: number;
   listClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
+  /**
+   * When false, the list does not create its own scroll container — the page
+   * scrolls instead and the sticky header pins to the page. The Fleet shell
+   * passes false; embedded usages (modals, panels) keep the default bounded
+   * scroll. See List's `overflowContainer`.
+   */
+  overflowContainer?: boolean;
   onAddMiners: () => void;
   totalMiners?: number;
   /**
@@ -183,6 +192,14 @@ type MinerListProps = {
    */
   availableRacks?: DeviceSet[];
   /**
+   * Available sites for the site filter dropdown.
+   */
+  availableSites?: FilterLabelSource[];
+  /**
+   * Available buildings for the building filter dropdown.
+   */
+  availableBuildings?: FilterLabelSource[];
+  /**
    * Exports the full paired miner list as CSV.
    */
   onExportCsv?: () => void | Promise<void>;
@@ -224,6 +241,7 @@ type ScopedMinerListBodyProps = {
   initialActiveFilters: ActiveFilters;
   listClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
+  overflowContainer?: boolean;
   totalMiners?: number;
   totalDisabledMiners: number;
   totalDisabledMinersFresh: boolean;
@@ -263,6 +281,7 @@ const ScopedMinerListBody = ({
   initialActiveFilters,
   listClassName,
   paddingLeft,
+  overflowContainer,
   totalMiners,
   totalDisabledMiners,
   totalDisabledMinersFresh,
@@ -391,6 +410,8 @@ const ScopedMinerListBody = ({
         tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
         paddingLeft={paddingLeft}
         paddingRight={paddingLeft}
+        overflowContainer={overflowContainer}
+        stickyChromeClassName={overflowContainer === false ? PAGE_SCROLL_CHROME_WIDTH : undefined}
         applyColumnWidthsToCells
         total={totalMiners}
         // Every row is selectable; `totalSelectable = totalMiners` so action-bar
@@ -422,10 +443,17 @@ const ScopedMinerListBody = ({
 
       {shouldRenderPagination ? (
         <div
-          className={clsx("sticky left-0 flex flex-col items-center gap-4 pt-6", {
-            "pb-24": selectionMode !== "none",
-            "pb-6": selectionMode === "none",
-          })}
+          className={clsx(
+            "sticky left-0 flex flex-col items-center gap-4 pt-6",
+            // Under the page's w-max subtree this auto-width sticky bar would
+            // stretch to the table and center Prev/Next off-screen; pin it to
+            // the viewport like the rest of the page-scroll chrome.
+            overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
+            {
+              "pb-24": selectionMode !== "none",
+              "pb-6": selectionMode === "none",
+            },
+          )}
           data-testid="miners-pagination"
         >
           <span className="text-300 text-text-primary">
@@ -465,6 +493,7 @@ const MinerList = ({
   batchStateVersion,
   listClassName,
   paddingLeft,
+  overflowContainer,
   onAddMiners,
   totalMiners,
   totalUnfilteredMiners,
@@ -484,6 +513,8 @@ const MinerList = ({
   availableFirmwareVersions = [],
   availableGroups = [],
   availableRacks = [],
+  availableSites = [],
+  availableBuildings = [],
   onExportCsv,
   exportCsvLoading = false,
   currentFilter,
@@ -499,7 +530,6 @@ const MinerList = ({
   const username = useUsername();
   const { preferences: columnPreferences, setPreferences: setColumnPreferences } =
     useMinerTableColumnPreferences(username);
-  const viewsState = useMinerViews(username);
 
   const [modalFlow, setModalFlow] = useState<MinerModalFlow>({ kind: "closed" });
   const [showManageColumnsModal, setShowManageColumnsModal] = useState(false);
@@ -682,7 +712,19 @@ const MinerList = ({
   const selectionFilterKey = useMemo(() => {
     return encodeActiveFiltersToURL(initialActiveFilters).toString();
   }, [initialActiveFilters]);
-  const selectionScopeKey = useMemo(() => `${selectionFilterKey}:${currentPage}`, [currentPage, selectionFilterKey]);
+  // The SitePicker scope lives in the store, not the URL, so it isn't in
+  // selectionFilterKey. Fold the effective filter's site scope in too, so
+  // switching the active site resets the selection — otherwise the bulk
+  // bar would stay actionable on the prior site's miners after a scope
+  // change (the row data is already protected by useFleet's request-id guard).
+  const siteScopeKey = useMemo(
+    () => `${(currentFilter?.siteIds ?? []).map(String).join(",")}|${currentFilter?.includeUnassigned ?? false}`,
+    [currentFilter],
+  );
+  const selectionScopeKey = useMemo(
+    () => `${selectionFilterKey}:${currentPage}:${siteScopeKey}`,
+    [currentPage, selectionFilterKey, siteScopeKey],
+  );
 
   const handleClearFilters = useCallback(() => {
     const nextSearchParams = new URLSearchParams(searchParams);
@@ -764,13 +806,37 @@ const MinerList = ({
     [availableGroups],
   );
 
+  const sitesFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Sites",
+      pluralTitle: "sites",
+      value: "site",
+      options: [...availableSites, UNASSIGNED_FILTER_OPTION],
+      defaultOptionIds: [],
+    }),
+    [availableSites],
+  );
+
+  const buildingsFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Buildings",
+      pluralTitle: "buildings",
+      value: "building",
+      options: [...availableBuildings, UNASSIGNED_FILTER_OPTION],
+      defaultOptionIds: [],
+    }),
+    [availableBuildings],
+  );
+
   const racksFilter: DropdownFilterItem = useMemo(
     () => ({
       type: "dropdown",
       title: "Racks",
       pluralTitle: "racks",
       value: "rack",
-      options: availableRacks.map((r) => ({ id: String(r.id), label: r.label })),
+      options: [...availableRacks.map((r) => ({ id: String(r.id), label: r.label })), UNASSIGNED_FILTER_OPTION],
       defaultOptionIds: [],
     }),
     [availableRacks],
@@ -842,6 +908,8 @@ const MinerList = ({
           { ...issuesFilter, showGroupDivider: true },
           modelFilter,
           { ...firmwareFilter, showGroupDivider: true },
+          sitesFilter,
+          buildingsFilter,
           racksFilter,
           zonesFilter,
           { ...groupsFilter, showGroupDivider: true },
@@ -858,6 +926,8 @@ const MinerList = ({
       issuesFilter,
       modelFilter,
       groupsFilter,
+      sitesFilter,
+      buildingsFilter,
       racksFilter,
       firmwareFilter,
       zonesFilter,
@@ -933,14 +1003,22 @@ const MinerList = ({
       const rackFilters = filters.dropdownFilters.rack;
       if (rackFilters && rackFilters.length > 0) {
         rackFilters.forEach((id) => {
-          minerFilter.rackIds.push(BigInt(id));
+          if (id === UNASSIGNED_URL_VALUE) {
+            minerFilter.includeNoRack = true;
+          } else {
+            minerFilter.rackIds.push(BigInt(id));
+          }
         });
       }
 
       const buildingFilters = filters.dropdownFilters.building;
       if (buildingFilters && buildingFilters.length > 0) {
         buildingFilters.forEach((id) => {
-          minerFilter.buildingIds.push(BigInt(id));
+          if (id === UNASSIGNED_URL_VALUE) {
+            minerFilter.includeNoBuilding = true;
+          } else {
+            minerFilter.buildingIds.push(BigInt(id));
+          }
         });
       }
 
@@ -951,7 +1029,11 @@ const MinerList = ({
       const siteFilters = filters.dropdownFilters.site;
       if (siteFilters && siteFilters.length > 0) {
         siteFilters.forEach((id) => {
-          minerFilter.siteIds.push(BigInt(id));
+          if (id === UNASSIGNED_URL_VALUE) {
+            minerFilter.includeUnassigned = true;
+          } else {
+            minerFilter.siteIds.push(BigInt(id));
+          }
         });
       }
 
@@ -1064,17 +1146,26 @@ const MinerList = ({
 
   return (
     <>
-      <div ref={topRef} className="sticky left-0 px-6 pt-6 laptop:px-10 laptop:pt-10">
+      <div
+        ref={topRef}
+        className={clsx(
+          "sticky left-0 px-6 pt-6 laptop:px-10 laptop:pt-10",
+          overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
+        )}
+      >
         {title ? <h2 className="text-heading-300">{title}</h2> : null}
       </div>
 
-      <div className="sticky left-0 px-6 text-300 text-text-primary-70 laptop:px-10">
+      <div
+        className={clsx(
+          "sticky left-0 px-6 text-300 text-text-primary-70 laptop:px-10",
+          overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
+        )}
+      >
         {hasActiveFilters && totalUnfilteredMiners !== undefined && totalMiners !== totalUnfilteredMiners
           ? `${totalMiners} of ${totalUnfilteredMiners} miners`
           : `${totalMiners ?? 0} miners`}
       </div>
-
-      <ViewsBar viewsState={viewsState} availableGroups={availableGroups} availableRacks={availableRacks} />
 
       {loading ? (
         <div className="flex justify-center py-20">
@@ -1091,6 +1182,7 @@ const MinerList = ({
           initialActiveFilters={initialActiveFilters}
           listClassName={listClassName}
           paddingLeft={paddingLeft}
+          overflowContainer={overflowContainer}
           totalMiners={totalMiners}
           totalDisabledMiners={totalDisabledMiners}
           totalDisabledMinersFresh={totalDisabledMinersFresh}

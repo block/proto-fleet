@@ -44,7 +44,6 @@ func newStartStubStore() *startStubStore {
 			OrgID:                 1,
 			MaxDurationDefaultSec: 14400,
 			CandidateMinPowerW:    1500,
-			PostEventCooldownSec:  600,
 		},
 	}
 }
@@ -55,19 +54,17 @@ func (s *startStubStore) GetOrgConfig(_ context.Context, orgID int64) (*models.O
 	return &cfg, nil
 }
 
-func (s *startStubStore) UpdateOrgConfigPostEventCooldown(_ context.Context, orgID int64, cooldownSec int32) (*models.OrgConfig, error) {
-	cfg := *s.orgConfig
-	cfg.OrgID = orgID
-	cfg.PostEventCooldownSec = cooldownSec
-	s.orgConfig = &cfg
-	return &cfg, nil
-}
-
 func (s *startStubStore) ListActiveCurtailedDevices(_ context.Context, _ int64) ([]string, error) {
 	return nil, nil
 }
+func (s *startStubStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
+	panic("ListActiveCurtailmentTargetDevices not exercised by handler Start tests")
+}
 
-func (s *startStubStore) ListRecentlyResolvedCurtailedDevices(_ context.Context, _ int64, _ int32) ([]string, error) {
+func (s *startStubStore) ListRecentlyResolvedCurtailedDevices(
+	context.Context,
+	interfaces.ListRecentlyResolvedCurtailedDevicesParams,
+) ([]string, error) {
 	return nil, nil
 }
 
@@ -90,6 +87,15 @@ func (s *startStubStore) InsertEventWithTargets(
 		ID:        1,
 		EventUUID: event.EventUUID,
 	}, nil
+}
+func (s *startStubStore) ClaimClosedLoopFullFleetTargets(
+	context.Context,
+	int64,
+	int64,
+	int32,
+	[]models.InsertTargetParams,
+) ([]*models.Target, error) {
+	panic("ClaimClosedLoopFullFleetTargets not exercised by handler Start tests")
 }
 
 // --- panic stubs for surface the handler-level tests don't reach ---
@@ -294,6 +300,62 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 	assert.Equal(t, uint32(10), ev.EffectiveBatchSize)
 }
 
+func TestHandler_StartCurtailment_PersistsCurtailBatchControls(t *testing.T) {
+	t.Parallel()
+
+	store := newStartStubStore()
+	store.candidates = []*models.Candidate{
+		miner("worst", "ACTIVE", "PAIRED", 3000, 100, 50),
+		miner("mid", "ACTIVE", "PAIRED", 3000, 100, 35),
+	}
+	h := NewHandler(curtailment.NewService(store))
+	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+		SessionID:      "sess-abc",
+	}, authz.PermCurtailmentManage)
+
+	req := validStartRequestBuilder()
+	req.CurtailBatchSize = ptrUint32(1)
+	req.CurtailBatchIntervalSec = ptrUint32(15)
+
+	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+	require.NotNil(t, store.lastEvent.CurtailBatchSize)
+	assert.Equal(t, int32(1), *store.lastEvent.CurtailBatchSize)
+	assert.Equal(t, int32(15), store.lastEvent.CurtailBatchIntervalSec)
+	require.NotNil(t, resp.Msg.Event.CurtailBatchSize)
+	assert.Equal(t, uint32(1), resp.Msg.Event.GetCurtailBatchSize())
+	assert.Equal(t, uint32(15), resp.Msg.Event.GetCurtailBatchIntervalSec())
+}
+
+func TestHandler_StartCurtailment_RejectsCurtailBatchIntervalWithoutSize(t *testing.T) {
+	t.Parallel()
+
+	store := newStartStubStore()
+	h := NewHandler(curtailment.NewService(store))
+	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+		SessionID:      "sess-abc",
+	}, authz.PermCurtailmentManage)
+
+	req := validStartRequestBuilder()
+	req.CurtailBatchIntervalSec = ptrUint32(0)
+
+	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "curtail_batch_interval_sec requires curtail_batch_size")
+}
+
 func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 	t.Parallel()
 
@@ -304,6 +366,7 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 		wantMode    models.Mode
 		wantCode    connect.Code
 		wantPersist bool
+		wantTargets int
 	}{
 		{
 			name:        "fixed kw whole org without manage is rejected",
@@ -345,6 +408,7 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 			permissions: []string{authz.PermCurtailmentManage},
 			wantMode:    models.ModeFixedKw,
 			wantPersist: true,
+			wantTargets: 1,
 		},
 		{
 			name: "full fleet whole org with manage can start",
@@ -355,6 +419,7 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 			permissions: []string{authz.PermCurtailmentManage},
 			wantMode:    models.ModeFullFleet,
 			wantPersist: true,
+			wantTargets: 0,
 		},
 	}
 
@@ -381,7 +446,7 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 			if tc.wantPersist {
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantMode, store.lastEvent.Mode)
-				assert.Len(t, store.lastTargets, 1)
+				assert.Len(t, store.lastTargets, tc.wantTargets)
 				return
 			}
 
@@ -519,7 +584,7 @@ func TestHandler_StartCurtailment_InsufficientLoadSurfacesAsInvalidArgument(t *t
 	assert.Empty(t, store.lastTargets)
 }
 
-func TestHandler_StartCurtailment_FullFleetAllSkippedSurfacesSkippedReasons(t *testing.T) {
+func TestHandler_StartCurtailment_FullFleetAllSkippedReturnsActiveWatcher(t *testing.T) {
 	t.Parallel()
 
 	store := newStartStubStore()
@@ -540,15 +605,13 @@ func TestHandler_StartCurtailment_FullFleetAllSkippedSurfacesSkippedReasons(t *t
 	req.Mode = pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET
 	req.ModeParams = nil
 
-	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
-	assert.Contains(t, err.Error(), "insufficient curtailable load")
-	assert.Contains(t, err.Error(), "unreachable_residual_load=1")
-	assert.Contains(t, err.Error(), "updating=1")
-	assert.Empty(t, store.lastTargets, "all-skipped full_fleet must not persist a completed event")
+	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.GetEvent())
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, resp.Msg.GetEvent().GetState())
+	assert.Empty(t, resp.Msg.GetEvent().GetTargets())
+	assert.Equal(t, int32(0), resp.Msg.GetEvent().GetTargetRollup().GetTotal())
+	assert.Empty(t, store.lastTargets)
 }
 
 // TestHandler_StartCurtailment_RejectsMissingSession pins the auth gate:
@@ -692,7 +755,7 @@ func TestHandler_StartCurtailment_RejectsAllowUnboundedWithMaxDuration(t *testin
 }
 
 // TestHandler_StartCurtailment_RejectsUint32Overflow pins the strict
-// overflow rejection on the four uint32 → int32 fields the translator
+// overflow rejection on the uint32 → int32 fields the translator
 // converts. A value above MaxInt32 must surface as InvalidArgument
 // naming the offending field rather than silently saturating.
 func TestHandler_StartCurtailment_RejectsUint32Overflow(t *testing.T) {
@@ -705,6 +768,11 @@ func TestHandler_StartCurtailment_RejectsUint32Overflow(t *testing.T) {
 		mut   func(*pb.StartCurtailmentRequest)
 	}{
 		{"max_duration_seconds", func(r *pb.StartCurtailmentRequest) { r.MaxDurationSeconds = overflow }},
+		{"curtail_batch_size", func(r *pb.StartCurtailmentRequest) { r.CurtailBatchSize = ptrUint32(overflow) }},
+		{"curtail_batch_interval_sec", func(r *pb.StartCurtailmentRequest) {
+			r.CurtailBatchSize = ptrUint32(1)
+			r.CurtailBatchIntervalSec = ptrUint32(overflow)
+		}},
 		{"restore_batch_size", func(r *pb.StartCurtailmentRequest) { r.RestoreBatchSize = overflow }},
 		{"restore_batch_interval_sec", func(r *pb.StartCurtailmentRequest) { r.RestoreBatchIntervalSec = overflow }},
 		{"min_curtailed_duration_sec", func(r *pb.StartCurtailmentRequest) { r.MinCurtailedDurationSec = overflow }},

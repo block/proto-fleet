@@ -58,6 +58,7 @@ type MinerFilter struct {
 	PairingStatuses     []fm.PairingStatus // Changed from single value to slice
 	DeviceStatusFilter  []mm.MinerStatus
 	ModelNames          []string                          // Filter by device model names (e.g., "S21 XP", "M60")
+	ManufacturerNames   []string                          // Filter by device manufacturer names (e.g., "Bitmain", "MicroBT")
 	ErrorComponentTypes []diagnosticsmodels.ComponentType // Filter devices by component types that have errors
 	GroupIDs            []int64                           // Filter by group membership (OR logic: match any group)
 	RackIDs             []int64                           // Filter by rack membership (OR logic: match any rack)
@@ -67,7 +68,7 @@ type MinerFilter struct {
 	IPCIDRs             []netip.Prefix                    // CIDR membership filter (OR logic across entries). Already normalized via Prefix.Masked().
 	SiteIDs             []int64                           // Filter by site (OR logic). Combined with IncludeUnassigned, OR also includes site_id IS NULL rows.
 	IncludeUnassigned   bool                              // When true, include devices with site_id IS NULL. Independent of SiteIDs; alone selects only the Unassigned bucket.
-	BuildingIDs         []int64                           // Filter by building (OR logic). Joins rack → building_id. Combined with IncludeNoBuilding OR also includes rack rows with NULL building_id.
+	BuildingIDs         []int64                           // Filter by building (OR logic). Matches direct device.building_id and rack → building_id. Combined with IncludeNoBuilding OR also includes rack rows with NULL building_id.
 	IncludeNoBuilding   bool                              // When true, include devices whose rack has building_id IS NULL. Does NOT include devices with no rack at all (see IncludeNoRack).
 	ZoneKeys            []ZoneKey                         // Filter by (building_id, zone) pairs. BuildingID == 0 wildcards across buildings. Excludes miners not in any rack.
 	IncludeNoRack       bool                              // When true, include devices with no rack membership at all. Distinct from IncludeNoBuilding.
@@ -87,9 +88,22 @@ type MinerStateCounts struct {
 	SleepingCount int32
 }
 
-// ComponentErrorCount holds error counts by component type for a collection.
+type ComponentErrorScopeKind int
+
+const (
+	ComponentErrorScopeCollections ComponentErrorScopeKind = iota
+	ComponentErrorScopeSites
+	ComponentErrorScopeBuildings
+)
+
+type ComponentErrorScope struct {
+	Kind ComponentErrorScopeKind
+	IDs  []int64
+}
+
+// ComponentErrorCount holds error counts by component type for a scoped parent.
 type ComponentErrorCount struct {
-	CollectionID  int64
+	ScopeID       int64
 	ComponentType int32
 	DeviceCount   int32
 }
@@ -149,9 +163,13 @@ type DeviceStore interface {
 	UpsertMinerCredentials(ctx context.Context, device *pb.Device, orgID int64, usernameEnc string, passwordEnc *secrets.Text) error
 	UpsertDevicePairing(ctx context.Context, device *pb.Device, orgID int64, pairingStatus string) error
 	// SetDevicePairingAuthNeededIfNotPaired marks the device AUTHENTICATION_NEEDED
-	// unless already PAIRED; returns false when a PAIRED row blocked the write.
+	// unless already paired-like; returns false when a PAIRED/DEFAULT_PASSWORD row
+	// blocked the write.
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, device *pb.Device, orgID int64) (bool, error)
 	UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) error
+	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) (eligible bool, updated bool, err error)
+	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (eligible bool, updated bool, err error)
+	GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error)
 	GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error)
 	GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error)
 	GetDeviceSiteID(ctx context.Context, identifier string, orgID int64) (*int64, error)
@@ -182,6 +200,7 @@ type DeviceStore interface {
 	// also counts site-direct devices that aren't placed in any rack.
 	// Mirrors the bucket logic in GetMinerStateCountsByCollections.
 	GetMinerStateCountsByDeviceIDs(ctx context.Context, orgID int64, deviceIdentifiers []string) (MinerStateCounts, error)
+	GetComponentErrorCounts(ctx context.Context, orgID int64, scope ComponentErrorScope) ([]ComponentErrorCount, error)
 	UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error
 	UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error
 	GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]DeviceRenameProperties, error)

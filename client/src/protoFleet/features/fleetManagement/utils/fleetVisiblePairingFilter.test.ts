@@ -10,6 +10,8 @@ import {
 import {
   type MinerListFilter,
   MinerListFilterSchema,
+  NumericField,
+  NumericRangeFilterSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
@@ -70,15 +72,31 @@ describe("applyFleetSelectablePairingStatuses", () => {
     expect(applyFleetSelectablePairingStatuses(filter).pairingStatuses).toEqual([]);
   });
 
-  it("copies firmware and zone filters through so bulk actions respect them", () => {
+  it("copies server-side filters through so bulk actions respect the current filtered set", () => {
     const filter: MinerListFilter = create(MinerListFilterSchema, {
+      siteIds: [200n],
+      includeUnassigned: true,
+      buildingIds: [100n],
+      includeNoBuilding: true,
+      rackIds: [10n],
+      includeNoRack: true,
       firmwareVersions: ["v3.5.1"],
       zones: ["Austin, Building 1"],
+      numericRanges: [create(NumericRangeFilterSchema, { field: NumericField.POWER_KW, min: 2 })],
+      ipCidrs: ["192.168.2.0/24"],
     });
 
     const result = applyFleetSelectablePairingStatuses(filter);
+    expect(result.siteIds).toEqual([200n]);
+    expect(result.includeUnassigned).toBe(true);
+    expect(result.buildingIds).toEqual([100n]);
+    expect(result.includeNoBuilding).toBe(true);
+    expect(result.rackIds).toEqual([10n]);
+    expect(result.includeNoRack).toBe(true);
     expect(result.firmwareVersions).toEqual(["v3.5.1"]);
     expect(result.zones).toEqual(["Austin, Building 1"]);
+    expect(result.numericRanges).toEqual([create(NumericRangeFilterSchema, { field: NumericField.POWER_KW, min: 2 })]);
+    expect(result.ipCidrs).toEqual(["192.168.2.0/24"]);
   });
 });
 

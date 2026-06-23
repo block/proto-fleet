@@ -26,6 +26,7 @@ import (
 type testHarness struct {
 	handler         *Handler
 	siteStore       *mocks.MockSiteStore
+	buildingStore   *mocks.MockBuildingStore
 	collectionStore *mocks.MockCollectionStore
 	tx              *mocks.MockTransactor
 	ctrl            *gomock.Controller
@@ -35,6 +36,7 @@ func newTestHandler(t *testing.T) *testHarness {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
 	tx := mocks.NewMockTransactor(ctrl)
 	// RunInTx fake: runs the closure inline so cascade calls land
@@ -53,10 +55,11 @@ func newTestHandler(t *testing.T) *testHarness {
 	)
 	// GetSiteStats isn't exercised by these tests; pass nil for the
 	// stats-only dependencies and rely on the service's nil-guard.
-	svc := sites.NewService(siteStore, nil, collectionStore, nil, nil, tx, nil)
+	svc := sites.NewService(siteStore, buildingStore, collectionStore, nil, nil, tx, nil)
 	return &testHarness{
 		handler:         NewHandler(svc),
 		siteStore:       siteStore,
+		buildingStore:   buildingStore,
 		collectionStore: collectionStore,
 		tx:              tx,
 		ctrl:            ctrl,
@@ -174,6 +177,28 @@ func TestHandler_ListSites_returnsRowsWithAllCounts(t *testing.T) {
 	assert.Equal(t, "alpha", row.GetSite().GetName())
 }
 
+func TestHandler_ListSites_omitsStatsForNarrowedSite(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	h.siteStore.EXPECT().ListSites(gomock.Any(), int64(7)).Return([]models.SiteWithCounts{
+		{
+			Site:          models.Site{ID: 1, Name: "narrowed"},
+			DeviceCount:   1,
+			BuildingCount: 1,
+			RackCount:     1,
+		},
+	}, nil)
+
+	ctx := handlerstest.CtxWithAssignments(t, 7,
+		handlerstest.OrgAssignment(authz.PermSiteRead, authz.PermFleetRead),
+		handlerstest.SiteAssignment(1, authz.PermSiteRead),
+	)
+	resp, err := h.handler.ListSites(ctx, connect.NewRequest(&pb.ListSitesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetSites(), 1)
+	assert.Nil(t, resp.Msg.GetSites()[0].GetListStats())
+}
+
 func TestHandler_CreateSite_canonicalizesNetworkConfig(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
@@ -222,6 +247,7 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
 	h.siteStore.EXPECT().LockBuildingsBySiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
 	h.siteStore.EXPECT().UnassignRacksFromBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
+	h.buildingStore.EXPECT().ClearDeviceBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
 	h.siteStore.EXPECT().SoftDeleteBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(2), nil)
 	h.siteStore.EXPECT().UnassignRacksFromSite(gomock.Any(), int64(7), int64(11)).Return(int64(4), nil)
 	h.siteStore.EXPECT().UnassignDevicesFromSite(gomock.Any(), int64(7), int64(11)).Return(int64(9), nil)
@@ -245,8 +271,10 @@ func TestHandler_AssignDevicesToSite_success(t *testing.T) {
 	h.siteStore.EXPECT().LockDevicesForReassign(gomock.Any(), int64(7), idents).Return(nil)
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
+	h.siteStore.EXPECT().FindDevicesInSiteLessRacks(gomock.Any(), int64(7), idents).Return(nil, nil)
 	h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
 	h.siteStore.EXPECT().AssignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(2), nil)
+	h.buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(gomock.Any(), int64(7), idents, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignDevicesToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignDevicesToSiteRequest{
 		TargetSiteId:      &target,
@@ -268,6 +296,7 @@ func TestHandler_AssignDevicesToSite_conflictsReturnTypedReason(t *testing.T) {
 	h.siteStore.EXPECT().LockDevicesForReassign(gomock.Any(), int64(7), idents).Return(nil)
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
+	h.siteStore.EXPECT().FindDevicesInSiteLessRacks(gomock.Any(), int64(7), idents).Return(nil, nil)
 	h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{
 		"d1": conflictingSite,
 	}, nil)
@@ -304,8 +333,10 @@ func TestHandler_AssignDevicesToSite_forceClearRequiresRackManage(t *testing.T) 
 		h.siteStore.EXPECT().LockDevicesForReassign(gomock.Any(), int64(7), idents).Return(nil)
 		h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 		h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
+		h.siteStore.EXPECT().FindDevicesInSiteLessRacks(gomock.Any(), int64(7), idents).Return(nil, nil)
 		h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
 		h.siteStore.EXPECT().AssignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(1), nil)
+		h.buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(gomock.Any(), int64(7), idents, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 		ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteManage)
 		_, err := h.handler.AssignDevicesToSite(ctx, connect.NewRequest(&pb.AssignDevicesToSiteRequest{
@@ -339,8 +370,10 @@ func TestHandler_AssignDevicesToSite_forceClearRequiresRackManage(t *testing.T) 
 		h.siteStore.EXPECT().LockDevicesForReassign(gomock.Any(), int64(7), idents).Return(nil)
 		h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 		h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
+		h.siteStore.EXPECT().FindDevicesInSiteLessRacks(gomock.Any(), int64(7), idents).Return(nil, nil)
 		h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
 		h.siteStore.EXPECT().AssignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(1), nil)
+		h.buildingStore.EXPECT().ClearDeviceBuildingsOnSiteMismatch(gomock.Any(), int64(7), idents, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 		ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermSiteManage, authz.PermRackManage)
 		_, err := h.handler.AssignDevicesToSite(ctx, connect.NewRequest(&pb.AssignDevicesToSiteRequest{
@@ -363,6 +396,7 @@ func TestHandler_AssignBuildingsToSite_surfacesCascadeCounts(t *testing.T) {
 	h.siteStore.EXPECT().AssignBuildingsToSiteBulk(gomock.Any(), int64(7), []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
 	h.siteStore.EXPECT().ReassignRacksUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
 	h.siteStore.EXPECT().ReassignDevicesUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
+	h.buildingStore.EXPECT().CascadeDirectDeviceSitesByBuildings(gomock.Any(), int64(7), []int64{50}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignBuildingsToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingsToSiteRequest{
 		BuildingIds:  []int64{50},
@@ -384,6 +418,7 @@ func TestHandler_AssignBuildingsToSite_targetUnsetCascadesToUnassigned(t *testin
 	h.siteStore.EXPECT().AssignBuildingsToSiteBulk(gomock.Any(), int64(7), []int64{50}, gomock.Nil()).Return(int64(1), nil)
 	h.siteStore.EXPECT().ReassignRacksUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50}, gomock.Nil()).Return(int64(0), nil)
 	h.siteStore.EXPECT().ReassignDevicesUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50}, gomock.Nil()).Return(int64(0), nil)
+	h.buildingStore.EXPECT().CascadeDirectDeviceSitesByBuildings(gomock.Any(), int64(7), []int64{50}, gomock.Nil()).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignBuildingsToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingsToSiteRequest{
 		BuildingIds: []int64{50},
@@ -407,6 +442,7 @@ func TestHandler_AssignBuildingsToSite_bulkAggregatesCascadeCounts(t *testing.T)
 	h.siteStore.EXPECT().AssignBuildingsToSiteBulk(gomock.Any(), int64(7), []int64{50, 51}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(2), nil)
 	h.siteStore.EXPECT().ReassignRacksUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50, 51}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(6), nil)
 	h.siteStore.EXPECT().ReassignDevicesUnderBuildingsBulk(gomock.Any(), int64(7), []int64{50, 51}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(30), nil)
+	h.buildingStore.EXPECT().CascadeDirectDeviceSitesByBuildings(gomock.Any(), int64(7), []int64{50, 51}, gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	// Pass IDs out of order to verify deterministic locking via sort.
 	resp, err := h.handler.AssignBuildingsToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingsToSiteRequest{
@@ -434,6 +470,7 @@ func TestHandler_AssignRacksToSite_partialUpdateCascadesAndClearsBuilding(t *tes
 	// follows for the same rack set.
 	h.collectionStore.EXPECT().UpdateRackPlacementBulkForSite(gomock.Any(), int64(7), []int64{rackID}, &target).Return(nil)
 	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{rackID}, &target).Return(int64(8), nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
 		RackIds:      []int64{rackID},
@@ -457,6 +494,7 @@ func TestHandler_AssignRacksToSite_targetUnsetUnassigns(t *testing.T) {
 	// site changes (priorSite → nil) but no building to clear.
 	h.collectionStore.EXPECT().UpdateRackPlacementBulkForSite(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(nil)
 	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(int64(3), nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(gomock.Any(), int64(7), []int64{rackID}, gomock.Nil()).Return(int64(0), nil)
 
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{
 		RackIds: []int64{rackID},
@@ -504,6 +542,7 @@ func TestHandler_AssignRacksToSite_bulkAggregates(t *testing.T) {
 		Return(interfaces.RackPlacement{SiteID: &priorSite}, nil) // no building
 	h.collectionStore.EXPECT().UpdateRackPlacementBulkForSite(gomock.Any(), int64(7), []int64{50, 51}, &target).Return(nil)
 	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{50, 51}, &target).Return(int64(6), nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(gomock.Any(), int64(7), []int64{50, 51}, gomock.Nil()).Return(int64(0), nil)
 
 	// IDs passed out-of-order to verify the sort happens.
 	resp, err := h.handler.AssignRacksToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignRacksToSiteRequest{

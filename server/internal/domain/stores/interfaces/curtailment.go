@@ -130,6 +130,13 @@ type ListCandidatesParams struct {
 	SiteID            *int64
 }
 
+type ListRecentlyResolvedCurtailedDevicesParams struct {
+	OrgID             int64
+	CooldownSec       int32
+	DeviceIdentifiers []string
+	SiteID            *int64
+}
+
 // UpdateOperatorFieldsParams carries the optional patch fields for a
 // partial event update. nil values preserve the column via COALESCE.
 // effective_batch_size is not on this surface — recomputing mid-event
@@ -150,11 +157,11 @@ type CurtailmentStore interface {
 	// seeds one per existing org; SQL store lazily upserts on miss for
 	// orgs created post-migration. NotFound only on invalid org_id (FK).
 	GetOrgConfig(ctx context.Context, orgID int64) (*models.OrgConfig, error)
-	UpdateOrgConfigPostEventCooldown(ctx context.Context, orgID int64, cooldownSec int32) (*models.OrgConfig, error)
 
 	// Selector exclusion sets — org-scoped device IDs subtracted from candidates.
 	ListActiveCurtailedDevices(ctx context.Context, orgID int64) ([]string, error)
-	ListRecentlyResolvedCurtailedDevices(ctx context.Context, orgID int64, cooldownSec int32) ([]string, error)
+	ListActiveCurtailmentTargetDevices(ctx context.Context, orgID int64) ([]string, error)
+	ListRecentlyResolvedCurtailedDevices(ctx context.Context, params ListRecentlyResolvedCurtailedDevicesParams) ([]string, error)
 	SiteBelongsToOrg(ctx context.Context, orgID, siteID int64) (bool, error)
 
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
@@ -203,6 +210,18 @@ type CurtailmentStore interface {
 		event models.InsertEventParams,
 		targets []models.InsertTargetParams,
 	) (*models.InsertEventResult, error)
+
+	// ClaimClosedLoopFullFleetTargets inserts missing closed-loop FULL_FLEET
+	// targets as DISPATCHING while the parent event is still pending/active.
+	// Existing same-event rows and cross-event conflicts are skipped so
+	// reconciliation can retry later.
+	ClaimClosedLoopFullFleetTargets(
+		ctx context.Context,
+		eventID int64,
+		orgID int64,
+		cooldownSec int32,
+		targets []models.InsertTargetParams,
+	) ([]*models.Target, error)
 
 	// Heartbeat singleton row used by liveness alerts.
 	GetHeartbeat(ctx context.Context) (*models.Heartbeat, error)

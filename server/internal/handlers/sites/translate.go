@@ -3,6 +3,7 @@ package sites
 import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
@@ -122,9 +123,39 @@ func toListSitesResponse(rows []models.SiteWithCounts) *pb.ListSitesResponse {
 			DeviceCount:   row.DeviceCount,
 			BuildingCount: row.BuildingCount,
 			RackCount:     row.RackCount,
+			ListStats:     toProtoFleetListStats(row.ListStats),
 		})
 	}
 	return &pb.ListSitesResponse{Sites: out}
+}
+
+func toProtoFleetListStats(stats *models.FleetListStats) *commonpb.FleetListStats {
+	if stats == nil {
+		return nil
+	}
+	return &commonpb.FleetListStats{
+		BuildingCount:             stats.BuildingCount,
+		RackCount:                 stats.RackCount,
+		DeviceCount:               stats.DeviceCount,
+		ReportingCount:            stats.ReportingCount,
+		HashrateReportingCount:    stats.HashrateReportingCount,
+		EfficiencyReportingCount:  stats.EfficiencyReportingCount,
+		PowerReportingCount:       stats.PowerReportingCount,
+		TemperatureReportingCount: stats.TemperatureReportingCount,
+		TotalHashrateThs:          stats.TotalHashrateThs,
+		AvgEfficiencyJth:          stats.AvgEfficiencyJth,
+		TotalPowerKw:              stats.TotalPowerKw,
+		MinTemperatureC:           stats.MinTemperatureC,
+		MaxTemperatureC:           stats.MaxTemperatureC,
+		HashingCount:              stats.HashingCount,
+		BrokenCount:               stats.BrokenCount,
+		OfflineCount:              stats.OfflineCount,
+		SleepingCount:             stats.SleepingCount,
+		ControlBoardIssueCount:    stats.ControlBoardIssueCount,
+		FanIssueCount:             stats.FanIssueCount,
+		HashBoardIssueCount:       stats.HashBoardIssueCount,
+		PsuIssueCount:             stats.PsuIssueCount,
+	}
 }
 
 func toProtoConflicts(conflicts []models.PerDeviceConflict) []*pb.PerDeviceConflict {

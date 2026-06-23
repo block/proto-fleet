@@ -56,8 +56,10 @@ type Client struct {
 	baseURL    string
 	httpClient *http.Client
 
-	// authMu guards credentials and accessToken.
+	// authMu guards credentials and accessToken. loginMu serializes auth
+	// round-trips so concurrent requests do not stampede the login endpoint.
 	authMu      sync.Mutex
+	loginMu     sync.Mutex
 	credentials sdk.UsernamePassword
 	accessToken string
 }
@@ -187,10 +189,6 @@ func (e *ErrorsResponse) UnmarshalJSON(data []byte) error {
 type pairingInfoResponse struct {
 	Mac  string `json:"mac"`
 	CbSn string `json:"cb_sn"`
-}
-
-type setAuthKeyRequest struct {
-	PublicKey string `json:"public_key"`
 }
 
 type messageResponse struct {
@@ -470,51 +468,110 @@ func (c *Client) hasCredentials() bool {
 }
 
 // ensureToken returns a cached token, logging in if needed. Returns ("", nil) when
-// no credentials are set, so public endpoints (e.g. discovery) work unauthenticated.
+// no credentials are set, so protected endpoints fail unauthenticated and public
+// endpoints (e.g. discovery) can still work without credentials.
 func (c *Client) ensureToken(ctx context.Context) (string, error) {
 	c.authMu.Lock()
-	defer c.authMu.Unlock()
-	if c.accessToken != "" {
-		return c.accessToken, nil
-	}
-	if c.credentials.Password == "" {
+	credentials := c.credentials
+	token := c.accessToken
+	c.authMu.Unlock()
+
+	if credentials.Password == "" {
 		return "", nil
 	}
-	return c.loginLocked(ctx)
+	if token != "" {
+		return token, nil
+	}
+	return c.loginAndCache(ctx, credentials, "")
 }
 
 // refreshToken re-logs in after a token is rejected, reusing a token another
 // goroutine may have already refreshed (i.e. when it differs from oldToken).
 func (c *Client) refreshToken(ctx context.Context, oldToken string) (string, error) {
 	c.authMu.Lock()
-	defer c.authMu.Unlock()
 	if c.accessToken != "" && c.accessToken != oldToken {
-		return c.accessToken, nil
+		token := c.accessToken
+		c.authMu.Unlock()
+		return token, nil
 	}
-	return c.loginLocked(ctx)
+	credentials := c.credentials
+	c.authMu.Unlock()
+
+	if credentials.Password == "" {
+		return "", nil
+	}
+	return c.loginAndCache(ctx, credentials, oldToken)
 }
 
-// refreshTokenForStreamingUpload forces a login before non-replayable streamed
-// uploads. Unlike JSON requests, firmware uploads cannot retry after a 401
-// because the multipart body is streamed from the caller's reader.
-func (c *Client) refreshTokenForStreamingUpload(ctx context.Context) (string, error) {
+// freshToken logs in immediately before non-replayable operations such as
+// streamed firmware uploads.
+func (c *Client) freshToken(ctx context.Context) (string, error) {
+	c.authMu.Lock()
+	credentials := c.credentials
+	oldToken := c.accessToken
+	c.authMu.Unlock()
+
+	if credentials.Password == "" {
+		return "", nil
+	}
+	return c.loginAndCache(ctx, credentials, oldToken)
+}
+
+func (c *Client) loginAndCache(ctx context.Context, credentials sdk.UsernamePassword, oldToken string) (string, error) {
+	c.loginMu.Lock()
+	defer c.loginMu.Unlock()
+
+	c.authMu.Lock()
+	if c.credentials != credentials {
+		if c.accessToken != "" {
+			token := c.accessToken
+			c.authMu.Unlock()
+			return token, nil
+		}
+		c.authMu.Unlock()
+		return "", fmt.Errorf("credentials changed during login")
+	}
+	if c.accessToken != "" {
+		if oldToken == "" || c.accessToken != oldToken {
+			token := c.accessToken
+			c.authMu.Unlock()
+			return token, nil
+		}
+	}
+	c.authMu.Unlock()
+
+	token, err := c.loginWithPassword(ctx, credentials.Password)
+	if err != nil {
+		if errors.Is(err, errInvalidCredentials) {
+			return "", fmt.Errorf("login failed: %w", grpcstatus.Error(codes.Unauthenticated, "invalid credentials"))
+		}
+		return "", fmt.Errorf("login failed: %w", err)
+	}
+
 	c.authMu.Lock()
 	defer c.authMu.Unlock()
-	if c.credentials.Password == "" {
-		return c.accessToken, nil
+	if c.credentials != credentials {
+		if c.accessToken != "" {
+			return c.accessToken, nil
+		}
+		return "", fmt.Errorf("credentials changed during login")
 	}
-	c.accessToken = ""
-	return c.loginLocked(ctx)
-}
-
-// loginLocked logs in and caches the token. The caller must hold authMu.
-func (c *Client) loginLocked(ctx context.Context) (string, error) {
-	token, err := c.loginWithPassword(ctx, c.credentials.Password)
-	if err != nil {
-		return "", fmt.Errorf("login failed: %w", err)
+	if oldToken != "" && c.accessToken != "" && c.accessToken != oldToken {
+		return c.accessToken, nil
 	}
 	c.accessToken = token
 	return token, nil
+}
+
+func (c *Client) clearTokenIfCurrent(token string) {
+	if token == "" {
+		return
+	}
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if c.accessToken == token {
+		c.accessToken = ""
+	}
 }
 
 // Close closes the client and cleans up resources.
@@ -635,7 +692,7 @@ func (c *Client) doPost(ctx context.Context, path string) error {
 	}
 	defer resp.Body.Close()
 
-	return checkResponse(resp, "request failed", "unauthenticated: missing or invalid credentials", http.StatusOK, http.StatusAccepted)
+	return checkResponse(resp, "request failed", http.StatusOK, http.StatusAccepted)
 }
 
 // defaultPasswordMessageMarker is the Proto firmware's free-text 403 substring
@@ -677,7 +734,7 @@ func classifyForbiddenResponse(body []byte) error {
 	return fmt.Errorf("forbidden: access denied")
 }
 
-func checkResponse(resp *http.Response, failurePrefix, unauthorizedMessage string, okStatuses ...int) error {
+func checkResponse(resp *http.Response, failurePrefix string, okStatuses ...int) error {
 	for _, okStatus := range okStatuses {
 		if resp.StatusCode == okStatus {
 			_, _ = io.Copy(io.Discard, resp.Body)
@@ -687,7 +744,7 @@ func checkResponse(resp *http.Response, failurePrefix, unauthorizedMessage strin
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return errors.New(unauthorizedMessage)
+		return errors.New("unauthenticated: missing or invalid credentials")
 	}
 
 	if resp.StatusCode == http.StatusForbidden {
@@ -967,35 +1024,6 @@ func convertTelemetryResponse(resp *telemetryResponse) *TelemetryValues {
 	return result
 }
 
-// Pair performs device pairing by setting the authentication public key.
-// If the device is already paired, the request includes the bearer token
-// for authentication as required by the API for key rotation.
-func (c *Client) Pair(ctx context.Context, key sdk.APIKey) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/v1/pairing/auth-key", setAuthKeyRequest{
-		PublicKey: key.Key,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to set auth key: %w", err)
-	}
-	defer resp.Body.Close()
-	return checkResponse(
-		resp,
-		"set auth key failed",
-		"unauthenticated: device is already paired and requires valid credentials for key rotation",
-		http.StatusOK,
-	)
-}
-
-// ClearAuthKey clears the authentication key from the device during unpairing.
-func (c *Client) ClearAuthKey(ctx context.Context) error {
-	resp, err := c.doRequest(ctx, http.MethodDelete, "/api/v1/pairing/auth-key", nil)
-	if err != nil {
-		return fmt.Errorf("failed to clear auth key: %w", err)
-	}
-	defer resp.Body.Close()
-	return checkResponse(resp, "clear auth key failed", "unauthenticated: missing or invalid credentials", http.StatusOK)
-}
-
 // loginWithPassword authenticates via the miner's login endpoint and returns an access token.
 // This deliberately bypasses doRequest to avoid sending the fleet bearer token.
 func (c *Client) loginWithPassword(ctx context.Context, password string) (string, error) {
@@ -1109,7 +1137,7 @@ func (c *Client) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error
 		return fmt.Errorf("failed to set cooling mode: %w", err)
 	}
 	defer resp.Body.Close()
-	return checkResponse(resp, "set cooling mode failed", "unauthenticated: missing or invalid credentials", http.StatusOK)
+	return checkResponse(resp, "set cooling mode failed", http.StatusOK)
 }
 
 // GetCoolingMode retrieves the current cooling mode configuration from the miner.
@@ -1154,7 +1182,7 @@ func (c *Client) SetPowerTarget(ctx context.Context, powerTargetW uint32, perfor
 		return fmt.Errorf("failed to set power target: %w", err)
 	}
 	defer resp.Body.Close()
-	return checkResponse(resp, "set power target failed", "unauthenticated: missing or invalid credentials", http.StatusOK)
+	return checkResponse(resp, "set power target failed", http.StatusOK)
 }
 
 // GetPowerTarget retrieves the current power target configuration and bounds from the miner.
@@ -1215,7 +1243,7 @@ func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 		return fmt.Errorf("failed to update pools: %w", err)
 	}
 	defer resp.Body.Close()
-	return checkResponse(resp, "update pools failed", "unauthenticated: missing or invalid credentials", http.StatusOK, http.StatusCreated)
+	return checkResponse(resp, "update pools failed", http.StatusOK, http.StatusCreated)
 }
 
 // BlinkLED triggers LED identification.
@@ -1279,12 +1307,14 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 	ctx, cancel := context.WithTimeout(ctx, firmwareUploadTimeout)
 	defer cancel()
 
-	parts, err := multipartFirmwareParts(firmware)
+	// Log in proactively with a fresh credential token: the streamed body can't
+	// be replayed for a 401 retry.
+	token, err := c.freshToken(ctx)
 	if err != nil {
 		return err
 	}
 
-	token, err := c.refreshTokenForStreamingUpload(ctx)
+	parts, err := multipartFirmwareParts(firmware)
 	if err != nil {
 		return err
 	}
@@ -1336,7 +1366,8 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 		}
 		return nil
 	case http.StatusUnauthorized:
-		return fmt.Errorf("firmware upload unauthorized: %s", withDetail("check bearer token", detail))
+		c.clearTokenIfCurrent(token)
+		return grpcstatus.Errorf(codes.Unauthenticated, "firmware upload unauthorized: %s", withDetail("check credentials", detail))
 	case http.StatusConflict:
 		return fmt.Errorf("firmware update already in progress: %s", withDetail("try again later", detail))
 	case http.StatusBadRequest:

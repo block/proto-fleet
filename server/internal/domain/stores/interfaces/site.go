@@ -26,6 +26,14 @@ type SiteStore interface {
 	// counts, ordered by name.
 	ListSites(ctx context.Context, orgID int64) ([]models.SiteWithCounts, error)
 
+	// CountRacksBySite returns the number of live racks attached to the
+	// site in the org.
+	CountRacksBySite(ctx context.Context, orgID, siteID int64) (int64, error)
+
+	// CountBuildingsBySite returns the number of live buildings attached
+	// to the site in the org.
+	CountBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error)
+
 	// UpdateSite mutates the live site row. Maps unique-violation to
 	// AlreadyExists; returns NotFound when the row is gone.
 	UpdateSite(ctx context.Context, params models.UpdateSiteParams) (*models.Site, error)
@@ -60,6 +68,13 @@ type SiteStore interface {
 	// SiteBelongsToOrg returns true when a live site with the given
 	// id exists in the org.
 	SiteBelongsToOrg(ctx context.Context, orgID, id int64) (bool, error)
+
+	// SitesByIDs returns the subset of the requested IDs that
+	// correspond to live sites in the org. Caller diffs against the
+	// requested set to detect cross-org or missing IDs. Mirrors
+	// BuildingsByIDs; used to bulk-validate the rack-list site_ids
+	// filter in one round trip.
+	SitesByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error)
 
 	// LockSiteForWrite takes a row-lock on the site row for the
 	// duration of the surrounding transaction, returning NotFound when
@@ -97,6 +112,13 @@ type SiteStore interface {
 	// rack's site_id. The caller compares against the requested
 	// target.
 	FindDeviceSiteConflicts(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]int64, error)
+
+	// FindDevicesInSiteLessRacks returns the requested device
+	// identifiers that sit in a live rack with NO site (a
+	// fully-unassigned rack). The site peer of FindDeviceSiteConflicts:
+	// such a device can't take a direct site while remaining in the
+	// rack, so the caller flags it as a clearable conflict.
+	FindDevicesInSiteLessRacks(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
 
 	// ListExistingDeviceIdentifiers returns the subset of the
 	// requested identifiers that map to a live device in the org.

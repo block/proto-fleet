@@ -16,6 +16,7 @@ import {
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import { INACTIVE_PLACEHOLDER } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
+import { getMinerGroupLabels, getMinerRackLabel } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -136,8 +137,8 @@ const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
   name: miner.name,
   model: miner.model,
   ipAddress: miner.ipAddress,
-  rackLabel: miner.rackLabel,
-  groupLabels: miner.groupLabels,
+  rackLabel: getMinerRackLabel(miner),
+  groupLabels: getMinerGroupLabels(miner),
 });
 
 // --- Component ---

@@ -23,6 +23,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 const (
@@ -37,6 +38,7 @@ const (
 type testHarness struct {
 	handler         *Handler
 	collectionStore *mocks.MockCollectionStore
+	siteStore       *mocks.MockSiteStore
 	buildingStore   *mocks.MockBuildingStore
 	ctrl            *gomock.Controller
 }
@@ -46,6 +48,7 @@ func newTestHandler(t *testing.T) *testHarness {
 	ctrl := gomock.NewController(t)
 
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	tx := mocks.NewMockTransactor(ctrl)
 	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
@@ -70,7 +73,7 @@ func newTestHandler(t *testing.T) *testHarness {
 	svc := collection.NewService(
 		collectionStore,
 		nil, // deviceQueryer: unused in these tests
-		nil, // siteStore: unused
+		siteStore,
 		buildingStore,
 		tx,
 		noopResolver,
@@ -81,6 +84,7 @@ func newTestHandler(t *testing.T) *testHarness {
 	return &testHarness{
 		handler:         NewHandler(svc),
 		collectionStore: collectionStore,
+		siteStore:       siteStore,
 		buildingStore:   buildingStore,
 		ctrl:            ctrl,
 	}
@@ -116,7 +120,14 @@ func TestListDeviceSets_HappyPath(t *testing.T) {
 			assert.Equal(t, []int64{7}, filter.BuildingIDs)
 			require.Len(t, filter.ZoneKeys, 1)
 			assert.Equal(t, interfaces.ZoneKey{BuildingID: 7, Zone: "Room 2"}, filter.ZoneKeys[0])
-			return []*collectionpb.DeviceCollection{{Id: 42, Label: "Rack 1"}}, "next-token", 1, nil
+			return []*collectionpb.DeviceCollection{{
+				Id:    42,
+				Label: "Rack 1",
+				Placement: &commonpb.PlacementRefs{
+					Site:     &commonpb.ResourceRef{Id: 3, Label: "Austin"},
+					Building: &commonpb.ResourceRef{Id: 7, Label: "Building A"},
+				},
+			}}, "next-token", 1, nil
 		})
 
 	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
@@ -133,9 +144,92 @@ func TestListDeviceSets_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.Len(t, resp.Msg.DeviceSets, 1)
-	assert.Equal(t, int64(42), resp.Msg.DeviceSets[0].Id)
+	deviceSet := resp.Msg.DeviceSets[0]
+	assert.Equal(t, int64(42), deviceSet.Id)
+	require.NotNil(t, deviceSet.GetPlacement())
+	require.NotNil(t, deviceSet.GetPlacement().GetSite())
+	assert.Equal(t, int64(3), deviceSet.GetPlacement().GetSite().GetId())
+	assert.Equal(t, "Austin", deviceSet.GetPlacement().GetSite().GetLabel())
+	require.NotNil(t, deviceSet.GetPlacement().GetBuilding())
+	assert.Equal(t, int64(7), deviceSet.GetPlacement().GetBuilding().GetId())
+	assert.Equal(t, "Building A", deviceSet.GetPlacement().GetBuilding().GetLabel())
 	assert.Equal(t, "next-token", resp.Msg.NextPageToken)
 	assert.Equal(t, int32(1), resp.Msg.TotalCount)
+}
+
+func TestListDeviceSets_SiteAndTelemetryFilters(t *testing.T) {
+	h := newTestHandler(t)
+
+	h.siteStore.EXPECT().
+		SitesByIDs(gomock.Any(), testOrgID, []int64{3}).
+		Return([]int64{3}, nil)
+
+	h.collectionStore.EXPECT().
+		ListCollections(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK,
+			int32(50), "", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ int64, _ collectionpb.CollectionType,
+			_ int32, _ string, _ *interfaces.SortConfig, filter *interfaces.DeviceSetFilter,
+		) ([]*collectionpb.DeviceCollection, string, int32, error) {
+			require.NotNil(t, filter)
+			assert.Equal(t, []int64{3}, filter.SiteIDs)
+			assert.True(t, filter.IncludeUnassigned)
+			require.Len(t, filter.TelemetryRanges, 1)
+			assert.Equal(t, interfaces.NumericFilterFieldTemperatureC, filter.TelemetryRanges[0].Field)
+			assert.Equal(t, 40.0, *filter.TelemetryRanges[0].Min)
+			assert.Equal(t, 80.0, *filter.TelemetryRanges[0].Max)
+			assert.True(t, filter.TelemetryRanges[0].MinInclusive)
+			assert.True(t, filter.TelemetryRanges[0].MaxInclusive)
+			return nil, "", 0, nil
+		})
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:              dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+		PageSize:          50,
+		SiteIds:           []int64{3},
+		IncludeUnassigned: true,
+		TelemetryRanges: []*commonpb.FleetListTelemetryRangeFilter{{
+			Field:        commonpb.FleetListTelemetryField_FLEET_LIST_TELEMETRY_FIELD_TEMPERATURE_C,
+			Min:          wrapperspb.Double(40),
+			Max:          wrapperspb.Double(80),
+			MinInclusive: true,
+			MaxInclusive: true,
+		}},
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.NoError(t, err)
+}
+
+func TestListDeviceSets_SiteFilterCrossOrgRejected(t *testing.T) {
+	h := newTestHandler(t)
+
+	h.siteStore.EXPECT().
+		SitesByIDs(gomock.Any(), testOrgID, []int64{99}).
+		Return([]int64{}, nil)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+		SiteIds: []int64{99},
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.NotContains(t, err.Error(), "99")
+}
+
+func TestListDeviceSets_SiteFilterRejectedForGroups(t *testing.T) {
+	h := newTestHandler(t)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
+		SiteIds: []int64{3},
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "site / building / zone filters")
 }
 
 // TestListDeviceSets_DeprecatedZonesShim confirms the legacy `zones`
@@ -189,6 +283,22 @@ func TestListDeviceSets_OversizedBuildingIDs(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 	assert.Contains(t, err.Error(), "building_ids")
+}
+
+func TestListDeviceSets_InvalidTelemetryRangeRejected(t *testing.T) {
+	h := newTestHandler(t)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type: dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
+		TelemetryRanges: []*commonpb.FleetListTelemetryRangeFilter{{
+			Field: commonpb.FleetListTelemetryField_FLEET_LIST_TELEMETRY_FIELD_POWER_KW,
+		}},
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "telemetry_ranges[0]")
 }
 
 // TestListDeviceSets_OversizedZoneKeys is the parallel cap for
@@ -266,6 +376,114 @@ func TestListDeviceSets_CrossOrgRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 	assert.NotContains(t, err.Error(), "99")
+}
+
+// TestListDeviceSets_SiteIDs threads site_ids + include_unassigned
+// through to the domain filter shape. Site IDs skip the cross-org
+// building lookup; the SQL org_id predicate is the isolation barrier.
+func TestListDeviceSets_SiteIDs(t *testing.T) {
+	h := newTestHandler(t)
+
+	// Cross-org validation: both requested sites belong to the org.
+	h.siteStore.EXPECT().
+		SitesByIDs(gomock.Any(), testOrgID, gomock.Any()).
+		Return([]int64{3, 5}, nil)
+
+	h.collectionStore.EXPECT().
+		ListCollections(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK,
+			int32(50), "", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ int64, _ collectionpb.CollectionType,
+			_ int32, _ string, _ *interfaces.SortConfig, filter *interfaces.DeviceSetFilter,
+		) ([]*collectionpb.DeviceCollection, string, int32, error) {
+			require.NotNil(t, filter)
+			assert.Equal(t, []int64{3, 5}, filter.SiteIDs)
+			assert.True(t, filter.IncludeUnassigned)
+			return nil, "", 0, nil
+		})
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:              dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+		PageSize:          50,
+		SiteIds:           []int64{3, 5},
+		IncludeUnassigned: true,
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.NoError(t, err)
+}
+
+// TestListDeviceSets_SiteIDsCrossOrgRejected covers the per-org
+// enforcement from #265: a site_id outside the caller's org is rejected
+// without echoing the rejected ID, mirroring the building_ids path.
+func TestListDeviceSets_SiteIDsCrossOrgRejected(t *testing.T) {
+	h := newTestHandler(t)
+
+	// 99 is cross-org; ownership lookup returns only 3.
+	h.siteStore.EXPECT().
+		SitesByIDs(gomock.Any(), testOrgID, gomock.Any()).
+		Return([]int64{3}, nil)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+		SiteIds: []int64{3, 99},
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.NotContains(t, err.Error(), "99")
+}
+
+// TestListDeviceSets_SiteIDsRejectedForGroupType guards the RACK-only
+// filter rule — applying a site filter to a GROUP list is a request
+// shape error, not a silent no-op.
+func TestListDeviceSets_SiteIDsRejectedForGroupType(t *testing.T) {
+	h := newTestHandler(t)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
+		SiteIds: []int64{3},
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+// TestListDeviceSets_NonPositiveSiteID parallels the miner-list
+// site_ids[i] must be > 0 rule.
+func TestListDeviceSets_NonPositiveSiteID(t *testing.T) {
+	h := newTestHandler(t)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+		SiteIds: []int64{3, 0},
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "site_ids[1]")
+}
+
+// TestListDeviceSets_OversizedSiteIDs is the array cap. Parallels the
+// building_ids / zone_keys caps.
+func TestListDeviceSets_OversizedSiteIDs(t *testing.T) {
+	h := newTestHandler(t)
+
+	tooMany := make([]int64, maxDeviceSetFilterValues+1)
+	for i := range tooMany {
+		tooMany[i] = int64(i + 1)
+	}
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+		SiteIds: tooMany,
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "site_ids")
 }
 
 // TestListRackZones_ReturnsFlatList is the legacy RPC path. Returns
@@ -444,6 +662,11 @@ func TestAssignDevicesToRack_HappyPathAssigns(t *testing.T) {
 		h.collectionStore.EXPECT().
 			CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).
 			Return(int64(1), nil),
+		// Building cascade peer — fires after the site cascade so new
+		// rack members inherit the rack's building_id too.
+		h.collectionStore.EXPECT().
+			CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).
+			Return(int64(0), nil),
 	)
 
 	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{

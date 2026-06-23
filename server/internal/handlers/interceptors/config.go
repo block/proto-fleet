@@ -119,6 +119,14 @@ var SessionOnlyProcedures = []string{
 	notificationsv1connect.ChannelServiceUpdateChannelProcedure,
 	notificationsv1connect.ChannelServiceDeleteChannelProcedure,
 	notificationsv1connect.ChannelServiceTestChannelProcedure,
+	notificationsv1connect.RuleServiceListRulesProcedure,
+	notificationsv1connect.RuleServicePauseRuleProcedure,
+	notificationsv1connect.RuleServiceResumeRuleProcedure,
+	notificationsv1connect.MaintenanceWindowServiceListMaintenanceWindowsProcedure,
+	notificationsv1connect.MaintenanceWindowServiceCreateMaintenanceWindowProcedure,
+	notificationsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure,
+	notificationsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure,
+	notificationsv1connect.HistoryServiceListNotificationsProcedure,
 }
 
 var UnauthenticatedProcedures = []string{

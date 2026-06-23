@@ -10,6 +10,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
 func TestToRequestMode_FullFleetTakesNoParams(t *testing.T) {
@@ -64,6 +65,46 @@ func TestStrategyNameMapsExplicitLeastEfficientFirst(t *testing.T) {
 	)
 }
 
+func TestToPreviewRequestMapsPostEventCooldown(t *testing.T) {
+	t.Parallel()
+
+	req := &pb.PreviewCurtailmentPlanRequest{
+		Mode:     pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+		Strategy: pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
+		Level:    pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
+		Priority: pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL,
+		Scope:    &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+		ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
+			FixedKw: &pb.FixedKwParams{TargetKw: 100},
+		},
+		PostEventCooldownSec: 600,
+	}
+
+	preview, err := toPreviewRequest(req, 42)
+	require.NoError(t, err)
+	assert.Equal(t, int32(600), preview.PostEventCooldownSec)
+}
+
+func TestToStartRequestMapsPostEventCooldown(t *testing.T) {
+	t.Parallel()
+
+	req := &pb.StartCurtailmentRequest{
+		Mode:     pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+		Strategy: pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
+		Level:    pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
+		Priority: pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL,
+		Scope:    &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+		ModeParams: &pb.StartCurtailmentRequest_FixedKw{
+			FixedKw: &pb.FixedKwParams{TargetKw: 100},
+		},
+		PostEventCooldownSec: 900,
+	}
+
+	start, err := toStartRequest(req, &session.Info{OrganizationID: 42, UserID: 7})
+	require.NoError(t, err)
+	assert.Equal(t, int32(900), start.PostEventCooldownSec)
+}
+
 // A full_fleet event echoes the (empty) full_fleet mode params on the wire.
 func TestPopulateEventModeParams_FullFleet(t *testing.T) {
 	t.Parallel()
@@ -74,17 +115,41 @@ func TestPopulateEventModeParams_FullFleet(t *testing.T) {
 	assert.Nil(t, out.GetFixedKw())
 }
 
-// An empty FULL_FLEET start persists a COMPLETED event with a stamped ended_at;
-// the synchronous Start response must carry that completion time too, so it
-// agrees with a later Get/List.
-func TestToStartResponse_FullFleetEmptyCarriesEndedAt(t *testing.T) {
+func TestToStartResponse_ClosedLoopFullFleetReturnsActiveTargetlessEvent(t *testing.T) {
+	t.Parallel()
+
+	startedAt := time.Date(2026, 6, 4, 11, 0, 0, 0, time.UTC)
+	plan := &curtailment.Plan{
+		StartedAt: &startedAt,
+		Selected: []curtailment.SelectedDevice{
+			{DeviceIdentifier: "miner-a", PowerW: 3000},
+		},
+	}
+	req := &pb.StartCurtailmentRequest{
+		Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+		Scope: &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+	}
+
+	event := toStartResponse(plan, req).GetEvent()
+	require.NotNil(t, event)
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, event.GetState())
+	assert.Empty(t, event.GetTargets())
+	assert.Equal(t, int32(0), event.GetTargetRollup().GetTotal())
+	require.NotNil(t, event.GetStartedAt())
+	assert.Equal(t, plan.StartedAt.Unix(), event.GetStartedAt().AsTime().Unix())
+	assert.Nil(t, event.GetEndedAt())
+}
+
+// Device-list FULL_FLEET remains an open-loop snapshot. Empty snapshots complete
+// on arrival and the synchronous Start response must carry the completion time.
+func TestToStartResponse_DeviceListFullFleetEmptyCarriesEndedAt(t *testing.T) {
 	t.Parallel()
 
 	endedAt := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	plan := &curtailment.Plan{EndedAt: &endedAt} // no Selected -> empty full_fleet
 	req := &pb.StartCurtailmentRequest{
 		Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
-		Scope: &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+		Scope: &pb.StartCurtailmentRequest_DeviceIdentifiers{DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"miner-a"}}},
 	}
 
 	event := toStartResponse(plan, req).GetEvent()

@@ -43,8 +43,8 @@ type CandidateInput struct {
 	// PowerW is the latest power_w sample; used by both the dual-signal
 	// filter and realized-kW accumulation.
 	PowerW float64
-	// HashRateHS is the latest hash_rate_hs sample; dual-signal filter
-	// requires > 0 to admit.
+	// HashRateHS is the latest hash_rate_hs sample; fixed-kW's dual-signal
+	// filter requires > 0 to admit.
 	HashRateHS float64
 	// AvgEfficiencyJH is the hourly j/h aggregate used for ranking. nil =
 	// unknown efficiency, ranked last (avoids COALESCE-to-zero artifact).
@@ -71,6 +71,9 @@ type Plan struct {
 	InsufficientLoadDetail *modes.InsufficientLoadDetail
 	// EventUUID is set by Service.Start after persisting; nil for Preview.
 	EventUUID *uuid.UUID
+	// StartedAt is set by Service.Start for events inserted already active;
+	// echoed in the Start response so it matches the stamped row.
+	StartedAt *time.Time
 	// EndedAt is set by Service.Start only when an event is persisted already
 	// terminal (an empty FULL_FLEET start); echoed in the Start response so it
 	// matches the stamped row. nil otherwise.
@@ -106,8 +109,8 @@ type SelectedDevice struct {
 	EfficiencyJH     float64
 }
 
-// BuildPlan runs the selection pipeline (dual-signal filter, rank by
-// worst avg_efficiency first, hand off to the mode for the stop condition).
+// BuildPlan runs the selection pipeline (mode-specific eligibility filter, rank
+// by worst avg_efficiency first, hand off to the mode for the stop condition).
 // `preFiltered` carries upstream skips (status/pairing/cooldown/capability)
 // through to the Plan's Skipped list unchanged.
 //
@@ -132,36 +135,40 @@ func BuildPlan(
 	}
 
 	eligible := make([]CandidateInput, 0, len(inputs))
-	for _, c := range inputs {
-		switch {
-		case c.PowerW < float64(candidateMinPowerW) && c.HashRateHS <= 0:
-			// Both signals fail — most likely a fully-idle/dead miner.
-			// Skip below_threshold which carries the most actionable
-			// diagnostic for ops (lower the floor for S9/S15 fleets).
-			skipped = append(skipped, SkippedDevice{
-				DeviceIdentifier: c.DeviceIdentifier,
-				Reason:           SkipBelowThreshold,
-			})
-			dualSignalCounts.belowThreshold++
-		case c.PowerW < float64(candidateMinPowerW):
-			// Hashing but power reads near zero: dead/broken AC monitor.
-			// Curtailing succeeds but reconciler can't verify.
-			skipped = append(skipped, SkippedDevice{
-				DeviceIdentifier: c.DeviceIdentifier,
-				Reason:           SkipPowerTelemetryUnreliable,
-			})
-			dualSignalCounts.deadMonitor++
-		case c.HashRateHS <= 0:
-			// Drawing power but not hashing: phantom load — no real
-			// hashrate to lose, fictional kW reduction.
-			skipped = append(skipped, SkippedDevice{
-				DeviceIdentifier: c.DeviceIdentifier,
-				Reason:           SkipPhantomLoadNoHash,
-			})
-			dualSignalCounts.phantomLoad++
-		default:
-			eligible = append(eligible, c)
+	if mode.RequiresDualSignalTelemetry() {
+		for _, c := range inputs {
+			switch {
+			case c.PowerW < float64(candidateMinPowerW) && c.HashRateHS <= 0:
+				// Both signals fail — most likely a fully-idle/dead miner.
+				// Skip below_threshold which carries the most actionable
+				// diagnostic for ops (lower the floor for S9/S15 fleets).
+				skipped = append(skipped, SkippedDevice{
+					DeviceIdentifier: c.DeviceIdentifier,
+					Reason:           SkipBelowThreshold,
+				})
+				dualSignalCounts.belowThreshold++
+			case c.PowerW < float64(candidateMinPowerW):
+				// Hashing but power reads near zero: dead/broken AC monitor.
+				// Curtailing succeeds but reconciler can't verify.
+				skipped = append(skipped, SkippedDevice{
+					DeviceIdentifier: c.DeviceIdentifier,
+					Reason:           SkipPowerTelemetryUnreliable,
+				})
+				dualSignalCounts.deadMonitor++
+			case c.HashRateHS <= 0:
+				// Drawing power but not hashing: phantom load — no real
+				// hashrate to lose, fictional kW reduction.
+				skipped = append(skipped, SkippedDevice{
+					DeviceIdentifier: c.DeviceIdentifier,
+					Reason:           SkipPhantomLoadNoHash,
+				})
+				dualSignalCounts.phantomLoad++
+			default:
+				eligible = append(eligible, c)
+			}
 		}
+	} else {
+		eligible = append(eligible, inputs...)
 	}
 
 	// Stable worst-J/H-first rank; unknowns last; equal-efficiency input

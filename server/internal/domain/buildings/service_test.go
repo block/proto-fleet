@@ -8,6 +8,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
@@ -55,9 +56,12 @@ func TestDeleteBuilding_cascadeUnassignsRacks(t *testing.T) {
 	tx := &fakeTransactor{}
 	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
-	// Both calls happen inside RunInTx; assert via inTxCtx.
-	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(1), nil)
+	// All calls happen inside RunInTx; assert via inTxCtx. SoftDeleteBuilding
+	// returns the deleted row's site so the audit row is stamped with it.
+	deletedSite := int64(7)
+	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(33)).Return(&deletedSite, true, nil)
 	store.EXPECT().UnassignRacksFromBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(5), nil)
+	store.EXPECT().ClearDeviceBuildingsByBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(0), nil)
 
 	out, err := svc.DeleteBuilding(context.Background(), testOrgID, 33)
 	if err != nil {
@@ -78,8 +82,9 @@ func TestDeleteBuilding_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	tx := &fakeTransactor{}
 	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
-	// SoftDeleteBuilding runs inside the tx and returns 0; cascade short-circuits.
-	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
+	// SoftDeleteBuilding reports found=false (no live row) and the cascade
+	// short-circuits to NotFound.
+	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(99)).Return(nil, false, nil)
 
 	_, err := svc.DeleteBuilding(context.Background(), testOrgID, 99)
 	if !fleeterror.IsNotFoundError(err) {
@@ -168,7 +173,7 @@ func TestCreateBuilding_withSiteLocksAndPersists(t *testing.T) {
 	}
 }
 
-func TestListBuildings_rejectsExclusiveFilters(t *testing.T) {
+func TestListBuildings_rejectsZeroSiteID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
 	siteStore := mocks.NewMockSiteStore(ctrl)
@@ -176,10 +181,9 @@ func TestListBuildings_rejectsExclusiveFilters(t *testing.T) {
 	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
 	_, err := svc.ListBuildings(context.Background(), models.ListFilter{
-		OrgID:          testOrgID,
-		SiteID:         ptrInt64(5),
-		UnassignedOnly: true,
-	})
+		OrgID:   testOrgID,
+		SiteIDs: []int64{5, 0},
+	}, fleetlistfilter.Filter{}, nil)
 	if err == nil {
 		t.Fatal("expected InvalidArgument error, got nil")
 	}
@@ -231,6 +235,8 @@ func TestAssignRacksToBuilding_placesRackWithGridCell(t *testing.T) {
 		h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &siteID, &buildingID).Return(int64(1), nil),
 		// Phase B2: single bulk cascade — siteChanged (nil -> &siteID).
 		h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, []int64{rackID}, &siteID).Return(int64(2), nil),
+		// Phase B2b: building cascade — rack's building changed (nil -> &buildingID).
+		h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(inTxCtx, testOrgID, []int64{rackID}, &buildingID).Return(int64(2), nil),
 		// Phase B3: bulk pass-1 vacate.
 		h.store.EXPECT().SetRackBuildingPositionBulkClear(inTxCtx, testOrgID, []int64{rackID}).Return(nil),
 		// Phase B4: bulk pass-2 place.
@@ -272,10 +278,12 @@ func TestAssignRacksToBuilding_membersWithoutPositionClearsCell(t *testing.T) {
 		Return(&models.Building{ID: buildingID, SiteID: &siteID, Aisles: 4, RacksPerAisle: 6}, nil)
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
 		Return(interfaces.RackPlacement{SiteID: &siteID}, nil)
-	// No cascade — site unchanged. Bulk placement update + bulk pass-1
-	// vacate fire; pass-2 place is skipped because no positions were
-	// requested.
+	// No site cascade — site unchanged. Building cascade DOES fire
+	// because the rack went from nil building → &buildingID. Bulk
+	// placement update + pass-1 vacate also fire; pass-2 place is
+	// skipped because no positions were requested.
 	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &siteID, &buildingID).Return(int64(1), nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(inTxCtx, testOrgID, []int64{rackID}, &buildingID).Return(int64(0), nil)
 	h.store.EXPECT().SetRackBuildingPositionBulkClear(inTxCtx, testOrgID, []int64{rackID}).Return(nil)
 
 	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
@@ -334,9 +342,12 @@ func TestAssignRacksToBuilding_unassignPreservesSiteAndSkipsCascade(t *testing.T
 		Return(interfaces.RackPlacement{SiteID: &siteID, BuildingID: ptrInt64(priorBuildingID), Zone: "Z1"}, nil)
 	// Bulk placement update: site target nil (preserve), building target nil.
 	// CascadeRackDeviceSitesBulk must NOT fire — site is preserved.
+	// Building cascade DOES fire — rack.building_id went from
+	// priorBuildingID → nil, so member devices' building_id has to clear too.
 	// Bulk pass-1 vacate is skipped — building_id change inside SQL CASE
 	// nulls aisle/position automatically.
 	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, (*int64)(nil), (*int64)(nil)).Return(int64(1), nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(inTxCtx, testOrgID, []int64{rackID}, gomock.Nil()).Return(int64(0), nil)
 
 	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
 		OrgID:            testOrgID,
@@ -367,6 +378,8 @@ func TestAssignRacksToBuilding_crossBuildingClearsZoneAndCascadesSite(t *testing
 	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &newSite, &targetBuildingID).Return(int64(1), nil)
 	// Bulk cascade fires for site-changed racks.
 	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, []int64{rackID}, &newSite).Return(int64(4), nil)
+	// Building cascade fires — rack moved priorBuildingID → targetBuildingID.
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(inTxCtx, testOrgID, []int64{rackID}, &targetBuildingID).Return(int64(4), nil)
 	// Bulk pass-1 vacate confirms the new row carries no stale placement.
 	h.store.EXPECT().SetRackBuildingPositionBulkClear(inTxCtx, testOrgID, []int64{rackID}).Return(nil)
 
@@ -667,9 +680,10 @@ func TestAssignRacksToBuilding_largeBatchIssuesSingleBulkWrites(t *testing.T) {
 		h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, id, testOrgID).
 			Return(interfaces.RackPlacement{}, nil)
 	}
-	// Phase B writes: exactly four bulk calls, regardless of N.
+	// Phase B writes: bulk calls, regardless of N.
 	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, wantRackIDs, &siteID, &buildingID).Return(int64(len(wantRackIDs)), nil)
 	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, wantRackIDs, &siteID).Return(int64(200), nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(inTxCtx, testOrgID, wantRackIDs, &buildingID).Return(int64(200), nil)
 	h.store.EXPECT().SetRackBuildingPositionBulkClear(inTxCtx, testOrgID, wantRackIDs).Return(nil)
 	h.store.EXPECT().SetRackBuildingPositionBulkPlace(inTxCtx, testOrgID, wantRackIDs, wantAisles, wantPositions).Return(nil)
 
@@ -822,5 +836,518 @@ func TestCreateBuilding_rejectsInvalidOrderIndex(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected validation error, got nil")
+	}
+}
+
+// --- AssignDevicesToBuilding ---
+
+func TestAssignDevicesToBuilding_writesAndCascadesOnSuccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	identifiers := []string{"d1", "d2"}
+	targetBuilding := int64(42)
+	targetSite := int64(7)
+
+	// Canonical lock order inside the tx: building -> devices.
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuilding).Return(nil)
+	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, targetBuilding).Return(&targetSite, nil)
+	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	// Building-less placed-rack probe + cross-site rack probe both fire
+	// when target building is non-null.
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	store.EXPECT().AssignDevicesToBuilding(inTxCtx, testOrgID, &targetBuilding, identifiers).Return(int64(2), nil)
+	// Cascade fires when target_building_id is set and has a site.
+	store.EXPECT().CascadeDevicesSiteForBuilding(inTxCtx, testOrgID, identifiers, &targetSite).Return(int64(2), nil)
+
+	result, conflicts, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+		OrgID:             testOrgID,
+		TargetBuildingID:  &targetBuilding,
+		DeviceIdentifiers: identifiers,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("expected zero conflicts, got %v", conflicts)
+	}
+	if result.ReassignedCount != 2 {
+		t.Fatalf("expected 2 rows reassigned, got %d", result.ReassignedCount)
+	}
+	if result.SiteReassignedDeviceCount != 2 {
+		t.Fatalf("expected 2 devices site-cascaded, got %d", result.SiteReassignedDeviceCount)
+	}
+}
+
+func TestAssignDevicesToBuilding_rejectsCrossBuildingConflict(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	identifiers := []string{"d1"}
+	targetBuilding := int64(42)
+	conflictingBuilding := int64(99)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuilding).Return(nil)
+	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, targetBuilding).Return(nil, nil)
+	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
+		"d1": conflictingBuilding,
+	}, nil)
+	// Building-less placed-rack + site probes both run; d1 is already
+	// flagged as a building conflict so empty results here leave the
+	// conflict set unchanged.
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	// AssignDevicesToBuilding is NOT called — the batch rejects with conflicts.
+
+	_, conflicts, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+		OrgID:             testOrgID,
+		TargetBuildingID:  &targetBuilding,
+		DeviceIdentifiers: identifiers,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("expected 1 conflict, got %v", conflicts)
+	}
+	if conflicts[0].Reason != models.ReasonBuildingDeviceInRackAtOtherBuilding {
+		t.Fatalf("expected reason DeviceInRackAtOtherBuilding, got %v", conflicts[0].Reason)
+	}
+	if conflicts[0].ConflictingBuildingID != conflictingBuilding {
+		t.Fatalf("expected conflicting building %d, got %d", conflictingBuilding, conflicts[0].ConflictingBuildingID)
+	}
+}
+
+func TestAssignDevicesToBuilding_unassignedTargetSkipsLockAndCascade(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	identifiers := []string{"d1"}
+
+	// No LockBuildingForWrite or GetBuildingSiteID when target is nil.
+	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	store.EXPECT().AssignDevicesToBuilding(inTxCtx, testOrgID, gomock.Nil(), identifiers).Return(int64(1), nil)
+	// No CascadeDevicesSiteForBuilding on unassign.
+
+	result, _, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+		OrgID:             testOrgID,
+		TargetBuildingID:  nil,
+		DeviceIdentifiers: identifiers,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.ReassignedCount != 1 {
+		t.Fatalf("expected 1 row, got %d", result.ReassignedCount)
+	}
+}
+
+func TestAssignDevicesToBuilding_forceClearCascadesRackMembership(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	collStore := mocks.NewMockCollectionStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, collStore, nil, nil, tx, nil)
+
+	identifiers := []string{"d1", "d2"}
+	targetBuilding := int64(42)
+	conflictingBuilding := int64(99)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuilding).Return(nil)
+	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, targetBuilding).Return(nil, nil)
+	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
+		"d1": conflictingBuilding,
+	}, nil)
+	// Building-less placed-rack + site probes run for the site-less
+	// target building; no extra conflicts beyond the building one
+	// already flagged for d1.
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	// d1 had the conflict — its rack memberships get cleared.
+	collStore.EXPECT().RemoveDevicesFromAnyRack(inTxCtx, testOrgID, []string{"d1"}, int64(0)).Return(int64(1), nil)
+	store.EXPECT().AssignDevicesToBuilding(inTxCtx, testOrgID, &targetBuilding, identifiers).Return(int64(2), nil)
+	// Site cascade always fires when target_building_id is set, even when
+	// the building is site-less — cascades site_id to NULL so building/
+	// site stay in lockstep instead of leaving stale site_id values.
+	store.EXPECT().CascadeDevicesSiteForBuilding(inTxCtx, testOrgID, identifiers, gomock.Nil()).Return(int64(0), nil)
+
+	result, conflicts, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+		OrgID:                               testOrgID,
+		TargetBuildingID:                    &targetBuilding,
+		DeviceIdentifiers:                   identifiers,
+		ForceClearConflictingRackMembership: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("expected no conflicts after force-clear, got %v", conflicts)
+	}
+	if result.ReassignedCount != 2 {
+		t.Fatalf("expected 2 rows reassigned, got %d", result.ReassignedCount)
+	}
+}
+
+// TestAssignDevicesToBuilding_forceClearAbortsOnResidualNonClearable
+// pins the data-integrity-critical abort: when a force-clear request
+// carries a non-clearable conflict (DEVICE_NOT_FOUND) alongside a
+// clearable one, the batch must return the residual conflict and write
+// NOTHING — no rack-membership delete, no building write. Otherwise the
+// tx would commit RemoveDevicesFromAnyRack without the building move,
+// stranding rack-stripped devices on their old building.
+func TestAssignDevicesToBuilding_forceClearAbortsOnResidualNonClearable(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	collStore := mocks.NewMockCollectionStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, collStore, nil, nil, tx, nil)
+
+	identifiers := []string{"d1", "d2"}
+	targetBuilding := int64(42)
+	conflictingBuilding := int64(99)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuilding).Return(nil)
+	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, targetBuilding).Return(nil, nil)
+	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	// d2 is absent from the existing set → DEVICE_NOT_FOUND (residual,
+	// non-clearable). d1 is a clearable cross-building conflict.
+	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return([]string{"d1"}, nil)
+	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
+		"d1": conflictingBuilding,
+	}, nil)
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	// CRITICAL: neither the rack-clear nor the building write may run.
+	// gomock fails the test if either is called (no EXPECT registered).
+
+	_, conflicts, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+		OrgID:                               testOrgID,
+		TargetBuildingID:                    &targetBuilding,
+		DeviceIdentifiers:                   identifiers,
+		ForceClearConflictingRackMembership: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("expected only the residual conflict, got %v", conflicts)
+	}
+	if conflicts[0].DeviceIdentifier != "d2" || conflicts[0].Reason != models.ReasonBuildingDeviceNotFound {
+		t.Fatalf("expected residual DEVICE_NOT_FOUND for d2, got %v", conflicts[0])
+	}
+}
+
+// TestAssignDevicesToBuilding_siteLessBuildingFlagsRackAtRealSite pins
+// the cross-site guard for a site-less target building: a device whose
+// rack is at a real site can't be moved into an unassigned building
+// without first leaving that rack — otherwise the site cascade would
+// null device.site_id while the device is still a member of a Site-A
+// rack. The probe runs even though the target building has no site, and
+// the device surfaces as a clearable conflict.
+func TestAssignDevicesToBuilding_siteLessBuildingFlagsRackAtRealSite(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	identifiers := []string{"d1"}
+	targetBuilding := int64(42)
+	rackSite := int64(8)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuilding).Return(nil)
+	// Target building is unassigned (site-less).
+	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, targetBuilding).Return(nil, nil)
+	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	// No building conflict and d1's rack has a building (so the
+	// building-less probe is empty); the site probe flags d1's rack at
+	// a real site against the site-less target.
+	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
+		"d1": rackSite,
+	}, nil)
+	// No force-clear → batch rejects; no write.
+
+	_, conflicts, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+		OrgID:             testOrgID,
+		TargetBuildingID:  &targetBuilding,
+		DeviceIdentifiers: identifiers,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("expected 1 conflict, got %v", conflicts)
+	}
+	if conflicts[0].Reason != models.ReasonBuildingDeviceInRackAtOtherSite {
+		t.Fatalf("expected reason DeviceInRackAtOtherSite, got %v", conflicts[0].Reason)
+	}
+}
+
+// TestAssignDevicesToBuilding_flagsBuildingLessPlacedRack pins the gap
+// the building + site probes miss on their own: a device in a rack that
+// has a site but no building, assigned to a building in that SAME site.
+// The building probe skips it (rack building NULL), the site probe skips
+// it (rack site == target site), but assigning it would leave the device
+// directly in a building while its rack has none — so the building-less
+// placed-rack probe must flag it as a clearable conflict.
+func TestAssignDevicesToBuilding_flagsBuildingLessPlacedRack(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	identifiers := []string{"d1"}
+	targetBuilding := int64(42)
+	site := int64(8)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuilding).Return(nil)
+	// Target building is in site 8.
+	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, targetBuilding).Return(&site, nil)
+	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	// No building conflict (rack has no building) and no site conflict
+	// (d1's rack is in the same site 8) — only the building-less placed
+	// rack probe catches it.
+	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return([]string{"d1"}, nil)
+	siteStore.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
+		"d1": site, // same site as target → not a site conflict
+	}, nil)
+	// No force-clear → batch rejects; no write.
+
+	_, conflicts, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+		OrgID:             testOrgID,
+		TargetBuildingID:  &targetBuilding,
+		DeviceIdentifiers: identifiers,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("expected 1 conflict, got %v", conflicts)
+	}
+	if conflicts[0].Reason != models.ReasonBuildingDeviceInRackAtOtherBuilding {
+		t.Fatalf("expected reason DeviceInRackAtOtherBuilding, got %v", conflicts[0].Reason)
+	}
+}
+
+// TestAssignDevicesToBuilding_flagsFullyUnassignedRack pins the gap the
+// other probes miss entirely: a device in a rack with NEITHER site nor
+// building. FindDeviceBuildingConflicts (rack building set),
+// FindDevicesInBuildingLessPlacedRacks (rack site set), and
+// FindDeviceSiteConflicts (rack site set) all require some placement, so
+// only the site-less-rack probe catches it. Assigning to a building
+// cascades site, so it must be flagged (clearable) to avoid leaving the
+// device with a site while in a site-less rack.
+func TestAssignDevicesToBuilding_flagsFullyUnassignedRack(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	identifiers := []string{"d1"}
+	targetBuilding := int64(42)
+	site := int64(8)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuilding).Return(nil)
+	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, targetBuilding).Return(&site, nil)
+	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	// Rack is fully unassigned — every placement-based probe is empty;
+	// only the site-less-rack probe flags it.
+	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	siteStore.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return([]string{"d1"}, nil)
+	// No force-clear → batch rejects; no write.
+
+	_, conflicts, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+		OrgID:             testOrgID,
+		TargetBuildingID:  &targetBuilding,
+		DeviceIdentifiers: identifiers,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("expected 1 conflict, got %v", conflicts)
+	}
+	if conflicts[0].Reason != models.ReasonBuildingDeviceInRackAtOtherSite {
+		t.Fatalf("expected reason DeviceInRackAtOtherSite, got %v", conflicts[0].Reason)
+	}
+}
+
+// TestAssignDevicesToBuilding_siteLessRackAlreadyInTargetBuildingNoConflict
+// pins the fix for the false positive where a miner already in a rack at
+// the target SITE-LESS building was re-flagged. The rack has site NULL
+// (its building is site-less) so FindDevicesInSiteLessRacks returns it,
+// but its building already equals the target — the building probe treats
+// it as a no-op, and the site-less guard must skip it too (rack has a
+// building → not a fully-unassigned rack).
+func TestAssignDevicesToBuilding_siteLessRackAlreadyInTargetBuildingNoConflict(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	identifiers := []string{"d1"}
+	targetBuilding := int64(42)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuilding).Return(nil)
+	// Target building is site-less.
+	store.EXPECT().GetBuildingSiteID(inTxCtx, testOrgID, targetBuilding).Return(nil, nil)
+	siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+	// d1's rack is already at the target building → not a conflict.
+	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
+		"d1": targetBuilding,
+	}, nil)
+	store.EXPECT().FindDevicesInBuildingLessPlacedRacks(inTxCtx, testOrgID, identifiers).Return(nil, nil)
+	siteStore.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+	// Rack is site-less (building is site-less) so this returns d1 — the
+	// guard must NOT flag it because its rack already has the target
+	// building.
+	siteStore.EXPECT().FindDevicesInSiteLessRacks(inTxCtx, testOrgID, identifiers).Return([]string{"d1"}, nil)
+	// No conflict → the move proceeds.
+	store.EXPECT().AssignDevicesToBuilding(inTxCtx, testOrgID, &targetBuilding, identifiers).Return(int64(1), nil)
+	store.EXPECT().CascadeDevicesSiteForBuilding(inTxCtx, testOrgID, identifiers, gomock.Nil()).Return(int64(0), nil)
+
+	result, conflicts, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+		OrgID:             testOrgID,
+		TargetBuildingID:  &targetBuilding,
+		DeviceIdentifiers: identifiers,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("expected no conflict for a miner already in the target site-less building, got %v", conflicts)
+	}
+	if result.ReassignedCount != 1 {
+		t.Fatalf("expected 1 reassigned, got %d", result.ReassignedCount)
+	}
+}
+
+// TestAssignRacksToBuilding_sameSiteCascadesBuilding covers the gap the
+// site cascade alone leaves: moving a rack to a different building
+// inside the same site doesn't touch device.site_id, but
+// device.building_id still has to follow. Pins that the building
+// cascade fires independently of the site cascade.
+func TestAssignRacksToBuilding_sameSiteCascadesBuilding(t *testing.T) {
+	h := newAssignHarness(t)
+	targetBuildingID := int64(22)
+	priorBuildingID := int64(11)
+	rackID := int64(99)
+	siteID := int64(3)
+
+	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuildingID).Return(nil)
+	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, targetBuildingID).
+		Return(&models.Building{ID: targetBuildingID, SiteID: &siteID, Aisles: 4, RacksPerAisle: 6}, nil)
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &siteID, BuildingID: ptrInt64(priorBuildingID), Zone: "Z1"}, nil)
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &siteID, &targetBuildingID).Return(int64(1), nil)
+	// Site cascade MUST NOT fire — both prior and new site are siteID.
+	// Building cascade MUST fire — rack moved priorBuildingID → targetBuildingID.
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(inTxCtx, testOrgID, []int64{rackID}, &targetBuildingID).Return(int64(2), nil)
+	h.store.EXPECT().SetRackBuildingPositionBulkClear(inTxCtx, testOrgID, []int64{rackID}).Return(nil)
+
+	out, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: &targetBuildingID,
+		Racks:            []models.RackPlacementParam{{RackID: rackID}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.SiteReassignedDeviceCount != 0 {
+		t.Fatalf("expected zero site cascade (same site), got %d", out.SiteReassignedDeviceCount)
+	}
+}
+
+// TestAssignRacksToBuilding_unassignedRackToSiteLessBuildingCascadesSiteNull
+// pins the lockstep fix for a fully-unassigned rack (no site, no building)
+// placed into a site-less building. The rack's own site stays nil->nil, so
+// the site gate alone wouldn't fire — but the building cascade stamps the
+// site-less building and members may carry a direct device.site_id that
+// must be cleared to NULL to stay consistent. The site cascade must run
+// with a nil target for the building-changed rack.
+func TestAssignRacksToBuilding_unassignedRackToSiteLessBuildingCascadesSiteNull(t *testing.T) {
+	h := newAssignHarness(t)
+	targetBuildingID := int64(22)
+	rackID := int64(99)
+
+	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuildingID).Return(nil)
+	// Target building is site-less.
+	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, targetBuildingID).
+		Return(&models.Building{ID: targetBuildingID, SiteID: nil}, nil)
+	// Rack is fully unassigned: no site, no building.
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: nil, BuildingID: nil}, nil)
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, (*int64)(nil), &targetBuildingID).Return(int64(1), nil)
+	// Site cascade MUST fire with a nil target even though rack.site_id
+	// didn't change (nil->nil) — members' direct device.site_id gets
+	// cleared to match the site-less building.
+	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, []int64{rackID}, gomock.Nil()).Return(int64(3), nil)
+	// Building cascade stamps device.building_id = target.
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(inTxCtx, testOrgID, []int64{rackID}, &targetBuildingID).Return(int64(3), nil)
+	h.store.EXPECT().SetRackBuildingPositionBulkClear(inTxCtx, testOrgID, []int64{rackID}).Return(nil)
+
+	out, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: &targetBuildingID,
+		Racks:            []models.RackPlacementParam{{RackID: rackID}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.SiteReassignedDeviceCount != 3 {
+		t.Fatalf("expected 3 site-cascaded devices, got %d", out.SiteReassignedDeviceCount)
+	}
+}
+
+func TestAssignDevicesToBuilding_rejectsEmptyIdentifiers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	_, _, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+		OrgID: testOrgID,
+	})
+	if !fleeterror.IsInvalidArgumentError(err) {
+		t.Fatalf("expected InvalidArgument, got %v", err)
 	}
 }

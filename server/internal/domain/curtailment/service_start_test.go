@@ -1,6 +1,7 @@
 package curtailment
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -580,6 +581,37 @@ func TestService_Start_PersistsEventAndTargetsWithBaseline(t *testing.T) {
 		require.NotNil(t, got.BaselinePowerW)
 		assert.InDelta(t, 3000.0, *got.BaselinePowerW, 0.001)
 	}
+}
+
+func TestService_Start_EmergencyPersistsZeroCooldown(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.cooldownDevicesByOrg[orgID] = []string{"recent"}
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("recent", 3000, 100, 50),
+		minerWithEff("fresh", 3000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Priority = models.PriorityEmergency
+	req.PostEventCooldownSec = 600
+	req.TargetKW = 1
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	assert.Zero(t, store.cooldownCalls)
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, "recent", plan.Selected[0].DeviceIdentifier)
+
+	var snapshot struct {
+		PostEventCooldownSec int32 `json:"post_event_cooldown_sec"`
+	}
+	require.NoError(t, json.Unmarshal(store.lastInsertEvent.DecisionSnapshotJSON, &snapshot))
+	assert.Zero(t, snapshot.PostEventCooldownSec)
 }
 
 func TestService_Start_AllowUnboundedPersistsNullMaxDuration(t *testing.T) {

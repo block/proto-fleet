@@ -1,9 +1,12 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { MeasurementType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
+import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
@@ -13,9 +16,12 @@ import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHe
 import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/TemperaturePanel";
 import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePanel";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
+import { useNotificationsEnabled } from "@/protoFleet/features/notifications/api/useNotificationsEnabled";
+import ActiveNotificationsCard from "@/protoFleet/features/notifications/components/ActiveNotificationsCard";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
-import { useDuration, useSetDuration } from "@/protoFleet/store";
+import { useRouteSiteScope } from "@/protoFleet/routing/siteScope";
+import { useDuration, useHasPermission, useSetDuration } from "@/protoFleet/store";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useStickyState } from "@/shared/hooks/useStickyState";
@@ -35,15 +41,60 @@ const Dashboard = () => {
   const { devicePaired, statusLoaded } = useOnboardedStatus();
   const duration = useDuration();
   const setDuration = useSetDuration();
+  // Gate on both the read permission and the runtime feature probe so the card is hidden when the notifications sidecar is disabled.
+  const hasNotificationRead = useHasPermission("notification:read");
+  const notificationsEnabled = useNotificationsEnabled();
+  const canViewNotifications = hasNotificationRead && notificationsEnabled;
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
 
-  // Fleet counts — polled for fresh minerStateCounts
-  const { totalMiners, stateCounts, hasLoaded: countsLoaded } = useFleetCounts({ pollIntervalMs: POLL_INTERVAL_MS });
+  // Load the org's sites so useActiveSite can validate the route scope: a
+  // stale/deleted site id (route or persisted activeSite) falls back to
+  // all-sites instead of resolving zero devices into an empty dashboard.
+  const { listSites } = useSites();
+  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
+  const [siteValidationSettled, setSiteValidationSettled] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    void listSites({
+      signal: controller.signal,
+      onSuccess: setSites,
+      onFinally: () => {
+        if (!controller.signal.aborted) {
+          setSiteValidationSettled(true);
+        }
+      },
+    });
+    return () => controller.abort();
+  }, [listSites]);
 
-  // Component errors — polled, local state (no store)
-  const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors({
+  // Active site comes from the route path (`/`, `/:site`, `/unassigned`),
+  // validated against knownSiteIds. All-sites yields an empty filter, so
+  // `/dashboard` stays org-wide.
+  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
+  const { activeSite } = useActiveSite({ knownSiteIds });
+  const siteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
+  const routeScope = useRouteSiteScope();
+  const scopedRouteReady = routeScope?.kind !== "site" || knownSiteIds !== undefined || siteValidationSettled;
+
+  // Fleet counts — polled for fresh minerStateCounts, scoped to the active site
+  const {
+    totalMiners,
+    stateCounts,
+    hasLoaded: countsLoaded,
+  } = useFleetCounts({
+    enabled: scopedRouteReady,
     pollIntervalMs: POLL_INTERVAL_MS,
+    siteIds: siteFilter.siteIds,
+    includeUnassigned: siteFilter.includeUnassigned,
+  });
+
+  // Component errors — polled, local state (no store), scoped to the active site
+  const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors({
+    enabled: scopedRouteReady,
+    pollIntervalMs: POLL_INTERVAL_MS,
+    siteIds: siteFilter.siteIds,
+    includeUnassigned: siteFilter.includeUnassigned,
   });
 
   // Combined telemetry — polled, replaces data each cycle (no streaming merge)
@@ -52,10 +103,12 @@ const Dashboard = () => {
       deviceIds: ALL_DEVICES,
       measurementTypes: ALL_MEASUREMENT_TYPES,
       duration,
-      enabled: true,
+      enabled: scopedRouteReady,
       pollIntervalMs: POLL_INTERVAL_MS,
+      siteIds: siteFilter.siteIds,
+      includeUnassigned: siteFilter.includeUnassigned,
     }),
-    [duration],
+    [duration, scopedRouteReady, siteFilter],
   );
 
   const { data: telemetryData } = useTelemetryMetrics(telemetryOptions);
@@ -108,6 +161,7 @@ const Dashboard = () => {
                 hashboardErrors={hashboardErrors}
                 psuErrors={psuErrors}
               />
+              {canViewNotifications ? <ActiveNotificationsCard /> : null}
             </div>
           </section>
 

@@ -74,7 +74,7 @@ const SingleMinerActionsMenu = ({
   const [showWorkerNameAuthenticateModal, setShowWorkerNameAuthenticateModal] = useState(false);
   const [showUpdateWorkerNameDialog, setShowUpdateWorkerNameDialog] = useState(false);
   const workerNameCredentialsRef = useRef<{ username: string; password: string } | undefined>(undefined);
-  const [reparentKind, setReparentKind] = useState<"rack" | "site" | null>(null);
+  const [reparentKind, setReparentKind] = useState<"rack" | "site" | "building" | null>(null);
   const [showWarnDialog, setShowWarnDialog] = useState(false);
   const isRefreshingStatus = refreshing.has(deviceIdentifier);
 
@@ -364,12 +364,19 @@ const SingleMinerActionsMenu = ({
       viewMinerAction.showGroupDivider = false;
     }
 
-    // Inserted before addToGroup so the cluster reads site → rack → group.
+    // Inserted before addToGroup so the cluster reads site → building → rack → group.
     const addToRackAction: BulkAction<SupportedAction> = {
       action: groupActions.addToRack,
       title: "Add to rack",
       icon: <Plus />,
       actionHandler: () => setReparentKind("rack"),
+      requiresConfirmation: false,
+    };
+    const addToBuildingAction: BulkAction<SupportedAction> = {
+      action: groupActions.addToBuilding,
+      title: "Add to building",
+      icon: <Plus />,
+      actionHandler: () => setReparentKind("building"),
       requiresConfirmation: false,
     };
     const addToSiteAction: BulkAction<SupportedAction> = {
@@ -384,7 +391,8 @@ const SingleMinerActionsMenu = ({
     const actionsWithRenameBeforeGroup = insertActionBefore(actions, groupActions.addToGroup, renameAction);
     const baseActions = actionsWithRenameBeforeGroup !== actions ? actionsWithRenameBeforeGroup : actions;
     const withAddToRack = insertActionBefore(baseActions, groupActions.addToGroup, addToRackAction);
-    const withAddToSite = insertActionBefore(withAddToRack, groupActions.addToRack, addToSiteAction);
+    const withAddToBuilding = insertActionBefore(withAddToRack, groupActions.addToRack, addToBuildingAction);
+    const withAddToSite = insertActionBefore(withAddToBuilding, groupActions.addToBuilding, addToSiteAction);
 
     if (actionsWithRenameBeforeGroup !== actions) {
       return viewMinerAction
@@ -545,11 +553,12 @@ const SingleMinerActionsMenu = ({
           selectionMode="subset"
           miners={miners}
           sourceLabel={minerName || "miner"}
-          successMessage={(_count, target) =>
-            target === "site"
-              ? `Moved "${minerName || "miner"}" to selected site.`
-              : `Added "${minerName || "miner"}" to selected rack.`
-          }
+          successMessage={(_count, target) => {
+            const label = minerName || "miner";
+            if (target === "site") return `Moved "${label}" to selected site.`;
+            if (target === "building") return `Moved "${label}" to selected building.`;
+            return `Added "${label}" to selected rack.`;
+          }}
           onClose={() => setReparentKind(null)}
           onRefetchMiners={onRefetchMiners}
         />

@@ -12,9 +12,10 @@ export interface AuthSlice {
   isAuthenticated: boolean;
   username: string;
   role: string;
-  // permissions is the caller's effective permission keys, populated
-  // from UserInfo.permissions on login. UI gates query this via
-  // useHasPermission; the server still enforces every gate.
+  // permissions is the caller's default/org-scoped permission keys, populated
+  // from UserInfo.permissions on login. Narrower resource-scoped permissions
+  // should be represented separately when the client grows resource-aware
+  // gates. The server still enforces every gate.
   permissions: string[];
   authLoading: boolean;
   temporaryPassword: string | null;

@@ -148,6 +148,57 @@ func TestListActivities_WithFilters(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestListActivities_SiteScopeMapsThrough(t *testing.T) {
+	h, store := newTestHandler(t)
+
+	var listFilter, countFilter models.Filter
+	store.EXPECT().List(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, f models.Filter) ([]models.Entry, error) {
+			listFilter = f
+			return nil, nil
+		},
+	)
+	store.EXPECT().Count(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, f models.Filter) (int64, error) {
+			countFilter = f
+			return 0, nil
+		},
+	)
+
+	_, err := h.ListActivities(authedCtx(), connect.NewRequest(&pb.ListActivitiesRequest{
+		Filter: &pb.ActivityFilter{
+			SiteIds:           []int64{7, 9},
+			IncludeUnassigned: true,
+		},
+	}))
+	require.NoError(t, err)
+
+	// Both the page query and the pagination total must see the identical
+	// site scope, or the count would disagree with the rendered feed.
+	assert.Equal(t, []int64{7, 9}, listFilter.SiteIDs)
+	assert.True(t, listFilter.IncludeUnassigned)
+	assert.Equal(t, []int64{7, 9}, countFilter.SiteIDs)
+	assert.True(t, countFilter.IncludeUnassigned)
+}
+
+func TestListActivities_NoSiteScopeIsOrgWide(t *testing.T) {
+	h, store := newTestHandler(t)
+
+	store.EXPECT().List(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, f models.Filter) ([]models.Entry, error) {
+			assert.Empty(t, f.SiteIDs)
+			assert.False(t, f.IncludeUnassigned)
+			return nil, nil
+		},
+	)
+	store.EXPECT().Count(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+
+	_, err := h.ListActivities(authedCtx(), connect.NewRequest(&pb.ListActivitiesRequest{
+		Filter: &pb.ActivityFilter{},
+	}))
+	require.NoError(t, err)
+}
+
 func TestListActivities_Pagination(t *testing.T) {
 	h, store := newTestHandler(t)
 
@@ -437,6 +488,35 @@ func TestExportActivities(t *testing.T) {
 	assert.Contains(t, lines[1], "24 miners")
 	assert.Contains(t, lines[1], "admin")
 	assert.Contains(t, lines[2], "login")
+}
+
+func TestExportActivities_SiteScopeMapsThrough(t *testing.T) {
+	h, store := newTestHandler(t)
+
+	var exportFilter models.Filter
+	store.EXPECT().List(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, f models.Filter) ([]models.Entry, error) {
+			exportFilter = f
+			return nil, nil // empty page ends the export loop
+		},
+	)
+
+	client := startTestServer(t, h, true)
+	stream, err := client.ExportActivities(context.Background(), connect.NewRequest(&pb.ExportActivitiesRequest{
+		Filter: &pb.ActivityFilter{
+			SiteIds:           []int64{11},
+			IncludeUnassigned: true,
+		},
+	}))
+	require.NoError(t, err)
+	for stream.Receive() {
+	}
+	require.NoError(t, stream.Err())
+	require.NoError(t, stream.Close())
+
+	// CSV export must apply the same scope as the on-screen feed.
+	assert.Equal(t, []int64{11}, exportFilter.SiteIDs)
+	assert.True(t, exportFilter.IncludeUnassigned)
 }
 
 func TestFormatCSVRow_QuoteEscaping(t *testing.T) {

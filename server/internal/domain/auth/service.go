@@ -200,11 +200,9 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 		return nil, nil, fleeterror.NewInternalErrorf("error getting user role: %v", err)
 	}
 
-	// Effective permission keys for the caller, projected from every
-	// assignment the user holds in this org. The client uses these for
-	// show/hide gating; the server still enforces scope per-request via
-	// RequirePermission, so this projection is intentionally coarse
-	// (union across scopes).
+	// Default/org-scoped permission keys for the caller. The client uses
+	// this projection for UI gates that map to org-scoped RPCs; narrower
+	// resource-scoped grants should be exposed through a dedicated surface.
 	eff, err := s.permResolver.LoadEffective(ctx, user.ID, orgs[0].ID)
 	if err != nil {
 		return nil, nil, fleeterror.NewInternalErrorf("error loading effective permissions: %v", err)
@@ -232,7 +230,7 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 			LastLoginAt:            toTimestampProto(loginTime),
 			Role:                   roleName,
 			RequiresPasswordChange: user.RequiresPasswordChange,
-			Permissions:            eff.FlatKeys(),
+			Permissions:            eff.Keys(),
 		},
 	}, cookie, nil
 }
@@ -306,16 +304,6 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 	externalOrgID := id.GenerateID()
 	orgName := generateDefaultOrgName(externalOrgID)
 
-	minerAuthPrivateKey, err := s.tokenSvc.CreateMinerAuthPrivateKeyForOrganization()
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error creating miner auth private key: %v", err)
-	}
-
-	encryptedMinerAuthPrivateKey, err := s.encryptSvc.Encrypt(minerAuthPrivateKey)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error encrypting miner auth private key: %v", err)
-	}
-
 	created, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		hasUser, err := s.userStore.HasUser(ctx)
 		if err != nil {
@@ -333,7 +321,6 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 			string(hashedPassword),
 			orgName,
 			externalOrgID,
-			encryptedMinerAuthPrivateKey,
 			SuperAdminRoleName,
 			"Super admin role",
 		)

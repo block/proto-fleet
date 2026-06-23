@@ -14,11 +14,24 @@ WHERE ds.id = sqlc.arg('device_set_id') AND ds.org_id = sqlc.arg('org_id') AND d
 
 -- name: GetDeviceSet :one
 SELECT ds.id, ds.type, ds.label, ds.description, ds.created_at, ds.updated_at,
-       COUNT(dsm.id)::int AS device_count
+       COUNT(dsm.id)::int AS device_count,
+       dsr.site_id,
+       COALESCE(s.name, '') AS site_label,
+       dsr.building_id,
+       COALESCE(b.name, '') AS building_label
 FROM device_set ds
 LEFT JOIN device_set_membership dsm ON ds.id = dsm.device_set_id
+LEFT JOIN device_set_rack dsr ON dsr.device_set_id = ds.id
+LEFT JOIN site s
+  ON s.id = dsr.site_id
+ AND s.org_id = ds.org_id
+ AND s.deleted_at IS NULL
+LEFT JOIN building b
+  ON b.id = dsr.building_id
+ AND b.org_id = ds.org_id
+ AND b.deleted_at IS NULL
 WHERE ds.id = $1 AND ds.org_id = $2 AND ds.deleted_at IS NULL
-GROUP BY ds.id;
+GROUP BY ds.id, dsr.site_id, s.name, dsr.building_id, b.name;
 
 -- name: GetRackInfo :one
 SELECT dsr.zone, dsr.rows, dsr.columns, dsr.order_index, dsr.cooling_type, dsr.site_id, dsr.building_id
@@ -71,6 +84,39 @@ WHERE dsm.device_set_id = $1
   AND dsm.device_id = d.id
   AND d.deleted_at IS NULL
   AND d.site_id IS DISTINCT FROM sqlc.narg('target_site_id')::bigint;
+
+-- name: UnassignDeviceBuildingsByRack :execrows
+-- Building peer of UnassignDeviceSitesByRack. Nulls device.building_id
+-- for paired rack members whose building_id matches the rack's stamped
+-- building. No-op when the rack has no building; preserves direct
+-- "Add miners to building" assignments that diverged from the rack.
+UPDATE device d
+SET building_id = NULL,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+JOIN device_set_rack dsr ON dsr.device_set_id = dsm.device_set_id AND dsr.org_id = dsm.org_id
+WHERE dsm.device_set_id = $1
+  AND dsm.org_id = $2
+  AND dsm.device_set_type = 'rack'
+  AND dsm.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND dsr.building_id IS NOT NULL
+  AND d.building_id IS NOT DISTINCT FROM dsr.building_id;
+
+-- name: CascadeRackDeviceBuildings :execrows
+-- Building peer of CascadeRackDeviceSites. Rewrites device.building_id
+-- to target_building_id for every paired member of the rack. NULL
+-- target unassigns. IS DISTINCT FROM skips no-op rows.
+UPDATE device d
+SET building_id = sqlc.narg('target_building_id')::bigint,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+WHERE dsm.device_set_id = $1
+  AND dsm.org_id = $2
+  AND dsm.device_set_type = 'rack'
+  AND dsm.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND d.building_id IS DISTINCT FROM sqlc.narg('target_building_id')::bigint;
 
 -- name: GetDeviceSiteIDsByMembership :many
 -- Returns device_identifier + current site_id for every rack member;
@@ -235,6 +281,22 @@ WHERE dsm.device_set_id = ANY(sqlc.arg('rack_ids')::bigint[])
   AND d.deleted_at IS NULL
   AND d.site_id IS DISTINCT FROM sqlc.narg('target_site_id')::bigint;
 
+-- name: CascadeRackDeviceBuildingsBulk :execrows
+-- Building peer of CascadeRackDeviceSitesBulk. Rewrites
+-- device.building_id to target_building_id for every paired member of
+-- every rack in @rack_ids. NULL target unassigns. IS DISTINCT FROM
+-- skips no-op rows.
+UPDATE device d
+SET building_id = sqlc.narg('target_building_id')::bigint,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+WHERE dsm.device_set_id = ANY(sqlc.arg('rack_ids')::bigint[])
+  AND dsm.org_id = sqlc.arg('org_id')
+  AND dsm.device_set_type = 'rack'
+  AND dsm.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND d.building_id IS DISTINCT FROM sqlc.narg('target_building_id')::bigint;
+
 -- name: SoftDeleteDeviceSet :execrows
 UPDATE device_set
 SET deleted_at = CURRENT_TIMESTAMP
@@ -291,8 +353,14 @@ WHERE d.device_identifier = ANY(@device_identifiers::text[])
   AND d.site_id IS DISTINCT FROM dsr.site_id;
 
 -- name: CascadeAddedDeviceSites :execrows
--- Rewrites device.site_id to rack.site_id for added rack members
--- whose current site differs. No-op for groups or site-less racks.
+-- Rewrites device.site_id to rack.site_id for added rack members whose
+-- current site differs. Fires when the rack has a site OR a building:
+-- a rack in a building inherits that building's site, which is NULL for
+-- an unassigned building — in that case device.site_id is set to NULL
+-- so it can't disagree with the building_id stamped by
+-- CascadeAddedDeviceBuildings. No-op for groups and for fully-unassigned
+-- racks (no site, no building), where setting NULL would clobber direct
+-- device.site_id assignments.
 UPDATE device d
 SET site_id = dsr.site_id,
     updated_at = CURRENT_TIMESTAMP
@@ -305,8 +373,32 @@ WHERE d.device_identifier = ANY(@device_identifiers::text[])
   AND ds.org_id = $1
   AND ds.deleted_at IS NULL
   AND ds.type = 'rack'
-  AND dsr.site_id IS NOT NULL
+  AND (dsr.site_id IS NOT NULL OR dsr.building_id IS NOT NULL)
   AND d.site_id IS DISTINCT FROM dsr.site_id;
+
+-- name: CascadeAddedDeviceBuildings :execrows
+-- Building peer of CascadeAddedDeviceSites. Rewrites device.building_id
+-- to rack.building_id for added rack members whose current building
+-- differs. Fires when the rack has a placement (a site OR a building):
+-- a site-level rack (site set, building NULL) is a real placement that
+-- dictates building = NULL, so members added to it get device.building_id
+-- cleared rather than keeping a stale direct assignment. No-op for
+-- groups and fully-unassigned racks (no site, no building), where the
+-- rack dictates nothing and clearing would clobber direct assignments.
+UPDATE device d
+SET building_id = dsr.building_id,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set ds
+JOIN device_set_rack dsr ON dsr.device_set_id = ds.id AND dsr.org_id = ds.org_id
+WHERE d.device_identifier = ANY(@device_identifiers::text[])
+  AND d.org_id = $1
+  AND d.deleted_at IS NULL
+  AND ds.id = $2
+  AND ds.org_id = $1
+  AND ds.deleted_at IS NULL
+  AND ds.type = 'rack'
+  AND (dsr.building_id IS NOT NULL OR dsr.site_id IS NOT NULL)
+  AND d.building_id IS DISTINCT FROM dsr.building_id;
 
 -- name: RemoveAllDevicesFromDeviceSet :execrows
 DELETE FROM device_set_membership
@@ -423,11 +515,11 @@ WHERE dsm.device_identifier = $1
   AND ds.deleted_at IS NULL
 ORDER BY ds.label ASC;
 
--- name: GetGroupLabelsForDevices :many
--- Batch query to get group labels for multiple devices at once (for miner list)
-SELECT dsm.device_identifier, ds.label
+-- name: GetGroupRefsForDevices :many
+-- Batch query to get group refs for multiple devices at once (for miner list)
+SELECT dsm.device_identifier, ds.id, ds.label
 FROM device_set_membership dsm
-JOIN device_set ds ON dsm.device_set_id = ds.id
+JOIN device_set ds ON dsm.device_set_id = ds.id AND ds.org_id = dsm.org_id
 WHERE dsm.device_identifier = ANY(@device_identifiers::text[])
   AND dsm.org_id = $1
   AND ds.type = 'group'
@@ -439,7 +531,10 @@ ORDER BY dsm.device_identifier, ds.label;
 -- Returns at most one rack per device due to partial unique index.
 SELECT
   dsm.device_identifier,
+  ds.id AS rack_id,
   ds.label,
+  b.id AS building_id,
+  COALESCE(b.name, '') AS building_label,
   CASE
     WHEN rs.row IS NULL OR rs.col IS NULL OR dsr.order_index NOT IN (1, 2, 3, 4) THEN ''
     ELSE (
@@ -471,8 +566,11 @@ SELECT
     )
   END::text AS position
 FROM device_set_membership dsm
-JOIN device_set ds ON dsm.device_set_id = ds.id
-LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id
+JOIN device_set ds ON dsm.device_set_id = ds.id AND ds.org_id = dsm.org_id
+LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id AND dsr.org_id = dsm.org_id
+LEFT JOIN building b ON b.id = dsr.building_id
+  AND b.org_id = dsm.org_id
+  AND b.deleted_at IS NULL
 LEFT JOIN rack_slot rs ON dsm.device_set_id = rs.device_set_id AND dsm.device_id = rs.device_id
 WHERE dsm.device_identifier = ANY(@device_identifiers::text[])
   AND dsm.org_id = $1
@@ -567,3 +665,32 @@ WHERE dsm.device_set_id = $1
   AND dsm.org_id = $2
   AND ds.org_id = $2
   AND ds.deleted_at IS NULL;
+
+-- name: FindDevicesWithSiteOrBuilding :many
+-- Returns the requested device identifiers that currently have a
+-- non-NULL site_id OR building_id. Used by AssignDevicesToRack to detect
+-- miners that would lose a placement by joining a site-less
+-- (fully-unassigned) rack — the force path clears BOTH columns, so a
+-- miner with only a direct building (site NULL, building set, e.g. one
+-- assigned to a site-less building) must trip the confirm too.
+SELECT device_identifier
+FROM device
+WHERE org_id = sqlc.arg('org_id')
+  AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND deleted_at IS NULL
+  AND (site_id IS NOT NULL OR building_id IS NOT NULL);
+
+-- name: ClearDeviceSitesAndBuildings :execrows
+-- Nulls device.site_id AND device.building_id for the given identifiers.
+-- Used by AssignDevicesToRack's force path when adding miners to a
+-- site-less rack: the rack dictates "no placement", so member devices
+-- can't keep a direct site/building. IS DISTINCT FROM guard skips rows
+-- already fully cleared. Returns the count actually stripped.
+UPDATE device
+SET site_id     = NULL,
+    building_id = NULL,
+    updated_at  = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id')
+  AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND deleted_at IS NULL
+  AND (site_id IS NOT NULL OR building_id IS NOT NULL);

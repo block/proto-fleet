@@ -1,5 +1,7 @@
 import { useNavigate } from "react-router-dom";
 
+import { scopedPath } from "@/protoFleet/routing/siteScope";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -21,6 +23,7 @@ interface BuildingPageHeaderProps {
 // its building filter chip.
 const BuildingPageHeader = ({ label, buildingId, onEditBuilding }: BuildingPageHeaderProps) => {
   const navigate = useNavigate();
+  const activeSite = useFleetStore((state) => state.ui.activeSite);
   return (
     <Header
       title={label}
@@ -28,19 +31,19 @@ const BuildingPageHeader = ({ label, buildingId, onEditBuilding }: BuildingPageH
       inline
       icon={<ChevronDown className="rotate-90" />}
       iconAriaLabel="Back to sites"
-      iconOnClick={() => navigate("/sites")}
+      iconOnClick={() => navigate(scopedPath("/fleet/sites", activeSite))}
     >
       <div className="ml-3 flex items-center gap-3">
         <Button
           variant={variants.secondary}
-          onClick={() => navigate(`/racks?building=${buildingId}`)}
+          onClick={() => navigate(scopedPath(`/fleet/racks?building=${buildingId}`, activeSite))}
           testId="building-page-view-racks"
         >
           View racks
         </Button>
         <Button
           variant={variants.secondary}
-          onClick={() => navigate(`/miners?building=${buildingId}`)}
+          onClick={() => navigate(scopedPath(`/fleet/miners?building=${buildingId}`, activeSite))}
           testId="building-page-view-miners"
         >
           View miners

@@ -33,6 +33,14 @@ type CombinedMetricsQuery struct {
 	PageSize         int                `json:"page_size,omitempty"`
 	SlideInterval    *time.Duration     `json:"slide_interval,omitempty"`
 	OrganizationID   int64              `json:"organization_id,omitempty"`
+	// SiteIDs scopes metrics to devices assigned to ANY of these sites (OR),
+	// AND'd with DeviceIDs. Empty + IncludeUnassigned=false applies no site
+	// restriction. Scope is by current site membership: the service resolves
+	// the devices currently in these sites and intersects them with DeviceIDs
+	// (the telemetry aggregates have no site_id column to match on directly).
+	SiteIDs []int64 `json:"site_ids,omitempty"`
+	// IncludeUnassigned adds devices currently assigned to no site.
+	IncludeUnassigned bool `json:"include_unassigned,omitempty"`
 }
 
 type StreamCombinedMetricsQuery struct {

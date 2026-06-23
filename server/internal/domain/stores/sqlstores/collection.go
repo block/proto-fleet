@@ -12,6 +12,7 @@ import (
 	"github.com/lib/pq"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -23,12 +24,18 @@ var _ interfaces.CollectionStore = &SQLCollectionStore{}
 // SQLCollectionStore implements CollectionStore using PostgreSQL via sqlc.
 type SQLCollectionStore struct {
 	SQLConnectionManager
+	collectionTelemetryMaxAge time.Duration
 }
 
 // NewSQLCollectionStore creates a new SQLCollectionStore.
-func NewSQLCollectionStore(conn *sql.DB) *SQLCollectionStore {
+func NewSQLCollectionStore(conn *sql.DB, telemetryMaxAge ...time.Duration) *SQLCollectionStore {
+	maxAge := defaultCollectionTelemetryMaxAge
+	if len(telemetryMaxAge) > 0 {
+		maxAge = telemetryMaxAge[0]
+	}
 	return &SQLCollectionStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager:      NewSQLConnectionManager(conn),
+		collectionTelemetryMaxAge: maxAge,
 	}
 }
 
@@ -88,7 +95,9 @@ func (s *SQLCollectionStore) GetCollection(ctx context.Context, orgID int64, col
 		return nil, fleeterror.NewInternalErrorf("failed to get collection: %v", err)
 	}
 
-	return newDeviceCollection(row.ID, row.Type, row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt), nil
+	collection := newDeviceCollection(row.ID, row.Type, row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt)
+	collection.Placement = collectionPlacementRefs(row.SiteID, row.SiteLabel, row.BuildingID, row.BuildingLabel)
+	return collection, nil
 }
 
 func (s *SQLCollectionStore) GetRackInfo(ctx context.Context, collectionID int64, orgID int64) (*pb.RackInfo, error) {
@@ -305,6 +314,59 @@ func (s *SQLCollectionStore) CascadeRackDeviceSitesBulk(ctx context.Context, org
 	return n, nil
 }
 
+func (s *SQLCollectionStore) UnassignDeviceBuildingsByRack(ctx context.Context, collectionID, orgID int64) (int64, error) {
+	n, err := s.GetQueries(ctx).UnassignDeviceBuildingsByRack(ctx, sqlc.UnassignDeviceBuildingsByRackParams{
+		DeviceSetID: collectionID,
+		OrgID:       orgID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to unassign device buildings by rack: %w", err)
+	}
+	return n, nil
+}
+
+func (s *SQLCollectionStore) CascadeRackDeviceBuildings(ctx context.Context, collectionID, orgID int64, targetBuildingID *int64) (int64, error) {
+	n, err := s.GetQueries(ctx).CascadeRackDeviceBuildings(ctx, sqlc.CascadeRackDeviceBuildingsParams{
+		DeviceSetID:      collectionID,
+		OrgID:            orgID,
+		TargetBuildingID: ptrToNullInt64(targetBuildingID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to cascade rack device buildings: %w", err)
+	}
+	return n, nil
+}
+
+func (s *SQLCollectionStore) CascadeRackDeviceBuildingsBulk(ctx context.Context, orgID int64, rackIDs []int64, targetBuildingID *int64) (int64, error) {
+	if len(rackIDs) == 0 {
+		return 0, nil
+	}
+	n, err := s.GetQueries(ctx).CascadeRackDeviceBuildingsBulk(ctx, sqlc.CascadeRackDeviceBuildingsBulkParams{
+		TargetBuildingID: ptrToNullInt64(targetBuildingID),
+		RackIds:          rackIDs,
+		OrgID:            orgID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to bulk-cascade rack device buildings: %w", err)
+	}
+	return n, nil
+}
+
+func (s *SQLCollectionStore) CascadeAddedDeviceBuildings(ctx context.Context, orgID, deviceSetID int64, deviceIdentifiers []string) (int64, error) {
+	if len(deviceIdentifiers) == 0 {
+		return 0, nil
+	}
+	n, err := s.GetQueries(ctx).CascadeAddedDeviceBuildings(ctx, sqlc.CascadeAddedDeviceBuildingsParams{
+		OrgID:             orgID,
+		ID:                deviceSetID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to cascade added-device buildings: %w", err)
+	}
+	return n, nil
+}
+
 func (s *SQLCollectionStore) GetDeviceSiteIDsByMembership(ctx context.Context, collectionID, orgID int64) (map[string]*int64, error) {
 	rows, err := s.GetQueries(ctx).GetDeviceSiteIDsByMembership(ctx, sqlc.GetDeviceSiteIDsByMembershipParams{
 		DeviceSetID: collectionID,
@@ -410,14 +472,14 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 
 	// Count total
 	var totalCount int32
-	countQuery, countArgs := buildCollectionCountQuery(orgID, collectionType, filter)
+	countQuery, countArgs := buildCollectionCountQueryWithTelemetryMaxAge(orgID, collectionType, filter, s.collectionTelemetryMaxAge)
 	if err := s.conn.QueryRowContext(ctx, countQuery, countArgs...).Scan(&totalCount); err != nil {
 		return nil, "", 0, fleeterror.NewInternalErrorf("failed to count collections: %v", err)
 	}
 
 	// Build list query
 	fetchLimit := pageSize + 1
-	query, args := buildCollectionListQuery(orgID, collectionType, cursor, sortField, sortDir, fetchLimit, filter)
+	query, args := buildCollectionListQueryWithTelemetryMaxAge(orgID, collectionType, cursor, sortField, sortDir, fetchLimit, filter, s.collectionTelemetryMaxAge)
 
 	sqlRows, err := s.conn.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -426,21 +488,25 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 	defer sqlRows.Close()
 
 	type collectionRow struct {
-		ID          int64
-		Type        string
-		Label       string
-		Description sql.NullString
-		DeviceCount int32
-		IssueCount  int32
-		CreatedAt   time.Time
-		UpdatedAt   time.Time
-		Zone        sql.NullString
+		ID            int64
+		Type          string
+		Label         string
+		Description   sql.NullString
+		DeviceCount   int32
+		IssueCount    int32
+		CreatedAt     time.Time
+		UpdatedAt     time.Time
+		Zone          sql.NullString
+		SiteID        sql.NullInt64
+		SiteLabel     string
+		BuildingID    sql.NullInt64
+		BuildingLabel string
 	}
 
 	var rows []collectionRow
 	for sqlRows.Next() {
 		var r collectionRow
-		if err := sqlRows.Scan(&r.ID, &r.Type, &r.Label, &r.Description, &r.CreatedAt, &r.UpdatedAt, &r.DeviceCount, &r.IssueCount, &r.Zone); err != nil {
+		if err := sqlRows.Scan(&r.ID, &r.Type, &r.Label, &r.Description, &r.CreatedAt, &r.UpdatedAt, &r.DeviceCount, &r.IssueCount, &r.Zone, &r.SiteID, &r.SiteLabel, &r.BuildingID, &r.BuildingLabel); err != nil {
 			return nil, "", 0, fleeterror.NewInternalErrorf("failed to scan collection row: %v", err)
 		}
 		rows = append(rows, r)
@@ -471,6 +537,7 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 	var rackIDs []int64
 	for i, row := range rows {
 		result[i] = newDeviceCollection(row.ID, sqlc.DeviceSetType(row.Type), row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt)
+		result[i].Placement = collectionPlacementRefs(row.SiteID, row.SiteLabel, row.BuildingID, row.BuildingLabel)
 		if sqlc.DeviceSetType(row.Type) == sqlc.DeviceSetTypeRack {
 			rackIDs = append(rackIDs, row.ID)
 		}
@@ -576,6 +643,28 @@ func (s *SQLCollectionStore) RemoveDevicesFromAnyRack(ctx context.Context, orgID
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to remove devices from rack: %w", err)
+	}
+	return count, nil
+}
+
+func (s *SQLCollectionStore) FindDevicesWithSiteOrBuilding(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	rows, err := s.GetQueries(ctx).FindDevicesWithSiteOrBuilding(ctx, sqlc.FindDevicesWithSiteOrBuildingParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to find devices with site or building: %w", err)
+	}
+	return rows, nil
+}
+
+func (s *SQLCollectionStore) ClearDeviceSitesAndBuildings(ctx context.Context, orgID int64, deviceIdentifiers []string) (int64, error) {
+	count, err := s.GetQueries(ctx).ClearDeviceSitesAndBuildings(ctx, sqlc.ClearDeviceSitesAndBuildingsParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to clear device sites and buildings: %w", err)
 	}
 	return count, nil
 }
@@ -699,22 +788,25 @@ func (s *SQLCollectionStore) GetDeviceCollections(ctx context.Context, orgID int
 	return result, nil
 }
 
-func (s *SQLCollectionStore) GetGroupLabelsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]string, error) {
+func (s *SQLCollectionStore) GetGroupRefsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]interfaces.DeviceGroupRef, error) {
 	if len(deviceIdentifiers) == 0 {
-		return make(map[string][]string), nil
+		return make(map[string][]interfaces.DeviceGroupRef), nil
 	}
 
-	rows, err := s.GetQueries(ctx).GetGroupLabelsForDevices(ctx, sqlc.GetGroupLabelsForDevicesParams{
+	rows, err := s.GetQueries(ctx).GetGroupRefsForDevices(ctx, sqlc.GetGroupRefsForDevicesParams{
 		OrgID:             orgID,
 		DeviceIdentifiers: deviceIdentifiers,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get group labels: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to get group refs: %v", err)
 	}
 
-	result := make(map[string][]string)
+	result := make(map[string][]interfaces.DeviceGroupRef)
 	for _, row := range rows {
-		result[row.DeviceIdentifier] = append(result[row.DeviceIdentifier], row.Label)
+		result[row.DeviceIdentifier] = append(result[row.DeviceIdentifier], interfaces.DeviceGroupRef{
+			ID:    row.ID,
+			Label: row.Label,
+		})
 	}
 	return result, nil
 }
@@ -734,9 +826,16 @@ func (s *SQLCollectionStore) GetRackDetailsForDevices(ctx context.Context, orgID
 
 	result := make(map[string]interfaces.DeviceRackDetails)
 	for _, row := range rows {
+		var buildingID *int64
+		if row.BuildingID.Valid {
+			buildingID = &row.BuildingID.Int64
+		}
 		result[row.DeviceIdentifier] = interfaces.DeviceRackDetails{
-			Label:    row.Label,
-			Position: row.Position,
+			ID:            row.RackID,
+			Label:         row.Label,
+			Position:      row.Position,
+			BuildingID:    buildingID,
+			BuildingLabel: row.BuildingLabel,
 		}
 	}
 	return result, nil
@@ -823,7 +922,7 @@ slot_devices AS (
     JOIN device_set_membership dcm ON rs.device_set_id = dcm.device_set_id AND rs.device_id = dcm.device_id
     JOIN device d ON dcm.device_id = d.id AND d.deleted_at IS NULL
     JOIN device_pairing dp ON d.id = dp.device_id
-        AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+        AND ` + actionablePairingStatusesExpr("dp") + `
     LEFT JOIN device_status ds ON d.id = ds.device_id
     LEFT JOIN (
         SELECT DISTINCT device_id
@@ -843,7 +942,7 @@ SELECT ap.device_set_id, ap.row_num AS row, ap.col_num AS col,
         WHEN sd.device_status = 'OFFLINE' OR sd.device_status IS NULL THEN 4
         WHEN sd.device_status IN ('MAINTENANCE', 'INACTIVE') THEN 5
         WHEN sd.device_status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-             OR sd.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             OR sd.pairing_status IN ('AUTHENTICATION_NEEDED')
              OR sd.has_errors THEN 3
         ELSE 2
     END AS status
@@ -986,6 +1085,28 @@ func newDeviceCollection(id int64, ct sqlc.DeviceSetType, label string, descript
 		CreatedAt:   timestamppb.New(createdAt),
 		UpdatedAt:   timestamppb.New(updatedAt),
 	}
+}
+
+func collectionPlacementRefs(siteID sql.NullInt64, siteLabel string, buildingID sql.NullInt64, buildingLabel string) *commonpb.PlacementRefs {
+	var placement *commonpb.PlacementRefs
+	if siteID.Valid {
+		placement = &commonpb.PlacementRefs{
+			Site: &commonpb.ResourceRef{
+				Id:    siteID.Int64,
+				Label: siteLabel,
+			},
+		}
+	}
+	if buildingID.Valid {
+		if placement == nil {
+			placement = &commonpb.PlacementRefs{}
+		}
+		placement.Building = &commonpb.ResourceRef{
+			Id:    buildingID.Int64,
+			Label: buildingLabel,
+		}
+	}
+	return placement
 }
 
 func (s *SQLCollectionStore) GetDeviceIdentifiersByDeviceSetID(ctx context.Context, deviceSetID, orgID int64) ([]string, error) {

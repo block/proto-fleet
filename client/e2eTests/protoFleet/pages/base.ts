@@ -110,8 +110,8 @@ export class BasePage {
 
   async navigateToHomePage() {
     await this.clickNavigationMenuIfMobile();
-    await this.page.getByTestId("navigation-menu").locator('a[href="/"]').click();
-    await expect(this.page).toHaveURL(/.*\/$/);
+    await this.page.getByTestId("navigation-menu").locator('a[href="/dashboard"]').click();
+    await expect(this.page).toHaveURL(/.*\/dashboard$/);
   }
 
   async navigateToFleetPage() {

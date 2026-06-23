@@ -79,6 +79,103 @@ func (q *Queries) InsertNotificationHistory(ctx context.Context, arg InsertNotif
 	return err
 }
 
+const listActiveNotifications = `-- name: ListActiveNotifications :many
+SELECT
+    na.history_id,
+    na.received_at,
+    na.alert_name,
+    na.severity,
+    na.rule_group,
+    na.fingerprint,
+    na.organization_id,
+    na.device_id,
+    COALESCE(
+        TRIM(COALESCE(
+            NULLIF(d.custom_name, ''),
+            COALESCE(dd.manufacturer, '') || ' ' || COALESCE(dd.model, '')
+        )),
+        ''
+    )::text AS device_name,
+    COALESCE(d.mac_address, '') AS device_mac,
+    na.template,
+    na.summary,
+    na.starts_at,
+    na.ends_at
+FROM notification_active na
+LEFT JOIN device d
+    ON d.device_identifier = na.device_id
+    AND d.org_id = na.organization_id
+    AND d.deleted_at IS NULL
+LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id
+WHERE na.organization_id = $1
+  AND na.status = 'firing'
+ORDER BY na.received_at DESC, na.history_id DESC
+LIMIT $2
+`
+
+type ListActiveNotificationsParams struct {
+	OrganizationID int64
+	PageLimit      int32
+}
+
+type ListActiveNotificationsRow struct {
+	HistoryID      int64
+	ReceivedAt     time.Time
+	AlertName      string
+	Severity       string
+	RuleGroup      string
+	Fingerprint    string
+	OrganizationID int64
+	DeviceID       string
+	DeviceName     string
+	DeviceMac      string
+	Template       string
+	Summary        string
+	StartsAt       sql.NullTime
+	EndsAt         sql.NullTime
+}
+
+// Current firing alerts (one row per alert instance), served from the incrementally-maintained
+// notification_active table, which also retains resolved tombstones; device name/MAC are joined live
+// so they reflect current device records.
+func (q *Queries) ListActiveNotifications(ctx context.Context, arg ListActiveNotificationsParams) ([]ListActiveNotificationsRow, error) {
+	rows, err := q.query(ctx, q.listActiveNotificationsStmt, listActiveNotifications, arg.OrganizationID, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveNotificationsRow
+	for rows.Next() {
+		var i ListActiveNotificationsRow
+		if err := rows.Scan(
+			&i.HistoryID,
+			&i.ReceivedAt,
+			&i.AlertName,
+			&i.Severity,
+			&i.RuleGroup,
+			&i.Fingerprint,
+			&i.OrganizationID,
+			&i.DeviceID,
+			&i.DeviceName,
+			&i.DeviceMac,
+			&i.Template,
+			&i.Summary,
+			&i.StartsAt,
+			&i.EndsAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listNotificationHistory = `-- name: ListNotificationHistory :many
 SELECT
     nh.id,

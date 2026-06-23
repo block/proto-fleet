@@ -514,7 +514,6 @@ type CurtailmentOrgConfig struct {
 	OrgID                 int64
 	MaxDurationDefaultSec int32
 	CandidateMinPowerW    int32
-	PostEventCooldownSec  int32
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 }
@@ -546,6 +545,7 @@ type CurtailmentResponseProfile struct {
 	ForceIncludeMaintenance bool
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
+	PostEventCooldownSec    int32
 }
 
 type CurtailmentTarget struct {
@@ -596,6 +596,7 @@ type Device struct {
 	WorkerName               sql.NullString
 	WorkerNamePoolSyncStatus NullWorkerNamePoolSyncStatusEnum
 	SiteID                   sql.NullInt64
+	BuildingID               sql.NullInt64
 }
 
 type DeviceMetric struct {
@@ -797,16 +798,15 @@ type Error struct {
 }
 
 type FleetNode struct {
-	ID                 int64
-	OrgID              int64
-	Name               string
-	IdentityPubkey     []byte
-	MinerSigningPubkey []byte
-	EnrollmentStatus   string
-	LastSeenAt         sql.NullTime
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	DeletedAt          sql.NullTime
+	ID               int64
+	OrgID            int64
+	Name             string
+	IdentityPubkey   []byte
+	EnrollmentStatus string
+	LastSeenAt       sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	DeletedAt        sql.NullTime
 }
 
 type FleetNodeAuthChallenge struct {
@@ -854,6 +854,24 @@ type MinerStateSnapshot struct {
 	SiteID           sql.NullInt64
 }
 
+type NotificationActive struct {
+	OrganizationID int64
+	AlertKey       string
+	HistoryID      int64
+	ReceivedAt     time.Time
+	Status         string
+	EventAt        time.Time
+	AlertName      string
+	Severity       string
+	RuleGroup      string
+	Fingerprint    string
+	DeviceID       string
+	Template       string
+	Summary        string
+	StartsAt       sql.NullTime
+	EndsAt         sql.NullTime
+}
+
 type NotificationHistory struct {
 	ID             int64
 	ReceivedAt     time.Time
@@ -887,13 +905,12 @@ type NotificationMetricSample struct {
 }
 
 type Organization struct {
-	ID                  int64
-	OrgID               string
-	Name                string
-	MinerAuthPrivateKey string
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	DeletedAt           sql.NullTime
+	ID        int64
+	OrgID     string
+	Name      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt sql.NullTime
 }
 
 type PendingEnrollment struct {

@@ -1708,12 +1708,6 @@ func secretBundleToProto(s SecretBundle) *pb.SecretBundle {
 	}
 
 	switch kind := s.Kind.(type) {
-	case APIKey:
-		pbSecret.Kind = &pb.SecretBundle_ApiKey{
-			ApiKey: &pb.APIKey{
-				Key: kind.Key,
-			},
-		}
 	case UsernamePassword:
 		pbSecret.Kind = &pb.SecretBundle_UserPass{
 			UserPass: &pb.UsernamePassword{
@@ -1751,10 +1745,6 @@ func secretBundleFromProto(p *pb.SecretBundle) SecretBundle {
 	}
 
 	switch kind := p.Kind.(type) {
-	case *pb.SecretBundle_ApiKey:
-		secret.Kind = APIKey{
-			Key: kind.ApiKey.Key,
-		}
 	case *pb.SecretBundle_UserPass:
 		secret.Kind = UsernamePassword{
 			Username: kind.UserPass.Username,

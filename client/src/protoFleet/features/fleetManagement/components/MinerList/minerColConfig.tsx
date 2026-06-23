@@ -17,6 +17,11 @@ import { type DeviceListItem } from "./types";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { isActionLoading } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
+import {
+  getMinerBuildingLabel,
+  getMinerRackLabel,
+  getMinerSiteLabel,
+} from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { type ColConfig } from "@/shared/components/List/types";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
@@ -39,6 +44,12 @@ type CreateMinerColConfigParams = {
     ((deviceIdentifier: string, isRefreshing: boolean) => void) | undefined
   >;
 };
+
+const renderPlacementLabel = (label: string) => (
+  <span className="block truncate" title={label || undefined}>
+    {label}
+  </span>
+);
 
 const createMinerColConfig = ({
   onOpenStatusFlow,
@@ -132,6 +143,18 @@ const createMinerColConfig = ({
   },
   [minerCols.groups]: {
     component: (device: DeviceListItem) => <MinerGroups miner={device.miner} availableGroups={availableGroups} />,
+    width: "w-[160px]",
+  },
+  [minerCols.site]: {
+    component: (device: DeviceListItem) => renderPlacementLabel(getMinerSiteLabel(device.miner)),
+    width: "w-[160px]",
+  },
+  [minerCols.building]: {
+    component: (device: DeviceListItem) => renderPlacementLabel(getMinerBuildingLabel(device.miner)),
+    width: "w-[160px]",
+  },
+  [minerCols.rack]: {
+    component: (device: DeviceListItem) => renderPlacementLabel(getMinerRackLabel(device.miner)),
     width: "w-[160px]",
   },
 });

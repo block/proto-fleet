@@ -7,11 +7,13 @@ import {
   DeviceIdentifierListSchema,
   DeviceSelectorSchema,
 } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
+import type { FleetListTelemetryRangeFilter } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
 import { type SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
   type DeviceSet,
   type DeviceSetStats,
   DeviceSetType,
+  type PerDeviceRackConflict,
   type RackCoolingType,
   RackInfoSchema,
   type RackOrderIndex,
@@ -51,13 +53,21 @@ interface DeleteGroupProps {
   onFinally?: () => void;
 }
 
-interface ListDeviceSetsProps {
+export interface ListDeviceSetsProps {
   pageSize?: number;
   pageToken?: string;
   sort?: SortConfig;
   errorComponentTypes?: number[];
   zones?: string[];
   buildingIds?: bigint[];
+  includeNoBuilding?: boolean;
+  // Rack-list site filter (RACK type only). Mirrors the miner-list
+  // shape: siteIds is an OR across sites, includeUnassigned additionally
+  // surfaces racks with device_set_rack.site_id IS NULL. Both empty +
+  // false = no site filter applied.
+  siteIds?: bigint[];
+  includeUnassigned?: boolean;
+  telemetryRanges?: FleetListTelemetryRangeFilter[];
   onSuccess?: (deviceSets: DeviceSet[], nextPageToken: string, totalCount: number) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -172,8 +182,16 @@ interface AssignDevicesToRackProps {
   // stay intact).
   targetRackId?: bigint;
   deviceIdentifiers: string[];
+  // When adding to a site-less rack, proceed and strip the conflicting
+  // miners' site. Default false: the server returns conflicts (surfaced
+  // via onConflicts) and writes nothing.
+  forceClearConflictingSite?: boolean;
   signal?: AbortSignal;
   onSuccess?: (assignedCount: bigint, siteReassignedCount: bigint, removedCount: bigint) => void;
+  // Fires when the server returns site-strip conflicts (no write
+  // happened). The caller confirms and retries with
+  // forceClearConflictingSite=true.
+  onConflicts?: (conflicts: PerDeviceRackConflict[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -314,7 +332,16 @@ const useDeviceSets = () => {
   );
 
   const listGroups = useCallback(
-    async ({ pageSize, pageToken, sort, errorComponentTypes, onSuccess, onError, onFinally }: ListDeviceSetsProps) => {
+    async ({
+      pageSize,
+      pageToken,
+      sort,
+      errorComponentTypes,
+      telemetryRanges,
+      onSuccess,
+      onError,
+      onFinally,
+    }: ListDeviceSetsProps) => {
       try {
         if (pageSize) {
           const response = await deviceSetClient.listDeviceSets({
@@ -323,6 +350,7 @@ const useDeviceSets = () => {
             pageToken: pageToken ?? "",
             sort,
             errorComponentTypes: errorComponentTypes ?? [],
+            telemetryRanges: telemetryRanges ?? [],
           });
           onSuccess?.(response.deviceSets, response.nextPageToken, response.totalCount);
         } else {
@@ -336,6 +364,8 @@ const useDeviceSets = () => {
               pageSize: 1000,
               pageToken: nextToken,
               sort,
+              errorComponentTypes: errorComponentTypes ?? [],
+              telemetryRanges: telemetryRanges ?? [],
             });
             all.push(...response.deviceSets);
             nextToken = response.nextPageToken;
@@ -364,6 +394,10 @@ const useDeviceSets = () => {
       errorComponentTypes,
       zones,
       buildingIds,
+      includeNoBuilding,
+      siteIds,
+      includeUnassigned,
+      telemetryRanges,
       onSuccess,
       onError,
       onFinally,
@@ -378,6 +412,10 @@ const useDeviceSets = () => {
             errorComponentTypes: errorComponentTypes ?? [],
             zones: zones ?? [],
             buildingIds: buildingIds ?? [],
+            includeNoBuilding: includeNoBuilding ?? false,
+            siteIds: siteIds ?? [],
+            includeUnassigned: includeUnassigned ?? false,
+            telemetryRanges: telemetryRanges ?? [],
           });
           onSuccess?.(response.deviceSets, response.nextPageToken, response.totalCount);
         } else {
@@ -391,8 +429,13 @@ const useDeviceSets = () => {
               pageSize: 1000,
               pageToken: nextToken,
               sort,
+              errorComponentTypes: errorComponentTypes ?? [],
               zones: zones ?? [],
               buildingIds: buildingIds ?? [],
+              includeNoBuilding: includeNoBuilding ?? false,
+              siteIds: siteIds ?? [],
+              includeUnassigned: includeUnassigned ?? false,
+              telemetryRanges: telemetryRanges ?? [],
             });
             all.push(...response.deviceSets);
             nextToken = response.nextPageToken;
@@ -634,7 +677,16 @@ const useDeviceSets = () => {
   // miners from rack assignment (issue #420). Pass targetRackId
   // unset to clear rack membership without re-assigning.
   const assignDevicesToRack = useCallback(
-    async ({ targetRackId, deviceIdentifiers, signal, onSuccess, onError, onFinally }: AssignDevicesToRackProps) => {
+    async ({
+      targetRackId,
+      deviceIdentifiers,
+      forceClearConflictingSite,
+      signal,
+      onSuccess,
+      onConflicts,
+      onError,
+      onFinally,
+    }: AssignDevicesToRackProps) => {
       try {
         // Always construct the device_list variant of DeviceSelector — the
         // server rejects all_devices for AssignDevicesToRack (moving every
@@ -655,10 +707,17 @@ const useDeviceSets = () => {
           {
             targetRackId,
             deviceSelector,
+            forceClearConflictingSite,
           },
           { signal },
         );
         if (signal?.aborted) return;
+        // Site-strip conflicts: the server wrote nothing and returned the
+        // per-device list so the caller can confirm + retry with force.
+        if (response.conflicts.length > 0) {
+          onConflicts?.(response.conflicts);
+          return;
+        }
         onSuccess?.(response.assignedCount, response.siteReassignedCount, response.removedCount);
       } catch (err) {
         if (isAbortError(err, signal)) {
@@ -948,4 +1007,3 @@ const useDeviceSets = () => {
 };
 
 export { useDeviceSets };
-export type { ListDeviceSetsProps };

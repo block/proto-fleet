@@ -279,6 +279,32 @@ func (s *SQLDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Conte
 	return nil
 }
 
+// ReconcileDefaultPasswordPairingStatusByIdentifier reconciles only the
+// paired-like PAIRED <-> DEFAULT_PASSWORD state machine. eligible=false means
+// the current row was deleted, missing, or in a non paired-like state; updated
+// says whether the status actually changed.
+func (s *SQLDeviceStore) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) (eligible bool, updated bool, err error) {
+	row, err := s.getQueries(ctx).ReconcileDefaultPasswordPairingStatusByIdentifier(ctx, sqlc.ReconcileDefaultPasswordPairingStatusByIdentifierParams{
+		DeviceIdentifier: deviceIdentifier,
+		PairingStatus:    sqlc.PairingStatusEnum(pairingStatus),
+	})
+	if err != nil {
+		return false, false, fleeterror.NewInternalErrorf("failed to reconcile default-password pairing status for device %s: %v", deviceIdentifier, err)
+	}
+	return row.Eligible, row.Updated, nil
+}
+
+// ReconcileAuthenticationNeededPairingStatusByIdentifier moves only paired-like
+// rows to AUTHENTICATION_NEEDED. eligible=false means the current row was
+// deleted, missing, or in a lifecycle state telemetry must not resurrect.
+func (s *SQLDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (eligible bool, updated bool, err error) {
+	row, err := s.getQueries(ctx).ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier)
+	if err != nil {
+		return false, false, fleeterror.NewInternalErrorf("failed to reconcile auth-needed pairing status for device %s: %v", deviceIdentifier, err)
+	}
+	return row.Eligible, row.Updated, nil
+}
+
 func (s *SQLDeviceStore) GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error) {
 	device, err := s.getQueries(ctx).GetDeviceByDeviceIdentifier(ctx, sqlc.GetDeviceByDeviceIdentifierParams{
 		DeviceIdentifier: deviceIdentifier,
@@ -363,10 +389,21 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context, orgID int64, filter *stores.MinerFilter) (int64, error) {
 	fp := buildFilterParams(filter)
 
+	// site_ids may be nil (all-sites); the query COALESCEs NULL to an empty
+	// array so the cardinality()=0 "no filter" branch fires.
+	var siteIDs []int64
+	includeUnassigned := false
+	if filter != nil {
+		siteIDs = filter.SiteIDs
+		includeUnassigned = filter.IncludeUnassigned
+	}
+
 	return s.GetQueries(ctx).GetTotalPairedDevices(ctx, sqlc.GetTotalPairedDevicesParams{
-		OrgID:        orgID,
-		StatusFilter: fp.statusFilter,
-		ModelFilter:  fp.modelFilter,
+		OrgID:             orgID,
+		StatusFilter:      fp.statusFilter,
+		ModelFilter:       fp.modelFilter,
+		SiteIds:           siteIDs,
+		IncludeUnassigned: includeUnassigned,
 	})
 }
 
@@ -389,7 +426,7 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 }
 
 // GetDeviceOrgDriverAndSite returns the trusted (org_id, driver_name, site_id)
-// for a paired device. site_id is 0 when the device is not assigned to a site.
+// for a paired-like device. site_id is 0 when the device is not assigned to a site.
 func (s *SQLDeviceStore) GetDeviceOrgDriverAndSite(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (int64, string, int64, error) {
 	row, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, string(deviceIdentifier))
 	if err != nil {
@@ -1055,6 +1092,8 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.CustomName,
 			&row.SiteID,
 			&row.SiteLabel,
+			&row.BuildingID,
+			&row.BuildingLabel,
 			&row.SortValue,
 		)
 		if err != nil {
@@ -1143,26 +1182,26 @@ func (s *SQLDeviceStore) buildStateCountsQuerySQL(orgID int64, fp minerFilterPar
 SELECT
     COALESCE(SUM(CASE
         WHEN filtered.status = 'OFFLINE'
-             OR (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             OR (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1 ELSE 0
     END), 0)::bigint AS offline_count,
     COALESCE(SUM(CASE
         WHEN filtered.status IN ('MAINTENANCE', 'INACTIVE')
-             AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1 ELSE 0
     END), 0)::bigint AS sleeping_count,
     COALESCE(SUM(CASE
         WHEN filtered.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
-             AND NOT (filtered.status IN ('MAINTENANCE', 'INACTIVE') AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (filtered.status IS NULL AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (filtered.status IN ('MAINTENANCE', 'INACTIVE') AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
              AND (filtered.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR filtered.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+                  OR filtered.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR filtered.has_open_error)
         THEN 1 ELSE 0
     END), 0)::bigint AS broken_count,
     COALESCE(SUM(CASE
         WHEN filtered.status = 'ACTIVE'
-             AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND filtered.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND NOT filtered.has_open_error
         THEN 1 ELSE 0
     END), 0)::bigint AS hashing_count
@@ -1179,7 +1218,7 @@ FROM (
 LEFT JOIN open_errors ON device.id = open_errors.device_id`)
 	sb.WriteString(minerWhereClause)
 	sb.WriteString(`
-    AND device_pairing.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')`)
+    AND ` + actionablePairingStatusesExpr("device_pairing"))
 
 	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
 	sb.WriteString(`
@@ -1396,29 +1435,29 @@ func (s *SQLDeviceStore) GetMinerStateCountsByCollections(ctx context.Context, o
     -- Offline
     COALESCE(SUM(CASE
         WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1 ELSE 0
     END), 0)::int AS offline_count,
     -- Sleeping
     COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1 ELSE 0
     END), 0)::int AS sleeping_count,
     -- Broken
     COALESCE(SUM(CASE
         WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD'))
+             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+                  OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1 ELSE 0
     END), 0)::int AS broken_count,
     -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND open_errors.device_id IS NULL
         THEN 1 ELSE 0
     END), 0)::int AS hashing_count
@@ -1442,7 +1481,7 @@ WHERE dcm.device_set_id = ANY($2::bigint[])
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
-  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+  AND `+actionablePairingStatusesExpr("dp")+`
 GROUP BY dcm.device_set_id`, actionableErrorSeveritiesExpr("errors"))
 
 	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))
@@ -1492,31 +1531,59 @@ func (s *SQLDeviceStore) GetMinerStateCountsByDeviceIDs(ctx context.Context, org
 	}, nil
 }
 
-func (s *SQLDeviceStore) GetComponentErrorCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) ([]stores.ComponentErrorCount, error) {
-	if len(collectionIDs) == 0 {
+func (s *SQLDeviceStore) GetComponentErrorCounts(ctx context.Context, orgID int64, scope stores.ComponentErrorScope) ([]stores.ComponentErrorCount, error) {
+	if len(scope.IDs) == 0 {
 		return nil, nil
 	}
 
-	query := fmt.Sprintf(`SELECT dcm.device_set_id, e.component_type, COUNT(DISTINCT e.device_id)::int AS device_count
+	var sourceSQL string
+	switch scope.Kind {
+	case stores.ComponentErrorScopeCollections:
+		sourceSQL = `SELECT dcm.device_set_id AS scope_id, d.id AS device_id, d.discovered_device_id
 FROM device_set_membership dcm
 JOIN device_set dc ON dcm.device_set_id = dc.id AND dc.deleted_at IS NULL
 JOIN device d ON dcm.device_id = d.id AND d.deleted_at IS NULL
-JOIN discovered_device dd ON d.discovered_device_id = dd.id AND dd.is_active = TRUE
-JOIN device_pairing dp ON d.id = dp.device_id
+WHERE dcm.device_set_id = ANY($2::bigint[]) AND dcm.org_id = $1`
+	case stores.ComponentErrorScopeSites:
+		sourceSQL = `SELECT d.site_id AS scope_id, d.id AS device_id, d.discovered_device_id
+FROM device d
+WHERE d.site_id = ANY($2::bigint[]) AND d.org_id = $1 AND d.deleted_at IS NULL`
+	case stores.ComponentErrorScopeBuildings:
+		sourceSQL = `SELECT d.building_id AS scope_id, d.id AS device_id, d.discovered_device_id
+FROM device d
+WHERE d.building_id = ANY($2::bigint[]) AND d.org_id = $1 AND d.deleted_at IS NULL
+UNION
+SELECT dsr.building_id AS scope_id, d.id AS device_id, d.discovered_device_id
+FROM device_set_membership dcm
+JOIN device_set ds ON dcm.device_set_id = ds.id AND ds.deleted_at IS NULL
+JOIN device_set_rack dsr ON dcm.device_set_id = dsr.device_set_id AND dsr.org_id = $1 AND dsr.building_id = ANY($2::bigint[])
+JOIN device d ON dcm.device_id = d.id AND d.deleted_at IS NULL
+WHERE dcm.org_id = $1`
+	default:
+		return nil, fleeterror.NewInternalErrorf("unknown component error scope kind: %d", scope.Kind)
+	}
+
+	query := fmt.Sprintf(`WITH scoped_devices AS (
+%s
+)
+SELECT sd.scope_id, e.component_type, COUNT(DISTINCT e.device_id)::int AS device_count
+FROM scoped_devices sd
+JOIN discovered_device dd ON sd.discovered_device_id = dd.id AND dd.is_active = TRUE
+JOIN device_pairing dp ON sd.device_id = dp.device_id
     AND %s
-JOIN errors e ON d.id = e.device_id
-    AND e.org_id = dcm.org_id
+JOIN errors e ON sd.device_id = e.device_id
+    AND e.org_id = $1
     AND e.closed_at IS NULL
     AND %s
     AND %s
-WHERE dcm.device_set_id = ANY($2::bigint[]) AND dcm.org_id = $1
-GROUP BY dcm.device_set_id, e.component_type`,
+GROUP BY sd.scope_id, e.component_type`,
+		sourceSQL,
 		actionablePairingStatusesExpr("dp"),
 		actionableErrorSeveritiesExpr("e"),
 		actionableErrorComponentTypesExpr("e"),
 	)
 
-	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))
+	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(scope.IDs))
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get component error counts: %v", err)
 	}
@@ -1525,7 +1592,7 @@ GROUP BY dcm.device_set_id, e.component_type`,
 	var results []stores.ComponentErrorCount
 	for rows.Next() {
 		var r stores.ComponentErrorCount
-		if err := rows.Scan(&r.CollectionID, &r.ComponentType, &r.DeviceCount); err != nil {
+		if err := rows.Scan(&r.ScopeID, &r.ComponentType, &r.DeviceCount); err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to scan component error count: %v", err)
 		}
 		results = append(results, r)

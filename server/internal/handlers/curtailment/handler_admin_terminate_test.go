@@ -59,13 +59,16 @@ func (s *adminTerminateStubStore) AdminTerminateEvent(_ context.Context, orgID i
 func (s *adminTerminateStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
 	panic("GetOrgConfig not exercised by AdminTerminate handler tests")
 }
-func (s *adminTerminateStubStore) UpdateOrgConfigPostEventCooldown(context.Context, int64, int32) (*models.OrgConfig, error) {
-	panic("UpdateOrgConfigPostEventCooldown not exercised by AdminTerminate handler tests")
-}
 func (s *adminTerminateStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
 	panic("ListActiveCurtailedDevices not exercised by AdminTerminate handler tests")
 }
-func (s *adminTerminateStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
+func (s *adminTerminateStubStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
+	panic("ListActiveCurtailmentTargetDevices not exercised by AdminTerminate handler tests")
+}
+func (s *adminTerminateStubStore) ListRecentlyResolvedCurtailedDevices(
+	context.Context,
+	interfaces.ListRecentlyResolvedCurtailedDevicesParams,
+) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
@@ -76,6 +79,15 @@ func (s *adminTerminateStubStore) ListCandidates(context.Context, interfaces.Lis
 }
 func (s *adminTerminateStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by AdminTerminate handler tests")
+}
+func (s *adminTerminateStubStore) ClaimClosedLoopFullFleetTargets(
+	context.Context,
+	int64,
+	int64,
+	int32,
+	[]models.InsertTargetParams,
+) ([]*models.Target, error) {
+	panic("ClaimClosedLoopFullFleetTargets not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	if s.authEvent != nil {

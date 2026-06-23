@@ -99,6 +99,12 @@ var ProcedurePermissions = map[string]string{
 	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceAssignRacksToBuildingProcedure: authz.PermSiteManage,
+	// AssignDevicesToBuilding mirrors AssignDevicesToSite's gating: the
+	// map entry covers the site:manage primary check; the handler
+	// itself adds an inline rack:manage check when the caller opts
+	// into force_clear_conflicting_rack_membership, so site-only
+	// operators can't bypass rack auth via the force flag.
+	buildingsv1connect.BuildingServiceAssignDevicesToBuildingProcedure: authz.PermSiteManage,
 	// GetBuildingStats also calls RequirePermission(PermFleetRead) and
 	// RequirePermission(PermMinerRead) inline — those gate the telemetry
 	// rollup and the device_identifiers surface respectively. The map
@@ -113,8 +119,6 @@ var ProcedurePermissions = map[string]string{
 	curtailmentv1connect.CurtailmentServiceListCurtailmentEventsProcedure:               authz.PermCurtailmentRead,
 	curtailmentv1connect.CurtailmentServiceGetCurtailmentEventProcedure:                 authz.PermCurtailmentRead,
 	curtailmentv1connect.CurtailmentServiceListActiveCurtailmentsProcedure:              authz.PermCurtailmentRead,
-	curtailmentv1connect.CurtailmentServiceGetCurtailmentSettingsProcedure:              authz.PermCurtailmentManage,
-	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentSettingsProcedure:           authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure:              authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure:                    authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:                     authz.PermCurtailmentManage,

@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import PageHeader from "./PageHeader";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
+import { SiteScopeProvider } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
+import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
 const mockUseWindowDimensions = vi.fn();
 const mockUseReactiveLocalStorage = vi.fn();
@@ -84,6 +87,9 @@ describe("PageHeader", () => {
     });
     mockUseReactiveLocalStorage.mockReturnValue([false, vi.fn()]);
     vi.mocked(useHasPermission).mockReturnValue(true);
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = DEFAULT_ACTIVE_SITE;
+    });
   });
 
   it("shows the phone header widget when schedules are available even if setup is not dismissed", () => {
@@ -198,6 +204,61 @@ describe("PageHeader", () => {
     );
 
     expect(mockCurtailmentPill).toHaveBeenCalledWith(expect.objectContaining({ detailsPath: "/energy" }));
+  });
+
+  it("preserves site scope for the curtailment pill Energy link", () => {
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: false,
+      isTablet: false,
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/7/fleet/miners"]}>
+        <SiteScopeProvider value={{ kind: "site", id: "7" }}>
+          <PageHeader
+            schedulePillData={createSchedulePillData()}
+            activeCurtailmentEvent={{
+              reason: "Grid peak call",
+              state: "curtailing",
+              scopeLabel: "Whole fleet",
+              selectedMiners: 48,
+              estimatedReductionKw: 126.4,
+              targetMetricsAvailable: true,
+            }}
+          />
+        </SiteScopeProvider>
+      </MemoryRouter>,
+    );
+
+    expect(mockCurtailmentPill).toHaveBeenCalledWith(expect.objectContaining({ detailsPath: "/7/energy" }));
+  });
+
+  it("uses stored site scope for the curtailment pill Energy link outside scoped routes", () => {
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: false,
+      isTablet: false,
+    });
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "7" };
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/settings/general"]}>
+        <PageHeader
+          schedulePillData={createSchedulePillData()}
+          activeCurtailmentEvent={{
+            reason: "Grid peak call",
+            state: "curtailing",
+            scopeLabel: "Whole fleet",
+            selectedMiners: 48,
+            estimatedReductionKw: 126.4,
+            targetMetricsAvailable: true,
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(mockCurtailmentPill).toHaveBeenCalledWith(expect.objectContaining({ detailsPath: "/7/energy" }));
   });
 
   it("hides the curtailment pill without curtailment read permission", () => {

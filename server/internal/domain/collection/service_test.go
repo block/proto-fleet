@@ -60,7 +60,7 @@ func (m *mockDeviceQueryer) GetMinerStateCountsByCollections(_ context.Context, 
 	return m.stateCountsByCollection, nil
 }
 
-func (m *mockDeviceQueryer) GetComponentErrorCountsByCollections(_ context.Context, _ int64, _ []int64) ([]interfaces.ComponentErrorCount, error) {
+func (m *mockDeviceQueryer) GetComponentErrorCounts(_ context.Context, _ int64, _ interfaces.ComponentErrorScope) ([]interfaces.ComponentErrorCount, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -248,6 +248,8 @@ func TestService_DeleteCollection_LocksRackBeforeCascade(t *testing.T) {
 		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), testCollectionID, testOrgID).
 			Return(interfaces.RackPlacement{}, nil),
 		mockStore.EXPECT().UnassignDeviceSitesByRack(gomock.Any(), testCollectionID, testOrgID).
+			Return(int64(0), nil),
+		mockStore.EXPECT().UnassignDeviceBuildingsByRack(gomock.Any(), testCollectionID, testOrgID).
 			Return(int64(0), nil),
 		// Placement clear is rack-scoped and now lives inside the
 		// rack branch, so it lands BEFORE the generic
@@ -1031,9 +1033,13 @@ func TestService_SaveRack_CreateNewRack(t *testing.T) {
 		Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, int64(10)).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, int64(10), deviceIDs).Return(int64(2), nil)
-	// Site-less rack creation skips the cascade entirely — the rack
-	// makes no implicit claim on member sites, so a nil-target cascade
-	// would silently wipe direct device.site_id assignments.
+	// A rack ALWAYS dictates member placement now — a site-less rack
+	// cascades nil/nil, stripping any member's direct site/building to
+	// keep the membership tree consistent (IS DISTINCT FROM no-ops
+	// already-matching members).
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), int64(10), testOrgID).Return(nil, nil)
+	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(10), testOrgID, gomock.Nil()).Return(int64(0), nil)
+	mockStore.EXPECT().CascadeRackDeviceBuildings(gomock.Any(), int64(10), testOrgID, gomock.Nil()).Return(int64(0), nil)
 	mockStore.EXPECT().GetRackSlots(gomock.Any(), int64(10), testOrgID).Return(nil, nil)
 	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), int64(10), "device-1", int32(0), int32(0), testOrgID).Return(nil)
 	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), int64(10), "device-2", int32(0), int32(1), testOrgID).Return(nil)
@@ -1083,9 +1089,11 @@ func TestService_SaveRack_UpdateExistingRack(t *testing.T) {
 	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Nil(), gomock.Nil(), "Building A").Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(2), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
-	// Rack already site-less + placement unchanged → cascade skipped
-	// per the no-implicit-claim contract (avoids wiping direct
-	// device.site_id assignments).
+	// Site-less rack now cascades nil/nil unconditionally — members can't
+	// keep a direct site/building the rack lacks.
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
+	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Nil()).Return(int64(0), nil)
+	mockStore.EXPECT().CascadeRackDeviceBuildings(gomock.Any(), collectionID, testOrgID, gomock.Nil()).Return(int64(0), nil)
 	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return([]*pb.RackSlot{
 		{DeviceIdentifier: "old-device", Position: &pb.RackSlotPosition{Row: 0, Column: 0}},
 	}, nil)
@@ -1558,6 +1566,10 @@ func TestService_SaveRack_MoveBetweenBuildingsCascadesSite(t *testing.T) {
 	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), collectionID, testOrgID).
 		Return(map[string]*int64{"device-1": priorSite}, nil)
 	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newSiteID)).Return(int64(1), nil)
+	// Building peer of the site cascade — fires whenever the rack has a
+	// stamped building, mirroring the site cascade above for
+	// device.building_id.
+	mockStore.EXPECT().CascadeRackDeviceBuildings(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newBuilding)).Return(int64(1), nil)
 	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
 		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK, DeviceCount: 1}, nil)
@@ -1920,6 +1932,7 @@ func TestService_AssignDevicesToRack_atomicReassign(t *testing.T) {
 		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
 			Return(map[string]*int64{"d1": int64Ptr(99), "d2": &rackSite}, nil),
 		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+		mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil),
 	)
 
 	out, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
@@ -2001,8 +2014,11 @@ func TestService_AssignDevicesToRack_acquiresSourceRackLocksBeforeWrites(t *test
 			Return(interfaces.RackPlacement{}, nil),
 		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
 			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(nil, nil),
 		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(2), nil),
 		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(2), nil),
+		mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil),
+		mockStore.EXPECT().ClearDeviceSitesAndBuildings(gomock.Any(), testOrgID, deviceIDs).Return(int64(0), nil),
 	)
 
 	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
@@ -2061,8 +2077,12 @@ func TestService_AssignDevicesToRack_locksIncludeTargetRack(t *testing.T) {
 		Return(interfaces.RackPlacement{}, nil)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
 		Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-Target", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	// Site-less target rack → site-consistency pre-check + post-add strip.
+	mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(nil, nil)
 	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil)
+	mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil)
+	mockStore.EXPECT().ClearDeviceSitesAndBuildings(gomock.Any(), testOrgID, deviceIDs).Return(int64(0), nil)
 
 	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
 		OrgID:             testOrgID,
@@ -2070,6 +2090,71 @@ func TestService_AssignDevicesToRack_locksIncludeTargetRack(t *testing.T) {
 		DeviceIdentifiers: deviceIDs,
 	})
 	require.NoError(t, err)
+}
+
+// TestService_AssignDevicesToRack_siteLessRackConflictNoForce pins the
+// device→site consistency guard for the add-to-rack path: adding a miner
+// that has a site into a site-less rack would strip its site, so without
+// force the batch returns the conflict and writes NOTHING.
+func TestService_AssignDevicesToRack_siteLessRackConflictNoForce(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	targetRackID := int64(77)
+	deviceIDs := []string{"d1"}
+
+	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return([]int64{77}, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).Return(interfaces.RackPlacement{}, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
+		Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-Target", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	// d1 currently has a site → would be stripped. No force → reject,
+	// no RemoveDevicesFromAnyRack / AddDevicesToCollection.
+	mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return([]string{"d1"}, nil)
+
+	res, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &targetRackID,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Conflicts, 1)
+	require.Equal(t, "d1", res.Conflicts[0].DeviceIdentifier)
+	require.Equal(t, RackConflictReasonDeviceLosesSite, res.Conflicts[0].Reason)
+	require.Zero(t, res.AssignedCount)
+}
+
+// TestService_AssignDevicesToRack_siteLessRackForceStrips pins the force
+// path: the miner joins the site-less rack and its site/building are
+// stripped to match, keeping device→site consistency.
+func TestService_AssignDevicesToRack_siteLessRackForceStrips(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	targetRackID := int64(77)
+	deviceIDs := []string{"d1"}
+
+	gomock.InOrder(
+		mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return([]int64{77}, nil),
+		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).Return(interfaces.RackPlacement{}, nil),
+		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
+			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-Target", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return([]string{"d1"}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(0), nil),
+		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+		mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil),
+		mockStore.EXPECT().ClearDeviceSitesAndBuildings(gomock.Any(), testOrgID, deviceIDs).Return(int64(1), nil),
+	)
+
+	res, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:                     testOrgID,
+		TargetRackID:              &targetRackID,
+		DeviceIdentifiers:         deviceIDs,
+		ForceClearConflictingSite: true,
+	})
+	require.NoError(t, err)
+	require.Empty(t, res.Conflicts)
+	require.Equal(t, int64(1), res.AssignedCount)
+	require.Equal(t, int64(1), res.SiteReassignedCount)
 }
 
 // TestService_AssignDevicesToRack_emptyDevicesRejected guards the
@@ -2113,6 +2198,7 @@ func TestService_AssignDevicesToRack_crossSiteEmitsCascadeMetadata(t *testing.T)
 		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
 			Return(map[string]*int64{"d1": &priorSite}, nil),
 		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+		mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil),
 	)
 
 	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
@@ -2166,6 +2252,7 @@ func TestService_AssignDevicesToRack_sameSiteSkipsCascadeMetadata(t *testing.T) 
 		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
 			Return(map[string]*int64{"d1": &rackSite}, nil),
 		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil),
+		mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(0), nil),
 	)
 
 	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
@@ -2181,6 +2268,51 @@ func TestService_AssignDevicesToRack_sameSiteSkipsCascadeMetadata(t *testing.T) 
 	require.NotNil(t, event.SiteID)
 	assert.Equal(t, rackSite, *event.SiteID)
 	assert.Nil(t, event.Metadata, "no cascade should mean no cascade metadata")
+}
+
+// TestService_AssignDevicesToRack_siteLessBuildingClearsDeviceSite pins
+// the cross-scope-consistency fix: when the target rack sits in an
+// unassigned building (building_id set, site_id NULL), the site cascade
+// must still fire — cascading device.site_id to NULL — so a device
+// moved in from another site doesn't end up with a building_id that
+// disagrees with a stale site_id. Without the fix the site cascade was
+// gated on targetSiteID != nil and skipped, leaving device.site_id
+// pointing at the old site while building_id pointed at a site-less
+// building.
+func TestService_AssignDevicesToRack_siteLessBuildingClearsDeviceSite(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	targetRackID := int64(42)
+	rackBuilding := int64(70)
+	priorSite := int64(8)
+	deviceIDs := []string{"d1"}
+
+	gomock.InOrder(
+		mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+			Return([]int64{targetRackID}, nil),
+		// Rack is in a building but has no site (unassigned building).
+		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
+			Return(interfaces.RackPlacement{SiteID: nil, BuildingID: &rackBuilding}, nil),
+		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
+			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(1), nil),
+		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+		// Site cascade now fires even though targetSiteID is nil, because
+		// the rack has a building. CascadeAddedDeviceSites nulls
+		// device.site_id for the site-less-building rack.
+		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
+			Return(map[string]*int64{"d1": &priorSite}, nil),
+		mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+		mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
+	)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &targetRackID,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
 }
 
 // TestService_AssignDevicesToRack_lockReparentZeroTargetReturnsOnlySources

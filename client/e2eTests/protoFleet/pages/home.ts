@@ -25,7 +25,7 @@ export class HomePage extends BasePage {
   }
 
   async validateHomePageOpened() {
-    await expect(this.page).toHaveURL(/.*\/$/);
+    await expect(this.page).toHaveURL(/.*\/dashboard$/);
   }
 
   async clickAuthenticateMinersButton() {

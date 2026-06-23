@@ -5,6 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import { useSiteModals } from "./useSiteModals";
 import { sitesClient } from "@/protoFleet/api/clients";
 import {
+  AssignBuildingsToSiteResponseSchema,
   type CreateSiteResponse,
   CreateSiteResponseSchema,
   type DeleteSiteResponse,
@@ -24,6 +25,7 @@ vi.mock("@/protoFleet/api/clients", () => ({
     updateSite: vi.fn(),
     deleteSite: vi.fn(),
     assignDevicesToSite: vi.fn(),
+    assignBuildingsToSite: vi.fn(),
   },
 }));
 
@@ -79,11 +81,9 @@ describe("useSiteModals", () => {
     });
   });
 
-  it("detailsContinueCreate carries existing networkConfig through to manageCreate", () => {
+  it("detailsContinueCreate round-trips manageCreate ↔ details preserving edited fields", () => {
     const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));
     act(() => result.current.openCreate());
-    // Simulate the operator typing network config in ManageSiteModal first,
-    // then re-entering details: detailsContinueCreate must preserve it.
     act(() =>
       result.current.detailsContinueCreate({
         ...emptySiteFormValues(),
@@ -91,10 +91,8 @@ describe("useSiteModals", () => {
         locationCity: "Chicago",
         locationState: "IL",
         powerCapacityMw: 5,
-        networkConfig: "(unused — initial empty)",
       }),
     );
-    act(() => result.current.manageNetworkConfigChange("10.0.0.0/24"));
     act(() => result.current.manageEditDetails());
     expect(result.current.state.kind).toBe("manageCreateEditingDetails");
     act(() =>
@@ -104,13 +102,12 @@ describe("useSiteModals", () => {
         locationCity: "Chicago",
         locationState: "IL",
         powerCapacityMw: 5,
-        networkConfig: "",
       }),
     );
     expect(result.current.state.kind).toBe("manageCreate");
     if (result.current.state.kind === "manageCreate") {
-      expect(result.current.state.draft.networkConfig).toBe("10.0.0.0/24");
       expect(result.current.state.draft.name).toBe("North DC 2");
+      expect(result.current.state.draft.powerCapacityMw).toBe(5);
     }
   });
 
@@ -139,7 +136,7 @@ describe("useSiteModals", () => {
     expect(result.current.state.kind).toBe("manageEdit");
   });
 
-  it("manageSave on manageCreate transitions to manageEdit on success (prevents duplicate CreateSite on re-save)", async () => {
+  it("manageSave on manageCreate runs CreateSite and reports closeOnSuccess", async () => {
     const { create: createResp } = makeSiteResponse(7n, "North DC", "10.0.0.0/24");
     vi.mocked(sitesClient.createSite).mockResolvedValue(createResp);
     const refetchSites = vi.fn();
@@ -155,25 +152,63 @@ describe("useSiteModals", () => {
 
     let saveResult: { closeOnSuccess: boolean } | null | undefined;
     await act(async () => {
-      saveResult = await result.current.manageSave();
+      saveResult = await result.current.manageSave({ added: [], removed: [] });
     });
 
     await waitFor(() => {
       expect(sitesClient.createSite).toHaveBeenCalledTimes(1);
     });
+    // Create never touches the buildings RPC — building management is gated
+    // until the site exists.
+    expect(sitesClient.assignBuildingsToSite).not.toHaveBeenCalled();
     expect(saveResult?.closeOnSuccess).toBe(true);
     expect(refetchSites).toHaveBeenCalled();
-    expect(result.current.state.kind).toBe("manageEdit");
+  });
 
-    // Second Save must call updateSite, not createSite again — proves the
-    // transition to manageEdit happens on the first success.
-    const { update: updateResp } = makeSiteResponse(7n, "North DC", "10.0.0.0/24");
-    vi.mocked(sitesClient.updateSite).mockResolvedValue(updateResp);
+  it("manageSave on manageEdit applies the building delta via AssignBuildingsToSite", async () => {
+    vi.mocked(sitesClient.assignBuildingsToSite).mockResolvedValue(
+      create(AssignBuildingsToSiteResponseSchema, { reassignedRackCount: 0n, reassignedDeviceCount: 0n }),
+    );
+    const refetchSites = vi.fn();
+    const refetchBuildings = vi.fn();
+    const site = create(SiteSchema, { id: 3n, name: "North DC" });
+    const { result } = renderHook(() => useSiteModals({ refetchSites, refetchBuildings }));
+    act(() => result.current.openManageEdit(site));
+
+    let saveResult: { closeOnSuccess: boolean } | null | undefined;
     await act(async () => {
-      await result.current.manageSave();
+      saveResult = await result.current.manageSave({ added: [10n], removed: [20n] });
     });
-    expect(sitesClient.createSite).toHaveBeenCalledTimes(1);
-    expect(sitesClient.updateSite).toHaveBeenCalledTimes(1);
+
+    // Two calls: removed → "Unassigned" (no target), added → this site.
+    await waitFor(() => {
+      expect(sitesClient.assignBuildingsToSite).toHaveBeenCalledTimes(2);
+    });
+    expect(sitesClient.assignBuildingsToSite).toHaveBeenCalledWith(
+      { buildingIds: [20n], targetSiteId: undefined },
+      expect.anything(),
+    );
+    expect(sitesClient.assignBuildingsToSite).toHaveBeenCalledWith(
+      { buildingIds: [10n], targetSiteId: 3n },
+      expect.anything(),
+    );
+    expect(saveResult?.closeOnSuccess).toBe(true);
+    expect(refetchSites).toHaveBeenCalled();
+    // Membership changed building rows, so the building table refresh fires too.
+    expect(refetchBuildings).toHaveBeenCalled();
+  });
+
+  it("manageSave on manageEdit with an empty delta closes without an RPC", async () => {
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));
+    act(() => result.current.openManageEdit(create(SiteSchema, { id: 3n, name: "North DC" })));
+
+    let saveResult: { closeOnSuccess: boolean } | null | undefined;
+    await act(async () => {
+      saveResult = await result.current.manageSave({ added: [], removed: [] });
+    });
+
+    expect(sitesClient.assignBuildingsToSite).not.toHaveBeenCalled();
+    expect(saveResult?.closeOnSuccess).toBe(true);
   });
 
   it("detailsSaveEdit refreshes manage with server-canonical site on success", async () => {

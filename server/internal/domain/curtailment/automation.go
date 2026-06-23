@@ -306,6 +306,10 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		return err
 	}
 	startReq := startRequestFromAutomationProfile(rule, profile, signal)
+	if startReq.Mode == models.ModeFullFleet {
+		startReq.AllowUnbounded = true
+		startReq.MaxDurationSeconds = nil
+	}
 	plan, err := s.curtailment.Start(ctx, startReq)
 	if err != nil {
 		return err
@@ -496,11 +500,13 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 			Strategy:                profile.Strategy,
 			Level:                   profile.Level,
 			Priority:                profile.Priority,
-			BypassCooldown:          true,
 			TargetKW:                targetKW,
 			ToleranceKW:             toleranceKW,
 			IncludeMaintenance:      profile.IncludeMaintenance,
 			ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
+			// MQTT demand-response signals must execute immediately; profile
+			// cooldown applies only to non-emergency user-driven starts.
+			PostEventCooldownSec: 0,
 		},
 		Reason:                    reason,
 		RestoreBatchSize:          profile.RestoreBatchSize,

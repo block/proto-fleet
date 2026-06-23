@@ -17,10 +17,15 @@ func TestBuildMinerCSVRow_FormatsValuesAndIssues(t *testing.T) {
 	componentID := "2"
 	row := buildMinerCSVRow(
 		&pb.MinerStateSnapshot{
-			Name:            "Miner A",
-			WorkerName:      "worker-01",
-			GroupLabels:     []string{"Group 1", "Group 2"},
-			RackLabel:       "Rack 1",
+			Name:       "Miner A",
+			WorkerName: "worker-01",
+			Placement: &commonpb.PlacementRefs{
+				Groups: []*commonpb.ResourceRef{
+					{Id: 1, Label: "Group 1"},
+					{Id: 2, Label: "Group 2"},
+				},
+				Rack: &commonpb.ResourceRef{Id: 10, Label: "Rack 1"},
+			},
 			Model:           "S21",
 			MacAddress:      "AA:BB:CC:DD:EE:FF",
 			IpAddress:       "10.0.0.5",
@@ -178,12 +183,28 @@ func TestMinerStatusCSVValue(t *testing.T) {
 			expected: "Needs attention",
 		},
 		{
-			name: "default password overrides online to needs attention",
+			name: "default password uses normal status",
 			snapshot: &pb.MinerStateSnapshot{
 				DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_ONLINE,
 				PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 			},
-			expected: "Needs attention",
+			expected: "Hashing",
+		},
+		{
+			name: "default password with unspecified status is offline",
+			snapshot: &pb.MinerStateSnapshot{
+				DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED,
+				PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+			},
+			expected: "Offline",
+		},
+		{
+			name: "paired with unspecified status is offline",
+			snapshot: &pb.MinerStateSnapshot{
+				DeviceStatus:  pb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED,
+				PairingStatus: pb.PairingStatus_PAIRING_STATUS_PAIRED,
+			},
+			expected: "Offline",
 		},
 		{
 			name:     "needs mining pool",
@@ -235,7 +256,7 @@ func TestMinerIssuesCSVValue(t *testing.T) {
 			snapshot: &pb.MinerStateSnapshot{
 				PairingStatus: pb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 			},
-			expected: "Password change required",
+			expected: "",
 		},
 		{
 			name:     "needs mining pool",

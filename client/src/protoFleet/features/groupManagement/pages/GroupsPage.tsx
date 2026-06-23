@@ -1,5 +1,5 @@
-import { type ReactNode, useCallback, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
@@ -11,26 +11,68 @@ import {
 } from "@/protoFleet/components/DeviceSetList";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
+import {
+  FILTER_URL_PARAM_KEYS,
+  fleetListTelemetryRangesFromURL,
+  parseUrlToActiveFilters,
+  setTelemetryNumericFilterURLParams,
+} from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
+import {
+  TELEMETRY_FILTER_BOUNDS,
+  TELEMETRY_FILTER_KEYS,
+  type TelemetryFilterKey,
+} from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
 import GroupNameCell from "@/protoFleet/features/groupManagement/components/GroupsTable/GroupNameCell";
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
+import { scopedPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
+import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 
 import { Alert, Groups } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
-import FilterChipsBar from "@/shared/components/List/Filters/FilterChipsBar";
+import FilterChipsBar, { type FilterChipsBarNumericFilter } from "@/shared/components/List/Filters/FilterChipsBar";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import type { NumericRangeValue } from "@/shared/utils/filterValidation";
 
 const GROUPS_PAGE_SIZE = 50;
 
+const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_KEYS.map((key) => ({
+  key,
+  title: TELEMETRY_FILTER_BOUNDS[key].label,
+  bounds: TELEMETRY_FILTER_BOUNDS[key],
+}));
+
 const GroupsPage = () => {
   const navigate = useNavigate();
+  const activeSite = useRouteSiteScope() ?? DEFAULT_ACTIVE_SITE;
+  const [searchParams, setSearchParams] = useSearchParams();
   const { listGroups } = useDeviceSets();
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [editGroup, setEditGroup] = useState<DeviceSet | null>(null);
-  const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
+  const selectedIssues = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          searchParams
+            .getAll("issues")
+            .map((v) => v.trim())
+            .filter(Boolean),
+        ),
+      ),
+    [searchParams],
+  );
+  const telemetryRanges = useMemo(() => fleetListTelemetryRangesFromURL(searchParams), [searchParams]);
+  const selectedNumericValues = useMemo(() => parseUrlToActiveFilters(searchParams).numericFilters, [searchParams]);
+  const telemetryRangesRef = useRef(telemetryRanges);
+  useEffect(() => {
+    telemetryRangesRef.current = telemetryRanges;
+  }, [telemetryRanges]);
+  const getTelemetryRanges = useCallback(() => telemetryRangesRef.current, []);
 
   const { selectedIssuesRef, getErrorComponentTypes } = useIssueFilter();
+  // eslint-disable-next-line react-hooks/refs -- intentional render-time sync so the initial list fetch reads URL-restored filters
+  selectedIssuesRef.current = selectedIssues;
 
   const {
     deviceSets: groups,
@@ -46,16 +88,51 @@ const GroupsPage = () => {
     handleNextPage,
     handlePrevPage,
     resetAndFetch,
-  } = useDeviceSetListState(listGroups, GROUPS_PAGE_SIZE, getErrorComponentTypes);
+  } = useDeviceSetListState(
+    listGroups,
+    GROUPS_PAGE_SIZE,
+    getErrorComponentTypes,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    getTelemetryRanges,
+  );
 
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
       if (key !== "issues") return;
-      setSelectedIssues(values);
-      selectedIssuesRef.current = values;
-      resetAndFetch();
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("issues");
+          values.forEach((value) => {
+            const trimmed = value.trim();
+            if (trimmed) next.append("issues", trimmed);
+          });
+          return next;
+        },
+        { replace: true },
+      );
     },
-    [resetAndFetch, selectedIssuesRef],
+    [setSearchParams],
+  );
+
+  const handleNumericFilterChange = useCallback(
+    (key: string, value: NumericRangeValue) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          setTelemetryNumericFilterURLParams(next, key as TelemetryFilterKey, value);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
   );
 
   const filterChipsBarFilters = useMemo(
@@ -66,49 +143,77 @@ const GroupsPage = () => {
         pluralTitle: "issues",
         options: issueOptions,
         selectedValues: selectedIssues,
+        showGroupDivider: true,
       },
     ],
     [selectedIssues],
   );
 
-  const hasActiveFilters = selectedIssues.length > 0;
+  const hasActiveFilters = selectedIssues.length > 0 || telemetryRanges.length > 0;
+
+  const filterFetchKey = useMemo(
+    () => JSON.stringify([selectedIssues, telemetryRanges]),
+    [selectedIssues, telemetryRanges],
+  );
+  const prevFilterFetchKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevFilterFetchKey.current !== null && prevFilterFetchKey.current !== filterFetchKey) {
+      resetAndFetch();
+    }
+    prevFilterFetchKey.current = filterFetchKey;
+  }, [filterFetchKey, resetAndFetch]);
 
   const handleClearFilters = useCallback(() => {
-    setSelectedIssues([]);
-    selectedIssuesRef.current = [];
-    resetAndFetch();
-  }, [resetAndFetch, selectedIssuesRef]);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        FILTER_URL_PARAM_KEYS.forEach((key) => next.delete(key));
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
 
   const emptyStateRow: ReactNode = useMemo(() => {
     if (isLoading || totalCount > 0) return undefined;
     return <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />;
   }, [hasActiveFilters, isLoading, totalCount, handleClearFilters]);
 
+  const groupDetailHref = useCallback(
+    (label: string) => scopedPath(`/groups/${encodeURIComponent(label)}`, activeSite),
+    [activeSite],
+  );
+
   const renderName = useCallback(
     (item: DeviceSetListItem) => (
-      <GroupNameCell group={item.deviceSet} onEdit={setEditGroup} onActionComplete={resetAndFetch} />
+      <GroupNameCell
+        group={item.deviceSet}
+        onEdit={setEditGroup}
+        onActionComplete={resetAndFetch}
+        href={groupDetailHref(item.deviceSet.label)}
+      />
     ),
-    [resetAndFetch],
+    [groupDetailHref, resetAndFetch],
   );
 
   const handleRowClick = useCallback(
     (item: DeviceSetListItem) => {
-      navigate(`/groups/${encodeURIComponent(item.deviceSet.label)}`);
+      navigate(groupDetailHref(item.deviceSet.label));
     },
-    [navigate],
+    [groupDetailHref, navigate],
   );
 
   const renderMiners = useCallback(
     (item: DeviceSetListItem) => (
       <Link
-        to={`/miners?group=${item.deviceSet.id}`}
+        to={scopedPath(`/fleet/miners?group=${item.deviceSet.id}`, activeSite)}
         className="hover:underline"
         aria-label={`View miners in ${item.deviceSet.label}`}
       >
         {item.deviceSet.deviceCount}
       </Link>
     ),
-    [],
+    [activeSite],
   );
 
   if (isLoading && !hasEverLoaded) {
@@ -127,7 +232,7 @@ const GroupsPage = () => {
     );
   }
 
-  const hasGroups = groups.length > 0 || hasEverLoaded;
+  const hasGroups = groups.length > 0 || hasEverLoaded || hasActiveFilters;
 
   return (
     <>
@@ -150,6 +255,9 @@ const GroupsPage = () => {
               <FilterChipsBar
                 filters={filterChipsBarFilters}
                 onChange={handleFilterChange}
+                numericFilters={TELEMETRY_FILTER_CHIPS}
+                selectedNumericValues={selectedNumericValues}
+                onNumericChange={handleNumericFilterChange}
                 onClearAll={handleClearFilters}
               />
               <Button

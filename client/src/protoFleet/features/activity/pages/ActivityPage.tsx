@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Navigate } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 
 import { ActivityFilterSchema } from "@/protoFleet/api/generated/activity/v1/activity_pb";
@@ -6,9 +7,11 @@ import { useActivity } from "@/protoFleet/api/useActivity";
 import { useActivityFilterOptions } from "@/protoFleet/api/useActivityFilterOptions";
 import { useExportActivity } from "@/protoFleet/api/useExportActivity";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
+import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import ActivityFilters from "@/protoFleet/features/activity/components/ActivityFilters";
 import ActivityTable from "@/protoFleet/features/activity/components/ActivityTable";
 import { formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
+import { useHasPermission } from "@/protoFleet/store";
 import { Alert, DismissTiny } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -18,12 +21,24 @@ import { debounce } from "@/shared/utils/utility";
 
 const PAGE_SIZE = 50;
 
-const ActivityPage = () => {
+const ActivityPageContent = () => {
   const [searchText, setSearchText] = useState("");
   const [debouncedSearchText, setDebouncedSearchText] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+
+  // Path scope (/{site}/activity) → server-side site_ids / include_unassigned,
+  // the same additive filter ListBuildings / ListRacks / ListMiners use. The
+  // route segment is the source of truth for the active site, so we only read
+  // it here — the globally-mounted SitePicker already fetches ListSites and
+  // owns the knownSiteIds staleness validation (resetting a deleted/inaccessible
+  // site back to all-sites), so this page does not re-fetch sites. Activity has
+  // no `?site=` deep-link facet, so the scope filter is passed straight through
+  // (no intersectSiteFilters). `/activity` resolves to { kind: "all" } → both
+  // empty → org-wide feed, unchanged from before.
+  const { activeSite } = useActiveSite({});
+  const scopeFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
 
   const debouncedSetSearch = useMemo(() => debounce((text: string) => setDebouncedSearchText(text), 300), []);
   useEffect(() => () => debouncedSetSearch.cancel(), [debouncedSetSearch]);
@@ -48,8 +63,10 @@ const ActivityPage = () => {
         scopeTypes: selectedScopes,
         userIds: selectedUsers,
         searchText: debouncedSearchText,
+        siteIds: scopeFilter.siteIds,
+        includeUnassigned: scopeFilter.includeUnassigned,
       }),
-    [selectedTypes, selectedScopes, selectedUsers, debouncedSearchText],
+    [selectedTypes, selectedScopes, selectedUsers, debouncedSearchText, scopeFilter],
   );
 
   const { activities, totalCount, isLoading, error, hasMore, loadMore } = useActivity({
@@ -196,6 +213,16 @@ const ActivityPage = () => {
       </div>
     </>
   );
+};
+
+const ActivityPage = () => {
+  const canReadActivity = useHasPermission("activity:read");
+
+  if (!canReadActivity) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <ActivityPageContent />;
 };
 
 export default ActivityPage;

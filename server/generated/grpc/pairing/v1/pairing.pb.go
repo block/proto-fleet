@@ -1460,8 +1460,8 @@ func (x *PairResponse) GetFailedDeviceIds() []string {
 type FleetNodePairRequest struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Targets []*FleetNodePairTarget `protobuf:"bytes,1,rep,name=targets,proto3" json:"targets,omitempty"`
-	// Applied to basic-auth targets in the batch; omitted for asymmetric-auth
-	// drivers, which pair with the node's own miner-signing key.
+	// Applied to targets in the batch. When omitted, drivers may use their
+	// default credentials.
 	Credentials   *Credentials `protobuf:"bytes,2,opt,name=credentials,proto3" json:"credentials,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

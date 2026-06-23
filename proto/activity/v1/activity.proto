@@ -90,6 +90,26 @@ message ActivityFilter {
 
     // Filter by scope types (empty = all scope types)
     repeated string scope_types = 7;
+
+    // Filter by site (OR across IDs). Each entry must be > 0; capped at
+    // 1024 to bound request size (matches the rack/building/miner filters).
+    // The filter is additive with include_unassigned: both empty / false
+    // means no site filter (org-wide feed). A command-batch event matches
+    // when any of its per-device command_on_device_log rows is stamped with
+    // one of these sites.
+    repeated int64 site_ids = 8 [(buf.validate.field).repeated = {
+        max_items: 1024
+        items: {
+            int64: {gt: 0}
+        }
+    }];
+
+    // When true, activity rows in the "unassigned" bucket are also
+    // included. For direct (non-batch) events the bucket is site_id IS NULL
+    // minus org-level categories (auth, system); for command-batch events it
+    // is batches whose command_on_device_log rows have site_id IS NULL. See
+    // the multi-site Activity TDD for the precise definition.
+    bool include_unassigned = 9;
 }
 
 // Request for listing activities with pagination

@@ -42,6 +42,12 @@ func NewFixedKw(targetKW, toleranceKW float64, summary InsufficientLoadDetail) (
 	}, nil
 }
 
+// RequiresDualSignalTelemetry keeps fixed-kW accounting grounded in measurable
+// curtailment load.
+func (*FixedKw) RequiresDualSignalTelemetry() bool {
+	return true
+}
+
 // Select implements Mode. Three branches per the design:
 //
 //  1. Target reached: walk candidates accumulating; stop after the first

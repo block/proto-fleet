@@ -137,6 +137,34 @@ func TestStuckMessageReaper(t *testing.T) {
 }
 
 func TestQueueProcessorRetries(t *testing.T) {
+	t.Run("treats context cancellation during dequeue as shutdown", func(t *testing.T) {
+		// Arrange
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		mockQueue := mocks.NewMockMessageQueue(ctrl)
+		mockQueue.EXPECT().
+			Dequeue(gomock.Any()).
+			DoAndReturn(func(context.Context) ([]queue.Message, error) {
+				cancel()
+				return nil, fleeterror.NewInternalError("error opening tx: context canceled")
+			})
+
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+		svc := NewExecutionService(ctx, &Config{
+			MaxWorkers:            5,
+			MasterPollingInterval: time.Millisecond,
+			DequeueRetries:        0,
+		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+
+		// Act
+		err := svc.startQueueProcessorThread(ctx)
+
+		// Assert
+		require.ErrorIs(t, err, context.Canceled)
+	})
+
 	t.Run("retries dequeue errors and continues running", func(t *testing.T) {
 		// Arrange
 		ctrl := gomock.NewController(t)
@@ -1496,13 +1524,14 @@ func TestExecuteCommand_UpdateMinerPassword_PersistFailureFailsCommand(t *testin
 	require.NoError(t, err)
 	message := queue.Message{ID: 7, DeviceID: 50, CommandType: commandtype.UpdateMinerPassword, Payload: payload}
 
-	mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(50)).Return(mockMiner, nil)
+	mockMinerGetter.EXPECT().GetMinerForPasswordUpdate(gomock.Any(), int64(50), "old").Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetDriverName().Return("antminer").AnyTimes()
 	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("dev-50")).AnyTimes()
 	// On-device password change succeeds.
 	mockMiner.EXPECT().UpdateMinerPassword(gomock.Any(), gomock.Any()).Return(nil)
+	mockMinerGetter.EXPECT().InvalidateMiner(models.DeviceIdentifier("dev-50"))
 
 	svc := NewExecutionService(t.Context(), &Config{
 		MaxWorkers:             5,

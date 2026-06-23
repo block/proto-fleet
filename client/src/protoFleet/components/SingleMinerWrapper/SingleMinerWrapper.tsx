@@ -1,14 +1,20 @@
 import { ReactNode, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 import { singleMinerRoutePrefetch } from "@/protoFleet/routePrefetch";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell hosts the protoOS single-miner experience
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
 import { DismissCircleDark } from "@/shared/assets/icons";
 import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
 const CloseButton = ({ id }: { id: string }) => {
+  const activeSite = useFleetStore((state) => state.ui.activeSite);
   return (
-    <Link className="flex flex-row items-center gap-1 pl-2 text-300 text-text-primary-70" to={"/miners"}>
+    <Link
+      className="flex flex-row items-center gap-1 pl-2 text-300 text-text-primary-70"
+      to={scopedPath("/fleet/miners", activeSite)}
+    >
       <DismissCircleDark />
       {id}
     </Link>

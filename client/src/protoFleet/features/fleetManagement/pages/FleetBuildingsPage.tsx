@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import BuildingList from "../components/BuildingList";
@@ -8,86 +8,189 @@ import { useFleetOutletContext } from "../components/FleetLayout";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
-import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { issueOptions } from "@/protoFleet/components/DeviceSetList";
+import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
+import {
+  intersectSiteFilters,
+  isMatchNoneSiteFilter,
+  siteFilterFromActive,
+  useActiveSite,
+} from "@/protoFleet/components/PageHeader/SitePicker";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
+import {
+  FILTER_URL_PARAM_KEYS,
+  fleetListTelemetryRangesFromURL,
+  issueComponentTypesFromURL,
+  parseIdFilterValuesFromURL,
+  parseUrlToActiveFilters,
+  setTelemetryNumericFilterURLParams,
+  UNASSIGNED_FILTER_OPTION,
+  UNASSIGNED_URL_VALUE,
+} from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
+import {
+  TELEMETRY_FILTER_BOUNDS,
+  TELEMETRY_FILTER_KEYS,
+  type TelemetryFilterKey,
+} from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { useHasPermission } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
+import FilterChipsBar, { type FilterChipsBarNumericFilter } from "@/shared/components/List/Filters/FilterChipsBar";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { usePoll } from "@/shared/hooks/usePoll";
+import type { NumericRangeValue } from "@/shared/utils/filterValidation";
 
 const LIST_WRAPPER = "pt-6";
 
-const FleetBuildingsPage = () => {
-  const { sites, sitesError, refetchSites } = useFleetOutletContext();
+const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_KEYS.map((key) => ({
+  key,
+  title: TELEMETRY_FILTER_BOUNDS[key].label,
+  bounds: TELEMETRY_FILTER_BOUNDS[key],
+}));
 
-  const { listAllBuildings } = useBuildings();
+const FleetBuildingsPage = () => {
+  const { sites, sitesError, sitesLoaded, refetchSites } = useFleetOutletContext();
+
+  const { listBuildings } = useBuildings();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const errorComponentTypes = useMemo(() => issueComponentTypesFromURL(searchParams), [searchParams]);
+  const telemetryRanges = useMemo(() => fleetListTelemetryRangesFromURL(searchParams), [searchParams]);
+  const selectedNumericValues = useMemo(() => parseUrlToActiveFilters(searchParams).numericFilters, [searchParams]);
+  const selectedIssues = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          searchParams
+            .getAll("issues")
+            .map((v) => v.trim())
+            .filter(Boolean),
+        ),
+      ),
+    [searchParams],
+  );
   const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
   const [buildingsError, setBuildingsError] = useState<string | null>(null);
   const [selectedBuildingIds, setSelectedBuildingIds] = useState<string[]>([]);
   const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
 
+  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
+  const { activeSite } = useActiveSite({ knownSiteIds });
+
+  // `?site=<id>` deep links filter the list without changing the path
+  // scope. Scope and filter compose below.
+  const urlSiteFilter = useMemo(() => parseIdFilterValuesFromURL(searchParams, "site"), [searchParams]);
+  const urlSiteIds = useMemo(
+    () => urlSiteFilter.values.filter((value) => value !== UNASSIGNED_URL_VALUE),
+    [urlSiteFilter],
+  );
+  const hasActiveFilters = urlSiteFilter.values.length > 0 || selectedIssues.length > 0 || telemetryRanges.length > 0;
+
+  // Path scope ∩ `?site=` filter. Both empty + false → server returns every
+  // building in the org (rendered straight through, no client filter).
+  const requestSiteFilter = useMemo(() => {
+    return intersectSiteFilters(siteFilterFromActive(activeSite), {
+      siteIds: urlSiteIds.map((id) => BigInt(id)),
+      includeUnassigned: urlSiteFilter.includeUnassigned,
+    });
+  }, [urlSiteFilter.includeUnassigned, urlSiteIds, activeSite]);
+  const requestSiteFilterMatchesNoRows = isMatchNoneSiteFilter(requestSiteFilter);
+
+  // usePoll keeps fetchData in a ref and doesn't re-run on its identity
+  // change, so a site/filter switch wouldn't refetch until the next poll
+  // tick. Feed the full request filter as `params` (a stable string key) so
+  // the poll effect restarts immediately when the active site or filter URL
+  // changes.
+  const listFilterKey = useMemo(() => {
+    const telemetryKey = telemetryRanges
+      .map(
+        (range) =>
+          `${range.field}:${range.min ?? ""}:${range.max ?? ""}:${range.minInclusive ? "1" : "0"}:${range.maxInclusive ? "1" : "0"}`,
+      )
+      .join(",");
+    return [
+      requestSiteFilter.siteIds.map(String).join(","),
+      requestSiteFilter.includeUnassigned ? "1" : "0",
+      requestSiteFilter.matchNone ? "1" : "0",
+      errorComponentTypes.join(","),
+      telemetryKey,
+    ].join("|");
+  }, [requestSiteFilter, errorComponentTypes, telemetryRanges]);
+
+  // Latest request key/id, read at response time. usePoll has no
+  // per-request cancellation, and manual modal refreshes can overlap an
+  // in-flight poll, so a slow ListBuildings response can resolve after a
+  // newer one. The key rejects old filters; the request id rejects older
+  // same-filter refreshes.
+  const listFilterKeyRef = useRef(listFilterKey);
+  const listRequestIdRef = useRef(0);
+  useEffect(() => {
+    listFilterKeyRef.current = listFilterKey;
+  }, [listFilterKey]);
+
   // Returning the promise lets usePoll schedule the next tick from response
   // completion (not from request start) so slow responses can't overlap.
-  const fetchBuildings = useCallback(
-    () =>
-      listAllBuildings({
-        onSuccess: (rows) => {
-          setBuildings(rows);
-          setBuildingsError(null);
-        },
-        onError: (msg) => {
-          setBuildingsError(msg);
-          // Preserve last-good list across transient errors; only fall to []
-          // on the initial-load failure path.
-          setBuildings((prev) => prev ?? []);
-        },
-      }),
-    [listAllBuildings],
-  );
+  const fetchBuildings = useCallback(() => {
+    const requestedFilterKey = listFilterKey; // captured for the staleness check
+    const requestId = ++listRequestIdRef.current;
+    if (isMatchNoneSiteFilter(requestSiteFilter)) {
+      setBuildings([]);
+      setBuildingsError(null);
+      return Promise.resolve();
+    }
+
+    return listBuildings({
+      siteIds: requestSiteFilter.siteIds,
+      includeUnassigned: requestSiteFilter.includeUnassigned,
+      errorComponentTypes,
+      telemetryRanges,
+      onSuccess: (rows) => {
+        if (requestId !== listRequestIdRef.current || listFilterKeyRef.current !== requestedFilterKey) return;
+        setBuildings(rows);
+        setBuildingsError(null);
+      },
+      onError: (msg) => {
+        if (requestId !== listRequestIdRef.current || listFilterKeyRef.current !== requestedFilterKey) return;
+        setBuildingsError(msg);
+        // Preserve last-good list across transient errors; only fall to []
+        // on the initial-load failure path.
+        setBuildings((prev) => prev ?? []);
+      },
+    });
+  }, [listBuildings, requestSiteFilter, errorComponentTypes, telemetryRanges, listFilterKey]);
 
   // Gate the poll on site:read — same gate FleetLayout uses to redirect.
   const canReadBuildings = useHasPermission("site:read");
   usePoll({
     fetchData: fetchBuildings,
+    params: listFilterKey,
     poll: true,
     pollIntervalMs: POLL_INTERVAL_MS,
     enabled: canReadBuildings,
   });
 
-  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
-  const { activeSite } = useActiveSite({ knownSiteIds });
-
-  // `?site=<id>` deep links scope the list without mutating SitePicker
-  // (avoids racing FleetLayout's single-site redirect). URL wins.
-  const [searchParams] = useSearchParams();
-  const urlSiteIds = useMemo(
-    () =>
-      new Set(
-        searchParams
-          .getAll("site")
-          .map((value) => value.trim())
-          .filter((value) => value !== "" && /^\d+$/.test(value)),
-      ),
-    [searchParams],
-  );
-
-  const visibleBuildings = useMemo(() => {
-    if (!buildings) return [];
-    if (urlSiteIds.size > 0) {
-      return buildings.filter((b) => urlSiteIds.has((b.building?.siteId ?? 0n).toString()));
+  // Drop the previous scope's rows the moment the site filter changes so
+  // the now-mismatched buildings can't render (or be selected/edited)
+  // under the new scope during the in-flight refetch. Resetting to
+  // `undefined` surfaces the Loading… state until the scoped response
+  // lands; usePoll's params change fires that fetch immediately.
+  const prevListFilterKey = useRef(listFilterKey);
+  useEffect(() => {
+    if (prevListFilterKey.current !== listFilterKey) {
+      prevListFilterKey.current = listFilterKey;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing stale cross-scope rows; external-sync pattern.
+      setBuildings(requestSiteFilterMatchesNoRows ? [] : undefined);
+      setSelectedBuildingIds([]);
     }
-    if (activeSite.kind === "all") return buildings;
-    if (activeSite.kind === "unassigned") {
-      return buildings.filter((b) => !b.building?.siteId || b.building.siteId === 0n);
-    }
-    return buildings.filter((b) => (b.building?.siteId ?? 0n).toString() === activeSite.id);
-  }, [buildings, activeSite, urlSiteIds]);
+  }, [listFilterKey, requestSiteFilterMatchesNoRows]);
+
+  // Server-side filter already scoped the list to the active site /
+  // URL deep-link; just pass through.
+  const visibleBuildings = useMemo(() => buildings ?? [], [buildings]);
   const visibleBuildingScopes = useMemo(
     () =>
       visibleBuildings.flatMap((building) => {
@@ -164,6 +267,94 @@ const FleetBuildingsPage = () => {
   const [reparentTarget, setReparentTarget] = useState<BuildingWithCounts | null>(null);
   const handleAddBuildingToSite = useCallback((row: BuildingWithCounts) => setReparentTarget(row), []);
 
+  const siteFilterOptions = useMemo(
+    () => [
+      ...(sites ?? [])
+        .filter((site) => site.site !== undefined)
+        .map((site) => ({ id: site.site!.id.toString(), label: site.site!.name })),
+      UNASSIGNED_FILTER_OPTION,
+    ],
+    [sites],
+  );
+
+  const filterChipsBarFilters = useMemo(
+    () => [
+      {
+        key: "issues",
+        title: "Issues",
+        pluralTitle: "issues",
+        options: issueOptions,
+        selectedValues: selectedIssues,
+        showGroupDivider: true,
+      },
+      {
+        key: "site",
+        title: "Sites",
+        pluralTitle: "sites",
+        options: siteFilterOptions,
+        selectedValues: urlSiteFilter.values,
+        showGroupDivider: true,
+      },
+    ],
+    [selectedIssues, siteFilterOptions, urlSiteFilter.values],
+  );
+
+  const writeMultiParam = useCallback(
+    (key: string, values: string[]) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete(key);
+          values.forEach((value) => {
+            const trimmed = value.trim();
+            if (trimmed) next.append(key, trimmed);
+          });
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const handleFilterChange = useCallback(
+    (key: string, values: string[]) => {
+      if (key === "site") {
+        writeMultiParam("site", values);
+        return;
+      }
+      if (key === "issues") {
+        writeMultiParam("issues", values);
+      }
+    },
+    [writeMultiParam],
+  );
+
+  const handleNumericFilterChange = useCallback(
+    (key: string, value: NumericRangeValue) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          setTelemetryNumericFilterURLParams(next, key as TelemetryFilterKey, value);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const handleClearFilters = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        FILTER_URL_PARAM_KEYS.forEach((key) => next.delete(key));
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+
   if (buildings === undefined || sites === undefined) {
     return (
       <FilterRow>
@@ -198,6 +389,20 @@ const FleetBuildingsPage = () => {
       testId="fleet-buildings-add"
     />
   ) : null;
+
+  const filterControls = (
+    <div className="flex flex-row flex-wrap items-center gap-2">
+      <FilterChipsBar
+        filters={filterChipsBarFilters}
+        onChange={handleFilterChange}
+        numericFilters={TELEMETRY_FILTER_CHIPS}
+        selectedNumericValues={selectedNumericValues}
+        onNumericChange={handleNumericFilterChange}
+        onClearAll={handleClearFilters}
+      />
+      <div className="ml-auto">{addBuildingButton}</div>
+    </div>
+  );
 
   const inlineErrors = (
     <>
@@ -237,11 +442,36 @@ const FleetBuildingsPage = () => {
       />
     ) : null;
 
+  // When a site filter is active, the response is scoped — so an empty
+  // response could mean "no buildings in this site" rather than "no
+  // buildings at all in the org". Differentiate so we don't show the
+  // first-time-user CTA inside a filtered scope.
+  const hasSiteFilter =
+    requestSiteFilter.siteIds.length > 0 || requestSiteFilter.includeUnassigned || requestSiteFilterMatchesNoRows;
+
   let pageContent: ReactNode;
   if (buildings.length === 0) {
-    pageContent = (
+    pageContent = hasActiveFilters ? (
       <FilterRow testId="fleet-buildings-page">
-        <div className="flex items-center justify-end">{addBuildingButton}</div>
+        {inlineErrors}
+        {filterControls}
+        <NoFilterResultsEmptyState hasActiveFilters onClearFilters={handleClearFilters} />
+      </FilterRow>
+    ) : hasSiteFilter ? (
+      <FilterRow testId="fleet-buildings-page">
+        {filterControls}
+        <div
+          className="rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
+          data-testid="fleet-buildings-filter-empty"
+        >
+          {activeSite.kind === "unassigned"
+            ? "No buildings without a site. Switch the picker to All Sites to see every building."
+            : "No buildings in this site yet."}
+        </div>
+      </FilterRow>
+    ) : (
+      <FilterRow testId="fleet-buildings-page">
+        {filterControls}
         <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border-5 p-6">
           <Header title="No buildings yet" titleSize="text-heading-200" />
           <p className="text-300 text-text-primary-70">
@@ -255,19 +485,21 @@ const FleetBuildingsPage = () => {
       </FilterRow>
     );
   } else if (visibleBuildings.length === 0) {
-    const message =
-      activeSite.kind === "unassigned"
-        ? "No buildings without a site. Switch the picker to All Sites to see every building."
-        : "No buildings in this site yet.";
     pageContent = (
       <FilterRow testId="fleet-buildings-page">
-        <div className="flex items-center justify-end">{addBuildingButton}</div>
-        <div
-          className="rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
-          data-testid="fleet-buildings-filter-empty"
-        >
-          {message}
-        </div>
+        {filterControls}
+        {hasActiveFilters ? (
+          <NoFilterResultsEmptyState hasActiveFilters onClearFilters={handleClearFilters} />
+        ) : (
+          <div
+            className="rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
+            data-testid="fleet-buildings-filter-empty"
+          >
+            {activeSite.kind === "unassigned"
+              ? "No buildings without a site. Switch the picker to All Sites to see every building."
+              : "No buildings in this site yet."}
+          </div>
+        )}
       </FilterRow>
     );
   } else {
@@ -275,7 +507,7 @@ const FleetBuildingsPage = () => {
       <>
         <FilterRow testId="fleet-buildings-page">
           {inlineErrors}
-          <div className="flex items-center justify-end">{addBuildingButton}</div>
+          {filterControls}
         </FilterRow>
         <div className={LIST_WRAPPER}>
           <BuildingList
@@ -285,6 +517,7 @@ const FleetBuildingsPage = () => {
             onAddBuildingToSite={canManageBuildings ? handleAddBuildingToSite : undefined}
             selectedIds={selectedBuildingIds}
             onSelectedIdsChange={handleSelectedBuildingIdsChange}
+            activeSite={activeSite}
           />
         </div>
       </>

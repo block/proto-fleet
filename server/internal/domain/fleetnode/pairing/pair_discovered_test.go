@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -55,6 +57,12 @@ func deviceBoundToNode(t *testing.T, db *sql.DB, orgID, fleetNodeID int64, ident
 	return n > 0
 }
 
+func bindDeviceToNode(t *testing.T, db *sql.DB, orgID, fleetNodeID, deviceID int64) {
+	t.Helper()
+	_, err := db.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, $3)`, fleetNodeID, deviceID, orgID)
+	require.NoError(t, err)
+}
+
 func hasMinerCredentials(t *testing.T, db *sql.DB, orgID int64, identifier string) bool {
 	t.Helper()
 	var n int
@@ -77,23 +85,24 @@ func deviceExists(t *testing.T, db *sql.DB, orgID int64, identifier string) bool
 	return n > 0
 }
 
-func TestPersistFleetNodePairResult_PairedAsymmetric(t *testing.T) {
+func TestPersistFleetNodePairResult_PairedWithoutReportedCredentials(t *testing.T) {
 	// Arrange
 	ctx := t.Context()
 	db, orgID, pairing, enrollment := setupPairingTest(t)
-	node := createFleetNode(t, enrollment, orgID, "node-persist-asym")
-	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-asym")
+	node := createFleetNode(t, enrollment, orgID, "node-persist-no-creds")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-no-creds")
 	assignedBy := int64(1)
 
-	// Act: asymmetric pairing carries no credentials.
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:p-asym", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
+	// Act: a paired report may omit credentials when the driver did not use
+	// reportable auth material.
+	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:p-no-creds", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
 
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, fleetnodepairing.StatusPaired, status)
-	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, "mac:p-asym"))
-	assert.True(t, deviceBoundToNode(t, db, orgID, node, "mac:p-asym"), "PAIRED device must be bound to the node")
-	assert.False(t, hasMinerCredentials(t, db, orgID, "mac:p-asym"), "asymmetric pairing stores no credentials")
+	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, "mac:p-no-creds"))
+	assert.True(t, deviceBoundToNode(t, db, orgID, node, "mac:p-no-creds"), "PAIRED device must be bound to the node")
+	assert.False(t, hasMinerCredentials(t, db, orgID, "mac:p-no-creds"), "pairing without reported credentials stores no credentials")
 }
 
 func TestPersistFleetNodePairResult_PairedBasicAuthStoresCredentials(t *testing.T) {
@@ -136,6 +145,101 @@ func TestPersistFleetNodePairResult_StoresNodeReportedDefaultCredentials(t *test
 	assert.Equal(t, fleetnodepairing.StatusPaired, status)
 	assert.True(t, deviceBoundToNode(t, db, orgID, node, "mac:p-default"))
 	assert.True(t, hasMinerCredentials(t, db, orgID, "mac:p-default"), "default credentials the node used must be stored")
+}
+
+func TestPersistFleetNodePairResult_DefaultPasswordActivePersistsRemediationState(t *testing.T) {
+	// Arrange: the node paired with basic-auth credentials and the plugin reports
+	// the miner is still using its factory default password.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-persist-default-active")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-default-active")
+	active := true
+	result := pairResult("mac:p-default-active", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
+	result.UsedCredentials = &gatewaypb.UsedCredentials{Username: "root", Password: "admin"}
+	result.DefaultPasswordActive = &active
+	assignedBy := int64(1)
+
+	// Act
+	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, fleetnodepairing.StatusDefaultPassword, status)
+	assert.Equal(t, "DEFAULT_PASSWORD", devicePairingStatus(t, db, orgID, "mac:p-default-active"))
+	assert.True(t, deviceBoundToNode(t, db, orgID, node, "mac:p-default-active"))
+	assert.True(t, hasMinerCredentials(t, db, orgID, "mac:p-default-active"), "default credentials the node used must be stored")
+}
+
+func TestPersistFleetNodePairResult_DefaultPasswordUnknownPreservesExistingRemediationState(t *testing.T) {
+	// Arrange: the cloud already knows this device still has default credentials,
+	// but the node/plugin reports a successful pair without a default-password
+	// determination.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-persist-default-unknown")
+	identifier := "mac:p-default-unknown"
+	upsertNodeDiscovered(t, pairing, orgID, node, identifier)
+	var ddID int64
+	require.NoError(t, db.QueryRow(
+		`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
+		orgID, identifier).Scan(&ddID))
+	var dev int64
+	require.NoError(t, db.QueryRow(
+		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		identifier, "aa:bb:cc:00:d0:01", "sn-default-unknown", orgID, ddID).Scan(&dev))
+	bindDeviceToNode(t, db, orgID, node, dev)
+	setPairingStatus(t, db, dev, "DEFAULT_PASSWORD")
+	result := pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
+	result.UsedCredentials = &gatewaypb.UsedCredentials{Username: "root", Password: "admin"}
+	assignedBy := int64(1)
+
+	// Act
+	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
+
+	// Assert: absent default_password_active preserves the existing remediation
+	// state instead of treating "unknown" as explicit false.
+	require.NoError(t, err)
+	assert.Equal(t, fleetnodepairing.StatusDefaultPassword, status)
+	assert.Equal(t, "DEFAULT_PASSWORD", devicePairingStatus(t, db, orgID, identifier))
+	assert.True(t, deviceBoundToNode(t, db, orgID, node, identifier))
+	assert.True(t, hasMinerCredentials(t, db, orgID, identifier), "credentials the node used must still be stored")
+}
+
+func TestPersistFleetNodePairResult_DefaultPasswordInactiveClearsExistingRemediationState(t *testing.T) {
+	// Arrange: DEFAULT_PASSWORD is currently persisted, and the node/plugin
+	// explicitly reports that factory credentials are no longer active.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-persist-default-inactive")
+	identifier := "mac:p-default-inactive"
+	upsertNodeDiscovered(t, pairing, orgID, node, identifier)
+	var ddID int64
+	require.NoError(t, db.QueryRow(
+		`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
+		orgID, identifier).Scan(&ddID))
+	var dev int64
+	require.NoError(t, db.QueryRow(
+		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		identifier, "aa:bb:cc:00:d1:01", "sn-default-inactive", orgID, ddID).Scan(&dev))
+	bindDeviceToNode(t, db, orgID, node, dev)
+	setPairingStatus(t, db, dev, "DEFAULT_PASSWORD")
+	inactive := false
+	result := pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
+	result.UsedCredentials = &gatewaypb.UsedCredentials{Username: "root", Password: "changed"}
+	result.DefaultPasswordActive = &inactive
+	assignedBy := int64(1)
+
+	// Act
+	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
+
+	// Assert: explicit false clears DEFAULT_PASSWORD back to ordinary PAIRED.
+	require.NoError(t, err)
+	assert.Equal(t, fleetnodepairing.StatusPaired, status)
+	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, identifier))
+	assert.True(t, deviceBoundToNode(t, db, orgID, node, identifier))
 }
 
 func TestPersistFleetNodePairResult_StoresBlankPasswordCredentials(t *testing.T) {
@@ -230,6 +334,35 @@ func TestPersistFleetNodePairResult_AuthNeededDoesNotDowngradeCloudPaired(t *tes
 	assert.Equal(t, "aa:bb:cc:00:cc:01", mac, "node report must not overwrite a cloud-paired device's MAC")
 }
 
+func TestPersistFleetNodePairResult_AuthNeededDoesNotDowngradeCloudDefaultPassword(t *testing.T) {
+	// Arrange: DEFAULT_PASSWORD is paired-like and cloud-dialed when not bound to
+	// a fleet node, so a stale node AUTH_NEEDED report must not demote it.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-guard-default-authneeded")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:cloud-default-authneeded")
+	var ddID int64
+	require.NoError(t, db.QueryRow(
+		`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
+		orgID, "mac:cloud-default-authneeded").Scan(&ddID))
+	var dev int64
+	require.NoError(t, db.QueryRow(
+		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		"mac:cloud-default-authneeded", "aa:bb:cc:00:cd:01", "sn-cloud-default-authneeded", orgID, ddID).Scan(&dev))
+	setPairingStatus(t, db, dev, "DEFAULT_PASSWORD")
+	assignedBy := int64(1)
+
+	// Act: the node reports AUTH_NEEDED after the cloud already marked the rig
+	// DEFAULT_PASSWORD.
+	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:cloud-default-authneeded", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED), &assignedBy)
+	require.NoError(t, err)
+
+	// Assert: the cloud-dialed device keeps DEFAULT_PASSWORD (no downgrade).
+	assert.Equal(t, fleetnodepairing.StatusDefaultPassword, status)
+	assert.Equal(t, "DEFAULT_PASSWORD", devicePairingStatus(t, db, orgID, "mac:cloud-default-authneeded"))
+}
+
 func TestPersistFleetNodePairResult_AuthNeededDoesNotDowngradeNodeBound(t *testing.T) {
 	// Arrange: a device that became PAIRED and bound to a fleet node (node-dialed)
 	// since target resolution -- e.g. a re-issued command paired it while a stale
@@ -264,32 +397,38 @@ func TestPersistFleetNodePairResult_AuthNeededDoesNotDowngradeNodeBound(t *testi
 	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, "mac:node-bound"))
 }
 
-func TestSetDevicePairingAuthNeededIfNotPaired_DoesNotDowngradePaired(t *testing.T) {
-	// Arrange: a PAIRED device -- the state a concurrent pair could commit during the
-	// PersistFleetNodePairResult guard window, after the read guard saw it unpaired.
-	ctx := t.Context()
-	db, orgID, pairing, enrollment := setupPairingTest(t)
-	node := createFleetNode(t, enrollment, orgID, "node-cond-paired")
-	upsertNodeDiscovered(t, pairing, orgID, node, "mac:cond-paired")
-	var ddID int64
-	require.NoError(t, db.QueryRow(
-		`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
-		orgID, "mac:cond-paired").Scan(&ddID))
-	var dev int64
-	require.NoError(t, db.QueryRow(
-		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
-		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		"mac:cond-paired", "aa:bb:cc:00:cp:01", "sn-cp", orgID, ddID).Scan(&dev))
-	setPairingStatus(t, db, dev, "PAIRED")
-	store := sqlstores.NewSQLDeviceStore(db)
+func TestSetDevicePairingAuthNeededIfNotPaired_DoesNotDowngradePairedLike(t *testing.T) {
+	for _, pairingStatus := range []string{"PAIRED", "DEFAULT_PASSWORD"} {
+		t.Run(pairingStatus, func(t *testing.T) {
+			// Arrange: a paired-like device -- the state a concurrent pair could commit
+			// during the PersistFleetNodePairResult guard window, after the read guard
+			// saw it unpaired.
+			ctx := t.Context()
+			db, orgID, pairing, enrollment := setupPairingTest(t)
+			node := createFleetNode(t, enrollment, orgID, "node-cond-"+pairingStatus)
+			identifier := "mac:cond-" + pairingStatus
+			upsertNodeDiscovered(t, pairing, orgID, node, identifier)
+			var ddID int64
+			require.NoError(t, db.QueryRow(
+				`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
+				orgID, identifier).Scan(&ddID))
+			var dev int64
+			require.NoError(t, db.QueryRow(
+				`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+				 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+				identifier, "aa:bb:cc:00:cp:01", "sn-cp", orgID, ddID).Scan(&dev))
+			setPairingStatus(t, db, dev, pairingStatus)
+			store := sqlstores.NewSQLDeviceStore(db)
 
-	// Act
-	applied, err := store.SetDevicePairingAuthNeededIfNotPaired(ctx, &pairingpb.Device{DeviceIdentifier: "mac:cond-paired"}, orgID)
-	require.NoError(t, err)
+			// Act
+			applied, err := store.SetDevicePairingAuthNeededIfNotPaired(ctx, &pairingpb.Device{DeviceIdentifier: identifier}, orgID)
+			require.NoError(t, err)
 
-	// Assert: the conditional write is a no-op and the row stays PAIRED.
-	assert.False(t, applied)
-	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, "mac:cond-paired"))
+			// Assert: the conditional write is a no-op and the row stays paired-like.
+			assert.False(t, applied)
+			assert.Equal(t, pairingStatus, devicePairingStatus(t, db, orgID, identifier))
+		})
+	}
 }
 
 func TestSetDevicePairingAuthNeededIfNotPaired_WritesWhenNotPaired(t *testing.T) {
@@ -616,6 +755,40 @@ func TestResolvePairTargets_AuthNeededExclusionSurvivesDivergedLinkage(t *testin
 	assert.Contains(t, targetIdentifiers(withCreds), "mac:an-diverged")
 }
 
+func TestResolvePairTargetsByFilter_AuthNeededIncludesDivergedLinkage(t *testing.T) {
+	// Arrange: an AUTHENTICATION_NEEDED device whose discovery row was soft-deleted
+	// and re-created by the node under the same identifier. A status-filtered
+	// pair-all with credentials must still see the live device's status even though
+	// it is linked to the deleted discovery row.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-filter-an-diverged")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:filter-an-diverged")
+	var oldDD int64
+	require.NoError(t, db.QueryRow(
+		`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
+		orgID, "mac:filter-an-diverged").Scan(&oldDD))
+	var dev int64
+	require.NoError(t, db.QueryRow(
+		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		"mac:filter-an-diverged", "aa:bb:cc:00:fd:01", "sn-fd", orgID, oldDD).Scan(&dev))
+	setPairingStatus(t, db, dev, "AUTHENTICATION_NEEDED")
+	_, err := db.Exec(`UPDATE discovered_device SET deleted_at = now() WHERE id = $1`, oldDD)
+	require.NoError(t, err)
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:filter-an-diverged")
+
+	// Act
+	pw := "pw"
+	targets, _, err := pairing.ResolvePairTargetsByFilterPage(ctx, node, orgID, &minercommandv1.DeviceFilter{
+		PairingStatus: []fleetmanagementv1.PairingStatus{fleetmanagementv1.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED},
+	}, &pairingpb.Credentials{Username: "root", Password: &pw}, nil)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, []string{"mac:filter-an-diverged"}, targetIdentifiers(targets))
+}
+
 func TestResolvePairTargets_PairAllExcludesAuthNeededWithoutCredentials(t *testing.T) {
 	// Arrange: one never-attempted device and one AUTHENTICATION_NEEDED device.
 	ctx := t.Context()
@@ -653,6 +826,36 @@ func TestResolvePairTargets_PairAllExcludesAuthNeededWithoutCredentials(t *testi
 	withCreds, err := pairing.ResolvePairTargets(ctx, node, orgID, nil, true, &pairingpb.Credentials{Username: "root", Password: &pw})
 	require.NoError(t, err)
 	assert.Contains(t, targetIdentifiers(withCreds), "mac:authneeded")
+}
+
+func TestResolvePairTargetsByFilter_AuthenticationNeeded(t *testing.T) {
+	// Arrange: a bulk auth-needed filter must retry only auth-needed rows, not
+	// every unpaired row discovered by the node.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-resolve-filter-authneeded")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:new")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:authneeded")
+	var ddID int64
+	require.NoError(t, db.QueryRow(
+		`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
+		orgID, "mac:authneeded").Scan(&ddID))
+	var devID int64
+	require.NoError(t, db.QueryRow(
+		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		 VALUES ($1, 'aa:bb:cc:00:af:01', 'sn-af', $2, $3) RETURNING id`,
+		"mac:authneeded", orgID, ddID).Scan(&devID))
+	setPairingStatus(t, db, devID, "AUTHENTICATION_NEEDED")
+
+	// Act
+	pw := "pw"
+	targets, _, err := pairing.ResolvePairTargetsByFilterPage(ctx, node, orgID, &minercommandv1.DeviceFilter{
+		PairingStatus: []fleetmanagementv1.PairingStatus{fleetmanagementv1.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED},
+	}, &pairingpb.Credentials{Username: "root", Password: &pw}, nil)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, []string{"mac:authneeded"}, targetIdentifiers(targets))
 }
 
 func targetIdentifiers(targets []*pairingpb.FleetNodePairTarget) []string {

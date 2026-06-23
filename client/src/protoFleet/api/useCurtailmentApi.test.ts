@@ -197,6 +197,8 @@ describe("useCurtailmentApi", () => {
         scopeType: "wholeOrg",
         targetKw: "5",
         priority: "emergency",
+        curtailBatchSize: "",
+        curtailBatchIntervalSec: "",
         restoreBatchSize: "",
         restoreIntervalSec: "60",
       }),
@@ -361,6 +363,28 @@ describe("useCurtailmentApi", () => {
 
     expect(result.current.activeEvent?.restoreBatchSize).toBe(10);
     expect(result.current.activeEventFormValues?.restoreBatchSize).toBe("1");
+  });
+
+  it("maps configured curtail batch controls into active event form values", async () => {
+    const activeEvent = curtailmentEvent({
+      curtailBatchSize: 20,
+      curtailBatchIntervalSec: 0,
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [activeEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventFormValues).toEqual(
+      expect.objectContaining({
+        curtailBatchSize: "20",
+        curtailBatchIntervalSec: "0",
+      }),
+    );
   });
 
   it("maps all-pending events without telemetry to zero observed reduction", async () => {

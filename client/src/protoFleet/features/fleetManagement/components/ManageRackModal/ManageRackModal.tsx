@@ -17,6 +17,7 @@ import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
+import { getMinerRackLabel } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { slotNumberToRowCol } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
 
 import { DismissCircle } from "@/shared/assets/icons";
@@ -35,7 +36,10 @@ async function fetchAllSelectableMinerIds(rackLabel: string, listFilter?: MinerL
     : { pairingStatuses: [PairingStatus.PAIRED] };
   const snapshots = await fetchAllMinerSnapshots(filter);
   return Object.values(snapshots)
-    .filter((m) => !m.rackLabel || m.rackLabel === rackLabel)
+    .filter((m) => {
+      const currentRackLabel = getMinerRackLabel(m);
+      return !currentRackLabel || currentRackLabel === rackLabel;
+    })
     .map((m) => m.deviceIdentifier);
 }
 

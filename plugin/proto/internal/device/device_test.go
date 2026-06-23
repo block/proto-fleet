@@ -167,13 +167,8 @@ func TestIsDefaultPasswordError(t *testing.T) {
 	}
 }
 
-func TestNew_DefaultPasswordActive_UnpairReportsDefaultPassword(t *testing.T) {
-	// Firmware gates DELETE /api/v1/pairing/auth-key behind the default-password
-	// lockout (see server/fake-proto-rig's matching handler test), so Unpair
-	// cannot actually clear Fleet's installed key on a never-rotated device.
-	// The constructor still returns a live handle so UpdateMinerPassword —
-	// routed through /auth/change-password, which is exempt — remains reachable.
-	var clearAuthKeyCalls int
+func TestStatusThrottlesDefaultPasswordProbe(t *testing.T) {
+	var systemStatusCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/v1/auth/login":
@@ -181,13 +176,17 @@ func TestNew_DefaultPasswordActive_UnpairReportsDefaultPassword(t *testing.T) {
 			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"error":{"code":"DEFAULT_PASSWORD_ACTIVE","message":"default password must be changed"}}`))
-		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/pairing/auth-key":
-			clearAuthKeyCalls++
+			_, _ = w.Write([]byte(`{"mining-status":{"status":"Mining"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"error":{"code":"DEFAULT_PASSWORD_ACTIVE","message":"default password must be changed"}}`))
+			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/telemetry":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system/status":
+			systemStatusCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"default_password_active":true}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -201,21 +200,85 @@ func TestNew_DefaultPasswordActive_UnpairReportsDefaultPassword(t *testing.T) {
 	port, err := strconv.ParseInt(portStr, 10, 32)
 	require.NoError(t, err)
 
-	deviceInfo := sdk.DeviceInfo{
-		Host:      host,
-		Port:      int32(port),
-		URLScheme: "http",
-	}
-
-	dev, err := New("device-locked", deviceInfo, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(0*time.Second))
-	require.NoError(t, err, "constructor must succeed under default-password so remediation ops remain reachable")
-	require.NotNil(t, dev)
+	dev, err := New("device-default-password", sdk.DeviceInfo{
+		Host:            host,
+		Port:            int32(port),
+		URLScheme:       "http",
+		FirmwareVersion: "1.0.0",
+	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(0*time.Second))
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = dev.Close(context.Background()) })
+	require.Equal(t, 1, systemStatusCalls, "constructor verification should read the flag once")
 
-	unpairErr := dev.Unpair(context.Background())
-	require.Error(t, unpairErr, "Unpair must surface the firmware default-password gate rather than silently succeed")
-	assert.True(t, isDefaultPasswordError(unpairErr), "Unpair error should be recognizable as default-password active; got: %v", unpairErr)
-	assert.Equal(t, 1, clearAuthKeyCalls, "Unpair should still attempt DELETE /api/v1/pairing/auth-key")
+	for range 3 {
+		metrics, err := dev.Status(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, metrics.DefaultPasswordActive)
+		assert.True(t, *metrics.DefaultPasswordActive)
+	}
+	assert.Equal(t, 1, systemStatusCalls, "default-password flag should be cached between throttle intervals")
+}
+
+func TestUpdateMinerPasswordClearsDefaultPasswordStatusCache(t *testing.T) {
+	defaultPasswordActive := true
+	var systemStatusCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
+		case r.Method == http.MethodPut && r.URL.Path == "/api/v1/auth/change-password":
+			defaultPasswordActive = false
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"mining-status":{"status":"Mining"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/telemetry":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system/status":
+			systemStatusCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"default_password_active":%t}`, defaultPasswordActive)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	parsed, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	host, portStr, err := net.SplitHostPort(parsed.Host)
+	require.NoError(t, err)
+	port, err := strconv.ParseInt(portStr, 10, 32)
+	require.NoError(t, err)
+
+	dev, err := New("device-default-password-change", sdk.DeviceInfo{
+		Host:            host,
+		Port:            int32(port),
+		URLScheme:       "http",
+		FirmwareVersion: "1.0.0",
+	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(0*time.Second))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dev.Close(context.Background()) })
+	require.Equal(t, 1, systemStatusCalls, "constructor verification should read the flag once")
+
+	metrics, err := dev.Status(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, metrics.DefaultPasswordActive)
+	require.True(t, *metrics.DefaultPasswordActive)
+	require.Equal(t, 1, systemStatusCalls, "status should use cached default-password flag")
+
+	require.NoError(t, dev.UpdateMinerPassword(context.Background(), "proto", "new-password"))
+
+	metrics, err = dev.Status(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, metrics.DefaultPasswordActive)
+	assert.False(t, *metrics.DefaultPasswordActive, "successful password update should clear stale default-password status")
+	assert.Equal(t, 1, systemStatusCalls, "post-change status should not need an immediate extra probe")
 }
 
 func TestDevice_CurtailFullWrapsDispatchFailureAsTransient(t *testing.T) {

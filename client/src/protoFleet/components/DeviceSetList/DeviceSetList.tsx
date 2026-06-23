@@ -1,14 +1,17 @@
 import { type ReactNode, useCallback, useMemo, useRef } from "react";
+import clsx from "clsx";
 
 import { DEFAULT_PAGE_SIZE, deviceSetColTitles, type DeviceSetColumn } from "./constants";
 import { createDeviceSetColConfig } from "./deviceSetColConfig";
 import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import type { DeviceSet, DeviceSetStats } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List, { type SelectionMode } from "@/shared/components/List";
 import { type SortDirection } from "@/shared/components/List/types";
+import { type Breakpoint } from "@/shared/constants/breakpoints";
 
 export type DeviceSetListItem = {
   id: string;
@@ -50,6 +53,18 @@ type DeviceSetListProps = {
   emptyStateRow?: ReactNode;
   selectedIds?: string[];
   onSelectedIdsChange?: (ids: string[]) => void;
+  /**
+   * Left padding for row content, applied inside cells so row dividers still
+   * span the full table width. Use this instead of wrapping the list in a
+   * horizontally-padded container (which leaves white gaps beside the rules).
+   */
+  paddingLeft?: Partial<Record<Breakpoint, string>>;
+  /**
+   * When false, the list does not create its own scroll container — the page
+   * scrolls instead and the sticky header pins to the page. See List's
+   * `overflowContainer`.
+   */
+  overflowContainer?: boolean;
 };
 
 const DeviceSetList = ({
@@ -75,6 +90,8 @@ const DeviceSetList = ({
   emptyStateRow,
   selectedIds,
   onSelectedIdsChange,
+  paddingLeft,
+  overflowContainer,
 }: DeviceSetListProps) => {
   const topRef = useRef<HTMLDivElement>(null);
   const temperatureUnit = useTemperatureUnit();
@@ -118,9 +135,18 @@ const DeviceSetList = ({
     getDefaultSortDirection,
     onRowClick,
     emptyStateRow,
+    paddingLeft,
+    overflowContainer,
   };
   const pagination = shouldRenderPagination ? (
-    <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
+    // In page-scroll mode pin to the viewport so the centered Prev/Next don't
+    // stretch across the full table (and off-screen) under the w-max subtree.
+    <div
+      className={clsx(
+        "sticky left-0 flex flex-col items-center gap-4 py-6",
+        overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
+      )}
+    >
       <span className="text-300 text-text-primary">
         Showing {firstItemIndex}–{lastItemIndex} of {total} {itemName.plural}
       </span>

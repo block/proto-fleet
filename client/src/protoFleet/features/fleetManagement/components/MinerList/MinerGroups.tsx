@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { getMinerGroupRefs } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
+import { scopedPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
+import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFloatingPosition } from "@/shared/hooks/useFloatingPosition";
 
 type MinerGroupsProps = {
@@ -11,7 +14,8 @@ type MinerGroupsProps = {
 };
 
 const MinerGroups = ({ miner, availableGroups }: MinerGroupsProps) => {
-  const groupLabels = miner.groupLabels;
+  const activeSite = useRouteSiteScope() ?? DEFAULT_ACTIVE_SITE;
+  const groupRefs = getMinerGroupRefs(miner);
   const { triggerRef, floatingStyle, isVisible, show, hide } = useFloatingPosition<HTMLSpanElement>({
     placement: "bottom-start",
     maxHeight: 400,
@@ -33,29 +37,30 @@ const MinerGroups = ({ miner, availableGroups }: MinerGroupsProps) => {
     }, 100);
   }, [hide]);
 
-  if (!groupLabels || groupLabels.length === 0) {
+  if (groupRefs.length === 0) {
     return <span />;
   }
 
-  const getGroupLink = (label: string) => {
-    const groupId = availableGroups.find((g) => g.label === label)?.id;
-    return groupId ? `/groups/${encodeURIComponent(label)}` : undefined;
+  const getGroupLink = (groupId: bigint | undefined, label: string) => {
+    const id = groupId ?? availableGroups.find((g) => g.label === label)?.id;
+    return id ? scopedPath(`/groups/${encodeURIComponent(label)}`, activeSite) : undefined;
   };
 
-  if (groupLabels.length === 1) {
-    const link = getGroupLink(groupLabels[0]);
+  if (groupRefs.length === 1) {
+    const group = groupRefs[0];
+    const link = getGroupLink(group.id, group.label);
     return link ? (
       <Link to={link} className="hover:underline">
-        {groupLabels[0]}
+        {group.label}
       </Link>
     ) : (
-      <span>{groupLabels[0]}</span>
+      <span>{group.label}</span>
     );
   }
 
   return (
     <span ref={triggerRef} className="cursor-default" onMouseEnter={open} onMouseLeave={closeWithDelay}>
-      {groupLabels.length} groups
+      {groupRefs.length} groups
       {isVisible
         ? createPortal(
             <div
@@ -65,16 +70,17 @@ const MinerGroups = ({ miner, availableGroups }: MinerGroupsProps) => {
               onMouseLeave={closeWithDelay}
             >
               <ul className="flex flex-col divide-y divide-border-5 whitespace-nowrap">
-                {groupLabels.map((label) => {
-                  const link = getGroupLink(label);
+                {groupRefs.map((group) => {
+                  const link = getGroupLink(group.id, group.label);
+                  const key = `${group.id}-${group.label}`;
                   return (
-                    <li key={label} className="py-2">
+                    <li key={key} className="py-2">
                       {link ? (
                         <Link to={link} className="text-300 hover:underline">
-                          {label}
+                          {group.label}
                         </Link>
                       ) : (
-                        <span>{label}</span>
+                        <span>{group.label}</span>
                       )}
                     </li>
                   );

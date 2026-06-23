@@ -3,9 +3,11 @@ import { createElement, useCallback, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
 import { useLogoutAction } from "@/protoFleet/api/useLogout";
+import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
+import { scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { usePermissions } from "@/protoFleet/store";
 import { Logo, LogoAlt } from "@/shared/assets/icons";
 import { ArrowLeftCompact } from "@/shared/assets/icons";
@@ -28,6 +30,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
   const { bg } = usePageBackground();
   const permissions = usePermissions();
   const featureEnabled = useNavFeatureEnabled();
+  const { activeSite } = useActiveSite({});
   const [settingsManuallyToggled, setSettingsManuallyToggled] = useState(false);
   const hasPermission = useCallback(
     (key: string | undefined) => key === undefined || permissions.includes(key),
@@ -62,8 +65,15 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
     setShowSettingsHover(hover);
   }, []);
 
-  const isCurrentPath = (path: string) => {
-    const _pathname = stripLeadingSlash(pathname);
+  const isCurrentPath = (item: string | Pick<NavItem, "path" | "scopable">) => {
+    if (typeof item === "string") {
+      const _pathname = stripLeadingSlash(pathname);
+      const _path = stripLeadingSlash(item);
+      return _pathname === _path || _pathname.startsWith(`${_path}/`);
+    }
+
+    const _pathname = stripLeadingSlash(item.scopable ? unscopedScopablePath(pathname) : pathname);
+    const path = item.path;
     const _path = stripLeadingSlash(path);
     return _pathname === _path || _pathname.startsWith(`${_path}/`);
   };
@@ -88,7 +98,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
             })}
           >
             <Link
-              to={homeItem.path}
+              to={homeItem.scopable ? scopedPath(homeItem.path, activeSite) : homeItem.path}
               aria-label="Home"
               className={clsx("flex items-center", {
                 "w-full": isPhone || isTablet,
@@ -120,15 +130,15 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
             return item.path ? (
               <li key={item.path} className="w-full">
                 <Link
-                  to={item.path}
+                  to={item.scopable ? scopedPath(item.path, activeSite) : item.path}
                   onClick={() => closeMenu?.()}
                   aria-label={item.label}
-                  aria-current={isCurrentPath(item.path) ? "page" : undefined}
+                  aria-current={isCurrentPath(item) ? "page" : undefined}
                   className={clsx(
                     "group flex h-10 w-full items-center rounded-lg px-2.5 py-2",
                     "hover:cursor-pointer hover:bg-core-primary-5",
-                    isCurrentPath(item.path) || isPhone || isTablet ? "text-text-primary" : "text-text-primary-50",
-                    { "bg-core-primary-5": isCurrentPath(item.path) },
+                    isCurrentPath(item) || isPhone || isTablet ? "text-text-primary" : "text-text-primary-50",
+                    { "bg-core-primary-5": isCurrentPath(item) },
                   )}
                 >
                   <div className="flex size-5 shrink-0 items-center justify-center">

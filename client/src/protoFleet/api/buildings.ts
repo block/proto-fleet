@@ -8,6 +8,8 @@ import {
   type BuildingWithCounts,
   RackOrderIndex,
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import type { FleetListTelemetryRangeFilter } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
+import type { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -19,8 +21,21 @@ interface ListBuildingsBySiteProps {
   onFinally?: () => void;
 }
 
+interface ListBuildingsProps {
+  siteIds?: bigint[];
+  includeUnassigned?: boolean;
+  signal?: AbortSignal;
+  errorComponentTypes?: ComponentType[];
+  telemetryRanges?: FleetListTelemetryRangeFilter[];
+  onSuccess?: (buildings: BuildingWithCounts[]) => void;
+  onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
 interface ListAllBuildingsProps {
   signal?: AbortSignal;
+  errorComponentTypes?: ComponentType[];
+  telemetryRanges?: FleetListTelemetryRangeFilter[];
   onSuccess?: (buildings: BuildingWithCounts[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -88,6 +103,29 @@ interface AssignRacksToBuildingProps {
   onFinally?: () => void;
 }
 
+// AssignDevicesToBuildingConflict carries server-reported per-device
+// conflicts surfaced when the batch rejects (e.g. a device is in a
+// rack at a different building). Mirrors PerDeviceBuildingConflict.
+export interface AssignDevicesToBuildingConflict {
+  deviceIdentifier: string;
+  reason: number;
+  conflictingBuildingId: bigint;
+}
+
+interface AssignDevicesToBuildingProps {
+  // Unset = move devices to the "Unassigned" bucket (device.building_id
+  // becomes NULL).
+  targetBuildingId?: bigint;
+  deviceIdentifiers: string[];
+  // When true, server force-clears any rack memberships that put a
+  // device in a different building (mirrors AssignDevicesToSite).
+  forceClearConflictingRackMembership?: boolean;
+  signal?: AbortSignal;
+  onSuccess?: (reassignedCount: bigint, siteReassignedDeviceCount: bigint) => void;
+  onError?: (message: string, conflicts: AssignDevicesToBuildingConflict[]) => void;
+  onFinally?: () => void;
+}
+
 // BuildingFormValues is the FE-side draft shape carried by
 // BuildingDetailsModal + ManageBuildingModal. Power values live in MW
 // to match the form's surface units; the API maps them to kW on
@@ -145,12 +183,14 @@ export const buildingFormValuesFromBuilding = (building: Building): BuildingForm
 const useBuildings = () => {
   const { handleAuthErrors } = useAuthErrors();
 
+  // Lists buildings under a specific site. Thin wrapper over the generic
+  // listBuildings that passes a single-element site_ids array.
   const listBuildingsBySite = useCallback(
     async ({ siteId, signal, onSuccess, onError, onFinally }: ListBuildingsBySiteProps) => {
       try {
         const response = await buildingsClient.listBuildings(
           {
-            siteFilter: { case: "siteId", value: siteId },
+            siteIds: [siteId],
           },
           { signal },
         );
@@ -171,14 +211,68 @@ const useBuildings = () => {
     [handleAuthErrors],
   );
 
-  // Lists every building visible to the caller in one round-trip. Connect-RPC
-  // accepts an absent siteFilter oneof (case: undefined) and the server treats
-  // that as "all buildings". Used by /sites to avoid N+1 ListBuildings calls
-  // when rendering per-site overview sections.
-  const listAllBuildings = useCallback(
-    async ({ signal, onSuccess, onError, onFinally }: ListAllBuildingsProps = {}) => {
+  // Generic list: optionally scope to one or more sites and/or the
+  // unassigned bucket. Both empty + false = every building in the org.
+  // Used by the Buildings tab to push the SitePicker selection
+  // server-side instead of client-filtering the full org list.
+  const listBuildings = useCallback(
+    async ({
+      siteIds,
+      includeUnassigned,
+      signal,
+      errorComponentTypes,
+      telemetryRanges,
+      onSuccess,
+      onError,
+      onFinally,
+    }: ListBuildingsProps = {}) => {
       try {
-        const response = await buildingsClient.listBuildings({}, { signal });
+        const response = await buildingsClient.listBuildings(
+          {
+            siteIds: siteIds ?? [],
+            includeUnassigned: includeUnassigned ?? false,
+            errorComponentTypes: errorComponentTypes ?? [],
+            telemetryRanges: telemetryRanges ?? [],
+          },
+          { signal },
+        );
+        if (signal?.aborted) return;
+        onSuccess?.(response.buildings);
+      } catch (err) {
+        if (signal?.aborted) return;
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            onError?.(getErrorMessage(error));
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  // Lists every building visible to the caller in one round-trip. Used by
+  // /sites to avoid N+1 ListBuildings calls when rendering per-site overview
+  // sections.
+  const listAllBuildings = useCallback(
+    async ({
+      signal,
+      errorComponentTypes,
+      telemetryRanges,
+      onSuccess,
+      onError,
+      onFinally,
+    }: ListAllBuildingsProps = {}) => {
+      try {
+        const response = await buildingsClient.listBuildings(
+          {
+            errorComponentTypes: errorComponentTypes ?? [],
+            telemetryRanges: telemetryRanges ?? [],
+          },
+          { signal },
+        );
         if (signal?.aborted) return;
         onSuccess?.(response.buildings);
       } catch (err) {
@@ -391,8 +485,60 @@ const useBuildings = () => {
     [handleAuthErrors],
   );
 
+  // assignDevicesToBuilding wraps the atomic device→building reassignment
+  // RPC introduced alongside the device.building_id column. Mirrors
+  // sites.assignDevicesToSite — when the response carries conflicts the
+  // call surfaces them through onError so the picker can prompt for
+  // force-clear (or show the conflict list). targetBuildingId unset =
+  // move to "Unassigned".
+  const assignDevicesToBuilding = useCallback(
+    async ({
+      targetBuildingId,
+      deviceIdentifiers,
+      forceClearConflictingRackMembership,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: AssignDevicesToBuildingProps) => {
+      try {
+        const response = await buildingsClient.assignDevicesToBuilding(
+          {
+            targetBuildingId,
+            deviceIdentifiers,
+            forceClearConflictingRackMembership,
+          },
+          { signal },
+        );
+        if (signal?.aborted) return;
+        if (response.conflicts.length > 0) {
+          const conflicts: AssignDevicesToBuildingConflict[] = response.conflicts.map((c) => ({
+            deviceIdentifier: c.deviceIdentifier,
+            reason: c.reason,
+            conflictingBuildingId: c.conflictingBuildingId,
+          }));
+          onError?.("Some devices could not be reassigned", conflicts);
+          return;
+        }
+        onSuccess?.(response.reassignedCount, response.siteReassignedDeviceCount);
+      } catch (err) {
+        if (signal?.aborted) return;
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            onError?.(getErrorMessage(error), []);
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
   return {
     listBuildingsBySite,
+    listBuildings,
     listAllBuildings,
     getBuilding,
     listBuildingRacks,
@@ -400,6 +546,7 @@ const useBuildings = () => {
     updateBuilding,
     deleteBuilding,
     assignRacksToBuilding,
+    assignDevicesToBuilding,
   };
 };
 

@@ -156,7 +156,6 @@ export function buildPreviewCurtailmentPlanRequest(
   if (scope === undefined) {
     return undefined;
   }
-
   if (values.curtailmentMode === "fullFleet") {
     return create(PreviewCurtailmentPlanRequestSchema, {
       scope,

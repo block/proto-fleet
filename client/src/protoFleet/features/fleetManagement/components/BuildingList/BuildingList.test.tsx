@@ -101,16 +101,22 @@ const renderList = ({
   onEditBuilding,
   selectedIds,
   onSelectedIdsChange,
+  activeSite,
+  initialEntry = "/fleet/buildings",
+  routePath = "/fleet/buildings",
 }: {
   onEditBuilding?: EditBuildingCallback;
   selectedIds?: string[];
   onSelectedIdsChange?: (ids: string[]) => void;
+  activeSite?: { kind: "site"; id: string };
+  initialEntry?: string;
+  routePath?: string;
 } = {}) =>
   render(
-    <MemoryRouter initialEntries={["/fleet/buildings"]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route
-          path="/fleet/buildings"
+          path={routePath}
           element={
             <>
               <BuildingList
@@ -119,14 +125,17 @@ const renderList = ({
                 onEditBuilding={onEditBuilding}
                 selectedIds={selectedIds}
                 onSelectedIdsChange={onSelectedIdsChange}
+                activeSite={activeSite}
               />
               <PathProbe />
             </>
           }
         />
         <Route path="/buildings/:id" element={<PathProbe />} />
-        <Route path="/racks" element={<PathProbe />} />
-        <Route path="/miners" element={<PathProbe />} />
+        <Route path="/fleet/racks" element={<PathProbe />} />
+        <Route path="/fleet/miners" element={<PathProbe />} />
+        <Route path="/:siteScope/fleet/racks" element={<PathProbe />} />
+        <Route path="/:siteScope/fleet/miners" element={<PathProbe />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -153,18 +162,29 @@ describe("BuildingList row actions menu", () => {
     }
   });
 
-  it("View racks scopes the /racks redirect to the building", () => {
+  it("View racks scopes the /fleet/racks redirect to the building", () => {
     renderList();
     fireEvent.click(trigger());
     fireEvent.click(screen.getByText("View racks"));
-    expect(screen.getByTestId("probe-path")).toHaveTextContent("/racks?building=42");
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/racks?building=42");
   });
 
-  it("View miners scopes the /miners redirect to the building", () => {
+  it("View racks preserves the active site path scope", () => {
+    renderList({
+      activeSite: { kind: "site", id: "7" },
+      initialEntry: "/7/fleet/buildings",
+      routePath: "/:siteScope/fleet/buildings",
+    });
+    fireEvent.click(trigger());
+    fireEvent.click(screen.getByText("View racks"));
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/7/fleet/racks?building=42");
+  });
+
+  it("View miners scopes the /fleet/miners redirect to the building", () => {
     renderList();
     fireEvent.click(trigger());
     fireEvent.click(screen.getByText("View miners"));
-    expect(screen.getByTestId("probe-path")).toHaveTextContent("/miners?building=42");
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/miners?building=42");
   });
 
   it("View building navigates to the detail page", () => {

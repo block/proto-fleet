@@ -40,6 +40,45 @@ func (q *Queries) AddDevicesToDeviceSet(ctx context.Context, arg AddDevicesToDev
 	return result.RowsAffected()
 }
 
+const cascadeAddedDeviceBuildings = `-- name: CascadeAddedDeviceBuildings :execrows
+UPDATE device d
+SET building_id = dsr.building_id,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set ds
+JOIN device_set_rack dsr ON dsr.device_set_id = ds.id AND dsr.org_id = ds.org_id
+WHERE d.device_identifier = ANY($3::text[])
+  AND d.org_id = $1
+  AND d.deleted_at IS NULL
+  AND ds.id = $2
+  AND ds.org_id = $1
+  AND ds.deleted_at IS NULL
+  AND ds.type = 'rack'
+  AND (dsr.building_id IS NOT NULL OR dsr.site_id IS NOT NULL)
+  AND d.building_id IS DISTINCT FROM dsr.building_id
+`
+
+type CascadeAddedDeviceBuildingsParams struct {
+	OrgID             int64
+	ID                int64
+	DeviceIdentifiers []string
+}
+
+// Building peer of CascadeAddedDeviceSites. Rewrites device.building_id
+// to rack.building_id for added rack members whose current building
+// differs. Fires when the rack has a placement (a site OR a building):
+// a site-level rack (site set, building NULL) is a real placement that
+// dictates building = NULL, so members added to it get device.building_id
+// cleared rather than keeping a stale direct assignment. No-op for
+// groups and fully-unassigned racks (no site, no building), where the
+// rack dictates nothing and clearing would clobber direct assignments.
+func (q *Queries) CascadeAddedDeviceBuildings(ctx context.Context, arg CascadeAddedDeviceBuildingsParams) (int64, error) {
+	result, err := q.exec(ctx, q.cascadeAddedDeviceBuildingsStmt, cascadeAddedDeviceBuildings, arg.OrgID, arg.ID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const cascadeAddedDeviceSites = `-- name: CascadeAddedDeviceSites :execrows
 UPDATE device d
 SET site_id = dsr.site_id,
@@ -53,7 +92,7 @@ WHERE d.device_identifier = ANY($3::text[])
   AND ds.org_id = $1
   AND ds.deleted_at IS NULL
   AND ds.type = 'rack'
-  AND dsr.site_id IS NOT NULL
+  AND (dsr.site_id IS NOT NULL OR dsr.building_id IS NOT NULL)
   AND d.site_id IS DISTINCT FROM dsr.site_id
 `
 
@@ -63,10 +102,77 @@ type CascadeAddedDeviceSitesParams struct {
 	DeviceIdentifiers []string
 }
 
-// Rewrites device.site_id to rack.site_id for added rack members
-// whose current site differs. No-op for groups or site-less racks.
+// Rewrites device.site_id to rack.site_id for added rack members whose
+// current site differs. Fires when the rack has a site OR a building:
+// a rack in a building inherits that building's site, which is NULL for
+// an unassigned building — in that case device.site_id is set to NULL
+// so it can't disagree with the building_id stamped by
+// CascadeAddedDeviceBuildings. No-op for groups and for fully-unassigned
+// racks (no site, no building), where setting NULL would clobber direct
+// device.site_id assignments.
 func (q *Queries) CascadeAddedDeviceSites(ctx context.Context, arg CascadeAddedDeviceSitesParams) (int64, error) {
 	result, err := q.exec(ctx, q.cascadeAddedDeviceSitesStmt, cascadeAddedDeviceSites, arg.OrgID, arg.ID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const cascadeRackDeviceBuildings = `-- name: CascadeRackDeviceBuildings :execrows
+UPDATE device d
+SET building_id = $3::bigint,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+WHERE dsm.device_set_id = $1
+  AND dsm.org_id = $2
+  AND dsm.device_set_type = 'rack'
+  AND dsm.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND d.building_id IS DISTINCT FROM $3::bigint
+`
+
+type CascadeRackDeviceBuildingsParams struct {
+	DeviceSetID      int64
+	OrgID            int64
+	TargetBuildingID sql.NullInt64
+}
+
+// Building peer of CascadeRackDeviceSites. Rewrites device.building_id
+// to target_building_id for every paired member of the rack. NULL
+// target unassigns. IS DISTINCT FROM skips no-op rows.
+func (q *Queries) CascadeRackDeviceBuildings(ctx context.Context, arg CascadeRackDeviceBuildingsParams) (int64, error) {
+	result, err := q.exec(ctx, q.cascadeRackDeviceBuildingsStmt, cascadeRackDeviceBuildings, arg.DeviceSetID, arg.OrgID, arg.TargetBuildingID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const cascadeRackDeviceBuildingsBulk = `-- name: CascadeRackDeviceBuildingsBulk :execrows
+UPDATE device d
+SET building_id = $1::bigint,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+WHERE dsm.device_set_id = ANY($2::bigint[])
+  AND dsm.org_id = $3
+  AND dsm.device_set_type = 'rack'
+  AND dsm.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND d.building_id IS DISTINCT FROM $1::bigint
+`
+
+type CascadeRackDeviceBuildingsBulkParams struct {
+	TargetBuildingID sql.NullInt64
+	RackIds          []int64
+	OrgID            int64
+}
+
+// Building peer of CascadeRackDeviceSitesBulk. Rewrites
+// device.building_id to target_building_id for every paired member of
+// every rack in @rack_ids. NULL target unassigns. IS DISTINCT FROM
+// skips no-op rows.
+func (q *Queries) CascadeRackDeviceBuildingsBulk(ctx context.Context, arg CascadeRackDeviceBuildingsBulkParams) (int64, error) {
+	result, err := q.exec(ctx, q.cascadeRackDeviceBuildingsBulkStmt, cascadeRackDeviceBuildingsBulk, arg.TargetBuildingID, pq.Array(arg.RackIds), arg.OrgID)
 	if err != nil {
 		return 0, err
 	}
@@ -127,6 +233,35 @@ type CascadeRackDeviceSitesBulkParams struct {
 // the total affected row count across all racks.
 func (q *Queries) CascadeRackDeviceSitesBulk(ctx context.Context, arg CascadeRackDeviceSitesBulkParams) (int64, error) {
 	result, err := q.exec(ctx, q.cascadeRackDeviceSitesBulkStmt, cascadeRackDeviceSitesBulk, arg.TargetSiteID, pq.Array(arg.RackIds), arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const clearDeviceSitesAndBuildings = `-- name: ClearDeviceSitesAndBuildings :execrows
+UPDATE device
+SET site_id     = NULL,
+    building_id = NULL,
+    updated_at  = CURRENT_TIMESTAMP
+WHERE org_id = $1
+  AND device_identifier = ANY($2::text[])
+  AND deleted_at IS NULL
+  AND (site_id IS NOT NULL OR building_id IS NOT NULL)
+`
+
+type ClearDeviceSitesAndBuildingsParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Nulls device.site_id AND device.building_id for the given identifiers.
+// Used by AssignDevicesToRack's force path when adding miners to a
+// site-less rack: the rack dictates "no placement", so member devices
+// can't keep a direct site/building. IS DISTINCT FROM guard skips rows
+// already fully cleared. Returns the count actually stripped.
+func (q *Queries) ClearDeviceSitesAndBuildings(ctx context.Context, arg ClearDeviceSitesAndBuildingsParams) (int64, error) {
+	result, err := q.exec(ctx, q.clearDeviceSitesAndBuildingsStmt, clearDeviceSitesAndBuildings, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
 		return 0, err
 	}
@@ -277,6 +412,49 @@ func (q *Queries) DeviceSetBelongsToOrg(ctx context.Context, arg DeviceSetBelong
 	var belongs bool
 	err := row.Scan(&belongs)
 	return belongs, err
+}
+
+const findDevicesWithSiteOrBuilding = `-- name: FindDevicesWithSiteOrBuilding :many
+SELECT device_identifier
+FROM device
+WHERE org_id = $1
+  AND device_identifier = ANY($2::text[])
+  AND deleted_at IS NULL
+  AND (site_id IS NOT NULL OR building_id IS NOT NULL)
+`
+
+type FindDevicesWithSiteOrBuildingParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Returns the requested device identifiers that currently have a
+// non-NULL site_id OR building_id. Used by AssignDevicesToRack to detect
+// miners that would lose a placement by joining a site-less
+// (fully-unassigned) rack — the force path clears BOTH columns, so a
+// miner with only a direct building (site NULL, building set, e.g. one
+// assigned to a site-less building) must trip the confirm too.
+func (q *Queries) FindDevicesWithSiteOrBuilding(ctx context.Context, arg FindDevicesWithSiteOrBuildingParams) ([]string, error) {
+	rows, err := q.query(ctx, q.findDevicesWithSiteOrBuildingStmt, findDevicesWithSiteOrBuilding, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getAddedDeviceSiteConflicts = `-- name: GetAddedDeviceSiteConflicts :many
@@ -504,11 +682,24 @@ func (q *Queries) GetDeviceIdentifiersByDeviceSetID(ctx context.Context, arg Get
 
 const getDeviceSet = `-- name: GetDeviceSet :one
 SELECT ds.id, ds.type, ds.label, ds.description, ds.created_at, ds.updated_at,
-       COUNT(dsm.id)::int AS device_count
+       COUNT(dsm.id)::int AS device_count,
+       dsr.site_id,
+       COALESCE(s.name, '') AS site_label,
+       dsr.building_id,
+       COALESCE(b.name, '') AS building_label
 FROM device_set ds
 LEFT JOIN device_set_membership dsm ON ds.id = dsm.device_set_id
+LEFT JOIN device_set_rack dsr ON dsr.device_set_id = ds.id
+LEFT JOIN site s
+  ON s.id = dsr.site_id
+ AND s.org_id = ds.org_id
+ AND s.deleted_at IS NULL
+LEFT JOIN building b
+  ON b.id = dsr.building_id
+ AND b.org_id = ds.org_id
+ AND b.deleted_at IS NULL
 WHERE ds.id = $1 AND ds.org_id = $2 AND ds.deleted_at IS NULL
-GROUP BY ds.id
+GROUP BY ds.id, dsr.site_id, s.name, dsr.building_id, b.name
 `
 
 type GetDeviceSetParams struct {
@@ -517,13 +708,17 @@ type GetDeviceSetParams struct {
 }
 
 type GetDeviceSetRow struct {
-	ID          int64
-	Type        DeviceSetType
-	Label       string
-	Description sql.NullString
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeviceCount int32
+	ID            int64
+	Type          DeviceSetType
+	Label         string
+	Description   sql.NullString
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	DeviceCount   int32
+	SiteID        sql.NullInt64
+	SiteLabel     string
+	BuildingID    sql.NullInt64
+	BuildingLabel string
 }
 
 func (q *Queries) GetDeviceSet(ctx context.Context, arg GetDeviceSetParams) (GetDeviceSetRow, error) {
@@ -537,6 +732,10 @@ func (q *Queries) GetDeviceSet(ctx context.Context, arg GetDeviceSetParams) (Get
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeviceCount,
+		&i.SiteID,
+		&i.SiteLabel,
+		&i.BuildingID,
+		&i.BuildingLabel,
 	)
 	return i, err
 }
@@ -641,10 +840,10 @@ func (q *Queries) GetDeviceSiteIDsByMembership(ctx context.Context, arg GetDevic
 	return items, nil
 }
 
-const getGroupLabelsForDevices = `-- name: GetGroupLabelsForDevices :many
-SELECT dsm.device_identifier, ds.label
+const getGroupRefsForDevices = `-- name: GetGroupRefsForDevices :many
+SELECT dsm.device_identifier, ds.id, ds.label
 FROM device_set_membership dsm
-JOIN device_set ds ON dsm.device_set_id = ds.id
+JOIN device_set ds ON dsm.device_set_id = ds.id AND ds.org_id = dsm.org_id
 WHERE dsm.device_identifier = ANY($2::text[])
   AND dsm.org_id = $1
   AND ds.type = 'group'
@@ -652,27 +851,28 @@ WHERE dsm.device_identifier = ANY($2::text[])
 ORDER BY dsm.device_identifier, ds.label
 `
 
-type GetGroupLabelsForDevicesParams struct {
+type GetGroupRefsForDevicesParams struct {
 	OrgID             int64
 	DeviceIdentifiers []string
 }
 
-type GetGroupLabelsForDevicesRow struct {
+type GetGroupRefsForDevicesRow struct {
 	DeviceIdentifier string
+	ID               int64
 	Label            string
 }
 
-// Batch query to get group labels for multiple devices at once (for miner list)
-func (q *Queries) GetGroupLabelsForDevices(ctx context.Context, arg GetGroupLabelsForDevicesParams) ([]GetGroupLabelsForDevicesRow, error) {
-	rows, err := q.query(ctx, q.getGroupLabelsForDevicesStmt, getGroupLabelsForDevices, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+// Batch query to get group refs for multiple devices at once (for miner list)
+func (q *Queries) GetGroupRefsForDevices(ctx context.Context, arg GetGroupRefsForDevicesParams) ([]GetGroupRefsForDevicesRow, error) {
+	rows, err := q.query(ctx, q.getGroupRefsForDevicesStmt, getGroupRefsForDevices, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetGroupLabelsForDevicesRow
+	var items []GetGroupRefsForDevicesRow
 	for rows.Next() {
-		var i GetGroupLabelsForDevicesRow
-		if err := rows.Scan(&i.DeviceIdentifier, &i.Label); err != nil {
+		var i GetGroupRefsForDevicesRow
+		if err := rows.Scan(&i.DeviceIdentifier, &i.ID, &i.Label); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -689,7 +889,10 @@ func (q *Queries) GetGroupLabelsForDevices(ctx context.Context, arg GetGroupLabe
 const getRackDetailsForDevices = `-- name: GetRackDetailsForDevices :many
 SELECT
   dsm.device_identifier,
+  ds.id AS rack_id,
   ds.label,
+  b.id AS building_id,
+  COALESCE(b.name, '') AS building_label,
   CASE
     WHEN rs.row IS NULL OR rs.col IS NULL OR dsr.order_index NOT IN (1, 2, 3, 4) THEN ''
     ELSE (
@@ -721,8 +924,11 @@ SELECT
     )
   END::text AS position
 FROM device_set_membership dsm
-JOIN device_set ds ON dsm.device_set_id = ds.id
-LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id
+JOIN device_set ds ON dsm.device_set_id = ds.id AND ds.org_id = dsm.org_id
+LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id AND dsr.org_id = dsm.org_id
+LEFT JOIN building b ON b.id = dsr.building_id
+  AND b.org_id = dsm.org_id
+  AND b.deleted_at IS NULL
 LEFT JOIN rack_slot rs ON dsm.device_set_id = rs.device_set_id AND dsm.device_id = rs.device_id
 WHERE dsm.device_identifier = ANY($2::text[])
   AND dsm.org_id = $1
@@ -738,7 +944,10 @@ type GetRackDetailsForDevicesParams struct {
 
 type GetRackDetailsForDevicesRow struct {
 	DeviceIdentifier string
+	RackID           int64
 	Label            string
+	BuildingID       sql.NullInt64
+	BuildingLabel    string
 	Position         string
 }
 
@@ -753,7 +962,14 @@ func (q *Queries) GetRackDetailsForDevices(ctx context.Context, arg GetRackDetai
 	var items []GetRackDetailsForDevicesRow
 	for rows.Next() {
 		var i GetRackDetailsForDevicesRow
-		if err := rows.Scan(&i.DeviceIdentifier, &i.Label, &i.Position); err != nil {
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.RackID,
+			&i.Label,
+			&i.BuildingID,
+			&i.BuildingLabel,
+			&i.Position,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1370,6 +1586,38 @@ type SoftDeleteDeviceSetParams struct {
 
 func (q *Queries) SoftDeleteDeviceSet(ctx context.Context, arg SoftDeleteDeviceSetParams) (int64, error) {
 	result, err := q.exec(ctx, q.softDeleteDeviceSetStmt, softDeleteDeviceSet, arg.ID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const unassignDeviceBuildingsByRack = `-- name: UnassignDeviceBuildingsByRack :execrows
+UPDATE device d
+SET building_id = NULL,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+JOIN device_set_rack dsr ON dsr.device_set_id = dsm.device_set_id AND dsr.org_id = dsm.org_id
+WHERE dsm.device_set_id = $1
+  AND dsm.org_id = $2
+  AND dsm.device_set_type = 'rack'
+  AND dsm.device_id = d.id
+  AND d.deleted_at IS NULL
+  AND dsr.building_id IS NOT NULL
+  AND d.building_id IS NOT DISTINCT FROM dsr.building_id
+`
+
+type UnassignDeviceBuildingsByRackParams struct {
+	DeviceSetID int64
+	OrgID       int64
+}
+
+// Building peer of UnassignDeviceSitesByRack. Nulls device.building_id
+// for paired rack members whose building_id matches the rack's stamped
+// building. No-op when the rack has no building; preserves direct
+// "Add miners to building" assignments that diverged from the rack.
+func (q *Queries) UnassignDeviceBuildingsByRack(ctx context.Context, arg UnassignDeviceBuildingsByRackParams) (int64, error) {
+	result, err := q.exec(ctx, q.unassignDeviceBuildingsByRackStmt, unassignDeviceBuildingsByRack, arg.DeviceSetID, arg.OrgID)
 	if err != nil {
 		return 0, err
 	}

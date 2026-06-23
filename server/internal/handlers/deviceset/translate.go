@@ -28,10 +28,39 @@ func toAssignDevicesToRackParams(req *dspb.AssignDevicesToRackRequest, orgID int
 		return collection.AssignDevicesToRackParams{}, err
 	}
 	return collection.AssignDevicesToRackParams{
-		OrgID:             orgID,
-		TargetRackID:      targetRackID,
-		DeviceIdentifiers: identifiers,
+		OrgID:                     orgID,
+		TargetRackID:              targetRackID,
+		DeviceIdentifiers:         identifiers,
+		ForceClearConflictingSite: req.GetForceClearConflictingSite(),
 	}, nil
+}
+
+// toProtoRackConflicts maps domain add-to-rack conflicts onto the proto
+// response shape. Returns nil for an empty list so the response field
+// stays unset on the happy path.
+func toProtoRackConflicts(conflicts []collection.PerDeviceRackConflict) []*dspb.PerDeviceRackConflict {
+	if len(conflicts) == 0 {
+		return nil
+	}
+	out := make([]*dspb.PerDeviceRackConflict, 0, len(conflicts))
+	for _, c := range conflicts {
+		out = append(out, &dspb.PerDeviceRackConflict{
+			DeviceIdentifier: c.DeviceIdentifier,
+			Reason:           toProtoRackConflictReason(c.Reason),
+		})
+	}
+	return out
+}
+
+func toProtoRackConflictReason(r collection.PerDeviceRackConflictReason) dspb.PerDeviceRackConflictReason {
+	switch r {
+	case collection.RackConflictReasonUnspecified:
+		return dspb.PerDeviceRackConflictReason_PER_DEVICE_RACK_CONFLICT_REASON_UNSPECIFIED
+	case collection.RackConflictReasonDeviceLosesSite:
+		return dspb.PerDeviceRackConflictReason_PER_DEVICE_RACK_CONFLICT_REASON_DEVICE_LOSES_SITE
+	default:
+		return dspb.PerDeviceRackConflictReason_PER_DEVICE_RACK_CONFLICT_REASON_UNSPECIFIED
+	}
 }
 
 // identifiersFromAssignSelector enforces the device_list-only contract

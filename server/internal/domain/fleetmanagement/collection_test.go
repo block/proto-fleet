@@ -135,7 +135,7 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByGroupAndRackWithANDLogic(
 	assert.Equal(t, deviceIDs[1], resp.Miners[0].DeviceIdentifier)
 }
 
-func TestService_ListMinerStateSnapshots_ShouldPopulateGroupLabels(t *testing.T) {
+func TestService_ListMinerStateSnapshots_ShouldPopulateGroupRefs(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -174,18 +174,27 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateGroupLabels(t *testing.T)
 	require.NoError(t, err)
 	require.Len(t, resp.Miners, 2)
 
-	// Build map of device -> group labels
+	// Build map of device -> group refs from placement refs.
 	labelsByDevice := make(map[string][]string)
+	idsByDevice := make(map[string][]int64)
 	for _, m := range resp.Miners {
-		labelsByDevice[m.DeviceIdentifier] = m.GroupLabels
+		if m.Placement == nil {
+			continue
+		}
+		for _, group := range m.Placement.Groups {
+			labelsByDevice[m.DeviceIdentifier] = append(labelsByDevice[m.DeviceIdentifier], group.Label)
+			idsByDevice[m.DeviceIdentifier] = append(idsByDevice[m.DeviceIdentifier], group.Id)
+		}
 	}
 
 	assert.Len(t, labelsByDevice[deviceIDs[0]], 2)
 	assert.ElementsMatch(t, []string{"Alpha", "Beta"}, labelsByDevice[deviceIDs[0]])
+	assert.ElementsMatch(t, []int64{groupA.Id, groupB.Id}, idsByDevice[deviceIDs[0]])
 	assert.Equal(t, []string{"Alpha"}, labelsByDevice[deviceIDs[1]])
+	assert.Equal(t, []int64{groupA.Id}, idsByDevice[deviceIDs[1]])
 }
 
-func TestService_ListMinerStateSnapshots_ShouldPopulateRackLabel(t *testing.T) {
+func TestService_ListMinerStateSnapshots_ShouldPopulateRackRef(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -221,21 +230,27 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateRackLabel(t *testing.T) {
 	require.Len(t, resp.Miners, 2)
 
 	rackByDevice := make(map[string]string)
+	rackIDsByDevice := make(map[string]int64)
 	for _, m := range resp.Miners {
-		rackByDevice[m.DeviceIdentifier] = m.RackLabel
+		if m.Placement != nil && m.Placement.Rack != nil {
+			rackByDevice[m.DeviceIdentifier] = m.Placement.Rack.Label
+			rackIDsByDevice[m.DeviceIdentifier] = m.Placement.Rack.Id
+		}
 	}
 
 	assert.Equal(t, "Floor 1", rackByDevice[deviceIDs[0]])
-	assert.Empty(t, rackByDevice[deviceIDs[1]], "device not in a rack should have empty rack label")
+	assert.Equal(t, rack.Id, rackIDsByDevice[deviceIDs[0]])
+	assert.Empty(t, rackByDevice[deviceIDs[1]], "device not in a rack should have empty rack ref")
+	assert.Zero(t, rackIDsByDevice[deviceIDs[1]], "device not in a rack should have empty rack ref")
 }
 
-// TestService_ListMinerStateSnapshots_ShouldPopulateSiteIDAndLabel
+// TestService_ListMinerStateSnapshots_ShouldPopulateSiteRef
 // closes issue #197's acceptance criteria: "Integration test asserts a
-// snapshot written after device site-assignment carries the right
-// site_id." Creates a site, reassigns devices to it via the SiteStore
-// bulk path, and verifies the snapshot response carries SiteId +
-// SiteLabel without a second round-trip.
-func TestService_ListMinerStateSnapshots_ShouldPopulateSiteIDAndLabel(t *testing.T) {
+// snapshot written after device site-assignment carries the right site."
+// Creates a site, reassigns devices to it via the SiteStore bulk path,
+// and verifies the snapshot response carries a placement site ref without
+// a second round-trip.
+func TestService_ListMinerStateSnapshots_ShouldPopulateSiteRef(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -276,12 +291,12 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateSiteIDAndLabel(t *testing
 
 	assigned := byDevice[deviceIDs[0]]
 	require.NotNil(t, assigned)
-	require.NotNil(t, assigned.SiteId, "assigned device must surface site_id")
-	assert.Equal(t, site.ID, *assigned.SiteId)
-	assert.Equal(t, "Austin", assigned.SiteLabel)
+	require.NotNil(t, assigned.Placement, "assigned device must surface placement")
+	require.NotNil(t, assigned.Placement.Site, "assigned device must surface site ref")
+	assert.Equal(t, site.ID, assigned.Placement.Site.Id)
+	assert.Equal(t, "Austin", assigned.Placement.Site.Label)
 
 	unassigned := byDevice[deviceIDs[1]]
 	require.NotNil(t, unassigned)
-	assert.Nil(t, unassigned.SiteId, "unassigned device must have nil site_id")
-	assert.Empty(t, unassigned.SiteLabel, "unassigned device must have empty site_label")
+	assert.Nil(t, unassigned.Placement, "unassigned device must have nil placement")
 }

@@ -33,22 +33,34 @@ INSERT INTO building (
 RETURNING *;
 
 -- name: GetBuilding :one
-SELECT *
-FROM building
-WHERE id = sqlc.arg('id')
-  AND org_id = sqlc.arg('org_id')
-  AND deleted_at IS NULL;
+SELECT
+    b.*,
+    COALESCE(s.name, '') AS site_label
+FROM building b
+LEFT JOIN site s
+  ON s.id = b.site_id
+ AND s.org_id = b.org_id
+ AND s.deleted_at IS NULL
+WHERE b.id = sqlc.arg('id')
+  AND b.org_id = sqlc.arg('org_id')
+  AND b.deleted_at IS NULL;
 
 -- name: ListBuildingsByOrg :many
 -- Lists every live building in the org with its rack count. The site
--- filter is folded into the query via two narg flags rather than two
--- separate queries: pass `site_id` for "buildings under this site",
--- pass `unassigned_only=true` for "site_id IS NULL", or leave both
--- unset for "all buildings in org".
+-- filter is additive: site_ids is an OR across sites, include_unassigned
+-- additionally lets through buildings with site_id IS NULL. Both empty
+-- and include_unassigned=false → no filter (return all live buildings
+-- in the org).
 SELECT
     b.*,
-    COALESCE(r.rack_count, 0)::bigint AS rack_count
+    COALESCE(s.name, '') AS site_label,
+    COALESCE(r.rack_count, 0)::bigint AS rack_count,
+    COALESCE(d.device_count, 0)::bigint AS device_count
 FROM building b
+LEFT JOIN site s
+  ON s.id = b.site_id
+ AND s.org_id = b.org_id
+ AND s.deleted_at IS NULL
 LEFT JOIN (
     SELECT dsr.building_id, COUNT(*) AS rack_count
     FROM device_set_rack dsr
@@ -58,12 +70,25 @@ LEFT JOIN (
       AND dsr.org_id = sqlc.arg('org_id')
     GROUP BY dsr.building_id
 ) r ON r.building_id = b.id
+LEFT JOIN (
+    SELECT dsr.building_id, COUNT(DISTINCT dcm.device_id) AS device_count
+    FROM device_set_rack dsr
+    JOIN device_set ds ON dsr.device_set_id = ds.id
+    JOIN device_set_membership dcm ON dcm.device_set_id = ds.id
+    JOIN device d ON dcm.device_id = d.id
+    WHERE ds.deleted_at IS NULL
+      AND d.deleted_at IS NULL
+      AND dsr.building_id IS NOT NULL
+      AND dsr.org_id = sqlc.arg('org_id')
+    GROUP BY dsr.building_id
+) d ON d.building_id = b.id
 WHERE b.org_id = sqlc.arg('org_id')
   AND b.deleted_at IS NULL
-  AND (sqlc.narg('site_id')::bigint IS NULL OR b.site_id = sqlc.narg('site_id')::bigint)
-  AND (sqlc.narg('unassigned_only')::boolean IS NULL
-       OR sqlc.narg('unassigned_only')::boolean = false
-       OR b.site_id IS NULL)
+  AND (
+       (cardinality(sqlc.arg('site_ids')::bigint[]) = 0 AND sqlc.arg('include_unassigned')::boolean = false)
+    OR b.site_id = ANY(sqlc.arg('site_ids')::bigint[])
+    OR (sqlc.arg('include_unassigned')::boolean AND b.site_id IS NULL)
+  )
 ORDER BY b.name;
 
 -- name: UpdateBuilding :exec
@@ -95,14 +120,18 @@ WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
--- name: SoftDeleteBuilding :execrows
+-- name: SoftDeleteBuilding :one
 -- Caller is expected to also unassign the building's racks in the same
--- transaction (cascade-unassign — see plan J3).
+-- transaction (cascade-unassign — see plan J3). RETURNING site_id lets the
+-- caller stamp the delete audit row with the site of the row actually deleted,
+-- race-free: a concurrent site move can't slip between a separate read and the
+-- delete. sql.ErrNoRows when the building is missing/already-deleted/cross-org.
 UPDATE building
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
-  AND deleted_at IS NULL;
+  AND deleted_at IS NULL
+RETURNING site_id;
 
 -- name: UnassignRacksFromBuilding :execrows
 -- Sets device_set_rack.building_id = NULL (and clears the free-form
@@ -244,6 +273,163 @@ UPDATE building
 SET site_id    = sqlc.narg('site_id'),
     updated_at = CURRENT_TIMESTAMP
 WHERE id = ANY(sqlc.arg('building_ids')::bigint[])
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL;
+
+-- name: ClearDeviceBuildingsByBuilding :execrows
+-- Nulls device.building_id for every direct-FK device pointing at the
+-- given building. Used by DeleteBuilding's soft-delete cascade so a
+-- device.building_id can't outlive the building row it references.
+-- Rack-membership devices keep their building association through the
+-- rack itself; the rack-level cascade in DeleteBuilding handles them
+-- via UnassignRacksFromBuilding + the cascade peer below.
+UPDATE device
+SET building_id = NULL,
+    updated_at  = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id')
+  AND building_id = sqlc.arg('building_id')::bigint
+  AND deleted_at IS NULL;
+
+-- name: ClearDeviceBuildingsBySite :execrows
+-- Bulk peer of ClearDeviceBuildingsByBuilding scoped to a site: nulls
+-- device.building_id for every direct-FK device whose building belongs
+-- to the given site. Used by DeleteSite's soft-delete cascade so
+-- buildings that get cascade-soft-deleted don't leave orphan device
+-- references behind.
+UPDATE device d
+SET building_id = NULL,
+    updated_at  = CURRENT_TIMESTAMP
+FROM building b
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.building_id = b.id
+  AND b.org_id = sqlc.arg('org_id')
+  AND b.site_id = sqlc.arg('site_id')::bigint
+  AND d.deleted_at IS NULL;
+
+-- name: ClearDeviceBuildingsOnSiteMismatch :execrows
+-- Nulls device.building_id for the listed devices whose direct-FK
+-- building belongs to a site other than target_site_id. Used by
+-- AssignDevicesToSite so a direct site move can't leave a device
+-- pointing at a building in the old site. A device whose building is
+-- already in the target site keeps it; a device with no building joins
+-- no row and is untouched. target_site_id NULL (move to Unassigned)
+-- clears any building whose site is non-null, and keeps a site-less
+-- building (NULL IS DISTINCT FROM NULL = false).
+UPDATE device d
+SET building_id = NULL,
+    updated_at  = CURRENT_TIMESTAMP
+FROM building b
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.deleted_at IS NULL
+  AND d.building_id = b.id
+  AND b.org_id = sqlc.arg('org_id')
+  AND b.site_id IS DISTINCT FROM sqlc.narg('target_site_id');
+
+-- name: CascadeDirectDeviceSitesByBuildings :execrows
+-- For devices with direct device.building_id pointing at any building
+-- in @building_ids, rewrite device.site_id to target_site_id. Mirrors
+-- ReassignDevicesUnderBuildingsBulk but for devices joined to the
+-- building via device.building_id instead of through rack membership.
+-- Used by AssignBuildingsToSite to keep direct-FK devices in lockstep
+-- when the building's site changes.
+UPDATE device
+SET site_id    = sqlc.narg('target_site_id'),
+    updated_at = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id')
+  AND building_id = ANY(sqlc.arg('building_ids')::bigint[])
+  AND deleted_at IS NULL
+  AND site_id IS DISTINCT FROM sqlc.narg('target_site_id');
+
+-- name: AssignDevicesToBuilding :execrows
+-- Bulk update of device.building_id for the given identifiers within
+-- the org. Caller is expected to have already validated that no device
+-- is in a rack at a different building (see FindDeviceBuildingConflicts).
+-- target_building_id NULL = move to Unassigned.
+UPDATE device
+SET building_id = sqlc.narg('target_building_id'),
+    updated_at  = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id')
+  AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND deleted_at IS NULL;
+
+-- name: CascadeDevicesSiteForBuilding :execrows
+-- Sets device.site_id to the given target_site_id for every device in
+-- @device_identifiers whose site_id differs from target. Returns the
+-- count of devices actually cascaded so AssignDevicesToBuilding can
+-- report site_reassigned_device_count. Caller has already row-locked
+-- the devices via LockDevicesForReassign. target_site_id NULL = no
+-- cascade (unassign-building branch).
+UPDATE device
+SET site_id    = sqlc.narg('target_site_id'),
+    updated_at = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id')
+  AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND deleted_at IS NULL
+  AND site_id IS DISTINCT FROM sqlc.narg('target_site_id');
+
+-- name: FindDeviceBuildingConflicts :many
+-- Returns one row per device whose live rack has a non-NULL
+-- building_id. Devices with no rack, devices in a rack without a
+-- building, and devices in soft-deleted racks produce NO row at all
+-- (filtered by the `dsr.building_id IS NOT NULL` predicate + the
+-- `ds.deleted_at IS NULL` JOIN). The service layer compares each
+-- returned building_id against the target — devices missing from the
+-- result set have no conflict to report.
+SELECT d.device_identifier, dsr.building_id::bigint AS conflicting_building_id
+FROM device d
+JOIN device_set_membership dsm
+    ON dsm.device_id = d.id
+   AND dsm.org_id = d.org_id
+   AND dsm.device_set_type = 'rack'
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
+JOIN device_set_rack dsr
+    ON dsr.device_set_id = dsm.device_set_id
+   AND dsr.org_id = d.org_id
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.deleted_at IS NULL
+  AND dsr.building_id IS NOT NULL;
+
+-- name: FindDevicesInBuildingLessPlacedRacks :many
+-- Returns device identifiers that sit in a rack which HAS a site but
+-- NO building (a site-level rack). FindDeviceBuildingConflicts filters
+-- these out (its building_id IS NOT NULL guard), and the site-conflict
+-- probe misses them when the target building is in the same site — yet
+-- such a device can't take a direct building assignment while remaining
+-- in a building-less rack without violating rack/device lockstep. The
+-- service flags these as a clearable IN_RACK_AT_OTHER_BUILDING conflict
+-- whenever the target building is non-null. Fully-unassigned racks
+-- (no site AND no building) are excluded: they dictate no placement, so
+-- a member may keep a direct building.
+SELECT d.device_identifier
+FROM device d
+JOIN device_set_membership dsm
+    ON dsm.device_id = d.id
+   AND dsm.org_id = d.org_id
+   AND dsm.device_set_type = 'rack'
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
+JOIN device_set_rack dsr
+    ON dsr.device_set_id = dsm.device_set_id
+   AND dsr.org_id = d.org_id
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.deleted_at IS NULL
+  AND dsr.building_id IS NULL
+  AND dsr.site_id IS NOT NULL;
+
+-- name: GetBuildingSiteID :one
+-- Returns the building's site_id (which may be NULL). Used by
+-- AssignDevicesToBuilding to determine the cascade target for
+-- device.site_id when target_building_id is set. Returns sql.ErrNoRows
+-- when the building is missing/soft-deleted/cross-org.
+SELECT site_id
+FROM building
+WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 

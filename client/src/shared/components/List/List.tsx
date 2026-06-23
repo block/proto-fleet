@@ -169,6 +169,13 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   paddingRight?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
+  /**
+   * Extra classes for the sticky-left chrome (filter row, count, action bar).
+   * Used in page-scroll mode to give them an explicit viewport width so they
+   * stay pinned while the table scrolls the page horizontally. Left empty for
+   * bounded lists, where the chrome never moves.
+   */
+  stickyChromeClassName?: string;
   stickyBgColor?: string;
   total?: number;
   /**
@@ -696,6 +703,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   paddingLeft,
   paddingRight,
   overflowContainer = true,
+  stickyChromeClassName,
   stickyBgColor = "bg-surface-base",
   total,
   totalDisabled = 0,
@@ -777,6 +785,22 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   }, [customSetSelectedItems, onSelectionModeChange]);
 
   const handleSelectAll = (checked: boolean) => {
+    // Paginated lists pass only the current page as `items`, so the header
+    // checkbox can only see this page. When the parent manages selection
+    // across pages (preserveOffPageSelection), replacing the selection with
+    // just this page would silently drop off-page selections. Instead toggle
+    // only this page's keys into / out of the existing selection.
+    if (preserveOffPageSelection) {
+      const pageKeys = getSelectableItems(filteredItems).map((item) => item[itemKey] as ItemKeyValueType);
+      const next = checked
+        ? Array.from(new Set([...currentSelectedItems, ...pageKeys]))
+        : currentSelectedItems.filter((key) => !pageKeys.includes(key));
+      customSetSelectedItems ? customSetSelectedItems(next) : setSelectedItems(next);
+      const newMode = next.length === 0 ? "none" : "subset";
+      setSelectionMode(newMode);
+      onSelectionModeChange?.(newMode);
+      return;
+    }
     if (checked) {
       // Select only filtered items (respects both client-side and server-side filters)
       const selectableItems = getSelectableItems(filteredItems);
@@ -878,7 +902,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     const newMode =
       newSelectedItems.length === 0
         ? "none"
-        : pageScopedSelection
+        : // Paginated lists pass one page as `items`, so "all" here only
+          // means "all of this page". Promoting to "all" mode lets the
+          // sync effect rewrite the controlled selection with just the
+          // current-page keys, dropping off-page selections the parent
+          // holds. Stay in "subset" so cross-page selections survive.
+          pageScopedSelection || preserveOffPageSelection
           ? "subset"
           : allItemsSelected && !hasActiveFilters
             ? "all"
@@ -962,8 +991,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     const currentItemKeys = new Set(items.map((item) => item[itemKey] as ItemKeyValueType));
     const currentSelected = currentSelectedItems;
 
-    // In "all" mode, ensure all selectable current items are selected (handles Load More)
-    if (currentSelectionMode === "all") {
+    // In "all" mode, ensure all selectable current items are selected (handles Load More).
+    // Skipped under preserveOffPageSelection: there `items` is only the current
+    // page, so rewriting the selection to the page's keys would drop the
+    // parent's off-page selections. Those consumers never enter "all" mode via
+    // the row/header paths, but guard here too in case mode is driven externally.
+    if (currentSelectionMode === "all" && !preserveOffPageSelection) {
       const allSelectableItemKeys = selectableItems.map((item) => item[itemKey] as ItemKeyValueType);
       const currentSelectedSet = new Set(currentSelected);
       const needsUpdate = allSelectableItemKeys.some((key) => !currentSelectedSet.has(key));
@@ -1371,12 +1404,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
   return (
     <>
-      <div style={paddingCssVariables} className="sticky left-0 z-3">
+      <div style={paddingCssVariables} className={clsx("sticky left-0 z-3", stickyChromeClassName)}>
         {filtersElement}
       </div>
       <div style={paddingCssVariables}>
         {!hideTotal && total !== undefined ? (
-          <div className="sticky left-0 flex">
+          <div className={clsx("sticky left-0 flex", stickyChromeClassName)}>
             <div className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", paddingClasses)}>
               {total} {total === 1 ? itemName.singular : itemName.plural}
             </div>
@@ -1403,6 +1436,10 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
             )}
           </div>
           {renderActionBar ? (
+            // No sticky/width treatment here: action bars position themselves
+            // (e.g. MinerListActionBar is `fixed`). Wrapping a fixed bar in a
+            // sticky div creates a stacking context that traps its popovers
+            // below the page chrome.
             <div className="w-full">
               {renderActionBar(currentSelectedItems, clearSelection, currentSelectionMode, totalSelectable)}
             </div>

@@ -40,6 +40,47 @@ func (q *Queries) AssignDevicesToSite(ctx context.Context, arg AssignDevicesToSi
 	return result.RowsAffected()
 }
 
+const countBuildingsBySite = `-- name: CountBuildingsBySite :one
+SELECT COUNT(*)::bigint
+FROM building
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type CountBuildingsBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+func (q *Queries) CountBuildingsBySite(ctx context.Context, arg CountBuildingsBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countBuildingsBySiteStmt, countBuildingsBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countRacksBySite = `-- name: CountRacksBySite :one
+SELECT COUNT(*)::bigint
+FROM device_set_rack dsr
+JOIN device_set ds ON ds.id = dsr.device_set_id
+WHERE dsr.org_id = $1
+  AND dsr.site_id = $2
+  AND ds.deleted_at IS NULL
+`
+
+type CountRacksBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+func (q *Queries) CountRacksBySite(ctx context.Context, arg CountRacksBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countRacksBySiteStmt, countRacksBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createSite = `-- name: CreateSite :one
 INSERT INTO site (
     org_id,
@@ -192,6 +233,61 @@ func (q *Queries) FindDeviceSiteConflicts(ctx context.Context, arg FindDeviceSit
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findDevicesInSiteLessRacks = `-- name: FindDevicesInSiteLessRacks :many
+SELECT d.device_identifier
+FROM device d
+JOIN device_set_membership dsm
+    ON dsm.device_id = d.id
+   AND dsm.org_id = d.org_id
+   AND dsm.device_set_type = 'rack'
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
+JOIN device_set_rack dsr
+    ON dsr.device_set_id = dsm.device_set_id
+   AND dsr.org_id = d.org_id
+WHERE d.org_id = $1
+  AND d.device_identifier = ANY($2::text[])
+  AND d.deleted_at IS NULL
+  AND dsr.site_id IS NULL
+`
+
+type FindDevicesInSiteLessRacksParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Returns device identifiers sitting in a live rack that has NO site (a
+// fully-unassigned rack — building implies a site, so a NULL site means
+// no building either). The site peer of FindDeviceSiteConflicts, which
+// only returns racks WITH a site. Used by AssignDevicesToSite (and the
+// building flow, which cascades site): a device can't take a direct site
+// while remaining in a site-less rack without breaking device/rack site
+// lockstep, so the service flags these as a clearable conflict and the
+// force-clear path drops the rack membership before the move.
+func (q *Queries) FindDevicesInSiteLessRacks(ctx context.Context, arg FindDevicesInSiteLessRacksParams) ([]string, error) {
+	rows, err := q.query(ctx, q.findDevicesInSiteLessRacksStmt, findDevicesInSiteLessRacks, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -707,6 +803,46 @@ func (q *Queries) SiteBelongsToOrg(ctx context.Context, arg SiteBelongsToOrgPara
 	var belongs bool
 	err := row.Scan(&belongs)
 	return belongs, err
+}
+
+const sitesByIDs = `-- name: SitesByIDs :many
+SELECT id
+FROM site
+WHERE org_id = $1
+  AND deleted_at IS NULL
+  AND id = ANY($2::bigint[])
+`
+
+type SitesByIDsParams struct {
+	OrgID int64
+	Ids   []int64
+}
+
+// Returns the subset of requested IDs that correspond to live sites
+// in the org. Caller diffs against the requested set to detect
+// cross-org or missing IDs. Mirrors BuildingsByIDs; used to
+// bulk-validate rack-list site_ids filter references in one round trip.
+func (q *Queries) SitesByIDs(ctx context.Context, arg SitesByIDsParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.sitesByIDsStmt, sitesByIDs, arg.OrgID, pq.Array(arg.Ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const softDeleteBuildingsBySite = `-- name: SoftDeleteBuildingsBySite :execrows

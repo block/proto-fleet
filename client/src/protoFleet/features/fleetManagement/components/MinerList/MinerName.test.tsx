@@ -33,8 +33,6 @@ function createMockMiner(overrides: Partial<MinerStateSnapshot> = {}): MinerStat
     manufacturer: "",
     temperatureStatus: 0,
     firmwareVersion: "",
-    groupLabels: [],
-    rackLabel: "",
     driverName: "",
     workerName: "",
     ...overrides,

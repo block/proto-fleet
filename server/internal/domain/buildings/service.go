@@ -7,6 +7,7 @@ package buildings
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -15,16 +16,35 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
+	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 // Event type constants for buildings activity logs.
 const (
-	eventBuildingCreated      = "building.created"
-	eventBuildingUpdated      = "building.updated"
-	eventBuildingDeleted      = "building.deleted"
-	eventRackAssignedBuilding = "building.rack_assigned"
+	eventBuildingCreated             = "building.created"
+	eventBuildingUpdated             = "building.updated"
+	eventBuildingDeleted             = "building.deleted"
+	eventRackAssignedBuilding        = "building.rack_assigned"
+	eventDevicesReassignedToBuilding = "devices.reassigned_to_building"
 )
+
+// maxDeviceIdentifiersInMetadata bounds how many identifiers we keep in
+// the activity row's metadata for a single reassign event. We log the
+// total separately; the truncated list is just a debugging affordance.
+const maxDeviceIdentifiersInMetadata = 50
+
+// maxListFilterValues caps the ListBuildings site_ids filter array.
+// Mirrors the miner-list and rack-list repeated-filter caps so an
+// oversized request can't inflate query planning cost.
+const maxListFilterValues = 1024
+
+// ListStatsAuthorizer reports whether list-row telemetry stats may be
+// populated for a building at the supplied site. Nil site_id means the
+// building is unassigned and must be authorized at org scope.
+type ListStatsAuthorizer func(siteID *int64) bool
 
 // Service is the domain entry point for building CRUD.
 type Service struct {
@@ -127,13 +147,60 @@ func (s *Service) GetBuilding(ctx context.Context, orgID, id int64) (*models.Bui
 }
 
 // ListBuildings returns the filtered building list with rack counts.
-func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter) ([]models.BuildingWithCounts, error) {
-	// The proto oneof enforces mutual exclusion structurally; this is
-	// a defense-in-depth guard for any non-proto caller.
-	if filter.SiteID != nil && *filter.SiteID > 0 && filter.UnassignedOnly {
-		return nil, fleeterror.NewInvalidArgumentError("site_id and unassigned_only are mutually exclusive")
+// SiteIDs and IncludeUnassigned compose additively; the store query
+// treats "both empty" as "no filter".
+func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, statsFilter fleetlistfilter.Filter, includeStatsForSite ListStatsAuthorizer) ([]models.BuildingWithCounts, error) {
+	// Cap the repeated filter to bound request size / query planning
+	// cost, matching the miner-list (maxFreeFormFilterValues) and
+	// rack-list (maxDeviceSetFilterValues) paths.
+	if len(filter.SiteIDs) > maxListFilterValues {
+		return nil, fleeterror.NewInvalidArgumentErrorf("site_ids exceeds maximum of %d values", maxListFilterValues)
 	}
-	return s.store.ListBuildings(ctx, filter)
+	for i, id := range filter.SiteIDs {
+		if id <= 0 {
+			return nil, fleeterror.NewInvalidArgumentErrorf("site_ids[%d] must be positive", i)
+		}
+	}
+	rows, err := s.store.ListBuildings(ctx, filter)
+	if err != nil {
+		return rows, err
+	}
+	hasStatsFilter := fleetlistfilter.HasFilters(statsFilter)
+	if !filter.IncludeStats {
+		if hasStatsFilter {
+			return rows[:0], nil
+		}
+		return rows, nil
+	}
+	if includeStatsForSite == nil {
+		if hasStatsFilter {
+			return nil, fleeterror.NewInternalErrorf("buildings.ListBuildings filters require stats authorization")
+		}
+		return rows, nil
+	}
+	hasStatsRow := false
+	for _, row := range rows {
+		if includeStatsForSite(row.Building.SiteID) {
+			hasStatsRow = true
+			break
+		}
+	}
+	if !hasStatsRow {
+		if hasStatsFilter {
+			return rows[:0], nil
+		}
+		return rows, nil
+	}
+	if s.deviceQueryer == nil || s.telemetry == nil {
+		return nil, fleeterror.NewInternalErrorf("buildings.ListBuildings stats requires deviceQueryer and telemetry")
+	}
+	if err := s.populateListStats(ctx, filter.OrgID, rows, includeStatsForSite, len(statsFilter.TelemetryRanges) > 0); err != nil {
+		return nil, err
+	}
+	if hasStatsFilter {
+		rows = filterBuildingRowsByListStats(rows, statsFilter)
+	}
+	return rows, nil
 }
 
 // UpdateBuilding mutates the building's mutable fields. Site
@@ -357,12 +424,22 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			siteReassignedDeviceCount int64
 			targetSiteID              *int64
 			cascadeRackIDs            []int64
-			positionedRackIDs         []int64
-			// For a building-only unassign (TargetBuildingID == nil) of a
-			// single rack, capture the rack's current SiteID so the activity
-			// log preserves "the site this rack lives in" instead of nil
-			// (which would make the event look site-less).
-			fallbackSiteID *int64
+			// cascadeBuildingRackIDs is the building peer of
+			// cascadeRackIDs — racks whose building_id transitioned, so
+			// member device.building_id has to follow. Independent of
+			// the site-cascade set because a same-site building change
+			// (move within one site) hits buildings but not sites.
+			cascadeBuildingRackIDs []int64
+			positionedRackIDs      []int64
+			// For a building-only unassign (TargetBuildingID == nil), capture
+			// the source site so the activity log preserves "the site this
+			// rack lives in" instead of nil. clearSourceSite holds the single
+			// site shared by the batch; clearSourceAmbiguous trips when the
+			// batch straddles sites or includes a site-less rack, in which
+			// case no single site is recorded (surfacing one would mislead).
+			fallbackSiteID       *int64
+			clearSourceSite      *int64
+			clearSourceAmbiguous bool
 		)
 		// Lock the target building first (canonical lock order:
 		// building -> rack). Skip when unassigning — there is no
@@ -418,13 +495,22 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			}
 			allRackIDs = append(allRackIDs, rp.RackID)
 
-			// Capture the source SiteID for a single-rack building-only
-			// unassign so the activity log carries the rack's site
-			// instead of nil. Only meaningful when the batch is exactly
-			// one rack — multi-rack batches may straddle sites and
-			// surfacing the first rack's site would be misleading.
-			if params.TargetBuildingID == nil && len(racks) == 1 {
-				fallbackSiteID = current.SiteID
+			// Capture the source site for a building-only unassign so the
+			// activity log carries the rack's site instead of nil. A single
+			// shared site (one rack, or same-site multi-rack) is recorded;
+			// a batch straddling sites — or including a site-less rack — is
+			// left ambiguous so the event stays site-less rather than
+			// misattributing one rack's site to the whole batch.
+			if params.TargetBuildingID == nil {
+				switch {
+				case current.SiteID == nil:
+					clearSourceAmbiguous = true
+				case clearSourceSite == nil:
+					site := *current.SiteID
+					clearSourceSite = &site
+				case *clearSourceSite != *current.SiteID:
+					clearSourceAmbiguous = true
+				}
 			}
 
 			// Building-only unassign must NOT cascade-clear the rack's
@@ -435,9 +521,36 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			if params.TargetBuildingID == nil {
 				newSiteID = current.SiteID
 			}
-			if !int64PtrEqual(current.SiteID, newSiteID) {
+			siteChanged := !int64PtrEqual(current.SiteID, newSiteID)
+			if siteChanged {
 				cascadeRackIDs = append(cascadeRackIDs, rp.RackID)
 			}
+			// Track racks whose building_id changes — distinct from the
+			// site set because a same-site building move hits buildings
+			// but not sites. params.TargetBuildingID is the new value
+			// (nil on building-only unassign).
+			if !int64PtrEqual(current.BuildingID, params.TargetBuildingID) {
+				cascadeBuildingRackIDs = append(cascadeBuildingRackIDs, rp.RackID)
+				// Placing a previously site-less rack into a site-less
+				// building. The site gate above misses this (nil->nil,
+				// siteChanged false), but the building cascade below stamps
+				// the site-less building, and an unassigned rack's members
+				// may carry a direct device.site_id — which must clear to
+				// NULL to stay in lockstep with the site-less building.
+				// Only this corner slips past the site gate: any target
+				// building WITH a site, or a rack that already had a site,
+				// is already covered by siteChanged. Skipped on building
+				// unassign (target nil), which deliberately preserves site.
+				if params.TargetBuildingID != nil && current.SiteID == nil && targetSiteID == nil {
+					cascadeRackIDs = append(cascadeRackIDs, rp.RackID)
+				}
+			}
+		}
+
+		// Record the source site on a building-only unassign only when the
+		// whole batch shares one (see clearSourceSite above).
+		if params.TargetBuildingID == nil && !clearSourceAmbiguous {
+			fallbackSiteID = clearSourceSite
 		}
 
 		// Phase B1: single bulk write for site_id + building_id + zone
@@ -478,6 +591,22 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 				return nil, err
 			}
 			siteReassignedDeviceCount += count
+		}
+		// Building cascade — fires whenever any rack's building_id moved
+		// (different value, or set/cleared). Keeps device.building_id in
+		// lockstep with the rack the same way the site cascade above
+		// keeps device.site_id in lockstep. Independent of the site
+		// cascade because a same-site building move would fire here but
+		// not there — which is exactly why this bulk path is NOT routed
+		// through collection.cascadeRackMembersToPlacement: the two
+		// columns cascade over different rack-id subsets here, so a single
+		// paired helper can't express it. Don't try to unify.
+		if len(cascadeBuildingRackIDs) > 0 {
+			if _, err := s.collectionStore.CascadeRackDeviceBuildingsBulk(
+				txCtx, params.OrgID, cascadeBuildingRackIDs, params.TargetBuildingID,
+			); err != nil {
+				return nil, err
+			}
 		}
 
 		// Phase B3: single bulk pass-1 vacate. Force (aisle, position)
@@ -620,23 +749,420 @@ func derefInt64(v *int64) any {
 	return *v
 }
 
+// assignDevicesToBuildingTx carries the per-attempt counters out of the
+// RunInTxWithResult closure. Declared at package scope so a tx retry
+// (SQLTransactor serialization / deadlock failure) starts each attempt
+// from zero — the closure constructs a fresh struct on every call.
+type assignDevicesToBuildingTx struct {
+	rowsAffected              int64
+	siteReassignedDeviceCount int64
+	targetSiteID              *int64
+	txConflicts               []models.PerDeviceBuildingConflict
+	forceClearedIDs           []string
+}
+
+// AssignDevicesToBuilding enforces the cross-building invariant and,
+// on success, bulk-updates device.building_id for every identifier in
+// one transaction. Mirrors SiteService.AssignDevicesToSite — the entire
+// batch rejects if any device fails the check; no partial writes. When
+// target_building_id is set, also cascades device.site_id to the
+// building's site so site/building stay in lockstep.
+func (s *Service) AssignDevicesToBuilding(ctx context.Context, params models.AssignDevicesToBuildingParams) (*models.AssignDevicesToBuildingResult, []models.PerDeviceBuildingConflict, error) {
+	identifiers := dedupeStrings(params.DeviceIdentifiers)
+	if len(identifiers) == 0 {
+		return nil, nil, fleeterror.NewInvalidArgumentError("device_identifiers must not be empty")
+	}
+	if params.TargetBuildingID != nil && *params.TargetBuildingID == 0 {
+		return nil, nil, fleeterror.NewInvalidArgumentError("target_building_id must be > 0 (use nil for Unassigned)")
+	}
+	targetBuildingID := params.TargetBuildingID
+	// Sort identifiers for stable lock order so two concurrent calls
+	// touching an overlapping identifier set can't deadlock against
+	// each other on the device row lock acquisition path.
+	sort.Strings(identifiers)
+
+	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		attempt := assignDevicesToBuildingTx{}
+		// Lock the target building first (canonical lock order:
+		// building → device). target=nil/0 (Unassigned) needs no
+		// building lock — device.building_id gets nulled instead.
+		if targetBuildingID != nil && *targetBuildingID > 0 {
+			if err := s.siteStore.LockBuildingForWrite(txCtx, params.OrgID, *targetBuildingID); err != nil {
+				return attempt, err
+			}
+			// Read the building's site so we can cascade
+			// device.site_id in the same tx — keeps building/site in
+			// lockstep just like AssignRacksToBuilding's site cascade.
+			siteID, err := s.store.GetBuildingSiteID(txCtx, params.OrgID, *targetBuildingID)
+			if err != nil {
+				return attempt, err
+			}
+			attempt.targetSiteID = siteID
+		}
+		// Row-lock the devices so the conflict check and the UPDATE
+		// are atomic against concurrent reassigns.
+		if err := s.siteStore.LockDevicesForReassign(txCtx, params.OrgID, identifiers); err != nil {
+			return attempt, err
+		}
+		conflicts, err := s.computeReassignBuildingConflicts(txCtx, params.OrgID, targetBuildingID, attempt.targetSiteID, identifiers)
+		if err != nil {
+			return attempt, err
+		}
+		// Force-clear branch mirrors AssignDevicesToSite: when the
+		// caller opted in, both DEVICE_IN_RACK_AT_OTHER_BUILDING and
+		// DEVICE_IN_RACK_AT_OTHER_SITE become cascade-clear signals
+		// (the fix is the same — drop the rack membership row).
+		// DEVICE_NOT_FOUND still aborts.
+		if params.ForceClearConflictingRackMembership && len(conflicts) > 0 {
+			clearableIDs, residual := partitionClearableBuildingConflicts(conflicts)
+			// Abort before any deletion when residual non-clearable
+			// conflicts remain — otherwise the tx would commit the
+			// rack-membership delete without the building move,
+			// leaving rack-stripped devices on their old building.
+			if len(residual) > 0 {
+				attempt.txConflicts = residual
+				return attempt, nil
+			}
+			if len(clearableIDs) > 0 {
+				if s.collectionStore == nil {
+					return attempt, fleeterror.NewInternalErrorf("force-clear branch requires a collection store")
+				}
+				// targetRackID=0 means "exclude nothing", i.e. drop
+				// every rack row for the listed devices.
+				if _, err := s.collectionStore.RemoveDevicesFromAnyRack(txCtx, params.OrgID, clearableIDs, 0); err != nil {
+					return attempt, err
+				}
+				attempt.forceClearedIDs = clearableIDs
+				conflicts = nil
+			}
+		}
+		if len(conflicts) > 0 {
+			attempt.txConflicts = conflicts
+			return attempt, nil
+		}
+		n, err := s.store.AssignDevicesToBuilding(txCtx, params.OrgID, targetBuildingID, identifiers)
+		if err != nil {
+			return attempt, err
+		}
+		attempt.rowsAffected = n
+		// Cascade device.site_id to match the target building's site so
+		// "Add to building" keeps building/site in lockstep. Fires
+		// whenever target_building_id is set — including when the
+		// target building is itself unassigned (site_id IS NULL), in
+		// which case the cascade resolves the device's site to NULL
+		// too. Skipping it for site-less buildings would leave devices
+		// pointing at an unassigned building while keeping their old
+		// site, which breaks the invariant immediately after the move.
+		// On building-unassign (target_building_id NULL), the cascade
+		// is skipped entirely — building_id NULL is a deliberate
+		// "Unassigned" state and shouldn't drag site_id along.
+		if targetBuildingID != nil {
+			count, err := s.store.CascadeDevicesSiteForBuilding(txCtx, params.OrgID, identifiers, attempt.targetSiteID)
+			if err != nil {
+				return attempt, err
+			}
+			attempt.siteReassignedDeviceCount = count
+		}
+		return attempt, nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	committed, _ := result.(assignDevicesToBuildingTx)
+	if len(committed.txConflicts) > 0 {
+		return nil, committed.txConflicts, nil
+	}
+
+	if committed.rowsAffected > 0 {
+		orgIDVal := params.OrgID
+		idents := identifiers
+		if len(idents) > maxDeviceIdentifiersInMetadata {
+			idents = idents[:maxDeviceIdentifiersInMetadata]
+		}
+		metadata := map[string]any{
+			"target_building_id":           targetBuildingID,
+			"device_count":                 committed.rowsAffected,
+			"device_identifiers":           idents,
+			"site_reassigned_device_count": committed.siteReassignedDeviceCount,
+		}
+		description := fmt.Sprintf(
+			"Reassigned %d device(s) to building %s",
+			committed.rowsAffected, formatBuildingIDForDescription(targetBuildingID),
+		)
+		if len(committed.forceClearedIDs) > 0 {
+			clearedCount := len(committed.forceClearedIDs)
+			clearedIdents := committed.forceClearedIDs
+			if len(clearedIdents) > maxDeviceIdentifiersInMetadata {
+				clearedIdents = clearedIdents[:maxDeviceIdentifiersInMetadata]
+			}
+			metadata["force_cleared_rack_membership_count"] = clearedCount
+			metadata["force_cleared_device_identifiers"] = clearedIdents
+			description = fmt.Sprintf(
+				"%s (%d rack membership(s) force-cleared)",
+				description, clearedCount,
+			)
+		}
+		event := activitymodels.Event{
+			Category:       activitymodels.CategoryFleetManagement,
+			Type:           eventDevicesReassignedToBuilding,
+			OrganizationID: &orgIDVal,
+			SiteID:         committed.targetSiteID,
+			Description:    description,
+			Metadata:       metadata,
+		}
+		activity.StampActor(ctx, &event)
+		s.activitySvc.Log(ctx, event)
+	}
+
+	return &models.AssignDevicesToBuildingResult{
+		ReassignedCount:           committed.rowsAffected,
+		SiteReassignedDeviceCount: committed.siteReassignedDeviceCount,
+	}, nil, nil
+}
+
+// computeReassignBuildingConflicts mirrors sites.computeReassignConflicts
+// but compares against the requested target building_id (and the target
+// building's site_id) instead of just site_id. Returns conflicts sorted
+// by device identifier so the API response is reproducible.
+//
+// Two layers of cross-collection check, because a building has both an
+// id and a site:
+//   - rack.building_id != target_building_id  → IN_RACK_AT_OTHER_BUILDING.
+//     Covers the obvious case where the device's rack belongs to a
+//     different building.
+//   - rack.site_id != target_building.site_id → IN_RACK_AT_OTHER_SITE.
+//     Catches the rack-without-building corner: a rack at Site A with
+//     no building wouldn't trip the building-only check above, but
+//     moving the device to a building at Site B would still leave
+//     rack/site out of sync. Runs for site-less target buildings too
+//     (target site nil): a device whose rack is at a real site can't
+//     be cascaded site-less while staying in that rack, so it's
+//     flagged for force-clear.
+func (s *Service) computeReassignBuildingConflicts(ctx context.Context, orgID int64, targetBuildingID *int64, targetSiteID *int64, identifiers []string) ([]models.PerDeviceBuildingConflict, error) {
+	existingList, err := s.siteStore.ListExistingDeviceIdentifiers(ctx, orgID, identifiers)
+	if err != nil {
+		return nil, err
+	}
+	existing := make(map[string]struct{}, len(existingList))
+	for _, ident := range existingList {
+		existing[ident] = struct{}{}
+	}
+
+	// De-dupe by device identifier so a device that's both at the
+	// wrong building AND a stray site only surfaces once. Building
+	// conflict wins because the more specific reason explains the
+	// fix to the operator more clearly.
+	flagged := make(map[string]models.PerDeviceBuildingConflict)
+	for _, ident := range identifiers {
+		if _, ok := existing[ident]; !ok {
+			flagged[ident] = models.PerDeviceBuildingConflict{
+				DeviceIdentifier: ident,
+				Reason:           models.ReasonBuildingDeviceNotFound,
+			}
+		}
+	}
+
+	buildingByDevice, err := s.store.FindDeviceBuildingConflicts(ctx, orgID, identifiers)
+	if err != nil {
+		return nil, err
+	}
+	var target int64
+	if targetBuildingID != nil {
+		target = *targetBuildingID
+	}
+	for ident, buildingID := range buildingByDevice {
+		if buildingID == target {
+			continue
+		}
+		if _, ok := flagged[ident]; ok {
+			continue
+		}
+		flagged[ident] = models.PerDeviceBuildingConflict{
+			DeviceIdentifier:      ident,
+			Reason:                models.ReasonBuildingDeviceInRackAtOtherBuilding,
+			ConflictingBuildingID: buildingID,
+		}
+	}
+
+	// Building-less placed-rack guard. A device in a rack that has a
+	// site but no building (a site-level rack) is missed by the
+	// building probe above (its building_id is NULL) and by the
+	// site probe below when the target building is in the same site —
+	// yet it can't take a direct building while staying in that rack
+	// without breaking rack/device lockstep. Flag those (clearable)
+	// whenever we're assigning to a building. Fully-unassigned racks
+	// are excluded by the query: they dictate no placement.
+	if targetBuildingID != nil {
+		buildingLess, err := s.store.FindDevicesInBuildingLessPlacedRacks(ctx, orgID, identifiers)
+		if err != nil {
+			return nil, err
+		}
+		for _, ident := range buildingLess {
+			if _, ok := flagged[ident]; ok {
+				continue
+			}
+			flagged[ident] = models.PerDeviceBuildingConflict{
+				DeviceIdentifier: ident,
+				Reason:           models.ReasonBuildingDeviceInRackAtOtherBuilding,
+			}
+		}
+	}
+
+	// Cross-site rack guard. Reuses the existing site-conflict probe
+	// from SiteStore so we don't carry a parallel query family.
+	// FindDeviceSiteConflicts only returns devices whose rack has a
+	// non-NULL site, so:
+	//   - target building has a site S → flag devices whose rack site
+	//     differs from S.
+	//   - target building is site-less (targetSiteID nil) → every
+	//     returned device is a mismatch (its rack is at a real site,
+	//     the target has none). Without flagging these, the building
+	//     write would cascade device.site_id to NULL while the device
+	//     is still a member of a rack at a real site.
+	// Runs whenever we're assigning to a building (targetBuildingID
+	// != nil) — the case where the building write cascades site.
+	// Skipped on building-unassign (targetBuildingID nil): no site
+	// cascade fires there, so there's nothing to keep consistent.
+	if targetBuildingID != nil {
+		siteByDevice, err := s.siteStore.FindDeviceSiteConflicts(ctx, orgID, identifiers)
+		if err != nil {
+			return nil, err
+		}
+		for ident, siteID := range siteByDevice {
+			if targetSiteID != nil && siteID == *targetSiteID {
+				continue
+			}
+			if _, ok := flagged[ident]; ok {
+				continue
+			}
+			flagged[ident] = models.PerDeviceBuildingConflict{
+				DeviceIdentifier: ident,
+				Reason:           models.ReasonBuildingDeviceInRackAtOtherSite,
+				// ConflictingBuildingID intentionally 0 — the rack has
+				// no building, only a site mismatch. The client uses
+				// the reason enum to render the dialog, not the id.
+			}
+		}
+
+		// Fully-unassigned rack guard. FindDeviceSiteConflicts (rack
+		// site set) and FindDevicesInBuildingLessPlacedRacks (rack site
+		// set, building null) both require a non-NULL rack site, so a
+		// device in a rack with NEITHER site nor building slips past
+		// both. Assigning it to a building cascades device.site_id to
+		// the building's site, leaving the device with a site while
+		// still in a site-less rack. Flag those (clearable) so the
+		// force-clear path drops the rack membership first.
+		//
+		// FindDevicesInSiteLessRacks keys only on rack.site_id IS NULL,
+		// which ALSO matches a rack in a site-less building (its site is
+		// NULL but its building is set). Skip those: a device whose rack
+		// has a building is already handled by the building-conflict
+		// branch above (same building → no conflict, so it stays out of
+		// `flagged`; different building → already flagged there). Only a
+		// rack with no building at all (absent from buildingByDevice) is
+		// the genuinely-unassigned case this guard targets.
+		siteLess, err := s.siteStore.FindDevicesInSiteLessRacks(ctx, orgID, identifiers)
+		if err != nil {
+			return nil, err
+		}
+		for _, ident := range siteLess {
+			if _, ok := flagged[ident]; ok {
+				continue
+			}
+			if _, rackHasBuilding := buildingByDevice[ident]; rackHasBuilding {
+				continue
+			}
+			flagged[ident] = models.PerDeviceBuildingConflict{
+				DeviceIdentifier: ident,
+				Reason:           models.ReasonBuildingDeviceInRackAtOtherSite,
+			}
+		}
+	}
+
+	conflicts := make([]models.PerDeviceBuildingConflict, 0, len(flagged))
+	for _, c := range flagged {
+		conflicts = append(conflicts, c)
+	}
+	sort.Slice(conflicts, func(i, j int) bool {
+		return conflicts[i].DeviceIdentifier < conflicts[j].DeviceIdentifier
+	})
+	return conflicts, nil
+}
+
+// partitionClearableBuildingConflicts splits force-clear conflicts into
+// the device identifiers whose rack membership can be dropped to resolve
+// the conflict (IN_RACK_AT_OTHER_BUILDING / IN_RACK_AT_OTHER_SITE — the
+// fix is the same, drop the rack row) and the residual non-clearable
+// conflicts (e.g. DEVICE_NOT_FOUND) that must still abort the batch.
+func partitionClearableBuildingConflicts(conflicts []models.PerDeviceBuildingConflict) (clearableIDs []string, residual []models.PerDeviceBuildingConflict) {
+	for _, c := range conflicts {
+		if c.Reason == models.ReasonBuildingDeviceInRackAtOtherBuilding ||
+			c.Reason == models.ReasonBuildingDeviceInRackAtOtherSite {
+			clearableIDs = append(clearableIDs, c.DeviceIdentifier)
+			continue
+		}
+		residual = append(residual, c)
+	}
+	return clearableIDs, residual
+}
+
+// dedupeStrings collapses duplicates from the operator's input list.
+// Caller is responsible for any downstream ordering — AssignDevicesToBuilding
+// sorts the result for deadlock-safe lock acquisition, and the conflict
+// response is sorted by identifier separately.
+func dedupeStrings(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
+func formatBuildingIDForDescription(target *int64) string {
+	if target == nil {
+		return "Unassigned"
+	}
+	return fmt.Sprintf("%d", *target)
+}
+
 // DeleteBuilding soft-deletes the building and cascade-unassigns its
 // racks in one transaction. Returns the impact count.
 func (s *Service) DeleteBuilding(ctx context.Context, orgID, id int64) (*models.DeleteResult, error) {
 	var out models.DeleteResult
+	var siteID *int64
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		rowsAffected, err := s.store.SoftDeleteBuilding(txCtx, orgID, id)
+		// Soft-delete returns the deleted row's site_id so the audit row is
+		// stamped with the site actually deleted (the building is site-scoped;
+		// without this the delete event would fall into the unassigned bucket).
+		// Reading the site as part of the same UPDATE … RETURNING is race-free —
+		// a concurrent site move can't slip between a separate read and the
+		// delete.
+		sid, found, err := s.store.SoftDeleteBuilding(txCtx, orgID, id)
 		if err != nil {
 			return err
 		}
-		if rowsAffected == 0 {
+		if !found {
 			return fleeterror.NewNotFoundErrorf("building %d not found", id)
 		}
+		siteID = sid
 		rackCount, err := s.store.UnassignRacksFromBuilding(txCtx, orgID, id)
 		if err != nil {
 			return err
 		}
 		out.UnassignedRackCount = rackCount
+		// Building soft-delete leaves device.building_id FK rows
+		// pointing at the now-soft-deleted row (FK only fires on hard
+		// delete). Clear them in the same tx so direct-FK devices
+		// don't outlive their building. Rack-membership devices are
+		// handled separately by the rack-level building cascade.
+		if _, err := s.store.ClearDeviceBuildingsByBuilding(txCtx, orgID, id); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
@@ -650,6 +1176,9 @@ func (s *Service) DeleteBuilding(ctx context.Context, orgID, id int64) (*models.
 		Category:       activitymodels.CategoryFleetManagement,
 		Type:           eventBuildingDeleted,
 		OrganizationID: &orgIDVal,
+		// Site captured pre-delete so the row scopes to /{site}/activity
+		// (nil only when the building was itself unassigned).
+		SiteID: siteID,
 		Description: fmt.Sprintf(
 			"Deleted building %d (%d racks unassigned)",
 			buildingIDVal, out.UnassignedRackCount,
@@ -852,6 +1381,19 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 		stats.OfflineCount = counts.OfflineCount
 		stats.SleepingCount = counts.SleepingCount
 
+		componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{
+			Kind: interfaces.ComponentErrorScopeBuildings,
+			IDs:  []int64{buildingID},
+		})
+		if err != nil {
+			return nil, err
+		}
+		issues := devicerollup.AggregateComponentIssueCounts(componentCounts, buildingID)
+		stats.ControlBoardIssueCount = issues.ControlBoardIssueCount
+		stats.FanIssueCount = issues.FanIssueCount
+		stats.HashBoardIssueCount = issues.HashBoardIssueCount
+		stats.PsuIssueCount = issues.PsuIssueCount
+
 		telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
 		metrics, err := s.telemetry.GetLatestDeviceMetrics(ctx, telemetryIDs)
 		if err != nil {
@@ -862,9 +1404,12 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 		stats.HashrateReportingCount = rollup.HashrateReportingCount
 		stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
 		stats.PowerReportingCount = rollup.PowerReportingCount
+		stats.TemperatureReportingCount = rollup.TemperatureReportingCount
 		stats.TotalHashrateThs = rollup.TotalHashrateThs
 		stats.TotalPowerKw = rollup.TotalPowerKw
 		stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
+		stats.MinTemperatureC = rollup.MinTemperatureC
+		stats.MaxTemperatureC = rollup.MaxTemperatureC
 	}
 
 	// Belt-and-braces: re-read the building after all the rollup queries.
@@ -886,4 +1431,145 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	}
 
 	return stats, nil
+}
+
+func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.BuildingWithCounts, includeStatsForSite ListStatsAuthorizer, requireTelemetry bool) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	buildingIDs := make([]int64, 0, len(rows))
+	deviceIDsByBuilding := make(map[int64][]string, len(rows))
+	uniqueDeviceIDs := make(map[string]struct{})
+	for i := range rows {
+		buildingID := rows[i].Building.ID
+		if !includeStatsForSite(rows[i].Building.SiteID) {
+			continue
+		}
+		buildingIDs = append(buildingIDs, buildingID)
+		rows[i].ListStats = &models.FleetListStats{
+			RackCount: int32(rows[i].RackCount), //nolint:gosec // bounded by org capacity
+		}
+
+		filter := &interfaces.MinerFilter{
+			BuildingIDs: []int64{buildingID},
+			PairingStatuses: []fm.PairingStatus{
+				fm.PairingStatus_PAIRING_STATUS_PAIRED,
+				fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+				fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+			},
+			Limit: MaxDevicesPerStatsResponse + 1,
+		}
+		if rows[i].Building.SiteID != nil {
+			filter.SiteIDs = []int64{*rows[i].Building.SiteID}
+		} else {
+			filter.IncludeUnassigned = true
+		}
+
+		deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, filter)
+		if err != nil {
+			return err
+		}
+		if len(deviceIDs) > MaxDevicesPerStatsResponse {
+			return fleeterror.NewInternalErrorf("building %d exceeded the %d device cap", buildingID, MaxDevicesPerStatsResponse)
+		}
+		deviceIDsByBuilding[buildingID] = deviceIDs
+		for _, id := range deviceIDs {
+			uniqueDeviceIDs[id] = struct{}{}
+		}
+	}
+	if len(buildingIDs) == 0 {
+		return nil
+	}
+
+	componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{
+		Kind: interfaces.ComponentErrorScopeBuildings,
+		IDs:  buildingIDs,
+	})
+	if err != nil {
+		return err
+	}
+
+	var metrics map[minerModels.DeviceIdentifier]telemetrymodels.DeviceMetrics
+	if len(uniqueDeviceIDs) > 0 {
+		uniqueTelemetryIDs := make([]string, 0, len(uniqueDeviceIDs))
+		for id := range uniqueDeviceIDs {
+			uniqueTelemetryIDs = append(uniqueTelemetryIDs, id)
+		}
+		metrics, err = s.telemetry.GetLatestDeviceMetrics(ctx, devicerollup.ToDeviceIdentifiers(uniqueTelemetryIDs))
+		if err != nil {
+			if requireTelemetry {
+				return fleeterror.NewInternalErrorf("failed to fetch building list telemetry: %v", err)
+			}
+			slog.WarnContext(ctx, "failed to fetch building list telemetry", "error", err)
+			metrics = nil
+		}
+	}
+
+	for i := range rows {
+		stats := rows[i].ListStats
+		if stats == nil {
+			continue
+		}
+		buildingID := rows[i].Building.ID
+		deviceIDs := deviceIDsByBuilding[buildingID]
+		stats.DeviceCount = int32(len(deviceIDs)) //nolint:gosec // bounded by cap above
+		if len(deviceIDs) > 0 {
+			counts, err := s.deviceQueryer.GetMinerStateCountsByDeviceIDs(ctx, orgID, deviceIDs)
+			if err != nil {
+				return err
+			}
+			stats.HashingCount = counts.HashingCount
+			stats.BrokenCount = counts.BrokenCount
+			stats.OfflineCount = counts.OfflineCount
+			stats.SleepingCount = counts.SleepingCount
+
+			telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
+			rollup := devicerollup.AggregateLatestMetrics(metrics, telemetryIDs)
+			stats.ReportingCount = rollup.ReportingCount
+			stats.HashrateReportingCount = rollup.HashrateReportingCount
+			stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
+			stats.PowerReportingCount = rollup.PowerReportingCount
+			stats.TemperatureReportingCount = rollup.TemperatureReportingCount
+			stats.TotalHashrateThs = rollup.TotalHashrateThs
+			stats.TotalPowerKw = rollup.TotalPowerKw
+			stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
+			stats.MinTemperatureC = rollup.MinTemperatureC
+			stats.MaxTemperatureC = rollup.MaxTemperatureC
+		}
+		issues := devicerollup.AggregateComponentIssueCounts(componentCounts, buildingID)
+		stats.ControlBoardIssueCount = issues.ControlBoardIssueCount
+		stats.FanIssueCount = issues.FanIssueCount
+		stats.HashBoardIssueCount = issues.HashBoardIssueCount
+		stats.PsuIssueCount = issues.PsuIssueCount
+	}
+	return nil
+}
+
+func filterBuildingRowsByListStats(rows []models.BuildingWithCounts, filter fleetlistfilter.Filter) []models.BuildingWithCounts {
+	out := rows[:0]
+	for _, row := range rows {
+		if row.ListStats == nil {
+			continue
+		}
+		stats := row.ListStats
+		if fleetlistfilter.Matches(fleetlistfilter.Stats{
+			HashrateReportingCount:    stats.HashrateReportingCount,
+			EfficiencyReportingCount:  stats.EfficiencyReportingCount,
+			PowerReportingCount:       stats.PowerReportingCount,
+			TemperatureReportingCount: stats.TemperatureReportingCount,
+			TotalHashrateThs:          stats.TotalHashrateThs,
+			AvgEfficiencyJth:          stats.AvgEfficiencyJth,
+			TotalPowerKw:              stats.TotalPowerKw,
+			MinTemperatureC:           stats.MinTemperatureC,
+			MaxTemperatureC:           stats.MaxTemperatureC,
+			ControlBoardIssueCount:    stats.ControlBoardIssueCount,
+			FanIssueCount:             stats.FanIssueCount,
+			HashBoardIssueCount:       stats.HashBoardIssueCount,
+			PsuIssueCount:             stats.PsuIssueCount,
+		}, filter) {
+			out = append(out, row)
+		}
+	}
+	return out
 }

@@ -17,6 +17,12 @@ services:
       SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
+      ENABLE_VIRTUAL_MINERS: "${ENABLE_VIRTUAL_MINERS:-false}"
+      VIRTUAL_MINER_CONFIG: "/app/plugins/virtual-plugin.json"
+      VIRTUAL_MINER_COUNT: "${VIRTUAL_MINER_COUNT:-}"
+      VIRTUAL_MINER_IP_START: "${VIRTUAL_MINER_IP_START:-}"
+      VIRTUAL_MINER_SERIAL_PREFIX: "${VIRTUAL_MINER_SERIAL_PREFIX:-}"
+      VIRTUAL_MINER_BASELINE_VARIANCE_PERCENT: "${VIRTUAL_MINER_BASELINE_VARIANCE_PERCENT:-}"
     depends_on:
       timescaledb:
         condition: service_healthy

@@ -5,16 +5,16 @@ import (
 	"errors"
 	"fmt"
 
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
+
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
-	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
-	"google.golang.org/grpc/codes"
-	grpcstatus "google.golang.org/grpc/status"
 )
 
 // PluginDriverGetter defines the interface for getting SDK drivers
@@ -37,17 +37,15 @@ type PluginMinerConfig struct {
 	MacAddress         string
 
 	// Credentials (encrypted)
-	DeviceUsername string // May be empty for Proto
-	DevicePassword string // May be empty for Proto
-	OrgID          int64  // Organization ID for retrieving Proto private key
-	SiteID         int64  // Site the device is placed at; 0 when unassigned
+	DeviceUsername string
+	DevicePassword string
+	OrgID          int64
+	SiteID         int64 // Site the device is placed at; 0 when unassigned
 
 	// Services and dependencies
-	EncryptService   *encrypt.Service
-	TokenService     *token.Service // Required for Proto miners to generate JWT tokens
-	FilesService     *files.Service
-	GetOrgPrivateKey func(ctx context.Context, orgID int64) ([]byte, error)
-	DriverGetter     PluginDriverGetter
+	EncryptService *encrypt.Service
+	FilesService   *files.Service
+	DriverGetter   PluginDriverGetter
 }
 
 // NewPluginMinerWithCredentials creates a PluginMiner from the provided configuration.
@@ -75,12 +73,6 @@ func NewPluginMinerWithCredentials(
 		return nil, fmt.Errorf("failed to create connection info: %w", err)
 	}
 
-	// Get the plugin driver for this device's driver name
-	driver, err := config.DriverGetter.GetDriverByDriverName(config.DriverName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get plugin driver: %w", err)
-	}
-
 	// Build SDK DeviceInfo from database fields
 	sdkDeviceInfo := sdk.DeviceInfo{
 		Host:         config.DeviceIPAddress,
@@ -90,34 +82,16 @@ func NewPluginMinerWithCredentials(
 		MacAddress:   config.MacAddress,
 	}
 
-	// Build SDK SecretBundle from stored credentials.
-	// Asymmetric auth devices (e.g., Proto) use Ed25519-signed JWT bearer tokens,
-	// where the org's private key signs a JWT that the miner validates using the
-	// public key it received during pairing.
-	var secretBundle sdk.SecretBundle
+	// Build SDK SecretBundle from stored credentials. Regular Proto resolution
+	// requires persisted credentials; password remediation may pass a transient
+	// current-password secret through the command-specific resolver.
+	secretBundle := sdk.SecretBundle{Version: "v1"}
 
-	if config.Caps[sdk.CapabilityAsymmetricAuth] {
-		if config.TokenService == nil {
-			return nil, fmt.Errorf("TokenService is required for asymmetric auth but was nil")
-		}
-		if config.DeviceSerialNumber == "" {
-			return nil, fmt.Errorf("DeviceSerialNumber is required for JWT generation")
-		}
+	if config.Caps[sdk.CapabilityBasicAuth] && (config.DeviceUsername == "" || config.DevicePassword == "") {
+		return nil, fleeterror.NewUnauthenticatedErrorf("device %s credentials are required", config.DeviceIdentifier)
+	}
 
-		privateKey, err := config.GetOrgPrivateKey(ctx, config.OrgID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get org private key: %w", err)
-		}
-
-		jwtToken, _, err := config.TokenService.GenerateMinerAuthJWT(config.DeviceSerialNumber, privateKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate JWT: %w", err)
-		}
-
-		secretBundle.Kind = sdk.BearerToken{
-			Token: jwtToken,
-		}
-	} else if config.DeviceUsername != "" && config.DevicePassword != "" {
+	if config.DeviceUsername != "" && config.DevicePassword != "" {
 		decryptedUsername, err := config.EncryptService.Decrypt(config.DeviceUsername)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decrypt username: %w", err)
@@ -135,6 +109,12 @@ func NewPluginMinerWithCredentials(
 
 	if config.FilesService == nil {
 		return nil, fmt.Errorf("FilesService is required but was nil")
+	}
+
+	// Get the plugin driver for this device's driver name
+	driver, err := config.DriverGetter.GetDriverByDriverName(config.DriverName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get plugin driver: %w", err)
 	}
 
 	// Create the SDK device via the plugin driver, which establishes the connection

@@ -2,9 +2,8 @@ import Button, { variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
 interface SitesEmptyStateProps {
-  // Phase 1a leaves the CTA wired but inert — site creation lands in #261.
-  // Passing onAddSite is optional so each page (`/sites` and
-  // `/settings/sites`) can plug in once the create modal exists.
+  // Passing onAddSite is optional so pages can hide or wire the CTA based on
+  // the active site scope.
   onAddSite?: () => void;
 }
 

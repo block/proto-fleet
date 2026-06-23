@@ -3,22 +3,37 @@ import { useNavigate } from "react-router-dom";
 
 import FleetGroupActionsMenu from "../FleetGroupActionsMenu";
 import { type RowAction } from "../RowActionsMenu";
+import { type FleetListStats } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
 import { type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { createSiteColConfig } from "@/protoFleet/features/fleetManagement/components/SiteList/siteColConfig";
+import { siteTabHref } from "@/protoFleet/features/fleetManagement/utils/fleetTabLinks";
+import { useTemperatureUnit } from "@/protoFleet/store";
 import { ArrowRight, Edit } from "@/shared/assets/icons";
 import List, { type SelectionMode } from "@/shared/components/List";
-import { type ColConfig, type ColTitles } from "@/shared/components/List/types";
+import { type ColTitles } from "@/shared/components/List/types";
 
-type SiteListItem = {
+export type SiteListItem = {
   id: string;
   site: SiteWithCounts;
+  stats?: FleetListStats;
 };
 
-type SiteColumn = "name" | "miners" | "issues" | "hashrate" | "efficiency" | "power" | "temperature" | "health";
-
-const INACTIVE_PLACEHOLDER = "—";
+export type SiteColumn =
+  | "name"
+  | "buildings"
+  | "racks"
+  | "miners"
+  | "issues"
+  | "hashrate"
+  | "efficiency"
+  | "power"
+  | "temperature"
+  | "health";
 
 const COL_TITLES: ColTitles<SiteColumn> = {
   name: "Name",
+  buildings: "Buildings",
+  racks: "Racks",
   miners: "Miners",
   issues: "Issues",
   hashrate: "Total Hashrate",
@@ -30,6 +45,8 @@ const COL_TITLES: ColTitles<SiteColumn> = {
 
 const ACTIVE_COLS: SiteColumn[] = [
   "name",
+  "buildings",
+  "racks",
   "miners",
   "issues",
   "hashrate",
@@ -49,12 +66,16 @@ interface SiteListProps {
 
 const SiteList = ({ sites, emptyStateRow, onEditSite, selectedIds, onSelectedIdsChange }: SiteListProps) => {
   const navigate = useNavigate();
+  const temperatureUnit = useTemperatureUnit();
 
   const items: SiteListItem[] = useMemo(
     () =>
       [...sites]
         .sort((a, b) => (a.site?.name ?? "").localeCompare(b.site?.name ?? ""))
-        .map((site) => ({ id: (site.site?.id ?? 0n).toString(), site })),
+        .map((site) => {
+          const siteId = site.site?.id ?? 0n;
+          return { id: siteId.toString(), site, stats: site.listStats };
+        }),
     [sites],
   );
 
@@ -67,13 +88,13 @@ const SiteList = ({ sites, emptyStateRow, onEditSite, selectedIds, onSelectedIds
         {
           label: "View buildings",
           icon: <ArrowRight />,
-          onClick: () => navigate(`/fleet/buildings?site=${item.id}`),
+          onClick: () => navigate(siteTabHref("buildings", item.id)),
         },
-        { label: "View racks", icon: <ArrowRight />, onClick: () => navigate(`/racks?site=${item.id}`) },
+        { label: "View racks", icon: <ArrowRight />, onClick: () => navigate(siteTabHref("racks", item.id)) },
         {
           label: "View miners",
           icon: <ArrowRight />,
-          onClick: () => navigate(`/miners?site=${item.id}`),
+          onClick: () => navigate(siteTabHref("miners", item.id)),
           showGroupDivider: true,
         },
         {
@@ -87,41 +108,28 @@ const SiteList = ({ sites, emptyStateRow, onEditSite, selectedIds, onSelectedIds
     [navigate, onEditSite],
   );
 
-  const colConfig = useMemo<ColConfig<SiteListItem, string, SiteColumn>>(
-    () => ({
-      name: {
-        component: (item) => {
-          const siteId = item.site.site?.id;
-          const siteName = item.site.site?.name ?? "(unnamed)";
-          return (
-            <div className="grid w-full grid-cols-[1fr_auto] items-center gap-2">
-              <span className="truncate text-emphasis-300">{siteName}</span>
-              {siteId !== undefined && siteId !== 0n ? (
-                <FleetGroupActionsMenu
-                  scopes={[{ kind: "site", id: siteId, name: siteName }]}
-                  ariaLabel={`Actions for ${siteName}`}
-                  testIdPrefix={`site-list-row-${item.id}-actions`}
-                  extraActions={buildExtraActions(item)}
-                />
-              ) : null}
-            </div>
-          );
-        },
-        width: "min-w-44",
-      },
-      miners: {
-        component: (item) => <span>{item.site.deviceCount.toString()}</span>,
-        width: "min-w-20",
-      },
-      issues: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-20" },
-      hashrate: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-28" },
-      efficiency: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-28" },
-      power: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-24" },
-      temperature: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-28" },
-      health: { component: () => <span>{INACTIVE_PLACEHOLDER}</span>, width: "min-w-32" },
-    }),
+  const renderName = useCallback(
+    (item: SiteListItem) => {
+      const siteId = item.site.site?.id;
+      const siteName = item.site.site?.name ?? "(unnamed)";
+      return (
+        <div className="grid w-full grid-cols-[1fr_auto] items-center gap-2">
+          <span className="truncate text-emphasis-300">{siteName}</span>
+          {siteId !== undefined && siteId !== 0n ? (
+            <FleetGroupActionsMenu
+              scopes={[{ kind: "site", id: siteId, name: siteName }]}
+              ariaLabel={`Actions for ${siteName}`}
+              testIdPrefix={`site-list-row-${item.id}-actions`}
+              extraActions={buildExtraActions(item)}
+            />
+          ) : null}
+        </div>
+      );
+    },
     [buildExtraActions],
   );
+
+  const colConfig = useMemo(() => createSiteColConfig(renderName, temperatureUnit), [renderName, temperatureUnit]);
 
   const handleRowClick = useCallback((item: SiteListItem) => navigate(`/sites/${item.id}`), [navigate]);
   const isSelectableSite = useCallback((item: SiteListItem) => {
@@ -139,6 +147,12 @@ const SiteList = ({ sites, emptyStateRow, onEditSite, selectedIds, onSelectedIds
     onRowClick: handleRowClick,
     emptyStateRow,
     paddingLeft: { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" },
+    // Page-scroll mode: the Fleet shell is the single scroll container. An
+    // overflow wrapper here would trap the sticky <thead> in a nested scroll
+    // context (overflow-x:* computes overflow-y to auto), so the header would
+    // not stick to the page. Let wide tables scroll the page horizontally
+    // instead — the sticky-left chrome (FilterRow, header) is built for that.
+    overflowContainer: false,
   };
 
   if (selectedIds !== undefined && onSelectedIdsChange !== undefined) {

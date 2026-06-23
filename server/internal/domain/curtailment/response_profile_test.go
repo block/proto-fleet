@@ -30,6 +30,7 @@ func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
 			CurtailBatchIntervalSec: 15,
 			RestoreBatchSize:        25,
 			RestoreBatchIntervalSec: 30,
+			PostEventCooldownSec:    600,
 		},
 	})
 
@@ -47,9 +48,11 @@ func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
 	assert.Equal(t, int32(15), profile.CurtailBatchIntervalSec)
 	assert.Equal(t, int32(25), profile.RestoreBatchSize)
 	assert.Equal(t, int32(30), profile.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(600), profile.PostEventCooldownSec)
 	require.NotNil(t, store.created)
 	assert.Equal(t, int64(42), store.created.OrgID)
 	assert.Equal(t, int64(7), store.siteCheckSiteID)
+	assert.Equal(t, int32(600), store.created.PostEventCooldownSec)
 }
 
 func TestResponseProfileService_CreateAllowsWholeOrgScope(t *testing.T) {
@@ -97,6 +100,7 @@ func TestResponseProfileService_CreateAppliesBackendBatchDefaultsWithoutOverwrit
 	assert.Equal(t, DefaultResponseProfileCurtailBatchIntervalSec, profile.CurtailBatchIntervalSec)
 	assert.Equal(t, DefaultResponseProfileRestoreBatchSize, profile.RestoreBatchSize)
 	assert.Equal(t, int32(0), profile.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), profile.PostEventCooldownSec)
 }
 
 func TestResponseProfileService_UpdatePreservesImmediateRestoreInterval(t *testing.T) {
@@ -208,6 +212,25 @@ func TestResponseProfileService_CreateRejectsPersistedNumericOverflow(t *testing
 	}
 }
 
+func TestResponseProfileService_CreateRejectsPostEventCooldownOverLimit(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 1000.0
+	_, err := NewResponseProfileService(newResponseProfileFakeStore()).Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:                42,
+			ProfileName:          "Standard shed",
+			Mode:                 models.ModeFixedKw,
+			TargetKW:             &targetKW,
+			PostEventCooldownSec: MaxPostEventCooldownSec + 1,
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "post_event_cooldown_sec")
+}
+
 func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 	t.Parallel()
 
@@ -237,6 +260,13 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 			mutate: func(profile *models.ResponseProfile) {
 				profile.IncludeMaintenance = true
 				profile.ForceIncludeMaintenance = true
+			},
+		},
+		{
+			name: "full fleet mode",
+			mutate: func(profile *models.ResponseProfile) {
+				profile.Mode = models.ModeFullFleet
+				profile.TargetKW = nil
 			},
 		},
 	}

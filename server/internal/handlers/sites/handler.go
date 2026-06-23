@@ -11,6 +11,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -28,12 +29,20 @@ func NewHandler(service *sites.Service) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) ListSites(ctx context.Context, _ *connect.Request[pb.ListSitesRequest]) (*connect.Response[pb.ListSitesResponse], error) {
+func (h *Handler) ListSites(ctx context.Context, req *connect.Request[pb.ListSitesRequest]) (*connect.Response[pb.ListSitesResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	out, err := h.service.ListSites(ctx, info.OrganizationID)
+	statsFilter, err := fleetlistfilter.Parse(req.Msg.GetErrorComponentTypes(), req.Msg.GetTelemetryRanges())
+	if err != nil {
+		return nil, err
+	}
+	includeStatsForSite := func(siteID int64) bool {
+		_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: &siteID})
+		return err == nil
+	}
+	out, err := h.service.ListSites(ctx, info.OrganizationID, statsFilter, includeStatsForSite)
 	if err != nil {
 		return nil, err
 	}
@@ -161,19 +170,27 @@ func (h *Handler) GetSiteStats(ctx context.Context, req *connect.Request[pb.GetS
 		return nil, err
 	}
 	return connect.NewResponse(&pb.GetSiteStatsResponse{
-		SiteId:                   out.SiteID,
-		BuildingCount:            out.BuildingCount,
-		DeviceCount:              out.DeviceCount,
-		ReportingCount:           out.ReportingCount,
-		HashrateReportingCount:   out.HashrateReportingCount,
-		EfficiencyReportingCount: out.EfficiencyReportingCount,
-		PowerReportingCount:      out.PowerReportingCount,
-		TotalHashrateThs:         out.TotalHashrateThs,
-		AvgEfficiencyJth:         out.AvgEfficiencyJth,
-		TotalPowerKw:             out.TotalPowerKw,
-		HashingCount:             out.HashingCount,
-		BrokenCount:              out.BrokenCount,
-		OfflineCount:             out.OfflineCount,
-		SleepingCount:            out.SleepingCount,
+		SiteId:                    out.SiteID,
+		BuildingCount:             out.BuildingCount,
+		DeviceCount:               out.DeviceCount,
+		ReportingCount:            out.ReportingCount,
+		HashrateReportingCount:    out.HashrateReportingCount,
+		EfficiencyReportingCount:  out.EfficiencyReportingCount,
+		PowerReportingCount:       out.PowerReportingCount,
+		TemperatureReportingCount: out.TemperatureReportingCount,
+		TotalHashrateThs:          out.TotalHashrateThs,
+		AvgEfficiencyJth:          out.AvgEfficiencyJth,
+		TotalPowerKw:              out.TotalPowerKw,
+		MinTemperatureC:           out.MinTemperatureC,
+		MaxTemperatureC:           out.MaxTemperatureC,
+		HashingCount:              out.HashingCount,
+		BrokenCount:               out.BrokenCount,
+		OfflineCount:              out.OfflineCount,
+		SleepingCount:             out.SleepingCount,
+		ControlBoardIssueCount:    out.ControlBoardIssueCount,
+		FanIssueCount:             out.FanIssueCount,
+		HashBoardIssueCount:       out.HashBoardIssueCount,
+		PsuIssueCount:             out.PsuIssueCount,
+		RackCount:                 out.RackCount,
 	}), nil
 }

@@ -4,10 +4,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POLL_INTERVAL_MS } from "./constants";
 import Fleet from "./Fleet";
 
-const { mockMinerList, mockRefetchAuthNeededMiners, mockRefetchErrors } = vi.hoisted(() => ({
+const {
+  mockMinerList,
+  mockRefetchAuthNeededMiners,
+  mockRefetchErrors,
+  mockListAllBuildings,
+  mockUseHasPermission,
+  mockFleetOutletContext,
+} = vi.hoisted(() => ({
   mockMinerList: vi.fn(() => <div data-testid="miner-list">MinerList</div>),
   mockRefetchAuthNeededMiners: vi.fn(),
   mockRefetchErrors: vi.fn(),
+  mockListAllBuildings: vi.fn(),
+  mockUseHasPermission: vi.fn((_permission: string) => true),
+  mockFleetOutletContext: {
+    sites: [],
+    sitesError: null,
+    sitesLoaded: true,
+    siteCatalogAccessGranted: true,
+    refetchSites: vi.fn(),
+    notifyPairingCompleted: vi.fn(),
+    minersChangedAt: 0,
+    publishViewFilterContext: vi.fn(),
+  },
 }));
 
 // Mock all dependencies
@@ -41,8 +60,15 @@ vi.mock("@/protoFleet/store", () => ({
   useCompleteBatchOperation: vi.fn(() => vi.fn()),
   useRemoveDevicesFromBatch: vi.fn(() => vi.fn()),
   useCleanupStaleBatches: vi.fn(() => vi.fn()),
+  useHasPermission: mockUseHasPermission,
   getActiveBatches: vi.fn(() => []),
   getAllBatches: vi.fn(() => []),
+}));
+
+vi.mock("@/protoFleet/api/buildings", () => ({
+  useBuildings: vi.fn(() => ({
+    listAllBuildings: mockListAllBuildings,
+  })),
 }));
 
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
@@ -72,14 +98,7 @@ vi.mock("@/protoFleet/features/fleetManagement/components/MinerList", () => ({
 // Fleet now reads pairing/refetch coordination from FleetLayout's outlet
 // context; stub the hook so the component can mount without a real layout.
 vi.mock("@/protoFleet/features/fleetManagement/components/FleetLayout", () => ({
-  useFleetOutletContext: () => ({
-    sites: [],
-    sitesError: null,
-    sitesLoaded: true,
-    refetchSites: vi.fn(),
-    notifyPairingCompleted: vi.fn(),
-    minersChangedAt: 0,
-  }),
+  useFleetOutletContext: () => mockFleetOutletContext,
 }));
 
 vi.mock("@/protoFleet/features/onboarding/components/Miners", () => ({
@@ -123,6 +142,13 @@ describe("Fleet - Polling", () => {
     vi.resetModules();
     vi.clearAllMocks();
     vi.useFakeTimers();
+    Object.assign(mockFleetOutletContext, {
+      sites: [],
+      sitesError: null,
+      sitesLoaded: true,
+      siteCatalogAccessGranted: true,
+      minersChangedAt: 0,
+    });
 
     mockRefreshCurrentPage = vi.fn();
   });
@@ -226,6 +252,7 @@ describe("Fleet - Component Integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockMinerList.mockClear();
+    mockUseHasPermission.mockReturnValue(true);
   });
 
   it("should render MinerList component", () => {
@@ -286,5 +313,14 @@ describe("Fleet - Component Integration", () => {
     expect(mockRefetchErrors).toHaveBeenCalledTimes(1);
     expect(mockRefetchAuthNeededMiners).toHaveBeenCalledTimes(1);
     expect(mockRefetch).not.toHaveBeenCalled();
+  });
+
+  it("does not request building filter labels until org-scoped site catalog access is confirmed", async () => {
+    mockUseHasPermission.mockImplementation(() => true);
+    mockFleetOutletContext.siteCatalogAccessGranted = false;
+
+    renderFleet();
+
+    expect(mockListAllBuildings).not.toHaveBeenCalled();
   });
 });

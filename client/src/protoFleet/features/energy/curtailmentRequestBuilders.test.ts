@@ -58,14 +58,34 @@ describe("curtailmentRequestBuilders", () => {
       ...baseValues,
       minDurationSec: "300",
       maxDurationSec: "1800",
+      curtailBatchSize: "25",
+      curtailBatchIntervalSec: "60",
       restoreBatchSize: "10",
       restoreIntervalSec: "120",
     });
 
     expect(request.minCurtailedDurationSec).toBe(300);
     expect(request.maxDurationSeconds).toBe(1800);
+    expect(request.curtailBatchSize).toBe(25);
+    expect(request.curtailBatchIntervalSec).toBe(60);
     expect(request.restoreBatchSize).toBe(10);
     expect(request.restoreBatchIntervalSec).toBe(120);
+  });
+
+  it("omits curtail batch settings when the start form leaves them blank", () => {
+    const request = buildStartCurtailmentRequest(baseValues);
+
+    expect(request.curtailBatchSize).toBeUndefined();
+    expect(request.curtailBatchIntervalSec).toBeUndefined();
+  });
+
+  it("requires curtail batch size when the interval field is present", () => {
+    expect(() =>
+      buildStartCurtailmentRequest({
+        ...baseValues,
+        curtailBatchIntervalSec: "0",
+      }),
+    ).toThrow("Enter curtail batch size before adding a curtail batch interval.");
   });
 
   it("keeps unsupported scope state from falling back to the whole fleet", () => {
@@ -117,6 +137,28 @@ describe("curtailmentRequestBuilders", () => {
   });
 
   it("rejects invalid uint32-backed settings", () => {
+    expect(() =>
+      buildStartCurtailmentRequest({
+        ...baseValues,
+        curtailBatchSize: "0",
+      }),
+    ).toThrow("Enter curtail batch size greater than 0.");
+
+    expect(() =>
+      buildStartCurtailmentRequest({
+        ...baseValues,
+        curtailBatchIntervalSec: "30",
+      }),
+    ).toThrow("Enter curtail batch size before adding a curtail batch interval.");
+
+    expect(() =>
+      buildStartCurtailmentRequest({
+        ...baseValues,
+        curtailBatchSize: "5",
+        curtailBatchIntervalSec: "3601",
+      }),
+    ).toThrow("Enter curtail batch interval of 3,600 or less.");
+
     expect(() =>
       buildStartCurtailmentRequest({
         ...baseValues,

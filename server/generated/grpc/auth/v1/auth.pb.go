@@ -822,12 +822,14 @@ type UserInfo struct {
 	Role string `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`
 	// Indicates whether the user must change their password
 	RequiresPasswordChange bool `protobuf:"varint,6,opt,name=requires_password_change,json=requiresPasswordChange,proto3" json:"requires_password_change,omitempty"`
-	// Effective permission keys for the caller, sorted. Populated only
-	// when the UserInfo represents the caller's own identity (e.g. the
-	// Authenticate response). Other surfaces that return UserInfo for
-	// peer users (ListUsers) leave this empty: per-user permission
-	// queries belong on a dedicated authz RPC, not bundled into peer
-	// listing where they would leak authority across the org.
+	// Org/default-scoped permission keys for the caller, sorted. Populated
+	// only when the UserInfo represents the caller's own identity (e.g. the
+	// Authenticate response). Other surfaces that return UserInfo for peer
+	// users (ListUsers) leave this empty: per-user permission queries belong
+	// on a dedicated authz RPC, not bundled into peer listing where they
+	// would leak authority across the org. Future narrower scopes (site,
+	// building) should be exposed through dedicated resource-scoped fields
+	// or RPCs instead of broadening this default projection.
 	Permissions   []string `protobuf:"bytes,7,rep,name=permissions,proto3" json:"permissions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

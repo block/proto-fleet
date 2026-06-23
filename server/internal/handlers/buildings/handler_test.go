@@ -142,8 +142,8 @@ func TestHandler_ListBuildings_unfiltered(t *testing.T) {
 
 	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
 		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
-			assert.Nil(t, f.SiteID)
-			assert.False(t, f.UnassignedOnly)
+			assert.Empty(t, f.SiteIDs)
+			assert.False(t, f.IncludeUnassigned)
 			return nil, nil
 		})
 
@@ -151,39 +151,108 @@ func TestHandler_ListBuildings_unfiltered(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestHandler_ListBuildings_filterBySiteID(t *testing.T) {
+func TestHandler_ListBuildings_filterBySiteIDs(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
 	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
 		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
-			require.NotNil(t, f.SiteID)
-			assert.Equal(t, int64(42), *f.SiteID)
-			assert.False(t, f.UnassignedOnly)
+			assert.Equal(t, []int64{42, 99}, f.SiteIDs)
+			assert.False(t, f.IncludeUnassigned)
 			return nil, nil
 		})
 
 	_, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{
-		SiteFilter: &pb.ListBuildingsRequest_SiteId{SiteId: 42},
+		SiteIds: []int64{42, 99},
 	}))
 	require.NoError(t, err)
 }
 
-func TestHandler_ListBuildings_filterByUnassignedOnly(t *testing.T) {
+func TestHandler_ListBuildings_filterByIncludeUnassigned(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
 	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
 		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
-			assert.Nil(t, f.SiteID)
-			assert.True(t, f.UnassignedOnly)
+			assert.Empty(t, f.SiteIDs)
+			assert.True(t, f.IncludeUnassigned)
 			return nil, nil
 		})
 
 	_, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{
-		SiteFilter: &pb.ListBuildingsRequest_UnassignedOnly{UnassignedOnly: true},
+		IncludeUnassigned: true,
 	}))
 	require.NoError(t, err)
+}
+
+func TestHandler_ListBuildings_filterCombined(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
+		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
+			assert.Equal(t, []int64{42}, f.SiteIDs)
+			assert.True(t, f.IncludeUnassigned)
+			return nil, nil
+		})
+
+	_, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{
+		SiteIds:           []int64{42},
+		IncludeUnassigned: true,
+	}))
+	require.NoError(t, err)
+}
+
+func TestHandler_ListBuildings_includesPlacementRefs(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	siteID := int64(42)
+
+	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
+		Return([]models.BuildingWithCounts{{
+			Building: models.Building{
+				ID:        7,
+				SiteID:    &siteID,
+				SiteLabel: "Austin",
+				Name:      "Building A",
+			},
+		}}, nil)
+
+	resp, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetBuildings(), 1)
+
+	building := resp.Msg.GetBuildings()[0].GetBuilding()
+	require.NotNil(t, building.GetPlacement())
+	require.NotNil(t, building.GetPlacement().GetSite())
+	assert.Equal(t, siteID, building.GetPlacement().GetSite().GetId())
+	assert.Equal(t, "Austin", building.GetPlacement().GetSite().GetLabel())
+}
+
+func TestHandler_ListBuildings_omitsStatsForNarrowedBuildingSite(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	siteID := int64(1)
+	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
+		DoAndReturn(func(_ context.Context, f models.ListFilter) ([]models.BuildingWithCounts, error) {
+			assert.True(t, f.IncludeStats)
+			return []models.BuildingWithCounts{
+				{
+					Building:    models.Building{ID: 10, Name: "narrowed", SiteID: &siteID},
+					RackCount:   1,
+					DeviceCount: 1,
+				},
+			}, nil
+		})
+
+	ctx := handlerstest.CtxWithAssignments(t, 7,
+		handlerstest.OrgAssignment(authz.PermSiteRead, authz.PermFleetRead),
+		handlerstest.SiteAssignment(siteID, authz.PermSiteRead),
+	)
+	resp, err := h.handler.ListBuildings(ctx, connect.NewRequest(&pb.ListBuildingsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetBuildings(), 1)
+	assert.Nil(t, resp.Msg.GetBuildings()[0].GetListStats())
 }
 
 func TestHandler_CreateBuilding_happy(t *testing.T) {
@@ -326,8 +395,11 @@ func TestHandler_DeleteBuilding_surfacesRackCount(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
-	h.buildingStore.EXPECT().SoftDeleteBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(1), nil)
+	// SoftDeleteBuilding returns the deleted row's site (nil = unassigned here)
+	// so the audit row scopes to the building's site, race-free.
+	h.buildingStore.EXPECT().SoftDeleteBuilding(gomock.Any(), int64(7), int64(33)).Return(nil, true, nil)
 	h.buildingStore.EXPECT().UnassignRacksFromBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(5), nil)
+	h.buildingStore.EXPECT().ClearDeviceBuildingsByBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(0), nil)
 
 	resp, err := h.handler.DeleteBuilding(sitePermsCtx(t, 7), connect.NewRequest(&pb.DeleteBuildingRequest{Id: 33}))
 	require.NoError(t, err)
@@ -410,6 +482,10 @@ func TestHandler_AssignRacksToBuilding_happy(t *testing.T) {
 			Return(int64(1), nil),
 		// Phase B2: single bulk cascade for site-changed rack.
 		h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(gomock.Any(), int64(7), []int64{99}, &siteID).
+			Return(int64(3), nil),
+		// Phase B2b: building cascade — rack moved nil → &buildingID, so
+		// device.building_id has to follow.
+		h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(gomock.Any(), int64(7), []int64{99}, &buildingID).
 			Return(int64(3), nil),
 		// Phase B3: bulk pass-1 vacate.
 		h.buildingStore.EXPECT().SetRackBuildingPositionBulkClear(gomock.Any(), int64(7), []int64{99}).

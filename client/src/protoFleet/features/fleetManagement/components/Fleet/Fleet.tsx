@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { POLL_INTERVAL_MS } from "./constants";
+import { useBuildings } from "@/protoFleet/api/buildings";
 import {
   type SortConfig,
   SortConfigSchema,
@@ -9,11 +10,22 @@ import {
   SortField,
 } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import {
+  type MinerListFilter,
+  MinerListFilterSchema,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useExportMinerListCsv from "@/protoFleet/api/useExportMinerListCsv";
 import useFleet from "@/protoFleet/api/useFleet";
+import {
+  intersectSiteFilters,
+  isMatchNoneSiteFilter,
+  siteFilterFromActive,
+  useActiveSite,
+} from "@/protoFleet/components/PageHeader/SitePicker";
 import { useFleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout";
 import MinerList from "@/protoFleet/features/fleetManagement/components/MinerList";
 import { type MinerColumn } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
@@ -27,7 +39,9 @@ import { hasReachedExpectedStatus } from "@/protoFleet/features/fleetManagement/
 import { parseFilterFromURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { FLEET_VISIBLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
+import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
+import { isPathScopable } from "@/protoFleet/routing/siteScope";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
 
@@ -37,11 +51,62 @@ const DEFAULT_SORT_CONFIG: SortConfig = create(SortConfigSchema, {
   direction: SortDirection.ASC,
 });
 
+// The path prefix is the view scope, while `?site=` remains a list filter.
+// Compose them as scope ∩ filter so `/fleet/miners?site=7` still means
+// all-sites scope filtered to 7, and `/8/fleet/miners?site=7` is empty.
+const applySiteScopeToMinerFilter = (
+  urlFilter: MinerListFilter | undefined,
+  scopeSiteIds: bigint[],
+  scopeIncludeUnassigned: boolean,
+): { filter: MinerListFilter | undefined; matchNone: boolean } => {
+  const siteFilter = intersectSiteFilters(
+    { siteIds: scopeSiteIds, includeUnassigned: scopeIncludeUnassigned },
+    { siteIds: urlFilter?.siteIds ?? [], includeUnassigned: urlFilter?.includeUnassigned ?? false },
+  );
+  if (isMatchNoneSiteFilter(siteFilter)) {
+    return { filter: undefined, matchNone: true };
+  }
+  const siteFilterIsEmpty = siteFilter.siteIds.length === 0 && !siteFilter.includeUnassigned;
+
+  if (!urlFilter) {
+    return { filter: siteFilterIsEmpty ? undefined : create(MinerListFilterSchema, siteFilter), matchNone: false };
+  }
+
+  return {
+    filter: create(MinerListFilterSchema, {
+      ...urlFilter,
+      siteIds: siteFilter.siteIds,
+      includeUnassigned: siteFilter.includeUnassigned,
+    }),
+    matchNone: false,
+  };
+};
+
 const Fleet = () => {
   const navigate = useNavigate();
   const { listGroups, listRacks } = useDeviceSets();
+  const { listAllBuildings } = useBuildings();
   const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
   const [availableRacks, setAvailableRacks] = useState<DeviceSet[]>([]);
+  const {
+    sites,
+    sitesLoaded,
+    siteCatalogAccessGranted,
+    notifyPairingCompleted,
+    minersChangedAt,
+    publishViewFilterContext,
+  } = useFleetOutletContext();
+  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
+  const { activeSite } = useActiveSite({ knownSiteIds });
+  const { siteIds: activeSiteIds, includeUnassigned: activeIncludeUnassigned } = useMemo(
+    () => siteFilterFromActive(activeSite),
+    [activeSite],
+  );
+  const [availableBuildings, setAvailableBuildings] = useState<FilterLabelSource[]>([]);
+  const readableAvailableBuildings = useMemo(
+    () => (siteCatalogAccessGranted ? availableBuildings : []),
+    [availableBuildings, siteCatalogAccessGranted],
+  );
 
   useEffect(() => {
     listGroups({
@@ -56,12 +121,34 @@ const Fleet = () => {
     });
   }, [listGroups, listRacks]);
 
+  useEffect(() => {
+    if (!siteCatalogAccessGranted) return;
+
+    listAllBuildings({
+      onSuccess: (buildings) => {
+        setAvailableBuildings(
+          buildings
+            .filter((row) => row.building !== undefined)
+            .map((row) => ({ id: row.building!.id.toString(), label: row.building!.name })),
+        );
+      },
+    });
+  }, [listAllBuildings, siteCatalogAccessGranted]);
+
   const { pathname } = useLocation();
-  const insideFleetShell = pathname.startsWith("/fleet/");
+  const insideFleetShell = isPathScopable(pathname);
 
   // Get filter and sort from URL - memoize to avoid recreating on every render
   const [searchParams] = useSearchParams();
-  const currentFilter = useMemo(() => parseFilterFromURL(searchParams), [searchParams]);
+  const urlFilter = useMemo(() => parseFilterFromURL(searchParams), [searchParams]);
+  // currentFilter folds the SitePicker's active site into the URL filter so
+  // every downstream query (list, count, auth-needed, CSV) is scoped.
+  const currentScopedFilter = useMemo(
+    () => applySiteScopeToMinerFilter(urlFilter, activeSiteIds, activeIncludeUnassigned),
+    [urlFilter, activeSiteIds, activeIncludeUnassigned],
+  );
+  const currentFilter = currentScopedFilter.filter;
+  const siteScopeMatchesNoRows = currentScopedFilter.matchNone;
   const currentSortConfig = useMemo(() => parseSortFromURL(searchParams) ?? DEFAULT_SORT_CONFIG, [searchParams]);
 
   // Convert proto SortField to MinerColumn for UI component
@@ -89,6 +176,7 @@ const Fleet = () => {
   } = useAuthNeededMiners({
     pageSize: 1,
     filter: currentFilter,
+    enabled: !siteScopeMatchesNoRows,
   });
   const totalAuthNeededMinersFresh = totalAuthNeededMinersInitialLoadCompleted && !totalAuthNeededMinersLoading;
   const { exportCsv, isExportingCsv } = useExportMinerListCsv({
@@ -96,9 +184,25 @@ const Fleet = () => {
   });
 
   // Fetch unfiltered total count for the "X of Y miners" header display.
+  // "Unfiltered" here means "no chip / saved-view filter applied"; the
+  // active-site path scope still applies so Y reflects the current site.
+  // When a `?site=` list filter is also present, the denominator follows
+  // the same scope ∩ filter rule as the visible rows.
+  const siteScopedTotalFilter = useMemo(() => {
+    const urlSiteFilter =
+      urlFilter && ((urlFilter.siteIds.length ?? 0) > 0 || urlFilter.includeUnassigned)
+        ? create(MinerListFilterSchema, {
+            siteIds: urlFilter.siteIds,
+            includeUnassigned: urlFilter.includeUnassigned,
+          })
+        : undefined;
+    return applySiteScopeToMinerFilter(urlSiteFilter, activeSiteIds, activeIncludeUnassigned).filter;
+  }, [urlFilter, activeSiteIds, activeIncludeUnassigned]);
   const { totalMiners: totalUnfilteredMiners, refreshCurrentPage: refreshUnfilteredCount } = useFleet({
     pageSize: 1,
+    filter: siteScopedTotalFilter,
     pairingStatuses: FLEET_VISIBLE_PAIRING_STATUSES,
+    enabled: !siteScopeMatchesNoRows,
   });
 
   // Fetch all devices (both paired and unpaired) with a single API call
@@ -123,6 +227,7 @@ const Fleet = () => {
     filter: currentFilter,
     sort: currentSortConfig,
     pairingStatuses: FLEET_VISIBLE_PAIRING_STATUSES,
+    enabled: !siteScopeMatchesNoRows,
   });
 
   // Fetch errors for all loaded miners
@@ -183,7 +288,25 @@ const Fleet = () => {
   // Chrome-level coordination: CompleteSetup lives in FleetLayout and pulses
   // these timestamps. We forward our pairing completion up, and refetch when
   // an in-banner flow (e.g. pool assignment) signals the miner list is stale.
-  const { notifyPairingCompleted, minersChangedAt } = useFleetOutletContext();
+  const availableSites = useMemo<FilterLabelSource[]>(
+    () =>
+      (sites ?? [])
+        .filter((row) => row.site !== undefined)
+        .map((row) => ({ id: row.site!.id.toString(), label: row.site!.name })),
+    [sites],
+  );
+
+  // Push our DeviceSet metadata up to FleetLayout so the saved-view modal
+  // (mounted in the top tab strip) can show human-readable labels for any
+  // group/rack ids referenced by an active filter.
+  useEffect(() => {
+    publishViewFilterContext({
+      availableGroups,
+      availableRacks,
+      availableBuildings: readableAvailableBuildings,
+      availableSites,
+    });
+  }, [publishViewFilterContext, availableGroups, availableRacks, readableAvailableBuildings, availableSites]);
 
   const refetchAll = useCallback(() => {
     refetch();
@@ -231,28 +354,30 @@ const Fleet = () => {
       <ErrorBoundary>
         <MinerList
           title={insideFleetShell ? undefined : "Miners"}
-          minerIds={minerIds}
-          miners={miners}
-          errorsByDevice={errorsByDevice}
-          errorsLoaded={errorsLoaded}
+          minerIds={siteScopeMatchesNoRows ? [] : minerIds}
+          miners={siteScopeMatchesNoRows ? {} : miners}
+          errorsByDevice={siteScopeMatchesNoRows ? {} : errorsByDevice}
+          errorsLoaded={siteScopeMatchesNoRows ? true : errorsLoaded}
           getActiveBatches={getActiveBatches}
           batchStateVersion={batchStateVersion}
-          totalMiners={totalMiners}
-          totalUnfilteredMiners={totalUnfilteredMiners}
-          totalDisabledMiners={totalAuthNeededMiners}
-          totalDisabledMinersFresh={totalAuthNeededMinersFresh}
+          totalMiners={siteScopeMatchesNoRows ? 0 : totalMiners}
+          totalUnfilteredMiners={siteScopeMatchesNoRows ? 0 : totalUnfilteredMiners}
+          totalDisabledMiners={siteScopeMatchesNoRows ? 0 : totalAuthNeededMiners}
+          totalDisabledMinersFresh={siteScopeMatchesNoRows ? true : totalAuthNeededMinersFresh}
           paddingLeft={{
             phone: "24px",
             tablet: "24px",
             laptop: "40px",
             desktop: "40px",
           }}
+          // Fleet shell owns the scroll: page scrolls, sticky header pins to it.
+          overflowContainer={false}
           onAddMiners={() => setShowAddMinersModal(true)}
-          loading={!hasInitialLoadCompleted}
+          loading={siteScopeMatchesNoRows ? false : !hasInitialLoadCompleted}
           pageSize={MINERS_PAGE_SIZE}
           currentPage={currentPage}
           hasPreviousPage={hasPreviousPage}
-          hasNextPage={hasMore}
+          hasNextPage={siteScopeMatchesNoRows ? false : hasMore}
           onNextPage={goToNextPage}
           onPrevPage={goToPrevPage}
           currentSort={currentSort}
@@ -261,10 +386,12 @@ const Fleet = () => {
           availableFirmwareVersions={availableFirmwareVersions}
           availableGroups={availableGroups}
           availableRacks={availableRacks}
+          availableSites={availableSites}
+          availableBuildings={readableAvailableBuildings}
           currentFilter={currentFilter}
           currentSortConfig={currentSortConfig}
-          onExportCsv={exportCsv}
-          exportCsvLoading={isExportingCsv}
+          onExportCsv={siteScopeMatchesNoRows ? () => undefined : exportCsv}
+          exportCsvLoading={siteScopeMatchesNoRows ? false : isExportingCsv}
           onRefetchMiners={refetchAll}
           onRefreshMinersComplete={refreshVisibleRows}
           onWorkerNameUpdated={updateMinerWorkerName}

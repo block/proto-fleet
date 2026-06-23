@@ -344,7 +344,7 @@ function validateCurtailmentFormValues(
   const localErrors: CurtailmentFormErrors = {};
   const isEditMode = mode === "edit";
   const isResponseProfileVariant = variant === "responseProfile";
-  const shouldValidateCurtailBatchFields = isResponseProfileVariant;
+  const shouldValidateCurtailBatchFields = !isEditMode || isResponseProfileVariant;
   const restoreInterval = parseOptionalUint32Field(values.restoreIntervalSec, {
     label: "batch interval",
     max: curtailmentNumericFieldLimits.restoreIntervalSec,
@@ -372,6 +372,14 @@ function validateCurtailmentFormValues(
   }
   if (shouldValidateCurtailBatchFields && curtailBatchInterval.error) {
     localErrors.curtailBatchIntervalSec = curtailBatchInterval.error;
+  }
+  if (
+    shouldValidateCurtailBatchFields &&
+    curtailBatchInterval.error === undefined &&
+    curtailBatchSize.parsed === undefined &&
+    curtailBatchInterval.parsed !== undefined
+  ) {
+    localErrors.curtailBatchIntervalSec = "Enter batch size before adding a batch interval.";
   }
   if (isEditMode && restoreInterval.error === undefined && restoreInterval.parsed === 0) {
     localErrors.restoreIntervalSec = "Enter batch interval greater than 0.";
@@ -738,7 +746,10 @@ function CurtailmentStartModalContent({
       return nextValues;
     }
 
-    return { ...nextValues, responseProfileId: customResponseProfileId };
+    return {
+      ...nextValues,
+      responseProfileId: customResponseProfileId,
+    };
   };
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) => {
     setEditedFields((current) => (current.has(key) ? current : new Set(current).add(key)));
@@ -813,7 +824,6 @@ function CurtailmentStartModalContent({
     ? undefined
     : "Fleet will automatically curtail the least efficient miners first.";
   const curtailmentTargetGridClassName = isFullFleetMode ? "grid gap-3" : "grid gap-3 tablet:grid-cols-2";
-  const shouldShowCurtailBatchFields = isResponseProfileVariant;
   const curtailBatchSizeTestId = isResponseProfileVariant
     ? "response-profile-curtail-batch-size"
     : "curtailment-curtail-batch-size";
@@ -871,7 +881,10 @@ function CurtailmentStartModalContent({
 
   const handleResponseProfileChange = (responseProfileId: string) => {
     if (responseProfileId === customResponseProfileId) {
-      setValues((current) => ({ ...current, responseProfileId: customResponseProfileId }));
+      setValues((current) => ({
+        ...current,
+        responseProfileId: customResponseProfileId,
+      }));
       return;
     }
 
@@ -1148,44 +1161,44 @@ function CurtailmentStartModalContent({
                     />
                   ) : null}
                 </div>
-                {shouldShowCurtailBatchFields ? (
-                  <div className="grid gap-3 tablet:grid-cols-2">
-                    <Input
-                      id="curtailment-batch-size"
-                      label="Batch size (miners)"
-                      initValue={values.curtailBatchSize}
-                      inputMode="numeric"
-                      error={effectiveErrors.curtailBatchSize}
-                      testId={curtailBatchSizeTestId}
-                      suffixAction={
-                        <FieldInfoToggle
-                          ariaLabel="About curtail batch size"
-                          body={fieldHelp.curtailBatchSize}
-                          testId="curtail-batch-size-info-button"
-                          popoverTestId="curtail-batch-size-info-popover"
-                        />
-                      }
-                      onChange={(value) => updateValue("curtailBatchSize", value)}
-                    />
-                    <Input
-                      id="curtailment-batch-interval"
-                      label="Batch interval (sec)"
-                      initValue={values.curtailBatchIntervalSec}
-                      inputMode="numeric"
-                      error={effectiveErrors.curtailBatchIntervalSec}
-                      testId={curtailBatchIntervalTestId}
-                      suffixAction={
-                        <FieldInfoToggle
-                          ariaLabel="About curtail batch interval"
-                          body={fieldHelp.curtailBatchInterval}
-                          testId="curtail-batch-interval-info-button"
-                          popoverTestId="curtail-batch-interval-info-popover"
-                        />
-                      }
-                      onChange={(value) => updateValue("curtailBatchIntervalSec", value)}
-                    />
-                  </div>
-                ) : null}
+                <div className="grid gap-3 tablet:grid-cols-2">
+                  <Input
+                    id="curtailment-batch-size"
+                    label="Batch size (miners)"
+                    initValue={values.curtailBatchSize}
+                    disabled={isLiveCurtailmentEditMode}
+                    inputMode="numeric"
+                    error={effectiveErrors.curtailBatchSize}
+                    testId={curtailBatchSizeTestId}
+                    suffixAction={
+                      <FieldInfoToggle
+                        ariaLabel="About curtail batch size"
+                        body={fieldHelp.curtailBatchSize}
+                        testId="curtail-batch-size-info-button"
+                        popoverTestId="curtail-batch-size-info-popover"
+                      />
+                    }
+                    onChange={(value) => updateValue("curtailBatchSize", value)}
+                  />
+                  <Input
+                    id="curtailment-batch-interval"
+                    label="Batch interval (sec)"
+                    initValue={values.curtailBatchIntervalSec}
+                    disabled={isLiveCurtailmentEditMode}
+                    inputMode="numeric"
+                    error={effectiveErrors.curtailBatchIntervalSec}
+                    testId={curtailBatchIntervalTestId}
+                    suffixAction={
+                      <FieldInfoToggle
+                        ariaLabel="About curtail batch interval"
+                        body={fieldHelp.curtailBatchInterval}
+                        testId="curtail-batch-interval-info-button"
+                        popoverTestId="curtail-batch-interval-info-popover"
+                      />
+                    }
+                    onChange={(value) => updateValue("curtailBatchIntervalSec", value)}
+                  />
+                </div>
               </div>
             </Section>
 
@@ -1198,7 +1211,9 @@ function CurtailmentStartModalContent({
                   disabled={isLiveCurtailmentEditMode}
                   inputMode="numeric"
                   error={effectiveErrors.restoreBatchSize}
-                  testId={isResponseProfileVariant ? "response-profile-restore-batch-size" : undefined}
+                  testId={
+                    isResponseProfileVariant ? "response-profile-restore-batch-size" : "curtailment-restore-batch-size"
+                  }
                   suffixAction={
                     <FieldInfoToggle
                       ariaLabel="About restore batch size"
@@ -1215,7 +1230,11 @@ function CurtailmentStartModalContent({
                   initValue={values.restoreIntervalSec}
                   inputMode="numeric"
                   error={effectiveErrors.restoreIntervalSec}
-                  testId={isResponseProfileVariant ? "response-profile-restore-batch-interval" : undefined}
+                  testId={
+                    isResponseProfileVariant
+                      ? "response-profile-restore-batch-interval"
+                      : "curtailment-restore-batch-interval"
+                  }
                   suffixAction={
                     <FieldInfoToggle
                       ariaLabel="About restore batch interval"

@@ -37,7 +37,7 @@ func NewHandler(enrollment *enrollment.Service, auth *auth.Service, pairing *pai
 }
 
 func (h *Handler) Register(ctx context.Context, req *connect.Request[pb.RegisterRequest]) (*connect.Response[pb.RegisterResponse], error) {
-	agent, _, err := h.enrollment.RegisterFleetNode(ctx, req.Msg.GetEnrollmentToken(), req.Msg.GetName(), req.Msg.GetIdentityPubkey(), req.Msg.GetMinerSigningPubkey())
+	agent, _, err := h.enrollment.RegisterFleetNode(ctx, req.Msg.GetEnrollmentToken(), req.Msg.GetName(), req.Msg.GetIdentityPubkey())
 	if err != nil {
 		return nil, err
 	}
@@ -199,6 +199,10 @@ func (h *Handler) ReportPairedDevices(ctx context.Context, req *connect.Request[
 		// Forward the persisted status, not the raw report: a stale AUTH_NEEDED for
 		// an already-PAIRED device persists as PAIRED, so the operator must see PAIRED.
 		r.Outcome = pairOutcomeForStatus(status)
+		r.DefaultPasswordActive = defaultPasswordActiveForStatus(status)
+		if pairOutcomeSucceeded(status) {
+			r.ErrorMessage = ""
+		}
 		persisted = append(persisted, r)
 	}
 	// Admission consumed these targets; return them so a retried report for the
@@ -220,16 +224,28 @@ func (h *Handler) ReportPairedDevices(ctx context.Context, req *connect.Request[
 
 // pairOutcomeForStatus maps the persisted device_pairing status back to the pair
 // outcome forwarded to the operator, so the live display reflects what was stored
-// (PAIRED / AUTHENTICATION_NEEDED / FAILED) rather than the raw node report.
+// (paired-like / AUTHENTICATION_NEEDED / FAILED) rather than the raw node report.
 func pairOutcomeForStatus(status string) pb.PairOutcome {
 	switch status {
-	case pairing.StatusPaired:
+	case pairing.StatusPaired, pairing.StatusDefaultPassword:
 		return pb.PairOutcome_PAIR_OUTCOME_PAIRED
 	case pairing.StatusAuthenticationNeeded:
 		return pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED
 	default:
 		return pb.PairOutcome_PAIR_OUTCOME_ERROR
 	}
+}
+
+func pairOutcomeSucceeded(status string) bool {
+	return status == pairing.StatusPaired || status == pairing.StatusDefaultPassword
+}
+
+func defaultPasswordActiveForStatus(status string) *bool {
+	if status == pairing.StatusDefaultPassword {
+		active := true
+		return &active
+	}
+	return nil
 }
 
 func toPairingDevice(d *pb.DiscoveredDeviceReport) *pairingpb.Device {

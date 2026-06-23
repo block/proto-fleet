@@ -402,9 +402,8 @@ func TestSQLErrorStore_UpsertError_ShouldReturnErrorForUnknownDevice(t *testing.
 	// Arrange: Create org only, no device
 	queries := sqlc.New(db)
 	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID:               "test-org-no-device",
-		Name:                "Test Org No Device",
-		MinerAuthPrivateKey: "test-key",
+		OrgID: "test-org-no-device",
+		Name:  "Test Org No Device",
 	})
 	require.NoError(t, err)
 

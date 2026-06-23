@@ -13,6 +13,8 @@ import type {
   SlotHealthState,
 } from "@/protoFleet/features/fleetManagement/components/RackDetailGrid/types";
 import { encodeFilterToURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
+import { type ActiveSite, DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { Triangle } from "@/shared/assets/icons";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useNavigate } from "@/shared/hooks/useNavigate";
@@ -29,15 +31,16 @@ interface RackHealthModuleProps {
   offlineCount?: number | null;
   sleepingCount?: number | null;
   rackFilterParam?: string;
+  activeSite?: ActiveSite;
 }
 
-function buildFilterUrl(statuses: DeviceStatus[], rackFilterParam?: string): string {
+function buildFilterUrl(statuses: DeviceStatus[], rackFilterParam: string | undefined, activeSite: ActiveSite): string {
   const filter = create(MinerListFilterSchema, { deviceStatus: statuses });
   const params = encodeFilterToURL(filter);
   if (rackFilterParam) {
     new URLSearchParams(rackFilterParam).forEach((value, key) => params.set(key, value));
   }
-  return `/miners?${params.toString()}`;
+  return scopedPath(`/fleet/miners?${params.toString()}`, activeSite);
 }
 
 const formatCount = (count: number): string => {
@@ -55,6 +58,7 @@ export const RackHealthModule = ({
   offlineCount,
   sleepingCount,
   rackFilterParam,
+  activeSite = DEFAULT_ACTIVE_SITE,
 }: RackHealthModuleProps) => {
   const navigate = useNavigate();
 
@@ -82,7 +86,7 @@ export const RackHealthModule = ({
         count: hashing,
         showButton: true,
         buttonVariant: "secondary",
-        onClick: () => navigate(buildFilterUrl([DeviceStatus.ONLINE], rackFilterParam)),
+        onClick: () => navigate(buildFilterUrl([DeviceStatus.ONLINE], rackFilterParam, activeSite)),
       },
       {
         key: "sleeping",
@@ -92,7 +96,7 @@ export const RackHealthModule = ({
         count: sleeping,
         showButton: true,
         buttonVariant: "secondary",
-        onClick: () => navigate(buildFilterUrl([DeviceStatus.INACTIVE], rackFilterParam)),
+        onClick: () => navigate(buildFilterUrl([DeviceStatus.INACTIVE], rackFilterParam, activeSite)),
       },
       {
         key: "needsAttention",
@@ -108,6 +112,7 @@ export const RackHealthModule = ({
             buildFilterUrl(
               [DeviceStatus.ERROR, DeviceStatus.NEEDS_MINING_POOL, DeviceStatus.UPDATING, DeviceStatus.REBOOT_REQUIRED],
               rackFilterParam,
+              activeSite,
             ),
           ),
       },
@@ -119,10 +124,10 @@ export const RackHealthModule = ({
         count: offline,
         showButton: true,
         buttonVariant: "secondary",
-        onClick: () => navigate(buildFilterUrl([DeviceStatus.OFFLINE], rackFilterParam)),
+        onClick: () => navigate(buildFilterUrl([DeviceStatus.OFFLINE], rackFilterParam, activeSite)),
       },
     ];
-  }, [hashingCount, sleepingCount, needsAttentionCount, offlineCount, rackFilterParam, navigate]);
+  }, [hashingCount, sleepingCount, needsAttentionCount, offlineCount, rackFilterParam, activeSite, navigate]);
 
   return (
     <div className="flex w-full flex-col overflow-hidden rounded-xl bg-surface-base laptop:flex-row dark:bg-core-primary-5">

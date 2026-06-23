@@ -539,6 +539,10 @@ describe("FleetGroupActionsMenu", () => {
         ]}
         ariaLabel="Bulk actions for selected sites"
         testIdPrefix="sites"
+        // Multi-scope only ever renders via the bulk action bar, which
+        // passes presentation="bulk"; row-only extras (passed as
+        // extraActions) must not appear there.
+        presentation="bulk"
         extraActions={[{ label: "View site", onClick: vi.fn() }]}
       />,
     );

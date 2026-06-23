@@ -5,6 +5,12 @@
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
+import type { PlacementRefs } from "../../common/v1/common_pb";
+import { file_common_v1_common } from "../../common/v1/common_pb";
+import type { FleetListStats, FleetListTelemetryRangeFilter } from "../../common/v1/fleet_list_stats_pb";
+import { file_common_v1_fleet_list_stats } from "../../common/v1/fleet_list_stats_pb";
+import type { ComponentType } from "../../errors/v1/errors_pb";
+import { file_errors_v1_errors } from "../../errors/v1/errors_pb";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
@@ -15,8 +21,14 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_buildings_v1_buildings: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChxidWlsZGluZ3MvdjEvYnVpbGRpbmdzLnByb3RvEgxidWlsZGluZ3MudjEioQMKCEJ1aWxkaW5nEgoKAmlkGAEgASgDEhQKB3NpdGVfaWQYAiABKANIAIgBARIMCgRuYW1lGAMgASgJEhMKC2Rlc2NyaXB0aW9uGAQgASgJEhAKCHBvd2VyX2t3GAUgASgBEhMKC292ZXJoZWFkX2t3GAYgASgBEg4KBmFpc2xlcxgHIAEoBRIbChNwaHlzaWNhbF9yYWNrX2NvdW50GAggASgFEhcKD3JhY2tzX3Blcl9haXNsZRgJIAEoBRIZChFkZWZhdWx0X3JhY2tfcm93cxgKIAEoBRIcChRkZWZhdWx0X3JhY2tfY29sdW1ucxgLIAEoBRI+ChhkZWZhdWx0X3JhY2tfb3JkZXJfaW5kZXgYDCABKA4yHC5idWlsZGluZ3MudjEuUmFja09yZGVySW5kZXgSLgoKY3JlYXRlZF9hdBgNIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgOIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCCgoIX3NpdGVfaWQiUgoSQnVpbGRpbmdXaXRoQ291bnRzEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nEhIKCnJhY2tfY291bnQYAiABKAMiXAoUTGlzdEJ1aWxkaW5nc1JlcXVlc3QSGgoHc2l0ZV9pZBgBIAEoA0IHukgEIgIgAEgAEhkKD3VuYXNzaWduZWRfb25seRgCIAEoCEgAQg0KC3NpdGVfZmlsdGVyIkwKFUxpc3RCdWlsZGluZ3NSZXNwb25zZRIzCglidWlsZGluZ3MYASADKAsyIC5idWlsZGluZ3MudjEuQnVpbGRpbmdXaXRoQ291bnRzIikKEkdldEJ1aWxkaW5nUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgACI/ChNHZXRCdWlsZGluZ1Jlc3BvbnNlEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nIuoEChVDcmVhdGVCdWlsZGluZ1JlcXVlc3QSHQoHc2l0ZV9pZBgBIAEoA0IHukgEIgIgAEgAiAEBEhgKBG5hbWUYAiABKAlCCrpIB3IFEAEY/wESHQoLZGVzY3JpcHRpb24YAyABKAlCCLpIBXIDGIAgEiAKCHBvd2VyX2t3GAQgASgBQg66SAsSCSkAAAAAAAAAABIjCgtvdmVyaGVhZF9rdxgFIAEoAUIOukgLEgkpAAAAAAAAAAASGQoGYWlzbGVzGAYgASgFQgm6SAYaBBhkKAASJAoTcGh5c2ljYWxfcmFja19jb3VudBgHIAEoBUIHukgEGgIoABIiCg9yYWNrc19wZXJfYWlzbGUYCCABKAVCCbpIBhoEGGQoABIiChFkZWZhdWx0X3JhY2tfcm93cxgJIAEoBUIHukgEGgIoABIlChRkZWZhdWx0X3JhY2tfY29sdW1ucxgKIAEoBUIHukgEGgIoABJIChhkZWZhdWx0X3JhY2tfb3JkZXJfaW5kZXgYCyABKA4yHC5idWlsZGluZ3MudjEuUmFja09yZGVySW5kZXhCCLpIBYIBAhABOqsBukinARqkAQoYZGVmYXVsdF9yYWNrX2RpbXNfcGFpcmVkEkVkZWZhdWx0X3JhY2tfcm93cyBhbmQgZGVmYXVsdF9yYWNrX2NvbHVtbnMgbXVzdCBib3RoIGJlIDAgb3IgYm90aCA+IDAaQSh0aGlzLmRlZmF1bHRfcmFja19yb3dzID09IDApID09ICh0aGlzLmRlZmF1bHRfcmFja19jb2x1bW5zID09IDApQgoKCF9zaXRlX2lkIkIKFkNyZWF0ZUJ1aWxkaW5nUmVzcG9uc2USKAoIYnVpbGRpbmcYASABKAsyFi5idWlsZGluZ3MudjEuQnVpbGRpbmci1AQKFVVwZGF0ZUJ1aWxkaW5nUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgABIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxiAIBIgCghwb3dlcl9rdxgEIAEoAUIOukgLEgkpAAAAAAAAAAASIwoLb3ZlcmhlYWRfa3cYBSABKAFCDrpICxIJKQAAAAAAAAAAEhkKBmFpc2xlcxgGIAEoBUIJukgGGgQYZCgAEiQKE3BoeXNpY2FsX3JhY2tfY291bnQYByABKAVCB7pIBBoCKAASIgoPcmFja3NfcGVyX2Fpc2xlGAggASgFQgm6SAYaBBhkKAASIgoRZGVmYXVsdF9yYWNrX3Jvd3MYCSABKAVCB7pIBBoCKAASJQoUZGVmYXVsdF9yYWNrX2NvbHVtbnMYCiABKAVCB7pIBBoCKAASSAoYZGVmYXVsdF9yYWNrX29yZGVyX2luZGV4GAsgASgOMhwuYnVpbGRpbmdzLnYxLlJhY2tPcmRlckluZGV4Qgi6SAWCAQIQATqrAbpIpwEapAEKGGRlZmF1bHRfcmFja19kaW1zX3BhaXJlZBJFZGVmYXVsdF9yYWNrX3Jvd3MgYW5kIGRlZmF1bHRfcmFja19jb2x1bW5zIG11c3QgYm90aCBiZSAwIG9yIGJvdGggPiAwGkEodGhpcy5kZWZhdWx0X3JhY2tfcm93cyA9PSAwKSA9PSAodGhpcy5kZWZhdWx0X3JhY2tfY29sdW1ucyA9PSAwKSJCChZVcGRhdGVCdWlsZGluZ1Jlc3BvbnNlEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nIiwKFURlbGV0ZUJ1aWxkaW5nUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgACI3ChZEZWxldGVCdWlsZGluZ1Jlc3BvbnNlEh0KFXVuYXNzaWduZWRfcmFja19jb3VudBgBIAEoAyJ1ChhMaXN0QnVpbGRpbmdSYWNrc1JlcXVlc3QSHAoLYnVpbGRpbmdfaWQYASABKANCB7pIBCICIAASHQoJcGFnZV9zaXplGAIgASgFQgq6SAcaBRjoBygAEhwKCnBhZ2VfdG9rZW4YAyABKAlCCLpIBXIDGIAQIpMBCgxCdWlsZGluZ1JhY2sSDwoHcmFja19pZBgBIAEoAxISCgpyYWNrX2xhYmVsGAIgASgJEhgKC2Fpc2xlX2luZGV4GAMgASgFSACIAQESHgoRcG9zaXRpb25faW5fYWlzbGUYBCABKAVIAYgBAUIOCgxfYWlzbGVfaW5kZXhCFAoSX3Bvc2l0aW9uX2luX2Fpc2xlIl8KGUxpc3RCdWlsZGluZ1JhY2tzUmVzcG9uc2USKQoFcmFja3MYASADKAsyGi5idWlsZGluZ3MudjEuQnVpbGRpbmdSYWNrEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSK1AgoNUmFja1BsYWNlbWVudBIYCgdyYWNrX2lkGAEgASgDQge6SAQiAiAAEiEKC2Fpc2xlX2luZGV4GAIgASgFQge6SAQaAigASACIAQESJwoRcG9zaXRpb25faW5fYWlzbGUYAyABKAVCB7pIBBoCKABIAYgBATqXAbpIkwEakAEKFnBvc2l0aW9uX3BhaXJfcmVxdWlyZWQSQGFpc2xlX2luZGV4IGFuZCBwb3NpdGlvbl9pbl9haXNsZSBtdXN0IGJvdGggYmUgc2V0IG9yIGJvdGggdW5zZXQaNGhhcyh0aGlzLmFpc2xlX2luZGV4KSA9PSBoYXModGhpcy5wb3NpdGlvbl9pbl9haXNsZSlCDgoMX2Fpc2xlX2luZGV4QhQKEl9wb3NpdGlvbl9pbl9haXNsZSKYAQocQXNzaWduUmFja3NUb0J1aWxkaW5nUmVxdWVzdBI3CgVyYWNrcxgBIAMoCzIbLmJ1aWxkaW5ncy52MS5SYWNrUGxhY2VtZW50Qgu6SAiSAQUIARDoBxIoChJ0YXJnZXRfYnVpbGRpbmdfaWQYAiABKANCB7pIBCICIABIAIgBAUIVChNfdGFyZ2V0X2J1aWxkaW5nX2lkIkUKHUFzc2lnblJhY2tzVG9CdWlsZGluZ1Jlc3BvbnNlEiQKHHNpdGVfcmVhc3NpZ25lZF9kZXZpY2VfY291bnQYASABKAMiNwoXR2V0QnVpbGRpbmdTdGF0c1JlcXVlc3QSHAoLYnVpbGRpbmdfaWQYASABKANCB7pIBCICIAAi1gMKGEdldEJ1aWxkaW5nU3RhdHNSZXNwb25zZRITCgtidWlsZGluZ19pZBgBIAEoAxISCgpyYWNrX2NvdW50GAIgASgFEhQKDGRldmljZV9jb3VudBgDIAEoBRIXCg9yZXBvcnRpbmdfY291bnQYBCABKAUSGgoSdG90YWxfaGFzaHJhdGVfdGhzGAUgASgBEhoKEmF2Z19lZmZpY2llbmN5X2p0aBgGIAEoARIWCg50b3RhbF9wb3dlcl9rdxgHIAEoARIVCg1oYXNoaW5nX2NvdW50GAggASgFEhQKDGJyb2tlbl9jb3VudBgJIAEoBRIVCg1vZmZsaW5lX2NvdW50GAogASgFEhYKDnNsZWVwaW5nX2NvdW50GAsgASgFEjUKC3JhY2tfaGVhbHRoGAwgAygLMiAuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nUmFja0hlYWx0aBIaChJkZXZpY2VfaWRlbnRpZmllcnMYDSADKAkSIAoYaGFzaHJhdGVfcmVwb3J0aW5nX2NvdW50GA4gASgFEiIKGmVmZmljaWVuY3lfcmVwb3J0aW5nX2NvdW50GA8gASgFEh0KFXBvd2VyX3JlcG9ydGluZ19jb3VudBgQIAEoBSL1AQoSQnVpbGRpbmdSYWNrSGVhbHRoEg8KB3JhY2tfaWQYASABKAMSEgoKcmFja19sYWJlbBgCIAEoCRIYCgthaXNsZV9pbmRleBgDIAEoBUgAiAEBEh4KEXBvc2l0aW9uX2luX2Fpc2xlGAQgASgFSAGIAQESFQoNaGFzaGluZ19jb3VudBgFIAEoBRIUCgxicm9rZW5fY291bnQYBiABKAUSFQoNb2ZmbGluZV9jb3VudBgHIAEoBRIWCg5zbGVlcGluZ19jb3VudBgIIAEoBUIOCgxfYWlzbGVfaW5kZXhCFAoSX3Bvc2l0aW9uX2luX2Fpc2xlKrYBCg5SYWNrT3JkZXJJbmRleBIgChxSQUNLX09SREVSX0lOREVYX1VOU1BFQ0lGSUVEEAASIAocUkFDS19PUkRFUl9JTkRFWF9CT1RUT01fTEVGVBABEh0KGVJBQ0tfT1JERVJfSU5ERVhfVE9QX0xFRlQQAhIhCh1SQUNLX09SREVSX0lOREVYX0JPVFRPTV9SSUdIVBADEh4KGlJBQ0tfT1JERVJfSU5ERVhfVE9QX1JJR0hUEAQykQYKD0J1aWxkaW5nU2VydmljZRJYCg1MaXN0QnVpbGRpbmdzEiIuYnVpbGRpbmdzLnYxLkxpc3RCdWlsZGluZ3NSZXF1ZXN0GiMuYnVpbGRpbmdzLnYxLkxpc3RCdWlsZGluZ3NSZXNwb25zZRJSCgtHZXRCdWlsZGluZxIgLmJ1aWxkaW5ncy52MS5HZXRCdWlsZGluZ1JlcXVlc3QaIS5idWlsZGluZ3MudjEuR2V0QnVpbGRpbmdSZXNwb25zZRJbCg5DcmVhdGVCdWlsZGluZxIjLmJ1aWxkaW5ncy52MS5DcmVhdGVCdWlsZGluZ1JlcXVlc3QaJC5idWlsZGluZ3MudjEuQ3JlYXRlQnVpbGRpbmdSZXNwb25zZRJbCg5VcGRhdGVCdWlsZGluZxIjLmJ1aWxkaW5ncy52MS5VcGRhdGVCdWlsZGluZ1JlcXVlc3QaJC5idWlsZGluZ3MudjEuVXBkYXRlQnVpbGRpbmdSZXNwb25zZRJbCg5EZWxldGVCdWlsZGluZxIjLmJ1aWxkaW5ncy52MS5EZWxldGVCdWlsZGluZ1JlcXVlc3QaJC5idWlsZGluZ3MudjEuRGVsZXRlQnVpbGRpbmdSZXNwb25zZRJkChFMaXN0QnVpbGRpbmdSYWNrcxImLmJ1aWxkaW5ncy52MS5MaXN0QnVpbGRpbmdSYWNrc1JlcXVlc3QaJy5idWlsZGluZ3MudjEuTGlzdEJ1aWxkaW5nUmFja3NSZXNwb25zZRJwChVBc3NpZ25SYWNrc1RvQnVpbGRpbmcSKi5idWlsZGluZ3MudjEuQXNzaWduUmFja3NUb0J1aWxkaW5nUmVxdWVzdBorLmJ1aWxkaW5ncy52MS5Bc3NpZ25SYWNrc1RvQnVpbGRpbmdSZXNwb25zZRJhChBHZXRCdWlsZGluZ1N0YXRzEiUuYnVpbGRpbmdzLnYxLkdldEJ1aWxkaW5nU3RhdHNSZXF1ZXN0GiYuYnVpbGRpbmdzLnYxLkdldEJ1aWxkaW5nU3RhdHNSZXNwb25zZULAAQoQY29tLmJ1aWxkaW5ncy52MUIOQnVpbGRpbmdzUHJvdG9QAVpLZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvYnVpbGRpbmdzL3YxO2J1aWxkaW5nc3YxogIDQlhYqgIMQnVpbGRpbmdzLlYxygIMQnVpbGRpbmdzXFYx4gIYQnVpbGRpbmdzXFYxXEdQQk1ldGFkYXRh6gINQnVpbGRpbmdzOjpWMWIGcHJvdG8z",
-    [file_buf_validate_validate, file_google_protobuf_timestamp],
+    "ChxidWlsZGluZ3MvdjEvYnVpbGRpbmdzLnByb3RvEgxidWlsZGluZ3MudjEizgMKCEJ1aWxkaW5nEgoKAmlkGAEgASgDEhQKB3NpdGVfaWQYAiABKANIAIgBARIMCgRuYW1lGAMgASgJEhMKC2Rlc2NyaXB0aW9uGAQgASgJEhAKCHBvd2VyX2t3GAUgASgBEhMKC292ZXJoZWFkX2t3GAYgASgBEg4KBmFpc2xlcxgHIAEoBRIbChNwaHlzaWNhbF9yYWNrX2NvdW50GAggASgFEhcKD3JhY2tzX3Blcl9haXNsZRgJIAEoBRIZChFkZWZhdWx0X3JhY2tfcm93cxgKIAEoBRIcChRkZWZhdWx0X3JhY2tfY29sdW1ucxgLIAEoBRI+ChhkZWZhdWx0X3JhY2tfb3JkZXJfaW5kZXgYDCABKA4yHC5idWlsZGluZ3MudjEuUmFja09yZGVySW5kZXgSLgoKY3JlYXRlZF9hdBgNIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgOIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKwoJcGxhY2VtZW50GA8gASgLMhguY29tbW9uLnYxLlBsYWNlbWVudFJlZnNCCgoIX3NpdGVfaWQilwEKEkJ1aWxkaW5nV2l0aENvdW50cxIoCghidWlsZGluZxgBIAEoCzIWLmJ1aWxkaW5ncy52MS5CdWlsZGluZxISCgpyYWNrX2NvdW50GAIgASgDEhQKDGRldmljZV9jb3VudBgDIAEoAxItCgpsaXN0X3N0YXRzGAQgASgLMhkuY29tbW9uLnYxLkZsZWV0TGlzdFN0YXRzItIBChRMaXN0QnVpbGRpbmdzUmVxdWVzdBIhCghzaXRlX2lkcxgBIAMoA0IPukgMkgEJEIAIIgQiAiAAEhoKEmluY2x1ZGVfdW5hc3NpZ25lZBgCIAEoCBI3ChVlcnJvcl9jb21wb25lbnRfdHlwZXMYAyADKA4yGC5lcnJvcnMudjEuQ29tcG9uZW50VHlwZRJCChB0ZWxlbWV0cnlfcmFuZ2VzGAQgAygLMiguY29tbW9uLnYxLkZsZWV0TGlzdFRlbGVtZXRyeVJhbmdlRmlsdGVyIkwKFUxpc3RCdWlsZGluZ3NSZXNwb25zZRIzCglidWlsZGluZ3MYASADKAsyIC5idWlsZGluZ3MudjEuQnVpbGRpbmdXaXRoQ291bnRzIikKEkdldEJ1aWxkaW5nUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgACI/ChNHZXRCdWlsZGluZ1Jlc3BvbnNlEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nIuoEChVDcmVhdGVCdWlsZGluZ1JlcXVlc3QSHQoHc2l0ZV9pZBgBIAEoA0IHukgEIgIgAEgAiAEBEhgKBG5hbWUYAiABKAlCCrpIB3IFEAEY/wESHQoLZGVzY3JpcHRpb24YAyABKAlCCLpIBXIDGIAgEiAKCHBvd2VyX2t3GAQgASgBQg66SAsSCSkAAAAAAAAAABIjCgtvdmVyaGVhZF9rdxgFIAEoAUIOukgLEgkpAAAAAAAAAAASGQoGYWlzbGVzGAYgASgFQgm6SAYaBBhkKAASJAoTcGh5c2ljYWxfcmFja19jb3VudBgHIAEoBUIHukgEGgIoABIiCg9yYWNrc19wZXJfYWlzbGUYCCABKAVCCbpIBhoEGGQoABIiChFkZWZhdWx0X3JhY2tfcm93cxgJIAEoBUIHukgEGgIoABIlChRkZWZhdWx0X3JhY2tfY29sdW1ucxgKIAEoBUIHukgEGgIoABJIChhkZWZhdWx0X3JhY2tfb3JkZXJfaW5kZXgYCyABKA4yHC5idWlsZGluZ3MudjEuUmFja09yZGVySW5kZXhCCLpIBYIBAhABOqsBukinARqkAQoYZGVmYXVsdF9yYWNrX2RpbXNfcGFpcmVkEkVkZWZhdWx0X3JhY2tfcm93cyBhbmQgZGVmYXVsdF9yYWNrX2NvbHVtbnMgbXVzdCBib3RoIGJlIDAgb3IgYm90aCA+IDAaQSh0aGlzLmRlZmF1bHRfcmFja19yb3dzID09IDApID09ICh0aGlzLmRlZmF1bHRfcmFja19jb2x1bW5zID09IDApQgoKCF9zaXRlX2lkIkIKFkNyZWF0ZUJ1aWxkaW5nUmVzcG9uc2USKAoIYnVpbGRpbmcYASABKAsyFi5idWlsZGluZ3MudjEuQnVpbGRpbmci1AQKFVVwZGF0ZUJ1aWxkaW5nUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgABIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxiAIBIgCghwb3dlcl9rdxgEIAEoAUIOukgLEgkpAAAAAAAAAAASIwoLb3ZlcmhlYWRfa3cYBSABKAFCDrpICxIJKQAAAAAAAAAAEhkKBmFpc2xlcxgGIAEoBUIJukgGGgQYZCgAEiQKE3BoeXNpY2FsX3JhY2tfY291bnQYByABKAVCB7pIBBoCKAASIgoPcmFja3NfcGVyX2Fpc2xlGAggASgFQgm6SAYaBBhkKAASIgoRZGVmYXVsdF9yYWNrX3Jvd3MYCSABKAVCB7pIBBoCKAASJQoUZGVmYXVsdF9yYWNrX2NvbHVtbnMYCiABKAVCB7pIBBoCKAASSAoYZGVmYXVsdF9yYWNrX29yZGVyX2luZGV4GAsgASgOMhwuYnVpbGRpbmdzLnYxLlJhY2tPcmRlckluZGV4Qgi6SAWCAQIQATqrAbpIpwEapAEKGGRlZmF1bHRfcmFja19kaW1zX3BhaXJlZBJFZGVmYXVsdF9yYWNrX3Jvd3MgYW5kIGRlZmF1bHRfcmFja19jb2x1bW5zIG11c3QgYm90aCBiZSAwIG9yIGJvdGggPiAwGkEodGhpcy5kZWZhdWx0X3JhY2tfcm93cyA9PSAwKSA9PSAodGhpcy5kZWZhdWx0X3JhY2tfY29sdW1ucyA9PSAwKSJCChZVcGRhdGVCdWlsZGluZ1Jlc3BvbnNlEigKCGJ1aWxkaW5nGAEgASgLMhYuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nIiwKFURlbGV0ZUJ1aWxkaW5nUmVxdWVzdBITCgJpZBgBIAEoA0IHukgEIgIgACI3ChZEZWxldGVCdWlsZGluZ1Jlc3BvbnNlEh0KFXVuYXNzaWduZWRfcmFja19jb3VudBgBIAEoAyJ1ChhMaXN0QnVpbGRpbmdSYWNrc1JlcXVlc3QSHAoLYnVpbGRpbmdfaWQYASABKANCB7pIBCICIAASHQoJcGFnZV9zaXplGAIgASgFQgq6SAcaBRjoBygAEhwKCnBhZ2VfdG9rZW4YAyABKAlCCLpIBXIDGIAQIpMBCgxCdWlsZGluZ1JhY2sSDwoHcmFja19pZBgBIAEoAxISCgpyYWNrX2xhYmVsGAIgASgJEhgKC2Fpc2xlX2luZGV4GAMgASgFSACIAQESHgoRcG9zaXRpb25faW5fYWlzbGUYBCABKAVIAYgBAUIOCgxfYWlzbGVfaW5kZXhCFAoSX3Bvc2l0aW9uX2luX2Fpc2xlIl8KGUxpc3RCdWlsZGluZ1JhY2tzUmVzcG9uc2USKQoFcmFja3MYASADKAsyGi5idWlsZGluZ3MudjEuQnVpbGRpbmdSYWNrEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSK1AgoNUmFja1BsYWNlbWVudBIYCgdyYWNrX2lkGAEgASgDQge6SAQiAiAAEiEKC2Fpc2xlX2luZGV4GAIgASgFQge6SAQaAigASACIAQESJwoRcG9zaXRpb25faW5fYWlzbGUYAyABKAVCB7pIBBoCKABIAYgBATqXAbpIkwEakAEKFnBvc2l0aW9uX3BhaXJfcmVxdWlyZWQSQGFpc2xlX2luZGV4IGFuZCBwb3NpdGlvbl9pbl9haXNsZSBtdXN0IGJvdGggYmUgc2V0IG9yIGJvdGggdW5zZXQaNGhhcyh0aGlzLmFpc2xlX2luZGV4KSA9PSBoYXModGhpcy5wb3NpdGlvbl9pbl9haXNsZSlCDgoMX2Fpc2xlX2luZGV4QhQKEl9wb3NpdGlvbl9pbl9haXNsZSKYAQocQXNzaWduUmFja3NUb0J1aWxkaW5nUmVxdWVzdBI3CgVyYWNrcxgBIAMoCzIbLmJ1aWxkaW5ncy52MS5SYWNrUGxhY2VtZW50Qgu6SAiSAQUIARDoBxIoChJ0YXJnZXRfYnVpbGRpbmdfaWQYAiABKANCB7pIBCICIABIAIgBAUIVChNfdGFyZ2V0X2J1aWxkaW5nX2lkIkUKHUFzc2lnblJhY2tzVG9CdWlsZGluZ1Jlc3BvbnNlEiQKHHNpdGVfcmVhc3NpZ25lZF9kZXZpY2VfY291bnQYASABKAMi9QEKHkFzc2lnbkRldmljZXNUb0J1aWxkaW5nUmVxdWVzdBIoChJ0YXJnZXRfYnVpbGRpbmdfaWQYASABKANCB7pIBCICIABIAIgBARIwChJkZXZpY2VfaWRlbnRpZmllcnMYAiADKAlCFLpIEZIBDggBEJBOIgdyBRABGIACEjQKJ2ZvcmNlX2NsZWFyX2NvbmZsaWN0aW5nX3JhY2tfbWVtYmVyc2hpcBgDIAEoCEgBiAEBQhUKE190YXJnZXRfYnVpbGRpbmdfaWRCKgooX2ZvcmNlX2NsZWFyX2NvbmZsaWN0aW5nX3JhY2tfbWVtYmVyc2hpcCKWAQoZUGVyRGV2aWNlQnVpbGRpbmdDb25mbGljdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRI9CgZyZWFzb24YAiABKA4yLS5idWlsZGluZ3MudjEuUGVyRGV2aWNlQnVpbGRpbmdDb25mbGljdFJlYXNvbhIfChdjb25mbGljdGluZ19idWlsZGluZ19pZBgDIAEoAyKdAQofQXNzaWduRGV2aWNlc1RvQnVpbGRpbmdSZXNwb25zZRIYChByZWFzc2lnbmVkX2NvdW50GAEgASgDEjoKCWNvbmZsaWN0cxgCIAMoCzInLmJ1aWxkaW5ncy52MS5QZXJEZXZpY2VCdWlsZGluZ0NvbmZsaWN0EiQKHHNpdGVfcmVhc3NpZ25lZF9kZXZpY2VfY291bnQYAyABKAMiNwoXR2V0QnVpbGRpbmdTdGF0c1JlcXVlc3QSHAoLYnVpbGRpbmdfaWQYASABKANCB7pIBCICIAAipgUKGEdldEJ1aWxkaW5nU3RhdHNSZXNwb25zZRITCgtidWlsZGluZ19pZBgBIAEoAxISCgpyYWNrX2NvdW50GAIgASgFEhQKDGRldmljZV9jb3VudBgDIAEoBRIXCg9yZXBvcnRpbmdfY291bnQYBCABKAUSGgoSdG90YWxfaGFzaHJhdGVfdGhzGAUgASgBEhoKEmF2Z19lZmZpY2llbmN5X2p0aBgGIAEoARIWCg50b3RhbF9wb3dlcl9rdxgHIAEoARIVCg1oYXNoaW5nX2NvdW50GAggASgFEhQKDGJyb2tlbl9jb3VudBgJIAEoBRIVCg1vZmZsaW5lX2NvdW50GAogASgFEhYKDnNsZWVwaW5nX2NvdW50GAsgASgFEjUKC3JhY2tfaGVhbHRoGAwgAygLMiAuYnVpbGRpbmdzLnYxLkJ1aWxkaW5nUmFja0hlYWx0aBIaChJkZXZpY2VfaWRlbnRpZmllcnMYDSADKAkSIAoYaGFzaHJhdGVfcmVwb3J0aW5nX2NvdW50GA4gASgFEiIKGmVmZmljaWVuY3lfcmVwb3J0aW5nX2NvdW50GA8gASgFEh0KFXBvd2VyX3JlcG9ydGluZ19jb3VudBgQIAEoBRIZChFtaW5fdGVtcGVyYXR1cmVfYxgRIAEoARIZChFtYXhfdGVtcGVyYXR1cmVfYxgSIAEoARIjCht0ZW1wZXJhdHVyZV9yZXBvcnRpbmdfY291bnQYEyABKAUSIQoZY29udHJvbF9ib2FyZF9pc3N1ZV9jb3VudBgUIAEoBRIXCg9mYW5faXNzdWVfY291bnQYFSABKAUSHgoWaGFzaF9ib2FyZF9pc3N1ZV9jb3VudBgWIAEoBRIXCg9wc3VfaXNzdWVfY291bnQYFyABKAUi9QEKEkJ1aWxkaW5nUmFja0hlYWx0aBIPCgdyYWNrX2lkGAEgASgDEhIKCnJhY2tfbGFiZWwYAiABKAkSGAoLYWlzbGVfaW5kZXgYAyABKAVIAIgBARIeChFwb3NpdGlvbl9pbl9haXNsZRgEIAEoBUgBiAEBEhUKDWhhc2hpbmdfY291bnQYBSABKAUSFAoMYnJva2VuX2NvdW50GAYgASgFEhUKDW9mZmxpbmVfY291bnQYByABKAUSFgoOc2xlZXBpbmdfY291bnQYCCABKAVCDgoMX2Fpc2xlX2luZGV4QhQKEl9wb3NpdGlvbl9pbl9haXNsZSq2AQoOUmFja09yZGVySW5kZXgSIAocUkFDS19PUkRFUl9JTkRFWF9VTlNQRUNJRklFRBAAEiAKHFJBQ0tfT1JERVJfSU5ERVhfQk9UVE9NX0xFRlQQARIdChlSQUNLX09SREVSX0lOREVYX1RPUF9MRUZUEAISIQodUkFDS19PUkRFUl9JTkRFWF9CT1RUT01fUklHSFQQAxIeChpSQUNLX09SREVSX0lOREVYX1RPUF9SSUdIVBAEKqACCh9QZXJEZXZpY2VCdWlsZGluZ0NvbmZsaWN0UmVhc29uEjMKL1BFUl9ERVZJQ0VfQlVJTERJTkdfQ09ORkxJQ1RfUkVBU09OX1VOU1BFQ0lGSUVEEAASOAo0UEVSX0RFVklDRV9CVUlMRElOR19DT05GTElDVF9SRUFTT05fREVWSUNFX05PVF9GT1VORBABEkgKRFBFUl9ERVZJQ0VfQlVJTERJTkdfQ09ORkxJQ1RfUkVBU09OX0RFVklDRV9JTl9SQUNLX0FUX09USEVSX0JVSUxESU5HEAISRApAUEVSX0RFVklDRV9CVUlMRElOR19DT05GTElDVF9SRUFTT05fREVWSUNFX0lOX1JBQ0tfQVRfT1RIRVJfU0lURRADMokHCg9CdWlsZGluZ1NlcnZpY2USWAoNTGlzdEJ1aWxkaW5ncxIiLmJ1aWxkaW5ncy52MS5MaXN0QnVpbGRpbmdzUmVxdWVzdBojLmJ1aWxkaW5ncy52MS5MaXN0QnVpbGRpbmdzUmVzcG9uc2USUgoLR2V0QnVpbGRpbmcSIC5idWlsZGluZ3MudjEuR2V0QnVpbGRpbmdSZXF1ZXN0GiEuYnVpbGRpbmdzLnYxLkdldEJ1aWxkaW5nUmVzcG9uc2USWwoOQ3JlYXRlQnVpbGRpbmcSIy5idWlsZGluZ3MudjEuQ3JlYXRlQnVpbGRpbmdSZXF1ZXN0GiQuYnVpbGRpbmdzLnYxLkNyZWF0ZUJ1aWxkaW5nUmVzcG9uc2USWwoOVXBkYXRlQnVpbGRpbmcSIy5idWlsZGluZ3MudjEuVXBkYXRlQnVpbGRpbmdSZXF1ZXN0GiQuYnVpbGRpbmdzLnYxLlVwZGF0ZUJ1aWxkaW5nUmVzcG9uc2USWwoORGVsZXRlQnVpbGRpbmcSIy5idWlsZGluZ3MudjEuRGVsZXRlQnVpbGRpbmdSZXF1ZXN0GiQuYnVpbGRpbmdzLnYxLkRlbGV0ZUJ1aWxkaW5nUmVzcG9uc2USZAoRTGlzdEJ1aWxkaW5nUmFja3MSJi5idWlsZGluZ3MudjEuTGlzdEJ1aWxkaW5nUmFja3NSZXF1ZXN0GicuYnVpbGRpbmdzLnYxLkxpc3RCdWlsZGluZ1JhY2tzUmVzcG9uc2UScAoVQXNzaWduUmFja3NUb0J1aWxkaW5nEiouYnVpbGRpbmdzLnYxLkFzc2lnblJhY2tzVG9CdWlsZGluZ1JlcXVlc3QaKy5idWlsZGluZ3MudjEuQXNzaWduUmFja3NUb0J1aWxkaW5nUmVzcG9uc2USdgoXQXNzaWduRGV2aWNlc1RvQnVpbGRpbmcSLC5idWlsZGluZ3MudjEuQXNzaWduRGV2aWNlc1RvQnVpbGRpbmdSZXF1ZXN0Gi0uYnVpbGRpbmdzLnYxLkFzc2lnbkRldmljZXNUb0J1aWxkaW5nUmVzcG9uc2USYQoQR2V0QnVpbGRpbmdTdGF0cxIlLmJ1aWxkaW5ncy52MS5HZXRCdWlsZGluZ1N0YXRzUmVxdWVzdBomLmJ1aWxkaW5ncy52MS5HZXRCdWlsZGluZ1N0YXRzUmVzcG9uc2VCwAEKEGNvbS5idWlsZGluZ3MudjFCDkJ1aWxkaW5nc1Byb3RvUAFaS2dpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2J1aWxkaW5ncy92MTtidWlsZGluZ3N2MaICA0JYWKoCDEJ1aWxkaW5ncy5WMcoCDEJ1aWxkaW5nc1xWMeICGEJ1aWxkaW5nc1xWMVxHUEJNZXRhZGF0YeoCDUJ1aWxkaW5nczo6VjFiBnByb3RvMw",
+    [
+      file_buf_validate_validate,
+      file_common_v1_common,
+      file_common_v1_fleet_list_stats,
+      file_errors_v1_errors,
+      file_google_protobuf_timestamp,
+    ],
   );
 
 /**
@@ -100,6 +112,14 @@ export type Building = Message<"buildings.v1.Building"> & {
    * @generated from field: google.protobuf.Timestamp updated_at = 14;
    */
   updatedAt?: Timestamp | undefined;
+
+  /**
+   * Parent placement refs for display/filter rows. site is unset
+   * when this building is unassigned.
+   *
+   * @generated from field: common.v1.PlacementRefs placement = 15;
+   */
+  placement?: PlacementRefs | undefined;
 };
 
 /**
@@ -124,6 +144,19 @@ export type BuildingWithCounts = Message<"buildings.v1.BuildingWithCounts"> & {
    * @generated from field: int64 rack_count = 2;
    */
   rackCount: bigint;
+
+  /**
+   * @generated from field: int64 device_count = 3;
+   */
+  deviceCount: bigint;
+
+  /**
+   * Lightweight list/table rollup. Omitted when the caller is not
+   * authorized for telemetry stats.
+   *
+   * @generated from field: common.v1.FleetListStats list_stats = 4;
+   */
+  listStats?: FleetListStats | undefined;
 };
 
 /**
@@ -135,31 +168,46 @@ export const BuildingWithCountsSchema: GenMessage<BuildingWithCounts> =
   messageDesc(file_buildings_v1_buildings, 1);
 
 /**
- * SiteFilter selects which buildings to return. Exactly one filter
- * shape is allowed; unset = all buildings in the org.
+ * Filter shape mirrors the rack and miner list filters: site_ids is an
+ * OR across sites; include_unassigned is independently combinable.
+ * Leaving both unset returns every building in the org.
  *
  * @generated from message buildings.v1.ListBuildingsRequest
  */
 export type ListBuildingsRequest = Message<"buildings.v1.ListBuildingsRequest"> & {
   /**
-   * @generated from oneof buildings.v1.ListBuildingsRequest.site_filter
+   * Filter by site (OR across IDs). Each entry must be > 0; capped at
+   * 1024 to bound request size (matches the rack/miner list filters).
+   *
+   * @generated from field: repeated int64 site_ids = 1;
    */
-  siteFilter:
-    | {
-        /**
-         * @generated from field: int64 site_id = 1;
-         */
-        value: bigint;
-        case: "siteId";
-      }
-    | {
-        /**
-         * @generated from field: bool unassigned_only = 2;
-         */
-        value: boolean;
-        case: "unassignedOnly";
-      }
-    | { case: undefined; value?: undefined };
+  siteIds: bigint[];
+
+  /**
+   * When true, buildings with site_id IS NULL are also included.
+   * Independent of site_ids — set only this for the unassigned
+   * bucket alone, set both to combine specific sites with unassigned.
+   *
+   * @generated from field: bool include_unassigned = 2;
+   */
+  includeUnassigned: boolean;
+
+  /**
+   * Filter buildings whose rolled-up devices have any open issue
+   * matching these component types. OR within the list, AND with
+   * other filters.
+   *
+   * @generated from field: repeated errors.v1.ComponentType error_component_types = 3;
+   */
+  errorComponentTypes: ComponentType[];
+
+  /**
+   * Filter by rolled-up telemetry values for the building. Multiple
+   * ranges are AND'd.
+   *
+   * @generated from field: repeated common.v1.FleetListTelemetryRangeFilter telemetry_ranges = 4;
+   */
+  telemetryRanges: FleetListTelemetryRangeFilter[];
 };
 
 /**
@@ -631,6 +679,116 @@ export const AssignRacksToBuildingResponseSchema: GenMessage<AssignRacksToBuildi
   messageDesc(file_buildings_v1_buildings, 17);
 
 /**
+ * @generated from message buildings.v1.AssignDevicesToBuildingRequest
+ */
+export type AssignDevicesToBuildingRequest = Message<"buildings.v1.AssignDevicesToBuildingRequest"> & {
+  /**
+   * Unset = move to the "Unassigned" bucket. When present, must be > 0.
+   *
+   * @generated from field: optional int64 target_building_id = 1;
+   */
+  targetBuildingId?: bigint | undefined;
+
+  /**
+   * @generated from field: repeated string device_identifiers = 2;
+   */
+  deviceIdentifiers: string[];
+
+  /**
+   * When true, the server — inside the same transaction as the
+   * building write — removes any conflicting rack memberships for the
+   * listed devices before applying the building assignment. Mirrors
+   * the AssignDevicesToSite force-clear semantic: a device currently
+   * in a rack at a different building would otherwise reject the whole
+   * batch with DEVICE_IN_RACK_AT_OTHER_BUILDING.
+   *
+   * When false (default), any device currently in a rack at a different
+   * building rejects the whole batch with per-device error details.
+   *
+   * @generated from field: optional bool force_clear_conflicting_rack_membership = 3;
+   */
+  forceClearConflictingRackMembership?: boolean | undefined;
+};
+
+/**
+ * Describes the message buildings.v1.AssignDevicesToBuildingRequest.
+ * Use `create(AssignDevicesToBuildingRequestSchema)` to create a new message.
+ */
+export const AssignDevicesToBuildingRequestSchema: GenMessage<AssignDevicesToBuildingRequest> =
+  /*@__PURE__*/
+  messageDesc(file_buildings_v1_buildings, 18);
+
+/**
+ * PerDeviceBuildingConflict carries the per-device error details
+ * surfaced when AssignDevicesToBuilding rejects. The whole batch is
+ * rejected; no rows are mutated.
+ *
+ * @generated from message buildings.v1.PerDeviceBuildingConflict
+ */
+export type PerDeviceBuildingConflict = Message<"buildings.v1.PerDeviceBuildingConflict"> & {
+  /**
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * @generated from field: buildings.v1.PerDeviceBuildingConflictReason reason = 2;
+   */
+  reason: PerDeviceBuildingConflictReason;
+
+  /**
+   * When reason == DEVICE_IN_RACK_AT_OTHER_BUILDING: the building_id
+   * of the device's rack. 0 otherwise.
+   *
+   * @generated from field: int64 conflicting_building_id = 3;
+   */
+  conflictingBuildingId: bigint;
+};
+
+/**
+ * Describes the message buildings.v1.PerDeviceBuildingConflict.
+ * Use `create(PerDeviceBuildingConflictSchema)` to create a new message.
+ */
+export const PerDeviceBuildingConflictSchema: GenMessage<PerDeviceBuildingConflict> =
+  /*@__PURE__*/
+  messageDesc(file_buildings_v1_buildings, 19);
+
+/**
+ * @generated from message buildings.v1.AssignDevicesToBuildingResponse
+ */
+export type AssignDevicesToBuildingResponse = Message<"buildings.v1.AssignDevicesToBuildingResponse"> & {
+  /**
+   * @generated from field: int64 reassigned_count = 1;
+   */
+  reassignedCount: bigint;
+
+  /**
+   * Populated only on rejection. Empty on success.
+   *
+   * @generated from field: repeated buildings.v1.PerDeviceBuildingConflict conflicts = 2;
+   */
+  conflicts: PerDeviceBuildingConflict[];
+
+  /**
+   * Number of devices whose site_id was cascaded to the target
+   * building's site as part of the same transaction. Zero when no
+   * cascade was needed (target unassigned or every device was already
+   * at the target site).
+   *
+   * @generated from field: int64 site_reassigned_device_count = 3;
+   */
+  siteReassignedDeviceCount: bigint;
+};
+
+/**
+ * Describes the message buildings.v1.AssignDevicesToBuildingResponse.
+ * Use `create(AssignDevicesToBuildingResponseSchema)` to create a new message.
+ */
+export const AssignDevicesToBuildingResponseSchema: GenMessage<AssignDevicesToBuildingResponse> =
+  /*@__PURE__*/
+  messageDesc(file_buildings_v1_buildings, 20);
+
+/**
  * @generated from message buildings.v1.GetBuildingStatsRequest
  */
 export type GetBuildingStatsRequest = Message<"buildings.v1.GetBuildingStatsRequest"> & {
@@ -646,7 +804,7 @@ export type GetBuildingStatsRequest = Message<"buildings.v1.GetBuildingStatsRequ
  */
 export const GetBuildingStatsRequestSchema: GenMessage<GetBuildingStatsRequest> =
   /*@__PURE__*/
-  messageDesc(file_buildings_v1_buildings, 18);
+  messageDesc(file_buildings_v1_buildings, 21);
 
 /**
  * GetBuildingStatsResponse mirrors DeviceSetStats for the rollup fields
@@ -760,6 +918,41 @@ export type GetBuildingStatsResponse = Message<"buildings.v1.GetBuildingStatsRes
    * @generated from field: int32 power_reporting_count = 16;
    */
   powerReportingCount: number;
+
+  /**
+   * @generated from field: double min_temperature_c = 17;
+   */
+  minTemperatureC: number;
+
+  /**
+   * @generated from field: double max_temperature_c = 18;
+   */
+  maxTemperatureC: number;
+
+  /**
+   * @generated from field: int32 temperature_reporting_count = 19;
+   */
+  temperatureReportingCount: number;
+
+  /**
+   * @generated from field: int32 control_board_issue_count = 20;
+   */
+  controlBoardIssueCount: number;
+
+  /**
+   * @generated from field: int32 fan_issue_count = 21;
+   */
+  fanIssueCount: number;
+
+  /**
+   * @generated from field: int32 hash_board_issue_count = 22;
+   */
+  hashBoardIssueCount: number;
+
+  /**
+   * @generated from field: int32 psu_issue_count = 23;
+   */
+  psuIssueCount: number;
 };
 
 /**
@@ -768,7 +961,7 @@ export type GetBuildingStatsResponse = Message<"buildings.v1.GetBuildingStatsRes
  */
 export const GetBuildingStatsResponseSchema: GenMessage<GetBuildingStatsResponse> =
   /*@__PURE__*/
-  messageDesc(file_buildings_v1_buildings, 19);
+  messageDesc(file_buildings_v1_buildings, 22);
 
 /**
  * BuildingRackHealth is the per-rack rollup returned by GetBuildingStats.
@@ -826,7 +1019,7 @@ export type BuildingRackHealth = Message<"buildings.v1.BuildingRackHealth"> & {
  */
 export const BuildingRackHealthSchema: GenMessage<BuildingRackHealth> =
   /*@__PURE__*/
-  messageDesc(file_buildings_v1_buildings, 20);
+  messageDesc(file_buildings_v1_buildings, 23);
 
 /**
  * RackOrderIndex mirrors device_set/v1's enum. We re-declare it here
@@ -868,6 +1061,49 @@ export enum RackOrderIndex {
 export const RackOrderIndexSchema: GenEnum<RackOrderIndex> = /*@__PURE__*/ enumDesc(file_buildings_v1_buildings, 0);
 
 /**
+ * PerDeviceBuildingConflictReason enumerates the reasons a device can be
+ * rejected by AssignDevicesToBuilding.
+ *
+ * @generated from enum buildings.v1.PerDeviceBuildingConflictReason
+ */
+export enum PerDeviceBuildingConflictReason {
+  /**
+   * @generated from enum value: PER_DEVICE_BUILDING_CONFLICT_REASON_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: PER_DEVICE_BUILDING_CONFLICT_REASON_DEVICE_NOT_FOUND = 1;
+   */
+  DEVICE_NOT_FOUND = 1,
+
+  /**
+   * @generated from enum value: PER_DEVICE_BUILDING_CONFLICT_REASON_DEVICE_IN_RACK_AT_OTHER_BUILDING = 2;
+   */
+  DEVICE_IN_RACK_AT_OTHER_BUILDING = 2,
+
+  /**
+   * Device is in a rack whose site_id differs from the target
+   * building's site. Surfaces cross-site rack memberships that the
+   * building-only conflict check would otherwise miss (e.g. a rack
+   * at Site A with no building when the target building lives at
+   * Site B). Cleared the same way as IN_RACK_AT_OTHER_BUILDING:
+   * force_clear_conflicting_rack_membership drops the rack row in
+   * the same transaction.
+   *
+   * @generated from enum value: PER_DEVICE_BUILDING_CONFLICT_REASON_DEVICE_IN_RACK_AT_OTHER_SITE = 3;
+   */
+  DEVICE_IN_RACK_AT_OTHER_SITE = 3,
+}
+
+/**
+ * Describes the enum buildings.v1.PerDeviceBuildingConflictReason.
+ */
+export const PerDeviceBuildingConflictReasonSchema: GenEnum<PerDeviceBuildingConflictReason> =
+  /*@__PURE__*/
+  enumDesc(file_buildings_v1_buildings, 1);
+
+/**
  * BuildingService is the admin surface for buildings: per-building
  * config (capacity, layout defaults) under a site (or unassigned).
  * Buildings coexist with the free-form `device_set_rack.zone` string;
@@ -878,10 +1114,10 @@ export const RackOrderIndexSchema: GenEnum<RackOrderIndex> = /*@__PURE__*/ enumD
 export const BuildingService: GenService<{
   /**
    * ListBuildings returns every live building in the org with its
-   * rack_count. site_filter selects buildings under a specific
-   * site (when site_id > 0), the unassigned bucket (when
-   * unassigned_only is true), or all buildings in the org
-   * (default).
+   * rack_count. site_ids restricts the result to buildings under any
+   * of the given sites; include_unassigned adds the unassigned bucket
+   * (building.site_id IS NULL). Leaving both unset returns every
+   * building in the org.
    *
    * @generated from rpc buildings.v1.BuildingService.ListBuildings
    */
@@ -971,6 +1207,23 @@ export const BuildingService: GenService<{
     methodKind: "unary";
     input: typeof AssignRacksToBuildingRequestSchema;
     output: typeof AssignRacksToBuildingResponseSchema;
+  };
+  /**
+   * AssignDevicesToBuilding is an all-or-nothing bulk update of
+   * device.building_id. If any device is in a rack whose building_id
+   * differs from the target, the entire batch rejects with per-device
+   * error details and no row is touched. Omit target_building_id (or
+   * leave it unset) to move devices to the "Unassigned" bucket. When
+   * target_building_id is set, the same transaction also cascades
+   * device.site_id to the target building's site so building/site
+   * stay in lockstep.
+   *
+   * @generated from rpc buildings.v1.BuildingService.AssignDevicesToBuilding
+   */
+  assignDevicesToBuilding: {
+    methodKind: "unary";
+    input: typeof AssignDevicesToBuildingRequestSchema;
+    output: typeof AssignDevicesToBuildingResponseSchema;
   };
   /**
    * GetBuildingStats returns server-rolled telemetry + miner-state

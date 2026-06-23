@@ -32,7 +32,6 @@ import (
 
 const (
 	testClientTokenExpirationPeriod = 5 * time.Minute
-	testMinerTokenExpirationPeriod  = 5 * time.Minute
 	testMaxWorkers                  = 50
 	testWorkerExecutionTimeout      = 30 * time.Second
 	testMasterPollingInterval       = time.Second
@@ -71,7 +70,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 			SecretKey:        config.AuthTokenSecretKey,
 			ExpirationPeriod: testClientTokenExpirationPeriod,
 		},
-		MinerTokenExpirationPeriod: testMinerTokenExpirationPeriod,
 	}
 	tokenService, err := token.NewService(tokenConfig)
 	assert.NoError(t, err)
@@ -132,7 +130,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	pluginManager := plugins.NewManager(pluginConfig)
 	pluginService := plugins.NewService(pluginManager)
 
-	minerService := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, pluginManager)
+	minerService := miner.NewMinerService(db, userStore, encryptService, filesService, pluginManager)
 
 	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, discoverer, pluginService, listenerMock, protoPairer)
 

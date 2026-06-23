@@ -90,3 +90,38 @@ func (s *SQLNotificationHistoryStore) List(ctx context.Context, organizationID i
 	}
 	return out, nil
 }
+
+func (s *SQLNotificationHistoryStore) ListActive(ctx context.Context, organizationID int64, limit int32) ([]notificationhistory.StoredNotification, error) {
+	rows, err := s.GetQueries(ctx).ListActiveNotifications(ctx, sqlc.ListActiveNotificationsParams{
+		OrganizationID: organizationID,
+		PageLimit:      limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list active notifications: %w", err)
+	}
+	out := make([]notificationhistory.StoredNotification, 0, len(rows))
+	for _, row := range rows {
+		org := row.OrganizationID
+		out = append(out, notificationhistory.StoredNotification{
+			ID:         row.HistoryID,
+			ReceivedAt: row.ReceivedAt,
+			DeviceName: row.DeviceName,
+			DeviceMAC:  row.DeviceMac,
+			Notification: notificationhistory.Notification{
+				AlertName: row.AlertName,
+				// ListActiveNotifications filters to status = 'firing', so every returned row is firing.
+				Status:         "firing",
+				Severity:       row.Severity,
+				RuleGroup:      row.RuleGroup,
+				Fingerprint:    row.Fingerprint,
+				OrganizationID: &org,
+				DeviceID:       row.DeviceID,
+				Template:       row.Template,
+				Summary:        row.Summary,
+				StartsAt:       nullTimeToPtr(row.StartsAt),
+				EndsAt:         nullTimeToPtr(row.EndsAt),
+			},
+		})
+	}
+	return out, nil
+}

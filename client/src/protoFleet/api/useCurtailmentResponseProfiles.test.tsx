@@ -208,6 +208,25 @@ describe("useCurtailmentResponseProfiles", () => {
     });
   });
 
+  it("treats default zero curtail batch intervals as unset without a batch size", async () => {
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
+      profiles: [apiProfile({ curtailBatchSize: 0, curtailBatchIntervalSec: 0 })],
+    });
+
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles[0]?.formValues).toEqual(
+      expect.objectContaining({
+        curtailBatchSize: "",
+        curtailBatchIntervalSec: "",
+      }),
+    );
+  });
+
   it("maps API profiles without sites as whole-fleet profiles", async () => {
     mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile({ site: undefined })] });
 

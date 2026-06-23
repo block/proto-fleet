@@ -12,11 +12,10 @@ import (
 	storesMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
-// TestListMinerStateSnapshots_PopulatesSiteIDAndLabel asserts that the
-// snapshot builder propagates the row-stamped site_id + site_label to
-// the proto. Plan §"device/" snapshot writer audit — every snapshot
-// construction must surface the assigned site without a second lookup.
-func TestListMinerStateSnapshots_PopulatesSiteIDAndLabel(t *testing.T) {
+// TestListMinerStateSnapshots_PopulatesDirectPlacementRefs asserts that the
+// snapshot builder propagates direct row-stamped placement refs without a
+// second lookup.
+func TestListMinerStateSnapshots_PopulatesDirectPlacementRefs(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := storesMocks.NewMockDeviceStore(ctrl)
 	svc := &Service{deviceStore: store}
@@ -28,12 +27,14 @@ func TestListMinerStateSnapshots_PopulatesSiteIDAndLabel(t *testing.T) {
 			PairingStatus:    "UNPAIRED",
 			SiteID:           sql.NullInt64{Int64: 7, Valid: true},
 			SiteLabel:        "Site Alpha",
+			BuildingID:       sql.NullInt64{Int64: 11, Valid: true},
+			BuildingLabel:    "Building One",
 		},
 		{
 			DeviceIdentifier: "miner-b",
 			DriverName:       "antminer",
 			PairingStatus:    "UNPAIRED",
-			// Site unset — snapshot.SiteId must remain nil and label empty.
+			// Site unset — placement must remain unset.
 			SiteID:    sql.NullInt64{},
 			SiteLabel: "",
 		},
@@ -46,10 +47,13 @@ func TestListMinerStateSnapshots_PopulatesSiteIDAndLabel(t *testing.T) {
 	assert.Equal(t, int64(2), total)
 	require.Len(t, snaps, 2)
 
-	require.NotNil(t, snaps[0].SiteId, "miner-a must surface its assigned site_id")
-	assert.Equal(t, int64(7), *snaps[0].SiteId)
-	assert.Equal(t, "Site Alpha", snaps[0].SiteLabel)
+	require.NotNil(t, snaps[0].Placement, "miner-a must surface placement")
+	require.NotNil(t, snaps[0].Placement.Site, "miner-a must surface its assigned site ref")
+	assert.Equal(t, int64(7), snaps[0].Placement.Site.Id)
+	assert.Equal(t, "Site Alpha", snaps[0].Placement.Site.Label)
+	require.NotNil(t, snaps[0].Placement.Building, "miner-a must surface its assigned building ref")
+	assert.Equal(t, int64(11), snaps[0].Placement.Building.Id)
+	assert.Equal(t, "Building One", snaps[0].Placement.Building.Label)
 
-	assert.Nil(t, snaps[1].SiteId, "unassigned miner must not surface a site_id")
-	assert.Empty(t, snaps[1].SiteLabel)
+	assert.Nil(t, snaps[1].Placement, "unassigned miner must not surface placement")
 }

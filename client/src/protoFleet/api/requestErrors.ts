@@ -34,3 +34,7 @@ export function isAbortError(error: unknown, signal?: AbortSignal): boolean {
 export function isAuthOrPermissionError(error: unknown): boolean {
   return error instanceof ConnectError && authOrPermissionErrorCodes.has(error.code);
 }
+
+export function isPermissionDeniedError(error: unknown): boolean {
+  return error instanceof ConnectError && error.code === Code.PermissionDenied;
+}

@@ -4,19 +4,16 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/buildings/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 )
 
 func toListFilter(req *pb.ListBuildingsRequest, orgID int64) models.ListFilter {
-	out := models.ListFilter{OrgID: orgID}
-	switch f := req.GetSiteFilter().(type) {
-	case *pb.ListBuildingsRequest_SiteId:
-		v := f.SiteId
-		out.SiteID = &v
-	case *pb.ListBuildingsRequest_UnassignedOnly:
-		out.UnassignedOnly = f.UnassignedOnly
+	return models.ListFilter{
+		OrgID:             orgID,
+		SiteIDs:           req.GetSiteIds(),
+		IncludeUnassigned: req.GetIncludeUnassigned(),
 	}
-	return out
 }
 
 func toCreateParams(req *pb.CreateBuildingRequest, orgID int64) models.CreateParams {
@@ -84,6 +81,12 @@ func toProtoBuilding(b *models.Building) *pb.Building {
 	if b.SiteID != nil {
 		v := *b.SiteID
 		out.SiteId = &v
+		out.Placement = &commonpb.PlacementRefs{
+			Site: &commonpb.ResourceRef{
+				Id:    v,
+				Label: b.SiteLabel,
+			},
+		}
 	}
 	return out
 }
@@ -93,11 +96,42 @@ func toListBuildingsResponse(rows []models.BuildingWithCounts) *pb.ListBuildings
 	for i := range rows {
 		row := rows[i]
 		out = append(out, &pb.BuildingWithCounts{
-			Building:  toProtoBuilding(&row.Building),
-			RackCount: row.RackCount,
+			Building:    toProtoBuilding(&row.Building),
+			RackCount:   row.RackCount,
+			DeviceCount: row.DeviceCount,
+			ListStats:   toProtoFleetListStats(row.ListStats),
 		})
 	}
 	return &pb.ListBuildingsResponse{Buildings: out}
+}
+
+func toProtoFleetListStats(stats *models.FleetListStats) *commonpb.FleetListStats {
+	if stats == nil {
+		return nil
+	}
+	return &commonpb.FleetListStats{
+		BuildingCount:             stats.BuildingCount,
+		RackCount:                 stats.RackCount,
+		DeviceCount:               stats.DeviceCount,
+		ReportingCount:            stats.ReportingCount,
+		HashrateReportingCount:    stats.HashrateReportingCount,
+		EfficiencyReportingCount:  stats.EfficiencyReportingCount,
+		PowerReportingCount:       stats.PowerReportingCount,
+		TemperatureReportingCount: stats.TemperatureReportingCount,
+		TotalHashrateThs:          stats.TotalHashrateThs,
+		AvgEfficiencyJth:          stats.AvgEfficiencyJth,
+		TotalPowerKw:              stats.TotalPowerKw,
+		MinTemperatureC:           stats.MinTemperatureC,
+		MaxTemperatureC:           stats.MaxTemperatureC,
+		HashingCount:              stats.HashingCount,
+		BrokenCount:               stats.BrokenCount,
+		OfflineCount:              stats.OfflineCount,
+		SleepingCount:             stats.SleepingCount,
+		ControlBoardIssueCount:    stats.ControlBoardIssueCount,
+		FanIssueCount:             stats.FanIssueCount,
+		HashBoardIssueCount:       stats.HashBoardIssueCount,
+		PsuIssueCount:             stats.PsuIssueCount,
+	}
 }
 
 func toListBuildingRacksResponse(rows []models.BuildingRack, nextPageToken string) *pb.ListBuildingRacksResponse {
@@ -119,6 +153,50 @@ func toListBuildingRacksResponse(rows []models.BuildingRack, nextPageToken strin
 		out = append(out, entry)
 	}
 	return &pb.ListBuildingRacksResponse{Racks: out, NextPageToken: nextPageToken}
+}
+
+func toAssignDevicesToBuildingParams(req *pb.AssignDevicesToBuildingRequest, orgID int64) models.AssignDevicesToBuildingParams {
+	var targetBuildingID *int64
+	if req.TargetBuildingId != nil {
+		v := req.GetTargetBuildingId()
+		targetBuildingID = &v
+	}
+	return models.AssignDevicesToBuildingParams{
+		OrgID:                               orgID,
+		TargetBuildingID:                    targetBuildingID,
+		DeviceIdentifiers:                   req.GetDeviceIdentifiers(),
+		ForceClearConflictingRackMembership: req.GetForceClearConflictingRackMembership(),
+	}
+}
+
+func toProtoBuildingConflicts(conflicts []models.PerDeviceBuildingConflict) []*pb.PerDeviceBuildingConflict {
+	if len(conflicts) == 0 {
+		return nil
+	}
+	out := make([]*pb.PerDeviceBuildingConflict, 0, len(conflicts))
+	for _, c := range conflicts {
+		out = append(out, &pb.PerDeviceBuildingConflict{
+			DeviceIdentifier:      c.DeviceIdentifier,
+			Reason:                toProtoBuildingConflictReason(c.Reason),
+			ConflictingBuildingId: c.ConflictingBuildingID,
+		})
+	}
+	return out
+}
+
+func toProtoBuildingConflictReason(r models.PerDeviceBuildingConflictReason) pb.PerDeviceBuildingConflictReason {
+	switch r {
+	case models.ReasonBuildingUnspecified:
+		return pb.PerDeviceBuildingConflictReason_PER_DEVICE_BUILDING_CONFLICT_REASON_UNSPECIFIED
+	case models.ReasonBuildingDeviceNotFound:
+		return pb.PerDeviceBuildingConflictReason_PER_DEVICE_BUILDING_CONFLICT_REASON_DEVICE_NOT_FOUND
+	case models.ReasonBuildingDeviceInRackAtOtherBuilding:
+		return pb.PerDeviceBuildingConflictReason_PER_DEVICE_BUILDING_CONFLICT_REASON_DEVICE_IN_RACK_AT_OTHER_BUILDING
+	case models.ReasonBuildingDeviceInRackAtOtherSite:
+		return pb.PerDeviceBuildingConflictReason_PER_DEVICE_BUILDING_CONFLICT_REASON_DEVICE_IN_RACK_AT_OTHER_SITE
+	default:
+		return pb.PerDeviceBuildingConflictReason_PER_DEVICE_BUILDING_CONFLICT_REASON_UNSPECIFIED
+	}
 }
 
 func toAssignRacksToBuildingParams(req *pb.AssignRacksToBuildingRequest, orgID int64) models.AssignRacksToBuildingParams {

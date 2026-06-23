@@ -372,12 +372,7 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 		"host", deviceInfo.Host,
 		"port", deviceInfo.Port)
 
-	credentials, err := credentialsFromSecret(secret)
-	if err != nil {
-		return sdk.NewDeviceResult{}, err
-	}
-
-	dev, err := device.New(deviceID, deviceInfo, credentials)
+	dev, err := newDeviceFromSecret(deviceID, deviceInfo, secret)
 	if err != nil {
 		return sdk.NewDeviceResult{}, fmt.Errorf("failed to create device: %w", err)
 	}
@@ -393,19 +388,27 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 	return sdk.NewDeviceResult{Device: dev}, nil
 }
 
+func newDeviceFromSecret(deviceID string, deviceInfo sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.Device, error) {
+	credentials, err := credentialsFromSecret(secret)
+	if err != nil {
+		return nil, err
+	}
+	return device.New(deviceID, deviceInfo, credentials)
+}
+
 // GetDefaultCredentials implements sdk.DefaultCredentialsProvider, enabling the
 // server to auto-authenticate Proto rigs with factory defaults during pairing.
 func (d *Driver) GetDefaultCredentials(_ context.Context, _, _ string) []sdk.UsernamePassword {
 	return defaultCredentials
 }
 
-// credentialsFromSecret extracts the credentials from a secret bundle. A nil
-// bundle (devices paired before the credentials switch stored none) falls back to
-// factory defaults; an explicit empty password is rejected rather than upgraded.
+// credentialsFromSecret extracts the credentials from a secret bundle. Missing
+// credentials and explicit empty passwords are rejected rather than upgraded to
+// factory defaults.
 func credentialsFromSecret(secret sdk.SecretBundle) (sdk.UsernamePassword, error) {
 	switch kind := secret.Kind.(type) {
 	case nil:
-		return defaultCredentials[0], nil
+		return sdk.UsernamePassword{}, fmt.Errorf("credentials are required in secret bundle")
 	case sdk.UsernamePassword:
 		if kind.Password == "" {
 			return sdk.UsernamePassword{}, fmt.Errorf("password is required in secret bundle")

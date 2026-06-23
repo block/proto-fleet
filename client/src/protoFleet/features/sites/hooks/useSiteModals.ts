@@ -25,6 +25,10 @@ export type SiteModalState =
 
 interface UseSiteModalsOptions {
   refetchSites: () => void;
+  // Bumps the page's building-refresh signal so any sibling building list
+  // (e.g. SiteSettingsSingleView's table) re-fetches after a membership
+  // change. Optional so hosts without a building table can omit it.
+  refetchBuildings?: () => void;
 }
 
 export interface SiteModalsApi {
@@ -38,8 +42,8 @@ export interface SiteModalsApi {
   openCreate: () => void;
   openManageEdit: (site: Site) => void;
   // Resolve a SiteWithCounts from the page's sites cache and open the
-  // cascade dialog. The hook does the lookup so /sites and /settings/sites
-  // don't duplicate the same id-matching logic.
+  // cascade dialog. The hook does the lookup so callers don't duplicate the
+  // same id-matching logic.
   requestDeleteCurrent: (sites: SiteWithCounts[] | undefined) => void;
   // Closes the topmost modal: drops details if details is stacked on
   // manage, otherwise closes everything to none.
@@ -54,17 +58,17 @@ export interface SiteModalsApi {
   detailsSaveEdit: (values: SiteFormValues) => Promise<void>;
   // ManageSiteModal handlers
   manageEditDetails: () => void;
-  manageNetworkConfigChange: (value: string) => void;
-  manageSave: () => Promise<{
-    canonicalNetworkConfig: string;
-    warnings: string[];
-    closeOnSuccess: boolean;
-  } | null>;
+  // Persists building-membership changes accumulated in the manage modal.
+  // In create mode the delta is empty (building management is gated until
+  // the site exists) and this just runs CreateSite. In edit mode it applies
+  // the delta via AssignBuildingsToSite. Returns whether the modal should
+  // close on success, or null if the save failed.
+  manageSave: (delta: { added: bigint[]; removed: bigint[] }) => Promise<{ closeOnSuccess: boolean } | null>;
   // SiteDeleteDialog handlers
   deleteConfirm: () => Promise<void>;
 }
 
-const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi => {
+const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions): SiteModalsApi => {
   const [state, setState] = useState<SiteModalState>({ kind: "none" });
   const [deleteTarget, setDeleteTarget] = useState<SiteWithCounts | null>(null);
   const [saving, setSaving] = useState(false);
@@ -84,7 +88,7 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
     stateRef.current = state;
   }, [state]);
 
-  const { createSite, updateSite, deleteSite } = useSites();
+  const { createSite, updateSite, deleteSite, assignBuildingsToSite } = useSites();
   const setActiveSite = useFleetStore((store) => store.ui.setActiveSite);
   const activeSite = useFleetStore((store) => store.ui.activeSite);
 
@@ -211,116 +215,100 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
     });
   }, []);
 
-  const manageNetworkConfigChange = useCallback((value: string) => {
-    setState((prev) => {
-      if (prev.kind === "manageCreate" || prev.kind === "manageCreateEditingDetails") {
-        return { ...prev, draft: { ...prev.draft, networkConfig: value } };
-      }
-      if (prev.kind === "manageEdit" || prev.kind === "manageEditEditingDetails") {
-        return { ...prev, draft: { ...prev.draft, networkConfig: value } };
-      }
-      return prev;
-    });
-  }, []);
+  const manageSave = useCallback(
+    async (delta: { added: bigint[]; removed: bigint[] }) => {
+      if (savingRef.current) return null;
 
-  const manageSave = useCallback(async () => {
-    if (savingRef.current) return null;
-
-    if (state.kind === "manageCreate") {
-      const draft = state.draft;
-      savingRef.current = true;
-      setSaving(true);
-      const result = await new Promise<{
-        canonicalNetworkConfig: string;
-        warnings: string[];
-        closeOnSuccess: boolean;
-      } | null>((resolve) => {
-        void createSite({
-          values: draft,
-          onSuccess: (site, warnings) => {
-            pushToast({
-              message:
-                warnings.length > 0 ? `Site "${site.name}" created with warnings` : `Site "${site.name}" created`,
-              status: STATUSES.success,
-            });
-            refetchSites();
-            // Transition to manageEdit so a follow-up Save calls UpdateSite
-            // (idempotent) instead of re-running CreateSite with the same
-            // payload and producing a duplicate site row.
-            setState({ kind: "manageEdit", site, draft: siteFormValuesFromSite(site) });
-            resolve({
-              canonicalNetworkConfig: site.networkConfig,
-              warnings,
-              // When warnings are present we keep the modal open so the
-              // operator can review the canonical text + warning copy. The
-              // state has flipped to manageEdit, so any follow-up Save runs
-              // UpdateSite — safe.
-              closeOnSuccess: warnings.length === 0,
-            });
-          },
-          onError: (msg) => {
-            pushToast({ message: `Failed to create site: ${msg}`, status: STATUSES.error });
-            resolve(null);
-          },
-          onFinally: () => {
-            savingRef.current = false;
-            setSaving(false);
-          },
+      // Create flow: the manage modal gates building management until the
+      // site exists, so the delta is empty here — just persist the site.
+      // The modal closes on success; the operator reopens to add buildings.
+      if (state.kind === "manageCreate") {
+        const draft = state.draft;
+        savingRef.current = true;
+        setSaving(true);
+        const result = await new Promise<{ closeOnSuccess: boolean } | null>((resolve) => {
+          void createSite({
+            values: draft,
+            onSuccess: (site, warnings) => {
+              pushToast({
+                message:
+                  warnings.length > 0 ? `Site "${site.name}" created with warnings` : `Site "${site.name}" created`,
+                status: STATUSES.success,
+              });
+              refetchSites();
+              resolve({ closeOnSuccess: true });
+            },
+            onError: (msg) => {
+              pushToast({ message: `Failed to create site: ${msg}`, status: STATUSES.error });
+              resolve(null);
+            },
+            onFinally: () => {
+              savingRef.current = false;
+              setSaving(false);
+            },
+          });
         });
-        // TODO(phase-1b #199): once the miner picker ships, follow this
-        // CreateSite call with `assignDevicesToSite({ targetSiteId: site.id,
-        // deviceIdentifiers: pendingDeviceIds })` inside the onSuccess branch
-        // (and gate setSaving(false) on the inner onFinally). Partial-failure
-        // toast wording is already drafted in PR #292 review.
-      });
-      return result;
-    }
+        return result;
+      }
 
-    if (state.kind === "manageEdit") {
-      const draft = state.draft;
-      const id = state.site.id;
-      savingRef.current = true;
-      setSaving(true);
-      const result = await new Promise<{
-        canonicalNetworkConfig: string;
-        warnings: string[];
-        closeOnSuccess: boolean;
-      } | null>((resolve) => {
-        void updateSite({
-          id,
-          values: draft,
-          onSuccess: (site, warnings) => {
-            pushToast({
-              message: warnings.length > 0 ? `Site "${site.name}" saved with warnings` : `Site "${site.name}" saved`,
-              status: STATUSES.success,
+      // Edit flow: site details are owned by SiteSettingsModal, so the
+      // manage modal's Save only persists building membership. A no-op
+      // delta (operator opened Save without changes) closes silently.
+      if (state.kind === "manageEdit") {
+        if (delta.added.length === 0 && delta.removed.length === 0) {
+          return { closeOnSuccess: true };
+        }
+        const id = state.site.id;
+        const name = state.site.name;
+        savingRef.current = true;
+        setSaving(true);
+        try {
+          // `added` moves buildings into this site; `removed` moves them to
+          // "Unassigned" (targetSiteId unset). Both cascade site_id down to
+          // racks + devices server-side. Run sequentially so a mid-chain
+          // failure surfaces without a half-applied toast.
+          const dispatch = (buildingIds: bigint[], targetSiteId?: bigint) =>
+            new Promise<void>((resolve, reject) => {
+              if (buildingIds.length === 0) {
+                resolve();
+                return;
+              }
+              void assignBuildingsToSite({
+                buildingIds,
+                targetSiteId,
+                onSuccess: () => resolve(),
+                onError: (msg) => reject(new Error(msg)),
+              });
             });
+          try {
+            await dispatch(delta.removed, undefined);
+            await dispatch(delta.added, id);
+          } catch (err) {
+            const detail = err instanceof Error ? err.message : "Failed to save buildings";
+            pushToast({ message: `Failed to save site: ${detail}`, status: STATUSES.error });
+            // The two AssignBuildingsToSite calls aren't atomic across each
+            // other: the `removed` batch may have already cascaded buildings
+            // out of the site before the `added` batch failed. Refresh so the
+            // counts + building table reflect what actually committed rather
+            // than the now-stale pre-save view.
             refetchSites();
-            // Refresh the draft so the operator sees the server's canonical
-            // values reflected in the manage preview.
-            setState((prev) =>
-              prev.kind === "manageEdit" ? { kind: "manageEdit", site, draft: siteFormValuesFromSite(site) } : prev,
-            );
-            resolve({
-              canonicalNetworkConfig: site.networkConfig,
-              warnings,
-              closeOnSuccess: warnings.length === 0,
-            });
-          },
-          onError: (msg) => {
-            pushToast({ message: `Failed to save site: ${msg}`, status: STATUSES.error });
-            resolve(null);
-          },
-          onFinally: () => {
-            savingRef.current = false;
-            setSaving(false);
-          },
-        });
-      });
-      return result;
-    }
+            refetchBuildings?.();
+            return null;
+          }
+          pushToast({ message: `Site "${name}" saved`, status: STATUSES.success });
+          refetchSites();
+          refetchBuildings?.();
+          return { closeOnSuccess: true };
+        } finally {
+          savingRef.current = false;
+          setSaving(false);
+        }
+      }
 
-    return null;
-  }, [state, createSite, updateSite, refetchSites]);
+      return null;
+    },
+    [state, createSite, assignBuildingsToSite, refetchSites, refetchBuildings],
+  );
 
   const deleteConfirm = useCallback(async () => {
     if (!deleteTarget) return;
@@ -371,7 +359,6 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
     detailsContinueCreate,
     detailsSaveEdit,
     manageEditDetails,
-    manageNetworkConfigChange,
     manageSave,
     deleteConfirm,
   };

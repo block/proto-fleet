@@ -8,7 +8,7 @@ This plugin provides Proto miner integration for the Fleet mining system. It dem
 
 - Architecture with separation of concerns
 - Patterns for error handling, logging, and testing
-- Authentication with Ed25519 key pairs and JWT token management
+- Credentials-based authentication and token refresh
 - Testing with unit tests, integration tests, and containerized testing
 - Compatibility with Proto sim-miners and production devices
 
@@ -50,10 +50,7 @@ plugin/proto/                  # Plugin root
     ├── unit/                 # Unit tests
     │   ├── plugin_test.go    # Core functionality tests
     │   └── auth_persistence_test.go  # Authentication tests
-    ├── integration_test.go   # Full integration tests with containers
-    └── testutils/            # Testing utilities
-        ├── jwt.go            # Ed25519 key pair and JWT generation
-        └── jwt_test.go       # JWT utility tests
+    └── integration_test.go   # Full integration tests with containers
 ```
 
 ## Key Features
@@ -80,7 +77,6 @@ plugin/proto/                  # Plugin root
 - Unit tests for authentication, client operations, and core functionality
 - Integration tests with containerized Proto sim-miners using testcontainers
 - Real miner testing support with environment variable configuration
-- JWT test utilities for Ed25519 key generation and token validation
 - Authentication persistence testing for credential management
 - Error handling and edge case coverage
 
@@ -158,10 +154,10 @@ secret := sdk.SecretBundle{
 }
 ```
 
-Devices paired before the credentials switch have no stored credentials; the
-plugin falls back to the factory defaults so they reconnect. Proto firmware gates
-operational endpoints behind a default-password lockout — change the password via
-`UpdateMinerPassword` to clear it.
+Proto devices without stored credentials are treated as needing authentication
+and are repaired by the normal failed-poll remediation flow. Fleet keeps
+factory-password rigs command-eligible; Proto firmware or the driver may reject
+specific operations until `UpdateMinerPassword` clears the default password.
 
 ## Testing
 
@@ -176,9 +172,6 @@ go test ./tests/unit -v
 # Run specific authentication tests
 go test ./tests/unit -run TestSecretBundleExtraction -v
 go test ./tests/unit -run TestClientAuthInterceptor -v
-
-# Run JWT utility tests
-go test ./tests/testutils -v
 ```
 
 ### Integration Tests
@@ -265,8 +258,7 @@ just lint
 - **Fleet SDK v1**: Full compatibility with current interface
 - **Proto Miner API**: Connect-RPC over HTTP/2 with gRPC compatibility
 - **Go 1.24.2+**: Modern Go features and performance optimizations
-- **Ed25519 Cryptography**: Industry-standard elliptic curve for secure authentication
-- **JWT Authentication**: RFC 7519 compliant tokens with EdDSA signing
+- **Credential Authentication**: Username/password pairing with token refresh for miner sessions
 
 ## Dependencies
 
@@ -275,7 +267,6 @@ Core dependencies for the plugin:
 - `github.com/block/proto-fleet/server` - Fleet server SDK
 - `connectrpc.com/connect` - Connect-RPC client library for API communication
 - `github.com/hashicorp/go-plugin` - Go plugin framework
-- `github.com/golang-jwt/jwt/v5` - JWT authentication and token management
 - `golang.org/x/net` - HTTP/2 support and network utilities
 
 Testing dependencies:
@@ -299,7 +290,6 @@ This plugin serves as a reference implementation for the community. When making 
 
 When working with this plugin:
 
-- Ed25519 keys: Private keys should never be logged or exposed
 - JWT tokens: Tokens should have appropriate expiration times
 - TLS verification: Only disable for development/testing environments
 - Credential storage: Use secure methods for storing authentication materials

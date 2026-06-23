@@ -41,12 +41,6 @@ service CurtailmentService {
     rpc GetCurtailmentEvent(GetCurtailmentEventRequest)
         returns (GetCurtailmentEventResponse);
 
-    // Org-level curtailment settings shared by preview, start, and automation.
-    rpc GetCurtailmentSettings(GetCurtailmentSettingsRequest)
-        returns (GetCurtailmentSettingsResponse);
-    rpc UpdateCurtailmentSettings(UpdateCurtailmentSettingsRequest)
-        returns (UpdateCurtailmentSettingsResponse);
-
     // Admin recovery RPC: force a non-terminal event to a terminal state.
     // Session-only, Admin role; reason required (min_len=1, max_len=256).
     //
@@ -169,12 +163,12 @@ enum CurtailmentLevel {
     CURTAILMENT_LEVEL_FULL            = 2;  // v1: complete shutdown
 }
 
-// CurtailmentPriority controls cooldown and hysteresis behavior.
+// CurtailmentPriority controls curtailment urgency.
 enum CurtailmentPriority {
     CURTAILMENT_PRIORITY_UNSPECIFIED = 0;
-    CURTAILMENT_PRIORITY_NORMAL      = 1;  // default; respects hysteresis and cooldowns
+    CURTAILMENT_PRIORITY_NORMAL      = 1;  // default priority
     CURTAILMENT_PRIORITY_HIGH        = 2;
-    // EMERGENCY bypasses cooldown/min-duration, but not maintenance checks.
+    // EMERGENCY bypasses min-duration, but not maintenance checks.
     CURTAILMENT_PRIORITY_EMERGENCY   = 3;
 }
 
@@ -480,6 +474,9 @@ message PreviewCurtailmentPlanRequest {
     // Upper bound is a sanity ceiling (10 MW per miner); zero means "use default" so it is excluded.
     optional uint32 candidate_min_power_w_override = 26 [(buf.validate.field).uint32 = {gte: 1, lte: 10000000}];
 
+    // How long restored targets remain excluded from selection. Zero disables cooldown.
+    uint32 post_event_cooldown_sec = 28 [(buf.validate.field).uint32 = {lte: 86400}];
+
     reserved 11 to 23;
 }
 
@@ -524,6 +521,11 @@ message StartCurtailmentRequest {
         message: "include_maintenance and force_include_maintenance must be set together"
         expression: "this.include_maintenance == this.force_include_maintenance"
     };
+    option (buf.validate.message).cel = {
+        id: "curtail_batch_interval_requires_size"
+        message: "curtail_batch_interval_sec requires curtail_batch_size"
+        expression: "!has(this.curtail_batch_interval_sec) || has(this.curtail_batch_size)"
+    };
 
     oneof scope {
         ScopeWholeOrg   whole_org           = 1;
@@ -564,6 +566,9 @@ message StartCurtailmentRequest {
     uint32 restore_batch_size         = 21 [(buf.validate.field).uint32 = {lte: 10000}];
     uint32 restore_batch_interval_sec = 22 [(buf.validate.field).uint32 = {lte: 3600}];  // 0 = server default
     uint32 min_curtailed_duration_sec = 23;
+    // Unset curtail_batch_size preserves server adaptive batching.
+    optional uint32 curtail_batch_size = 34 [(buf.validate.field).uint32 = {gt: 0, lte: 10000}];
+    optional uint32 curtail_batch_interval_sec = 35 [(buf.validate.field).uint32 = {lte: 3600}];
 
     // include_maintenance requires force_include_maintenance.
     bool include_maintenance       = 24;
@@ -577,6 +582,9 @@ message StartCurtailmentRequest {
     // normalization. Default false; otherwise `max_duration_seconds=0` is
     // normalized to the per-org default at handler entry.
     bool allow_unbounded = 27;
+
+    // How long restored targets remain excluded from selection. Zero disables cooldown.
+    uint32 post_event_cooldown_sec = 29 [(buf.validate.field).uint32 = {lte: 86400}];
 
     // Idempotency and trigger attribution. max_len=256 matches DB varchar.
     string idempotency_key    = 30 [(buf.validate.field).string.max_len = 256];  // unique per (org, key) when non-empty
@@ -946,6 +954,7 @@ message CurtailmentResponseProfile {
     uint32 restore_batch_interval_sec = 13;
     bool include_maintenance = 14;
     bool force_include_maintenance = 15;
+    uint32 post_event_cooldown_sec = 16;
 
     google.protobuf.Timestamp created_at = 20;
     google.protobuf.Timestamp updated_at = 21;
@@ -1009,6 +1018,7 @@ message CreateCurtailmentResponseProfileRequest {
     optional uint32 restore_batch_interval_sec = 13 [(buf.validate.field).uint32 = {lte: 3600}];
     bool include_maintenance = 14;
     bool force_include_maintenance = 15;
+    uint32 post_event_cooldown_sec = 16 [(buf.validate.field).uint32 = {lte: 86400}];
 }
 
 message CreateCurtailmentResponseProfileResponse {
@@ -1060,6 +1070,7 @@ message UpdateCurtailmentResponseProfileRequest {
     optional uint32 restore_batch_interval_sec = 13 [(buf.validate.field).uint32 = {lte: 3600}];
     bool include_maintenance = 14;
     bool force_include_maintenance = 15;
+    uint32 post_event_cooldown_sec = 16 [(buf.validate.field).uint32 = {lte: 86400}];
 }
 
 message UpdateCurtailmentResponseProfileResponse {
@@ -1161,29 +1172,3 @@ message DeleteCurtailmentAutomationRuleRequest {
 }
 
 message DeleteCurtailmentAutomationRuleResponse {}
-
-// --- Settings ---
-
-message CurtailmentSettings {
-    // How long restored targets remain excluded from normal preview/start
-    // selection after their event completes. Emergency and automation
-    // execution paths can bypass this cooldown.
-    uint32 post_event_cooldown_sec = 1;
-}
-
-message GetCurtailmentSettingsRequest {}
-
-message GetCurtailmentSettingsResponse {
-    CurtailmentSettings settings = 1;
-}
-
-message UpdateCurtailmentSettingsRequest {
-    optional uint32 post_event_cooldown_sec = 1 [(buf.validate.field) = {
-        required: true
-        uint32: { lte: 86400 }
-    }];
-}
-
-message UpdateCurtailmentSettingsResponse {
-    CurtailmentSettings settings = 1;
-}

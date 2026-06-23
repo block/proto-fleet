@@ -5,7 +5,6 @@ SELECT
     org_id,
     max_duration_default_sec,
     candidate_min_power_w,
-    post_event_cooldown_sec,
     created_at,
     updated_at
 FROM curtailment_org_config
@@ -28,7 +27,6 @@ ins AS (
         org_id,
         max_duration_default_sec,
         candidate_min_power_w,
-        post_event_cooldown_sec,
         created_at,
         updated_at
 )
@@ -36,7 +34,6 @@ SELECT
     org_id,
     max_duration_default_sec,
     candidate_min_power_w,
-    post_event_cooldown_sec,
     created_at,
     updated_at
 FROM ins
@@ -45,7 +42,6 @@ SELECT
     c.org_id,
     c.max_duration_default_sec,
     c.candidate_min_power_w,
-    c.post_event_cooldown_sec,
     c.created_at,
     c.updated_at
 FROM curtailment_org_config c
@@ -53,21 +49,36 @@ INNER JOIN active a ON a.id = c.org_id
 WHERE NOT EXISTS (SELECT 1 FROM ins)
 LIMIT 1;
 
--- name: UpdateCurtailmentOrgConfigPostEventCooldown :one
-UPDATE curtailment_org_config
-SET post_event_cooldown_sec = sqlc.arg('post_event_cooldown_sec')
-WHERE org_id = sqlc.arg('org_id')
-RETURNING
-    org_id,
-    max_duration_default_sec,
-    candidate_min_power_w,
-    post_event_cooldown_sec,
-    created_at,
-    updated_at;
-
 -- name: ListActiveCurtailedDevicesByOrg :many
 -- Devices locked in a non-terminal event; excluded from candidates to
 -- enforce the per-device single-writer rule.
+SELECT DISTINCT ct.device_identifier
+FROM curtailment_target ct
+JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
+WHERE ce.org_id = sqlc.arg('org_id')
+    AND ce.state IN ('pending', 'active', 'restoring')
+    AND ct.state NOT IN ('resolved', 'restore_failed', 'released')
+UNION
+SELECT d.device_identifier
+FROM curtailment_event ce
+JOIN device d ON d.org_id = ce.org_id
+    AND d.deleted_at IS NULL
+    AND (
+        ce.scope_type = 'whole_org'
+        OR (
+            ce.scope_type = 'site'
+            AND d.site_id = (ce.scope_jsonb->>'site_id')::BIGINT
+        )
+    )
+WHERE ce.org_id = sqlc.arg('org_id')
+    AND ce.state IN ('pending', 'active', 'restoring')
+    AND ce.mode = 'FULL_FLEET'
+    AND ce.loop_type = 'closed';
+
+-- name: ListActiveCurtailmentTargetDevicesByOrg :many
+-- Devices with concrete non-terminal target rows; used by closed-loop
+-- admission to skip miners already owned by other events without excluding
+-- the current targetless scope watcher.
 SELECT DISTINCT ct.device_identifier
 FROM curtailment_target ct
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
@@ -82,6 +93,32 @@ WHERE ce.org_id = sqlc.arg('org_id')
 -- implicitly), then for `cooldown_sec` after the event ends.
 SELECT DISTINCT ct.device_identifier
 FROM curtailment_target ct
+JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
+WHERE ce.org_id = sqlc.arg('org_id')
+    AND ct.state IN ('resolved', 'restore_failed')
+    AND (
+        ce.state IN ('pending', 'active', 'restoring')
+        OR ce.ended_at >= CURRENT_TIMESTAMP - (sqlc.arg('cooldown_sec')::int * INTERVAL '1 second')
+    );
+
+-- name: ListRecentlyResolvedCurtailedDevicesByScope :many
+-- Scoped cooldown lookup: enumerate the request's live candidate devices first,
+-- then probe terminal target history by device identifier.
+WITH scoped_devices AS MATERIALIZED (
+    SELECT unnest(sqlc.narg('device_identifiers')::text[]) AS device_identifier
+    WHERE sqlc.narg('device_identifiers')::text[] IS NOT NULL
+    UNION
+    SELECT d.device_identifier
+    FROM device d
+    WHERE d.org_id = sqlc.arg('org_id')
+        AND d.deleted_at IS NULL
+        AND sqlc.narg('device_identifiers')::text[] IS NULL
+        AND sqlc.narg('site_id')::BIGINT IS NOT NULL
+        AND d.site_id = sqlc.narg('site_id')::BIGINT
+)
+SELECT DISTINCT ct.device_identifier
+FROM scoped_devices sd
+JOIN curtailment_target ct ON ct.device_identifier = sd.device_identifier
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
 WHERE ce.org_id = sqlc.arg('org_id')
     AND ct.state IN ('resolved', 'restore_failed')
@@ -122,6 +159,7 @@ INSERT INTO curtailment_event (
     idempotency_key,
     reason,
     scheduled_start_at,
+    started_at,
     ended_at,
     created_by_user_id,
     effective_batch_size
@@ -154,6 +192,7 @@ INSERT INTO curtailment_event (
     sqlc.narg('idempotency_key'),
     sqlc.arg('reason'),
     sqlc.narg('scheduled_start_at'),
+    sqlc.narg('started_at'),
     sqlc.narg('ended_at'),
     sqlc.arg('created_by_user_id'),
     sqlc.arg('effective_batch_size')
@@ -453,7 +492,123 @@ FROM jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
     desired_state             TEXT,
     baseline_power_w          NUMERIC(12,3),
     selector_rationale_jsonb  JSONB
-);
+)
+WHERE sqlc.arg('cooldown_sec')::INT <= 0
+    OR NOT EXISTS (
+        SELECT 1
+        FROM curtailment_target cooldown_target
+        JOIN curtailment_event cooldown_event
+            ON cooldown_event.id = cooldown_target.curtailment_event_id
+        WHERE cooldown_event.org_id = sqlc.arg('org_id')
+            AND cooldown_target.device_identifier = t.device_identifier
+            AND cooldown_target.state IN ('resolved', 'restore_failed')
+            AND (
+                cooldown_event.state IN ('pending', 'active', 'restoring')
+                OR cooldown_event.ended_at >= CURRENT_TIMESTAMP - (sqlc.arg('cooldown_sec')::INT * INTERVAL '1 second')
+            )
+    );
+
+-- name: LockCurtailmentScopeForWrite :exec
+-- Serialize hierarchy start checks by org so conflict detection and event
+-- insertion happen under one database-backed critical section.
+SELECT pg_advisory_xact_lock(hashtextextended('curtailment_scope:' || sqlc.arg('org_id')::text, 0));
+
+-- name: CountCurtailmentScopeConflicts :one
+-- Hierarchy for currently supported scopes: org > site.
+-- A new whole-org event conflicts with existing whole-org or site events.
+-- A new site event conflicts with existing whole-org or same-site events.
+SELECT count(*)::BIGINT
+FROM curtailment_event
+WHERE org_id = sqlc.arg('org_id')
+  AND state IN ('pending', 'active', 'restoring')
+  AND mode = 'FULL_FLEET'
+  AND loop_type = 'closed'
+  AND sqlc.arg('mode')::TEXT = 'FULL_FLEET'
+  AND sqlc.arg('loop_type')::TEXT = 'closed'
+  AND (
+    (
+      sqlc.arg('scope_type')::TEXT = 'whole_org'
+      AND scope_type IN ('whole_org', 'site')
+    )
+    OR (
+      sqlc.arg('scope_type')::TEXT = 'site'
+      AND (
+        scope_type = 'whole_org'
+        OR (
+          scope_type = 'site'
+          AND scope_jsonb->>'site_id' = sqlc.arg('site_id')::TEXT
+        )
+      )
+    )
+  );
+
+-- name: ClaimClosedLoopFullFleetTargets :many
+-- Closed-loop FULL_FLEET dispatch claim. Locks the parent event so
+-- Stop/AdminTerminate and dynamic target claims serialize on lifecycle state.
+-- Same-event duplicates and cross-event target conflicts are no-ops; the
+-- reconciler retries on a later tick if a conflicting event resolves.
+WITH locked_event AS MATERIALIZED (
+    SELECT
+        curtailment_event.id,
+        curtailment_event.org_id,
+        curtailment_event.decision_snapshot_jsonb
+    FROM curtailment_event
+    WHERE curtailment_event.id = sqlc.arg('curtailment_event_id')
+      AND curtailment_event.state IN ('pending', 'active')
+      AND curtailment_event.mode = 'FULL_FLEET'
+      AND curtailment_event.loop_type = 'closed'
+    FOR UPDATE
+)
+INSERT INTO curtailment_target (
+    curtailment_event_id,
+    device_identifier,
+    target_type,
+    state,
+    desired_state,
+    baseline_power_w,
+    selector_rationale_jsonb
+)
+SELECT
+    locked_event.id,
+    t.device_identifier,
+    t.target_type,
+    'dispatching',
+    t.desired_state,
+    t.baseline_power_w,
+    t.selector_rationale_jsonb
+FROM locked_event
+JOIN jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
+    device_identifier         TEXT,
+    target_type               TEXT,
+    state                     TEXT,
+    desired_state             TEXT,
+    baseline_power_w          NUMERIC(12,3),
+    selector_rationale_jsonb  JSONB
+) ON TRUE
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM curtailment_target existing
+    WHERE existing.curtailment_event_id = locked_event.id
+      AND existing.device_identifier = t.device_identifier
+)
+AND NOT EXISTS (
+    SELECT 1
+    FROM curtailment_target cooldown_target
+    JOIN curtailment_event cooldown_event
+        ON cooldown_event.id = cooldown_target.curtailment_event_id
+    WHERE cooldown_event.org_id = locked_event.org_id
+      AND cooldown_target.device_identifier = t.device_identifier
+      AND cooldown_target.state IN ('resolved', 'restore_failed')
+      AND COALESCE((locked_event.decision_snapshot_jsonb->>'post_event_cooldown_sec')::INT, 0) > 0
+      AND (
+        cooldown_event.state IN ('pending', 'active', 'restoring')
+        OR cooldown_event.ended_at >= CURRENT_TIMESTAMP - (
+            COALESCE((locked_event.decision_snapshot_jsonb->>'post_event_cooldown_sec')::INT, 0) * INTERVAL '1 second'
+        )
+      )
+)
+ON CONFLICT DO NOTHING
+RETURNING curtailment_target.*;
 
 -- name: ListCurtailmentTargetsByEvent :many
 -- Org-scoped via the join.

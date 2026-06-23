@@ -10,7 +10,7 @@ import { type Building, type BuildingWithCounts } from "@/protoFleet/api/generat
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 // Building modal stack. BuildingSettingsModal can render alone (entry from
-// the /settings/sites or ManageSiteModal buildings tables) or stacked on
+// the ManageSiteModal buildings table) or stacked on
 // top of ManageBuildingModal (entry from /buildings/:id "Edit building"
 // header).
 //
@@ -34,7 +34,7 @@ export type BuildingModalState =
 
 interface UseBuildingModalsOptions {
   // Refetches the host page's buildings cache. Called after every successful
-  // mutation so /settings/sites and ManageSiteModal stay in sync without the
+  // mutation so ManageSiteModal stays in sync without the
   // host wiring its own refetch into every callback.
   refetchBuildings?: () => void;
   // Fires when a delete originating from ManageBuildingModal succeeds. The

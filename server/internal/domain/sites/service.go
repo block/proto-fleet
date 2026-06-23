@@ -15,11 +15,13 @@ import (
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
-	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
+	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
 // Event type constants for sites activity logs.
@@ -181,10 +183,47 @@ func (s *Service) UpdateSite(ctx context.Context, params models.UpdateSiteParams
 	return &UpdateResult{Site: site, NetworkConfigWarnings: warnings}, nil
 }
 
+// ListStatsAuthorizer reports whether list-row telemetry stats may be
+// populated for a site. Nil means list stats are disabled.
+type ListStatsAuthorizer func(siteID int64) bool
+
 // ListSites returns sites with attachment counts for the delete-confirm
 // dialog impact numbers.
-func (s *Service) ListSites(ctx context.Context, orgID int64) ([]models.SiteWithCounts, error) {
-	return s.store.ListSites(ctx, orgID)
+func (s *Service) ListSites(ctx context.Context, orgID int64, statsFilter fleetlistfilter.Filter, includeStatsForSite ListStatsAuthorizer) ([]models.SiteWithCounts, error) {
+	rows, err := s.store.ListSites(ctx, orgID)
+	if err != nil {
+		return rows, err
+	}
+	hasStatsFilter := fleetlistfilter.HasFilters(statsFilter)
+	if includeStatsForSite == nil {
+		if hasStatsFilter {
+			return nil, fleeterror.NewInternalErrorf("sites.ListSites filters require stats authorization")
+		}
+		return rows, nil
+	}
+	hasStatsRow := false
+	for _, row := range rows {
+		if includeStatsForSite(row.Site.ID) {
+			hasStatsRow = true
+			break
+		}
+	}
+	if !hasStatsRow {
+		if hasStatsFilter {
+			return rows[:0], nil
+		}
+		return rows, nil
+	}
+	if s.deviceQueryer == nil || s.telemetry == nil {
+		return nil, fleeterror.NewInternalErrorf("sites.ListSites stats requires deviceQueryer and telemetry")
+	}
+	if err := s.populateListStats(ctx, orgID, rows, includeStatsForSite, len(statsFilter.TelemetryRanges) > 0); err != nil {
+		return nil, err
+	}
+	if hasStatsFilter {
+		rows = filterSiteRowsByListStats(rows, statsFilter)
+	}
+	return rows, nil
 }
 
 // DeleteSite soft-deletes the site and cascade-unassigns or deletes its
@@ -209,6 +248,14 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 		// Clear rack→building linkage + zone for racks under any
 		// building of this site, BEFORE the buildings disappear.
 		if _, err := s.store.UnassignRacksFromBuildingsBySite(txCtx, orgID, id); err != nil {
+			return err
+		}
+		// Clear direct-FK device.building_id for any device whose
+		// building lives under this site, BEFORE the buildings get
+		// soft-deleted. Rack-membership devices are handled by the
+		// UnassignRacksFromBuildingsBySite call above; this covers
+		// the direct-assignment branch added in migration 000091.
+		if _, err := s.buildingStore.ClearDeviceBuildingsBySite(txCtx, orgID, id); err != nil {
 			return err
 		}
 		// Soft-delete buildings under the site.
@@ -389,6 +436,15 @@ func (s *Service) AssignDevicesToSite(ctx context.Context, params models.AssignD
 			return attempt, txErr
 		}
 		attempt.rowsAffected = n
+		// A direct site move only writes device.site_id; a device with a
+		// direct-FK device.building_id pointing at a building in the old
+		// site would otherwise be left referencing a building in the
+		// wrong site. Clear building_id for any moved device whose
+		// building isn't in the new target site (devices already in a
+		// target-site building, or with no building, are untouched).
+		if _, err := s.buildingStore.ClearDeviceBuildingsOnSiteMismatch(txCtx, params.OrgID, identifiers, targetSiteID); err != nil {
+			return attempt, err
+		}
 		return attempt, nil
 	})
 	if err != nil {
@@ -527,12 +583,21 @@ func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.Assig
 		rackCount = racks
 
 		// Phase B3: single bulk device cascade across every building
-		// in the batch.
+		// in the batch. Reaches devices via rack membership.
 		devices, err := s.store.ReassignDevicesUnderBuildingsBulk(txCtx, params.OrgID, buildingIDs, params.TargetSiteID)
 		if err != nil {
 			return nil, err
 		}
 		deviceCount = devices
+		// Phase B4: direct-FK device cascade. Devices with
+		// device.building_id pointing at any of the moved buildings
+		// (and no rack at all) wouldn't get touched by Phase B3's
+		// rack-path cascade — keep them in lockstep too.
+		directDevices, err := s.buildingStore.CascadeDirectDeviceSitesByBuildings(txCtx, params.OrgID, buildingIDs, params.TargetSiteID)
+		if err != nil {
+			return nil, err
+		}
+		deviceCount += directDevices
 		return assignBuildingsTx{rackCount: rackCount, deviceCount: deviceCount}, nil
 	})
 	if err != nil {
@@ -669,6 +734,20 @@ func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRac
 				return nil, err
 			}
 			deviceCount += n
+
+			// Phase B3: building cascade. UpdateRackPlacementBulkForSite
+			// cleared rack.building_id for every cross-site move; the
+			// devices' building_id has to follow so they don't reference
+			// a building the device is no longer in. NOT routed through
+			// collection.cascadeRackMembersToPlacement: a cross-site move
+			// always pins building to nil regardless of its prior value, so
+			// this bulk path's gate genuinely differs from the single-rack
+			// paired helper — don't try to unify them.
+			if _, err := s.collectionStore.CascadeRackDeviceBuildingsBulk(
+				txCtx, params.OrgID, changedRackIDs, nil,
+			); err != nil {
+				return nil, err
+			}
 		}
 		return assignRacksToSiteTx{
 			deviceCount:     deviceCount,
@@ -769,6 +848,28 @@ func (s *Service) computeReassignConflicts(ctx context.Context, orgID int64, tar
 			ConflictingSiteID: siteID,
 		})
 	}
+
+	// Site-less rack guard. A device in a fully-unassigned rack (no
+	// site) isn't returned by FindDeviceSiteConflicts (it filters
+	// dsr.site_id IS NOT NULL), yet it can't take a direct site while
+	// remaining in that rack without diverging from its rack's site.
+	// Flag those (clearable — force-clear drops the rack membership)
+	// whenever assigning to a real site. Skipped on unassign (target
+	// nil): a site-less rack member moving to Unassigned ends at site
+	// nil == rack site nil, already consistent. ConflictingSiteID stays
+	// 0 — the rack has no site, only the divergence is the conflict.
+	if targetSiteID != nil {
+		siteLess, err := s.store.FindDevicesInSiteLessRacks(ctx, orgID, identifiers)
+		if err != nil {
+			return nil, err
+		}
+		for _, ident := range siteLess {
+			conflicts = append(conflicts, models.PerDeviceConflict{
+				DeviceIdentifier: ident,
+				Reason:           models.ReasonDeviceInRackAtOtherSite,
+			})
+		}
+	}
 	// Deterministic order — siteByDevice is a map, so the
 	// rack-conflict branch above would otherwise emit conflicts
 	// in random order, which makes API responses non-reproducible.
@@ -847,8 +948,8 @@ func formatSiteIDForDescription(target *int64) string {
 // in the site (racked or directly site-attached) plus the live building
 // count. NotFound when the site doesn't exist in the org.
 func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*models.SiteStats, error) {
-	if s.deviceQueryer == nil || s.telemetry == nil || s.buildingStore == nil {
-		return nil, fleeterror.NewInternalErrorf("sites.GetSiteStats requires deviceQueryer, telemetry, and buildingStore")
+	if s.deviceQueryer == nil || s.telemetry == nil {
+		return nil, fleeterror.NewInternalErrorf("sites.GetSiteStats requires deviceQueryer and telemetry")
 	}
 
 	// Existence check — NotFound if the site is gone or belongs to a
@@ -861,8 +962,11 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 		return nil, fleeterror.NewNotFoundErrorf("site %d not found", siteID)
 	}
 
-	// Building count from the buildings store.
-	bldgs, err := s.buildingStore.ListBuildings(ctx, buildingsmodels.ListFilter{OrgID: orgID, SiteID: &siteID})
+	buildingCount, err := s.store.CountBuildingsBySite(ctx, orgID, siteID)
+	if err != nil {
+		return nil, err
+	}
+	rackCount, err := s.store.CountRacksBySite(ctx, orgID, siteID)
 	if err != nil {
 		return nil, err
 	}
@@ -896,7 +1000,8 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 
 	stats := &models.SiteStats{
 		SiteID:        siteID,
-		BuildingCount: int32(len(bldgs)),     //nolint:gosec // building count bounded by org config
+		BuildingCount: int32(buildingCount),  //nolint:gosec // building count bounded by org config
+		RackCount:     int32(rackCount),      //nolint:gosec // rack count bounded by org config
 		DeviceCount:   int32(len(deviceIDs)), //nolint:gosec // device count bounded by org fleet
 	}
 
@@ -915,6 +1020,19 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	stats.OfflineCount = counts.OfflineCount
 	stats.SleepingCount = counts.SleepingCount
 
+	componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{
+		Kind: interfaces.ComponentErrorScopeSites,
+		IDs:  []int64{siteID},
+	})
+	if err != nil {
+		return nil, err
+	}
+	issues := devicerollup.AggregateComponentIssueCounts(componentCounts, siteID)
+	stats.ControlBoardIssueCount = issues.ControlBoardIssueCount
+	stats.FanIssueCount = issues.FanIssueCount
+	stats.HashBoardIssueCount = issues.HashBoardIssueCount
+	stats.PsuIssueCount = issues.PsuIssueCount
+
 	// Telemetry rollup runs through the shared aggregator so site +
 	// building stats can't drift on unit conversions or NaN handling.
 	telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
@@ -927,9 +1045,146 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	stats.HashrateReportingCount = rollup.HashrateReportingCount
 	stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
 	stats.PowerReportingCount = rollup.PowerReportingCount
+	stats.TemperatureReportingCount = rollup.TemperatureReportingCount
 	stats.TotalHashrateThs = rollup.TotalHashrateThs
 	stats.TotalPowerKw = rollup.TotalPowerKw
 	stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
+	stats.MinTemperatureC = rollup.MinTemperatureC
+	stats.MaxTemperatureC = rollup.MaxTemperatureC
 
 	return stats, nil
+}
+
+func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.SiteWithCounts, includeStatsForSite ListStatsAuthorizer, requireTelemetry bool) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	siteIDs := make([]int64, 0, len(rows))
+	deviceIDsBySite := make(map[int64][]string, len(rows))
+	uniqueDeviceIDs := make(map[string]struct{})
+	for i := range rows {
+		siteID := rows[i].Site.ID
+		if !includeStatsForSite(siteID) {
+			continue
+		}
+		siteIDs = append(siteIDs, siteID)
+		rows[i].ListStats = &models.FleetListStats{
+			BuildingCount: int32(rows[i].BuildingCount), //nolint:gosec // bounded by org capacity
+			RackCount:     int32(rows[i].RackCount),     //nolint:gosec // bounded by org capacity
+		}
+		deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, &interfaces.MinerFilter{
+			SiteIDs: []int64{siteID},
+			PairingStatuses: []fm.PairingStatus{
+				fm.PairingStatus_PAIRING_STATUS_PAIRED,
+				fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+				fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+			},
+			Limit: MaxDevicesPerSiteStatsRequest + 1,
+		})
+		if err != nil {
+			return err
+		}
+		if len(deviceIDs) > MaxDevicesPerSiteStatsRequest {
+			return fleeterror.NewInternalErrorf("site %d exceeded the %d device cap", siteID, MaxDevicesPerSiteStatsRequest)
+		}
+		deviceIDsBySite[siteID] = deviceIDs
+		for _, id := range deviceIDs {
+			uniqueDeviceIDs[id] = struct{}{}
+		}
+	}
+	if len(siteIDs) == 0 {
+		return nil
+	}
+
+	componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{
+		Kind: interfaces.ComponentErrorScopeSites,
+		IDs:  siteIDs,
+	})
+	if err != nil {
+		return err
+	}
+
+	var metrics map[minerModels.DeviceIdentifier]telemetrymodels.DeviceMetrics
+	if len(uniqueDeviceIDs) > 0 {
+		uniqueTelemetryIDs := make([]string, 0, len(uniqueDeviceIDs))
+		for id := range uniqueDeviceIDs {
+			uniqueTelemetryIDs = append(uniqueTelemetryIDs, id)
+		}
+		metrics, err = s.telemetry.GetLatestDeviceMetrics(ctx, devicerollup.ToDeviceIdentifiers(uniqueTelemetryIDs))
+		if err != nil {
+			if requireTelemetry {
+				return fleeterror.NewInternalErrorf("failed to fetch site list telemetry: %v", err)
+			}
+			slog.WarnContext(ctx, "failed to fetch site list telemetry", "error", err)
+			metrics = nil
+		}
+	}
+
+	for i := range rows {
+		stats := rows[i].ListStats
+		if stats == nil {
+			continue
+		}
+		siteID := rows[i].Site.ID
+		deviceIDs := deviceIDsBySite[siteID]
+		stats.DeviceCount = int32(len(deviceIDs)) //nolint:gosec // bounded by cap above
+		if len(deviceIDs) > 0 {
+			counts, err := s.deviceQueryer.GetMinerStateCountsByDeviceIDs(ctx, orgID, deviceIDs)
+			if err != nil {
+				return err
+			}
+			stats.HashingCount = counts.HashingCount
+			stats.BrokenCount = counts.BrokenCount
+			stats.OfflineCount = counts.OfflineCount
+			stats.SleepingCount = counts.SleepingCount
+
+			telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
+			rollup := devicerollup.AggregateLatestMetrics(metrics, telemetryIDs)
+			stats.ReportingCount = rollup.ReportingCount
+			stats.HashrateReportingCount = rollup.HashrateReportingCount
+			stats.EfficiencyReportingCount = rollup.EfficiencyReportingCount
+			stats.PowerReportingCount = rollup.PowerReportingCount
+			stats.TemperatureReportingCount = rollup.TemperatureReportingCount
+			stats.TotalHashrateThs = rollup.TotalHashrateThs
+			stats.TotalPowerKw = rollup.TotalPowerKw
+			stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
+			stats.MinTemperatureC = rollup.MinTemperatureC
+			stats.MaxTemperatureC = rollup.MaxTemperatureC
+		}
+		issues := devicerollup.AggregateComponentIssueCounts(componentCounts, siteID)
+		stats.ControlBoardIssueCount = issues.ControlBoardIssueCount
+		stats.FanIssueCount = issues.FanIssueCount
+		stats.HashBoardIssueCount = issues.HashBoardIssueCount
+		stats.PsuIssueCount = issues.PsuIssueCount
+	}
+	return nil
+}
+
+func filterSiteRowsByListStats(rows []models.SiteWithCounts, filter fleetlistfilter.Filter) []models.SiteWithCounts {
+	out := rows[:0]
+	for _, row := range rows {
+		if row.ListStats == nil {
+			continue
+		}
+		stats := row.ListStats
+		if fleetlistfilter.Matches(fleetlistfilter.Stats{
+			HashrateReportingCount:    stats.HashrateReportingCount,
+			EfficiencyReportingCount:  stats.EfficiencyReportingCount,
+			PowerReportingCount:       stats.PowerReportingCount,
+			TemperatureReportingCount: stats.TemperatureReportingCount,
+			TotalHashrateThs:          stats.TotalHashrateThs,
+			AvgEfficiencyJth:          stats.AvgEfficiencyJth,
+			TotalPowerKw:              stats.TotalPowerKw,
+			MinTemperatureC:           stats.MinTemperatureC,
+			MaxTemperatureC:           stats.MaxTemperatureC,
+			ControlBoardIssueCount:    stats.ControlBoardIssueCount,
+			FanIssueCount:             stats.FanIssueCount,
+			HashBoardIssueCount:       stats.HashBoardIssueCount,
+			PsuIssueCount:             stats.PsuIssueCount,
+		}, filter) {
+			out = append(out, row)
+		}
+	}
+	return out
 }

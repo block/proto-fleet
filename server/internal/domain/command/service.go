@@ -606,24 +606,13 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 				}
 			}
 
-			params := sqlc.GetFilteredDeviceIdentifiersParams{
-				OrgID:              info.OrganizationID,
-				DeviceStatus:       deviceStatus,
-				ModelFilter:        modelFilter,
-				ManufacturerFilter: manufacturerFilter,
-			}
-
-			pairingStatusFilters := pairingStatusFiltersForSelector(filter, commandType)
-			identifiers := make([]string, 0)
-			for _, pairingStatus := range pairingStatusFilters {
-				params.PairingStatus = pairingStatus
-				rows, err := q.GetFilteredDeviceIdentifiers(ctx, params)
-				if err != nil {
-					return nil, err
-				}
-				identifiers = append(identifiers, rows...)
-			}
-			return identifiers, nil
+			return q.GetFilteredDeviceIdentifiers(ctx, sqlc.GetFilteredDeviceIdentifiersParams{
+				OrgID:               info.OrganizationID,
+				PairingStatusValues: pairingStatusValuesForSelector(filter),
+				DeviceStatus:        deviceStatus,
+				ModelFilter:         modelFilter,
+				ManufacturerFilter:  manufacturerFilter,
+			})
 		})
 	case *pb.DeviceSelector_IncludeDevices:
 		if x.IncludeDevices == nil {
@@ -638,22 +627,25 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 	}
 }
 
-func pairingStatusFiltersForSelector(filter *pb.DeviceFilter, commandType commandtype.Type) []sql.NullString {
+func pairingStatusValuesForSelector(filter *pb.DeviceFilter) []string {
 	if filter != nil && len(filter.PairingStatus) > 0 {
-		return []sql.NullString{{
-			String: string(sqlstores.ProtoPairingStatusToSQL(filter.PairingStatus[0])),
-			Valid:  true,
-		}}
-	}
-
-	if commandType == commandtype.UpdateMinerPassword {
-		return []sql.NullString{
-			{String: string(sqlc.PairingStatusEnumPAIRED), Valid: true},
-			{String: string(sqlc.PairingStatusEnumDEFAULTPASSWORD), Valid: true},
+		values := make([]string, 0, len(filter.PairingStatus))
+		seen := make(map[string]struct{}, len(filter.PairingStatus))
+		for _, status := range filter.PairingStatus {
+			value := string(sqlstores.ProtoPairingStatusToSQL(status))
+			if _, ok := seen[value]; ok {
+				continue
+			}
+			seen[value] = struct{}{}
+			values = append(values, value)
 		}
+		return values
 	}
 
-	return []sql.NullString{{}}
+	return []string{
+		string(sqlc.PairingStatusEnumPAIRED),
+		string(sqlc.PairingStatusEnumDEFAULTPASSWORD),
+	}
 }
 
 // resolveIdentifiersToDeviceIDs converts post-filter identifiers for the queue.
