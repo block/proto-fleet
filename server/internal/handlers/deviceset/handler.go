@@ -88,7 +88,7 @@ func (h *Handler) DeleteDeviceSet(ctx context.Context, r *connect.Request[dspb.D
 }
 
 func (h *Handler) ListDeviceSets(ctx context.Context, r *connect.Request[dspb.ListDeviceSetsRequest]) (*connect.Response[dspb.ListDeviceSetsResponse], error) {
-	if _, err := requireDeviceSetReadPermission(ctx, r.Msg.SiteIds, r.Msg.IncludeUnassigned); err != nil {
+	if _, err := requireDeviceSetReadPermission(ctx, r.Msg.SiteIds); err != nil {
 		return nil, err
 	}
 	params, err := toListCollectionsParams(r.Msg)
@@ -143,7 +143,7 @@ func (h *Handler) RemoveDevicesFromGroup(ctx context.Context, r *connect.Request
 }
 
 func (h *Handler) ListDeviceSetMembers(ctx context.Context, r *connect.Request[dspb.ListDeviceSetMembersRequest]) (*connect.Response[dspb.ListDeviceSetMembersResponse], error) {
-	if _, err := requireDeviceSetReadPermission(ctx, r.Msg.SiteIds, r.Msg.IncludeUnassigned); err != nil {
+	if _, err := requireDeviceSetReadPermission(ctx, r.Msg.SiteIds); err != nil {
 		return nil, err
 	}
 	result, err := h.svc.ListCollectionMembersDomain(ctx, collection.ListCollectionMembersParams{
@@ -168,27 +168,19 @@ func (h *Handler) ListDeviceSetMembers(ctx context.Context, r *connect.Request[d
 	}), nil
 }
 
-func requireDeviceSetReadPermission(ctx context.Context, siteIDs []int64, includeUnassigned bool) (*session.Info, error) {
+func requireDeviceSetReadPermission(ctx context.Context, siteIDs []int64) (*session.Info, error) {
 	if err := validateDeviceSetSiteIDs(siteIDs); err != nil {
 		return nil, err
 	}
 
-	var info *session.Info
-	if len(siteIDs) == 0 || includeUnassigned {
-		orgInfo, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{})
-		if err != nil {
-			return nil, err
-		}
-		info = orgInfo
+	info, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
 	}
 
 	for i := range siteIDs {
-		siteInfo, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{SiteID: &siteIDs[i]})
-		if err != nil {
+		if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{SiteID: &siteIDs[i]}); err != nil {
 			return nil, err
-		}
-		if info == nil {
-			info = siteInfo
 		}
 	}
 

@@ -247,7 +247,7 @@ func TestListDeviceSets_SiteFilterAllowedForGroups(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestListDeviceSets_SiteScopedRackReadAllowsFilteredSite(t *testing.T) {
+func TestListDeviceSets_OrgRackReadPlusSiteRackReadAllowsFilteredSite(t *testing.T) {
 	h := newTestHandler(t)
 
 	h.siteStore.EXPECT().
@@ -272,8 +272,29 @@ func TestListDeviceSets_SiteScopedRackReadAllowsFilteredSite(t *testing.T) {
 		SiteIds:  []int64{3},
 	})
 
-	_, err := h.handler.ListDeviceSets(ctxWithAssignments(siteAssignmentLocal(3, authz.PermRackRead)), req)
+	_, err := h.handler.ListDeviceSets(
+		ctxWithAssignments(
+			orgAssignmentLocal(authz.PermRackRead),
+			siteAssignmentLocal(3, authz.PermRackRead),
+		),
+		req,
+	)
 	require.NoError(t, err)
+}
+
+func TestListDeviceSets_SiteOnlyRackReadDeniedBeforeFilteredSite(t *testing.T) {
+	h := newTestHandler(t)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
+		SiteIds: []int64{3},
+	})
+
+	_, err := h.handler.ListDeviceSets(ctxWithAssignments(siteAssignmentLocal(3, authz.PermRackRead)), req)
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
 }
 
 func TestListDeviceSets_SiteNarrowingDeniesFilteredSite(t *testing.T) {
