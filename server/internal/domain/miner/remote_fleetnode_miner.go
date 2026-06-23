@@ -1,0 +1,478 @@
+package miner
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net/url"
+	"sync"
+	"time"
+
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	diagnosticsModels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
+	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/infrastructure/id"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"google.golang.org/protobuf/proto"
+)
+
+const remoteTelemetryStatusTTL = 15 * time.Second
+
+var _ interfaces.Miner = (*RemoteFleetNodeMiner)(nil)
+
+type remoteTelemetryRoute struct {
+	fleetNodeID        int64
+	orgID              int64
+	siteID             int64
+	deviceIdentifier   string
+	driverName         string
+	manufacturer       string
+	model              string
+	firmwareVersion    string
+	serialNumber       string
+	macAddress         string
+	ipAddress          string
+	port               string
+	urlScheme          string
+	credentialUsername []byte
+	credentialPassword []byte
+}
+
+type cachedTelemetryStatus struct {
+	status    models.MinerStatus
+	fetchedAt time.Time
+}
+
+type RemoteFleetNodeMiner struct {
+	route          remoteTelemetryRoute
+	sender         remotenode.CommandSender
+	delegate       interfaces.Miner
+	connectionInfo networking.ConnectionInfo
+
+	mu     sync.Mutex
+	latest *cachedTelemetryStatus
+	now    func() time.Time
+}
+
+func (s *Service) remoteMinerFromDeviceIdentifier(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
+	route, err := s.GetQueries(ctx).GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx, string(deviceID))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, sql.ErrNoRows
+		}
+		return nil, fmt.Errorf("failed to get fleet node telemetry route: %w", err)
+	}
+
+	remoteRoute, err := s.remoteRouteFromRow(route)
+	if err != nil {
+		return nil, err
+	}
+	return newRemoteFleetNodeMiner(remoteRoute, s.commandSender, nil)
+}
+
+func (s *Service) remoteRouteFromRow(row sqlc.GetFleetNodeTelemetryRouteByDeviceIdentifierRow) (remoteTelemetryRoute, error) {
+	return remoteTelemetryRoute{
+		fleetNodeID:        row.FleetNodeID,
+		orgID:              row.OrgID,
+		siteID:             row.SiteID.Int64,
+		deviceIdentifier:   row.DeviceIdentifier,
+		driverName:         row.DriverName,
+		manufacturer:       row.Manufacturer.String,
+		model:              row.Model.String,
+		firmwareVersion:    row.FirmwareVersion.String,
+		serialNumber:       row.SerialNumber.String,
+		macAddress:         row.MacAddress,
+		ipAddress:          row.IpAddress,
+		port:               row.Port,
+		urlScheme:          row.UrlScheme,
+		credentialUsername: fleetNodeCredentialBytes(row.UsernameEnc),
+		credentialPassword: fleetNodeCredentialBytes(row.PasswordEnc),
+	}, nil
+}
+
+func newRemoteFleetNodeMiner(route remoteTelemetryRoute, sender remotenode.CommandSender, delegate interfaces.Miner) (*RemoteFleetNodeMiner, error) {
+	scheme, err := networking.ProtocolFromString(route.urlScheme)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := networking.NewConnectionInfo(route.ipAddress, route.port, scheme)
+	if err != nil {
+		return nil, err
+	}
+	return &RemoteFleetNodeMiner{
+		route:          route,
+		sender:         sender,
+		delegate:       delegate,
+		connectionInfo: *conn,
+		now:            time.Now,
+	}, nil
+}
+
+func (m *RemoteFleetNodeMiner) GetDriverName() string {
+	return m.route.driverName
+}
+
+func (m *RemoteFleetNodeMiner) GetID() models.DeviceIdentifier {
+	return models.DeviceIdentifier(m.route.deviceIdentifier)
+}
+
+func (m *RemoteFleetNodeMiner) GetOrgID() int64 {
+	return m.route.orgID
+}
+
+func (m *RemoteFleetNodeMiner) GetSiteID() int64 {
+	return m.route.siteID
+}
+
+func (m *RemoteFleetNodeMiner) GetSerialNumber() string {
+	return m.route.serialNumber
+}
+
+func (m *RemoteFleetNodeMiner) GetConnectionInfo() networking.ConnectionInfo {
+	return m.connectionInfo
+}
+
+func (m *RemoteFleetNodeMiner) GetWebViewURL() *url.URL {
+	return m.connectionInfo.GetURL()
+}
+
+func (m *RemoteFleetNodeMiner) GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetrics, error) {
+	result, err := m.fetchTelemetry(ctx)
+	if err != nil {
+		return modelsV2.DeviceMetrics{}, err
+	}
+	metrics := telemetryResultToDeviceMetrics(result)
+	if metrics.DeviceIdentifier != m.route.deviceIdentifier {
+		return modelsV2.DeviceMetrics{}, fleeterror.NewInternalErrorf(
+			"fleet node telemetry result device_identifier mismatch: got %q, want %q",
+			metrics.DeviceIdentifier,
+			m.route.deviceIdentifier,
+		)
+	}
+	m.rememberStatus(result.GetDeviceStatus())
+	return metrics, nil
+}
+
+func (m *RemoteFleetNodeMiner) GetDeviceStatus(ctx context.Context) (models.MinerStatus, error) {
+	m.mu.Lock()
+	if m.latest != nil && m.now().Sub(m.latest.fetchedAt) <= remoteTelemetryStatusTTL {
+		status := m.latest.status
+		m.mu.Unlock()
+		return status, nil
+	}
+	m.mu.Unlock()
+
+	result, err := m.fetchTelemetry(ctx)
+	if err != nil {
+		return models.MinerStatusOffline, err
+	}
+	if result.GetDeviceIdentifier() != m.route.deviceIdentifier {
+		return models.MinerStatusOffline, fleeterror.NewInternalErrorf(
+			"fleet node telemetry status device_identifier mismatch: got %q, want %q",
+			result.GetDeviceIdentifier(),
+			m.route.deviceIdentifier,
+		)
+	}
+	status := deviceStatusToMinerStatus(result.GetDeviceStatus())
+	m.rememberStatus(result.GetDeviceStatus())
+	return status, nil
+}
+
+func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb.FleetNodeTelemetryResult, error) {
+	if m.sender == nil {
+		return nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, errors.New("fleet node control registry is not configured"))
+	}
+	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
+		Command: &gatewaypb.AgentCommand_Telemetry{
+			Telemetry: m.telemetryRequest(),
+		},
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("marshal fleet node telemetry command: %v", err)
+	}
+	ack, err := m.sender.SendCommand(ctx, m.route.fleetNodeID, &gatewaypb.ControlCommand{
+		CommandId: id.GenerateID(),
+		Payload:   payload,
+	})
+	if err != nil {
+		if errors.Is(err, control.ErrNoActiveStream) {
+			return nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, err)
+		}
+		return nil, err
+	}
+	if ack.GetCode() != gatewaypb.AckCode_ACK_CODE_OK || !ack.GetSucceeded() {
+		return nil, m.errorFromAck(ack)
+	}
+	if len(ack.GetPayload()) == 0 {
+		return nil, fleeterror.NewInternalError("fleet node telemetry ack missing payload")
+	}
+	result := &telemetrypb.FleetNodeTelemetryResult{}
+	if err := proto.Unmarshal(ack.GetPayload(), result); err != nil {
+		return nil, fleeterror.NewInternalErrorf("unmarshal fleet node telemetry payload: %v", err)
+	}
+	if result.GetDeviceIdentifier() != m.route.deviceIdentifier {
+		return nil, fleeterror.NewInternalErrorf(
+			"fleet node telemetry result device_identifier mismatch: got %q, want %q",
+			result.GetDeviceIdentifier(),
+			m.route.deviceIdentifier,
+		)
+	}
+	return result, nil
+}
+
+func (m *RemoteFleetNodeMiner) telemetryRequest() *telemetrypb.FleetNodeTelemetryRequest {
+	req := &telemetrypb.FleetNodeTelemetryRequest{
+		DeviceIdentifier:   m.route.deviceIdentifier,
+		IpAddress:          m.route.ipAddress,
+		Port:               m.route.port,
+		UrlScheme:          m.route.urlScheme,
+		DriverName:         m.route.driverName,
+		Manufacturer:       m.route.manufacturer,
+		Model:              m.route.model,
+		FirmwareVersion:    m.route.firmwareVersion,
+		SerialNumber:       m.route.serialNumber,
+		MacAddress:         m.route.macAddress,
+		CredentialUsername: m.route.credentialUsername,
+		CredentialPassword: m.route.credentialPassword,
+	}
+	return req
+}
+
+func (m *RemoteFleetNodeMiner) errorFromAck(ack *gatewaypb.ControlAck) error {
+	msg := ack.GetErrorMessage()
+	if msg == "" {
+		msg = fmt.Sprintf("fleet node telemetry command failed with ack code %s", ack.GetCode().String())
+	}
+	switch ack.GetCode() {
+	case gatewaypb.AckCode_ACK_CODE_AGENT_INCAPABLE:
+		return fleeterror.NewUnimplementedError(msg)
+	case gatewaypb.AckCode_ACK_CODE_BAD_REQUEST:
+		return fleeterror.NewInvalidArgumentError(msg)
+	case gatewaypb.AckCode_ACK_CODE_BUSY:
+		return fleeterror.NewUnavailableErrorf("%s", msg)
+	case gatewaypb.AckCode_ACK_CODE_OK:
+		return nil
+	case gatewaypb.AckCode_ACK_CODE_SCAN_FAILED,
+		gatewaypb.AckCode_ACK_CODE_REPORT_FAILED,
+		gatewaypb.AckCode_ACK_CODE_PARTIAL,
+		gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED,
+		gatewaypb.AckCode_ACK_CODE_UNIMPLEMENTED,
+		gatewaypb.AckCode_ACK_CODE_INTERNAL,
+		gatewaypb.AckCode_ACK_CODE_UNSPECIFIED:
+		return fleeterror.NewInternalError(msg)
+	default:
+		return fleeterror.NewInternalError(msg)
+	}
+}
+
+func (m *RemoteFleetNodeMiner) rememberStatus(status telemetrypb.DeviceStatus) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.latest = &cachedTelemetryStatus{
+		status:    deviceStatusToMinerStatus(status),
+		fetchedAt: m.now(),
+	}
+}
+
+func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult) modelsV2.DeviceMetrics {
+	var healthReason *string
+	if result.GetHealthReason() != "" {
+		reason := result.GetHealthReason()
+		healthReason = &reason
+	}
+	return modelsV2.DeviceMetrics{
+		DeviceIdentifier: result.GetDeviceIdentifier(),
+		Timestamp:        result.GetTimestamp().AsTime(),
+		FirmwareVersion:  result.GetFirmwareVersion(),
+		Health:           deviceStatusToHealth(result.GetDeviceStatus()),
+		HealthReason:     healthReason,
+		HashrateHS:       scalarMetricToV2(result.HashrateHs, modelsV2.MetricKindRate),
+		TempC:            scalarMetricToV2(result.TempC, modelsV2.MetricKindGauge),
+		FanRPM:           scalarMetricToV2(result.FanRpm, modelsV2.MetricKindGauge),
+		PowerW:           scalarMetricToV2(result.PowerW, modelsV2.MetricKindGauge),
+		EfficiencyJH:     scalarMetricToV2(result.EfficiencyJh, modelsV2.MetricKindGauge),
+	}
+}
+
+func scalarMetricToV2(value *float64, kind modelsV2.MetricKind) *modelsV2.MetricValue {
+	if value == nil {
+		return nil
+	}
+	return &modelsV2.MetricValue{
+		Value: *value,
+		Kind:  kind,
+	}
+}
+
+func deviceStatusToHealth(status telemetrypb.DeviceStatus) modelsV2.HealthStatus {
+	switch status {
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE:
+		return modelsV2.HealthHealthyActive
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_INACTIVE,
+		telemetrypb.DeviceStatus_DEVICE_STATUS_MAINTENANCE:
+		return modelsV2.HealthHealthyInactive
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
+		return modelsV2.HealthWarning
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_ERROR:
+		return modelsV2.HealthCritical
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_OFFLINE,
+		telemetrypb.DeviceStatus_DEVICE_STATUS_UPDATING,
+		telemetrypb.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED,
+		telemetrypb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED:
+		return modelsV2.HealthUnknown
+	default:
+		return modelsV2.HealthUnknown
+	}
+}
+
+func deviceStatusToMinerStatus(status telemetrypb.DeviceStatus) models.MinerStatus {
+	switch status {
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE:
+		return models.MinerStatusActive
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_OFFLINE:
+		return models.MinerStatusOffline
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_INACTIVE:
+		return models.MinerStatusInactive
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_MAINTENANCE:
+		return models.MinerStatusMaintenance
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_ERROR:
+		return models.MinerStatusError
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
+		return models.MinerStatusNeedsMiningPool
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_UPDATING:
+		return models.MinerStatusUpdating
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED:
+		return models.MinerStatusRebootRequired
+	case telemetrypb.DeviceStatus_DEVICE_STATUS_UNSPECIFIED:
+		return models.MinerStatusUnknown
+	default:
+		return models.MinerStatusUnknown
+	}
+}
+
+func (m *RemoteFleetNodeMiner) unsupported(operation string) error {
+	return fleeterror.NewUnimplementedErrorf("fleet node remote %s is not implemented", operation)
+}
+
+func (m *RemoteFleetNodeMiner) Reboot(ctx context.Context) error {
+	if m.delegate != nil {
+		return m.delegate.Reboot(ctx)
+	}
+	return m.unsupported("reboot")
+}
+
+func (m *RemoteFleetNodeMiner) StartMining(ctx context.Context) error {
+	if m.delegate != nil {
+		return m.delegate.StartMining(ctx)
+	}
+	return m.unsupported("start mining")
+}
+
+func (m *RemoteFleetNodeMiner) StopMining(ctx context.Context) error {
+	if m.delegate != nil {
+		return m.delegate.StopMining(ctx)
+	}
+	return m.unsupported("stop mining")
+}
+
+func (m *RemoteFleetNodeMiner) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
+	if m.delegate != nil {
+		return m.delegate.Curtail(ctx, req)
+	}
+	return m.unsupported("curtailment")
+}
+
+func (m *RemoteFleetNodeMiner) Uncurtail(ctx context.Context, req sdk.UncurtailRequest) error {
+	if m.delegate != nil {
+		return m.delegate.Uncurtail(ctx, req)
+	}
+	return m.unsupported("curtailment")
+}
+
+func (m *RemoteFleetNodeMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {
+	if m.delegate != nil {
+		return m.delegate.SetCoolingMode(ctx, payload)
+	}
+	return m.unsupported("set cooling mode")
+}
+
+func (m *RemoteFleetNodeMiner) GetCoolingMode(ctx context.Context) (commonpb.CoolingMode, error) {
+	if m.delegate != nil {
+		return m.delegate.GetCoolingMode(ctx)
+	}
+	return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, m.unsupported("get cooling mode")
+}
+
+func (m *RemoteFleetNodeMiner) SetPowerTarget(ctx context.Context, payload dto.PowerTargetPayload) error {
+	if m.delegate != nil {
+		return m.delegate.SetPowerTarget(ctx, payload)
+	}
+	return m.unsupported("set power target")
+}
+
+func (m *RemoteFleetNodeMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
+	if m.delegate != nil {
+		return m.delegate.UpdateMiningPools(ctx, payload)
+	}
+	return m.unsupported("update mining pools")
+}
+
+func (m *RemoteFleetNodeMiner) UpdateMinerPassword(ctx context.Context, payload dto.UpdateMinerPasswordPayload) error {
+	if m.delegate != nil {
+		return m.delegate.UpdateMinerPassword(ctx, payload)
+	}
+	return m.unsupported("update miner password")
+}
+
+func (m *RemoteFleetNodeMiner) BlinkLED(ctx context.Context) error {
+	if m.delegate != nil {
+		return m.delegate.BlinkLED(ctx)
+	}
+	return m.unsupported("blink LED")
+}
+
+func (m *RemoteFleetNodeMiner) DownloadLogs(ctx context.Context, outputPath string) error {
+	if m.delegate != nil {
+		return m.delegate.DownloadLogs(ctx, outputPath)
+	}
+	return m.unsupported("download logs")
+}
+
+func (m *RemoteFleetNodeMiner) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
+	if m.delegate != nil {
+		return m.delegate.FirmwareUpdate(ctx, firmware)
+	}
+	return m.unsupported("firmware update")
+}
+
+func (m *RemoteFleetNodeMiner) Unpair(ctx context.Context) error {
+	if m.delegate != nil {
+		return m.delegate.Unpair(ctx)
+	}
+	return m.unsupported("unpair")
+}
+
+func (m *RemoteFleetNodeMiner) GetErrors(ctx context.Context) (diagnosticsModels.DeviceErrors, error) {
+	if m.delegate != nil {
+		return m.delegate.GetErrors(ctx)
+	}
+	return diagnosticsModels.DeviceErrors{DeviceID: m.route.deviceIdentifier}, m.unsupported("get errors")
+}
+
+func (m *RemoteFleetNodeMiner) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfiguredPool, error) {
+	if m.delegate != nil {
+		return m.delegate.GetMiningPools(ctx)
+	}
+	return nil, m.unsupported("get mining pools")
+}

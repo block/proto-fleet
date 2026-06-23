@@ -149,3 +149,81 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 	)
 	return i, err
 }
+
+const getFleetNodeTelemetryRouteByDeviceIdentifier = `-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier :one
+SELECT
+    fnd.fleet_node_id,
+    d.id,
+    d.device_identifier,
+    d.site_id,
+    dd.model,
+    dd.manufacturer,
+    dd.driver_name,
+    d.org_id,
+    d.serial_number,
+    d.mac_address,
+    mc.username_enc,
+    mc.password_enc,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    dd.firmware_version
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
+JOIN device_pairing dp ON dp.device_id = d.id
+JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+WHERE d.device_identifier = $1
+    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND fn.deleted_at IS NULL
+    AND fn.enrollment_status = 'CONFIRMED'
+LIMIT 1
+`
+
+type GetFleetNodeTelemetryRouteByDeviceIdentifierRow struct {
+	FleetNodeID      int64
+	ID               int64
+	DeviceIdentifier string
+	SiteID           sql.NullInt64
+	Model            sql.NullString
+	Manufacturer     sql.NullString
+	DriverName       string
+	OrgID            int64
+	SerialNumber     sql.NullString
+	MacAddress       string
+	UsernameEnc      sql.NullString
+	PasswordEnc      sql.NullString
+	IpAddress        string
+	Port             string
+	UrlScheme        string
+	FirmwareVersion  sql.NullString
+}
+
+// Resolve the active fleet node and all connection metadata needed for a
+// telemetry sample. The server sends this to the node because the node has no
+// database, then validates that the returned telemetry matches this trusted
+// device identifier before storing it.
+func (q *Queries) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetFleetNodeTelemetryRouteByDeviceIdentifierRow, error) {
+	row := q.queryRow(ctx, q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt, getFleetNodeTelemetryRouteByDeviceIdentifier, deviceIdentifier)
+	var i GetFleetNodeTelemetryRouteByDeviceIdentifierRow
+	err := row.Scan(
+		&i.FleetNodeID,
+		&i.ID,
+		&i.DeviceIdentifier,
+		&i.SiteID,
+		&i.Model,
+		&i.Manufacturer,
+		&i.DriverName,
+		&i.OrgID,
+		&i.SerialNumber,
+		&i.MacAddress,
+		&i.UsernameEnc,
+		&i.PasswordEnc,
+		&i.IpAddress,
+		&i.Port,
+		&i.UrlScheme,
+		&i.FirmwareVersion,
+	)
+	return i, err
+}

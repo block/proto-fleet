@@ -11,6 +11,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 const (
@@ -23,7 +24,7 @@ const (
 	clientErrLookupFleetNodeForPairing = "fleet node lookup failed"
 )
 
-type Store interface {
+type Store interface { //nolint:interfacebloat // Pairing coordinates several sqlc-backed persistence operations in one transaction boundary.
 	PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error)
 	TransferDiscoveredDeviceAttribution(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
 	DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error)
@@ -34,6 +35,7 @@ type Store interface {
 	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (int64, error)
 	DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error)
 	GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error)
+	GetFleetNodePairedDeviceIdentifier(ctx context.Context, deviceID, orgID int64) (string, error)
 }
 
 type minerCredentialDeleter interface {
@@ -50,10 +52,15 @@ type FleetNodeDiscoveredDeviceFilter struct {
 	ExcludeAuthNeeded bool
 }
 
+type TelemetryScheduler interface {
+	AddDevices(ctx context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error
+}
+
 type Service struct {
 	store           Store
 	enrollmentStore enrollment.AgentStore
 	transactor      stores.Transactor
+	telemetry       TelemetryScheduler
 
 	// Optional pair-flow collaborators (set by WithProvisioning); binding and
 	// listing work without them.
@@ -84,6 +91,11 @@ func (s *Service) WithMinerInvalidator(invalidate func(context.Context, int64)) 
 	s.invalidateMiner = invalidate
 }
 
+func (s *Service) WithTelemetryScheduler(telemetry TelemetryScheduler) *Service {
+	s.telemetry = telemetry
+	return s
+}
+
 func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error {
 	exists, err := s.store.DeviceExistsInOrg(ctx, deviceID, orgID)
 	if err != nil {
@@ -101,7 +113,7 @@ func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID i
 	if s.invalidateMiner != nil {
 		s.invalidateMiner(ctx, deviceID)
 	}
-	return nil
+	return s.scheduleTelemetry(ctx, deviceID, orgID)
 }
 
 // pairDeviceLocked binds a device to a fleet node within the caller's transaction:
@@ -164,6 +176,20 @@ func (s *Service) deviceBoundToFleetNode(ctx context.Context, fleetNodeID, devic
 		}
 	}
 	return false, nil
+}
+
+func (s *Service) scheduleTelemetry(ctx context.Context, deviceID, orgID int64) error {
+	if s.telemetry == nil {
+		return nil
+	}
+	identifier, err := s.store.GetFleetNodePairedDeviceIdentifier(ctx, deviceID, orgID)
+	if err != nil {
+		return fleeterror.LogInternal(component, "lookup paired device identifier", clientErrPair, err)
+	}
+	if err := s.telemetry.AddDevices(ctx, telemetrymodels.DeviceIdentifier(identifier)); err != nil {
+		return fleeterror.LogInternal(component, "schedule telemetry", clientErrPair, err)
+	}
+	return nil
 }
 
 func (s *Service) UnpairDevice(ctx context.Context, deviceID, orgID int64) error {

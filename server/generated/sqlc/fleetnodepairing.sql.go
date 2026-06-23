@@ -96,6 +96,26 @@ func (q *Queries) DeviceHasActivePairing(ctx context.Context, arg DeviceHasActiv
 	return exists, err
 }
 
+const getFleetNodePairedDeviceIdentifier = `-- name: GetFleetNodePairedDeviceIdentifier :one
+SELECT d.device_identifier
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
+WHERE fnd.device_id = $1
+  AND fnd.org_id = $2
+`
+
+type GetFleetNodePairedDeviceIdentifierParams struct {
+	DeviceID int64
+	OrgID    int64
+}
+
+func (q *Queries) GetFleetNodePairedDeviceIdentifier(ctx context.Context, arg GetFleetNodePairedDeviceIdentifierParams) (string, error) {
+	row := q.queryRow(ctx, q.getFleetNodePairedDeviceIdentifierStmt, getFleetNodePairedDeviceIdentifier, arg.DeviceID, arg.OrgID)
+	var device_identifier string
+	err := row.Scan(&device_identifier)
+	return device_identifier, err
+}
+
 const listFleetNodeDeviceIDsForRevocation = `-- name: ListFleetNodeDeviceIDsForRevocation :many
 SELECT device_id
 FROM fleet_node_device

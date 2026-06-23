@@ -172,6 +172,13 @@ WHERE fnd.org_id = $1
   AND (sqlc.narg('fleet_node_id')::bigint IS NULL OR fnd.fleet_node_id = sqlc.narg('fleet_node_id')::bigint)
 ORDER BY fnd.assigned_at DESC, fnd.device_id ASC;
 
+-- name: GetFleetNodePairedDeviceIdentifier :one
+SELECT d.device_identifier
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
+WHERE fnd.device_id = $1
+  AND fnd.org_id = $2;
+
 -- name: ListFleetNodeDiscoveredDevices :many
 -- Fleet-node-discovered devices not yet paired to their node. A discovered
 -- device is excluded when ANY of its live device rows is already node-bound

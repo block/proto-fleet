@@ -287,18 +287,20 @@ func (q *Queries) GetAllDeviceInfoForCapabilityCheck(ctx context.Context, orgID 
 const getAllPairedDeviceIdentifiers = `-- name: GetAllPairedDeviceIdentifiers :many
 SELECT d.device_identifier
 FROM device d
-JOIN device_pairing dp ON d.id = dp.device_id
-WHERE dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-    AND d.deleted_at IS NULL
-    AND NOT EXISTS (
+LEFT JOIN device_pairing dp ON d.id = dp.device_id
+WHERE d.deleted_at IS NULL
+    AND (
+        dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+        OR EXISTS (
         SELECT 1 FROM fleet_node_device fnd
         WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
+        )
     )
 `
 
-// Returns identifiers of cloud-dialed paired devices only. Excludes fleet-node-owned
-// devices (those with a fleet_node_device row): the node owns their I/O and the cloud
-// has no direct route, so they must not enter the telemetry polling loop.
+// Returns identifiers of telemetry-eligible paired devices. Fleet-node-owned
+// devices stay in this scheduling set; miner.Service abstracts the remote hop
+// behind the same interfaces.Miner path.
 // DEFAULT_PASSWORD devices are paired and report telemetry, so they must enter
 // the polling loop too (it's how their state is reconciled after a password change).
 func (q *Queries) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]string, error) {

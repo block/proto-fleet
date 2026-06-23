@@ -253,7 +253,7 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 	}
 	// No server-side plugin gate: the fleet node (not the server) dials the miner
 	// and loads the driver plugin; the server only routes the command.
-	m, err := remotenode.New(remotenode.Config{
+	remoteCommandMiner, err := remotenode.New(remotenode.Config{
 		Sender:             s.commandSender,
 		Gate:               s.nodeLimiter,
 		FleetNodeID:        row.FleetNodeID,
@@ -272,7 +272,23 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 	if err != nil {
 		return nil, false, err
 	}
-	return m, true, nil
+
+	telemetryRoute, err := s.GetQueries(ctx).GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx, string(deviceID))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return remoteCommandMiner, true, nil
+		}
+		return nil, false, fmt.Errorf("failed to resolve fleet node telemetry route: %w", err)
+	}
+	remoteRoute, err := s.remoteRouteFromRow(telemetryRoute)
+	if err != nil {
+		return nil, false, err
+	}
+	telemetryMiner, err := newRemoteFleetNodeMiner(remoteRoute, s.commandSender, remoteCommandMiner)
+	if err != nil {
+		return nil, false, err
+	}
+	return telemetryMiner, true, nil
 }
 
 func fleetNodeCredentialBytes(value sql.NullString) []byte {

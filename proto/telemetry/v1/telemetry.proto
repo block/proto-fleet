@@ -217,6 +217,51 @@ message TelemetryUpdate {
   optional MinerStateCounts miner_state_counts = 8;
 }
 
+// FleetNodeTelemetryRequest asks a fleet node to fetch one point-in-time
+// telemetry sample from a device it owns. The node has no database, so the
+// server supplies the endpoint, driver, and node-encrypted credentials required
+// by the plugin.
+message FleetNodeTelemetryRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  string ip_address        = 2 [(buf.validate.field).string = {min_len: 1, max_len: 45, ip: true}];
+  string port              = 3 [
+    (buf.validate.field).string = {min_len: 1, max_len: 5},
+    (buf.validate.field).cel = {
+      id: "port.range",
+      message: "port must be a decimal number in 1..65535",
+      expression: "this.matches('^[1-9][0-9]*$') && int(this) <= 65535"
+    }
+  ];
+  string url_scheme  = 4 [(buf.validate.field).string.max_len = 32];
+  string driver_name = 5 [(buf.validate.field).string = {min_len: 1, max_len: 50}];
+
+  string manufacturer     = 6 [(buf.validate.field).string.max_len = 255];
+  string model            = 7 [(buf.validate.field).string.max_len = 255];
+  string firmware_version = 8 [(buf.validate.field).string.max_len = 255];
+  string serial_number    = 9 [(buf.validate.field).string.max_len = 255];
+  string mac_address      = 10 [(buf.validate.field).string.max_len = 64];
+
+  reserved 11, 12;
+  reserved "username", "password";
+  bytes credential_username = 13 [(buf.validate.field).bytes.max_len = 4096];
+  bytes credential_password = 14 [(buf.validate.field).bytes.max_len = 4096];
+}
+
+message FleetNodeTelemetryResult {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  google.protobuf.Timestamp timestamp = 2 [(buf.validate.field).required = true];
+  string firmware_version = 3 [(buf.validate.field).string.max_len = 255];
+  DeviceStatus device_status = 4;
+  string health_reason = 5 [(buf.validate.field).string.max_len = 4096];
+
+  optional double hashrate_hs = 6;
+  optional double temp_c = 7;
+  optional double fan_rpm = 8;
+  optional double power_w = 9;
+  optional double efficiency_jh = 10;
+  string error_message = 11 [(buf.validate.field).string.max_len = 4096];
+}
+
 message GetCombinedMetricsRequest {
     DeviceSelector device_selector = 1 [(buf.validate.field).required = true]; // Select devices by ID or all devices in org
     repeated MeasurementType measurement_types = 3; // e.g., TEMPERATURE, HASHRATE Defaults to all types
