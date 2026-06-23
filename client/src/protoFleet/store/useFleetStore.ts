@@ -207,6 +207,10 @@ export const useFleetStore = create<FleetStore>()(
             const sessionIsStalePreOrgDefault =
               hasPersistedSession && (!hasPersistedPermissions || !hasPersistedOrgScopePermissions);
             const persistedDuration = persisted?.ui?.duration;
+            // Transitional: map persisted pre-rename notification:* keys to alert:* so Alerts UI gates work without a forced re-login.
+            const migratedPermissions = hasPersistedPermissions
+              ? persisted.auth.permissions.map((p: string) => p.replace(/^notification:/, "alert:"))
+              : persisted?.auth?.permissions;
 
             return {
               ...currentState,
@@ -227,7 +231,7 @@ export const useFleetStore = create<FleetStore>()(
                 permissions: sessionIsStalePreOrgDefault
                   ? currentState.auth.permissions
                   : hasPersistedPermissions
-                    ? persisted.auth.permissions
+                    ? migratedPermissions
                     : currentState.auth.permissions,
                 // If we have persisted session, set loading to false.
                 // Stale pre-org-default sessions also stop loading so the
