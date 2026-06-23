@@ -17,6 +17,8 @@ const { mockUseMinerActions, mockBulkActionsPopover, mockListGroupMembers, mockF
           title: string;
           actionHandler: () => void;
           requiresConfirmation: boolean;
+          disabled?: boolean;
+          disabledReason?: string;
           confirmation?: {
             subtitle?: string;
           };
@@ -274,6 +276,94 @@ describe("DeviceSetActionsMenu", () => {
     expect(sleepAction?.confirmation?.subtitle).toBe(
       "This action only applies to miners in Site 2, 6 of the 30 miners in Group A will go to sleep and stop hashing.",
     );
+  });
+
+  it("disables scoped bulk actions when no miners are in the active site scope", async () => {
+    mockUseMinerActions.mockReturnValue({
+      ...defaultMinerActions(),
+      popoverActions: [
+        {
+          action: "shutdown",
+          title: "Sleep",
+          actionHandler: vi.fn(),
+          requiresConfirmation: true,
+          confirmation: {
+            title: "Sleep miners?",
+            subtitle: "These miners will go to sleep and stop hashing.",
+            confirmAction: { title: "Sleep" },
+          },
+        },
+      ],
+    });
+
+    render(
+      <DeviceSetActionsMenu
+        memberDeviceIds={[]}
+        deviceSetId={1n}
+        onEdit={vi.fn()}
+        activeSite={{ kind: "site", id: "2" }}
+        activeSiteLabel="Site 2"
+        deviceSetLabel="Group A"
+        totalMemberCount={30}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Device set actions"));
+
+    await waitFor(() => {
+      expect(mockBulkActionsPopover).toHaveBeenCalled();
+    });
+
+    const latestCall = mockBulkActionsPopover.mock.calls[mockBulkActionsPopover.mock.calls.length - 1]?.[0] as {
+      actions: Array<{ action: string; disabled?: boolean; disabledReason?: string }>;
+    };
+    const sleepAction = latestCall.actions.find((action) => action.action === "shutdown");
+    expect(sleepAction).toMatchObject({
+      disabled: true,
+      disabledReason: "No miners in Site 2.",
+    });
+  });
+
+  it("does not add scoped confirmation copy on canonical detail pages", async () => {
+    mockUseMinerActions.mockReturnValue({
+      ...defaultMinerActions(),
+      popoverActions: [
+        {
+          action: "shutdown",
+          title: "Sleep",
+          actionHandler: vi.fn(),
+          requiresConfirmation: true,
+          confirmation: {
+            title: "Sleep miners?",
+            subtitle: "These miners will go to sleep and stop hashing.",
+            confirmAction: { title: "Sleep" },
+          },
+        },
+      ],
+    });
+
+    render(
+      <DeviceSetActionsMenu
+        memberDeviceIds={["d1", "d2"]}
+        deviceSetId={1n}
+        onEdit={vi.fn()}
+        activeSiteLabel="Site 2"
+        deviceSetLabel="Group A"
+        totalMemberCount={30}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Device set actions"));
+
+    await waitFor(() => {
+      expect(mockBulkActionsPopover).toHaveBeenCalled();
+    });
+
+    const latestCall = mockBulkActionsPopover.mock.calls[mockBulkActionsPopover.mock.calls.length - 1]?.[0] as {
+      actions: Array<{ action: string; confirmation?: { subtitle?: string } }>;
+    };
+    const sleepAction = latestCall.actions.find((action) => action.action === "shutdown");
+    expect(sleepAction?.confirmation?.subtitle).toBe("These miners will go to sleep and stop hashing.");
   });
 
   it("shows loading immediately on open when fresh data is required", () => {

@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- lazy() route components colocated with route config; not HMR-relevant */
 import { createElement, lazy, ReactNode } from "react";
-import { createBrowserRouter, LoaderFunction, Navigate, Outlet, redirect } from "react-router-dom";
+import { createBrowserRouter, LoaderFunction, LoaderFunctionArgs, Navigate, Outlet, redirect } from "react-router-dom";
 
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
@@ -47,7 +47,12 @@ import {
   racksRedirectLoader,
   sitesRedirectLoader,
 } from "@/protoFleet/features/fleetManagement/redirectLoaders";
-import { appEntryPath, SiteScopeLayout, SiteScopeProvider } from "@/protoFleet/routing/siteScope";
+import {
+  activeSiteFromSegment,
+  appEntryPath,
+  SiteScopeLayout,
+  SiteScopeProvider,
+} from "@/protoFleet/routing/siteScope";
 import { sanitizeActiveSite } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
@@ -125,6 +130,18 @@ const welcomeLoader = async () => {
 
 const appEntryLoader = () => redirect(appEntryPath(sanitizeActiveSite(useFleetStore.getState().ui.activeSite)));
 
+const scopedGroupDetailRedirectLoader = ({ params, request }: LoaderFunctionArgs) => {
+  const activeSite = activeSiteFromSegment(params.siteScope);
+  if (!activeSite) {
+    return redirect("/");
+  }
+
+  useFleetStore.getState().ui.setActiveSite(activeSite);
+  const url = new URL(request.url);
+  const groupLabel = params.groupLabel ? encodeURIComponent(params.groupLabel) : "";
+  return redirect(`/groups/${groupLabel}${url.search}`);
+};
+
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
   fullscreen?: boolean;
@@ -200,7 +217,7 @@ const router = createBrowserRouter([
   {
     path: "/:siteScope",
     element: <SiteScopeLayout />,
-    children: createScopableRoutes(false),
+    children: [...createScopableRoutes(false), { path: "groups/:groupLabel", loader: scopedGroupDetailRedirectLoader }],
   },
 
   { path: "/miners", loader: minersRedirectLoader },

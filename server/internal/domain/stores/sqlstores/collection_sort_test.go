@@ -218,8 +218,10 @@ func TestBuildCollectionListQuery_GroupSiteIDsUsesMembershipExists(t *testing.T)
 	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_GROUP, nil, "name", "ASC", 51, filter)
 	assert.Contains(t, query, "AND EXISTS")
 	assert.Contains(t, query, "FROM device_set_membership dcm_site")
+	assert.Contains(t, query, "JOIN device d_site ON dcm_site.device_id = d_site.id")
 	assert.Contains(t, query, "d_site.site_id = ANY($3::bigint[])")
 	assert.NotContains(t, query, "JOIN device d_site ON dc.id")
+	assert.NotContains(t, query, "device_pairing dp_site")
 	assert.Equal(t, pq.Array([]int64{2}), args[2])
 }
 
@@ -228,7 +230,9 @@ func TestBuildCollectionCountQuery_GroupIncludeUnassignedUsesMembershipExists(t 
 	query, _ := buildCollectionCountQuery(1, pb.CollectionType_COLLECTION_TYPE_GROUP, filter)
 	assert.Contains(t, query, "AND EXISTS")
 	assert.Contains(t, query, "FROM device_set_membership dcm_site")
+	assert.Contains(t, query, "JOIN device d_site ON dcm_site.device_id = d_site.id")
 	assert.Contains(t, query, "d_site.site_id IS NULL")
+	assert.NotContains(t, query, "device_pairing dp_site")
 }
 
 func TestBuildCollectionListQuery_BuildingIDs(t *testing.T) {

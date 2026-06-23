@@ -247,6 +247,93 @@ func TestListDeviceSets_SiteFilterAllowedForGroups(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestListDeviceSets_SiteScopedRackReadAllowsFilteredSite(t *testing.T) {
+	h := newTestHandler(t)
+
+	h.siteStore.EXPECT().
+		SitesByIDs(gomock.Any(), testOrgID, []int64{3}).
+		Return([]int64{3}, nil)
+
+	h.collectionStore.EXPECT().
+		ListCollections(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_GROUP,
+			int32(50), "", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ int64, _ collectionpb.CollectionType,
+			_ int32, _ string, _ *interfaces.SortConfig, filter *interfaces.DeviceSetFilter,
+		) ([]*collectionpb.DeviceCollection, string, int32, error) {
+			require.NotNil(t, filter)
+			assert.Equal(t, []int64{3}, filter.SiteIDs)
+			assert.False(t, filter.IncludeUnassigned)
+			return nil, "", 0, nil
+		})
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:     dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
+		PageSize: 50,
+		SiteIds:  []int64{3},
+	})
+
+	_, err := h.handler.ListDeviceSets(ctxWithAssignments(siteAssignmentLocal(3, authz.PermRackRead)), req)
+	require.NoError(t, err)
+}
+
+func TestListDeviceSets_SiteNarrowingDeniesFilteredSite(t *testing.T) {
+	h := newTestHandler(t)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
+		SiteIds: []int64{3},
+	})
+
+	_, err := h.handler.ListDeviceSets(
+		ctxWithAssignments(
+			orgAssignmentLocal(authz.PermRackRead),
+			siteAssignmentLocal(3, authz.PermSiteRead),
+		),
+		req,
+	)
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
+func TestListDeviceSets_IncludeUnassignedRequiresOrgRackRead(t *testing.T) {
+	h := newTestHandler(t)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:              dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
+		SiteIds:           []int64{3},
+		IncludeUnassigned: true,
+	})
+
+	_, err := h.handler.ListDeviceSets(ctxWithAssignments(siteAssignmentLocal(3, authz.PermRackRead)), req)
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
+func TestListDeviceSetMembers_SiteNarrowingDeniesFilteredSite(t *testing.T) {
+	h := newTestHandler(t)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetMembersRequest{
+		DeviceSetId: 42,
+		SiteIds:     []int64{3},
+	})
+
+	_, err := h.handler.ListDeviceSetMembers(
+		ctxWithAssignments(
+			orgAssignmentLocal(authz.PermRackRead),
+			siteAssignmentLocal(3, authz.PermSiteRead),
+		),
+		req,
+	)
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
 // TestListDeviceSets_DeprecatedZonesShim confirms the legacy `zones`
 // field translates to wildcard ZoneKey entries (BuildingID == 0) so old
 // clients continue to work. Wildcards skip the cross-org check, so
@@ -610,6 +697,32 @@ func ctxWithPerms(perms ...string) context.Context {
 		ScopeType:    authz.ScopeOrg,
 		Permissions:  perms,
 	}}))
+}
+
+func ctxWithAssignments(assignments ...authz.Assignment) context.Context {
+	ctx := authn.SetInfo(context.Background(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: testOrgID,
+		UserID:         testUserID,
+	})
+	return middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions(assignments))
+}
+
+func orgAssignmentLocal(perms ...string) authz.Assignment {
+	return authz.Assignment{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  perms,
+	}
+}
+
+func siteAssignmentLocal(siteID int64, perms ...string) authz.Assignment {
+	return authz.Assignment{
+		AssignmentID: 2,
+		ScopeType:    authz.ScopeSite,
+		SiteID:       &siteID,
+		Permissions:  perms,
+	}
 }
 
 // deviceListSelector builds a DeviceSelector that selects the given

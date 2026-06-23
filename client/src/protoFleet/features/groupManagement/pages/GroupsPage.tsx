@@ -254,7 +254,7 @@ const GroupsPage = () => {
     );
   }
 
-  const hasGroups = groups.length > 0 || hasEverLoaded || hasActiveFilters;
+  const hasGroups = groups.length > 0 || hasEverLoaded || hasActiveFilters || activeSite.kind !== "all";
 
   return (
     <>

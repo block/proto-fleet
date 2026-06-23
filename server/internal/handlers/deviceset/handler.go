@@ -11,6 +11,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -87,7 +88,7 @@ func (h *Handler) DeleteDeviceSet(ctx context.Context, r *connect.Request[dspb.D
 }
 
 func (h *Handler) ListDeviceSets(ctx context.Context, r *connect.Request[dspb.ListDeviceSetsRequest]) (*connect.Response[dspb.ListDeviceSetsResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
+	if _, err := requireDeviceSetReadPermission(ctx, r.Msg.SiteIds, r.Msg.IncludeUnassigned); err != nil {
 		return nil, err
 	}
 	params, err := toListCollectionsParams(r.Msg)
@@ -142,16 +143,8 @@ func (h *Handler) RemoveDevicesFromGroup(ctx context.Context, r *connect.Request
 }
 
 func (h *Handler) ListDeviceSetMembers(ctx context.Context, r *connect.Request[dspb.ListDeviceSetMembersRequest]) (*connect.Response[dspb.ListDeviceSetMembersResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
+	if _, err := requireDeviceSetReadPermission(ctx, r.Msg.SiteIds, r.Msg.IncludeUnassigned); err != nil {
 		return nil, err
-	}
-	if len(r.Msg.SiteIds) > maxDeviceSetFilterValues {
-		return nil, fleeterror.NewInvalidArgumentErrorf("site_ids exceeds maximum of %d values", maxDeviceSetFilterValues)
-	}
-	for i, id := range r.Msg.SiteIds {
-		if id <= 0 {
-			return nil, fleeterror.NewInvalidArgumentErrorf("site_ids[%d] must be positive", i)
-		}
 	}
 	result, err := h.svc.ListCollectionMembersDomain(ctx, collection.ListCollectionMembersParams{
 		CollectionID: r.Msg.DeviceSetId,
@@ -173,6 +166,46 @@ func (h *Handler) ListDeviceSetMembers(ctx context.Context, r *connect.Request[d
 		Members:       members,
 		NextPageToken: result.NextPageToken,
 	}), nil
+}
+
+func requireDeviceSetReadPermission(ctx context.Context, siteIDs []int64, includeUnassigned bool) (*session.Info, error) {
+	if err := validateDeviceSetSiteIDs(siteIDs); err != nil {
+		return nil, err
+	}
+
+	var info *session.Info
+	if len(siteIDs) == 0 || includeUnassigned {
+		orgInfo, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{})
+		if err != nil {
+			return nil, err
+		}
+		info = orgInfo
+	}
+
+	for _, siteID := range siteIDs {
+		siteID := siteID
+		siteInfo, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{SiteID: &siteID})
+		if err != nil {
+			return nil, err
+		}
+		if info == nil {
+			info = siteInfo
+		}
+	}
+
+	return info, nil
+}
+
+func validateDeviceSetSiteIDs(siteIDs []int64) error {
+	if len(siteIDs) > maxDeviceSetFilterValues {
+		return fleeterror.NewInvalidArgumentErrorf("site_ids exceeds maximum of %d values", maxDeviceSetFilterValues)
+	}
+	for i, id := range siteIDs {
+		if id <= 0 {
+			return fleeterror.NewInvalidArgumentErrorf("site_ids[%d] must be positive", i)
+		}
+	}
+	return nil
 }
 
 func (h *Handler) GetDeviceDeviceSets(ctx context.Context, r *connect.Request[dspb.GetDeviceDeviceSetsRequest]) (*connect.Response[dspb.GetDeviceDeviceSetsResponse], error) {

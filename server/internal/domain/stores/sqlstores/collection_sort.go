@@ -256,10 +256,8 @@ func appendDeviceSetGroupSiteFilterSQL(sb *strings.Builder, args []any, argNum i
 	sb.WriteString(fmt.Sprintf(` AND EXISTS (
 			SELECT 1 FROM device_set_membership dcm_site
 			JOIN device d_site ON dcm_site.device_id = d_site.id AND d_site.deleted_at IS NULL
-			JOIN device_pairing dp_site ON d_site.id = dp_site.device_id
-				AND %s
 			WHERE dcm_site.device_set_id = dc.id AND dcm_site.org_id = $1
-			  AND (`, actionablePairingStatusesExpr("dp_site")))
+			  AND (`))
 	first := true
 	if len(filter.SiteIDs) > 0 {
 		sb.WriteString(fmt.Sprintf("d_site.site_id = ANY($%d::bigint[])", argNum))

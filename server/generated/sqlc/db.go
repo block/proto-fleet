@@ -783,6 +783,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listDeviceSetMembersPaginatedAfterStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginatedAfter); err != nil {
 		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginatedAfter: %w", err)
 	}
+	if q.listDeviceSetMembersPaginatedFilteredStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginatedFiltered); err != nil {
+		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginatedFiltered: %w", err)
+	}
+	if q.listDeviceSetMembersPaginatedFilteredAfterStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginatedFilteredAfter); err != nil {
+		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginatedFilteredAfter: %w", err)
+	}
 	if q.listEffectivePermissionsForUserStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUser: %w", err)
 	}
@@ -2569,6 +2575,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listDeviceSetMembersPaginatedAfterStmt: %w", cerr)
 		}
 	}
+	if q.listDeviceSetMembersPaginatedFilteredStmt != nil {
+		if cerr := q.listDeviceSetMembersPaginatedFilteredStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listDeviceSetMembersPaginatedFilteredStmt: %w", cerr)
+		}
+	}
+	if q.listDeviceSetMembersPaginatedFilteredAfterStmt != nil {
+		if cerr := q.listDeviceSetMembersPaginatedFilteredAfterStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listDeviceSetMembersPaginatedFilteredAfterStmt: %w", cerr)
+		}
+	}
 	if q.listEffectivePermissionsForUserStmt != nil {
 		if cerr := q.listEffectivePermissionsForUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listEffectivePermissionsForUserStmt: %w", cerr)
@@ -3721,6 +3737,8 @@ type Queries struct {
 	listCustomRolesForOrgStmt                                  *sql.Stmt
 	listDeviceSetMembersPaginatedStmt                          *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt                     *sql.Stmt
+	listDeviceSetMembersPaginatedFilteredStmt                  *sql.Stmt
+	listDeviceSetMembersPaginatedFilteredAfterStmt             *sql.Stmt
 	listEffectivePermissionsForUserStmt                        *sql.Stmt
 	listEffectivePermissionsForUserForUpdateStmt               *sql.Stmt
 	listEnabledCurtailmentAutomationRulesByMQTTSourceStmt      *sql.Stmt
@@ -4152,6 +4170,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listCustomRolesForOrgStmt:                                  q.listCustomRolesForOrgStmt,
 		listDeviceSetMembersPaginatedStmt:                          q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:                     q.listDeviceSetMembersPaginatedAfterStmt,
+		listDeviceSetMembersPaginatedFilteredStmt:                  q.listDeviceSetMembersPaginatedFilteredStmt,
+		listDeviceSetMembersPaginatedFilteredAfterStmt:             q.listDeviceSetMembersPaginatedFilteredAfterStmt,
 		listEffectivePermissionsForUserStmt:                        q.listEffectivePermissionsForUserStmt,
 		listEffectivePermissionsForUserForUpdateStmt:               q.listEffectivePermissionsForUserForUpdateStmt,
 		listEnabledCurtailmentAutomationRulesByMQTTSourceStmt:      q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt,
