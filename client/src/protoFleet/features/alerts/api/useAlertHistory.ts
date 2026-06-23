@@ -26,7 +26,7 @@ export function useAlertHistory(activeOnly = false): UseAlertHistoryResult {
       const page = activeOnly
         ? await api.listHistory({ active_only: true })
         : await api.listHistory({ page_size: HISTORY_PAGE_SIZE });
-      setHistory(page.notifications);
+      setHistory(page.alerts);
       setHistoryHasMore(page.has_more);
     } finally {
       setHistoryLoading(false);
@@ -41,7 +41,7 @@ export function useAlertHistory(activeOnly = false): UseAlertHistoryResult {
         before_id: history[history.length - 1].id,
         page_size: HISTORY_PAGE_SIZE,
       });
-      setHistory((current) => [...current, ...page.notifications]);
+      setHistory((current) => [...current, ...page.alerts]);
       setHistoryHasMore(page.has_more);
     } finally {
       setHistoryLoading(false);

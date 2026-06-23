@@ -8,22 +8,22 @@ BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "development")
 
 echo "Starting ProtoFleet client..."
-# The Notifications settings nav is behind VITE_NOTIFICATIONS_ENABLED; surface it
-# only when the server is started with the notifications sidecar.
-NOTIFICATIONS_ENABLED=$([[ "${ENABLE_BETA_ALERTS:-}" = "true" ]] && echo "true" || echo "false")
+# The Alerts settings nav is behind VITE_ALERTS_ENABLED; surface it
+# only when the server is started with the alerts sidecar.
+ALERTS_ENABLED=$([[ "${ENABLE_BETA_ALERTS:-}" = "true" ]] && echo "true" || echo "false")
 (
   cd client
   VITE_VERSION="$GIT_VERSION" \
   VITE_BUILD_DATE="$BUILD_DATE" \
   VITE_COMMIT="$GIT_COMMIT" \
-  VITE_NOTIFICATIONS_ENABLED="$NOTIFICATIONS_ENABLED" \
+  VITE_ALERTS_ENABLED="$ALERTS_ENABLED" \
   npm run dev:protoFleet
 ) & CLIENT_PID=$!
 echo "Client PID: $CLIENT_PID"
 
 function start_server() {
   if [[ "${ENABLE_BETA_ALERTS:-}" = "true" ]]; then
-    just dev-notifs
+    just dev-alerts
   else
     just dev
   fi

@@ -26,7 +26,7 @@ type Service struct {
 }
 
 type DestinationPolicy struct {
-	AllowPrivateDestinations bool `help:"Allow notification destinations (webhook URLs, SMTP hosts) that resolve to loopback, link-local, or private network ranges. Enable for dev stacks or deployments whose relays live on internal addresses." default:"false" env:"ALLOW_PRIVATE_DESTINATIONS"`
+	AllowPrivateDestinations bool `help:"Allow alert destinations (webhook URLs, SMTP hosts) that resolve to loopback, link-local, or private network ranges. Enable for dev stacks or deployments whose relays live on internal addresses." default:"false" env:"ALLOW_PRIVATE_DESTINATIONS"`
 }
 
 func NewService(g *Grafana, policy DestinationPolicy) *Service {
@@ -271,7 +271,7 @@ func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if delErr := s.grafana.DeleteContactPoint(cleanupCtx, created.UID); delErr != nil {
-			slog.Warn("notifications.test_channel_cleanup_failed", "uid", created.UID, "err", delErr)
+			slog.Warn("alerts.test_channel_cleanup_failed", "uid", created.UID, "err", delErr)
 		}
 	}()
 	res, err := s.grafana.TestReceiverIntegration(ctx, tmpName, gType, settings)

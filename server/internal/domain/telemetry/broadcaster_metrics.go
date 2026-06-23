@@ -23,7 +23,7 @@ type MetricsEmitter interface {
 	EmitTelemetryPoll(ctx context.Context, labels metrics.TelemetryPollLabels)
 }
 
-// nopMetricsEmitter is the default emitter installed when notifications are disabled.
+// nopMetricsEmitter is the default emitter installed when alerts are disabled.
 type nopMetricsEmitter struct{}
 
 func (nopMetricsEmitter) EmitDeviceOnline(context.Context, metrics.DeviceLabels, bool) {

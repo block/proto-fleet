@@ -1,7 +1,7 @@
-# Proto Fleet notifications metric contract
+# Proto Fleet alerts metric contract
 
 This document is the canonical contract for every metric Proto Fleet
-emits as part of the notifications stack.
+emits as part of the alerts stack.
 
 The Go-side source of truth is
 [`server/internal/infrastructure/metrics/contract.go`](../server/internal/infrastructure/metrics/contract.go).

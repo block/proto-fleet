@@ -301,7 +301,7 @@ export async function deleteMaintenanceWindow(id: string): Promise<void> {
 }
 
 export interface HistoryPage {
-  notifications: AlertHistoryEntry[];
+  alerts: AlertHistoryEntry[];
   has_more: boolean;
 }
 
@@ -315,5 +315,5 @@ export async function listHistory(input: {
     pageSize: input.page_size ?? 0,
     activeOnly: input.active_only ?? false,
   });
-  return { notifications: res.alerts.map(historyFromProto), has_more: res.hasMore };
+  return { alerts: res.alerts.map(historyFromProto), has_more: res.hasMore };
 }

@@ -56,7 +56,7 @@ func deviceAlertRow() notificationhistory.StoredNotification {
 	}
 }
 
-func TestListNotifications_RedactsMinerDataWithoutMinerRead(t *testing.T) {
+func TestListAlerts_RedactsMinerDataWithoutMinerRead(t *testing.T) {
 	h := NewHandler(nil, stubLister{rows: []notificationhistory.StoredNotification{deviceAlertRow()}})
 
 	resp, err := h.ListAlerts(
@@ -78,7 +78,7 @@ func TestListNotifications_RedactsMinerDataWithoutMinerRead(t *testing.T) {
 	require.Empty(t, got.Template)
 }
 
-func TestListNotifications_IncludesMinerDataWithMinerRead(t *testing.T) {
+func TestListAlerts_IncludesMinerDataWithMinerRead(t *testing.T) {
 	h := NewHandler(nil, stubLister{rows: []notificationhistory.StoredNotification{deviceAlertRow()}})
 
 	resp, err := h.ListAlerts(

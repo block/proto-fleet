@@ -116,13 +116,13 @@ The script will auto-detect existing certificates and use HTTPS mode automatical
 - Private key file: `ssl/key.pem` (PEM format, unencrypted)
 - For LAN access, ensure the certificate includes the server's IP address(es) in the Subject Alternative Names (SANs)
 
-## Notifications
+## Alerts
 
-The notifications deployment runs an extra grafana service:
+The alerts deployment runs an extra grafana service:
 
 | Service   | Image (pinned)                        | Purpose                                                                       |
 | --------- | ------------------------------------- | ----------------------------------------------------------------------------- |
-| `grafana` | `grafana/grafana:13.1.0-25771031703`  | Evaluates alert rules over `notification_metric_sample` and routes alerts via its built-in Alertmanager. |
+| `grafana` | `grafana/grafana:13.1.0-25771031703`  | Evaluates alert rules over `alert_metric_sample` and routes alerts via its built-in Alertmanager. |
 
 ### Network topology
 
@@ -133,23 +133,23 @@ it without exposing the dashboard to the LAN. Grafana reaches
 webhook deliveries, and TimescaleDB on the standard fleet network for
 queries.
 
-### Enabling the notifications stack
+### Enabling the alerts stack
 
-The notifications sidecar is a beta feature and is **off by default**.
+The alerts sidecar is a beta feature and is **off by default**.
 It lives in a separate compose file,
 `docker-compose.alerts.yaml`, that `run-fleet.sh` layers in via
 a second `-f` flag when the `--enable-beta-alerts` flag is
-passed. To run a fleet with the beta notifications stack:
+passed. To run a fleet with the beta alerts stack:
 
 ```bash
 ./run-fleet.sh --enable-beta-alerts
 ```
 
-On the first run with notifications enabled, `run-fleet.sh` rotates the
+On the first run with alerts enabled, `run-fleet.sh` rotates the
 Grafana admin password and writes it into `.env` as
 `GRAFANA_ADMIN_PASSWORD`. It also creates a dedicated read-only
 PostgreSQL role for Grafana (`grafana_ro` by default) with `SELECT`
-only on `notification_metric_sample`, and persists those credentials
+only on `alert_metric_sample`, and persists those credentials
 to `.env` as `GRAFANA_DB_USERNAME` / `GRAFANA_DB_PASSWORD`. Grafana
 authenticates as this role rather than the broader fleet-api app role.
 

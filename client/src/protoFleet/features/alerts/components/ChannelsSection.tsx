@@ -42,7 +42,7 @@ const ChannelsSection = () => {
   useEffect(() => {
     void refresh().catch((error) => {
       pushToast({
-        message: getErrorMessage(error, "Failed to load notifications"),
+        message: getErrorMessage(error, "Failed to load alerts"),
         status: STATUSES.error,
       });
     });

@@ -277,7 +277,7 @@ func (g *Grafana) do(ctx context.Context, method, path string, body, out any) er
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(resp.Body)
 		slog.Warn(
-			"notifications.grafana_error",
+			"alerts.grafana_error",
 			"method", method,
 			"path", path,
 			"status", resp.StatusCode,

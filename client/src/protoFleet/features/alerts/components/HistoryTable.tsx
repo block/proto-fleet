@@ -96,7 +96,7 @@ const HistoryTable = ({ activeOnly = false, noDataElement, onPermissionDenied }:
             onPermissionDenied?.();
             return;
           }
-          setError(getErrorMessage(err, "Failed to load notification history"));
+          setError(getErrorMessage(err, "Failed to load alert history"));
         })
         .finally(() => {
           refreshingRef.current = false;
@@ -111,7 +111,7 @@ const HistoryTable = ({ activeOnly = false, noDataElement, onPermissionDenied }:
 
   const handleLoadMore = useCallback(() => {
     void loadMoreHistory().catch((err: unknown) => {
-      setError(getErrorMessage(err, "Failed to load more notifications"));
+      setError(getErrorMessage(err, "Failed to load more alerts"));
     });
   }, [loadMoreHistory]);
 

@@ -10,20 +10,20 @@ import Header from "@/shared/components/Header";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const Alerts = () => {
-  const notifications = useAlerts();
-  const { refresh } = notifications;
+  const alerts = useAlerts();
+  const { refresh } = alerts;
 
   useEffect(() => {
     void refresh().catch((error) => {
       pushToast({
-        message: getErrorMessage(error, "Failed to load notifications"),
+        message: getErrorMessage(error, "Failed to load alerts"),
         status: STATUSES.error,
       });
     });
   }, [refresh]);
 
   return (
-    <AlertsContext.Provider value={notifications}>
+    <AlertsContext.Provider value={alerts}>
       <div className="flex flex-col gap-6 pb-10">
         <Header title="Alerts" titleSize="text-heading-300" />
         <div className="flex flex-col gap-4">

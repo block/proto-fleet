@@ -8,15 +8,15 @@ import { MinersPage } from "../pages/miners";
 
 const CHANNEL_PREFIX = "e2e-webhook";
 
-// Notifications are a flagged beta that needs the Grafana sidecar (`just dev-notifs`)
-// and a client built with VITE_NOTIFICATIONS_ENABLED. The default CI E2E stack has
-// neither, so this spec runs only when the env opts in via E2E_NOTIFICATIONS_ENABLED;
+// Alerts are a flagged beta that needs the Grafana sidecar (`just dev-alerts`)
+// and a client built with VITE_ALERTS_ENABLED. The default CI E2E stack has
+// neither, so this spec runs only when the env opts in via E2E_ALERTS_ENABLED;
 // the server unit tests are the CI regression guard for the test-channel path.
-const NOTIFICATIONS_E2E_ENABLED = process.env.E2E_NOTIFICATIONS_ENABLED === "true";
+const ALERTS_E2E_ENABLED = process.env.E2E_ALERTS_ENABLED === "true";
 
-// A webhook destination Grafana can actually reach from the notifications dev
+// A webhook destination Grafana can actually reach from the alerts dev
 // stack and that answers 2xx, so a "Test" reports successful delivery. The
-// notifications overlay (`just dev-notifs`) runs grafana + otel-collector on the
+// alerts overlay (`just dev-alerts`) runs grafana + otel-collector on the
 // same network and allows private destinations, so the otel health endpoint is a
 // stable in-network sink. If a test only reached the dead /provisioning test
 // route (the bug this spec guards), Grafana would 404 and delivery would fail.
@@ -25,8 +25,8 @@ const REACHABLE_WEBHOOK_URL = "http://otel-collector:13133/healthz";
 test.describe("Proto Fleet - Alerts", () => {
   // eslint-disable-next-line playwright/no-skipped-test
   test.skip(
-    !NOTIFICATIONS_E2E_ENABLED,
-    "Requires the notifications sidecar + VITE_NOTIFICATIONS_ENABLED; set E2E_NOTIFICATIONS_ENABLED=true to run.",
+    !ALERTS_E2E_ENABLED,
+    "Requires the alerts sidecar + VITE_ALERTS_ENABLED; set E2E_ALERTS_ENABLED=true to run.",
   );
 
   test.beforeEach(async ({ page }) => {

@@ -21,7 +21,7 @@ export interface UseChannelsResult {
 }
 
 /**
- * Owns the notifications channels list and its CRUD/test operations for the
+ * Owns the alerts channels list and its CRUD/test operations for the
  * Alerts page. Plain component state via the api module — protoFleet keeps
  * Zustand for shared UI/session state, not per-feature server data.
  */

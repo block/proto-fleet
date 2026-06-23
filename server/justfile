@@ -21,8 +21,8 @@ install:
 dev: _build-plugins-docker start
   docker compose up --watch fleet-api --remove-orphans --no-deps
 
-# run fleet with notifications stack turned on
-dev-notifs: _build-plugins-docker
+# run fleet with alerts stack turned on
+dev-alerts: _build-plugins-docker
   docker compose -f docker-compose.yaml -f docker-compose.alerts.yaml up --wait
   docker compose -f docker-compose.yaml -f docker-compose.alerts.yaml up --watch fleet-api --remove-orphans --no-deps
 

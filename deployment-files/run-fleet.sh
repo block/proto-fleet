@@ -6,7 +6,7 @@
 
 PROJECT_ROOT="$(pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
-COMPOSE_NOTIFICATIONS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
+COMPOSE_ALERTS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
 
 ENABLE_BETA_ALERTS=false
@@ -16,7 +16,7 @@ usage() {
 Usage: run-fleet.sh [options]
 
 Options:
-  --enable-beta-alerts   Layer in the beta notifications sidecar
+  --enable-beta-alerts   Layer in the beta alerts sidecar
                                 (Grafana, polling TimescaleDB and running
                                 the built-in Alertmanager). Off by
                                 default.
@@ -48,8 +48,8 @@ done
 
 refresh_compose_files() {
     COMPOSE_FILES=(-f "$COMPOSE_FILE")
-    if [ "$ENABLE_BETA_ALERTS" = "true" ] && [ -f "$COMPOSE_NOTIFICATIONS_FILE" ]; then
-        COMPOSE_FILES+=(-f "$COMPOSE_NOTIFICATIONS_FILE")
+    if [ "$ENABLE_BETA_ALERTS" = "true" ] && [ -f "$COMPOSE_ALERTS_FILE" ]; then
+        COMPOSE_FILES+=(-f "$COMPOSE_ALERTS_FILE")
     fi
 }
 refresh_compose_files
@@ -555,8 +555,8 @@ if [ ! -f "$COMPOSE_FILE" ]; then
 fi
 
 if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
-    if [ ! -f "$COMPOSE_NOTIFICATIONS_FILE" ]; then
-        echo "Error: --enable-beta-alerts was passed but $COMPOSE_NOTIFICATIONS_FILE is missing."
+    if [ ! -f "$COMPOSE_ALERTS_FILE" ]; then
+        echo "Error: --enable-beta-alerts was passed but $COMPOSE_ALERTS_FILE is missing."
         exit 1
     fi
 
@@ -602,9 +602,9 @@ if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
     # deployment with permissive (e.g. 0644) permissions.
     chmod 600 "$ENV_FILE"
 
-    echo "Notifications stack: enabled (Grafana sidecar over TimescaleDB)"
+    echo "Alerts stack: enabled (Grafana sidecar over TimescaleDB)"
 else
-    echo "Notifications stack: disabled (pass --enable-beta-alerts to turn on the beta notifications sidecars)"
+    echo "Alerts stack: disabled (pass --enable-beta-alerts to turn on the beta alerts sidecars)"
 fi
 
 # ----------------------------------------------------------------------------
@@ -738,7 +738,7 @@ fi
 # ----------------------------------------------------------------------------
 
 # Create or rotate the dedicated `grafana_ro` DB role Grafana uses to
-# query notification_metric_sample. We do this here (not in a SQL
+# query alert_metric_sample. We do this here (not in a SQL
 # migration) so the password never has to be committed to source and
 # can be rotated just by editing $ENV_FILE and re-running this script.
 provision_grafana_db_role() {
@@ -783,16 +783,16 @@ provision_grafana_db_role() {
     # the Grafana alert rules read — the raw hypertable AND the
     # fleet_telemetry_poll_heartbeat continuous aggregate the
     # protofleet-ingest-stalled rule queries.
-    echo "Waiting for notification_metric_sample and fleet_telemetry_poll_heartbeat to be available…"
+    echo "Waiting for alert_metric_sample and fleet_telemetry_poll_heartbeat to be available…"
     for attempt in $(seq 1 60); do
         objects_check=$(docker compose "${COMPOSE_FILES[@]}" exec -T timescaledb \
-            bash -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL\"" \
+            bash -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"SELECT to_regclass('public.alert_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL\"" \
             2>/dev/null | tr -d '[:space:]')
         if [ "$objects_check" = "t" ]; then
             break
         fi
         if [ "$attempt" -eq 60 ]; then
-            echo "Warning: notification_metric_sample / fleet_telemetry_poll_heartbeat did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2
+            echo "Warning: alert_metric_sample / fleet_telemetry_poll_heartbeat did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2
             return 1
         fi
         sleep 2
@@ -890,12 +890,12 @@ END
 
 GRANT CONNECT ON DATABASE "${db_name}" TO "${grafana_user}";
 GRANT USAGE ON SCHEMA public TO "${grafana_user}";
-GRANT SELECT ON notification_metric_sample TO "${grafana_user}";
+GRANT SELECT ON alert_metric_sample TO "${grafana_user}";
 GRANT SELECT ON fleet_telemetry_poll_heartbeat TO "${grafana_user}";
 
 -- smoke check
 SET ROLE "${grafana_user}";
-SELECT 1 FROM notification_metric_sample LIMIT 0;
+SELECT 1 FROM alert_metric_sample LIMIT 0;
 SELECT 1 FROM fleet_telemetry_poll_heartbeat LIMIT 0;
 RESET ROLE;
 SQL
@@ -974,13 +974,13 @@ provision_grafana_service_account_token() {
 
 if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
     if ! provision_grafana_db_role; then
-        echo "Error: Grafana DB role provisioning failed; Grafana alerting cannot query notification_metric_sample." >&2
+        echo "Error: Grafana DB role provisioning failed; Grafana alerting cannot query alert_metric_sample." >&2
         echo "       Fix the underlying cause (DB reachable, migrations complete) and re-run this script." >&2
         exit 1
     fi
     if ! provision_grafana_service_account_token; then
         echo "Warning: Grafana service-account token provisioning failed; fleet-api cannot authenticate to Grafana" >&2
-        echo "         so notification channel/rule/silence management will 401 until this succeeds." >&2
+        echo "         so alert channel/rule/silence management will 401 until this succeeds." >&2
         echo "         Re-run this script (Grafana must be reachable on 127.0.0.1:3000) to retry." >&2
     fi
 fi

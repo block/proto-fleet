@@ -156,8 +156,8 @@ const RulesSection = () => {
     <section className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">
       <Header title="Rules" titleSize="text-heading-200" />
       <p className="text-300 text-text-primary-50">
-        Provisioned conditions that decide when a notification fires. The rule set is managed by ops — pause one to
-        silence it indefinitely, or attach a maintenance window to mute it for a finite period.
+        Provisioned conditions that decide when an alert fires. The rule set is managed by ops — pause one to silence it
+        indefinitely, or attach a maintenance window to mute it for a finite period.
       </p>
 
       <List<Rule, string, RuleColumns>

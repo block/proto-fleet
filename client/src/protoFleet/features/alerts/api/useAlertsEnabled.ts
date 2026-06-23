@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { API_PROXY_BASE } from "@/protoFleet/api/constants";
-import { NOTIFICATIONS_ENABLED } from "@/protoFleet/constants/featureFlags";
+import { ALERTS_ENABLED } from "@/protoFleet/constants/featureFlags";
 
 const ENABLED_URL = `${API_PROXY_BASE}/api/v1/alerts/enabled`;
 
@@ -36,14 +36,14 @@ export function _resetAlertsEnabledCache(): void {
  * Whether the Alerts feature is available, decided at runtime by the
  * server (the Grafana sidecar this feature proxies). The released client is a
  * prebuilt bundle, so this can't be a build-time flag — the server reports it.
- * `NOTIFICATIONS_ENABLED` stays as a build-time override for QA/dogfood.
+ * `ALERTS_ENABLED` stays as a build-time override for QA/dogfood.
  */
 export function useAlertsEnabled(): boolean {
-  const [enabled, setEnabled] = useState<boolean>(cache ?? NOTIFICATIONS_ENABLED);
+  const [enabled, setEnabled] = useState<boolean>(cache ?? ALERTS_ENABLED);
   useEffect(() => {
     let active = true;
     void fetchAlertsEnabled().then((value) => {
-      if (active) setEnabled(value || NOTIFICATIONS_ENABLED);
+      if (active) setEnabled(value || ALERTS_ENABLED);
     });
     return () => {
       active = false;

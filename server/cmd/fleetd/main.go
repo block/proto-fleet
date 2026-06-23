@@ -549,7 +549,7 @@ func start(config *Config) error {
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
 	grafanaClient := alertsDomain.NewGrafana(config.Metrics.Grafana)
-	alertsSvc := alertsDomain.NewService(grafanaClient, config.Metrics.NotificationDestinations)
+	alertsSvc := alertsDomain.NewService(grafanaClient, config.Metrics.AlertDestinations)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
@@ -623,11 +623,11 @@ func start(config *Config) error {
 	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn)), li))
 	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))
 
-	notifHandler := alertsHandler.NewHandler(alertsSvc, notificationHistoryStore)
-	mux.Handle(alertsv1connect.NewChannelServiceHandler(notifHandler, li))
-	mux.Handle(alertsv1connect.NewRuleServiceHandler(notifHandler, li))
-	mux.Handle(alertsv1connect.NewMaintenanceWindowServiceHandler(notifHandler, li))
-	mux.Handle(alertsv1connect.NewHistoryServiceHandler(notifHandler, li))
+	alertHandler := alertsHandler.NewHandler(alertsSvc, notificationHistoryStore)
+	mux.Handle(alertsv1connect.NewChannelServiceHandler(alertHandler, li))
+	mux.Handle(alertsv1connect.NewRuleServiceHandler(alertHandler, li))
+	mux.Handle(alertsv1connect.NewMaintenanceWindowServiceHandler(alertHandler, li))
+	mux.Handle(alertsv1connect.NewHistoryServiceHandler(alertHandler, li))
 	// Runtime capability probe so the prebuilt client can surface the Alerts
 	// nav only when the sidecar this feature proxies is actually enabled.
 	mux.HandleFunc("GET /api/v1/alerts/enabled", alertsHandler.NewEnabledHandler(config.Metrics.Enabled))

@@ -11,11 +11,11 @@ const ActiveAlertsCard = () => {
 
   return (
     <section className="flex flex-col gap-4 rounded-xl bg-surface-base p-6 dark:bg-core-primary-5">
-      <h3 className="text-heading-200">Active notifications</h3>
+      <h3 className="text-heading-200">Active alerts</h3>
       <HistoryTable
         activeOnly
         onPermissionDenied={handleDenied}
-        noDataElement={<div className="py-6 text-center text-text-primary-50">No active notifications.</div>}
+        noDataElement={<div className="py-6 text-center text-text-primary-50">No active alerts.</div>}
       />
     </section>
   );

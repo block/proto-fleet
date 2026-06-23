@@ -41,10 +41,10 @@ const Dashboard = () => {
   const { devicePaired, statusLoaded } = useOnboardedStatus();
   const duration = useDuration();
   const setDuration = useSetDuration();
-  // Gate on both the read permission and the runtime feature probe so the card is hidden when the notifications sidecar is disabled.
+  // Gate on both the read permission and the runtime feature probe so the card is hidden when the alerts sidecar is disabled.
   const hasAlertRead = useHasPermission("alert:read");
-  const notificationsEnabled = useAlertsEnabled();
-  const canViewAlerts = hasAlertRead && notificationsEnabled;
+  const alertsEnabled = useAlertsEnabled();
+  const canViewAlerts = hasAlertRead && alertsEnabled;
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
 

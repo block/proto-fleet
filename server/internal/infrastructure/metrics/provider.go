@@ -29,7 +29,7 @@ type Config struct {
 	WebhookToken    string               `help:"Shared secret required on incoming Alertmanager webhook deliveries as 'Authorization: Bearer <token>'. Configure the same value into Grafana's webhook contact point (authorization_scheme: Bearer, authorization_credentials: <token>). When empty the receiver refuses every request." env:"WEBHOOK_TOKEN"`
 	Grafana         alerts.GrafanaConfig `embed:"" prefix:"grafana-" envprefix:"GRAFANA_"`
 
-	NotificationDestinations alerts.DestinationPolicy `embed:"" prefix:"notifications-" envprefix:"NOTIFICATIONS_"`
+	AlertDestinations alerts.DestinationPolicy `embed:""`
 }
 
 type Provider struct {

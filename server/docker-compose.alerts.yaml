@@ -1,4 +1,4 @@
-# Dev-mode notifications overlay used by `just dev-notifs`.
+# Dev-mode alerts overlay used by `just dev-alerts`.
 #
 # Mirrors deployment-files/docker-compose.alerts.yaml but mounts
 # the in-tree provisioning bundle directly so edits to the YAML files
@@ -13,7 +13,7 @@ services:
       FLEET_ALERTS_GRAFANA_USER: "${FLEET_ALERTS_GRAFANA_USER:-admin}"
       FLEET_ALERTS_GRAFANA_PASSWORD: localdev-grafana-admin-not-for-prod
       FLEET_ALERTS_WEBHOOK_TOKEN: localdev-webhook-token-not-for-prod
-      FLEET_ALERTS_NOTIFICATIONS_ALLOW_PRIVATE_DESTINATIONS: "${FLEET_ALERTS_NOTIFICATIONS_ALLOW_PRIVATE_DESTINATIONS:-true}"
+      FLEET_ALERTS_ALLOW_PRIVATE_DESTINATIONS: "${FLEET_ALERTS_ALLOW_PRIVATE_DESTINATIONS:-true}"
     depends_on:
       otel-collector:
         condition: service_started
