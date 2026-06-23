@@ -636,6 +636,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getSiteStmt, err = db.PrepareContext(ctx, getSite); err != nil {
 		return nil, fmt.Errorf("error preparing query GetSite: %w", err)
 	}
+	if q.getSiteBySlugStmt, err = db.PrepareContext(ctx, getSiteBySlug); err != nil {
+		return nil, fmt.Errorf("error preparing query GetSiteBySlug: %w", err)
+	}
 	if q.getTotalDevicesPendingAuthStmt, err = db.PrepareContext(ctx, getTotalDevicesPendingAuth); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalDevicesPendingAuth: %w", err)
 	}
@@ -2333,6 +2336,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getSiteStmt: %w", cerr)
 		}
 	}
+	if q.getSiteBySlugStmt != nil {
+		if cerr := q.getSiteBySlugStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getSiteBySlugStmt: %w", cerr)
+		}
+	}
 	if q.getTotalDevicesPendingAuthStmt != nil {
 		if cerr := q.getTotalDevicesPendingAuthStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getTotalDevicesPendingAuthStmt: %w", cerr)
@@ -3696,6 +3704,7 @@ type Queries struct {
 	getScheduleTargetsByScheduleIDsStmt                        *sql.Stmt
 	getSessionByIDStmt                                         *sql.Stmt
 	getSiteStmt                                                *sql.Stmt
+	getSiteBySlugStmt                                          *sql.Stmt
 	getTotalDevicesPendingAuthStmt                             *sql.Stmt
 	getTotalMinerStateSnapshotsStmt                            *sql.Stmt
 	getTotalPairedDevicesStmt                                  *sql.Stmt
@@ -4130,6 +4139,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getScheduleTargetsByScheduleIDsStmt:                        q.getScheduleTargetsByScheduleIDsStmt,
 		getSessionByIDStmt:                                         q.getSessionByIDStmt,
 		getSiteStmt:                                                q.getSiteStmt,
+		getSiteBySlugStmt:                                          q.getSiteBySlugStmt,
 		getTotalDevicesPendingAuthStmt:                             q.getTotalDevicesPendingAuthStmt,
 		getTotalMinerStateSnapshotsStmt:                            q.getTotalMinerStateSnapshotsStmt,
 		getTotalPairedDevicesStmt:                                  q.getTotalPairedDevicesStmt,

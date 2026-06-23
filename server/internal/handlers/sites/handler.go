@@ -11,7 +11,9 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -47,6 +49,24 @@ func (h *Handler) ListSites(ctx context.Context, req *connect.Request[pb.ListSit
 		return nil, err
 	}
 	return connect.NewResponse(toListSitesResponse(out)), nil
+}
+
+func (h *Handler) ResolveSiteBySlug(ctx context.Context, req *connect.Request[pb.ResolveSiteBySlugRequest]) (*connect.Response[pb.ResolveSiteBySlugResponse], error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	site, err := h.service.GetSiteBySlug(ctx, info.OrganizationID, req.Msg.GetSlug())
+	if err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{SiteID: &site.ID}); err != nil {
+		if !fleeterror.IsForbiddenError(err) {
+			return nil, err
+		}
+		return nil, fleeterror.NewNotFoundErrorf("site %q not found", req.Msg.GetSlug())
+	}
+	return connect.NewResponse(&pb.ResolveSiteBySlugResponse{Site: toProtoSite(site)}), nil
 }
 
 func (h *Handler) CreateSite(ctx context.Context, req *connect.Request[pb.CreateSiteRequest]) (*connect.Response[pb.CreateSiteResponse], error) {

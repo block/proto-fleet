@@ -133,15 +133,23 @@ reserved list in SQL — and it does **not** need to match the Go algorithm
 (those test rows are throwaway; new sites get clean slugs at runtime).
 
 1. `ALTER TABLE site ADD COLUMN slug VARCHAR(63);` (nullable initially)
-2. Backfill every existing row in one `UPDATE`:
+2. Backfill every existing row in one `UPDATE`, clamping the base so the
+   deterministic id suffix always fits within the 63-character slug column:
    ```sql
-   UPDATE site SET slug =
+   WITH normalized AS (
+     SELECT id,
      COALESCE(
        NULLIF(trim(both '-' from regexp_replace(lower(name), '[^a-z0-9]+', '-', 'g')), ''),
        'site'
-     ) || '-' || substr(md5(random()::text), 1, 4);
+     ) AS base
+     FROM site
+   )
+   UPDATE site
+   SET slug = left(normalized.base, 63 - length(site.id::text) - 1) || '-' || site.id::text
+   FROM normalized
+   WHERE normalized.id = site.id;
    ```
-   (`md5(random()::text)` avoids any extension dependency. Soft-deleted rows are
+   (The id suffix is deterministic and unique per row. Soft-deleted rows are
    backfilled too — they need a non-null value but are excluded from the unique
    index.)
 3. `ALTER TABLE site ALTER COLUMN slug SET NOT NULL;`

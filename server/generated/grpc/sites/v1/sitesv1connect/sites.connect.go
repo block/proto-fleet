@@ -5,12 +5,13 @@
 package sitesv1connect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -35,6 +36,9 @@ const (
 const (
 	// SiteServiceListSitesProcedure is the fully-qualified name of the SiteService's ListSites RPC.
 	SiteServiceListSitesProcedure = "/sites.v1.SiteService/ListSites"
+	// SiteServiceResolveSiteBySlugProcedure is the fully-qualified name of the SiteService's
+	// ResolveSiteBySlug RPC.
+	SiteServiceResolveSiteBySlugProcedure = "/sites.v1.SiteService/ResolveSiteBySlug"
 	// SiteServiceCreateSiteProcedure is the fully-qualified name of the SiteService's CreateSite RPC.
 	SiteServiceCreateSiteProcedure = "/sites.v1.SiteService/CreateSite"
 	// SiteServiceUpdateSiteProcedure is the fully-qualified name of the SiteService's UpdateSite RPC.
@@ -62,6 +66,11 @@ type SiteServiceClient interface {
 	// the delete-confirm dialog can render impact numbers without a
 	// second round trip.
 	ListSites(context.Context, *connect.Request[v1.ListSitesRequest]) (*connect.Response[v1.ListSitesResponse], error)
+	// ResolveSiteBySlug returns the live site for a scoped-route slug.
+	// Unlike ListSites, this can be authorized against the resolved
+	// site id, so site-scoped operators do not need org-wide catalog
+	// access just to enter /{siteSlug}/... routes.
+	ResolveSiteBySlug(context.Context, *connect.Request[v1.ResolveSiteBySlugRequest]) (*connect.Response[v1.ResolveSiteBySlugResponse], error)
 	// CreateSite inserts a new site. Name must be unique within the
 	// org. network_config is parsed and canonicalized server-side;
 	// the response carries the canonical form.
@@ -118,6 +127,11 @@ func NewSiteServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+SiteServiceListSitesProcedure,
 			opts...,
 		),
+		resolveSiteBySlug: connect.NewClient[v1.ResolveSiteBySlugRequest, v1.ResolveSiteBySlugResponse](
+			httpClient,
+			baseURL+SiteServiceResolveSiteBySlugProcedure,
+			opts...,
+		),
 		createSite: connect.NewClient[v1.CreateSiteRequest, v1.CreateSiteResponse](
 			httpClient,
 			baseURL+SiteServiceCreateSiteProcedure,
@@ -159,6 +173,7 @@ func NewSiteServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 // siteServiceClient implements SiteServiceClient.
 type siteServiceClient struct {
 	listSites             *connect.Client[v1.ListSitesRequest, v1.ListSitesResponse]
+	resolveSiteBySlug     *connect.Client[v1.ResolveSiteBySlugRequest, v1.ResolveSiteBySlugResponse]
 	createSite            *connect.Client[v1.CreateSiteRequest, v1.CreateSiteResponse]
 	updateSite            *connect.Client[v1.UpdateSiteRequest, v1.UpdateSiteResponse]
 	deleteSite            *connect.Client[v1.DeleteSiteRequest, v1.DeleteSiteResponse]
@@ -171,6 +186,11 @@ type siteServiceClient struct {
 // ListSites calls sites.v1.SiteService.ListSites.
 func (c *siteServiceClient) ListSites(ctx context.Context, req *connect.Request[v1.ListSitesRequest]) (*connect.Response[v1.ListSitesResponse], error) {
 	return c.listSites.CallUnary(ctx, req)
+}
+
+// ResolveSiteBySlug calls sites.v1.SiteService.ResolveSiteBySlug.
+func (c *siteServiceClient) ResolveSiteBySlug(ctx context.Context, req *connect.Request[v1.ResolveSiteBySlugRequest]) (*connect.Response[v1.ResolveSiteBySlugResponse], error) {
+	return c.resolveSiteBySlug.CallUnary(ctx, req)
 }
 
 // CreateSite calls sites.v1.SiteService.CreateSite.
@@ -215,6 +235,11 @@ type SiteServiceHandler interface {
 	// the delete-confirm dialog can render impact numbers without a
 	// second round trip.
 	ListSites(context.Context, *connect.Request[v1.ListSitesRequest]) (*connect.Response[v1.ListSitesResponse], error)
+	// ResolveSiteBySlug returns the live site for a scoped-route slug.
+	// Unlike ListSites, this can be authorized against the resolved
+	// site id, so site-scoped operators do not need org-wide catalog
+	// access just to enter /{siteSlug}/... routes.
+	ResolveSiteBySlug(context.Context, *connect.Request[v1.ResolveSiteBySlugRequest]) (*connect.Response[v1.ResolveSiteBySlugResponse], error)
 	// CreateSite inserts a new site. Name must be unique within the
 	// org. network_config is parsed and canonicalized server-side;
 	// the response carries the canonical form.
@@ -267,6 +292,11 @@ func NewSiteServiceHandler(svc SiteServiceHandler, opts ...connect.HandlerOption
 		svc.ListSites,
 		opts...,
 	)
+	siteServiceResolveSiteBySlugHandler := connect.NewUnaryHandler(
+		SiteServiceResolveSiteBySlugProcedure,
+		svc.ResolveSiteBySlug,
+		opts...,
+	)
 	siteServiceCreateSiteHandler := connect.NewUnaryHandler(
 		SiteServiceCreateSiteProcedure,
 		svc.CreateSite,
@@ -306,6 +336,8 @@ func NewSiteServiceHandler(svc SiteServiceHandler, opts ...connect.HandlerOption
 		switch r.URL.Path {
 		case SiteServiceListSitesProcedure:
 			siteServiceListSitesHandler.ServeHTTP(w, r)
+		case SiteServiceResolveSiteBySlugProcedure:
+			siteServiceResolveSiteBySlugHandler.ServeHTTP(w, r)
 		case SiteServiceCreateSiteProcedure:
 			siteServiceCreateSiteHandler.ServeHTTP(w, r)
 		case SiteServiceUpdateSiteProcedure:
@@ -331,6 +363,10 @@ type UnimplementedSiteServiceHandler struct{}
 
 func (UnimplementedSiteServiceHandler) ListSites(context.Context, *connect.Request[v1.ListSitesRequest]) (*connect.Response[v1.ListSitesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.ListSites is not implemented"))
+}
+
+func (UnimplementedSiteServiceHandler) ResolveSiteBySlug(context.Context, *connect.Request[v1.ResolveSiteBySlugRequest]) (*connect.Response[v1.ResolveSiteBySlugResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.ResolveSiteBySlug is not implemented"))
 }
 
 func (UnimplementedSiteServiceHandler) CreateSite(context.Context, *connect.Request[v1.CreateSiteRequest]) (*connect.Response[v1.CreateSiteResponse], error) {

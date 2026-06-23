@@ -24,6 +24,11 @@ type SiteStore interface {
 	// GetSite returns the live site or NotFound.
 	GetSite(ctx context.Context, orgID, id int64) (*models.Site, error)
 
+	// GetSiteBySlug returns the live site with the immutable URL slug
+	// or NotFound. Used by the route-scope resolver before checking
+	// site-scoped permissions against the resolved site id.
+	GetSiteBySlug(ctx context.Context, orgID int64, slug string) (*models.Site, error)
+
 	// ListSites returns every live site in the org with attachment
 	// counts, ordered by name.
 	ListSites(ctx context.Context, orgID int64) ([]models.SiteWithCounts, error)

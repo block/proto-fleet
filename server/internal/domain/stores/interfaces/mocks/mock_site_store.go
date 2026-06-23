@@ -191,6 +191,21 @@ func (mr *MockSiteStoreMockRecorder) GetSite(ctx, orgID, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSite", reflect.TypeOf((*MockSiteStore)(nil).GetSite), ctx, orgID, id)
 }
 
+// GetSiteBySlug mocks base method.
+func (m *MockSiteStore) GetSiteBySlug(ctx context.Context, orgID int64, slug string) (*models.Site, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSiteBySlug", ctx, orgID, slug)
+	ret0, _ := ret[0].(*models.Site)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSiteBySlug indicates an expected call of GetSiteBySlug.
+func (mr *MockSiteStoreMockRecorder) GetSiteBySlug(ctx, orgID, slug any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSiteBySlug", reflect.TypeOf((*MockSiteStore)(nil).GetSiteBySlug), ctx, orgID, slug)
+}
+
 // ListAllSiteNetworkConfigs mocks base method.
 func (m *MockSiteStore) ListAllSiteNetworkConfigs(ctx context.Context, orgID, excludeID int64) ([]models.SiteNetworkConfigEntry, error) {
 	m.ctrl.T.Helper()

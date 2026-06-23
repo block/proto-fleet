@@ -15,6 +15,7 @@ describe("active site runtime guard", () => {
     expect(isActiveSite({ kind: "site", id: "abc", slug: "north-dc" })).toBe(false);
     expect(isActiveSite({ kind: "site", id: "7" })).toBe(false);
     expect(isActiveSite({ kind: "site", id: "7", slug: "North_DC" })).toBe(false);
+    expect(isActiveSite({ kind: "site", id: "7", slug: "north--dc" })).toBe(false);
   });
 
   it("sanitizes invalid values to all-sites", () => {

@@ -21,6 +21,14 @@ interface ListSitesProps {
   onFinally?: () => void;
 }
 
+interface ResolveSiteBySlugProps {
+  slug: string;
+  signal?: AbortSignal;
+  onSuccess?: (site: Site) => void;
+  onError?: (message: string, code?: Code) => void;
+  onFinally?: () => void;
+}
+
 // Parse a string-encoded bigint id (the form we get from URL params and
 // localStorage). Rejects empty strings, non-numeric input, and non-positive
 // values so callers can short-circuit cleanly on bad input.
@@ -182,6 +190,32 @@ interface AssignRacksToSiteProps {
 
 const useSites = () => {
   const { handleAuthErrors } = useAuthErrors();
+
+  const resolveSiteBySlug = useCallback(
+    async ({ slug, signal, onSuccess, onError, onFinally }: ResolveSiteBySlugProps) => {
+      try {
+        const response = await sitesClient.resolveSiteBySlug({ slug }, { signal });
+        if (signal?.aborted) return;
+        if (response.site) {
+          onSuccess?.(response.site);
+        } else {
+          onError?.("Site not found", Code.NotFound);
+        }
+      } catch (err) {
+        if (signal?.aborted) return;
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            const code = error instanceof ConnectError ? error.code : undefined;
+            onError?.(getErrorMessage(error), code);
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
 
   const listSites = useCallback(
     async ({ signal, errorComponentTypes, telemetryRanges, onSuccess, onError, onFinally }: ListSitesProps = {}) => {
@@ -410,6 +444,7 @@ const useSites = () => {
   );
 
   return {
+    resolveSiteBySlug,
     listSites,
     createSite,
     updateSite,

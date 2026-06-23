@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"connectrpc.com/connect"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	sitesdomain "github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -24,6 +26,13 @@ func NewSQLSiteStore(conn *sql.DB) *SQLSiteStore {
 }
 
 func (s *SQLSiteStore) CreateSite(ctx context.Context, params models.CreateSiteParams) (*models.Site, error) {
+	if strings.TrimSpace(params.Slug) == "" {
+		usedSlugs, err := s.ListSiteSlugs(ctx, params.OrgID)
+		if err != nil {
+			return nil, err
+		}
+		params.Slug = sitesdomain.GenerateSiteSlug(params.Name, usedSlugs)
+	}
 	row, err := s.GetQueries(ctx).CreateSite(ctx, sqlc.CreateSiteParams{
 		OrgID:           params.OrgID,
 		Name:            params.Name,
@@ -58,6 +67,18 @@ func (s *SQLSiteStore) GetSite(ctx context.Context, orgID, id int64) (*models.Si
 			return nil, fleeterror.NewNotFoundErrorf("site %d not found", id)
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to get site: %v", err)
+	}
+	out := siteFromRow(row)
+	return &out, nil
+}
+
+func (s *SQLSiteStore) GetSiteBySlug(ctx context.Context, orgID int64, slug string) (*models.Site, error) {
+	row, err := s.GetQueries(ctx).GetSiteBySlug(ctx, sqlc.GetSiteBySlugParams{Slug: slug, OrgID: orgID})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("site %q not found", slug)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get site by slug: %v", err)
 	}
 	out := siteFromRow(row)
 	return &out, nil

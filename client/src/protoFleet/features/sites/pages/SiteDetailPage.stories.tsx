@@ -246,7 +246,7 @@ const installMocks = (scenario: SiteDetailScenario) => {
     state.auth.permissions = ["site:read", "site:manage"];
     state.auth.authLoading = false;
     state.auth.isAuthenticated = true;
-    state.ui.activeSite = { kind: "site", id: SITE_ID.toString() };
+    state.ui.activeSite = { kind: "site", id: SITE_ID.toString(), slug: "site-1" };
   });
 
   (sitesClient as any).listSites = async () => create(ListSitesResponseSchema, { sites: [site] });

@@ -45,6 +45,13 @@ WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
+-- name: GetSiteBySlug :one
+SELECT *
+FROM site
+WHERE slug = sqlc.arg('slug')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL;
+
 -- name: SitesByIDs :many
 -- Returns the subset of requested IDs that correspond to live sites
 -- in the org. Caller diffs against the requested set to detect

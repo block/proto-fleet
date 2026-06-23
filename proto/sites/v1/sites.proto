@@ -18,6 +18,13 @@ service SiteService {
     // second round trip.
     rpc ListSites(ListSitesRequest) returns (ListSitesResponse);
 
+    // ResolveSiteBySlug returns the live site for a scoped-route slug.
+    // Unlike ListSites, this can be authorized against the resolved
+    // site id, so site-scoped operators do not need org-wide catalog
+    // access just to enter /{siteSlug}/... routes.
+    rpc ResolveSiteBySlug(ResolveSiteBySlugRequest)
+        returns (ResolveSiteBySlugResponse);
+
     // CreateSite inserts a new site. Name must be unique within the
     // org. network_config is parsed and canonicalized server-side;
     // the response carries the canonical form.
@@ -136,6 +143,16 @@ message ListSitesRequest {
 
 message ListSitesResponse {
     repeated SiteWithCounts sites = 1;
+}
+
+// ResolveSiteBySlug
+
+message ResolveSiteBySlugRequest {
+    string slug = 1 [(buf.validate.field).string = {min_len: 1, max_len: 63}];
+}
+
+message ResolveSiteBySlugResponse {
+    Site site = 1;
 }
 
 // CreateSite

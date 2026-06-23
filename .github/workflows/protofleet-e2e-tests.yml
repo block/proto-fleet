@@ -70,7 +70,12 @@ jobs:
 
       - name: Install client dependencies
         working-directory: client
-        run: npm ci
+        run: |
+          # Avoid npm optional-dependency restore bugs with native packages
+          # (for example Rolldown's Linux binding) when node_modules came
+          # from an Actions cache.
+          rm -rf node_modules
+          npm ci --include=optional
 
       - name: Build ProtoFleet
         working-directory: client
@@ -209,7 +214,12 @@ jobs:
 
       - name: Install client dependencies
         working-directory: client
-        run: npm ci
+        run: |
+          # Avoid npm optional-dependency restore bugs with native packages
+          # (for example Rolldown's Linux binding) when node_modules came
+          # from an Actions cache.
+          rm -rf node_modules
+          npm ci --include=optional
 
       - name: Install Playwright browsers
         working-directory: client/e2eTests/protoFleet
@@ -351,7 +361,12 @@ jobs:
 
       - name: Install client dependencies
         working-directory: client
-        run: npm ci
+        run: |
+          # Avoid npm optional-dependency restore bugs with native packages
+          # (for example Rolldown's Linux binding) when node_modules came
+          # from an Actions cache.
+          rm -rf node_modules
+          npm ci --include=optional
 
       - name: Download all blob reports
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

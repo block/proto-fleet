@@ -20,7 +20,13 @@ export const isActiveSite = (v: unknown): v is ActiveSite => {
   if (kind === "site") {
     const id = (v as { id?: unknown }).id;
     const slug = (v as { slug?: unknown }).slug;
-    return typeof id === "string" && SITE_ID_RE.test(id) && typeof slug === "string" && SITE_SLUG_RE.test(slug);
+    return (
+      typeof id === "string" &&
+      SITE_ID_RE.test(id) &&
+      typeof slug === "string" &&
+      SITE_SLUG_RE.test(slug) &&
+      !slug.includes("--")
+    );
   }
   return false;
 };

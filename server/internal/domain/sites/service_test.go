@@ -3,6 +3,7 @@ package sites
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"go.uber.org/mock/gomock"
@@ -1114,6 +1115,46 @@ func TestCreateSite_retriesSlugRace(t *testing.T) {
 	}
 	if out.Site.Slug != "north-dc-2" {
 		t.Fatalf("expected retry slug, got %q", out.Site.Slug)
+	}
+}
+
+func TestCreateSite_retriesSlugRaceBeyondInitialCollisionWindow(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+
+	store.EXPECT().ListSiteSlugs(gomock.Any(), testOrgID).Return(nil, nil)
+	attempts := 0
+	store.EXPECT().CreateSite(gomock.Any(), gomock.AssignableToTypeOf(models.CreateSiteParams{})).
+		AnyTimes().
+		DoAndReturn(func(_ context.Context, p models.CreateSiteParams) (*models.Site, error) {
+			attempts++
+			wantSlug := "site"
+			if attempts > 1 {
+				wantSlug = fmt.Sprintf("site-%d", attempts)
+			}
+			if p.Slug != wantSlug {
+				return nil, errors.New("expected slug " + wantSlug + ", got " + p.Slug)
+			}
+			if attempts <= 64 {
+				return nil, models.ErrSiteSlugCollision
+			}
+			return &models.Site{ID: 1, Name: p.Name, Slug: p.Slug}, nil
+		})
+
+	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+		OrgID: testOrgID,
+		Name:  "!!!",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if attempts != 65 {
+		t.Fatalf("expected 65 create attempts, got %d", attempts)
+	}
+	if out.Site.Slug != "site-65" {
+		t.Fatalf("expected site-65 after collision retries, got %q", out.Site.Slug)
 	}
 }
 

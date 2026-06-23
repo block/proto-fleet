@@ -398,10 +398,11 @@ func insertTestOrganization(t *testing.T, db *sql.DB) int64 {
 func insertTestSite(t *testing.T, db *sql.DB, orgID int64) int64 {
 	t.Helper()
 	var id int64
+	token := uniqueToken("site")
 	require.NoError(t,
 		db.QueryRowContext(t.Context(),
-			`INSERT INTO site (org_id, name) VALUES ($1, $2) RETURNING id`,
-			orgID, uniqueToken("site"),
+			`INSERT INTO site (org_id, name, slug) VALUES ($1, $2, $3) RETURNING id`,
+			orgID, token, token,
 		).Scan(&id),
 	)
 	return id

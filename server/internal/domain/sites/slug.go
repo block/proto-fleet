@@ -45,6 +45,17 @@ func generateSiteSlug(name string, used map[string]struct{}) string {
 	}
 }
 
+// GenerateSiteSlug returns the first slug candidate for name that is not in
+// usedSlugs. It is exported so lower-level stores can protect direct inserts
+// from persisting blank slugs when test fixtures bypass the service layer.
+func GenerateSiteSlug(name string, usedSlugs []string) string {
+	used := make(map[string]struct{}, len(usedSlugs))
+	for _, slug := range usedSlugs {
+		used[slug] = struct{}{}
+	}
+	return generateSiteSlug(name, used)
+}
+
 func slugifySiteName(name string) string {
 	var b strings.Builder
 	lastDash := false

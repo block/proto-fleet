@@ -49,8 +49,6 @@ const maxDeviceIdentifiersInMetadata = 50
 // well below the point a single rollup would stall a 60s poll tick.
 const MaxDevicesPerSiteStatsRequest = 100_000
 
-const maxCreateSiteSlugAttempts = 64
-
 // Service is the domain entry point for site CRUD, device reassignment,
 // and building site reassignment. The transactor is required: the
 // site delete cascade and the bulk-reassign all-or-nothing semantics
@@ -128,7 +126,7 @@ func (s *Service) CreateSite(ctx context.Context, params models.CreateSiteParams
 	}
 
 	var site *models.Site
-	for attempt := 0; attempt < maxCreateSiteSlugAttempts; attempt++ {
+	for {
 		params.Slug = generateSiteSlug(params.Name, used)
 		site, err = s.store.CreateSite(ctx, params)
 		if errors.Is(err, models.ErrSiteSlugCollision) {
@@ -139,9 +137,6 @@ func (s *Service) CreateSite(ctx context.Context, params models.CreateSiteParams
 			return nil, err
 		}
 		break
-	}
-	if site == nil {
-		return nil, fleeterror.NewInternalErrorf("failed to generate unique site slug after %d attempts", maxCreateSiteSlugAttempts)
 	}
 
 	orgID := params.OrgID
@@ -248,6 +243,11 @@ func (s *Service) ListSites(ctx context.Context, orgID int64, statsFilter fleetl
 		rows = filterSiteRowsByListStats(rows, statsFilter)
 	}
 	return rows, nil
+}
+
+// GetSiteBySlug returns a live site in the org by its immutable URL slug.
+func (s *Service) GetSiteBySlug(ctx context.Context, orgID int64, slug string) (*models.Site, error) {
+	return s.store.GetSiteBySlug(ctx, orgID, slug)
 }
 
 // DeleteSite soft-deletes the site and cascade-unassigns or deletes its

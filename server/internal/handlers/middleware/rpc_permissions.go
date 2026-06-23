@@ -348,4 +348,10 @@ var ProceduresPendingMigration = map[string]string{
 	authzv1connect.AuthzServiceAssignRoleProcedure:          "UNIMPLEMENTED: lands with Team-page assignment flow",
 	authzv1connect.AuthzServiceUnassignRoleProcedure:        "UNIMPLEMENTED: lands with Team-page assignment flow",
 	authzv1connect.AuthzServiceListUserAssignmentsProcedure: "UNIMPLEMENTED: lands with Team-page assignment flow",
+
+	// Sites scoped-route resolver — handler looks up the slug inside
+	// the caller's org, then checks site:read against the resolved
+	// site_id. Putting it in ProcedurePermissions would force the
+	// same org-scoped site:read gate that this endpoint avoids.
+	sitesv1connect.SiteServiceResolveSiteBySlugProcedure: "inline site:read after slug resolves to site_id",
 }

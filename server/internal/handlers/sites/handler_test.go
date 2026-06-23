@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,6 +13,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -197,6 +199,62 @@ func TestHandler_ListSites_omitsStatsForNarrowedSite(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.GetSites(), 1)
 	assert.Nil(t, resp.Msg.GetSites()[0].GetListStats())
+}
+
+func TestHandler_ResolveSiteBySlug_allowsSiteScopedRead(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	h.siteStore.EXPECT().GetSiteBySlug(gomock.Any(), int64(7), "north").Return(&models.Site{
+		ID:    42,
+		Name:  "North",
+		Slug:  "north",
+		OrgID: 7,
+	}, nil)
+
+	ctx := handlerstest.CtxWithAssignments(t, 7, handlerstest.SiteAssignment(42, authz.PermSiteRead))
+	resp, err := h.handler.ResolveSiteBySlug(ctx, connect.NewRequest(&pb.ResolveSiteBySlugRequest{Slug: "north"}))
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), resp.Msg.GetSite().GetId())
+	assert.Equal(t, "north", resp.Msg.GetSite().GetSlug())
+}
+
+func TestHandler_ResolveSiteBySlug_masksOtherSiteScopedRead(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	h.siteStore.EXPECT().GetSiteBySlug(gomock.Any(), int64(7), "north").Return(&models.Site{
+		ID:    42,
+		Name:  "North",
+		Slug:  "north",
+		OrgID: 7,
+	}, nil)
+
+	ctx := handlerstest.CtxWithAssignments(t, 7, handlerstest.SiteAssignment(99, authz.PermSiteRead))
+	_, err := h.handler.ResolveSiteBySlug(ctx, connect.NewRequest(&pb.ResolveSiteBySlugRequest{Slug: "north"}))
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+}
+
+func TestHandler_ResolveSiteBySlug_propagatesPermissionWiringErrors(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	h.siteStore.EXPECT().GetSiteBySlug(gomock.Any(), int64(7), "north").Return(&models.Site{
+		ID:    42,
+		Name:  "North",
+		Slug:  "north",
+		OrgID: 7,
+	}, nil)
+
+	ctx := authn.SetInfo(t.Context(), &session.Info{OrganizationID: 7})
+	_, err := h.handler.ResolveSiteBySlug(ctx, connect.NewRequest(&pb.ResolveSiteBySlugRequest{Slug: "north"}))
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
 }
 
 func TestHandler_CreateSite_canonicalizesNetworkConfig(t *testing.T) {

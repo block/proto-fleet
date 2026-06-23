@@ -1,12 +1,15 @@
 /* eslint-disable react-refresh/only-export-components -- route scope helpers colocated with tiny route layouts */
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { Navigate, Outlet, useParams } from "react-router-dom";
+import { Code } from "@connectrpc/connect";
 
-import { buildSiteSlugToId, useSites } from "@/protoFleet/api/sites";
-import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { useSites } from "@/protoFleet/api/sites";
+import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
 const UNASSIGNED_SEGMENT = "unassigned";
+const SLUG_RESOLUTION_RETRY_MS = 2000;
 const SITE_SLUG_SEGMENT_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const NUMERIC_SEGMENT_RE = /^[1-9]\d*$/;
 const SCOPABLE_ROOT_SEGMENTS = new Set(["dashboard", "fleet", "groups", "energy", "activity"]);
@@ -27,32 +30,73 @@ export const AllSitesScopeLayout = () => (
 
 export const SiteScopeLayout = () => {
   const { siteScope } = useParams();
-  const { listSites } = useSites();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const { resolveSiteBySlug } = useSites();
+  const setActiveSite = useFleetStore((state) => state.ui.setActiveSite);
+  const [resolvedSite, setResolvedSite] = useState<{ slug: string; id: string } | undefined>(undefined);
+  const [failedSlug, setFailedSlug] = useState<string | undefined>(undefined);
+  const [erroredSlug, setErroredSlug] = useState<string | undefined>(undefined);
+  const [retryAttempt, setRetryAttempt] = useState(0);
 
   useEffect(() => {
     if (siteScope === UNASSIGNED_SEGMENT || !isSiteSlugSegment(siteScope)) return;
     const controller = new AbortController();
-    void listSites({
+    let retryTimer: number | undefined;
+    void resolveSiteBySlug({
+      slug: siteScope,
       signal: controller.signal,
-      onSuccess: (rows) => {
-        setSites(rows);
-        setLoadFailed(false);
+      onSuccess: (site) => {
+        const id = (site.id ?? 0n).toString();
+        setResolvedSite(id === "0" ? undefined : { slug: siteScope, id });
+        setFailedSlug(undefined);
+        setErroredSlug(undefined);
       },
-      onError: () => {
-        setLoadFailed(true);
+      onError: (_message, code) => {
+        if (code === Code.NotFound) {
+          setResolvedSite((current) => (current?.slug === siteScope ? undefined : current));
+          setFailedSlug(siteScope);
+          setErroredSlug(undefined);
+          return;
+        }
+        setErroredSlug(siteScope);
+        retryTimer = window.setTimeout(() => {
+          setRetryAttempt((attempt) => attempt + 1);
+        }, SLUG_RESOLUTION_RETRY_MS);
       },
     });
-    return () => controller.abort();
-  }, [listSites, siteScope]);
+    return () => {
+      controller.abort();
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+      }
+    };
+  }, [resolveSiteBySlug, retryAttempt, siteScope]);
 
-  const slugToId = useMemo(() => buildSiteSlugToId(sites), [sites]);
+  const slugToId = useMemo(() => {
+    if (!resolvedSite) return undefined;
+    return new Map([[resolvedSite.slug, resolvedSite.id]]);
+  }, [resolvedSite]);
+
+  const resolverErrored = isSiteSlugSegment(siteScope) && erroredSlug === siteScope;
   const activeSite = activeSiteFromSegment(siteScope, slugToId);
+  const resolvingSlug =
+    isSiteSlugSegment(siteScope) &&
+    failedSlug !== siteScope &&
+    erroredSlug !== siteScope &&
+    resolvedSite?.slug !== siteScope;
+  const unknownSlug = isSiteSlugSegment(siteScope) && !activeSite && !resolvingSlug && !resolverErrored;
+
+  useEffect(() => {
+    if (unknownSlug) {
+      setActiveSite(DEFAULT_ACTIVE_SITE);
+    }
+  }, [setActiveSite, unknownSlug]);
 
   if (!activeSite) {
-    if (isSiteSlugSegment(siteScope) && sites === undefined && !loadFailed) {
+    if (resolvingSlug) {
       return null;
+    }
+    if (resolverErrored) {
+      return <Outlet />;
     }
     return <Navigate to="/" replace />;
   }

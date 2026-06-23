@@ -340,6 +340,43 @@ func (q *Queries) GetSite(ctx context.Context, arg GetSiteParams) (Site, error) 
 	return i, err
 }
 
+const getSiteBySlug = `-- name: GetSiteBySlug :one
+SELECT id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone, slug
+FROM site
+WHERE slug = $1
+  AND org_id = $2
+  AND deleted_at IS NULL
+`
+
+type GetSiteBySlugParams struct {
+	Slug  string
+	OrgID int64
+}
+
+func (q *Queries) GetSiteBySlug(ctx context.Context, arg GetSiteBySlugParams) (Site, error) {
+	row := q.queryRow(ctx, q.getSiteBySlugStmt, getSiteBySlug, arg.Slug, arg.OrgID)
+	var i Site
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.LocationCity,
+		&i.LocationState,
+		&i.PowerCapacityMw,
+		&i.NetworkConfig,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.Address,
+		&i.PostalCode,
+		&i.Country,
+		&i.Notes,
+		&i.Timezone,
+		&i.Slug,
+	)
+	return i, err
+}
+
 const listExistingDeviceIdentifiers = `-- name: ListExistingDeviceIdentifiers :many
 SELECT device_identifier
 FROM device
