@@ -267,7 +267,7 @@ describe("DeviceSetActionsMenu", () => {
       expect(mockBulkActionsPopover).toHaveBeenCalled();
     });
 
-    const latestCall = mockBulkActionsPopover.mock.calls.at(-1)?.[0] as {
+    const latestCall = mockBulkActionsPopover.mock.calls[mockBulkActionsPopover.mock.calls.length - 1]?.[0] as {
       actions: Array<{ action: string; confirmation?: { subtitle?: string } }>;
     };
     const sleepAction = latestCall.actions.find((action) => action.action === "shutdown");
