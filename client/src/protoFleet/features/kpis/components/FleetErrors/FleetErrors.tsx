@@ -1,4 +1,6 @@
 import ComponentErrors from "../ComponentErrors";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
+import { type ActiveSite, DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import ControlBoard from "@/shared/assets/icons/ControlBoard";
 import Fan from "@/shared/assets/icons/Fan";
 import Hashboard from "@/shared/assets/icons/Hashboard";
@@ -11,6 +13,7 @@ type FleetErrorsProps = {
   psuErrors?: number;
   className?: string;
   extraFilterParams?: string;
+  activeSite?: ActiveSite;
 };
 
 const FleetErrors = ({
@@ -20,8 +23,10 @@ const FleetErrors = ({
   psuErrors,
   className,
   extraFilterParams,
+  activeSite = DEFAULT_ACTIVE_SITE,
 }: FleetErrorsProps) => {
   const suffix = extraFilterParams ? `&${extraFilterParams}` : "";
+  const minerIssuesHref = (issue: string) => scopedPath(`/fleet/miners?issues=${issue}${suffix}`, activeSite);
   return (
     <div className={className}>
       <div className="grid grid-cols-1 gap-1 tablet:grid-cols-2 laptop:grid-cols-4">
@@ -29,20 +34,20 @@ const FleetErrors = ({
           icon={<ControlBoard />}
           heading="Control Boards"
           errorCount={controlBoardErrors}
-          href={`/miners?issues=control-board${suffix}`}
+          href={minerIssuesHref("control-board")}
         />
-        <ComponentErrors icon={<Fan />} heading="Fans" errorCount={fanErrors} href={`/miners?issues=fans${suffix}`} />
+        <ComponentErrors icon={<Fan />} heading="Fans" errorCount={fanErrors} href={minerIssuesHref("fans")} />
         <ComponentErrors
           icon={<Hashboard />}
           heading="Hashboards"
           errorCount={hashboardErrors}
-          href={`/miners?issues=hash-boards${suffix}`}
+          href={minerIssuesHref("hash-boards")}
         />
         <ComponentErrors
           icon={<LightningAlt />}
           heading="Power supplies"
           errorCount={psuErrors}
-          href={`/miners?issues=psu${suffix}`}
+          href={minerIssuesHref("psu")}
         />
       </div>
     </div>

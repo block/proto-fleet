@@ -5,7 +5,7 @@ import clsx from "clsx";
 import { type ActiveSite, useActiveSite } from "./useActiveSite";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
-import { scopeCurrentOrDashboardPath } from "@/protoFleet/routing/siteScope";
+import { scopeCurrentOrDashboardPath, scopedPath } from "@/protoFleet/routing/siteScope";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -156,7 +156,7 @@ const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
             // for full site management rather than carrying its own actions.
             onClick: () => {
               setIsOpen(false);
-              navigate("/fleet/sites");
+              navigate(scopedPath("/fleet/sites", activeSite));
             },
             testId: "site-picker-manage-sites",
           },
