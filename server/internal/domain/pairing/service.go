@@ -12,6 +12,7 @@ import (
 
 	"connectrpc.com/connect"
 	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
+	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -1154,14 +1155,7 @@ func (s *Service) resolveDeviceIdentifiers(ctx context.Context, selector *comman
 
 	switch x := selector.SelectionType.(type) {
 	case *commandpb.DeviceSelector_AllDevices:
-		filter := x.AllDevices
-		minerFilter := &interfaces.MinerFilter{}
-
-		if filter != nil && len(filter.PairingStatus) > 0 {
-			minerFilter.PairingStatuses = filter.PairingStatus
-		}
-
-		return s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, minerFilter)
+		return s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, minerFilterFromPairDeviceFilter(x.AllDevices))
 
 	case *commandpb.DeviceSelector_IncludeDevices:
 		if x.IncludeDevices == nil || len(x.IncludeDevices.DeviceIdentifiers) == 0 {
@@ -1174,7 +1168,61 @@ func (s *Service) resolveDeviceIdentifiers(ctx context.Context, selector *comman
 	}
 }
 
+func minerFilterFromPairDeviceFilter(filter *commandpb.DeviceFilter) *interfaces.MinerFilter {
+	minerFilter := &interfaces.MinerFilter{}
+	if filter == nil {
+		return minerFilter
+	}
+	minerFilter.PairingStatuses = filter.PairingStatus
+	minerFilter.ModelNames = filter.Models
+	minerFilter.ManufacturerNames = filter.Manufacturers
+	if len(filter.DeviceStatus) > 0 {
+		minerFilter.DeviceStatusFilter = make([]models.MinerStatus, 0, len(filter.DeviceStatus))
+		for _, status := range filter.DeviceStatus {
+			minerFilter.DeviceStatusFilter = append(minerFilter.DeviceStatusFilter, deviceStatusFilterToMinerStatus(status))
+		}
+	}
+	return minerFilter
+}
+
+func deviceStatusFilterToMinerStatus(status fleetmanagementv1.DeviceStatus) models.MinerStatus {
+	//nolint:exhaustive // Unknown or unspecified device statuses map to UNKNOWN.
+	switch status {
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_ONLINE:
+		return models.MinerStatusActive
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_OFFLINE:
+		return models.MinerStatusOffline
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_MAINTENANCE:
+		return models.MinerStatusMaintenance
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_ERROR:
+		return models.MinerStatusError
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_INACTIVE:
+		return models.MinerStatusInactive
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
+		return models.MinerStatusNeedsMiningPool
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_UPDATING:
+		return models.MinerStatusUpdating
+	case fleetmanagementv1.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED:
+		return models.MinerStatusRebootRequired
+	default:
+		return models.MinerStatusUnknown
+	}
+}
+
 func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairResponse, error) {
+	return s.pairDevices(ctx, r, false)
+}
+
+// PairDevicesAllowAllFailed preserves the normal PairDevices behavior except
+// that a selector with concrete device matches but zero successful pairings
+// returns those failed IDs instead of a unary error. The mixed fleet-node/cloud
+// handler uses this only after at least one remote pairing has already succeeded,
+// so the client receives one partial-success response for the whole request.
+func (s *Service) PairDevicesAllowAllFailed(ctx context.Context, r *pb.PairRequest) (*pb.PairResponse, error) {
+	return s.pairDevices(ctx, r, true)
+}
+
+func (s *Service) pairDevices(ctx context.Context, r *pb.PairRequest, allowAllFailed bool) (*pb.PairResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
@@ -1312,6 +1360,11 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 				return nil, fleeterror.NewPlainError("pairing deadline exceeded", connect.CodeDeadlineExceeded).WithCallerStackTrace()
 			}
 			return nil, fleeterror.NewCanceledError()
+		}
+		if allowAllFailed {
+			return &pb.PairResponse{
+				FailedDeviceIds: failedIDs,
+			}, nil
 		}
 		return nil, fleeterror.NewInternalError("Failed to pair any devices")
 	}

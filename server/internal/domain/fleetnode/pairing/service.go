@@ -31,10 +31,20 @@ type Store interface {
 	DeviceHasActivePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error)
 	ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]FleetNodeDevice, error)
-	ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, identifiers []string, cursorID, limit *int64, excludeAuthNeeded bool) ([]FleetNodeDiscoveredDevice, error)
+	ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, filter FleetNodeDiscoveredDeviceFilter) ([]FleetNodeDiscoveredDevice, error)
 	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (int64, error)
 	DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error)
 	GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error)
+}
+
+type FleetNodeDiscoveredDeviceFilter struct {
+	Identifiers       []string
+	PairingStatuses   []string
+	Models            []string
+	Manufacturers     []string
+	CursorID          *int64
+	Limit             *int64
+	ExcludeAuthNeeded bool
 }
 
 type Service struct {
@@ -187,7 +197,10 @@ func (s *Service) ListDevicesForFleetNode(ctx context.Context, fleetNodeID, orgI
 // and more rows may remain.
 func (s *Service) ListDiscoveredDevicesForFleetNode(ctx context.Context, orgID int64, fleetNodeID, cursorID, limit *int64) ([]FleetNodeDiscoveredDevice, *int64, error) {
 	// The operator listing surfaces AUTHENTICATION_NEEDED rows for display/retry.
-	devices, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, fleetNodeID, nil, cursorID, limit, false)
+	devices, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, fleetNodeID, FleetNodeDiscoveredDeviceFilter{
+		CursorID: cursorID,
+		Limit:    limit,
+	})
 	if err != nil {
 		return nil, nil, fleeterror.LogInternal(component, "list discovered devices", clientErrList, err)
 	}

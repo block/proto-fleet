@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -753,6 +755,40 @@ func TestResolvePairTargets_AuthNeededExclusionSurvivesDivergedLinkage(t *testin
 	assert.Contains(t, targetIdentifiers(withCreds), "mac:an-diverged")
 }
 
+func TestResolvePairTargetsByFilter_AuthNeededIncludesDivergedLinkage(t *testing.T) {
+	// Arrange: an AUTHENTICATION_NEEDED device whose discovery row was soft-deleted
+	// and re-created by the node under the same identifier. A status-filtered
+	// pair-all with credentials must still see the live device's status even though
+	// it is linked to the deleted discovery row.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-filter-an-diverged")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:filter-an-diverged")
+	var oldDD int64
+	require.NoError(t, db.QueryRow(
+		`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
+		orgID, "mac:filter-an-diverged").Scan(&oldDD))
+	var dev int64
+	require.NoError(t, db.QueryRow(
+		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		"mac:filter-an-diverged", "aa:bb:cc:00:fd:01", "sn-fd", orgID, oldDD).Scan(&dev))
+	setPairingStatus(t, db, dev, "AUTHENTICATION_NEEDED")
+	_, err := db.Exec(`UPDATE discovered_device SET deleted_at = now() WHERE id = $1`, oldDD)
+	require.NoError(t, err)
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:filter-an-diverged")
+
+	// Act
+	pw := "pw"
+	targets, _, err := pairing.ResolvePairTargetsByFilterPage(ctx, node, orgID, &minercommandv1.DeviceFilter{
+		PairingStatus: []fleetmanagementv1.PairingStatus{fleetmanagementv1.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED},
+	}, &pairingpb.Credentials{Username: "root", Password: &pw}, nil)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, []string{"mac:filter-an-diverged"}, targetIdentifiers(targets))
+}
+
 func TestResolvePairTargets_PairAllExcludesAuthNeededWithoutCredentials(t *testing.T) {
 	// Arrange: one never-attempted device and one AUTHENTICATION_NEEDED device.
 	ctx := t.Context()
@@ -790,6 +826,36 @@ func TestResolvePairTargets_PairAllExcludesAuthNeededWithoutCredentials(t *testi
 	withCreds, err := pairing.ResolvePairTargets(ctx, node, orgID, nil, true, &pairingpb.Credentials{Username: "root", Password: &pw})
 	require.NoError(t, err)
 	assert.Contains(t, targetIdentifiers(withCreds), "mac:authneeded")
+}
+
+func TestResolvePairTargetsByFilter_AuthenticationNeeded(t *testing.T) {
+	// Arrange: a bulk auth-needed filter must retry only auth-needed rows, not
+	// every unpaired row discovered by the node.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-resolve-filter-authneeded")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:new")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:authneeded")
+	var ddID int64
+	require.NoError(t, db.QueryRow(
+		`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
+		orgID, "mac:authneeded").Scan(&ddID))
+	var devID int64
+	require.NoError(t, db.QueryRow(
+		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		 VALUES ($1, 'aa:bb:cc:00:af:01', 'sn-af', $2, $3) RETURNING id`,
+		"mac:authneeded", orgID, ddID).Scan(&devID))
+	setPairingStatus(t, db, devID, "AUTHENTICATION_NEEDED")
+
+	// Act
+	pw := "pw"
+	targets, _, err := pairing.ResolvePairTargetsByFilterPage(ctx, node, orgID, &minercommandv1.DeviceFilter{
+		PairingStatus: []fleetmanagementv1.PairingStatus{fleetmanagementv1.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED},
+	}, &pairingpb.Credentials{Username: "root", Password: &pw}, nil)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, []string{"mac:authneeded"}, targetIdentifiers(targets))
 }
 
 func targetIdentifiers(targets []*pairingpb.FleetNodePairTarget) []string {

@@ -18,6 +18,8 @@ type minerFilterParams struct {
 	statusValues              []string
 	modelFilter               sql.NullString
 	modelValues               []string
+	manufacturerFilter        sql.NullString
+	manufacturerValues        []string
 	pairingStatusFilter       sql.NullString
 	pairingStatusValues       []string
 	needsAttentionFilter      bool
@@ -93,6 +95,12 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 	if len(filter.ModelNames) > 0 {
 		fp.modelFilter = sql.NullString{Valid: true}
 		fp.modelValues = filter.ModelNames
+	}
+
+	// Manufacturer filter
+	if len(filter.ManufacturerNames) > 0 {
+		fp.manufacturerFilter = sql.NullString{Valid: true}
+		fp.manufacturerValues = filter.ManufacturerNames
 	}
 
 	// Pairing status filter
@@ -226,6 +234,12 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 	if fp.modelFilter.Valid {
 		fmt.Fprintf(sb, " AND discovered_device.model = ANY($%d::text[])", argNum)
 		args = append(args, pq.Array(fp.modelValues))
+		argNum++
+	}
+
+	if fp.manufacturerFilter.Valid {
+		fmt.Fprintf(sb, " AND discovered_device.manufacturer = ANY($%d::text[])", argNum)
+		args = append(args, pq.Array(fp.manufacturerValues))
 		argNum++
 	}
 

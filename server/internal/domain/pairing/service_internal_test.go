@@ -7,8 +7,12 @@ import (
 	"testing"
 
 	"connectrpc.com/authn"
+	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -79,6 +83,63 @@ func TestHandleAuthenticationRequiredPairing_PreservesExistingWorkerName(t *test
 
 	err := service.handleAuthenticationRequiredPairing(t.Context(), discoveredDevice)
 	require.NoError(t, err)
+}
+
+func TestResolveDeviceIdentifiers_AllDevicesPassesFullFilter(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDeviceStore := mocks.NewMockDeviceStore(ctrl)
+	service := &Service{deviceStore: mockDeviceStore}
+	ctx := mockSessionContext(t.Context(), 1, 42)
+	selector := &minercommandv1.DeviceSelector{
+		SelectionType: &minercommandv1.DeviceSelector_AllDevices{AllDevices: &minercommandv1.DeviceFilter{
+			DeviceStatus:  []fleetmanagementv1.DeviceStatus{fleetmanagementv1.DeviceStatus_DEVICE_STATUS_ONLINE},
+			PairingStatus: []fleetmanagementv1.PairingStatus{fleetmanagementv1.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED},
+			Models:        []string{"S19"},
+			Manufacturers: []string{"Bitmain"},
+		}},
+	}
+
+	mockDeviceStore.EXPECT().
+		GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(42), gomock.AssignableToTypeOf(&stores.MinerFilter{})).
+		DoAndReturn(func(_ context.Context, _ int64, filter *stores.MinerFilter) ([]string, error) {
+			require.Equal(t, []minermodels.MinerStatus{minermodels.MinerStatusActive}, filter.DeviceStatusFilter)
+			require.Equal(t, []fleetmanagementv1.PairingStatus{fleetmanagementv1.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED}, filter.PairingStatuses)
+			require.Equal(t, []string{"S19"}, filter.ModelNames)
+			require.Equal(t, []string{"Bitmain"}, filter.ManufacturerNames)
+			return []string{"mac:cloud"}, nil
+		})
+
+	ids, err := service.resolveDeviceIdentifiers(ctx, selector, 42)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"mac:cloud"}, ids)
+}
+
+func TestPairDevicesAllowAllFailedReturnsCanceledError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDiscoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	service := &Service{discoveredDeviceStore: mockDiscoveredDeviceStore}
+	ctx, cancel := context.WithCancel(mockSessionContext(t.Context(), 1, 42))
+	cancel()
+
+	mockDiscoveredDeviceStore.EXPECT().
+		GetDevice(gomock.Any(), discoverymodels.DeviceOrgIdentifier{DeviceIdentifier: "mac:canceled", OrgID: 42}).
+		Return(nil, fleeterror.NewNotFoundError("not found"))
+
+	resp, err := service.PairDevicesAllowAllFailed(ctx, &pb.PairRequest{
+		DeviceSelector: &minercommandv1.DeviceSelector{
+			SelectionType: &minercommandv1.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{DeviceIdentifiers: []string{"mac:canceled"}},
+			},
+		},
+	})
+
+	require.Nil(t, resp)
+	require.True(t, fleeterror.IsCanceledError(err))
 }
 
 func TestCanonicalCIDR(t *testing.T) {

@@ -29,6 +29,12 @@ var PairCommandTimeout = 12 * time.Minute
 // persisting even if the operator disconnects), bounded by PairCommandTimeout. We
 // don't abort the node on cancel -- half-paired miners with no cloud record is worse.
 func (s *Service) PairOnNode(ctx context.Context, fleetNodeID int64, targets []*pairingpb.FleetNodePairTarget, credentials *pairingpb.Credentials, orgID int64, assignedBy *int64, onResults func([]*gatewaypb.FleetNodePairResult) error) error {
+	if len(targets) == 0 {
+		return fleeterror.NewInvalidArgumentError("pair command requires at least one target")
+	}
+	if len(targets) > MaxPairBatch {
+		return fleeterror.NewInvalidArgumentErrorf("pair command target count %d exceeds maximum %d", len(targets), MaxPairBatch)
+	}
 	if s.dispatcher == nil {
 		return fleeterror.NewInternalError("fleet node pairing dispatch is not configured")
 	}

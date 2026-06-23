@@ -322,7 +322,7 @@ func TestUpsertDiscoveredDevices_RefreshesUnpairedDeviceFromOriginatingNode(t *t
 	nodeID := createFleetNode(t, enrollment, orgID, "node-refresh")
 	var ddID int64
 	require.NoError(t, db.QueryRow(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
-		VALUES ($1, 'unpaired-shared', '10.0.0.60', '80', 'http', 'virtual', TRUE, NULL) RETURNING id`, orgID).Scan(&ddID))
+		VALUES ($1, 'unpaired-shared', '10.0.0.60', '80', 'http', 'virtual', TRUE, $2) RETURNING id`, orgID, nodeID).Scan(&ddID))
 	_, err := db.Exec(`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
 		VALUES ($1, $2, $3, $4, $5)`,
 		fmt.Sprintf("local-dev-%d", ddID),
@@ -344,6 +344,36 @@ func TestUpsertDiscoveredDevices_RefreshesUnpairedDeviceFromOriginatingNode(t *t
 	var ip string
 	require.NoError(t, db.QueryRow(`SELECT ip_address FROM discovered_device WHERE id = $1`, ddID).Scan(&ip))
 	assert.Equal(t, "10.0.0.99", ip, "originating node must be able to refresh an unpaired device row")
+}
+
+func TestUpsertDiscoveredDevices_RejectsClaimingCloudDiscoveredBareDevice(t *testing.T) {
+	// Arrange: a cloud-origin discovered row has no fleet-node attribution and
+	// no active pairing yet. A fleet node must not be able to take ownership of
+	// that identifier because generic Pair requests route credentials by the DB
+	// attribution.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-cloud-bare-claim")
+	var ddID int64
+	require.NoError(t, db.QueryRow(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
+		VALUES ($1, 'cloud-bare-shared', '10.0.0.60', '80', 'http', 'virtual', TRUE, NULL) RETURNING id`, orgID).Scan(&ddID))
+
+	// Act
+	acceptedIdx, rejected, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
+		{DeviceIdentifier: "cloud-bare-shared", IPAddress: "10.0.0.99", Port: "80", URLScheme: "http", DriverName: "virtual"},
+	})
+
+	// Assert: rejected; cloud-origin endpoint and attribution remain untouched.
+	require.NoError(t, err)
+	assert.Empty(t, acceptedIdx)
+	assert.Equal(t, int64(1), rejected)
+	var (
+		ip         string
+		attributed sql.NullInt64
+	)
+	require.NoError(t, db.QueryRow(`SELECT ip_address, discovered_by_fleet_node_id FROM discovered_device WHERE id = $1`, ddID).Scan(&ip, &attributed))
+	assert.Equal(t, "10.0.0.60", ip)
+	assert.False(t, attributed.Valid)
 }
 
 func TestUpsertDiscoveredDevices_BatchValidationErrorRollsBack(t *testing.T) {

@@ -80,6 +80,7 @@ func TestBuildMinerFilterParams_CombinedFilters(t *testing.T) {
 	filter := &stores.MinerFilter{
 		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusActive},
 		ModelNames:         []string{"S21 XP"},
+		ManufacturerNames:  []string{"Bitmain"},
 		PairingStatuses:    []fm.PairingStatus{fm.PairingStatus_PAIRING_STATUS_PAIRED},
 	}
 
@@ -87,6 +88,7 @@ func TestBuildMinerFilterParams_CombinedFilters(t *testing.T) {
 
 	assert.True(t, params.statusFilter.Valid)
 	assert.True(t, params.modelFilter.Valid)
+	assert.True(t, params.manufacturerFilter.Valid)
 	assert.True(t, params.pairingStatusFilter.Valid)
 }
 
@@ -209,6 +211,8 @@ func TestAppendFilterSQL_CombinedFilters(t *testing.T) {
 		pairingStatusValues: []string{"PAIRED"},
 		modelFilter:         validNullString(),
 		modelValues:         []string{"S21 XP"},
+		manufacturerFilter:  validNullString(),
+		manufacturerValues:  []string{"Bitmain"},
 		statusFilter:        validNullString(),
 		statusValues:        []string{"ACTIVE"},
 	}
@@ -218,9 +222,10 @@ func TestAppendFilterSQL_CombinedFilters(t *testing.T) {
 
 	assert.Contains(t, sb.String(), "pairing_status")
 	assert.Contains(t, sb.String(), "discovered_device.model")
+	assert.Contains(t, sb.String(), "discovered_device.manufacturer")
 	assert.Contains(t, sb.String(), "device_status.status")
-	assert.Len(t, resultArgs, 5) // initial + pairing + model + status + orgID
-	assert.Equal(t, 6, resultArgNum)
+	assert.Len(t, resultArgs, 6) // initial + pairing + model + manufacturer + status + orgID
+	assert.Equal(t, 7, resultArgNum)
 }
 
 func TestAppendFilterSQL_ArgNumbersIncrement(t *testing.T) {

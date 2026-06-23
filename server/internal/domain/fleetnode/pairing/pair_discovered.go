@@ -4,7 +4,9 @@ import (
 	"context"
 	"log/slog"
 
+	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -14,10 +16,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
-// maxPairBatch caps targets per pair command, matching FleetNodePairRequest.targets
+// MaxPairBatch caps targets per pair command, matching FleetNodePairRequest.targets
 // max_items so a pair_all on a huge fleet can't balloon one ControlCommand; the
 // operator re-issues for the remainder (paired devices drop from the listing).
-const maxPairBatch = 1024
+const MaxPairBatch = 1024
 
 // ResolvePairTargets returns the pairable targets for a batch request. It draws
 // from the not-yet-paired devices the node discovered (the listing already
@@ -30,7 +32,7 @@ func (s *Service) ResolvePairTargets(ctx context.Context, fleetNodeID, orgID int
 		limit *int64
 	)
 	if pairAllUnpaired {
-		l := int64(maxPairBatch)
+		l := int64(MaxPairBatch)
 		limit = &l
 	} else {
 		// Non-nil (even empty) so the SQL filter means "only these", not "all".
@@ -45,23 +47,108 @@ func (s *Service) ResolvePairTargets(ctx context.Context, fleetNodeID, orgID int
 	// the node's secretBundleFor); explicit selection still targets them.
 	usableCredentials := credentials != nil && credentials.Password != nil
 	excludeAuthNeeded := pairAllUnpaired && !usableCredentials
-	candidates, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, &fleetNodeID, ids, nil, limit, excludeAuthNeeded)
+	candidates, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, &fleetNodeID, FleetNodeDiscoveredDeviceFilter{
+		Identifiers:       ids,
+		Limit:             limit,
+		ExcludeAuthNeeded: excludeAuthNeeded,
+	})
 	if err != nil {
 		return nil, fleeterror.LogInternal(component, "list pair candidates", clientErrList, err)
 	}
-	targets := make([]*pairingpb.FleetNodePairTarget, 0, len(candidates))
-	for _, c := range candidates {
+	return pairTargetsFromDiscoveredDevices(candidates), nil
+}
+
+// ResolvePairTargetsByFilterPage returns pairable node-discovered targets that
+// match the DeviceFilter shape PairingService.Pair accepts for allDevices
+// requests. nextCursor is non-nil when another page may exist. Fleet-node-
+// discovered rows do not have every fleet-list attribute, so this intentionally
+// supports only filters represented in the discovered-device table/listing.
+// Unsupported/unsatisfiable filters return no targets so the caller can safely
+// leave those requests to the server-local pairing path.
+func (s *Service) ResolvePairTargetsByFilterPage(ctx context.Context, fleetNodeID, orgID int64, filter *minercommandv1.DeviceFilter, credentials *pairingpb.Credentials, cursorID *int64) ([]*pairingpb.FleetNodePairTarget, *int64, error) {
+	if filter == nil || unsupportedFleetNodePairFilter(filter) {
+		return nil, nil, nil
+	}
+	statuses, supported := pairingStatusFilterValues(filter.GetPairingStatus())
+	if !supported {
+		return nil, nil, nil
+	}
+
+	usableCredentials := credentials != nil && credentials.Password != nil
+	excludeAuthNeeded := !usableCredentials
+	limit := int64(MaxPairBatch)
+	candidates, err := s.store.ListFleetNodeDiscoveredDevices(ctx, orgID, &fleetNodeID, FleetNodeDiscoveredDeviceFilter{
+		PairingStatuses:   statuses,
+		Models:            nonEmptyStrings(filter.GetModels()),
+		Manufacturers:     nonEmptyStrings(filter.GetManufacturers()),
+		CursorID:          cursorID,
+		Limit:             &limit,
+		ExcludeAuthNeeded: excludeAuthNeeded,
+	})
+	if err != nil {
+		return nil, nil, fleeterror.LogInternal(component, "list pair candidates", clientErrList, err)
+	}
+	var nextCursor *int64
+	if len(candidates) == MaxPairBatch {
+		last := candidates[len(candidates)-1].ID
+		nextCursor = &last
+	}
+	return pairTargetsFromDiscoveredDevices(candidates), nextCursor, nil
+}
+
+func nonEmptyStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	return values
+}
+
+func unsupportedFleetNodePairFilter(filter *minercommandv1.DeviceFilter) bool {
+	return len(filter.GetDeviceStatus()) > 0
+}
+
+func pairTargetsFromDiscoveredDevices(devices []FleetNodeDiscoveredDevice) []*pairingpb.FleetNodePairTarget {
+	targets := make([]*pairingpb.FleetNodePairTarget, 0, len(devices))
+	for _, d := range devices {
 		targets = append(targets, &pairingpb.FleetNodePairTarget{
-			DeviceIdentifier: c.DeviceIdentifier,
-			IpAddress:        c.IPAddress,
-			Port:             c.Port,
-			UrlScheme:        c.URLScheme,
-			DriverName:       c.DriverName,
-			Manufacturer:     c.Manufacturer,
-			FirmwareVersion:  c.FirmwareVersion,
+			DeviceIdentifier: d.DeviceIdentifier,
+			IpAddress:        d.IPAddress,
+			Port:             d.Port,
+			UrlScheme:        d.URLScheme,
+			DriverName:       d.DriverName,
+			Manufacturer:     d.Manufacturer,
+			FirmwareVersion:  d.FirmwareVersion,
 		})
 	}
-	return targets, nil
+	return targets
+}
+
+func pairingStatusFilterValues(statuses []fleetmanagementv1.PairingStatus) ([]string, bool) {
+	if len(statuses) == 0 {
+		return nil, false
+	}
+	out := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		switch status { //nolint:exhaustive // Unsupported pairing statuses intentionally fail closed.
+		case fleetmanagementv1.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED:
+			out = append(out, StatusAuthenticationNeeded)
+		case fleetmanagementv1.PairingStatus_PAIRING_STATUS_UNPAIRED:
+			out = append(out, "", StatusUnpaired)
+		case fleetmanagementv1.PairingStatus_PAIRING_STATUS_FAILED:
+			out = append(out, StatusFailed)
+		case fleetmanagementv1.PairingStatus_PAIRING_STATUS_UNSPECIFIED,
+			fleetmanagementv1.PairingStatus_PAIRING_STATUS_PAIRED,
+			fleetmanagementv1.PairingStatus_PAIRING_STATUS_PENDING,
+			fleetmanagementv1.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD:
+			continue
+		default:
+			return nil, false
+		}
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
 }
 
 // PersistFleetNodePairResult records one device's reported pairing outcome in a

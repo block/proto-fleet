@@ -10,6 +10,7 @@ import (
 // canonical constants so the two pairing paths can't drift.
 const (
 	StatusPaired               = domainpairing.StatusPaired
+	StatusUnpaired             = domainpairing.StatusUnpaired
 	StatusAuthenticationNeeded = domainpairing.StatusAuthenticationNeeded
 	StatusDefaultPassword      = domainpairing.StatusDefaultPassword
 	StatusFailed               = domainpairing.StatusFailed

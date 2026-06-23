@@ -58,6 +58,7 @@ type MinerFilter struct {
 	PairingStatuses     []fm.PairingStatus // Changed from single value to slice
 	DeviceStatusFilter  []mm.MinerStatus
 	ModelNames          []string                          // Filter by device model names (e.g., "S21 XP", "M60")
+	ManufacturerNames   []string                          // Filter by device manufacturer names (e.g., "Bitmain", "MicroBT")
 	ErrorComponentTypes []diagnosticsmodels.ComponentType // Filter devices by component types that have errors
 	GroupIDs            []int64                           // Filter by group membership (OR logic: match any group)
 	RackIDs             []int64                           // Filter by rack membership (OR logic: match any rack)

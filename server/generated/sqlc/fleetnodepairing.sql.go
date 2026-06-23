@@ -156,79 +156,94 @@ func (q *Queries) ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDev
 }
 
 const listFleetNodeDiscoveredDevices = `-- name: ListFleetNodeDiscoveredDevices :many
-SELECT DISTINCT ON (dd.id)
-       dd.id,
-       dd.org_id,
-       dd.device_identifier,
-       dd.discovered_by_fleet_node_id,
-       dd.ip_address,
-       dd.port,
-       dd.url_scheme,
-       dd.driver_name,
-       dd.model,
-       dd.manufacturer,
-       dd.firmware_version,
-       dd.last_seen,
-       COALESCE(dp.pairing_status::text, '')::text AS pairing_status
-FROM discovered_device dd
-LEFT JOIN device d ON d.discovered_device_id = dd.id AND d.deleted_at IS NULL
-LEFT JOIN device_pairing dp ON dp.device_id = d.id
-WHERE dd.org_id = $1
-  AND dd.is_active = TRUE
-  AND dd.deleted_at IS NULL
-  AND dd.discovered_by_fleet_node_id IS NOT NULL
-  AND NOT EXISTS (
-      SELECT 1
-      FROM device db
-      JOIN fleet_node_device fnd ON fnd.device_id = db.id AND fnd.org_id = dd.org_id
-      WHERE (db.discovered_device_id = dd.id
-             OR (db.device_identifier = dd.device_identifier AND db.org_id = dd.org_id))
-        AND db.deleted_at IS NULL
-  )
-  AND NOT EXISTS (
-      SELECT 1
-      FROM device dpd
-      JOIN device_pairing dpp ON dpp.device_id = dpd.id
-      WHERE (dpd.discovered_device_id = dd.id
-             OR (dpd.device_identifier = dd.device_identifier AND dpd.org_id = dd.org_id))
-        AND dpd.deleted_at IS NULL
-        AND dpp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-  )
-  AND ($2::bigint IS NULL OR dd.discovered_by_fleet_node_id = $2::bigint)
-  -- pair-all without operator credentials can't satisfy AUTHENTICATION_NEEDED rows
-  -- (they were already attempted and need credentials). Excluding them keeps a
-  -- capped first page from filling with unsatisfiable rows and starving
-  -- never-attempted devices on re-issue for nodes with more than ` + "`" + `limit` + "`" + `
-  -- candidates. NULL/false keeps them (listing for display, and pair-all WITH
-  -- credentials, which can retry them).
-  AND (
-    NOT COALESCE($3::bool, FALSE)
-    OR NOT EXISTS (
-      SELECT 1
-      FROM device adn
-      JOIN device_pairing adp ON adp.device_id = adn.id
-      WHERE (adn.discovered_device_id = dd.id
-             OR (adn.device_identifier = dd.device_identifier AND adn.org_id = dd.org_id))
-        AND adn.deleted_at IS NULL
-        AND adp.pairing_status = 'AUTHENTICATION_NEEDED'
+WITH candidate AS (
+  SELECT DISTINCT ON (dd.id)
+         dd.id,
+         dd.org_id,
+         dd.device_identifier,
+         dd.discovered_by_fleet_node_id,
+         dd.ip_address,
+         dd.port,
+         dd.url_scheme,
+         dd.driver_name,
+         dd.model,
+         dd.manufacturer,
+         dd.firmware_version,
+         dd.last_seen,
+         COALESCE(dp.pairing_status::text, '')::text AS pairing_status
+  FROM discovered_device dd
+  LEFT JOIN device d ON (
+      d.discovered_device_id = dd.id
+      OR (d.device_identifier = dd.device_identifier AND d.org_id = dd.org_id)
     )
-  )
-  -- Explicit pairing passes the requested identifiers so only those rows are
-  -- scanned, not the whole org. NULL = no filter (listing + pair-all); an empty
-  -- non-nil array matches nothing (explicit selection of none).
-  AND ($4::text[] IS NULL OR dd.device_identifier = ANY($4::text[]))
-  AND ($5::bigint IS NULL OR dd.id > $5::bigint)
-ORDER BY dd.id ASC, d.id DESC NULLS LAST
-LIMIT $6::bigint
+    AND d.deleted_at IS NULL
+  LEFT JOIN device_pairing dp ON dp.device_id = d.id
+  WHERE dd.org_id = $1
+    AND dd.is_active = TRUE
+    AND dd.deleted_at IS NULL
+    AND dd.discovered_by_fleet_node_id IS NOT NULL
+    AND NOT EXISTS (
+        SELECT 1
+        FROM device db
+        JOIN fleet_node_device fnd ON fnd.device_id = db.id AND fnd.org_id = dd.org_id
+        WHERE (db.discovered_device_id = dd.id
+               OR (db.device_identifier = dd.device_identifier AND db.org_id = dd.org_id))
+          AND db.deleted_at IS NULL
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM device dpd
+        JOIN device_pairing dpp ON dpp.device_id = dpd.id
+        WHERE (dpd.discovered_device_id = dd.id
+               OR (dpd.device_identifier = dd.device_identifier AND dpd.org_id = dd.org_id))
+          AND dpd.deleted_at IS NULL
+          AND dpp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    )
+    AND ($4::bigint IS NULL OR dd.discovered_by_fleet_node_id = $4::bigint)
+    -- pair-all without operator credentials can't satisfy AUTHENTICATION_NEEDED rows
+    -- (they were already attempted and need credentials). Excluding them keeps a
+    -- capped first page from filling with unsatisfiable rows and starving
+    -- never-attempted devices on re-issue for nodes with more than ` + "`" + `limit` + "`" + `
+    -- candidates. NULL/false keeps them (listing for display, and pair-all WITH
+    -- credentials, which can retry them).
+    AND (
+      NOT COALESCE($5::bool, FALSE)
+      OR NOT EXISTS (
+        SELECT 1
+        FROM device adn
+        JOIN device_pairing adp ON adp.device_id = adn.id
+        WHERE (adn.discovered_device_id = dd.id
+               OR (adn.device_identifier = dd.device_identifier AND adn.org_id = dd.org_id))
+          AND adn.deleted_at IS NULL
+          AND adp.pairing_status = 'AUTHENTICATION_NEEDED'
+      )
+    )
+    -- Explicit pairing passes the requested identifiers so only those rows are
+    -- scanned, not the whole org. NULL = no filter (listing + pair-all); an empty
+    -- non-nil array matches nothing (explicit selection of none).
+    AND ($6::text[] IS NULL OR dd.device_identifier = ANY($6::text[]))
+    AND ($7::text[] IS NULL OR COALESCE(dd.model, '') = ANY($7::text[]))
+    AND ($8::text[] IS NULL OR COALESCE(dd.manufacturer, '') = ANY($8::text[]))
+    AND ($9::bigint IS NULL OR dd.id > $9::bigint)
+  ORDER BY dd.id ASC, d.id DESC NULLS LAST
+)
+SELECT id, org_id, device_identifier, discovered_by_fleet_node_id, ip_address, port, url_scheme, driver_name, model, manufacturer, firmware_version, last_seen, pairing_status
+FROM candidate
+WHERE ($2::text[] IS NULL OR pairing_status = ANY($2::text[]))
+ORDER BY id ASC
+LIMIT $3::bigint
 `
 
 type ListFleetNodeDiscoveredDevicesParams struct {
 	OrgID             int64
+	PairingStatuses   []string
+	Limit             sql.NullInt64
 	FleetNodeID       sql.NullInt64
 	ExcludeAuthNeeded sql.NullBool
 	Identifiers       []string
+	Models            []string
+	Manufacturers     []string
 	CursorID          sql.NullInt64
-	Limit             sql.NullInt64
 }
 
 type ListFleetNodeDiscoveredDevicesRow struct {
@@ -264,11 +279,14 @@ type ListFleetNodeDiscoveredDevicesRow struct {
 func (q *Queries) ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFleetNodeDiscoveredDevicesParams) ([]ListFleetNodeDiscoveredDevicesRow, error) {
 	rows, err := q.query(ctx, q.listFleetNodeDiscoveredDevicesStmt, listFleetNodeDiscoveredDevices,
 		arg.OrgID,
+		pq.Array(arg.PairingStatuses),
+		arg.Limit,
 		arg.FleetNodeID,
 		arg.ExcludeAuthNeeded,
 		pq.Array(arg.Identifiers),
+		pq.Array(arg.Models),
+		pq.Array(arg.Manufacturers),
 		arg.CursorID,
-		arg.Limit,
 	)
 	if err != nil {
 		return nil, err
@@ -406,19 +424,21 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     last_seen = CURRENT_TIMESTAMP,
     is_active = TRUE
 WHERE (
-    discovered_device.discovered_by_fleet_node_id IS NULL
-    OR discovered_device.discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id
+    discovered_device.discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id
     -- The attributing node was revoked (soft-deleted), so a replacement node may
     -- reclaim its rows (otherwise a re-scan of the same stable mac:/serial: device
     -- is rejected forever). Attribution moves to the reporter ($10), staying
     -- non-NULL, so cloud-exclusion (discovered_by_fleet_node_id IS NULL) is never
     -- widened. Cloud-paired and live-cross-node rows remain blocked below.
-    OR NOT EXISTS (
+    OR (
+      discovered_device.discovered_by_fleet_node_id IS NOT NULL
+      AND NOT EXISTS (
       SELECT 1
       FROM fleet_node fn
       WHERE fn.id = discovered_device.discovered_by_fleet_node_id
         AND fn.org_id = discovered_device.org_id
         AND fn.deleted_at IS NULL
+      )
     )
   )
   AND NOT EXISTS (
@@ -472,12 +492,12 @@ type UpsertDiscoveredDeviceFromFleetNodeParams struct {
 }
 
 // 0 rows on conflict signals rejection. A remote report must not redirect the
-// endpoint/credentials of a miner the cloud actively dials, so the update is
-// blocked when the row is promoted to a cloud-paired device (device_pairing
-// PAIRED/DEFAULT_PASSWORD) or one paired to a different fleet node. Bare promoted devices and
-// devices paired to the reporting node itself stay refreshable, subject to the
-// attribution guard. The agent synthesizes a stable per-device identifier
-// (mac:/serial:, else auto:<hash>), so a re-scan reuses the same row.
+// endpoint/credentials of a miner the cloud owns, so the update is blocked
+// unless the row is already attributed to this fleet node or to a revoked node
+// that can be reclaimed. Devices paired to the reporting node itself stay
+// refreshable, subject to the attribution guard. The agent synthesizes a stable
+// per-device identifier (mac:/serial:, else auto:<hash>), so a re-scan reuses
+// the same row.
 func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int64, error) {
 	result, err := q.exec(ctx, q.upsertDiscoveredDeviceFromFleetNodeStmt, upsertDiscoveredDeviceFromFleetNode,
 		arg.OrgID,
