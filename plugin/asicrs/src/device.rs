@@ -5,6 +5,7 @@ use std::time::Duration;
 use asic_rs::MinerFactory;
 use asic_rs_core::config::pools::{PoolConfig, PoolGroupConfig};
 use asic_rs_core::config::tuning::TuningConfig;
+use asic_rs_core::data::message::{MessageSeverity, MinerComponent, MinerMessage};
 use asic_rs_core::data::miner::{MinerData, MiningMode, TuningTarget};
 use asic_rs_core::data::pool::PoolURL;
 use asic_rs_core::traits::miner::{Miner, MinerAuth};
@@ -494,7 +495,7 @@ impl AsicRsDevice {
             .messages
             .iter()
             .map(|msg| {
-                let (miner_error, severity, component_type) = classify_error(&msg.message);
+                let (miner_error, severity, component_type) = classify_error(msg.clone());
 
                 let mut vendor_attributes = std::collections::HashMap::new();
                 if msg.code != 0 {
@@ -1061,74 +1062,116 @@ fn determine_board_status(board: &asic_rs_core::data::board::BoardData) -> pb::C
     pb::ComponentStatus::Offline
 }
 
-/// Classify an error message into (MinerError, Severity, ComponentType).
-fn classify_error(msg: &str) -> (pb::MinerError, pb::Severity, pb::ComponentType) {
-    let lower = msg.to_lowercase();
+/// Convert an asic_rs `MinerMessage` into a recognized `MinerError`
+fn message_into_error(m: MinerMessage) -> pb::MinerError {
+    let lower = m.message.to_lowercase();
 
-    let miner_error = if lower.contains("fan") {
-        pb::MinerError::FanFailed
-    } else if lower.contains("psu") || lower.contains("power supply") {
-        pb::MinerError::PsuFaultGeneric
-    } else if lower.contains("over temperature") || lower.contains("overheat") {
-        pb::MinerError::DeviceOverTemperature
-    } else if lower.contains("hashboard") || lower.contains("hash board") {
-        pb::MinerError::HashboardNotPresent
+    if lower.contains("over temperature") || lower.contains("overheat") {
+        return pb::MinerError::DeviceOverTemperature;
     } else if lower.contains("eeprom") {
-        pb::MinerError::EepromReadFailure
-    } else if lower.contains("control board") {
-        pb::MinerError::ControlBoardFailure
+        return pb::MinerError::EepromReadFailure;
     } else if lower.contains("firmware") {
-        pb::MinerError::FirmwareImageInvalid
-    } else {
-        pb::MinerError::VendorErrorUnmapped
+        return pb::MinerError::FirmwareImageInvalid;
     };
 
-    let severity = if [
+    match m.component {
+        Some(MinerComponent::ControlBoard { .. }) => pb::MinerError::ControlBoardFailure,
+        Some(MinerComponent::HashBoard { chip_idx: None, .. }) => {
+            pb::MinerError::HashboardNotPresent
+        }
+        Some(MinerComponent::HashBoard {
+            chip_idx: Some(_), ..
+        }) => pb::MinerError::HashboardMissingChips,
+        Some(MinerComponent::Fan { .. }) => pb::MinerError::FanFailed,
+        Some(MinerComponent::PowerSupply { .. }) => pb::MinerError::PsuFaultGeneric,
+        None => {
+            if lower.contains("fan") {
+                pb::MinerError::FanFailed
+            } else if lower.contains("psu") || lower.contains("power supply") {
+                pb::MinerError::PsuFaultGeneric
+            } else if lower.contains("hashboard") || lower.contains("hash board") {
+                pb::MinerError::HashboardNotPresent
+            } else if lower.contains("control board") {
+                pb::MinerError::ControlBoardFailure
+            } else {
+                pb::MinerError::VendorErrorUnmapped
+            }
+        }
+    }
+}
+
+fn message_into_severity(m: MinerMessage) -> pb::Severity {
+    let lower = m.message.to_lowercase();
+
+    let critical_keywords = [
         "over temperature",
         "short",
         "protection",
         "fault",
         "failed",
         "overcurrent",
-    ]
-    .iter()
-    .any(|kw| lower.contains(kw))
-    {
-        pb::Severity::Critical
-    } else if ["deviation", "warning", "ambient", "low"]
-        .iter()
-        .any(|kw| lower.contains(kw))
-    {
-        pb::Severity::Minor
-    } else {
-        pb::Severity::Major
-    };
+    ];
 
-    let component_type = if lower.contains("fan") {
-        pb::ComponentType::Fan
-    } else if ["hashboard", "hash board", "chip", "asic", "chain"]
+    match m.severity {
+        MessageSeverity::Error => {
+            if critical_keywords.iter().any(|kw| lower.contains(kw)) {
+                pb::Severity::Critical
+            } else {
+                pb::Severity::Major
+            }
+        }
+        MessageSeverity::Warning => pb::Severity::Minor,
+        MessageSeverity::Info => pb::Severity::Info,
+    }
+}
+
+fn message_into_component(m: MinerMessage) -> pb::ComponentType {
+    let lower = m.message.to_lowercase();
+
+    if ["eeprom", "firmware", "checksum"]
         .iter()
         .any(|kw| lower.contains(kw))
     {
-        pb::ComponentType::HashBoard
-    } else if ["psu", "power supply", "power", "voltage", "current"]
-        .iter()
-        .any(|kw| lower.contains(kw))
-    {
-        pb::ComponentType::Psu
-    } else if ["eeprom", "firmware", "checksum"]
-        .iter()
-        .any(|kw| lower.contains(kw))
-    {
-        pb::ComponentType::Eeprom
-    } else if ["control board", "mac", "network"]
-        .iter()
-        .any(|kw| lower.contains(kw))
-    {
-        pb::ComponentType::ControlBoard
-    } else {
-        pb::ComponentType::Unspecified
-    };
+        return pb::ComponentType::Eeprom;
+    } else if ["mac", "network"].iter().any(|kw| lower.contains(kw)) {
+        return pb::ComponentType::ControlBoard;
+    }
+
+    match m.component {
+        Some(MinerComponent::ControlBoard { .. }) => pb::ComponentType::ControlBoard,
+        Some(MinerComponent::HashBoard { chip_idx: None, .. }) => pb::ComponentType::HashBoard,
+        Some(MinerComponent::HashBoard {
+            chip_idx: Some(_), ..
+        }) => pb::ComponentType::HashBoard,
+        Some(MinerComponent::Fan { .. }) => pb::ComponentType::Fan,
+        Some(MinerComponent::PowerSupply { .. }) => pb::ComponentType::Psu,
+        None => {
+            if lower.contains("fan") {
+                pb::ComponentType::Fan
+            } else if ["hashboard", "hash board", "chip", "asic", "chain"]
+                .iter()
+                .any(|kw| lower.contains(kw))
+            {
+                pb::ComponentType::HashBoard
+            } else if ["psu", "power supply", "power", "voltage", "current"]
+                .iter()
+                .any(|kw| lower.contains(kw))
+            {
+                pb::ComponentType::Psu
+            } else if ["control board"].iter().any(|kw| lower.contains(kw)) {
+                pb::ComponentType::ControlBoard
+            } else {
+                pb::ComponentType::Unspecified
+            }
+        }
+    }
+}
+
+/// Classify an error message into (MinerError, Severity, ComponentType).
+fn classify_error(msg: MinerMessage) -> (pb::MinerError, pb::Severity, pb::ComponentType) {
+    let miner_error = message_into_error(msg.clone());
+    let severity = message_into_severity(msg.clone());
+    let component_type = message_into_component(msg);
 
     (miner_error, severity, component_type)
 }
@@ -1138,38 +1181,149 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_classify_error_fan_failure() {
-        let (error, severity, component) = classify_error("Fan 1 speed is too low");
+    fn test_classify_error_fan_failure_from_message() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Fan 1 speed is too low".to_string(),
+            severity: MessageSeverity::Warning,
+            component: None,
+        };
+
+        let (error, severity, component) = classify_error(message);
         assert!(matches!(error, pb::MinerError::FanFailed));
         assert!(matches!(component, pb::ComponentType::Fan));
         assert!(matches!(severity, pb::Severity::Minor));
     }
 
     #[test]
-    fn test_classify_error_psu_fault() {
-        let (error, severity, component) = classify_error("PSU output voltage fault detected");
+    fn test_classify_error_fan_failure_from_component() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "error".to_string(),
+            severity: MessageSeverity::Warning,
+            component: Some(MinerComponent::Fan { idx: 1 }),
+        };
+
+        let (error, severity, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::FanFailed));
+        assert!(matches!(component, pb::ComponentType::Fan));
+        assert!(matches!(severity, pb::Severity::Minor));
+    }
+
+    #[test]
+    fn test_classify_error_psu_fault_from_message() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "PSU output voltage fault detected".to_string(),
+            severity: MessageSeverity::Error,
+            component: None,
+        };
+
+        let (error, severity, component) = classify_error(message);
         assert!(matches!(error, pb::MinerError::PsuFaultGeneric));
         assert!(matches!(severity, pb::Severity::Critical));
         assert!(matches!(component, pb::ComponentType::Psu));
     }
 
     #[test]
+    fn test_classify_error_psu_fault_from_component() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "error".to_string(),
+            severity: MessageSeverity::Error,
+            component: Some(MinerComponent::PowerSupply { idx: 1 }),
+        };
+
+        let (error, severity, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::PsuFaultGeneric));
+        assert!(matches!(severity, pb::Severity::Major));
+        assert!(matches!(component, pb::ComponentType::Psu));
+    }
+
+    #[test]
     fn test_classify_error_over_temperature() {
-        let (error, severity, _) = classify_error("Over temperature protection triggered");
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Over temperature protection triggered".to_string(),
+            severity: MessageSeverity::Error,
+            component: Some(MinerComponent::HashBoard {
+                idx: 1,
+                chip_idx: None,
+            }),
+        };
+
+        let (error, severity, _) = classify_error(message);
         assert!(matches!(error, pb::MinerError::DeviceOverTemperature));
         assert!(matches!(severity, pb::Severity::Critical));
     }
 
     #[test]
-    fn test_classify_error_hashboard() {
-        let (error, _, component) = classify_error("Hashboard 2 not responding");
+    fn test_classify_error_hashboard_from_message() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Hashboard 2 not responding".to_string(),
+            severity: MessageSeverity::Error,
+            component: None,
+        };
+
+        let (error, _, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::HashboardNotPresent));
+        assert!(matches!(component, pb::ComponentType::HashBoard));
+    }
+
+    #[test]
+    fn test_classify_error_hashboard_from_component() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "error".to_string(),
+            severity: MessageSeverity::Error,
+            component: Some(MinerComponent::HashBoard {
+                idx: 1,
+                chip_idx: None,
+            }),
+        };
+
+        let (error, _, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::HashboardNotPresent));
+        assert!(matches!(component, pb::ComponentType::HashBoard));
+    }
+
+    #[test]
+    fn test_classify_error_hashboard_missing_from_component_and_message() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Hashboard 1 not present".to_string(),
+            severity: MessageSeverity::Error,
+            component: Some(MinerComponent::HashBoard {
+                idx: 1,
+                chip_idx: None,
+            }),
+        };
+
+        let (error, _, component) = classify_error(message);
         assert!(matches!(error, pb::MinerError::HashboardNotPresent));
         assert!(matches!(component, pb::ComponentType::HashBoard));
     }
 
     #[test]
     fn test_classify_error_unknown() {
-        let (error, severity, component) = classify_error("Something unexpected happened");
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Something unexpected happened".to_string(),
+            severity: MessageSeverity::Error,
+            component: None,
+        };
+
+        let (error, severity, component) = classify_error(message);
         assert!(matches!(error, pb::MinerError::VendorErrorUnmapped));
         assert!(matches!(severity, pb::Severity::Major));
         assert!(matches!(component, pb::ComponentType::Unspecified));
@@ -1177,7 +1331,15 @@ mod tests {
 
     #[test]
     fn test_classify_error_empty_string() {
-        let (error, _, _) = classify_error("");
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "".to_string(),
+            severity: MessageSeverity::Error,
+            component: None,
+        };
+
+        let (error, _, _) = classify_error(message);
         assert!(matches!(error, pb::MinerError::VendorErrorUnmapped));
     }
 

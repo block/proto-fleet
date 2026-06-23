@@ -244,4 +244,46 @@ describe("useComponentErrors", () => {
       });
     });
   });
+
+  describe("site scope request construction", () => {
+    it("sends no site filter by default", async () => {
+      const { result } = renderHook(() => useComponentErrors());
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+
+      const req = vi.mocked(errorQueryClient.query).mock.calls[0][0];
+      expect(req.filter?.simple?.siteIds).toEqual([]);
+      expect(req.filter?.simple?.includeUnassigned).toBe(false);
+    });
+
+    it("sends site_ids for a specific-site scope", async () => {
+      const { result } = renderHook(() => useComponentErrors({ siteIds: [7n] }));
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+
+      const req = vi.mocked(errorQueryClient.query).mock.calls[0][0];
+      expect(req.filter?.simple?.siteIds).toEqual([7n]);
+      expect(req.filter?.simple?.includeUnassigned).toBe(false);
+    });
+
+    it("sends include_unassigned for the unassigned scope", async () => {
+      const { result } = renderHook(() => useComponentErrors({ includeUnassigned: true }));
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+
+      const req = vi.mocked(errorQueryClient.query).mock.calls[0][0];
+      expect(req.filter?.simple?.includeUnassigned).toBe(true);
+    });
+
+    it("re-fetches when the active site changes", async () => {
+      const { result, rerender } = renderHook(({ siteIds }) => useComponentErrors({ siteIds }), {
+        initialProps: { siteIds: [7n] as bigint[] },
+      });
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+
+      rerender({ siteIds: [9n] });
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+
+      const calls = vi.mocked(errorQueryClient.query).mock.calls;
+      expect(calls[calls.length - 1][0].filter?.simple?.siteIds).toEqual([9n]);
+      expect(calls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
 });

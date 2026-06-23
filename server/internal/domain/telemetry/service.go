@@ -80,6 +80,7 @@ import (
 	"sync"
 	"time"
 
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -1477,6 +1478,36 @@ func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query 
 }
 
 func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	// Site scope is applied by resolving the in-scope device identifiers and
+	// feeding the existing device-list paths: the telemetry continuous
+	// aggregates have no site_id column, so we cannot filter them directly.
+	// This scopes line metrics, status counts, and the live uptime bar
+	// uniformly to the site's current devices.
+	if len(query.SiteIDs) > 0 || query.IncludeUnassigned {
+		identifiers, err := s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, query.OrganizationID, &stores.MinerFilter{
+			SiteIDs:           query.SiteIDs,
+			IncludeUnassigned: query.IncludeUnassigned,
+			// Resolve the same paired-like set the dashboard counts (PAIRED +
+			// AUTHENTICATION_NEEDED + DEFAULT_PASSWORD); the resolver otherwise
+			// defaults to PAIRED-only and would drop auth-needed/default-password
+			// devices that FleetHealth still counts.
+			PairingStatuses: pairedLikeStatuses,
+		})
+		if err != nil {
+			return models.CombinedMetric{}, err
+		}
+		// Site scope is AND'd with any explicit device selector: intersect the
+		// resolved in-scope devices with an existing device list rather than
+		// replacing it. No devices in scope (empty resolution or empty
+		// intersection) returns empty rather than falling through to the
+		// "empty device list = all devices" path.
+		scoped := intersectDeviceIDs(query.DeviceIDs, models.ToDeviceIdentifiers(identifiers))
+		if len(scoped) == 0 {
+			return models.CombinedMetric{}, nil
+		}
+		query.DeviceIDs = scoped
+	}
+
 	// Returns raw values (H/s, W, J/H) - conversion to display units happens in the handler layer
 	result, err := s.telemetryDataStore.GetCombinedMetrics(ctx, query)
 	if err != nil {
@@ -1511,6 +1542,34 @@ func (s *TelemetryService) appendLiveUptimeBar(ctx context.Context, orgID int64,
 		BrokenCount:     counts.BrokenCount,
 		NotHashingCount: counts.OfflineCount + counts.SleepingCount,
 	})
+}
+
+// pairedLikeStatuses is the fleet-visible "paired-like" set the dashboard
+// reports on (matches GetMinerStateCounts / the site-stats device resolution).
+var pairedLikeStatuses = []fm.PairingStatus{
+	fm.PairingStatus_PAIRING_STATUS_PAIRED,
+	fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+	fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+}
+
+// intersectDeviceIDs returns the device IDs present in both sets. When the
+// caller supplied no explicit device list (selected == empty), the site scope
+// alone applies and inScope is returned as-is.
+func intersectDeviceIDs(selected, inScope []models.DeviceIdentifier) []models.DeviceIdentifier {
+	if len(selected) == 0 {
+		return inScope
+	}
+	allowed := make(map[models.DeviceIdentifier]struct{}, len(inScope))
+	for _, id := range inScope {
+		allowed[id] = struct{}{}
+	}
+	result := make([]models.DeviceIdentifier, 0, len(selected))
+	for _, id := range selected {
+		if _, ok := allowed[id]; ok {
+			result = append(result, id)
+		}
+	}
+	return result
 }
 
 func minerFilterForDeviceIDs(deviceIDs []models.DeviceIdentifier) *stores.MinerFilter {

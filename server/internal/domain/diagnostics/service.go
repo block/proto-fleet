@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerInterfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
@@ -21,11 +22,21 @@ type PollResult struct {
 	Cancelled       bool
 }
 
+// DeviceScopeResolver resolves the device identifiers belonging to a site
+// scope. Error queries scope by site by resolving the in-scope devices and
+// applying them through the existing device_identifiers filter — the errors
+// query path needs no site_id join. Optional: only the site-scoped Query
+// path uses it.
+type DeviceScopeResolver interface {
+	GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *storeInterfaces.MinerFilter) ([]string, error)
+}
+
 // Service manages diagnostic information polling and storage.
 type Service struct {
-	config     Config
-	errorStore storeInterfaces.ErrorStore
-	transactor storeInterfaces.Transactor
+	config      Config
+	errorStore  storeInterfaces.ErrorStore
+	transactor  storeInterfaces.Transactor
+	deviceScope DeviceScopeResolver
 }
 
 // NewService creates a new diagnostics service and starts the error closer goroutine.
@@ -39,6 +50,14 @@ func NewService(ctx context.Context, config Config, errorStore storeInterfaces.E
 
 	go s.runCloser(ctx)
 
+	return s
+}
+
+// WithDeviceScopeResolver wires the resolver used to translate a site scope
+// into device identifiers for Query. Without it, site-scoped queries return
+// an error.
+func (s *Service) WithDeviceScopeResolver(resolver DeviceScopeResolver) *Service {
+	s.deviceScope = resolver
 	return s
 }
 
@@ -131,6 +150,17 @@ func (s *Service) Query(ctx context.Context, opts *models.QueryOptions) (*models
 	}
 	opts.PageSize = NormalizePageSize(opts.PageSize)
 
+	// Apply site scope by resolving the in-scope device identifiers and
+	// folding them into the device_identifiers filter. An empty resolution
+	// means no devices match the site, so the whole query is empty.
+	scoped, err := s.applySiteScope(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	if !scoped {
+		return &models.QueryResult{}, nil
+	}
+
 	switch opts.ResultView {
 	case models.ResultViewDevice:
 		return s.queryByDevice(ctx, opts)
@@ -141,6 +171,62 @@ func (s *Service) Query(ctx context.Context, opts *models.QueryOptions) (*models
 	default:
 		return s.queryByError(ctx, opts)
 	}
+}
+
+// applySiteScope translates opts.Filter site scope (SiteIDs / IncludeUnassigned)
+// into concrete device identifiers and intersects them with any explicit
+// device-identifier filter. Returns scoped=false when the site scope matches
+// no devices, so the caller can return an empty result without querying.
+// A no-op (returns true) when no site scope is set.
+func (s *Service) applySiteScope(ctx context.Context, opts *models.QueryOptions) (scoped bool, err error) {
+	if opts.Filter == nil || (len(opts.Filter.SiteIDs) == 0 && !opts.Filter.IncludeUnassigned) {
+		return true, nil
+	}
+	if s.deviceScope == nil {
+		return false, fleeterror.NewInternalError("site-scoped error query requires a device scope resolver")
+	}
+
+	identifiers, err := s.deviceScope.GetDeviceIdentifiersByOrgWithFilter(ctx, opts.OrgID, &storeInterfaces.MinerFilter{
+		SiteIDs:           opts.Filter.SiteIDs,
+		IncludeUnassigned: opts.Filter.IncludeUnassigned,
+		// Resolve the same paired-like set the dashboard counts (PAIRED +
+		// AUTHENTICATION_NEEDED + DEFAULT_PASSWORD); the resolver otherwise
+		// defaults to PAIRED-only and would drop auth-needed/default-password
+		// devices, under-reporting the scoped FleetErrors tile.
+		PairingStatuses: []fm.PairingStatus{
+			fm.PairingStatus_PAIRING_STATUS_PAIRED,
+			fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+			fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+	if len(identifiers) == 0 {
+		return false, nil
+	}
+
+	if len(opts.Filter.DeviceIdentifiers) == 0 {
+		opts.Filter.DeviceIdentifiers = identifiers
+		return true, nil
+	}
+
+	// Both an explicit device list and a site scope: intersect them.
+	inScope := make(map[string]struct{}, len(identifiers))
+	for _, id := range identifiers {
+		inScope[id] = struct{}{}
+	}
+	intersection := opts.Filter.DeviceIdentifiers[:0:0]
+	for _, id := range opts.Filter.DeviceIdentifiers {
+		if _, ok := inScope[id]; ok {
+			intersection = append(intersection, id)
+		}
+	}
+	if len(intersection) == 0 {
+		return false, nil
+	}
+	opts.Filter.DeviceIdentifiers = intersection
+	return true, nil
 }
 
 // validateErrorCursor validates an error-based cursor token.

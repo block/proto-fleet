@@ -54,7 +54,6 @@ export type ResponseProfileFormValues = {
   curtailBatchIntervalSec: string;
   restoreBatchSize: string;
   restoreIntervalSec: string;
-  postEventCooldownSec: string;
   responseDeadlineMinutes: string;
   includeMaintenance: boolean;
 };

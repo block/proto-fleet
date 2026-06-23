@@ -10,6 +10,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
@@ -674,6 +675,64 @@ func TestWatch_WithOpts_ShouldUseFilter(t *testing.T) {
 
 	// Give time for initial poll to occur
 	time.Sleep(50 * time.Millisecond)
+}
+
+func TestWatcherPoll_AppliesSiteScopeEachPoll(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockTransactor := storeMocks.NewMockTransactor(ctrl)
+	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+
+	config := Config{
+		WatchPollInterval:  100 * time.Millisecond,
+		WatchChannelBuffer: 10,
+	}
+	svc := NewService(context.Background(), config, mockStore, mockTransactor).WithDeviceScopeResolver(mockDeviceStore)
+	opts := &WatchOptions{
+		Filter: &models.QueryFilter{
+			SiteIDs:           []int64{7},
+			IncludeUnassigned: true,
+		},
+	}
+	w := newWatcher(svc, 1, opts, config)
+	w.lastPollTime = time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+
+	expectedResolverFilter := &stores.MinerFilter{
+		SiteIDs:           []int64{7},
+		IncludeUnassigned: true,
+		PairingStatuses:   pairedLikeStatuses,
+	}
+	gomock.InOrder(
+		mockDeviceStore.EXPECT().
+			GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(1), expectedResolverFilter).
+			Return([]string{"device-1"}, nil),
+		mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, opts *models.QueryOptions) ([]models.ErrorMessage, error) {
+				require.NotNil(t, opts.Filter)
+				assert.Equal(t, []string{"device-1"}, opts.Filter.DeviceIdentifiers)
+				assert.Equal(t, []int64{7}, opts.Filter.SiteIDs)
+				assert.True(t, opts.Filter.IncludeUnassigned)
+				assert.True(t, opts.Filter.IncludeClosed)
+				return []models.ErrorMessage{}, nil
+			}),
+		mockDeviceStore.EXPECT().
+			GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(1), expectedResolverFilter).
+			Return([]string{"device-2"}, nil),
+		mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, opts *models.QueryOptions) ([]models.ErrorMessage, error) {
+				require.NotNil(t, opts.Filter)
+				assert.Equal(t, []string{"device-2"}, opts.Filter.DeviceIdentifiers)
+				assert.Equal(t, []int64{7}, opts.Filter.SiteIDs)
+				assert.True(t, opts.Filter.IncludeUnassigned)
+				assert.True(t, opts.Filter.IncludeClosed)
+				return []models.ErrorMessage{}, nil
+			}),
+	)
+
+	w.pollAndSend(context.Background())
+	assert.Empty(t, w.baseFilter.DeviceIdentifiers)
+	w.pollAndSend(context.Background())
+	assert.Empty(t, w.baseFilter.DeviceIdentifiers)
 }
 
 func TestWatch_ChannelClosesOnContextCancel(t *testing.T) {

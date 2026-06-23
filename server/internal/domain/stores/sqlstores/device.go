@@ -389,10 +389,21 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context, orgID int64, filter *stores.MinerFilter) (int64, error) {
 	fp := buildFilterParams(filter)
 
+	// site_ids may be nil (all-sites); the query COALESCEs NULL to an empty
+	// array so the cardinality()=0 "no filter" branch fires.
+	var siteIDs []int64
+	includeUnassigned := false
+	if filter != nil {
+		siteIDs = filter.SiteIDs
+		includeUnassigned = filter.IncludeUnassigned
+	}
+
 	return s.GetQueries(ctx).GetTotalPairedDevices(ctx, sqlc.GetTotalPairedDevicesParams{
-		OrgID:        orgID,
-		StatusFilter: fp.statusFilter,
-		ModelFilter:  fp.modelFilter,
+		OrgID:             orgID,
+		StatusFilter:      fp.statusFilter,
+		ModelFilter:       fp.modelFilter,
+		SiteIds:           siteIDs,
+		IncludeUnassigned: includeUnassigned,
 	})
 }
 

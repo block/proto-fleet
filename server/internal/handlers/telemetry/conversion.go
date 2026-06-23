@@ -126,13 +126,15 @@ func toCombinedMetricsQuery(req *telemetryv1.GetCombinedMetricsRequest) (models.
 	}
 
 	query := models.CombinedMetricsQuery{
-		DeviceIDs:        deviceIDs,
-		MeasurementTypes: measurementTypes,
-		AggregationTypes: aggregationTypes,
-		TimeRange:        timeRange,
-		SlideInterval:    &granularity,
-		PaginationToken:  req.PageToken,
-		PageSize:         pageSize,
+		DeviceIDs:         deviceIDs,
+		MeasurementTypes:  measurementTypes,
+		AggregationTypes:  aggregationTypes,
+		TimeRange:         timeRange,
+		SlideInterval:     &granularity,
+		PaginationToken:   req.PageToken,
+		PageSize:          pageSize,
+		SiteIDs:           req.SiteIds,
+		IncludeUnassigned: req.IncludeUnassigned,
 	}
 
 	return query, nil

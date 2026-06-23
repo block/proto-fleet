@@ -37,6 +37,14 @@ const minCurtailedDurationOptions: OptionalUint32FieldOptions = {
   label: "min curtailed duration",
   max: curtailmentNumericFieldLimits.minDurationSec,
 };
+const curtailBatchSizeOptions: OptionalUint32FieldOptions = {
+  label: "curtail batch size",
+  max: curtailmentNumericFieldLimits.curtailBatchSize,
+};
+const curtailBatchIntervalOptions: OptionalUint32FieldOptions = {
+  label: "curtail batch interval",
+  max: curtailmentNumericFieldLimits.curtailBatchIntervalSec,
+};
 const restoreBatchSizeOptions: OptionalUint32FieldOptions = {
   label: "restore batch size",
   max: curtailmentNumericFieldLimits.restoreBatchSize,
@@ -44,10 +52,6 @@ const restoreBatchSizeOptions: OptionalUint32FieldOptions = {
 const restoreBatchIntervalOptions: OptionalUint32FieldOptions = {
   label: "restore batch interval",
   max: curtailmentNumericFieldLimits.restoreIntervalSec,
-};
-const postEventCooldownOptions: OptionalUint32FieldOptions = {
-  label: "post-event cooldown",
-  max: curtailmentNumericFieldLimits.postEventCooldownSec,
 };
 const maxInt64 = 9_223_372_036_854_775_807n;
 const baseTenIntegerPattern = /^[0-9]+$/;
@@ -79,6 +83,15 @@ function getOptionalUpdateUint32Setting(value: string, options: OptionalUint32Fi
   }
 
   return parsedField.parsed;
+}
+
+function getOptionalPositiveUint32Setting(value: string, options: OptionalUint32FieldOptions): number | undefined {
+  const nextValue = getOptionalUpdateUint32Setting(value, options);
+  if (nextValue === 0) {
+    throw new Error(`Enter ${options.label} greater than 0.`);
+  }
+
+  return nextValue;
 }
 
 function getChangedUpdateStringSetting(value: string, initialValue?: string): string | undefined {
@@ -178,13 +191,23 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
 }
 
 export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): StartCurtailmentRequest {
+  const curtailBatchSize = getOptionalPositiveUint32Setting(values.curtailBatchSize, curtailBatchSizeOptions);
+  const curtailBatchIntervalSec = getOptionalUpdateUint32Setting(
+    values.curtailBatchIntervalSec,
+    curtailBatchIntervalOptions,
+  );
+  if (curtailBatchSize === undefined && curtailBatchIntervalSec !== undefined) {
+    throw new Error("Enter curtail batch size before adding a curtail batch interval.");
+  }
+
   return create(StartCurtailmentRequestSchema, {
     ...buildCurtailmentRequestFields(values),
     maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, maxDurationOptions),
+    curtailBatchSize,
+    curtailBatchIntervalSec,
     restoreBatchSize: getOptionalUint32Setting(values.restoreBatchSize, restoreBatchSizeOptions),
     restoreBatchIntervalSec: getOptionalUint32Setting(values.restoreIntervalSec, restoreBatchIntervalOptions),
     minCurtailedDurationSec: getOptionalUint32Setting(values.minDurationSec, minCurtailedDurationOptions),
-    postEventCooldownSec: getOptionalUint32Setting(values.postEventCooldownSec, postEventCooldownOptions),
     reason: values.reason.trim(),
   });
 }

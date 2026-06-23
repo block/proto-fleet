@@ -36,6 +36,9 @@ WHERE dp.pairing_status = 'PAIRED'
 ORDER BY dp.id, d.id;
 
 -- name: GetTotalPairedDevices :one
+-- The site filter is additive: site_ids is an OR across sites,
+-- include_unassigned adds site_id IS NULL rows, and the empty + false case
+-- applies no site restriction (count all paired devices in the org).
 SELECT COUNT(*)
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
@@ -46,7 +49,12 @@ WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD
     AND d.org_id = $1
     AND dd.is_active = TRUE
     AND (sqlc.narg('status_filter')::text IS NULL OR ds.status::text = ANY(string_to_array(sqlc.narg('status_filter'), ',')))
-    AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')));
+    AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
+    AND (
+         (cardinality(COALESCE(sqlc.arg('site_ids')::bigint[], '{}')) = 0 AND sqlc.arg('include_unassigned')::boolean = false)
+      OR d.site_id = ANY(COALESCE(sqlc.arg('site_ids')::bigint[], '{}'))
+      OR (sqlc.arg('include_unassigned')::boolean AND d.site_id IS NULL)
+    );
 
 -- name: GetTotalDevicesPendingAuth :one
 SELECT COUNT(*)
