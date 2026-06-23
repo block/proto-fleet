@@ -129,7 +129,7 @@ together; migrations immutable (up+down); prepared statements only (sqlc); never
 ## Naming
 
 - Tables: `cohort`, `cohort_membership` (+ phase-2 substrate: `device_firmware_state`,
-  `device_config_state`, `firmware_release`, `device_enforcement_state`).
+  `device_config_state`, `device_enforcement_state`).
 - Proto: `cohort.v1.CohortService`. Domain package: `cohort`. Actor: `session.ActorCohort`.
 - Permissions: `cohort:read`, `cohort:manage`. Resource: `cohort`.
 

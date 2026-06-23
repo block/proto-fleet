@@ -67,14 +67,8 @@ func (s *Service) CreateCohort(ctx context.Context, params models.CreateCohortPa
 	if params.Purpose == "" {
 		return nil, fleeterror.NewInvalidArgumentError("cohort purpose is required")
 	}
-	if params.DesiredFirmwareChannel != nil && strings.TrimSpace(*params.DesiredFirmwareChannel) == "" {
-		params.DesiredFirmwareChannel = nil
-	}
 	if params.DesiredFirmwareFileID != nil && strings.TrimSpace(*params.DesiredFirmwareFileID) == "" {
 		params.DesiredFirmwareFileID = nil
-	}
-	if params.DesiredFirmwareChannel != nil && params.DesiredFirmwareFileID != nil {
-		return nil, fleeterror.NewInvalidArgumentError("set either desired_firmware_channel or desired_firmware_file_id, not both")
 	}
 	if params.SourceActorType == "" {
 		params.SourceActorType = models.SourceActorUser

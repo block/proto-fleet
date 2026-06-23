@@ -6,7 +6,6 @@ CREATE TABLE cohort (
     owner_user_id            BIGINT       NULL,
     owner_username           TEXT         NULL,
     expires_at               TIMESTAMPTZ  NULL,
-    desired_firmware_channel TEXT         NULL,
     desired_firmware_file_id VARCHAR      NULL,
     desired_config_jsonb     JSONB        NULL,
     state                    TEXT         NOT NULL DEFAULT 'active',
@@ -21,8 +20,6 @@ CREATE TABLE cohort (
         REFERENCES organization(id) ON DELETE RESTRICT,
     CONSTRAINT fk_cohort_owner FOREIGN KEY (owner_user_id)
         REFERENCES "user"(id),
-    CONSTRAINT ck_cohort_one_desired_fw
-        CHECK (desired_firmware_channel IS NULL OR desired_firmware_file_id IS NULL),
     CONSTRAINT ck_cohort_state CHECK (state IN ('active', 'released')),
     CONSTRAINT ck_cohort_label_nonempty CHECK (length(trim(label)) > 0),
     CONSTRAINT ck_cohort_purpose_nonempty CHECK (length(trim(purpose)) > 0),

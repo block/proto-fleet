@@ -149,9 +149,8 @@ Consequences that fall out of this — and that the original design had to build
 - **Exclusivity is the model’s invariant**, enforced by one UNIQUE constraint — not a special
   reservation feature. The reconciler therefore never sees conflicting desired states for a device.
 - **Enforcement is best-effort and optional.** A cohort with no desired firmware/config enforces
-  nothing. A channel-based desired firmware with no registry match for a device’s model leaves that
-  device alone. Want guaranteed-clean rigs between reservations? Set a default firmware. Don’t care?
-  Leave it unset.
+  nothing. Want guaranteed-clean rigs between reservations? Set a default firmware file on the
+  default cohort. Don’t care? Leave it unset.
 - **A cohort holds *complete* desired state.** Two rigs that want the same firmware but different
   pools need two cohorts. For dev rigs the distinct combinations are few; we accept some cohort
   proliferation rather than build intent-layering now.
@@ -208,7 +207,7 @@ graph TD
 
     TICK[cleanup ticker] -->|SweepExpired| SVC
     REC[enforcement reconciler<br/>30s tick, singleton] --> STORE
-    REC -->|desired = device→cohort| RESOLVE[firmware_release registry]
+    REC -->|desired = device→cohort| STORE
     REC -->|observed| SHADOW[(device_firmware_state<br/>device_config_state)]
     REC -->|dispatch FW / pools / cooling| CMD[command.Service]
     CMD --> PLUGINS[plugins] --> DEV[devices]
@@ -253,9 +252,8 @@ CREATE TABLE cohort (
     owner_username           TEXT         NULL,
     expires_at               TIMESTAMPTZ  NULL,   -- a "reservation" is an owned cohort with an expiry
 
-    -- Desired firmware: at most one of (channel resolved per-device via the registry; or a pinned
-    -- concrete file, e.g. a PR artifact). Both NULL => no firmware enforcement.
-    desired_firmware_channel TEXT         NULL,
+    -- Desired firmware: a pinned concrete file, e.g. a PR artifact.
+    -- NULL => no firmware enforcement.
     desired_firmware_file_id VARCHAR      NULL,
 
     -- Desired config (pools / cooling / power). NULL => no config enforcement.
@@ -271,8 +269,6 @@ CREATE TABLE cohort (
 
     CONSTRAINT fk_cohort_org FOREIGN KEY (org_id) REFERENCES organization(id) ON DELETE RESTRICT,
     CONSTRAINT fk_cohort_owner FOREIGN KEY (owner_user_id) REFERENCES "user"(id),
-    CONSTRAINT ck_cohort_one_desired_fw
-        CHECK (desired_firmware_channel IS NULL OR desired_firmware_file_id IS NULL),
     CONSTRAINT ck_cohort_purpose_nonempty CHECK (length(trim(purpose)) > 0)
 );
 
@@ -339,23 +335,6 @@ CREATE TABLE device_config_state (
     updated_at          TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Resolves a logical firmware channel -> a concrete file + comparable version, PER MODEL.
--- This is where "best-effort, optional, per-miner-type" lives: no matching row => that device
--- is not firmware-enforced. Populated via the existing firmware-upload path.
-CREATE TABLE firmware_release (
-    id               BIGSERIAL    PRIMARY KEY,
-    org_id           BIGINT       NOT NULL,
-    channel          TEXT         NOT NULL,    -- 'release' | 'mfg' | 'dev' | arbitrary tag
-    model            TEXT         NULL,
-    manufacturer     TEXT         NULL,
-    firmware_file_id VARCHAR      NOT NULL,    -- the artifact command.Service.FirmwareUpdate consumes
-    target_version   VARCHAR(255) NOT NULL,    -- compared against device_firmware_state.firmware_version
-    is_active        BOOLEAN      NOT NULL DEFAULT TRUE,
-    created_at       TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE UNIQUE INDEX uq_firmware_release_resolve
-    ON firmware_release (org_id, channel, COALESCE(model,''), COALESCE(manufacturer,'')) WHERE is_active;
-
 -- Control-loop bookkeeping per (device, dimension): the convergence state machine + dispatch cursors.
 -- Distinct from the observed shadows (truth) and the cohort (desired). Survives membership changes —
 -- when a device's cohort changes, the reconciler simply re-targets.
@@ -381,7 +360,6 @@ erDiagram
         bool is_default
         bigint owner_user_id
         timestamptz expires_at
-        text desired_firmware_channel
         varchar desired_firmware_file_id
         jsonb desired_config_jsonb
     }
@@ -394,7 +372,6 @@ erDiagram
     device ||--o| device_firmware_state : observed
     device ||--o| device_config_state : observed
     device ||--o{ device_enforcement_state : "control per dimension"
-    firmware_release }o--|| cohort : "resolves channel"
 ```
 
 ---
@@ -466,8 +443,8 @@ shutdown watchdog, a `CHECK(id=1)` heartbeat row (mirroring `curtailment_reconci
 `000042:187`), per-tick and per-device panic isolation, and optimistic-concurrency state writes.
 
 **Desired state is unambiguous** thanks to the partition: for each device, look up its cohort (or the
-default), resolve `desired_firmware_channel` → concrete file+version via `firmware_release` (per the
-device’s model; best-effort), and read `desired_config_jsonb`. Compare against the observed shadows.
+default), read `desired_firmware_file_id` and `desired_config_jsonb`, and compare against the observed
+shadows.
 
 **Per-device, per-dimension state machine** (firmware / pools / cooling / power are *independent* — we
 must never reflash firmware to correct a pool drift):
@@ -619,15 +596,16 @@ admin gate applied to `AdminReassign` / `AdminReleaseCohort`.
   audit, the web feature, and the thin-CLI repoint. Desired FW/config is *recorded* but enforced only
   via existing one-shot deploy commands.
 - **Phase 2 — continuous firmware + config enforcement.** `device_firmware_state` + `device_config_state`
-  shadows; `firmware_release` registry; the enforcement reconciler doing convergence (firmware first —
-  readback already exists; then pools and cooling). Reset-on-release “just works” here via convergence.
+  shadows; the enforcement reconciler doing convergence from pinned cohort firmware files (firmware
+  first — readback already exists; then pools and cooling). Reset-on-release “just works” here via
+  convergence.
 - **Phase 3 — power enforcement.** Add `GetPowerTarget` to the SDK and all plugins; enable power as an
   enforced dimension.
 - **Phase 4 — deferred.** Progressive-rollout driver; site/building-scoped baselines if a single global
   default proves too coarse; Memfault as an optional delivery channel.
 
-Dependency spine: `cohort CRUD → firmware_release registry → firmware shadow → continuous firmware →
-{pools, cooling} → GetPowerTarget across plugins → continuous power`.
+Dependency spine: `cohort CRUD → firmware shadow → continuous firmware → {pools, cooling} →
+GetPowerTarget across plugins → continuous power`.
 
 ---
 
@@ -652,9 +630,8 @@ Dependency spine: `cohort CRUD → firmware_release registry → firmware shadow
   `SELECT … FOR UPDATE` specifically around the firmware dispatch path.
 - **Stacked command filters.** Schedule × curtailment × cohort filters now all gate commands. *Open:*
   define explicit precedence (v1: curtailment > cohort).
-- **Best-effort default for mixed miner types.** A channel-based default with no `firmware_release` row
-  for a device’s model leaves it unmanaged — surface this visibly (an `unmanaged`/`unresolvable`
-  indicator), don’t silently no-op.
+- **Best-effort default for mixed miner types.** A default cohort without a desired firmware file
+  leaves firmware unmanaged; surface this visibly rather than making users infer it from no-ops.
 - **Credential-bypass pool path.** The actor-gated, credential-free pool reapply needs a security review.
 - **Cohort proliferation.** “Complete desired state per cohort” means distinct (FW, config) combos = new
   cohorts. Accepted for now; revisit intent-layering only if it bites.

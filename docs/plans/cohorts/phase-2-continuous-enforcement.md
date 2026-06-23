@@ -35,8 +35,7 @@ for **firmware, pools, and cooling**; wiring into `fleetd`.
 ### Substrate (migrations + sqlc + small writers)
 - `server/migrations/0000NN_create_cohort_enforcement_substrate.{up,down}.sql` — `device_firmware_state`
   (PK `device_identifier`, `firmware_version`, **`observed_at`**, `org_id`); `device_config_state`
-  (observed pools/cooling, `observed_at`); `firmware_release` (`(org_id, channel, model, manufacturer)
-  → firmware_file_id, target_version`, active partial-unique index); `device_enforcement_state`
+  (observed pools/cooling, `observed_at`); `device_enforcement_state`
   (PK `(device_identifier, dimension)`: `state`, `retry_count`, `last_batch_uuid`,
   `last_dispatched_at`, `last_error`); a cohort reconciler heartbeat (`CHECK(id=1)`, *clone-from*
   `migrations/000042:186`). Confirm the next free number before writing.
@@ -56,9 +55,8 @@ for **firmware, pools, and cooling**; wiring into `fleetd`.
 ### Reconciler
 - `server/internal/domain/cohort/reconciler/reconciler.go` — clone curtailment's structure: singleton
   30s tick, `Start`/`Stop` + watchdog, per-tick + per-device panic isolation, heartbeat upsert,
-  optimistic-concurrency state writes. Resolve desired state by **device → cohort (or default)**;
-  resolve `desired_firmware_channel` → file+version via `firmware_release` per the device's model
-  (best-effort: no match ⇒ skip that device). Run a **per-dimension** state machine
+  optimistic-concurrency state writes. Resolve desired state by **device → cohort (or default)** and
+  read the cohort's pinned `desired_firmware_file_id` plus desired config. Run a **per-dimension** state machine
   (`firmware`/`pools`/`cooling` independent): `pending→dispatching→dispatched→confirmed`,
   `confirmed→drifted→(re-dispatch)`, terminal `failed` at `MaxRetries`.
 - Dispatch surfaces: firmware → `command.Service.FirmwareUpdate(ctx, selector, firmwareFileID)`
@@ -96,8 +94,8 @@ for **firmware, pools, and cooling**; wiring into `fleetd`.
 - Releasing/expiring a cohort converges its devices to the default cohort's desired state (or leaves
   them if the default has none) — with no reset-specific code path.
 - Stale observations do not trigger re-dispatch; no reflash storms (cooldown + open-batch guard hold).
-- A device with no `firmware_release` match for a channel-based desired firmware is left unmanaged
-  (surfaced as `unmanaged`/`unresolvable`, not silently no-op'd).
+- A device whose effective cohort has no desired firmware file is left unmanaged for firmware
+  (surfaced clearly, not silently no-op'd).
 
 ## Verification
 

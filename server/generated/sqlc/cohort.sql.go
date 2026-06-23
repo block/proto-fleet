@@ -53,7 +53,6 @@ INSERT INTO cohort (
     owner_user_id,
     owner_username,
     expires_at,
-    desired_firmware_channel,
     desired_firmware_file_id,
     desired_config_jsonb,
     state,
@@ -69,30 +68,28 @@ INSERT INTO cohort (
     $4,
     $5,
     $6,
-    $7,
-    $8::jsonb,
+    $7::jsonb,
     'active',
+    $8,
     $9,
     $10,
-    $11,
-    $12
+    $11
 )
-RETURNING id, org_id, label, is_default, owner_user_id, owner_username, expires_at, desired_firmware_channel, desired_firmware_file_id, desired_config_jsonb, state, purpose, source_actor_type, source_actor_id, idempotency_key, created_at, updated_at
+RETURNING id, org_id, label, is_default, owner_user_id, owner_username, expires_at, desired_firmware_file_id, desired_config_jsonb, state, purpose, source_actor_type, source_actor_id, idempotency_key, created_at, updated_at
 `
 
 type CreateCohortParams struct {
-	OrgID                  int64
-	Label                  string
-	OwnerUserID            sql.NullInt64
-	OwnerUsername          sql.NullString
-	ExpiresAt              sql.NullTime
-	DesiredFirmwareChannel sql.NullString
-	DesiredFirmwareFileID  sql.NullString
-	DesiredConfigJsonb     pqtype.NullRawMessage
-	Purpose                string
-	SourceActorType        string
-	SourceActorID          sql.NullString
-	IdempotencyKey         sql.NullString
+	OrgID                 int64
+	Label                 string
+	OwnerUserID           sql.NullInt64
+	OwnerUsername         sql.NullString
+	ExpiresAt             sql.NullTime
+	DesiredFirmwareFileID sql.NullString
+	DesiredConfigJsonb    pqtype.NullRawMessage
+	Purpose               string
+	SourceActorType       string
+	SourceActorID         sql.NullString
+	IdempotencyKey        sql.NullString
 }
 
 func (q *Queries) CreateCohort(ctx context.Context, arg CreateCohortParams) (Cohort, error) {
@@ -102,7 +99,6 @@ func (q *Queries) CreateCohort(ctx context.Context, arg CreateCohortParams) (Coh
 		arg.OwnerUserID,
 		arg.OwnerUsername,
 		arg.ExpiresAt,
-		arg.DesiredFirmwareChannel,
 		arg.DesiredFirmwareFileID,
 		arg.DesiredConfigJsonb,
 		arg.Purpose,
@@ -119,7 +115,6 @@ func (q *Queries) CreateCohort(ctx context.Context, arg CreateCohortParams) (Coh
 		&i.OwnerUserID,
 		&i.OwnerUsername,
 		&i.ExpiresAt,
-		&i.DesiredFirmwareChannel,
 		&i.DesiredFirmwareFileID,
 		&i.DesiredConfigJsonb,
 		&i.State,
@@ -175,7 +170,7 @@ func (q *Queries) DeleteCohortMembershipsByCohort(ctx context.Context, arg Delet
 
 const getCohort = `-- name: GetCohort :one
 SELECT
-    c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_channel, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
+    c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
     COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
 FROM cohort c
 LEFT JOIN (
@@ -193,24 +188,23 @@ type GetCohortParams struct {
 }
 
 type GetCohortRow struct {
-	ID                     int64
-	OrgID                  int64
-	Label                  string
-	IsDefault              bool
-	OwnerUserID            sql.NullInt64
-	OwnerUsername          sql.NullString
-	ExpiresAt              sql.NullTime
-	DesiredFirmwareChannel sql.NullString
-	DesiredFirmwareFileID  sql.NullString
-	DesiredConfigJsonb     pqtype.NullRawMessage
-	State                  string
-	Purpose                string
-	SourceActorType        string
-	SourceActorID          sql.NullString
-	IdempotencyKey         sql.NullString
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-	ExplicitMemberCount    int64
+	ID                    int64
+	OrgID                 int64
+	Label                 string
+	IsDefault             bool
+	OwnerUserID           sql.NullInt64
+	OwnerUsername         sql.NullString
+	ExpiresAt             sql.NullTime
+	DesiredFirmwareFileID sql.NullString
+	DesiredConfigJsonb    pqtype.NullRawMessage
+	State                 string
+	Purpose               string
+	SourceActorType       string
+	SourceActorID         sql.NullString
+	IdempotencyKey        sql.NullString
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ExplicitMemberCount   int64
 }
 
 func (q *Queries) GetCohort(ctx context.Context, arg GetCohortParams) (GetCohortRow, error) {
@@ -224,7 +218,6 @@ func (q *Queries) GetCohort(ctx context.Context, arg GetCohortParams) (GetCohort
 		&i.OwnerUserID,
 		&i.OwnerUsername,
 		&i.ExpiresAt,
-		&i.DesiredFirmwareChannel,
 		&i.DesiredFirmwareFileID,
 		&i.DesiredConfigJsonb,
 		&i.State,
@@ -314,7 +307,7 @@ func (q *Queries) ListCohortMembers(ctx context.Context, arg ListCohortMembersPa
 
 const listCohorts = `-- name: ListCohorts :many
 SELECT
-    c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_channel, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
+    c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
     COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
 FROM cohort c
 LEFT JOIN (
@@ -333,24 +326,23 @@ type ListCohortsParams struct {
 }
 
 type ListCohortsRow struct {
-	ID                     int64
-	OrgID                  int64
-	Label                  string
-	IsDefault              bool
-	OwnerUserID            sql.NullInt64
-	OwnerUsername          sql.NullString
-	ExpiresAt              sql.NullTime
-	DesiredFirmwareChannel sql.NullString
-	DesiredFirmwareFileID  sql.NullString
-	DesiredConfigJsonb     pqtype.NullRawMessage
-	State                  string
-	Purpose                string
-	SourceActorType        string
-	SourceActorID          sql.NullString
-	IdempotencyKey         sql.NullString
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-	ExplicitMemberCount    int64
+	ID                    int64
+	OrgID                 int64
+	Label                 string
+	IsDefault             bool
+	OwnerUserID           sql.NullInt64
+	OwnerUsername         sql.NullString
+	ExpiresAt             sql.NullTime
+	DesiredFirmwareFileID sql.NullString
+	DesiredConfigJsonb    pqtype.NullRawMessage
+	State                 string
+	Purpose               string
+	SourceActorType       string
+	SourceActorID         sql.NullString
+	IdempotencyKey        sql.NullString
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ExplicitMemberCount   int64
 }
 
 func (q *Queries) ListCohorts(ctx context.Context, arg ListCohortsParams) ([]ListCohortsRow, error) {
@@ -370,7 +362,6 @@ func (q *Queries) ListCohorts(ctx context.Context, arg ListCohortsParams) ([]Lis
 			&i.OwnerUserID,
 			&i.OwnerUsername,
 			&i.ExpiresAt,
-			&i.DesiredFirmwareChannel,
 			&i.DesiredFirmwareFileID,
 			&i.DesiredConfigJsonb,
 			&i.State,
@@ -397,7 +388,7 @@ func (q *Queries) ListCohorts(ctx context.Context, arg ListCohortsParams) ([]Lis
 
 const listCohortsByOwner = `-- name: ListCohortsByOwner :many
 SELECT
-    c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_channel, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
+    c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
     COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
 FROM cohort c
 LEFT JOIN (
@@ -418,24 +409,23 @@ type ListCohortsByOwnerParams struct {
 }
 
 type ListCohortsByOwnerRow struct {
-	ID                     int64
-	OrgID                  int64
-	Label                  string
-	IsDefault              bool
-	OwnerUserID            sql.NullInt64
-	OwnerUsername          sql.NullString
-	ExpiresAt              sql.NullTime
-	DesiredFirmwareChannel sql.NullString
-	DesiredFirmwareFileID  sql.NullString
-	DesiredConfigJsonb     pqtype.NullRawMessage
-	State                  string
-	Purpose                string
-	SourceActorType        string
-	SourceActorID          sql.NullString
-	IdempotencyKey         sql.NullString
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-	ExplicitMemberCount    int64
+	ID                    int64
+	OrgID                 int64
+	Label                 string
+	IsDefault             bool
+	OwnerUserID           sql.NullInt64
+	OwnerUsername         sql.NullString
+	ExpiresAt             sql.NullTime
+	DesiredFirmwareFileID sql.NullString
+	DesiredConfigJsonb    pqtype.NullRawMessage
+	State                 string
+	Purpose               string
+	SourceActorType       string
+	SourceActorID         sql.NullString
+	IdempotencyKey        sql.NullString
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ExplicitMemberCount   int64
 }
 
 func (q *Queries) ListCohortsByOwner(ctx context.Context, arg ListCohortsByOwnerParams) ([]ListCohortsByOwnerRow, error) {
@@ -455,7 +445,6 @@ func (q *Queries) ListCohortsByOwner(ctx context.Context, arg ListCohortsByOwner
 			&i.OwnerUserID,
 			&i.OwnerUsername,
 			&i.ExpiresAt,
-			&i.DesiredFirmwareChannel,
 			&i.DesiredFirmwareFileID,
 			&i.DesiredConfigJsonb,
 			&i.State,
@@ -527,7 +516,7 @@ SET state = 'released',
 WHERE id = $1
   AND org_id = $2
   AND is_default = FALSE
-RETURNING id, org_id, label, is_default, owner_user_id, owner_username, expires_at, desired_firmware_channel, desired_firmware_file_id, desired_config_jsonb, state, purpose, source_actor_type, source_actor_id, idempotency_key, created_at, updated_at
+RETURNING id, org_id, label, is_default, owner_user_id, owner_username, expires_at, desired_firmware_file_id, desired_config_jsonb, state, purpose, source_actor_type, source_actor_id, idempotency_key, created_at, updated_at
 `
 
 type ReleaseCohortParams struct {
@@ -546,7 +535,6 @@ func (q *Queries) ReleaseCohort(ctx context.Context, arg ReleaseCohortParams) (C
 		&i.OwnerUserID,
 		&i.OwnerUsername,
 		&i.ExpiresAt,
-		&i.DesiredFirmwareChannel,
 		&i.DesiredFirmwareFileID,
 		&i.DesiredConfigJsonb,
 		&i.State,
@@ -562,7 +550,7 @@ func (q *Queries) ReleaseCohort(ctx context.Context, arg ReleaseCohortParams) (C
 
 const resolveEffectiveCohortForDevice = `-- name: ResolveEffectiveCohortForDevice :one
 SELECT
-    c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_channel, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
+    c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
     COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
 FROM device d
 LEFT JOIN cohort_membership cm
@@ -589,24 +577,23 @@ type ResolveEffectiveCohortForDeviceParams struct {
 }
 
 type ResolveEffectiveCohortForDeviceRow struct {
-	ID                     int64
-	OrgID                  int64
-	Label                  string
-	IsDefault              bool
-	OwnerUserID            sql.NullInt64
-	OwnerUsername          sql.NullString
-	ExpiresAt              sql.NullTime
-	DesiredFirmwareChannel sql.NullString
-	DesiredFirmwareFileID  sql.NullString
-	DesiredConfigJsonb     pqtype.NullRawMessage
-	State                  string
-	Purpose                string
-	SourceActorType        string
-	SourceActorID          sql.NullString
-	IdempotencyKey         sql.NullString
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-	ExplicitMemberCount    int64
+	ID                    int64
+	OrgID                 int64
+	Label                 string
+	IsDefault             bool
+	OwnerUserID           sql.NullInt64
+	OwnerUsername         sql.NullString
+	ExpiresAt             sql.NullTime
+	DesiredFirmwareFileID sql.NullString
+	DesiredConfigJsonb    pqtype.NullRawMessage
+	State                 string
+	Purpose               string
+	SourceActorType       string
+	SourceActorID         sql.NullString
+	IdempotencyKey        sql.NullString
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ExplicitMemberCount   int64
 }
 
 func (q *Queries) ResolveEffectiveCohortForDevice(ctx context.Context, arg ResolveEffectiveCohortForDeviceParams) (ResolveEffectiveCohortForDeviceRow, error) {
@@ -620,7 +607,6 @@ func (q *Queries) ResolveEffectiveCohortForDevice(ctx context.Context, arg Resol
 		&i.OwnerUserID,
 		&i.OwnerUsername,
 		&i.ExpiresAt,
-		&i.DesiredFirmwareChannel,
 		&i.DesiredFirmwareFileID,
 		&i.DesiredConfigJsonb,
 		&i.State,

@@ -400,23 +400,22 @@ type Building struct {
 }
 
 type Cohort struct {
-	ID                     int64
-	OrgID                  int64
-	Label                  string
-	IsDefault              bool
-	OwnerUserID            sql.NullInt64
-	OwnerUsername          sql.NullString
-	ExpiresAt              sql.NullTime
-	DesiredFirmwareChannel sql.NullString
-	DesiredFirmwareFileID  sql.NullString
-	DesiredConfigJsonb     pqtype.NullRawMessage
-	State                  string
-	Purpose                string
-	SourceActorType        string
-	SourceActorID          sql.NullString
-	IdempotencyKey         sql.NullString
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	ID                    int64
+	OrgID                 int64
+	Label                 string
+	IsDefault             bool
+	OwnerUserID           sql.NullInt64
+	OwnerUsername         sql.NullString
+	ExpiresAt             sql.NullTime
+	DesiredFirmwareFileID sql.NullString
+	DesiredConfigJsonb    pqtype.NullRawMessage
+	State                 string
+	Purpose               string
+	SourceActorType       string
+	SourceActorID         sql.NullString
+	IdempotencyKey        sql.NullString
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type CohortMembership struct {
