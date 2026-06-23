@@ -803,14 +803,16 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Curtailment mode" })).toBeDisabled();
     expect(screen.getByLabelText("Fixed target reduction (kW)")).toBeDisabled();
+    expect(screen.getByTestId("curtailment-curtail-batch-size")).toBeDisabled();
+    expect(screen.getByTestId("curtailment-curtail-batch-interval")).toBeDisabled();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeDisabled();
     expect(screen.getByText("Include miners in maintenance").closest("label")).toHaveClass("cursor-not-allowed");
 
     const saveButton = screen.getByRole("button", { name: "Save" });
     expect(saveButton).toBeDisabled();
 
-    await user.clear(screen.getByLabelText("Batch interval (sec)"));
-    await user.type(screen.getByLabelText("Batch interval (sec)"), "180");
+    await user.clear(screen.getByTestId("curtailment-restore-batch-interval"));
+    await user.type(screen.getByTestId("curtailment-restore-batch-interval"), "180");
     expect(saveButton).toBeEnabled();
     await user.click(saveButton);
 
@@ -853,7 +855,7 @@ describe("CurtailmentStartModal", () => {
     );
 
     expect(screen.getByLabelText("Reason")).toHaveValue("Operator draft");
-    expect(screen.getByLabelText("Batch interval (sec)")).toHaveValue("120");
+    expect(screen.getByTestId("curtailment-restore-batch-interval")).toHaveValue("120");
   });
 
   it("blocks restore interval clears in edit mode", async () => {
@@ -868,7 +870,7 @@ describe("CurtailmentStartModal", () => {
     });
     const saveButton = screen.getByRole("button", { name: "Save" });
 
-    await user.clear(screen.getByLabelText("Batch interval (sec)"));
+    await user.clear(screen.getByTestId("curtailment-restore-batch-interval"));
 
     expect(screen.getByText("Restore interval cannot be cleared.")).toBeInTheDocument();
     expect(saveButton).toBeEnabled();
@@ -889,8 +891,8 @@ describe("CurtailmentStartModal", () => {
     });
     const saveButton = screen.getByRole("button", { name: "Save" });
 
-    await user.clear(screen.getByLabelText("Batch interval (sec)"));
-    await user.type(screen.getByLabelText("Batch interval (sec)"), "0");
+    await user.clear(screen.getByTestId("curtailment-restore-batch-interval"));
+    await user.type(screen.getByTestId("curtailment-restore-batch-interval"), "0");
 
     expect(screen.getByText("Enter batch interval greater than 0.")).toBeInTheDocument();
     expect(saveButton).toBeEnabled();
@@ -911,8 +913,8 @@ describe("CurtailmentStartModal", () => {
     });
     const saveButton = screen.getByRole("button", { name: "Save" });
 
-    await user.clear(screen.getByLabelText("Batch interval (sec)"));
-    await user.type(screen.getByLabelText("Batch interval (sec)"), "180");
+    await user.clear(screen.getByTestId("curtailment-restore-batch-interval"));
+    await user.type(screen.getByTestId("curtailment-restore-batch-interval"), "180");
     await user.click(saveButton);
 
     expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument();
