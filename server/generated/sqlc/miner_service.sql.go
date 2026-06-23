@@ -22,8 +22,8 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
-    decode(mc.username_enc, 'base64') AS encrypted_username,
-    decode(mc.password_enc, 'base64') AS encrypted_password
+    mc.username_enc AS encrypted_username,
+    mc.password_enc AS encrypted_password
 FROM fleet_node_device fnd
 JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
 JOIN device_pairing dp ON dp.device_id = d.id
@@ -48,8 +48,8 @@ type GetActiveFleetNodeForDeviceRow struct {
 	IpAddress         string
 	Port              string
 	UrlScheme         string
-	EncryptedUsername []byte
-	EncryptedPassword []byte
+	EncryptedUsername sql.NullString
+	EncryptedPassword sql.NullString
 }
 
 // Resolve the active fleet node a device is paired to, with the connection

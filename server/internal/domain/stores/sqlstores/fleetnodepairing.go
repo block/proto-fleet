@@ -40,6 +40,10 @@ func (s *SQLFleetNodePairingStore) TransferDiscoveredDeviceAttribution(ctx conte
 	})
 }
 
+func (s *SQLFleetNodePairingStore) DeleteMinerCredentialsByDeviceID(ctx context.Context, deviceID int64) (int64, error) {
+	return s.q(ctx).DeleteMinerCredentialsByDeviceID(ctx, deviceID)
+}
+
 func (s *SQLFleetNodePairingStore) DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error) {
 	return s.q(ctx).DeviceHasActiveCloudPairing(ctx, sqlc.DeviceHasActiveCloudPairingParams{
 		DeviceID: deviceID,

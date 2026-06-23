@@ -3,6 +3,7 @@ package miner
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -259,13 +260,24 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 		URLScheme:          row.UrlScheme,
 		SerialNumber:       row.SerialNumber.String,
 		MacAddress:         row.MacAddress,
-		CredentialUsername: row.EncryptedUsername,
-		CredentialPassword: row.EncryptedPassword,
+		CredentialUsername: fleetNodeCredentialBytes(row.EncryptedUsername),
+		CredentialPassword: fleetNodeCredentialBytes(row.EncryptedPassword),
 	})
 	if err != nil {
 		return nil, false, err
 	}
 	return m, true, nil
+}
+
+func fleetNodeCredentialBytes(value sql.NullString) []byte {
+	if !value.Valid {
+		return nil
+	}
+	decoded, err := base64.StdEncoding.DecodeString(value.String)
+	if err != nil {
+		return []byte(value.String)
+	}
+	return decoded
 }
 
 // InvalidateMiner removes the cached miner handle for the given device identifier

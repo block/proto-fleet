@@ -9,6 +9,10 @@ ON CONFLICT (device_id) DO UPDATE SET
 SELECT * FROM miner_credentials
 WHERE device_id = $1;
 
+-- name: DeleteMinerCredentialsByDeviceID :execrows
+DELETE FROM miner_credentials
+WHERE device_id = $1;
+
 -- name: UpdateMinerPassword :execrows
 UPDATE miner_credentials
 SET password_enc = $1

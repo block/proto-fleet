@@ -129,6 +129,31 @@ func TestHandleMinerCommand_InvalidTargetCredentialAcksUnauthenticated(t *testin
 	assert.Equal(t, pb.AckCode_ACK_CODE_UNAUTHENTICATED, ack.only(t).GetCode())
 }
 
+func TestHandleMinerCommand_WrongKeyTargetCredentialAcksUnauthenticated(t *testing.T) {
+	// Arrange: the credential bytes are well-formed, but sealed by another node key.
+	ctrl := gomock.NewController(t)
+	sealingCodec := &credentialCodec{key: bytes.Repeat([]byte{4}, credentialKeySize)}
+	encrypted, err := sealingCodec.Seal(sdk.SecretBundle{
+		Version: "v1",
+		Kind:    sdk.UsernamePassword{Username: "root", Password: "hunter2"},
+	})
+	require.NoError(t, err)
+	r := &RunCmd{
+		driverGetter: fakeDriverGetter{d: mocks.NewMockDriver(ctrl)},
+		minerSecrets: &credentialCodec{key: bytes.Repeat([]byte{5}, credentialKeySize)},
+	}
+	ack := &captureAcker{}
+	mc := withTarget(&pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}}})
+	mc.Target.CredentialUsername = encrypted.GetUsername()
+	mc.Target.CredentialPassword = encrypted.GetPassword()
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+
+	// Assert: rejected before the driver is dialed.
+	assert.Equal(t, pb.AckCode_ACK_CODE_UNAUTHENTICATED, ack.only(t).GetCode())
+}
+
 func TestHandleMinerCommand_ConvertsCoolingMode(t *testing.T) {
 	// Arrange: the proto cooling enum must map to the matching SDK value.
 	ctrl := gomock.NewController(t)

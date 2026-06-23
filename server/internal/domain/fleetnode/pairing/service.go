@@ -37,6 +37,10 @@ type Store interface {
 	GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error)
 }
 
+type minerCredentialDeleter interface {
+	DeleteMinerCredentialsByDeviceID(ctx context.Context, deviceID int64) (int64, error)
+}
+
 type FleetNodeDiscoveredDeviceFilter struct {
 	Identifiers       []string
 	PairingStatuses   []string
@@ -56,7 +60,6 @@ type Service struct {
 	// listing work without them.
 	deviceStore           stores.DeviceStore
 	discoveredDeviceStore stores.DiscoveredDeviceStore
-	encryptService        *encrypt.Service
 	dispatcher            control.Sender
 
 	invalidateMiner func(context.Context, int64)
@@ -66,13 +69,11 @@ func NewService(store Store, enrollmentStore enrollment.AgentStore, transactor s
 	return &Service{store: store, enrollmentStore: enrollmentStore, transactor: transactor}
 }
 
-// WithProvisioning wires the collaborators the pair-discovered flow needs: the
-// stores + encryptService PersistFleetNodePairResult uses, and the dispatcher
-// PairOnNode sends pair commands through. Returns the service for chaining.
+// WithProvisioning wires the stores PersistFleetNodePairResult uses and the
+// dispatcher PairOnNode sends pair commands through. Returns the service for chaining.
 func (s *Service) WithProvisioning(deviceStore stores.DeviceStore, discoveredDeviceStore stores.DiscoveredDeviceStore, encryptService *encrypt.Service, dispatcher control.Sender) *Service {
 	s.deviceStore = deviceStore
 	s.discoveredDeviceStore = discoveredDeviceStore
-	s.encryptService = encryptService
 	s.dispatcher = dispatcher
 	return s
 }
@@ -138,9 +139,15 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 			return fleeterror.LogInternal(component, "check fleet node binding", clientErrPair, boundErr)
 		}
 		if sameNode {
+			if err := s.deleteMinerCredentialsByDeviceID(ctx, deviceID, clientErrPair); err != nil {
+				return err
+			}
 			return nil
 		}
 		return fleeterror.NewFailedPreconditionError("device already paired; unpair first")
+	}
+	if err := s.deleteMinerCredentialsByDeviceID(ctx, deviceID, clientErrPair); err != nil {
+		return err
 	}
 	// Make the paired node the discovery owner so its future reports refresh the row
 	// instead of being rejected by the attribution guard. No-op without a discovered_device.
@@ -164,11 +171,30 @@ func (s *Service) deviceBoundToFleetNode(ctx context.Context, fleetNodeID, devic
 }
 
 func (s *Service) UnpairDevice(ctx context.Context, deviceID, orgID int64) error {
-	if _, err := s.store.UnpairDevice(ctx, deviceID, orgID); err != nil {
-		return fleeterror.LogInternal(component, "unpair device", clientErrUnpair, err)
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		if _, err := s.store.UnpairDevice(ctx, deviceID, orgID); err != nil {
+			return fleeterror.LogInternal(component, "unpair device", clientErrUnpair, err)
+		}
+		if err := s.deleteMinerCredentialsByDeviceID(ctx, deviceID, clientErrUnpair); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	if s.invalidateMiner != nil {
 		s.invalidateMiner(ctx, deviceID)
+	}
+	return nil
+}
+
+func (s *Service) deleteMinerCredentialsByDeviceID(ctx context.Context, deviceID int64, clientMessage string) error {
+	store, ok := s.store.(minerCredentialDeleter)
+	if !ok {
+		return fleeterror.NewInternalError("fleet node pairing credential cleanup is not configured")
+	}
+	if _, err := store.DeleteMinerCredentialsByDeviceID(ctx, deviceID); err != nil {
+		return fleeterror.LogInternal(component, "clear miner credentials", clientMessage, err)
 	}
 	return nil
 }

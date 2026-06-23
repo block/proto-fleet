@@ -9,6 +9,19 @@ import (
 	"context"
 )
 
+const deleteMinerCredentialsByDeviceID = `-- name: DeleteMinerCredentialsByDeviceID :execrows
+DELETE FROM miner_credentials
+WHERE device_id = $1
+`
+
+func (q *Queries) DeleteMinerCredentialsByDeviceID(ctx context.Context, deviceID int64) (int64, error) {
+	result, err := q.exec(ctx, q.deleteMinerCredentialsByDeviceIDStmt, deleteMinerCredentialsByDeviceID, deviceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getMinerCredentialsByDeviceID = `-- name: GetMinerCredentialsByDeviceID :one
 SELECT id, device_id, username_enc, password_enc, created_at, updated_at FROM miner_credentials
 WHERE device_id = $1

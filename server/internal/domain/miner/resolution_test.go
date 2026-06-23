@@ -125,6 +125,49 @@ func TestMinerService_RoutesFleetNodeEncryptedCredentialsFromMinerCredentials(t 
 	assert.Equal(t, encryptedPassword, target.GetCredentialPassword())
 }
 
+func TestMinerService_RoutesMalformedFleetNodeCredentialStringsToNode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange
+	db, encryptService, filesService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
+	deviceIdentifier := "fleetnode-routed-with-malformed-credentials"
+	deviceID := createTestDevice(t, db, deviceIdentifier)
+
+	var fleetNodeID int64
+	require.NoError(t, db.QueryRow(
+		`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
+		 VALUES (1, $1, $2, 'CONFIRMED') RETURNING id`,
+		"test-fleet-node-malformed-credentials", []byte("identity-pubkey-malformed-credentials"),
+	).Scan(&fleetNodeID))
+	_, err := db.Exec(
+		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
+		fleetNodeID, deviceID)
+	require.NoError(t, err)
+	_, err = db.Exec(
+		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		 VALUES ($1, $2, $3)`,
+		deviceID, "not base64", "also not base64")
+	require.NoError(t, err)
+
+	sender := &fakeCommandSender{}
+	svc := miner.NewMinerService(db, userStore, encryptService, filesService, &fakePluginManager{driverName: "antminer"}).
+		WithCommandSender(sender)
+
+	// Act
+	m, err := svc.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(deviceIdentifier))
+	require.NoError(t, err)
+	require.NoError(t, m.Reboot(t.Context()))
+
+	// Assert: malformed strings still route to the node, where credential
+	// decryption maps them to an authentication ACK instead of breaking lookup.
+	target := sentMinerCommand(t, sender).GetTarget()
+	assert.Equal(t, []byte("not base64"), target.GetCredentialUsername())
+	assert.Equal(t, []byte("also not base64"), target.GetCredentialPassword())
+}
+
 // TestMinerService_DoesNotRouteUnpairedFleetNodeBoundDevice verifies that a device
 // bound to a CONFIRMED fleet node but whose device_pairing is not PAIRED does NOT
 // resolve to a remote miner (it must not receive commands until fully paired),

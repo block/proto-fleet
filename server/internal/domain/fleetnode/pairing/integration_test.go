@@ -95,9 +95,30 @@ func TestPairUnpairListRoundTrip(t *testing.T) {
 	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-pair-list")
 	deviceID := insertDevice(t, db, orgID)
 	assignedBy := int64(1)
+	_, err := db.Exec(
+		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		 VALUES ($1, 'server-username', 'server-password')`,
+		deviceID,
+	)
+	require.NoError(t, err)
 
 	// Act 1: pair
 	require.NoError(t, pairing.PairDevice(ctx, fleetNodeID, deviceID, orgID, &assignedBy))
+
+	// Assert pair clears any credentials from the previous cloud-owned route.
+	var credentialRows int
+	require.NoError(t, db.QueryRow(`SELECT count(*) FROM miner_credentials WHERE device_id=$1`, deviceID).Scan(&credentialRows))
+	assert.Zero(t, credentialRows)
+
+	_, err = db.Exec(
+		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		 VALUES ($1, 'stale-repeat-username', 'stale-repeat-password')`,
+		deviceID,
+	)
+	require.NoError(t, err)
+	require.NoError(t, pairing.PairDevice(ctx, fleetNodeID, deviceID, orgID, &assignedBy))
+	require.NoError(t, db.QueryRow(`SELECT count(*) FROM miner_credentials WHERE device_id=$1`, deviceID).Scan(&credentialRows))
+	assert.Zero(t, credentialRows, "idempotent same-node pair also clears stale credentials")
 
 	// Act 2: list scoped to this fleet node
 	pairs, err := pairing.ListDevicesForFleetNode(ctx, fleetNodeID, orgID)
@@ -110,6 +131,13 @@ func TestPairUnpairListRoundTrip(t *testing.T) {
 	require.NotNil(t, pairs[0].AssignedBy)
 	assert.Equal(t, assignedBy, *pairs[0].AssignedBy)
 
+	_, err = db.Exec(
+		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		 VALUES ($1, 'node-username', 'node-password')`,
+		deviceID,
+	)
+	require.NoError(t, err)
+
 	// Act 3: unpair
 	require.NoError(t, pairing.UnpairDevice(ctx, deviceID, orgID))
 
@@ -117,6 +145,8 @@ func TestPairUnpairListRoundTrip(t *testing.T) {
 	pairs, err = pairing.ListDevicesForFleetNode(ctx, fleetNodeID, orgID)
 	require.NoError(t, err)
 	assert.Len(t, pairs, 0)
+	require.NoError(t, db.QueryRow(`SELECT count(*) FROM miner_credentials WHERE device_id=$1`, deviceID).Scan(&credentialRows))
+	assert.Zero(t, credentialRows)
 }
 
 func TestPairUnpairInvalidatesMinerCache(t *testing.T) {

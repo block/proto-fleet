@@ -76,6 +76,18 @@ func hasMinerCredentials(t *testing.T, db *sql.DB, orgID int64, identifier strin
 	return n > 0
 }
 
+func upsertMinerCredentialsForDevice(t *testing.T, db *sql.DB, deviceID int64, username, password string) {
+	t.Helper()
+	_, err := db.Exec(
+		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (device_id) DO UPDATE
+		 SET username_enc = EXCLUDED.username_enc, password_enc = EXCLUDED.password_enc`,
+		deviceID, username, password,
+	)
+	require.NoError(t, err)
+}
+
 func fleetNodeEncryptedCredentials(t *testing.T, db *sql.DB, orgID int64, identifier string) (username, password []byte) {
 	t.Helper()
 	var usernameEnc, passwordEnc string
@@ -122,7 +134,7 @@ func TestPersistFleetNodePairResult_PairedWithoutReportedCredentials(t *testing.
 	assert.False(t, hasMinerCredentials(t, db, orgID, "mac:p-no-creds"), "pairing without reported credentials stores no credentials")
 }
 
-func TestPersistFleetNodePairResult_PairedBasicAuthStoresCredentials(t *testing.T) {
+func TestPersistFleetNodePairResult_IgnoresPlaintextUsedCredentials(t *testing.T) {
 	// Arrange
 	ctx := t.Context()
 	db, orgID, pairing, enrollment := setupPairingTest(t)
@@ -132,7 +144,7 @@ func TestPersistFleetNodePairResult_PairedBasicAuthStoresCredentials(t *testing.
 	result.UsedCredentials = &gatewaypb.UsedCredentials{Username: "root", Password: "hunter2"}
 	assignedBy := int64(1)
 
-	// Act: the node reports the basic-auth credentials it authenticated with.
+	// Act: the node reports only plaintext basic-auth credentials.
 	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
 
 	// Assert
@@ -140,7 +152,7 @@ func TestPersistFleetNodePairResult_PairedBasicAuthStoresCredentials(t *testing.
 	assert.Equal(t, fleetnodepairing.StatusPaired, status)
 	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, "mac:p-basic"))
 	assert.True(t, deviceBoundToNode(t, db, orgID, node, "mac:p-basic"))
-	assert.True(t, hasMinerCredentials(t, db, orgID, "mac:p-basic"), "basic-auth credentials must be stored encrypted")
+	assert.False(t, hasMinerCredentials(t, db, orgID, "mac:p-basic"), "server must not store node-reported plaintext credentials")
 }
 
 func TestPersistFleetNodePairResult_StoresFleetNodeEncryptedCredentialsInMinerCredentials(t *testing.T) {
@@ -153,7 +165,6 @@ func TestPersistFleetNodePairResult_StoresFleetNodeEncryptedCredentialsInMinerCr
 	encryptedUsername := []byte("node-owned-username-ciphertext")
 	encryptedPassword := []byte("node-owned-password-ciphertext")
 	result := pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
-	result.UsedCredentials = &gatewaypb.UsedCredentials{Username: "root", Password: "hunter2"}
 	result.EncryptedCredentials = &gatewaypb.EncryptedCredentials{Username: encryptedUsername, Password: encryptedPassword}
 	assignedBy := int64(1)
 
@@ -166,6 +177,75 @@ func TestPersistFleetNodePairResult_StoresFleetNodeEncryptedCredentialsInMinerCr
 	username, password := fleetNodeEncryptedCredentials(t, db, orgID, identifier)
 	assert.Equal(t, encryptedUsername, username)
 	assert.Equal(t, encryptedPassword, password)
+}
+
+func TestPersistFleetNodePairResult_RejectsEmptyFleetNodeEncryptedCredentials(t *testing.T) {
+	cases := []struct {
+		name      string
+		slug      string
+		encrypted *gatewaypb.EncryptedCredentials
+	}{
+		{"empty", "empty", &gatewaypb.EncryptedCredentials{}},
+		{"missing username", "missing-username", &gatewaypb.EncryptedCredentials{Password: []byte("password-ciphertext")}},
+		{"missing password", "missing-password", &gatewaypb.EncryptedCredentials{Username: []byte("username-ciphertext")}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			ctx := t.Context()
+			db, orgID, pairing, enrollment := setupPairingTest(t)
+			node := createFleetNode(t, enrollment, orgID, "node-empty-encrypted-"+tc.slug)
+			identifier := "mac:p-empty-encrypted-" + tc.slug
+			upsertNodeDiscovered(t, pairing, orgID, node, identifier)
+			result := pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
+			result.UsedCredentials = &gatewaypb.UsedCredentials{Username: "root", Password: "hunter2"}
+			result.EncryptedCredentials = tc.encrypted
+			assignedBy := int64(1)
+
+			// Act
+			_, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
+
+			// Assert: empty encrypted_credentials is rejected instead of falling
+			// back to plaintext or committing a node binding with unusable bytes.
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "encrypted credentials")
+			assert.False(t, deviceExists(t, db, orgID, identifier))
+			assert.False(t, deviceBoundToNode(t, db, orgID, node, identifier))
+			assert.False(t, hasMinerCredentials(t, db, orgID, identifier))
+		})
+	}
+}
+
+func TestPersistFleetNodePairResult_ClearsStaleCredentialsWhenBindingToFleetNode(t *testing.T) {
+	// Arrange: an existing device has cloud/server-encrypted credentials before
+	// it becomes fleet-node-owned. A no-secret fleet-node pair must not leave that
+	// row behind for future node commands or direct fallback.
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-clear-stale")
+	identifier := "mac:p-clear-stale"
+	upsertNodeDiscovered(t, pairing, orgID, node, identifier)
+	var ddID int64
+	require.NoError(t, db.QueryRow(
+		`SELECT id FROM discovered_device WHERE org_id=$1 AND device_identifier=$2 AND deleted_at IS NULL`,
+		orgID, identifier).Scan(&ddID))
+	var devID int64
+	require.NoError(t, db.QueryRow(
+		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		identifier, "aa:bb:cc:00:cs:01", "sn-clear-stale", orgID, ddID).Scan(&devID))
+	upsertMinerCredentialsForDevice(t, db, devID, "server-username", "server-password")
+	result := pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
+	assignedBy := int64(1)
+
+	// Act
+	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, fleetnodepairing.StatusPaired, status)
+	assert.True(t, deviceBoundToNode(t, db, orgID, node, identifier))
+	assert.False(t, hasMinerCredentials(t, db, orgID, identifier), "binding to a fleet node clears stale direct credentials")
 }
 
 func TestPersistFleetNodePairResult_StoresNodeReportedDefaultCredentials(t *testing.T) {
@@ -182,11 +262,11 @@ func TestPersistFleetNodePairResult_StoresNodeReportedDefaultCredentials(t *test
 	// Act: nil operator credentials.
 	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
 
-	// Assert: paired, bound, and the node-reported default creds are stored.
+	// Assert: paired and bound; plaintext node-reported defaults are not stored.
 	require.NoError(t, err)
 	assert.Equal(t, fleetnodepairing.StatusPaired, status)
 	assert.True(t, deviceBoundToNode(t, db, orgID, node, "mac:p-default"))
-	assert.True(t, hasMinerCredentials(t, db, orgID, "mac:p-default"), "default credentials the node used must be stored")
+	assert.False(t, hasMinerCredentials(t, db, orgID, "mac:p-default"))
 }
 
 func TestPersistFleetNodePairResult_DefaultPasswordActivePersistsRemediationState(t *testing.T) {
@@ -210,7 +290,7 @@ func TestPersistFleetNodePairResult_DefaultPasswordActivePersistsRemediationStat
 	assert.Equal(t, fleetnodepairing.StatusDefaultPassword, status)
 	assert.Equal(t, "DEFAULT_PASSWORD", devicePairingStatus(t, db, orgID, "mac:p-default-active"))
 	assert.True(t, deviceBoundToNode(t, db, orgID, node, "mac:p-default-active"))
-	assert.True(t, hasMinerCredentials(t, db, orgID, "mac:p-default-active"), "default credentials the node used must be stored")
+	assert.False(t, hasMinerCredentials(t, db, orgID, "mac:p-default-active"))
 }
 
 func TestPersistFleetNodePairResult_DefaultPasswordUnknownPreservesExistingRemediationState(t *testing.T) {
@@ -246,7 +326,7 @@ func TestPersistFleetNodePairResult_DefaultPasswordUnknownPreservesExistingRemed
 	assert.Equal(t, fleetnodepairing.StatusDefaultPassword, status)
 	assert.Equal(t, "DEFAULT_PASSWORD", devicePairingStatus(t, db, orgID, identifier))
 	assert.True(t, deviceBoundToNode(t, db, orgID, node, identifier))
-	assert.True(t, hasMinerCredentials(t, db, orgID, identifier), "credentials the node used must still be stored")
+	assert.False(t, hasMinerCredentials(t, db, orgID, identifier))
 }
 
 func TestPersistFleetNodePairResult_DefaultPasswordInactiveClearsExistingRemediationState(t *testing.T) {
@@ -299,10 +379,10 @@ func TestPersistFleetNodePairResult_StoresBlankPasswordCredentials(t *testing.T)
 	// Act
 	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
 
-	// Assert: paired and the blank-password credential is stored.
+	// Assert: paired; plaintext blank-password credentials are not stored.
 	require.NoError(t, err)
 	assert.Equal(t, fleetnodepairing.StatusPaired, status)
-	assert.True(t, hasMinerCredentials(t, db, orgID, "mac:p-blankpw"), "a valid blank-password basic-auth credential must be stored")
+	assert.False(t, hasMinerCredentials(t, db, orgID, "mac:p-blankpw"))
 }
 
 func TestPersistFleetNodePairResult_AuthNeededThenRetrySucceeds(t *testing.T) {
@@ -322,10 +402,11 @@ func TestPersistFleetNodePairResult_AuthNeededThenRetrySucceeds(t *testing.T) {
 	assert.Equal(t, "AUTHENTICATION_NEEDED", devicePairingStatus(t, db, orgID, "mac:p-retry"))
 	assert.False(t, deviceBoundToNode(t, db, orgID, node, "mac:p-retry"), "auth-needed device is not bound")
 
-	// Act 2: retry; the node now reports the credentials it authenticated with ->
-	// PAIRED, bound, creds stored.
+	// Act 2: retry; the node now reports encrypted credentials -> PAIRED, bound,
+	// creds stored.
 	retryResult := pairResult("mac:p-retry", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
 	retryResult.UsedCredentials = &gatewaypb.UsedCredentials{Username: "root", Password: "pw"}
+	retryResult.EncryptedCredentials = &gatewaypb.EncryptedCredentials{Username: []byte("retry-user-ciphertext"), Password: []byte("retry-pass-ciphertext")}
 	status, err = pairing.PersistFleetNodePairResult(ctx, node, orgID, retryResult, &assignedBy)
 	require.NoError(t, err)
 
