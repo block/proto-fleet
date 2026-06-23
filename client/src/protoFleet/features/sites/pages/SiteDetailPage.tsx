@@ -3,10 +3,13 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import SiteModals from "../components/SiteModals";
 import { useSiteModals } from "../hooks/useSiteModals";
+import { useBuildings } from "@/protoFleet/api/buildings";
+import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds, parseBigIntId, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
+import BuildingSummaryCard from "@/protoFleet/features/buildings/components/BuildingSummaryCard";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
@@ -23,9 +26,12 @@ const SiteDetailPage = () => {
   const targetId = idParam ?? "";
 
   const { listSites } = useSites();
+  const { listBuildingsBySite } = useBuildings();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
   const [sitesLoaded, setSitesLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [buildings, setBuildings] = useState<{ siteId: string; rows: BuildingWithCounts[] } | undefined>(undefined);
+  const [buildingsError, setBuildingsError] = useState<{ siteId: string; message: string } | null>(null);
 
   const fetchSites = useCallback(() => {
     const controller = new AbortController();
@@ -45,6 +51,29 @@ const SiteDetailPage = () => {
     });
     return () => controller.abort();
   }, [listSites]);
+
+  const fetchBuildings = useCallback(
+    (siteId: bigint) => {
+      const siteIdText = siteId.toString();
+      const controller = new AbortController();
+      void listBuildingsBySite({
+        siteId,
+        signal: controller.signal,
+        onSuccess: (rows) => {
+          setBuildings({ siteId: siteIdText, rows });
+          setBuildingsError(null);
+        },
+        onError: (msg) => {
+          setBuildingsError({ siteId: siteIdText, message: msg });
+          // Keep any last-good building rows visible through transient
+          // refresh failures, matching the site detail refresh behavior.
+          setBuildings((prev) => (prev?.siteId === siteIdText ? prev : { siteId: siteIdText, rows: [] }));
+        },
+      });
+      return () => controller.abort();
+    },
+    [listBuildingsBySite],
+  );
 
   // Bump retryCounter to re-run the effect so the cleanup AbortController
   // stays owned by useEffect and isn't leaked by an imperative call.
@@ -79,6 +108,16 @@ const SiteDetailPage = () => {
   // the same refresh signal used for direct building mutations.
   const modals = useSiteModals({ refetchSites: fetchSites, refetchBuildings });
   const buildingModals = useBuildingModals({ refetchBuildings });
+
+  const siteId = site?.site?.id;
+  const siteIdText = siteId?.toString();
+  const visibleBuildings = buildings && buildings.siteId === siteIdText ? buildings.rows : undefined;
+  const visibleBuildingsError = buildingsError && buildingsError.siteId === siteIdText ? buildingsError.message : null;
+
+  useEffect(() => {
+    if (siteId === undefined) return undefined;
+    return fetchBuildings(siteId);
+  }, [fetchBuildings, siteId, buildingsRefreshKey]);
 
   if (sites === undefined) {
     return (
@@ -165,7 +204,39 @@ const SiteDetailPage = () => {
               />
             ) : null}
           </div>
-          <PlaceholderBlock label="Buildings grid — coming soon" className="h-40" />
+          {visibleBuildingsError ? (
+            <Callout
+              intent="danger"
+              prefixIcon={<Alert />}
+              title="Couldn't load buildings"
+              subtitle={visibleBuildingsError}
+              buttonText="Retry"
+              buttonOnClick={() => {
+                if (site.site) setBuildingsRefreshKey((n) => n + 1);
+              }}
+              testId="site-detail-buildings-error"
+            />
+          ) : null}
+          <div className="rounded-[24px] border border-border-5 bg-surface-base p-6 shadow-300 tablet:p-8 laptop:p-10">
+            {visibleBuildings === undefined ? (
+              <div className="text-200 text-text-primary-50">Loading buildings…</div>
+            ) : visibleBuildings.length === 0 ? (
+              <div
+                className="rounded-2xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
+                data-testid="site-detail-buildings-empty"
+              >
+                No buildings in this site yet.
+              </div>
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-4">
+                {visibleBuildings.map((building) => (
+                  <div key={(building.building?.id ?? 0n).toString()} className="min-w-0">
+                    <BuildingSummaryCard building={building} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
       <SiteModals modals={modals} sites={sites} buildingsRefreshKey={buildingsRefreshKey} />
