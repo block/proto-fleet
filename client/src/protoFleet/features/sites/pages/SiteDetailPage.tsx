@@ -68,7 +68,7 @@ const SiteDetailPage = () => {
   }, [sites, targetId]);
 
   // UpdateSite + CreateBuilding require site:manage server-side.
-  const canManageSites = useHasPermission("site:manage", { scope: "org" });
+  const canManageSites = useHasPermission("site:manage");
 
   const modals = useSiteModals({ refetchSites: fetchSites });
   const [buildingsRefreshKey, setBuildingsRefreshKey] = useState(0);

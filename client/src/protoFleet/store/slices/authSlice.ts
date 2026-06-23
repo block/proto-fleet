@@ -13,12 +13,14 @@ export interface AuthSlice {
   username: string;
   role: string;
   // permissions is the caller's effective permission keys, populated
-  // from UserInfo.permissions on login. UI gates query this via
-  // useHasPermission; the server still enforces every gate.
+  // from UserInfo.permissions on login. This is the flat "has this anywhere"
+  // projection; UI gates query it via useHasPermission(..., { scope: "any" })
+  // only when they intentionally need that behavior. The server still enforces
+  // every gate.
   permissions: string[];
   // orgPermissions is the caller's org-scoped effective permission keys,
-  // populated from UserInfo.org_permissions on login. UI gates for org-scoped
-  // RPCs query this via useHasPermission(..., { scope: "org" }).
+  // populated from UserInfo.org_permissions on login. useHasPermission queries
+  // this by default for org-scoped RPCs.
   orgPermissions: string[];
   authLoading: boolean;
   temporaryPassword: string | null;

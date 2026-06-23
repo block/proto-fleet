@@ -25,14 +25,15 @@ type UseHasPermissionOptions = {
 };
 
 // useHasPermission is the canonical UI gate for capability checks.
-// By default it checks UserInfo.permissions, a flat "has this anywhere"
-// projection. Pass { scope: "org" } for UI gates that call org-scoped RPCs;
-// that mirrors server authz.Has(key, empty ResourceContext). The server still
+// By default it checks UserInfo.org_permissions, which mirrors server
+// authz.Has(key, empty ResourceContext) for org-scoped RPCs. Pass
+// { scope: "any" } only for UI gates that intentionally need the flat
+// "has this anywhere" projection from UserInfo.permissions. The server still
 // enforces every gate regardless; this selector is purely for show/hide
 // decisions.
 export const useHasPermission = (key: string, options: UseHasPermissionOptions = {}): boolean =>
   useFleetStore((state) => {
-    const permissions = options.scope === "org" ? state.auth.orgPermissions : state.auth.permissions;
+    const permissions = options.scope === "any" ? state.auth.permissions : state.auth.orgPermissions;
     return permissions.includes(key);
   });
 

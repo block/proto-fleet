@@ -35,7 +35,7 @@ const destinationPlaceholder = (c: Channel) => {
 
 const ChannelsSection = () => {
   const { channels, refresh, createChannel, updateChannel, testChannel, removeChannel } = useChannels();
-  const canManage = useHasPermission("notification:manage", { scope: "org" });
+  const canManage = useHasPermission("notification:manage");
 
   const [showAddModal, setShowAddModal] = useState(false);
 

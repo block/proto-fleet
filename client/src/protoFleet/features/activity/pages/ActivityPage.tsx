@@ -201,7 +201,7 @@ const ActivityPageContent = () => {
 };
 
 const ActivityPage = () => {
-  const canReadActivity = useHasPermission("activity:read", { scope: "org" });
+  const canReadActivity = useHasPermission("activity:read");
 
   if (!canReadActivity) {
     return <Navigate to="/" replace />;

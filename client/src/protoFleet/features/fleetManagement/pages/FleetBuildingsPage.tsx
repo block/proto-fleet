@@ -96,7 +96,7 @@ const FleetBuildingsPage = () => {
   }, [listBuildings, requestSiteFilter]);
 
   // Gate the poll on site:read — same gate FleetLayout uses to redirect.
-  const canReadBuildings = useHasPermission("site:read", { scope: "org" });
+  const canReadBuildings = useHasPermission("site:read");
   // usePoll keeps fetchData in a ref and doesn't re-run on its identity
   // change, so a site-filter switch wouldn't refetch until the next poll
   // tick. Feed the filter as `params` (a stable string key) so the poll
@@ -183,7 +183,7 @@ const FleetBuildingsPage = () => {
 
   const hasSites = (sites?.filter((s) => s.site !== undefined).length ?? 0) > 0;
   // CreateBuilding requires site:manage server-side.
-  const canManageBuildings = useHasPermission("site:manage", { scope: "org" });
+  const canManageBuildings = useHasPermission("site:manage");
 
   // Resolve siteName from cache so the modal renders the parent label
   // without a follow-up fetch.

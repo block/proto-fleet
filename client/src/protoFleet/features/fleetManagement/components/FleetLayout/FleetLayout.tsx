@@ -52,13 +52,13 @@ const FleetLayout = () => {
   // ListSites and ListBuildings both sit behind PermSiteRead server-side.
   // Reading from the catalog (instead of inferring from a failed RPC) keeps
   // transient transport errors out of the access-blocked branch.
-  const canReadSites = useHasPermission("site:read", { scope: "org" });
+  const canReadSites = useHasPermission("site:read");
   // CompleteSetup calls ListMinerStateSnapshots (gated on PermMinerRead) via
   // useAuthNeededMiners + usePoolNeededCount before deciding whether to show.
   // Skip the banner entirely for roles without miner:read so they don't get
   // permission-denied toasts just by opening a non-miner Fleet tab.
-  const canReadMiners = useHasPermission("miner:read", { scope: "org" });
-  const canReadRacks = useHasPermission("rack:read", { scope: "org" });
+  const canReadMiners = useHasPermission("miner:read");
+  const canReadRacks = useHasPermission("rack:read");
 
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canReadSites ? undefined : []);

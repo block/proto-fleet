@@ -4,8 +4,8 @@ import CurtailmentManagementPanel from "@/protoFleet/features/energy/Curtailment
 import { useHasPermission } from "@/protoFleet/store";
 
 const EnergyPage = () => {
-  const canReadCurtailment = useHasPermission("curtailment:read", { scope: "org" });
-  const canManageCurtailment = useHasPermission("curtailment:manage", { scope: "org" });
+  const canReadCurtailment = useHasPermission("curtailment:read");
+  const canManageCurtailment = useHasPermission("curtailment:manage");
 
   if (!canReadCurtailment) {
     return <Navigate to="/" replace />;

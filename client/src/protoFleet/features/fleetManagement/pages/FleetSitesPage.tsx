@@ -25,7 +25,7 @@ const FleetSitesPage = () => {
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
   // CreateSite + UpdateSite require site:manage server-side.
-  const canManageSites = useHasPermission("site:manage", { scope: "org" });
+  const canManageSites = useHasPermission("site:manage");
 
   const modals = useSiteModals({ refetchSites });
   const visibleSiteScopes = useMemo(

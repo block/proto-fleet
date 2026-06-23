@@ -29,8 +29,8 @@ describe("EnergyPage", () => {
       </MemoryRouter>,
     );
 
-    expect(useHasPermission).toHaveBeenCalledWith("curtailment:read", { scope: "org" });
-    expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage", { scope: "org" });
+    expect(useHasPermission).toHaveBeenCalledWith("curtailment:read");
+    expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
     expect(screen.getByTestId("curtailment-management-panel")).toHaveTextContent("false");
   });
 
@@ -43,7 +43,7 @@ describe("EnergyPage", () => {
       </MemoryRouter>,
     );
 
-    expect(useHasPermission).toHaveBeenCalledWith("curtailment:read", { scope: "org" });
+    expect(useHasPermission).toHaveBeenCalledWith("curtailment:read");
     expect(screen.queryByTestId("curtailment-management-panel")).not.toBeInTheDocument();
   });
 });

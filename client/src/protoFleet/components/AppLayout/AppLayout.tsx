@@ -32,7 +32,7 @@ const AppLayoutContent = ({ children }: Props) => {
   const schedulePillData = useSchedulePillData();
   const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
   const hasDismissedSetup = Boolean(dismissedSetup);
-  const canReadCurtailment = useHasPermission("curtailment:read", { scope: "org" });
+  const canReadCurtailment = useHasPermission("curtailment:read");
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
   const headerWidgetCount = getVisibleHeaderWidgetCount({
     hasDismissedSetup,
