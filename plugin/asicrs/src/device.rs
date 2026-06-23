@@ -1158,7 +1158,7 @@ fn message_into_component(m: MinerMessage) -> pb::ComponentType {
             {
                 pb::ComponentType::Psu
             } else if ["control board"].iter().any(|kw| lower.contains(kw)) {
-                return pb::ComponentType::ControlBoard;
+                pb::ComponentType::ControlBoard
             } else {
                 pb::ComponentType::Unspecified
             }
