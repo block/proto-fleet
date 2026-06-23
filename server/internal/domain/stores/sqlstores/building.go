@@ -44,8 +44,7 @@ func (s *SQLBuildingStore) CreateBuilding(ctx context.Context, params models.Cre
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to create building: %v", err)
 	}
-	out := buildingFromRow(row)
-	return &out, nil
+	return s.GetBuilding(ctx, params.OrgID, row.ID)
 }
 
 func (s *SQLBuildingStore) GetBuilding(ctx context.Context, orgID, id int64) (*models.Building, error) {
@@ -56,7 +55,7 @@ func (s *SQLBuildingStore) GetBuilding(ctx context.Context, orgID, id int64) (*m
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to get building: %v", err)
 	}
-	out := buildingFromRow(row)
+	out := buildingFromGetRow(row)
 	return &out, nil
 }
 
@@ -80,6 +79,7 @@ func (s *SQLBuildingStore) ListBuildings(ctx context.Context, filter models.List
 				ID:                    row.ID,
 				OrgID:                 row.OrgID,
 				SiteID:                nullInt64ToPtr(row.SiteID),
+				SiteLabel:             row.SiteLabel,
 				Name:                  row.Name,
 				Description:           row.Description.String,
 				PowerKw:               floatFromNumeric(row.PowerKw),
@@ -123,12 +123,19 @@ func (s *SQLBuildingStore) UpdateBuilding(ctx context.Context, params models.Upd
 	return s.GetBuilding(ctx, params.OrgID, params.ID)
 }
 
-func (s *SQLBuildingStore) SoftDeleteBuilding(ctx context.Context, orgID, id int64) (int64, error) {
-	rowsAffected, err := s.GetQueries(ctx).SoftDeleteBuilding(ctx, sqlc.SoftDeleteBuildingParams{ID: id, OrgID: orgID})
+// SoftDeleteBuilding marks the building deleted and returns the deleted row's
+// site_id (nil when unassigned) so the caller can stamp the audit row with the
+// site actually deleted, race-free. found is false when no live building
+// matched (missing / already-deleted / cross-org).
+func (s *SQLBuildingStore) SoftDeleteBuilding(ctx context.Context, orgID, id int64) (siteID *int64, found bool, err error) {
+	site, err := s.GetQueries(ctx).SoftDeleteBuilding(ctx, sqlc.SoftDeleteBuildingParams{ID: id, OrgID: orgID})
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to soft-delete building: %v", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fleeterror.NewInternalErrorf("failed to soft-delete building: %v", err)
 	}
-	return rowsAffected, nil
+	return nullInt64ToPtr(site), true, nil
 }
 
 func (s *SQLBuildingStore) UnassignRacksFromBuilding(ctx context.Context, orgID, buildingID int64) (int64, error) {
@@ -395,11 +402,12 @@ func (s *SQLBuildingStore) ClearDeviceBuildingsOnSiteMismatch(ctx context.Contex
 	return n, nil
 }
 
-func buildingFromRow(row sqlc.Building) models.Building {
+func buildingFromGetRow(row sqlc.GetBuildingRow) models.Building {
 	return models.Building{
 		ID:                    row.ID,
 		OrgID:                 row.OrgID,
 		SiteID:                nullInt64ToPtr(row.SiteID),
+		SiteLabel:             row.SiteLabel,
 		Name:                  row.Name,
 		Description:           row.Description.String,
 		PowerKw:               floatFromNumeric(row.PowerKw),

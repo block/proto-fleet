@@ -119,13 +119,16 @@ func (s *updateStubStore) GetOrgConfig(_ context.Context, orgID int64) (*models.
 		MaxDurationDefaultSec: 7200,
 	}, nil
 }
-func (s *updateStubStore) UpdateOrgConfigPostEventCooldown(context.Context, int64, int32) (*models.OrgConfig, error) {
-	panic("UpdateOrgConfigPostEventCooldown not exercised by Update handler tests")
-}
 func (s *updateStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
 	panic("ListActiveCurtailedDevices not exercised by Update handler tests")
 }
-func (s *updateStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
+func (s *updateStubStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
+	panic("ListActiveCurtailmentTargetDevices not exercised by Update handler tests")
+}
+func (s *updateStubStore) ListRecentlyResolvedCurtailedDevices(
+	context.Context,
+	interfaces.ListRecentlyResolvedCurtailedDevicesParams,
+) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by Update handler tests")
 }
 func (s *updateStubStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
@@ -136,6 +139,15 @@ func (s *updateStubStore) ListCandidates(context.Context, interfaces.ListCandida
 }
 func (s *updateStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by Update handler tests")
+}
+func (s *updateStubStore) ClaimClosedLoopFullFleetTargets(
+	context.Context,
+	int64,
+	int64,
+	int32,
+	[]models.InsertTargetParams,
+) ([]*models.Target, error) {
+	panic("ClaimClosedLoopFullFleetTargets not exercised by Update handler tests")
 }
 func (s *updateStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
 	panic("ListActiveEvents not exercised by Update handler tests")

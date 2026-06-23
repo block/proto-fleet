@@ -7,6 +7,7 @@
 export type ActiveSite = { kind: "all" } | { kind: "site"; id: string } | { kind: "unassigned" };
 
 export const DEFAULT_ACTIVE_SITE: ActiveSite = { kind: "all" };
+const SITE_ID_RE = /^[1-9]\d*$/;
 
 // Runtime guard used by the Zustand persist merge step to reject malformed
 // localStorage payloads (older schema, manual tampering, partial writes).
@@ -16,7 +17,9 @@ export const isActiveSite = (v: unknown): v is ActiveSite => {
   if (kind === "all" || kind === "unassigned") return true;
   if (kind === "site") {
     const id = (v as { id?: unknown }).id;
-    return typeof id === "string" && id.length > 0;
+    return typeof id === "string" && SITE_ID_RE.test(id);
   }
   return false;
 };
+
+export const sanitizeActiveSite = (v: unknown): ActiveSite => (isActiveSite(v) ? v : DEFAULT_ACTIVE_SITE);

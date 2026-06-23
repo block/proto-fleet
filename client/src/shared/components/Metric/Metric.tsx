@@ -9,14 +9,15 @@ interface MetricProps {
   // string renders verbatim. ReactNode is allowed so callers can compose a
   // value out of small spans for unit styling.
   value: ReactNode | undefined | null;
+  valueSize?: string;
   testId?: string;
   className?: string;
 }
 
-const Metric = ({ label, value, testId, className }: MetricProps) => (
+const Metric = ({ label, value, valueSize = "text-heading-300", testId, className }: MetricProps) => (
   <div className={clsx("flex flex-col gap-1", className)} data-testid={testId}>
     <div className="text-300 text-text-primary-50">{label}</div>
-    <div className="text-heading-300 text-text-primary">
+    <div className={clsx(valueSize, "text-text-primary")}>
       {value === undefined ? <SkeletonBar className="h-7 w-24" /> : value === null ? <span>—</span> : value}
     </div>
   </div>

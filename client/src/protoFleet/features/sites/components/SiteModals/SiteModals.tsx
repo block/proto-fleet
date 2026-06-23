@@ -1,24 +1,21 @@
 import ManageSiteModal from "../ManageSiteModal";
 import SiteDeleteDialog from "../SiteDeleteDialog";
 import SiteSettingsModal from "../SiteSettingsModal";
-import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
 
 interface SiteModalsProps {
   modals: ReturnType<typeof useSiteModals>;
   // SiteWithCounts cache from the host page. Used to resolve the cascade
-  // dialog target when Delete is clicked inside SiteSettingsModal (edit mode).
+  // dialog target when Delete is clicked from ManageSiteModal or
+  // SiteSettingsModal (edit mode).
   sites: SiteWithCounts[] | undefined;
-  // Pass-through for the ManageSiteModal buildings table. Provided by the
-  // host page so the building modal stack shares its useBuildingModals
-  // instance with the page-level buildings table.
-  onAddBuilding?: (siteId: bigint, siteName?: string) => void;
-  onEditBuilding?: (row: BuildingWithCounts, siteName?: string) => void;
+  // Refresh signal for the manage modal's building list — bumped by the
+  // host's useBuildingModals on any building mutation made elsewhere.
   buildingsRefreshKey?: number;
 }
 
-const SiteModals = ({ modals, sites, onAddBuilding, onEditBuilding, buildingsRefreshKey }: SiteModalsProps) => {
+const SiteModals = ({ modals, sites, buildingsRefreshKey }: SiteModalsProps) => {
   const { state, deleteTarget } = modals;
   const showManage =
     state.kind === "manageCreate" ||
@@ -26,11 +23,11 @@ const SiteModals = ({ modals, sites, onAddBuilding, onEditBuilding, buildingsRef
     state.kind === "manageCreateEditingDetails" ||
     state.kind === "manageEditEditingDetails";
 
-  // Delete in create-flow stacked state discards the pending create; edit-flow
-  // routes through requestDeleteCurrent which opens the cascade dialog from
-  // the page-level cache.
+  // Delete in the create flow (whether or not details is stacked) discards
+  // the pending create; edit-flow routes through requestDeleteCurrent which
+  // opens the cascade dialog from the page-level cache.
   const handleDelete = () => {
-    if (state.kind === "manageCreateEditingDetails") {
+    if (state.kind === "manageCreate" || state.kind === "manageCreateEditingDetails") {
       modals.cancelAll();
       return;
     }
@@ -47,17 +44,21 @@ const SiteModals = ({ modals, sites, onAddBuilding, onEditBuilding, buildingsRef
           later in the DOM and naturally stacks on top at the same z-50. */}
       {showManage && manageDraft ? (
         <ManageSiteModal
+          // Key on the site id so switching directly between sites (or
+          // create → edit) remounts the modal with a fresh building working
+          // set + load-time snapshot, instead of briefly rendering the prior
+          // site's entries until the new fetch resolves. Mirrors how the host
+          // keys ManageBuildingModal on building.id.
+          key={manageSite ? manageSite.id.toString() : "create"}
           open
           mode={manageMode}
           draft={manageDraft}
           site={manageSite}
           onSave={modals.manageSave}
           onEditDetails={modals.manageEditDetails}
-          onNetworkConfigChange={modals.manageNetworkConfigChange}
+          onDeleteRequested={handleDelete}
           onDismiss={modals.dismiss}
           saving={modals.saving}
-          onAddBuilding={onAddBuilding && manageSite ? () => onAddBuilding(manageSite.id, manageSite.name) : undefined}
-          onEditBuilding={onEditBuilding && manageSite ? (row) => onEditBuilding(row, manageSite.name) : undefined}
           buildingsRefreshKey={buildingsRefreshKey}
         />
       ) : null}

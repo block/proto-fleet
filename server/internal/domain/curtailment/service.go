@@ -33,20 +33,18 @@ type Scope struct {
 
 // PreviewRequest is the service-level shape of a Preview call.
 type PreviewRequest struct {
-	OrgID    int64
-	Scope    Scope
-	Mode     models.Mode     // must be ModeFixedKw
-	Strategy models.Strategy // default StrategyLeastEfficientFirst
-	Level    models.Level    // must be LevelFull
-	Priority models.Priority // PriorityNormal or PriorityEmergency (cooldown bypass)
-	// BypassCooldown lets trusted internal callers skip post-event cooldown
-	// without changing the persisted priority/audit value on the event.
-	BypassCooldown             bool
+	OrgID                      int64
+	Scope                      Scope
+	Mode                       models.Mode     // must be ModeFixedKw
+	Strategy                   models.Strategy // default StrategyLeastEfficientFirst
+	Level                      models.Level    // must be LevelFull
+	Priority                   models.Priority // PriorityNormal or PriorityEmergency
 	TargetKW                   float64
 	ToleranceKW                float64
 	IncludeMaintenance         bool
 	ForceIncludeMaintenance    bool
 	CandidateMinPowerWOverride *int32 // nil = use org default; admin-gated by handler
+	PostEventCooldownSec       int32
 }
 
 // StartRequest is the service-level shape of a Start call. Adds event-row
@@ -142,6 +140,7 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	if err := validatePreviewRequest(req); err != nil {
 		return nil, err
 	}
+	req.PostEventCooldownSec = effectivePostEventCooldownSec(req)
 	plan, _, _, err := s.runSelector(ctx, req)
 	if err != nil {
 		return nil, err
@@ -156,6 +155,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	if err := validateStartRequest(req); err != nil {
 		return nil, err
 	}
+	req.PostEventCooldownSec = effectivePostEventCooldownSec(req.PreviewRequest)
 
 	// Idempotent-replay lookup: a prior persisted match short-circuits
 	// before selection so duplicate webhook deliveries don't re-run the
@@ -187,8 +187,9 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		// Defense-in-depth; FIXED_KW's validator + selector prevent this.
 		return nil, fleeterror.NewInvalidArgumentError("no targets selected")
 	}
-	// FULL_FLEET with a genuinely empty scope is valid (nothing curtailable ==
-	// vacuously off); it persists directly COMPLETED with no targets below.
+	// FULL_FLEET with a genuinely empty scope is valid (nothing currently
+	// curtailable). Closed-loop scopes persist an active watcher so newly
+	// eligible miners can be admitted while the event is asserted.
 	// runSelector rejects the unsafe non-empty/all-skipped case before this
 	// point so automation cannot interpret "nothing actionable curtailed" as
 	// satisfied.
@@ -252,10 +253,10 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		now := time.Now().UTC()
 		eventParams.EndedAt = &now
 	}
-	// Carry the stamped completion time into the Plan so the synchronous Start
-	// response matches the persisted row (otherwise a later Get/List shows
-	// ended_at but the Start response does not).
+	// Carry stamped lifecycle times into the Plan so the synchronous Start
+	// response matches the persisted row (otherwise a later Get/List diverges).
 	plan.EndedAt = eventParams.EndedAt
+	plan.StartedAt = eventParams.StartedAt
 
 	result, err := s.store.InsertEventWithTargets(ctx, eventParams, targetParams)
 	if err != nil {
@@ -618,6 +619,7 @@ func (s *Service) emitAdminTerminateAuditTrail(ctx context.Context, req AdminTer
 		ActorType:   activitymodels.ActorUser,
 	}
 	activity.StampActor(ctx, &row)
+	stampCurtailmentSite(&row, event)
 	if err := s.audit.LogStrict(ctx, row); err != nil {
 		slog.Error("curtailment audit log failed",
 			"activity_type", eventType, "event_uuid", event.EventUUID, "error", err)
@@ -664,10 +666,37 @@ func (s *Service) emitUpdateAuditTrail(ctx context.Context, event *models.Event,
 		ActorType:   activitymodels.ActorUser,
 	}
 	activity.StampActor(ctx, &row)
+	stampCurtailmentSite(&row, event)
 	if err := s.audit.LogStrict(ctx, row); err != nil {
 		slog.Error("curtailment audit log failed",
 			"activity_type", ActivityTypeUpdated, "event_uuid", event.EventUUID, "error", err)
 		s.metrics.IncAuditWriteFailure(ActivityTypeUpdated)
+	}
+}
+
+// stampCurtailmentSite stamps the activity row with the curtailment's site so
+// lifecycle rows (Updated / AdminTerminated) land in /{site}/activity exactly
+// like the curtailment_started row does. Site-scoped curtailments persist
+// {"site_id": N} in ScopeJSON; whole-org / device-list / device-set scopes have
+// no single site and stay NULL (CategoryCurtailment is org-level, so those rows
+// surface only in the all-sites feed). The composite site FK / CHECK requires
+// organization_id alongside site_id, so we ensure org_id is set (StampActor
+// fills it from the session; fall back to the event's org for system actors).
+func stampCurtailmentSite(row *activitymodels.Event, event *models.Event) {
+	if event == nil || event.ScopeType != models.ScopeTypeSite {
+		return
+	}
+	var scope struct {
+		SiteID int64 `json:"site_id"`
+	}
+	if err := json.Unmarshal(event.ScopeJSON, &scope); err != nil || scope.SiteID <= 0 {
+		return
+	}
+	siteID := scope.SiteID
+	row.SiteID = &siteID
+	if row.OrganizationID == nil {
+		orgID := event.OrgID
+		row.OrganizationID = &orgID
 	}
 }
 
@@ -934,23 +963,11 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 		minPowerW = *req.CandidateMinPowerWOverride
 	}
 
-	// EMERGENCY and trusted automation starts skip post_event_cooldown_sec.
-	bypassCooldown := req.Priority == models.PriorityEmergency || req.BypassCooldown
-
 	activeDevices, err := s.store.ListActiveCurtailedDevices(ctx, req.OrgID)
 	if err != nil {
 		return nil, 0, nil, err
 	}
 	activeSet := toStringSet(activeDevices)
-
-	cooldownSet := map[string]struct{}{}
-	if !bypassCooldown {
-		cd, err := s.store.ListRecentlyResolvedCurtailedDevices(ctx, req.OrgID, orgConfig.PostEventCooldownSec)
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		cooldownSet = toStringSet(cd)
-	}
 
 	candidateFilter.OrgID = req.OrgID
 	candidates, err := s.store.ListCandidates(ctx, candidateFilter)
@@ -966,6 +983,23 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 				"device_identifiers not found in caller's org: %v", missing,
 			)
 		}
+	}
+
+	cooldownSet := map[string]struct{}{}
+	if req.PostEventCooldownSec > 0 {
+		cooldownDevices, err := s.store.ListRecentlyResolvedCurtailedDevices(
+			ctx,
+			interfaces.ListRecentlyResolvedCurtailedDevicesParams{
+				OrgID:             req.OrgID,
+				CooldownSec:       req.PostEventCooldownSec,
+				DeviceIdentifiers: candidateFilter.DeviceIdentifiers,
+				SiteID:            candidateFilter.SiteID,
+			},
+		)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		cooldownSet = toStringSet(cooldownDevices)
 	}
 
 	// TODO: registry-driven curtail_full capability check. classifyCandidates
@@ -984,47 +1018,7 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	}
 
 	plan := BuildPlan(eligible, preFiltered, minPowerW, mode)
-	if req.Mode == models.ModeFullFleet && len(plan.Selected) == 0 && len(plan.Skipped) > 0 {
-		detail := fullFleetAllSkippedDetail(plan.Skipped, minPowerW)
-		plan.Outcome = modes.OutcomeInsufficientLoad
-		plan.InsufficientLoadDetail = &detail
-	}
 	return &plan, minPowerW, orgConfig, nil
-}
-
-func fullFleetAllSkippedDetail(skipped []SkippedDevice, minPowerW int32) modes.InsufficientLoadDetail {
-	detail := modes.InsufficientLoadDetail{CandidateMinPowerW: minPowerW}
-	for _, skip := range skipped {
-		switch skip.Reason {
-		case SkipBelowThreshold:
-			detail.ExcludedBelowThreshold++
-		case SkipPhantomLoadNoHash:
-			detail.ExcludedPhantomLoad++
-		case SkipPowerTelemetryUnreliable:
-			detail.ExcludedDeadMonitor++
-		case SkipUnreachableResidualLoad:
-			detail.ExcludedOffline++
-		case SkipMaintenance:
-			detail.ExcludedMaintenance++
-		case SkipUpdating:
-			detail.ExcludedUpdating++
-		case SkipRebootRequired:
-			detail.ExcludedRebootRequired++
-		case SkipStaleTelemetry:
-			detail.ExcludedStale++
-		case SkipNonActionableStatus:
-			detail.ExcludedNonActionable++
-		case SkipPairing:
-			detail.ExcludedPairing++
-		case SkipCooldown:
-			detail.ExcludedCooldown++
-		case SkipActiveEvent:
-			detail.ExcludedActiveEvent++
-		case SkipCurtailFullUnsupported:
-			detail.ExcludedCapabilityMiss++
-		}
-	}
-	return detail
 }
 
 // buildMode constructs the selection mode from the request. FULL_FLEET takes
@@ -1232,6 +1226,9 @@ func validatePreviewRequest(req PreviewRequest) error {
 			*req.CandidateMinPowerWOverride,
 		)
 	}
+	if err := validatePostEventCooldownSec(req.PostEventCooldownSec); err != nil {
+		return err
+	}
 	// Maintenance override pair is both-or-neither (DB CHECK is the backstop).
 	if req.IncludeMaintenance != req.ForceIncludeMaintenance {
 		return fleeterror.NewInvalidArgumentError(
@@ -1239,6 +1236,13 @@ func validatePreviewRequest(req PreviewRequest) error {
 		)
 	}
 	return nil
+}
+
+func effectivePostEventCooldownSec(req PreviewRequest) int32 {
+	if req.Priority == models.PriorityEmergency {
+		return 0
+	}
+	return req.PostEventCooldownSec
 }
 
 func resolveScope(s Scope) (interfaces.ListCandidatesParams, error) {
@@ -1462,7 +1466,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 			)
 		}
 	}
-	decisionJSON, err := marshalDecisionSnapshot(plan, minPowerW)
+	decisionJSON, err := marshalDecisionSnapshot(plan, minPowerW, req.PostEventCooldownSec)
 	if err != nil {
 		return models.InsertEventParams{}, nil, err
 	}
@@ -1472,7 +1476,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 	event := models.InsertEventParams{
 		EventUUID:               uuid.New(),
 		OrgID:                   req.OrgID,
-		State:                   eventStartState(mode, len(plan.Selected)),
+		State:                   eventStartState(req.Scope, mode, len(plan.Selected)),
 		Mode:                    mode,
 		Strategy:                models.StrategyLeastEfficientFirst,
 		Level:                   models.LevelFull,
@@ -1507,8 +1511,26 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		event.ScopeType = models.ScopeTypeWholeOrg
 	}
 
-	targets := make([]models.InsertTargetParams, len(plan.Selected))
-	for i, sel := range plan.Selected {
+	if isClosedLoopFullFleetStart(req.Scope, mode) {
+		event.LoopType = models.LoopTypeClosed
+	}
+	if event.State == models.EventStateActive && event.StartedAt == nil {
+		now := time.Now().UTC()
+		event.StartedAt = &now
+	}
+
+	var targets []models.InsertTargetParams
+	if !isClosedLoopFullFleetStart(req.Scope, mode) {
+		targets = BuildInsertTargetParams(plan.Selected, mode, minPowerW)
+	}
+	return event, targets, nil
+}
+
+// BuildInsertTargetParams converts selected devices into miner target rows.
+// Reconciler dynamic admission reuses the same baseline semantics as Start.
+func BuildInsertTargetParams(selected []SelectedDevice, mode models.Mode, minPowerW int32) []models.InsertTargetParams {
+	targets := make([]models.InsertTargetParams, len(selected))
+	for i, sel := range selected {
 		var baseline *float64
 		if shouldPersistBaselinePowerW(mode, sel.PowerW, minPowerW) {
 			v := sel.PowerW
@@ -1522,7 +1544,22 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 			BaselinePowerW:   baseline,
 		}
 	}
-	return event, targets, nil
+	return targets
+}
+
+// BuildFullFleetAdmissionTargets applies the same full-fleet eligibility and
+// baseline policy used by Start, for reconciler closed-loop admission.
+func BuildFullFleetAdmissionTargets(
+	candidates []*models.Candidate,
+	includeMaintenance bool,
+	minPowerW int32,
+) ([]models.InsertTargetParams, []SkippedDevice) {
+	eligible, skipped, _ := classifyCandidates(candidates, classifyOpts{
+		IncludeMaintenance: includeMaintenance,
+		CandidateMinPowerW: minPowerW,
+	})
+	plan := BuildPlan(eligible, skipped, minPowerW, modes.FullFleet{})
+	return BuildInsertTargetParams(plan.Selected, models.ModeFullFleet, minPowerW), plan.Skipped
 }
 
 func shouldPersistBaselinePowerW(mode models.Mode, powerW float64, minPowerW int32) bool {
@@ -1535,15 +1572,31 @@ func shouldPersistBaselinePowerW(mode models.Mode, powerW float64, minPowerW int
 	return true
 }
 
-// eventStartState is the state a freshly-built event is inserted with. A
-// FULL_FLEET event with no eligible targets is vacuously complete on arrival
-// (nothing to curtail or restore); everything else starts PENDING and the
-// reconciler drives it.
-func eventStartState(mode models.Mode, targetCount int) models.EventState {
+// eventStartState is the state a freshly-built event is inserted with.
+// Closed-loop FULL_FLEET starts as an active command policy; the reconciler
+// claims per-miner targets only when it is about to dispatch.
+func eventStartState(scope Scope, mode models.Mode, targetCount int) models.EventState {
+	if isClosedLoopFullFleetStart(scope, mode) {
+		return models.EventStateActive
+	}
 	if mode == models.ModeFullFleet && targetCount == 0 {
 		return models.EventStateCompleted
 	}
 	return models.EventStatePending
+}
+
+func isClosedLoopFullFleetStart(scope Scope, mode models.Mode) bool {
+	if mode != models.ModeFullFleet {
+		return false
+	}
+	switch scope.Type {
+	case models.ScopeTypeWholeOrg, models.ScopeTypeSite, "":
+		return true
+	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
+		return false
+	default:
+		return false
+	}
 }
 
 // marshalScopeJSON renders the request scope as the JSONB column value.
@@ -1737,7 +1790,7 @@ func cloneInt32Ptr(v *int32) *int32 {
 // marshalDecisionSnapshot captures the selector outputs for the
 // decision_snapshot column (rejection counters, realized vs. requested
 // kW, resolved candidate floor).
-func marshalDecisionSnapshot(plan *Plan, minPowerW int32) ([]byte, error) {
+func marshalDecisionSnapshot(plan *Plan, minPowerW int32, postEventCooldownSec int32) ([]byte, error) {
 	skipped := make([]map[string]string, len(plan.Skipped))
 	for i, s := range plan.Skipped {
 		skipped[i] = map[string]string{
@@ -1747,6 +1800,7 @@ func marshalDecisionSnapshot(plan *Plan, minPowerW int32) ([]byte, error) {
 	}
 	snapshot := map[string]any{
 		"candidate_min_power_w":        minPowerW,
+		"post_event_cooldown_sec":      postEventCooldownSec,
 		"estimated_reduction_kw":       plan.EstimatedReductionKW,
 		"estimated_remaining_power_kw": plan.EstimatedRemainingPowerKW,
 		"selected_count":               len(plan.Selected),

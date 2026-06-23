@@ -340,6 +340,63 @@ func TestAppendFilterSQL_RackIDsOnly(t *testing.T) {
 	assert.Equal(t, 4, resultArgNum)
 }
 
+func TestAppendFilterSQL_RackIDsAndIncludeNoRack_ORTogether(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		rackIDsFilter: validNullString(),
+		rackIDValues:  []int64{5},
+		includeNoRack: true,
+	}
+	orgID := int64(42)
+
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "device_set_id = ANY($3::bigint[])")
+	assert.Contains(t, sql, " OR ")
+	assert.Contains(t, sql, "NOT EXISTS")
+	assert.Contains(t, sql, "dcm.org_id = $4")
+	assert.Len(t, resultArgs, 4) // initial + rack orgID + rackIDs + no-rack orgID
+	assert.Equal(t, 5, resultArgNum)
+}
+
+func TestAppendFilterSQL_RackIDsAndIncludeNoRack_DoesNotContradictBuildingIDs(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		rackIDsFilter:     validNullString(),
+		rackIDValues:      []int64{5},
+		buildingIDsFilter: validNullString(),
+		buildingIDValues:  []int64{7},
+		includeNoRack:     true,
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "device_set_id = ANY")
+	assert.Contains(t, sql, "device.building_id = ANY")
+	assert.Equal(t, 1, strings.Count(sql, "NOT EXISTS"))
+}
+
+func TestAppendFilterSQL_RackAndBuildingUnassigned_IncludeNoRackWideningPreserved(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		rackIDsFilter:     validNullString(),
+		rackIDValues:      []int64{5},
+		includeNoBuilding: true,
+		includeNoRack:     true,
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "device_set_id = ANY")
+	assert.Contains(t, sql, "dsr.building_id IS NULL")
+	assert.Equal(t, 2, strings.Count(sql, "NOT EXISTS"))
+}
+
 // TestBuildMinerFilterParams_SiteFilter exercises the four allowed combos
 // of site_ids + include_unassigned (plan §"device/" filter notes).
 func TestBuildMinerFilterParams_SiteFilter(t *testing.T) {
@@ -447,9 +504,10 @@ func TestAppendFilterSQL_GroupAndRackIDs_ProducesAND(t *testing.T) {
 	sql := sb.String()
 	assert.Contains(t, sql, "device_set_type = 'group'")
 	assert.Contains(t, sql, "device_set_type = 'rack'")
-	// Both should be AND-ed (separate AND EXISTS clauses, no OR between them)
+	// Both should be AND-ed as separate membership predicates, with no OR
+	// between the group and rack buckets.
 	assert.NotContains(t, sql, " OR ")
-	assert.Equal(t, strings.Count(sql, " AND EXISTS"), 2)
+	assert.Equal(t, 2, strings.Count(sql, "device_set_membership dcm"))
 	// 4 new args: orgID + groupIDs + orgID + rackIDs
 	assert.Len(t, resultArgs, 5) // initial + 2*orgID + groupIDs + rackIDs
 	assert.Equal(t, 6, resultArgNum)
@@ -691,6 +749,7 @@ func TestAppendFilterSQL_BuildingIDsOnly(t *testing.T) {
 	resultArgs, _ := appendFilterSQL(&sb, args, argNum, orgID, fp)
 
 	sql := sb.String()
+	assert.Contains(t, sql, "device.building_id = ANY($3::bigint[])")
 	assert.Contains(t, sql, "dsr.building_id = ANY($3::bigint[])")
 	assert.Contains(t, sql, "dcm.org_id = $2")
 	assert.Len(t, resultArgs, 3) // initial + orgID + buildingIDs
@@ -733,6 +792,7 @@ func TestAppendFilterSQL_BuildingFiltersORTogether(t *testing.T) {
 	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
 
 	sql := sb.String()
+	assert.Contains(t, sql, "device.building_id = ANY")
 	assert.Contains(t, sql, "dsr.building_id = ANY")
 	assert.Contains(t, sql, "dsr.building_id IS NULL")
 	assert.Contains(t, sql, "NOT EXISTS")

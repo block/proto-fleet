@@ -11,6 +11,10 @@ export interface FleetOutletContext {
   // distinguishes "never seen data" (show full-page error) from
   // "seen data and a later poll failed" (preserve last-good content).
   sitesLoaded: boolean;
+  // True only after FleetLayout has proven org-scoped site catalog access via
+  // a successful ListSites response. A flat site:read permission can be true
+  // for site-scoped-only users while org-scoped catalog RPCs are still denied.
+  siteCatalogAccessGranted: boolean;
   refetchSites: () => void;
   // Pairing coordination between the Miners tab and the chrome-level
   // CompleteSetup banner. Miners → CompleteSetup: call `notifyPairingCompleted`

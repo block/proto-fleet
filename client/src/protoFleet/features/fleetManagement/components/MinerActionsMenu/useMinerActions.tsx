@@ -167,7 +167,7 @@ const initialUnsupportedMinersState: UnsupportedMinersState = {
 const protoDriverName = "proto";
 
 /**
- * Determines if a Proto rig is reachable for ClearAuthKey.
+ * Determines if a Proto rig is reachable for device unpairing.
  * A device is reachable if it's not offline and has completed authentication (PAIRED).
  */
 const isProtoReachable = (deviceStatus: DeviceStatus, pairingStatus: PairingStatus): boolean =>
@@ -225,7 +225,7 @@ const buildUnpairConfirmationSubtitle = (
   // Single miner
   if (isSingle) {
     if (protoReachableCount === 1) {
-      return "This miner will be removed from your fleet and its auth key will be cleared.";
+      return "This miner will be removed from your fleet and unpaired from Proto Fleet.";
     }
     if (protoUnreachableCount === 1) {
       return "This miner will be removed from your fleet. It may need to be factory reset before re-pairing.";
@@ -235,7 +235,7 @@ const buildUnpairConfirmationSubtitle = (
 
   // All same category
   if (thirdPartyCount === 0 && protoUnreachableCount === 0) {
-    return "These miners will be removed from your fleet and their auth keys will be cleared.";
+    return "These miners will be removed from your fleet and unpaired from Proto Fleet.";
   }
   if (thirdPartyCount === 0 && protoReachableCount === 0) {
     return "These miners will be removed from your fleet. They may need to be factory reset before re-pairing.";

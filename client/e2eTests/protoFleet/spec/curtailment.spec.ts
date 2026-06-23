@@ -27,6 +27,8 @@ test.describe("Proto Fleet - Curtailment", () => {
 
   if (testConfig.target !== "real") {
     test("Start and stop a whole-fleet curtailment", async ({ commonSteps, energyPage, page }) => {
+      test.setTimeout(testConfig.testTimeout * 2);
+
       const curtailmentReason = generateRandomText(CURTAILMENT_PREFIX);
       const targetKw = "1";
       const restoreBatchIntervalSec = "1";

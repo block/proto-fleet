@@ -7,7 +7,6 @@ import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutoma
 import useCurtailmentResponseProfiles, {
   getResponseProfileScopeLabelForActionType,
 } from "@/protoFleet/api/useCurtailmentResponseProfiles";
-import useCurtailmentSettings from "@/protoFleet/api/useCurtailmentSettings";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
@@ -20,17 +19,16 @@ import {
   type AutomationRule,
   type AutomationRuleFormValues,
   type CurtailmentHealth,
-  type CurtailmentSettings,
   type CurtailmentSource,
   type CurtailmentSourceFormValues,
-  DEFAULT_POST_EVENT_COOLDOWN_SEC,
   DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
-  MAX_POST_EVENT_COOLDOWN_SEC,
   MAX_SOURCE_STALENESS_THRESHOLD_SEC,
   type ResponseProfile,
   type ResponseProfileFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { Alert, Info, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -54,8 +52,6 @@ const CURTAILMENT_PAGE_DESCRIPTION =
   "Configure response profiles, manage external signal sources, and define automations that trigger curtailment.";
 const RESPONSE_PROFILES_DESCRIPTION = "Saved configurations that define how much power to shed and how to restore it.";
 const SOURCES_DESCRIPTION = "MaestroOS MQTT brokers that publish curtailment signals.";
-const SETTINGS_DESCRIPTION =
-  "Controls how long restored miners stay out of normal response profile preview and manual selection.";
 const SOURCE_CONNECTION_FAILURE_MESSAGE =
   "We couldn't connect with your source. Review your source details and try again.";
 const MAX_BROKER_PORT = 65_535;
@@ -144,9 +140,6 @@ const emptySourceFormValues: CurtailmentSourceFormValues = {
 const emptyCurtailmentSources: CurtailmentSource[] = [];
 const emptyResponseProfiles: ResponseProfile[] = [];
 const emptyAutomationRules: AutomationRule[] = [];
-const defaultCurtailmentSettings: CurtailmentSettings = {
-  postEventCooldownSec: DEFAULT_POST_EVENT_COOLDOWN_SEC,
-};
 const emptyUpdatingSourceIds = new Set<string>();
 const emptyUpdatingResponseProfileIds = new Set<string>();
 const emptyUpdatingAutomationRuleIds = new Set<string>();
@@ -170,6 +163,7 @@ const emptyResponseProfileFormValues: ResponseProfileFormValues = {
   curtailBatchIntervalSec: "",
   restoreBatchSize: "",
   restoreIntervalSec: "",
+  postEventCooldownSec: "0",
   responseDeadlineMinutes: "15",
   includeMaintenance: true,
 };
@@ -198,10 +192,6 @@ const sourceInputIdToFormKey: Record<string, keyof CurtailmentSourceFormValues> 
 
 function isPositiveInteger(value: string): boolean {
   return /^[1-9]\d*$/.test(value.trim());
-}
-
-function isNonNegativeInteger(value: string): boolean {
-  return /^(0|[1-9]\d*)$/.test(value.trim());
 }
 
 function getOptionValueByLabel<TValue extends string>(
@@ -292,6 +282,7 @@ function createResponseProfileFromFormValues(
     curtailBatchIntervalSec: values.curtailBatchIntervalSec.trim(),
     restoreBatchSize: values.restoreBatchSize.trim(),
     restoreIntervalSec: values.restoreIntervalSec.trim(),
+    postEventCooldownSec: values.postEventCooldownSec.trim(),
     responseDeadlineMinutes: values.responseDeadlineMinutes.trim(),
   };
 
@@ -354,6 +345,7 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
         ? immediateRestoreBatchSize
         : emptyResponseProfileFormValues.restoreBatchSize,
     restoreIntervalSec: emptyResponseProfileFormValues.restoreIntervalSec,
+    postEventCooldownSec: emptyResponseProfileFormValues.postEventCooldownSec,
     responseDeadlineMinutes:
       profile.deadlineSummary.match(/(\d+)/)?.[1] ?? emptyResponseProfileFormValues.responseDeadlineMinutes,
     includeMaintenance: emptyResponseProfileFormValues.includeMaintenance,
@@ -385,6 +377,7 @@ function createCurtailmentFormValuesFromResponseProfile(
     curtailBatchIntervalSec: values.curtailBatchIntervalSec,
     restoreBatchSize,
     restoreIntervalSec: values.restoreIntervalSec,
+    postEventCooldownSec: values.postEventCooldownSec,
     reason: values.name,
     includeMaintenance: values.includeMaintenance,
   };
@@ -425,6 +418,7 @@ function createResponseProfileFormValuesFromCurtailmentValues(
     curtailBatchIntervalSec: values.curtailBatchIntervalSec,
     restoreBatchSize: values.restoreBatchSize,
     restoreIntervalSec: values.restoreIntervalSec,
+    postEventCooldownSec: values.postEventCooldownSec,
     responseDeadlineMinutes: secondsToDeadlineMinutes(values.maxDurationSec),
     includeMaintenance: values.includeMaintenance,
   };
@@ -1068,129 +1062,6 @@ function SectionHeader({ title, buttonText, onButtonClick, infoToggle }: Section
   );
 }
 
-type CurtailmentSettingsSectionProps = {
-  settings?: CurtailmentSettings | null;
-  isLoading?: boolean;
-  isSaving?: boolean;
-  loadError?: string | null;
-  onSave?: (settings: CurtailmentSettings) => Promise<CurtailmentSettings | void>;
-};
-
-function getCooldownValidationError(value: string): string | undefined {
-  if (value.trim() === "") {
-    return "Enter a cooldown.";
-  }
-  if (!isNonNegativeInteger(value)) {
-    return "Enter cooldown as a whole number of 0 or greater.";
-  }
-  if (Number(value) > MAX_POST_EVENT_COOLDOWN_SEC) {
-    return `Enter cooldown of ${MAX_POST_EVENT_COOLDOWN_SEC.toLocaleString()} seconds or less.`;
-  }
-  return undefined;
-}
-
-function CurtailmentSettingsSection({
-  settings = defaultCurtailmentSettings,
-  isLoading = false,
-  isSaving = false,
-  loadError = null,
-  onSave,
-}: CurtailmentSettingsSectionProps): ReactElement {
-  const resolvedSettings = settings ?? defaultCurtailmentSettings;
-  const hasLoadedSettings = settings != null;
-  const canEditSettings = hasLoadedSettings || !loadError;
-  const [cooldownValue, setCooldownValue] = useState(() => resolvedSettings.postEventCooldownSec.toString());
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [showValidation, setShowValidation] = useState(false);
-  const persistedCooldownValue = resolvedSettings.postEventCooldownSec.toString();
-  const validationError = getCooldownValidationError(cooldownValue);
-  const visibleValidationError = showValidation ? validationError : undefined;
-  const isDirty = cooldownValue.trim() !== persistedCooldownValue;
-  const canSave = canEditSettings && isDirty && !isSaving && !isLoading && !loadError;
-
-  const handleCooldownChange = useCallback((value: string) => {
-    setCooldownValue(value);
-    setActionError(null);
-    setShowValidation(false);
-  }, []);
-
-  const handleSave = useCallback(async () => {
-    if (!canEditSettings || isSaving || isLoading || loadError) {
-      return;
-    }
-
-    if (validationError) {
-      setShowValidation(true);
-      return;
-    }
-
-    try {
-      setActionError(null);
-      const updatedSettings = await onSave?.({
-        postEventCooldownSec: Number(cooldownValue),
-      });
-      if (updatedSettings) {
-        setCooldownValue(updatedSettings.postEventCooldownSec.toString());
-      }
-    } catch (error) {
-      setActionError(getErrorMessage(error, "Failed to save curtailment settings."));
-    }
-  }, [canEditSettings, cooldownValue, isLoading, isSaving, loadError, onSave, validationError]);
-
-  return (
-    <section className="curtailment-settings__section" data-testid="curtailment-settings-section">
-      <div className="curtailment-section-header">
-        <div className="curtailment-section-header__title">
-          <h2 className="curtailment-section-header__label">Settings</h2>
-        </div>
-      </div>
-      <div className="grid max-w-2xl gap-4">
-        <p className="text-400 text-text-primary-70">{SETTINGS_DESCRIPTION}</p>
-        {loadError ? (
-          <div className="rounded-lg bg-intent-critical-10 px-4 py-3 text-300 text-text-critical">{loadError}</div>
-        ) : null}
-        {actionError ? (
-          <div className="rounded-lg bg-intent-critical-10 px-4 py-3 text-300 text-text-critical">{actionError}</div>
-        ) : null}
-        {isLoading ? (
-          <div className="flex min-h-24 items-center">
-            <ProgressCircular indeterminate dataTestId="curtailment-settings-loading" />
-          </div>
-        ) : !canEditSettings ? (
-          <p className="text-300 text-text-primary-70">Settings are unavailable until they load successfully.</p>
-        ) : (
-          <div className="grid gap-4 laptop:grid-cols-[minmax(0,18rem)_auto] laptop:items-start">
-            <Input
-              key={`post-event-cooldown-${persistedCooldownValue}`}
-              id="post-event-cooldown-sec"
-              label="Post-event cooldown"
-              type="number"
-              inputMode="numeric"
-              initValue={cooldownValue}
-              error={visibleValidationError}
-              onChange={handleCooldownChange}
-              units="sec"
-              tooltip={{
-                body: "Normal preview and manual starts exclude restored miners for this duration after an event completes. Automation enforcement can bypass it.",
-                widthClassName: "w-80",
-              }}
-            />
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              text="Save settings"
-              disabled={!canSave}
-              loading={isSaving}
-              onClick={() => void handleSave()}
-              className="w-fit"
-            />
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
 type CurtailmentSourceColConfigOptions = {
   onToggle: (sourceId: string) => void;
   updatingSourceIds: ReadonlySet<string>;
@@ -1254,22 +1125,18 @@ type CurtailmentSettingsContentProps = {
   responseProfiles?: ResponseProfile[];
   sources?: CurtailmentSource[];
   automationRules?: AutomationRule[];
-  settings?: CurtailmentSettings | null;
   isLoadingResponseProfiles?: boolean;
   loadResponseProfilesError?: string | null;
   isLoadingSources?: boolean;
   loadSourcesError?: string | null;
   isLoadingAutomationRules?: boolean;
   loadAutomationRulesError?: string | null;
-  isLoadingSettings?: boolean;
-  loadSettingsError?: string | null;
   isSavingResponseProfile?: boolean;
   isTestingResponseProfileCurtailment?: boolean;
   isDeletingResponseProfile?: boolean;
   isSavingSource?: boolean;
   isTestingSourceConnection?: boolean;
   isSavingAutomationRule?: boolean;
-  isSavingSettings?: boolean;
   updatingResponseProfileIds?: ReadonlySet<string>;
   updatingSourceIds?: ReadonlySet<string>;
   updatingAutomationRuleIds?: ReadonlySet<string>;
@@ -1295,7 +1162,6 @@ type CurtailmentSettingsContentProps = {
   onUpdateAutomation?: (rule: AutomationRule, values: AutomationRuleFormValues) => Promise<AutomationRule | void>;
   onToggleAutomation?: (rule: AutomationRule, enabled: boolean) => Promise<AutomationRule | void>;
   onDeleteAutomation?: (rule: AutomationRule) => Promise<void>;
-  onSaveSettings?: (settings: CurtailmentSettings) => Promise<CurtailmentSettings | void>;
 };
 
 function getSourcesEmptyState(loadSourcesError: string | null, isLoadingSources: boolean): ReactElement {
@@ -1319,22 +1185,18 @@ export function CurtailmentSettingsContent({
   responseProfiles: controlledResponseProfiles,
   sources: controlledSources,
   automationRules: controlledAutomationRules,
-  settings: controlledSettings,
   isLoadingResponseProfiles = false,
   loadResponseProfilesError = null,
   isLoadingSources = false,
   loadSourcesError = null,
   isLoadingAutomationRules = false,
   loadAutomationRulesError = null,
-  isLoadingSettings = false,
-  loadSettingsError = null,
   isSavingResponseProfile = false,
   isTestingResponseProfileCurtailment = false,
   isDeletingResponseProfile = false,
   isSavingSource = false,
   isTestingSourceConnection = false,
   isSavingAutomationRule = false,
-  isSavingSettings = false,
   updatingResponseProfileIds = emptyUpdatingResponseProfileIds,
   updatingSourceIds = emptyUpdatingSourceIds,
   updatingAutomationRuleIds = emptyUpdatingAutomationRuleIds,
@@ -1351,7 +1213,6 @@ export function CurtailmentSettingsContent({
   onUpdateAutomation,
   onToggleAutomation,
   onDeleteAutomation,
-  onSaveSettings,
 }: CurtailmentSettingsContentProps): ReactElement {
   const [localResponseProfiles, setLocalResponseProfiles] = useState<ResponseProfile[]>(() => [
     ...initialResponseProfiles,
@@ -1364,7 +1225,6 @@ export function CurtailmentSettingsContent({
   const [editingSource, setEditingSource] = useState<CurtailmentSource | null>(null);
   const responseProfiles = controlledResponseProfiles ?? localResponseProfiles;
   const sources = controlledSources ?? localSources;
-  const settings = controlledSettings ?? (loadSettingsError ? null : defaultCurtailmentSettings);
   const responseProfileModalMode: ResponseProfileModalMode = editingResponseProfile ? "edit" : "create";
   const responseProfileModalInitialValues = useMemo(
     () =>
@@ -1668,15 +1528,6 @@ export function CurtailmentSettingsContent({
         onDeleteAutomation={onDeleteAutomation}
       />
 
-      <CurtailmentSettingsSection
-        key={`curtailment-settings-${settings?.postEventCooldownSec ?? defaultCurtailmentSettings.postEventCooldownSec}`}
-        settings={settings}
-        isLoading={isLoadingSettings}
-        isSaving={isSavingSettings}
-        loadError={loadSettingsError}
-        onSave={onSaveSettings}
-      />
-
       <CurtailmentStartModal
         key={
           isResponseProfileModalOpen
@@ -1754,13 +1605,6 @@ function CurtailmentSettingsPage(): ReactElement {
     setAutomationRuleEnabled,
     deleteAutomationRule,
   } = useCurtailmentAutomationRules(canManageCurtailment);
-  const {
-    settings,
-    isLoading: isLoadingSettings,
-    isSaving: isSavingSettings,
-    loadError: settingsLoadError,
-    updateSettings,
-  } = useCurtailmentSettings(canManageCurtailment);
 
   useEffect(() => {
     if (!loadError) {
@@ -1795,17 +1639,6 @@ function CurtailmentSettingsPage(): ReactElement {
     });
   }, [automationRulesLoadError]);
 
-  useEffect(() => {
-    if (!settingsLoadError) {
-      return;
-    }
-
-    pushToast({
-      message: settingsLoadError,
-      status: STATUSES.error,
-    });
-  }, [settingsLoadError]);
-
   const handleCreateResponseProfile = useCallback(
     async (values: ResponseProfileFormValues) => {
       const profile = await createResponseProfile(values);
@@ -1837,7 +1670,7 @@ function CurtailmentSettingsPage(): ReactElement {
       try {
         await startCurtailment(curtailmentValues);
         setIsTestingResponseProfileCurtailment(false);
-        navigate("/energy");
+        navigate(scopedPath("/energy", useFleetStore.getState().ui.activeSite));
       } catch (error) {
         pushToast({
           message: getErrorMessage(error, "Failed to run curtailment."),
@@ -1968,18 +1801,6 @@ function CurtailmentSettingsPage(): ReactElement {
     [deleteAutomationRule],
   );
 
-  const handleSaveSettings = useCallback(
-    async (nextSettings: CurtailmentSettings) => {
-      const updatedSettings = await updateSettings(nextSettings);
-      pushToast({
-        message: "Curtailment settings saved",
-        status: STATUSES.success,
-      });
-      return updatedSettings;
-    },
-    [updateSettings],
-  );
-
   if (!canManageCurtailment) {
     return <Navigate to="/settings/general" replace />;
   }
@@ -1989,21 +1810,17 @@ function CurtailmentSettingsPage(): ReactElement {
       responseProfiles={responseProfiles}
       sources={sources}
       automationRules={automationRules}
-      settings={settings}
       isLoadingResponseProfiles={isLoadingResponseProfiles}
       loadResponseProfilesError={responseProfilesLoadError}
       isLoadingSources={isLoading}
       loadSourcesError={loadError}
       isLoadingAutomationRules={isLoadingAutomationRules}
       loadAutomationRulesError={automationRulesLoadError}
-      isLoadingSettings={isLoadingSettings}
-      loadSettingsError={settingsLoadError}
       isSavingResponseProfile={isCreatingResponseProfile}
       isTestingResponseProfileCurtailment={isTestingResponseProfileCurtailment}
       isSavingSource={isCreating}
       isTestingSourceConnection={isTestingConnection}
       isSavingAutomationRule={isCreatingAutomationRule}
-      isSavingSettings={isSavingSettings}
       updatingResponseProfileIds={updatingProfileIds}
       updatingSourceIds={updatingSourceIds}
       updatingAutomationRuleIds={updatingAutomationRuleIds}
@@ -2020,7 +1837,6 @@ function CurtailmentSettingsPage(): ReactElement {
       onUpdateAutomation={handleUpdateAutomation}
       onToggleAutomation={handleToggleAutomation}
       onDeleteAutomation={handleDeleteAutomation}
-      onSaveSettings={handleSaveSettings}
     />
   );
 }

@@ -33,11 +33,17 @@ INSERT INTO building (
 RETURNING *;
 
 -- name: GetBuilding :one
-SELECT *
-FROM building
-WHERE id = sqlc.arg('id')
-  AND org_id = sqlc.arg('org_id')
-  AND deleted_at IS NULL;
+SELECT
+    b.*,
+    COALESCE(s.name, '') AS site_label
+FROM building b
+LEFT JOIN site s
+  ON s.id = b.site_id
+ AND s.org_id = b.org_id
+ AND s.deleted_at IS NULL
+WHERE b.id = sqlc.arg('id')
+  AND b.org_id = sqlc.arg('org_id')
+  AND b.deleted_at IS NULL;
 
 -- name: ListBuildingsByOrg :many
 -- Lists every live building in the org with its rack count. The site
@@ -47,9 +53,14 @@ WHERE id = sqlc.arg('id')
 -- in the org).
 SELECT
     b.*,
+    COALESCE(s.name, '') AS site_label,
     COALESCE(r.rack_count, 0)::bigint AS rack_count,
     COALESCE(d.device_count, 0)::bigint AS device_count
 FROM building b
+LEFT JOIN site s
+  ON s.id = b.site_id
+ AND s.org_id = b.org_id
+ AND s.deleted_at IS NULL
 LEFT JOIN (
     SELECT dsr.building_id, COUNT(*) AS rack_count
     FROM device_set_rack dsr
@@ -109,14 +120,18 @@ WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
--- name: SoftDeleteBuilding :execrows
+-- name: SoftDeleteBuilding :one
 -- Caller is expected to also unassign the building's racks in the same
--- transaction (cascade-unassign — see plan J3).
+-- transaction (cascade-unassign — see plan J3). RETURNING site_id lets the
+-- caller stamp the delete audit row with the site of the row actually deleted,
+-- race-free: a concurrent site move can't slip between a separate read and the
+-- delete. sql.ErrNoRows when the building is missing/already-deleted/cross-org.
 UPDATE building
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
-  AND deleted_at IS NULL;
+  AND deleted_at IS NULL
+RETURNING site_id;
 
 -- name: UnassignRacksFromBuilding :execrows
 -- Sets device_set_rack.building_id = NULL (and clears the free-form

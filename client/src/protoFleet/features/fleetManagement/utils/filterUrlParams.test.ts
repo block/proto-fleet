@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { encodeFilterToURL, parseFilterFromURL, parseUrlToActiveFilters } from "./filterUrlParams";
+import {
+  encodeFilterToURL,
+  parseFilterFromURL,
+  parseUrlToActiveFilters,
+  UNASSIGNED_URL_VALUE,
+} from "./filterUrlParams";
 import {
   MinerListFilterSchema,
   NumericField,
@@ -288,6 +293,42 @@ describe("filterUrlParams", () => {
       const filter = parseFilterFromURL(params);
 
       expect(filter?.rackIds).toEqual([]);
+    });
+  });
+
+  describe("unassigned placement filters", () => {
+    it("encodes include flags as the null URL sentinel", () => {
+      const filter = create(MinerListFilterSchema, {
+        rackIds: [10n],
+        buildingIds: [20n],
+        siteIds: [30n],
+        includeNoRack: true,
+        includeNoBuilding: true,
+        includeUnassigned: true,
+      });
+
+      const params = encodeFilterToURL(filter);
+
+      expect(params.getAll("rack")).toEqual(["10", UNASSIGNED_URL_VALUE]);
+      expect(params.getAll("building")).toEqual(["20", UNASSIGNED_URL_VALUE]);
+      expect(params.getAll("site")).toEqual(["30", UNASSIGNED_URL_VALUE]);
+    });
+
+    it("parses the null URL sentinel into include flags and active dropdown values", () => {
+      const params = new URLSearchParams("rack=10&rack=null&building=20&building=null&site=30&site=null");
+
+      const filter = parseFilterFromURL(params);
+      const activeFilters = parseUrlToActiveFilters(params);
+
+      expect(filter?.rackIds).toEqual([10n]);
+      expect(filter?.includeNoRack).toBe(true);
+      expect(filter?.buildingIds).toEqual([20n]);
+      expect(filter?.includeNoBuilding).toBe(true);
+      expect(filter?.siteIds).toEqual([30n]);
+      expect(filter?.includeUnassigned).toBe(true);
+      expect(activeFilters.dropdownFilters.rack).toEqual(["10", UNASSIGNED_URL_VALUE]);
+      expect(activeFilters.dropdownFilters.building).toEqual(["20", UNASSIGNED_URL_VALUE]);
+      expect(activeFilters.dropdownFilters.site).toEqual(["30", UNASSIGNED_URL_VALUE]);
     });
   });
 

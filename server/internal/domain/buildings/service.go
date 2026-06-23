@@ -16,6 +16,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -148,7 +149,7 @@ func (s *Service) GetBuilding(ctx context.Context, orgID, id int64) (*models.Bui
 // ListBuildings returns the filtered building list with rack counts.
 // SiteIDs and IncludeUnassigned compose additively; the store query
 // treats "both empty" as "no filter".
-func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, includeStatsForSite ListStatsAuthorizer) ([]models.BuildingWithCounts, error) {
+func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, statsFilter fleetlistfilter.Filter, includeStatsForSite ListStatsAuthorizer) ([]models.BuildingWithCounts, error) {
 	// Cap the repeated filter to bound request size / query planning
 	// cost, matching the miner-list (maxFreeFormFilterValues) and
 	// rack-list (maxDeviceSetFilterValues) paths.
@@ -161,8 +162,21 @@ func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, i
 		}
 	}
 	rows, err := s.store.ListBuildings(ctx, filter)
-	if err != nil || !filter.IncludeStats || includeStatsForSite == nil {
+	if err != nil {
 		return rows, err
+	}
+	hasStatsFilter := fleetlistfilter.HasFilters(statsFilter)
+	if !filter.IncludeStats {
+		if hasStatsFilter {
+			return rows[:0], nil
+		}
+		return rows, nil
+	}
+	if includeStatsForSite == nil {
+		if hasStatsFilter {
+			return nil, fleeterror.NewInternalErrorf("buildings.ListBuildings filters require stats authorization")
+		}
+		return rows, nil
 	}
 	hasStatsRow := false
 	for _, row := range rows {
@@ -172,13 +186,19 @@ func (s *Service) ListBuildings(ctx context.Context, filter models.ListFilter, i
 		}
 	}
 	if !hasStatsRow {
+		if hasStatsFilter {
+			return rows[:0], nil
+		}
 		return rows, nil
 	}
 	if s.deviceQueryer == nil || s.telemetry == nil {
 		return nil, fleeterror.NewInternalErrorf("buildings.ListBuildings stats requires deviceQueryer and telemetry")
 	}
-	if err := s.populateListStats(ctx, filter.OrgID, rows, includeStatsForSite); err != nil {
+	if err := s.populateListStats(ctx, filter.OrgID, rows, includeStatsForSite, len(statsFilter.TelemetryRanges) > 0); err != nil {
 		return nil, err
+	}
+	if hasStatsFilter {
+		rows = filterBuildingRowsByListStats(rows, statsFilter)
 	}
 	return rows, nil
 }
@@ -411,11 +431,15 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			// (move within one site) hits buildings but not sites.
 			cascadeBuildingRackIDs []int64
 			positionedRackIDs      []int64
-			// For a building-only unassign (TargetBuildingID == nil) of a
-			// single rack, capture the rack's current SiteID so the activity
-			// log preserves "the site this rack lives in" instead of nil
-			// (which would make the event look site-less).
-			fallbackSiteID *int64
+			// For a building-only unassign (TargetBuildingID == nil), capture
+			// the source site so the activity log preserves "the site this
+			// rack lives in" instead of nil. clearSourceSite holds the single
+			// site shared by the batch; clearSourceAmbiguous trips when the
+			// batch straddles sites or includes a site-less rack, in which
+			// case no single site is recorded (surfacing one would mislead).
+			fallbackSiteID       *int64
+			clearSourceSite      *int64
+			clearSourceAmbiguous bool
 		)
 		// Lock the target building first (canonical lock order:
 		// building -> rack). Skip when unassigning — there is no
@@ -471,13 +495,22 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			}
 			allRackIDs = append(allRackIDs, rp.RackID)
 
-			// Capture the source SiteID for a single-rack building-only
-			// unassign so the activity log carries the rack's site
-			// instead of nil. Only meaningful when the batch is exactly
-			// one rack — multi-rack batches may straddle sites and
-			// surfacing the first rack's site would be misleading.
-			if params.TargetBuildingID == nil && len(racks) == 1 {
-				fallbackSiteID = current.SiteID
+			// Capture the source site for a building-only unassign so the
+			// activity log carries the rack's site instead of nil. A single
+			// shared site (one rack, or same-site multi-rack) is recorded;
+			// a batch straddling sites — or including a site-less rack — is
+			// left ambiguous so the event stays site-less rather than
+			// misattributing one rack's site to the whole batch.
+			if params.TargetBuildingID == nil {
+				switch {
+				case current.SiteID == nil:
+					clearSourceAmbiguous = true
+				case clearSourceSite == nil:
+					site := *current.SiteID
+					clearSourceSite = &site
+				case *clearSourceSite != *current.SiteID:
+					clearSourceAmbiguous = true
+				}
 			}
 
 			// Building-only unassign must NOT cascade-clear the rack's
@@ -512,6 +545,12 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 					cascadeRackIDs = append(cascadeRackIDs, rp.RackID)
 				}
 			}
+		}
+
+		// Record the source site on a building-only unassign only when the
+		// whole batch shares one (see clearSourceSite above).
+		if params.TargetBuildingID == nil && !clearSourceAmbiguous {
+			fallbackSiteID = clearSourceSite
 		}
 
 		// Phase B1: single bulk write for site_id + building_id + zone
@@ -1095,14 +1134,22 @@ func formatBuildingIDForDescription(target *int64) string {
 // racks in one transaction. Returns the impact count.
 func (s *Service) DeleteBuilding(ctx context.Context, orgID, id int64) (*models.DeleteResult, error) {
 	var out models.DeleteResult
+	var siteID *int64
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		rowsAffected, err := s.store.SoftDeleteBuilding(txCtx, orgID, id)
+		// Soft-delete returns the deleted row's site_id so the audit row is
+		// stamped with the site actually deleted (the building is site-scoped;
+		// without this the delete event would fall into the unassigned bucket).
+		// Reading the site as part of the same UPDATE … RETURNING is race-free —
+		// a concurrent site move can't slip between a separate read and the
+		// delete.
+		sid, found, err := s.store.SoftDeleteBuilding(txCtx, orgID, id)
 		if err != nil {
 			return err
 		}
-		if rowsAffected == 0 {
+		if !found {
 			return fleeterror.NewNotFoundErrorf("building %d not found", id)
 		}
+		siteID = sid
 		rackCount, err := s.store.UnassignRacksFromBuilding(txCtx, orgID, id)
 		if err != nil {
 			return err
@@ -1129,6 +1176,9 @@ func (s *Service) DeleteBuilding(ctx context.Context, orgID, id int64) (*models.
 		Category:       activitymodels.CategoryFleetManagement,
 		Type:           eventBuildingDeleted,
 		OrganizationID: &orgIDVal,
+		// Site captured pre-delete so the row scopes to /{site}/activity
+		// (nil only when the building was itself unassigned).
+		SiteID: siteID,
 		Description: fmt.Sprintf(
 			"Deleted building %d (%d racks unassigned)",
 			buildingIDVal, out.UnassignedRackCount,
@@ -1383,7 +1433,7 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	return stats, nil
 }
 
-func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.BuildingWithCounts, includeStatsForSite ListStatsAuthorizer) error {
+func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.BuildingWithCounts, includeStatsForSite ListStatsAuthorizer, requireTelemetry bool) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -1406,6 +1456,7 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 			PairingStatuses: []fm.PairingStatus{
 				fm.PairingStatus_PAIRING_STATUS_PAIRED,
 				fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+				fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
 			},
 			Limit: MaxDevicesPerStatsResponse + 1,
 		}
@@ -1447,6 +1498,9 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 		}
 		metrics, err = s.telemetry.GetLatestDeviceMetrics(ctx, devicerollup.ToDeviceIdentifiers(uniqueTelemetryIDs))
 		if err != nil {
+			if requireTelemetry {
+				return fleeterror.NewInternalErrorf("failed to fetch building list telemetry: %v", err)
+			}
 			slog.WarnContext(ctx, "failed to fetch building list telemetry", "error", err)
 			metrics = nil
 		}
@@ -1490,4 +1544,32 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 		stats.PsuIssueCount = issues.PsuIssueCount
 	}
 	return nil
+}
+
+func filterBuildingRowsByListStats(rows []models.BuildingWithCounts, filter fleetlistfilter.Filter) []models.BuildingWithCounts {
+	out := rows[:0]
+	for _, row := range rows {
+		if row.ListStats == nil {
+			continue
+		}
+		stats := row.ListStats
+		if fleetlistfilter.Matches(fleetlistfilter.Stats{
+			HashrateReportingCount:    stats.HashrateReportingCount,
+			EfficiencyReportingCount:  stats.EfficiencyReportingCount,
+			PowerReportingCount:       stats.PowerReportingCount,
+			TemperatureReportingCount: stats.TemperatureReportingCount,
+			TotalHashrateThs:          stats.TotalHashrateThs,
+			AvgEfficiencyJth:          stats.AvgEfficiencyJth,
+			TotalPowerKw:              stats.TotalPowerKw,
+			MinTemperatureC:           stats.MinTemperatureC,
+			MaxTemperatureC:           stats.MaxTemperatureC,
+			ControlBoardIssueCount:    stats.ControlBoardIssueCount,
+			FanIssueCount:             stats.FanIssueCount,
+			HashBoardIssueCount:       stats.HashBoardIssueCount,
+			PsuIssueCount:             stats.PsuIssueCount,
+		}, filter) {
+			out = append(out, row)
+		}
+	}
+	return out
 }

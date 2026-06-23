@@ -2,8 +2,9 @@
 // @generated from file common/v1/fleet_list_stats.proto (package common.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import { file_google_protobuf_wrappers } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
@@ -12,7 +13,8 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_common_v1_fleet_list_stats: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CiBjb21tb24vdjEvZmxlZXRfbGlzdF9zdGF0cy5wcm90bxIJY29tbW9uLnYxIswECg5GbGVldExpc3RTdGF0cxIWCg5idWlsZGluZ19jb3VudBgBIAEoBRISCgpyYWNrX2NvdW50GAIgASgFEhQKDGRldmljZV9jb3VudBgDIAEoBRIXCg9yZXBvcnRpbmdfY291bnQYBCABKAUSGgoSdG90YWxfaGFzaHJhdGVfdGhzGAUgASgBEhoKEmF2Z19lZmZpY2llbmN5X2p0aBgGIAEoARIWCg50b3RhbF9wb3dlcl9rdxgHIAEoARIVCg1oYXNoaW5nX2NvdW50GAggASgFEhQKDGJyb2tlbl9jb3VudBgJIAEoBRIVCg1vZmZsaW5lX2NvdW50GAogASgFEhYKDnNsZWVwaW5nX2NvdW50GAsgASgFEiAKGGhhc2hyYXRlX3JlcG9ydGluZ19jb3VudBgMIAEoBRIiChplZmZpY2llbmN5X3JlcG9ydGluZ19jb3VudBgNIAEoBRIdChVwb3dlcl9yZXBvcnRpbmdfY291bnQYDiABKAUSGQoRbWluX3RlbXBlcmF0dXJlX2MYDyABKAESGQoRbWF4X3RlbXBlcmF0dXJlX2MYECABKAESIwobdGVtcGVyYXR1cmVfcmVwb3J0aW5nX2NvdW50GBEgASgFEiEKGWNvbnRyb2xfYm9hcmRfaXNzdWVfY291bnQYEiABKAUSFwoPZmFuX2lzc3VlX2NvdW50GBMgASgFEh4KFmhhc2hfYm9hcmRfaXNzdWVfY291bnQYFCABKAUSFwoPcHN1X2lzc3VlX2NvdW50GBUgASgFQrABCg1jb20uY29tbW9uLnYxQhNGbGVldExpc3RTdGF0c1Byb3RvUAFaRWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2NvbW1vbi92MTtjb21tb252MaICA0NYWKoCCUNvbW1vbi5WMcoCCUNvbW1vblxWMeICFUNvbW1vblxWMVxHUEJNZXRhZGF0YeoCCkNvbW1vbjo6VjFiBnByb3RvMw",
+    "CiBjb21tb24vdjEvZmxlZXRfbGlzdF9zdGF0cy5wcm90bxIJY29tbW9uLnYxIswECg5GbGVldExpc3RTdGF0cxIWCg5idWlsZGluZ19jb3VudBgBIAEoBRISCgpyYWNrX2NvdW50GAIgASgFEhQKDGRldmljZV9jb3VudBgDIAEoBRIXCg9yZXBvcnRpbmdfY291bnQYBCABKAUSGgoSdG90YWxfaGFzaHJhdGVfdGhzGAUgASgBEhoKEmF2Z19lZmZpY2llbmN5X2p0aBgGIAEoARIWCg50b3RhbF9wb3dlcl9rdxgHIAEoARIVCg1oYXNoaW5nX2NvdW50GAggASgFEhQKDGJyb2tlbl9jb3VudBgJIAEoBRIVCg1vZmZsaW5lX2NvdW50GAogASgFEhYKDnNsZWVwaW5nX2NvdW50GAsgASgFEiAKGGhhc2hyYXRlX3JlcG9ydGluZ19jb3VudBgMIAEoBRIiChplZmZpY2llbmN5X3JlcG9ydGluZ19jb3VudBgNIAEoBRIdChVwb3dlcl9yZXBvcnRpbmdfY291bnQYDiABKAUSGQoRbWluX3RlbXBlcmF0dXJlX2MYDyABKAESGQoRbWF4X3RlbXBlcmF0dXJlX2MYECABKAESIwobdGVtcGVyYXR1cmVfcmVwb3J0aW5nX2NvdW50GBEgASgFEiEKGWNvbnRyb2xfYm9hcmRfaXNzdWVfY291bnQYEiABKAUSFwoPZmFuX2lzc3VlX2NvdW50GBMgASgFEh4KFmhhc2hfYm9hcmRfaXNzdWVfY291bnQYFCABKAUSFwoPcHN1X2lzc3VlX2NvdW50GBUgASgFItYBCh1GbGVldExpc3RUZWxlbWV0cnlSYW5nZUZpbHRlchIxCgVmaWVsZBgBIAEoDjIiLmNvbW1vbi52MS5GbGVldExpc3RUZWxlbWV0cnlGaWVsZBIpCgNtaW4YAiABKAsyHC5nb29nbGUucHJvdG9idWYuRG91YmxlVmFsdWUSKQoDbWF4GAMgASgLMhwuZ29vZ2xlLnByb3RvYnVmLkRvdWJsZVZhbHVlEhUKDW1pbl9pbmNsdXNpdmUYBCABKAgSFQoNbWF4X2luY2x1c2l2ZRgFIAEoCCr4AQoXRmxlZXRMaXN0VGVsZW1ldHJ5RmllbGQSKgomRkxFRVRfTElTVF9URUxFTUVUUllfRklFTERfVU5TUEVDSUZJRUQQABIrCidGTEVFVF9MSVNUX1RFTEVNRVRSWV9GSUVMRF9IQVNIUkFURV9USFMQARItCilGTEVFVF9MSVNUX1RFTEVNRVRSWV9GSUVMRF9FRkZJQ0lFTkNZX0pUSBACEicKI0ZMRUVUX0xJU1RfVEVMRU1FVFJZX0ZJRUxEX1BPV0VSX0tXEAMSLAooRkxFRVRfTElTVF9URUxFTUVUUllfRklFTERfVEVNUEVSQVRVUkVfQxAEQrABCg1jb20uY29tbW9uLnYxQhNGbGVldExpc3RTdGF0c1Byb3RvUAFaRWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2NvbW1vbi92MTtjb21tb252MaICA0NYWKoCCUNvbW1vbi5WMcoCCUNvbW1vblxWMeICFUNvbW1vblxWMVxHUEJNZXRhZGF0YeoCCkNvbW1vbjo6VjFiBnByb3RvMw",
+    [file_google_protobuf_wrappers],
   );
 
 /**
@@ -136,3 +138,84 @@ export type FleetListStats = Message<"common.v1.FleetListStats"> & {
 export const FleetListStatsSchema: GenMessage<FleetListStats> =
   /*@__PURE__*/
   messageDesc(file_common_v1_fleet_list_stats, 0);
+
+/**
+ * Range predicate on a single aggregate telemetry field. At least one
+ * of min/max must be set. Temperature is evaluated against the aggregate
+ * min_temperature_c for min bounds and max_temperature_c for max bounds.
+ *
+ * @generated from message common.v1.FleetListTelemetryRangeFilter
+ */
+export type FleetListTelemetryRangeFilter = Message<"common.v1.FleetListTelemetryRangeFilter"> & {
+  /**
+   * @generated from field: common.v1.FleetListTelemetryField field = 1;
+   */
+  field: FleetListTelemetryField;
+
+  /**
+   * @generated from field: google.protobuf.DoubleValue min = 2;
+   */
+  min?: number | undefined;
+
+  /**
+   * @generated from field: google.protobuf.DoubleValue max = 3;
+   */
+  max?: number | undefined;
+
+  /**
+   * @generated from field: bool min_inclusive = 4;
+   */
+  minInclusive: boolean;
+
+  /**
+   * @generated from field: bool max_inclusive = 5;
+   */
+  maxInclusive: boolean;
+};
+
+/**
+ * Describes the message common.v1.FleetListTelemetryRangeFilter.
+ * Use `create(FleetListTelemetryRangeFilterSchema)` to create a new message.
+ */
+export const FleetListTelemetryRangeFilterSchema: GenMessage<FleetListTelemetryRangeFilter> =
+  /*@__PURE__*/
+  messageDesc(file_common_v1_fleet_list_stats, 1);
+
+/**
+ * Aggregate telemetry fields exposed as filters on fleet list rows.
+ *
+ * @generated from enum common.v1.FleetListTelemetryField
+ */
+export enum FleetListTelemetryField {
+  /**
+   * @generated from enum value: FLEET_LIST_TELEMETRY_FIELD_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: FLEET_LIST_TELEMETRY_FIELD_HASHRATE_THS = 1;
+   */
+  HASHRATE_THS = 1,
+
+  /**
+   * @generated from enum value: FLEET_LIST_TELEMETRY_FIELD_EFFICIENCY_JTH = 2;
+   */
+  EFFICIENCY_JTH = 2,
+
+  /**
+   * @generated from enum value: FLEET_LIST_TELEMETRY_FIELD_POWER_KW = 3;
+   */
+  POWER_KW = 3,
+
+  /**
+   * @generated from enum value: FLEET_LIST_TELEMETRY_FIELD_TEMPERATURE_C = 4;
+   */
+  TEMPERATURE_C = 4,
+}
+
+/**
+ * Describes the enum common.v1.FleetListTelemetryField.
+ */
+export const FleetListTelemetryFieldSchema: GenEnum<FleetListTelemetryField> =
+  /*@__PURE__*/
+  enumDesc(file_common_v1_fleet_list_stats, 0);

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/command"
+	curtailmentReconciler "github.com/block/proto-fleet/server/internal/domain/curtailment/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
@@ -31,22 +32,23 @@ type HTTPConfig struct {
 type Config struct {
 	Mode string `help:"Execution mode" enum:"server,agent,combined" default:"combined" env:"MODE"`
 
-	DB             db.Config              `embed:"" prefix:"db-" envprefix:"DB_"`
-	Log            logging.Config         `embed:"" prefix:"logging-" envprefix:"LOG_"`
-	HTTP           HTTPConfig             `embed:"" prefix:"http-" envprefix:"HTTP_"`
-	Auth           token.Config           `embed:"" prefix:"auth-" envprefix:"AUTH_"`
-	Session        session.Config         `embed:"" prefix:"session-" envprefix:"SESSION_"`
-	Pools          pools.Config           `embed:"" prefix:"pools-" envprefix:"POOLS_"`
-	Encrypt        encrypt.Config         `embed:"" prefix:"encrypt-" envprefix:"ENCRYPT_"`
-	Command        command.Config         `embed:"" prefix:"fleet-command-" envprefix:"FLEET_COMMAND_"`
-	Queue          queue.Config           `embed:"" prefix:"fleet-queue-" envprefix:"FLEET_QUEUE_"`
-	TimescaleDB    timescaledb.Config     `embed:"" prefix:"timescaledb-" envprefix:"TIMESCALEDB_"`
-	Telemetry      telemetry.Config       `embed:"" prefix:"telemetry-" envprefix:"TELEMETRY_"`
-	Scheduler      scheduler.Config       `embed:"" prefix:"scheduler-" envprefix:"SCHEDULER_"`
-	Plugins        plugins.Config         `embed:"" prefix:"plugins-" envprefix:"PLUGINS_"`
-	IPScanner      ipscanner.Config       `embed:"" prefix:"ipscanner-" envprefix:"IPSCANNER_"`
-	Diagnostics    diagnostics.Config     `embed:"" prefix:"diagnostics-" envprefix:"DIAGNOSTICS_"`
-	Files          files.Config           `embed:"" prefix:"files-" envprefix:"FILES_"`
-	FleetTelemetry fleet_telemetry.Config `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
-	Metrics        metrics.Config         `embed:"" prefix:"metrics-" envprefix:"FLEET_METRICS_"`
+	DB             db.Config                    `embed:"" prefix:"db-" envprefix:"DB_"`
+	Log            logging.Config               `embed:"" prefix:"logging-" envprefix:"LOG_"`
+	HTTP           HTTPConfig                   `embed:"" prefix:"http-" envprefix:"HTTP_"`
+	Auth           token.Config                 `embed:"" prefix:"auth-" envprefix:"AUTH_"`
+	Session        session.Config               `embed:"" prefix:"session-" envprefix:"SESSION_"`
+	Pools          pools.Config                 `embed:"" prefix:"pools-" envprefix:"POOLS_"`
+	Encrypt        encrypt.Config               `embed:"" prefix:"encrypt-" envprefix:"ENCRYPT_"`
+	Command        command.Config               `embed:"" prefix:"fleet-command-" envprefix:"FLEET_COMMAND_"`
+	Curtailment    curtailmentReconciler.Config `embed:"" prefix:"curtailment-" envprefix:"CURTAILMENT_"`
+	Queue          queue.Config                 `embed:"" prefix:"fleet-queue-" envprefix:"FLEET_QUEUE_"`
+	TimescaleDB    timescaledb.Config           `embed:"" prefix:"timescaledb-" envprefix:"TIMESCALEDB_"`
+	Telemetry      telemetry.Config             `embed:"" prefix:"telemetry-" envprefix:"TELEMETRY_"`
+	Scheduler      scheduler.Config             `embed:"" prefix:"scheduler-" envprefix:"SCHEDULER_"`
+	Plugins        plugins.Config               `embed:"" prefix:"plugins-" envprefix:"PLUGINS_"`
+	IPScanner      ipscanner.Config             `embed:"" prefix:"ipscanner-" envprefix:"IPSCANNER_"`
+	Diagnostics    diagnostics.Config           `embed:"" prefix:"diagnostics-" envprefix:"DIAGNOSTICS_"`
+	Files          files.Config                 `embed:"" prefix:"files-" envprefix:"FILES_"`
+	FleetTelemetry fleet_telemetry.Config       `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
+	Metrics        metrics.Config               `embed:"" prefix:"metrics-" envprefix:"FLEET_METRICS_"`
 }

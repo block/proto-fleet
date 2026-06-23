@@ -12,6 +12,7 @@ export const curtailmentNumericFieldLimits = {
   restoreBatchSize: 10000,
   restoreIntervalSec: 3600,
   minDurationSec: 2147483647,
+  postEventCooldownSec: 86400,
 } as const;
 
 export function parseOptionalUint32Field(value: string, options: OptionalUint32FieldOptions): ParsedNumericField {

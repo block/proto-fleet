@@ -16,10 +16,9 @@ type UserStore interface { //nolint:interfacebloat // GetUserByIDForUpdate is a 
 	UpdateUserUsername(ctx context.Context, userID int64, username string) error
 	GetOrganizationsForUser(ctx context.Context, userID int64) ([]Organization, error)
 	CreateAdminUserWithOrganization(ctx context.Context, userID string, username string, passwordHash string,
-		orgName string, orgID string, minerAuthPrivateKey string, roleName string, roleDescription string) error
+		orgName string, orgID string, roleName string, roleDescription string) error
 	HasUser(ctx context.Context) (bool, error)
 	PasswordUpdatedAt(ctx context.Context, userID int64) (time.Time, error)
-	GetOrganizationPrivateKey(ctx context.Context, orgID int64) (string, error)
 }
 
 // UserManagementStore provides multi-user account management operations
@@ -63,10 +62,9 @@ type User struct {
 }
 
 type Organization struct {
-	ID                  int64
-	Name                string
-	OrgID               string
-	MinerAuthPrivateKey string
+	ID    int64
+	Name  string
+	OrgID string
 }
 
 type Role struct {

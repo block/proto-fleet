@@ -67,6 +67,10 @@ func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curta
 	if fixedKw != nil && fixedKw.ToleranceKw != nil {
 		tolerance = *fixedKw.ToleranceKw
 	}
+	postEventCooldownSec, err := uint32ToInt32Strict("post_event_cooldown_sec", msg.GetPostEventCooldownSec())
+	if err != nil {
+		return curtailment.PreviewRequest{}, err
+	}
 
 	out := curtailment.PreviewRequest{
 		OrgID:                   orgID,
@@ -79,6 +83,7 @@ func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curta
 		ToleranceKW:             tolerance,
 		IncludeMaintenance:      msg.GetIncludeMaintenance(),
 		ForceIncludeMaintenance: msg.GetForceIncludeMaintenance(),
+		PostEventCooldownSec:    postEventCooldownSec,
 	}
 	if override := msg.CandidateMinPowerWOverride; override != nil {
 		// Defense-in-depth: proto validator already caps below MaxInt32,
@@ -136,6 +141,10 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	if fixedKw != nil && fixedKw.ToleranceKw != nil {
 		tolerance = *fixedKw.ToleranceKw
 	}
+	postEventCooldownSec, err := uint32ToInt32Strict("post_event_cooldown_sec", msg.GetPostEventCooldownSec())
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
 
 	preview := curtailment.PreviewRequest{
 		OrgID:                   info.OrganizationID,
@@ -148,6 +157,7 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 		ToleranceKW:             tolerance,
 		IncludeMaintenance:      msg.GetIncludeMaintenance(),
 		ForceIncludeMaintenance: msg.GetForceIncludeMaintenance(),
+		PostEventCooldownSec:    postEventCooldownSec,
 	}
 	if override := msg.CandidateMinPowerWOverride; override != nil {
 		// Proto validator already bounds this; backstop for non-Connect callers.
@@ -233,21 +243,34 @@ func toStartScope(msg *pb.StartCurtailmentRequest) (curtailment.Scope, error) {
 	}
 }
 
-// startResponseState mirrors the persisted state for the synchronous Start
-// response: a FULL_FLEET event with nothing eligible is COMPLETED on arrival;
-// everything else is PENDING and the reconciler drives it.
-func startResponseState(mode pb.CurtailmentMode, selected int) pb.CurtailmentEventState {
-	if mode == pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET && selected == 0 {
+// startResponseState mirrors the persisted state for the synchronous Start response.
+func startResponseState(req *pb.StartCurtailmentRequest, selected int) pb.CurtailmentEventState {
+	if isClosedLoopFullFleetStartResponse(req) {
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE
+	}
+	if req.GetMode() == pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET && selected == 0 {
 		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED
 	}
 	return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING
+}
+
+func isClosedLoopFullFleetStartResponse(req *pb.StartCurtailmentRequest) bool {
+	if req.GetMode() != pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET {
+		return false
+	}
+	switch req.GetScope().(type) {
+	case *pb.StartCurtailmentRequest_WholeOrg, *pb.StartCurtailmentRequest_Site:
+		return true
+	default:
+		return false
+	}
 }
 
 // toStartResponse renders a newly persisted Plan + request as the
 // response. Idempotent replays render from the persisted event row.
 func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *pb.StartCurtailmentResponse {
 	event := &pb.CurtailmentEvent{
-		State:                   startResponseState(req.GetMode(), len(plan.Selected)),
+		State:                   startResponseState(req, len(plan.Selected)),
 		Mode:                    requestModeProto(req.GetMode()),
 		Strategy:                pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
 		Level:                   pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
@@ -269,6 +292,9 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	if plan.EventUUID != nil {
 		event.EventUuid = plan.EventUUID.String()
 	}
+	if plan.StartedAt != nil {
+		event.StartedAt = timestamppb.New(*plan.StartedAt)
+	}
 	if plan.EndedAt != nil {
 		event.EndedAt = timestamppb.New(*plan.EndedAt)
 	}
@@ -288,20 +314,23 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 		event.ModeParams = &pb.CurtailmentEvent_FixedKw{FixedKw: fk}
 	}
 
-	// All targets are PENDING at Start; reconciler updates them in-place.
-	targets := make([]*pb.CurtailmentTarget, len(plan.Selected))
-	for i, sel := range plan.Selected {
-		t := &pb.CurtailmentTarget{
-			DeviceIdentifier: sel.DeviceIdentifier,
-			TargetType:       "miner",
-			State:            pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING,
-			DesiredState:     pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_CURTAILED,
+	var targets []*pb.CurtailmentTarget
+	if !isClosedLoopFullFleetStartResponse(req) {
+		// Open-loop starts persist targets immediately; reconciler updates them in-place.
+		targets = make([]*pb.CurtailmentTarget, len(plan.Selected))
+		for i, sel := range plan.Selected {
+			t := &pb.CurtailmentTarget{
+				DeviceIdentifier: sel.DeviceIdentifier,
+				TargetType:       "miner",
+				State:            pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING,
+				DesiredState:     pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_CURTAILED,
+			}
+			if sel.PowerW > 0 {
+				v := sel.PowerW
+				t.BaselinePowerW = &v
+			}
+			targets[i] = t
 		}
-		if sel.PowerW > 0 {
-			v := sel.PowerW
-			t.BaselinePowerW = &v
-		}
-		targets[i] = t
 	}
 	event.Targets = targets
 	rollup := lenToInt32Saturating(len(targets))

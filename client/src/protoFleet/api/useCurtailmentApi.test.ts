@@ -91,6 +91,7 @@ const baseSubmitValues: CurtailmentSubmitValues = {
   curtailBatchIntervalSec: "",
   restoreBatchSize: "10",
   restoreIntervalSec: "60",
+  postEventCooldownSec: "0",
   reason: "Grid peak",
   includeMaintenance: false,
 };
@@ -1917,6 +1918,7 @@ describe("useCurtailmentApi", () => {
       expect.objectContaining({
         reason: "Grid peak",
         mode: CurtailmentMode.FIXED_KW,
+        postEventCooldownSec: 0,
       }),
     );
     expect(changedListener).toHaveBeenCalledTimes(1);
@@ -1955,6 +1957,7 @@ describe("useCurtailmentApi", () => {
         curtailmentMode: "fullFleet",
         targetKw: "",
         toleranceKw: "",
+        postEventCooldownSec: "600",
       });
     });
 
@@ -1962,6 +1965,7 @@ describe("useCurtailmentApi", () => {
       expect.objectContaining({
         mode: CurtailmentMode.FULL_FLEET,
         modeParams: expect.objectContaining({ case: undefined }),
+        postEventCooldownSec: 600,
       }),
     );
   });

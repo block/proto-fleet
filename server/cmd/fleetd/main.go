@@ -218,7 +218,7 @@ func start(config *Config) error {
 	userStore := sqlstores.NewSQLUserStore(conn)
 	poolStore := sqlstores.NewSQLPoolStore(conn, encryptSvc)
 	deviceStore := sqlstores.NewSQLDeviceStore(conn)
-	collectionStore := sqlstores.NewSQLCollectionStore(conn)
+	collectionStore := sqlstores.NewSQLCollectionStore(conn, config.TimescaleDB.MaxAge)
 	activityStore := sqlstores.NewSQLActivityStore(conn)
 	notificationHistoryStore := sqlstores.NewSQLNotificationHistoryStore(conn)
 
@@ -332,7 +332,7 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, tokenSvc, pluginManager).
+	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, pluginManager).
 		WithCommandSender(fleetNodeControlRegistry)
 
 	// Create diagnostics service for error polling and auto-closing stale errors
@@ -371,7 +371,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	pluginPairer := plugins.NewPairer(pluginManager, transactor, discoveredDeviceStore, deviceStore, userStore, tokenSvc, encryptSvc)
+	pluginPairer := plugins.NewPairer(pluginManager, transactor, discoveredDeviceStore, deviceStore, encryptSvc)
 
 	pairingSvc := pairingDomain.NewService(
 		discoveredDeviceStore,
@@ -442,7 +442,7 @@ func start(config *Config) error {
 	buildingStore := sqlstores.NewSQLBuildingStore(conn)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, buildingStore, commandSvc, activitySvc)
 	fleetMgmtSvc.WithOptionsCache(fleetOptionsCache)
-	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
+	defer fleetMgmtSvc.WaitForPendingUnpairs(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)
 	scheduleStore := sqlstores.NewSQLScheduleStore(conn)
@@ -482,7 +482,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	curtailmentRec := curtailmentReconciler.New(curtailmentReconciler.Config{}, curtailmentStore, commandSvc, curtailmentReconciler.WithMetrics(curtailmentMetrics))
+	curtailmentRec := curtailmentReconciler.New(config.Curtailment, curtailmentStore, commandSvc, curtailmentReconciler.WithMetrics(curtailmentMetrics))
 	if err := curtailmentRec.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
 	}
@@ -607,7 +607,7 @@ func start(config *Config) error {
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
-	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithCurtailmentSettings(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
+	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry), li))
@@ -624,6 +624,8 @@ func start(config *Config) error {
 
 	notifHandler := notificationsHandler.NewHandler(notificationsSvc, notificationHistoryStore)
 	mux.Handle(notificationsv1connect.NewChannelServiceHandler(notifHandler, li))
+	mux.Handle(notificationsv1connect.NewRuleServiceHandler(notifHandler, li))
+	mux.Handle(notificationsv1connect.NewMaintenanceWindowServiceHandler(notifHandler, li))
 	// Runtime capability probe so the prebuilt client can surface the Notifications
 	// nav only when the sidecar this feature proxies is actually enabled.
 	mux.HandleFunc("GET /api/v1/notifications/enabled", notificationsHandler.NewEnabledHandler(config.Metrics.Enabled))

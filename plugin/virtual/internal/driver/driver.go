@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/block/proto-fleet/plugin/virtual/internal/config"
 	"github.com/block/proto-fleet/plugin/virtual/internal/device"
@@ -41,6 +43,8 @@ type Driver struct {
 	minersByIP     map[string]*config.VirtualMinerConfig
 	sv2ByMakeModel map[modelKey]bool
 	mutex          sync.RWMutex
+	latencyMu      sync.Mutex
+	latencyRNG     *rand.Rand
 }
 
 type modelKey struct{ manufacturer, model string }
@@ -71,6 +75,7 @@ func New(configPath string) (*Driver, error) {
 		devices:        make(map[string]sdk.Device),
 		minersByIP:     minersByIP,
 		sv2ByMakeModel: sv2ByMakeModel,
+		latencyRNG:     rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 2)),
 	}, nil
 }
 
@@ -132,7 +137,7 @@ func (d *Driver) GetCapabilitiesForModel(_ context.Context, manufacturer, model 
 }
 
 // DiscoverDevice implements sdk.Driver.
-func (d *Driver) DiscoverDevice(_ context.Context, ipAddress, port string) (sdk.DeviceInfo, error) {
+func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sdk.DeviceInfo, error) {
 	// Only handle IPs in the virtual range
 	if !strings.HasPrefix(ipAddress, virtualIPPrefix) {
 		return sdk.DeviceInfo{}, fmt.Errorf("not a virtual miner IP: %s", ipAddress)
@@ -151,6 +156,9 @@ func (d *Driver) DiscoverDevice(_ context.Context, ipAddress, port string) (sdk.
 	if !exists {
 		return sdk.DeviceInfo{}, fmt.Errorf("no virtual miner configured at %s", ipAddress)
 	}
+	if err := d.waitForLatency(ctx, minerCfg, false); err != nil {
+		return sdk.DeviceInfo{}, err
+	}
 
 	slog.Info("Discovered virtual miner", "serial", minerCfg.SerialNumber, "ip", ipAddress)
 
@@ -167,7 +175,7 @@ func (d *Driver) DiscoverDevice(_ context.Context, ipAddress, port string) (sdk.
 }
 
 // PairDevice implements sdk.Driver.
-func (d *Driver) PairDevice(_ context.Context, deviceInfo sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
+func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.DeviceInfo, error) {
 	// Look up miner config to get full device info (MAC, serial, etc.)
 	d.mutex.RLock()
 	minerCfg, exists := d.minersByIP[deviceInfo.Host]
@@ -175,6 +183,9 @@ func (d *Driver) PairDevice(_ context.Context, deviceInfo sdk.DeviceInfo, _ sdk.
 
 	if !exists {
 		return sdk.DeviceInfo{}, fmt.Errorf("no virtual miner configured at %s", deviceInfo.Host)
+	}
+	if err := d.waitForLatency(ctx, minerCfg, true); err != nil {
+		return sdk.DeviceInfo{}, err
 	}
 
 	slog.Info("Paired virtual miner", "serial", minerCfg.SerialNumber, "mac", minerCfg.MacAddress)
@@ -219,4 +230,37 @@ func (d *Driver) NewDevice(_ context.Context, deviceID string, deviceInfo sdk.De
 // Returns default credentials for virtual miners to enable auto-authentication during pairing.
 func (d *Driver) GetDefaultCredentials(_ context.Context, _, _ string) []sdk.UsernamePassword {
 	return defaultCredentials
+}
+
+func (d *Driver) waitForLatency(ctx context.Context, minerCfg *config.VirtualMinerConfig, includeInternal bool) error {
+	delay := d.sampleLatency(minerCfg, includeInternal)
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (d *Driver) sampleLatency(minerCfg *config.VirtualMinerConfig, includeInternal bool) time.Duration {
+	if minerCfg == nil {
+		return 0
+	}
+
+	d.latencyMu.Lock()
+	defer d.latencyMu.Unlock()
+	if d.latencyRNG == nil {
+		d.latencyRNG = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 2))
+	}
+
+	delay := minerCfg.Behavior.NetworkLatency.Sample(d.latencyRNG)
+	if includeInternal {
+		delay += minerCfg.Behavior.InternalLatency.Sample(d.latencyRNG)
+	}
+	return delay
 }

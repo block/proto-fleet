@@ -34,8 +34,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          git fetch --no-tags --depth=1 origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
-          changed_files="$(git diff --name-only "origin/$BASE_REF"...HEAD -- server/migrations)"
+          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          if ! changed_files="$(git diff --name-only "origin/${BASE_REF}"...HEAD -- server/migrations 2>/tmp/migration-diff.err)"; then
+            cat /tmp/migration-diff.err >&2
+            echo "No merge base found for origin/${BASE_REF}...HEAD; falling back to a direct tree diff."
+            changed_files="$(git diff --name-only "origin/${BASE_REF}" HEAD -- server/migrations)"
+          fi
 
           if printf '%s\n' "$changed_files" | grep -Eq '^server/migrations/[0-9]{6}_.+\.sql$'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"

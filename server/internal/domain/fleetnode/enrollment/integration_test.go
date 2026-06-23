@@ -26,7 +26,7 @@ func setupEnrollmentTest(t *testing.T) (*sql.DB, int64, int64, *fleetnodeenrollm
 
 	db := testutil.GetTestDB(t)
 
-	_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES (1, 'test-org', 'Test Org', 'dummy-key') ON CONFLICT DO NOTHING`)
+	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org', 'Test Org') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO "user" (id, user_id, username, password_hash) VALUES (1, 'test-user', 'op', 'dummy') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
@@ -53,8 +53,6 @@ func TestEnrollmentHappyPath(t *testing.T) {
 	_, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
 	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	signingPubKey, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
 
 	// Act 1: operator creates code
 	code, expiresAt, err := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
@@ -63,7 +61,7 @@ func TestEnrollmentHappyPath(t *testing.T) {
 	require.True(t, expiresAt.After(time.Now()))
 
 	// Act 2: agent registers with the code
-	agent, _, err := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, signingPubKey)
+	agent, _, err := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey)
 	require.NoError(t, err)
 	require.Equal(t, fleetnodeenrollment.FleetNodeStatusPending, agent.EnrollmentStatus)
 	require.Equal(t, orgID, agent.OrgID)
@@ -96,14 +94,13 @@ func TestRegisterRejectsReplay(t *testing.T) {
 	ctx := t.Context()
 	_, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, err := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
 	require.NoError(t, err)
 
 	// Act
-	_, _, err = enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, signing)
+	_, _, err = enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey)
 	require.NoError(t, err)
-	_, _, err2 := enrollment.RegisterFleetNode(ctx, code, "agent-2", pubKey, signing)
+	_, _, err2 := enrollment.RegisterFleetNode(ctx, code, "agent-2", pubKey)
 
 	// Assert
 	require.Error(t, err2, "second register with the same code must fail")
@@ -114,14 +111,13 @@ func TestRegisterRejectsExpiredCode(t *testing.T) {
 	ctx := t.Context()
 	db, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, err := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
 	require.NoError(t, err)
 	_, err = db.Exec(`UPDATE pending_enrollment SET expires_at = $1`, time.Now().UTC().Add(-time.Minute))
 	require.NoError(t, err)
 
 	// Act
-	_, _, err = enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, signing)
+	_, _, err = enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey)
 
 	// Assert
 	require.Error(t, err)
@@ -132,9 +128,8 @@ func TestCompleteHandshakeRejectsReplayedChallenge(t *testing.T) {
 	ctx := t.Context()
 	_, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
 	pubKey, privKey, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
-	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, signing)
+	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey)
 	apiKeyPlaintext, _, _ := enrollment.Confirm(ctx, agent.ID, orgID)
 	challenge, _, err := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
 	require.NoError(t, err)
@@ -154,9 +149,8 @@ func TestBeginHandshakeRejectsMismatchedIdentityPubkey(t *testing.T) {
 	ctx := t.Context()
 	_, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
 	enrolledPubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
-	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", enrolledPubKey, signing)
+	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", enrolledPubKey)
 	apiKeyPlaintext, _, _ := enrollment.Confirm(ctx, agent.ID, orgID)
 	differentPubKey, _, _ := ed25519.GenerateKey(rand.Reader)
 
@@ -189,10 +183,9 @@ func TestConfirmRejectsExpiredEnrollment(t *testing.T) {
 	ctx := t.Context()
 	db, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, err := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
 	require.NoError(t, err)
-	agent, _, err := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, signing)
+	agent, _, err := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey)
 	require.NoError(t, err)
 	_, err = db.Exec(`UPDATE pending_enrollment SET expires_at = $1`, time.Now().UTC().Add(-time.Minute))
 	require.NoError(t, err)
@@ -209,9 +202,8 @@ func TestRevokeAgentLocksOutHandshake(t *testing.T) {
 	ctx := t.Context()
 	_, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
-	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, signing)
+	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey)
 	apiKeyPlaintext, _, _ := enrollment.Confirm(ctx, agent.ID, orgID)
 
 	// Act
@@ -228,9 +220,8 @@ func TestConcurrentBeginHandshakesYieldOneChallenge(t *testing.T) {
 	ctx := t.Context()
 	db, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
-	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, signing)
+	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey)
 	apiKeyPlaintext, _, _ := enrollment.Confirm(ctx, agent.ID, orgID)
 
 	// Act
@@ -256,9 +247,8 @@ func TestRevokeBeforeConfirmCannotBeResurrected(t *testing.T) {
 	ctx := t.Context()
 	_, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
-	agent, _, err := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, signing)
+	agent, _, err := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey)
 	require.NoError(t, err)
 	require.NoError(t, enrollment.RevokeFleetNode(ctx, agent.ID, orgID))
 
@@ -274,9 +264,8 @@ func TestConcurrentCompleteHandshakesYieldOneSession(t *testing.T) {
 	ctx := t.Context()
 	db, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
 	pubKey, privKey, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
-	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, signing)
+	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey)
 	apiKeyPlaintext, _, _ := enrollment.Confirm(ctx, agent.ID, orgID)
 	// Pre-mint challenges so multiple CompleteHandshake calls can race against
 	// the latest one. Each BeginHandshake replaces the prior; the test then
@@ -315,9 +304,8 @@ func TestCompleteHandshakeRaceWithRevokeReturnsUnauthenticated(t *testing.T) {
 	ctx := t.Context()
 	_, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
 	pubKey, privKey, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
-	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, signing)
+	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey)
 	apiKeyPlaintext, _, _ := enrollment.Confirm(ctx, agent.ID, orgID)
 	challenge, _, err := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
 	require.NoError(t, err)
@@ -336,9 +324,8 @@ func TestConfirmRejectsAgentRevokedMidConfirm(t *testing.T) {
 	ctx := t.Context()
 	db, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
-	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, signing)
+	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey)
 	// Simulate a concurrent RevokeFleetNode that lands between Confirm's reads
 	// and its SetFleetNodeEnrollmentStatus update.
 	_, err := db.Exec(`UPDATE fleet_node SET deleted_at = $1 WHERE id = $2`, time.Now().UTC(), agent.ID)
@@ -359,14 +346,13 @@ func TestRegisterAgentDuplicateIdentityIsPrecondition(t *testing.T) {
 	ctx := t.Context()
 	_, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code1, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
 	code2, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
-	_, _, err := enrollment.RegisterFleetNode(ctx, code1, "agent-1", pubKey, signing)
+	_, _, err := enrollment.RegisterFleetNode(ctx, code1, "agent-1", pubKey)
 	require.NoError(t, err)
 
 	// Act
-	_, _, err2 := enrollment.RegisterFleetNode(ctx, code2, "agent-2", pubKey, signing)
+	_, _, err2 := enrollment.RegisterFleetNode(ctx, code2, "agent-2", pubKey)
 
 	// Assert
 	require.Error(t, err2)
@@ -378,15 +364,14 @@ func TestRevokeAgentFreesIdentityForReenrollment(t *testing.T) {
 	ctx := t.Context()
 	_, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code1, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
-	agent1, _, err := enrollment.RegisterFleetNode(ctx, code1, "agent-1", pubKey, signing)
+	agent1, _, err := enrollment.RegisterFleetNode(ctx, code1, "agent-1", pubKey)
 	require.NoError(t, err)
 	require.NoError(t, enrollment.RevokeFleetNode(ctx, agent1.ID, orgID))
 
 	// Act
 	code2, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
-	agent2, _, err := enrollment.RegisterFleetNode(ctx, code2, "agent-1", pubKey, signing)
+	agent2, _, err := enrollment.RegisterFleetNode(ctx, code2, "agent-1", pubKey)
 
 	// Assert
 	require.NoError(t, err, "re-enrollment with the same identity_pubkey + name must succeed after revoke soft-deletes the prior agent")
@@ -411,10 +396,9 @@ func TestListAgentsSurfacesAwaitingConfirmation(t *testing.T) {
 	ctx := t.Context()
 	_, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, err := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
 	require.NoError(t, err)
-	agent, _, err := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, signing)
+	agent, _, err := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey)
 	require.NoError(t, err)
 
 	// Act
@@ -439,10 +423,9 @@ func TestUpdateLastSeenAdvancesTimestamp(t *testing.T) {
 	ctx := t.Context()
 	db, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	signing, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, err := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
 	require.NoError(t, err)
-	agent, _, err := enrollment.RegisterFleetNode(ctx, code, "agent-heartbeat", pubKey, signing)
+	agent, _, err := enrollment.RegisterFleetNode(ctx, code, "agent-heartbeat", pubKey)
 	require.NoError(t, err)
 	heartbeat := time.Now().UTC().Truncate(time.Second)
 

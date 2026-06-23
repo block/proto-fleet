@@ -18,7 +18,11 @@ import {
 } from "@/protoFleet/components/DeviceSetList/sortConfig";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
-import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import {
+  intersectSiteFilters,
+  siteFilterFromActive,
+  useActiveSite,
+} from "@/protoFleet/components/PageHeader/SitePicker";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
@@ -29,12 +33,24 @@ import { useOptionalFleetOutletContext } from "@/protoFleet/features/fleetManage
 import { ManageRackModal, type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal";
 import { RackCard } from "@/protoFleet/features/fleetManagement/components/RackCard";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
+import { BUILDING_URL_PARAM } from "@/protoFleet/features/fleetManagement/utils/buildingFilterUrl";
 import {
-  BUILDING_URL_PARAM,
-  parseBuildingIdsFromParams,
-} from "@/protoFleet/features/fleetManagement/utils/buildingFilterUrl";
+  FILTER_URL_PARAM_KEYS,
+  fleetListTelemetryRangesFromURL,
+  parseIdFilterValuesFromURL,
+  parseUrlToActiveFilters,
+  setTelemetryNumericFilterURLParams,
+  UNASSIGNED_FILTER_OPTION,
+  UNASSIGNED_URL_VALUE,
+} from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { mapRackToCardProps } from "@/protoFleet/features/fleetManagement/utils/rackCardMapper";
+import {
+  TELEMETRY_FILTER_BOUNDS,
+  TELEMETRY_FILTER_KEYS,
+  type TelemetryFilterKey,
+} from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
+import { isPathScopable } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
@@ -43,13 +59,14 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
-import FilterChipsBar from "@/shared/components/List/Filters/FilterChipsBar";
+import FilterChipsBar, { type FilterChipsBarNumericFilter } from "@/shared/components/List/Filters/FilterChipsBar";
 import { SORT_ASC, SORT_DESC, type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import useMeasure from "@/shared/hooks/useMeasure";
 import { useNavigate } from "@/shared/hooks/useNavigate";
+import type { NumericRangeValue } from "@/shared/utils/filterValidation";
 
 const RACK_COLUMNS_FLEET: DeviceSetColumn[] = [
   "name",
@@ -91,6 +108,12 @@ const siteClearSubtitle = (labels: string[], rackCount: number, unresolved: bool
   return `${rackCount} of the selected ${rackNoun} ${isAre} currently in ${labelSummary}${more}, which belong${labels.length === 1 ? "s" : ""} to a different site. Continuing will clear the rack ${labels.length === 1 ? "from that building" : "from those buildings"} before moving to the selected site.`;
 };
 
+const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_KEYS.map((key) => ({
+  key,
+  title: TELEMETRY_FILTER_BOUNDS[key].label,
+  bounds: TELEMETRY_FILTER_BOUNDS[key],
+}));
+
 const RacksPage = () => {
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
@@ -103,7 +126,7 @@ const RacksPage = () => {
   const { listSites, assignRacksToSite } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();
   const { pathname } = useLocation();
-  const insideFleetShell = pathname.startsWith("/fleet/");
+  const insideFleetShell = isPathScopable(pathname);
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
   // Zones + issues are URL-driven so saved views can capture them. Values
   // are written via repeated keys (`?zone=A&zone=B`), so reading uses
@@ -135,7 +158,7 @@ const RacksPage = () => {
   );
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
   const [allBuildings, setAllBuildings] = useState<{ id: string; label: string; siteId: string }[]>([]);
-  const [allSites, setAllSites] = useState<{ id: string; label: string }[]>([]);
+  const [allSites, setAllSites] = useState<{ id: string; label: string }[] | undefined>(undefined);
   const [selectedRackIds, setSelectedRackIds] = useState<string[]>([]);
   const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
   const [bulkReparentKind, setBulkReparentKind] = useState<"building" | "site" | null>(null);
@@ -155,57 +178,63 @@ const RacksPage = () => {
   } | null>(null);
   const [siteClearInFlight, setSiteClearInFlight] = useState(false);
 
-  // SitePicker active site → server-side site_ids / include_unassigned.
-  // URL `?site=` deep links still win when present (legacy / cross-link
-  // scoping) so the picker doesn't fight a user-explicit URL.
+  // Path scope → server-side site_ids / include_unassigned. URL `?site=`
+  // remains a list filter and composes with scope below.
   // allSites already holds the decimal-string site IDs, so derive the
   // known-id set directly rather than round-tripping through a partial
   // SiteWithCounts cast.
-  const knownSiteIds = useMemo(() => new Set(allSites.map((s) => s.id)), [allSites]);
+  const knownSiteIds = useMemo(() => (allSites ? new Set(allSites.map((s) => s.id)) : undefined), [allSites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
   const activeSiteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
 
-  // `?site=` URL deep links carry one or more comma-separated site IDs.
-  // Forwarded server-side via the new ListDeviceSets.site_ids filter; the
-  // SitePicker drives when the URL doesn't pin a site.
-  const urlSiteIds = useMemo(
-    () =>
-      new Set(
-        searchParams
-          .getAll("site")
-          .flatMap((raw) => raw.split(","))
-          .map((value) => value.trim())
-          .filter((value) => value !== "" && /^\d+$/.test(value)),
-      ),
-    [searchParams],
+  const selectedSiteFilter = useMemo(() => parseIdFilterValuesFromURL(searchParams, "site"), [searchParams]);
+  const selectedSiteValues = selectedSiteFilter.values;
+  const selectedSiteIds = useMemo(
+    () => selectedSiteValues.filter((value) => value !== UNASSIGNED_URL_VALUE).map((value) => BigInt(value)),
+    [selectedSiteValues],
   );
+  const telemetryRanges = useMemo(() => fleetListTelemetryRangesFromURL(searchParams), [searchParams]);
+  const selectedNumericValues = useMemo(() => parseUrlToActiveFilters(searchParams).numericFilters, [searchParams]);
 
-  const selectedBuildingIds = useMemo(() => parseBuildingIdsFromParams(searchParams), [searchParams]);
-  const selectedBuildingIdStrings = useMemo(() => selectedBuildingIds.map(String), [selectedBuildingIds]);
+  const selectedBuildingFilter = useMemo(() => parseIdFilterValuesFromURL(searchParams, "building"), [searchParams]);
+  const selectedBuildingValues = selectedBuildingFilter.values;
+  const selectedBuildingIds = useMemo(
+    () => selectedBuildingValues.filter((value) => value !== UNASSIGNED_URL_VALUE).map((value) => BigInt(value)),
+    [selectedBuildingValues],
+  );
+  const selectedBuildingIdStrings = selectedBuildingValues;
+  const includeNoBuilding = selectedBuildingFilter.includeUnassigned;
   const effectiveBuildingIdsRef = useRef<bigint[]>(selectedBuildingIds);
   useEffect(() => {
     effectiveBuildingIdsRef.current = selectedBuildingIds;
   }, [selectedBuildingIds]);
   const getBuildingIds = useCallback(() => effectiveBuildingIdsRef.current, []);
+  const includeNoBuildingRef = useRef(includeNoBuilding);
+  useEffect(() => {
+    includeNoBuildingRef.current = includeNoBuilding;
+  }, [includeNoBuilding]);
+  const getIncludeNoBuilding = useCallback(() => includeNoBuildingRef.current, []);
+  const telemetryRangesRef = useRef(telemetryRanges);
+  useEffect(() => {
+    telemetryRangesRef.current = telemetryRanges;
+  }, [telemetryRanges]);
+  const getTelemetryRanges = useCallback(() => telemetryRangesRef.current, []);
 
-  // Effective site filter: URL `?site=` deep link wins over SitePicker
-  // selection (lets users link directly to a site scope without
-  // mutating the persisted picker state). When neither is set the
-  // filter is empty and the server returns every rack in the org.
+  // Effective site filter: path scope ∩ `?site=` list filter. When neither
+  // is set the filter is empty and the server returns every rack in the org.
   const effectiveSiteFilter = useMemo(() => {
-    if (urlSiteIds.size > 0) {
-      return {
-        siteIds: Array.from(urlSiteIds, (id) => BigInt(id)),
-        includeUnassigned: false,
-      };
-    }
-    return activeSiteFilter;
-  }, [urlSiteIds, activeSiteFilter]);
+    return intersectSiteFilters(activeSiteFilter, {
+      siteIds: selectedSiteIds,
+      includeUnassigned: selectedSiteFilter.includeUnassigned,
+    });
+  }, [activeSiteFilter, selectedSiteIds, selectedSiteFilter.includeUnassigned]);
   const effectiveSiteFilterRef = useRef(effectiveSiteFilter);
   useEffect(() => {
     effectiveSiteFilterRef.current = effectiveSiteFilter;
   }, [effectiveSiteFilter]);
   const getSiteFilter = useCallback(() => effectiveSiteFilterRef.current, []);
+  const getSiteIds = useCallback(() => effectiveSiteFilterRef.current.siteIds, []);
+  const getIncludeUnassigned = useCallback(() => effectiveSiteFilterRef.current.includeUnassigned, []);
 
   // ManageRackModal state
   const [manageRackFormData, setManageRackFormData] = useState<RackFormData | null>(null);
@@ -265,6 +294,10 @@ const RacksPage = () => {
     getBuildingIds,
     getSiteFilter,
     getInitialRackSort,
+    getSiteIds,
+    getIncludeUnassigned,
+    getIncludeNoBuilding,
+    getTelemetryRanges,
   );
 
   // Propagate external URL sort changes (saved view activation, deep-link
@@ -360,12 +393,12 @@ const RacksPage = () => {
           sites.filter((s) => s.site !== undefined).map((s) => ({ id: s.site!.id.toString(), label: s.site!.name })),
         );
       },
-      onError: () => setAllSites([]),
+      onError: () => setAllSites((prev) => prev),
     });
     return () => controller.abort();
   }, [listSites]);
 
-  const siteNameById = useMemo(() => new Map(allSites.map((s) => [s.id, s.label])), [allSites]);
+  const siteNameById = useMemo(() => new Map((allSites ?? []).map((s) => [s.id, s.label])), [allSites]);
   const buildingNameById = useMemo(() => new Map(allBuildings.map((b) => [b.id, b.label])), [allBuildings]);
   const buildingById = useMemo(() => new Map(allBuildings.map((b) => [b.id, b])), [allBuildings]);
 
@@ -526,7 +559,7 @@ const RacksPage = () => {
   useEffect(() => {
     outletContext?.publishViewFilterContext({
       availableBuildings: buildingSources,
-      availableSites: allSites,
+      availableSites: allSites ?? [],
     });
   }, [outletContext, buildingSources, allSites]);
 
@@ -538,7 +571,9 @@ const RacksPage = () => {
           next.delete(BUILDING_URL_PARAM);
           ids.forEach((id) => {
             const trimmed = id.trim();
-            if (trimmed && /^\d+$/.test(trimmed)) next.append(BUILDING_URL_PARAM, trimmed);
+            if (trimmed === UNASSIGNED_URL_VALUE || (trimmed && /^\d+$/.test(trimmed))) {
+              next.append(BUILDING_URL_PARAM, trimmed);
+            }
           });
           return next;
         },
@@ -548,17 +583,9 @@ const RacksPage = () => {
     [setSearchParams],
   );
 
-  // Refetch on resolved building-filter change (explicit only now — site
-  // scoping moved to the server-side site_ids filter below).
-  // useDeviceSetListState reads the ref; this effect just kicks pagination.
+  // Resolved building-filter key used by the combined URL-filter refetch below.
+  // Site scoping moved to the server-side site_ids filter.
   const effectiveBuildingKey = useMemo(() => selectedBuildingIds.map(String).join(","), [selectedBuildingIds]);
-  const prevBuildingKey = useRef<string | null>(null);
-  useEffect(() => {
-    if (prevBuildingKey.current !== null && prevBuildingKey.current !== effectiveBuildingKey) {
-      resetAndFetch();
-    }
-    prevBuildingKey.current = effectiveBuildingKey;
-  }, [effectiveBuildingKey, resetAndFetch]);
 
   const writeMultiParam = useCallback(
     (key: string, values: string[]) => {
@@ -578,10 +605,9 @@ const RacksPage = () => {
     [setSearchParams],
   );
 
-  // Refetch on resolved site-filter change (URL `?site=` or SitePicker
-  // selection). Same ref-read pattern as the building effect above.
   const effectiveSiteKey = useMemo(
-    () => `${effectiveSiteFilter.siteIds.map(String).join(",")}|${effectiveSiteFilter.includeUnassigned}`,
+    () =>
+      `${effectiveSiteFilter.siteIds.map(String).join(",")}|${effectiveSiteFilter.includeUnassigned}|${effectiveSiteFilter.matchNone ?? false}`,
     [effectiveSiteFilter],
   );
   const prevSiteKey = useRef<string | null>(null);
@@ -592,10 +618,9 @@ const RacksPage = () => {
       // (Out-of-order list responses are already dropped by
       // useDeviceSetListState's request-id guard, so rows can't go stale.)
       setSelectedRackIds([]);
-      resetAndFetch();
     }
     prevSiteKey.current = effectiveSiteKey;
-  }, [effectiveSiteKey, resetAndFetch]);
+  }, [effectiveSiteKey]);
 
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
@@ -608,6 +633,10 @@ const RacksPage = () => {
         writeMultiParam("issues", values);
         return;
       }
+      if (key === "site") {
+        writeMultiParam("site", values);
+        return;
+      }
       if (key === "building") {
         setBuildingFilter(values);
       }
@@ -615,8 +644,23 @@ const RacksPage = () => {
     [setBuildingFilter, writeMultiParam],
   );
 
-  // Refetch when any URL-derived filter input changes. Building, zone, and
-  // issues are combined into a single effect so a navigation that updates
+  const handleNumericFilterChange = useCallback(
+    (key: string, value: NumericRangeValue) => {
+      setSelectedRackIds([]);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          setTelemetryNumericFilterURLParams(next, key as TelemetryFilterKey, value);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  // Refetch when any URL-derived filter input changes. Site, building, zone,
+  // and issues are combined into a single effect so a navigation that updates
   // more than one of them (e.g. "Clear filters" or activating a saved view)
   // produces one fetch, not several.
   //
@@ -625,8 +669,16 @@ const RacksPage = () => {
   // like "DC1, Row A" — can't collide with a different selection that
   // happens to produce the same joined output.
   const filterFetchKey = useMemo(
-    () => JSON.stringify([effectiveBuildingKey, selectedZones, selectedIssues]),
-    [effectiveBuildingKey, selectedZones, selectedIssues],
+    () =>
+      JSON.stringify([
+        effectiveSiteKey,
+        effectiveBuildingKey,
+        includeNoBuilding,
+        selectedZones,
+        selectedIssues,
+        telemetryRanges,
+      ]),
+    [effectiveSiteKey, effectiveBuildingKey, includeNoBuilding, selectedZones, selectedIssues, telemetryRanges],
   );
   const prevFilterFetchKey = useRef<string | null>(null);
   useEffect(() => {
@@ -639,35 +691,45 @@ const RacksPage = () => {
   const filterChipsBarFilters = useMemo(
     () => [
       {
-        key: "building",
-        title: "Building",
-        pluralTitle: "buildings",
-        options: allBuildings,
-        selectedValues: selectedBuildingIdStrings,
-      },
-      {
-        key: "zone",
-        title: "Zone",
-        pluralTitle: "zones",
-        options: allZones,
-        selectedValues: selectedZones,
-      },
-      {
         key: "issues",
         title: "Issues",
         pluralTitle: "issues",
         options: issueOptions,
         selectedValues: selectedIssues,
+        showGroupDivider: true,
+      },
+      {
+        key: "site",
+        title: "Sites",
+        pluralTitle: "sites",
+        options: [...(allSites ?? []), UNASSIGNED_FILTER_OPTION],
+        selectedValues: selectedSiteValues,
+      },
+      {
+        key: "building",
+        title: "Buildings",
+        pluralTitle: "buildings",
+        options: [...allBuildings, UNASSIGNED_FILTER_OPTION],
+        selectedValues: selectedBuildingIdStrings,
+      },
+      {
+        key: "zone",
+        title: "Zones",
+        pluralTitle: "zones",
+        options: allZones,
+        selectedValues: selectedZones,
+        showGroupDivider: true,
       },
     ],
-    [allBuildings, selectedBuildingIdStrings, allZones, selectedZones, selectedIssues],
+    [allSites, selectedSiteValues, allBuildings, selectedBuildingIdStrings, allZones, selectedZones, selectedIssues],
   );
 
   const hasActiveFilters =
+    selectedSiteValues.length > 0 ||
     selectedBuildingIdStrings.length > 0 ||
     selectedZones.length > 0 ||
     selectedIssues.length > 0 ||
-    urlSiteIds.size > 0;
+    telemetryRanges.length > 0;
   const visibleRackScopes = useMemo(
     () =>
       racks.flatMap((rack) => {
@@ -703,18 +765,16 @@ const RacksPage = () => {
     // batch into one history entry (react-router resolves the prev against
     // the current location, not a value set by an earlier call this render).
     const hadAny =
+      selectedSiteValues.length > 0 ||
       selectedBuildingIdStrings.length > 0 ||
-      urlSiteIds.size > 0 ||
       selectedZones.length > 0 ||
-      selectedIssues.length > 0;
+      selectedIssues.length > 0 ||
+      telemetryRanges.length > 0;
     if (hadAny) {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          next.delete("site");
-          next.delete(BUILDING_URL_PARAM);
-          next.delete("zone");
-          next.delete("issues");
+          FILTER_URL_PARAM_KEYS.forEach((key) => next.delete(key));
           return next;
         },
         { replace: true },
@@ -723,7 +783,15 @@ const RacksPage = () => {
       // No URL transition → manually kick the refetch (URL effects skip).
       resetAndFetch();
     }
-  }, [resetAndFetch, selectedBuildingIdStrings, selectedIssues, selectedZones, setSearchParams, urlSiteIds]);
+  }, [
+    resetAndFetch,
+    selectedBuildingIdStrings,
+    selectedIssues,
+    selectedSiteValues,
+    selectedZones,
+    setSearchParams,
+    telemetryRanges,
+  ]);
 
   const emptyStateRow: ReactNode = useMemo(() => {
     if (isLoading || totalCount > 0) return undefined;
@@ -852,20 +920,20 @@ const RacksPage = () => {
 
   const renderSite = useCallback(
     (item: DeviceSetListItem) => {
-      if (item.deviceSet.typeDetails.case !== "rackInfo") return <span>—</span>;
+      if (item.deviceSet.typeDetails.case !== "rackInfo") return <span />;
       const siteId = item.deviceSet.typeDetails.value.siteId;
-      if (siteId === undefined) return <span>—</span>;
-      return <span>{siteNameById.get(siteId.toString()) ?? "—"}</span>;
+      if (siteId === undefined) return <span />;
+      return <span>{siteNameById.get(siteId.toString()) ?? ""}</span>;
     },
     [siteNameById],
   );
 
   const renderBuilding = useCallback(
     (item: DeviceSetListItem) => {
-      if (item.deviceSet.typeDetails.case !== "rackInfo") return <span>—</span>;
+      if (item.deviceSet.typeDetails.case !== "rackInfo") return <span />;
       const buildingId = item.deviceSet.typeDetails.value.buildingId;
-      if (buildingId === undefined) return <span>—</span>;
-      return <span>{buildingNameById.get(buildingId.toString()) ?? "—"}</span>;
+      if (buildingId === undefined) return <span />;
+      return <span>{buildingNameById.get(buildingId.toString()) ?? ""}</span>;
     },
     [buildingNameById],
   );
@@ -1034,6 +1102,9 @@ const RacksPage = () => {
             <FilterChipsBar
               filters={filterChipsBarFilters}
               onChange={handleFilterChange}
+              numericFilters={TELEMETRY_FILTER_CHIPS}
+              selectedNumericValues={selectedNumericValues}
+              onNumericChange={handleNumericFilterChange}
               onClearAll={handleClearFilters}
             />
             {racksViewMode === "grid" ? (
@@ -1059,6 +1130,9 @@ const RacksPage = () => {
             <FilterChipsBar
               filters={filterChipsBarFilters}
               onChange={handleFilterChange}
+              numericFilters={TELEMETRY_FILTER_CHIPS}
+              selectedNumericValues={selectedNumericValues}
+              onNumericChange={handleNumericFilterChange}
               onClearAll={handleClearFilters}
             />
             {racksViewMode === "grid" ? (

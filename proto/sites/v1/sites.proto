@@ -3,7 +3,9 @@ syntax = "proto3";
 package sites.v1;
 
 import "buf/validate/validate.proto";
+import "common/v1/common.proto";
 import "common/v1/fleet_list_stats.proto";
+import "errors/v1/errors.proto";
 import "google/protobuf/timestamp.proto";
 
 // SiteService is the admin surface for sites: physical locations that
@@ -99,6 +101,9 @@ message Site {
     string country     = 14;
     // Free-form operator notes. No structure enforced.
     string notes       = 15;
+    // Sites are root placements, so this is currently empty. Present
+    // for shape consistency with building, rack, and miner list rows.
+    common.v1.PlacementRefs placement = 16;
 }
 
 // SiteWithCounts pairs a Site with its attachment counts. Returned by
@@ -115,7 +120,15 @@ message SiteWithCounts {
 
 // ListSites
 
-message ListSitesRequest {}
+message ListSitesRequest {
+    // Filter sites whose rolled-up devices have any open issue matching
+    // these component types. OR within the list, AND with other filters.
+    repeated errors.v1.ComponentType error_component_types = 1;
+
+    // Filter by rolled-up telemetry values for the site. Multiple ranges
+    // are AND'd.
+    repeated common.v1.FleetListTelemetryRangeFilter telemetry_ranges = 2;
+}
 
 message ListSitesResponse {
     repeated SiteWithCounts sites = 1;

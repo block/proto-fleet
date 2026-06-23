@@ -34,7 +34,7 @@ message RegisterRequest {
     string enrollment_token     = 1 [(buf.validate.field).string = {min_len: 20, max_len: 512}];
     string name                 = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
     bytes  identity_pubkey      = 3 [(buf.validate.field).bytes.len = 32];
-    bytes  miner_signing_pubkey = 4 [(buf.validate.field).bytes.len = 32];
+    reserved 4;
 }
 
 message RegisterResponse {
@@ -159,13 +159,16 @@ message FleetNodePairResult {
     reserved 9, 10;
     reserved "used_username", "used_password";
 
-    // The credentials the node authenticated with. Set for basic-auth drivers
-    // (operator-supplied OR plugin defaults) and absent for asymmetric-auth
-    // drivers, which pair with the node's signing key and carry no credentials.
+    // The credentials the node authenticated with. Set when the node paired
+    // using operator-supplied credentials or plugin defaults.
     // Presence is meaningful: a present message -- even with an empty username or
     // password -- means the cloud must persist it as the device's auth material;
     // absent means store nothing.
     UsedCredentials used_credentials = 11;
+    // Set by nodes when the plugin paired while the miner's factory-default
+    // password is still active. Cloud stores the pairing as DEFAULT_PASSWORD so
+    // operators can remediate it from the security flow.
+    optional bool default_password_active = 12;
 }
 
 // UsedCredentials carries the basic-auth credentials a node authenticated with,

@@ -14,11 +14,24 @@ WHERE ds.id = sqlc.arg('device_set_id') AND ds.org_id = sqlc.arg('org_id') AND d
 
 -- name: GetDeviceSet :one
 SELECT ds.id, ds.type, ds.label, ds.description, ds.created_at, ds.updated_at,
-       COUNT(dsm.id)::int AS device_count
+       COUNT(dsm.id)::int AS device_count,
+       dsr.site_id,
+       COALESCE(s.name, '') AS site_label,
+       dsr.building_id,
+       COALESCE(b.name, '') AS building_label
 FROM device_set ds
 LEFT JOIN device_set_membership dsm ON ds.id = dsm.device_set_id
+LEFT JOIN device_set_rack dsr ON dsr.device_set_id = ds.id
+LEFT JOIN site s
+  ON s.id = dsr.site_id
+ AND s.org_id = ds.org_id
+ AND s.deleted_at IS NULL
+LEFT JOIN building b
+  ON b.id = dsr.building_id
+ AND b.org_id = ds.org_id
+ AND b.deleted_at IS NULL
 WHERE ds.id = $1 AND ds.org_id = $2 AND ds.deleted_at IS NULL
-GROUP BY ds.id;
+GROUP BY ds.id, dsr.site_id, s.name, dsr.building_id, b.name;
 
 -- name: GetRackInfo :one
 SELECT dsr.zone, dsr.rows, dsr.columns, dsr.order_index, dsr.cooling_type, dsr.site_id, dsr.building_id
@@ -502,11 +515,11 @@ WHERE dsm.device_identifier = $1
   AND ds.deleted_at IS NULL
 ORDER BY ds.label ASC;
 
--- name: GetGroupLabelsForDevices :many
--- Batch query to get group labels for multiple devices at once (for miner list)
-SELECT dsm.device_identifier, ds.label
+-- name: GetGroupRefsForDevices :many
+-- Batch query to get group refs for multiple devices at once (for miner list)
+SELECT dsm.device_identifier, ds.id, ds.label
 FROM device_set_membership dsm
-JOIN device_set ds ON dsm.device_set_id = ds.id
+JOIN device_set ds ON dsm.device_set_id = ds.id AND ds.org_id = dsm.org_id
 WHERE dsm.device_identifier = ANY(@device_identifiers::text[])
   AND dsm.org_id = $1
   AND ds.type = 'group'
@@ -518,7 +531,10 @@ ORDER BY dsm.device_identifier, ds.label;
 -- Returns at most one rack per device due to partial unique index.
 SELECT
   dsm.device_identifier,
+  ds.id AS rack_id,
   ds.label,
+  b.id AS building_id,
+  COALESCE(b.name, '') AS building_label,
   CASE
     WHEN rs.row IS NULL OR rs.col IS NULL OR dsr.order_index NOT IN (1, 2, 3, 4) THEN ''
     ELSE (
@@ -550,8 +566,11 @@ SELECT
     )
   END::text AS position
 FROM device_set_membership dsm
-JOIN device_set ds ON dsm.device_set_id = ds.id
-LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id
+JOIN device_set ds ON dsm.device_set_id = ds.id AND ds.org_id = dsm.org_id
+LEFT JOIN device_set_rack dsr ON dsm.device_set_id = dsr.device_set_id AND dsr.org_id = dsm.org_id
+LEFT JOIN building b ON b.id = dsr.building_id
+  AND b.org_id = dsm.org_id
+  AND b.deleted_at IS NULL
 LEFT JOIN rack_slot rs ON dsm.device_set_id = rs.device_set_id AND dsm.device_id = rs.device_id
 WHERE dsm.device_identifier = ANY(@device_identifiers::text[])
   AND dsm.org_id = $1

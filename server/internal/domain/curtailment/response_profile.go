@@ -19,6 +19,7 @@ const (
 	DefaultResponseProfileCurtailBatchIntervalSec int32 = 0
 	DefaultResponseProfileRestoreBatchSize        int32 = 50
 	DefaultResponseProfileRestoreBatchIntervalSec int32 = 5
+	MaxPostEventCooldownSec                       int32 = 24 * 60 * 60
 
 	responseProfileBatchSizeMax int32   = 10000
 	responseProfileNumericMax   float64 = 999999999.999
@@ -193,6 +194,9 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 	if profile.Mode == models.ModeFullFleet && (profile.TargetKW != nil || profile.ToleranceKW != nil) {
 		return fleeterror.NewInvalidArgumentError("target_kw and tolerance_kw must be unset for FULL_FLEET response profiles")
 	}
+	if responseProfileRequiresAdminControls(profile) && !canUseAdminControls {
+		return fleeterror.NewForbiddenError("only admins can save response profiles with admin-only controls")
+	}
 	if profile.TargetKW != nil && math.IsInf(*profile.TargetKW, 0) {
 		return fleeterror.NewInvalidArgumentErrorf("target_kw must be finite, got %v", *profile.TargetKW)
 	}
@@ -277,11 +281,29 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 	if profile.ForceIncludeMaintenance && !canUseAdminControls {
 		return fleeterror.NewForbiddenError("only admins can set force_include_maintenance")
 	}
+	if err := validatePostEventCooldownSec(profile.PostEventCooldownSec); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validatePostEventCooldownSec(value int32) error {
+	if value < 0 {
+		return fleeterror.NewInvalidArgumentError("post_event_cooldown_sec must be >= 0")
+	}
+	if value > MaxPostEventCooldownSec {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"post_event_cooldown_sec must be <= %d, got %d",
+			MaxPostEventCooldownSec,
+			value,
+		)
+	}
 	return nil
 }
 
 func responseProfileRequiresAdminControls(profile models.ResponseProfile) bool {
-	return profile.ForceIncludeMaintenance ||
+	return profile.Mode == models.ModeFullFleet ||
+		profile.ForceIncludeMaintenance ||
 		profile.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
 		profile.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax
 }

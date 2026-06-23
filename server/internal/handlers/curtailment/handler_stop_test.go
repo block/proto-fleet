@@ -38,13 +38,16 @@ type stopStubStore struct {
 func (s *stopStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
 	panic("GetOrgConfig not exercised by Stop handler tests")
 }
-func (s *stopStubStore) UpdateOrgConfigPostEventCooldown(context.Context, int64, int32) (*models.OrgConfig, error) {
-	panic("UpdateOrgConfigPostEventCooldown not exercised by Stop handler tests")
-}
 func (s *stopStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
 	panic("ListActiveCurtailedDevices not exercised by Stop handler tests")
 }
-func (s *stopStubStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
+func (s *stopStubStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
+	panic("ListActiveCurtailmentTargetDevices not exercised by Stop handler tests")
+}
+func (s *stopStubStore) ListRecentlyResolvedCurtailedDevices(
+	context.Context,
+	interfaces.ListRecentlyResolvedCurtailedDevicesParams,
+) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised by Stop handler tests")
 }
 func (s *stopStubStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
@@ -55,6 +58,15 @@ func (s *stopStubStore) ListCandidates(context.Context, interfaces.ListCandidate
 }
 func (s *stopStubStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised by Stop handler tests")
+}
+func (s *stopStubStore) ClaimClosedLoopFullFleetTargets(
+	context.Context,
+	int64,
+	int64,
+	int32,
+	[]models.InsertTargetParams,
+) ([]*models.Target, error) {
+	panic("ClaimClosedLoopFullFleetTargets not exercised by Stop handler tests")
 }
 func (s *stopStubStore) GetEventByUUID(_ context.Context, _ int64, _ uuid.UUID) (*models.Event, error) {
 	if s.getEventErr != nil {

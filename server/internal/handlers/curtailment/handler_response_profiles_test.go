@@ -39,6 +39,7 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 			CurtailBatchIntervalSec: ptrUint32(15),
 			RestoreBatchSize:        ptrUint32(20),
 			RestoreBatchIntervalSec: ptrUint32(30),
+			PostEventCooldownSec:    600,
 		}),
 	)
 
@@ -54,10 +55,12 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 	assert.Equal(t, uint32(15), profile.GetCurtailBatchIntervalSec())
 	assert.Equal(t, uint32(20), profile.GetRestoreBatchSize())
 	assert.Equal(t, uint32(30), profile.GetRestoreBatchIntervalSec())
+	assert.Equal(t, uint32(600), profile.GetPostEventCooldownSec())
 	require.NotNil(t, store.created)
 	assert.Equal(t, int64(42), store.created.OrgID)
 	require.NotNil(t, store.created.SiteID)
 	assert.Equal(t, int64(7), *store.created.SiteID)
+	assert.Equal(t, int32(600), store.created.PostEventCooldownSec)
 }
 
 func TestHandler_CreateCurtailmentResponseProfilePreservesExplicitZeroRestoreInterval(t *testing.T) {
@@ -192,6 +195,7 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 			},
 			RestoreBatchSize:        ptrUint32(40),
 			RestoreBatchIntervalSec: ptrUint32(0),
+			PostEventCooldownSec:    900,
 		}),
 	)
 
@@ -203,8 +207,10 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 	assert.Equal(t, float64(3000), profile.GetFixedKw().GetTargetKw())
 	assert.Equal(t, uint32(40), profile.GetRestoreBatchSize())
 	assert.Equal(t, uint32(0), profile.GetRestoreBatchIntervalSec())
+	assert.Equal(t, uint32(900), profile.GetPostEventCooldownSec())
 	require.NotNil(t, store.updated)
 	assert.Equal(t, int32(0), store.updated.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(900), store.updated.PostEventCooldownSec)
 	require.NotNil(t, store.updateExpectedSiteID)
 	assert.Equal(t, siteID, *store.updateExpectedSiteID)
 }

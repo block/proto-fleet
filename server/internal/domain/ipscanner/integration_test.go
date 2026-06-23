@@ -134,8 +134,8 @@ func setupTestData(t *testing.T, conn *sql.DB) {
 
 	// Insert organization
 	_, err := conn.Exec(`
-		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
-		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
 	`)
 	require.NoError(t, err)
 

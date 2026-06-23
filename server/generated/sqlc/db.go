@@ -105,6 +105,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.cascadeRackDeviceSitesBulkStmt, err = db.PrepareContext(ctx, cascadeRackDeviceSitesBulk); err != nil {
 		return nil, fmt.Errorf("error preparing query CascadeRackDeviceSitesBulk: %w", err)
 	}
+	if q.claimClosedLoopFullFleetTargetsStmt, err = db.PrepareContext(ctx, claimClosedLoopFullFleetTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ClaimClosedLoopFullFleetTargets: %w", err)
+	}
 	if q.claimMessageForProcessingStmt, err = db.PrepareContext(ctx, claimMessageForProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimMessageForProcessing: %w", err)
 	}
@@ -161,6 +164,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.countCurtailmentAutomationRulesByResponseProfileStmt, err = db.PrepareContext(ctx, countCurtailmentAutomationRulesByResponseProfile); err != nil {
 		return nil, fmt.Errorf("error preparing query CountCurtailmentAutomationRulesByResponseProfile: %w", err)
+	}
+	if q.countCurtailmentScopeConflictsStmt, err = db.PrepareContext(ctx, countCurtailmentScopeConflicts); err != nil {
+		return nil, fmt.Errorf("error preparing query CountCurtailmentScopeConflicts: %w", err)
 	}
 	if q.countDevicesWithErrorsStmt, err = db.PrepareContext(ctx, countDevicesWithErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CountDevicesWithErrors: %w", err)
@@ -504,8 +510,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getFleetNodeSessionByTokenHashStmt, err = db.PrepareContext(ctx, getFleetNodeSessionByTokenHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodeSessionByTokenHash: %w", err)
 	}
-	if q.getGroupLabelsForDevicesStmt, err = db.PrepareContext(ctx, getGroupLabelsForDevices); err != nil {
-		return nil, fmt.Errorf("error preparing query GetGroupLabelsForDevices: %w", err)
+	if q.getGroupRefsForDevicesStmt, err = db.PrepareContext(ctx, getGroupRefsForDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query GetGroupRefsForDevices: %w", err)
 	}
 	if q.getKnownSubnetsStmt, err = db.PrepareContext(ctx, getKnownSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetKnownSubnets: %w", err)
@@ -557,9 +563,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getOrganizationByOrgIDStmt, err = db.PrepareContext(ctx, getOrganizationByOrgID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationByOrgID: %w", err)
-	}
-	if q.getOrganizationPrivateKeyStmt, err = db.PrepareContext(ctx, getOrganizationPrivateKey); err != nil {
-		return nil, fmt.Errorf("error preparing query GetOrganizationPrivateKey: %w", err)
 	}
 	if q.getOrganizationsForUserStmt, err = db.PrepareContext(ctx, getOrganizationsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationsForUser: %w", err)
@@ -717,6 +720,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listActiveCurtailmentEventsStmt, err = db.PrepareContext(ctx, listActiveCurtailmentEvents); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveCurtailmentEvents: %w", err)
 	}
+	if q.listActiveCurtailmentTargetDevicesByOrgStmt, err = db.PrepareContext(ctx, listActiveCurtailmentTargetDevicesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveCurtailmentTargetDevicesByOrg: %w", err)
+	}
 	if q.listActiveOrganizationIDsStmt, err = db.PrepareContext(ctx, listActiveOrganizationIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveOrganizationIDs: %w", err)
 	}
@@ -837,6 +843,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRecentlyResolvedCurtailedDevicesByOrgStmt, err = db.PrepareContext(ctx, listRecentlyResolvedCurtailedDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRecentlyResolvedCurtailedDevicesByOrg: %w", err)
 	}
+	if q.listRecentlyResolvedCurtailedDevicesByScopeStmt, err = db.PrepareContext(ctx, listRecentlyResolvedCurtailedDevicesByScope); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRecentlyResolvedCurtailedDevicesByScope: %w", err)
+	}
 	if q.listRolePermissionKeysStmt, err = db.PrepareContext(ctx, listRolePermissionKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolePermissionKeys: %w", err)
 	}
@@ -869,6 +878,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockBuildingsBySiteForWriteStmt, err = db.PrepareContext(ctx, lockBuildingsBySiteForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockBuildingsBySiteForWrite: %w", err)
+	}
+	if q.lockCurtailmentScopeForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentScopeForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentScopeForWrite: %w", err)
 	}
 	if q.lockDevicesForReassignStmt, err = db.PrepareContext(ctx, lockDevicesForReassign); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDevicesForReassign: %w", err)
@@ -1136,9 +1148,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateCurtailmentEventStateStmt, err = db.PrepareContext(ctx, updateCurtailmentEventState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCurtailmentEventState: %w", err)
-	}
-	if q.updateCurtailmentOrgConfigPostEventCooldownStmt, err = db.PrepareContext(ctx, updateCurtailmentOrgConfigPostEventCooldown); err != nil {
-		return nil, fmt.Errorf("error preparing query UpdateCurtailmentOrgConfigPostEventCooldown: %w", err)
 	}
 	if q.updateCurtailmentResponseProfileStmt, err = db.PrepareContext(ctx, updateCurtailmentResponseProfile); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCurtailmentResponseProfile: %w", err)
@@ -1427,6 +1436,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing cascadeRackDeviceSitesBulkStmt: %w", cerr)
 		}
 	}
+	if q.claimClosedLoopFullFleetTargetsStmt != nil {
+		if cerr := q.claimClosedLoopFullFleetTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing claimClosedLoopFullFleetTargetsStmt: %w", cerr)
+		}
+	}
 	if q.claimMessageForProcessingStmt != nil {
 		if cerr := q.claimMessageForProcessingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing claimMessageForProcessingStmt: %w", cerr)
@@ -1520,6 +1534,11 @@ func (q *Queries) Close() error {
 	if q.countCurtailmentAutomationRulesByResponseProfileStmt != nil {
 		if cerr := q.countCurtailmentAutomationRulesByResponseProfileStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countCurtailmentAutomationRulesByResponseProfileStmt: %w", cerr)
+		}
+	}
+	if q.countCurtailmentScopeConflictsStmt != nil {
+		if cerr := q.countCurtailmentScopeConflictsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countCurtailmentScopeConflictsStmt: %w", cerr)
 		}
 	}
 	if q.countDevicesWithErrorsStmt != nil {
@@ -2092,9 +2111,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getFleetNodeSessionByTokenHashStmt: %w", cerr)
 		}
 	}
-	if q.getGroupLabelsForDevicesStmt != nil {
-		if cerr := q.getGroupLabelsForDevicesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getGroupLabelsForDevicesStmt: %w", cerr)
+	if q.getGroupRefsForDevicesStmt != nil {
+		if cerr := q.getGroupRefsForDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getGroupRefsForDevicesStmt: %w", cerr)
 		}
 	}
 	if q.getKnownSubnetsStmt != nil {
@@ -2180,11 +2199,6 @@ func (q *Queries) Close() error {
 	if q.getOrganizationByOrgIDStmt != nil {
 		if cerr := q.getOrganizationByOrgIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOrganizationByOrgIDStmt: %w", cerr)
-		}
-	}
-	if q.getOrganizationPrivateKeyStmt != nil {
-		if cerr := q.getOrganizationPrivateKeyStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getOrganizationPrivateKeyStmt: %w", cerr)
 		}
 	}
 	if q.getOrganizationsForUserStmt != nil {
@@ -2447,6 +2461,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listActiveCurtailmentEventsStmt: %w", cerr)
 		}
 	}
+	if q.listActiveCurtailmentTargetDevicesByOrgStmt != nil {
+		if cerr := q.listActiveCurtailmentTargetDevicesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveCurtailmentTargetDevicesByOrgStmt: %w", cerr)
+		}
+	}
 	if q.listActiveOrganizationIDsStmt != nil {
 		if cerr := q.listActiveOrganizationIDsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActiveOrganizationIDsStmt: %w", cerr)
@@ -2647,6 +2666,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRecentlyResolvedCurtailedDevicesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listRecentlyResolvedCurtailedDevicesByScopeStmt != nil {
+		if cerr := q.listRecentlyResolvedCurtailedDevicesByScopeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRecentlyResolvedCurtailedDevicesByScopeStmt: %w", cerr)
+		}
+	}
 	if q.listRolePermissionKeysStmt != nil {
 		if cerr := q.listRolePermissionKeysStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRolePermissionKeysStmt: %w", cerr)
@@ -2700,6 +2724,11 @@ func (q *Queries) Close() error {
 	if q.lockBuildingsBySiteForWriteStmt != nil {
 		if cerr := q.lockBuildingsBySiteForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockBuildingsBySiteForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentScopeForWriteStmt != nil {
+		if cerr := q.lockCurtailmentScopeForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentScopeForWriteStmt: %w", cerr)
 		}
 	}
 	if q.lockDevicesForReassignStmt != nil {
@@ -3147,11 +3176,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateCurtailmentEventStateStmt: %w", cerr)
 		}
 	}
-	if q.updateCurtailmentOrgConfigPostEventCooldownStmt != nil {
-		if cerr := q.updateCurtailmentOrgConfigPostEventCooldownStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing updateCurtailmentOrgConfigPostEventCooldownStmt: %w", cerr)
-		}
-	}
 	if q.updateCurtailmentResponseProfileStmt != nil {
 		if cerr := q.updateCurtailmentResponseProfileStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateCurtailmentResponseProfileStmt: %w", cerr)
@@ -3463,6 +3487,7 @@ type Queries struct {
 	cascadeRackDeviceBuildingsBulkStmt                         *sql.Stmt
 	cascadeRackDeviceSitesStmt                                 *sql.Stmt
 	cascadeRackDeviceSitesBulkStmt                             *sql.Stmt
+	claimClosedLoopFullFleetTargetsStmt                        *sql.Stmt
 	claimMessageForProcessingStmt                              *sql.Stmt
 	clearCurtailmentAutomationActiveEventStmt                  *sql.Stmt
 	clearDeviceBuildingsByBuildingStmt                         *sql.Stmt
@@ -3482,6 +3507,7 @@ type Queries struct {
 	countComponentsWithErrorsStmt                              *sql.Stmt
 	countCurtailmentAutomationRulesByMQTTSourceStmt            *sql.Stmt
 	countCurtailmentAutomationRulesByResponseProfileStmt       *sql.Stmt
+	countCurtailmentScopeConflictsStmt                         *sql.Stmt
 	countDevicesWithErrorsStmt                                 *sql.Stmt
 	countErrorsStmt                                            *sql.Stmt
 	countMinersByStateStmt                                     *sql.Stmt
@@ -3596,7 +3622,7 @@ type Queries struct {
 	getFleetNodeByIDStmt                                       *sql.Stmt
 	getFleetNodeByIDUnscopedStmt                               *sql.Stmt
 	getFleetNodeSessionByTokenHashStmt                         *sql.Stmt
-	getGroupLabelsForDevicesStmt                               *sql.Stmt
+	getGroupRefsForDevicesStmt                                 *sql.Stmt
 	getKnownSubnetsStmt                                        *sql.Stmt
 	getLatestAllDeviceMetricsStmt                              *sql.Stmt
 	getLatestDeviceMetricsStmt                                 *sql.Stmt
@@ -3614,7 +3640,6 @@ type Queries struct {
 	getOrganizationByIDStmt                                    *sql.Stmt
 	getOrganizationByNameStmt                                  *sql.Stmt
 	getOrganizationByOrgIDStmt                                 *sql.Stmt
-	getOrganizationPrivateKeyStmt                              *sql.Stmt
 	getOrganizationsForUserStmt                                *sql.Stmt
 	getPairedDeviceByMACAddressStmt                            *sql.Stmt
 	getPairedDeviceBySerialNumberStmt                          *sql.Stmt
@@ -3667,6 +3692,7 @@ type Queries struct {
 	isDeviceOwnedByFleetNodeStmt                               *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                        *sql.Stmt
 	listActiveCurtailmentEventsStmt                            *sql.Stmt
+	listActiveCurtailmentTargetDevicesByOrgStmt                *sql.Stmt
 	listActiveOrganizationIDsStmt                              *sql.Stmt
 	listActivityLogsStmt                                       *sql.Stmt
 	listApiKeysByOrganizationStmt                              *sql.Stmt
@@ -3707,6 +3733,7 @@ type Queries struct {
 	listRackZonesStmt                                          *sql.Stmt
 	listRacksOutsideBuildingBoundsStmt                         *sql.Stmt
 	listRecentlyResolvedCurtailedDevicesByOrgStmt              *sql.Stmt
+	listRecentlyResolvedCurtailedDevicesByScopeStmt            *sql.Stmt
 	listRolePermissionKeysStmt                                 *sql.Stmt
 	listRolesStmt                                              *sql.Stmt
 	listRolesWithDetailsForOrgStmt                             *sql.Stmt
@@ -3718,6 +3745,7 @@ type Queries struct {
 	lockAndCountOrgScopeSuperAdminsStmt                        *sql.Stmt
 	lockBuildingForWriteStmt                                   *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                            *sql.Stmt
+	lockCurtailmentScopeForWriteStmt                           *sql.Stmt
 	lockDevicesForReassignStmt                                 *sql.Stmt
 	lockFleetNodeByIDStmt                                      *sql.Stmt
 	lockRackPlacementForWriteStmt                              *sql.Stmt
@@ -3807,7 +3835,6 @@ type Queries struct {
 	updateCurtailmentAutomationRuleStmt                        *sql.Stmt
 	updateCurtailmentEventOperatorFieldsStmt                   *sql.Stmt
 	updateCurtailmentEventStateStmt                            *sql.Stmt
-	updateCurtailmentOrgConfigPostEventCooldownStmt            *sql.Stmt
 	updateCurtailmentResponseProfileStmt                       *sql.Stmt
 	updateCurtailmentTargetStateStmt                           *sql.Stmt
 	updateCustomRoleNameStmt                                   *sql.Stmt
@@ -3890,6 +3917,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		cascadeRackDeviceBuildingsBulkStmt:                         q.cascadeRackDeviceBuildingsBulkStmt,
 		cascadeRackDeviceSitesStmt:                                 q.cascadeRackDeviceSitesStmt,
 		cascadeRackDeviceSitesBulkStmt:                             q.cascadeRackDeviceSitesBulkStmt,
+		claimClosedLoopFullFleetTargetsStmt:                        q.claimClosedLoopFullFleetTargetsStmt,
 		claimMessageForProcessingStmt:                              q.claimMessageForProcessingStmt,
 		clearCurtailmentAutomationActiveEventStmt:                  q.clearCurtailmentAutomationActiveEventStmt,
 		clearDeviceBuildingsByBuildingStmt:                         q.clearDeviceBuildingsByBuildingStmt,
@@ -3909,6 +3937,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countComponentsWithErrorsStmt:                              q.countComponentsWithErrorsStmt,
 		countCurtailmentAutomationRulesByMQTTSourceStmt:            q.countCurtailmentAutomationRulesByMQTTSourceStmt,
 		countCurtailmentAutomationRulesByResponseProfileStmt:       q.countCurtailmentAutomationRulesByResponseProfileStmt,
+		countCurtailmentScopeConflictsStmt:                         q.countCurtailmentScopeConflictsStmt,
 		countDevicesWithErrorsStmt:                                 q.countDevicesWithErrorsStmt,
 		countErrorsStmt:                                            q.countErrorsStmt,
 		countMinersByStateStmt:                                     q.countMinersByStateStmt,
@@ -4023,7 +4052,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFleetNodeByIDStmt:                                       q.getFleetNodeByIDStmt,
 		getFleetNodeByIDUnscopedStmt:                               q.getFleetNodeByIDUnscopedStmt,
 		getFleetNodeSessionByTokenHashStmt:                         q.getFleetNodeSessionByTokenHashStmt,
-		getGroupLabelsForDevicesStmt:                               q.getGroupLabelsForDevicesStmt,
+		getGroupRefsForDevicesStmt:                                 q.getGroupRefsForDevicesStmt,
 		getKnownSubnetsStmt:                                        q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                              q.getLatestAllDeviceMetricsStmt,
 		getLatestDeviceMetricsStmt:                                 q.getLatestDeviceMetricsStmt,
@@ -4041,7 +4070,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getOrganizationByIDStmt:                                    q.getOrganizationByIDStmt,
 		getOrganizationByNameStmt:                                  q.getOrganizationByNameStmt,
 		getOrganizationByOrgIDStmt:                                 q.getOrganizationByOrgIDStmt,
-		getOrganizationPrivateKeyStmt:                              q.getOrganizationPrivateKeyStmt,
 		getOrganizationsForUserStmt:                                q.getOrganizationsForUserStmt,
 		getPairedDeviceByMACAddressStmt:                            q.getPairedDeviceByMACAddressStmt,
 		getPairedDeviceBySerialNumberStmt:                          q.getPairedDeviceBySerialNumberStmt,
@@ -4094,6 +4122,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		isDeviceOwnedByFleetNodeStmt:                               q.isDeviceOwnedByFleetNodeStmt,
 		listActiveCurtailedDevicesByOrgStmt:                        q.listActiveCurtailedDevicesByOrgStmt,
 		listActiveCurtailmentEventsStmt:                            q.listActiveCurtailmentEventsStmt,
+		listActiveCurtailmentTargetDevicesByOrgStmt:                q.listActiveCurtailmentTargetDevicesByOrgStmt,
 		listActiveOrganizationIDsStmt:                              q.listActiveOrganizationIDsStmt,
 		listActivityLogsStmt:                                       q.listActivityLogsStmt,
 		listApiKeysByOrganizationStmt:                              q.listApiKeysByOrganizationStmt,
@@ -4134,6 +4163,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRackZonesStmt:                                          q.listRackZonesStmt,
 		listRacksOutsideBuildingBoundsStmt:                         q.listRacksOutsideBuildingBoundsStmt,
 		listRecentlyResolvedCurtailedDevicesByOrgStmt:              q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
+		listRecentlyResolvedCurtailedDevicesByScopeStmt:            q.listRecentlyResolvedCurtailedDevicesByScopeStmt,
 		listRolePermissionKeysStmt:                                 q.listRolePermissionKeysStmt,
 		listRolesStmt:                                              q.listRolesStmt,
 		listRolesWithDetailsForOrgStmt:                             q.listRolesWithDetailsForOrgStmt,
@@ -4145,6 +4175,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockAndCountOrgScopeSuperAdminsStmt:                        q.lockAndCountOrgScopeSuperAdminsStmt,
 		lockBuildingForWriteStmt:                                   q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                            q.lockBuildingsBySiteForWriteStmt,
+		lockCurtailmentScopeForWriteStmt:                           q.lockCurtailmentScopeForWriteStmt,
 		lockDevicesForReassignStmt:                                 q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                                      q.lockFleetNodeByIDStmt,
 		lockRackPlacementForWriteStmt:                              q.lockRackPlacementForWriteStmt,
@@ -4234,7 +4265,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateCurtailmentAutomationRuleStmt:                        q.updateCurtailmentAutomationRuleStmt,
 		updateCurtailmentEventOperatorFieldsStmt:                   q.updateCurtailmentEventOperatorFieldsStmt,
 		updateCurtailmentEventStateStmt:                            q.updateCurtailmentEventStateStmt,
-		updateCurtailmentOrgConfigPostEventCooldownStmt:            q.updateCurtailmentOrgConfigPostEventCooldownStmt,
 		updateCurtailmentResponseProfileStmt:                       q.updateCurtailmentResponseProfileStmt,
 		updateCurtailmentTargetStateStmt:                           q.updateCurtailmentTargetStateStmt,
 		updateCustomRoleNameStmt:                                   q.updateCustomRoleNameStmt,

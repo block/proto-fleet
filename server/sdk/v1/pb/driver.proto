@@ -277,16 +277,14 @@ message SubscribeRequest {
 }
 
 // -- Secret "kinds" (typed) --
-message APIKey { 
-  string key = 1;
-}
 message UsernamePassword { string username = 1; string password = 2; }
 message BearerToken { string token = 1; }
 message TlsClientCert { bytes client_cert_pem = 1; bytes key_pem = 2; bytes ca_cert_pem = 3; }
 message SecretBundle {
   string version = 1;
+  reserved 2;
+  reserved "api_key";
   oneof kind {
-    APIKey api_key = 2;
     UsernamePassword user_pass = 3;
     BearerToken bearer_token = 4;
     TlsClientCert tls_client_cert = 5;

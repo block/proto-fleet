@@ -476,12 +476,6 @@ class SubscribeRequest(_message.Message):
     interval_seconds: int
     def __init__(self, device_ids: _Optional[_Iterable[str]] = ..., batch_size: _Optional[int] = ..., interval_seconds: _Optional[int] = ...) -> None: ...
 
-class APIKey(_message.Message):
-    __slots__ = ("key",)
-    KEY_FIELD_NUMBER: _ClassVar[int]
-    key: str
-    def __init__(self, key: _Optional[str] = ...) -> None: ...
-
 class UsernamePassword(_message.Message):
     __slots__ = ("username", "password")
     USERNAME_FIELD_NUMBER: _ClassVar[int]
@@ -507,20 +501,18 @@ class TlsClientCert(_message.Message):
     def __init__(self, client_cert_pem: _Optional[bytes] = ..., key_pem: _Optional[bytes] = ..., ca_cert_pem: _Optional[bytes] = ...) -> None: ...
 
 class SecretBundle(_message.Message):
-    __slots__ = ("version", "api_key", "user_pass", "bearer_token", "tls_client_cert", "ttl")
+    __slots__ = ("version", "user_pass", "bearer_token", "tls_client_cert", "ttl")
     VERSION_FIELD_NUMBER: _ClassVar[int]
-    API_KEY_FIELD_NUMBER: _ClassVar[int]
     USER_PASS_FIELD_NUMBER: _ClassVar[int]
     BEARER_TOKEN_FIELD_NUMBER: _ClassVar[int]
     TLS_CLIENT_CERT_FIELD_NUMBER: _ClassVar[int]
     TTL_FIELD_NUMBER: _ClassVar[int]
     version: str
-    api_key: APIKey
     user_pass: UsernamePassword
     bearer_token: BearerToken
     tls_client_cert: TlsClientCert
     ttl: _duration_pb2.Duration
-    def __init__(self, version: _Optional[str] = ..., api_key: _Optional[_Union[APIKey, _Mapping]] = ..., user_pass: _Optional[_Union[UsernamePassword, _Mapping]] = ..., bearer_token: _Optional[_Union[BearerToken, _Mapping]] = ..., tls_client_cert: _Optional[_Union[TlsClientCert, _Mapping]] = ..., ttl: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ...) -> None: ...
+    def __init__(self, version: _Optional[str] = ..., user_pass: _Optional[_Union[UsernamePassword, _Mapping]] = ..., bearer_token: _Optional[_Union[BearerToken, _Mapping]] = ..., tls_client_cert: _Optional[_Union[TlsClientCert, _Mapping]] = ..., ttl: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ...) -> None: ...
 
 class SetCoolingModeRequest(_message.Message):
     __slots__ = ("ref", "mode")

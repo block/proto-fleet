@@ -4,8 +4,7 @@ import Header from "@/shared/components/Header";
 interface SitesPageHeaderProps {
   headline: string;
   // Optional — /sites suppresses the subheadline so the metric rows below
-  // act as the page's primary information density. /settings/sites still
-  // passes a subheadline since the admin surface benefits from explanatory copy.
+  // act as the page's primary information density.
   subheadline?: string;
   // When omitted, the "Add a site" button is hidden entirely. Used by /sites
   // to suppress the CTA outside the All Sites selection per master plan §J8.

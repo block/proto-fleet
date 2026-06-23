@@ -39,10 +39,29 @@ describe("FleetErrors", () => {
 
     const links = screen.getAllByRole("link");
     expect(links).toHaveLength(4);
-    expect(links[0]).toHaveAttribute("href", "/miners?issues=control-board");
-    expect(links[1]).toHaveAttribute("href", "/miners?issues=fans");
-    expect(links[2]).toHaveAttribute("href", "/miners?issues=hash-boards");
-    expect(links[3]).toHaveAttribute("href", "/miners?issues=psu");
+    expect(links[0]).toHaveAttribute("href", "/fleet/miners?issues=control-board");
+    expect(links[1]).toHaveAttribute("href", "/fleet/miners?issues=fans");
+    expect(links[2]).toHaveAttribute("href", "/fleet/miners?issues=hash-boards");
+    expect(links[3]).toHaveAttribute("href", "/fleet/miners?issues=psu");
+  });
+
+  it("preserves the selected site when building scoped hardware issue links", () => {
+    render(
+      <BrowserRouter>
+        <FleetErrors
+          controlBoardErrors={1}
+          fanErrors={2}
+          hashboardErrors={3}
+          psuErrors={4}
+          extraFilterParams="building=123"
+          activeSite={{ kind: "site", id: "8" }}
+        />
+      </BrowserRouter>,
+    );
+
+    const links = screen.getAllByRole("link");
+    expect(links[0]).toHaveAttribute("href", "/8/fleet/miners?issues=control-board&building=123");
+    expect(links[1]).toHaveAttribute("href", "/8/fleet/miners?issues=fans&building=123");
   });
 
   it("does not render as links when error counts are zero", () => {

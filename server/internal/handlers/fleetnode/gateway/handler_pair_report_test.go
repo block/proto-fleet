@@ -95,9 +95,59 @@ func TestReportPairedDevices_PersistsAuthoritativelyAndForwards(t *testing.T) {
 	}
 }
 
+func TestReportPairedDevices_DefaultPasswordActivePersistsAndForwards(t *testing.T) {
+	// Arrange: a node-discovered device reports a successful pair while still on
+	// its factory-default password.
+	h := newControlHarness(t)
+	_, err := h.db.Exec(
+		`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
+		 VALUES (1, $1, '10.0.0.7', '80', 'http', 'proto', TRUE, $2)`,
+		"pair-default-1", h.fleetNodeID)
+	require.NoError(t, err)
+	subject := &auth.Subject{FleetNodeID: h.fleetNodeID, OrgID: 1, Name: "agent-pair-default"}
+	stream := h.registry.Register(h.fleetNodeID)
+	defer stream.Unregister()
+	pair := &control.PairMeta{OrgID: 1, Targets: map[string]struct{}{"pair-default-1": {}}}
+	session, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "pair-default-cmd"}, nil, control.ReportKindPair, pair)
+	require.NoError(t, err)
+	defer session.Close()
+	<-stream.Outgoing
+	ctx := authn.SetInfo(context.Background(), subject)
+	active := true
+
+	// Act
+	resp, err := h.handler.ReportPairedDevices(ctx, connect.NewRequest(&pb.ReportPairedDevicesRequest{
+		CommandId: "pair-default-cmd",
+		Results: []*pb.FleetNodePairResult{{
+			DeviceIdentifier:      "pair-default-1",
+			Outcome:               pb.PairOutcome_PAIR_OUTCOME_PAIRED,
+			DefaultPasswordActive: &active,
+		}},
+	}))
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), resp.Msg.GetAcceptedCount())
+	var status string
+	require.NoError(t, h.db.QueryRow(
+		`SELECT dp.pairing_status FROM device d JOIN device_pairing dp ON dp.device_id = d.id WHERE d.device_identifier=$1 AND d.org_id=1`,
+		"pair-default-1").Scan(&status))
+	assert.Equal(t, "DEFAULT_PASSWORD", status)
+	select {
+	case ev := <-session.Events():
+		require.Len(t, ev.PairResults, 1)
+		assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, ev.PairResults[0].GetOutcome())
+		require.NotNil(t, ev.PairResults[0].DefaultPasswordActive)
+		assert.True(t, ev.PairResults[0].GetDefaultPasswordActive())
+	case <-time.After(time.Second):
+		t.Fatal("expected pair results on events channel")
+	}
+}
+
 func TestReportPairedDevices_ForwardsPersistedStatusOnStaleAuthNeeded(t *testing.T) {
-	// Arrange: a device already PAIRED (e.g. paired by a re-issued command) with an
-	// in-flight pair command still scoped to it. A stale AUTH_NEEDED arrives.
+	// Arrange: a device already DEFAULT_PASSWORD (e.g. paired by a re-issued
+	// command) with an in-flight pair command still scoped to it. A stale
+	// AUTH_NEEDED arrives.
 	h := newControlHarness(t)
 	var ddID int64
 	require.NoError(t, h.db.QueryRow(
@@ -109,7 +159,9 @@ func TestReportPairedDevices_ForwardsPersistedStatusOnStaleAuthNeeded(t *testing
 		`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
 		 VALUES ($1, 'aa:bb:cc:00:ra:01', 'sn-race', 1, $2) RETURNING id`,
 		"mac:race", ddID).Scan(&devID))
-	_, err := h.db.Exec(`INSERT INTO device_pairing (device_id, pairing_status) VALUES ($1, 'PAIRED')`, devID)
+	_, err := h.db.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, h.fleetNodeID, devID)
+	require.NoError(t, err)
+	_, err = h.db.Exec(`INSERT INTO device_pairing (device_id, pairing_status) VALUES ($1, 'DEFAULT_PASSWORD')`, devID)
 	require.NoError(t, err)
 
 	stream := h.registry.Register(h.fleetNodeID)
@@ -127,16 +179,21 @@ func TestReportPairedDevices_ForwardsPersistedStatusOnStaleAuthNeeded(t *testing
 		Results: []*pb.FleetNodePairResult{{
 			DeviceIdentifier: "mac:race",
 			Outcome:          pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED,
+			ErrorMessage:     "stale authentication failure",
 		}},
 	}))
 	require.NoError(t, err)
 
-	// Assert: the forwarded result reflects the persisted PAIRED status, not the
-	// raw AUTH_NEEDED, so the operator display matches the DB.
+	// Assert: the forwarded result reflects the persisted DEFAULT_PASSWORD
+	// status, not the raw AUTH_NEEDED, and clears the stale auth error so the
+	// operator display matches the successful persisted state.
 	select {
 	case ev := <-session.Events():
 		require.Len(t, ev.PairResults, 1)
 		assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, ev.PairResults[0].GetOutcome())
+		require.NotNil(t, ev.PairResults[0].DefaultPasswordActive)
+		assert.True(t, ev.PairResults[0].GetDefaultPasswordActive())
+		assert.Empty(t, ev.PairResults[0].GetErrorMessage())
 	case <-time.After(time.Second):
 		t.Fatal("expected forwarded pair result")
 	}

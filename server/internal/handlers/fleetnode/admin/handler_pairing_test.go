@@ -47,7 +47,7 @@ func newPairingHarness(t *testing.T) *pairingHarness {
 	}
 
 	db := testutil.GetTestDB(t)
-	_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES (1, 'test-org', 'Test Org', 'dummy-key') ON CONFLICT DO NOTHING`)
+	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org', 'Test Org') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO "user" (id, user_id, username, password_hash) VALUES (1, 'test-user', 'op', 'dummy') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err)
@@ -100,11 +100,9 @@ func (h *pairingHarness) createFleetNode(t *testing.T, name string) int64 {
 	t.Helper()
 	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	signing, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
 	code, _, err := h.enrollment.CreateCode(context.Background(), 1, h.orgID, time.Hour)
 	require.NoError(t, err)
-	node, _, err := h.enrollment.RegisterFleetNode(context.Background(), code, name, pubKey, signing)
+	node, _, err := h.enrollment.RegisterFleetNode(context.Background(), code, name, pubKey)
 	require.NoError(t, err)
 	_, _, err = h.enrollment.Confirm(context.Background(), node.ID, h.orgID)
 	require.NoError(t, err)

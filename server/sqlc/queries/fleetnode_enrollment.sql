@@ -48,7 +48,7 @@ WHERE expires_at < $1
 -- (terminal CONFIRMED/EXPIRED/CANCELLED + a new AWAITING_CONFIRMATION on
 -- re-enrollment), so the join is filtered to the one status the listing
 -- cares about. Without the filter the LEFT JOIN multiplies rows.
-SELECT a.id, a.org_id, a.name, a.identity_pubkey, a.miner_signing_pubkey,
+SELECT a.id, a.org_id, a.name, a.identity_pubkey,
        a.enrollment_status, a.last_seen_at, a.created_at, a.updated_at,
        COALESCE(pe.status, '')::text AS pending_enrollment_status
 FROM fleet_node a
@@ -60,28 +60,28 @@ WHERE a.org_id = $1
 ORDER BY a.created_at DESC;
 
 -- name: GetFleetNodeByID :one
-SELECT id, org_id, name, identity_pubkey, miner_signing_pubkey,
+SELECT id, org_id, name, identity_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
 FROM fleet_node
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL;
 
 -- name: LockFleetNodeByID :one
-SELECT id, org_id, name, identity_pubkey, miner_signing_pubkey,
+SELECT id, org_id, name, identity_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
 FROM fleet_node
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL
 FOR UPDATE;
 
 -- name: GetFleetNodeByIDUnscoped :one
-SELECT id, org_id, name, identity_pubkey, miner_signing_pubkey,
+SELECT id, org_id, name, identity_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
 FROM fleet_node
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: CreateFleetNode :one
-INSERT INTO fleet_node (org_id, name, identity_pubkey, miner_signing_pubkey, enrollment_status)
-VALUES ($1, $2, $3, $4, 'PENDING')
-RETURNING id, org_id, name, identity_pubkey, miner_signing_pubkey,
+INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
+VALUES ($1, $2, $3, 'PENDING')
+RETURNING id, org_id, name, identity_pubkey,
           enrollment_status, last_seen_at, created_at, updated_at;
 
 -- name: SetFleetNodeEnrollmentStatus :execrows

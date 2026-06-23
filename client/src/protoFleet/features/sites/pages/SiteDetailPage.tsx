@@ -9,6 +9,7 @@ import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -23,6 +24,7 @@ const SiteDetailPage = () => {
 
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
+  const [sitesLoaded, setSitesLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchSites = useCallback(() => {
@@ -31,6 +33,7 @@ const SiteDetailPage = () => {
       signal: controller.signal,
       onSuccess: (rows) => {
         setSites(rows);
+        setSitesLoaded(true);
         setError(null);
       },
       onError: (msg) => {
@@ -52,12 +55,12 @@ const SiteDetailPage = () => {
 
   // Bounce to /fleet when SitePicker switches to a different specific
   // site — "All sites" / "Unassigned" don't conflict with this view.
-  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
+  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
   const { activeSite } = useActiveSite({ knownSiteIds });
   useEffect(() => {
     if (activeSite.kind !== "site") return;
     if (activeSite.id === targetId) return;
-    navigate("/fleet", { replace: true });
+    navigate(scopedPath("/fleet", activeSite), { replace: true });
   }, [activeSite, navigate, targetId]);
 
   const site = useMemo(() => {
@@ -70,11 +73,12 @@ const SiteDetailPage = () => {
   // UpdateSite + CreateBuilding require site:manage server-side.
   const canManageSites = useHasPermission("site:manage");
 
-  const modals = useSiteModals({ refetchSites: fetchSites });
   const [buildingsRefreshKey, setBuildingsRefreshKey] = useState(0);
-  const buildingModals = useBuildingModals({
-    refetchBuildings: () => setBuildingsRefreshKey((n) => n + 1),
-  });
+  const refetchBuildings = useCallback(() => setBuildingsRefreshKey((n) => n + 1), []);
+  // Membership saves in ManageSiteModal also affect building rows, so share
+  // the same refresh signal used for direct building mutations.
+  const modals = useSiteModals({ refetchSites: fetchSites, refetchBuildings });
+  const buildingModals = useBuildingModals({ refetchBuildings });
 
   if (sites === undefined) {
     return (
@@ -111,7 +115,7 @@ const SiteDetailPage = () => {
           variant={variants.primary}
           size={sizes.compact}
           text="Back to sites"
-          onClick={() => navigate("/fleet/sites")}
+          onClick={() => navigate(scopedPath("/fleet/sites", activeSite))}
           testId="site-detail-back"
         />
       </div>
@@ -164,13 +168,7 @@ const SiteDetailPage = () => {
           <PlaceholderBlock label="Buildings grid — coming soon" className="h-40" />
         </div>
       </div>
-      <SiteModals
-        modals={modals}
-        sites={sites}
-        onAddBuilding={(siteId, siteName) => buildingModals.openDetailsCreate(siteId, siteName)}
-        onEditBuilding={(row, siteName) => buildingModals.openDetailsEdit(row, siteName)}
-        buildingsRefreshKey={buildingsRefreshKey}
-      />
+      <SiteModals modals={modals} sites={sites} buildingsRefreshKey={buildingsRefreshKey} />
       <BuildingModals modals={buildingModals} sites={sites} />
     </>
   );

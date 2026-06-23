@@ -17,10 +17,15 @@ func TestBuildMinerCSVRow_FormatsValuesAndIssues(t *testing.T) {
 	componentID := "2"
 	row := buildMinerCSVRow(
 		&pb.MinerStateSnapshot{
-			Name:            "Miner A",
-			WorkerName:      "worker-01",
-			GroupLabels:     []string{"Group 1", "Group 2"},
-			RackLabel:       "Rack 1",
+			Name:       "Miner A",
+			WorkerName: "worker-01",
+			Placement: &commonpb.PlacementRefs{
+				Groups: []*commonpb.ResourceRef{
+					{Id: 1, Label: "Group 1"},
+					{Id: 2, Label: "Group 2"},
+				},
+				Rack: &commonpb.ResourceRef{Id: 10, Label: "Rack 1"},
+			},
 			Model:           "S21",
 			MacAddress:      "AA:BB:CC:DD:EE:FF",
 			IpAddress:       "10.0.0.5",

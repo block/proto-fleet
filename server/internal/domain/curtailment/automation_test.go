@@ -30,6 +30,7 @@ func TestAutomationService_CreateValidatesSourceAndProfile(t *testing.T) {
 			MQTTSourceID:      h.source.ID,
 			ResponseProfileID: h.profile.ID,
 		},
+		CanUseAdminControls: true,
 	})
 
 	require.NoError(t, err)
@@ -100,6 +101,12 @@ func TestAutomationService_CreateRejectsAdminOnlyProfileWithoutAdminControls(t *
 		mutate func(*models.ResponseProfile)
 	}{
 		{
+			name: "full fleet automation",
+			mutate: func(profile *models.ResponseProfile) {
+				profile.Mode = models.ModeFullFleet
+			},
+		},
+		{
 			name: "force maintenance",
 			mutate: func(profile *models.ResponseProfile) {
 				profile.IncludeMaintenance = true
@@ -125,6 +132,7 @@ func TestAutomationService_CreateRejectsAdminOnlyProfileWithoutAdminControls(t *
 			t.Parallel()
 
 			h := newAutomationHarness(t)
+			h.profile.Mode = models.ModeFixedKw
 			tc.mutate(h.profile)
 
 			_, err := h.automation.Create(t.Context(), SaveAutomationRuleRequest{
@@ -201,6 +209,7 @@ func TestAutomationService_UpdateRejectsWhenRuleOwnsActiveEvent(t *testing.T) {
 			MQTTSourceID:      h.source.ID,
 			ResponseProfileID: h.profile.ID,
 		},
+		CanUseAdminControls: true,
 	})
 
 	require.Error(t, err)
@@ -296,6 +305,8 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 		h.curtailments.lastInsertEvent.Reason,
 	)
 	assert.Equal(t, models.SourceActorAutomation, h.curtailments.lastInsertEvent.SourceActorType)
+	assert.True(t, h.curtailments.lastInsertEvent.AllowUnbounded)
+	assert.Nil(t, h.curtailments.lastInsertEvent.MaxDurationSeconds)
 	assert.Equal(t, h.source.ServiceUserID, h.curtailments.lastInsertEvent.CreatedByUserID)
 	assert.Equal(t, automationExternalSource, *h.curtailments.lastInsertEvent.ExternalSource)
 	assert.Equal(t, "9001", *h.curtailments.lastInsertEvent.ExternalReference)
@@ -306,11 +317,12 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	assert.Equal(t, receivedAt, h.rules.lastActiveAt)
 }
 
-func TestAutomationService_HandleMQTTSignal_OffBypassesPostRestoreCooldown(t *testing.T) {
+func TestAutomationService_HandleMQTTSignal_OffBypassesResponseProfileCooldown(t *testing.T) {
 	t.Parallel()
 
 	h := newAutomationHarness(t)
 	h.seedRunnableProfile()
+	h.profile.PostEventCooldownSec = 600
 	h.curtailments.cooldownDevicesByOrg[h.orgID] = []string{"miner-a", "miner-b"}
 
 	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
@@ -319,12 +331,13 @@ func TestAutomationService_HandleMQTTSignal_OffBypassesPostRestoreCooldown(t *te
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, 0, h.curtailments.cooldownCalls)
+	assert.Zero(t, h.curtailments.cooldownCalls)
 	assert.Equal(t, 1, h.curtailments.insertEventCalls)
 	assert.Equal(t, models.PriorityNormal, h.curtailments.lastInsertEvent.Priority)
-	require.Len(t, h.curtailments.lastInsertTargets, 2)
-	assert.Equal(t, "miner-a", h.curtailments.lastInsertTargets[0].DeviceIdentifier)
-	assert.Equal(t, "miner-b", h.curtailments.lastInsertTargets[1].DeviceIdentifier)
+	assert.Equal(t, models.ModeFullFleet, h.curtailments.lastInsertEvent.Mode)
+	assert.Equal(t, models.LoopTypeClosed, h.curtailments.lastInsertEvent.LoopType)
+	assert.Empty(t, h.curtailments.lastInsertTargets,
+		"closed-loop full_fleet claims per-miner targets at dispatch time")
 }
 
 func TestAutomationService_HandleMQTTSignal_RepeatedOffNoopsWhenEventIsActive(t *testing.T) {

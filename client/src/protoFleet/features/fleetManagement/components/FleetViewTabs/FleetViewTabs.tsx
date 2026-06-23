@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import { useNavigate, useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import ViewModal, { type ViewModalState } from "./ViewModal";
+import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import {
   buildUrlForView,
   canonicalizeSearchParams,
@@ -20,6 +21,7 @@ import {
   summarizeFilters,
   summarizeSort,
 } from "@/protoFleet/features/fleetManagement/views/viewSummary";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { ChevronDown, Dismiss, Edit, Ellipsis, Plus, Reboot, Trash } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -87,6 +89,7 @@ type FleetViewTabsInnerProps = FleetViewTabsProps;
 const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetViewTabsInnerProps) => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { activeSite } = useActiveSite({});
   const { record, addUserView, updateUserViewParams, renameUserView, deleteUserView } = viewsState;
 
   // Two popovers share one provider so click-outside on either dismisses both.
@@ -150,18 +153,18 @@ const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetView
     (view: SavedView, savedParams: string) => {
       const next = new URLSearchParams(savedParams);
       next.set(VIEW_URL_PARAM, view.id);
-      navigate(`/fleet/${view.tab}?${next.toString()}`, { replace: true });
+      navigate(scopedPath(`/fleet/${view.tab}?${next.toString()}`, activeSite), { replace: true });
     },
-    [navigate],
+    [activeSite, navigate],
   );
 
   const handleSelectView = useCallback(
     (view: SavedView) => {
       const params = buildUrlForView(view, searchParams);
-      navigate(`/fleet/${view.tab}?${params}`);
+      navigate(scopedPath(`/fleet/${view.tab}?${params}`, activeSite));
       setOpenPopover("none");
     },
-    [navigate, searchParams],
+    [activeSite, navigate, searchParams],
   );
 
   const handleOpenNew = useCallback(() => {
@@ -179,8 +182,10 @@ const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetView
 
   const handleResetActiveView = useCallback(() => {
     if (!activeView) return;
-    navigate(`/fleet/${activeView.tab}?${buildUrlForView(activeView, searchParams)}`, { replace: true });
-  }, [activeView, navigate, searchParams]);
+    navigate(scopedPath(`/fleet/${activeView.tab}?${buildUrlForView(activeView, searchParams)}`, activeSite), {
+      replace: true,
+    });
+  }, [activeSite, activeView, navigate, searchParams]);
 
   // Clear view: navigate to the bare tab route, dropping every URL key
   // (view=, the tab's filter/sort/display whitelist, and any unrelated
@@ -188,8 +193,8 @@ const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetView
   // section's URL, so a clean slate is intentional.
   const handleClearActiveView = useCallback(() => {
     if (!currentTab) return;
-    navigate(`/fleet/${currentTab}`);
-  }, [currentTab, navigate]);
+    navigate(scopedPath(`/fleet/${currentTab}`, activeSite));
+  }, [activeSite, currentTab, navigate]);
 
   const handleOpenUpdateActiveView = useCallback(() => {
     if (!activeView) return;

@@ -1205,7 +1205,8 @@ type PairDiscoveredDevicesOnFleetNodeRequest struct {
 	DeviceIdentifiers []string `protobuf:"bytes,2,rep,name=device_identifiers,json=deviceIdentifiers,proto3" json:"device_identifiers,omitempty"`
 	// Pair every not-yet-paired device discovered on this node.
 	PairAllUnpaired bool `protobuf:"varint,3,opt,name=pair_all_unpaired,json=pairAllUnpaired,proto3" json:"pair_all_unpaired,omitempty"`
-	// Applied to basic-auth devices in the batch; omitted for asymmetric-auth.
+	// Applied to devices in the batch. When omitted, drivers may use their
+	// default credentials.
 	Credentials   *v1.Credentials `protobuf:"bytes,4,opt,name=credentials,proto3" json:"credentials,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1317,7 +1318,8 @@ type DevicePairingResult struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	DeviceIdentifier string                 `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
 	// Shares the operator-facing enum with fleetmanagement; a fleet-node pair
-	// result is always PAIRED, AUTHENTICATION_NEEDED, or FAILED.
+	// result is always PAIRED, DEFAULT_PASSWORD, AUTHENTICATION_NEEDED, or
+	// FAILED.
 	PairingStatus v11.PairingStatus `protobuf:"varint,2,opt,name=pairing_status,json=pairingStatus,proto3,enum=fleetmanagement.v1.PairingStatus" json:"pairing_status,omitempty"`
 	// Mirrors the gateway's FleetNodePairResult.error_message cap; the node's
 	// error string is echoed through here.

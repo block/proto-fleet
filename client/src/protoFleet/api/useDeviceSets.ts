@@ -7,6 +7,7 @@ import {
   DeviceIdentifierListSchema,
   DeviceSelectorSchema,
 } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
+import type { FleetListTelemetryRangeFilter } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
 import { type SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
   type DeviceSet,
@@ -52,19 +53,21 @@ interface DeleteGroupProps {
   onFinally?: () => void;
 }
 
-interface ListDeviceSetsProps {
+export interface ListDeviceSetsProps {
   pageSize?: number;
   pageToken?: string;
   sort?: SortConfig;
   errorComponentTypes?: number[];
   zones?: string[];
   buildingIds?: bigint[];
+  includeNoBuilding?: boolean;
   // Rack-list site filter (RACK type only). Mirrors the miner-list
   // shape: siteIds is an OR across sites, includeUnassigned additionally
   // surfaces racks with device_set_rack.site_id IS NULL. Both empty +
   // false = no site filter applied.
   siteIds?: bigint[];
   includeUnassigned?: boolean;
+  telemetryRanges?: FleetListTelemetryRangeFilter[];
   onSuccess?: (deviceSets: DeviceSet[], nextPageToken: string, totalCount: number) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -329,7 +332,16 @@ const useDeviceSets = () => {
   );
 
   const listGroups = useCallback(
-    async ({ pageSize, pageToken, sort, errorComponentTypes, onSuccess, onError, onFinally }: ListDeviceSetsProps) => {
+    async ({
+      pageSize,
+      pageToken,
+      sort,
+      errorComponentTypes,
+      telemetryRanges,
+      onSuccess,
+      onError,
+      onFinally,
+    }: ListDeviceSetsProps) => {
       try {
         if (pageSize) {
           const response = await deviceSetClient.listDeviceSets({
@@ -338,6 +350,7 @@ const useDeviceSets = () => {
             pageToken: pageToken ?? "",
             sort,
             errorComponentTypes: errorComponentTypes ?? [],
+            telemetryRanges: telemetryRanges ?? [],
           });
           onSuccess?.(response.deviceSets, response.nextPageToken, response.totalCount);
         } else {
@@ -351,6 +364,8 @@ const useDeviceSets = () => {
               pageSize: 1000,
               pageToken: nextToken,
               sort,
+              errorComponentTypes: errorComponentTypes ?? [],
+              telemetryRanges: telemetryRanges ?? [],
             });
             all.push(...response.deviceSets);
             nextToken = response.nextPageToken;
@@ -379,8 +394,10 @@ const useDeviceSets = () => {
       errorComponentTypes,
       zones,
       buildingIds,
+      includeNoBuilding,
       siteIds,
       includeUnassigned,
+      telemetryRanges,
       onSuccess,
       onError,
       onFinally,
@@ -395,8 +412,10 @@ const useDeviceSets = () => {
             errorComponentTypes: errorComponentTypes ?? [],
             zones: zones ?? [],
             buildingIds: buildingIds ?? [],
+            includeNoBuilding: includeNoBuilding ?? false,
             siteIds: siteIds ?? [],
             includeUnassigned: includeUnassigned ?? false,
+            telemetryRanges: telemetryRanges ?? [],
           });
           onSuccess?.(response.deviceSets, response.nextPageToken, response.totalCount);
         } else {
@@ -410,10 +429,13 @@ const useDeviceSets = () => {
               pageSize: 1000,
               pageToken: nextToken,
               sort,
+              errorComponentTypes: errorComponentTypes ?? [],
               zones: zones ?? [],
               buildingIds: buildingIds ?? [],
+              includeNoBuilding: includeNoBuilding ?? false,
               siteIds: siteIds ?? [],
               includeUnassigned: includeUnassigned ?? false,
+              telemetryRanges: telemetryRanges ?? [],
             });
             all.push(...response.deviceSets);
             nextToken = response.nextPageToken;
@@ -985,4 +1007,3 @@ const useDeviceSets = () => {
 };
 
 export { useDeviceSets };
-export type { ListDeviceSetsProps };

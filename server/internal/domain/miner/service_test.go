@@ -24,38 +24,38 @@ func newTestPluginManager() *plugins.Manager {
 }
 
 func TestNewMinerService_WithValidDB_ShouldCreateService(t *testing.T) {
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, newTestPluginManager())
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, newTestPluginManager())
 
 	assert.NotNil(t, service)
 }
 
 func TestNewMinerService_WithNilDB_ShouldPanic(t *testing.T) {
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
 	assert.Panics(t, func() {
-		miner.NewMinerService(nil, userStore, encryptService, filesService, tokenService, newTestPluginManager())
+		miner.NewMinerService(nil, userStore, encryptService, filesService, newTestPluginManager())
 	})
 }
 
 func TestNewMinerService_WithNilEncryptService_ShouldPanic(t *testing.T) {
-	db, _, filesService, tokenService := setupTestDB(t)
+	db, _, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
 	assert.Panics(t, func() {
-		miner.NewMinerService(db, userStore, nil, filesService, tokenService, newTestPluginManager())
+		miner.NewMinerService(db, userStore, nil, filesService, newTestPluginManager())
 	})
 }
 
 func TestNewMinerService_WithNilPluginManager_ShouldPanic(t *testing.T) {
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
 	assert.Panics(t, func() {
-		miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, nil)
+		miner.NewMinerService(db, userStore, encryptService, filesService, nil)
 	})
 }
 
@@ -69,10 +69,10 @@ func TestMinerService_GetMinerFromDeviceID_WithNonexistentDevice_ShouldReturnErr
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, newTestPluginManager())
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, newTestPluginManager())
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("nonexistent"))
 
@@ -82,10 +82,10 @@ func TestMinerService_GetMinerFromDeviceID_WithNonexistentDevice_ShouldReturnErr
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithEmptyDeviceID_ShouldReturnError(t *testing.T) {
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, newTestPluginManager())
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, newTestPluginManager())
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(""))
 
@@ -95,12 +95,12 @@ func TestMinerService_GetMinerFromDeviceID_WithEmptyDeviceID_ShouldReturnError(t
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithDatabaseError_ShouldReturnError(t *testing.T) {
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
 	db.Close() // Simulate database error
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, newTestPluginManager())
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, newTestPluginManager())
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("device-123"))
 
@@ -113,12 +113,12 @@ func TestMinerService_GetMinerFromDeviceID_WithMissingCredentials_ShouldReturnEr
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	db, encryptService, filesService, tokenService := setupTestDB(t)
+	db, encryptService, filesService := setupTestDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceID := models.DeviceIdentifier("test-device-no-creds")
 	createTestDevice(t, db, string(deviceID))
 
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, tokenService, newTestPluginManager())
+	service := miner.NewMinerService(db, userStore, encryptService, filesService, newTestPluginManager())
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
 
@@ -241,7 +241,7 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 	require.NoError(t, err)
 
 	userStore := sqlstores.NewSQLUserStore(testContext.DatabaseService.DB)
-	service := miner.NewMinerService(testContext.DatabaseService.DB, userStore, testContext.ServiceProvider.EncryptService, testContext.ServiceProvider.FilesService, testContext.ServiceProvider.TokenService, newTestPluginManager())
+	service := miner.NewMinerService(testContext.DatabaseService.DB, userStore, testContext.ServiceProvider.EncryptService, testContext.ServiceProvider.FilesService, newTestPluginManager())
 
 	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier("test-unpaired-device"))
 

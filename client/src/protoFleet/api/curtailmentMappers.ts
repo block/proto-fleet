@@ -115,6 +115,7 @@ export function mapCurtailmentEventToFormValues(event: ProtoCurtailmentEvent): C
     curtailBatchIntervalSec: "",
     restoreBatchSize: formatPositiveNumberField(event.restoreBatchSize),
     restoreIntervalSec: formatPositiveNumberField(event.restoreBatchIntervalSec),
+    postEventCooldownSec: "0",
     reason: event.reason || "Curtailment",
     includeMaintenance: event.includeMaintenance,
   };

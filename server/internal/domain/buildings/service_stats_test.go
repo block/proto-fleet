@@ -8,9 +8,11 @@ import (
 	"connectrpc.com/connect"
 	"go.uber.org/mock/gomock"
 
+	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
@@ -135,7 +137,7 @@ func TestGetBuildingStats_internalErrorWhenDepsMissing(t *testing.T) {
 	}
 }
 
-func TestGetBuildingStats_includesAuthNeededInFilter(t *testing.T) {
+func TestGetBuildingStats_includesActionablePairingStatusesInFilter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
 	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
@@ -149,7 +151,7 @@ func TestGetBuildingStats_includesAuthNeededInFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	hasPaired, hasAuthNeeded := false, false
+	hasPaired, hasAuthNeeded, hasDefaultPassword := false, false, false
 	for _, s := range devices.lastFilter.PairingStatuses {
 		if s == fm.PairingStatus_PAIRING_STATUS_PAIRED {
 			hasPaired = true
@@ -157,9 +159,12 @@ func TestGetBuildingStats_includesAuthNeededInFilter(t *testing.T) {
 		if s == fm.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
 			hasAuthNeeded = true
 		}
+		if s == fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD {
+			hasDefaultPassword = true
+		}
 	}
-	if !hasPaired || !hasAuthNeeded {
-		t.Errorf("expected PAIRED+AUTH_NEEDED filter; got %v", devices.lastFilter.PairingStatuses)
+	if !hasPaired || !hasAuthNeeded || !hasDefaultPassword {
+		t.Errorf("expected PAIRED+AUTH_NEEDED+DEFAULT_PASSWORD filter; got %v", devices.lastFilter.PairingStatuses)
 	}
 	if devices.lastFilter.Limit != MaxDevicesPerStatsResponse+1 {
 		t.Errorf("expected SQL-level Limit=cap+1 (%d); got %d", MaxDevicesPerStatsResponse+1, devices.lastFilter.Limit)
@@ -304,7 +309,7 @@ func TestListBuildings_degradesWhenListTelemetryFails(t *testing.T) {
 	telemetry := &fakeTelemetryCollector{err: errors.New("telemetry unavailable")}
 	svc := NewService(store, nil, nil, devices, telemetry, newTx(), nil)
 
-	rows, err := svc.ListBuildings(context.Background(), models.ListFilter{OrgID: testOrgID, IncludeStats: true}, func(*int64) bool { return true })
+	rows, err := svc.ListBuildings(context.Background(), models.ListFilter{OrgID: testOrgID, IncludeStats: true}, fleetlistfilter.Filter{}, func(*int64) bool { return true })
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -320,5 +325,70 @@ func TestListBuildings_degradesWhenListTelemetryFails(t *testing.T) {
 	}
 	if stats.ReportingCount != 0 || stats.HashrateReportingCount != 0 || stats.PowerReportingCount != 0 || stats.TemperatureReportingCount != 0 {
 		t.Fatalf("telemetry reporting counts should be zero after telemetry failure: %+v", stats)
+	}
+	hasDefaultPassword := false
+	for _, s := range devices.lastFilter.PairingStatuses {
+		if s == fm.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD {
+			hasDefaultPassword = true
+			break
+		}
+	}
+	if !hasDefaultPassword {
+		t.Fatalf("expected building list stats to include DEFAULT_PASSWORD pairing status; got %v", devices.lastFilter.PairingStatuses)
+	}
+}
+
+func TestListBuildings_returnsEmptyWhenStatsFilterHasNoAuthorizedRows(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	store.EXPECT().ListBuildings(gomock.Any(), models.ListFilter{OrgID: testOrgID, IncludeStats: true}).Return([]models.BuildingWithCounts{
+		{
+			Building:    models.Building{ID: 1, OrgID: testOrgID, Name: "Building 1"},
+			RackCount:   2,
+			DeviceCount: 1,
+		},
+	}, nil)
+
+	svc := NewService(store, nil, nil, nil, nil, newTx(), nil)
+	rows, err := svc.ListBuildings(context.Background(), models.ListFilter{OrgID: testOrgID, IncludeStats: true}, fleetlistfilter.Filter{
+		ErrorComponentTypes: []int32{int32(errorspb.ComponentType_COMPONENT_TYPE_FAN)},
+	}, func(*int64) bool { return false })
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected stats-filtered request without authorized stats to return no rows, got %+v", rows)
+	}
+}
+
+func TestListBuildings_returnsErrorWhenTelemetryFilterCannotFetchTelemetry(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	store.EXPECT().ListBuildings(gomock.Any(), models.ListFilter{OrgID: testOrgID, IncludeStats: true}).Return([]models.BuildingWithCounts{
+		{
+			Building:    models.Building{ID: 1, OrgID: testOrgID, Name: "Building 1"},
+			RackCount:   2,
+			DeviceCount: 1,
+		},
+	}, nil)
+
+	devices := &fakeDeviceQueryer{deviceIDs: []string{"d1"}}
+	telemetry := &fakeTelemetryCollector{err: errors.New("telemetry unavailable")}
+	svc := NewService(store, nil, nil, devices, telemetry, newTx(), nil)
+
+	minHashrate := 1.0
+	_, err := svc.ListBuildings(context.Background(), models.ListFilter{OrgID: testOrgID, IncludeStats: true}, fleetlistfilter.Filter{
+		TelemetryRanges: []interfaces.NumericRange{{
+			Field:        interfaces.NumericFilterFieldHashrateTHs,
+			Min:          &minHashrate,
+			MinInclusive: true,
+		}},
+	}, func(*int64) bool { return true })
+	if err == nil {
+		t.Fatal("expected telemetry fetch error for telemetry-filtered list")
+	}
+	var fe fleeterror.FleetError
+	if !errors.As(err, &fe) || fe.GRPCCode != connect.CodeInternal {
+		t.Fatalf("expected Internal error, got %v", err)
 	}
 }

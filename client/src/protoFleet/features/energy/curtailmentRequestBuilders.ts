@@ -45,6 +45,10 @@ const restoreBatchIntervalOptions: OptionalUint32FieldOptions = {
   label: "restore batch interval",
   max: curtailmentNumericFieldLimits.restoreIntervalSec,
 };
+const postEventCooldownOptions: OptionalUint32FieldOptions = {
+  label: "post-event cooldown",
+  max: curtailmentNumericFieldLimits.postEventCooldownSec,
+};
 const maxInt64 = 9_223_372_036_854_775_807n;
 const baseTenIntegerPattern = /^[0-9]+$/;
 
@@ -180,6 +184,7 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
     restoreBatchSize: getOptionalUint32Setting(values.restoreBatchSize, restoreBatchSizeOptions),
     restoreBatchIntervalSec: getOptionalUint32Setting(values.restoreIntervalSec, restoreBatchIntervalOptions),
     minCurtailedDurationSec: getOptionalUint32Setting(values.minDurationSec, minCurtailedDurationOptions),
+    postEventCooldownSec: getOptionalUint32Setting(values.postEventCooldownSec, postEventCooldownOptions),
     reason: values.reason.trim(),
   });
 }

@@ -219,6 +219,37 @@ func TestReconciler_Restoring_ClaimDispatchesUncurtailBatch(t *testing.T) {
 		"batched Uncurtail targets must share a single batch_uuid")
 }
 
+func TestReconciler_Restoring_PostCommandStateWriteFailureConsumesRetry(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	r := newReconcilerForTest(store, disp)
+	eventID := int64(32)
+	store.events = []*models.Event{{
+		ID:        eventID,
+		EventUUID: uuid.New(),
+		OrgID:     1,
+		State:     models.EventStateRestoring,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+	}
+	store.updateTargetStateHook = func(_ string, params interfaces.UpdateCurtailmentTargetStateParams, call int) error {
+		if call == 2 && params.State == models.TargetStateDispatched {
+			return errors.New("post-command write failed")
+		}
+		return nil
+	}
+
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, final.State)
+	assert.Equal(t, int32(1), final.RetryCount)
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "post-command write failed")
+}
+
 func TestReconciler_Restoring_InFlightGateBlocksClaim(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -797,7 +828,7 @@ func TestReconciler_Restoring_DispatchedAgesOutToRestoreFailed(t *testing.T) {
 	disp := &fakeDispatcher{}
 
 	r := newReconcilerForTest(store, disp)
-	// Dispatched 10 minutes ago — well past the 5-minute default timeout.
+	// Dispatched 10 minutes ago — well past the 30-second default timeout.
 	lastDispatch := r.now().Add(-10 * time.Minute)
 	eventID := int64(60)
 	store.events = []*models.Event{{
@@ -846,8 +877,8 @@ func TestReconciler_Restoring_DispatchedWithinTimeoutDoesNotFail(t *testing.T) {
 	disp := &fakeDispatcher{}
 
 	r := newReconcilerForTest(store, disp)
-	// Dispatched 1 minute ago — well under the 5-minute default timeout.
-	lastDispatch := r.now().Add(-1 * time.Minute)
+	// Dispatched recently — under the 30-second default timeout.
+	lastDispatch := r.now().Add(-10 * time.Second)
 	eventID := int64(61)
 	store.events = []*models.Event{{
 		ID:        eventID,

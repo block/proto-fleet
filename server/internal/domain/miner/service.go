@@ -8,8 +8,6 @@ import (
 	"log/slog"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2/expirable"
-
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -18,10 +16,10 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
-	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	lru "github.com/hashicorp/golang-lru/v2/expirable"
 )
 
 const (
@@ -48,7 +46,6 @@ type Service struct {
 	userStore      stores.UserStore
 	encryptService *encrypt.Service
 	filesService   *files.Service
-	tokenService   *token.Service
 	pluginManager  PluginManager
 
 	// commandSender, when set, routes commands for fleet-node-paired devices over the
@@ -79,7 +76,7 @@ type PluginManager interface {
 	plugins.PluginDriverGetter
 }
 
-func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *encrypt.Service, filesService *files.Service, tokenService *token.Service, pluginManager PluginManager) *Service {
+func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *encrypt.Service, filesService *files.Service, pluginManager PluginManager) *Service {
 	if db == nil {
 		panic("database cannot be nil")
 	}
@@ -98,7 +95,6 @@ func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *enc
 		userStore:            userStore,
 		encryptService:       encryptService,
 		filesService:         filesService,
-		tokenService:         tokenService,
 		pluginManager:        pluginManager,
 		cache:                lru.NewLRU[string, interfaces.Miner](minerCacheSize, nil, minerCacheTTL),
 	}
@@ -297,20 +293,6 @@ func (s *Service) InvalidateMinerByID(ctx context.Context, deviceID int64) {
 	s.InvalidateMiner(models.DeviceIdentifier(identifier))
 }
 
-func (s *Service) getProtoMinerAuthPrivateKey(ctx context.Context, orgID int64) ([]byte, error) {
-	encryptedKey, err := s.userStore.GetOrganizationPrivateKey(ctx, orgID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting org private key: %v", err)
-	}
-
-	privateKey, err := s.encryptService.Decrypt(encryptedKey)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error decrypting private key: %v", err)
-	}
-
-	return privateKey, nil
-}
-
 func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, siteID int64, devicePort string, driverName string, deviceManufacturer string, deviceModel string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string) (interfaces.Miner, error) {
 	if !s.pluginManager.HasPluginForDriverName(driverName) {
 		return nil, fmt.Errorf("no plugin available (driver_name=%q) — ensure the device has been discovered and the appropriate plugin is loaded", driverName)
@@ -329,9 +311,7 @@ func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgI
 		OrgID:              orgID,
 		SiteID:             siteID,
 		EncryptService:     s.encryptService,
-		TokenService:       s.tokenService,
 		FilesService:       s.filesService,
-		GetOrgPrivateKey:   s.getProtoMinerAuthPrivateKey,
 		DriverGetter:       s.pluginManager,
 	})
 }

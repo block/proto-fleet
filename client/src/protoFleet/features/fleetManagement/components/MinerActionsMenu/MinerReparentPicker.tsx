@@ -13,6 +13,7 @@ import {
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
+import { getMinerRackLabel } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import { pushToast, removeToast, STATUSES, updateToast } from "@/shared/features/toaster";
@@ -121,7 +122,7 @@ const groupRackSiteConflicts = (
   for (const id of ids) {
     const snapshot = miners[id];
     if (!snapshot) continue;
-    const sourceLabel = snapshot.rackLabel;
+    const sourceLabel = getMinerRackLabel(snapshot);
     if (!sourceLabel) continue;
     const rackSiteId = rackLabelToSiteId.get(sourceLabel);
     // A miner in a site-less rack (rackSiteId undefined) moving to a real

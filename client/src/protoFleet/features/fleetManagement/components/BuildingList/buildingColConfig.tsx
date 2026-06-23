@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { buildingTabHref } from "../../utils/fleetTabLinks";
 import type { BuildingColumn, BuildingListItem } from "./BuildingList";
 import StatCell from "@/protoFleet/components/DeviceSetList/StatCell";
+import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
 import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 import { type ColConfig } from "@/shared/components/List/types";
 import type { TemperatureUnit } from "@/shared/features/preferences";
@@ -41,6 +42,7 @@ const issueCount = (item: BuildingListItem) =>
 export const createBuildingColConfig = (
   renderName: (item: BuildingListItem) => ReactNode,
   temperatureUnit: TemperatureUnit,
+  activeSite?: ActiveSite,
 ): ColConfig<BuildingListItem, string, BuildingColumn> => ({
   name: {
     component: renderName,
@@ -54,7 +56,7 @@ export const createBuildingColConfig = (
     component: (item) => {
       const id = item.building.building?.id;
       const count = item.stats?.rackCount.toString() ?? item.building.rackCount.toString();
-      return id ? countLink(buildingTabHref("racks", id), count) : <span>{count}</span>;
+      return id ? countLink(buildingTabHref("racks", id, activeSite), count) : <span>{count}</span>;
     },
     width: "min-w-20",
   },
@@ -62,7 +64,7 @@ export const createBuildingColConfig = (
     component: (item) => {
       const id = item.building.building?.id;
       const count = item.stats?.deviceCount.toString() ?? item.building.deviceCount.toString();
-      return id ? countLink(buildingTabHref("miners", id), count) : <span>{count}</span>;
+      return id ? countLink(buildingTabHref("miners", id, activeSite), count) : <span>{count}</span>;
     },
     width: "min-w-20",
   },

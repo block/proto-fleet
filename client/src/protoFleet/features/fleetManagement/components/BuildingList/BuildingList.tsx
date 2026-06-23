@@ -9,6 +9,7 @@ import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_p
 import { createBuildingColConfig } from "@/protoFleet/features/fleetManagement/components/BuildingList/buildingColConfig";
 import { buildingTabHref } from "@/protoFleet/features/fleetManagement/utils/fleetTabLinks";
 import { useTemperatureUnit } from "@/protoFleet/store";
+import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
 import { ArrowRight, Edit, Plus } from "@/shared/assets/icons";
 import List, { type SelectionMode } from "@/shared/components/List";
 import { type ColTitles } from "@/shared/components/List/types";
@@ -68,6 +69,7 @@ interface BuildingListProps {
   onAddBuildingToSite?: (building: BuildingWithCounts) => void;
   selectedIds?: string[];
   onSelectedIdsChange?: (ids: string[]) => void;
+  activeSite?: ActiveSite;
 }
 
 const BuildingList = ({
@@ -78,6 +80,7 @@ const BuildingList = ({
   onAddBuildingToSite,
   selectedIds,
   onSelectedIdsChange,
+  activeSite,
 }: BuildingListProps) => {
   const navigate = useNavigate();
   const temperatureUnit = useTemperatureUnit();
@@ -111,11 +114,15 @@ const BuildingList = ({
     (item: BuildingListItem): RowAction[] => {
       return [
         { label: "View building", icon: <ArrowRight />, onClick: () => navigate(`/buildings/${item.id}`) },
-        { label: "View racks", icon: <ArrowRight />, onClick: () => navigate(buildingTabHref("racks", item.id)) },
+        {
+          label: "View racks",
+          icon: <ArrowRight />,
+          onClick: () => navigate(buildingTabHref("racks", item.id, activeSite)),
+        },
         {
           label: "View miners",
           icon: <ArrowRight />,
-          onClick: () => navigate(buildingTabHref("miners", item.id)),
+          onClick: () => navigate(buildingTabHref("miners", item.id, activeSite)),
           showGroupDivider: true,
         },
         {
@@ -132,7 +139,7 @@ const BuildingList = ({
         },
       ];
     },
-    [navigate, onEditBuilding, onAddBuildingToSite],
+    [activeSite, navigate, onEditBuilding, onAddBuildingToSite],
   );
 
   const renderName = useCallback(
@@ -156,7 +163,10 @@ const BuildingList = ({
     [buildExtraActions],
   );
 
-  const colConfig = useMemo(() => createBuildingColConfig(renderName, temperatureUnit), [renderName, temperatureUnit]);
+  const colConfig = useMemo(
+    () => createBuildingColConfig(renderName, temperatureUnit, activeSite),
+    [activeSite, renderName, temperatureUnit],
+  );
 
   const handleRowClick = useCallback((item: BuildingListItem) => navigate(`/buildings/${item.id}`), [navigate]);
   const isSelectableBuilding = useCallback((item: BuildingListItem) => {

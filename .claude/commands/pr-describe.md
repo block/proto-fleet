@@ -126,7 +126,10 @@ describe what the code does, not the decisions made getting there.
       they render on GitHub. At minimum a component/flow diagram of the main
       path; add a state or sequence diagram where lifecycle or ordering matters.
       Keep syntax GitHub-safe: quote labels containing special characters, avoid
-      fragile edge styles (e.g. dotted/labelled edges that GitHub mis-renders).
+      fragile edge styles (e.g. dotted/labelled edges that GitHub mis-renders),
+      and use explicit node IDs with bracketed labels (`A["Label"] --> B["Other"]`).
+      Do not use bare quoted string nodes (`"Label" --> "Other"`); GitHub's
+      Mermaid parser rejects that form in flowcharts.
    5. **Areas of the code involved** — a table so reviewers know where to focus:
       `| Area / package / file | What changed | Why it matters for review |`.
       Group by subsystem. Call out new vs. modified files, and flag generated

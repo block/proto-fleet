@@ -54,7 +54,7 @@ rebuild-plugin name:
       ;;
     virtual)
       (cd plugin/virtual && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/virtual-plugin .)
-      cp plugin/virtual/config.json server/plugins/
+      cp plugin/virtual/config.json server/plugins/virtual-plugin.json
       chmod +x server/plugins/virtual-plugin
       ;;
     asicrs)
@@ -312,6 +312,7 @@ _build-go-plugins-native outdir: _go-work-sync
   ANT_BIN={{outdir}}/antminer-plugin
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform
   WANT_PLATFORM="native"
+  rm -f {{outdir}}/virtual-plugin {{outdir}}/virtual-plugin.json {{outdir}}/config.json
   if [ -f "$PROTO_BIN" ] && [ -f "$ANT_BIN" ] \
      && [ -f "$PLATFORM_MARKER" ] && [ "$(cat "$PLATFORM_MARKER")" = "$WANT_PLATFORM" ] \
      && [ -z "$(find $SOURCES -newer "$PROTO_BIN" -type f 2>/dev/null | head -1)" ] \
@@ -335,6 +336,7 @@ _build-go-plugins-cross goos goarch outdir: _go-work-sync
   ANT_BIN={{outdir}}/antminer-plugin
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform
   WANT_PLATFORM="{{goos}}/{{goarch}}"
+  rm -f {{outdir}}/virtual-plugin {{outdir}}/virtual-plugin.json {{outdir}}/config.json
   if [ -f "$PROTO_BIN" ] && [ -f "$ANT_BIN" ] \
      && [ -f "$PLATFORM_MARKER" ] && [ "$(cat "$PLATFORM_MARKER")" = "$WANT_PLATFORM" ] \
      && [ -z "$(find $SOURCES -newer "$PROTO_BIN" -type f 2>/dev/null | head -1)" ] \
@@ -356,8 +358,11 @@ _build-go-plugins-multi-arch: _go-work-sync
   mkdir -p deployment-files/server
   (cd plugin/proto && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/proto-plugin-amd64 .)
   (cd plugin/antminer && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/antminer-plugin-amd64 .)
+  (cd plugin/virtual && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/virtual-plugin-amd64 .)
   (cd plugin/proto && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/proto-plugin-arm64 .)
   (cd plugin/antminer && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/antminer-plugin-arm64 .)
+  (cd plugin/virtual && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/virtual-plugin-arm64 .)
+  cp plugin/virtual/config.json deployment-files/server/virtual-plugin.json
   chmod +x deployment-files/server/*-plugin-*
 
 _asicrs-build outdir="server/plugins":

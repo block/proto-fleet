@@ -307,16 +307,6 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 	externalOrgID := id.GenerateID()
 	orgName := generateDefaultOrgName(externalOrgID)
 
-	minerAuthPrivateKey, err := s.tokenSvc.CreateMinerAuthPrivateKeyForOrganization()
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error creating miner auth private key: %v", err)
-	}
-
-	encryptedMinerAuthPrivateKey, err := s.encryptSvc.Encrypt(minerAuthPrivateKey)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error encrypting miner auth private key: %v", err)
-	}
-
 	created, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		hasUser, err := s.userStore.HasUser(ctx)
 		if err != nil {
@@ -334,7 +324,6 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 			string(hashedPassword),
 			orgName,
 			externalOrgID,
-			encryptedMinerAuthPrivateKey,
 			SuperAdminRoleName,
 			"Super admin role",
 		)

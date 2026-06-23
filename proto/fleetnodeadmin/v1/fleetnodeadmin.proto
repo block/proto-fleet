@@ -151,7 +151,8 @@ message PairDiscoveredDevicesOnFleetNodeRequest {
     repeated string device_identifiers = 2 [(buf.validate.field).repeated = {max_items: 1024, items: {string: {min_len: 1, max_len: 255}}}];
     // Pair every not-yet-paired device discovered on this node.
     bool pair_all_unpaired = 3;
-    // Applied to basic-auth devices in the batch; omitted for asymmetric-auth.
+    // Applied to devices in the batch. When omitted, drivers may use their
+    // default credentials.
     pairing.v1.Credentials credentials = 4;
 }
 
@@ -162,7 +163,8 @@ message PairDiscoveredDevicesOnFleetNodeResponse {
 message DevicePairingResult {
     string device_identifier = 1;
     // Shares the operator-facing enum with fleetmanagement; a fleet-node pair
-    // result is always PAIRED, AUTHENTICATION_NEEDED, or FAILED.
+    // result is always PAIRED, DEFAULT_PASSWORD, AUTHENTICATION_NEEDED, or
+    // FAILED.
     fleetmanagement.v1.PairingStatus pairing_status = 2;
     // Mirrors the gateway's FleetNodePairResult.error_message cap; the node's
     // error string is echoed through here.

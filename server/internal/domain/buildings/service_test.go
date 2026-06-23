@@ -8,6 +8,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetlistfilter"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
@@ -55,8 +56,10 @@ func TestDeleteBuilding_cascadeUnassignsRacks(t *testing.T) {
 	tx := &fakeTransactor{}
 	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
-	// Both calls happen inside RunInTx; assert via inTxCtx.
-	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(1), nil)
+	// All calls happen inside RunInTx; assert via inTxCtx. SoftDeleteBuilding
+	// returns the deleted row's site so the audit row is stamped with it.
+	deletedSite := int64(7)
+	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(33)).Return(&deletedSite, true, nil)
 	store.EXPECT().UnassignRacksFromBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(5), nil)
 	store.EXPECT().ClearDeviceBuildingsByBuilding(inTxCtx, testOrgID, int64(33)).Return(int64(0), nil)
 
@@ -79,8 +82,9 @@ func TestDeleteBuilding_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	tx := &fakeTransactor{}
 	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
-	// SoftDeleteBuilding runs inside the tx and returns 0; cascade short-circuits.
-	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
+	// SoftDeleteBuilding reports found=false (no live row) and the cascade
+	// short-circuits to NotFound.
+	store.EXPECT().SoftDeleteBuilding(inTxCtx, testOrgID, int64(99)).Return(nil, false, nil)
 
 	_, err := svc.DeleteBuilding(context.Background(), testOrgID, 99)
 	if !fleeterror.IsNotFoundError(err) {
@@ -179,7 +183,7 @@ func TestListBuildings_rejectsZeroSiteID(t *testing.T) {
 	_, err := svc.ListBuildings(context.Background(), models.ListFilter{
 		OrgID:   testOrgID,
 		SiteIDs: []int64{5, 0},
-	}, nil)
+	}, fleetlistfilter.Filter{}, nil)
 	if err == nil {
 		t.Fatal("expected InvalidArgument error, got nil")
 	}

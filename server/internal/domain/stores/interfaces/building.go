@@ -32,10 +32,13 @@ type BuildingStore interface {
 	// cross-collection enforcement). Returns NotFound when row gone.
 	UpdateBuilding(ctx context.Context, params models.UpdateParams) (*models.Building, error)
 
-	// SoftDeleteBuilding sets deleted_at; caller is responsible for
-	// the surrounding transaction and the cascade-unassign of racks
+	// SoftDeleteBuilding sets deleted_at and returns the deleted row's site_id
+	// (nil when unassigned) so the caller can stamp the audit row with the site
+	// actually deleted, race-free. found is false when no live building matched
+	// (missing / already-deleted / cross-org). Caller is responsible for the
+	// surrounding transaction and the cascade-unassign of racks
 	// (UnassignRacksFromBuilding) in the same tx.
-	SoftDeleteBuilding(ctx context.Context, orgID, id int64) (int64, error)
+	SoftDeleteBuilding(ctx context.Context, orgID, id int64) (siteID *int64, found bool, err error)
 
 	// UnassignRacksFromBuilding sets device_set_rack.building_id =
 	// NULL for every rack pointing at the building. Returns the

@@ -76,3 +76,27 @@ func TestResultTypeValid(t *testing.T) {
 		})
 	}
 }
+
+func TestOrgLevelCategories(t *testing.T) {
+	t.Parallel()
+
+	got := OrgLevelCategories()
+	want := []string{"auth", "system", "pool", "schedule", "curtailment", "device_command"}
+	assert.ElementsMatch(t, want, got)
+}
+
+func TestOrgLevelCategoriesIsImmutable(t *testing.T) {
+	t.Parallel()
+
+	// Mutating the returned slice must not affect later calls — the source
+	// is a package-level array and each call returns a fresh copy.
+	first := OrgLevelCategories()
+	for i := range first {
+		first[i] = "tampered"
+	}
+
+	assert.ElementsMatch(t,
+		[]string{"auth", "system", "pool", "schedule", "curtailment", "device_command"},
+		OrgLevelCategories(),
+	)
+}

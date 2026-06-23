@@ -520,6 +520,9 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
+		// Stamp the collection's site (racks under a site/building) so the
+		// update lands in /{site}/activity; nil for site-less groups.
+		SiteID: collectionSiteID(collection),
 	})
 
 	return &pb.UpdateCollectionResponse{Collection: collection}, nil
@@ -536,7 +539,13 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 	collection, prefetchErr := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
 
 	var siteUnassignedCount int64
+	// Site for the delete audit row, captured from the in-tx locked placement
+	// (not the best-effort prefetch) so a rack move racing the delete can't
+	// file the event under the old site. Nil for non-rack collections (groups
+	// have no site) and unassigned racks.
+	var lockedRackSiteID *int64
 	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		lockedRackSiteID = nil // reset in case RunInTx retries the closure
 		collType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, req.CollectionId)
 		if err != nil {
 			return err
@@ -545,8 +554,13 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 			// Lock the rack FOR UPDATE so concurrent AddDevicesToCollection
 			// / SaveRack can't slip a new member or cascade in between our
 			// unassign + membership-drop + soft-delete steps.
-			if _, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID); err != nil {
+			placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID)
+			if err != nil {
 				return err
+			}
+			if placement.SiteID != nil {
+				sid := *placement.SiteID
+				lockedRackSiteID = &sid
 			}
 			n, err := s.collectionStore.UnassignDeviceSitesByRack(ctx, req.CollectionId, info.OrganizationID)
 			if err != nil {
@@ -602,6 +616,10 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 			UserID:         &info.ExternalUserID,
 			Username:       &info.Username,
 			OrganizationID: &info.OrganizationID,
+			// Stamp the site from the in-tx locked placement so a site-scoped
+			// rack delete lands in /{site}/activity; nil for site-less groups
+			// and unassigned racks.
+			SiteID: lockedRackSiteID,
 		}
 		if siteUnassignedCount > 0 {
 			event.Metadata = map[string]any{
@@ -660,10 +678,10 @@ func (s *Service) ListCollectionsDomain(ctx context.Context, params ListCollecti
 		}
 	}
 
-	if err := s.validateFilterBuildings(ctx, info.OrganizationID, params.Filter); err != nil {
+	if err := s.validateFilterSites(ctx, info.OrganizationID, params.Filter); err != nil {
 		return nil, err
 	}
-	if err := s.validateFilterSites(ctx, info.OrganizationID, params.Filter); err != nil {
+	if err := s.validateFilterBuildings(ctx, info.OrganizationID, params.Filter); err != nil {
 		return nil, err
 	}
 
@@ -1354,6 +1372,10 @@ func (s *Service) SetRackSlotPosition(ctx context.Context, req *pb.SetRackSlotPo
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
+		// Stamp the rack's site so this single-site event lands in the
+		// site's activity feed rather than the unassigned bucket. Nil when
+		// the rack itself is unassigned (genuinely no site).
+		SiteID: collectionSiteID(coll),
 	})
 
 	return &pb.SetRackSlotPositionResponse{
@@ -1405,9 +1427,25 @@ func (s *Service) ClearRackSlotPosition(ctx context.Context, req *pb.ClearRackSl
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
+		// See SetRackSlotPosition: stamp the rack's site (nil if unassigned).
+		SiteID: collectionSiteID(coll),
 	})
 
 	return &pb.ClearRackSlotPositionResponse{}, nil
+}
+
+// collectionSiteID returns the collection's effective site id as a nil-able
+// pointer, preserving the distinction between "assigned to site N" and
+// "unassigned" (nil). It reads from Placement, which GetCollection populates
+// (and which reflects the building-derived site); TypeDetails.RackInfo is NOT
+// filled by GetCollection, so it must not be relied on here.
+func collectionSiteID(coll *pb.DeviceCollection) *int64 {
+	site := coll.GetPlacement().GetSite()
+	if site == nil {
+		return nil
+	}
+	id := site.GetId()
+	return &id
 }
 
 // GetRackSlots lists all occupied slot positions in a rack.

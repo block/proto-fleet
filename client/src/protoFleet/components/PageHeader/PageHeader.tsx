@@ -18,7 +18,9 @@ import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_p
 import { useSites } from "@/protoFleet/api/sites";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
+import { scopedPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { Pause } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
@@ -61,6 +63,9 @@ function HeaderWidgets({
 }: HeaderWidgetsProps): ReactElement {
   const { pillSchedule, sections, pendingScheduleId, onToggleScheduleStatus } = schedulePillData;
   const alignEnd = align === "end";
+  const storedActiveSite = useFleetStore((state) => state.ui.activeSite);
+  const routeScope = useRouteSiteScope();
+  const energyPath = scopedPath("/energy", routeScope ?? storedActiveSite);
 
   return (
     <div
@@ -77,7 +82,7 @@ function HeaderWidgets({
         switch (widget) {
           case "curtailment":
             return activeCurtailmentEvent && canReadCurtailment ? (
-              <CurtailmentPill key={widget} event={activeCurtailmentEvent} detailsPath="/energy" />
+              <CurtailmentPill key={widget} event={activeCurtailmentEvent} detailsPath={energyPath} />
             ) : null;
           case "schedule":
             return pillSchedule ? (

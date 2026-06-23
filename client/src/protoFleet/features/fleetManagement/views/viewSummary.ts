@@ -1,4 +1,5 @@
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { UNASSIGNED_URL_VALUE } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import {
   TELEMETRY_FILTER_BOUNDS,
   type TelemetryFilterKey,
@@ -79,12 +80,12 @@ const lookupDeviceSetLabels = (ids: string[], deviceSets: DeviceSet[]): string[]
   deviceSets.forEach((set) => {
     labelById.set(String(set.id), set.label);
   });
-  return ids.map((id) => labelById.get(id) ?? `#${id}`);
+  return ids.map((id) => (id === UNASSIGNED_URL_VALUE ? "Unassigned" : (labelById.get(id) ?? `#${id}`)));
 };
 
 const lookupNamedLabels = (ids: string[], items: FilterLabelSource[]): string[] => {
   const labelById = new Map<string, string>(items.map((item) => [item.id, item.label]));
-  return ids.map((id) => labelById.get(id) ?? `#${id}`);
+  return ids.map((id) => (id === UNASSIGNED_URL_VALUE ? "Unassigned" : (labelById.get(id) ?? `#${id}`)));
 };
 
 const dedupedSorted = (params: URLSearchParams, key: string): string[] =>
@@ -92,49 +93,13 @@ const dedupedSorted = (params: URLSearchParams, key: string): string[] =>
     .filter((value) => value !== "")
     .sort();
 
-const summarizeMinerFilters = (params: URLSearchParams, context: FilterSummaryContext): FilterSummaryEntry[] => {
-  const entries: FilterSummaryEntry[] = [];
-
-  const statusValues = dedupedSorted(params, "status").map((value) => STATUS_LABELS[value] ?? value);
-  if (statusValues.length) entries.push({ key: "status", label: "Status", values: statusValues });
-
+const summarizeIssueFilters = (params: URLSearchParams): FilterSummaryEntry[] => {
   const issueValues = dedupedSorted(params, "issues").map((value) => ISSUE_LABELS[value] ?? value);
-  if (issueValues.length) entries.push({ key: "issues", label: "Issues", values: issueValues });
+  return issueValues.length ? [{ key: "issues", label: "Issues", values: issueValues }] : [];
+};
 
-  const modelValues = dedupedSorted(params, "model");
-  if (modelValues.length) entries.push({ key: "model", label: "Model", values: modelValues });
-
-  const groupValues = dedupedSorted(params, "group");
-  if (groupValues.length) {
-    entries.push({
-      key: "group",
-      label: "Groups",
-      values: lookupDeviceSetLabels(groupValues, context.availableGroups),
-    });
-  }
-
-  const rackValues = dedupedSorted(params, "rack");
-  if (rackValues.length) {
-    entries.push({ key: "rack", label: "Racks", values: lookupDeviceSetLabels(rackValues, context.availableRacks) });
-  }
-
-  const buildingValues = dedupedSorted(params, "building");
-  if (buildingValues.length) {
-    entries.push({
-      key: "building",
-      label: "Buildings",
-      values: lookupNamedLabels(buildingValues, context.availableBuildings),
-    });
-  }
-
-  const firmwareValues = dedupedSorted(params, "firmware");
-  if (firmwareValues.length) entries.push({ key: "firmware", label: "Firmware", values: firmwareValues });
-
-  const zoneValues = dedupedSorted(params, "zone");
-  if (zoneValues.length) entries.push({ key: "zone", label: "Zone", values: zoneValues });
-
-  // Numeric range filters: render as a single value, e.g. "50 TH/s - 200 TH/s"
-  // or "≥ 50 TH/s". Mirrors the chip text so the summary reads the same way.
+const summarizeTelemetryFilters = (params: URLSearchParams): FilterSummaryEntry[] => {
+  const entries: FilterSummaryEntry[] = [];
   (Object.keys(TELEMETRY_FILTER_BOUNDS) as TelemetryFilterKey[]).forEach((key) => {
     const bounds = TELEMETRY_FILTER_BOUNDS[key];
     const minRaw = params.get(`${key}_min`);
@@ -152,6 +117,55 @@ const summarizeMinerFilters = (params: URLSearchParams, context: FilterSummaryCo
     if (!summary) return;
     entries.push({ key, label: bounds.label, values: [summary] });
   });
+  return entries;
+};
+
+const summarizeMinerFilters = (params: URLSearchParams, context: FilterSummaryContext): FilterSummaryEntry[] => {
+  const entries: FilterSummaryEntry[] = [];
+
+  const statusValues = dedupedSorted(params, "status").map((value) => STATUS_LABELS[value] ?? value);
+  if (statusValues.length) entries.push({ key: "status", label: "Status", values: statusValues });
+
+  entries.push(...summarizeIssueFilters(params));
+
+  const modelValues = dedupedSorted(params, "model");
+  if (modelValues.length) entries.push({ key: "model", label: "Model", values: modelValues });
+
+  const firmwareValues = dedupedSorted(params, "firmware");
+  if (firmwareValues.length) entries.push({ key: "firmware", label: "Firmware", values: firmwareValues });
+
+  const siteValues = dedupedSorted(params, "site");
+  if (siteValues.length) {
+    entries.push({ key: "site", label: "Sites", values: lookupNamedLabels(siteValues, context.availableSites) });
+  }
+
+  const buildingValues = dedupedSorted(params, "building");
+  if (buildingValues.length) {
+    entries.push({
+      key: "building",
+      label: "Buildings",
+      values: lookupNamedLabels(buildingValues, context.availableBuildings),
+    });
+  }
+
+  const rackValues = dedupedSorted(params, "rack");
+  if (rackValues.length) {
+    entries.push({ key: "rack", label: "Racks", values: lookupDeviceSetLabels(rackValues, context.availableRacks) });
+  }
+
+  const zoneValues = dedupedSorted(params, "zone");
+  if (zoneValues.length) entries.push({ key: "zone", label: "Zone", values: zoneValues });
+
+  const groupValues = dedupedSorted(params, "group");
+  if (groupValues.length) {
+    entries.push({
+      key: "group",
+      label: "Groups",
+      values: lookupDeviceSetLabels(groupValues, context.availableGroups),
+    });
+  }
+
+  entries.push(...summarizeTelemetryFilters(params));
 
   // Subnet (CIDR list) filter — single chip-style value, "N subnets" when more
   // than one entry, the literal CIDR when exactly one.
@@ -170,6 +184,13 @@ const summarizeMinerFilters = (params: URLSearchParams, context: FilterSummaryCo
 const summarizeRackFilters = (params: URLSearchParams, context: FilterSummaryContext): FilterSummaryEntry[] => {
   const entries: FilterSummaryEntry[] = [];
 
+  entries.push(...summarizeIssueFilters(params));
+
+  const siteValues = dedupedSorted(params, "site");
+  if (siteValues.length) {
+    entries.push({ key: "site", label: "Sites", values: lookupNamedLabels(siteValues, context.availableSites) });
+  }
+
   const buildingValues = dedupedSorted(params, "building");
   if (buildingValues.length) {
     entries.push({
@@ -179,16 +200,34 @@ const summarizeRackFilters = (params: URLSearchParams, context: FilterSummaryCon
     });
   }
 
+  const zoneValues = dedupedSorted(params, "zone");
+  if (zoneValues.length) entries.push({ key: "zone", label: "Zone", values: zoneValues });
+
+  entries.push(...summarizeTelemetryFilters(params));
+
+  return entries;
+};
+
+const summarizeBuildingFilters = (params: URLSearchParams, context: FilterSummaryContext): FilterSummaryEntry[] => {
+  const entries: FilterSummaryEntry[] = [];
+
+  entries.push(...summarizeIssueFilters(params));
+
   const siteValues = dedupedSorted(params, "site");
   if (siteValues.length) {
     entries.push({ key: "site", label: "Sites", values: lookupNamedLabels(siteValues, context.availableSites) });
   }
 
-  const zoneValues = dedupedSorted(params, "zone");
-  if (zoneValues.length) entries.push({ key: "zone", label: "Zone", values: zoneValues });
+  entries.push(...summarizeTelemetryFilters(params));
 
-  const issueValues = dedupedSorted(params, "issues").map((value) => ISSUE_LABELS[value] ?? value);
-  if (issueValues.length) entries.push({ key: "issues", label: "Issues", values: issueValues });
+  return entries;
+};
+
+const summarizeSiteFilters = (params: URLSearchParams): FilterSummaryEntry[] => {
+  const entries: FilterSummaryEntry[] = [];
+
+  entries.push(...summarizeIssueFilters(params));
+  entries.push(...summarizeTelemetryFilters(params));
 
   return entries;
 };
@@ -204,17 +243,15 @@ export const summarizeFilters = (
     case "racks":
       return summarizeRackFilters(params, context);
     case "buildings":
+      return summarizeBuildingFilters(params, context);
     case "sites":
-      // No filter surface in URL yet on these tabs.
-      return [];
+      return summarizeSiteFilters(params);
   }
 };
 
 /**
- * Tabs that own `sort`/`dir` URL params. Other tabs may carry those keys as
- * cross-navigation residue; surfacing them as a "sort summary" would offer
- * an "Include sort" toggle that silently drops on save because the tab's
- * canonicalization whitelist excludes the keys.
+ * Tabs that own `sort`/`dir` URL params and persist those keys into saved
+ * views. Tabs outside this set may carry cross-navigation residue.
  */
 const TABS_WITH_SORT: ReadonlySet<FleetTabId> = new Set(["miners", "racks"]);
 

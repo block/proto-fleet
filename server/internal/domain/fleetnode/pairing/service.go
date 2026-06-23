@@ -123,6 +123,13 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 		return fleeterror.LogInternal(component, "pair device", clientErrPair, pairErr)
 	}
 	if rows == 0 {
+		sameNode, boundErr := s.deviceBoundToFleetNode(ctx, fleetNodeID, deviceID, orgID)
+		if boundErr != nil {
+			return fleeterror.LogInternal(component, "check fleet node binding", clientErrPair, boundErr)
+		}
+		if sameNode {
+			return nil
+		}
 		return fleeterror.NewFailedPreconditionError("device already paired; unpair first")
 	}
 	// Make the paired node the discovery owner so its future reports refresh the row
@@ -131,6 +138,19 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 		return fleeterror.LogInternal(component, "transfer discovery attribution", clientErrPair, attrErr)
 	}
 	return nil
+}
+
+func (s *Service) deviceBoundToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64) (bool, error) {
+	pairs, err := s.store.ListFleetNodeDevices(ctx, orgID, &fleetNodeID)
+	if err != nil {
+		return false, err
+	}
+	for _, pair := range pairs {
+		if pair.DeviceID == deviceID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Service) UnpairDevice(ctx context.Context, deviceID, orgID int64) error {

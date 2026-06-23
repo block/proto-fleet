@@ -108,14 +108,7 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 			if ctx.Err() == nil {
 				out := &pb.PairDiscoveredDevicesOnFleetNodeResponse{Results: make([]*pb.DevicePairingResult, 0, len(results))}
 				for _, r := range results {
-					res := &pb.DevicePairingResult{
-						DeviceIdentifier: r.GetDeviceIdentifier(),
-						PairingStatus:    pairOutcomeStatus(r.GetOutcome()),
-					}
-					if res.PairingStatus != fleetmanagementv1.PairingStatus_PAIRING_STATUS_PAIRED {
-						res.Error = r.GetErrorMessage()
-					}
-					out.Results = append(out.Results, res)
+					out.Results = append(out.Results, devicePairingResultFromGatewayResult(r))
 				}
 				if sendErr := stream.Send(out); sendErr != nil {
 					slog.Warn("operator pair stream send failed; pairing continues server-side",
@@ -126,11 +119,25 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 		})
 }
 
-// pairOutcomeStatus maps a node pair outcome to the operator-facing enum, matching
+func devicePairingResultFromGatewayResult(result *gatewaypb.FleetNodePairResult) *pb.DevicePairingResult {
+	res := &pb.DevicePairingResult{
+		DeviceIdentifier: result.GetDeviceIdentifier(),
+		PairingStatus:    pairResultStatus(result),
+	}
+	if !isSuccessfulPairingStatus(res.PairingStatus) {
+		res.Error = result.GetErrorMessage()
+	}
+	return res
+}
+
+// pairResultStatus maps a node pair result to the operator-facing enum, matching
 // what PersistFleetNodePairResult records.
-func pairOutcomeStatus(outcome gatewaypb.PairOutcome) fleetmanagementv1.PairingStatus {
-	switch outcome {
+func pairResultStatus(result *gatewaypb.FleetNodePairResult) fleetmanagementv1.PairingStatus {
+	switch result.GetOutcome() {
 	case gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED:
+		if result.GetDefaultPasswordActive() {
+			return fleetmanagementv1.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD
+		}
 		return fleetmanagementv1.PairingStatus_PAIRING_STATUS_PAIRED
 	case gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED, gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_FAILED:
 		return fleetmanagementv1.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED
@@ -139,4 +146,9 @@ func pairOutcomeStatus(outcome gatewaypb.PairOutcome) fleetmanagementv1.PairingS
 	default:
 		return fleetmanagementv1.PairingStatus_PAIRING_STATUS_FAILED
 	}
+}
+
+func isSuccessfulPairingStatus(status fleetmanagementv1.PairingStatus) bool {
+	return status == fleetmanagementv1.PairingStatus_PAIRING_STATUS_PAIRED ||
+		status == fleetmanagementv1.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD
 }

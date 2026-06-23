@@ -39,6 +39,8 @@ type fakeStore struct {
 	cooldownCalls            int
 	lastCooldownOrgID        int64
 	lastCooldownSec          int32
+	lastCooldownFilter       []string
+	lastCooldownSiteID       *int64
 	activeDevicesCalls       int
 	lastActiveDevicesOrgID   int64
 
@@ -144,28 +146,26 @@ func (f *fakeStore) GetOrgConfig(_ context.Context, orgID int64) (*models.OrgCon
 	return nil, fleeterror.NewNotFoundErrorf("no org config for %d", orgID)
 }
 
-func (f *fakeStore) UpdateOrgConfigPostEventCooldown(_ context.Context, orgID int64, cooldownSec int32) (*models.OrgConfig, error) {
-	cfg, ok := f.orgConfigByOrg[orgID]
-	if !ok {
-		return nil, fleeterror.NewNotFoundErrorf("no org config for %d", orgID)
-	}
-	next := *cfg
-	next.PostEventCooldownSec = cooldownSec
-	f.orgConfigByOrg[orgID] = &next
-	return &next, nil
-}
-
 func (f *fakeStore) ListActiveCurtailedDevices(_ context.Context, orgID int64) ([]string, error) {
 	f.activeDevicesCalls++
 	f.lastActiveDevicesOrgID = orgID
 	return append([]string(nil), f.activeDevicesByOrg[orgID]...), nil
 }
 
-func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(_ context.Context, orgID int64, cooldownSec int32) ([]string, error) {
+func (f *fakeStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
+	panic("ListActiveCurtailmentTargetDevices not exercised")
+}
+
+func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(
+	_ context.Context,
+	params interfaces.ListRecentlyResolvedCurtailedDevicesParams,
+) ([]string, error) {
 	f.cooldownCalls++
-	f.lastCooldownOrgID = orgID
-	f.lastCooldownSec = cooldownSec
-	return append([]string(nil), f.cooldownDevicesByOrg[orgID]...), nil
+	f.lastCooldownOrgID = params.OrgID
+	f.lastCooldownSec = params.CooldownSec
+	f.lastCooldownFilter = append([]string(nil), params.DeviceIdentifiers...)
+	f.lastCooldownSiteID = params.SiteID
+	return append([]string(nil), f.cooldownDevicesByOrg[params.OrgID]...), nil
 }
 
 func (f *fakeStore) SiteBelongsToOrg(_ context.Context, orgID, siteID int64) (bool, error) {
@@ -481,8 +481,10 @@ func (f *fakeStore) InsertEventWithTargets(
 	event models.InsertEventParams,
 	targets []models.InsertTargetParams,
 ) (*models.InsertEventResult, error) {
-	// Mirror the SQL store: only a terminal event may have zero targets.
-	if len(targets) == 0 && !event.State.IsTerminal() {
+	// Mirror the SQL store: only terminal or closed-loop full-fleet events may
+	// have zero targets.
+	if len(targets) == 0 && !event.State.IsTerminal() &&
+		!(event.Mode == models.ModeFullFleet && event.LoopType == models.LoopTypeClosed) {
 		return nil, fleeterror.NewInvalidArgumentError(
 			"InsertEventWithTargets requires a non-empty targets slice for a non-terminal event",
 		)
@@ -499,6 +501,16 @@ func (f *fakeStore) InsertEventWithTargets(
 		ID:        id,
 		EventUUID: event.EventUUID,
 	}, nil
+}
+
+func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
+	context.Context,
+	int64,
+	int64,
+	int32,
+	[]models.InsertTargetParams,
+) ([]*models.Target, error) {
+	panic("ClaimClosedLoopFullFleetTargets not exercised")
 }
 
 // --- helpers ---
@@ -541,7 +553,6 @@ func defaultOrgConfig(orgID int64) *models.OrgConfig {
 		OrgID:                 orgID,
 		MaxDurationDefaultSec: 14400,
 		CandidateMinPowerW:    1500,
-		PostEventCooldownSec:  600,
 	}
 }
 
@@ -944,7 +955,7 @@ func TestService_Preview_MaintenancePairAdmitsMiners(t *testing.T) {
 
 // --- cooldown ---
 
-func TestService_Preview_NormalPriority_AppliesCooldown(t *testing.T) {
+func TestService_Preview_CooldownZeroDoesNotQueryRecentlyResolvedDevices(t *testing.T) {
 	t.Parallel()
 
 	const orgID = int64(1)
@@ -962,39 +973,70 @@ func TestService_Preview_NormalPriority_AppliesCooldown(t *testing.T) {
 	plan, err := svc.Preview(t.Context(), req)
 	require.NoError(t, err)
 
-	require.Equal(t, 1, store.cooldownCalls, "NORMAL priority must consult cooldown")
-	assert.Equal(t, int32(600), store.lastCooldownSec, "cooldown sec must come from org config")
-
-	// recent miner gets skipped with cooldown reason; ok miner is selected.
-	reasons := map[string]SkipReason{}
-	for _, s := range plan.Skipped {
-		reasons[s.DeviceIdentifier] = s.Reason
-	}
-	assert.Equal(t, SkipCooldown, reasons["recent"])
+	assert.Zero(t, store.cooldownCalls)
 	require.Len(t, plan.Selected, 1)
-	assert.Equal(t, "ok", plan.Selected[0].DeviceIdentifier)
+	assert.Equal(t, "recent", plan.Selected[0].DeviceIdentifier)
 }
 
-func TestService_Preview_EmergencyPriority_BypassesCooldown(t *testing.T) {
+func TestService_Preview_PositiveCooldownExcludesRecentlyResolvedDevices(t *testing.T) {
 	t.Parallel()
 
 	const orgID = int64(1)
 	store := newFakeStore()
 	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
-	store.cooldownDevicesByOrg[orgID] = []string{"recent"} // would skip if cooldown applied
+	store.cooldownDevicesByOrg[orgID] = []string{"recent"}
 	store.candidatesByOrg[orgID] = []*models.Candidate{
 		minerWithEff("recent", 3000, 100, 40),
+		minerWithEff("ok", 3000, 100, 40),
+	}
+
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.Scope = Scope{
+		Type:              models.ScopeTypeDeviceList,
+		DeviceIdentifiers: []string{"recent", "ok"},
+	}
+	req.PostEventCooldownSec = 600
+	req.TargetKW = 1
+	plan, err := svc.Preview(t.Context(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, store.cooldownCalls)
+	assert.Equal(t, orgID, store.lastCooldownOrgID)
+	assert.Equal(t, int32(600), store.lastCooldownSec)
+	assert.ElementsMatch(t, []string{"recent", "ok"}, store.lastCooldownFilter)
+	assert.Nil(t, store.lastCooldownSiteID)
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, "ok", plan.Selected[0].DeviceIdentifier)
+	reasons := map[string]SkipReason{}
+	for _, skipped := range plan.Skipped {
+		reasons[skipped.DeviceIdentifier] = skipped.Reason
+	}
+	assert.Equal(t, SkipCooldown, reasons["recent"])
+}
+
+func TestService_Preview_EmergencyPriorityBypassesSuppliedCooldown(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.cooldownDevicesByOrg[orgID] = []string{"recent"}
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("recent", 3000, 100, 40),
+		minerWithEff("ok", 3000, 100, 40),
 	}
 
 	svc := NewService(store)
 	req := validRequest(orgID)
 	req.Priority = models.PriorityEmergency
+	req.PostEventCooldownSec = 600
 	req.TargetKW = 1
 	plan, err := svc.Preview(t.Context(), req)
 	require.NoError(t, err)
 
-	assert.Zero(t, store.cooldownCalls, "EMERGENCY must skip the cooldown lookup entirely")
-	require.Len(t, plan.Selected, 1, "recent miner is admitted under EMERGENCY")
+	assert.Zero(t, store.cooldownCalls)
+	require.Len(t, plan.Selected, 1)
 	assert.Equal(t, "recent", plan.Selected[0].DeviceIdentifier)
 }
 
@@ -1079,8 +1121,6 @@ func TestService_Preview_PassesCallerOrgIDToEveryStoreCall(t *testing.T) {
 	store.orgConfigByOrg[otherOrg] = defaultOrgConfig(otherOrg)
 	store.activeDevicesByOrg[callerOrg] = []string{"caller-locked"}
 	store.activeDevicesByOrg[otherOrg] = []string{"other-locked"}
-	store.cooldownDevicesByOrg[callerOrg] = []string{"caller-cooldown"}
-	store.cooldownDevicesByOrg[otherOrg] = []string{"other-cooldown"}
 	store.candidatesByOrg[callerOrg] = []*models.Candidate{minerWithEff("caller-miner", 3000, 100, 40)}
 	store.candidatesByOrg[otherOrg] = []*models.Candidate{minerWithEff("other-miner", 3000, 100, 40)}
 
@@ -1089,7 +1129,6 @@ func TestService_Preview_PassesCallerOrgIDToEveryStoreCall(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, callerOrg, store.lastActiveDevicesOrgID, "active-event lookup must use caller's org_id")
-	assert.Equal(t, callerOrg, store.lastCooldownOrgID, "cooldown lookup must use caller's org_id")
 	assert.Equal(t, callerOrg, store.lastListCandidatesOrgID, "candidate listing must use caller's org_id")
 
 	// Plan must contain only the caller's devices — no leakage from otherOrg.

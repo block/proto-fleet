@@ -234,6 +234,24 @@ describe("FleetHealth", () => {
     expect(screen.getByText("3 miners")).toBeInTheDocument();
   });
 
+  it("preserves the selected site in clickable miner status links", () => {
+    renderWithRouter(
+      <FleetHealth
+        fleetSize={50}
+        healthyMiners={30}
+        needsAttentionMiners={10}
+        offlineMiners={7}
+        sleepingMiners={3}
+        extraFilterParams="rack=7"
+        activeSite={{ kind: "site", id: "8" }}
+      />,
+    );
+
+    const links = screen.getAllByRole("link");
+    expect(links[0]).toHaveAttribute("href", expect.stringContaining("/8/fleet/miners?"));
+    expect(links[0]).toHaveAttribute("href", expect.stringContaining("rack=7"));
+  });
+
   it("renders mdash for all stats when counts are null (loaded but no data)", () => {
     renderWithRouter(
       <FleetHealth

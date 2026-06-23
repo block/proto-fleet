@@ -2,6 +2,9 @@ import { minerCols, type MinerColumn } from "./constants";
 
 export const configurableMinerColumns = [
   minerCols.groups,
+  minerCols.site,
+  minerCols.building,
+  minerCols.rack,
   minerCols.model,
   minerCols.macAddress,
   minerCols.ipAddress,

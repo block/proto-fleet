@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
 import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutomationRules";
 import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
-import useCurtailmentSettings from "@/protoFleet/api/useCurtailmentSettings";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentSettingsPage, {
@@ -48,10 +47,6 @@ vi.mock("@/protoFleet/api/useCurtailmentResponseProfiles", () => ({
 }));
 
 vi.mock("@/protoFleet/api/useCurtailmentAutomationRules", () => ({
-  default: vi.fn(),
-}));
-
-vi.mock("@/protoFleet/api/useCurtailmentSettings", () => ({
   default: vi.fn(),
 }));
 
@@ -193,6 +188,7 @@ const testResponseProfiles: ResponseProfile[] = [
       curtailBatchIntervalSec: "",
       restoreBatchSize: "",
       restoreIntervalSec: "",
+      postEventCooldownSec: "0",
       responseDeadlineMinutes: "5",
       includeMaintenance: false,
     },
@@ -220,6 +216,7 @@ const testResponseProfiles: ResponseProfile[] = [
       curtailBatchIntervalSec: "30",
       restoreBatchSize: "10000",
       restoreIntervalSec: "0",
+      postEventCooldownSec: "600",
       responseDeadlineMinutes: "15",
       includeMaintenance: false,
     },
@@ -249,6 +246,7 @@ const targetedMinersResponseProfile: ResponseProfile = {
     curtailBatchIntervalSec: "60",
     restoreBatchSize: "10",
     restoreIntervalSec: "120",
+    postEventCooldownSec: "900",
     responseDeadlineMinutes: "15",
     includeMaintenance: false,
   },
@@ -277,6 +275,7 @@ const siteScopedResponseProfile: ResponseProfile = {
     curtailBatchIntervalSec: "30",
     restoreBatchSize: "10000",
     restoreIntervalSec: "0",
+    postEventCooldownSec: "300",
     responseDeadlineMinutes: "15",
     includeMaintenance: false,
   },
@@ -346,7 +345,6 @@ const createAutomationRuleMock = vi.fn();
 const updateAutomationRuleMock = vi.fn();
 const setAutomationRuleEnabledMock = vi.fn();
 const deleteAutomationRuleMock = vi.fn();
-const updateSettingsMock = vi.fn();
 const startCurtailmentMock = vi.fn();
 
 const mockResponseProfilesApi = (overrides: Partial<ReturnType<typeof useCurtailmentResponseProfiles>> = {}) => {
@@ -401,18 +399,6 @@ const mockAutomationRulesApi = (overrides: Partial<ReturnType<typeof useCurtailm
   });
 };
 
-const mockCurtailmentSettingsApi = (overrides: Partial<ReturnType<typeof useCurtailmentSettings>> = {}) => {
-  vi.mocked(useCurtailmentSettings).mockReturnValue({
-    settings: { postEventCooldownSec: 600 },
-    isLoading: false,
-    isSaving: false,
-    loadError: null,
-    getSettings: vi.fn(),
-    updateSettings: updateSettingsMock,
-    ...overrides,
-  });
-};
-
 function fillSourceForm(values: CurtailmentSourceFormValues = testSourceFormValues): void {
   fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: values.name } });
   fireEvent.change(screen.getByLabelText("Broker host 1"), { target: { value: values.brokerPrimaryHost } });
@@ -458,7 +444,6 @@ describe("CurtailmentSettingsPage", () => {
     vi.mocked(useMqttCurtailmentSources).mockReset();
     vi.mocked(useCurtailmentResponseProfiles).mockReset();
     vi.mocked(useCurtailmentAutomationRules).mockReset();
-    vi.mocked(useCurtailmentSettings).mockReset();
     vi.mocked(useCurtailmentApi).mockReset();
     vi.mocked(pushToast).mockReset();
     mockNavigate.mockReset();
@@ -480,8 +465,6 @@ describe("CurtailmentSettingsPage", () => {
     updateAutomationRuleMock.mockReset();
     setAutomationRuleEnabledMock.mockReset();
     deleteAutomationRuleMock.mockReset();
-    updateSettingsMock.mockReset();
-    updateSettingsMock.mockResolvedValue({ postEventCooldownSec: 0 });
     startCurtailmentMock.mockReset();
     startCurtailmentMock.mockResolvedValue({});
     vi.mocked(useCurtailmentApi).mockReturnValue({
@@ -490,7 +473,6 @@ describe("CurtailmentSettingsPage", () => {
     mockResponseProfilesApi();
     mockSourcesApi();
     mockAutomationRulesApi();
-    mockCurtailmentSettingsApi();
   });
 
   it("renders the curtailment header, response profile cards, and sources table", () => {
@@ -506,7 +488,6 @@ describe("CurtailmentSettingsPage", () => {
     expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(true);
     expect(useMqttCurtailmentSources).toHaveBeenCalledWith(true);
     expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(true);
-    expect(useCurtailmentSettings).toHaveBeenCalledWith(true);
     expect(screen.getByTestId("settings-curtailment-page")).toBeVisible();
     expect(screen.getByText("Curtailment")).toBeVisible();
     expect(
@@ -523,9 +504,8 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByText("Automations")).toBeVisible();
     expect(screen.getByRole("button", { name: "About automations" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Create automation" })).toBeEnabled();
-    expect(screen.getByText("Settings")).toBeVisible();
-    expect(screen.getByLabelText("Post-event cooldown")).toHaveValue(600);
-    expect(screen.getByRole("button", { name: "Save settings" })).toBeDisabled();
+    expect(screen.queryByLabelText("Post-event cooldown")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save settings" })).not.toBeInTheDocument();
     expect(document.querySelector(".curtailment-section-header__icon")).not.toBeInTheDocument();
     const nameColumnHeaders = screen.getAllByRole("columnheader", { name: "Name" });
     expect(nameColumnHeaders[0].closest("table")?.className).toContain("[&_thead_th]:text-text-primary-50");
@@ -566,57 +546,6 @@ describe("CurtailmentSettingsPage", () => {
 
     expect(screen.getByText("Site Alpha MQTT")).toBeVisible();
     expect(screen.getByText("38 seconds ago")).toBeVisible();
-  });
-
-  it("saves curtailment settings through the API hook", async () => {
-    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
-    mockCurtailmentSettingsApi({
-      settings: { postEventCooldownSec: 600 },
-    });
-    updateSettingsMock.mockResolvedValue({ postEventCooldownSec: 0 });
-
-    render(
-      <MemoryRouter>
-        <CurtailmentSettingsPage />
-      </MemoryRouter>,
-    );
-
-    fireEvent.change(screen.getByLabelText("Post-event cooldown"), { target: { value: "0" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
-
-    await waitFor(() => expect(updateSettingsMock).toHaveBeenCalledWith({ postEventCooldownSec: 0 }));
-    expect(pushToast).toHaveBeenCalledWith({
-      message: "Curtailment settings saved",
-      status: "success",
-    });
-  });
-
-  it("validates curtailment settings before saving", async () => {
-    render(<CurtailmentSettingsContent />);
-
-    fireEvent.change(screen.getByLabelText("Post-event cooldown"), { target: { value: "-1" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
-
-    expect(await screen.findByText("Enter cooldown as a whole number of 0 or greater.")).toBeVisible();
-  });
-
-  it("does not render editable curtailment settings after load failure", () => {
-    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
-    mockCurtailmentSettingsApi({
-      settings: null,
-      loadError: "Failed to load curtailment settings.",
-    });
-
-    render(
-      <MemoryRouter>
-        <CurtailmentSettingsPage />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByText("Failed to load curtailment settings.")).toBeVisible();
-    expect(screen.getByText("Settings are unavailable until they load successfully.")).toBeVisible();
-    expect(screen.queryByLabelText("Post-event cooldown")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save settings" })).not.toBeInTheDocument();
   });
 
   it("renders response profiles returned by the API hook", () => {
@@ -672,6 +601,7 @@ describe("CurtailmentSettingsPage", () => {
         curtailBatchIntervalSec: "60",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
+        postEventCooldownSec: "0",
         responseDeadlineMinutes: "15",
         includeMaintenance: true,
       }),
@@ -723,6 +653,7 @@ describe("CurtailmentSettingsPage", () => {
     fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "60" } });
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "10" } });
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
+    fireEvent.change(screen.getByTestId("response-profile-post-event-cooldown"), { target: { value: "600" } });
     fireEvent.click(getEnabledButton("Run curtailment"));
     expect(screen.getByText("Force include maintenance miners?")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Force include" }));
@@ -743,6 +674,7 @@ describe("CurtailmentSettingsPage", () => {
           curtailBatchIntervalSec: "60",
           restoreBatchSize: "10",
           restoreIntervalSec: "120",
+          postEventCooldownSec: "600",
         }),
       ),
     );
@@ -757,6 +689,7 @@ describe("CurtailmentSettingsPage", () => {
           curtailBatchIntervalSec: "60",
           restoreBatchSize: "10",
           restoreIntervalSec: "120",
+          postEventCooldownSec: "600",
           includeMaintenance: true,
         }),
       ),
@@ -794,6 +727,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("30");
     expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
+    expect(screen.getByTestId("response-profile-post-event-cooldown")).toHaveValue("600");
     expect(screen.queryByText("Apply to")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
 
@@ -803,6 +737,7 @@ describe("CurtailmentSettingsPage", () => {
     fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "45" } });
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "50" } });
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
+    fireEvent.change(screen.getByTestId("response-profile-post-event-cooldown"), { target: { value: "900" } });
     fireEvent.click(getEnabledButton("Save profile"));
 
     await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
@@ -815,6 +750,7 @@ describe("CurtailmentSettingsPage", () => {
         curtailBatchIntervalSec: "45",
         restoreBatchSize: "50",
         restoreIntervalSec: "120",
+        postEventCooldownSec: "900",
         siteId: "",
       }),
     );
@@ -858,6 +794,7 @@ describe("CurtailmentSettingsPage", () => {
         expect.objectContaining({
           siteId: "101",
           siteName: "Site 101",
+          postEventCooldownSec: "300",
         }),
       ),
     );
@@ -926,6 +863,7 @@ describe("CurtailmentSettingsPage", () => {
           curtailBatchIntervalSec: "45",
           restoreBatchSize: "50",
           restoreIntervalSec: "120",
+          postEventCooldownSec: "600",
           siteId: "",
         }),
       ),
@@ -942,6 +880,7 @@ describe("CurtailmentSettingsPage", () => {
           curtailBatchIntervalSec: "45",
           restoreBatchSize: "50",
           restoreIntervalSec: "120",
+          postEventCooldownSec: "600",
         }),
       ),
     );

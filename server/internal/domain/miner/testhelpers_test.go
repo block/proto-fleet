@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/testutil"
 
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
@@ -22,7 +21,7 @@ import (
 // Using atomic operations ensures uniqueness even in parallel tests
 var testDeviceIPCounter uint32
 
-func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service, *token.Service) {
+func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service) {
 	t.Helper()
 
 	testConfig, err := testutil.GetTestConfig()
@@ -38,16 +37,7 @@ func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service, *toke
 	filesService, err := files.NewService(files.Config{})
 	require.NoError(t, err, "Failed to create files service")
 
-	tokenService, err := token.NewService(token.Config{
-		ClientToken: token.AuthTokenConfig{
-			SecretKey:        testConfig.AuthTokenSecretKey,
-			ExpirationPeriod: 5 * time.Minute,
-		},
-		MinerTokenExpirationPeriod: 5 * time.Minute,
-	})
-	require.NoError(t, err, "Failed to create token service")
-
-	return db, encryptService, filesService, tokenService
+	return db, encryptService, filesService
 }
 
 func createDiscoveredDevice(t *testing.T, db *sql.DB, model string, manufacturer string, deviceType string) int64 {
@@ -61,8 +51,8 @@ func createDiscoveredDevice(t *testing.T, db *sql.DB, model string, manufacturer
 	err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM organization WHERE id = $1)`, orgID).Scan(&exists)
 	require.NoError(t, err, "Failed to check organization existence")
 	if !exists {
-		_, err := db.Exec(`INSERT INTO organization (id, org_id, name, miner_auth_private_key) VALUES ($1, $2, $3, $4)`,
-			orgID, fmt.Sprintf("test-org-%d", orgID), fmt.Sprintf("Test Organization %d", orgID), "dummy-key-for-testing")
+		_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES ($1, $2, $3)`,
+			orgID, fmt.Sprintf("test-org-%d", orgID), fmt.Sprintf("Test Organization %d", orgID))
 		require.NoError(t, err, "Failed to insert organization")
 	}
 

@@ -1,6 +1,5 @@
 import { type CSSProperties, type ReactNode, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import clsx from "clsx";
 
 import { type BuildingRackHealth, type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { useBuildingStats } from "@/protoFleet/api/useBuildingStats";
@@ -16,41 +15,36 @@ interface BuildingCardProps {
   building: BuildingWithCounts;
 }
 
-// Rack-cell visual states. Five total: "unassigned" is owned by the renderer
-// (no rack lives at this floor-plan position) and the four others come from
-// the per-rack worst-state aggregation in GetBuildingStats.
-type CellState = "unassigned" | "needsAttention" | "offline" | "sleeping" | "healthy";
+type HeatBand = 0 | 1 | 2 | 3 | 4 | 5;
 
-// Priority rule for collapsing a rack's count buckets into a single cell
-// state. Lives client-side (per #263 design discussion) so visual iteration
-// doesn't churn the proto.
-const cellStateForRack = (r: BuildingRackHealth): CellState => {
-  if (r.brokenCount > 0) return "needsAttention";
-  if (r.offlineCount > 0) return "offline";
-  if (r.sleepingCount > 0) return "sleeping";
-  return "healthy";
+const issueRatio = (r: BuildingRackHealth): number => {
+  const total = r.hashingCount + r.brokenCount + r.offlineCount + r.sleepingCount;
+  if (total === 0) return 0;
+  return (r.brokenCount + r.offlineCount + r.sleepingCount) / total;
 };
 
-const CELL_CLASS: Record<CellState, string> = {
-  unassigned: "border border-core-primary-10",
-  needsAttention: "border border-core-primary-20 bg-intent-critical-10",
-  offline: "border border-core-primary-20 bg-intent-warning-10",
-  sleeping: "border border-core-primary-10",
-  healthy: "border border-core-primary-20",
+const healthHeatBand = (ratio: number): HeatBand => {
+  if (ratio <= 0) return 0;
+  if (ratio < 0.05) return 1;
+  if (ratio < 0.15) return 2;
+  if (ratio < 0.3) return 3;
+  if (ratio < 0.5) return 4;
+  return 5;
 };
 
-const CELL_DOT: Record<CellState, { kind: "none" } | { kind: "dot"; className: string } | { kind: "plus" }> = {
-  unassigned: { kind: "plus" },
-  needsAttention: { kind: "dot", className: "bg-intent-critical-fill" },
-  offline: { kind: "dot", className: "bg-intent-warning-fill" },
-  sleeping: { kind: "dot", className: "bg-core-primary-20" },
-  healthy: { kind: "none" },
+const HEAT_CLASS: Record<HeatBand, string> = {
+  0: "bg-core-primary-fill/10",
+  1: "bg-intent-critical-fill/8",
+  2: "bg-intent-critical-fill/18",
+  3: "bg-intent-critical-fill/32",
+  4: "bg-intent-critical-fill/50",
+  5: "bg-intent-critical-fill/72",
 };
 
 interface RackGridProps {
   aisles: number;
   racksPerAisle: number;
-  cellStates: Record<string, CellState>;
+  heatBands: Record<string, HeatBand>;
   testId: string;
 }
 
@@ -68,7 +62,7 @@ const MAX_CELL_PX = 16;
 const MIN_CELL_PX = 2;
 const CELL_GAP_PX = 4;
 
-const RackGrid = ({ aisles, racksPerAisle, cellStates, testId }: RackGridProps) => {
+const RackGrid = ({ aisles, racksPerAisle, heatBands, testId }: RackGridProps) => {
   if (aisles <= 0 || racksPerAisle <= 0) {
     return (
       <div className="text-200 text-text-primary-50" data-testid={`${testId}-empty`}>
@@ -77,13 +71,14 @@ const RackGrid = ({ aisles, racksPerAisle, cellStates, testId }: RackGridProps) 
     );
   }
 
-  const rows: { aisle: number; cells: CellState[] }[] = [];
+  const rows: { aisle: number; bands: (HeatBand | null)[] }[] = [];
   for (let a = 0; a < aisles; a++) {
-    const cells: CellState[] = [];
+    const bands: (HeatBand | null)[] = [];
     for (let p = 0; p < racksPerAisle; p++) {
-      cells.push(cellStates[cellKey(a, p)] ?? "unassigned");
+      const key = cellKey(a, p);
+      bands.push(key in heatBands ? heatBands[key] : null);
     }
-    rows.push({ aisle: a, cells });
+    rows.push({ aisle: a, bands });
   }
 
   // Calc against 100% of the row width. `min(16px, ...)` clamps to the
@@ -111,44 +106,19 @@ const RackGrid = ({ aisles, racksPerAisle, cellStates, testId }: RackGridProps) 
     <div className="flex w-full max-w-full flex-col gap-1" data-testid={testId} style={gridStyle}>
       {rows.map((row) => (
         <div key={row.aisle} className="flex justify-center gap-1">
-          {row.cells.map((state, p) => {
-            const dot = CELL_DOT[state];
-            return (
-              <span
-                key={p}
-                aria-hidden
-                data-cell-state={state}
-                // `aspect-square` keeps the cell a square — `height: var(--cell-size)`
-                // would resolve calc(100% - …) against the row's height (auto → 0)
-                // instead of its width, collapsing the cell. Width drives the size,
-                // aspect-ratio derives the height.
-                className={clsx(
-                  "flex aspect-square shrink-0 items-center justify-center rounded-[3px]",
-                  CELL_CLASS[state],
-                )}
-                style={{ width: "var(--cell-size)" }}
-              >
-                {dot.kind === "dot" ? (
-                  // Inner dot is sized as a percentage of the cell so it
-                  // shrinks with the wrapper when the grid is space-constrained.
-                  <span
-                    className={clsx("block rounded-full", dot.className)}
-                    style={{ width: "37.5%", height: "37.5%" }}
-                  />
-                ) : dot.kind === "plus" ? (
-                  // The + glyph scales off the cell size for the same reason —
-                  // 62.5% of cell = 10px at the 16px max, matching the prior
-                  // text-[10px] design.
-                  <span
-                    className="leading-none text-core-primary-20"
-                    style={{ fontSize: "calc(var(--cell-size) * 0.625)" }}
-                  >
-                    +
-                  </span>
-                ) : null}
-              </span>
-            );
-          })}
+          {row.bands.map((band, p) => (
+            <span
+              key={p}
+              aria-hidden
+              data-heat-band={band ?? "unassigned"}
+              className={
+                band !== null
+                  ? `aspect-square shrink-0 rounded-[3px] ${HEAT_CLASS[band]}`
+                  : "aspect-square shrink-0 rounded-[3px] border border-core-primary-10"
+              }
+              style={{ width: "var(--cell-size)" }}
+            />
+          ))}
         </div>
       ))}
     </div>
@@ -190,14 +160,12 @@ const BuildingCard = ({ building }: BuildingCardProps) => {
     pollIntervalMs: POLL_INTERVAL_MS,
   });
 
-  // Derive cell-state map keyed by aisle:position from the server's
-  // rack_health list. Cells with no entry render unassigned.
-  const cellStates = useMemo<Record<string, CellState>>(() => {
+  const heatBands = useMemo<Record<string, HeatBand>>(() => {
     if (!stats) return {};
-    const acc: Record<string, CellState> = {};
+    const acc: Record<string, HeatBand> = {};
     for (const r of stats.rackHealth) {
       if (r.aisleIndex === undefined || r.positionInAisle === undefined) continue;
-      acc[cellKey(r.aisleIndex, r.positionInAisle)] = cellStateForRack(r);
+      acc[cellKey(r.aisleIndex, r.positionInAisle)] = healthHeatBand(issueRatio(r));
     }
     return acc;
   }, [stats]);
@@ -249,7 +217,7 @@ const BuildingCard = ({ building }: BuildingCardProps) => {
         e.preventDefault();
         goToDetail();
       }}
-      className="flex h-full cursor-pointer flex-col rounded-2xl bg-surface-5 transition-opacity hover:opacity-80"
+      className="flex h-full cursor-pointer flex-col rounded-2xl bg-surface-overlay transition-opacity hover:opacity-80"
       data-testid={`building-card-${idText}`}
     >
       <div className="flex items-center justify-between gap-2 px-5 pt-4">
@@ -287,7 +255,7 @@ const BuildingCard = ({ building }: BuildingCardProps) => {
         <RackGrid
           aisles={aisles}
           racksPerAisle={racksPerAisle}
-          cellStates={cellStates}
+          heatBands={heatBands}
           testId={`building-card-${idText}-grid`}
         />
         <div
@@ -313,7 +281,7 @@ const BuildingCard = ({ building }: BuildingCardProps) => {
           ) : null}
         </div>
       </div>
-      <div className="grid grid-cols-4 divide-x divide-border-5 border-t border-border-5">
+      <div className="grid grid-cols-3 divide-x divide-border-5 border-t border-border-5">
         <Stat
           testId={`building-card-${idText}-stat-hashrate`}
           value={
@@ -343,20 +311,6 @@ const BuildingCard = ({ building }: BuildingCardProps) => {
               formatPowerMwOrDash(stats.powerReportingCount > 0 ? stats.totalPowerKw : null)
             )
           }
-        />
-        <Stat
-          testId={`building-card-${idText}-stat-racks`}
-          value={(() => {
-            // Prefer the polled stats.rackCount once available so the
-            // footer stays in sync with rack assignments. Fall back to
-            // the ListBuildings count during the first poll tick.
-            const count = stats?.rackCount ?? Number(building.rackCount);
-            return (
-              <>
-                {count} {count === 1 ? "rack" : "racks"}
-              </>
-            );
-          })()}
         />
       </div>
     </div>

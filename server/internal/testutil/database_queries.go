@@ -74,9 +74,8 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 		testUser.DatabaseID = userID
 
 		orgID, err := q.CreateOrganization(context.Background(), sqlc.CreateOrganizationParams{
-			Name:                organizationName,
-			OrgID:               organizationName,
-			MinerAuthPrivateKey: s.config.MinerAuthPrivateKey,
+			Name:  organizationName,
+			OrgID: organizationName,
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error creating organization: %v", err)
@@ -146,9 +145,8 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 		testUser.DatabaseID = userID
 
 		orgID, err := q.CreateOrganization(context.Background(), sqlc.CreateOrganizationParams{
-			Name:                organizationName,
-			OrgID:               organizationName,
-			MinerAuthPrivateKey: s.config.MinerAuthPrivateKey,
+			Name:  organizationName,
+			OrgID: organizationName,
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error creating organization: %v", err)

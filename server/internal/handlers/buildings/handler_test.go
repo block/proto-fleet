@@ -203,6 +203,32 @@ func TestHandler_ListBuildings_filterCombined(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestHandler_ListBuildings_includesPlacementRefs(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+	siteID := int64(42)
+
+	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
+		Return([]models.BuildingWithCounts{{
+			Building: models.Building{
+				ID:        7,
+				SiteID:    &siteID,
+				SiteLabel: "Austin",
+				Name:      "Building A",
+			},
+		}}, nil)
+
+	resp, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetBuildings(), 1)
+
+	building := resp.Msg.GetBuildings()[0].GetBuilding()
+	require.NotNil(t, building.GetPlacement())
+	require.NotNil(t, building.GetPlacement().GetSite())
+	assert.Equal(t, siteID, building.GetPlacement().GetSite().GetId())
+	assert.Equal(t, "Austin", building.GetPlacement().GetSite().GetLabel())
+}
+
 func TestHandler_ListBuildings_omitsStatsForNarrowedBuildingSite(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
@@ -369,7 +395,9 @@ func TestHandler_DeleteBuilding_surfacesRackCount(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
-	h.buildingStore.EXPECT().SoftDeleteBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(1), nil)
+	// SoftDeleteBuilding returns the deleted row's site (nil = unassigned here)
+	// so the audit row scopes to the building's site, race-free.
+	h.buildingStore.EXPECT().SoftDeleteBuilding(gomock.Any(), int64(7), int64(33)).Return(nil, true, nil)
 	h.buildingStore.EXPECT().UnassignRacksFromBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(5), nil)
 	h.buildingStore.EXPECT().ClearDeviceBuildingsByBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(0), nil)
 

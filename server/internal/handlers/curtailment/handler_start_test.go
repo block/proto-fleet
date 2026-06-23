@@ -44,7 +44,6 @@ func newStartStubStore() *startStubStore {
 			OrgID:                 1,
 			MaxDurationDefaultSec: 14400,
 			CandidateMinPowerW:    1500,
-			PostEventCooldownSec:  600,
 		},
 	}
 }
@@ -55,19 +54,17 @@ func (s *startStubStore) GetOrgConfig(_ context.Context, orgID int64) (*models.O
 	return &cfg, nil
 }
 
-func (s *startStubStore) UpdateOrgConfigPostEventCooldown(_ context.Context, orgID int64, cooldownSec int32) (*models.OrgConfig, error) {
-	cfg := *s.orgConfig
-	cfg.OrgID = orgID
-	cfg.PostEventCooldownSec = cooldownSec
-	s.orgConfig = &cfg
-	return &cfg, nil
-}
-
 func (s *startStubStore) ListActiveCurtailedDevices(_ context.Context, _ int64) ([]string, error) {
 	return nil, nil
 }
+func (s *startStubStore) ListActiveCurtailmentTargetDevices(context.Context, int64) ([]string, error) {
+	panic("ListActiveCurtailmentTargetDevices not exercised by handler Start tests")
+}
 
-func (s *startStubStore) ListRecentlyResolvedCurtailedDevices(_ context.Context, _ int64, _ int32) ([]string, error) {
+func (s *startStubStore) ListRecentlyResolvedCurtailedDevices(
+	context.Context,
+	interfaces.ListRecentlyResolvedCurtailedDevicesParams,
+) ([]string, error) {
 	return nil, nil
 }
 
@@ -90,6 +87,15 @@ func (s *startStubStore) InsertEventWithTargets(
 		ID:        1,
 		EventUUID: event.EventUUID,
 	}, nil
+}
+func (s *startStubStore) ClaimClosedLoopFullFleetTargets(
+	context.Context,
+	int64,
+	int64,
+	int32,
+	[]models.InsertTargetParams,
+) ([]*models.Target, error) {
+	panic("ClaimClosedLoopFullFleetTargets not exercised by handler Start tests")
 }
 
 // --- panic stubs for surface the handler-level tests don't reach ---
@@ -304,6 +310,7 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 		wantMode    models.Mode
 		wantCode    connect.Code
 		wantPersist bool
+		wantTargets int
 	}{
 		{
 			name:        "fixed kw whole org without manage is rejected",
@@ -345,6 +352,7 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 			permissions: []string{authz.PermCurtailmentManage},
 			wantMode:    models.ModeFixedKw,
 			wantPersist: true,
+			wantTargets: 1,
 		},
 		{
 			name: "full fleet whole org with manage can start",
@@ -355,6 +363,7 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 			permissions: []string{authz.PermCurtailmentManage},
 			wantMode:    models.ModeFullFleet,
 			wantPersist: true,
+			wantTargets: 0,
 		},
 	}
 
@@ -381,7 +390,7 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 			if tc.wantPersist {
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantMode, store.lastEvent.Mode)
-				assert.Len(t, store.lastTargets, 1)
+				assert.Len(t, store.lastTargets, tc.wantTargets)
 				return
 			}
 
@@ -519,7 +528,7 @@ func TestHandler_StartCurtailment_InsufficientLoadSurfacesAsInvalidArgument(t *t
 	assert.Empty(t, store.lastTargets)
 }
 
-func TestHandler_StartCurtailment_FullFleetAllSkippedSurfacesSkippedReasons(t *testing.T) {
+func TestHandler_StartCurtailment_FullFleetAllSkippedReturnsActiveWatcher(t *testing.T) {
 	t.Parallel()
 
 	store := newStartStubStore()
@@ -540,15 +549,13 @@ func TestHandler_StartCurtailment_FullFleetAllSkippedSurfacesSkippedReasons(t *t
 	req.Mode = pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET
 	req.ModeParams = nil
 
-	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
-	assert.Contains(t, err.Error(), "insufficient curtailable load")
-	assert.Contains(t, err.Error(), "unreachable_residual_load=1")
-	assert.Contains(t, err.Error(), "updating=1")
-	assert.Empty(t, store.lastTargets, "all-skipped full_fleet must not persist a completed event")
+	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.GetEvent())
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, resp.Msg.GetEvent().GetState())
+	assert.Empty(t, resp.Msg.GetEvent().GetTargets())
+	assert.Equal(t, int32(0), resp.Msg.GetEvent().GetTargetRollup().GetTotal())
+	assert.Empty(t, store.lastTargets)
 }
 
 // TestHandler_StartCurtailment_RejectsMissingSession pins the auth gate:

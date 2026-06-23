@@ -25,7 +25,7 @@ func TestConvertToMinerCapabilities_EmptyCapabilities(t *testing.T) {
 
 func TestConvertToMinerCapabilities_ProtoDevice(t *testing.T) {
 	caps := sdk.Capabilities{
-		sdk.CapabilityAsymmetricAuth:     true,
+		sdk.CapabilityBasicAuth:          true,
 		sdk.CapabilityReboot:             true,
 		sdk.CapabilityMiningStart:        true,
 		sdk.CapabilityMiningStop:         true,
@@ -60,7 +60,7 @@ func TestConvertToMinerCapabilities_ProtoDevice(t *testing.T) {
 
 	// Authentication
 	require.NotNil(t, result.Authentication)
-	assert.Contains(t, result.Authentication.SupportedMethods, capabilitiespb.AuthenticationMethod_AUTHENTICATION_METHOD_ASYMMETRIC_KEY)
+	assert.Contains(t, result.Authentication.SupportedMethods, capabilitiespb.AuthenticationMethod_AUTHENTICATION_METHOD_BASIC)
 
 	// Commands
 	require.NotNil(t, result.Commands)
@@ -186,18 +186,16 @@ func TestConvertAuthenticationCapabilities_NoMethods(t *testing.T) {
 	assert.Nil(t, result)
 }
 
-func TestConvertAuthenticationCapabilities_BothMethods(t *testing.T) {
+func TestConvertAuthenticationCapabilities_BasicAuth(t *testing.T) {
 	caps := sdk.Capabilities{
-		sdk.CapabilityBasicAuth:      true,
-		sdk.CapabilityAsymmetricAuth: true,
+		sdk.CapabilityBasicAuth: true,
 	}
 
 	result := convertAuthenticationCapabilities(caps)
 
 	require.NotNil(t, result)
-	assert.Len(t, result.SupportedMethods, 2)
+	assert.Len(t, result.SupportedMethods, 1)
 	assert.Contains(t, result.SupportedMethods, capabilitiespb.AuthenticationMethod_AUTHENTICATION_METHOD_BASIC)
-	assert.Contains(t, result.SupportedMethods, capabilitiespb.AuthenticationMethod_AUTHENTICATION_METHOD_ASYMMETRIC_KEY)
 }
 
 func TestConvertCommandCapabilities_CoolingModes(t *testing.T) {

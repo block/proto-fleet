@@ -1728,7 +1728,7 @@ func TestService_DeleteMiners_ShouldAllowReDiscoveryAfterSoftDelete(t *testing.T
 	assert.Len(t, listResp.Miners, 1, "re-discovered miner should be visible")
 }
 
-func TestService_DeleteMiners_ShouldWaitForPendingClearAuthKeys(t *testing.T) {
+func TestService_DeleteMiners_ShouldWaitForPendingUnpairs(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
 	}
@@ -1751,11 +1751,11 @@ func TestService_DeleteMiners_ShouldWaitForPendingClearAuthKeys(t *testing.T) {
 	_, err := service.DeleteMiners(ctx, req)
 	require.NoError(t, err)
 
-	// WaitForPendingClearAuthKeys should return promptly (background ClearAuthKey
+	// WaitForPendingUnpairs should return promptly (background Unpair
 	// will fail since there's no real device, but that's expected — best-effort)
 	done := make(chan struct{})
 	go func() {
-		service.WaitForPendingClearAuthKeys(1 * time.Minute)
+		service.WaitForPendingUnpairs(1 * time.Minute)
 		close(done)
 	}()
 
@@ -1763,7 +1763,7 @@ func TestService_DeleteMiners_ShouldWaitForPendingClearAuthKeys(t *testing.T) {
 	case <-done:
 		// Expected: completed within timeout
 	case <-time.After(1 * time.Minute):
-		t.Fatal("WaitForPendingClearAuthKeys did not complete within timeout")
+		t.Fatal("WaitForPendingUnpairs did not complete within timeout")
 	}
 }
 

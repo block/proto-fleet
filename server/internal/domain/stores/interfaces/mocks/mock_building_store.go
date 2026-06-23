@@ -325,12 +325,13 @@ func (mr *MockBuildingStoreMockRecorder) SetRackBuildingPositionBulkPlace(ctx, o
 }
 
 // SoftDeleteBuilding mocks base method.
-func (m *MockBuildingStore) SoftDeleteBuilding(ctx context.Context, orgID, id int64) (int64, error) {
+func (m *MockBuildingStore) SoftDeleteBuilding(ctx context.Context, orgID, id int64) (*int64, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SoftDeleteBuilding", ctx, orgID, id)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret0, _ := ret[0].(*int64)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // SoftDeleteBuilding indicates an expected call of SoftDeleteBuilding.

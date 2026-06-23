@@ -570,20 +570,6 @@ func TestDirectWriteEndpoints_ClassifyDefaultPasswordForbidden(t *testing.T) {
 		call func(*Client) error
 	}{
 		{
-			name: "pair",
-			path: "/api/v1/pairing/auth-key",
-			call: func(client *Client) error {
-				return client.Pair(context.Background(), sdk.APIKey{Key: "test-public-key"})
-			},
-		},
-		{
-			name: "clear auth key",
-			path: "/api/v1/pairing/auth-key",
-			call: func(client *Client) error {
-				return client.ClearAuthKey(context.Background())
-			},
-		},
-		{
 			name: "set cooling mode",
 			path: "/api/v1/cooling",
 			call: func(client *Client) error {

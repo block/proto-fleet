@@ -14,6 +14,7 @@ import {
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { curtailmentNumericFieldLimits } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import { parseCurtailmentSiteId } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
@@ -38,6 +39,7 @@ type CurtailmentPlanPreviewRequestValues = Pick<
   | "toleranceKw"
   | "priority"
   | "includeMaintenance"
+  | "postEventCooldownSec"
 >;
 
 interface CurtailmentPlanPreviewResult {
@@ -104,6 +106,19 @@ function parseNonNegativeInteger(value: string): number | undefined {
   return parseNumber(value, (parsed) => parsed >= 0 && Number.isInteger(parsed));
 }
 
+function parsePostEventCooldownSec(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === "") {
+    return 0;
+  }
+
+  const parsed = parseNonNegativeInteger(value);
+  if (parsed === undefined || parsed > curtailmentNumericFieldLimits.postEventCooldownSec) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
 function toApiPriority(priority: CurtailmentFormValues["priority"]): CurtailmentPriority {
   return priority === "emergency" ? CurtailmentPriority.EMERGENCY : CurtailmentPriority.NORMAL;
 }
@@ -156,6 +171,10 @@ export function buildPreviewCurtailmentPlanRequest(
   if (scope === undefined) {
     return undefined;
   }
+  const postEventCooldownSec = parsePostEventCooldownSec(values.postEventCooldownSec);
+  if (postEventCooldownSec === undefined) {
+    return undefined;
+  }
 
   if (values.curtailmentMode === "fullFleet") {
     return create(PreviewCurtailmentPlanRequestSchema, {
@@ -164,6 +183,7 @@ export function buildPreviewCurtailmentPlanRequest(
       priority: toApiPriority(values.priority),
       includeMaintenance: values.includeMaintenance,
       forceIncludeMaintenance: values.includeMaintenance,
+      postEventCooldownSec,
     });
   }
 
@@ -186,6 +206,7 @@ export function buildPreviewCurtailmentPlanRequest(
     },
     includeMaintenance: values.includeMaintenance,
     forceIncludeMaintenance: values.includeMaintenance,
+    postEventCooldownSec,
   });
 }
 
@@ -336,12 +357,14 @@ export function useCurtailmentPlanPreview({
       toleranceKw: values.toleranceKw,
       priority: values.priority,
       includeMaintenance: values.includeMaintenance,
+      postEventCooldownSec: values.postEventCooldownSec,
     }),
     [
       values.deviceSetIds,
       values.deviceIdentifiers,
       values.curtailmentMode,
       values.includeMaintenance,
+      values.postEventCooldownSec,
       values.priority,
       values.scopeId,
       values.siteId,
