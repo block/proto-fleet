@@ -62,7 +62,7 @@ func (h *Handler) ListCohorts(ctx context.Context, req *connect.Request[pb.ListC
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.ListCohortsResponse{Cohorts: toProtoCohorts(cohorts)}), nil
+	return connect.NewResponse(&pb.ListCohortsResponse{Cohorts: toProtoCohortSummaries(cohorts)}), nil
 }
 
 func (h *Handler) DeleteCohort(ctx context.Context, req *connect.Request[pb.DeleteCohortRequest]) (*connect.Response[pb.DeleteCohortResponse], error) {
@@ -114,7 +114,7 @@ func (h *Handler) GetMyCohorts(ctx context.Context, req *connect.Request[pb.GetM
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.GetMyCohortsResponse{Cohorts: toProtoCohorts(cohorts)}), nil
+	return connect.NewResponse(&pb.GetMyCohortsResponse{Cohorts: toProtoCohortSummaries(cohorts)}), nil
 }
 
 func (h *Handler) ListDevices(ctx context.Context, _ *connect.Request[pb.ListDevicesRequest]) (*connect.Response[pb.ListDevicesResponse], error) {

@@ -15,7 +15,7 @@ import (
 )
 
 func toCreateCohortParams(req *pb.CreateCohortRequest, info *session.Info) (models.CreateCohortParams, error) {
-	if req.GetSourceDeviceSetId() > 0 {
+	if _, ok := req.GetInitialMembers().(*pb.CreateCohortRequest_SourceDeviceSetId); ok {
 		return models.CreateCohortParams{}, fleeterror.NewUnimplementedError("source_device_set_id cohort creation is not implemented yet")
 	}
 	desiredConfig, err := structToJSON(req.GetDesiredConfig())
@@ -30,19 +30,38 @@ func toCreateCohortParams(req *pb.CreateCohortRequest, info *session.Info) (mode
 		ownerUsername = &username
 	}
 	return models.CreateCohortParams{
-		OrgID:                  info.OrganizationID,
-		Label:                  req.GetLabel(),
-		OwnerUserID:            ownerUserID,
-		OwnerUsername:          ownerUsername,
-		ExpiresAt:              timestampToPtr(req.GetExpiresAt()),
-		DesiredFirmwareChannel: nonEmptyPtr(req.GetDesiredFirmwareChannel()),
-		DesiredFirmwareFileID:  nonEmptyPtr(req.GetDesiredFirmwareFileId()),
-		DesiredConfigJSON:      desiredConfig,
-		Purpose:                req.GetPurpose(),
-		SourceActorType:        deriveSourceActorType(info),
-		SourceActorID:          deriveSourceActorID(info),
-		IdempotencyKey:         nonEmptyPtr(req.GetIdempotencyKey()),
-		DeviceIdentifiers:      req.GetDeviceIdentifiers(),
+		OrgID:                 info.OrganizationID,
+		Label:                 req.GetLabel(),
+		OwnerUserID:           ownerUserID,
+		OwnerUsername:         ownerUsername,
+		ExpiresAt:             timestampToPtr(req.GetExpiresAt()),
+		DesiredFirmwareFileID: nonEmptyPtr(req.GetDesiredFirmwareFileId()),
+		DesiredConfigJSON:     desiredConfig,
+		Purpose:               req.GetPurpose(),
+		SourceActorType:       deriveSourceActorType(info),
+		SourceActorID:         deriveSourceActorID(info),
+		IdempotencyKey:        nonEmptyPtr(req.GetIdempotencyKey()),
+		DeviceIdentifiers:     req.GetDeviceIdentifiers().GetDeviceIdentifiers(),
+	}, nil
+}
+
+func toUpdateCohortParams(req *pb.UpdateCohortRequest, orgID int64) (models.UpdateCohortParams, error) {
+	desiredConfig, err := structToJSON(req.GetDesiredConfig())
+	if err != nil {
+		return models.UpdateCohortParams{}, err
+	}
+	return models.UpdateCohortParams{
+		OrgID:                    orgID,
+		CohortID:                 req.GetCohortId(),
+		Label:                    stringPtrFromOptional(req.Label),
+		Purpose:                  stringPtrFromOptional(req.Purpose),
+		ExpiresAt:                timestampToPtr(req.GetExpiresAt()),
+		ClearExpiresAt:           req.GetClearExpiresAt(),
+		DesiredFirmwareFileID:    stringPtrFromOptional(req.DesiredFirmwareFileId),
+		DesiredFirmwareFileIDSet: req.DesiredFirmwareFileId != nil,
+		DesiredConfigJSON:        desiredConfig,
+		DesiredConfigJSONSet:     req.GetDesiredConfig() != nil,
+		ClearDesiredConfig:       req.GetClearDesiredConfig(),
 	}, nil
 }
 
@@ -65,24 +84,32 @@ func toProtoCohort(cohort *models.Cohort) *pb.Cohort {
 	if cohort == nil {
 		return nil
 	}
-	out := &pb.Cohort{
-		Id:                     cohort.ID,
-		Label:                  cohort.Label,
-		IsDefault:              cohort.IsDefault,
-		OwnerUsername:          ptrToString(cohort.OwnerUsername),
-		ExpiresAt:              timePtrToTimestamp(cohort.ExpiresAt),
-		DesiredFirmwareChannel: ptrToString(cohort.DesiredFirmwareChannel),
-		DesiredFirmwareFileId:  ptrToString(cohort.DesiredFirmwareFileID),
-		DesiredConfig:          jsonToStruct(cohort.DesiredConfigJSON),
-		State:                  toProtoState(cohort.State),
-		Purpose:                cohort.Purpose,
-		SourceActorType:        string(cohort.SourceActorType),
-		SourceActorId:          ptrToString(cohort.SourceActorID),
-		IdempotencyKey:         ptrToString(cohort.IdempotencyKey),
-		CreatedAt:              timestamppb.New(cohort.CreatedAt),
-		UpdatedAt:              timestamppb.New(cohort.UpdatedAt),
-		Members:                toProtoMembers(cohort.Members),
-		ExplicitMemberCount:    cohort.ExplicitMemberCount,
+	return &pb.Cohort{
+		Summary: toProtoCohortSummary(cohort),
+		Members: toProtoMembers(cohort.Members),
+	}
+}
+
+func toProtoCohortSummary(cohort *models.Cohort) *pb.CohortSummary {
+	if cohort == nil {
+		return nil
+	}
+	out := &pb.CohortSummary{
+		Id:                    cohort.ID,
+		Label:                 cohort.Label,
+		IsDefault:             cohort.IsDefault,
+		OwnerUsername:         ptrToString(cohort.OwnerUsername),
+		ExpiresAt:             timePtrToTimestamp(cohort.ExpiresAt),
+		DesiredFirmwareFileId: ptrToString(cohort.DesiredFirmwareFileID),
+		DesiredConfig:         jsonToStruct(cohort.DesiredConfigJSON),
+		State:                 toProtoState(cohort.State),
+		Purpose:               cohort.Purpose,
+		SourceActorType:       string(cohort.SourceActorType),
+		SourceActorId:         ptrToString(cohort.SourceActorID),
+		IdempotencyKey:        ptrToString(cohort.IdempotencyKey),
+		CreatedAt:             timestamppb.New(cohort.CreatedAt),
+		UpdatedAt:             timestamppb.New(cohort.UpdatedAt),
+		ExplicitMemberCount:   cohort.ExplicitMemberCount,
 	}
 	if cohort.OwnerUserID != nil {
 		out.OwnerUserId = cohort.OwnerUserID
@@ -90,10 +117,10 @@ func toProtoCohort(cohort *models.Cohort) *pb.Cohort {
 	return out
 }
 
-func toProtoCohorts(cohorts []*models.Cohort) []*pb.Cohort {
-	out := make([]*pb.Cohort, 0, len(cohorts))
+func toProtoCohortSummaries(cohorts []*models.Cohort) []*pb.CohortSummary {
+	out := make([]*pb.CohortSummary, 0, len(cohorts))
 	for _, cohort := range cohorts {
-		out = append(out, toProtoCohort(cohort))
+		out = append(out, toProtoCohortSummary(cohort))
 	}
 	return out
 }
@@ -167,6 +194,14 @@ func nonEmptyPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func stringPtrFromOptional(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	v := *s
+	return &v
 }
 
 func ptrToString(s *string) string {

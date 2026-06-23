@@ -53,8 +53,9 @@ enum CohortState {
     COHORT_STATE_RELEASED = 2;
 }
 
-// Cohort is the canonical read shape returned by cohort RPCs.
-message Cohort {
+// CohortSummary is the lightweight cohort shape for list and per-device
+// contexts where repeating explicit members would make responses too large.
+message CohortSummary {
     int64 id = 1;
     string label = 2;
     bool is_default = 3;
@@ -63,9 +64,8 @@ message Cohort {
     string owner_username = 5;
     google.protobuf.Timestamp expires_at = 6;
 
-    string desired_firmware_channel = 7;
-    string desired_firmware_file_id = 8;
-    google.protobuf.Struct desired_config = 9;
+    string desired_firmware_file_id = 7;
+    google.protobuf.Struct desired_config = 8;
 
     CohortState state = 10;
     string purpose = 11;
@@ -76,8 +76,13 @@ message Cohort {
     google.protobuf.Timestamp created_at = 20;
     google.protobuf.Timestamp updated_at = 21;
 
-    repeated CohortMember members = 30;
     int64 explicit_member_count = 31;
+}
+
+// Cohort is the full read shape returned by get and mutating cohort RPCs.
+message Cohort {
+    CohortSummary summary = 1;
+    repeated CohortMember members = 2;
 }
 
 // CohortMember is an explicit non-default cohort membership row. Default
@@ -89,6 +94,13 @@ message CohortMember {
     google.protobuf.Timestamp added_at = 4;
 }
 
+message CohortDeviceIdentifierList {
+    repeated string device_identifiers = 1 [(buf.validate.field).repeated = {
+        max_items: 10000
+        items: {string: {min_len: 1, max_len: 256}}
+    }];
+}
+
 message CreateCohortRequest {
     string label = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
     string purpose = 2 [(buf.validate.field).string = {min_len: 1, max_len: 1024}];
@@ -98,16 +110,14 @@ message CreateCohortRequest {
     bool claim_ownership = 3;
     google.protobuf.Timestamp expires_at = 4;
 
-    string desired_firmware_channel = 5 [(buf.validate.field).string.max_len = 128];
-    string desired_firmware_file_id = 6 [(buf.validate.field).string.max_len = 255];
-    google.protobuf.Struct desired_config = 7;
+    string desired_firmware_file_id = 5 [(buf.validate.field).string.max_len = 255];
+    google.protobuf.Struct desired_config = 6;
 
-    repeated string device_identifiers = 8 [(buf.validate.field).repeated = {
-        max_items: 10000
-        items: {string: {min_len: 1, max_len: 256}}
-    }];
-    optional int64 source_device_set_id = 9 [(buf.validate.field).int64.gt = 0];
-    string idempotency_key = 10 [(buf.validate.field).string.max_len = 255];
+    oneof initial_members {
+        CohortDeviceIdentifierList device_identifiers = 7;
+        int64 source_device_set_id = 8 [(buf.validate.field).int64.gt = 0];
+    }
+    string idempotency_key = 9 [(buf.validate.field).string.max_len = 255];
 }
 
 message CreateCohortResponse {
@@ -115,13 +125,25 @@ message CreateCohortResponse {
 }
 
 message UpdateCohortRequest {
+    option (buf.validate.message).cel = {
+        id: "expires_at_set_or_clear"
+        message: "expires_at and clear_expires_at cannot both be set"
+        expression: "!(has(this.expires_at) && this.clear_expires_at)"
+    };
+    option (buf.validate.message).cel = {
+        id: "desired_config_set_or_clear"
+        message: "desired_config and clear_desired_config cannot both be set"
+        expression: "!(has(this.desired_config) && this.clear_desired_config)"
+    };
+
     int64 cohort_id = 1 [(buf.validate.field).int64.gt = 0];
-    string label = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-    string purpose = 3 [(buf.validate.field).string = {min_len: 1, max_len: 1024}];
+    optional string label = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    optional string purpose = 3 [(buf.validate.field).string = {min_len: 1, max_len: 1024}];
     google.protobuf.Timestamp expires_at = 4;
-    string desired_firmware_channel = 5 [(buf.validate.field).string.max_len = 128];
-    string desired_firmware_file_id = 6 [(buf.validate.field).string.max_len = 255];
-    google.protobuf.Struct desired_config = 7;
+    optional string desired_firmware_file_id = 5 [(buf.validate.field).string.max_len = 255];
+    google.protobuf.Struct desired_config = 6;
+    bool clear_expires_at = 7;
+    bool clear_desired_config = 8;
 }
 
 message UpdateCohortResponse {
@@ -183,7 +205,7 @@ message ListCohortsRequest {
 }
 
 message ListCohortsResponse {
-    repeated Cohort cohorts = 1;
+    repeated CohortSummary cohorts = 1;
 }
 
 message GetMyCohortsRequest {
@@ -191,7 +213,7 @@ message GetMyCohortsRequest {
 }
 
 message GetMyCohortsResponse {
-    repeated Cohort cohorts = 1;
+    repeated CohortSummary cohorts = 1;
 }
 
 message ListDevicesRequest {
@@ -201,7 +223,7 @@ message ListDevicesRequest {
 message CohortDevice {
     string device_identifier = 1;
     optional int64 site_id = 2;
-    Cohort cohort = 3;
+    CohortSummary effective_cohort = 3;
 }
 
 message ListDevicesResponse {

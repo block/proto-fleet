@@ -25,25 +25,24 @@ const (
 
 // Cohort is the canonical domain shape for a cohort row.
 type Cohort struct {
-	ID                     int64
-	OrgID                  int64
-	Label                  string
-	IsDefault              bool
-	OwnerUserID            *int64
-	OwnerUsername          *string
-	ExpiresAt              *time.Time
-	DesiredFirmwareChannel *string
-	DesiredFirmwareFileID  *string
-	DesiredConfigJSON      json.RawMessage
-	State                  CohortState
-	Purpose                string
-	SourceActorType        SourceActorType
-	SourceActorID          *string
-	IdempotencyKey         *string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-	ExplicitMemberCount    int64
-	Members                []CohortMember
+	ID                    int64
+	OrgID                 int64
+	Label                 string
+	IsDefault             bool
+	OwnerUserID           *int64
+	OwnerUsername         *string
+	ExpiresAt             *time.Time
+	DesiredFirmwareFileID *string
+	DesiredConfigJSON     json.RawMessage
+	State                 CohortState
+	Purpose               string
+	SourceActorType       SourceActorType
+	SourceActorID         *string
+	IdempotencyKey        *string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ExplicitMemberCount   int64
+	Members               []CohortMember
 }
 
 // CohortMember is one explicit non-default membership row.
@@ -57,19 +56,33 @@ type CohortMember struct {
 
 // CreateCohortParams is the input shape for cohort creation.
 type CreateCohortParams struct {
-	OrgID                  int64
-	Label                  string
-	OwnerUserID            *int64
-	OwnerUsername          *string
-	ExpiresAt              *time.Time
-	DesiredFirmwareChannel *string
-	DesiredFirmwareFileID  *string
-	DesiredConfigJSON      json.RawMessage
-	Purpose                string
-	SourceActorType        SourceActorType
-	SourceActorID          *string
-	IdempotencyKey         *string
-	DeviceIdentifiers      []string
+	OrgID                 int64
+	Label                 string
+	OwnerUserID           *int64
+	OwnerUsername         *string
+	ExpiresAt             *time.Time
+	DesiredFirmwareFileID *string
+	DesiredConfigJSON     json.RawMessage
+	Purpose               string
+	SourceActorType       SourceActorType
+	SourceActorID         *string
+	IdempotencyKey        *string
+	DeviceIdentifiers     []string
+}
+
+// UpdateCohortParams is the patch shape for cohort metadata and desired state.
+type UpdateCohortParams struct {
+	OrgID                    int64
+	CohortID                 int64
+	Label                    *string
+	Purpose                  *string
+	ExpiresAt                *time.Time
+	ClearExpiresAt           bool
+	DesiredFirmwareFileID    *string
+	DesiredConfigJSON        json.RawMessage
+	ClearDesiredConfig       bool
+	DesiredFirmwareFileIDSet bool
+	DesiredConfigJSONSet     bool
 }
 
 // ListCohortsParams controls cohort list filtering.
