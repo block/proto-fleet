@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { mockDiscoveredInfraDevices } from "../stories/mockInfraDevices";
 import AddInfraDeviceModal from "./AddInfraDeviceModal";
 import Button, { variants } from "@/shared/components/Button";
 
@@ -12,7 +13,13 @@ export const Default = () => {
   return (
     <>
       <Button variant={variants.primary} text="Open Modal" onClick={() => setOpen(true)} />
-      {open ? <AddInfraDeviceModal onDismiss={() => setOpen(false)} onSuccess={() => setOpen(false)} /> : null}
+      {open ? (
+        <AddInfraDeviceModal
+          discoveredDevices={mockDiscoveredInfraDevices}
+          onDismiss={() => setOpen(false)}
+          onSuccess={() => setOpen(false)}
+        />
+      ) : null}
     </>
   );
 };

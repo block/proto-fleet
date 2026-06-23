@@ -1,43 +1,33 @@
 import { useCallback, useEffect, useState } from "react";
 
+import type { DiscoveredInfraDevice } from "@/protoFleet/features/infrastructure/types";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import { DataNullState } from "@/shared/components/DataNullState";
 
 interface ScanNetworkStepProps {
+  discoveredDevices?: DiscoveredInfraDevice[];
   onSuccess: () => void;
   onSelectionChange: (count: number, pairHandler: () => void) => void;
 }
 
-interface DiscoveredDevice {
-  ipAddress: string;
-  name: string;
-  deviceType: string;
-  subtype: string;
+interface SelectableDiscoveredDevice extends DiscoveredInfraDevice {
   selected: boolean;
 }
 
-const MOCK_DISCOVERED: Omit<DiscoveredDevice, "selected">[] = [
-  { ipAddress: "10.0.3.220", name: "Exhaust Fan 4", deviceType: "fan", subtype: "Exhaust fan" },
-  { ipAddress: "10.0.3.221", name: "Exhaust Fan 5", deviceType: "fan", subtype: "Exhaust fan" },
-  { ipAddress: "10.0.3.222", name: "Exhaust Fan 6", deviceType: "fan", subtype: "Exhaust fan" },
-  { ipAddress: "10.0.3.230", name: "Temp Sensor 1", deviceType: "sensor", subtype: "Temperature sensor" },
-  { ipAddress: "10.0.3.240", name: "PDU Rack 12", deviceType: "pdu", subtype: "Power distribution unit" },
-];
-
-const ScanNetworkStep = ({ onSuccess, onSelectionChange }: ScanNetworkStepProps) => {
+const ScanNetworkStep = ({ discoveredDevices = [], onSuccess, onSelectionChange }: ScanNetworkStepProps) => {
   const [isScanning, setIsScanning] = useState(false);
   const [hasScanned, setHasScanned] = useState(false);
-  const [devices, setDevices] = useState<DiscoveredDevice[]>([]);
+  const [devices, setDevices] = useState<SelectableDiscoveredDevice[]>([]);
 
   const handleScan = useCallback(() => {
     setIsScanning(true);
     setTimeout(() => {
       setIsScanning(false);
       setHasScanned(true);
-      setDevices(MOCK_DISCOVERED.map((d) => ({ ...d, selected: false })));
+      setDevices(discoveredDevices.map((d) => ({ ...d, selected: false })));
     }, 2000);
-  }, []);
+  }, [discoveredDevices]);
 
   const toggleDevice = useCallback((index: number) => {
     setDevices((prev) => prev.map((d, i) => (i === index ? { ...d, selected: !d.selected } : d)));
@@ -84,8 +74,8 @@ const ScanNetworkStep = ({ onSuccess, onSelectionChange }: ScanNetworkStepProps)
       <div className="border-b border-border-5">
         <div className="grid grid-cols-[auto_1fr_1fr_1fr] items-center gap-4 px-2 py-2 text-200 font-medium text-text-primary-70">
           <Checkbox
-            checked={devices.length > 0 ? devices.every((d) => d.selected) : null}
-            partiallyChecked={devices.some((d) => d.selected) ? !devices.every((d) => d.selected) : null}
+            checked={devices.length > 0 ? devices.every((d) => d.selected) : false}
+            partiallyChecked={devices.some((d) => d.selected) ? !devices.every((d) => d.selected) : false}
             onChange={toggleAll}
           />
           <span>Device</span>

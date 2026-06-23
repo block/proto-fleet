@@ -8,6 +8,7 @@ import { Code } from "@connectrpc/connect";
 // TAB_ORDER includes Sites + Buildings under test. CI default is false; the
 // tests below pin behavior to the flag-on path explicitly.
 vi.mock("@/protoFleet/constants/featureFlags", () => ({
+  INFRASTRUCTURE_DEVICES_ENABLED: false,
   MULTI_SITE_ENABLED: true,
 }));
 
@@ -84,6 +85,7 @@ const renderAt = (initialPath: string) =>
           <Route path="buildings" element={<div data-testid="tab-content-buildings">buildings</div>} />
           <Route path="racks" element={<div data-testid="tab-content-racks">racks</div>} />
           <Route path="miners" element={<div data-testid="tab-content-miners">miners</div>} />
+          <Route path="infrastructure" element={<div data-testid="tab-content-infrastructure">infrastructure</div>} />
         </Route>
       </Routes>
       <LocationProbe />
@@ -157,6 +159,18 @@ describe("FleetLayout redirect logic", () => {
     // Operator is on a non-hidden tab; layout must leave them there.
     await waitFor(() => expect(screen.getByTestId("tab-content-racks")).toBeInTheDocument());
     expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks");
+  });
+
+  test("hides Infrastructure tab while the infrastructure devices flag is off", async () => {
+    renderAt("/fleet/racks");
+    await waitFor(() => expect(screen.getByTestId("tab-content-racks")).toBeInTheDocument());
+    expect(screen.queryByTestId("fleet-tab-infrastructure")).not.toBeInTheDocument();
+  });
+
+  test("redirects away from Infrastructure when the infrastructure devices flag is off", async () => {
+    renderAt("/fleet/infrastructure");
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/sites"));
+    expect(screen.queryByTestId("tab-content-infrastructure")).not.toBeInTheDocument();
   });
 });
 

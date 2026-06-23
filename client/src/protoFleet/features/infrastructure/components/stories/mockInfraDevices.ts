@@ -1,4 +1,14 @@
-export const mockInfraDevices = [
+import type { DiscoveredInfraDevice, InfraDeviceItem } from "../../types";
+
+export const mockDiscoveredInfraDevices: DiscoveredInfraDevice[] = [
+  { ipAddress: "10.0.3.220", name: "Exhaust Fan 4", deviceType: "fan", subtype: "Exhaust fan" },
+  { ipAddress: "10.0.3.221", name: "Exhaust Fan 5", deviceType: "fan", subtype: "Exhaust fan" },
+  { ipAddress: "10.0.3.222", name: "Exhaust Fan 6", deviceType: "fan", subtype: "Exhaust fan" },
+  { ipAddress: "10.0.3.230", name: "Temp Sensor 1", deviceType: "sensor", subtype: "Temperature sensor" },
+  { ipAddress: "10.0.3.240", name: "PDU Rack 12", deviceType: "pdu", subtype: "Power distribution unit" },
+];
+
+export const mockInfraDevices: InfraDeviceItem[] = [
   {
     id: "fan-aus-1-1",
     name: "Fan Unit 1",

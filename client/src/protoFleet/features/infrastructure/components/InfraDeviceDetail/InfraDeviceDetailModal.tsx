@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 
-import { mockInfraDevices } from "@/protoFleet/features/infrastructure/mockData";
+import type { InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
 import { Alert, Info, Success } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { DialogIcon } from "@/shared/components/Dialog";
@@ -12,29 +12,31 @@ import Select from "@/shared/components/Select";
 import StatusCircle from "@/shared/components/StatusCircle";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-const SITE_OPTIONS = [
-  { value: "Austin", label: "Austin" },
-  { value: "Denver", label: "Denver" },
-  { value: "Miami", label: "Miami" },
-  { value: "Marfa", label: "Marfa" },
-];
-
-const BUILDING_OPTIONS = [...new Set(mockInfraDevices.map((d) => d.buildingName))]
-  .sort()
-  .map((b) => ({ value: b, label: b }));
+const buildOptions = (values: string[], currentValue: string) =>
+  [...new Set([currentValue, ...values].filter(Boolean))].sort().map((value) => ({ value, label: value }));
 
 interface InfraDeviceDetailModalProps {
-  deviceId: string;
+  device: InfraDeviceItem;
+  siteOptions?: string[];
+  buildingOptions?: string[];
   onDismiss: () => void;
 }
 
-const InfraDeviceDetailModal = ({ deviceId, onDismiss }: InfraDeviceDetailModalProps) => {
-  const device = useMemo(() => mockInfraDevices.find((d) => d.id === deviceId), [deviceId]);
-
-  const [name, setName] = useState(device?.name ?? "");
-  const [ipAddress, setIpAddress] = useState(device?.ipAddress ?? "");
-  const [site, setSite] = useState(device?.siteName ?? "");
-  const [building, setBuilding] = useState(device?.buildingName ?? "");
+const InfraDeviceDetailModal = ({
+  device,
+  siteOptions = [],
+  buildingOptions = [],
+  onDismiss,
+}: InfraDeviceDetailModalProps) => {
+  const siteSelectOptions = useMemo(() => buildOptions(siteOptions, device.siteName), [siteOptions, device.siteName]);
+  const buildingSelectOptions = useMemo(
+    () => buildOptions(buildingOptions, device.buildingName),
+    [buildingOptions, device.buildingName],
+  );
+  const [name, setName] = useState(device.name);
+  const [ipAddress, setIpAddress] = useState(device.ipAddress);
+  const [site, setSite] = useState(device.siteName);
+  const [building, setBuilding] = useState(device.buildingName);
   const [isTesting, setIsTesting] = useState(false);
 
   const handleSave = useCallback(() => {
@@ -49,11 +51,9 @@ const InfraDeviceDetailModal = ({ deviceId, onDismiss }: InfraDeviceDetailModalP
     setIsTesting(true);
     setTimeout(() => {
       setIsTesting(false);
-      pushToast({ message: `${device?.name ?? "Device"} — connection successful (12ms)`, status: STATUSES.success });
+      pushToast({ message: `${device.name} — connection successful (12ms)`, status: STATUSES.success });
     }, 1200);
-  }, [device?.name]);
-
-  if (!device) return null;
+  }, [device.name]);
 
   const protocol = device.deviceType === "fan" ? "Modbus" : "SNMP";
   const hasIssues = device.status === "degraded" || device.status === "offline" || device.issues > 0;
@@ -90,25 +90,8 @@ const InfraDeviceDetailModal = ({ deviceId, onDismiss }: InfraDeviceDetailModalP
     <Modal
       open
       onDismiss={onDismiss}
-      title={
-        <>
-          {statusIcon}
-          <div className="mt-3">{device.name}</div>
-        </>
-      }
-      description={
-        <div className="flex items-center justify-between">
-          <span>{subtextParts}</span>
-          <span className="flex items-center gap-1.5">
-            <StatusCircle
-              status={device.status === "online" ? "normal" : device.status === "degraded" ? "warning" : "inactive"}
-              variant="simple"
-              width="w-[6px]"
-            />
-            {statusLabel}
-          </span>
-        </div>
-      }
+      title={device.name}
+      description={subtextParts}
       headerSpacingClassName="mt-6"
       buttons={[
         {
@@ -133,16 +116,35 @@ const InfraDeviceDetailModal = ({ deviceId, onDismiss }: InfraDeviceDetailModalP
       ]}
     >
       <div className="flex flex-col gap-6">
+        <div className="flex items-center justify-between gap-4">
+          {statusIcon}
+          <span className="flex items-center gap-1.5 text-text-primary">
+            <StatusCircle
+              status={device.status === "online" ? "normal" : device.status === "degraded" ? "warning" : "inactive"}
+              variant="simple"
+              width="w-[6px]"
+            />
+            {statusLabel}
+          </span>
+        </div>
+
         {/* Editable fields */}
         <div className="flex flex-col gap-4">
           <Input id="device-name" label="Device name" initValue={name} onChange={(v) => setName(v)} />
           <Input id="device-ip" label="IP address" initValue={ipAddress} onChange={(v) => setIpAddress(v)} />
           <div className="grid grid-cols-2 gap-3">
-            <Select id="device-site" label="Site" options={SITE_OPTIONS} value={site} onChange={setSite} forceBelow />
+            <Select
+              id="device-site"
+              label="Site"
+              options={siteSelectOptions}
+              value={site}
+              onChange={setSite}
+              forceBelow
+            />
             <Select
               id="device-building"
               label="Building"
-              options={BUILDING_OPTIONS}
+              options={buildingSelectOptions}
               value={building}
               onChange={setBuilding}
               forceBelow

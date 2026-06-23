@@ -2,16 +2,18 @@ import { useCallback, useState } from "react";
 
 import ManualAddStep from "./ManualAddStep";
 import ScanNetworkStep from "./ScanNetworkStep";
+import type { DiscoveredInfraDevice } from "@/protoFleet/features/infrastructure/types";
 import { variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 
 interface AddInfraDeviceModalProps {
+  discoveredDevices?: DiscoveredInfraDevice[];
   onDismiss: () => void;
   onSuccess: () => void;
 }
 
-const AddInfraDeviceModal = ({ onDismiss, onSuccess }: AddInfraDeviceModalProps) => {
+const AddInfraDeviceModal = ({ discoveredDevices, onDismiss, onSuccess }: AddInfraDeviceModalProps) => {
   const [mode, setMode] = useState("scan");
   const [canPair, setCanPair] = useState(false);
   const [pairHandler, setPairHandler] = useState<(() => void) | null>(null);
@@ -59,7 +61,11 @@ const AddInfraDeviceModal = ({ onDismiss, onSuccess }: AddInfraDeviceModalProps)
           onSelect={handleModeSelect}
         />
         {mode === "scan" ? (
-          <ScanNetworkStep onSuccess={onSuccess} onSelectionChange={handleScanSelection} />
+          <ScanNetworkStep
+            discoveredDevices={discoveredDevices}
+            onSuccess={onSuccess}
+            onSelectionChange={handleScanSelection}
+          />
         ) : (
           <ManualAddStep onSuccess={onSuccess} onValidChange={handleManualValid} />
         )}

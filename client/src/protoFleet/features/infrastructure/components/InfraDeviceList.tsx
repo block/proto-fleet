@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
-import { mockInfraDevices } from "../mockData";
 import AddInfraDeviceModal from "./AddInfraDevice/AddInfraDeviceModal";
 import InfraDeviceDetailModal from "./InfraDeviceDetail/InfraDeviceDetailModal";
 import ManageColumnsModal, { type InfraColumnPreference } from "./ManageColumnsModal";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
+import type { DiscoveredInfraDevice, InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
 import { useSetActionBarVisible } from "@/protoFleet/store";
 import { Alert, ChevronDown, Plus, Slider } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
@@ -33,24 +33,6 @@ const infraCols = {
 } as const;
 
 type InfraColumn = (typeof infraCols)[keyof typeof infraCols];
-
-interface InfraDeviceItem {
-  id: string;
-  name: string;
-  deviceType: string;
-  subtype: string;
-  model: string;
-  buildingName: string;
-  siteName: string;
-  ipAddress: string;
-  status: string;
-  issues: number;
-  rpm: number | null;
-  powerW: number | null;
-  temperatureC: number | null;
-  firmware: string;
-  lastSeen: string;
-}
 
 const infraColTitles: ColTitles<InfraColumn> = {
   name: "Name",
@@ -122,8 +104,14 @@ const paddingLeft = { phone: "24px", tablet: "24px", laptop: "40px", desktop: "4
 
 const PAGE_SIZE = 50;
 
-const InfraDeviceList = () => {
-  const [devices] = useState<InfraDeviceItem[]>(mockInfraDevices);
+interface InfraDeviceListProps {
+  discoveredDevices?: DiscoveredInfraDevice[];
+  devices?: InfraDeviceItem[];
+}
+
+const uniqueSorted = (values: string[]) => [...new Set(values.filter(Boolean))].sort();
+
+const InfraDeviceList = ({ discoveredDevices, devices = [] }: InfraDeviceListProps) => {
   const [detailDeviceId, setDetailDeviceId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showManageColumns, setShowManageColumns] = useState(false);
@@ -138,6 +126,12 @@ const InfraDeviceList = () => {
 
   const setActionBarVisible = useSetActionBarVisible();
   const selectedCountRef = useRef(0);
+  const detailDevice = useMemo(
+    () => devices.find((device) => device.id === detailDeviceId) ?? null,
+    [devices, detailDeviceId],
+  );
+  const siteOptions = useMemo(() => uniqueSorted(devices.map((device) => device.siteName)), [devices]);
+  const buildingOptions = useMemo(() => uniqueSorted(devices.map((device) => device.buildingName)), [devices]);
 
   const getRowActions = useCallback(
     (device: InfraDeviceItem): RowAction[] => [
@@ -527,12 +521,21 @@ const InfraDeviceList = () => {
         </div>
       )}
 
-      {detailDeviceId !== null ? (
-        <InfraDeviceDetailModal deviceId={detailDeviceId} onDismiss={() => setDetailDeviceId(null)} />
+      {detailDevice !== null ? (
+        <InfraDeviceDetailModal
+          device={detailDevice}
+          siteOptions={siteOptions}
+          buildingOptions={buildingOptions}
+          onDismiss={() => setDetailDeviceId(null)}
+        />
       ) : null}
 
       {showAddModal ? (
-        <AddInfraDeviceModal onDismiss={() => setShowAddModal(false)} onSuccess={() => setShowAddModal(false)} />
+        <AddInfraDeviceModal
+          discoveredDevices={discoveredDevices}
+          onDismiss={() => setShowAddModal(false)}
+          onSuccess={() => setShowAddModal(false)}
+        />
       ) : null}
 
       {showManageColumns ? (

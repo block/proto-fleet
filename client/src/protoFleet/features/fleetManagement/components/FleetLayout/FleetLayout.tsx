@@ -6,7 +6,7 @@ import { type FleetOutletContext } from "./outletContext";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
+import { INFRASTRUCTURE_DEVICES_ENABLED, MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import { useHasPermission } from "@/protoFleet/store";
@@ -16,9 +16,12 @@ import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage"
 
 type FleetTabId = "sites" | "buildings" | "racks" | "miners" | "infrastructure";
 
-const TAB_ORDER: FleetTabId[] = MULTI_SITE_ENABLED
-  ? ["sites", "buildings", "racks", "miners", "infrastructure"]
-  : ["racks", "miners", "infrastructure"];
+const TAB_ORDER: FleetTabId[] = [
+  ...(MULTI_SITE_ENABLED ? (["sites", "buildings"] as FleetTabId[]) : []),
+  "racks",
+  "miners",
+  ...(INFRASTRUCTURE_DEVICES_ENABLED ? (["infrastructure"] as FleetTabId[]) : []),
+];
 // Absolute last-resort fallback when TAB_ORDER somehow contains no visible
 // tabs. The real waterfall comes from `visibleTabs[0]` below.
 const DEFAULT_TAB: FleetTabId = MULTI_SITE_ENABLED ? "sites" : "racks";
