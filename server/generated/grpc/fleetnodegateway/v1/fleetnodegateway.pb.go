@@ -1077,8 +1077,13 @@ type FleetNodePairResult struct {
 	// password is still active. Cloud stores the pairing as DEFAULT_PASSWORD so
 	// operators can remediate it from the security flow.
 	DefaultPasswordActive *bool `protobuf:"varint,12,opt,name=default_password_active,json=defaultPasswordActive,proto3,oneof" json:"default_password_active,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// The credentials the node authenticated with, encrypted by the fleet node
+	// under its local credential key. Cloud stores the fields in miner_credentials
+	// and returns them in pairing.v1.MinerConnectionDescriptor for node-side
+	// command execution.
+	EncryptedCredentials *EncryptedCredentials `protobuf:"bytes,13,opt,name=encrypted_credentials,json=encryptedCredentials,proto3" json:"encrypted_credentials,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *FleetNodePairResult) Reset() {
@@ -1181,6 +1186,13 @@ func (x *FleetNodePairResult) GetDefaultPasswordActive() bool {
 	return false
 }
 
+func (x *FleetNodePairResult) GetEncryptedCredentials() *EncryptedCredentials {
+	if x != nil {
+		return x.EncryptedCredentials
+	}
+	return nil
+}
+
 // UsedCredentials carries the basic-auth credentials a node authenticated with,
 // echoed so the cloud can persist working auth material for the device. Capped to
 // bound the ReportPairedDevices payload. The node refuses to pair (reports ERROR)
@@ -1237,6 +1249,58 @@ func (x *UsedCredentials) GetPassword() string {
 	return ""
 }
 
+type EncryptedCredentials struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Username      []byte                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	Password      []byte                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EncryptedCredentials) Reset() {
+	*x = EncryptedCredentials{}
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EncryptedCredentials) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EncryptedCredentials) ProtoMessage() {}
+
+func (x *EncryptedCredentials) ProtoReflect() protoreflect.Message {
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EncryptedCredentials.ProtoReflect.Descriptor instead.
+func (*EncryptedCredentials) Descriptor() ([]byte, []int) {
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *EncryptedCredentials) GetUsername() []byte {
+	if x != nil {
+		return x.Username
+	}
+	return nil
+}
+
+func (x *EncryptedCredentials) GetPassword() []byte {
+	if x != nil {
+		return x.Password
+	}
+	return nil
+}
+
 type ReportPairedDevicesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Echoes the command_id of the ControlCommand that scheduled the pairing,
@@ -1250,7 +1314,7 @@ type ReportPairedDevicesRequest struct {
 
 func (x *ReportPairedDevicesRequest) Reset() {
 	*x = ReportPairedDevicesRequest{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[17]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1262,7 +1326,7 @@ func (x *ReportPairedDevicesRequest) String() string {
 func (*ReportPairedDevicesRequest) ProtoMessage() {}
 
 func (x *ReportPairedDevicesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[17]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1275,7 +1339,7 @@ func (x *ReportPairedDevicesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportPairedDevicesRequest.ProtoReflect.Descriptor instead.
 func (*ReportPairedDevicesRequest) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{17}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ReportPairedDevicesRequest) GetCommandId() string {
@@ -1302,7 +1366,7 @@ type ReportPairedDevicesResponse struct {
 
 func (x *ReportPairedDevicesResponse) Reset() {
 	*x = ReportPairedDevicesResponse{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[18]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1314,7 +1378,7 @@ func (x *ReportPairedDevicesResponse) String() string {
 func (*ReportPairedDevicesResponse) ProtoMessage() {}
 
 func (x *ReportPairedDevicesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[18]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1327,7 +1391,7 @@ func (x *ReportPairedDevicesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportPairedDevicesResponse.ProtoReflect.Descriptor instead.
 func (*ReportPairedDevicesResponse) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{18}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ReportPairedDevicesResponse) GetAcceptedCount() int64 {
@@ -1357,7 +1421,7 @@ type ControlStreamRequest struct {
 
 func (x *ControlStreamRequest) Reset() {
 	*x = ControlStreamRequest{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[19]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1369,7 +1433,7 @@ func (x *ControlStreamRequest) String() string {
 func (*ControlStreamRequest) ProtoMessage() {}
 
 func (x *ControlStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[19]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1382,7 +1446,7 @@ func (x *ControlStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlStreamRequest.ProtoReflect.Descriptor instead.
 func (*ControlStreamRequest) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{19}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ControlStreamRequest) GetKind() isControlStreamRequest_Kind {
@@ -1439,7 +1503,7 @@ type ControlStreamResponse struct {
 
 func (x *ControlStreamResponse) Reset() {
 	*x = ControlStreamResponse{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[20]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1451,7 +1515,7 @@ func (x *ControlStreamResponse) String() string {
 func (*ControlStreamResponse) ProtoMessage() {}
 
 func (x *ControlStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[20]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1464,7 +1528,7 @@ func (x *ControlStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlStreamResponse.ProtoReflect.Descriptor instead.
 func (*ControlStreamResponse) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{20}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ControlStreamResponse) GetKind() isControlStreamResponse_Kind {
@@ -1516,7 +1580,7 @@ type ControlHello struct {
 
 func (x *ControlHello) Reset() {
 	*x = ControlHello{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[21]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1528,7 +1592,7 @@ func (x *ControlHello) String() string {
 func (*ControlHello) ProtoMessage() {}
 
 func (x *ControlHello) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[21]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1541,7 +1605,7 @@ func (x *ControlHello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlHello.ProtoReflect.Descriptor instead.
 func (*ControlHello) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{21}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{22}
 }
 
 type ControlAccepted struct {
@@ -1553,7 +1617,7 @@ type ControlAccepted struct {
 
 func (x *ControlAccepted) Reset() {
 	*x = ControlAccepted{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[22]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1565,7 +1629,7 @@ func (x *ControlAccepted) String() string {
 func (*ControlAccepted) ProtoMessage() {}
 
 func (x *ControlAccepted) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[22]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1578,7 +1642,7 @@ func (x *ControlAccepted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlAccepted.ProtoReflect.Descriptor instead.
 func (*ControlAccepted) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{22}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ControlAccepted) GetServerTime() *timestamppb.Timestamp {
@@ -1598,7 +1662,7 @@ type ControlCommand struct {
 
 func (x *ControlCommand) Reset() {
 	*x = ControlCommand{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[23]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1610,7 +1674,7 @@ func (x *ControlCommand) String() string {
 func (*ControlCommand) ProtoMessage() {}
 
 func (x *ControlCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[23]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1623,7 +1687,7 @@ func (x *ControlCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlCommand.ProtoReflect.Descriptor instead.
 func (*ControlCommand) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{23}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ControlCommand) GetCommandId() string {
@@ -1652,17 +1716,19 @@ type MinerConnectionDescriptor struct {
 	UrlScheme    string `protobuf:"bytes,5,opt,name=url_scheme,json=urlScheme,proto3" json:"url_scheme,omitempty"`
 	SerialNumber string `protobuf:"bytes,6,opt,name=serial_number,json=serialNumber,proto3" json:"serial_number,omitempty"`
 	MacAddress   string `protobuf:"bytes,7,opt,name=mac_address,json=macAddress,proto3" json:"mac_address,omitempty"`
-	// Opaque, encrypted miner credential the node decrypts just-in-time with its
-	// per-org key (empty for no-secret drivers like the virtual driver). The cloud
-	// never ships plaintext down the stream; see RFC 0001.
-	Credential    []byte `protobuf:"bytes,8,opt,name=credential,proto3" json:"credential,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Miner username/password, encrypted separately by the fleet node and decrypted
+	// just-in-time with its local credential key (empty for no-secret drivers like
+	// the virtual driver). The cloud never ships plaintext down the stream; see RFC
+	// 0001.
+	CredentialUsername []byte `protobuf:"bytes,8,opt,name=credential_username,json=credentialUsername,proto3" json:"credential_username,omitempty"`
+	CredentialPassword []byte `protobuf:"bytes,9,opt,name=credential_password,json=credentialPassword,proto3" json:"credential_password,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *MinerConnectionDescriptor) Reset() {
 	*x = MinerConnectionDescriptor{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[24]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1674,7 +1740,7 @@ func (x *MinerConnectionDescriptor) String() string {
 func (*MinerConnectionDescriptor) ProtoMessage() {}
 
 func (x *MinerConnectionDescriptor) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[24]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1687,7 +1753,7 @@ func (x *MinerConnectionDescriptor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MinerConnectionDescriptor.ProtoReflect.Descriptor instead.
 func (*MinerConnectionDescriptor) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{24}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *MinerConnectionDescriptor) GetDeviceIdentifier() string {
@@ -1739,9 +1805,16 @@ func (x *MinerConnectionDescriptor) GetMacAddress() string {
 	return ""
 }
 
-func (x *MinerConnectionDescriptor) GetCredential() []byte {
+func (x *MinerConnectionDescriptor) GetCredentialUsername() []byte {
 	if x != nil {
-		return x.Credential
+		return x.CredentialUsername
+	}
+	return nil
+}
+
+func (x *MinerConnectionDescriptor) GetCredentialPassword() []byte {
+	if x != nil {
+		return x.CredentialPassword
 	}
 	return nil
 }
@@ -1769,7 +1842,7 @@ type MinerCommand struct {
 
 func (x *MinerCommand) Reset() {
 	*x = MinerCommand{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[25]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1781,7 +1854,7 @@ func (x *MinerCommand) String() string {
 func (*MinerCommand) ProtoMessage() {}
 
 func (x *MinerCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[25]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1794,7 +1867,7 @@ func (x *MinerCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MinerCommand.ProtoReflect.Descriptor instead.
 func (*MinerCommand) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{25}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *MinerCommand) GetTarget() *MinerConnectionDescriptor {
@@ -1943,7 +2016,7 @@ type RebootAction struct {
 
 func (x *RebootAction) Reset() {
 	*x = RebootAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[26]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1955,7 +2028,7 @@ func (x *RebootAction) String() string {
 func (*RebootAction) ProtoMessage() {}
 
 func (x *RebootAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[26]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1968,7 +2041,7 @@ func (x *RebootAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RebootAction.ProtoReflect.Descriptor instead.
 func (*RebootAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{26}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{27}
 }
 
 type StartMiningAction struct {
@@ -1979,7 +2052,7 @@ type StartMiningAction struct {
 
 func (x *StartMiningAction) Reset() {
 	*x = StartMiningAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[27]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1991,7 +2064,7 @@ func (x *StartMiningAction) String() string {
 func (*StartMiningAction) ProtoMessage() {}
 
 func (x *StartMiningAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[27]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2004,7 +2077,7 @@ func (x *StartMiningAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartMiningAction.ProtoReflect.Descriptor instead.
 func (*StartMiningAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{27}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{28}
 }
 
 type StopMiningAction struct {
@@ -2015,7 +2088,7 @@ type StopMiningAction struct {
 
 func (x *StopMiningAction) Reset() {
 	*x = StopMiningAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[28]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2027,7 +2100,7 @@ func (x *StopMiningAction) String() string {
 func (*StopMiningAction) ProtoMessage() {}
 
 func (x *StopMiningAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[28]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2040,7 +2113,7 @@ func (x *StopMiningAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopMiningAction.ProtoReflect.Descriptor instead.
 func (*StopMiningAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{28}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{29}
 }
 
 type BlinkLedAction struct {
@@ -2051,7 +2124,7 @@ type BlinkLedAction struct {
 
 func (x *BlinkLedAction) Reset() {
 	*x = BlinkLedAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[29]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2063,7 +2136,7 @@ func (x *BlinkLedAction) String() string {
 func (*BlinkLedAction) ProtoMessage() {}
 
 func (x *BlinkLedAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[29]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2076,7 +2149,7 @@ func (x *BlinkLedAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlinkLedAction.ProtoReflect.Descriptor instead.
 func (*BlinkLedAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{29}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{30}
 }
 
 type UncurtailAction struct {
@@ -2087,7 +2160,7 @@ type UncurtailAction struct {
 
 func (x *UncurtailAction) Reset() {
 	*x = UncurtailAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[30]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2099,7 +2172,7 @@ func (x *UncurtailAction) String() string {
 func (*UncurtailAction) ProtoMessage() {}
 
 func (x *UncurtailAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[30]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2112,7 +2185,7 @@ func (x *UncurtailAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UncurtailAction.ProtoReflect.Descriptor instead.
 func (*UncurtailAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{30}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{31}
 }
 
 type CurtailAction struct {
@@ -2124,7 +2197,7 @@ type CurtailAction struct {
 
 func (x *CurtailAction) Reset() {
 	*x = CurtailAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[31]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2136,7 +2209,7 @@ func (x *CurtailAction) String() string {
 func (*CurtailAction) ProtoMessage() {}
 
 func (x *CurtailAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[31]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2149,7 +2222,7 @@ func (x *CurtailAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CurtailAction.ProtoReflect.Descriptor instead.
 func (*CurtailAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{31}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *CurtailAction) GetLevel() v1.CurtailmentLevel {
@@ -2168,7 +2241,7 @@ type SetCoolingModeAction struct {
 
 func (x *SetCoolingModeAction) Reset() {
 	*x = SetCoolingModeAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[32]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2180,7 +2253,7 @@ func (x *SetCoolingModeAction) String() string {
 func (*SetCoolingModeAction) ProtoMessage() {}
 
 func (x *SetCoolingModeAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[32]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2193,7 +2266,7 @@ func (x *SetCoolingModeAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetCoolingModeAction.ProtoReflect.Descriptor instead.
 func (*SetCoolingModeAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{32}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SetCoolingModeAction) GetMode() v11.CoolingMode {
@@ -2212,7 +2285,7 @@ type SetPowerTargetAction struct {
 
 func (x *SetPowerTargetAction) Reset() {
 	*x = SetPowerTargetAction{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[33]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2224,7 +2297,7 @@ func (x *SetPowerTargetAction) String() string {
 func (*SetPowerTargetAction) ProtoMessage() {}
 
 func (x *SetPowerTargetAction) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[33]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2237,7 +2310,7 @@ func (x *SetPowerTargetAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetPowerTargetAction.ProtoReflect.Descriptor instead.
 func (*SetPowerTargetAction) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{33}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *SetPowerTargetAction) GetPerformanceMode() v12.PerformanceMode {
@@ -2271,7 +2344,7 @@ type AgentCommand struct {
 
 func (x *AgentCommand) Reset() {
 	*x = AgentCommand{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[34]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2283,7 +2356,7 @@ func (x *AgentCommand) String() string {
 func (*AgentCommand) ProtoMessage() {}
 
 func (x *AgentCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[34]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2296,7 +2369,7 @@ func (x *AgentCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentCommand.ProtoReflect.Descriptor instead.
 func (*AgentCommand) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{34}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *AgentCommand) GetCommand() isAgentCommand_Command {
@@ -2367,7 +2440,7 @@ type ControlAck struct {
 
 func (x *ControlAck) Reset() {
 	*x = ControlAck{}
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[35]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2379,7 +2452,7 @@ func (x *ControlAck) String() string {
 func (*ControlAck) ProtoMessage() {}
 
 func (x *ControlAck) ProtoReflect() protoreflect.Message {
-	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[35]
+	mi := &file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2392,7 +2465,7 @@ func (x *ControlAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlAck.ProtoReflect.Descriptor instead.
 func (*ControlAck) Descriptor() ([]byte, []int) {
-	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{35}
+	return file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ControlAck) GetCommandId() string {
@@ -2576,7 +2649,7 @@ var file_fleetnodegateway_v1_fleetnodegateway_proto_rawDesc = string([]byte{
 	0x74, 0x65, 0x64, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x25, 0x0a, 0x0e, 0x72, 0x65, 0x6a, 0x65,
 	0x63, 0x74, 0x65, 0x64, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x03,
 	0x52, 0x0d, 0x72, 0x65, 0x6a, 0x65, 0x63, 0x74, 0x65, 0x64, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x22,
-	0xe9, 0x04, 0x0a, 0x13, 0x46, 0x6c, 0x65, 0x65, 0x74, 0x4e, 0x6f, 0x64, 0x65, 0x50, 0x61, 0x69,
+	0xc9, 0x05, 0x0a, 0x13, 0x46, 0x6c, 0x65, 0x65, 0x74, 0x4e, 0x6f, 0x64, 0x65, 0x50, 0x61, 0x69,
 	0x72, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x12, 0x37, 0x0a, 0x11, 0x64, 0x65, 0x76, 0x69, 0x63,
 	0x65, 0x5f, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x18, 0x01, 0x20, 0x01,
 	0x28, 0x09, 0x42, 0x0a, 0xba, 0x48, 0x07, 0x72, 0x05, 0x10, 0x01, 0x18, 0xff, 0x01, 0x52, 0x10,
@@ -2610,7 +2683,13 @@ var file_fleetnodegateway_v1_fleetnodegateway_proto_rawDesc = string([]byte{
 	0x75, 0x6c, 0x74, 0x5f, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x5f, 0x61, 0x63, 0x74,
 	0x69, 0x76, 0x65, 0x18, 0x0c, 0x20, 0x01, 0x28, 0x08, 0x48, 0x00, 0x52, 0x15, 0x64, 0x65, 0x66,
 	0x61, 0x75, 0x6c, 0x74, 0x50, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x41, 0x63, 0x74, 0x69,
-	0x76, 0x65, 0x88, 0x01, 0x01, 0x42, 0x1a, 0x0a, 0x18, 0x5f, 0x64, 0x65, 0x66, 0x61, 0x75, 0x6c,
+	0x76, 0x65, 0x88, 0x01, 0x01, 0x12, 0x5e, 0x0a, 0x15, 0x65, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74,
+	0x65, 0x64, 0x5f, 0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x73, 0x18, 0x0d,
+	0x20, 0x01, 0x28, 0x0b, 0x32, 0x29, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6e, 0x6f, 0x64, 0x65,
+	0x67, 0x61, 0x74, 0x65, 0x77, 0x61, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x45, 0x6e, 0x63, 0x72, 0x79,
+	0x70, 0x74, 0x65, 0x64, 0x43, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x73, 0x52,
+	0x14, 0x65, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74, 0x65, 0x64, 0x43, 0x72, 0x65, 0x64, 0x65, 0x6e,
+	0x74, 0x69, 0x61, 0x6c, 0x73, 0x42, 0x1a, 0x0a, 0x18, 0x5f, 0x64, 0x65, 0x66, 0x61, 0x75, 0x6c,
 	0x74, 0x5f, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x5f, 0x61, 0x63, 0x74, 0x69, 0x76,
 	0x65, 0x4a, 0x04, 0x08, 0x09, 0x10, 0x0a, 0x4a, 0x04, 0x08, 0x0a, 0x10, 0x0b, 0x52, 0x0d, 0x75,
 	0x73, 0x65, 0x64, 0x5f, 0x75, 0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65, 0x52, 0x0d, 0x75, 0x73,
@@ -2620,87 +2699,98 @@ var file_fleetnodegateway_v1_fleetnodegateway_proto_rawDesc = string([]byte{
 	0x42, 0x08, 0xba, 0x48, 0x05, 0x72, 0x03, 0x18, 0xff, 0x01, 0x52, 0x08, 0x75, 0x73, 0x65, 0x72,
 	0x6e, 0x61, 0x6d, 0x65, 0x12, 0x24, 0x0a, 0x08, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64,
 	0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x42, 0x08, 0xba, 0x48, 0x05, 0x72, 0x03, 0x18, 0x80, 0x08,
-	0x52, 0x08, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x22, 0x96, 0x01, 0x0a, 0x1a, 0x52,
-	0x65, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x61, 0x69, 0x72, 0x65, 0x64, 0x44, 0x65, 0x76, 0x69, 0x63,
-	0x65, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x29, 0x0a, 0x0a, 0x63, 0x6f, 0x6d,
-	0x6d, 0x61, 0x6e, 0x64, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x42, 0x0a, 0xba,
-	0x48, 0x07, 0x72, 0x05, 0x10, 0x01, 0x18, 0x80, 0x01, 0x52, 0x09, 0x63, 0x6f, 0x6d, 0x6d, 0x61,
-	0x6e, 0x64, 0x49, 0x64, 0x12, 0x4d, 0x0a, 0x07, 0x72, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x73, 0x18,
-	0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x28, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6e, 0x6f, 0x64,
-	0x65, 0x67, 0x61, 0x74, 0x65, 0x77, 0x61, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x46, 0x6c, 0x65, 0x65,
-	0x74, 0x4e, 0x6f, 0x64, 0x65, 0x50, 0x61, 0x69, 0x72, 0x52, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x42,
-	0x09, 0xba, 0x48, 0x06, 0x92, 0x01, 0x03, 0x10, 0x80, 0x08, 0x52, 0x07, 0x72, 0x65, 0x73, 0x75,
-	0x6c, 0x74, 0x73, 0x22, 0x6b, 0x0a, 0x1b, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x61, 0x69,
-	0x72, 0x65, 0x64, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
-	0x73, 0x65, 0x12, 0x25, 0x0a, 0x0e, 0x61, 0x63, 0x63, 0x65, 0x70, 0x74, 0x65, 0x64, 0x5f, 0x63,
-	0x6f, 0x75, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x52, 0x0d, 0x61, 0x63, 0x63, 0x65,
-	0x70, 0x74, 0x65, 0x64, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x25, 0x0a, 0x0e, 0x72, 0x65, 0x6a,
-	0x65, 0x63, 0x74, 0x65, 0x64, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28,
-	0x03, 0x52, 0x0d, 0x72, 0x65, 0x6a, 0x65, 0x63, 0x74, 0x65, 0x64, 0x43, 0x6f, 0x75, 0x6e, 0x74,
-	0x22, 0x95, 0x01, 0x0a, 0x14, 0x43, 0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x53, 0x74, 0x72, 0x65,
-	0x61, 0x6d, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x39, 0x0a, 0x05, 0x68, 0x65, 0x6c,
-	0x6c, 0x6f, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x21, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74,
+	0x52, 0x08, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x22, 0x62, 0x0a, 0x14, 0x45, 0x6e,
+	0x63, 0x72, 0x79, 0x70, 0x74, 0x65, 0x64, 0x43, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61,
+	0x6c, 0x73, 0x12, 0x24, 0x0a, 0x08, 0x75, 0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01,
+	0x20, 0x01, 0x28, 0x0c, 0x42, 0x08, 0xba, 0x48, 0x05, 0x7a, 0x03, 0x18, 0x80, 0x20, 0x52, 0x08,
+	0x75, 0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x24, 0x0a, 0x08, 0x70, 0x61, 0x73, 0x73,
+	0x77, 0x6f, 0x72, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x42, 0x08, 0xba, 0x48, 0x05, 0x7a,
+	0x03, 0x18, 0x80, 0x20, 0x52, 0x08, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x22, 0x96,
+	0x01, 0x0a, 0x1a, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x61, 0x69, 0x72, 0x65, 0x64, 0x44,
+	0x65, 0x76, 0x69, 0x63, 0x65, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x29, 0x0a,
+	0x0a, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x09, 0x42, 0x0a, 0xba, 0x48, 0x07, 0x72, 0x05, 0x10, 0x01, 0x18, 0x80, 0x01, 0x52, 0x09, 0x63,
+	0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x49, 0x64, 0x12, 0x4d, 0x0a, 0x07, 0x72, 0x65, 0x73, 0x75,
+	0x6c, 0x74, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x28, 0x2e, 0x66, 0x6c, 0x65, 0x65,
+	0x74, 0x6e, 0x6f, 0x64, 0x65, 0x67, 0x61, 0x74, 0x65, 0x77, 0x61, 0x79, 0x2e, 0x76, 0x31, 0x2e,
+	0x46, 0x6c, 0x65, 0x65, 0x74, 0x4e, 0x6f, 0x64, 0x65, 0x50, 0x61, 0x69, 0x72, 0x52, 0x65, 0x73,
+	0x75, 0x6c, 0x74, 0x42, 0x09, 0xba, 0x48, 0x06, 0x92, 0x01, 0x03, 0x10, 0x80, 0x08, 0x52, 0x07,
+	0x72, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x73, 0x22, 0x6b, 0x0a, 0x1b, 0x52, 0x65, 0x70, 0x6f, 0x72,
+	0x74, 0x50, 0x61, 0x69, 0x72, 0x65, 0x64, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x73, 0x52, 0x65,
+	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x25, 0x0a, 0x0e, 0x61, 0x63, 0x63, 0x65, 0x70, 0x74,
+	0x65, 0x64, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x52, 0x0d,
+	0x61, 0x63, 0x63, 0x65, 0x70, 0x74, 0x65, 0x64, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x12, 0x25, 0x0a,
+	0x0e, 0x72, 0x65, 0x6a, 0x65, 0x63, 0x74, 0x65, 0x64, 0x5f, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x18,
+	0x02, 0x20, 0x01, 0x28, 0x03, 0x52, 0x0d, 0x72, 0x65, 0x6a, 0x65, 0x63, 0x74, 0x65, 0x64, 0x43,
+	0x6f, 0x75, 0x6e, 0x74, 0x22, 0x95, 0x01, 0x0a, 0x14, 0x43, 0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c,
+	0x53, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x39, 0x0a,
+	0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x21, 0x2e, 0x66,
+	0x6c, 0x65, 0x65, 0x74, 0x6e, 0x6f, 0x64, 0x65, 0x67, 0x61, 0x74, 0x65, 0x77, 0x61, 0x79, 0x2e,
+	0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x48,
+	0x00, 0x52, 0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x12, 0x33, 0x0a, 0x03, 0x61, 0x63, 0x6b, 0x18,
+	0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1f, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6e, 0x6f, 0x64,
+	0x65, 0x67, 0x61, 0x74, 0x65, 0x77, 0x61, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6e, 0x74,
+	0x72, 0x6f, 0x6c, 0x41, 0x63, 0x6b, 0x48, 0x00, 0x52, 0x03, 0x61, 0x63, 0x6b, 0x42, 0x0d, 0x0a,
+	0x04, 0x6b, 0x69, 0x6e, 0x64, 0x12, 0x05, 0xba, 0x48, 0x02, 0x08, 0x01, 0x22, 0xab, 0x01, 0x0a,
+	0x15, 0x43, 0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x52, 0x65,
+	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x42, 0x0a, 0x08, 0x61, 0x63, 0x63, 0x65, 0x70, 0x74,
+	0x65, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x24, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74,
 	0x6e, 0x6f, 0x64, 0x65, 0x67, 0x61, 0x74, 0x65, 0x77, 0x61, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x43,
-	0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x48, 0x00, 0x52, 0x05, 0x68,
-	0x65, 0x6c, 0x6c, 0x6f, 0x12, 0x33, 0x0a, 0x03, 0x61, 0x63, 0x6b, 0x18, 0x02, 0x20, 0x01, 0x28,
-	0x0b, 0x32, 0x1f, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6e, 0x6f, 0x64, 0x65, 0x67, 0x61, 0x74,
-	0x65, 0x77, 0x61, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x41,
-	0x63, 0x6b, 0x48, 0x00, 0x52, 0x03, 0x61, 0x63, 0x6b, 0x42, 0x0d, 0x0a, 0x04, 0x6b, 0x69, 0x6e,
-	0x64, 0x12, 0x05, 0xba, 0x48, 0x02, 0x08, 0x01, 0x22, 0xab, 0x01, 0x0a, 0x15, 0x43, 0x6f, 0x6e,
-	0x74, 0x72, 0x6f, 0x6c, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
-	0x73, 0x65, 0x12, 0x42, 0x0a, 0x08, 0x61, 0x63, 0x63, 0x65, 0x70, 0x74, 0x65, 0x64, 0x18, 0x01,
-	0x20, 0x01, 0x28, 0x0b, 0x32, 0x24, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6e, 0x6f, 0x64, 0x65,
-	0x67, 0x61, 0x74, 0x65, 0x77, 0x61, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6e, 0x74, 0x72,
-	0x6f, 0x6c, 0x41, 0x63, 0x63, 0x65, 0x70, 0x74, 0x65, 0x64, 0x48, 0x00, 0x52, 0x08, 0x61, 0x63,
-	0x63, 0x65, 0x70, 0x74, 0x65, 0x64, 0x12, 0x3f, 0x0a, 0x07, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e,
-	0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x23, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6e,
-	0x6f, 0x64, 0x65, 0x67, 0x61, 0x74, 0x65, 0x77, 0x61, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f,
-	0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x48, 0x00, 0x52, 0x07,
-	0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x42, 0x0d, 0x0a, 0x04, 0x6b, 0x69, 0x6e, 0x64, 0x12,
-	0x05, 0xba, 0x48, 0x02, 0x08, 0x01, 0x22, 0x0e, 0x0a, 0x0c, 0x43, 0x6f, 0x6e, 0x74, 0x72, 0x6f,
-	0x6c, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x22, 0x4e, 0x0a, 0x0f, 0x43, 0x6f, 0x6e, 0x74, 0x72, 0x6f,
-	0x6c, 0x41, 0x63, 0x63, 0x65, 0x70, 0x74, 0x65, 0x64, 0x12, 0x3b, 0x0a, 0x0b, 0x73, 0x65, 0x72,
-	0x76, 0x65, 0x72, 0x5f, 0x74, 0x69, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a,
-	0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66,
-	0x2e, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x0a, 0x73, 0x65, 0x72, 0x76,
-	0x65, 0x72, 0x54, 0x69, 0x6d, 0x65, 0x22, 0x60, 0x0a, 0x0e, 0x43, 0x6f, 0x6e, 0x74, 0x72, 0x6f,
-	0x6c, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x12, 0x29, 0x0a, 0x0a, 0x63, 0x6f, 0x6d, 0x6d,
-	0x61, 0x6e, 0x64, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x42, 0x0a, 0xba, 0x48,
-	0x07, 0x72, 0x05, 0x10, 0x01, 0x18, 0x80, 0x01, 0x52, 0x09, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e,
-	0x64, 0x49, 0x64, 0x12, 0x23, 0x0a, 0x07, 0x70, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64, 0x18, 0x02,
-	0x20, 0x01, 0x28, 0x0c, 0x42, 0x09, 0xba, 0x48, 0x06, 0x7a, 0x04, 0x18, 0x80, 0x80, 0x40, 0x52,
-	0x07, 0x70, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64, 0x22, 0xe7, 0x03, 0x0a, 0x19, 0x4d, 0x69, 0x6e,
-	0x65, 0x72, 0x43, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x44, 0x65, 0x73, 0x63,
-	0x72, 0x69, 0x70, 0x74, 0x6f, 0x72, 0x12, 0x37, 0x0a, 0x11, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65,
-	0x5f, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28,
-	0x09, 0x42, 0x0a, 0xba, 0x48, 0x07, 0x72, 0x05, 0x10, 0x01, 0x18, 0xff, 0x01, 0x52, 0x10, 0x64,
-	0x65, 0x76, 0x69, 0x63, 0x65, 0x49, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x12,
-	0x2a, 0x0a, 0x0b, 0x64, 0x72, 0x69, 0x76, 0x65, 0x72, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02,
-	0x20, 0x01, 0x28, 0x09, 0x42, 0x09, 0xba, 0x48, 0x06, 0x72, 0x04, 0x10, 0x01, 0x18, 0x32, 0x52,
-	0x0a, 0x64, 0x72, 0x69, 0x76, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x2a, 0x0a, 0x0a, 0x69,
-	0x70, 0x5f, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x42,
-	0x0b, 0xba, 0x48, 0x08, 0x72, 0x06, 0x10, 0x01, 0x18, 0x2d, 0x70, 0x01, 0x52, 0x09, 0x69, 0x70,
-	0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x12, 0x8c, 0x01, 0x0a, 0x04, 0x70, 0x6f, 0x72, 0x74,
-	0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x42, 0x78, 0xba, 0x48, 0x75, 0xba, 0x01, 0x6c, 0x0a, 0x0a,
-	0x70, 0x6f, 0x72, 0x74, 0x2e, 0x72, 0x61, 0x6e, 0x67, 0x65, 0x12, 0x29, 0x70, 0x6f, 0x72, 0x74,
-	0x20, 0x6d, 0x75, 0x73, 0x74, 0x20, 0x62, 0x65, 0x20, 0x61, 0x20, 0x64, 0x65, 0x63, 0x69, 0x6d,
-	0x61, 0x6c, 0x20, 0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x20, 0x69, 0x6e, 0x20, 0x31, 0x2e, 0x2e,
-	0x36, 0x35, 0x35, 0x33, 0x35, 0x1a, 0x33, 0x74, 0x68, 0x69, 0x73, 0x2e, 0x6d, 0x61, 0x74, 0x63,
-	0x68, 0x65, 0x73, 0x28, 0x27, 0x5e, 0x5b, 0x31, 0x2d, 0x39, 0x5d, 0x5b, 0x30, 0x2d, 0x39, 0x5d,
-	0x2a, 0x24, 0x27, 0x29, 0x20, 0x26, 0x26, 0x20, 0x69, 0x6e, 0x74, 0x28, 0x74, 0x68, 0x69, 0x73,
-	0x29, 0x20, 0x3c, 0x3d, 0x20, 0x36, 0x35, 0x35, 0x33, 0x35, 0x72, 0x04, 0x10, 0x01, 0x18, 0x05,
-	0x52, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x12, 0x26, 0x0a, 0x0a, 0x75, 0x72, 0x6c, 0x5f, 0x73, 0x63,
-	0x68, 0x65, 0x6d, 0x65, 0x18, 0x05, 0x20, 0x01, 0x28, 0x09, 0x42, 0x07, 0xba, 0x48, 0x04, 0x72,
-	0x02, 0x18, 0x20, 0x52, 0x09, 0x75, 0x72, 0x6c, 0x53, 0x63, 0x68, 0x65, 0x6d, 0x65, 0x12, 0x2d,
-	0x0a, 0x0d, 0x73, 0x65, 0x72, 0x69, 0x61, 0x6c, 0x5f, 0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x18,
-	0x06, 0x20, 0x01, 0x28, 0x09, 0x42, 0x08, 0xba, 0x48, 0x05, 0x72, 0x03, 0x18, 0xff, 0x01, 0x52,
-	0x0c, 0x73, 0x65, 0x72, 0x69, 0x61, 0x6c, 0x4e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x12, 0x29, 0x0a,
-	0x0b, 0x6d, 0x61, 0x63, 0x5f, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x18, 0x07, 0x20, 0x01,
-	0x28, 0x09, 0x42, 0x08, 0xba, 0x48, 0x05, 0x72, 0x03, 0x18, 0xff, 0x01, 0x52, 0x0a, 0x6d, 0x61,
-	0x63, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x12, 0x28, 0x0a, 0x0a, 0x63, 0x72, 0x65, 0x64,
-	0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x18, 0x08, 0x20, 0x01, 0x28, 0x0c, 0x42, 0x08, 0xba, 0x48,
-	0x05, 0x7a, 0x03, 0x18, 0x80, 0x40, 0x52, 0x0a, 0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69,
-	0x61, 0x6c, 0x22, 0xbb, 0x05, 0x0a, 0x0c, 0x4d, 0x69, 0x6e, 0x65, 0x72, 0x43, 0x6f, 0x6d, 0x6d,
+	0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x41, 0x63, 0x63, 0x65, 0x70, 0x74, 0x65, 0x64, 0x48, 0x00,
+	0x52, 0x08, 0x61, 0x63, 0x63, 0x65, 0x70, 0x74, 0x65, 0x64, 0x12, 0x3f, 0x0a, 0x07, 0x63, 0x6f,
+	0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x23, 0x2e, 0x66, 0x6c,
+	0x65, 0x65, 0x74, 0x6e, 0x6f, 0x64, 0x65, 0x67, 0x61, 0x74, 0x65, 0x77, 0x61, 0x79, 0x2e, 0x76,
+	0x31, 0x2e, 0x43, 0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64,
+	0x48, 0x00, 0x52, 0x07, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x42, 0x0d, 0x0a, 0x04, 0x6b,
+	0x69, 0x6e, 0x64, 0x12, 0x05, 0xba, 0x48, 0x02, 0x08, 0x01, 0x22, 0x0e, 0x0a, 0x0c, 0x43, 0x6f,
+	0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x22, 0x4e, 0x0a, 0x0f, 0x43, 0x6f,
+	0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x41, 0x63, 0x63, 0x65, 0x70, 0x74, 0x65, 0x64, 0x12, 0x3b, 0x0a,
+	0x0b, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x5f, 0x74, 0x69, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01,
+	0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74,
+	0x6f, 0x62, 0x75, 0x66, 0x2e, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x0a,
+	0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x54, 0x69, 0x6d, 0x65, 0x22, 0x60, 0x0a, 0x0e, 0x43, 0x6f,
+	0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x12, 0x29, 0x0a, 0x0a,
+	0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
+	0x42, 0x0a, 0xba, 0x48, 0x07, 0x72, 0x05, 0x10, 0x01, 0x18, 0x80, 0x01, 0x52, 0x09, 0x63, 0x6f,
+	0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x49, 0x64, 0x12, 0x23, 0x0a, 0x07, 0x70, 0x61, 0x79, 0x6c, 0x6f,
+	0x61, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x42, 0x09, 0xba, 0x48, 0x06, 0x7a, 0x04, 0x18,
+	0x80, 0x80, 0x40, 0x52, 0x07, 0x70, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64, 0x22, 0xb3, 0x04, 0x0a,
+	0x19, 0x4d, 0x69, 0x6e, 0x65, 0x72, 0x43, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e,
+	0x44, 0x65, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x6f, 0x72, 0x12, 0x37, 0x0a, 0x11, 0x64, 0x65,
+	0x76, 0x69, 0x63, 0x65, 0x5f, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x09, 0x42, 0x0a, 0xba, 0x48, 0x07, 0x72, 0x05, 0x10, 0x01, 0x18, 0xff,
+	0x01, 0x52, 0x10, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x49, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66,
+	0x69, 0x65, 0x72, 0x12, 0x2a, 0x0a, 0x0b, 0x64, 0x72, 0x69, 0x76, 0x65, 0x72, 0x5f, 0x6e, 0x61,
+	0x6d, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x42, 0x09, 0xba, 0x48, 0x06, 0x72, 0x04, 0x10,
+	0x01, 0x18, 0x32, 0x52, 0x0a, 0x64, 0x72, 0x69, 0x76, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x12,
+	0x2a, 0x0a, 0x0a, 0x69, 0x70, 0x5f, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x18, 0x03, 0x20,
+	0x01, 0x28, 0x09, 0x42, 0x0b, 0xba, 0x48, 0x08, 0x72, 0x06, 0x10, 0x01, 0x18, 0x2d, 0x70, 0x01,
+	0x52, 0x09, 0x69, 0x70, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x12, 0x8c, 0x01, 0x0a, 0x04,
+	0x70, 0x6f, 0x72, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x42, 0x78, 0xba, 0x48, 0x75, 0xba,
+	0x01, 0x6c, 0x0a, 0x0a, 0x70, 0x6f, 0x72, 0x74, 0x2e, 0x72, 0x61, 0x6e, 0x67, 0x65, 0x12, 0x29,
+	0x70, 0x6f, 0x72, 0x74, 0x20, 0x6d, 0x75, 0x73, 0x74, 0x20, 0x62, 0x65, 0x20, 0x61, 0x20, 0x64,
+	0x65, 0x63, 0x69, 0x6d, 0x61, 0x6c, 0x20, 0x6e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x20, 0x69, 0x6e,
+	0x20, 0x31, 0x2e, 0x2e, 0x36, 0x35, 0x35, 0x33, 0x35, 0x1a, 0x33, 0x74, 0x68, 0x69, 0x73, 0x2e,
+	0x6d, 0x61, 0x74, 0x63, 0x68, 0x65, 0x73, 0x28, 0x27, 0x5e, 0x5b, 0x31, 0x2d, 0x39, 0x5d, 0x5b,
+	0x30, 0x2d, 0x39, 0x5d, 0x2a, 0x24, 0x27, 0x29, 0x20, 0x26, 0x26, 0x20, 0x69, 0x6e, 0x74, 0x28,
+	0x74, 0x68, 0x69, 0x73, 0x29, 0x20, 0x3c, 0x3d, 0x20, 0x36, 0x35, 0x35, 0x33, 0x35, 0x72, 0x04,
+	0x10, 0x01, 0x18, 0x05, 0x52, 0x04, 0x70, 0x6f, 0x72, 0x74, 0x12, 0x26, 0x0a, 0x0a, 0x75, 0x72,
+	0x6c, 0x5f, 0x73, 0x63, 0x68, 0x65, 0x6d, 0x65, 0x18, 0x05, 0x20, 0x01, 0x28, 0x09, 0x42, 0x07,
+	0xba, 0x48, 0x04, 0x72, 0x02, 0x18, 0x20, 0x52, 0x09, 0x75, 0x72, 0x6c, 0x53, 0x63, 0x68, 0x65,
+	0x6d, 0x65, 0x12, 0x2d, 0x0a, 0x0d, 0x73, 0x65, 0x72, 0x69, 0x61, 0x6c, 0x5f, 0x6e, 0x75, 0x6d,
+	0x62, 0x65, 0x72, 0x18, 0x06, 0x20, 0x01, 0x28, 0x09, 0x42, 0x08, 0xba, 0x48, 0x05, 0x72, 0x03,
+	0x18, 0xff, 0x01, 0x52, 0x0c, 0x73, 0x65, 0x72, 0x69, 0x61, 0x6c, 0x4e, 0x75, 0x6d, 0x62, 0x65,
+	0x72, 0x12, 0x29, 0x0a, 0x0b, 0x6d, 0x61, 0x63, 0x5f, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73,
+	0x18, 0x07, 0x20, 0x01, 0x28, 0x09, 0x42, 0x08, 0xba, 0x48, 0x05, 0x72, 0x03, 0x18, 0xff, 0x01,
+	0x52, 0x0a, 0x6d, 0x61, 0x63, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x12, 0x39, 0x0a, 0x13,
+	0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x5f, 0x75, 0x73, 0x65, 0x72, 0x6e,
+	0x61, 0x6d, 0x65, 0x18, 0x08, 0x20, 0x01, 0x28, 0x0c, 0x42, 0x08, 0xba, 0x48, 0x05, 0x7a, 0x03,
+	0x18, 0x80, 0x20, 0x52, 0x12, 0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x55,
+	0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x39, 0x0a, 0x13, 0x63, 0x72, 0x65, 0x64, 0x65,
+	0x6e, 0x74, 0x69, 0x61, 0x6c, 0x5f, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x18, 0x09,
+	0x20, 0x01, 0x28, 0x0c, 0x42, 0x08, 0xba, 0x48, 0x05, 0x7a, 0x03, 0x18, 0x80, 0x20, 0x52, 0x12,
+	0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x50, 0x61, 0x73, 0x73, 0x77, 0x6f,
+	0x72, 0x64, 0x22, 0xbb, 0x05, 0x0a, 0x0c, 0x4d, 0x69, 0x6e, 0x65, 0x72, 0x43, 0x6f, 0x6d, 0x6d,
 	0x61, 0x6e, 0x64, 0x12, 0x4e, 0x0a, 0x06, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x18, 0x01, 0x20,
 	0x01, 0x28, 0x0b, 0x32, 0x2e, 0x2e, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x6e, 0x6f, 0x64, 0x65, 0x67,
 	0x61, 0x74, 0x65, 0x77, 0x61, 0x79, 0x2e, 0x76, 0x31, 0x2e, 0x4d, 0x69, 0x6e, 0x65, 0x72, 0x43,
@@ -2925,7 +3015,7 @@ func file_fleetnodegateway_v1_fleetnodegateway_proto_rawDescGZIP() []byte {
 }
 
 var file_fleetnodegateway_v1_fleetnodegateway_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
+var file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
 var file_fleetnodegateway_v1_fleetnodegateway_proto_goTypes = []any{
 	(EnrollmentStatus)(0),                   // 0: fleetnodegateway.v1.EnrollmentStatus
 	(PairOutcome)(0),                        // 1: fleetnodegateway.v1.PairOutcome
@@ -2947,88 +3037,90 @@ var file_fleetnodegateway_v1_fleetnodegateway_proto_goTypes = []any{
 	(*ReportDiscoveredDevicesResponse)(nil), // 17: fleetnodegateway.v1.ReportDiscoveredDevicesResponse
 	(*FleetNodePairResult)(nil),             // 18: fleetnodegateway.v1.FleetNodePairResult
 	(*UsedCredentials)(nil),                 // 19: fleetnodegateway.v1.UsedCredentials
-	(*ReportPairedDevicesRequest)(nil),      // 20: fleetnodegateway.v1.ReportPairedDevicesRequest
-	(*ReportPairedDevicesResponse)(nil),     // 21: fleetnodegateway.v1.ReportPairedDevicesResponse
-	(*ControlStreamRequest)(nil),            // 22: fleetnodegateway.v1.ControlStreamRequest
-	(*ControlStreamResponse)(nil),           // 23: fleetnodegateway.v1.ControlStreamResponse
-	(*ControlHello)(nil),                    // 24: fleetnodegateway.v1.ControlHello
-	(*ControlAccepted)(nil),                 // 25: fleetnodegateway.v1.ControlAccepted
-	(*ControlCommand)(nil),                  // 26: fleetnodegateway.v1.ControlCommand
-	(*MinerConnectionDescriptor)(nil),       // 27: fleetnodegateway.v1.MinerConnectionDescriptor
-	(*MinerCommand)(nil),                    // 28: fleetnodegateway.v1.MinerCommand
-	(*RebootAction)(nil),                    // 29: fleetnodegateway.v1.RebootAction
-	(*StartMiningAction)(nil),               // 30: fleetnodegateway.v1.StartMiningAction
-	(*StopMiningAction)(nil),                // 31: fleetnodegateway.v1.StopMiningAction
-	(*BlinkLedAction)(nil),                  // 32: fleetnodegateway.v1.BlinkLedAction
-	(*UncurtailAction)(nil),                 // 33: fleetnodegateway.v1.UncurtailAction
-	(*CurtailAction)(nil),                   // 34: fleetnodegateway.v1.CurtailAction
-	(*SetCoolingModeAction)(nil),            // 35: fleetnodegateway.v1.SetCoolingModeAction
-	(*SetPowerTargetAction)(nil),            // 36: fleetnodegateway.v1.SetPowerTargetAction
-	(*AgentCommand)(nil),                    // 37: fleetnodegateway.v1.AgentCommand
-	(*ControlAck)(nil),                      // 38: fleetnodegateway.v1.ControlAck
-	(*timestamppb.Timestamp)(nil),           // 39: google.protobuf.Timestamp
-	(v1.CurtailmentLevel)(0),                // 40: curtailment.v1.CurtailmentLevel
-	(v11.CoolingMode)(0),                    // 41: common.v1.CoolingMode
-	(v12.PerformanceMode)(0),                // 42: minercommand.v1.PerformanceMode
-	(*v13.DiscoverRequest)(nil),             // 43: pairing.v1.DiscoverRequest
-	(*v13.FleetNodePairRequest)(nil),        // 44: pairing.v1.FleetNodePairRequest
+	(*EncryptedCredentials)(nil),            // 20: fleetnodegateway.v1.EncryptedCredentials
+	(*ReportPairedDevicesRequest)(nil),      // 21: fleetnodegateway.v1.ReportPairedDevicesRequest
+	(*ReportPairedDevicesResponse)(nil),     // 22: fleetnodegateway.v1.ReportPairedDevicesResponse
+	(*ControlStreamRequest)(nil),            // 23: fleetnodegateway.v1.ControlStreamRequest
+	(*ControlStreamResponse)(nil),           // 24: fleetnodegateway.v1.ControlStreamResponse
+	(*ControlHello)(nil),                    // 25: fleetnodegateway.v1.ControlHello
+	(*ControlAccepted)(nil),                 // 26: fleetnodegateway.v1.ControlAccepted
+	(*ControlCommand)(nil),                  // 27: fleetnodegateway.v1.ControlCommand
+	(*MinerConnectionDescriptor)(nil),       // 28: fleetnodegateway.v1.MinerConnectionDescriptor
+	(*MinerCommand)(nil),                    // 29: fleetnodegateway.v1.MinerCommand
+	(*RebootAction)(nil),                    // 30: fleetnodegateway.v1.RebootAction
+	(*StartMiningAction)(nil),               // 31: fleetnodegateway.v1.StartMiningAction
+	(*StopMiningAction)(nil),                // 32: fleetnodegateway.v1.StopMiningAction
+	(*BlinkLedAction)(nil),                  // 33: fleetnodegateway.v1.BlinkLedAction
+	(*UncurtailAction)(nil),                 // 34: fleetnodegateway.v1.UncurtailAction
+	(*CurtailAction)(nil),                   // 35: fleetnodegateway.v1.CurtailAction
+	(*SetCoolingModeAction)(nil),            // 36: fleetnodegateway.v1.SetCoolingModeAction
+	(*SetPowerTargetAction)(nil),            // 37: fleetnodegateway.v1.SetPowerTargetAction
+	(*AgentCommand)(nil),                    // 38: fleetnodegateway.v1.AgentCommand
+	(*ControlAck)(nil),                      // 39: fleetnodegateway.v1.ControlAck
+	(*timestamppb.Timestamp)(nil),           // 40: google.protobuf.Timestamp
+	(v1.CurtailmentLevel)(0),                // 41: curtailment.v1.CurtailmentLevel
+	(v11.CoolingMode)(0),                    // 42: common.v1.CoolingMode
+	(v12.PerformanceMode)(0),                // 43: minercommand.v1.PerformanceMode
+	(*v13.DiscoverRequest)(nil),             // 44: pairing.v1.DiscoverRequest
+	(*v13.FleetNodePairRequest)(nil),        // 45: pairing.v1.FleetNodePairRequest
 }
 var file_fleetnodegateway_v1_fleetnodegateway_proto_depIdxs = []int32{
 	0,  // 0: fleetnodegateway.v1.RegisterResponse.enrollment_status:type_name -> fleetnodegateway.v1.EnrollmentStatus
-	39, // 1: fleetnodegateway.v1.BeginAuthHandshakeResponse.expires_at:type_name -> google.protobuf.Timestamp
-	39, // 2: fleetnodegateway.v1.CompleteAuthHandshakeResponse.expires_at:type_name -> google.protobuf.Timestamp
-	39, // 3: fleetnodegateway.v1.UploadTelemetryRequest.captured_at:type_name -> google.protobuf.Timestamp
-	39, // 4: fleetnodegateway.v1.UploadEventsRequest.captured_at:type_name -> google.protobuf.Timestamp
-	39, // 5: fleetnodegateway.v1.UploadHeartbeatRequest.sent_at:type_name -> google.protobuf.Timestamp
-	39, // 6: fleetnodegateway.v1.UploadHeartbeatResponse.received_at:type_name -> google.protobuf.Timestamp
+	40, // 1: fleetnodegateway.v1.BeginAuthHandshakeResponse.expires_at:type_name -> google.protobuf.Timestamp
+	40, // 2: fleetnodegateway.v1.CompleteAuthHandshakeResponse.expires_at:type_name -> google.protobuf.Timestamp
+	40, // 3: fleetnodegateway.v1.UploadTelemetryRequest.captured_at:type_name -> google.protobuf.Timestamp
+	40, // 4: fleetnodegateway.v1.UploadEventsRequest.captured_at:type_name -> google.protobuf.Timestamp
+	40, // 5: fleetnodegateway.v1.UploadHeartbeatRequest.sent_at:type_name -> google.protobuf.Timestamp
+	40, // 6: fleetnodegateway.v1.UploadHeartbeatResponse.received_at:type_name -> google.protobuf.Timestamp
 	16, // 7: fleetnodegateway.v1.ReportDiscoveredDevicesRequest.devices:type_name -> fleetnodegateway.v1.DiscoveredDeviceReport
 	1,  // 8: fleetnodegateway.v1.FleetNodePairResult.outcome:type_name -> fleetnodegateway.v1.PairOutcome
 	19, // 9: fleetnodegateway.v1.FleetNodePairResult.used_credentials:type_name -> fleetnodegateway.v1.UsedCredentials
-	18, // 10: fleetnodegateway.v1.ReportPairedDevicesRequest.results:type_name -> fleetnodegateway.v1.FleetNodePairResult
-	24, // 11: fleetnodegateway.v1.ControlStreamRequest.hello:type_name -> fleetnodegateway.v1.ControlHello
-	38, // 12: fleetnodegateway.v1.ControlStreamRequest.ack:type_name -> fleetnodegateway.v1.ControlAck
-	25, // 13: fleetnodegateway.v1.ControlStreamResponse.accepted:type_name -> fleetnodegateway.v1.ControlAccepted
-	26, // 14: fleetnodegateway.v1.ControlStreamResponse.command:type_name -> fleetnodegateway.v1.ControlCommand
-	39, // 15: fleetnodegateway.v1.ControlAccepted.server_time:type_name -> google.protobuf.Timestamp
-	27, // 16: fleetnodegateway.v1.MinerCommand.target:type_name -> fleetnodegateway.v1.MinerConnectionDescriptor
-	29, // 17: fleetnodegateway.v1.MinerCommand.reboot:type_name -> fleetnodegateway.v1.RebootAction
-	30, // 18: fleetnodegateway.v1.MinerCommand.start_mining:type_name -> fleetnodegateway.v1.StartMiningAction
-	31, // 19: fleetnodegateway.v1.MinerCommand.stop_mining:type_name -> fleetnodegateway.v1.StopMiningAction
-	32, // 20: fleetnodegateway.v1.MinerCommand.blink_led:type_name -> fleetnodegateway.v1.BlinkLedAction
-	34, // 21: fleetnodegateway.v1.MinerCommand.curtail:type_name -> fleetnodegateway.v1.CurtailAction
-	33, // 22: fleetnodegateway.v1.MinerCommand.uncurtail:type_name -> fleetnodegateway.v1.UncurtailAction
-	35, // 23: fleetnodegateway.v1.MinerCommand.set_cooling_mode:type_name -> fleetnodegateway.v1.SetCoolingModeAction
-	36, // 24: fleetnodegateway.v1.MinerCommand.set_power_target:type_name -> fleetnodegateway.v1.SetPowerTargetAction
-	40, // 25: fleetnodegateway.v1.CurtailAction.level:type_name -> curtailment.v1.CurtailmentLevel
-	41, // 26: fleetnodegateway.v1.SetCoolingModeAction.mode:type_name -> common.v1.CoolingMode
-	42, // 27: fleetnodegateway.v1.SetPowerTargetAction.performance_mode:type_name -> minercommand.v1.PerformanceMode
-	43, // 28: fleetnodegateway.v1.AgentCommand.discover:type_name -> pairing.v1.DiscoverRequest
-	44, // 29: fleetnodegateway.v1.AgentCommand.pair:type_name -> pairing.v1.FleetNodePairRequest
-	28, // 30: fleetnodegateway.v1.AgentCommand.miner_command:type_name -> fleetnodegateway.v1.MinerCommand
-	2,  // 31: fleetnodegateway.v1.ControlAck.code:type_name -> fleetnodegateway.v1.AckCode
-	3,  // 32: fleetnodegateway.v1.FleetNodeGatewayService.Register:input_type -> fleetnodegateway.v1.RegisterRequest
-	5,  // 33: fleetnodegateway.v1.FleetNodeGatewayService.BeginAuthHandshake:input_type -> fleetnodegateway.v1.BeginAuthHandshakeRequest
-	7,  // 34: fleetnodegateway.v1.FleetNodeGatewayService.CompleteAuthHandshake:input_type -> fleetnodegateway.v1.CompleteAuthHandshakeRequest
-	9,  // 35: fleetnodegateway.v1.FleetNodeGatewayService.UploadTelemetry:input_type -> fleetnodegateway.v1.UploadTelemetryRequest
-	11, // 36: fleetnodegateway.v1.FleetNodeGatewayService.UploadEvents:input_type -> fleetnodegateway.v1.UploadEventsRequest
-	13, // 37: fleetnodegateway.v1.FleetNodeGatewayService.UploadHeartbeat:input_type -> fleetnodegateway.v1.UploadHeartbeatRequest
-	15, // 38: fleetnodegateway.v1.FleetNodeGatewayService.ReportDiscoveredDevices:input_type -> fleetnodegateway.v1.ReportDiscoveredDevicesRequest
-	20, // 39: fleetnodegateway.v1.FleetNodeGatewayService.ReportPairedDevices:input_type -> fleetnodegateway.v1.ReportPairedDevicesRequest
-	22, // 40: fleetnodegateway.v1.FleetNodeGatewayService.ControlStream:input_type -> fleetnodegateway.v1.ControlStreamRequest
-	4,  // 41: fleetnodegateway.v1.FleetNodeGatewayService.Register:output_type -> fleetnodegateway.v1.RegisterResponse
-	6,  // 42: fleetnodegateway.v1.FleetNodeGatewayService.BeginAuthHandshake:output_type -> fleetnodegateway.v1.BeginAuthHandshakeResponse
-	8,  // 43: fleetnodegateway.v1.FleetNodeGatewayService.CompleteAuthHandshake:output_type -> fleetnodegateway.v1.CompleteAuthHandshakeResponse
-	10, // 44: fleetnodegateway.v1.FleetNodeGatewayService.UploadTelemetry:output_type -> fleetnodegateway.v1.UploadTelemetryResponse
-	12, // 45: fleetnodegateway.v1.FleetNodeGatewayService.UploadEvents:output_type -> fleetnodegateway.v1.UploadEventsResponse
-	14, // 46: fleetnodegateway.v1.FleetNodeGatewayService.UploadHeartbeat:output_type -> fleetnodegateway.v1.UploadHeartbeatResponse
-	17, // 47: fleetnodegateway.v1.FleetNodeGatewayService.ReportDiscoveredDevices:output_type -> fleetnodegateway.v1.ReportDiscoveredDevicesResponse
-	21, // 48: fleetnodegateway.v1.FleetNodeGatewayService.ReportPairedDevices:output_type -> fleetnodegateway.v1.ReportPairedDevicesResponse
-	23, // 49: fleetnodegateway.v1.FleetNodeGatewayService.ControlStream:output_type -> fleetnodegateway.v1.ControlStreamResponse
-	41, // [41:50] is the sub-list for method output_type
-	32, // [32:41] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	20, // 10: fleetnodegateway.v1.FleetNodePairResult.encrypted_credentials:type_name -> fleetnodegateway.v1.EncryptedCredentials
+	18, // 11: fleetnodegateway.v1.ReportPairedDevicesRequest.results:type_name -> fleetnodegateway.v1.FleetNodePairResult
+	25, // 12: fleetnodegateway.v1.ControlStreamRequest.hello:type_name -> fleetnodegateway.v1.ControlHello
+	39, // 13: fleetnodegateway.v1.ControlStreamRequest.ack:type_name -> fleetnodegateway.v1.ControlAck
+	26, // 14: fleetnodegateway.v1.ControlStreamResponse.accepted:type_name -> fleetnodegateway.v1.ControlAccepted
+	27, // 15: fleetnodegateway.v1.ControlStreamResponse.command:type_name -> fleetnodegateway.v1.ControlCommand
+	40, // 16: fleetnodegateway.v1.ControlAccepted.server_time:type_name -> google.protobuf.Timestamp
+	28, // 17: fleetnodegateway.v1.MinerCommand.target:type_name -> fleetnodegateway.v1.MinerConnectionDescriptor
+	30, // 18: fleetnodegateway.v1.MinerCommand.reboot:type_name -> fleetnodegateway.v1.RebootAction
+	31, // 19: fleetnodegateway.v1.MinerCommand.start_mining:type_name -> fleetnodegateway.v1.StartMiningAction
+	32, // 20: fleetnodegateway.v1.MinerCommand.stop_mining:type_name -> fleetnodegateway.v1.StopMiningAction
+	33, // 21: fleetnodegateway.v1.MinerCommand.blink_led:type_name -> fleetnodegateway.v1.BlinkLedAction
+	35, // 22: fleetnodegateway.v1.MinerCommand.curtail:type_name -> fleetnodegateway.v1.CurtailAction
+	34, // 23: fleetnodegateway.v1.MinerCommand.uncurtail:type_name -> fleetnodegateway.v1.UncurtailAction
+	36, // 24: fleetnodegateway.v1.MinerCommand.set_cooling_mode:type_name -> fleetnodegateway.v1.SetCoolingModeAction
+	37, // 25: fleetnodegateway.v1.MinerCommand.set_power_target:type_name -> fleetnodegateway.v1.SetPowerTargetAction
+	41, // 26: fleetnodegateway.v1.CurtailAction.level:type_name -> curtailment.v1.CurtailmentLevel
+	42, // 27: fleetnodegateway.v1.SetCoolingModeAction.mode:type_name -> common.v1.CoolingMode
+	43, // 28: fleetnodegateway.v1.SetPowerTargetAction.performance_mode:type_name -> minercommand.v1.PerformanceMode
+	44, // 29: fleetnodegateway.v1.AgentCommand.discover:type_name -> pairing.v1.DiscoverRequest
+	45, // 30: fleetnodegateway.v1.AgentCommand.pair:type_name -> pairing.v1.FleetNodePairRequest
+	29, // 31: fleetnodegateway.v1.AgentCommand.miner_command:type_name -> fleetnodegateway.v1.MinerCommand
+	2,  // 32: fleetnodegateway.v1.ControlAck.code:type_name -> fleetnodegateway.v1.AckCode
+	3,  // 33: fleetnodegateway.v1.FleetNodeGatewayService.Register:input_type -> fleetnodegateway.v1.RegisterRequest
+	5,  // 34: fleetnodegateway.v1.FleetNodeGatewayService.BeginAuthHandshake:input_type -> fleetnodegateway.v1.BeginAuthHandshakeRequest
+	7,  // 35: fleetnodegateway.v1.FleetNodeGatewayService.CompleteAuthHandshake:input_type -> fleetnodegateway.v1.CompleteAuthHandshakeRequest
+	9,  // 36: fleetnodegateway.v1.FleetNodeGatewayService.UploadTelemetry:input_type -> fleetnodegateway.v1.UploadTelemetryRequest
+	11, // 37: fleetnodegateway.v1.FleetNodeGatewayService.UploadEvents:input_type -> fleetnodegateway.v1.UploadEventsRequest
+	13, // 38: fleetnodegateway.v1.FleetNodeGatewayService.UploadHeartbeat:input_type -> fleetnodegateway.v1.UploadHeartbeatRequest
+	15, // 39: fleetnodegateway.v1.FleetNodeGatewayService.ReportDiscoveredDevices:input_type -> fleetnodegateway.v1.ReportDiscoveredDevicesRequest
+	21, // 40: fleetnodegateway.v1.FleetNodeGatewayService.ReportPairedDevices:input_type -> fleetnodegateway.v1.ReportPairedDevicesRequest
+	23, // 41: fleetnodegateway.v1.FleetNodeGatewayService.ControlStream:input_type -> fleetnodegateway.v1.ControlStreamRequest
+	4,  // 42: fleetnodegateway.v1.FleetNodeGatewayService.Register:output_type -> fleetnodegateway.v1.RegisterResponse
+	6,  // 43: fleetnodegateway.v1.FleetNodeGatewayService.BeginAuthHandshake:output_type -> fleetnodegateway.v1.BeginAuthHandshakeResponse
+	8,  // 44: fleetnodegateway.v1.FleetNodeGatewayService.CompleteAuthHandshake:output_type -> fleetnodegateway.v1.CompleteAuthHandshakeResponse
+	10, // 45: fleetnodegateway.v1.FleetNodeGatewayService.UploadTelemetry:output_type -> fleetnodegateway.v1.UploadTelemetryResponse
+	12, // 46: fleetnodegateway.v1.FleetNodeGatewayService.UploadEvents:output_type -> fleetnodegateway.v1.UploadEventsResponse
+	14, // 47: fleetnodegateway.v1.FleetNodeGatewayService.UploadHeartbeat:output_type -> fleetnodegateway.v1.UploadHeartbeatResponse
+	17, // 48: fleetnodegateway.v1.FleetNodeGatewayService.ReportDiscoveredDevices:output_type -> fleetnodegateway.v1.ReportDiscoveredDevicesResponse
+	22, // 49: fleetnodegateway.v1.FleetNodeGatewayService.ReportPairedDevices:output_type -> fleetnodegateway.v1.ReportPairedDevicesResponse
+	24, // 50: fleetnodegateway.v1.FleetNodeGatewayService.ControlStream:output_type -> fleetnodegateway.v1.ControlStreamResponse
+	42, // [42:51] is the sub-list for method output_type
+	33, // [33:42] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_fleetnodegateway_v1_fleetnodegateway_proto_init() }
@@ -3037,15 +3129,15 @@ func file_fleetnodegateway_v1_fleetnodegateway_proto_init() {
 		return
 	}
 	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[15].OneofWrappers = []any{}
-	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[19].OneofWrappers = []any{
+	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[20].OneofWrappers = []any{
 		(*ControlStreamRequest_Hello)(nil),
 		(*ControlStreamRequest_Ack)(nil),
 	}
-	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[20].OneofWrappers = []any{
+	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[21].OneofWrappers = []any{
 		(*ControlStreamResponse_Accepted)(nil),
 		(*ControlStreamResponse_Command)(nil),
 	}
-	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[25].OneofWrappers = []any{
+	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[26].OneofWrappers = []any{
 		(*MinerCommand_Reboot)(nil),
 		(*MinerCommand_StartMining)(nil),
 		(*MinerCommand_StopMining)(nil),
@@ -3055,7 +3147,7 @@ func file_fleetnodegateway_v1_fleetnodegateway_proto_init() {
 		(*MinerCommand_SetCoolingMode)(nil),
 		(*MinerCommand_SetPowerTarget)(nil),
 	}
-	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[34].OneofWrappers = []any{
+	file_fleetnodegateway_v1_fleetnodegateway_proto_msgTypes[35].OneofWrappers = []any{
 		(*AgentCommand_Discover)(nil),
 		(*AgentCommand_Pair)(nil),
 		(*AgentCommand_MinerCommand)(nil),
@@ -3066,7 +3158,7 @@ func file_fleetnodegateway_v1_fleetnodegateway_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_fleetnodegateway_v1_fleetnodegateway_proto_rawDesc), len(file_fleetnodegateway_v1_fleetnodegateway_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   36,
+			NumMessages:   37,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -47,12 +47,15 @@ SELECT
     dd.driver_name,
     dd.ip_address,
     dd.port,
-    dd.url_scheme
+    dd.url_scheme,
+    decode(mc.username_enc, 'base64') AS encrypted_username,
+    decode(mc.password_enc, 'base64') AS encrypted_password
 FROM fleet_node_device fnd
 JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
 JOIN device_pairing dp ON dp.device_id = d.id
 JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
+LEFT JOIN miner_credentials mc ON mc.device_id = d.id
 WHERE d.device_identifier = $1
     AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
     AND fn.deleted_at IS NULL

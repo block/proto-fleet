@@ -50,12 +50,17 @@ type pairer interface {
 	Pair(ctx context.Context, target *pairingpb.FleetNodePairTarget, creds *pairingpb.Credentials) *pb.FleetNodePairResult
 }
 
-type pluginPairer struct {
-	manager *plugins.Manager
+type credentialSealer interface {
+	Seal(bundle sdk.SecretBundle) (*pb.EncryptedCredentials, error)
 }
 
-func newPluginPairer(manager *plugins.Manager) *pluginPairer {
-	return &pluginPairer{manager: manager}
+type pluginPairer struct {
+	manager     *plugins.Manager
+	credentials credentialSealer
+}
+
+func newPluginPairer(manager *plugins.Manager, credentials credentialSealer) *pluginPairer {
+	return &pluginPairer{manager: manager, credentials: credentials}
 }
 
 func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePairTarget, creds *pairingpb.Credentials) *pb.FleetNodePairResult {
@@ -88,13 +93,20 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 			res.ErrorMessage = "supplied credentials exceed the maximum reportable size"
 			return res
 		}
+		used, encrypted, err := p.credentialReport(bundle, &pb.UsedCredentials{Username: creds.GetUsername(), Password: creds.GetPassword()})
+		if err != nil {
+			res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
+			res.ErrorMessage = truncateUTF8(fmt.Sprintf("encrypt credentials: %v", err), maxAckErrorMessageBytes)
+			return res
+		}
 		updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
 		if pairErr != nil {
 			classifyNodePairError(pairErr, res)
 			return res
 		}
 		setPaired(res, updated)
-		res.UsedCredentials = &pb.UsedCredentials{Username: creds.GetUsername(), Password: creds.GetPassword()}
+		res.UsedCredentials = used
+		res.EncryptedCredentials = encrypted
 		return res
 	}
 
@@ -105,6 +117,12 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 				continue
 			}
 			bundle := sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: c.Username, Password: c.Password}}
+			used, encrypted, err := p.credentialReport(bundle, &pb.UsedCredentials{Username: c.Username, Password: c.Password})
+			if err != nil {
+				res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
+				res.ErrorMessage = truncateUTF8(fmt.Sprintf("encrypt credentials: %v", err), maxAckErrorMessageBytes)
+				return res
+			}
 			updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
 			if pairErr != nil {
 				if isNodeAuthFailure(pairErr) {
@@ -114,7 +132,8 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 				return res
 			}
 			setPaired(res, updated)
-			res.UsedCredentials = &pb.UsedCredentials{Username: c.Username, Password: c.Password}
+			res.UsedCredentials = used
+			res.EncryptedCredentials = encrypted
 			return res
 		}
 	}
@@ -122,6 +141,20 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 	res.Outcome = pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED
 	res.ErrorMessage = "credentials required for pairing"
 	return res
+}
+
+func (p *pluginPairer) credentialReport(bundle sdk.SecretBundle, used *pb.UsedCredentials) (*pb.UsedCredentials, *pb.EncryptedCredentials, error) {
+	if p.credentials == nil {
+		return used, nil, nil
+	}
+	encrypted, err := p.credentials.Seal(bundle)
+	if err != nil {
+		return nil, nil, err
+	}
+	if encrypted == nil {
+		return used, nil, nil
+	}
+	return nil, encrypted, nil
 }
 
 // secretBundleFor returns the supplied username/password bundle. ok is false

@@ -3,6 +3,7 @@ package pairing_test
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"testing"
 
@@ -75,6 +76,22 @@ func hasMinerCredentials(t *testing.T, db *sql.DB, orgID int64, identifier strin
 	return n > 0
 }
 
+func fleetNodeEncryptedCredentials(t *testing.T, db *sql.DB, orgID int64, identifier string) (username, password []byte) {
+	t.Helper()
+	var usernameEnc, passwordEnc string
+	require.NoError(t, db.QueryRow(
+		`SELECT mc.username_enc, mc.password_enc FROM device d
+		 JOIN miner_credentials mc ON mc.device_id = d.id
+		 WHERE d.device_identifier=$1 AND d.org_id=$2`,
+		identifier, orgID,
+	).Scan(&usernameEnc, &passwordEnc))
+	username, err := base64.StdEncoding.DecodeString(usernameEnc)
+	require.NoError(t, err)
+	password, err = base64.StdEncoding.DecodeString(passwordEnc)
+	require.NoError(t, err)
+	return username, password
+}
+
 func deviceExists(t *testing.T, db *sql.DB, orgID int64, identifier string) bool {
 	t.Helper()
 	var n int
@@ -124,6 +141,31 @@ func TestPersistFleetNodePairResult_PairedBasicAuthStoresCredentials(t *testing.
 	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, "mac:p-basic"))
 	assert.True(t, deviceBoundToNode(t, db, orgID, node, "mac:p-basic"))
 	assert.True(t, hasMinerCredentials(t, db, orgID, "mac:p-basic"), "basic-auth credentials must be stored encrypted")
+}
+
+func TestPersistFleetNodePairResult_StoresFleetNodeEncryptedCredentialsInMinerCredentials(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-persist-node-encrypted")
+	identifier := "mac:p-node-encrypted"
+	upsertNodeDiscovered(t, pairing, orgID, node, identifier)
+	encryptedUsername := []byte("node-owned-username-ciphertext")
+	encryptedPassword := []byte("node-owned-password-ciphertext")
+	result := pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
+	result.UsedCredentials = &gatewaypb.UsedCredentials{Username: "root", Password: "hunter2"}
+	result.EncryptedCredentials = &gatewaypb.EncryptedCredentials{Username: encryptedUsername, Password: encryptedPassword}
+	assignedBy := int64(1)
+
+	// Act
+	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, fleetnodepairing.StatusPaired, status)
+	username, password := fleetNodeEncryptedCredentials(t, db, orgID, identifier)
+	assert.Equal(t, encryptedUsername, username)
+	assert.Equal(t, encryptedPassword, password)
 }
 
 func TestPersistFleetNodePairResult_StoresNodeReportedDefaultCredentials(t *testing.T) {

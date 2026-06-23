@@ -17,6 +17,7 @@ type State struct {
 	IdentityFingerprint    string    `yaml:"identity_fingerprint"`
 	IdentityPrivateKeyHex  string    `yaml:"identity_private_key_hex"`
 	IdentityPublicKeyHex   string    `yaml:"identity_public_key_hex"`
+	CredentialKeyHex       string    `yaml:"credential_key_hex,omitempty"`
 	APIKey                 string    `yaml:"api_key,omitempty"`
 	SessionToken           string    `yaml:"session_token,omitempty"`
 	SessionExpiresAt       time.Time `yaml:"session_expires_at,omitempty"`

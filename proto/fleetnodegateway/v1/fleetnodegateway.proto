@@ -173,6 +173,11 @@ message FleetNodePairResult {
     // password is still active. Cloud stores the pairing as DEFAULT_PASSWORD so
     // operators can remediate it from the security flow.
     optional bool default_password_active = 12;
+    // The credentials the node authenticated with, encrypted by the fleet node
+    // under its local credential key. Cloud stores the fields in miner_credentials
+    // and returns them in pairing.v1.MinerConnectionDescriptor for node-side
+    // command execution.
+    EncryptedCredentials encrypted_credentials = 13;
 }
 
 // UsedCredentials carries the basic-auth credentials a node authenticated with,
@@ -182,6 +187,11 @@ message FleetNodePairResult {
 message UsedCredentials {
     string username = 1 [(buf.validate.field).string.max_len = 255];
     string password = 2 [(buf.validate.field).string.max_len = 1024];
+}
+
+message EncryptedCredentials {
+    bytes username = 1 [(buf.validate.field).bytes.max_len = 4096];
+    bytes password = 2 [(buf.validate.field).bytes.max_len = 4096];
 }
 
 message ReportPairedDevicesRequest {
@@ -244,10 +254,12 @@ message MinerConnectionDescriptor {
     string url_scheme = 5 [(buf.validate.field).string.max_len = 32];
     string serial_number = 6 [(buf.validate.field).string.max_len = 255];
     string mac_address = 7 [(buf.validate.field).string.max_len = 255];
-    // Opaque, encrypted miner credential the node decrypts just-in-time with its
-    // per-org key (empty for no-secret drivers like the virtual driver). The cloud
-    // never ships plaintext down the stream; see RFC 0001.
-    bytes credential = 8 [(buf.validate.field).bytes.max_len = 8192];
+    // Miner username/password, encrypted separately by the fleet node and decrypted
+    // just-in-time with its local credential key (empty for no-secret drivers like
+    // the virtual driver). The cloud never ships plaintext down the stream; see RFC
+    // 0001.
+    bytes credential_username = 8 [(buf.validate.field).bytes.max_len = 4096];
+    bytes credential_password = 9 [(buf.validate.field).bytes.max_len = 4096];
 }
 
 // MinerCommand is one operator command targeting a single fleet-node-paired miner.

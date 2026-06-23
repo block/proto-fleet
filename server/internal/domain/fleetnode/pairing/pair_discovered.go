@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"context"
+	"encoding/base64"
 	"log/slog"
 
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -287,7 +288,11 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			return err
 		}
 		boundDeviceID = deviceID
-		if creds := nodeUsedCredentials(result); creds != nil {
+		if encrypted := result.GetEncryptedCredentials(); encrypted != nil {
+			if err := s.saveFleetNodeEncryptedCredentials(ctx, &dd.Device, orgID, encrypted); err != nil {
+				return err
+			}
+		} else if creds := nodeUsedCredentials(result); creds != nil {
 			if err := s.saveMinerCredentials(ctx, &dd.Device, orgID, creds); err != nil {
 				return err
 			}
@@ -343,8 +348,18 @@ func (s *Service) saveMinerCredentials(ctx context.Context, device *pairingpb.De
 	if err != nil {
 		return fleeterror.NewInternalErrorf("encrypt password: %v", err)
 	}
-	if err := s.deviceStore.UpsertMinerCredentials(ctx, device, orgID, encUser, secrets.NewText(encPass)); err != nil {
-		return fleeterror.LogInternal(component, "save credentials", clientErrPair, err)
+	return s.upsertMinerCredentialStrings(ctx, device, orgID, encUser, encPass, "save credentials")
+}
+
+func (s *Service) saveFleetNodeEncryptedCredentials(ctx context.Context, device *pairingpb.Device, orgID int64, encrypted *gatewaypb.EncryptedCredentials) error {
+	encodedUsername := base64.StdEncoding.EncodeToString(encrypted.GetUsername())
+	encodedPassword := base64.StdEncoding.EncodeToString(encrypted.GetPassword())
+	return s.upsertMinerCredentialStrings(ctx, device, orgID, encodedUsername, encodedPassword, "save fleet node credentials")
+}
+
+func (s *Service) upsertMinerCredentialStrings(ctx context.Context, device *pairingpb.Device, orgID int64, username, password, operation string) error {
+	if err := s.deviceStore.UpsertMinerCredentials(ctx, device, orgID, username, secrets.NewText(password)); err != nil {
+		return fleeterror.LogInternal(component, operation, clientErrPair, err)
 	}
 	return nil
 }

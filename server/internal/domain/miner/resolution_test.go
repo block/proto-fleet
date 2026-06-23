@@ -2,12 +2,15 @@ package miner_test
 
 import (
 	"context"
+	"encoding/base64"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -17,11 +20,22 @@ import (
 
 type fakeCommandSender struct {
 	called bool
+	cmd    *gatewaypb.ControlCommand
 }
 
-func (f *fakeCommandSender) SendCommand(_ context.Context, _ int64, _ *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+func (f *fakeCommandSender) SendCommand(_ context.Context, _ int64, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 	f.called = true
+	f.cmd = cmd
 	return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}, nil
+}
+
+func sentMinerCommand(t *testing.T, sender *fakeCommandSender) *pairingpb.MinerCommand {
+	t.Helper()
+	require.NotNil(t, sender.cmd)
+	var env pairingpb.AgentCommand
+	require.NoError(t, proto.Unmarshal(sender.cmd.GetPayload(), &env))
+	require.NotNil(t, env.GetMinerCommand())
+	return env.GetMinerCommand()
 }
 
 // TestMinerService_ResolvesFleetNodePairedDeviceToRemoteMiner verifies that a device
@@ -63,6 +77,52 @@ func TestMinerService_ResolvesFleetNodePairedDeviceToRemoteMiner(t *testing.T) {
 
 	require.NoError(t, m.Reboot(t.Context()))
 	assert.True(t, sender.called, "command should dispatch over the ControlStream sender")
+}
+
+func TestMinerService_RoutesFleetNodeEncryptedCredentialsFromMinerCredentials(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange
+	db, encryptService, filesService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
+	deviceIdentifier := "fleetnode-routed-with-credentials"
+	deviceID := createTestDevice(t, db, deviceIdentifier)
+	encryptedUsername := []byte("node-owned-username-ciphertext")
+	encryptedPassword := []byte("node-owned-password-ciphertext")
+
+	var fleetNodeID int64
+	require.NoError(t, db.QueryRow(
+		`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
+		 VALUES (1, $1, $2, 'CONFIRMED') RETURNING id`,
+		"test-fleet-node-credentials", []byte("identity-pubkey-credentials"),
+	).Scan(&fleetNodeID))
+	_, err := db.Exec(
+		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
+		fleetNodeID, deviceID)
+	require.NoError(t, err)
+	_, err = db.Exec(
+		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		 VALUES ($1, $2, $3)`,
+		deviceID,
+		base64.StdEncoding.EncodeToString(encryptedUsername),
+		base64.StdEncoding.EncodeToString(encryptedPassword))
+	require.NoError(t, err)
+
+	sender := &fakeCommandSender{}
+	svc := miner.NewMinerService(db, userStore, encryptService, filesService, &fakePluginManager{driverName: "antminer"}).
+		WithCommandSender(sender)
+
+	// Act
+	m, err := svc.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(deviceIdentifier))
+	require.NoError(t, err)
+	require.NoError(t, m.Reboot(t.Context()))
+
+	// Assert
+	target := sentMinerCommand(t, sender).GetTarget()
+	assert.Equal(t, encryptedUsername, target.GetCredentialUsername())
+	assert.Equal(t, encryptedPassword, target.GetCredentialPassword())
 }
 
 // TestMinerService_DoesNotRouteUnpairedFleetNodeBoundDevice verifies that a device

@@ -144,7 +144,11 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	// children mid-startup.
 	if resolvedPluginsDir != "" {
 		reapOrphanedPlugins(ctx, resolvedPluginsDir, logger)
-		disc, prr, cleanup, bootstrapErr := newPluginComponents(ctx, resolvedPluginsDir, st.FleetNodeID)
+		credentials, credentialErr := ensureCredentialCodec(path, st)
+		if credentialErr != nil {
+			return fmt.Errorf("prepare credential key: %w", credentialErr)
+		}
+		disc, prr, cleanup, bootstrapErr := newPluginComponents(ctx, resolvedPluginsDir, st.FleetNodeID, credentials)
 		if bootstrapErr != nil {
 			return fmt.Errorf("bootstrap plugins: %w", bootstrapErr)
 		}
@@ -156,7 +160,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 			r.driverGetter = disc.svc.GetManager()
 		}
 		if r.minerSecrets == nil {
-			r.minerSecrets = nodeSecretProvider{}
+			r.minerSecrets = credentials
 		}
 		r.pairer = prr
 	}
