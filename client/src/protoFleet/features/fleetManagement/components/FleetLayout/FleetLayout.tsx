@@ -110,7 +110,7 @@ const FleetLayout = () => {
 
   const sitesAccessBlocked = !canReadSites || sitesPermissionDenied;
   const siteCatalogAccessGranted = canReadSites && sitesLoaded && !sitesPermissionDenied;
-  const canReadRacksTab = canReadRacks && !sitesAccessBlocked;
+  const canReadRacksTab = canReadRacks;
   const canReadMinersTab = canReadMiners && canReadRacks && canReadFleet;
 
   // Source of truth for "which tabs are reachable right now." Hide-rule
@@ -129,7 +129,8 @@ const FleetLayout = () => {
   );
 
   // Fallbacks must come from visibleTabs so roles don't get redirected into
-  // tabs whose startup RPCs they cannot call.
+  // tabs whose required RPCs they cannot call. Racks stays reachable without
+  // site catalog access; its site/building metadata degrades separately.
   const fallbackTab = visibleTabs[0];
   const usableLastTab = lastTab && visibleTabs.includes(lastTab) ? lastTab : undefined;
   const targetTab = usableLastTab ?? fallbackTab;

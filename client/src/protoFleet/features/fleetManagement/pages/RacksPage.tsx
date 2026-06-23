@@ -119,6 +119,7 @@ const RacksPage = () => {
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
   const { listAllBuildings, assignRacksToBuilding } = useBuildings();
   const canEditRack = useHasPermission("rack:manage");
+  const canReadSiteCatalog = useHasPermission("site:read");
   // Both "Add to building" and "Add to site" reparent actions are gated
   // by site:manage (server enforces the same). One flag, two actions.
   const canManageSitePlacement = useHasPermission("site:manage");
@@ -366,6 +367,8 @@ const RacksPage = () => {
 
   // One-shot load — org-scoped buildings are small + stable.
   useEffect(() => {
+    if (!canReadSiteCatalog) return;
+
     const controller = new AbortController();
     void listAllBuildings({
       signal: controller.signal,
@@ -382,9 +385,11 @@ const RacksPage = () => {
       },
     });
     return () => controller.abort();
-  }, [listAllBuildings]);
+  }, [canReadSiteCatalog, listAllBuildings]);
 
   useEffect(() => {
+    if (!canReadSiteCatalog) return;
+
     const controller = new AbortController();
     void listSites({
       signal: controller.signal,
@@ -396,7 +401,7 @@ const RacksPage = () => {
       onError: () => setAllSites((prev) => prev),
     });
     return () => controller.abort();
-  }, [listSites]);
+  }, [canReadSiteCatalog, listSites]);
 
   const siteNameById = useMemo(() => new Map((allSites ?? []).map((s) => [s.id, s.label])), [allSites]);
   const buildingNameById = useMemo(() => new Map(allBuildings.map((b) => [b.id, b.label])), [allBuildings]);

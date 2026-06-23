@@ -182,24 +182,24 @@ describe("FleetLayout lastTab persistence", () => {
 });
 
 describe("FleetLayout scoped-permission fallback", () => {
-  test("falls back to Miners when listSites returns PermissionDenied", async () => {
+  test("falls back to Racks when listSites returns PermissionDenied", async () => {
     // Keep the runtime PermissionDenied fallback for stale sessions or
     // server-side authz changes that can still deny the org-scoped ListSites
-    // call after the client gate passes. Racks also needs site metadata at
-    // startup, so Miners is the first safe fallback when its dependencies pass.
+    // call after the client gate passes. Racks can still list without site
+    // catalog metadata, so it remains the first visible Fleet tab.
     listSitesMock.mockImplementation(async ({ onError }) => {
       onError?.("access denied", Code.PermissionDenied);
     });
     renderAt("/fleet");
-    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks"));
   });
 
-  test("ignores stored lastTab=racks when site access is blocked", async () => {
+  test("keeps stored lastTab=racks when site access is blocked", async () => {
     localStorage.setItem("fleet:lastActiveTab", JSON.stringify("racks"));
     hasPermissionMock.current = (key: string) => key !== "site:read";
     renderAt("/fleet");
-    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
-    expect(screen.queryByTestId("tab-content-racks")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks"));
+    expect(screen.getByTestId("tab-content-racks")).toBeInTheDocument();
   });
 
   test("does not mount a Fleet tab when no org-scoped Fleet read permissions are held", async () => {
@@ -213,15 +213,13 @@ describe("FleetLayout scoped-permission fallback", () => {
     expect(screen.queryByTestId("tab-content-racks")).not.toBeInTheDocument();
   });
 
-  test("does not mount Racks for rack-only roles without site metadata access", async () => {
+  test("mounts Racks for rack-only roles without site metadata access", async () => {
     hasPermissionMock.current = (key: string) => key === "rack:read";
 
     renderAt("/fleet");
 
-    await waitFor(() => {
-      expect(screen.getByText("You do not have permission to view Fleet sections.")).toBeInTheDocument();
-    });
-    expect(screen.queryByTestId("tab-content-racks")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks"));
+    expect(screen.getByTestId("tab-content-racks")).toBeInTheDocument();
   });
 
   test("does not mount Miners until its startup RPC permissions are held", async () => {
@@ -235,10 +233,10 @@ describe("FleetLayout scoped-permission fallback", () => {
     expect(screen.queryByTestId("tab-content-miners")).not.toBeInTheDocument();
   });
 
-  test("routes to Miners when miner and supporting read permissions are held", async () => {
+  test("mounts Miners when miner and supporting read permissions are held", async () => {
     hasPermissionMock.current = (key: string) => key === "miner:read" || key === "rack:read" || key === "fleet:read";
 
-    renderAt("/fleet");
+    renderAt("/fleet/miners");
 
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
     expect(screen.getByTestId("tab-content-miners")).toBeInTheDocument();
