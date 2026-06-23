@@ -399,6 +399,34 @@ type Building struct {
 	DeletedAt             sql.NullTime
 }
 
+type Cohort struct {
+	ID                     int64
+	OrgID                  int64
+	Label                  string
+	IsDefault              bool
+	OwnerUserID            sql.NullInt64
+	OwnerUsername          sql.NullString
+	ExpiresAt              sql.NullTime
+	DesiredFirmwareChannel sql.NullString
+	DesiredFirmwareFileID  sql.NullString
+	DesiredConfigJsonb     pqtype.NullRawMessage
+	State                  string
+	Purpose                string
+	SourceActorType        string
+	SourceActorID          sql.NullString
+	IdempotencyKey         sql.NullString
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+type CohortMembership struct {
+	CohortID         int64
+	OrgID            int64
+	DeviceIdentifier string
+	SiteID           sql.NullInt64
+	AddedAt          time.Time
+}
+
 type CommandBatchLog struct {
 	ID             int64
 	Uuid           string

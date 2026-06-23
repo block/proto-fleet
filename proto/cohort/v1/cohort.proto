@@ -1,0 +1,230 @@
+syntax = "proto3";
+
+package cohort.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// CohortService manages desired-state cells over exclusive device sets.
+service CohortService {
+    // CreateCohort creates a non-default cohort and optionally inserts its
+    // initial explicit device memberships. Source device-set creation is part
+    // of the API shape but is not implemented until the group bridge phase.
+    rpc CreateCohort(CreateCohortRequest) returns (CreateCohortResponse);
+
+    // UpdateCohort changes operator-owned metadata and desired state.
+    rpc UpdateCohort(UpdateCohortRequest) returns (UpdateCohortResponse);
+
+    // AddDevicesToCohort moves explicit devices into a cohort.
+    rpc AddDevicesToCohort(AddDevicesToCohortRequest) returns (AddDevicesToCohortResponse);
+
+    // RemoveDevicesFromCohort moves explicit devices back to the default cohort.
+    rpc RemoveDevicesFromCohort(RemoveDevicesFromCohortRequest) returns (RemoveDevicesFromCohortResponse);
+
+    // ReleaseCohort releases all members back to default and marks the cohort released.
+    rpc ReleaseCohort(ReleaseCohortRequest) returns (ReleaseCohortResponse);
+
+    // DeleteCohort is the phase-0 administrative soft-delete surface.
+    rpc DeleteCohort(DeleteCohortRequest) returns (DeleteCohortResponse);
+
+    // GetCohort returns a single cohort and its explicit members.
+    rpc GetCohort(GetCohortRequest) returns (GetCohortResponse);
+
+    // ListCohorts lists cohorts for the caller's organization.
+    rpc ListCohorts(ListCohortsRequest) returns (ListCohortsResponse);
+
+    // GetMyCohorts lists cohorts owned by the caller.
+    rpc GetMyCohorts(GetMyCohortsRequest) returns (GetMyCohortsResponse);
+
+    // ListDevices returns devices with their effective cohort and desired state.
+    rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
+
+    // AdminReassign force-moves devices across cohorts.
+    rpc AdminReassign(AdminReassignRequest) returns (AdminReassignResponse);
+
+    // AdminReleaseCohort force-releases another owner's cohort.
+    rpc AdminReleaseCohort(AdminReleaseCohortRequest) returns (AdminReleaseCohortResponse);
+}
+
+enum CohortState {
+    COHORT_STATE_UNSPECIFIED = 0;
+    COHORT_STATE_ACTIVE = 1;
+    COHORT_STATE_RELEASED = 2;
+}
+
+// Cohort is the canonical read shape returned by cohort RPCs.
+message Cohort {
+    int64 id = 1;
+    string label = 2;
+    bool is_default = 3;
+
+    optional int64 owner_user_id = 4;
+    string owner_username = 5;
+    google.protobuf.Timestamp expires_at = 6;
+
+    string desired_firmware_channel = 7;
+    string desired_firmware_file_id = 8;
+    google.protobuf.Struct desired_config = 9;
+
+    CohortState state = 10;
+    string purpose = 11;
+    string source_actor_type = 12;
+    string source_actor_id = 13;
+    string idempotency_key = 14;
+
+    google.protobuf.Timestamp created_at = 20;
+    google.protobuf.Timestamp updated_at = 21;
+
+    repeated CohortMember members = 30;
+    int64 explicit_member_count = 31;
+}
+
+// CohortMember is an explicit non-default cohort membership row. Default
+// cohort membership is sparse and derived from devices without a row here.
+message CohortMember {
+    int64 cohort_id = 1;
+    string device_identifier = 2;
+    optional int64 site_id = 3;
+    google.protobuf.Timestamp added_at = 4;
+}
+
+message CreateCohortRequest {
+    string label = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string purpose = 2 [(buf.validate.field).string = {min_len: 1, max_len: 1024}];
+
+    // claim_ownership stamps owner_user_id/owner_username from the caller.
+    // A request with expires_at also claims ownership.
+    bool claim_ownership = 3;
+    google.protobuf.Timestamp expires_at = 4;
+
+    string desired_firmware_channel = 5 [(buf.validate.field).string.max_len = 128];
+    string desired_firmware_file_id = 6 [(buf.validate.field).string.max_len = 255];
+    google.protobuf.Struct desired_config = 7;
+
+    repeated string device_identifiers = 8 [(buf.validate.field).repeated = {
+        max_items: 10000
+        items: {string: {min_len: 1, max_len: 256}}
+    }];
+    optional int64 source_device_set_id = 9 [(buf.validate.field).int64.gt = 0];
+    string idempotency_key = 10 [(buf.validate.field).string.max_len = 255];
+}
+
+message CreateCohortResponse {
+    Cohort cohort = 1;
+}
+
+message UpdateCohortRequest {
+    int64 cohort_id = 1 [(buf.validate.field).int64.gt = 0];
+    string label = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string purpose = 3 [(buf.validate.field).string = {min_len: 1, max_len: 1024}];
+    google.protobuf.Timestamp expires_at = 4;
+    string desired_firmware_channel = 5 [(buf.validate.field).string.max_len = 128];
+    string desired_firmware_file_id = 6 [(buf.validate.field).string.max_len = 255];
+    google.protobuf.Struct desired_config = 7;
+}
+
+message UpdateCohortResponse {
+    Cohort cohort = 1;
+}
+
+message AddDevicesToCohortRequest {
+    int64 cohort_id = 1 [(buf.validate.field).int64.gt = 0];
+    repeated string device_identifiers = 2 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 10000
+        items: {string: {min_len: 1, max_len: 256}}
+    }];
+}
+
+message AddDevicesToCohortResponse {
+    Cohort cohort = 1;
+}
+
+message RemoveDevicesFromCohortRequest {
+    int64 cohort_id = 1 [(buf.validate.field).int64.gt = 0];
+    repeated string device_identifiers = 2 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 10000
+        items: {string: {min_len: 1, max_len: 256}}
+    }];
+}
+
+message RemoveDevicesFromCohortResponse {
+    Cohort cohort = 1;
+}
+
+message ReleaseCohortRequest {
+    int64 cohort_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message ReleaseCohortResponse {
+    Cohort cohort = 1;
+}
+
+message DeleteCohortRequest {
+    int64 cohort_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteCohortResponse {
+    Cohort cohort = 1;
+}
+
+message GetCohortRequest {
+    int64 cohort_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetCohortResponse {
+    Cohort cohort = 1;
+}
+
+message ListCohortsRequest {
+    bool include_released = 1;
+}
+
+message ListCohortsResponse {
+    repeated Cohort cohorts = 1;
+}
+
+message GetMyCohortsRequest {
+    bool include_released = 1;
+}
+
+message GetMyCohortsResponse {
+    repeated Cohort cohorts = 1;
+}
+
+message ListDevicesRequest {
+    optional int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message CohortDevice {
+    string device_identifier = 1;
+    optional int64 site_id = 2;
+    Cohort cohort = 3;
+}
+
+message ListDevicesResponse {
+    repeated CohortDevice devices = 1;
+}
+
+message AdminReassignRequest {
+    int64 target_cohort_id = 1 [(buf.validate.field).int64.gt = 0];
+    repeated string device_identifiers = 2 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 10000
+        items: {string: {min_len: 1, max_len: 256}}
+    }];
+}
+
+message AdminReassignResponse {
+    Cohort cohort = 1;
+}
+
+message AdminReleaseCohortRequest {
+    int64 cohort_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message AdminReleaseCohortResponse {
+    Cohort cohort = 1;
+}

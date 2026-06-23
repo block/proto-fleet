@@ -45,6 +45,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/cohort/v1/cohortv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
@@ -69,6 +70,7 @@ import (
 	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
 	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
 	buildingsDomain "github.com/block/proto-fleet/server/internal/domain/buildings"
+	cohortDomain "github.com/block/proto-fleet/server/internal/domain/cohort"
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentDomain "github.com/block/proto-fleet/server/internal/domain/curtailment"
@@ -101,6 +103,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/auth"
 	authzHandler "github.com/block/proto-fleet/server/internal/handlers/authz"
 	buildingsHandler "github.com/block/proto-fleet/server/internal/handlers/buildings"
+	cohortHandler "github.com/block/proto-fleet/server/internal/handlers/cohort"
 	collectionHandler "github.com/block/proto-fleet/server/internal/handlers/collection"
 	"github.com/block/proto-fleet/server/internal/handlers/command"
 	curtailmentHandler "github.com/block/proto-fleet/server/internal/handlers/curtailment"
@@ -167,6 +170,7 @@ var reflectEnabledServices = []string{
 	infrastructurev1connect.InfrastructureServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
 	device_setv1connect.DeviceSetServiceName,
+	cohortv1connect.CohortServiceName,
 }
 
 func start(config *Config) error {
@@ -504,6 +508,8 @@ func start(config *Config) error {
 		curtailmentDomain.WithAuditLogger(activitySvc),
 	)
 	curtailmentResponseProfileSvc := curtailmentDomain.NewResponseProfileService(curtailmentStore)
+	cohortStore := sqlstores.NewSQLCohortStore(conn)
+	cohortSvc := cohortDomain.NewService(cohortStore, cohortDomain.WithAuditLogger(activitySvc))
 
 	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
@@ -680,6 +686,7 @@ func start(config *Config) error {
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
+	mux.Handle(cohortv1connect.NewCohortServiceHandler(cohortHandler.NewHandler(cohortSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))
