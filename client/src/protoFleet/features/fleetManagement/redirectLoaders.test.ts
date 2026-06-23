@@ -49,21 +49,21 @@ describe("redirectLoaders", () => {
     });
 
     test("preserves the stored site scope", async () => {
-      setActiveSite({ kind: "site", id: "7" });
+      setActiveSite({ kind: "site", id: "7", slug: "north" });
       const response = await invoke(minersRedirectLoader, "http://localhost/miners?filter=fans");
-      expect(response.headers.get("Location")).toBe("/7/fleet/miners?filter=fans");
+      expect(response.headers.get("Location")).toBe("/north/fleet/miners?filter=fans");
     });
 
     test("keeps explicit site filters in all-sites scope", async () => {
-      setActiveSite({ kind: "site", id: "7" });
+      setActiveSite({ kind: "site", id: "7", slug: "north" });
       const response = await invoke(minersRedirectLoader, "http://localhost/miners?site=8&filter=fans");
       expect(response.headers.get("Location")).toBe("/fleet/miners?site=8&filter=fans");
     });
 
     test("preserves stored scope when site filter params are malformed", async () => {
-      setActiveSite({ kind: "site", id: "7" });
+      setActiveSite({ kind: "site", id: "7", slug: "north" });
       const response = await invoke(minersRedirectLoader, "http://localhost/miners?site=abc&filter=fans");
-      expect(response.headers.get("Location")).toBe("/7/fleet/miners?site=abc&filter=fans");
+      expect(response.headers.get("Location")).toBe("/north/fleet/miners?site=abc&filter=fans");
     });
   });
 
@@ -84,13 +84,13 @@ describe("redirectLoaders", () => {
     });
 
     test("keeps explicit site filters in all-sites scope", async () => {
-      setActiveSite({ kind: "site", id: "7" });
+      setActiveSite({ kind: "site", id: "7", slug: "north" });
       const response = await invoke(racksRedirectLoader, "http://localhost/racks?site=8&rack=A-01");
       expect(response.headers.get("Location")).toBe("/fleet/racks?site=8&rack=A-01");
     });
 
     test("recognizes comma-separated explicit site filters", async () => {
-      setActiveSite({ kind: "site", id: "7" });
+      setActiveSite({ kind: "site", id: "7", slug: "north" });
       const response = await invoke(racksRedirectLoader, "http://localhost/racks?site=abc,8&rack=A-01");
       expect(response.headers.get("Location")).toBe("/fleet/racks?site=abc,8&rack=A-01");
     });

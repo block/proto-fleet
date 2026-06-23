@@ -83,11 +83,11 @@ describe("SiteDetailPage", () => {
 
   it("preserves the selected site when a site detail mismatch redirects back to Fleet", async () => {
     useFleetStore.setState((state) => {
-      state.ui.activeSite = { kind: "site", id: "8" };
+      state.ui.activeSite = { kind: "site", id: "8", slug: "austin" };
     });
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent("/8/fleet"));
+    await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent("/austin/fleet"));
   });
 });

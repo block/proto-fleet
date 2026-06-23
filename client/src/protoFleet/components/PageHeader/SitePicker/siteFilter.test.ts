@@ -5,7 +5,10 @@ import { intersectSiteFilters, siteFilterFromActive } from "./siteFilter";
 describe("siteFilter", () => {
   it("maps active site selections to request filter fields", () => {
     expect(siteFilterFromActive({ kind: "all" })).toEqual({ siteIds: [], includeUnassigned: false });
-    expect(siteFilterFromActive({ kind: "site", id: "7" })).toEqual({ siteIds: [7n], includeUnassigned: false });
+    expect(siteFilterFromActive({ kind: "site", id: "7", slug: "north" })).toEqual({
+      siteIds: [7n],
+      includeUnassigned: false,
+    });
     expect(siteFilterFromActive({ kind: "unassigned" })).toEqual({ siteIds: [], includeUnassigned: true });
   });
 

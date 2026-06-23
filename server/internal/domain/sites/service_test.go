@@ -1004,12 +1004,16 @@ func TestCreateSite_canonicalizesAndPersists(t *testing.T) {
 	svc := NewService(store, nil, nil, nil, nil, tx, nil)
 
 	store.EXPECT().ListAllSiteNetworkConfigs(gomock.Any(), testOrgID, int64(0)).Return(nil, nil)
+	store.EXPECT().ListSiteSlugs(gomock.Any(), testOrgID).Return(nil, nil)
 	store.EXPECT().CreateSite(gomock.Any(), gomock.AssignableToTypeOf(models.CreateSiteParams{})).
 		DoAndReturn(func(_ context.Context, p models.CreateSiteParams) (*models.Site, error) {
 			if p.NetworkConfig != "10.0.0.0/24" {
 				return nil, errors.New("expected canonical 10.0.0.0/24, got " + p.NetworkConfig)
 			}
-			return &models.Site{ID: 1, Name: p.Name, NetworkConfig: p.NetworkConfig}, nil
+			if p.Slug != "alpha" {
+				return nil, errors.New("expected slug alpha, got " + p.Slug)
+			}
+			return &models.Site{ID: 1, Name: p.Name, Slug: p.Slug, NetworkConfig: p.NetworkConfig}, nil
 		})
 
 	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
@@ -1034,6 +1038,7 @@ func TestCreateSite_crossSiteOverlapSurfacesAsWarning(t *testing.T) {
 	store.EXPECT().ListAllSiteNetworkConfigs(gomock.Any(), testOrgID, int64(0)).Return([]models.SiteNetworkConfigEntry{
 		{ID: 99, Name: "siteB", NetworkConfig: "10.0.0.0/22"},
 	}, nil)
+	store.EXPECT().ListSiteSlugs(gomock.Any(), testOrgID).Return(nil, nil)
 	store.EXPECT().CreateSite(gomock.Any(), gomock.Any()).Return(&models.Site{ID: 1}, nil)
 
 	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
@@ -1046,6 +1051,69 @@ func TestCreateSite_crossSiteOverlapSurfacesAsWarning(t *testing.T) {
 	}
 	if len(out.NetworkConfigWarnings) == 0 {
 		t.Fatal("expected at least one cross-site overlap warning")
+	}
+}
+
+func TestCreateSite_generatesNextSlugOnCollision(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+
+	store.EXPECT().ListSiteSlugs(gomock.Any(), testOrgID).Return([]string{"north-dc"}, nil)
+	store.EXPECT().CreateSite(gomock.Any(), gomock.AssignableToTypeOf(models.CreateSiteParams{})).
+		DoAndReturn(func(_ context.Context, p models.CreateSiteParams) (*models.Site, error) {
+			if p.Slug != "north-dc-2" {
+				return nil, errors.New("expected slug north-dc-2, got " + p.Slug)
+			}
+			return &models.Site{ID: 1, Name: p.Name, Slug: p.Slug}, nil
+		})
+
+	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+		OrgID: testOrgID,
+		Name:  "North DC",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.Site.Slug != "north-dc-2" {
+		t.Fatalf("expected slug to round-trip, got %q", out.Site.Slug)
+	}
+}
+
+func TestCreateSite_retriesSlugRace(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+
+	store.EXPECT().ListSiteSlugs(gomock.Any(), testOrgID).Return(nil, nil)
+	gomock.InOrder(
+		store.EXPECT().CreateSite(gomock.Any(), gomock.AssignableToTypeOf(models.CreateSiteParams{})).
+			DoAndReturn(func(_ context.Context, p models.CreateSiteParams) (*models.Site, error) {
+				if p.Slug != "north-dc" {
+					return nil, errors.New("expected first slug north-dc, got " + p.Slug)
+				}
+				return nil, models.ErrSiteSlugCollision
+			}),
+		store.EXPECT().CreateSite(gomock.Any(), gomock.AssignableToTypeOf(models.CreateSiteParams{})).
+			DoAndReturn(func(_ context.Context, p models.CreateSiteParams) (*models.Site, error) {
+				if p.Slug != "north-dc-2" {
+					return nil, errors.New("expected retry slug north-dc-2, got " + p.Slug)
+				}
+				return &models.Site{ID: 1, Name: p.Name, Slug: p.Slug}, nil
+			}),
+	)
+
+	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+		OrgID: testOrgID,
+		Name:  "North DC",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.Site.Slug != "north-dc-2" {
+		t.Fatalf("expected retry slug, got %q", out.Site.Slug)
 	}
 }
 

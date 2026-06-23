@@ -1,0 +1,4 @@
+DROP INDEX IF EXISTS uk_site_org_slug;
+
+ALTER TABLE site
+    DROP COLUMN IF EXISTS slug;

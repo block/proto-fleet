@@ -6,6 +6,7 @@ package sites
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/netip"
@@ -47,6 +48,8 @@ const maxDeviceIdentifiersInMetadata = 50
 // fleets cap around 30k devices; 100k is generous headroom and still
 // well below the point a single rollup would stall a 60s poll tick.
 const MaxDevicesPerSiteStatsRequest = 100_000
+
+const maxCreateSiteSlugAttempts = 64
 
 // Service is the domain entry point for site CRUD, device reassignment,
 // and building site reassignment. The transactor is required: the
@@ -115,9 +118,30 @@ func (s *Service) CreateSite(ctx context.Context, params models.CreateSiteParams
 		return nil, err
 	}
 
-	site, err := s.store.CreateSite(ctx, params)
+	usedSlugs, err := s.store.ListSiteSlugs(ctx, params.OrgID)
 	if err != nil {
 		return nil, err
+	}
+	used := make(map[string]struct{}, len(usedSlugs))
+	for _, slug := range usedSlugs {
+		used[slug] = struct{}{}
+	}
+
+	var site *models.Site
+	for attempt := 0; attempt < maxCreateSiteSlugAttempts; attempt++ {
+		params.Slug = generateSiteSlug(params.Name, used)
+		site, err = s.store.CreateSite(ctx, params)
+		if errors.Is(err, models.ErrSiteSlugCollision) {
+			used[params.Slug] = struct{}{}
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		break
+	}
+	if site == nil {
+		return nil, fleeterror.NewInternalErrorf("failed to generate unique site slug after %d attempts", maxCreateSiteSlugAttempts)
 	}
 
 	orgID := params.OrgID

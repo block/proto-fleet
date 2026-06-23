@@ -42,6 +42,19 @@ export const buildKnownSiteIds = (sites: SiteWithCounts[] | undefined): Set<stri
   return new Set(sites.map((s) => (s.site?.id ?? 0n).toString()).filter((id) => id !== "0"));
 };
 
+export const buildSiteSlugToId = (sites: SiteWithCounts[] | undefined): Map<string, string> | undefined => {
+  if (!sites) return undefined;
+  const out = new Map<string, string>();
+  for (const row of sites) {
+    const site = row.site;
+    const id = (site?.id ?? 0n).toString();
+    if (site?.slug && id !== "0") {
+      out.set(site.slug, id);
+    }
+  }
+  return out;
+};
+
 // Shared shape passed between SiteDetailsModal and ManageSiteModal so the
 // create flow can hold the in-progress draft in memory while the operator
 // switches between the two surfaces.

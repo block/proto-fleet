@@ -297,11 +297,11 @@ describe("useSiteModals", () => {
 
   it("deleteConfirm resets active SitePicker selection when the deleted site is active", async () => {
     vi.mocked(sitesClient.deleteSite).mockResolvedValue(makeDeleteResponse());
-    const site = create(SiteSchema, { id: 11n, name: "Active" });
+    const site = create(SiteSchema, { id: 11n, name: "Active", slug: "active" });
     const sites = [create(SiteWithCountsSchema, { site, deviceCount: 0n, rackCount: 0n, buildingCount: 0n })];
     act(() => {
       useFleetStore.setState((s) => {
-        s.ui.activeSite = { kind: "site", id: "11" };
+        s.ui.activeSite = { kind: "site", id: "11", slug: "active" };
       });
     });
     const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));

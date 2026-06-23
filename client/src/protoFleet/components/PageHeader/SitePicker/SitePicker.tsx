@@ -172,12 +172,14 @@ const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
           />
           {orderedSites.map((s) => {
             const id = (s.site?.id ?? 0n).toString();
+            const slug = s.site?.slug ?? "";
+            if (id === "0" || slug === "") return null;
             return (
               <SitePickerOption
                 key={id}
                 label={s.site?.name ?? "(unnamed)"}
-                selected={isSelected({ kind: "site", id })}
-                onClick={() => select({ kind: "site", id })}
+                selected={isSelected({ kind: "site", id, slug })}
+                onClick={() => select({ kind: "site", id, slug })}
                 testId={`site-picker-option-${id}`}
               />
             );

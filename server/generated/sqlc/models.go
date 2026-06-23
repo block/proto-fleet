@@ -1045,6 +1045,7 @@ type Site struct {
 	Country         string
 	Notes           sql.NullString
 	Timezone        sql.NullString
+	Slug            string
 }
 
 type User struct {

@@ -204,11 +204,13 @@ func TestHandler_CreateSite_canonicalizesNetworkConfig(t *testing.T) {
 	h := newTestHandler(t)
 
 	h.siteStore.EXPECT().ListAllSiteNetworkConfigs(gomock.Any(), int64(7), int64(0)).Return(nil, nil)
+	h.siteStore.EXPECT().ListSiteSlugs(gomock.Any(), int64(7)).Return(nil, nil)
 	h.siteStore.EXPECT().CreateSite(gomock.Any(), gomock.AssignableToTypeOf(models.CreateSiteParams{})).
 		DoAndReturn(func(_ context.Context, p models.CreateSiteParams) (*models.Site, error) {
 			// The canonical form drops trim whitespace and normalizes.
 			assert.Equal(t, "10.0.0.0/24", p.NetworkConfig)
-			return &models.Site{ID: 1, Name: p.Name, NetworkConfig: p.NetworkConfig}, nil
+			assert.Equal(t, "alpha", p.Slug)
+			return &models.Site{ID: 1, Name: p.Name, Slug: p.Slug, NetworkConfig: p.NetworkConfig}, nil
 		})
 
 	resp, err := h.handler.CreateSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.CreateSiteRequest{
@@ -217,6 +219,7 @@ func TestHandler_CreateSite_canonicalizesNetworkConfig(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "10.0.0.0/24", resp.Msg.GetSite().GetNetworkConfig())
+	assert.Equal(t, "alpha", resp.Msg.GetSite().GetSlug())
 }
 
 func TestHandler_UpdateSite_happy(t *testing.T) {

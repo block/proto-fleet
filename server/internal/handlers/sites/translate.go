@@ -100,6 +100,7 @@ func toProtoSite(site *models.Site) *pb.Site {
 	return &pb.Site{
 		Id:              site.ID,
 		Name:            site.Name,
+		Slug:            site.Slug,
 		LocationCity:    site.LocationCity,
 		LocationState:   site.LocationState,
 		Timezone:        resolveTimezone(site),

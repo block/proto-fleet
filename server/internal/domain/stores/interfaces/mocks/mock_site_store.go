@@ -221,6 +221,21 @@ func (mr *MockSiteStoreMockRecorder) ListExistingDeviceIdentifiers(ctx, orgID, d
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExistingDeviceIdentifiers", reflect.TypeOf((*MockSiteStore)(nil).ListExistingDeviceIdentifiers), ctx, orgID, deviceIdentifiers)
 }
 
+// ListSiteSlugs mocks base method.
+func (m *MockSiteStore) ListSiteSlugs(ctx context.Context, orgID int64) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSiteSlugs", ctx, orgID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSiteSlugs indicates an expected call of ListSiteSlugs.
+func (mr *MockSiteStoreMockRecorder) ListSiteSlugs(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSiteSlugs", reflect.TypeOf((*MockSiteStore)(nil).ListSiteSlugs), ctx, orgID)
+}
+
 // ListSites mocks base method.
 func (m *MockSiteStore) ListSites(ctx context.Context, orgID int64) ([]models.SiteWithCounts, error) {
 	m.ctrl.T.Helper()

@@ -116,3 +116,10 @@ func isUniqueViolation(err error) bool {
 	}
 	return false
 }
+
+func isUniqueViolationOn(err error, constraintName string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == db.PGUniqueViolation &&
+		pgErr.ConstraintName == constraintName
+}

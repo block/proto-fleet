@@ -10,6 +10,7 @@ import {
   BuildingWithCountsSchema,
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
 
 vi.mock("@/shared/components/Popover", () => ({
   PopoverProvider: ({ children }: { children: ReactNode }) => <Fragment>{children}</Fragment>,
@@ -108,7 +109,7 @@ const renderList = ({
   onEditBuilding?: EditBuildingCallback;
   selectedIds?: string[];
   onSelectedIdsChange?: (ids: string[]) => void;
-  activeSite?: { kind: "site"; id: string };
+  activeSite?: ActiveSite;
   initialEntry?: string;
   routePath?: string;
 } = {}) =>
@@ -171,13 +172,13 @@ describe("BuildingList row actions menu", () => {
 
   it("View racks preserves the active site path scope", () => {
     renderList({
-      activeSite: { kind: "site", id: "7" },
-      initialEntry: "/7/fleet/buildings",
+      activeSite: { kind: "site", id: "7", slug: "north" },
+      initialEntry: "/north/fleet/buildings",
       routePath: "/:siteScope/fleet/buildings",
     });
     fireEvent.click(trigger());
     fireEvent.click(screen.getByText("View racks"));
-    expect(screen.getByTestId("probe-path")).toHaveTextContent("/7/fleet/racks?building=42");
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/north/fleet/racks?building=42");
   });
 
   it("View miners scopes the /fleet/miners redirect to the building", () => {

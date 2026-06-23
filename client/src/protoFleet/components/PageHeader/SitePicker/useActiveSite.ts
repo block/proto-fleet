@@ -82,7 +82,7 @@ const useActiveSite = ({ knownSiteIds }: UseActiveSiteOptions): UseActiveSiteRes
 
 const activeSitesEqual = (a: ActiveSite, b: ActiveSite): boolean => {
   if (a.kind !== b.kind) return false;
-  if (a.kind === "site" && b.kind === "site") return a.id === b.id;
+  if (a.kind === "site" && b.kind === "site") return a.id === b.id && a.slug === b.slug;
   return true;
 };
 

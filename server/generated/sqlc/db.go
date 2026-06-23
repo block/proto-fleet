@@ -873,6 +873,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listSiteNetworkConfigsForOverlapStmt, err = db.PrepareContext(ctx, listSiteNetworkConfigsForOverlap); err != nil {
 		return nil, fmt.Errorf("error preparing query ListSiteNetworkConfigsForOverlap: %w", err)
 	}
+	if q.listSiteSlugsStmt, err = db.PrepareContext(ctx, listSiteSlugs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListSiteSlugs: %w", err)
+	}
 	if q.listSitesStmt, err = db.PrepareContext(ctx, listSites); err != nil {
 		return nil, fmt.Errorf("error preparing query ListSites: %w", err)
 	}
@@ -2725,6 +2728,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listSiteNetworkConfigsForOverlapStmt: %w", cerr)
 		}
 	}
+	if q.listSiteSlugsStmt != nil {
+		if cerr := q.listSiteSlugsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listSiteSlugsStmt: %w", cerr)
+		}
+	}
 	if q.listSitesStmt != nil {
 		if cerr := q.listSitesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listSitesStmt: %w", cerr)
@@ -3767,6 +3775,7 @@ type Queries struct {
 	listScheduleIDStatusesStmt                                 *sql.Stmt
 	listSchedulesStmt                                          *sql.Stmt
 	listSiteNetworkConfigsForOverlapStmt                       *sql.Stmt
+	listSiteSlugsStmt                                          *sql.Stmt
 	listSitesStmt                                              *sql.Stmt
 	listUsersForOrganizationStmt                               *sql.Stmt
 	lockAndCountOrgScopeSuperAdminsStmt                        *sql.Stmt
@@ -4200,6 +4209,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listScheduleIDStatusesStmt:                                 q.listScheduleIDStatusesStmt,
 		listSchedulesStmt:                                          q.listSchedulesStmt,
 		listSiteNetworkConfigsForOverlapStmt:                       q.listSiteNetworkConfigsForOverlapStmt,
+		listSiteSlugsStmt:                                          q.listSiteSlugsStmt,
 		listSitesStmt:                                              q.listSitesStmt,
 		listUsersForOrganizationStmt:                               q.listUsersForOrganizationStmt,
 		lockAndCountOrgScopeSuperAdminsStmt:                        q.lockAndCountOrgScopeSuperAdminsStmt,

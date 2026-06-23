@@ -243,12 +243,12 @@ describe("FleetHealth", () => {
         offlineMiners={7}
         sleepingMiners={3}
         extraFilterParams="rack=7"
-        activeSite={{ kind: "site", id: "8" }}
+        activeSite={{ kind: "site", id: "8", slug: "austin" }}
       />,
     );
 
     const links = screen.getAllByRole("link");
-    expect(links[0]).toHaveAttribute("href", expect.stringContaining("/8/fleet/miners?"));
+    expect(links[0]).toHaveAttribute("href", expect.stringContaining("/austin/fleet/miners?"));
     expect(links[0]).toHaveAttribute("href", expect.stringContaining("rack=7"));
   });
 

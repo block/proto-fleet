@@ -29,9 +29,9 @@ beforeEach(() => {
   });
 });
 
-const makeSiteWithCounts = (id: bigint, name: string) =>
+const makeSiteWithCounts = (id: bigint, name: string, slug = name.toLowerCase()) =>
   create(SiteWithCountsSchema, {
-    site: create(SiteSchema, { id, name }),
+    site: create(SiteSchema, { id, name, slug }),
     deviceCount: 0n,
     buildingCount: 0n,
     rackCount: 0n,
@@ -70,13 +70,15 @@ describe("SitePicker", () => {
   it("does not reset a route-scoped site when ListSites failed before loading", async () => {
     render(
       <MemoryRouter initialEntries={["/7/fleet/miners"]}>
-        <SiteScopeProvider value={{ kind: "site", id: "7" }}>
+        <SiteScopeProvider value={{ kind: "site", id: "7", slug: "north" }}>
           <SitePicker sites={[]} error="network down" />
         </SiteScopeProvider>
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7" }));
+    await waitFor(() =>
+      expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "north" }),
+    );
   });
 
   it("renders the current label and opens a list of options on click", () => {
@@ -113,7 +115,7 @@ describe("SitePicker", () => {
     renderPicker({ sites });
     fireEvent.click(screen.getByTestId("site-picker-trigger"));
     fireEvent.click(screen.getByTestId("site-picker-option-1"));
-    expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "1" });
+    expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "1", slug: "austin" });
   });
 
   it("navigates to the selected scope for the current Fleet path", () => {
@@ -121,7 +123,7 @@ describe("SitePicker", () => {
     renderPicker({ sites }, ["/fleet/miners?model=s19#rows"]);
     fireEvent.click(screen.getByTestId("site-picker-trigger"));
     fireEvent.click(screen.getByTestId("site-picker-option-1"));
-    expect(mockNavigate).toHaveBeenCalledWith("/1/fleet/miners?model=s19#rows");
+    expect(mockNavigate).toHaveBeenCalledWith("/austin/fleet/miners?model=s19#rows");
   });
 
   it("navigates to scoped Dashboard when selecting from a non-scopable path", () => {
@@ -129,7 +131,7 @@ describe("SitePicker", () => {
     renderPicker({ sites }, ["/settings/general"]);
     fireEvent.click(screen.getByTestId("site-picker-trigger"));
     fireEvent.click(screen.getByTestId("site-picker-option-1"));
-    expect(mockNavigate).toHaveBeenCalledWith("/1/dashboard");
+    expect(mockNavigate).toHaveBeenCalledWith("/austin/dashboard");
   });
 
   it("navigates to /fleet/sites via react-router when Manage sites is clicked from all-sites", () => {
@@ -143,11 +145,11 @@ describe("SitePicker", () => {
   it("preserves the selected site when Manage sites is clicked from an unscoped page", () => {
     const sites = [makeSiteWithCounts(1n, "Austin")];
     useFleetStore.setState((state) => {
-      state.ui.activeSite = { kind: "site", id: "1" };
+      state.ui.activeSite = { kind: "site", id: "1", slug: "austin" };
     });
     renderPicker({ sites }, ["/sites/7"]);
     fireEvent.click(screen.getByTestId("site-picker-trigger"));
     fireEvent.click(screen.getByTestId("site-picker-manage-sites"));
-    expect(mockNavigate).toHaveBeenCalledWith("/1/fleet/sites");
+    expect(mockNavigate).toHaveBeenCalledWith("/austin/fleet/sites");
   });
 });

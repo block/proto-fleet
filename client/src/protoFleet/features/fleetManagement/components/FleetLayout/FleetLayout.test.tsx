@@ -115,7 +115,7 @@ describe("FleetLayout redirect logic", () => {
 
   test("bare /fleet falls back to Buildings when picker is single-site and lastTab is 'sites'", async () => {
     localStorage.setItem("fleet:lastActiveTab", JSON.stringify("sites"));
-    activeSiteMock.current = { kind: "site", id: "1" };
+    activeSiteMock.current = { kind: "site", id: "1", slug: "austin" };
     renderAt("/fleet");
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/buildings"));
   });
@@ -132,7 +132,7 @@ describe("FleetLayout redirect logic", () => {
   test("Sites tab redirects to /sites/:id when SitePicker selects a single site", async () => {
     // Fleet Sites entry points resolve to that site's management detail page
     // when the picker is pinned, rather than bouncing to Buildings.
-    activeSiteMock.current = { kind: "site", id: "1" };
+    activeSiteMock.current = { kind: "site", id: "1", slug: "austin" };
     renderAt("/fleet/sites");
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/sites/1"));
   });
@@ -146,7 +146,7 @@ describe("FleetLayout redirect logic", () => {
   });
 
   test("does not redirect away from a non-sites tab when picker hides Sites", async () => {
-    activeSiteMock.current = { kind: "site", id: "1" };
+    activeSiteMock.current = { kind: "site", id: "1", slug: "austin" };
     renderAt("/fleet/racks");
     // Operator is on a non-hidden tab; layout must leave them there.
     await waitFor(() => expect(screen.getByTestId("tab-content-racks")).toBeInTheDocument());
@@ -268,7 +268,7 @@ describe("FleetLayout redirect gating on sites load", () => {
     // Stale picker selection points at a now-deleted site; once sites land,
     // useActiveSite would normally reset to "all" — meanwhile, the layout's
     // redirect must NOT fire and bounce the operator off /fleet.
-    activeSiteMock.current = { kind: "site", id: "999" };
+    activeSiteMock.current = { kind: "site", id: "999", slug: "missing" };
     renderAt("/fleet");
     // Before sites resolve: still on /fleet (no redirect).
     expect(screen.getByTestId("location-probe").textContent).toBe("/fleet");

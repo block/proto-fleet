@@ -119,7 +119,7 @@ describe("ActivityPage", () => {
     });
 
     it("sends the active site id for a site-scoped route", () => {
-      activeSiteMock.current = { kind: "site", id: "42" };
+      activeSiteMock.current = { kind: "site", id: "42", slug: "north" };
 
       render(<ActivityPage />);
 
@@ -137,7 +137,7 @@ describe("ActivityPage", () => {
     });
 
     it("applies the same scope to the CSV export as the feed", () => {
-      activeSiteMock.current = { kind: "site", id: "7" };
+      activeSiteMock.current = { kind: "site", id: "7", slug: "north" };
 
       render(<ActivityPage />);
       screen.getByText("Export CSV").click();

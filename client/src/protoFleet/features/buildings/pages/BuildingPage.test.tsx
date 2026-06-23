@@ -118,7 +118,7 @@ describe("BuildingPage", () => {
 
   it("preserves the selected site when leaving building detail for miners", async () => {
     useFleetStore.setState((state) => {
-      state.ui.activeSite = { kind: "site", id: "8" };
+      state.ui.activeSite = { kind: "site", id: "8", slug: "austin" };
     });
 
     renderPage();
@@ -126,12 +126,12 @@ describe("BuildingPage", () => {
     await waitFor(() => expect(screen.getByTestId("building-page-view-miners")).toBeVisible());
     fireEvent.click(screen.getByTestId("building-page-view-miners"));
 
-    expect(screen.getByTestId("location-probe")).toHaveTextContent("/8/fleet/miners?building=123");
+    expect(screen.getByTestId("location-probe")).toHaveTextContent("/austin/fleet/miners?building=123");
   });
 
   it("preserves the selected site when leaving building detail for racks", async () => {
     useFleetStore.setState((state) => {
-      state.ui.activeSite = { kind: "site", id: "8" };
+      state.ui.activeSite = { kind: "site", id: "8", slug: "austin" };
     });
 
     renderPage();
@@ -139,7 +139,7 @@ describe("BuildingPage", () => {
     await waitFor(() => expect(screen.getByTestId("building-page-view-racks")).toBeVisible());
     fireEvent.click(screen.getByTestId("building-page-view-racks"));
 
-    expect(screen.getByTestId("location-probe")).toHaveTextContent("/8/fleet/racks?building=123");
+    expect(screen.getByTestId("location-probe")).toHaveTextContent("/austin/fleet/racks?building=123");
   });
 
   it("uses all-sites fleet routes when all-sites is selected", async () => {

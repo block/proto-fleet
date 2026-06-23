@@ -5,6 +5,7 @@
 INSERT INTO site (
     org_id,
     name,
+    slug,
     location_city,
     location_state,
     timezone,
@@ -17,6 +18,7 @@ INSERT INTO site (
 ) VALUES (
     sqlc.arg('org_id'),
     sqlc.arg('name'),
+    sqlc.arg('slug'),
     sqlc.narg('location_city'),
     sqlc.narg('location_state'),
     sqlc.narg('timezone'),
@@ -28,6 +30,13 @@ INSERT INTO site (
     sqlc.narg('notes')
 )
 RETURNING *;
+
+-- name: ListSiteSlugs :many
+SELECT slug
+FROM site
+WHERE org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL
+ORDER BY slug;
 
 -- name: GetSite :one
 SELECT *

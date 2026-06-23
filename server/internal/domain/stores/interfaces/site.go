@@ -16,7 +16,9 @@ import (
 //nolint:interfacebloat // see comment above
 type SiteStore interface {
 	// CreateSite inserts a new site row and returns it. Maps a
-	// unique-violation on (org_id, name) to AlreadyExists.
+	// unique-violation on (org_id, name) to AlreadyExists; maps a
+	// slug unique-violation to models.ErrSiteSlugCollision so the
+	// service can retry with the next suffix candidate.
 	CreateSite(ctx context.Context, params models.CreateSiteParams) (*models.Site, error)
 
 	// GetSite returns the live site or NotFound.
@@ -25,6 +27,10 @@ type SiteStore interface {
 	// ListSites returns every live site in the org with attachment
 	// counts, ordered by name.
 	ListSites(ctx context.Context, orgID int64) ([]models.SiteWithCounts, error)
+
+	// ListSiteSlugs returns every live site slug in the org. Used by
+	// CreateSite to choose the first non-conflicting generated slug.
+	ListSiteSlugs(ctx context.Context, orgID int64) ([]string, error)
 
 	// CountRacksBySite returns the number of live racks attached to the
 	// site in the org.

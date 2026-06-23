@@ -54,14 +54,14 @@ describe("FleetErrors", () => {
           hashboardErrors={3}
           psuErrors={4}
           extraFilterParams="building=123"
-          activeSite={{ kind: "site", id: "8" }}
+          activeSite={{ kind: "site", id: "8", slug: "austin" }}
         />
       </BrowserRouter>,
     );
 
     const links = screen.getAllByRole("link");
-    expect(links[0]).toHaveAttribute("href", "/8/fleet/miners?issues=control-board&building=123");
-    expect(links[1]).toHaveAttribute("href", "/8/fleet/miners?issues=fans&building=123");
+    expect(links[0]).toHaveAttribute("href", "/austin/fleet/miners?issues=control-board&building=123");
+    expect(links[1]).toHaveAttribute("href", "/austin/fleet/miners?issues=fans&building=123");
   });
 
   it("does not render as links when error counts are zero", () => {
