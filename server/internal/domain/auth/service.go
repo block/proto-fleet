@@ -200,11 +200,9 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 		return nil, nil, fleeterror.NewInternalErrorf("error getting user role: %v", err)
 	}
 
-	// Effective permission keys for the caller, projected from every
-	// assignment the user holds in this org. The client uses these for
-	// show/hide gating; the server still enforces scope per-request via
-	// RequirePermission, so this projection is intentionally coarse
-	// (union across scopes).
+	// Default/org-scoped permission keys for the caller. The client uses
+	// this projection for UI gates that map to org-scoped RPCs; narrower
+	// resource-scoped grants should be exposed through a dedicated surface.
 	eff, err := s.permResolver.LoadEffective(ctx, user.ID, orgs[0].ID)
 	if err != nil {
 		return nil, nil, fleeterror.NewInternalErrorf("error loading effective permissions: %v", err)
@@ -232,7 +230,7 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 			LastLoginAt:            toTimestampProto(loginTime),
 			Role:                   roleName,
 			RequiresPasswordChange: user.RequiresPasswordChange,
-			Permissions:            eff.FlatKeys(),
+			Permissions:            eff.Keys(),
 		},
 	}, cookie, nil
 }

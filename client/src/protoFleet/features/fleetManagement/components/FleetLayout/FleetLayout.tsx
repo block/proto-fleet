@@ -23,13 +23,6 @@ import { usePoll } from "@/shared/hooks/usePoll";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
 const TAB_ORDER: FleetTabId[] = MULTI_SITE_ENABLED ? ["sites", "buildings", "racks", "miners"] : ["racks", "miners"];
-// Absolute last-resort fallback when TAB_ORDER somehow contains no visible
-// tabs. The real waterfall comes from `visibleTabs[0]` below.
-const DEFAULT_TAB: FleetTabId = MULTI_SITE_ENABLED ? "sites" : "racks";
-// When site access is blocked entirely, fall to Miners specifically — Racks
-// can also be permission-gated (rack:read), so picking the first visible
-// tab isn't safe enough for the access-blocked branch.
-const DEFAULT_TAB_NO_SITES_ACCESS: FleetTabId = "miners";
 const LAST_TAB_KEY = "fleet:lastActiveTab";
 
 const tabLabel: Record<FleetTabId, string> = {
@@ -66,6 +59,8 @@ const FleetLayout = () => {
   // Skip the banner entirely for roles without miner:read so they don't get
   // permission-denied toasts just by opening a non-miner Fleet tab.
   const canReadMiners = useHasPermission("miner:read");
+  const canReadRacks = useHasPermission("rack:read");
+  const canReadFleet = useHasPermission("fleet:read");
 
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canReadSites ? undefined : []);
@@ -74,10 +69,8 @@ const FleetLayout = () => {
   // failures. Lets consumers tell "we have last-good data" from "we've
   // never seen data" when sites is [].
   const [sitesLoaded, setSitesLoaded] = useState(false);
-  // useHasPermission is a flat union across scopes, so a user with only
-  // site-scoped site:read passes `canReadSites` even though ListSites is
-  // gated on org-scoped site:read. Flip this flag when the RPC returns
-  // PermissionDenied so the redirect waterfall can fall back to Miners.
+  // Keep a defensive PermissionDenied branch for stale sessions or server-side
+  // auth changes so the redirect waterfall avoids site-catalog-backed tabs.
   const [sitesPermissionDenied, setSitesPermissionDenied] = useState(false);
 
   const fetchSites = useCallback(
@@ -117,6 +110,8 @@ const FleetLayout = () => {
 
   const sitesAccessBlocked = !canReadSites || sitesPermissionDenied;
   const siteCatalogAccessGranted = canReadSites && sitesLoaded && !sitesPermissionDenied;
+  const canReadRacksTab = canReadRacks;
+  const canReadMinersTab = canReadMiners && canReadRacks && canReadFleet;
 
   // Source of truth for "which tabs are reachable right now." Hide-rule
   // changes only need to touch this filter; the redirect effect, the tab
@@ -126,19 +121,20 @@ const FleetLayout = () => {
       TAB_ORDER.filter((t) => {
         if (t === "sites" && (sitesTabHidden || sitesAccessBlocked)) return false;
         if (t === "buildings" && sitesAccessBlocked) return false;
+        if (t === "racks" && !canReadRacksTab) return false;
+        if (t === "miners" && !canReadMinersTab) return false;
         return true;
       }),
-    [sitesTabHidden, sitesAccessBlocked],
+    [sitesTabHidden, sitesAccessBlocked, canReadRacksTab, canReadMinersTab],
   );
 
-  // Fallback waterfall mirrors the legacy DEFAULT_TAB_* ordering: prefer the
-  // first visible tab, but force Miners when site access is blocked since
-  // Racks may also be permission-gated (rack:read) for that role. Stored
-  // lastTab is ignored in the access-blocked branch for the same reason —
-  // a persisted "racks" pick must not override the Miners safe path.
-  const fallbackTab = sitesAccessBlocked ? DEFAULT_TAB_NO_SITES_ACCESS : (visibleTabs[0] ?? DEFAULT_TAB);
-  const usableLastTab = !sitesAccessBlocked && lastTab && visibleTabs.includes(lastTab) ? lastTab : undefined;
+  // Fallbacks must come from visibleTabs so roles don't get redirected into
+  // tabs whose required RPCs they cannot call. Racks stays reachable without
+  // site catalog access; its site/building metadata degrades separately.
+  const fallbackTab = visibleTabs[0];
+  const usableLastTab = lastTab && visibleTabs.includes(lastTab) ? lastTab : undefined;
   const targetTab = usableLastTab ?? fallbackTab;
+  const currentTabAllowed = currentTab === undefined || visibleTabs.includes(currentTab);
 
   // Defer redirect until the initial sites load resolves so a stale
   // single-site picker selection doesn't briefly hide the Sites tab before
@@ -171,7 +167,7 @@ const FleetLayout = () => {
     const unscopedPath = unscopedScopablePath(location.pathname);
     const onBareFleet = unscopedPath === "/fleet" || unscopedPath === "/fleet/";
     const currentTabHidden = currentTab !== undefined && !visibleTabs.includes(currentTab);
-    if (onBareFleet || currentTabHidden) {
+    if ((onBareFleet || currentTabHidden) && targetTab) {
       navigate(scopedPath(`/fleet/${targetTab}`, pathScope), { replace: true });
     }
   }, [
@@ -191,10 +187,10 @@ const FleetLayout = () => {
   ]);
 
   useEffect(() => {
-    if (currentTab && currentTab !== lastTab) {
+    if (currentTab && visibleTabs.includes(currentTab) && currentTab !== lastTab) {
       setLastTab(currentTab);
     }
-  }, [currentTab, lastTab, setLastTab]);
+  }, [currentTab, lastTab, setLastTab, visibleTabs]);
 
   const onSelect = useCallback(
     (id: string) => {
@@ -266,6 +262,17 @@ const FleetLayout = () => {
   // class) keeps the DOM simple — only one is interactive at a time.
   const viewTabs = <FleetViewTabs viewsState={viewsState} currentTab={currentTab} filterContext={viewFilterContext} />;
 
+  const outlet =
+    visibleTabs.length === 0 ? (
+      <div className="p-6 text-300 text-text-primary-70 laptop:p-10">
+        You do not have permission to view Fleet sections.
+      </div>
+    ) : !currentTabAllowed ? (
+      <div className="p-6 text-300 text-text-primary-70 laptop:p-10">Loading...</div>
+    ) : (
+      <Outlet context={outletContext} />
+    );
+
   return (
     // w-max + min-w-full: the subtree grows to the widest tab content (a wide
     // table), which is what gives the sticky-left chrome below room to slide.
@@ -299,9 +306,7 @@ const FleetLayout = () => {
           ))}
         </TabStrip>
       </div>
-      <div className="min-h-0 flex-1">
-        <Outlet context={outletContext} />
-      </div>
+      <div className="min-h-0 flex-1">{outlet}</div>
     </div>
   );
 };

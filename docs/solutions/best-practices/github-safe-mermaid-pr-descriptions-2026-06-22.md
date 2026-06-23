@@ -64,4 +64,3 @@ flowchart TD
   reviewer-facing text in the label.
 - If editing `.claude/commands/pr-describe.md` or `AGENTS.md`, preserve this
   rule in the PR-description diagram guidance.
-

@@ -13,10 +13,10 @@ interface ListSitesProps {
   errorComponentTypes?: ComponentType[];
   telemetryRanges?: FleetListTelemetryRangeFilter[];
   onSuccess?: (sites: SiteWithCounts[]) => void;
-  // ListSites is gated server-side on org-scoped site:read; useHasPermission
-  // returns true even for site-scoped-only roles, so callers that fall back
-  // to a permission-blocked UX need to distinguish PermissionDenied from
-  // transient transport failures.
+  // ListSites is gated server-side on org-scoped site:read. Callers that
+  // degrade permission-blocked UX still distinguish PermissionDenied from
+  // transient transport failures for stale sessions and server-side auth
+  // changes.
   onError?: (message: string, code?: Code) => void;
   onFinally?: () => void;
 }

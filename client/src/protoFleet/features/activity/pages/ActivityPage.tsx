@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Navigate } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 
 import { ActivityFilterSchema } from "@/protoFleet/api/generated/activity/v1/activity_pb";
@@ -10,6 +11,7 @@ import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/Pag
 import ActivityFilters from "@/protoFleet/features/activity/components/ActivityFilters";
 import ActivityTable from "@/protoFleet/features/activity/components/ActivityTable";
 import { formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
+import { useHasPermission } from "@/protoFleet/store";
 import { Alert, DismissTiny } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -19,7 +21,7 @@ import { debounce } from "@/shared/utils/utility";
 
 const PAGE_SIZE = 50;
 
-const ActivityPage = () => {
+const ActivityPageContent = () => {
   const [searchText, setSearchText] = useState("");
   const [debouncedSearchText, setDebouncedSearchText] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
@@ -211,6 +213,16 @@ const ActivityPage = () => {
       </div>
     </>
   );
+};
+
+const ActivityPage = () => {
+  const canReadActivity = useHasPermission("activity:read");
+
+  if (!canReadActivity) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <ActivityPageContent />;
 };
 
 export default ActivityPage;
