@@ -671,10 +671,13 @@ func (s *Service) ListCollectionsDomain(ctx context.Context, params ListCollecti
 		return nil, fleeterror.NewInvalidArgumentErrorf("zone sort is only supported for rack collections")
 	}
 	if params.Filter != nil && params.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
-		if len(params.Filter.SiteIDs) > 0 || params.Filter.IncludeUnassigned ||
-			len(params.Filter.BuildingIDs) > 0 || params.Filter.IncludeNoBuilding ||
+		if len(params.Filter.BuildingIDs) > 0 || params.Filter.IncludeNoBuilding ||
 			len(params.Filter.ZoneKeys) > 0 {
-			return nil, fleeterror.NewInvalidArgumentErrorf("site / building / zone filters are only supported for rack collections")
+			return nil, fleeterror.NewInvalidArgumentErrorf("building / zone filters are only supported for rack collections")
+		}
+		if params.Type != pb.CollectionType_COLLECTION_TYPE_GROUP &&
+			(len(params.Filter.SiteIDs) > 0 || params.Filter.IncludeUnassigned) {
+			return nil, fleeterror.NewInvalidArgumentErrorf("site filters are only supported for rack or group collections")
 		}
 	}
 
@@ -1284,30 +1287,49 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 	}, nil
 }
 
-// ListCollectionMembers returns all members of a collection.
-func (s *Service) ListCollectionMembers(ctx context.Context, req *pb.ListCollectionMembersRequest) (*pb.ListCollectionMembersResponse, error) {
+type ListCollectionMembersParams struct {
+	CollectionID int64
+	PageSize     int32
+	PageToken    string
+	Filter       *interfaces.DeviceSetFilter
+}
+
+func (s *Service) ListCollectionMembersDomain(ctx context.Context, params ListCollectionMembersParams) (*pb.ListCollectionMembersResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	// Verify collection exists and belongs to org
-	belongs, err := s.collectionStore.CollectionBelongsToOrg(ctx, req.CollectionId, info.OrganizationID)
+	belongs, err := s.collectionStore.CollectionBelongsToOrg(ctx, params.CollectionID, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 	if !belongs {
-		return nil, fleeterror.NewNotFoundErrorf("collection not found: %d", req.CollectionId)
+		return nil, fleeterror.NewNotFoundErrorf("collection not found: %d", params.CollectionID)
 	}
 
-	pageSize := validatePageSize(req.PageSize)
+	pageSize := validatePageSize(params.PageSize)
 
-	members, nextPageToken, err := s.collectionStore.ListCollectionMembers(ctx, info.OrganizationID, req.CollectionId, pageSize, req.PageToken)
+	if err := s.validateFilterSites(ctx, info.OrganizationID, params.Filter); err != nil {
+		return nil, err
+	}
+
+	members, nextPageToken, err := s.collectionStore.ListCollectionMembers(ctx, info.OrganizationID, params.CollectionID, pageSize, params.PageToken, params.Filter)
 	if err != nil {
 		return nil, err
 	}
 
 	return &pb.ListCollectionMembersResponse{Members: members, NextPageToken: nextPageToken}, nil
+}
+
+// ListCollectionMembers returns all members of a collection.
+func (s *Service) ListCollectionMembers(ctx context.Context, req *pb.ListCollectionMembersRequest) (*pb.ListCollectionMembersResponse, error) {
+	return s.ListCollectionMembersDomain(ctx, ListCollectionMembersParams{
+		CollectionID: req.CollectionId,
+		PageSize:     req.PageSize,
+		PageToken:    req.PageToken,
+	})
 }
 
 // GetDeviceCollections returns all collections a device belongs to.

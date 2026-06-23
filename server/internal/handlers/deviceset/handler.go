@@ -10,6 +10,8 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -143,10 +145,22 @@ func (h *Handler) ListDeviceSetMembers(ctx context.Context, r *connect.Request[d
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	result, err := h.svc.ListCollectionMembers(ctx, &collectionpb.ListCollectionMembersRequest{
-		CollectionId: r.Msg.DeviceSetId,
+	if len(r.Msg.SiteIds) > maxDeviceSetFilterValues {
+		return nil, fleeterror.NewInvalidArgumentErrorf("site_ids exceeds maximum of %d values", maxDeviceSetFilterValues)
+	}
+	for i, id := range r.Msg.SiteIds {
+		if id <= 0 {
+			return nil, fleeterror.NewInvalidArgumentErrorf("site_ids[%d] must be positive", i)
+		}
+	}
+	result, err := h.svc.ListCollectionMembersDomain(ctx, collection.ListCollectionMembersParams{
+		CollectionID: r.Msg.DeviceSetId,
 		PageSize:     r.Msg.PageSize,
 		PageToken:    r.Msg.PageToken,
+		Filter: &interfaces.DeviceSetFilter{
+			SiteIDs:           r.Msg.SiteIds,
+			IncludeUnassigned: r.Msg.IncludeUnassigned,
+		},
 	})
 	if err != nil {
 		return nil, err

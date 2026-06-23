@@ -164,7 +164,6 @@ const createScopableRoutes = (absolute: boolean) => [
   createRoute(absolute ? "/dashboard" : "dashboard", <Dashboard />, { bg: "surface-5" }),
   createFleetRoute(absolute ? "/fleet" : "fleet"),
   createRoute(absolute ? "/groups" : "groups", <GroupsPage />),
-  createRoute(absolute ? "/groups/:groupLabel" : "groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
   createRoute(absolute ? "/energy" : "energy", <EnergyPage />),
   createRoute(absolute ? "/activity" : "activity", <ActivityPage />),
 ];
@@ -208,6 +207,7 @@ const router = createBrowserRouter([
   { path: "/racks", loader: racksRedirectLoader },
 
   createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
+  createRoute("/groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
 
   // Sites tab is hidden from /fleet when MULTI_SITE_ENABLED is false, so the
   // legacy SitesPage stays reachable at /sites for QA/dogfood until the

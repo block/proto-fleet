@@ -218,18 +218,33 @@ func TestListDeviceSets_SiteFilterCrossOrgRejected(t *testing.T) {
 	assert.NotContains(t, err.Error(), "99")
 }
 
-func TestListDeviceSets_SiteFilterRejectedForGroups(t *testing.T) {
+func TestListDeviceSets_SiteFilterAllowedForGroups(t *testing.T) {
 	h := newTestHandler(t)
 
+	h.siteStore.EXPECT().
+		SitesByIDs(gomock.Any(), testOrgID, []int64{3}).
+		Return([]int64{3}, nil)
+
+	h.collectionStore.EXPECT().
+		ListCollections(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_GROUP,
+			int32(50), "", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ int64, _ collectionpb.CollectionType,
+			_ int32, _ string, _ *interfaces.SortConfig, filter *interfaces.DeviceSetFilter,
+		) ([]*collectionpb.DeviceCollection, string, int32, error) {
+			require.NotNil(t, filter)
+			assert.Equal(t, []int64{3}, filter.SiteIDs)
+			assert.False(t, filter.IncludeUnassigned)
+			return nil, "", 0, nil
+		})
+
 	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
-		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
-		SiteIds: []int64{3},
+		Type:     dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
+		PageSize: 50,
+		SiteIds:  []int64{3},
 	})
 
 	_, err := h.handler.ListDeviceSets(testCtx(t), req)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "site / building / zone filters")
+	require.NoError(t, err)
 }
 
 // TestListDeviceSets_DeprecatedZonesShim confirms the legacy `zones`
@@ -434,20 +449,32 @@ func TestListDeviceSets_SiteIDsCrossOrgRejected(t *testing.T) {
 	assert.NotContains(t, err.Error(), "99")
 }
 
-// TestListDeviceSets_SiteIDsRejectedForGroupType guards the RACK-only
-// filter rule — applying a site filter to a GROUP list is a request
-// shape error, not a silent no-op.
-func TestListDeviceSets_SiteIDsRejectedForGroupType(t *testing.T) {
+func TestListDeviceSets_SiteIDsAllowedForGroupType(t *testing.T) {
 	h := newTestHandler(t)
 
+	h.siteStore.EXPECT().
+		SitesByIDs(gomock.Any(), testOrgID, []int64{3}).
+		Return([]int64{3}, nil)
+
+	h.collectionStore.EXPECT().
+		ListCollections(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_GROUP,
+			int32(50), "", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ int64, _ collectionpb.CollectionType,
+			_ int32, _ string, _ *interfaces.SortConfig, filter *interfaces.DeviceSetFilter,
+		) ([]*collectionpb.DeviceCollection, string, int32, error) {
+			require.NotNil(t, filter)
+			assert.Equal(t, []int64{3}, filter.SiteIDs)
+			return nil, "", 0, nil
+		})
+
 	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
-		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
-		SiteIds: []int64{3},
+		Type:     dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
+		PageSize: 50,
+		SiteIds:  []int64{3},
 	})
 
 	_, err := h.handler.ListDeviceSets(testCtx(t), req)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	require.NoError(t, err)
 }
 
 // TestListDeviceSets_NonPositiveSiteID parallels the miner-list

@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -681,7 +683,7 @@ func (s *SQLCollectionStore) LockRacksForReparent(ctx context.Context, orgID int
 	return ids, nil
 }
 
-func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID int64, collectionID int64, pageSize int32, pageToken string) ([]*pb.CollectionMember, string, error) {
+func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID int64, collectionID int64, pageSize int32, pageToken string, filter *interfaces.DeviceSetFilter) ([]*pb.CollectionMember, string, error) {
 	cursor, err := decodeMemberCursor(pageToken)
 	if err != nil {
 		return nil, "", err
@@ -699,7 +701,8 @@ func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID in
 
 	var rows []memberRow
 
-	if cursor == nil {
+	hasSiteFilter := filter != nil && (len(filter.SiteIDs) > 0 || filter.IncludeUnassigned)
+	if !hasSiteFilter && cursor == nil {
 		sqlRows, err := s.GetQueries(ctx).ListDeviceSetMembersPaginated(ctx, sqlc.ListDeviceSetMembersPaginatedParams{
 			DeviceSetID: collectionID,
 			OrgID:       orgID,
@@ -711,7 +714,7 @@ func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID in
 		for _, r := range sqlRows {
 			rows = append(rows, memberRow{r.ID, r.DeviceIdentifier, r.CreatedAt, r.SlotRow, r.SlotCol})
 		}
-	} else {
+	} else if !hasSiteFilter {
 		sqlRows, err := s.GetQueries(ctx).ListDeviceSetMembersPaginatedAfter(ctx, sqlc.ListDeviceSetMembersPaginatedAfterParams{
 			DeviceSetID:     collectionID,
 			OrgID:           orgID,
@@ -724,6 +727,56 @@ func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID in
 		}
 		for _, r := range sqlRows {
 			rows = append(rows, memberRow{r.ID, r.DeviceIdentifier, r.CreatedAt, r.SlotRow, r.SlotCol})
+		}
+	} else {
+		var sb strings.Builder
+		args := []any{collectionID, orgID}
+		argNum := 3
+		sb.WriteString(`SELECT dsm.id, dsm.device_identifier, dsm.created_at,
+       rs.row AS slot_row, rs.col AS slot_col
+FROM device_set_membership dsm
+JOIN device d ON dsm.device_id = d.id AND d.deleted_at IS NULL
+JOIN device_pairing dp ON d.id = dp.device_id
+  AND ` + actionablePairingStatusesExpr("dp") + `
+LEFT JOIN rack_slot rs ON dsm.device_set_id = rs.device_set_id AND dsm.device_id = rs.device_id
+WHERE dsm.device_set_id = $1 AND dsm.org_id = $2
+  AND (`)
+		first := true
+		if len(filter.SiteIDs) > 0 {
+			sb.WriteString(fmt.Sprintf("d.site_id = ANY($%d::bigint[])", argNum))
+			args = append(args, pq.Array(filter.SiteIDs))
+			argNum++
+			first = false
+		}
+		if filter.IncludeUnassigned {
+			if !first {
+				sb.WriteString(" OR ")
+			}
+			sb.WriteString("d.site_id IS NULL")
+		}
+		sb.WriteString(")")
+		if cursor != nil {
+			sb.WriteString(fmt.Sprintf(" AND (dsm.created_at < $%d::timestamptz OR (dsm.created_at = $%d::timestamptz AND dsm.id < $%d::bigint))", argNum, argNum, argNum+1))
+			args = append(args, cursor.CreatedAt, cursor.ID)
+			argNum += 2
+		}
+		sb.WriteString(fmt.Sprintf(" ORDER BY dsm.created_at DESC, dsm.id DESC LIMIT $%d", argNum))
+		args = append(args, fetchLimit)
+
+		sqlRows, err := s.conn.QueryContext(ctx, sb.String(), args...)
+		if err != nil {
+			return nil, "", fleeterror.NewInternalErrorf("failed to list collection members: %v", err)
+		}
+		defer sqlRows.Close()
+		for sqlRows.Next() {
+			var r memberRow
+			if err := sqlRows.Scan(&r.ID, &r.DeviceIdentifier, &r.CreatedAt, &r.SlotRow, &r.SlotCol); err != nil {
+				return nil, "", fleeterror.NewInternalErrorf("failed to scan collection members: %v", err)
+			}
+			rows = append(rows, r)
+		}
+		if err := sqlRows.Err(); err != nil {
+			return nil, "", fleeterror.NewInternalErrorf("failed to iterate collection members: %v", err)
 		}
 	}
 

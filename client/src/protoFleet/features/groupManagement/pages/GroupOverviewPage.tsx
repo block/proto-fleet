@@ -13,9 +13,9 @@ import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/componen
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
-import { scopedPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
-import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
@@ -38,7 +38,7 @@ const GroupOverviewPage = () => {
   const { groupLabel } = useParams<{ groupLabel: string }>();
   const label = groupLabel ?? "";
   const navigate = useNavigate();
-  const activeSite = useRouteSiteScope() ?? DEFAULT_ACTIVE_SITE;
+  const activeSite = useFleetStore((state) => state.ui.activeSite);
 
   // Group resolution state
   const [group, setGroup] = useState<DeviceSet | null>(null);
@@ -50,10 +50,7 @@ const GroupOverviewPage = () => {
 
   const { listGroups, listGroupMembers } = useDeviceSets();
 
-  const groupDetailHref = useCallback(
-    (nextLabel: string) => scopedPath(`/groups/${encodeURIComponent(nextLabel)}`, activeSite),
-    [activeSite],
-  );
+  const groupDetailHref = useCallback((nextLabel: string) => `/groups/${encodeURIComponent(nextLabel)}`, []);
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);

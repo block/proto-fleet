@@ -354,12 +354,15 @@ message ListDeviceSetsRequest {
     // returns INVALID_ARGUMENT.
     repeated common.v1.ZoneKey zone_keys = 9;
 
-    // Filter racks by site (OR across IDs). Returns racks stamped with
-    // any of the given site_ids. When combined with include_unassigned,
-    // racks with site_id IS NULL are also included. When combined with
-    // other filters, uses AND logic. Only valid when type is RACK;
-    // otherwise returns INVALID_ARGUMENT. Each entry must be > 0; capped
-    // at 1024 to bound request size (matches building_ids / zone_keys).
+    // Filter racks or groups by site (OR across IDs). For racks, returns
+    // racks stamped with any of the given site_ids. For groups, returns
+    // groups with at least one member device assigned to any of the given
+    // site_ids; group counts and rollups remain org-wide. When combined
+    // with include_unassigned, rows with site_id IS NULL are also
+    // included. When combined with other filters, uses AND logic. Only
+    // valid when type is RACK or GROUP; otherwise returns INVALID_ARGUMENT.
+    // Each entry must be > 0; capped at 1024 to bound request size
+    // (matches building_ids / zone_keys).
     repeated int64 site_ids = 10 [(buf.validate.field).repeated = {
         max_items: 1024
         items: {
@@ -367,10 +370,11 @@ message ListDeviceSetsRequest {
         }
     }];
 
-    // When true, racks with site_id IS NULL are included. Independent
-    // of site_ids — set only this for the unassigned bucket alone, set
-    // both to combine specific sites with the no-site bucket. Only
-    // valid when type is RACK; otherwise returns INVALID_ARGUMENT.
+    // When true, racks with site_id IS NULL, or groups with at least one
+    // member device whose site_id IS NULL, are included. Independent of
+    // site_ids — set only this for the unassigned bucket alone, set both
+    // to combine specific sites with the no-site bucket. Only valid when
+    // type is RACK or GROUP; otherwise returns INVALID_ARGUMENT.
     bool include_unassigned = 11;
 
     // Filter by rolled-up telemetry values for each rack or group.
@@ -438,6 +442,23 @@ message ListDeviceSetMembersRequest {
 
     // Pagination cursor from a previous response
     string page_token = 3;
+
+    // Optional member site filter. Returns only members assigned to any of
+    // the given site_ids. When combined with include_unassigned, members
+    // with site_id IS NULL are also included. Empty site_ids and false
+    // include_unassigned means no site filter. Each entry must be > 0;
+    // capped at 1024 to bound request size.
+    repeated int64 site_ids = 4 [(buf.validate.field).repeated = {
+        max_items: 1024
+        items: {
+            int64: {gt: 0}
+        }
+    }];
+
+    // When true, members with site_id IS NULL are included. Independent of
+    // site_ids — set only this for the unassigned bucket alone, set both to
+    // combine specific sites with the no-site bucket.
+    bool include_unassigned = 5;
 }
 
 // Response containing device set members

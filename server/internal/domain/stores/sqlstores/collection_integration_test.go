@@ -132,7 +132,7 @@ func TestCollectionStore_AddAndListMembers(t *testing.T) {
 	assert.Equal(t, int32(3), fetched.DeviceCount)
 
 	// Verify members list
-	members, _, err := store.ListCollectionMembers(ctx, orgID, collection.Id, 100, "")
+	members, _, err := store.ListCollectionMembers(ctx, orgID, collection.Id, 100, "", nil)
 	require.NoError(t, err)
 	assert.Len(t, members, 3)
 }
@@ -590,7 +590,7 @@ func TestCollectionStore_ListCollectionMembers_IncludesSlotPositions(t *testing.
 	require.NoError(t, err)
 
 	// Act
-	members, _, err := store.ListCollectionMembers(ctx, orgID, rack.Id, 100, "")
+	members, _, err := store.ListCollectionMembers(ctx, orgID, rack.Id, 100, "", nil)
 	require.NoError(t, err)
 	require.Len(t, members, 2)
 
@@ -768,7 +768,7 @@ func TestCollectionStore_ListCollectionMembers_Pagination(t *testing.T) {
 	require.NoError(t, err)
 
 	// Act - page 1 (size 2)
-	page1, token1, err := store.ListCollectionMembers(ctx, orgID, group.Id, 2, "")
+	page1, token1, err := store.ListCollectionMembers(ctx, orgID, group.Id, 2, "", nil)
 
 	// Assert
 	require.NoError(t, err)
@@ -776,7 +776,7 @@ func TestCollectionStore_ListCollectionMembers_Pagination(t *testing.T) {
 	assert.NotEmpty(t, token1)
 
 	// Act - page 2
-	page2, token2, err := store.ListCollectionMembers(ctx, orgID, group.Id, 2, token1)
+	page2, token2, err := store.ListCollectionMembers(ctx, orgID, group.Id, 2, token1, nil)
 
 	// Assert
 	require.NoError(t, err)
@@ -784,7 +784,7 @@ func TestCollectionStore_ListCollectionMembers_Pagination(t *testing.T) {
 	assert.NotEmpty(t, token2)
 
 	// Act - page 3 (last page)
-	page3, token3, err := store.ListCollectionMembers(ctx, orgID, group.Id, 2, token2)
+	page3, token3, err := store.ListCollectionMembers(ctx, orgID, group.Id, 2, token2, nil)
 
 	// Assert
 	require.NoError(t, err)
