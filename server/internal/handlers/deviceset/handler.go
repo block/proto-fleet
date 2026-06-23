@@ -182,9 +182,8 @@ func requireDeviceSetReadPermission(ctx context.Context, siteIDs []int64, includ
 		info = orgInfo
 	}
 
-	for _, siteID := range siteIDs {
-		siteID := siteID
-		siteInfo, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{SiteID: &siteID})
+	for i := range siteIDs {
+		siteInfo, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{SiteID: &siteIDs[i]})
 		if err != nil {
 			return nil, err
 		}
