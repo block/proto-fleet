@@ -57,7 +57,8 @@ const InfraDeviceDetailModal = ({
     [buildingOptions, device.buildingName],
   );
   const [name, setName] = useState(device.name);
-  const [identifier, setIdentifier] = useState(device.bridgeDeviceIdentifier);
+  const [endpoint, setEndpoint] = useState(device.endpoint);
+  const [port, setPort] = useState(String(device.port));
   const [site, setSite] = useState(device.siteName);
   const [building, setBuilding] = useState(device.buildingName);
   const [enabled, setEnabled] = useState(device.enabled);
@@ -75,7 +76,7 @@ const InfraDeviceDetailModal = ({
     setIsTesting(true);
     setTimeout(() => {
       setIsTesting(false);
-      pushToast({ message: `${device.name} — bridge connection successful (12ms)`, status: STATUSES.success });
+      pushToast({ message: `${device.name} endpoint connection successful (12ms)`, status: STATUSES.success });
     }, 1200);
   }, [device.name]);
 
@@ -162,12 +163,22 @@ const InfraDeviceDetailModal = ({
               forceBelow
             />
           </div>
-          <Input
-            id="device-identifier"
-            label="Bridge/device identifier"
-            initValue={identifier}
-            onChange={(v) => setIdentifier(v)}
-          />
+          <div className="grid grid-cols-[1fr_160px] gap-3">
+            <Input
+              id="device-endpoint"
+              label="Endpoint"
+              initValue={endpoint}
+              onChange={(v) => setEndpoint(v)}
+            />
+            <Input
+              id="device-port"
+              label="Port"
+              type="number"
+              inputMode="numeric"
+              initValue={port}
+              onChange={(v) => setPort(v)}
+            />
+          </div>
         </div>
 
         <Divider />

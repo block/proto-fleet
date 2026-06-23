@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
-import { positions } from "@/shared/constants";
 
 interface ManualAddStepProps {
   onSuccess: () => void;
@@ -24,12 +23,15 @@ const ManualAddStep = ({
   const [name, setName] = useState("");
   const [site, setSite] = useState("");
   const [building, setBuilding] = useState("");
-  const [identifier, setIdentifier] = useState("");
+  const [endpoint, setEndpoint] = useState("");
+  const [port, setPort] = useState("");
 
   const availableBuildingOptions = site ? (buildingOptionsBySite[site] ?? buildingOptions) : buildingOptions;
   const siteSelectOptions = useMemo(() => toSelectOptions(siteOptions), [siteOptions]);
   const buildingSelectOptions = useMemo(() => toSelectOptions(availableBuildingOptions), [availableBuildingOptions]);
-  const isValid = [name, site, building, identifier].every((value) => value.trim().length > 0);
+  const portNumber = Number(port);
+  const isPortValid = Number.isInteger(portNumber) && portNumber > 0 && portNumber <= 65535;
+  const isValid = [name, site, building, endpoint].every((value) => value.trim().length > 0) && isPortValid;
 
   const handleSiteChange = useCallback((value: string) => {
     setSite(value);
@@ -66,17 +68,16 @@ const ManualAddStep = ({
           disabled={buildingSelectOptions.length === 0}
         />
       </div>
-      <Input
-        id="manual-identifier"
-        label="Bridge/device identifier"
-        onChange={(v) => setIdentifier(v)}
-        tooltip={{
-          header: "Bridge/device ID",
-          body: "Use the stable ID Fleet sends commands to. For a bridge or PLC, include the controller ID and endpoint when needed, like plc-aus-b1-01:fan-bank-a or modbus-den-b1-03:f03. Keep it unique within the site.",
-          position: positions["top left"],
-          widthClassName: "w-[360px]",
-        }}
-      />
+      <div className="grid grid-cols-[1fr_160px] gap-3">
+        <Input id="manual-endpoint" label="Endpoint" onChange={(v) => setEndpoint(v)} />
+        <Input
+          id="manual-port"
+          label="Port"
+          type="number"
+          inputMode="numeric"
+          onChange={(v) => setPort(v)}
+        />
+      </div>
     </div>
   );
 };

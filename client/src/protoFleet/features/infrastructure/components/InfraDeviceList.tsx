@@ -19,7 +19,8 @@ import Switch from "@/shared/components/Switch";
 
 const infraCols = {
   name: "name",
-  bridgeDeviceIdentifier: "bridgeDeviceIdentifier",
+  endpoint: "endpoint",
+  port: "port",
   site: "site",
   building: "building",
   type: "type",
@@ -33,7 +34,8 @@ type InfraColumn = (typeof infraCols)[keyof typeof infraCols];
 
 const infraColTitles: ColTitles<InfraColumn> = {
   name: "Name",
-  bridgeDeviceIdentifier: "ID",
+  endpoint: "Endpoint",
+  port: "Port",
   site: "Site",
   building: "Building",
   type: "Type",
@@ -45,7 +47,8 @@ const infraColTitles: ColTitles<InfraColumn> = {
 
 const DEFAULT_VISIBLE: InfraColumn[] = [
   "name",
-  "bridgeDeviceIdentifier",
+  "endpoint",
+  "port",
   "site",
   "building",
   "type",
@@ -55,7 +58,8 @@ const DEFAULT_VISIBLE: InfraColumn[] = [
   "lastSeen",
 ];
 const CONFIGURABLE_COLS: InfraColumn[] = [
-  "bridgeDeviceIdentifier",
+  "endpoint",
+  "port",
   "site",
   "building",
   "type",
@@ -304,11 +308,15 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
         component: (device) => <span className="text-300">{device.buildingName}</span>,
         width: "w-[148px]",
       },
-      [infraCols.bridgeDeviceIdentifier]: {
+      [infraCols.endpoint]: {
         component: (device) => (
-          <span className="font-mono text-300 text-text-primary-70">{device.bridgeDeviceIdentifier}</span>
+          <span className="font-mono text-300 text-text-primary-70">{device.endpoint}</span>
         ),
-        width: "w-[260px]",
+        width: "w-[160px]",
+      },
+      [infraCols.port]: {
+        component: (device) => <span className="font-mono text-300 text-text-primary-70">{device.port}</span>,
+        width: "w-[88px]",
       },
       [infraCols.lastSeen]: {
         component: (device) => <span className="text-300 text-text-primary-70">{device.lastSeen}</span>,
@@ -454,7 +462,8 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
       name: "name",
       site: "siteName",
       building: "buildingName",
-      bridgeDeviceIdentifier: "bridgeDeviceIdentifier",
+      endpoint: "endpoint",
+      port: "port",
       lastSeen: "lastSeen",
       status: "status",
       enabled: "enabled",

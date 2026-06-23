@@ -7,7 +7,8 @@ export interface InfraDeviceItem {
   name: string;
   buildingName: string;
   siteName: string;
-  bridgeDeviceIdentifier: string;
+  endpoint: string;
+  port: number;
   status: InfraDeviceStatus;
   enabled: InfraDeviceEnabledMode;
   issueStatus: InfraDeviceIssueStatus | null;
