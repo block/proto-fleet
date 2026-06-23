@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
 import * as api from "@/protoFleet/features/notifications/api/notificationsApi";
 import type { NotificationHistoryEntry } from "@/protoFleet/features/notifications/types";
@@ -48,8 +48,5 @@ export function useNotificationHistory(activeOnly = false): UseNotificationHisto
     }
   }, [activeOnly, history, historyHasMore, historyLoading]);
 
-  return useMemo(
-    () => ({ history, historyHasMore, historyLoading, refreshHistory, loadMoreHistory }),
-    [history, historyHasMore, historyLoading, refreshHistory, loadMoreHistory],
-  );
+  return { history, historyHasMore, historyLoading, refreshHistory, loadMoreHistory };
 }

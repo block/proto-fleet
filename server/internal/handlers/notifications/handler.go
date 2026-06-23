@@ -256,47 +256,38 @@ func (h *Handler) ListNotifications(ctx context.Context, req *connect.Request[no
 	if err != nil {
 		return nil, err
 	}
-	limit := req.Msg.GetPageSize()
-	if limit <= 0 {
-		limit = historyDefaultPageSize
-	}
-	if limit > historyMaxPageSize {
-		limit = historyMaxPageSize
-	}
-
-	// Active-only is a current-state view, not a feed: return the latest firing row per alert without keyset paging.
-	// Over-fetch by one so the response can flag (rather than silently swallow) an alert storm past the cap.
+	var rows []notificationhistory.StoredNotification
+	var pageLimit int32
 	if req.Msg.GetActiveOnly() {
-		rows, err := h.history.ListActive(ctx, orgID, historyMaxPageSize+1)
-		if err != nil {
-			return nil, err
+		// Active-only is a current-state view, not a feed: return the latest firing row per alert without keyset
+		// paging. Over-fetch by one so the response can flag (rather than silently swallow) an alert storm past the cap.
+		pageLimit = historyMaxPageSize
+		rows, err = h.history.ListActive(ctx, orgID, pageLimit+1)
+	} else {
+		pageLimit = req.Msg.GetPageSize()
+		if pageLimit <= 0 {
+			pageLimit = historyDefaultPageSize
 		}
-		hasMore := len(rows) > historyMaxPageSize
-		if hasMore {
-			rows = rows[:historyMaxPageSize]
+		if pageLimit > historyMaxPageSize {
+			pageLimit = historyMaxPageSize
 		}
-		out := make([]*notificationsv1.NotificationHistoryEntry, 0, len(rows))
-		for _, n := range rows {
-			out = append(out, historyEntryToProto(n, includeDevice))
+		var beforeID *int64
+		if s := req.Msg.GetBeforeId(); s != "" {
+			v, parseErr := strconv.ParseInt(s, 10, 64)
+			if parseErr != nil {
+				return nil, fleeterror.NewInvalidArgumentError("invalid before_id: " + s)
+			}
+			beforeID = &v
 		}
-		return connect.NewResponse(&notificationsv1.ListNotificationsResponse{Notifications: out, HasMore: hasMore}), nil
+		rows, err = h.history.List(ctx, orgID, beforeID, pageLimit+1)
 	}
-
-	var beforeID *int64
-	if s := req.Msg.GetBeforeId(); s != "" {
-		v, parseErr := strconv.ParseInt(s, 10, 64)
-		if parseErr != nil {
-			return nil, fleeterror.NewInvalidArgumentError("invalid before_id: " + s)
-		}
-		beforeID = &v
-	}
-	rows, err := h.history.List(ctx, orgID, beforeID, limit+1)
 	if err != nil {
 		return nil, err
 	}
-	hasMore := len(rows) > int(limit)
+
+	hasMore := len(rows) > int(pageLimit)
 	if hasMore {
-		rows = rows[:limit]
+		rows = rows[:pageLimit]
 	}
 	out := make([]*notificationsv1.NotificationHistoryEntry, 0, len(rows))
 	for _, n := range rows {

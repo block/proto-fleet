@@ -1,4 +1,4 @@
-import clsx from "clsx";
+import StatusDot from "@/protoFleet/features/notifications/components/StatusDot";
 import type { ValidationState } from "@/protoFleet/features/notifications/types";
 
 interface ChannelStatusBadgeProps {
@@ -18,10 +18,7 @@ const DOT_CLASS: Record<ValidationState, string> = {
 };
 
 const ChannelStatusBadge = ({ state }: ChannelStatusBadgeProps) => (
-  <span className="inline-flex items-center gap-2 text-300 text-text-primary-50">
-    <span className={clsx("h-2 w-2 rounded-full", DOT_CLASS[state])} />
-    {LABEL[state]}
-  </span>
+  <StatusDot dotClass={DOT_CLASS[state]}>{LABEL[state]}</StatusDot>
 );
 
 export default ChannelStatusBadge;

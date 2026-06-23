@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import clsx from "clsx";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { useNotificationHistory } from "@/protoFleet/features/notifications/api/useNotificationHistory";
+import StatusDot from "@/protoFleet/features/notifications/components/StatusDot";
 import type { NotificationHistoryEntry } from "@/protoFleet/features/notifications/types";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -12,6 +12,7 @@ import Callout from "@/shared/components/Callout";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
 type HistoryColumns = "alert" | "status" | "device" | "mac" | "received" | "summary";
 
@@ -27,15 +28,9 @@ const colTitles: ColTitles<HistoryColumns> = {
 const activeCols: HistoryColumns[] = ["alert", "status", "device", "mac", "received", "summary"];
 
 const StatusBadge = ({ status }: { status: NotificationHistoryEntry["status"] }) => (
-  <span className="inline-flex items-center gap-2 text-300 text-text-primary-50">
-    <span
-      className={clsx(
-        "h-2 w-2 rounded-full",
-        status === "resolved" ? "bg-intent-success-fill" : "bg-intent-critical-fill",
-      )}
-    />
+  <StatusDot dotClass={status === "resolved" ? "bg-intent-success-fill" : "bg-intent-critical-fill"}>
     {status === "resolved" ? "Resolved" : "Firing"}
-  </span>
+  </StatusDot>
 );
 
 const colConfig: ColConfig<NotificationHistoryEntry, string, HistoryColumns> = {
@@ -63,7 +58,9 @@ const colConfig: ColConfig<NotificationHistoryEntry, string, HistoryColumns> = {
     width: "w-44",
   },
   received: {
-    component: (entry) => <span className="text-text-primary-50">{new Date(entry.received_at).toLocaleString()}</span>,
+    component: (entry) => (
+      <span className="text-text-primary-50">{formatTimestamp(isoToEpochSeconds(entry.received_at))}</span>
+    ),
     width: "w-48",
   },
   summary: {
@@ -72,11 +69,6 @@ const colConfig: ColConfig<NotificationHistoryEntry, string, HistoryColumns> = {
     allowWrap: true,
   },
 };
-
-// The active endpoint already returns the latest row per alert instance, so only guard on status here.
-// (Don't re-dedup client-side: device_id is redacted without miner:read, which would collapse distinct instances.)
-const selectActive = (history: NotificationHistoryEntry[]): NotificationHistoryEntry[] =>
-  history.filter((entry) => entry.status === "firing");
 
 interface HistoryTableProps {
   activeOnly?: boolean;
@@ -118,16 +110,11 @@ const HistoryTable = ({ activeOnly = false, noDataElement, onPermissionDenied }:
     return () => clearInterval(interval);
   }, [activeOnly, refreshHistory, onPermissionDenied]);
 
-  const handleLoadMore = useMemo(
-    () => () => {
-      void loadMoreHistory().catch((err: unknown) => {
-        setError(getErrorMessage(err, "Failed to load more notifications"));
-      });
-    },
-    [loadMoreHistory],
-  );
-
-  const entries = useMemo(() => (activeOnly ? selectActive(history) : history), [activeOnly, history]);
+  const handleLoadMore = useCallback(() => {
+    void loadMoreHistory().catch((err: unknown) => {
+      setError(getErrorMessage(err, "Failed to load more notifications"));
+    });
+  }, [loadMoreHistory]);
 
   const isInitialLoad = historyLoading && history.length === 0;
   const isLoadingMore = historyLoading && history.length > 0;
@@ -142,7 +129,7 @@ const HistoryTable = ({ activeOnly = false, noDataElement, onPermissionDenied }:
         </div>
       ) : (
         <List<NotificationHistoryEntry, string, HistoryColumns>
-          items={entries}
+          items={history}
           itemKey="id"
           activeCols={activeCols}
           colTitles={colTitles}
@@ -167,7 +154,7 @@ const HistoryTable = ({ activeOnly = false, noDataElement, onPermissionDenied }:
 
       {activeOnly && historyHasMore ? (
         <p className="text-center text-200 text-text-primary-50">
-          Showing the first {entries.length} active alerts; additional firing alerts are not shown.
+          Showing the first {history.length} active alerts; additional firing alerts are not shown.
         </p>
       ) : null}
     </>
