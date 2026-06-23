@@ -272,7 +272,7 @@ describe("DeviceSetActionsMenu", () => {
     };
     const sleepAction = latestCall.actions.find((action) => action.action === "shutdown");
     expect(sleepAction?.confirmation?.subtitle).toBe(
-      "This action applies to miners in Site 2, 6 of the 30 miners in Group A will go to sleep and stop hashing.",
+      "This action only applies to miners in Site 2, 6 of the 30 miners in Group A will go to sleep and stop hashing.",
     );
   });
 

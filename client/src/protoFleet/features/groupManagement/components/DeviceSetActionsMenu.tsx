@@ -373,7 +373,7 @@ const DeviceSetActionsMenuInner = ({
       scopedCount === totalCount
         ? `all ${scopedCount} ${scopedCount === 1 ? "miner" : "miners"} in ${groupLabel}`
         : `${scopedCount} of the ${totalCount} miners in ${groupLabel}`;
-    return `This action applies to ${scopeLabel}, ${countSummary}`;
+    return `This action only applies to ${scopeLabel}, ${countSummary}`;
   }, [activeSite?.kind, deviceSetLabel, isScopedGroupAction, memberDeviceIds.length, siteScopeLabel, totalMemberCount]);
 
   const scopedActionSubtitle = useCallback(
