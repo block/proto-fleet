@@ -122,7 +122,7 @@ The alerts deployment runs an extra grafana service:
 
 | Service   | Image (pinned)                        | Purpose                                                                       |
 | --------- | ------------------------------------- | ----------------------------------------------------------------------------- |
-| `grafana` | `grafana/grafana:13.1.0-25771031703`  | Evaluates alert rules over `alert_metric_sample` and routes alerts via its built-in Alertmanager. |
+| `grafana` | `grafana/grafana:13.1.0-25771031703`  | Evaluates alert rules over `notification_metric_sample` and routes alerts via its built-in Alertmanager. |
 
 ### Network topology
 
@@ -149,7 +149,7 @@ On the first run with alerts enabled, `run-fleet.sh` rotates the
 Grafana admin password and writes it into `.env` as
 `GRAFANA_ADMIN_PASSWORD`. It also creates a dedicated read-only
 PostgreSQL role for Grafana (`grafana_ro` by default) with `SELECT`
-only on `alert_metric_sample`, and persists those credentials
+only on `notification_metric_sample`, and persists those credentials
 to `.env` as `GRAFANA_DB_USERNAME` / `GRAFANA_DB_PASSWORD`. Grafana
 authenticates as this role rather than the broader fleet-api app role.
 
