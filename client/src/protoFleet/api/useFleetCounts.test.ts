@@ -41,6 +41,14 @@ describe("useFleetCounts request site scope", () => {
     expect(req.includeUnassigned).toBe(false);
   });
 
+  it("does not fetch while disabled", () => {
+    const { result } = renderHook(() => useFleetCounts({ enabled: false, siteIds: [7n] }));
+
+    expect(result.current.hasLoaded).toBe(false);
+    expect(result.current.isLoading).toBe(false);
+    expect(mockGetMinerStateCounts).not.toHaveBeenCalled();
+  });
+
   it("sends site_ids for a specific-site scope", async () => {
     const { result } = renderHook(() => useFleetCounts({ siteIds: [7n] }));
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
@@ -75,5 +83,16 @@ describe("useFleetCounts request site scope", () => {
     const lastReq = calls[calls.length - 1][0];
     expect(lastReq.siteIds).toEqual([9n]);
     expect(mockGetMinerStateCounts.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not mark failed first fetches as loaded", async () => {
+    mockGetMinerStateCounts.mockRejectedValueOnce(new Error("database unavailable"));
+
+    const { result } = renderHook(() => useFleetCounts({ siteIds: [7n] }));
+
+    await waitFor(() => expect(mockHandleAuthErrors).toHaveBeenCalled());
+    expect(result.current.hasLoaded).toBe(false);
+    expect(result.current.stateCounts).toBeUndefined();
+    expect(result.current.totalMiners).toBe(0);
   });
 });

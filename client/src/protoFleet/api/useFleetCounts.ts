@@ -11,6 +11,8 @@ const EMPTY_SITE_IDS: bigint[] = [];
 
 interface UseFleetCountsOptions {
   pollIntervalMs?: number;
+  /** Gate the hook while a parent scope is still being validated. */
+  enabled?: boolean;
   /** Scope counts to specific sites (OR). Empty = all sites. */
   siteIds?: bigint[];
   /** Include miners with no site assignment (site_id IS NULL). */
@@ -48,11 +50,12 @@ type UseFleetCountsReturn = {
 const useFleetCounts = (options?: UseFleetCountsOptions): UseFleetCountsReturn => {
   const { handleAuthErrors } = useAuthErrors();
 
+  const enabled = options?.enabled ?? true;
   const siteIds = options?.siteIds ?? EMPTY_SITE_IDS;
   const includeUnassigned = options?.includeUnassigned ?? false;
   // Stable key for the requested site scope; changing it re-fetches and
   // discards in-flight responses from the previous scope.
-  const scopeKey = `${siteIds.map(String).join(",")}|${includeUnassigned}`;
+  const scopeKey = `${enabled ? "on" : "off"}|${siteIds.map(String).join(",")}|${includeUnassigned}`;
 
   const [totalMiners, setTotalMiners] = useState(0);
   const [stateCounts, setStateCounts] = useState<MinerStateCounts | undefined>(undefined);
@@ -84,6 +87,12 @@ const useFleetCounts = (options?: UseFleetCountsOptions): UseFleetCountsReturn =
   }
 
   const fetchCounts = useCallback(async () => {
+    if (!enabled) {
+      ++requestIdRef.current;
+      setIsLoading(false);
+      return;
+    }
+
     const thisRequestId = ++requestIdRef.current;
 
     // Only show loading spinner on first fetch, not subsequent poll refreshes
@@ -103,6 +112,8 @@ const useFleetCounts = (options?: UseFleetCountsOptions): UseFleetCountsReturn =
 
       setTotalMiners(response.totalMiners);
       setStateCounts(response.stateCounts);
+      hasLoadedRef.current = true;
+      setHasLoaded(true);
     } catch (error) {
       if (thisRequestId !== requestIdRef.current) return;
 
@@ -115,28 +126,27 @@ const useFleetCounts = (options?: UseFleetCountsOptions): UseFleetCountsReturn =
     } finally {
       if (thisRequestId === requestIdRef.current) {
         setIsLoading(false);
-        hasLoadedRef.current = true;
-        setHasLoaded(true);
       }
     }
-  }, [handleAuthErrors]);
+  }, [enabled, handleAuthErrors]);
 
   // Fetch on mount and whenever the site scope changes; polling handles
   // subsequent refreshes within a scope.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch + refetch on scope change; setState inside async fetch is the external-sync pattern
     void fetchCounts();
   }, [fetchCounts, scopeKey]);
 
   // Polling
   useEffect(() => {
-    if (!options?.pollIntervalMs) return;
+    if (!options?.pollIntervalMs || !enabled) return;
 
     const intervalId = setInterval(() => {
       void fetchCounts();
     }, options.pollIntervalMs);
 
     return () => clearInterval(intervalId);
-  }, [options?.pollIntervalMs, fetchCounts]);
+  }, [options?.pollIntervalMs, enabled, fetchCounts]);
 
   const refetch = useCallback(() => {
     void fetchCounts();

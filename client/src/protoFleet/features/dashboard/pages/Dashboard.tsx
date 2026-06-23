@@ -18,6 +18,7 @@ import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePa
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
+import { useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -46,11 +47,17 @@ const Dashboard = () => {
   // all-sites instead of resolving zero devices into an empty dashboard.
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
+  const [siteValidationSettled, setSiteValidationSettled] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     void listSites({
       signal: controller.signal,
       onSuccess: setSites,
+      onFinally: () => {
+        if (!controller.signal.aborted) {
+          setSiteValidationSettled(true);
+        }
+      },
     });
     return () => controller.abort();
   }, [listSites]);
@@ -61,6 +68,8 @@ const Dashboard = () => {
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
   const siteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
+  const routeScope = useRouteSiteScope();
+  const scopedRouteReady = routeScope?.kind !== "site" || knownSiteIds !== undefined || siteValidationSettled;
 
   // Fleet counts — polled for fresh minerStateCounts, scoped to the active site
   const {
@@ -68,6 +77,7 @@ const Dashboard = () => {
     stateCounts,
     hasLoaded: countsLoaded,
   } = useFleetCounts({
+    enabled: scopedRouteReady,
     pollIntervalMs: POLL_INTERVAL_MS,
     siteIds: siteFilter.siteIds,
     includeUnassigned: siteFilter.includeUnassigned,
@@ -75,6 +85,7 @@ const Dashboard = () => {
 
   // Component errors — polled, local state (no store), scoped to the active site
   const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors({
+    enabled: scopedRouteReady,
     pollIntervalMs: POLL_INTERVAL_MS,
     siteIds: siteFilter.siteIds,
     includeUnassigned: siteFilter.includeUnassigned,
@@ -86,12 +97,12 @@ const Dashboard = () => {
       deviceIds: ALL_DEVICES,
       measurementTypes: ALL_MEASUREMENT_TYPES,
       duration,
-      enabled: true,
+      enabled: scopedRouteReady,
       pollIntervalMs: POLL_INTERVAL_MS,
       siteIds: siteFilter.siteIds,
       includeUnassigned: siteFilter.includeUnassigned,
     }),
-    [duration, siteFilter],
+    [duration, scopedRouteReady, siteFilter],
   );
 
   const { data: telemetryData } = useTelemetryMetrics(telemetryOptions);
