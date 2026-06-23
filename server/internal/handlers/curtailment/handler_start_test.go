@@ -300,6 +300,38 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 	assert.Equal(t, uint32(10), ev.EffectiveBatchSize)
 }
 
+func TestHandler_StartCurtailment_PersistsCurtailBatchControls(t *testing.T) {
+	t.Parallel()
+
+	store := newStartStubStore()
+	store.candidates = []*models.Candidate{
+		miner("worst", "ACTIVE", "PAIRED", 3000, 100, 50),
+		miner("mid", "ACTIVE", "PAIRED", 3000, 100, 35),
+	}
+	h := NewHandler(curtailment.NewService(store))
+	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+		SessionID:      "sess-abc",
+	}, authz.PermCurtailmentManage)
+
+	req := validStartRequestBuilder()
+	req.CurtailBatchSize = ptrUint32(1)
+	req.CurtailBatchIntervalSec = ptrUint32(15)
+
+	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+	require.NotNil(t, store.lastEvent.CurtailBatchSize)
+	assert.Equal(t, int32(1), *store.lastEvent.CurtailBatchSize)
+	assert.Equal(t, int32(15), store.lastEvent.CurtailBatchIntervalSec)
+	require.NotNil(t, resp.Msg.Event.CurtailBatchSize)
+	assert.Equal(t, uint32(1), resp.Msg.Event.GetCurtailBatchSize())
+	assert.Equal(t, uint32(15), resp.Msg.Event.GetCurtailBatchIntervalSec())
+}
+
 func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 	t.Parallel()
 
@@ -699,7 +731,7 @@ func TestHandler_StartCurtailment_RejectsAllowUnboundedWithMaxDuration(t *testin
 }
 
 // TestHandler_StartCurtailment_RejectsUint32Overflow pins the strict
-// overflow rejection on the four uint32 → int32 fields the translator
+// overflow rejection on the uint32 → int32 fields the translator
 // converts. A value above MaxInt32 must surface as InvalidArgument
 // naming the offending field rather than silently saturating.
 func TestHandler_StartCurtailment_RejectsUint32Overflow(t *testing.T) {
@@ -712,6 +744,11 @@ func TestHandler_StartCurtailment_RejectsUint32Overflow(t *testing.T) {
 		mut   func(*pb.StartCurtailmentRequest)
 	}{
 		{"max_duration_seconds", func(r *pb.StartCurtailmentRequest) { r.MaxDurationSeconds = overflow }},
+		{"curtail_batch_size", func(r *pb.StartCurtailmentRequest) { r.CurtailBatchSize = ptrUint32(overflow) }},
+		{"curtail_batch_interval_sec", func(r *pb.StartCurtailmentRequest) {
+			r.CurtailBatchSize = ptrUint32(1)
+			r.CurtailBatchIntervalSec = ptrUint32(overflow)
+		}},
 		{"restore_batch_size", func(r *pb.StartCurtailmentRequest) { r.RestoreBatchSize = overflow }},
 		{"restore_batch_interval_sec", func(r *pb.StartCurtailmentRequest) { r.RestoreBatchIntervalSec = overflow }},
 		{"min_curtailed_duration_sec", func(r *pb.StartCurtailmentRequest) { r.MinCurtailedDurationSec = overflow }},

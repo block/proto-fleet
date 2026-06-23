@@ -148,8 +148,6 @@ const fieldHelp = {
   curtailBatchInterval: "Seconds to wait between each curtailment wave.",
   restoreBatchSize: "Number of miners to bring back online in each wave.",
   restoreBatchInterval: "Seconds to wait between each restore wave.",
-  postEventCooldown:
-    "Seconds a restored miner must wait before it can be curtailed again. Skipped for emergency or MQTT-triggered automated curtailments.",
 } as const;
 const defaultValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
@@ -242,6 +240,7 @@ function withSelectedResponseProfileValues(
   const nextValues = {
     ...values,
     ...behaviorValues,
+    postEventCooldownSec: defaultValues.postEventCooldownSec,
   };
 
   if (!hasScopeValues) {
@@ -288,6 +287,7 @@ function getInitialValues(
   const values = {
     ...defaultValues,
     ...initialValues,
+    postEventCooldownSec: defaultValues.postEventCooldownSec,
   };
 
   return variant === "responseProfile" ? withResponseProfileScope(values, responseProfileMode) : values;
@@ -348,7 +348,7 @@ function validateCurtailmentFormValues(
   const localErrors: CurtailmentFormErrors = {};
   const isEditMode = mode === "edit";
   const isResponseProfileVariant = variant === "responseProfile";
-  const shouldValidateCurtailBatchFields = isResponseProfileVariant;
+  const shouldValidateCurtailBatchFields = !isEditMode || isResponseProfileVariant;
   const restoreInterval = parseOptionalUint32Field(values.restoreIntervalSec, {
     label: "batch interval",
     max: curtailmentNumericFieldLimits.restoreIntervalSec,
@@ -360,10 +360,6 @@ function validateCurtailmentFormValues(
   const curtailBatchInterval = parseOptionalUint32Field(values.curtailBatchIntervalSec, {
     label: "batch interval",
     max: curtailmentNumericFieldLimits.curtailBatchIntervalSec,
-  });
-  const postEventCooldown = parseOptionalUint32Field(values.postEventCooldownSec, {
-    label: "post-event cooldown",
-    max: curtailmentNumericFieldLimits.postEventCooldownSec,
   });
 
   if (values.reason.trim() === "") {
@@ -381,10 +377,14 @@ function validateCurtailmentFormValues(
   if (shouldValidateCurtailBatchFields && curtailBatchInterval.error) {
     localErrors.curtailBatchIntervalSec = curtailBatchInterval.error;
   }
-  if (isResponseProfileVariant && values.postEventCooldownSec.trim() === "") {
-    localErrors.postEventCooldownSec = "Enter post-event cooldown.";
-  } else if (postEventCooldown.error) {
-    localErrors.postEventCooldownSec = postEventCooldown.error;
+  if (
+    shouldValidateCurtailBatchFields &&
+    curtailBatchInterval.error === undefined &&
+    curtailBatchSize.parsed === undefined &&
+    curtailBatchInterval.parsed !== undefined &&
+    curtailBatchInterval.parsed > 0
+  ) {
+    localErrors.curtailBatchIntervalSec = "Enter batch size before adding a batch interval.";
   }
   if (isEditMode && restoreInterval.error === undefined && restoreInterval.parsed === 0) {
     localErrors.restoreIntervalSec = "Enter batch interval greater than 0.";
@@ -754,7 +754,6 @@ function CurtailmentStartModalContent({
     return {
       ...nextValues,
       responseProfileId: customResponseProfileId,
-      postEventCooldownSec: defaultValues.postEventCooldownSec,
     };
   };
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) => {
@@ -830,7 +829,7 @@ function CurtailmentStartModalContent({
     ? undefined
     : "Fleet will automatically curtail the least efficient miners first.";
   const curtailmentTargetGridClassName = isFullFleetMode ? "grid gap-3" : "grid gap-3 tablet:grid-cols-2";
-  const shouldShowCurtailBatchFields = isResponseProfileVariant;
+  const shouldShowCurtailBatchFields = !isLiveCurtailmentEditMode;
   const curtailBatchSizeTestId = isResponseProfileVariant
     ? "response-profile-curtail-batch-size"
     : "curtailment-curtail-batch-size";
@@ -891,7 +890,6 @@ function CurtailmentStartModalContent({
       setValues((current) => ({
         ...current,
         responseProfileId: customResponseProfileId,
-        postEventCooldownSec: defaultValues.postEventCooldownSec,
       }));
       return;
     }
@@ -1247,25 +1245,6 @@ function CurtailmentStartModalContent({
                   }
                   onChange={(value) => updateValue("restoreIntervalSec", value)}
                 />
-                {isResponseProfileVariant ? (
-                  <Input
-                    id="response-profile-post-event-cooldown"
-                    label="Post-event cooldown (sec)"
-                    initValue={values.postEventCooldownSec}
-                    inputMode="numeric"
-                    error={effectiveErrors.postEventCooldownSec}
-                    testId="response-profile-post-event-cooldown"
-                    suffixAction={
-                      <FieldInfoToggle
-                        ariaLabel="About post-event cooldown"
-                        body={fieldHelp.postEventCooldown}
-                        testId="post-event-cooldown-info-button"
-                        popoverTestId="post-event-cooldown-info-popover"
-                      />
-                    }
-                    onChange={(value) => updateValue("postEventCooldownSec", value)}
-                  />
-                ) : null}
               </div>
             </Section>
 

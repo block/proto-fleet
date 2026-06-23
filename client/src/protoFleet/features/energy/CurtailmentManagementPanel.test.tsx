@@ -400,7 +400,7 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"siteId":"101"');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"deviceIdentifiers":[]');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"targetKw":"50"');
-    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"postEventCooldownSec":"600"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"postEventCooldownSec":"0"');
   });
 
   it("opens a new plan while a curtailment is already active", async () => {

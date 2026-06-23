@@ -17,10 +17,6 @@ import {
   UpdateCurtailmentResponseProfileRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
-import {
-  curtailmentNumericFieldLimits,
-  getOptionalUint32Setting,
-} from "@/protoFleet/features/energy/curtailmentNumericFields";
 import type {
   ResponseProfile,
   ResponseProfileFormValues,
@@ -30,11 +26,6 @@ import { useAuthErrors } from "@/protoFleet/store";
 const defaultResponseDeadlineMinutes: string = "15";
 const immediateRestoreBatchSize = 10_000;
 const sessionFormValuesByProfileId = new Map<string, ResponseProfileFormValues>();
-const postEventCooldownOptions = {
-  label: "post-event cooldown",
-  max: curtailmentNumericFieldLimits.postEventCooldownSec,
-};
-
 export type UseCurtailmentResponseProfilesResult = {
   responseProfiles: ResponseProfile[];
   isLoading: boolean;
@@ -117,7 +108,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile): Response
     curtailBatchIntervalSec: numberToNonNegativeInputValue(profile.curtailBatchIntervalSec),
     restoreBatchSize: numberToInputValue(profile.restoreBatchSize),
     restoreIntervalSec: numberToNonNegativeInputValue(profile.restoreBatchIntervalSec),
-    postEventCooldownSec: numberToNonNegativeInputValue(profile.postEventCooldownSec || 0),
+    postEventCooldownSec: "0",
     responseDeadlineMinutes,
     includeMaintenance: profile.includeMaintenance,
   };
@@ -217,7 +208,6 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
     curtailBatchIntervalSec: getOptionalNonNegativeNumber(values.curtailBatchIntervalSec),
     restoreBatchSize: getRestoreBatchSize(values),
     restoreBatchIntervalSec: getOptionalNonNegativeNumber(values.restoreIntervalSec),
-    postEventCooldownSec: getOptionalUint32Setting(values.postEventCooldownSec, postEventCooldownOptions),
     includeMaintenance: values.includeMaintenance,
     forceIncludeMaintenance: values.includeMaintenance,
   };

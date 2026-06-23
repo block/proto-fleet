@@ -653,7 +653,6 @@ describe("CurtailmentSettingsPage", () => {
     fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "60" } });
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "10" } });
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
-    fireEvent.change(screen.getByTestId("response-profile-post-event-cooldown"), { target: { value: "600" } });
     fireEvent.click(getEnabledButton("Run curtailment"));
     expect(screen.getByText("Force include maintenance miners?")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Force include" }));
@@ -674,7 +673,7 @@ describe("CurtailmentSettingsPage", () => {
           curtailBatchIntervalSec: "60",
           restoreBatchSize: "10",
           restoreIntervalSec: "120",
-          postEventCooldownSec: "600",
+          postEventCooldownSec: "0",
         }),
       ),
     );
@@ -689,7 +688,7 @@ describe("CurtailmentSettingsPage", () => {
           curtailBatchIntervalSec: "60",
           restoreBatchSize: "10",
           restoreIntervalSec: "120",
-          postEventCooldownSec: "600",
+          postEventCooldownSec: "0",
           includeMaintenance: true,
         }),
       ),
@@ -727,7 +726,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("30");
     expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
-    expect(screen.getByTestId("response-profile-post-event-cooldown")).toHaveValue("600");
+    expect(screen.queryByTestId("response-profile-post-event-cooldown")).not.toBeInTheDocument();
     expect(screen.queryByText("Apply to")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
 
@@ -737,7 +736,6 @@ describe("CurtailmentSettingsPage", () => {
     fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "45" } });
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "50" } });
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
-    fireEvent.change(screen.getByTestId("response-profile-post-event-cooldown"), { target: { value: "900" } });
     fireEvent.click(getEnabledButton("Save profile"));
 
     await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
@@ -750,7 +748,7 @@ describe("CurtailmentSettingsPage", () => {
         curtailBatchIntervalSec: "45",
         restoreBatchSize: "50",
         restoreIntervalSec: "120",
-        postEventCooldownSec: "900",
+        postEventCooldownSec: "0",
         siteId: "",
       }),
     );
@@ -794,7 +792,7 @@ describe("CurtailmentSettingsPage", () => {
         expect.objectContaining({
           siteId: "101",
           siteName: "Site 101",
-          postEventCooldownSec: "300",
+          postEventCooldownSec: "0",
         }),
       ),
     );
@@ -863,7 +861,7 @@ describe("CurtailmentSettingsPage", () => {
           curtailBatchIntervalSec: "45",
           restoreBatchSize: "50",
           restoreIntervalSec: "120",
-          postEventCooldownSec: "600",
+          postEventCooldownSec: "0",
           siteId: "",
         }),
       ),
@@ -880,7 +878,7 @@ describe("CurtailmentSettingsPage", () => {
           curtailBatchIntervalSec: "45",
           restoreBatchSize: "50",
           restoreIntervalSec: "120",
-          postEventCooldownSec: "600",
+          postEventCooldownSec: "0",
         }),
       ),
     );

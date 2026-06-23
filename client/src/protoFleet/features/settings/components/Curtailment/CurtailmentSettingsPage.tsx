@@ -282,7 +282,7 @@ function createResponseProfileFromFormValues(
     curtailBatchIntervalSec: values.curtailBatchIntervalSec.trim(),
     restoreBatchSize: values.restoreBatchSize.trim(),
     restoreIntervalSec: values.restoreIntervalSec.trim(),
-    postEventCooldownSec: values.postEventCooldownSec.trim(),
+    postEventCooldownSec: emptyResponseProfileFormValues.postEventCooldownSec,
     responseDeadlineMinutes: values.responseDeadlineMinutes.trim(),
   };
 
@@ -377,7 +377,7 @@ function createCurtailmentFormValuesFromResponseProfile(
     curtailBatchIntervalSec: values.curtailBatchIntervalSec,
     restoreBatchSize,
     restoreIntervalSec: values.restoreIntervalSec,
-    postEventCooldownSec: values.postEventCooldownSec,
+    postEventCooldownSec: emptyResponseProfileFormValues.postEventCooldownSec,
     reason: values.name,
     includeMaintenance: values.includeMaintenance,
   };
@@ -418,7 +418,7 @@ function createResponseProfileFormValuesFromCurtailmentValues(
     curtailBatchIntervalSec: values.curtailBatchIntervalSec,
     restoreBatchSize: values.restoreBatchSize,
     restoreIntervalSec: values.restoreIntervalSec,
-    postEventCooldownSec: values.postEventCooldownSec,
+    postEventCooldownSec: emptyResponseProfileFormValues.postEventCooldownSec,
     responseDeadlineMinutes: secondsToDeadlineMinutes(values.maxDurationSec),
     includeMaintenance: values.includeMaintenance,
   };

@@ -117,7 +117,7 @@ describe("useCurtailmentPlanPreview", () => {
     expect(wholeFleetRequest.modeParams.value.targetKw).toBe(40);
     expect(wholeFleetRequest?.includeMaintenance).toBe(true);
     expect(wholeFleetRequest?.forceIncludeMaintenance).toBe(true);
-    expect(wholeFleetRequest?.postEventCooldownSec).toBe(600);
+    expect(wholeFleetRequest?.postEventCooldownSec).toBe(0);
 
     const minerRequest = buildPreviewCurtailmentPlanRequest({
       ...baseValues,
@@ -162,14 +162,12 @@ describe("useCurtailmentPlanPreview", () => {
     expect(request?.modeParams.case).toBeUndefined();
     expect(request?.includeMaintenance).toBe(true);
     expect(request?.forceIncludeMaintenance).toBe(true);
-    expect(request?.postEventCooldownSec).toBe(600);
+    expect(request?.postEventCooldownSec).toBe(0);
   });
 
   it("does not build a request until target and scope are valid", () => {
     expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, targetKw: "" })).toBeUndefined();
     expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, targetKw: "0" })).toBeUndefined();
-    expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, postEventCooldownSec: "1.5" })).toBeUndefined();
-    expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, postEventCooldownSec: "86401" })).toBeUndefined();
     expect(
       buildPreviewCurtailmentPlanRequest({ ...baseValues, scopeType: "deviceSet", deviceSetIds: [] }),
     ).toBeUndefined();

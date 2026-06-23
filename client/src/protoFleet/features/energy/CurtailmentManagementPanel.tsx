@@ -128,7 +128,7 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
       curtailBatchIntervalSec: values.curtailBatchIntervalSec,
       restoreBatchSize,
       restoreIntervalSec: values.restoreIntervalSec,
-      postEventCooldownSec: values.postEventCooldownSec,
+      postEventCooldownSec: "0",
       includeMaintenance: values.includeMaintenance,
     },
   };

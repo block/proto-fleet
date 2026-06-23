@@ -1965,7 +1965,7 @@ describe("useCurtailmentApi", () => {
       expect.objectContaining({
         mode: CurtailmentMode.FULL_FLEET,
         modeParams: expect.objectContaining({ case: undefined }),
-        postEventCooldownSec: 600,
+        postEventCooldownSec: 0,
       }),
     );
   });

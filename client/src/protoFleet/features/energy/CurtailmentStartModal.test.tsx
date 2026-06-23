@@ -250,11 +250,12 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByText("Safety")).not.toBeInTheDocument();
     expect(screen.queryByText("Normal")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("curtailment-curtail-batch-size")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("curtailment-curtail-batch-interval")).not.toBeInTheDocument();
+    expect(screen.getByTestId("curtailment-curtail-batch-size")).toBeInTheDocument();
+    expect(screen.getByTestId("curtailment-curtail-batch-interval")).toBeInTheDocument();
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
-    expect(screen.getAllByLabelText("Batch size (miners)")).toHaveLength(1);
-    expect(screen.getAllByLabelText("Batch interval (sec)")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Batch size (miners)")).toHaveLength(2);
+    expect(screen.getAllByLabelText("Batch interval (sec)")).toHaveLength(2);
+    expect(screen.queryByTestId("curtailment-post-event-cooldown")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Racks\s+Select/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Groups\s+Select/ })).not.toBeInTheDocument();
     expect(
@@ -283,6 +284,12 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByRole("button", { name: "About fixed target reduction" }));
     expect(screen.getByText("The amount to reduce based on the selected mode.")).toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: "About curtail batch size" }));
+    expect(screen.getByText("Number of miners to shut down in each wave.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "About curtail batch interval" }));
+    expect(screen.getByText("Seconds to wait between each curtailment wave.")).toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: "About restore batch size" }));
     expect(screen.getByText("Number of miners to bring back online in each wave.")).toBeInTheDocument();
 
@@ -308,10 +315,11 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("curtailment-curtail-batch-size")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("curtailment-curtail-batch-interval")).not.toBeInTheDocument();
-    expect(screen.getAllByLabelText("Batch size (miners)")[0]).toHaveValue("10");
-    expect(screen.getAllByLabelText("Batch interval (sec)")[0]).toHaveValue("120");
+    expect(screen.getByTestId("curtailment-curtail-batch-size")).toHaveValue("20");
+    expect(screen.getByTestId("curtailment-curtail-batch-interval")).toHaveValue("60");
+    expect(screen.getAllByLabelText("Batch size (miners)")[1]).toHaveValue("10");
+    expect(screen.getAllByLabelText("Batch interval (sec)")[1]).toHaveValue("120");
+    expect(screen.queryByTestId("curtailment-post-event-cooldown")).not.toBeInTheDocument();
 
     await user.clear(screen.getByLabelText("Reason"));
     await user.type(screen.getByLabelText("Reason"), "Updated operator reason");
@@ -331,12 +339,14 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         responseProfileId: "customPlan",
+        curtailBatchSize: "20",
+        curtailBatchIntervalSec: "60",
         postEventCooldownSec: "0",
       }),
     );
   });
 
-  it("clears hidden response profile cooldown when custom plan is selected", async () => {
+  it("preserves visible response profile controls when custom plan is selected", async () => {
     const user = userEvent.setup();
     const customResponseProfiles: CurtailmentResponseProfileOption[] = responseProfiles.map((profile) => ({
       ...profile,
@@ -352,12 +362,21 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByRole("button", { name: "Profile" }));
     await user.click(screen.getByText("Custom plan"));
     expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Custom plan");
+    expect(screen.getByTestId("curtailment-curtail-batch-size")).toHaveValue("20");
+    expect(screen.getByTestId("curtailment-curtail-batch-interval")).toHaveValue("60");
+    expect(screen.queryByTestId("curtailment-post-event-cooldown")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     await confirmCurtailment(user);
 
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ postEventCooldownSec: "0" }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        curtailBatchSize: "20",
+        curtailBatchIntervalSec: "60",
+        postEventCooldownSec: "0",
+      }),
+    );
   });
 
   it("restores the selected response profile scope after a target selection", async () => {
@@ -394,7 +413,7 @@ describe("CurtailmentStartModal", () => {
         siteId: "",
         deviceSetIds: [],
         deviceIdentifiers: [],
-        postEventCooldownSec: "600",
+        postEventCooldownSec: "0",
       }),
     );
   });
@@ -520,10 +539,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
     expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("120");
-    const cooldownInput = screen.getByTestId("response-profile-post-event-cooldown");
-    expect(cooldownInput).toHaveValue("0");
-    await user.clear(cooldownInput);
-    await user.type(cooldownInput, "600");
+    expect(screen.queryByTestId("response-profile-post-event-cooldown")).not.toBeInTheDocument();
     expect(mockUseCurtailmentPlanPreview).toHaveBeenCalledWith(expect.objectContaining({ disabled: false }));
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
 
@@ -548,7 +564,7 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
-        postEventCooldownSec: "600",
+        postEventCooldownSec: "0",
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         deviceSetIds: [],
@@ -568,7 +584,7 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
-        postEventCooldownSec: "600",
+        postEventCooldownSec: "0",
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         deviceSetIds: [],
@@ -698,7 +714,7 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10000",
         restoreIntervalSec: "0",
-        postEventCooldownSec: "900",
+        postEventCooldownSec: "0",
         includeMaintenance: false,
       },
     });
@@ -718,7 +734,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
     expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
-    expect(screen.getByTestId("response-profile-post-event-cooldown")).toHaveValue("900");
+    expect(screen.queryByTestId("response-profile-post-event-cooldown")).not.toBeInTheDocument();
     expect(screen.queryByText("Apply to")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
@@ -749,7 +765,7 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10000",
         restoreIntervalSec: "0",
-        postEventCooldownSec: "900",
+        postEventCooldownSec: "0",
       }),
     );
 
@@ -766,7 +782,7 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10000",
         restoreIntervalSec: "0",
-        postEventCooldownSec: "900",
+        postEventCooldownSec: "0",
       }),
     );
 
@@ -1051,8 +1067,8 @@ describe("CurtailmentStartModal", () => {
     const user = userEvent.setup();
     const { onDismiss, onSubmit } = renderModal();
     const targetInput = screen.getByLabelText("Fixed target reduction (kW)");
-    const restoreBatchSizeInput = screen.getAllByLabelText("Batch size (miners)")[0];
-    const restoreIntervalInput = screen.getAllByLabelText("Batch interval (sec)")[0];
+    const restoreBatchSizeInput = screen.getAllByLabelText("Batch size (miners)")[1];
+    const restoreIntervalInput = screen.getAllByLabelText("Batch interval (sec)")[1];
 
     await user.type(targetInput, "75");
     await user.type(restoreBatchSizeInput, "10");
@@ -1258,49 +1274,19 @@ describe("CurtailmentStartModal", () => {
     const saveButton = screen.getByRole("button", { name: "Save profile" });
     const batchSizeInput = screen.getByTestId("response-profile-curtail-batch-size");
     const batchIntervalInput = screen.getByTestId("response-profile-curtail-batch-interval");
-    const cooldownInput = screen.getByTestId("response-profile-post-event-cooldown");
 
     await user.clear(batchSizeInput);
     await user.type(batchSizeInput, "10001");
     await user.clear(batchIntervalInput);
     await user.type(batchIntervalInput, "1.5");
-    await user.clear(cooldownInput);
-    await user.type(cooldownInput, "86401");
 
     expect(screen.getByText("Enter batch size of 10,000 or less.")).toBeInTheDocument();
     expect(screen.getByText("Enter batch interval as a whole number.")).toBeInTheDocument();
-    expect(screen.getByText("Enter post-event cooldown of 86,400 or less.")).toBeInTheDocument();
     expect(batchSizeInput).toHaveAttribute("aria-invalid", "true");
     expect(batchIntervalInput).toHaveAttribute("aria-invalid", "true");
-    expect(cooldownInput).toHaveAttribute("aria-invalid", "true");
     expect(saveButton).toBeEnabled();
 
     await user.click(saveButton);
-    expect(onSubmit).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["", "Enter post-event cooldown."],
-    ["-1", "Enter post-event cooldown of 0 or more."],
-    ["1.5", "Enter post-event cooldown as a whole number."],
-  ])("blocks invalid post-event cooldown value %s", async (value, message) => {
-    const user = userEvent.setup();
-    const { onSubmit } = renderModal({
-      variant: "responseProfile",
-      initialValues: {
-        ...configuredValues,
-        includeMaintenance: false,
-      },
-    });
-    const cooldownInput = screen.getByTestId("response-profile-post-event-cooldown");
-
-    await user.clear(cooldownInput);
-    if (value !== "") {
-      await user.type(cooldownInput, value);
-    }
-
-    expect(screen.getByText(message)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Save profile" }));
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
