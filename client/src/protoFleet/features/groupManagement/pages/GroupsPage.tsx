@@ -12,6 +12,7 @@ import {
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
 import { type SiteFilterFields, siteFilterFromActive } from "@/protoFleet/components/PageHeader/SitePicker";
+import { useOptionalFleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout/outletContext";
 import {
   FILTER_URL_PARAM_KEYS,
   fleetListTelemetryRangesFromURL,
@@ -47,6 +48,7 @@ const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_K
 const GroupsPage = () => {
   const navigate = useNavigate();
   const activeSite = useRouteSiteScope() ?? DEFAULT_ACTIVE_SITE;
+  const fleetContext = useOptionalFleetOutletContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const { listGroups } = useDeviceSets();
   const [showGroupModal, setShowGroupModal] = useState(false);
@@ -72,6 +74,15 @@ const GroupsPage = () => {
   const getTelemetryRanges = useCallback(() => telemetryRangesRef.current, []);
   const activeSiteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
   const getActiveSiteFilter = useCallback((): SiteFilterFields => activeSiteFilter, [activeSiteFilter]);
+  const activeSiteLabel = useMemo(() => {
+    if (activeSite.kind === "site") {
+      return fleetContext?.sites?.find((s) => (s.site?.id ?? 0n).toString() === activeSite.id)?.site?.name;
+    }
+    if (activeSite.kind === "unassigned") {
+      return "unassigned miners";
+    }
+    return undefined;
+  }, [activeSite, fleetContext?.sites]);
 
   const { selectedIssuesRef, getErrorComponentTypes } = useIssueFilter();
   // eslint-disable-next-line react-hooks/refs -- intentional render-time sync so the initial list fetch reads URL-restored filters
@@ -200,10 +211,11 @@ const GroupsPage = () => {
         onActionComplete={resetAndFetch}
         href={groupDetailHref(item.deviceSet.label)}
         activeSite={activeSite}
+        activeSiteLabel={activeSiteLabel}
         totalMemberCount={Number(item.deviceSet.deviceCount)}
       />
     ),
-    [activeSite, groupDetailHref, resetAndFetch],
+    [activeSite, activeSiteLabel, groupDetailHref, resetAndFetch],
   );
 
   const handleRowClick = useCallback(

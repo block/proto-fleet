@@ -11,10 +11,19 @@ type GroupNameCellProps = {
   onActionComplete?: () => void;
   href: string;
   activeSite: ActiveSite;
+  activeSiteLabel?: string;
   totalMemberCount: number;
 };
 
-const GroupNameCell = ({ group, onEdit, onActionComplete, href, activeSite, totalMemberCount }: GroupNameCellProps) => {
+const GroupNameCell = ({
+  group,
+  onEdit,
+  onActionComplete,
+  href,
+  activeSite,
+  activeSiteLabel,
+  totalMemberCount,
+}: GroupNameCellProps) => {
   const navigate = useNavigate();
 
   return (
@@ -29,6 +38,8 @@ const GroupNameCell = ({ group, onEdit, onActionComplete, href, activeSite, tota
         onActionComplete={onActionComplete}
         buttonVariant={variants.textOnly}
         activeSite={activeSite}
+        activeSiteLabel={activeSiteLabel}
+        deviceSetLabel={group.label}
         totalMemberCount={totalMemberCount}
       />
     </div>

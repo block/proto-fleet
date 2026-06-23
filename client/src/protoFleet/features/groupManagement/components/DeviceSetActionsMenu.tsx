@@ -59,6 +59,10 @@ interface DeviceSetActionsMenuProps {
   actionActiveRef?: RefObject<boolean>;
   /** Optional route scope for list-row actions. Omitted on canonical detail pages. */
   activeSite?: ActiveSite;
+  /** Human-readable label for the active site scope. */
+  activeSiteLabel?: string;
+  /** Human-readable group/rack label used in scoped confirmation copy. */
+  deviceSetLabel?: string;
   /** Org-wide member count used for scoped X/Y confirmation copy. */
   totalMemberCount?: number;
 }
@@ -85,6 +89,8 @@ const DeviceSetActionsMenuInner = ({
   sleepActionRef,
   actionActiveRef,
   activeSite,
+  activeSiteLabel,
+  deviceSetLabel,
   totalMemberCount,
 }: DeviceSetActionsMenuProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
@@ -98,8 +104,8 @@ const DeviceSetActionsMenuInner = ({
   );
   const siteScopeLabel = useMemo(() => {
     if (!isScopedGroupAction || !activeSite) return "";
-    return activeSite.kind === "unassigned" ? "unassigned miners" : `site ${activeSite.id}`;
-  }, [activeSite, isScopedGroupAction]);
+    return activeSite.kind === "unassigned" ? "unassigned miners" : (activeSiteLabel ?? `site ${activeSite.id}`);
+  }, [activeSite, activeSiteLabel, isScopedGroupAction]);
 
   // Lazy-fetched member IDs for table context (when deviceSetId is provided but memberDeviceIds aren't)
   const [fetchedMemberIds, setFetchedMemberIds] = useState<string[] | null>(null);
@@ -357,15 +363,28 @@ const DeviceSetActionsMenuInner = ({
   const [showWarnDialog, setShowWarnDialog] = useState(false);
   const [pendingScopedAction, setPendingScopedAction] = useState<BulkAction<DeviceSetActionType> | null>(null);
 
-  const scopedActionNotice = useMemo(() => {
+  const scopedActionSummary = useMemo(() => {
     if (!isScopedGroupAction) return "";
     const scopedCount = memberDeviceIds.length;
     const totalCount = totalMemberCount ?? scopedCount;
-    if (scopedCount === totalCount) {
-      return `This action applies to all ${scopedCount} ${scopedCount === 1 ? "miner" : "miners"} (all in ${siteScopeLabel}).`;
-    }
-    return `This action applies to ${scopedCount} of ${totalCount} miners in ${siteScopeLabel}.`;
-  }, [isScopedGroupAction, memberDeviceIds.length, siteScopeLabel, totalMemberCount]);
+    const groupLabel = deviceSetLabel ?? "this group";
+    const scopeLabel = activeSite?.kind === "unassigned" ? "unassigned miners" : `miners in ${siteScopeLabel}`;
+    const countSummary =
+      scopedCount === totalCount
+        ? `all ${scopedCount} ${scopedCount === 1 ? "miner" : "miners"} in ${groupLabel}`
+        : `${scopedCount} of the ${totalCount} miners in ${groupLabel}`;
+    return `This action applies to ${scopeLabel}, ${countSummary}`;
+  }, [activeSite?.kind, deviceSetLabel, isScopedGroupAction, memberDeviceIds.length, siteScopeLabel, totalMemberCount]);
+
+  const scopedActionSubtitle = useCallback(
+    (subtitle?: string) => {
+      if (!scopedActionSummary) return subtitle ?? "";
+      if (!subtitle) return `${scopedActionSummary}.`;
+      const actionEffect = subtitle.replace(/^These miners\s+/, "").replace(/^This miner\s+/, "");
+      return `${scopedActionSummary} ${actionEffect}`;
+    },
+    [scopedActionSummary],
+  );
 
   // Expose the sleep action handler to the parent via ref
   useEffect(() => {
@@ -427,7 +446,7 @@ const DeviceSetActionsMenuInner = ({
           ...action,
           confirmation: {
             ...action.confirmation,
-            subtitle: `${scopedActionNotice} ${action.confirmation.subtitle}`,
+            subtitle: scopedActionSubtitle(action.confirmation.subtitle),
           },
         };
       }
@@ -437,7 +456,7 @@ const DeviceSetActionsMenuInner = ({
         requiresConfirmation: true,
         confirmation: {
           title: `${action.title} ${memberDeviceIds.length} ${memberDeviceIds.length === 1 ? "miner" : "miners"}?`,
-          subtitle: scopedActionNotice,
+          subtitle: scopedActionSubtitle(),
           confirmAction: {
             title: action.title,
             variant: variants.primary,
@@ -449,7 +468,7 @@ const DeviceSetActionsMenuInner = ({
         },
       };
     });
-  }, [groupPopoverActions, isScopedGroupAction, memberDeviceIds.length, scopedActionNotice, siteScopeLabel]);
+  }, [groupPopoverActions, isScopedGroupAction, memberDeviceIds.length, scopedActionSubtitle, siteScopeLabel]);
 
   // Prevent confirmation dialog flash when continuing from unsupported miners modal
   const handleUnsupportedMinersContinueWithReset = useCallback(() => {

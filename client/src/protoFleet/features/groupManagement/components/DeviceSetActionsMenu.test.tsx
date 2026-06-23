@@ -6,45 +6,7 @@ import DeviceSetActionsMenu from "./DeviceSetActionsMenu";
 // Hoisted mocks
 const { mockUseMinerActions, mockBulkActionsPopover, mockListGroupMembers, mockFetchAllMinerSnapshots } = vi.hoisted(
   () => ({
-    mockUseMinerActions: vi.fn(() => ({
-      currentAction: null,
-      popoverActions: [],
-      handleConfirmation: vi.fn(),
-      handleCancel: vi.fn(),
-      handleMiningPoolSuccess: vi.fn(),
-      handleMiningPoolError: vi.fn(),
-      showPoolSelectionPage: false,
-      poolFilteredDeviceIds: undefined,
-      fleetCredentials: undefined,
-      showManagePowerModal: false,
-      handleManagePowerConfirm: vi.fn(),
-      handleManagePowerDismiss: vi.fn(),
-      showCoolingModeModal: false,
-      coolingModeCount: 0,
-      currentCoolingMode: undefined,
-      handleCoolingModeConfirm: vi.fn(),
-      handleCoolingModeDismiss: vi.fn(),
-      showAuthenticateFleetModal: false,
-      authenticationPurpose: null,
-      showUpdatePasswordModal: false,
-      hasThirdPartyMiners: false,
-      handleFleetAuthenticated: vi.fn(),
-      handlePasswordConfirm: vi.fn(),
-      handlePasswordDismiss: vi.fn(),
-      handleAuthDismiss: vi.fn(),
-      unsupportedMinersInfo: {
-        visible: false,
-        unsupportedGroups: [],
-        totalUnsupportedCount: 0,
-        noneSupported: false,
-      },
-      handleUnsupportedMinersContinue: vi.fn(),
-      handleUnsupportedMinersDismiss: vi.fn(),
-      showManageSecurityModal: false,
-      minerGroups: [],
-      handleUpdateGroup: vi.fn(),
-      handleSecurityModalClose: vi.fn(),
-    })),
+    mockUseMinerActions: vi.fn(),
     mockBulkActionsPopover: vi.fn(
       ({
         actions,
@@ -55,6 +17,9 @@ const { mockUseMinerActions, mockBulkActionsPopover, mockListGroupMembers, mockF
           title: string;
           actionHandler: () => void;
           requiresConfirmation: boolean;
+          confirmation?: {
+            subtitle?: string;
+          };
         }>;
         beforeEach: (requiresConfirmation: boolean) => void;
       }) => (
@@ -78,6 +43,46 @@ const { mockUseMinerActions, mockBulkActionsPopover, mockListGroupMembers, mockF
     mockFetchAllMinerSnapshots: vi.fn(),
   }),
 );
+
+const defaultMinerActions = () => ({
+  currentAction: null,
+  popoverActions: [],
+  handleConfirmation: vi.fn(),
+  handleCancel: vi.fn(),
+  handleMiningPoolSuccess: vi.fn(),
+  handleMiningPoolError: vi.fn(),
+  showPoolSelectionPage: false,
+  poolFilteredDeviceIds: undefined,
+  fleetCredentials: undefined,
+  showManagePowerModal: false,
+  handleManagePowerConfirm: vi.fn(),
+  handleManagePowerDismiss: vi.fn(),
+  showCoolingModeModal: false,
+  coolingModeCount: 0,
+  currentCoolingMode: undefined,
+  handleCoolingModeConfirm: vi.fn(),
+  handleCoolingModeDismiss: vi.fn(),
+  showAuthenticateFleetModal: false,
+  authenticationPurpose: null,
+  showUpdatePasswordModal: false,
+  hasThirdPartyMiners: false,
+  handleFleetAuthenticated: vi.fn(),
+  handlePasswordConfirm: vi.fn(),
+  handlePasswordDismiss: vi.fn(),
+  handleAuthDismiss: vi.fn(),
+  unsupportedMinersInfo: {
+    visible: false,
+    unsupportedGroups: [],
+    totalUnsupportedCount: 0,
+    noneSupported: false,
+  },
+  handleUnsupportedMinersContinue: vi.fn(),
+  handleUnsupportedMinersDismiss: vi.fn(),
+  showManageSecurityModal: false,
+  minerGroups: [],
+  handleUpdateGroup: vi.fn(),
+  handleSecurityModalClose: vi.fn(),
+});
 
 vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions", () => ({
   useMinerActions: mockUseMinerActions,
@@ -139,6 +144,7 @@ vi.mock("@/shared/hooks/useClickOutside", () => ({
 describe("DeviceSetActionsMenu", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseMinerActions.mockImplementation(defaultMinerActions);
     mockListGroupMembers.mockImplementation(() => undefined);
     mockFetchAllMinerSnapshots.mockResolvedValue({});
   });
@@ -188,6 +194,86 @@ describe("DeviceSetActionsMenu", () => {
     fireEvent.click(screen.getByLabelText("Device set actions"));
 
     expect(screen.getByTestId("view-group-popover-button")).toHaveTextContent("View rack");
+  });
+
+  it("uses site and group labels in scoped confirmation copy", async () => {
+    mockUseMinerActions.mockReturnValue({
+      currentAction: null,
+      popoverActions: [
+        {
+          action: "shutdown",
+          title: "Sleep",
+          actionHandler: vi.fn(),
+          requiresConfirmation: true,
+          confirmation: {
+            title: "Sleep miners?",
+            subtitle: "These miners will go to sleep and stop hashing.",
+            confirmAction: { title: "Sleep" },
+          },
+        },
+      ],
+      handleConfirmation: vi.fn(),
+      handleCancel: vi.fn(),
+      handleMiningPoolSuccess: vi.fn(),
+      handleMiningPoolError: vi.fn(),
+      showPoolSelectionPage: false,
+      poolFilteredDeviceIds: undefined,
+      fleetCredentials: undefined,
+      showManagePowerModal: false,
+      handleManagePowerConfirm: vi.fn(),
+      handleManagePowerDismiss: vi.fn(),
+      showCoolingModeModal: false,
+      coolingModeCount: 0,
+      currentCoolingMode: undefined,
+      handleCoolingModeConfirm: vi.fn(),
+      handleCoolingModeDismiss: vi.fn(),
+      showAuthenticateFleetModal: false,
+      authenticationPurpose: null,
+      showUpdatePasswordModal: false,
+      hasThirdPartyMiners: false,
+      handleFleetAuthenticated: vi.fn(),
+      handlePasswordConfirm: vi.fn(),
+      handlePasswordDismiss: vi.fn(),
+      handleAuthDismiss: vi.fn(),
+      unsupportedMinersInfo: {
+        visible: false,
+        unsupportedGroups: [],
+        totalUnsupportedCount: 0,
+        noneSupported: false,
+      },
+      handleUnsupportedMinersContinue: vi.fn(),
+      handleUnsupportedMinersDismiss: vi.fn(),
+      showManageSecurityModal: false,
+      minerGroups: [],
+      handleUpdateGroup: vi.fn(),
+      handleSecurityModalClose: vi.fn(),
+    });
+
+    render(
+      <DeviceSetActionsMenu
+        memberDeviceIds={["d1", "d2", "d3", "d4", "d5", "d6"]}
+        deviceSetId={1n}
+        onEdit={vi.fn()}
+        activeSite={{ kind: "site", id: "2" }}
+        activeSiteLabel="Site 2"
+        deviceSetLabel="Group A"
+        totalMemberCount={30}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Device set actions"));
+
+    await waitFor(() => {
+      expect(mockBulkActionsPopover).toHaveBeenCalled();
+    });
+
+    const latestCall = mockBulkActionsPopover.mock.calls.at(-1)?.[0] as {
+      actions: Array<{ action: string; confirmation?: { subtitle?: string } }>;
+    };
+    const sleepAction = latestCall.actions.find((action) => action.action === "shutdown");
+    expect(sleepAction?.confirmation?.subtitle).toBe(
+      "This action applies to miners in Site 2, 6 of the 30 miners in Group A will go to sleep and stop hashing.",
+    );
   });
 
   it("shows loading immediately on open when fresh data is required", () => {
