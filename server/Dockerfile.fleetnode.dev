@@ -1,0 +1,25 @@
+FROM golang:1.25.4-alpine AS build
+
+RUN apk add --no-cache git
+ENV GOWORK=off
+
+WORKDIR /src
+COPY . .
+
+WORKDIR /src/server
+RUN go build -o /out/fleetnode ./cmd/fleetnode \
+ && go build -o /out/fleetnode-ui-test ./devtools/fleetnodeuitest
+
+FROM alpine:3.22
+
+RUN apk add --no-cache ca-certificates nmap
+
+WORKDIR /app
+COPY --from=build /out/fleetnode /app/fleetnode
+COPY --from=build /out/fleetnode-ui-test /app/fleetnode-ui-test
+COPY server/plugins /app/plugins
+RUN chmod -R a+rX /app/plugins
+
+ENV PATH="/app:${PATH}"
+
+ENTRYPOINT ["/app/fleetnode"]

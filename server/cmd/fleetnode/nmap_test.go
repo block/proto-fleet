@@ -270,6 +270,26 @@ func TestBuildNmapOptions_LocalSubnetTarget_UsesDetectedCIDRs(t *testing.T) {
 	assert.False(t, slices.Contains(args, nmaptarget.LocalSubnetTarget), "sentinel must not reach nmap as a literal target: %v", args)
 }
 
+func TestBuildNmapOptions_LocalSubnetTarget_UsesConfiguredCIDR(t *testing.T) {
+	// Arrange: configured CIDR should take precedence over host detection.
+	r := &RunCmd{
+		nmapPath:             "/usr/bin/nmap",
+		discoverer:           &stubDiscoverer{},
+		LocalDiscoverySubnet: "10.90.0.0/24",
+	}
+	req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
+
+	// Act
+	opts, err := r.buildNmapOptions(context.Background(), req, req.Ports)
+	require.NoError(t, err)
+	scanner, err := nmap.NewScanner(context.Background(), opts...)
+	require.NoError(t, err)
+
+	// Assert
+	args := scanner.Args()
+	assert.True(t, slices.Contains(args, "10.90.0.0/24"), "expected configured subnet in argv: %v", args)
+}
+
 func TestBuildNmapOptions_LocalSubnetTarget_RejectsUnscannableSubnet(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -301,6 +321,24 @@ func TestBuildNmapOptions_LocalSubnetTarget_RejectsUnscannableSubnet(t *testing.
 			assert.Equal(t, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, ce.code)
 		})
 	}
+}
+
+func TestBuildNmapOptions_LocalSubnetTarget_RejectsConfiguredUnscannableSubnet(t *testing.T) {
+	// Arrange
+	r := &RunCmd{
+		nmapPath:             "/usr/bin/nmap",
+		discoverer:           &stubDiscoverer{},
+		LocalDiscoverySubnet: "172.16.0.0/12",
+	}
+	req := &pairingpb.NmapModeRequest{Target: nmaptarget.LocalSubnetTarget, Ports: []string{"4028"}}
+
+	// Act
+	_, err := r.buildNmapOptions(context.Background(), req, req.Ports)
+
+	// Assert
+	var ce *commandError
+	require.ErrorAs(t, err, &ce)
+	assert.Equal(t, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, ce.code)
 }
 
 func TestBuildNmapOptions_LocalSubnetTarget_NoSubnetIsAgentIncapable(t *testing.T) {

@@ -25,7 +25,8 @@ const (
 )
 
 type RunCmd struct {
-	HeartbeatInterval time.Duration `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls"`
+	HeartbeatInterval    time.Duration `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls"`
+	LocalDiscoverySubnet string        `name:"local-discovery-subnet" env:"FLEETNODE_LOCAL_DISCOVERY_SUBNET" help:"CIDR to scan for automatic local-subnet discovery instead of detecting the host subnet"`
 
 	now           func() time.Time                                                         `kong:"-"`
 	clientFactory func(serverURL string, tokenSource func() string) (gatewayClient, error) `kong:"-"`

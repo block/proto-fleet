@@ -37,11 +37,11 @@ func main() {
 		SerialNumber:    serialNumber,
 		MacAddress:      macAddress,
 		FirmwareVersion: firmwareVersion,
-		IPAddress:       getOutboundIP().String(),
+		IPAddress:       getIPAddr(),
 		Hostname:        "antminer-" + serialNumber,
-		NetMask:         "255.255.255.0",
-		Gateway:         "192.168.2.1",
-		DNSServers:      "8.8.8.8",
+		NetMask:         getEnv("NETMASK", "255.255.255.0"),
+		Gateway:         getEnv("GATEWAY", "192.168.2.1"),
+		DNSServers:      getEnvAllowEmpty("DNS_SERVERS", "8.8.8.8"),
 		HashRate:        110.0,
 		Temperature:     45.0,
 		Pools: []Pool{
@@ -211,6 +211,13 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
+func getEnvAllowEmpty(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return fallback
+}
+
 // validateConfig validates the configuration parameters
 func validateConfig(minerType, serialNumber, macAddress string) error {
 	if minerType == "" {
@@ -229,16 +236,39 @@ func validateConfig(minerType, serialNumber, macAddress string) error {
 	return nil
 }
 
-// getOutboundIP gets the preferred outbound IP of this machine
+func getIPAddr() string {
+	if ip := getEnv("IP_ADDRESS", ""); ip != "" {
+		return ip
+	}
+	return getOutboundIP().String()
+}
+
+// getOutboundIP gets the preferred outbound IP of this machine.
+// If the container has no outbound route, fall back to the first non-loopback
+// IPv4 address so fake miners can run on internal-only Docker networks.
 func getOutboundIP() net.IP {
 	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		log.Fatal(err)
+	if err == nil {
+		defer conn.Close()
+		localAddr := conn.LocalAddr().(*net.UDPAddr)
+		return localAddr.IP
 	}
-	defer conn.Close()
 
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP
+	addrs, addrErr := net.InterfaceAddrs()
+	if addrErr != nil {
+		log.Fatalf("failed to determine local IP after outbound probe failed: %v", addrErr)
+	}
+	for _, addr := range addrs {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok || ipNet.IP.IsLoopback() {
+			continue
+		}
+		if ip := ipNet.IP.To4(); ip != nil {
+			return ip
+		}
+	}
+	log.Fatalf("failed to determine local IP after outbound probe failed: %v", err)
+	return nil
 }
 
 // Helper function to generate a standardized error response
