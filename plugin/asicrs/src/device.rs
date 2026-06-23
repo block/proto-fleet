@@ -1062,6 +1062,21 @@ fn determine_board_status(board: &asic_rs_core::data::board::BoardData) -> pb::C
     pb::ComponentStatus::Offline
 }
 
+/// Whether a vendor message indicates a component is physically absent, rather
+/// than merely being scoped to that component. asic-rs attaches a component to
+/// locate where a fault was reported; that does not imply the part is missing.
+fn indicates_absence(lower: &str) -> bool {
+    [
+        "not present",
+        "absent",
+        "missing",
+        "not detected",
+        "not found",
+    ]
+    .iter()
+    .any(|kw| lower.contains(kw))
+}
+
 /// Convert an asic_rs `MinerMessage` into a recognized `MinerError`
 fn message_into_error(m: MinerMessage) -> pb::MinerError {
     let lower = m.message.to_lowercase();
@@ -1077,11 +1092,21 @@ fn message_into_error(m: MinerMessage) -> pb::MinerError {
     match m.component {
         Some(MinerComponent::ControlBoard { .. }) => pb::MinerError::ControlBoardFailure,
         Some(MinerComponent::HashBoard { chip_idx: None, .. }) => {
-            pb::MinerError::HashboardNotPresent
+            if indicates_absence(&lower) {
+                pb::MinerError::HashboardNotPresent
+            } else {
+                pb::MinerError::VendorErrorUnmapped
+            }
         }
         Some(MinerComponent::HashBoard {
             chip_idx: Some(_), ..
-        }) => pb::MinerError::HashboardMissingChips,
+        }) => {
+            if indicates_absence(&lower) {
+                pb::MinerError::HashboardMissingChips
+            } else {
+                pb::MinerError::VendorErrorUnmapped
+            }
+        }
         Some(MinerComponent::Fan { .. }) => pb::MinerError::FanFailed,
         Some(MinerComponent::PowerSupply { .. }) => pb::MinerError::PsuFaultGeneric,
         None => {
@@ -1089,7 +1114,9 @@ fn message_into_error(m: MinerMessage) -> pb::MinerError {
                 pb::MinerError::FanFailed
             } else if lower.contains("psu") || lower.contains("power supply") {
                 pb::MinerError::PsuFaultGeneric
-            } else if lower.contains("hashboard") || lower.contains("hash board") {
+            } else if (lower.contains("hashboard") || lower.contains("hash board"))
+                && indicates_absence(&lower)
+            {
                 pb::MinerError::HashboardNotPresent
             } else if lower.contains("control board") {
                 pb::MinerError::ControlBoardFailure
@@ -1263,11 +1290,11 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_error_hashboard_from_message() {
+    fn test_classify_error_hashboard_not_present_from_message() {
         let message = MinerMessage {
             timestamp: 0,
             code: 0,
-            message: "Hashboard 2 not responding".to_string(),
+            message: "Hashboard 2 not present".to_string(),
             severity: MessageSeverity::Error,
             component: None,
         };
@@ -1278,11 +1305,32 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_error_hashboard_from_component() {
+    fn test_classify_error_hashboard_message_without_absence_unmapped() {
+        // A hashboard-scoped message that does not signal absence keeps the
+        // hashboard component type but stays unmapped rather than being reported
+        // as a missing board.
         let message = MinerMessage {
             timestamp: 0,
             code: 0,
-            message: "error".to_string(),
+            message: "Hashboard 2 not responding".to_string(),
+            severity: MessageSeverity::Error,
+            component: None,
+        };
+
+        let (error, _, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::VendorErrorUnmapped));
+        assert!(matches!(component, pb::ComponentType::HashBoard));
+    }
+
+    #[test]
+    fn test_classify_error_hashboard_from_component() {
+        // A hashboard-scoped message that does not signal absence keeps the
+        // hashboard component type but stays unmapped rather than being reported
+        // as a missing board (e.g. WhatsMiner code 301, a temp-sensor fault).
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Slot 1 temperature sensor detection error".to_string(),
             severity: MessageSeverity::Error,
             component: Some(MinerComponent::HashBoard {
                 idx: 1,
@@ -1291,7 +1339,7 @@ mod tests {
         };
 
         let (error, _, component) = classify_error(message);
-        assert!(matches!(error, pb::MinerError::HashboardNotPresent));
+        assert!(matches!(error, pb::MinerError::VendorErrorUnmapped));
         assert!(matches!(component, pb::ComponentType::HashBoard));
     }
 
@@ -1310,6 +1358,45 @@ mod tests {
 
         let (error, _, component) = classify_error(message);
         assert!(matches!(error, pb::MinerError::HashboardNotPresent));
+        assert!(matches!(component, pb::ComponentType::HashBoard));
+    }
+
+    #[test]
+    fn test_classify_error_hashboard_missing_chips_from_component() {
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Chip 3 missing".to_string(),
+            severity: MessageSeverity::Error,
+            component: Some(MinerComponent::HashBoard {
+                idx: 1,
+                chip_idx: Some(3),
+            }),
+        };
+
+        let (error, _, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::HashboardMissingChips));
+        assert!(matches!(component, pb::ComponentType::HashBoard));
+    }
+
+    #[test]
+    fn test_classify_error_chip_scoped_without_absence_unmapped() {
+        // A chip-scoped message that does not signal a missing chip keeps the
+        // hashboard component type but stays unmapped rather than being reported
+        // as missing chips.
+        let message = MinerMessage {
+            timestamp: 0,
+            code: 0,
+            message: "Chip 3 clock instability".to_string(),
+            severity: MessageSeverity::Error,
+            component: Some(MinerComponent::HashBoard {
+                idx: 1,
+                chip_idx: Some(3),
+            }),
+        };
+
+        let (error, _, component) = classify_error(message);
+        assert!(matches!(error, pb::MinerError::VendorErrorUnmapped));
         assert!(matches!(component, pb::ComponentType::HashBoard));
     }
 
