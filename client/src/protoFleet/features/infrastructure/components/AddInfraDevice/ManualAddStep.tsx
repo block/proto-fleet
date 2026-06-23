@@ -70,13 +70,7 @@ const ManualAddStep = ({
       </div>
       <div className="grid grid-cols-[1fr_160px] gap-3">
         <Input id="manual-endpoint" label="Endpoint" onChange={(v) => setEndpoint(v)} />
-        <Input
-          id="manual-port"
-          label="Port"
-          type="number"
-          inputMode="numeric"
-          onChange={(v) => setPort(v)}
-        />
+        <Input id="manual-port" label="Port" type="number" inputMode="numeric" onChange={(v) => setPort(v)} />
       </div>
     </div>
   );

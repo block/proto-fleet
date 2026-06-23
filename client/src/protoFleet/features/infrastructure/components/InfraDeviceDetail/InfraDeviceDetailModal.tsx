@@ -164,12 +164,7 @@ const InfraDeviceDetailModal = ({
             />
           </div>
           <div className="grid grid-cols-[1fr_160px] gap-3">
-            <Input
-              id="device-endpoint"
-              label="Endpoint"
-              initValue={endpoint}
-              onChange={(v) => setEndpoint(v)}
-            />
+            <Input id="device-endpoint" label="Endpoint" initValue={endpoint} onChange={(v) => setEndpoint(v)} />
             <Input
               id="device-port"
               label="Port"

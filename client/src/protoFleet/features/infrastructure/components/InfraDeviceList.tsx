@@ -309,9 +309,7 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
         width: "w-[148px]",
       },
       [infraCols.endpoint]: {
-        component: (device) => (
-          <span className="font-mono text-300 text-text-primary-70">{device.endpoint}</span>
-        ),
+        component: (device) => <span className="font-mono text-300 text-text-primary-70">{device.endpoint}</span>,
         width: "w-[160px]",
       },
       [infraCols.port]: {
