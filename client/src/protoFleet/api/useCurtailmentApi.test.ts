@@ -91,7 +91,6 @@ const baseSubmitValues: CurtailmentSubmitValues = {
   curtailBatchIntervalSec: "",
   restoreBatchSize: "10",
   restoreIntervalSec: "60",
-  postEventCooldownSec: "0",
   reason: "Grid peak",
   includeMaintenance: false,
 };
@@ -198,6 +197,8 @@ describe("useCurtailmentApi", () => {
         scopeType: "wholeOrg",
         targetKw: "5",
         priority: "emergency",
+        curtailBatchSize: "",
+        curtailBatchIntervalSec: "",
         restoreBatchSize: "",
         restoreIntervalSec: "60",
       }),
@@ -362,6 +363,28 @@ describe("useCurtailmentApi", () => {
 
     expect(result.current.activeEvent?.restoreBatchSize).toBe(10);
     expect(result.current.activeEventFormValues?.restoreBatchSize).toBe("1");
+  });
+
+  it("maps configured curtail batch controls into active event form values", async () => {
+    const activeEvent = curtailmentEvent({
+      curtailBatchSize: 20,
+      curtailBatchIntervalSec: 0,
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [activeEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEventFormValues).toEqual(
+      expect.objectContaining({
+        curtailBatchSize: "20",
+        curtailBatchIntervalSec: "0",
+      }),
+    );
   });
 
   it("maps all-pending events without telemetry to zero observed reduction", async () => {
@@ -1918,7 +1941,6 @@ describe("useCurtailmentApi", () => {
       expect.objectContaining({
         reason: "Grid peak",
         mode: CurtailmentMode.FIXED_KW,
-        postEventCooldownSec: 0,
       }),
     );
     expect(changedListener).toHaveBeenCalledTimes(1);
@@ -1957,7 +1979,6 @@ describe("useCurtailmentApi", () => {
         curtailmentMode: "fullFleet",
         targetKw: "",
         toleranceKw: "",
-        postEventCooldownSec: "600",
       });
     });
 
@@ -1965,7 +1986,6 @@ describe("useCurtailmentApi", () => {
       expect.objectContaining({
         mode: CurtailmentMode.FULL_FLEET,
         modeParams: expect.objectContaining({ case: undefined }),
-        postEventCooldownSec: 600,
       }),
     );
   });

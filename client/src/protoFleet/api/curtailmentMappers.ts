@@ -53,6 +53,14 @@ function formatPositiveNumberField(value: number | undefined): string {
   return String(value);
 }
 
+function formatNonNegativeNumberField(value: number | undefined): string {
+  if (value === undefined || value < 0) {
+    return "";
+  }
+
+  return String(value);
+}
+
 function mapCurtailmentModeToFormValue(event: ProtoCurtailmentEvent): CurtailmentMode {
   return event.mode === ProtoCurtailmentMode.FULL_FLEET ? "fullFleet" : "fixedKwReduction";
 }
@@ -100,6 +108,7 @@ function mapCurtailmentEventScopeToFormValues(
 export function mapCurtailmentEventToFormValues(event: ProtoCurtailmentEvent): CurtailmentSubmitValues {
   const fixedKwTarget = getFixedKwTarget(event);
   const fixedKwTolerance = getFixedKwTolerance(event);
+  const hasCurtailBatchSize = (event.curtailBatchSize ?? 0) > 0;
 
   return {
     ...mapCurtailmentEventScopeToFormValues(event),
@@ -111,11 +120,10 @@ export function mapCurtailmentEventToFormValues(event: ProtoCurtailmentEvent): C
     priority: event.priority === ProtoCurtailmentPriority.EMERGENCY ? "emergency" : "normal",
     minDurationSec: formatPositiveNumberField(event.minCurtailedDurationSec),
     maxDurationSec: formatPositiveNumberField(event.maxDurationSeconds),
-    curtailBatchSize: "",
-    curtailBatchIntervalSec: "",
+    curtailBatchSize: hasCurtailBatchSize ? formatPositiveNumberField(event.curtailBatchSize) : "",
+    curtailBatchIntervalSec: hasCurtailBatchSize ? formatNonNegativeNumberField(event.curtailBatchIntervalSec) : "",
     restoreBatchSize: formatPositiveNumberField(event.restoreBatchSize),
     restoreIntervalSec: formatPositiveNumberField(event.restoreBatchIntervalSec),
-    postEventCooldownSec: "0",
     reason: event.reason || "Curtailment",
     includeMaintenance: event.includeMaintenance,
   };

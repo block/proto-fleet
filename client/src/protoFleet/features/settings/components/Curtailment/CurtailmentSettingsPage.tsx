@@ -163,7 +163,6 @@ const emptyResponseProfileFormValues: ResponseProfileFormValues = {
   curtailBatchIntervalSec: "",
   restoreBatchSize: "",
   restoreIntervalSec: "",
-  postEventCooldownSec: "0",
   responseDeadlineMinutes: "15",
   includeMaintenance: true,
 };
@@ -282,7 +281,6 @@ function createResponseProfileFromFormValues(
     curtailBatchIntervalSec: values.curtailBatchIntervalSec.trim(),
     restoreBatchSize: values.restoreBatchSize.trim(),
     restoreIntervalSec: values.restoreIntervalSec.trim(),
-    postEventCooldownSec: values.postEventCooldownSec.trim(),
     responseDeadlineMinutes: values.responseDeadlineMinutes.trim(),
   };
 
@@ -345,7 +343,6 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
         ? immediateRestoreBatchSize
         : emptyResponseProfileFormValues.restoreBatchSize,
     restoreIntervalSec: emptyResponseProfileFormValues.restoreIntervalSec,
-    postEventCooldownSec: emptyResponseProfileFormValues.postEventCooldownSec,
     responseDeadlineMinutes:
       profile.deadlineSummary.match(/(\d+)/)?.[1] ?? emptyResponseProfileFormValues.responseDeadlineMinutes,
     includeMaintenance: emptyResponseProfileFormValues.includeMaintenance,
@@ -377,7 +374,6 @@ function createCurtailmentFormValuesFromResponseProfile(
     curtailBatchIntervalSec: values.curtailBatchIntervalSec,
     restoreBatchSize,
     restoreIntervalSec: values.restoreIntervalSec,
-    postEventCooldownSec: values.postEventCooldownSec,
     reason: values.name,
     includeMaintenance: values.includeMaintenance,
   };
@@ -418,7 +414,6 @@ function createResponseProfileFormValuesFromCurtailmentValues(
     curtailBatchIntervalSec: values.curtailBatchIntervalSec,
     restoreBatchSize: values.restoreBatchSize,
     restoreIntervalSec: values.restoreIntervalSec,
-    postEventCooldownSec: values.postEventCooldownSec,
     responseDeadlineMinutes: secondsToDeadlineMinutes(values.maxDurationSec),
     includeMaintenance: values.includeMaintenance,
   };

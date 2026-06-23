@@ -178,25 +178,46 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	if err != nil {
 		return curtailment.StartRequest{}, err
 	}
+	if msg.CurtailBatchSize == nil && msg.CurtailBatchIntervalSec != nil {
+		return curtailment.StartRequest{}, fleeterror.NewInvalidArgumentError(
+			"curtail_batch_interval_sec requires curtail_batch_size",
+		)
+	}
+	curtailBatchSize, err := optionalUint32ToInt32("curtail_batch_size", msg.CurtailBatchSize)
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
+	curtailBatchIntervalSec, err := optionalUint32ToInt32Default(
+		"curtail_batch_interval_sec",
+		msg.CurtailBatchIntervalSec,
+		0,
+	)
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
 	minCurtailedDurationSec, err := uint32ToInt32Strict("min_curtailed_duration_sec", msg.GetMinCurtailedDurationSec())
 	if err != nil {
 		return curtailment.StartRequest{}, err
 	}
+	hasProfileCurtailSettings := msg.CurtailBatchSize != nil
 
 	out := curtailment.StartRequest{
-		PreviewRequest:          preview,
-		Reason:                  msg.GetReason(),
-		RestoreBatchSize:        restoreBatchSize,
-		RestoreBatchIntervalSec: restoreBatchIntervalSec,
-		MinCurtailedDurationSec: minCurtailedDurationSec,
-		AllowUnbounded:          msg.GetAllowUnbounded(),
-		IdempotencyKey:          nonEmptyPtr(msg.GetIdempotencyKey()),
-		ExternalSource:          nonEmptyPtr(msg.GetExternalSource()),
-		ExternalReference:       nonEmptyPtr(msg.GetExternalReference()),
-		SourceActorType:         deriveSourceActorType(info),
-		SourceActorID:           deriveSourceActorID(info),
-		CreatedByUserID:         info.UserID,
-		CanUseAdminControls:     canUseAdminControls(info),
+		PreviewRequest:            preview,
+		Reason:                    msg.GetReason(),
+		CurtailBatchSize:          curtailBatchSize,
+		CurtailBatchIntervalSec:   curtailBatchIntervalSec,
+		UseProfileCurtailSettings: hasProfileCurtailSettings,
+		RestoreBatchSize:          restoreBatchSize,
+		RestoreBatchIntervalSec:   restoreBatchIntervalSec,
+		MinCurtailedDurationSec:   minCurtailedDurationSec,
+		AllowUnbounded:            msg.GetAllowUnbounded(),
+		IdempotencyKey:            nonEmptyPtr(msg.GetIdempotencyKey()),
+		ExternalSource:            nonEmptyPtr(msg.GetExternalSource()),
+		ExternalReference:         nonEmptyPtr(msg.GetExternalReference()),
+		SourceActorType:           deriveSourceActorType(info),
+		SourceActorID:             deriveSourceActorID(info),
+		CreatedByUserID:           info.UserID,
+		CanUseAdminControls:       canUseAdminControls(info),
 	}
 
 	// max_duration_seconds=0 is the sentinel: "use org default" when
