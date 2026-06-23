@@ -381,8 +381,7 @@ function validateCurtailmentFormValues(
     shouldValidateCurtailBatchFields &&
     curtailBatchInterval.error === undefined &&
     curtailBatchSize.parsed === undefined &&
-    curtailBatchInterval.parsed !== undefined &&
-    curtailBatchInterval.parsed > 0
+    curtailBatchInterval.parsed !== undefined
   ) {
     localErrors.curtailBatchIntervalSec = "Enter batch size before adding a batch interval.";
   }

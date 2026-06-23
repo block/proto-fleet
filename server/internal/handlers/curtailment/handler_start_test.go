@@ -332,6 +332,30 @@ func TestHandler_StartCurtailment_PersistsCurtailBatchControls(t *testing.T) {
 	assert.Equal(t, uint32(15), resp.Msg.Event.GetCurtailBatchIntervalSec())
 }
 
+func TestHandler_StartCurtailment_RejectsCurtailBatchIntervalWithoutSize(t *testing.T) {
+	t.Parallel()
+
+	store := newStartStubStore()
+	h := NewHandler(curtailment.NewService(store))
+	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+		SessionID:      "sess-abc",
+	}, authz.PermCurtailmentManage)
+
+	req := validStartRequestBuilder()
+	req.CurtailBatchIntervalSec = ptrUint32(0)
+
+	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "curtail_batch_interval_sec requires curtail_batch_size")
+}
+
 func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 	t.Parallel()
 

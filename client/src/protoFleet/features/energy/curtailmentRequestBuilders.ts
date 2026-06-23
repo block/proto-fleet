@@ -196,7 +196,7 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
     values.curtailBatchIntervalSec,
     curtailBatchIntervalOptions,
   );
-  if (curtailBatchSize === undefined && curtailBatchIntervalSec !== undefined && curtailBatchIntervalSec > 0) {
+  if (curtailBatchSize === undefined && curtailBatchIntervalSec !== undefined) {
     throw new Error("Enter curtail batch size before adding a curtail batch interval.");
   }
 

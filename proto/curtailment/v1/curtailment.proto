@@ -524,7 +524,7 @@ message StartCurtailmentRequest {
     option (buf.validate.message).cel = {
         id: "curtail_batch_interval_requires_size"
         message: "curtail_batch_interval_sec requires curtail_batch_size"
-        expression: "this.curtail_batch_interval_sec == 0u || has(this.curtail_batch_size)"
+        expression: "!has(this.curtail_batch_interval_sec) || has(this.curtail_batch_size)"
     };
 
     oneof scope {

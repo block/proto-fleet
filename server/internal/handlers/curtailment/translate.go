@@ -178,6 +178,11 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	if err != nil {
 		return curtailment.StartRequest{}, err
 	}
+	if msg.CurtailBatchSize == nil && msg.CurtailBatchIntervalSec != nil {
+		return curtailment.StartRequest{}, fleeterror.NewInvalidArgumentError(
+			"curtail_batch_interval_sec requires curtail_batch_size",
+		)
+	}
 	curtailBatchSize, err := optionalUint32ToInt32("curtail_batch_size", msg.CurtailBatchSize)
 	if err != nil {
 		return curtailment.StartRequest{}, err
@@ -194,7 +199,7 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	if err != nil {
 		return curtailment.StartRequest{}, err
 	}
-	hasProfileCurtailSettings := msg.CurtailBatchSize != nil || msg.CurtailBatchIntervalSec != nil
+	hasProfileCurtailSettings := msg.CurtailBatchSize != nil
 
 	out := curtailment.StartRequest{
 		PreviewRequest:            preview,

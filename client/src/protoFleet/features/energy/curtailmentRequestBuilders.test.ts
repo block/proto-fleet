@@ -82,6 +82,15 @@ describe("curtailmentRequestBuilders", () => {
     expect(request.curtailBatchIntervalSec).toBeUndefined();
   });
 
+  it("requires curtail batch size when the interval field is present", () => {
+    expect(() =>
+      buildStartCurtailmentRequest({
+        ...baseValues,
+        curtailBatchIntervalSec: "0",
+      }),
+    ).toThrow("Enter curtail batch size before adding a curtail batch interval.");
+  });
+
   it("keeps unsupported scope state from falling back to the whole fleet", () => {
     expect(() =>
       buildStartCurtailmentRequest({
