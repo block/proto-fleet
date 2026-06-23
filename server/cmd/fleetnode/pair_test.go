@@ -25,7 +25,7 @@ import (
 // expects in ControlCommand.payload.
 func pairCmd(t *testing.T, req *pairingpb.FleetNodePairRequest) []byte {
 	t.Helper()
-	return mustMarshal(t, &pairingpb.AgentCommand{Command: &pairingpb.AgentCommand_Pair{Pair: req}})
+	return mustMarshal(t, &pb.AgentCommand{Command: &pb.AgentCommand_Pair{Pair: req}})
 }
 
 type stubPairer struct {

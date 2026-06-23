@@ -38,8 +38,8 @@ func (s *Service) PairOnNode(ctx context.Context, fleetNodeID int64, targets []*
 	if s.dispatcher == nil {
 		return fleeterror.NewInternalError("fleet node pairing dispatch is not configured")
 	}
-	payload, err := proto.Marshal(&pairingpb.AgentCommand{
-		Command: &pairingpb.AgentCommand_Pair{Pair: &pairingpb.FleetNodePairRequest{
+	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
+		Command: &gatewaypb.AgentCommand_Pair{Pair: &pairingpb.FleetNodePairRequest{
 			Targets:     targets,
 			Credentials: credentials,
 		}},

@@ -7,11 +7,7 @@ import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
 import type { MinerCapabilities } from "../../capabilities/v1/capabilities_pb";
 import { file_capabilities_v1_capabilities } from "../../capabilities/v1/capabilities_pb";
-import type { CoolingMode } from "../../common/v1/cooling_pb";
-import { file_common_v1_cooling } from "../../common/v1/cooling_pb";
-import type { CurtailmentLevel } from "../../curtailment/v1/curtailment_pb";
-import { file_curtailment_v1_curtailment } from "../../curtailment/v1/curtailment_pb";
-import type { DeviceSelector, PerformanceMode } from "../../minercommand/v1/command_pb";
+import type { DeviceSelector } from "../../minercommand/v1/command_pb";
 import { file_minercommand_v1_command } from "../../minercommand/v1/command_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -21,14 +17,8 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_pairing_v1_pairing: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEinwIKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkSEgoKdXJsX3NjaGVtZRgIIAEoCRI4CgxjYXBhYmlsaXRpZXMYCiABKAsyIi5jYXBhYmlsaXRpZXMudjEuTWluZXJDYXBhYmlsaXRpZXMSGAoQZmlybXdhcmVfdmVyc2lvbhgLIAEoCRITCgtkcml2ZXJfbmFtZRgMIAEoCUoECAkQClIEdHlwZSJDCgtDcmVkZW50aWFscxIQCgh1c2VybmFtZRgBIAEoCRIVCghwYXNzd29yZBgCIAEoCUgAiAEBQgsKCV9wYXNzd29yZCJQCg9NRE5TTW9kZVJlcXVlc3QSFAoMc2VydmljZV90eXBlGAEgASgJEg4KBmRvbWFpbhgCIAEoCRIXCg90aW1lb3V0X3NlY29uZHMYAyABKAUiOwoPTm1hcE1vZGVSZXF1ZXN0Eg4KBnRhcmdldBgBIAEoCRIYCgVwb3J0cxgCIAMoCUIJukgGkgEDEIACIlAKEklQUmFuZ2VNb2RlUmVxdWVzdBIQCghzdGFydF9pcBgBIAEoCRIOCgZlbmRfaXAYAiABKAkSGAoFcG9ydHMYAyADKAlCCbpIBpIBAxCAAiJOChFJUExpc3RNb2RlUmVxdWVzdBIfCgxpcF9hZGRyZXNzZXMYASADKAlCCbpIBpIBAxCAIBIYCgVwb3J0cxgCIAMoCUIJukgGkgEDEIACItkBCg9EaXNjb3ZlclJlcXVlc3QSMAoHaXBfbGlzdBgBIAEoCzIdLnBhaXJpbmcudjEuSVBMaXN0TW9kZVJlcXVlc3RIABIyCghpcF9yYW5nZRgCIAEoCzIeLnBhaXJpbmcudjEuSVBSYW5nZU1vZGVSZXF1ZXN0SAASKwoEbWRucxgDIAEoCzIbLnBhaXJpbmcudjEuTUROU01vZGVSZXF1ZXN0SAASKwoEbm1hcBgEIAEoCzIbLnBhaXJpbmcudjEuTm1hcE1vZGVSZXF1ZXN0SABCBgoEbW9kZSJGChBEaXNjb3ZlclJlc3BvbnNlEiMKB2RldmljZXMYASADKAsyEi5wYWlyaW5nLnYxLkRldmljZRINCgVlcnJvchgCIAEoCSK2AQoMQWdlbnRDb21tYW5kEi8KCGRpc2NvdmVyGAEgASgLMhsucGFpcmluZy52MS5EaXNjb3ZlclJlcXVlc3RIABIwCgRwYWlyGAIgASgLMiAucGFpcmluZy52MS5GbGVldE5vZGVQYWlyUmVxdWVzdEgAEjEKDW1pbmVyX2NvbW1hbmQYAyABKAsyGC5wYWlyaW5nLnYxLk1pbmVyQ29tbWFuZEgAQhAKB2NvbW1hbmQSBbpIAggBIocDChlNaW5lckNvbm5lY3Rpb25EZXNjcmlwdG9yEiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEh4KC2RyaXZlcl9uYW1lGAIgASgJQgm6SAZyBBABGDISHwoKaXBfYWRkcmVzcxgDIAEoCUILukgIcgYQARgtcAEShgEKBHBvcnQYBCABKAlCeLpIdboBbAoKcG9ydC5yYW5nZRIpcG9ydCBtdXN0IGJlIGEgZGVjaW1hbCBudW1iZXIgaW4gMS4uNjU1MzUaM3RoaXMubWF0Y2hlcygnXlsxLTldWzAtOV0qJCcpICYmIGludCh0aGlzKSA8PSA2NTUzNXIEEAEYBRIbCgp1cmxfc2NoZW1lGAUgASgJQge6SARyAhggEh8KDXNlcmlhbF9udW1iZXIYBiABKAlCCLpIBXIDGP8BEh0KC21hY19hZGRyZXNzGAcgASgJQgi6SAVyAxj/ARIcCgpjcmVkZW50aWFsGAggASgMQgi6SAV6AxiAQCKDBAoMTWluZXJDb21tYW5kEj0KBnRhcmdldBgBIAEoCzIlLnBhaXJpbmcudjEuTWluZXJDb25uZWN0aW9uRGVzY3JpcHRvckIGukgDyAEBEioKBnJlYm9vdBgCIAEoCzIYLnBhaXJpbmcudjEuUmVib290QWN0aW9uSAASNQoMc3RhcnRfbWluaW5nGAMgASgLMh0ucGFpcmluZy52MS5TdGFydE1pbmluZ0FjdGlvbkgAEjMKC3N0b3BfbWluaW5nGAQgASgLMhwucGFpcmluZy52MS5TdG9wTWluaW5nQWN0aW9uSAASLwoJYmxpbmtfbGVkGAUgASgLMhoucGFpcmluZy52MS5CbGlua0xlZEFjdGlvbkgAEiwKB2N1cnRhaWwYBiABKAsyGS5wYWlyaW5nLnYxLkN1cnRhaWxBY3Rpb25IABIwCgl1bmN1cnRhaWwYByABKAsyGy5wYWlyaW5nLnYxLlVuY3VydGFpbEFjdGlvbkgAEjwKEHNldF9jb29saW5nX21vZGUYCCABKAsyIC5wYWlyaW5nLnYxLlNldENvb2xpbmdNb2RlQWN0aW9uSAASPAoQc2V0X3Bvd2VyX3RhcmdldBgJIAEoCzIgLnBhaXJpbmcudjEuU2V0UG93ZXJUYXJnZXRBY3Rpb25IAEIPCgZhY3Rpb24SBbpIAggBIg4KDFJlYm9vdEFjdGlvbiITChFTdGFydE1pbmluZ0FjdGlvbiISChBTdG9wTWluaW5nQWN0aW9uIhAKDkJsaW5rTGVkQWN0aW9uIhEKD1VuY3VydGFpbEFjdGlvbiJACg1DdXJ0YWlsQWN0aW9uEi8KBWxldmVsGAEgASgOMiAuY3VydGFpbG1lbnQudjEuQ3VydGFpbG1lbnRMZXZlbCI8ChRTZXRDb29saW5nTW9kZUFjdGlvbhIkCgRtb2RlGAEgASgOMhYuY29tbW9uLnYxLkNvb2xpbmdNb2RlIlIKFFNldFBvd2VyVGFyZ2V0QWN0aW9uEjoKEHBlcmZvcm1hbmNlX21vZGUYASABKA4yIC5taW5lcmNvbW1hbmQudjEuUGVyZm9ybWFuY2VNb2RlInUKC1BhaXJSZXF1ZXN0EiwKC2NyZWRlbnRpYWxzGAEgASgLMhcucGFpcmluZy52MS5DcmVkZW50aWFscxI4Cg9kZXZpY2Vfc2VsZWN0b3IYAiABKAsyHy5taW5lcmNvbW1hbmQudjEuRGV2aWNlU2VsZWN0b3IiKQoMUGFpclJlc3BvbnNlEhkKEWZhaWxlZF9kZXZpY2VfaWRzGAEgAygJIoMBChRGbGVldE5vZGVQYWlyUmVxdWVzdBI9Cgd0YXJnZXRzGAEgAygLMh8ucGFpcmluZy52MS5GbGVldE5vZGVQYWlyVGFyZ2V0Qgu6SAiSAQUIARCACBIsCgtjcmVkZW50aWFscxgCIAEoCzIXLnBhaXJpbmcudjEuQ3JlZGVudGlhbHMi5wIKE0ZsZWV0Tm9kZVBhaXJUYXJnZXQSJQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCrpIB3IFEAEY/wESHwoKaXBfYWRkcmVzcxgCIAEoCUILukgIcgYQARgtcAEShgEKBHBvcnQYAyABKAlCeLpIdboBbAoKcG9ydC5yYW5nZRIpcG9ydCBtdXN0IGJlIGEgZGVjaW1hbCBudW1iZXIgaW4gMS4uNjU1MzUaM3RoaXMubWF0Y2hlcygnXlsxLTldWzAtOV0qJCcpICYmIGludCh0aGlzKSA8PSA2NTUzNXIEEAEYBRIbCgp1cmxfc2NoZW1lGAQgASgJQge6SARyAhggEh4KC2RyaXZlcl9uYW1lGAUgASgJQgm6SAZyBBABGDISHgoMbWFudWZhY3R1cmVyGAYgASgJQgi6SAVyAxj/ARIiChBmaXJtd2FyZV92ZXJzaW9uGAcgASgJQgi6SAVyAxj/ATKUAQoOUGFpcmluZ1NlcnZpY2USRwoIRGlzY292ZXISGy5wYWlyaW5nLnYxLkRpc2NvdmVyUmVxdWVzdBocLnBhaXJpbmcudjEuRGlzY292ZXJSZXNwb25zZTABEjkKBFBhaXISFy5wYWlyaW5nLnYxLlBhaXJSZXF1ZXN0GhgucGFpcmluZy52MS5QYWlyUmVzcG9uc2VCsAEKDmNvbS5wYWlyaW5nLnYxQgxQYWlyaW5nUHJvdG9QAVpHZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvcGFpcmluZy92MTtwYWlyaW5ndjGiAgNQWFiqAgpQYWlyaW5nLlYxygIKUGFpcmluZ1xWMeICFlBhaXJpbmdcVjFcR1BCTWV0YWRhdGHqAgtQYWlyaW5nOjpWMWIGcHJvdG8z",
-    [
-      file_buf_validate_validate,
-      file_capabilities_v1_capabilities,
-      file_common_v1_cooling,
-      file_curtailment_v1_curtailment,
-      file_minercommand_v1_command,
-    ],
+    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEinwIKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkSEgoKdXJsX3NjaGVtZRgIIAEoCRI4CgxjYXBhYmlsaXRpZXMYCiABKAsyIi5jYXBhYmlsaXRpZXMudjEuTWluZXJDYXBhYmlsaXRpZXMSGAoQZmlybXdhcmVfdmVyc2lvbhgLIAEoCRITCgtkcml2ZXJfbmFtZRgMIAEoCUoECAkQClIEdHlwZSJDCgtDcmVkZW50aWFscxIQCgh1c2VybmFtZRgBIAEoCRIVCghwYXNzd29yZBgCIAEoCUgAiAEBQgsKCV9wYXNzd29yZCJQCg9NRE5TTW9kZVJlcXVlc3QSFAoMc2VydmljZV90eXBlGAEgASgJEg4KBmRvbWFpbhgCIAEoCRIXCg90aW1lb3V0X3NlY29uZHMYAyABKAUiOwoPTm1hcE1vZGVSZXF1ZXN0Eg4KBnRhcmdldBgBIAEoCRIYCgVwb3J0cxgCIAMoCUIJukgGkgEDEIACIlAKEklQUmFuZ2VNb2RlUmVxdWVzdBIQCghzdGFydF9pcBgBIAEoCRIOCgZlbmRfaXAYAiABKAkSGAoFcG9ydHMYAyADKAlCCbpIBpIBAxCAAiJOChFJUExpc3RNb2RlUmVxdWVzdBIfCgxpcF9hZGRyZXNzZXMYASADKAlCCbpIBpIBAxCAIBIYCgVwb3J0cxgCIAMoCUIJukgGkgEDEIACItkBCg9EaXNjb3ZlclJlcXVlc3QSMAoHaXBfbGlzdBgBIAEoCzIdLnBhaXJpbmcudjEuSVBMaXN0TW9kZVJlcXVlc3RIABIyCghpcF9yYW5nZRgCIAEoCzIeLnBhaXJpbmcudjEuSVBSYW5nZU1vZGVSZXF1ZXN0SAASKwoEbWRucxgDIAEoCzIbLnBhaXJpbmcudjEuTUROU01vZGVSZXF1ZXN0SAASKwoEbm1hcBgEIAEoCzIbLnBhaXJpbmcudjEuTm1hcE1vZGVSZXF1ZXN0SABCBgoEbW9kZSJGChBEaXNjb3ZlclJlc3BvbnNlEiMKB2RldmljZXMYASADKAsyEi5wYWlyaW5nLnYxLkRldmljZRINCgVlcnJvchgCIAEoCSJ1CgtQYWlyUmVxdWVzdBIsCgtjcmVkZW50aWFscxgBIAEoCzIXLnBhaXJpbmcudjEuQ3JlZGVudGlhbHMSOAoPZGV2aWNlX3NlbGVjdG9yGAIgASgLMh8ubWluZXJjb21tYW5kLnYxLkRldmljZVNlbGVjdG9yIikKDFBhaXJSZXNwb25zZRIZChFmYWlsZWRfZGV2aWNlX2lkcxgBIAMoCSKDAQoURmxlZXROb2RlUGFpclJlcXVlc3QSPQoHdGFyZ2V0cxgBIAMoCzIfLnBhaXJpbmcudjEuRmxlZXROb2RlUGFpclRhcmdldEILukgIkgEFCAEQgAgSLAoLY3JlZGVudGlhbHMYAiABKAsyFy5wYWlyaW5nLnYxLkNyZWRlbnRpYWxzIucCChNGbGVldE5vZGVQYWlyVGFyZ2V0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEh8KCmlwX2FkZHJlc3MYAiABKAlCC7pICHIGEAEYLXABEoYBCgRwb3J0GAMgASgJQni6SHW6AWwKCnBvcnQucmFuZ2USKXBvcnQgbXVzdCBiZSBhIGRlY2ltYWwgbnVtYmVyIGluIDEuLjY1NTM1GjN0aGlzLm1hdGNoZXMoJ15bMS05XVswLTldKiQnKSAmJiBpbnQodGhpcykgPD0gNjU1MzVyBBABGAUSGwoKdXJsX3NjaGVtZRgEIAEoCUIHukgEcgIYIBIeCgtkcml2ZXJfbmFtZRgFIAEoCUIJukgGcgQQARgyEh4KDG1hbnVmYWN0dXJlchgGIAEoCUIIukgFcgMY/wESIgoQZmlybXdhcmVfdmVyc2lvbhgHIAEoCUIIukgFcgMY/wEylAEKDlBhaXJpbmdTZXJ2aWNlEkcKCERpc2NvdmVyEhsucGFpcmluZy52MS5EaXNjb3ZlclJlcXVlc3QaHC5wYWlyaW5nLnYxLkRpc2NvdmVyUmVzcG9uc2UwARI5CgRQYWlyEhcucGFpcmluZy52MS5QYWlyUmVxdWVzdBoYLnBhaXJpbmcudjEuUGFpclJlc3BvbnNlQrABCg5jb20ucGFpcmluZy52MUIMUGFpcmluZ1Byb3RvUAFaR2dpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL3BhaXJpbmcvdjE7cGFpcmluZ3YxogIDUFhYqgIKUGFpcmluZy5WMcoCClBhaXJpbmdcVjHiAhZQYWlyaW5nXFYxXEdQQk1ldGFkYXRh6gILUGFpcmluZzo6VjFiBnByb3RvMw",
+    [file_buf_validate_validate, file_capabilities_v1_capabilities, file_minercommand_v1_command],
   );
 
 /**
@@ -369,311 +359,6 @@ export const DiscoverResponseSchema: GenMessage<DiscoverResponse> =
   messageDesc(file_pairing_v1_pairing, 7);
 
 /**
- * AgentCommand is the typed envelope marshaled into ControlCommand.payload so a
- * fleet node can tell command kinds apart rather than assuming a bare
- * DiscoverRequest. command_id stays on the transport-level
- * ControlCommand/ControlAck and is not duplicated here.
- *
- * Field numbers are shared across efforts so the discovery payload is migrated
- * into this envelope exactly once and later arms are purely additive:
- *   2 = FleetNodePairRequest pair    (fleet-node pairing path)
- *   3 = MinerCommand miner_command   (per-miner command path)
- *
- * @generated from message pairing.v1.AgentCommand
- */
-export type AgentCommand = Message<"pairing.v1.AgentCommand"> & {
-  /**
-   * @generated from oneof pairing.v1.AgentCommand.command
-   */
-  command:
-    | {
-        /**
-         * @generated from field: pairing.v1.DiscoverRequest discover = 1;
-         */
-        value: DiscoverRequest;
-        case: "discover";
-      }
-    | {
-        /**
-         * @generated from field: pairing.v1.FleetNodePairRequest pair = 2;
-         */
-        value: FleetNodePairRequest;
-        case: "pair";
-      }
-    | {
-        /**
-         * @generated from field: pairing.v1.MinerCommand miner_command = 3;
-         */
-        value: MinerCommand;
-        case: "minerCommand";
-      }
-    | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message pairing.v1.AgentCommand.
- * Use `create(AgentCommandSchema)` to create a new message.
- */
-export const AgentCommandSchema: GenMessage<AgentCommand> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 8);
-
-/**
- * MinerConnectionDescriptor tells a fleet node how to reach one of its local
- * miners. The cloud supplies it per command because the node holds no device DB.
- *
- * @generated from message pairing.v1.MinerConnectionDescriptor
- */
-export type MinerConnectionDescriptor = Message<"pairing.v1.MinerConnectionDescriptor"> & {
-  /**
-   * @generated from field: string device_identifier = 1;
-   */
-  deviceIdentifier: string;
-
-  /**
-   * Plugin routing key (e.g. "antminer", "virtual"); selects the node-side driver.
-   *
-   * @generated from field: string driver_name = 2;
-   */
-  driverName: string;
-
-  /**
-   * @generated from field: string ip_address = 3;
-   */
-  ipAddress: string;
-
-  /**
-   * @generated from field: string port = 4;
-   */
-  port: string;
-
-  /**
-   * @generated from field: string url_scheme = 5;
-   */
-  urlScheme: string;
-
-  /**
-   * @generated from field: string serial_number = 6;
-   */
-  serialNumber: string;
-
-  /**
-   * @generated from field: string mac_address = 7;
-   */
-  macAddress: string;
-
-  /**
-   * Opaque, encrypted miner credential the node decrypts just-in-time with its
-   * per-org key (empty for no-secret drivers like the virtual driver). The cloud
-   * never ships plaintext down the stream; see RFC 0001.
-   *
-   * @generated from field: bytes credential = 8;
-   */
-  credential: Uint8Array;
-};
-
-/**
- * Describes the message pairing.v1.MinerConnectionDescriptor.
- * Use `create(MinerConnectionDescriptorSchema)` to create a new message.
- */
-export const MinerConnectionDescriptorSchema: GenMessage<MinerConnectionDescriptor> =
-  /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 9);
-
-/**
- * MinerCommand is one operator command targeting a single fleet-node-paired miner,
- * carried in AgentCommand.miner_command. The node reconstructs a local device from
- * `target` and executes the selected action, then acks the outcome.
- *
- * @generated from message pairing.v1.MinerCommand
- */
-export type MinerCommand = Message<"pairing.v1.MinerCommand"> & {
-  /**
-   * @generated from field: pairing.v1.MinerConnectionDescriptor target = 1;
-   */
-  target?: MinerConnectionDescriptor | undefined;
-
-  /**
-   * @generated from oneof pairing.v1.MinerCommand.action
-   */
-  action:
-    | {
-        /**
-         * @generated from field: pairing.v1.RebootAction reboot = 2;
-         */
-        value: RebootAction;
-        case: "reboot";
-      }
-    | {
-        /**
-         * @generated from field: pairing.v1.StartMiningAction start_mining = 3;
-         */
-        value: StartMiningAction;
-        case: "startMining";
-      }
-    | {
-        /**
-         * @generated from field: pairing.v1.StopMiningAction stop_mining = 4;
-         */
-        value: StopMiningAction;
-        case: "stopMining";
-      }
-    | {
-        /**
-         * @generated from field: pairing.v1.BlinkLedAction blink_led = 5;
-         */
-        value: BlinkLedAction;
-        case: "blinkLed";
-      }
-    | {
-        /**
-         * @generated from field: pairing.v1.CurtailAction curtail = 6;
-         */
-        value: CurtailAction;
-        case: "curtail";
-      }
-    | {
-        /**
-         * @generated from field: pairing.v1.UncurtailAction uncurtail = 7;
-         */
-        value: UncurtailAction;
-        case: "uncurtail";
-      }
-    | {
-        /**
-         * @generated from field: pairing.v1.SetCoolingModeAction set_cooling_mode = 8;
-         */
-        value: SetCoolingModeAction;
-        case: "setCoolingMode";
-      }
-    | {
-        /**
-         * @generated from field: pairing.v1.SetPowerTargetAction set_power_target = 9;
-         */
-        value: SetPowerTargetAction;
-        case: "setPowerTarget";
-      }
-    | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message pairing.v1.MinerCommand.
- * Use `create(MinerCommandSchema)` to create a new message.
- */
-export const MinerCommandSchema: GenMessage<MinerCommand> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 10);
-
-/**
- * @generated from message pairing.v1.RebootAction
- */
-export type RebootAction = Message<"pairing.v1.RebootAction"> & {};
-
-/**
- * Describes the message pairing.v1.RebootAction.
- * Use `create(RebootActionSchema)` to create a new message.
- */
-export const RebootActionSchema: GenMessage<RebootAction> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 11);
-
-/**
- * @generated from message pairing.v1.StartMiningAction
- */
-export type StartMiningAction = Message<"pairing.v1.StartMiningAction"> & {};
-
-/**
- * Describes the message pairing.v1.StartMiningAction.
- * Use `create(StartMiningActionSchema)` to create a new message.
- */
-export const StartMiningActionSchema: GenMessage<StartMiningAction> =
-  /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 12);
-
-/**
- * @generated from message pairing.v1.StopMiningAction
- */
-export type StopMiningAction = Message<"pairing.v1.StopMiningAction"> & {};
-
-/**
- * Describes the message pairing.v1.StopMiningAction.
- * Use `create(StopMiningActionSchema)` to create a new message.
- */
-export const StopMiningActionSchema: GenMessage<StopMiningAction> =
-  /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 13);
-
-/**
- * @generated from message pairing.v1.BlinkLedAction
- */
-export type BlinkLedAction = Message<"pairing.v1.BlinkLedAction"> & {};
-
-/**
- * Describes the message pairing.v1.BlinkLedAction.
- * Use `create(BlinkLedActionSchema)` to create a new message.
- */
-export const BlinkLedActionSchema: GenMessage<BlinkLedAction> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 14);
-
-/**
- * @generated from message pairing.v1.UncurtailAction
- */
-export type UncurtailAction = Message<"pairing.v1.UncurtailAction"> & {};
-
-/**
- * Describes the message pairing.v1.UncurtailAction.
- * Use `create(UncurtailActionSchema)` to create a new message.
- */
-export const UncurtailActionSchema: GenMessage<UncurtailAction> =
-  /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 15);
-
-/**
- * @generated from message pairing.v1.CurtailAction
- */
-export type CurtailAction = Message<"pairing.v1.CurtailAction"> & {
-  /**
-   * @generated from field: curtailment.v1.CurtailmentLevel level = 1;
-   */
-  level: CurtailmentLevel;
-};
-
-/**
- * Describes the message pairing.v1.CurtailAction.
- * Use `create(CurtailActionSchema)` to create a new message.
- */
-export const CurtailActionSchema: GenMessage<CurtailAction> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 16);
-
-/**
- * @generated from message pairing.v1.SetCoolingModeAction
- */
-export type SetCoolingModeAction = Message<"pairing.v1.SetCoolingModeAction"> & {
-  /**
-   * @generated from field: common.v1.CoolingMode mode = 1;
-   */
-  mode: CoolingMode;
-};
-
-/**
- * Describes the message pairing.v1.SetCoolingModeAction.
- * Use `create(SetCoolingModeActionSchema)` to create a new message.
- */
-export const SetCoolingModeActionSchema: GenMessage<SetCoolingModeAction> =
-  /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 17);
-
-/**
- * @generated from message pairing.v1.SetPowerTargetAction
- */
-export type SetPowerTargetAction = Message<"pairing.v1.SetPowerTargetAction"> & {
-  /**
-   * @generated from field: minercommand.v1.PerformanceMode performance_mode = 1;
-   */
-  performanceMode: PerformanceMode;
-};
-
-/**
- * Describes the message pairing.v1.SetPowerTargetAction.
- * Use `create(SetPowerTargetActionSchema)` to create a new message.
- */
-export const SetPowerTargetActionSchema: GenMessage<SetPowerTargetAction> =
-  /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 18);
-
-/**
  * Request to pair with discovered devices
  *
  * @generated from message pairing.v1.PairRequest
@@ -698,7 +383,7 @@ export type PairRequest = Message<"pairing.v1.PairRequest"> & {
  * Describes the message pairing.v1.PairRequest.
  * Use `create(PairRequestSchema)` to create a new message.
  */
-export const PairRequestSchema: GenMessage<PairRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 19);
+export const PairRequestSchema: GenMessage<PairRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 8);
 
 /**
  * Response to pairing request
@@ -717,7 +402,7 @@ export type PairResponse = Message<"pairing.v1.PairResponse"> & {
  * Describes the message pairing.v1.PairResponse.
  * Use `create(PairResponseSchema)` to create a new message.
  */
-export const PairResponseSchema: GenMessage<PairResponse> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 20);
+export const PairResponseSchema: GenMessage<PairResponse> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 9);
 
 /**
  * FleetNodePairRequest asks a fleet node to pair (authenticate) a batch of
@@ -747,7 +432,7 @@ export type FleetNodePairRequest = Message<"pairing.v1.FleetNodePairRequest"> & 
  */
 export const FleetNodePairRequestSchema: GenMessage<FleetNodePairRequest> =
   /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 21);
+  messageDesc(file_pairing_v1_pairing, 10);
 
 /**
  * @generated from message pairing.v1.FleetNodePairTarget
@@ -798,7 +483,7 @@ export type FleetNodePairTarget = Message<"pairing.v1.FleetNodePairTarget"> & {
  */
 export const FleetNodePairTargetSchema: GenMessage<FleetNodePairTarget> =
   /*@__PURE__*/
-  messageDesc(file_pairing_v1_pairing, 22);
+  messageDesc(file_pairing_v1_pairing, 11);
 
 /**
  * Service for discovering and pairing with network devices

@@ -14,7 +14,6 @@ import (
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
-	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/block/proto-fleet/server/sdk/v1/mocks"
 )
@@ -49,8 +48,8 @@ type fakeDriverGetter struct {
 func (f fakeDriverGetter) GetDriverByDriverName(string) (sdk.Driver, error) { return f.d, f.err }
 
 // withTarget stamps a standard descriptor onto a command built with just an action.
-func withTarget(mc *pairingpb.MinerCommand) *pairingpb.MinerCommand {
-	mc.Target = &pairingpb.MinerConnectionDescriptor{
+func withTarget(mc *pb.MinerCommand) *pb.MinerCommand {
+	mc.Target = &pb.MinerConnectionDescriptor{
 		DeviceIdentifier: "dev-1", DriverName: "virtual",
 		IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http",
 	}
@@ -70,7 +69,7 @@ func TestHandleMinerCommand_ExecutesAndAcksOK(t *testing.T) {
 
 	// Act
 	r.handleMinerCommand(context.Background(), ack, "cmd-1",
-		withTarget(&pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}}}), discardLogger(t))
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}}), discardLogger(t))
 
 	// Assert
 	got := ack.only(t)
@@ -92,7 +91,7 @@ func TestHandleMinerCommand_ConvertsCoolingMode(t *testing.T) {
 
 	// Act
 	r.handleMinerCommand(context.Background(), ack, "cmd-1",
-		withTarget(&pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_SetCoolingMode{SetCoolingMode: &pairingpb.SetCoolingModeAction{Mode: commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED}}}), discardLogger(t))
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_SetCoolingMode{SetCoolingMode: &pb.SetCoolingModeAction{Mode: commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED}}}), discardLogger(t))
 
 	// Assert
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, ack.only(t).GetCode())
@@ -111,7 +110,7 @@ func TestHandleMinerCommand_DeviceErrorClassifiesToUnimplemented(t *testing.T) {
 
 	// Act
 	r.handleMinerCommand(context.Background(), ack, "cmd-1",
-		withTarget(&pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}}}), discardLogger(t))
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}}), discardLogger(t))
 
 	// Assert
 	got := ack.only(t)
@@ -122,16 +121,16 @@ func TestHandleMinerCommand_DeviceErrorClassifiesToUnimplemented(t *testing.T) {
 func TestValidateDialTarget(t *testing.T) {
 	cases := []struct {
 		name    string
-		desc    *pairingpb.MinerConnectionDescriptor
+		desc    *pb.MinerConnectionDescriptor
 		wantErr bool
 	}{
-		{"private http", &pairingpb.MinerConnectionDescriptor{IpAddress: "10.0.0.5", UrlScheme: "http"}, false},
-		{"loopback virtual (dev path)", &pairingpb.MinerConnectionDescriptor{IpAddress: "127.0.0.1", UrlScheme: "virtual"}, false},
-		{"private tcp", &pairingpb.MinerConnectionDescriptor{IpAddress: "192.168.1.9", UrlScheme: "tcp"}, false},
-		{"public ip", &pairingpb.MinerConnectionDescriptor{IpAddress: "8.8.8.8", UrlScheme: "http"}, true},
-		{"not an ip", &pairingpb.MinerConnectionDescriptor{IpAddress: "miner.local", UrlScheme: "http"}, true},
-		{"empty scheme", &pairingpb.MinerConnectionDescriptor{IpAddress: "10.0.0.5", UrlScheme: ""}, true},
-		{"unknown scheme", &pairingpb.MinerConnectionDescriptor{IpAddress: "10.0.0.5", UrlScheme: "file"}, true},
+		{"private http", &pb.MinerConnectionDescriptor{IpAddress: "10.0.0.5", UrlScheme: "http"}, false},
+		{"loopback virtual (dev path)", &pb.MinerConnectionDescriptor{IpAddress: "127.0.0.1", UrlScheme: "virtual"}, false},
+		{"private tcp", &pb.MinerConnectionDescriptor{IpAddress: "192.168.1.9", UrlScheme: "tcp"}, false},
+		{"public ip", &pb.MinerConnectionDescriptor{IpAddress: "8.8.8.8", UrlScheme: "http"}, true},
+		{"not an ip", &pb.MinerConnectionDescriptor{IpAddress: "miner.local", UrlScheme: "http"}, true},
+		{"empty scheme", &pb.MinerConnectionDescriptor{IpAddress: "10.0.0.5", UrlScheme: ""}, true},
+		{"unknown scheme", &pb.MinerConnectionDescriptor{IpAddress: "10.0.0.5", UrlScheme: "file"}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -151,17 +150,17 @@ func TestValidateDialTarget(t *testing.T) {
 func TestHandleMinerCommand_RejectsUndiallableTarget(t *testing.T) {
 	cases := []struct {
 		name   string
-		mutate func(*pairingpb.MinerConnectionDescriptor)
+		mutate func(*pb.MinerConnectionDescriptor)
 	}{
-		{"public ip", func(d *pairingpb.MinerConnectionDescriptor) { d.IpAddress = "8.8.8.8" }},
-		{"not an ip", func(d *pairingpb.MinerConnectionDescriptor) { d.IpAddress = "miner.example.com" }},
-		{"non-web scheme", func(d *pairingpb.MinerConnectionDescriptor) { d.UrlScheme = "file" }},
+		{"public ip", func(d *pb.MinerConnectionDescriptor) { d.IpAddress = "8.8.8.8" }},
+		{"not an ip", func(d *pb.MinerConnectionDescriptor) { d.IpAddress = "miner.example.com" }},
+		{"non-web scheme", func(d *pb.MinerConnectionDescriptor) { d.UrlScheme = "file" }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange: a driver mock with no expectations, so any dial attempt fails the test.
 			r := &RunCmd{driverGetter: fakeDriverGetter{d: mocks.NewMockDriver(gomock.NewController(t))}, minerSecrets: nodeSecretProvider{}}
-			mc := withTarget(&pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}}})
+			mc := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}})
 			tc.mutate(mc.Target)
 			ack := &captureAcker{}
 
@@ -181,7 +180,7 @@ func TestHandleMinerCommand_UnknownDriverAcksAgentIncapable(t *testing.T) {
 
 	// Act
 	r.handleMinerCommand(context.Background(), ack, "cmd-1",
-		withTarget(&pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}}}), discardLogger(t))
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}}), discardLogger(t))
 
 	// Assert
 	assert.Equal(t, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, ack.only(t).GetCode())
