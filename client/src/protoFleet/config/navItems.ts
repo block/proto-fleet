@@ -13,7 +13,7 @@ export interface NavItem {
   icon?: (i: IconProps) => ReactNode;
   // Catalog permission key the caller must hold to see this entry. Mirrors
   // the server-side gate on the page's org-scoped backing RPCs; consumers
-  // filter via UserInfo.org_permissions. Entries without a requiredPermission
+  // filter via UserInfo.permissions. Entries without a requiredPermission
   // are visible to every authenticated user.
   requiredPermission?: string;
   scopable?: boolean;

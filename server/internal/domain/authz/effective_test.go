@@ -157,28 +157,15 @@ func TestEffective_UnknownPermissionDenied(t *testing.T) {
 	require.False(t, eff.Has("synthetic:not_in_catalog", orgResource()))
 }
 
-func TestEffective_FlatPermissionsForUserInfo(t *testing.T) {
-	// UserInfo.permissions is described in the plan as "the flat union of
-	// permission keys across all assignments." Test that the projection is
-	// deterministic and dedupes.
-	eff := authz.NewEffectivePermissions([]authz.Assignment{
-		orgScope(authz.PermFleetRead, authz.PermMinerRead),
-		siteScope(1,
-			authz.PermFleetRead, authz.PermMinerBlinkLED),
-	})
-	got := eff.FlatKeys()
-	require.Equal(t, []string{authz.PermFleetRead, authz.PermMinerBlinkLED, authz.PermMinerRead}, got)
-}
-
-func TestEffective_OrgPermissionsForUserInfo(t *testing.T) {
-	// UserInfo.org_permissions is the org-only projection the client uses for
+func TestEffective_KeysForUserInfo(t *testing.T) {
+	// UserInfo.permissions is the default/org projection the client uses for
 	// org-scoped RPC gates. Site-only permissions must not leak into it.
 	eff := authz.NewEffectivePermissions([]authz.Assignment{
 		orgScope(authz.PermFleetRead, authz.PermMinerRead),
 		siteScope(1,
 			authz.PermFleetRead, authz.PermMinerBlinkLED),
 	})
-	got := eff.OrgKeys()
+	got := eff.Keys()
 	require.Equal(t, []string{authz.PermFleetRead, authz.PermMinerRead}, got)
 }
 

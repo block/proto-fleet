@@ -180,37 +180,12 @@ func (e *EffectivePermissions) IsSubsumedBy(other *EffectivePermissions) bool {
 	return true
 }
 
-// FlatKeys returns every distinct permission key the user holds across
-// every assignment, sorted lexicographically. UserInfo.permissions is
-// projected from this for the client's coarse "has the permission
-// anywhere" gating; the server still enforces scope via Has() on the
-// actual call.
-func (e *EffectivePermissions) FlatKeys() []string {
-	if e == nil {
-		return nil
-	}
-	seen := make(map[string]bool)
-	for k := range e.orgScope {
-		seen[k] = true
-	}
-	for _, siteKeys := range e.bySite {
-		for k := range siteKeys {
-			seen[k] = true
-		}
-	}
-	out := make([]string, 0, len(seen))
-	for k := range seen {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-// OrgKeys returns every distinct permission key the user holds at org scope,
-// sorted lexicographically. UserInfo.org_permissions is projected from this so
-// the client can gate org-scoped RPCs without confusing site-only grants for
+// Keys returns every distinct default-scope permission key the user holds,
+// sorted lexicographically. UserInfo.permissions is projected from this for
+// client UI gates that map to org-scoped RPCs. Narrower resource-scoped grants
+// should be exposed separately so site-only authority is not confused for
 // org-wide authority.
-func (e *EffectivePermissions) OrgKeys() []string {
+func (e *EffectivePermissions) Keys() []string {
 	if e == nil {
 		return nil
 	}

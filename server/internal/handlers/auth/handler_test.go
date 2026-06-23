@@ -47,9 +47,7 @@ func TestAuthServer_Authenticate(t *testing.T) {
 		// set should equal the full catalog. Sorted projection means we
 		// can compare against AllPermissionsSorted() directly.
 		assert.Equal(t, authz.AllPermissionsSorted(), authResp.Msg.UserInfo.Permissions)
-		assert.Equal(t, authz.AllPermissionsSorted(), authResp.Msg.UserInfo.OrgPermissions)
 		assert.True(t, sort.StringsAreSorted(authResp.Msg.UserInfo.Permissions), "permissions must be sorted")
-		assert.True(t, sort.StringsAreSorted(authResp.Msg.UserInfo.OrgPermissions), "org permissions must be sorted")
 
 		// Verify Set-Cookie header is present
 		setCookie := authResp.Header().Get("Set-Cookie")

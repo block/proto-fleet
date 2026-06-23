@@ -16,26 +16,13 @@ export const useRole = () => useFleetStore((state) => state.auth.role);
 
 export const usePermissions = () => useFleetStore((state) => state.auth.permissions);
 
-export const useOrgPermissions = () => useFleetStore((state) => state.auth.orgPermissions);
-
-type PermissionScope = "any" | "org";
-
-type UseHasPermissionOptions = {
-  scope?: PermissionScope;
-};
-
 // useHasPermission is the canonical UI gate for capability checks.
-// By default it checks UserInfo.org_permissions, which mirrors server
-// authz.Has(key, empty ResourceContext) for org-scoped RPCs. Pass
-// { scope: "any" } only for UI gates that intentionally need the flat
-// "has this anywhere" projection from UserInfo.permissions. The server still
-// enforces every gate regardless; this selector is purely for show/hide
-// decisions.
-export const useHasPermission = (key: string, options: UseHasPermissionOptions = {}): boolean =>
-  useFleetStore((state) => {
-    const permissions = options.scope === "any" ? state.auth.permissions : state.auth.orgPermissions;
-    return permissions.includes(key);
-  });
+// It checks UserInfo.permissions, the caller's default/org-scoped authority.
+// Narrower resource-scoped permissions should use a separate resource-aware
+// surface when that lands. The server still enforces every gate regardless;
+// this selector is purely for show/hide decisions.
+export const useHasPermission = (key: string): boolean =>
+  useFleetStore((state) => state.auth.permissions.includes(key));
 
 export const useAuthLoading = () => useFleetStore((state) => state.auth.authLoading);
 
@@ -54,8 +41,6 @@ export const useSetUsername = () => useFleetStore((state) => state.auth.setUsern
 export const useSetRole = () => useFleetStore((state) => state.auth.setRole);
 
 export const useSetPermissions = () => useFleetStore((state) => state.auth.setPermissions);
-
-export const useSetOrgPermissions = () => useFleetStore((state) => state.auth.setOrgPermissions);
 
 export const useSetAuthLoading = () => useFleetStore((state) => state.auth.setAuthLoading);
 

@@ -61,19 +61,18 @@ describe("useFleetStore persistence", () => {
       isAuthenticated: true,
       username: "alice@example.com",
       role: "ADMIN",
-      permissions: ["curtailment:manage", "site:read"],
-      orgPermissions: ["site:read"],
+      permissions: ["site:read"],
+      permissionsScope: "org",
     });
 
     const { useFleetStore } = await import("./useFleetStore");
     useFleetStore.persist.rehydrate();
 
-    expect(useFleetStore.getState().auth.permissions).toEqual(["curtailment:manage", "site:read"]);
-    expect(useFleetStore.getState().auth.orgPermissions).toEqual(["site:read"]);
+    expect(useFleetStore.getState().auth.permissions).toEqual(["site:read"]);
     expect(useFleetStore.getState().auth.isAuthenticated).toBe(true);
   });
 
-  it("drops persisted sessions missing org-scoped permissions", async () => {
+  it("drops persisted sessions missing the org-scoped permissions marker", async () => {
     seedPersistedAuth({
       sessionExpiry: new Date(Date.now() + 60_000),
       isAuthenticated: true,
@@ -87,6 +86,5 @@ describe("useFleetStore persistence", () => {
 
     expect(useFleetStore.getState().auth.isAuthenticated).toBe(false);
     expect(useFleetStore.getState().auth.permissions).toEqual([]);
-    expect(useFleetStore.getState().auth.orgPermissions).toEqual([]);
   });
 });

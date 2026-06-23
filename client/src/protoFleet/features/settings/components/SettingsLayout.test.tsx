@@ -4,10 +4,10 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import SettingsLayout from "./SettingsLayout";
 
-const orgPermissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
+const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
 
 vi.mock("@/protoFleet/store", () => ({
-  useOrgPermissions: () => orgPermissionsMock.current,
+  usePermissions: () => permissionsMock.current,
 }));
 
 vi.mock("@/protoFleet/components/SecondaryNavigation", () => ({
@@ -50,7 +50,7 @@ const renderSettingsRoute = (initialPath: string) =>
 
 describe("SettingsLayout permission guard", () => {
   beforeEach(() => {
-    orgPermissionsMock.current = [];
+    permissionsMock.current = [];
   });
 
   test("redirects protected settings routes before rendering their children", async () => {
@@ -62,7 +62,7 @@ describe("SettingsLayout permission guard", () => {
   });
 
   test("renders protected settings routes when the org permission is present", () => {
-    orgPermissionsMock.current = ["user:read"];
+    permissionsMock.current = ["user:read"];
 
     renderSettingsRoute("/settings/team");
 

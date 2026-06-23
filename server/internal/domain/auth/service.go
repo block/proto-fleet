@@ -232,8 +232,7 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 			LastLoginAt:            toTimestampProto(loginTime),
 			Role:                   roleName,
 			RequiresPasswordChange: user.RequiresPasswordChange,
-			Permissions:            eff.FlatKeys(),
-			OrgPermissions:         eff.OrgKeys(),
+			Permissions:            eff.Keys(),
 		},
 	}, cookie, nil
 }

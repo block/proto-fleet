@@ -12,16 +12,11 @@ export interface AuthSlice {
   isAuthenticated: boolean;
   username: string;
   role: string;
-  // permissions is the caller's effective permission keys, populated
-  // from UserInfo.permissions on login. This is the flat "has this anywhere"
-  // projection; UI gates query it via useHasPermission(..., { scope: "any" })
-  // only when they intentionally need that behavior. The server still enforces
-  // every gate.
+  // permissions is the caller's default/org-scoped permission keys, populated
+  // from UserInfo.permissions on login. Narrower resource-scoped permissions
+  // should be represented separately when the client grows resource-aware
+  // gates. The server still enforces every gate.
   permissions: string[];
-  // orgPermissions is the caller's org-scoped effective permission keys,
-  // populated from UserInfo.org_permissions on login. useHasPermission queries
-  // this by default for org-scoped RPCs.
-  orgPermissions: string[];
   authLoading: boolean;
   temporaryPassword: string | null;
 
@@ -31,7 +26,6 @@ export interface AuthSlice {
   setUsername: (username: string) => void;
   setRole: (role: string) => void;
   setPermissions: (permissions: string[]) => void;
-  setOrgPermissions: (permissions: string[]) => void;
   setAuthLoading: (loading: boolean) => void;
   setTemporaryPassword: (password: string | null) => void;
   logout: () => void;
@@ -48,7 +42,6 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
   username: "",
   role: "",
   permissions: [],
-  orgPermissions: [],
   authLoading: true,
   temporaryPassword: null,
 
@@ -78,11 +71,6 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
       state.auth.permissions = permissions;
     }),
 
-  setOrgPermissions: (permissions) =>
-    set((state) => {
-      state.auth.orgPermissions = permissions;
-    }),
-
   setAuthLoading: (loading) =>
     set((state) => {
       state.auth.authLoading = loading;
@@ -101,7 +89,6 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
       state.auth.username = "";
       state.auth.role = "";
       state.auth.permissions = [];
-      state.auth.orgPermissions = [];
       state.auth.authLoading = false;
       state.auth.temporaryPassword = null;
       // Reset multi-site active selection on logout so user B doesn't
