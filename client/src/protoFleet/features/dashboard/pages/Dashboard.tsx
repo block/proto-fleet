@@ -8,6 +8,8 @@ import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { useAlertsEnabled } from "@/protoFleet/features/alerts/api/useAlertsEnabled";
+import ActiveAlertsCard from "@/protoFleet/features/alerts/components/ActiveAlertsCard";
 import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
 import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
 import { HashratePanel } from "@/protoFleet/features/dashboard/components/HashratePanel";
@@ -16,8 +18,6 @@ import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHe
 import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/TemperaturePanel";
 import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePanel";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
-import { useNotificationsEnabled } from "@/protoFleet/features/notifications/api/useNotificationsEnabled";
-import ActiveNotificationsCard from "@/protoFleet/features/notifications/components/ActiveNotificationsCard";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
 import { useRouteSiteScope } from "@/protoFleet/routing/siteScope";
@@ -42,9 +42,9 @@ const Dashboard = () => {
   const duration = useDuration();
   const setDuration = useSetDuration();
   // Gate on both the read permission and the runtime feature probe so the card is hidden when the notifications sidecar is disabled.
-  const hasNotificationRead = useHasPermission("notification:read");
-  const notificationsEnabled = useNotificationsEnabled();
-  const canViewNotifications = hasNotificationRead && notificationsEnabled;
+  const hasAlertRead = useHasPermission("alert:read");
+  const notificationsEnabled = useAlertsEnabled();
+  const canViewAlerts = hasAlertRead && notificationsEnabled;
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
 
@@ -161,7 +161,7 @@ const Dashboard = () => {
                 hashboardErrors={hashboardErrors}
                 psuErrors={psuErrors}
               />
-              {canViewNotifications ? <ActiveNotificationsCard /> : null}
+              {canViewAlerts ? <ActiveAlertsCard /> : null}
             </div>
           </section>
 

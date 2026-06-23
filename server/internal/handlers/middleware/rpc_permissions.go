@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/alerts/v1/alertsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
@@ -15,7 +16,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/notifications/v1/notificationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
@@ -253,19 +253,19 @@ var ProcedurePermissions = map[string]string{
 	networkinfov1connect.NetworkInfoServiceGetNetworkInfoProcedure:        authz.PermFleetRead,
 	networkinfov1connect.NetworkInfoServiceUpdateNetworkNicknameProcedure: authz.PermSiteManage,
 
-	notificationsv1connect.ChannelServiceListChannelsProcedure:                      authz.PermNotificationRead,
-	notificationsv1connect.ChannelServiceCreateChannelProcedure:                     authz.PermNotificationManage,
-	notificationsv1connect.ChannelServiceUpdateChannelProcedure:                     authz.PermNotificationManage,
-	notificationsv1connect.ChannelServiceDeleteChannelProcedure:                     authz.PermNotificationManage,
-	notificationsv1connect.ChannelServiceTestChannelProcedure:                       authz.PermNotificationManage,
-	notificationsv1connect.RuleServiceListRulesProcedure:                            authz.PermNotificationRead,
-	notificationsv1connect.RuleServicePauseRuleProcedure:                            authz.PermNotificationManage,
-	notificationsv1connect.RuleServiceResumeRuleProcedure:                           authz.PermNotificationManage,
-	notificationsv1connect.MaintenanceWindowServiceListMaintenanceWindowsProcedure:  authz.PermNotificationRead,
-	notificationsv1connect.MaintenanceWindowServiceCreateMaintenanceWindowProcedure: authz.PermNotificationManage,
-	notificationsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure: authz.PermNotificationManage,
-	notificationsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure: authz.PermNotificationManage,
-	notificationsv1connect.HistoryServiceListNotificationsProcedure:                 authz.PermNotificationRead,
+	alertsv1connect.ChannelServiceListChannelsProcedure:                      authz.PermAlertRead,
+	alertsv1connect.ChannelServiceCreateChannelProcedure:                     authz.PermAlertManage,
+	alertsv1connect.ChannelServiceUpdateChannelProcedure:                     authz.PermAlertManage,
+	alertsv1connect.ChannelServiceDeleteChannelProcedure:                     authz.PermAlertManage,
+	alertsv1connect.ChannelServiceTestChannelProcedure:                       authz.PermAlertManage,
+	alertsv1connect.RuleServiceListRulesProcedure:                            authz.PermAlertRead,
+	alertsv1connect.RuleServicePauseRuleProcedure:                            authz.PermAlertManage,
+	alertsv1connect.RuleServiceResumeRuleProcedure:                           authz.PermAlertManage,
+	alertsv1connect.MaintenanceWindowServiceListMaintenanceWindowsProcedure:  authz.PermAlertRead,
+	alertsv1connect.MaintenanceWindowServiceCreateMaintenanceWindowProcedure: authz.PermAlertManage,
+	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure: authz.PermAlertManage,
+	alertsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure: authz.PermAlertManage,
+	alertsv1connect.HistoryServiceListAlertsProcedure:                        authz.PermAlertRead,
 
 	// OnboardingService — fleet-init status. Other onboarding procedures
 	// are unauthenticated (covered by UnauthenticatedProcedures).

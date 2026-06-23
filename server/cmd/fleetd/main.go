@@ -38,6 +38,7 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/alerts/v1/alertsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
@@ -52,7 +53,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/notifications/v1/notificationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
@@ -62,6 +62,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
+	alertsDomain "github.com/block/proto-fleet/server/internal/domain/alerts"
 	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
 	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
 	buildingsDomain "github.com/block/proto-fleet/server/internal/domain/buildings"
@@ -80,7 +81,6 @@ import (
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
-	notificationsDomain "github.com/block/proto-fleet/server/internal/domain/notifications"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
@@ -92,6 +92,7 @@ import (
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
 	activityHandler "github.com/block/proto-fleet/server/internal/handlers/activity"
 	"github.com/block/proto-fleet/server/internal/handlers/alertmanagerwebhook"
+	alertsHandler "github.com/block/proto-fleet/server/internal/handlers/alerts"
 	apikeyHandler "github.com/block/proto-fleet/server/internal/handlers/apikey"
 	"github.com/block/proto-fleet/server/internal/handlers/auth"
 	authzHandler "github.com/block/proto-fleet/server/internal/handlers/authz"
@@ -109,7 +110,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/handlers/networkinfo"
-	notificationsHandler "github.com/block/proto-fleet/server/internal/handlers/notifications"
 	"github.com/block/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/block/proto-fleet/server/internal/handlers/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/pools"
@@ -548,8 +548,8 @@ func start(config *Config) error {
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
-	grafanaClient := notificationsDomain.NewGrafana(config.Metrics.Grafana)
-	notificationsSvc := notificationsDomain.NewService(grafanaClient, config.Metrics.NotificationDestinations)
+	grafanaClient := alertsDomain.NewGrafana(config.Metrics.Grafana)
+	alertsSvc := alertsDomain.NewService(grafanaClient, config.Metrics.NotificationDestinations)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
@@ -623,14 +623,14 @@ func start(config *Config) error {
 	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn)), li))
 	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))
 
-	notifHandler := notificationsHandler.NewHandler(notificationsSvc, notificationHistoryStore)
-	mux.Handle(notificationsv1connect.NewChannelServiceHandler(notifHandler, li))
-	mux.Handle(notificationsv1connect.NewRuleServiceHandler(notifHandler, li))
-	mux.Handle(notificationsv1connect.NewMaintenanceWindowServiceHandler(notifHandler, li))
-	mux.Handle(notificationsv1connect.NewHistoryServiceHandler(notifHandler, li))
-	// Runtime capability probe so the prebuilt client can surface the Notifications
+	notifHandler := alertsHandler.NewHandler(alertsSvc, notificationHistoryStore)
+	mux.Handle(alertsv1connect.NewChannelServiceHandler(notifHandler, li))
+	mux.Handle(alertsv1connect.NewRuleServiceHandler(notifHandler, li))
+	mux.Handle(alertsv1connect.NewMaintenanceWindowServiceHandler(notifHandler, li))
+	mux.Handle(alertsv1connect.NewHistoryServiceHandler(notifHandler, li))
+	// Runtime capability probe so the prebuilt client can surface the Alerts
 	// nav only when the sidecar this feature proxies is actually enabled.
-	mux.HandleFunc("GET /api/v1/notifications/enabled", notificationsHandler.NewEnabledHandler(config.Metrics.Enabled))
+	mux.HandleFunc("GET /api/v1/alerts/enabled", alertsHandler.NewEnabledHandler(config.Metrics.Enabled))
 
 	if config.HTTP.PprofAddr != "" {
 		ln, err := net.Listen("tcp", config.HTTP.PprofAddr)

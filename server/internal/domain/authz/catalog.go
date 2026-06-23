@@ -74,8 +74,8 @@ const (
 	PermFleetnodeRead   = "fleetnode:read"
 	PermFleetnodeManage = "fleetnode:manage"
 
-	PermNotificationRead   = "notification:read"
-	PermNotificationManage = "notification:manage"
+	PermAlertRead   = "alert:read"
+	PermAlertManage = "alert:manage"
 
 	// apikey — org-admin API key management. No separate :read; the surface
 	// lives under route-guarded Settings, so a viewer-only role has no
@@ -94,20 +94,20 @@ const (
 // and as the lookup key for the read-pairing rule (every action
 // permission requires its same-resource read partner).
 const (
-	ResourceFleet        = "fleet"
-	ResourceMiner        = "miner"
-	ResourceRack         = "rack"
-	ResourceSite         = "site"
-	ResourceActivity     = "activity"
-	ResourceServerLog    = "serverlog"
-	ResourceCurtailment  = "curtailment"
-	ResourcePool         = "pool"
-	ResourceSchedule     = "schedule"
-	ResourceFleetNode    = "fleetnode"
-	ResourceNotification = "notification"
-	ResourceAPIKey       = "apikey"
-	ResourceUser         = "user"
-	ResourceRole         = "role"
+	ResourceFleet       = "fleet"
+	ResourceMiner       = "miner"
+	ResourceRack        = "rack"
+	ResourceSite        = "site"
+	ResourceActivity    = "activity"
+	ResourceServerLog   = "serverlog"
+	ResourceCurtailment = "curtailment"
+	ResourcePool        = "pool"
+	ResourceSchedule    = "schedule"
+	ResourceFleetNode   = "fleetnode"
+	ResourceAlert       = "alert"
+	ResourceAPIKey      = "apikey"
+	ResourceUser        = "user"
+	ResourceRole        = "role"
 )
 
 // CatalogEntry is the in-code shape of a single permission. The wire-level
@@ -167,8 +167,8 @@ var catalog = []CatalogEntry{
 	{PermFleetnodeRead, "View fleet-node state.", ResourceFleetNode},
 	{PermFleetnodeManage, "Perform fleet-node admin operations.", ResourceFleetNode},
 
-	{PermNotificationRead, "View notification channels, alert rules, silences, and delivery history.", ResourceNotification},
-	{PermNotificationManage, "Create, edit, test, and delete notification channels; pause and resume alert rules; create and lift silences.", ResourceNotification},
+	{PermAlertRead, "View alert channels, alert rules, silences, and delivery history.", ResourceAlert},
+	{PermAlertManage, "Create, edit, test, and delete alert channels; pause and resume alert rules; create and lift silences.", ResourceAlert},
 
 	{PermAPIKeyManage, "List, create, and revoke API keys for the organization.", ResourceAPIKey},
 
