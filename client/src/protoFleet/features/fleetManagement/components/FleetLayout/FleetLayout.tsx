@@ -60,6 +60,7 @@ const FleetLayout = () => {
   // permission-denied toasts just by opening a non-miner Fleet tab.
   const canReadMiners = useHasPermission("miner:read");
   const canReadRacks = useHasPermission("rack:read");
+  const canReadFleet = useHasPermission("fleet:read");
 
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canReadSites ? undefined : []);
@@ -69,7 +70,7 @@ const FleetLayout = () => {
   // never seen data" when sites is [].
   const [sitesLoaded, setSitesLoaded] = useState(false);
   // Keep a defensive PermissionDenied branch for stale sessions or server-side
-  // auth changes so the redirect waterfall can fall back to Miners.
+  // auth changes so the redirect waterfall avoids site-catalog-backed tabs.
   const [sitesPermissionDenied, setSitesPermissionDenied] = useState(false);
 
   const fetchSites = useCallback(
@@ -109,6 +110,8 @@ const FleetLayout = () => {
 
   const sitesAccessBlocked = !canReadSites || sitesPermissionDenied;
   const siteCatalogAccessGranted = canReadSites && sitesLoaded && !sitesPermissionDenied;
+  const canReadRacksTab = canReadRacks && !sitesAccessBlocked;
+  const canReadMinersTab = canReadMiners && canReadRacks && canReadFleet;
 
   // Source of truth for "which tabs are reachable right now." Hide-rule
   // changes only need to touch this filter; the redirect effect, the tab
@@ -118,15 +121,15 @@ const FleetLayout = () => {
       TAB_ORDER.filter((t) => {
         if (t === "sites" && (sitesTabHidden || sitesAccessBlocked)) return false;
         if (t === "buildings" && sitesAccessBlocked) return false;
-        if (t === "racks" && !canReadRacks) return false;
-        if (t === "miners" && !canReadMiners) return false;
+        if (t === "racks" && !canReadRacksTab) return false;
+        if (t === "miners" && !canReadMinersTab) return false;
         return true;
       }),
-    [sitesTabHidden, sitesAccessBlocked, canReadRacks, canReadMiners],
+    [sitesTabHidden, sitesAccessBlocked, canReadRacksTab, canReadMinersTab],
   );
 
-  // Fallbacks must come from visibleTabs so roles with only site-scoped grants
-  // don't get redirected into org-scoped miner/rack RPCs they cannot call.
+  // Fallbacks must come from visibleTabs so roles don't get redirected into
+  // tabs whose startup RPCs they cannot call.
   const fallbackTab = visibleTabs[0];
   const usableLastTab = lastTab && visibleTabs.includes(lastTab) ? lastTab : undefined;
   const targetTab = usableLastTab ?? fallbackTab;

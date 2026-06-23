@@ -27,10 +27,12 @@ export interface FleetStore {
 // Custom Multi-Key Storage
 // =============================================================================
 
+const ORG_PERMISSIONS_SCOPE = "org" as const;
+
 type PersistedAuthState = Pick<AuthSlice, "sessionExpiry" | "isAuthenticated" | "username" | "role" | "permissions"> & {
   // Guards against rehydrating old sessions where permissions meant a flat
   // "has this anywhere" projection. Current permissions are org/default scope.
-  permissionsScope?: "org";
+  permissionsScope?: typeof ORG_PERMISSIONS_SCOPE;
 };
 
 // Type for the partial state that we persist
@@ -104,7 +106,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
                 username: state.auth.username,
                 role: state.auth.role,
                 permissions: state.auth.permissions,
-                permissionsScope: "org" as const,
+                permissionsScope: ORG_PERMISSIONS_SCOPE,
               },
             },
             version: value.version,
@@ -181,7 +183,7 @@ export const useFleetStore = create<FleetStore>()(
               username: state.auth.username,
               role: state.auth.role,
               permissions: state.auth.permissions,
-              permissionsScope: "org" as const,
+              permissionsScope: ORG_PERMISSIONS_SCOPE,
             },
             ui: {
               theme: state.ui.theme,
@@ -201,7 +203,7 @@ export const useFleetStore = create<FleetStore>()(
             // Drop those sessions so the next Authenticate repopulates
             // UserInfo.permissions with the current org/default projection.
             const hasPersistedPermissions = Array.isArray(persisted?.auth?.permissions);
-            const hasPersistedOrgScopePermissions = persisted?.auth?.permissionsScope === "org";
+            const hasPersistedOrgScopePermissions = persisted?.auth?.permissionsScope === ORG_PERMISSIONS_SCOPE;
             const sessionIsStalePreOrgDefault =
               hasPersistedSession && (!hasPersistedPermissions || !hasPersistedOrgScopePermissions);
             const persistedDuration = persisted?.ui?.duration;

@@ -72,6 +72,23 @@ describe("useFleetStore persistence", () => {
     expect(useFleetStore.getState().auth.isAuthenticated).toBe(true);
   });
 
+  it("preserves org-scoped sessions with no permissions", async () => {
+    seedPersistedAuth({
+      sessionExpiry: new Date(Date.now() + 60_000),
+      isAuthenticated: true,
+      username: "alice@example.com",
+      role: "CUSTOM",
+      permissions: [],
+      permissionsScope: "org",
+    });
+
+    const { useFleetStore } = await import("./useFleetStore");
+    useFleetStore.persist.rehydrate();
+
+    expect(useFleetStore.getState().auth.permissions).toEqual([]);
+    expect(useFleetStore.getState().auth.isAuthenticated).toBe(true);
+  });
+
   it("drops persisted sessions missing the org-scoped permissions marker", async () => {
     seedPersistedAuth({
       sessionExpiry: new Date(Date.now() + 60_000),
@@ -86,5 +103,6 @@ describe("useFleetStore persistence", () => {
 
     expect(useFleetStore.getState().auth.isAuthenticated).toBe(false);
     expect(useFleetStore.getState().auth.permissions).toEqual([]);
+    expect(useFleetStore.getState().auth.authLoading).toBe(false);
   });
 });

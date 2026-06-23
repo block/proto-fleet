@@ -35,6 +35,23 @@ func (noopTransactor) RunInTxWithResult(ctx context.Context, fn func(ctx context
 	return fn(ctx)
 }
 
+type fakeSessionStore struct{}
+
+func (fakeSessionStore) CreateSession(context.Context, *session.Session) error { return nil }
+func (fakeSessionStore) GetSessionByID(context.Context, string) (*session.Session, error) {
+	return nil, sql.ErrNoRows
+}
+func (fakeSessionStore) UpdateSessionActivity(context.Context, string, time.Time, time.Time) error {
+	return nil
+}
+func (fakeSessionStore) RevokeSession(context.Context, string, time.Time) error { return nil }
+func (fakeSessionStore) RevokeAllSessionsByUserID(context.Context, int64, time.Time) error {
+	return nil
+}
+func (fakeSessionStore) DeleteExpiredSessions(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
+
 type mockUserStoreForVerify struct {
 	users         map[string]interfaces.User
 	orgs          []interfaces.Organization
@@ -265,6 +282,69 @@ func TestService_VerifyCredentials_SecurityProperties(t *testing.T) {
 			assert.Contains(t, err.Error(), "username and password are required")
 		}
 	})
+}
+
+func TestService_AuthenticateUser_ReturnsOrgScopedPermissions(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	password := "correctpass"
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	require.NoError(t, err)
+
+	const (
+		userID int64 = 1
+		orgID  int64 = 100
+	)
+	siteID := int64(7)
+
+	mockUserManagementStore := mocks.NewMockUserManagementStore(ctrl)
+	mockUserManagementStore.EXPECT().UpdateLastLogin(gomock.Any(), userID).Return(nil)
+	mockUserManagementStore.EXPECT().GetUserRoleName(gomock.Any(), userID, orgID).Return("CUSTOM", nil)
+
+	service := &Service{
+		userStore: &mockUserStoreForVerify{
+			users: map[string]interfaces.User{
+				"testuser": {
+					ID:           userID,
+					UserID:       "ext-user-1",
+					Username:     "testuser",
+					PasswordHash: string(hashedPassword),
+				},
+			},
+			orgs: []interfaces.Organization{{ID: orgID}},
+		},
+		userManagementStore: mockUserManagementStore,
+		transactor:          noopTransactor{},
+		sessionSvc: session.NewService(session.Config{
+			Duration:   time.Hour,
+			IDBytes:    16,
+			CookieName: "fleet_session",
+		}, fakeSessionStore{}),
+		permResolver: &fakeResolver{effective: map[int64]*authz.EffectivePermissions{
+			userID: authz.NewEffectivePermissions([]authz.Assignment{
+				{
+					AssignmentID: 1,
+					ScopeType:    authz.ScopeOrg,
+					Permissions:  []string{authz.PermFleetRead, authz.PermMinerRead},
+				},
+				{
+					AssignmentID: 2,
+					ScopeType:    authz.ScopeSite,
+					SiteID:       &siteID,
+					Permissions:  []string{authz.PermSiteRead, authz.PermMinerBlinkLED},
+				},
+			}),
+		}},
+	}
+
+	resp, _, err := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{
+		Username: "testuser",
+		Password: password,
+	}, "test-agent", "127.0.0.1")
+
+	require.NoError(t, err)
+	require.NotNil(t, resp.UserInfo)
+	assert.Equal(t, []string{authz.PermFleetRead, authz.PermMinerRead}, resp.UserInfo.Permissions)
 }
 
 func TestActivityLogging_NilActivitySvc(t *testing.T) {
