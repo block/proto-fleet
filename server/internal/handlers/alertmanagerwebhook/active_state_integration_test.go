@@ -2,6 +2,7 @@ package alertmanagerwebhook
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -77,6 +78,53 @@ func TestNotificationActiveTrigger_FingerprintlessKeyedPerDevice(t *testing.T) {
 		OrganizationID: orgIDPtr(org), DeviceID: "device-1",
 	})
 	require.Equal(t, []string{"DeviceOffline/device-2"}, activeKeys(t, h, org))
+}
+
+// A firing retry that arrives after the alert has resolved must not reopen it: the sync compares
+// Alertmanager lifecycle time (starts_at/ends_at), not DB insert order, so the older firing loses.
+func TestNotificationActiveTrigger_StaleFiringRetryDoesNotReopenResolved(t *testing.T) {
+	h := newDBHarness(t)
+	const org = int64(9)
+
+	t0 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	t1 := t0.Add(5 * time.Minute)
+
+	// Resolved (ends_at = t1) lands first...
+	insertEvent(t, h, notificationhistory.Notification{
+		AlertName: "DeviceOffline", Status: "resolved", Fingerprint: "fp1",
+		OrganizationID: orgIDPtr(org), DeviceID: "device-1",
+		StartsAt: &t0, EndsAt: &t1,
+	})
+	// ...then a delayed firing retry for the same, older episode (starts_at = t0 < t1).
+	insertEvent(t, h, notificationhistory.Notification{
+		AlertName: "DeviceOffline", Status: "firing", Fingerprint: "fp1",
+		OrganizationID: orgIDPtr(org), DeviceID: "device-1",
+		StartsAt: &t0,
+	})
+	require.Empty(t, activeKeys(t, h, org))
+}
+
+// A resolve that arrives after a newer firing episode must not clear it (the symmetric stale case).
+func TestNotificationActiveTrigger_StaleResolveDoesNotClearNewerFiring(t *testing.T) {
+	h := newDBHarness(t)
+	const org = int64(10)
+
+	t1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	t2 := t1.Add(10 * time.Minute)
+
+	// A fresh firing episode (starts_at = t2)...
+	insertEvent(t, h, notificationhistory.Notification{
+		AlertName: "DeviceOffline", Status: "firing", Fingerprint: "fp1",
+		OrganizationID: orgIDPtr(org), DeviceID: "device-1",
+		StartsAt: &t2,
+	})
+	// ...then a delayed resolve from the prior episode (ends_at = t1 < t2).
+	insertEvent(t, h, notificationhistory.Notification{
+		AlertName: "DeviceOffline", Status: "resolved", Fingerprint: "fp1",
+		OrganizationID: orgIDPtr(org), DeviceID: "device-1",
+		StartsAt: &t1, EndsAt: &t1,
+	})
+	require.Equal(t, []string{"DeviceOffline/device-1"}, activeKeys(t, h, org))
 }
 
 // Unscoped (NULL org) alerts are not tracked as active state.

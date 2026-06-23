@@ -65,7 +65,8 @@ LIMIT sqlc.arg('page_limit');
 
 -- name: ListActiveNotifications :many
 -- Current firing alerts (one row per alert instance), served from the incrementally-maintained
--- notification_active table; device name/MAC are joined live so they reflect current device records.
+-- notification_active table, which also retains resolved tombstones; device name/MAC are joined live
+-- so they reflect current device records.
 SELECT
     na.history_id,
     na.received_at,
@@ -94,5 +95,6 @@ LEFT JOIN device d
     AND d.deleted_at IS NULL
 LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id
 WHERE na.organization_id = sqlc.arg('organization_id')
+  AND na.status = 'firing'
 ORDER BY na.received_at DESC, na.history_id DESC
 LIMIT sqlc.arg('page_limit');

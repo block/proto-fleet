@@ -109,7 +109,7 @@ func (s *SQLNotificationHistoryStore) ListActive(ctx context.Context, organizati
 			DeviceMAC:  row.DeviceMac,
 			Notification: notificationhistory.Notification{
 				AlertName: row.AlertName,
-				// notification_active only ever holds firing alerts (resolved events delete the row).
+				// ListActiveNotifications filters to status = 'firing', so every returned row is firing.
 				Status:         "firing",
 				Severity:       row.Severity,
 				RuleGroup:      row.RuleGroup,

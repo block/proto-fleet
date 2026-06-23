@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { useNotificationHistory } from "@/protoFleet/features/notifications/api/useNotificationHistory";
@@ -80,9 +81,11 @@ const selectActive = (history: NotificationHistoryEntry[]): NotificationHistoryE
 interface HistoryTableProps {
   activeOnly?: boolean;
   noDataElement: ReactNode;
+  // Called when the active-only RPC is denied at org scope, so the dashboard card can suppress itself.
+  onPermissionDenied?: () => void;
 }
 
-const HistoryTable = ({ activeOnly = false, noDataElement }: HistoryTableProps) => {
+const HistoryTable = ({ activeOnly = false, noDataElement, onPermissionDenied }: HistoryTableProps) => {
   const { history, historyHasMore, historyLoading, refreshHistory, loadMoreHistory } =
     useNotificationHistory(activeOnly);
 
@@ -96,6 +99,12 @@ const HistoryTable = ({ activeOnly = false, noDataElement }: HistoryTableProps) 
       refreshingRef.current = true;
       void refreshHistory()
         .catch((err: unknown) => {
+          // A site-scoped notification:read grant clears the dashboard's flat permission gate but is denied
+          // this org-scoped RPC; suppress the card instead of surfacing an error and polling on indefinitely.
+          if (activeOnly && err instanceof ConnectError && err.code === Code.PermissionDenied) {
+            onPermissionDenied?.();
+            return;
+          }
           setError(getErrorMessage(err, "Failed to load notification history"));
         })
         .finally(() => {
@@ -107,7 +116,7 @@ const HistoryTable = ({ activeOnly = false, noDataElement }: HistoryTableProps) 
     if (!activeOnly) return;
     const interval = setInterval(load, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [activeOnly, refreshHistory]);
+  }, [activeOnly, refreshHistory, onPermissionDenied]);
 
   const handleLoadMore = useMemo(
     () => () => {

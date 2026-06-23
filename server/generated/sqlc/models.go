@@ -859,6 +859,8 @@ type NotificationActive struct {
 	AlertKey       string
 	HistoryID      int64
 	ReceivedAt     time.Time
+	Status         string
+	EventAt        time.Time
 	AlertName      string
 	Severity       string
 	RuleGroup      string
