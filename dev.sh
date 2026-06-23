@@ -10,7 +10,7 @@ GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "development")
 echo "Starting ProtoFleet client..."
 # The Notifications settings nav is behind VITE_NOTIFICATIONS_ENABLED; surface it
 # only when the server is started with the notifications sidecar.
-NOTIFICATIONS_ENABLED=$([[ "${ENABLE_BETA_NOTIFICATIONS:-}" = "true" ]] && echo "true" || echo "false")
+NOTIFICATIONS_ENABLED=$([[ "${ENABLE_BETA_ALERTS:-}" = "true" ]] && echo "true" || echo "false")
 (
   cd client
   VITE_VERSION="$GIT_VERSION" \
@@ -22,7 +22,7 @@ NOTIFICATIONS_ENABLED=$([[ "${ENABLE_BETA_NOTIFICATIONS:-}" = "true" ]] && echo 
 echo "Client PID: $CLIENT_PID"
 
 function start_server() {
-  if [[ "${ENABLE_BETA_NOTIFICATIONS:-}" = "true" ]]; then
+  if [[ "${ENABLE_BETA_ALERTS:-}" = "true" ]]; then
     just dev-notifs
   else
     just dev

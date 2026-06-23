@@ -1,19 +1,19 @@
 # Dev-mode notifications overlay used by `just dev-notifs`.
 #
-# Mirrors deployment-files/docker-compose.notifications.yaml but mounts
+# Mirrors deployment-files/docker-compose.alerts.yaml but mounts
 # the in-tree provisioning bundle directly so edits to the YAML files
 # are picked up on container restart without a release rebuild.
 services:
   fleet-api:
     environment:
       FLEET_TELEMETRY_ENABLED: "${FLEET_TELEMETRY_ENABLED:-true}"
-      FLEET_METRICS_ENABLED: "${FLEET_METRICS_ENABLED:-true}"
-      FLEET_METRICS_FLUSH_INTERVAL: "${FLEET_METRICS_FLUSH_INTERVAL:-5s}"
-      FLEET_METRICS_BUFFER_SIZE: "${FLEET_METRICS_BUFFER_SIZE:-4096}"
-      FLEET_METRICS_GRAFANA_USER: "${FLEET_METRICS_GRAFANA_USER:-admin}"
-      FLEET_METRICS_GRAFANA_PASSWORD: localdev-grafana-admin-not-for-prod
-      FLEET_METRICS_WEBHOOK_TOKEN: localdev-webhook-token-not-for-prod
-      FLEET_METRICS_NOTIFICATIONS_ALLOW_PRIVATE_DESTINATIONS: "${FLEET_METRICS_NOTIFICATIONS_ALLOW_PRIVATE_DESTINATIONS:-true}"
+      FLEET_ALERTS_ENABLED: "${FLEET_ALERTS_ENABLED:-true}"
+      FLEET_ALERTS_FLUSH_INTERVAL: "${FLEET_ALERTS_FLUSH_INTERVAL:-5s}"
+      FLEET_ALERTS_BUFFER_SIZE: "${FLEET_ALERTS_BUFFER_SIZE:-4096}"
+      FLEET_ALERTS_GRAFANA_USER: "${FLEET_ALERTS_GRAFANA_USER:-admin}"
+      FLEET_ALERTS_GRAFANA_PASSWORD: localdev-grafana-admin-not-for-prod
+      FLEET_ALERTS_WEBHOOK_TOKEN: localdev-webhook-token-not-for-prod
+      FLEET_ALERTS_NOTIFICATIONS_ALLOW_PRIVATE_DESTINATIONS: "${FLEET_ALERTS_NOTIFICATIONS_ALLOW_PRIVATE_DESTINATIONS:-true}"
     depends_on:
       otel-collector:
         condition: service_started
@@ -49,7 +49,7 @@ services:
       GRAFANA_DB_PASSWORD: "${GRAFANA_DB_PASSWORD:-fleet}"
       GF_SECURITY_ADMIN_PASSWORD: localdev-grafana-admin-not-for-prod
       GF_SECURITY_SECRET_KEY: localdev-grafana-secret-key-not-for-prod
-      FLEET_METRICS_WEBHOOK_TOKEN: localdev-webhook-token-not-for-prod
+      FLEET_ALERTS_WEBHOOK_TOKEN: localdev-webhook-token-not-for-prod
     extends:
       file: ./docker-compose.base.yaml
       service: grafana

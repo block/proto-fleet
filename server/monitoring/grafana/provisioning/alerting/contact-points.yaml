@@ -11,6 +11,6 @@ contactPoints:
           url: http://fleet-api:4000/internal/alertmanager-webhook
           httpMethod: POST
           authorization_scheme: Bearer
-          authorization_credentials: ${FLEET_METRICS_WEBHOOK_TOKEN}
+          authorization_credentials: ${FLEET_ALERTS_WEBHOOK_TOKEN}
           maxAlerts: 50
         disableResolveMessage: false

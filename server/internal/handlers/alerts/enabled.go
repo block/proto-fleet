@@ -15,7 +15,7 @@ type EnabledResponse struct {
 // uses to decide whether to surface the Alerts settings nav at runtime.
 //
 // The released client is a prebuilt bundle, so a build-time flag can't track a
-// per-deployment runtime toggle (`run-fleet.sh --enable-beta-notifications`).
+// per-deployment runtime toggle (`run-fleet.sh --enable-beta-alerts`).
 // This endpoint lets the bundle learn, at load time, whether the sidecar is on.
 func NewEnabledHandler(enabled bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {

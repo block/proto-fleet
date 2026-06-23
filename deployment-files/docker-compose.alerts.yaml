@@ -1,13 +1,13 @@
 services:
   fleet-api:
     environment:
-      FLEET_METRICS_ENABLED: "${FLEET_METRICS_ENABLED:-true}"
-      FLEET_METRICS_FLUSH_INTERVAL: "${FLEET_METRICS_FLUSH_INTERVAL:-5s}"
-      FLEET_METRICS_BUFFER_SIZE: "${FLEET_METRICS_BUFFER_SIZE:-4096}"
-      FLEET_METRICS_GRAFANA_TOKEN: "${FLEET_METRICS_GRAFANA_TOKEN:-}"
-      FLEET_METRICS_GRAFANA_USER: "${FLEET_METRICS_GRAFANA_USER:-admin}"
-      FLEET_METRICS_GRAFANA_PASSWORD: "${FLEET_METRICS_GRAFANA_PASSWORD:-}"
-      FLEET_METRICS_WEBHOOK_TOKEN: "${FLEET_METRICS_WEBHOOK_TOKEN}"
+      FLEET_ALERTS_ENABLED: "${FLEET_ALERTS_ENABLED:-true}"
+      FLEET_ALERTS_FLUSH_INTERVAL: "${FLEET_ALERTS_FLUSH_INTERVAL:-5s}"
+      FLEET_ALERTS_BUFFER_SIZE: "${FLEET_ALERTS_BUFFER_SIZE:-4096}"
+      FLEET_ALERTS_GRAFANA_TOKEN: "${FLEET_ALERTS_GRAFANA_TOKEN:-}"
+      FLEET_ALERTS_GRAFANA_USER: "${FLEET_ALERTS_GRAFANA_USER:-admin}"
+      FLEET_ALERTS_GRAFANA_PASSWORD: "${FLEET_ALERTS_GRAFANA_PASSWORD:-}"
+      FLEET_ALERTS_WEBHOOK_TOKEN: "${FLEET_ALERTS_WEBHOOK_TOKEN}"
     depends_on:
       grafana:
         condition: service_healthy
@@ -22,7 +22,7 @@ services:
       GRAFANA_DB_PASSWORD: "${GRAFANA_DB_PASSWORD:?GRAFANA_DB_PASSWORD is required (run-fleet.sh provisions it)}"
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required (run-fleet.sh provisions it)}"
       GF_SECURITY_SECRET_KEY: "${GRAFANA_SECRET_KEY:?GRAFANA_SECRET_KEY is required (run-fleet.sh provisions it)}"
-      FLEET_METRICS_WEBHOOK_TOKEN: "${FLEET_METRICS_WEBHOOK_TOKEN:?FLEET_METRICS_WEBHOOK_TOKEN is required (run-fleet.sh provisions it)}"
+      FLEET_ALERTS_WEBHOOK_TOKEN: "${FLEET_ALERTS_WEBHOOK_TOKEN:?FLEET_ALERTS_WEBHOOK_TOKEN is required (run-fleet.sh provisions it)}"
     volumes:
       - ./server/monitoring/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
       - ./server/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro

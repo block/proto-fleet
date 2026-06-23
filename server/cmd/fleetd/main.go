@@ -572,7 +572,7 @@ func start(config *Config) error {
 	mux.HandleFunc("/health", health.NewHandler())
 	if config.Metrics.Enabled {
 		if config.Metrics.WebhookToken == "" {
-			slog.Warn("FLEET_METRICS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
+			slog.Warn("FLEET_ALERTS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
 		}
 		orgQueries := sqlc.New(db.NewRetryDB(conn))
 		mux.Handle("POST "+alertmanagerwebhook.Path, alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries))

@@ -137,12 +137,12 @@ queries.
 
 The notifications sidecar is a beta feature and is **off by default**.
 It lives in a separate compose file,
-`docker-compose.notifications.yaml`, that `run-fleet.sh` layers in via
-a second `-f` flag when the `--enable-beta-notifications` flag is
+`docker-compose.alerts.yaml`, that `run-fleet.sh` layers in via
+a second `-f` flag when the `--enable-beta-alerts` flag is
 passed. To run a fleet with the beta notifications stack:
 
 ```bash
-./run-fleet.sh --enable-beta-notifications
+./run-fleet.sh --enable-beta-alerts
 ```
 
 On the first run with notifications enabled, `run-fleet.sh` rotates the

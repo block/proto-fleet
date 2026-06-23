@@ -23,8 +23,8 @@ dev: _build-plugins-docker start
 
 # run fleet with notifications stack turned on
 dev-notifs: _build-plugins-docker
-  docker compose -f docker-compose.yaml -f docker-compose.notifications.yaml up --wait
-  docker compose -f docker-compose.yaml -f docker-compose.notifications.yaml up --watch fleet-api --remove-orphans --no-deps
+  docker compose -f docker-compose.yaml -f docker-compose.alerts.yaml up --wait
+  docker compose -f docker-compose.yaml -f docker-compose.alerts.yaml up --watch fleet-api --remove-orphans --no-deps
 
 # start services in docker compose
 start:

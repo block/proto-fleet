@@ -6,17 +6,17 @@
 
 PROJECT_ROOT="$(pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
-COMPOSE_NOTIFICATIONS_FILE="$PROJECT_ROOT/docker-compose.notifications.yaml"
+COMPOSE_NOTIFICATIONS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
 
-ENABLE_BETA_NOTIFICATIONS=false
+ENABLE_BETA_ALERTS=false
 
 usage() {
     cat <<'EOF'
 Usage: run-fleet.sh [options]
 
 Options:
-  --enable-beta-notifications   Layer in the beta notifications sidecar
+  --enable-beta-alerts   Layer in the beta notifications sidecar
                                 (Grafana, polling TimescaleDB and running
                                 the built-in Alertmanager). Off by
                                 default.
@@ -26,8 +26,8 @@ EOF
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --enable-beta-notifications)
-            ENABLE_BETA_NOTIFICATIONS=true
+        --enable-beta-alerts)
+            ENABLE_BETA_ALERTS=true
             shift
             ;;
         -h|--help)
@@ -48,7 +48,7 @@ done
 
 refresh_compose_files() {
     COMPOSE_FILES=(-f "$COMPOSE_FILE")
-    if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ] && [ -f "$COMPOSE_NOTIFICATIONS_FILE" ]; then
+    if [ "$ENABLE_BETA_ALERTS" = "true" ] && [ -f "$COMPOSE_NOTIFICATIONS_FILE" ]; then
         COMPOSE_FILES+=(-f "$COMPOSE_NOTIFICATIONS_FILE")
     fi
 }
@@ -554,9 +554,9 @@ if [ ! -f "$COMPOSE_FILE" ]; then
     exit 1
 fi
 
-if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ]; then
+if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
     if [ ! -f "$COMPOSE_NOTIFICATIONS_FILE" ]; then
-        echo "Error: --enable-beta-notifications was passed but $COMPOSE_NOTIFICATIONS_FILE is missing."
+        echo "Error: --enable-beta-alerts was passed but $COMPOSE_NOTIFICATIONS_FILE is missing."
         exit 1
     fi
 
@@ -584,9 +584,9 @@ if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ]; then
     # delivery. Mounted on the same listener as the public Connect-RPC
     # services, so without this token an unauthenticated caller on the
     # api-proxy network could forge system alert activity rows.
-    if ! env_has_nonempty_value FLEET_METRICS_WEBHOOK_TOKEN; then
-        FLEET_METRICS_WEBHOOK_TOKEN=$(openssl rand -base64 32)
-        echo "FLEET_METRICS_WEBHOOK_TOKEN=$FLEET_METRICS_WEBHOOK_TOKEN" >> "$ENV_FILE"
+    if ! env_has_nonempty_value FLEET_ALERTS_WEBHOOK_TOKEN; then
+        FLEET_ALERTS_WEBHOOK_TOKEN=$(openssl rand -base64 32)
+        echo "FLEET_ALERTS_WEBHOOK_TOKEN=$FLEET_ALERTS_WEBHOOK_TOKEN" >> "$ENV_FILE"
         echo "Generated alertmanager webhook token (stored in $ENV_FILE)."
     fi
 
@@ -604,7 +604,7 @@ if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ]; then
 
     echo "Notifications stack: enabled (Grafana sidecar over TimescaleDB)"
 else
-    echo "Notifications stack: disabled (pass --enable-beta-notifications to turn on the beta notifications sidecars)"
+    echo "Notifications stack: disabled (pass --enable-beta-alerts to turn on the beta notifications sidecars)"
 fi
 
 # ----------------------------------------------------------------------------
@@ -904,7 +904,7 @@ SQL
 provision_grafana_service_account_token() {
     local admin_pass grafana_url sa_name token_name attempt sa_id token create_body
 
-    if env_has_nonempty_value FLEET_METRICS_GRAFANA_TOKEN; then
+    if env_has_nonempty_value FLEET_ALERTS_GRAFANA_TOKEN; then
         echo "Grafana service-account token already present in $ENV_FILE; leaving it as-is."
         return 0
     fi
@@ -958,8 +958,8 @@ provision_grafana_service_account_token() {
         return 1
     fi
 
-    scrub_env_key FLEET_METRICS_GRAFANA_TOKEN
-    echo "FLEET_METRICS_GRAFANA_TOKEN=$token" >> "$ENV_FILE"
+    scrub_env_key FLEET_ALERTS_GRAFANA_TOKEN
+    echo "FLEET_ALERTS_GRAFANA_TOKEN=$token" >> "$ENV_FILE"
     chmod 600 "$ENV_FILE"
     echo "Provisioned Grafana service-account token for fleet-api (stored in $ENV_FILE)."
 
@@ -972,7 +972,7 @@ provision_grafana_service_account_token() {
     fi
 }
 
-if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ]; then
+if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
     if ! provision_grafana_db_role; then
         echo "Error: Grafana DB role provisioning failed; Grafana alerting cannot query notification_metric_sample." >&2
         echo "       Fix the underlying cause (DB reachable, migrations complete) and re-run this script." >&2
