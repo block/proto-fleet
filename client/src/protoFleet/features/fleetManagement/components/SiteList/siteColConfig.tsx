@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { siteTabHref } from "../../utils/fleetTabLinks";
 import type { SiteColumn, SiteListItem } from "./SiteList";
 import StatCell from "@/protoFleet/components/DeviceSetList/StatCell";
-import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
+import { HealthBar } from "@/protoFleet/components/HealthBar";
 import { type ColConfig } from "@/shared/components/List/types";
 import type { TemperatureUnit } from "@/shared/features/preferences";
 import {
@@ -15,12 +15,6 @@ import {
 } from "@/shared/utils/telemetryFormat";
 
 const INACTIVE_PLACEHOLDER = "—";
-
-const HEALTH_COLOR_MAP = {
-  OK: "bg-core-primary-fill",
-  CRITICAL: "bg-intent-critical-fill",
-  NA: "bg-core-accent-fill",
-};
 
 const stopRowClick = (event: MouseEvent) => event.stopPropagation();
 
@@ -116,14 +110,14 @@ export const createSiteColConfig = (
   health: {
     component: (item) => {
       if (!item.stats || item.stats.deviceCount === 0) return <span>{INACTIVE_PLACEHOLDER}</span>;
-      const segments: Segment[] = [
-        { name: "Healthy", status: "OK", count: item.stats.hashingCount },
-        { name: "Needs Attention", status: "CRITICAL", count: item.stats.brokenCount },
-        { name: "Offline", status: "NA", count: item.stats.offlineCount + item.stats.sleepingCount },
-      ];
       return (
         <div className="w-34">
-          <CompositionBar segments={segments} height={6} gap={0.25} colorMap={HEALTH_COLOR_MAP} />
+          <HealthBar
+            healthy={item.stats.hashingCount}
+            needsAttention={item.stats.brokenCount}
+            offline={item.stats.offlineCount}
+            sleeping={item.stats.sleepingCount}
+          />
         </div>
       );
     },
