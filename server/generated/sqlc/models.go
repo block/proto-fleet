@@ -854,6 +854,22 @@ type MinerStateSnapshot struct {
 	SiteID           sql.NullInt64
 }
 
+type NotificationActive struct {
+	OrganizationID int64
+	AlertKey       string
+	HistoryID      int64
+	ReceivedAt     time.Time
+	AlertName      string
+	Severity       string
+	RuleGroup      string
+	Fingerprint    string
+	DeviceID       string
+	Template       string
+	Summary        string
+	StartsAt       sql.NullTime
+	EndsAt         sql.NullTime
+}
+
 type NotificationHistory struct {
 	ID             int64
 	ReceivedAt     time.Time

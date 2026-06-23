@@ -36,4 +36,6 @@ type StoredNotification struct {
 // beforeID is the keyset cursor, nil for the first page.
 type Lister interface {
 	List(ctx context.Context, organizationID int64, beforeID *int64, limit int32) ([]StoredNotification, error)
+	// ListActive returns the latest row per alert still firing, so callers derive current state without paging through history.
+	ListActive(ctx context.Context, organizationID int64, limit int32) ([]StoredNotification, error)
 }

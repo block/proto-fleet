@@ -81,6 +81,7 @@ var registeredServices = []struct {
 	{notificationsv1connect.ChannelServiceName, reflect.TypeOf((*notificationsv1connect.ChannelServiceHandler)(nil)).Elem()},
 	{notificationsv1connect.RuleServiceName, reflect.TypeOf((*notificationsv1connect.RuleServiceHandler)(nil)).Elem()},
 	{notificationsv1connect.MaintenanceWindowServiceName, reflect.TypeOf((*notificationsv1connect.MaintenanceWindowServiceHandler)(nil)).Elem()},
+	{notificationsv1connect.HistoryServiceName, reflect.TypeOf((*notificationsv1connect.HistoryServiceHandler)(nil)).Elem()},
 	{onboardingv1connect.OnboardingServiceName, reflect.TypeOf((*onboardingv1connect.OnboardingServiceHandler)(nil)).Elem()},
 	{pairingv1connect.PairingServiceName, reflect.TypeOf((*pairingv1connect.PairingServiceHandler)(nil)).Elem()},
 	{poolsv1connect.PoolsServiceName, reflect.TypeOf((*poolsv1connect.PoolsServiceHandler)(nil)).Elem()},

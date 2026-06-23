@@ -3,6 +3,7 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { NotificationsContext } from "@/protoFleet/features/notifications/api/NotificationsContext";
 import { useNotifications } from "@/protoFleet/features/notifications/api/useNotifications";
 import ChannelsSection from "@/protoFleet/features/notifications/components/ChannelsSection";
+import HistorySection from "@/protoFleet/features/notifications/components/HistorySection";
 import MaintenanceWindowsSection from "@/protoFleet/features/notifications/components/MaintenanceWindowsSection";
 import RulesSection from "@/protoFleet/features/notifications/components/RulesSection";
 import Header from "@/shared/components/Header";
@@ -27,6 +28,7 @@ const Notifications = () => {
         <Header title="Notifications" titleSize="text-heading-300" />
         <div className="flex flex-col gap-4">
           <RulesSection />
+          <HistorySection />
           <ChannelsSection />
           <MaintenanceWindowsSection />
         </div>

@@ -251,6 +251,8 @@ message NotificationHistoryEntry {
 message ListNotificationsRequest {
     string before_id = 1;
     int32 page_size = 2 [(buf.validate.field).int32.gte = 0];
+    // When set, return only currently-active alerts (latest row per fingerprint still firing); before_id is ignored.
+    bool active_only = 3;
 }
 message ListNotificationsResponse {
     repeated NotificationHistoryEntry notifications = 1;

@@ -2,12 +2,14 @@ import { type Timestamp, timestampDate, timestampFromDate } from "@bufbuild/prot
 
 import {
   notificationChannelClient,
+  notificationHistoryClient,
   notificationMaintenanceWindowClient,
   notificationRuleClient,
 } from "@/protoFleet/api/clients";
 import {
   type Channel as ProtoChannel,
   ChannelKind as ProtoChannelKind,
+  type NotificationHistoryEntry as ProtoHistoryEntry,
   type MaintenanceWindow as ProtoMaintenanceWindow,
   MaintenanceWindowScopeKind as ProtoMaintenanceWindowScopeKind,
   type Rule as ProtoRule,
@@ -20,6 +22,8 @@ import type {
   MaintenanceWindow,
   MaintenanceWindowScope,
   MaintenanceWindowScopeKind,
+  NotificationHistoryEntry,
+  NotificationHistoryStatus,
   Rule,
   RuleTemplate,
   SlackConfig,
@@ -157,6 +161,23 @@ const maintenanceWindowFromProto = (s: ProtoMaintenanceWindow): MaintenanceWindo
   created_at: isoFromTs(s.createdAt),
 });
 
+const historyFromProto = (n: ProtoHistoryEntry): NotificationHistoryEntry => ({
+  id: n.id,
+  received_at: isoFromTs(n.receivedAt),
+  alert_name: n.alertName,
+  status: n.status as NotificationHistoryStatus,
+  severity: n.severity,
+  rule_group: n.ruleGroup,
+  fingerprint: n.fingerprint,
+  device_id: n.deviceId,
+  device_name: n.deviceName,
+  device_mac: n.deviceMac,
+  template: n.template,
+  summary: n.summary,
+  starts_at: isoOrNull(n.startsAt),
+  ends_at: isoOrNull(n.endsAt),
+});
+
 const webhookToProto = (w?: WebhookConfig | null) =>
   w ? { url: w.url, bearerHeader: w.bearer_header ?? "" } : undefined;
 
@@ -277,4 +298,22 @@ export async function updateMaintenanceWindow(
 
 export async function deleteMaintenanceWindow(id: string): Promise<void> {
   await notificationMaintenanceWindowClient.deleteMaintenanceWindow({ id });
+}
+
+export interface HistoryPage {
+  notifications: NotificationHistoryEntry[];
+  has_more: boolean;
+}
+
+export async function listHistory(input: {
+  before_id?: string;
+  page_size?: number;
+  active_only?: boolean;
+}): Promise<HistoryPage> {
+  const res = await notificationHistoryClient.listNotifications({
+    beforeId: input.before_id ?? "",
+    pageSize: input.page_size ?? 0,
+    activeOnly: input.active_only ?? false,
+  });
+  return { notifications: res.notifications.map(historyFromProto), has_more: res.hasMore };
 }

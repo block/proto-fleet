@@ -14,6 +14,7 @@ import { MinerCommandService } from "@/protoFleet/api/generated/minercommand/v1/
 import { NetworkInfoService } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
 import {
   ChannelService as NotificationChannelService,
+  HistoryService as NotificationHistoryService,
   MaintenanceWindowService as NotificationMaintenanceWindowService,
   RuleService as NotificationRuleService,
 } from "@/protoFleet/api/generated/notifications/v1/notifications_pb";
@@ -47,11 +48,13 @@ const buildingsClient = createClient(BuildingService, transport);
 const notificationChannelClient = createClient(NotificationChannelService, transport);
 const notificationRuleClient = createClient(NotificationRuleService, transport);
 const notificationMaintenanceWindowClient = createClient(NotificationMaintenanceWindowService, transport);
+const notificationHistoryClient = createClient(NotificationHistoryService, transport);
 
 export {
   notificationChannelClient,
   notificationRuleClient,
   notificationMaintenanceWindowClient,
+  notificationHistoryClient,
   activityClient,
   apiKeyClient,
   authClient,
