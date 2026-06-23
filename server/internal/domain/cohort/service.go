@@ -126,6 +126,7 @@ func validateUniqueDeviceIdentifiers(ids []string) error {
 	seen := make(map[string]struct{}, len(ids))
 	for i, id := range ids {
 		id = strings.TrimSpace(id)
+		ids[i] = id
 		if id == "" {
 			return fleeterror.NewInvalidArgumentErrorf("device_identifiers[%d] is empty", i)
 		}

@@ -30,6 +30,26 @@ INSERT INTO cohort (
 )
 RETURNING *;
 
+-- name: CreateDefaultCohort :exec
+-- Seeds the single is_default cohort for a freshly created org. Values mirror
+-- the per-org default seeded for pre-existing orgs in migration 000094; the
+-- uq_cohort_one_default_per_org partial index enforces one default per org.
+INSERT INTO cohort (
+    org_id,
+    label,
+    is_default,
+    state,
+    purpose,
+    source_actor_type
+) VALUES (
+    sqlc.arg('org_id'),
+    'Default',
+    TRUE,
+    'active',
+    'Default cohort',
+    'scheduler'
+);
+
 -- name: GetCohort :one
 SELECT
     c.*,

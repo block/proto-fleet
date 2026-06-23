@@ -85,6 +85,11 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error seeding per-org built-in roles: %v", err)
 		}
+
+		if err := q.CreateDefaultCohort(context.Background(), orgID); err != nil {
+			return fleeterror.NewInternalErrorf("error creating default cohort: %v", err)
+		}
+
 		roleID, ok := builtinIDs[authz.BuiltinKeySuperAdmin]
 		if !ok {
 			return fleeterror.NewInternalErrorf("seeding did not return SUPER_ADMIN role id")
@@ -156,6 +161,11 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error seeding per-org built-in roles: %v", err)
 		}
+
+		if err := q.CreateDefaultCohort(context.Background(), orgID); err != nil {
+			return fleeterror.NewInternalErrorf("error creating default cohort: %v", err)
+		}
+
 		roleID, ok := builtinIDs[authz.BuiltinKeySuperAdmin]
 		if !ok {
 			return fleeterror.NewInternalErrorf("seeding did not return SUPER_ADMIN role id")

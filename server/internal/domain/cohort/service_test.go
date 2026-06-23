@@ -82,7 +82,7 @@ func TestCreateCohort_NormalizesAndPersists(t *testing.T) {
 		Label:                 "  reservation  ",
 		Purpose:               "  test firmware  ",
 		DesiredFirmwareFileID: &emptyFirmwareFileID,
-		DeviceIdentifiers:     []string{"miner-1", "miner-2"},
+		DeviceIdentifiers:     []string{"  miner-1  ", "  miner-2  "},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, expected, got)

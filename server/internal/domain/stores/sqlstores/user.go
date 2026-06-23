@@ -139,6 +139,14 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error seeding per-org built-in roles: %v", err)
 	}
+
+	// Every org gets exactly one default cohort (is_default = TRUE) so device
+	// cohort resolution always has a fallback. Pre-existing orgs are seeded by
+	// migration 000094; new orgs are seeded here in the same transaction.
+	if err := q.CreateDefaultCohort(ctx, orgInternalID); err != nil {
+		return fleeterror.NewInternalErrorf("error creating default cohort: %v", err)
+	}
+
 	superAdminRoleID, ok := builtinIDs[authz.BuiltinKeySuperAdmin]
 	if !ok {
 		return fleeterror.NewInternalErrorf("seeding did not return SUPER_ADMIN role id")

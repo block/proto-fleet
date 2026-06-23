@@ -53,7 +53,7 @@ func (s *SQLCohortStore) CreateCohort(ctx context.Context, params models.CreateC
 		if len(params.DeviceIdentifiers) > 0 {
 			payload, err := buildCohortMemberPayload(params.DeviceIdentifiers)
 			if err != nil {
-				return nil, fleeterror.NewInternalErrorf("failed to encode cohort member payload: %v", err)
+				return nil, err
 			}
 			inserted, err := q.BulkInsertCohortMemberships(ctx, sqlc.BulkInsertCohortMembershipsParams{
 				CohortID:     row.ID,
@@ -230,7 +230,11 @@ func buildCohortMemberPayload(deviceIdentifiers []string) (json.RawMessage, erro
 	for _, id := range deviceIdentifiers {
 		payload = append(payload, cohortMemberPayload{DeviceIdentifier: id})
 	}
-	return json.Marshal(payload)
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to encode cohort member payload: %v", err)
+	}
+	return encoded, nil
 }
 
 func mapCohortInsertError(err error) error {
@@ -264,7 +268,7 @@ func rawMessageFromNull(raw pqtype.NullRawMessage) json.RawMessage {
 	if !raw.Valid || len(raw.RawMessage) == 0 {
 		return nil
 	}
-	return json.RawMessage(raw.RawMessage)
+	return raw.RawMessage
 }
 
 func cohortFromGetRow(row sqlc.GetCohortRow) models.Cohort {

@@ -128,6 +128,32 @@ func (q *Queries) CreateCohort(ctx context.Context, arg CreateCohortParams) (Coh
 	return i, err
 }
 
+const createDefaultCohort = `-- name: CreateDefaultCohort :exec
+INSERT INTO cohort (
+    org_id,
+    label,
+    is_default,
+    state,
+    purpose,
+    source_actor_type
+) VALUES (
+    $1,
+    'Default',
+    TRUE,
+    'active',
+    'Default cohort',
+    'scheduler'
+)
+`
+
+// Seeds the single is_default cohort for a freshly created org. Values mirror
+// the per-org default seeded for pre-existing orgs in migration 000094; the
+// uq_cohort_one_default_per_org partial index enforces one default per org.
+func (q *Queries) CreateDefaultCohort(ctx context.Context, orgID int64) error {
+	_, err := q.exec(ctx, q.createDefaultCohortStmt, createDefaultCohort, orgID)
+	return err
+}
+
 const deleteCohortMemberships = `-- name: DeleteCohortMemberships :execrows
 DELETE FROM cohort_membership
 WHERE cohort_id = $1

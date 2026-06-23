@@ -63,9 +63,11 @@ func TestCohortStore_CreateGetListAndRelease(t *testing.T) {
 
 	listed, err := store.ListCohorts(ctx, models.ListCohortsParams{OrgID: user.OrganizationID})
 	require.NoError(t, err)
-	require.Len(t, listed, 1)
-	assert.Equal(t, created.ID, listed[0].ID)
-	assert.Equal(t, int64(2), listed[0].ExplicitMemberCount)
+	require.Len(t, listed, 2) // the org default cohort plus the created cohort
+	userCohorts := nonDefaultCohorts(listed)
+	require.Len(t, userCohorts, 1)
+	assert.Equal(t, created.ID, userCohorts[0].ID)
+	assert.Equal(t, int64(2), userCohorts[0].ExplicitMemberCount)
 
 	owned, err := store.ListCohortsByOwner(ctx, models.ListCohortsByOwnerParams{
 		OrgID:       user.OrganizationID,
@@ -83,16 +85,17 @@ func TestCohortStore_CreateGetListAndRelease(t *testing.T) {
 
 	active, err := store.ListCohorts(ctx, models.ListCohortsParams{OrgID: user.OrganizationID})
 	require.NoError(t, err)
-	assert.Empty(t, active)
+	assert.Empty(t, nonDefaultCohorts(active)) // only the org default cohort remains active
 
 	withReleased, err := store.ListCohorts(ctx, models.ListCohortsParams{
 		OrgID:           user.OrganizationID,
 		IncludeReleased: true,
 	})
 	require.NoError(t, err)
-	require.Len(t, withReleased, 1)
-	assert.Equal(t, created.ID, withReleased[0].ID)
-	assert.Equal(t, models.CohortStateReleased, withReleased[0].State)
+	releasedUserCohorts := nonDefaultCohorts(withReleased)
+	require.Len(t, releasedUserCohorts, 1)
+	assert.Equal(t, created.ID, releasedUserCohorts[0].ID)
+	assert.Equal(t, models.CohortStateReleased, releasedUserCohorts[0].State)
 }
 
 func TestCohortStore_RejectsDuplicateDeviceMembership(t *testing.T) {
@@ -164,4 +167,16 @@ func TestCohortStore_IdempotencyKeyIsOrgScoped(t *testing.T) {
 		IdempotencyKey:  &key,
 	})
 	require.NoError(t, err)
+}
+
+// nonDefaultCohorts filters out the always-present is_default cohort (seeded on
+// org creation) so assertions can target user-created cohorts.
+func nonDefaultCohorts(cohorts []*models.Cohort) []*models.Cohort {
+	out := make([]*models.Cohort, 0, len(cohorts))
+	for _, c := range cohorts {
+		if !c.IsDefault {
+			out = append(out, c)
+		}
+	}
+	return out
 }
