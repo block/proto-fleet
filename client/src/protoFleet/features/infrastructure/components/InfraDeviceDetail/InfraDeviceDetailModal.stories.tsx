@@ -18,7 +18,7 @@ const findDevice = (id: string): InfraDeviceItem => {
   return device;
 };
 
-export const Running = () => {
+export const Online = () => {
   const [open, setOpen] = useState(true);
   const device = findDevice("aus-b1-plc-01-zone-a");
   return (
@@ -37,28 +37,9 @@ export const Running = () => {
   );
 };
 
-export const Faulted = () => {
+export const Offline = () => {
   const [open, setOpen] = useState(true);
   const device = findDevice("aus-b1-plc-01-zone-b");
-  return (
-    <>
-      <Button variant={variants.primary} text="Open Modal" onClick={() => setOpen(true)} />
-      {open ? (
-        <InfraDeviceDetailModal
-          device={device}
-          siteOptions={siteOptions}
-          buildingOptions={buildingOptions}
-          onDismiss={() => setOpen(false)}
-        />
-      ) : null}
-      <ToasterComponent />
-    </>
-  );
-};
-
-export const Stopped = () => {
-  const [open, setOpen] = useState(true);
-  const device = findDevice("aus-b2-bridge-07");
   return (
     <>
       <Button variant={variants.primary} text="Open Modal" onClick={() => setOpen(true)} />

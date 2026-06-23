@@ -13,12 +13,13 @@ import Button, { sizes as buttonSizes, variants } from "@/shared/components/Butt
 import List, { type SelectionMode } from "@/shared/components/List";
 import type { ActiveFilters, FilterItem, NestedFilterDropdownItem } from "@/shared/components/List/Filters/types";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
-import { SORT_ASC, SORT_DESC, type SortDirection } from "@/shared/components/List/types";
+import { SORT_ASC, type SortDirection } from "@/shared/components/List/types";
 import StatusCircle from "@/shared/components/StatusCircle";
 import Switch from "@/shared/components/Switch";
 
 const infraCols = {
   name: "name",
+  id: "id",
   endpoint: "endpoint",
   port: "port",
   site: "site",
@@ -26,7 +27,6 @@ const infraCols = {
   type: "type",
   enabled: "enabled",
   status: "status",
-  issues: "issues",
   lastSeen: "lastSeen",
 } as const;
 
@@ -34,6 +34,7 @@ type InfraColumn = (typeof infraCols)[keyof typeof infraCols];
 
 const infraColTitles: ColTitles<InfraColumn> = {
   name: "Name",
+  id: "ID",
   endpoint: "Endpoint",
   port: "Port",
   site: "Site",
@@ -41,39 +42,36 @@ const infraColTitles: ColTitles<InfraColumn> = {
   type: "Type",
   enabled: "Enabled",
   status: "Status",
-  issues: "Issues",
   lastSeen: "Last seen",
 };
 
 const DEFAULT_VISIBLE: InfraColumn[] = [
   "name",
-  "endpoint",
-  "port",
+  "status",
+  "lastSeen",
   "site",
   "building",
   "type",
   "enabled",
-  "status",
-  "issues",
-  "lastSeen",
+  "endpoint",
+  "port",
+  "id",
 ];
 const CONFIGURABLE_COLS: InfraColumn[] = [
-  "endpoint",
-  "port",
+  "status",
+  "lastSeen",
   "site",
   "building",
   "type",
   "enabled",
-  "status",
-  "issues",
-  "lastSeen",
+  "endpoint",
+  "port",
+  "id",
 ];
 
 const STATUS_OPTIONS = [
-  { id: "running", label: "Running" },
-  { id: "stopped", label: "Stopped" },
-  { id: "faulted", label: "Faulted" },
-  { id: "unknown", label: "Unknown" },
+  { id: "online", label: "Online" },
+  { id: "offline", label: "Offline" },
 ];
 
 const ENABLED_OPTIONS = [
@@ -86,32 +84,18 @@ const TYPE_OPTIONS = [
   { id: "fan_group", label: "Fan group" },
 ];
 
-const ISSUE_OPTIONS = [
-  { id: "pending", label: "Pending" },
-  { id: "acked", label: "Acked" },
-  { id: "failed", label: "Failed" },
-  { id: "timed_out", label: "Timed out" },
-];
-
 const statusToCircle = (status: string) => {
   switch (status) {
-    case "running":
+    case "online":
       return "normal" as const;
-    case "faulted":
+    case "offline":
       return "error" as const;
-    case "unknown":
-      return "warning" as const;
     default:
       return "inactive" as const;
   }
 };
 
-const formatStatus = (status: string) => status.replaceAll("_", " ");
-
-const formatIssueStatus = (status: string | null) => {
-  if (!status) return "";
-  return status.replaceAll("_", " ");
-};
+const formatStatus = (status: string) => (status === "online" ? "Online" : "Offline");
 
 const getDeviceType = (device: InfraDeviceItem) => {
   if (device.endpointKind) return device.endpointKind;
@@ -130,20 +114,11 @@ const formatDeviceType = (device: InfraDeviceItem) => {
 
 const SORTABLE_COLS = new Set<InfraColumn>(Object.values(infraCols));
 
-const DEFAULT_SORT_DIRECTIONS: Partial<Record<InfraColumn, SortDirection>> = {
-  issues: SORT_DESC,
-};
-
-const getDefaultSortDirection = (column: InfraColumn): SortDirection => DEFAULT_SORT_DIRECTIONS[column] ?? SORT_ASC;
+const getDefaultSortDirection = (_column: InfraColumn): SortDirection => SORT_ASC;
 
 const paddingLeft = { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" };
 const infraItemName = { singular: "device", plural: "devices" };
-const columnsExemptFromDisabledStyling = new Set<InfraColumn>([
-  infraCols.name,
-  infraCols.status,
-  infraCols.enabled,
-  infraCols.issues,
-]);
+const columnsExemptFromDisabledStyling = new Set<InfraColumn>([infraCols.name, infraCols.status, infraCols.enabled]);
 
 const PAGE_SIZE = 50;
 
@@ -287,14 +262,18 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
               <span className="block truncate">{device.name}</span>
             </button>
             <div className="flex items-center gap-2">
-              {device.issueStatus && device.issueStatus !== "acked" ? (
-                <Alert width="w-4" className="text-text-critical" />
+              {device.status === "offline" ? (
+                <Alert width="w-4" className="shrink-0 text-intent-critical-fill" />
               ) : null}
               <RowActionsMenu actions={getRowActions(device)} ariaLabel={`Actions for ${device.name}`} />
             </div>
           </div>
         ),
         width: "w-[260px]",
+      },
+      [infraCols.id]: {
+        component: (device) => <span className="text-300 text-text-primary">{device.id}</span>,
+        width: "w-[180px]",
       },
       [infraCols.type]: {
         component: (device) => <span className="text-300">{formatDeviceType(device)}</span>,
@@ -309,25 +288,25 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
         width: "w-[148px]",
       },
       [infraCols.endpoint]: {
-        component: (device) => <span className="font-mono text-300 text-text-primary-70">{device.endpoint}</span>,
-        width: "w-[160px]",
+        component: (device) => <span className="text-300 text-text-primary">{device.endpoint}</span>,
+        width: "w-[120px]",
       },
       [infraCols.port]: {
-        component: (device) => <span className="font-mono text-300 text-text-primary-70">{device.port}</span>,
-        width: "w-[88px]",
+        component: (device) => <span className="text-300 text-text-primary">{device.port}</span>,
+        width: "w-[120px]",
       },
       [infraCols.lastSeen]: {
-        component: (device) => <span className="text-300 text-text-primary-70">{device.lastSeen}</span>,
+        component: (device) => <span className="text-300 text-text-primary">{device.lastSeen}</span>,
         width: "w-[120px]",
       },
       [infraCols.status]: {
         component: (device) => (
           <div className="flex items-center gap-2">
             <StatusCircle status={statusToCircle(device.status)} variant="simple" width="w-[6px]" />
-            <span className="capitalize">{formatStatus(device.status)}</span>
+            <span>{formatStatus(device.status)}</span>
           </div>
         ),
-        width: "w-[120px]",
+        width: "w-[132px]",
       },
       [infraCols.enabled]: {
         component: (device) => {
@@ -345,34 +324,6 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
           );
         },
         width: "w-[88px]",
-      },
-      [infraCols.issues]: {
-        component: (device) => {
-          if (!device.issueStatus) {
-            return null;
-          }
-
-          const critical = device.issueStatus === "failed" || device.issueStatus === "timed_out";
-          const pending = device.issueStatus === "pending";
-
-          if (critical || pending) {
-            return (
-              <button
-                type="button"
-                className={clsx("flex cursor-pointer items-center gap-2 capitalize hover:underline", {
-                  "text-text-critical": critical,
-                })}
-                onClick={() => setDetailDeviceId(device.id)}
-              >
-                <Alert width="w-4" />
-                {formatIssueStatus(device.issueStatus)}
-              </button>
-            );
-          }
-
-          return <span className="text-300 capitalize">{formatIssueStatus(device.issueStatus)}</span>;
-        },
-        width: "w-[136px]",
       },
     }),
     [getEnabledMode, getRowActions, setEnabledMode],
@@ -422,13 +373,6 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
             options: STATUS_OPTIONS,
             defaultOptionIds: [],
           },
-          {
-            type: "dropdown",
-            title: "Issues",
-            value: "issues",
-            options: ISSUE_OPTIONS,
-            defaultOptionIds: [],
-          },
         ],
       } satisfies NestedFilterDropdownItem,
     ],
@@ -448,8 +392,6 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
       if (buildingF?.length && !buildingF.includes(_device.buildingName)) return false;
       const siteF = _filters.dropdownFilters["site"];
       if (siteF?.length && !siteF.includes(_device.siteName)) return false;
-      const issuesF = _filters.dropdownFilters["issues"];
-      if (issuesF?.length && (!_device.issueStatus || !issuesF.includes(_device.issueStatus))) return false;
       return true;
     },
     [getEnabledMode],
@@ -458,6 +400,7 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
   const sortedDevices = useMemo(() => {
     const fieldToKey: Partial<Record<InfraColumn, keyof InfraDeviceItem>> = {
       name: "name",
+      id: "id",
       site: "siteName",
       building: "buildingName",
       endpoint: "endpoint",
@@ -465,7 +408,6 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
       lastSeen: "lastSeen",
       status: "status",
       enabled: "enabled",
-      issues: "issueStatus",
     };
     return [...devices].sort((a, b) => {
       const key = fieldToKey[currentSort.field];

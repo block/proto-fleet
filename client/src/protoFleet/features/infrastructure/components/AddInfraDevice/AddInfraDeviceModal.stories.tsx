@@ -3,6 +3,7 @@ import { useState } from "react";
 import { mockInfraDevices } from "../stories/mockInfraDevices";
 import AddInfraDeviceModal from "./AddInfraDeviceModal";
 import Button, { variants } from "@/shared/components/Button";
+import { Toaster as ToasterComponent } from "@/shared/features/toaster";
 
 export default {
   title: "Proto Fleet/Infrastructure/AddInfraDeviceModal",
@@ -34,6 +35,7 @@ export const Default = () => {
           onSuccess={() => setOpen(false)}
         />
       ) : null}
+      <ToasterComponent />
     </>
   );
 };

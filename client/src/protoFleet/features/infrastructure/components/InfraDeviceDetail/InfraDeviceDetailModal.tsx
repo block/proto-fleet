@@ -1,7 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
 
-import type { InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
-import { Alert, Info, Success } from "@/shared/assets/icons";
+import {
+  getInfraDeviceConnectionTypeLabel,
+  infraDeviceConnectionTypeOptions,
+} from "@/protoFleet/features/infrastructure/connectionTypes";
+import { FieldHelpPopover, infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelp";
+import type { InfraDeviceConnectionType, InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
+import { Alert, Success } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { DialogIcon } from "@/shared/components/Dialog";
 import Divider from "@/shared/components/Divider";
@@ -18,18 +23,16 @@ const buildOptions = (values: string[], currentValue: string) =>
 
 const statusToCircle = (status: InfraDeviceItem["status"]) => {
   switch (status) {
-    case "running":
+    case "online":
       return "normal" as const;
-    case "faulted":
+    case "offline":
       return "error" as const;
-    case "unknown":
-      return "warning" as const;
     default:
       return "inactive" as const;
   }
 };
 
-const formatLabel = (value: string | null) => (value ? value.replaceAll("_", " ") : "None");
+const formatStatus = (status: InfraDeviceItem["status"]) => (status === "online" ? "Online" : "Offline");
 
 const formatDeviceType = (device: InfraDeviceItem) => {
   if (device.endpointKind === "single_fan") return "Fan";
@@ -57,6 +60,7 @@ const InfraDeviceDetailModal = ({
     [buildingOptions, device.buildingName],
   );
   const [name, setName] = useState(device.name);
+  const [connectionType, setConnectionType] = useState(device.connectionType);
   const [endpoint, setEndpoint] = useState(device.endpoint);
   const [port, setPort] = useState(String(device.port));
   const [site, setSite] = useState(device.siteName);
@@ -76,21 +80,15 @@ const InfraDeviceDetailModal = ({
     setIsTesting(true);
     setTimeout(() => {
       setIsTesting(false);
-      pushToast({ message: `${device.name} endpoint connection successful (12ms)`, status: STATUSES.success });
+      pushToast({
+        message: `${getInfraDeviceConnectionTypeLabel(connectionType)} connection to ${endpoint}:${port} successful (12ms)`,
+        status: STATUSES.success,
+      });
     }, 1200);
-  }, [device.name]);
-
-  const hasUnackedIssue =
-    device.issueStatus === "pending" || device.issueStatus === "failed" || device.issueStatus === "timed_out";
+  }, [connectionType, endpoint, port]);
 
   const statusIcon = (() => {
-    if (device.status === "unknown" || device.status === "stopped")
-      return (
-        <DialogIcon>
-          <Info className="text-text-primary" />
-        </DialogIcon>
-      );
-    if (device.status === "faulted" || hasUnackedIssue)
+    if (device.status === "offline")
       return (
         <DialogIcon intent="critical">
           <Alert />
@@ -103,7 +101,7 @@ const InfraDeviceDetailModal = ({
     );
   })();
 
-  const statusLabel = formatLabel(device.status);
+  const statusLabel = formatStatus(device.status);
   const description = formatDeviceType(device);
 
   return (
@@ -138,7 +136,13 @@ const InfraDeviceDetailModal = ({
           {statusIcon}
           <div className="flex flex-col gap-1">
             <div className="text-heading-300 text-text-primary">{device.name}</div>
-            {description ? <div className="text-300 text-text-primary-70">{description}</div> : null}
+            <div className="flex flex-col gap-1 text-300 text-text-primary-70">
+              {description ? <span>{description}</span> : null}
+              <span className="inline-flex items-center gap-1.5">
+                <StatusCircle status={statusToCircle(device.status)} variant="simple" width="w-[6px]" removeMargin />
+                {statusLabel}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -163,15 +167,42 @@ const InfraDeviceDetailModal = ({
               forceBelow
             />
           </div>
-          <div className="grid grid-cols-[1fr_160px] gap-3">
-            <Input id="device-endpoint" label="Endpoint" initValue={endpoint} onChange={(v) => setEndpoint(v)} />
+          <Select
+            id="device-connection-type"
+            label="Connection type"
+            options={infraDeviceConnectionTypeOptions}
+            value={connectionType}
+            onChange={(value) => setConnectionType(value as InfraDeviceConnectionType)}
+            suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.connectionType} />}
+            forceBelow
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              id="device-endpoint"
+              label="Endpoint"
+              initValue={endpoint}
+              suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.endpoint} />}
+              onChange={(v) => setEndpoint(v)}
+            />
             <Input
               id="device-port"
               label="Port"
               type="number"
               inputMode="numeric"
               initValue={port}
+              suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.port} />}
               onChange={(v) => setPort(v)}
+            />
+          </div>
+          <div className="flex h-14 items-center justify-between rounded-lg border border-border-5 bg-surface-base px-4 transition duration-200 ease-in-out">
+            <span className="text-300 text-text-primary">Enabled</span>
+            <Switch
+              ariaLabel="Enabled"
+              checked={enabled === "auto"}
+              setChecked={(next) => {
+                const checked = typeof next === "function" ? next(enabled === "auto") : next;
+                setEnabled(checked ? "auto" : "off");
+              }}
             />
           </div>
         </div>
@@ -181,30 +212,9 @@ const InfraDeviceDetailModal = ({
         {/* Device info */}
         <div className="flex flex-col">
           <Row compact>
-            <div className="flex w-full items-center justify-between">
-              <span className="text-text-primary-70">Enabled</span>
-              <Switch
-                checked={enabled === "auto"}
-                setChecked={(next) => {
-                  const checked = typeof next === "function" ? next(enabled === "auto") : next;
-                  setEnabled(checked ? "auto" : "off");
-                }}
-              />
-            </div>
-          </Row>
-          <Row compact>
-            <div className="flex w-full items-center justify-between">
-              <span className="text-text-primary-70">Status</span>
-              <span className="flex items-center gap-2 capitalize">
-                <StatusCircle status={statusToCircle(device.status)} variant="simple" width="w-[6px]" />
-                {statusLabel}
-              </span>
-            </div>
-          </Row>
-          <Row compact>
-            <div className="flex w-full items-center justify-between">
-              <span className="text-text-primary-70">Issues</span>
-              <span className="capitalize">{formatLabel(device.issueStatus)}</span>
+            <div className="flex w-full items-center justify-between gap-4">
+              <span className="text-text-primary-70">ID</span>
+              <span className="truncate text-300 text-text-primary-70">{device.id}</span>
             </div>
           </Row>
           <Row compact>

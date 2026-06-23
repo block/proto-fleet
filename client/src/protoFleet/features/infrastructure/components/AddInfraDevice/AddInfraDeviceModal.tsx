@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 
-import ManualAddStep from "./ManualAddStep";
+import ManualAddStep, { type ManualAddStepState } from "./ManualAddStep";
 import { variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 
@@ -20,12 +20,26 @@ const AddInfraDeviceModal = ({
   buildingOptionsBySite = {},
 }: AddInfraDeviceModalProps) => {
   const [canAdd, setCanAdd] = useState(false);
+  const [canTest, setCanTest] = useState(false);
   const [addHandler, setAddHandler] = useState<(() => void) | null>(null);
+  const [testHandler, setTestHandler] = useState<(() => void) | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
 
-  const handleManualValid = useCallback((valid: boolean, handler: () => void) => {
-    setCanAdd(valid);
-    setAddHandler(() => handler);
+  const handleManualStateChange = useCallback((state: ManualAddStepState) => {
+    setCanAdd(state.canAdd);
+    setCanTest(state.canTest);
+    setAddHandler(() => state.addHandler);
+    setTestHandler(() => state.testHandler);
   }, []);
+
+  const handleTestConnection = useCallback(() => {
+    if (!testHandler) return;
+    setIsTesting(true);
+    setTimeout(() => {
+      testHandler();
+      setIsTesting(false);
+    }, 1200);
+  }, [testHandler]);
 
   return (
     <Modal
@@ -34,6 +48,14 @@ const AddInfraDeviceModal = ({
       title="Add infrastructure device"
       description="Add a single fan or fan group controlled through a bridge or PLC."
       buttons={[
+        {
+          text: "Test connection",
+          variant: variants.secondary,
+          onClick: handleTestConnection,
+          disabled: !canTest,
+          loading: isTesting,
+          dismissModalOnClick: false,
+        },
         {
           text: "Add device",
           variant: variants.primary,
@@ -48,7 +70,7 @@ const AddInfraDeviceModal = ({
         buildingOptions={buildingOptions}
         buildingOptionsBySite={buildingOptionsBySite}
         onSuccess={onSuccess}
-        onValidChange={handleManualValid}
+        onStateChange={handleManualStateChange}
       />
     </Modal>
   );
