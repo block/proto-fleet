@@ -4,7 +4,7 @@ import { Question } from "@/shared/assets/icons";
 import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
 import { positions } from "@/shared/constants";
 
-interface FieldHelpPopoverProps {
+export interface FieldHelpPopoverProps {
   ariaLabel: string;
   body: string;
   header: string;
@@ -58,24 +58,3 @@ export const FieldHelpPopover = (props: FieldHelpPopoverProps) => (
     <FieldHelpPopoverContent {...props} />
   </PopoverProvider>
 );
-
-export const infraDeviceFieldHelp = {
-  connectionType: {
-    ariaLabel: "About connection type",
-    header: "Connection type",
-    body: "Choose how Fleet reaches this device: Modbus TCP, MQTT bridge, or HTTP/API.",
-    testId: "infra-device-connection-type-help",
-  },
-  endpoint: {
-    ariaLabel: "About endpoint",
-    header: "Endpoint",
-    body: "Use the device IP address or DNS hostname Fleet should connect to.",
-    testId: "infra-device-endpoint-help",
-  },
-  port: {
-    ariaLabel: "About port",
-    header: "Port",
-    body: "Use the TCP port for the selected connection type, such as 502 for Modbus TCP.",
-    testId: "infra-device-port-help",
-  },
-};

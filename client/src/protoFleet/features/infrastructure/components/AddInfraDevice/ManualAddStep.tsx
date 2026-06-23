@@ -4,7 +4,8 @@ import {
   getInfraDeviceConnectionTypeLabel,
   infraDeviceConnectionTypeOptions,
 } from "@/protoFleet/features/infrastructure/connectionTypes";
-import { FieldHelpPopover, infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelp";
+import { FieldHelpPopover } from "@/protoFleet/features/infrastructure/fieldHelp";
+import { infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelpContent";
 import type { InfraDeviceConnectionType } from "@/protoFleet/features/infrastructure/types";
 import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";

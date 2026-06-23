@@ -4,7 +4,8 @@ import {
   getInfraDeviceConnectionTypeLabel,
   infraDeviceConnectionTypeOptions,
 } from "@/protoFleet/features/infrastructure/connectionTypes";
-import { FieldHelpPopover, infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelp";
+import { FieldHelpPopover } from "@/protoFleet/features/infrastructure/fieldHelp";
+import { infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelpContent";
 import type { InfraDeviceConnectionType, InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
 import { Alert, Success } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
