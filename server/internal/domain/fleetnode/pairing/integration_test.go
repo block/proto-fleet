@@ -447,6 +447,12 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 		orgID, ddID,
 	).Scan(&devID))
 	require.NoError(t, pairing.PairDevice(ctx, nodeID, devID, orgID, nil))
+	_, err = db.Exec(
+		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		 VALUES ($1, 'node-owned-username', 'node-owned-password')`,
+		devID,
+	)
+	require.NoError(t, err)
 
 	// Act
 	require.NoError(t, enrollment.RevokeFleetNode(ctx, nodeID, orgID))
@@ -456,6 +462,9 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	var pairings int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM fleet_node_device WHERE fleet_node_id = $1`, nodeID).Scan(&pairings))
 	assert.Equal(t, 0, pairings, "revoke must delete fleet_node_device rows")
+	var credentials int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM miner_credentials WHERE device_id = $1`, devID).Scan(&credentials))
+	assert.Equal(t, 0, credentials, "revoke must delete node-owned miner credentials")
 	var attributed sql.NullInt64
 	require.NoError(t, db.QueryRow(`SELECT discovered_by_fleet_node_id FROM discovered_device WHERE id = $1`, ddID).Scan(&attributed))
 	require.True(t, attributed.Valid, "revoke must NOT clear discovered_by_fleet_node_id (immutable origin)")

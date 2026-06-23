@@ -13,6 +13,13 @@ WHERE device_id = $1;
 DELETE FROM miner_credentials
 WHERE device_id = $1;
 
+-- name: DeleteMinerCredentialsForFleetNode :execrows
+DELETE FROM miner_credentials mc
+USING fleet_node_device fnd
+WHERE mc.device_id = fnd.device_id
+  AND fnd.fleet_node_id = $1
+  AND fnd.org_id = $2;
+
 -- name: UpdateMinerPassword :execrows
 UPDATE miner_credentials
 SET password_enc = $1

@@ -192,6 +192,13 @@ func (s *SQLFleetNodeEnrollmentStore) DeletePairingsForFleetNode(ctx context.Con
 	})
 }
 
+func (s *SQLFleetNodeEnrollmentStore) DeleteMinerCredentialsForFleetNode(ctx context.Context, fleetNodeID, orgID int64) (int64, error) {
+	return s.q(ctx).DeleteMinerCredentialsForFleetNode(ctx, sqlc.DeleteMinerCredentialsForFleetNodeParams{
+		FleetNodeID: fleetNodeID,
+		OrgID:       orgID,
+	})
+}
+
 func rowToPending(row sqlc.PendingEnrollment) *enrollment.PendingEnrollment {
 	return &enrollment.PendingEnrollment{
 		ID:          row.ID,

@@ -66,6 +66,7 @@ type AgentStore interface {
 }
 
 type RevocationCleanupStore interface {
+	DeleteMinerCredentialsForFleetNode(ctx context.Context, fleetNodeID, orgID int64) (int64, error)
 	DeletePairingsForFleetNode(ctx context.Context, fleetNodeID, orgID int64) (int64, error)
 }
 
@@ -259,6 +260,9 @@ func (s *Service) RevokeFleetNode(ctx context.Context, agentID, orgID int64) err
 		}
 		if _, err := s.apiKeySvc.RevokeForFleetNode(ctx, agentID, orgID); err != nil {
 			return err
+		}
+		if _, err := s.store.DeleteMinerCredentialsForFleetNode(ctx, agentID, orgID); err != nil {
+			return logInternal("delete miner credentials for fleet node", clientErrRevokeFleetNode, err)
 		}
 		if _, err := s.store.DeletePairingsForFleetNode(ctx, agentID, orgID); err != nil {
 			return logInternal("delete pairings for fleet node", clientErrRevokeFleetNode, err)
