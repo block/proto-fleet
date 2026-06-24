@@ -3,19 +3,13 @@ import type { ReactNode } from "react";
 import { deviceSetCols, type DeviceSetColumn } from "./constants";
 import type { DeviceSetListItem } from "./DeviceSetList";
 import StatCell from "./StatCell";
-import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
+import { HealthBar } from "@/protoFleet/components/HealthBar";
 import { type ColConfig } from "@/shared/components/List/types";
 import type { TemperatureUnit } from "@/shared/features/preferences";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 import { formatTempRange } from "@/shared/utils/telemetryFormat";
 
 const INACTIVE_PLACEHOLDER = "—";
-
-const HEALTH_COLOR_MAP = {
-  OK: "bg-core-primary-fill",
-  CRITICAL: "bg-intent-critical-fill",
-  NA: "bg-core-accent-fill",
-};
 
 type CreateDeviceSetColConfigParams = {
   renderName: (item: DeviceSetListItem) => ReactNode;
@@ -111,16 +105,14 @@ const createDeviceSetColConfig = ({
   [deviceSetCols.health]: {
     component: (item: DeviceSetListItem) => {
       if (!item.stats || item.stats.deviceCount === 0) return <span>{INACTIVE_PLACEHOLDER}</span>;
-      const { hashingCount, brokenCount, offlineCount, sleepingCount } = item.stats;
-      const segments: Segment[] = [
-        { name: "Healthy", status: "OK", count: hashingCount },
-        { name: "Needs Attention", status: "CRITICAL", count: brokenCount },
-        { name: "Offline", status: "NA", count: offlineCount + sleepingCount },
-      ];
-
       return (
         <div className="w-34">
-          <CompositionBar segments={segments} height={6} gap={0.25} colorMap={HEALTH_COLOR_MAP} />
+          <HealthBar
+            healthy={item.stats.hashingCount}
+            needsAttention={item.stats.brokenCount}
+            offline={item.stats.offlineCount}
+            sleeping={item.stats.sleepingCount}
+          />
         </div>
       );
     },
