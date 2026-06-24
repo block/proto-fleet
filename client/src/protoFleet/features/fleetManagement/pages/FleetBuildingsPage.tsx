@@ -493,23 +493,26 @@ const FleetBuildingsPage = () => {
         </div>
       </FilterRow>
     ) : (
-      <NullState
-        icon={<Building width="w-5" />}
-        title="No buildings yet"
-        description={
-          !canManageBuildings
-            ? "No buildings have been added to this fleet yet."
-            : hasSites
-              ? "Add a building to start organizing racks."
-              : "Create a site first, then add buildings to organize racks."
-        }
-        action={
-          canManageBuildings ? (
-            <Button variant={variants.primary} onClick={handleAddBuilding} disabled={!hasSites} text="Add building" />
-          ) : undefined
-        }
-        testId="fleet-buildings-page"
-      />
+      <>
+        {inlineErrors}
+        <NullState
+          icon={<Building width="w-5" />}
+          title="No buildings yet"
+          description={
+            !canManageBuildings
+              ? "No buildings have been added to this fleet yet."
+              : hasSites
+                ? "Add a building to start organizing racks."
+                : "Create a site first, then add buildings to organize racks."
+          }
+          action={
+            canManageBuildings ? (
+              <Button variant={variants.primary} onClick={handleAddBuilding} disabled={!hasSites} text="Add building" />
+            ) : undefined
+          }
+          testId="fleet-buildings-page"
+        />
+      </>
     );
   } else if (visibleBuildings.length === 0) {
     pageContent = (

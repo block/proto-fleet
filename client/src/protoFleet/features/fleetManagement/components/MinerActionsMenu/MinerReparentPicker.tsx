@@ -662,7 +662,7 @@ const MinerReparentPicker = ({
   const countMinersWithParent = (
     ids: string[],
     snapshots: Record<string, MinerStateSnapshot> | undefined,
-    target: "building" | "site",
+    target: ReparentKind,
   ): number => {
     if (!snapshots) return 0;
     return ids.filter((id) => {
@@ -671,15 +671,16 @@ const MinerReparentPicker = ({
       const hasRack = !!getMinerRackLabel(snapshot);
       const hasBuilding = !!getMinerBuildingLabel(snapshot);
       const hasSite = !!getMinerSiteLabel(snapshot);
+      // A new rack/site displaces any current placement; a new building
+      // displaces a current building or rack (a direct site is preserved).
       return target === "building" ? hasBuilding || hasRack : hasSite || hasBuilding || hasRack;
     }).length;
   };
 
   // "New …" hand-off: resolve the selection, close the picker, then open the
-  // hoisted create flow seeded with these miners. For rack, membership
-  // conflicts resolve at ManageRackModal save (atomic replace). For building,
-  // the miners are assigned directly with force-clear after create — the
-  // server-side clear mirrors the reparent confirm path.
+  // hoisted create flow seeded with these miners. Each kind pre-warns when the
+  // selection has placements the new parent would displace (conflictCount);
+  // the provider shows the confirm dialog before entering the create flow.
   const createNewLaunchLabel = createFlow
     ? kind === "rack"
       ? "New rack"
@@ -695,7 +696,7 @@ const MinerReparentPicker = ({
     const { ids, snapshots } = resolved;
     onClose();
     if (kind === "rack") {
-      createFlow.launchCreateRack({ minerIds: ids });
+      createFlow.launchCreateRack({ minerIds: ids, conflictCount: countMinersWithParent(ids, snapshots, "rack") });
     } else if (kind === "building") {
       createFlow.launchCreateBuilding({
         rackIds: [],

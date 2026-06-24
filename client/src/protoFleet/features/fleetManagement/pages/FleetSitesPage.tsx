@@ -337,17 +337,20 @@ const FleetSitesPage = () => {
   // the operator still needs the create CTA.
   if (!hasListFilters && displaySites.length === 0) {
     pageContent = (
-      <NullState
-        icon={<Site width="w-5" />}
-        title="No sites yet"
-        description="Create your first site to organize miners by location."
-        action={
-          canManageSites ? (
-            <Button variant={variants.primary} onClick={modals.openCreate} text="Add a site" />
-          ) : undefined
-        }
-        testId="fleet-sites-page"
-      />
+      <>
+        {inlineError}
+        <NullState
+          icon={<Site width="w-5" />}
+          title="No sites yet"
+          description="Create your first site to organize miners by location."
+          action={
+            canManageSites ? (
+              <Button variant={variants.primary} onClick={modals.openCreate} text="Add a site" />
+            ) : undefined
+          }
+          testId="fleet-sites-page"
+        />
+      </>
     );
   } else if (hasListFilters && displaySites.length === 0) {
     pageContent = (

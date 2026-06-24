@@ -1310,7 +1310,11 @@ const RacksPage = () => {
                   setBulkReparentKind(null);
                   setSelectedRackIds([]);
                   if (bulkReparentKind === "building") {
-                    const conflictCount = selectedRackScopes.filter((scope) => scope.buildingId !== 0n).length;
+                    // A rack in another building OR directly in another site
+                    // will be moved into the new building's site.
+                    const conflictCount = selectedRackScopes.filter(
+                      (scope) => scope.buildingId !== 0n || scope.siteId !== 0n,
+                    ).length;
                     createFlow.launchCreateBuilding({ rackIds, minerIds: [], conflictCount });
                   } else {
                     const conflictCount = selectedRackScopes.filter((scope) => scope.siteId !== 0n).length;
@@ -1407,10 +1411,11 @@ const RacksPage = () => {
                   setReparentTarget(null);
                   if (targetKind === "building") {
                     const buildingId = rackInfo?.buildingId ?? 0n;
+                    const siteId = rackInfo?.siteId ?? 0n;
                     createFlow.launchCreateBuilding({
                       rackIds: [rack.id],
                       minerIds: [],
-                      conflictCount: buildingId !== 0n ? 1 : 0,
+                      conflictCount: buildingId !== 0n || siteId !== 0n ? 1 : 0,
                     });
                   } else {
                     const siteId = rackInfo?.siteId ?? 0n;

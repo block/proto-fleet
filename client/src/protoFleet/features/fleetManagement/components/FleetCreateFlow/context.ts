@@ -6,6 +6,10 @@ import { createContext, useContext } from "react";
 // direct members + surfaced as a count line otherwise (option (i)).
 export interface RackCreateSeed {
   minerIds: string[];
+  // Number of selected miners that already have a site/building/rack
+  // placement. A new rack has no site, so those placements are cleared on
+  // save; when > 0 a confirm dialog warns first, mirroring the reparent flow.
+  conflictCount?: number;
 }
 
 export interface BuildingCreateSeed {

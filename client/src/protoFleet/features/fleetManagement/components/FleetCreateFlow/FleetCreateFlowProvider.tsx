@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import {
@@ -27,6 +27,18 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 // Hoisted create-flow host. Mounted once in FleetLayout so any fleet tab can
 // launch a create flow in place — no cross-page navigation. Owns the rack +
 // building create modal stacks; the site flow extends this provider.
+
+// Matches the server-side max_items cap on AssignDevicesToSite/Building and
+// AssignRacksTo* — mirrors MinerReparentPicker.MAX_REASSIGN_BATCH. Checked
+// before creating the parent so an over-cap seed can't leave an orphaned
+// empty parent when the assignment RPC rejects.
+const MAX_REASSIGN_BATCH = 10000;
+
+const overBatchCap = (seed: { buildingIds?: bigint[]; rackIds?: bigint[]; minerIds?: string[] }): boolean =>
+  (seed.buildingIds?.length ?? 0) > MAX_REASSIGN_BATCH ||
+  (seed.rackIds?.length ?? 0) > MAX_REASSIGN_BATCH ||
+  (seed.minerIds?.length ?? 0) > MAX_REASSIGN_BATCH;
+
 const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sites: SiteWithCounts[] }) => {
   const [entitiesChangedAt, setEntitiesChangedAt] = useState(0);
   const bumpEntities = useCallback(() => setEntitiesChangedAt(Date.now()), []);
@@ -38,12 +50,31 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
   const [rackSettingsOpen, setRackSettingsOpen] = useState(false);
   const [rackFormData, setRackFormData] = useState<RackFormData | null>(null);
   const [rackSeed, setRackSeed] = useState<RackCreateSeed | null>(null);
+  // Holds a seed whose miners have a placement the new rack would clear,
+  // until the operator confirms; null when no confirmation is pending.
+  const [rackConflictSeed, setRackConflictSeed] = useState<RackCreateSeed | null>(null);
 
-  const launchCreateRack = useCallback((seed: RackCreateSeed) => {
+  const openRackSettings = useCallback((seed: RackCreateSeed) => {
     setRackSeed(seed);
     setRackFormData(null);
     setRackSettingsOpen(true);
   }, []);
+
+  const launchCreateRack = useCallback(
+    (seed: RackCreateSeed) => {
+      if (seed.conflictCount && seed.conflictCount > 0) {
+        setRackConflictSeed(seed);
+        return;
+      }
+      openRackSettings(seed);
+    },
+    [openRackSettings],
+  );
+
+  const confirmRackConflict = useCallback(() => {
+    if (rackConflictSeed) openRackSettings(rackConflictSeed);
+    setRackConflictSeed(null);
+  }, [rackConflictSeed, openRackSettings]);
 
   const closeRackFlow = useCallback(() => {
     setRackSettingsOpen(false);
@@ -71,8 +102,20 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
   // Holds a seed whose items have existing parents until the operator
   // confirms the move; null when no confirmation is pending.
   const [buildingConflictSeed, setBuildingConflictSeed] = useState<BuildingCreateSeed | null>(null);
+  // In-flight guard for the provider-owned building create. The `saving` prop
+  // lags a render behind the click (setState batching), so the ref is what
+  // actually blocks a double-click from dispatching two CreateBuilding calls.
+  const [creatingBuilding, setCreatingBuilding] = useState(false);
+  const creatingBuildingRef = useRef(false);
 
   const launchCreateBuilding = useCallback((seed: BuildingCreateSeed) => {
+    if (overBatchCap(seed)) {
+      pushToast({
+        message: `Can't add more than ${MAX_REASSIGN_BATCH} items at once. Filter the selection and try again.`,
+        status: STATUSES.error,
+      });
+      return;
+    }
     if (seed.conflictCount && seed.conflictCount > 0) {
       setBuildingConflictSeed(seed);
       return;
@@ -91,56 +134,66 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
   // mirroring the reparent confirm path) → open manage for positioning.
   const handleBuildingCreate = useCallback(
     async (values: Parameters<typeof createBuilding>[0]["values"], siteId: bigint) => {
-      const seed = buildingSeed;
-      const building = await new Promise<Building | null>((resolve) => {
-        void createBuilding({
-          values,
-          siteId,
-          onSuccess: (b) => resolve(b),
-          onError: (msg) => {
-            pushToast({ message: `Failed to create building: ${msg}`, status: STATUSES.error });
-            resolve(null);
-          },
-        });
-      });
-      if (!building) return;
-
-      if (seed && seed.rackIds.length > 0) {
-        await new Promise<void>((resolve) => {
-          void assignRacksToBuilding({
-            racks: seed.rackIds.map((rackId) => ({ rackId })),
-            targetBuildingId: building.id,
-            onSuccess: () => resolve(),
+      // Synchronous re-entry guard: a double-click reaches here twice before
+      // the `saving` prop re-renders, which would create duplicate buildings.
+      if (creatingBuildingRef.current) return;
+      creatingBuildingRef.current = true;
+      setCreatingBuilding(true);
+      try {
+        const seed = buildingSeed;
+        const building = await new Promise<Building | null>((resolve) => {
+          void createBuilding({
+            values,
+            siteId,
+            onSuccess: (b) => resolve(b),
             onError: (msg) => {
-              pushToast({ message: `Building created, but adding racks failed: ${msg}`, status: STATUSES.error });
-              resolve();
+              pushToast({ message: `Failed to create building: ${msg}`, status: STATUSES.error });
+              resolve(null);
             },
           });
         });
-      }
-      if (seed && seed.minerIds.length > 0) {
-        await new Promise<void>((resolve) => {
-          void assignDevicesToBuilding({
-            targetBuildingId: building.id,
-            deviceIdentifiers: seed.minerIds,
-            forceClearConflictingRackMembership: true,
-            onSuccess: () => resolve(),
-            onError: (msg) => {
-              pushToast({ message: `Building created, but adding miners failed: ${msg}`, status: STATUSES.error });
-              resolve();
-            },
-          });
-        });
-      }
+        if (!building) return;
 
-      bumpEntities();
-      setBuildingSeed(null);
-      const siteName = sites.find((s) => s.site?.id === siteId)?.site?.name;
-      buildingModals.openManage(
-        create(BuildingWithCountsSchema, { building, rackCount: BigInt(seed?.rackIds.length ?? 0) }),
-        siteName,
-        seed?.minerIds.length || undefined,
-      );
+        if (seed && seed.rackIds.length > 0) {
+          await new Promise<void>((resolve) => {
+            void assignRacksToBuilding({
+              racks: seed.rackIds.map((rackId) => ({ rackId })),
+              targetBuildingId: building.id,
+              onSuccess: () => resolve(),
+              onError: (msg) => {
+                pushToast({ message: `Building created, but adding racks failed: ${msg}`, status: STATUSES.error });
+                resolve();
+              },
+            });
+          });
+        }
+        if (seed && seed.minerIds.length > 0) {
+          await new Promise<void>((resolve) => {
+            void assignDevicesToBuilding({
+              targetBuildingId: building.id,
+              deviceIdentifiers: seed.minerIds,
+              forceClearConflictingRackMembership: true,
+              onSuccess: () => resolve(),
+              onError: (msg) => {
+                pushToast({ message: `Building created, but adding miners failed: ${msg}`, status: STATUSES.error });
+                resolve();
+              },
+            });
+          });
+        }
+
+        bumpEntities();
+        setBuildingSeed(null);
+        const siteName = sites.find((s) => s.site?.id === siteId)?.site?.name;
+        buildingModals.openManage(
+          create(BuildingWithCountsSchema, { building, rackCount: BigInt(seed?.rackIds.length ?? 0) }),
+          siteName,
+          seed?.minerIds.length || undefined,
+        );
+      } finally {
+        creatingBuildingRef.current = false;
+        setCreatingBuilding(false);
+      }
     },
     [buildingSeed, createBuilding, assignRacksToBuilding, assignDevicesToBuilding, bumpEntities, sites, buildingModals],
   );
@@ -153,8 +206,17 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
   const siteModals = useSiteModals({ refetchSites: bumpEntities });
   const [siteSeed, setSiteSeed] = useState<SiteCreateSeed | null>(null);
   const [siteConflictSeed, setSiteConflictSeed] = useState<SiteCreateSeed | null>(null);
+  const [creatingSite, setCreatingSite] = useState(false);
+  const creatingSiteRef = useRef(false);
 
   const launchCreateSite = useCallback((seed: SiteCreateSeed) => {
+    if (overBatchCap(seed)) {
+      pushToast({
+        message: `Can't add more than ${MAX_REASSIGN_BATCH} items at once. Filter the selection and try again.`,
+        status: STATUSES.error,
+      });
+      return;
+    }
     if (seed.conflictCount && seed.conflictCount > 0) {
       setSiteConflictSeed(seed);
       return;
@@ -171,66 +233,75 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
 
   const handleSiteCreate = useCallback(
     async (values: Parameters<typeof createSite>[0]["values"]) => {
-      const seed = siteSeed;
-      const site = await new Promise<Site | null>((resolve) => {
-        void createSite({
-          values,
-          onSuccess: (s) => resolve(s),
-          onError: (msg) => {
-            pushToast({ message: `Failed to create site: ${msg}`, status: STATUSES.error });
-            resolve(null);
-          },
+      // Synchronous re-entry guard against duplicate CreateSite on double-click.
+      if (creatingSiteRef.current) return;
+      creatingSiteRef.current = true;
+      setCreatingSite(true);
+      try {
+        const seed = siteSeed;
+        const site = await new Promise<Site | null>((resolve) => {
+          void createSite({
+            values,
+            onSuccess: (s) => resolve(s),
+            onError: (msg) => {
+              pushToast({ message: `Failed to create site: ${msg}`, status: STATUSES.error });
+              resolve(null);
+            },
+          });
         });
-      });
-      if (!site) return;
+        if (!site) return;
 
-      if (seed && seed.buildingIds.length > 0) {
-        await new Promise<void>((resolve) => {
-          void assignBuildingsToSite({
-            buildingIds: seed.buildingIds,
-            targetSiteId: site.id,
-            onSuccess: () => resolve(),
-            onError: (msg) => {
-              pushToast({ message: `Site created, but adding buildings failed: ${msg}`, status: STATUSES.error });
-              resolve();
-            },
+        if (seed && seed.buildingIds.length > 0) {
+          await new Promise<void>((resolve) => {
+            void assignBuildingsToSite({
+              buildingIds: seed.buildingIds,
+              targetSiteId: site.id,
+              onSuccess: () => resolve(),
+              onError: (msg) => {
+                pushToast({ message: `Site created, but adding buildings failed: ${msg}`, status: STATUSES.error });
+                resolve();
+              },
+            });
           });
-        });
-      }
-      if (seed && seed.rackIds.length > 0) {
-        await new Promise<void>((resolve) => {
-          void assignRacksToSite({
-            rackIds: seed.rackIds,
-            targetSiteId: site.id,
-            onSuccess: () => resolve(),
-            onError: (msg) => {
-              pushToast({ message: `Site created, but adding racks failed: ${msg}`, status: STATUSES.error });
-              resolve();
-            },
+        }
+        if (seed && seed.rackIds.length > 0) {
+          await new Promise<void>((resolve) => {
+            void assignRacksToSite({
+              rackIds: seed.rackIds,
+              targetSiteId: site.id,
+              onSuccess: () => resolve(),
+              onError: (msg) => {
+                pushToast({ message: `Site created, but adding racks failed: ${msg}`, status: STATUSES.error });
+                resolve();
+              },
+            });
           });
-        });
-      }
-      if (seed && seed.minerIds.length > 0) {
-        await new Promise<void>((resolve) => {
-          void assignDevicesToSite({
-            targetSiteId: site.id,
-            deviceIdentifiers: seed.minerIds,
-            forceClearConflictingRackMembership: true,
-            onSuccess: () => resolve(),
-            onError: (msg) => {
-              pushToast({ message: `Site created, but adding miners failed: ${msg}`, status: STATUSES.error });
-              resolve();
-            },
+        }
+        if (seed && seed.minerIds.length > 0) {
+          await new Promise<void>((resolve) => {
+            void assignDevicesToSite({
+              targetSiteId: site.id,
+              deviceIdentifiers: seed.minerIds,
+              forceClearConflictingRackMembership: true,
+              onSuccess: () => resolve(),
+              onError: (msg) => {
+                pushToast({ message: `Site created, but adding miners failed: ${msg}`, status: STATUSES.error });
+                resolve();
+              },
+            });
           });
-        });
-      }
+        }
 
-      bumpEntities();
-      setSiteSeed(null);
-      siteModals.openManageEdit(site, {
-        unassignedRackCount: seed?.rackIds.length || undefined,
-        unassignedMinerCount: seed?.minerIds.length || undefined,
-      });
+        bumpEntities();
+        setSiteSeed(null);
+        siteModals.openManageEdit(site, {
+          unassignedRackCount: seed?.rackIds.length || undefined,
+          unassignedMinerCount: seed?.minerIds.length || undefined,
+        });
+      } finally {
+        creatingSiteRef.current = false;
+        setCreatingSite(false);
+      }
     },
     [siteSeed, createSite, assignBuildingsToSite, assignRacksToSite, assignDevicesToSite, bumpEntities, siteModals],
   );
@@ -261,6 +332,18 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
           onSave={handleRackSaved}
         />
       ) : null}
+      {rackConflictSeed ? (
+        <Dialog
+          open
+          title="Move selected miners to a new rack?"
+          subtitle={`${rackConflictSeed.conflictCount} of the selected miners are currently in a site, building, or rack. A new rack has no site, so continuing will clear those placements.`}
+          onDismiss={() => setRackConflictSeed(null)}
+          buttons={[
+            { text: "Cancel", variant: variants.secondary, onClick: () => setRackConflictSeed(null) },
+            { text: "Continue", variant: variants.primary, onClick: confirmRackConflict },
+          ]}
+        />
+      ) : null}
       {buildingSeed ? (
         <BuildingSettingsModal
           open
@@ -269,7 +352,7 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
           sites={sites}
           onSave={handleBuildingCreate}
           onDismiss={closeBuildingSettings}
-          saving={buildingModals.saving}
+          saving={creatingBuilding || buildingModals.saving}
         />
       ) : null}
       <BuildingModals modals={buildingModals} sites={sites} />
@@ -292,7 +375,7 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
           initialValues={emptySiteFormValues()}
           onContinue={(values) => void handleSiteCreate(values)}
           onDismiss={closeSiteSettings}
-          saving={siteModals.saving}
+          saving={creatingSite || siteModals.saving}
         />
       ) : null}
       <SiteModals modals={siteModals} sites={sites} />

@@ -408,6 +408,17 @@ export default function ManageRackModal({
 
   // Save handler — single atomic RPC
   const handleSave = useCallback(async () => {
+    // Capacity guard. handleManageMinersConfirm enforces this when miners are
+    // added through the sub-modal, but a seeded new rack (bulk "New rack")
+    // populates rackMiners directly and bypasses that path — saveRack accepts
+    // members beyond the slot count, so an over-fill would persist silently.
+    if (rackMiners.length > totalSlots) {
+      setErrorMsg(
+        `Cannot add ${rackMiners.length} miners with only ${totalSlots} available slots. Deselect some miners or update your rack settings.`,
+      );
+      return;
+    }
+
     setIsSaving(true);
     setErrorMsg("");
 
@@ -444,7 +455,7 @@ export default function ManageRackModal({
     } finally {
       setIsSaving(false);
     }
-  }, [existingRackId, rackSettings, rackMiners, activeAssignments, saveRack, onSave]);
+  }, [existingRackId, rackSettings, rackMiners, totalSlots, activeAssignments, saveRack, onSave]);
 
   if (!show) return null;
 
