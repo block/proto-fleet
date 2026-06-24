@@ -170,21 +170,10 @@ groups:
       - uid: protofleet-ingest-stalled
         title: Metric Ingest Stalled
         condition: B
-        # Edge cases:
-        #   - Fresh deploy with no samples ever emitted → the inner
-        #     SELECT returns no orgs; Grafana falls through to
-        #     noDataState=Alerting and emits an unscoped instance.
-        #     That's acceptable; "no org is emitting metrics yet" is
-        #     fundamentally global.
-        #   - Ingest stalled globally for >24h → ditto: every active
-        #     org ages out of the inner SELECT, the query returns no
-        #     rows, noDataState=Alerting fires a single global alert.
-        #     By that point operators have had 24h of per-org alerts
-        #     and this fallback is informational.
-        #   - Heartbeat lag: the aggregate refreshes every 30s with a
-        #     1m end_offset, so observed staleness can run up to ~1.5m
-        #     ahead of true ingest staleness. The 5m threshold and 5m
-        #     `for` clause absorb that lag.
+        # Edge cases (full rationale in commit/PR):
+        # Fresh install / no paired miners: UNION ALL sentinel returns a healthy row so noData can't fire.
+        # Ingest stalled >24h: older rows remain in retention, sentinel suppressed, noData fires as before.
+        # Heartbeat lag (~1.5m from 30s refresh + 1m end_offset) is absorbed by the 5m threshold and 5m `for`.
         data:
           - refId: A
             relativeTimeRange:
@@ -201,6 +190,10 @@ groups:
                 FROM fleet_telemetry_poll_heartbeat
                 WHERE bucket > NOW() - INTERVAL '24 hours'
                 GROUP BY organization_id
+                UNION ALL
+                -- Fresh install / no paired miners: nothing ever ingested, so emit a healthy sentinel instead of tripping noData.
+                SELECT '', 0::float8
+                WHERE NOT EXISTS (SELECT 1 FROM fleet_telemetry_poll_heartbeat)
           - refId: B
             datasourceUid: __expr__
             model:
