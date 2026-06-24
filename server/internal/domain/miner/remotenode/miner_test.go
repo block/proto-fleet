@@ -106,16 +106,24 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 					URL:      "stratum+tcp://pool2.example.com:3333",
 					Username: "worker2",
 				},
+				Backup2Pool: &dto.MiningPool{
+					Priority: 3,
+					URL:      "stratum+tcp://pool4.example.com:3333",
+					Username: "worker4",
+				},
 			})
 		}, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			pools := mc.GetUpdateMiningPools().GetPools()
-			require.Len(t, pools, 2)
+			require.Len(t, pools, 3)
 			assert.Equal(t, int32(0), pools[0].GetPriority())
 			assert.Equal(t, "stratum+tcp://pool1.example.com:3333", pools[0].GetUrl())
 			assert.Equal(t, "worker1", pools[0].GetUsername())
 			assert.Equal(t, int32(1), pools[1].GetPriority())
 			assert.Equal(t, "stratum+tcp://pool2.example.com:3333", pools[1].GetUrl())
 			assert.Equal(t, "worker2", pools[1].GetUsername())
+			assert.Equal(t, int32(3), pools[2].GetPriority())
+			assert.Equal(t, "stratum+tcp://pool4.example.com:3333", pools[2].GetUrl())
+			assert.Equal(t, "worker4", pools[2].GetUsername())
 		}},
 	}
 	for _, tc := range cases {
@@ -168,7 +176,7 @@ func TestMiner_GetMiningPools_DecodesPayload(t *testing.T) {
 	assert.NotNil(t, decodeSent(t, s).GetGetMiningPools())
 }
 
-func TestMiner_GetMiningPools_MissingPayloadReturnsInternal(t *testing.T) {
+func TestMiner_GetMiningPools_EmptyPayloadReturnsEmptyList(t *testing.T) {
 	// Arrange
 	m := newTestMiner(t, okSender())
 
@@ -176,9 +184,25 @@ func TestMiner_GetMiningPools_MissingPayloadReturnsInternal(t *testing.T) {
 	pools, err := m.GetMiningPools(context.Background())
 
 	// Assert
+	require.NoError(t, err)
+	assert.Empty(t, pools)
+}
+
+func TestMiner_GetMiningPools_MalformedPayloadReturnsInternal(t *testing.T) {
+	// Arrange
+	m := newTestMiner(t, &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   []byte{0xff},
+	}})
+
+	// Act
+	pools, err := m.GetMiningPools(context.Background())
+
+	// Assert
 	require.Error(t, err)
 	assert.Nil(t, pools)
-	assert.Contains(t, err.Error(), "returned no payload")
+	assert.Contains(t, err.Error(), "unmarshal get mining pools result")
 }
 
 func TestMiner_UpdateMiningPools_RejectsPriorityBeyondSDKRange(t *testing.T) {

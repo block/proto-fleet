@@ -306,9 +306,6 @@ func (m *Miner) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfigure
 	if err := ackToError(ack); err != nil {
 		return nil, err
 	}
-	if len(ack.GetPayload()) == 0 {
-		return nil, fleeterror.NewInternalErrorf("fleet node get mining pools returned no payload")
-	}
 
 	var result gatewaypb.GetMiningPoolsResult
 	if err := proto.Unmarshal(ack.GetPayload(), &result); err != nil {

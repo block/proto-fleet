@@ -702,7 +702,7 @@ func (es *ExecutionService) reapplyCurrentPoolsWithDesiredWorkerName(
 
 	currentPools, err := minerInfo.GetMiningPools(ctx)
 	if err != nil {
-		return dto.UpdateMiningPoolsPayload{}, "", false, fleeterror.NewInternalErrorf("failed to read current mining pools for worker-name reapply: %v", err)
+		return dto.UpdateMiningPoolsPayload{}, "", false, err
 	}
 	if len(currentPools) == 0 {
 		return dto.UpdateMiningPoolsPayload{}, desiredWorkerName, false, nil

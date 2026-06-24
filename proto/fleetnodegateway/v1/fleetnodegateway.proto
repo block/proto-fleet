@@ -284,7 +284,7 @@ message SetPowerTargetAction {
 }
 
 message MiningPoolConfig {
-    int32 priority = 1 [(buf.validate.field).int32 = {gte: 0, lte: 2}];
+    int32 priority = 1 [(buf.validate.field).int32.gte = 0];
     string url = 2 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
     string username = 3 [(buf.validate.field).string.max_len = 512];
 }
