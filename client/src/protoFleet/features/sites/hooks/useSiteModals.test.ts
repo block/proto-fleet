@@ -177,7 +177,7 @@ describe("useSiteModals", () => {
       create(AssignBuildingsToSiteResponseSchema, { reassignedRackCount: 0n, reassignedDeviceCount: 0n }),
     );
     const refetchSites = vi.fn();
-    const { result } = renderHook(() => useSiteModals({ refetchSites }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites }), { wrapper });
     act(() => result.current.openCreate());
     act(() => result.current.detailsContinueCreate({ ...emptySiteFormValues(), name: "North DC" }));
 

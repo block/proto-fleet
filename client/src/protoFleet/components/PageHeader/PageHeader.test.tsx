@@ -30,8 +30,9 @@ vi.mock("@/protoFleet/api/sites", () => ({
   useSites: () => ({
     listSites: mockListSites,
   }),
-  // SitePicker imports this; stub keeps the picker from throwing.
+  // SitePicker imports these; stubs keep the picker from throwing.
   buildKnownSiteIds: () => new Set<string>(),
+  buildSiteSlugById: () => new Map<string, string>(),
 }));
 
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
