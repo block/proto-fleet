@@ -99,7 +99,7 @@ func TestHandleMinerCommand_DecryptsTargetCredential(t *testing.T) {
 		})
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: codec}
 	ack := &captureAcker{}
-	mc := withTarget(&pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}}})
+	mc := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}})
 	mc.Target.CredentialUsername = encrypted.GetUsername()
 	mc.Target.CredentialPassword = encrypted.GetPassword()
 
@@ -118,7 +118,7 @@ func TestHandleMinerCommand_InvalidTargetCredentialAcksUnauthenticated(t *testin
 		minerSecrets: &credentialCodec{key: bytes.Repeat([]byte{3}, credentialKeySize)},
 	}
 	ack := &captureAcker{}
-	mc := withTarget(&pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}}})
+	mc := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}})
 	mc.Target.CredentialUsername = []byte("not-a-valid-credential")
 	mc.Target.CredentialPassword = []byte("not-a-valid-credential")
 
@@ -143,7 +143,7 @@ func TestHandleMinerCommand_WrongKeyTargetCredentialAcksUnauthenticated(t *testi
 		minerSecrets: &credentialCodec{key: bytes.Repeat([]byte{5}, credentialKeySize)},
 	}
 	ack := &captureAcker{}
-	mc := withTarget(&pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}}})
+	mc := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}})
 	mc.Target.CredentialUsername = encrypted.GetUsername()
 	mc.Target.CredentialPassword = encrypted.GetPassword()
 

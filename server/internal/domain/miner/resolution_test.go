@@ -10,7 +10,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
-	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -29,10 +28,10 @@ func (f *fakeCommandSender) SendCommand(_ context.Context, _ int64, cmd *gateway
 	return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}, nil
 }
 
-func sentMinerCommand(t *testing.T, sender *fakeCommandSender) *pairingpb.MinerCommand {
+func sentMinerCommand(t *testing.T, sender *fakeCommandSender) *gatewaypb.MinerCommand {
 	t.Helper()
 	require.NotNil(t, sender.cmd)
-	var env pairingpb.AgentCommand
+	var env gatewaypb.AgentCommand
 	require.NoError(t, proto.Unmarshal(sender.cmd.GetPayload(), &env))
 	require.NotNil(t, env.GetMinerCommand())
 	return env.GetMinerCommand()
