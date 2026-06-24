@@ -171,7 +171,8 @@ groups:
         title: Metric Ingest Stalled
         condition: B
         # Edge cases (full rationale in commit/PR):
-        # No paired miners: UNION ALL sentinel returns a healthy row so noData can't fire on a fresh install.
+        # Per-org: only orgs with current pollable miners are evaluated, so removing an org's miners stops its stale heartbeat from firing.
+        # No pollable miners anywhere: UNION ALL sentinel returns a healthy row so noData can't fire on a fresh/emptied fleet.
         # Paired miners but ingest broken (cold-start or >24h stall): no sentinel, empty heartbeat falls through to noData=Alerting.
         # Heartbeat lag (~1.5m from 30s refresh + 1m end_offset) is absorbed by the 5m threshold and 5m `for`.
         data:
@@ -185,15 +186,17 @@ groups:
               format: table
               rawSql: |
                 SELECT
-                    organization_id,
-                    extract(epoch from now() - max(bucket))::float8 AS staleness_seconds
-                FROM fleet_telemetry_poll_heartbeat
-                WHERE bucket > NOW() - INTERVAL '24 hours'
-                GROUP BY organization_id
+                    h.organization_id,
+                    extract(epoch from now() - max(h.bucket))::float8 AS staleness_seconds
+                FROM fleet_telemetry_poll_heartbeat h
+                WHERE h.bucket > NOW() - INTERVAL '24 hours'
+                    -- Skip orgs with no current pollable miners so their stale buckets can't fire for up to 24h after removal.
+                    AND h.organization_id IN (SELECT organization_id FROM fleet_pollable_device_presence)
+                GROUP BY h.organization_id
                 UNION ALL
-                -- No paired miners: nothing to ingest, so emit a healthy sentinel instead of tripping noData.
+                -- No pollable miners anywhere: nothing to ingest, so emit a healthy sentinel instead of tripping noData.
                 SELECT '', 0::float8
-                WHERE NOT (SELECT has_pollable_device FROM fleet_pollable_device_presence)
+                WHERE NOT EXISTS (SELECT 1 FROM fleet_pollable_device_presence)
           - refId: B
             datasourceUid: __expr__
             model:

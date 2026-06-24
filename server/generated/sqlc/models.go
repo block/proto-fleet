@@ -832,7 +832,7 @@ type FleetNodeSession struct {
 }
 
 type FleetPollableDevicePresence struct {
-	HasPollableDevice bool
+	OrganizationID string
 }
 
 type FleetTelemetryPollHeartbeat struct {
