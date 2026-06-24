@@ -2055,6 +2055,15 @@ func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, coll
 	// lockstep; its IS-DISTINCT-FROM-guarded queries no-op the column that
 	// didn't change, so cascadeCount stays accurate.
 	if len(deviceIdentifiers) > 0 {
+		// Clear any prior rack membership for these devices (excluding this
+		// rack) before adding them, so a device seeded from another rack
+		// MOVES here instead of tripping idx_one_rack_per_device. Mirrors
+		// AssignDevicesToRack's move semantics within the same transaction —
+		// no orphan window. A no-op for the edit flow, which never sends
+		// devices already sitting in a different rack.
+		if _, err := s.collectionStore.RemoveDevicesFromAnyRack(ctx, orgID, deviceIdentifiers, collectionID); err != nil {
+			return out, err
+		}
 		if _, err := s.collectionStore.AddDevicesToCollection(ctx, orgID, collectionID, deviceIdentifiers); err != nil {
 			return out, err
 		}

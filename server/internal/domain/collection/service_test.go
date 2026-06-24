@@ -1032,6 +1032,7 @@ func TestService_SaveRack_CreateNewRack(t *testing.T) {
 	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).
 		Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, int64(10)).Return(int64(0), nil)
+	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(10)).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, int64(10), deviceIDs).Return(int64(2), nil)
 	// A rack ALWAYS dictates member placement now — a site-less rack
 	// cascades nil/nil, stripping any member's direct site/building to
@@ -1088,6 +1089,7 @@ func TestService_SaveRack_UpdateExistingRack(t *testing.T) {
 	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, "Building A", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).Return(nil)
 	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Nil(), gomock.Nil(), "Building A").Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(2), nil)
+	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, collectionID).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
 	// Site-less rack now cascades nil/nil unconditionally — members can't
 	// keep a direct site/building the rack lacks.
@@ -1315,6 +1317,7 @@ func TestService_SaveRack_StoreErrorRollsBack(t *testing.T) {
 	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).
 		Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, int64(10)).Return(int64(0), nil)
+	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(10)).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, int64(10), deviceIDs).
 		Return(int64(0), fleeterror.NewInternalError("database error"))
 
@@ -1559,6 +1562,7 @@ func TestService_SaveRack_MoveBetweenBuildingsCascadesSite(t *testing.T) {
 	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newSiteID), gomock.Eq(&newBuilding), "").Return(nil)
 
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(1), nil)
+	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, collectionID).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
 	// Single cascade after membership replace: captures per-device
 	// priors on the FINAL member set, then rewrites differing devices.

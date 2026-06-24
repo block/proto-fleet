@@ -172,7 +172,7 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
             void assignDevicesToBuilding({
               targetBuildingId: building.id,
               deviceIdentifiers: seed.minerIds,
-              forceClearConflictingRackMembership: true,
+              forceClearConflictingRackMembership: seed.forceClearRackMembership ?? false,
               onSuccess: () => resolve(),
               onError: (msg) => {
                 pushToast({ message: `Building created, but adding miners failed: ${msg}`, status: STATUSES.error });
@@ -282,7 +282,7 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
             void assignDevicesToSite({
               targetSiteId: site.id,
               deviceIdentifiers: seed.minerIds,
-              forceClearConflictingRackMembership: true,
+              forceClearConflictingRackMembership: seed.forceClearRackMembership ?? false,
               onSuccess: () => resolve(),
               onError: (msg) => {
                 pushToast({ message: `Site created, but adding miners failed: ${msg}`, status: STATUSES.error });
@@ -336,7 +336,7 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
         <Dialog
           open
           title="Move selected miners to a new rack?"
-          subtitle={`${rackConflictSeed.conflictCount} of the selected miners are currently in a site, building, or rack. A new rack has no site, so continuing will clear those placements.`}
+          subtitle={`${rackConflictSeed.conflictCount} of the selected miners are already in a rack, building, or site. Creating this rack will move them into it and clear their previous placement.`}
           onDismiss={() => setRackConflictSeed(null)}
           buttons={[
             { text: "Cancel", variant: variants.secondary, onClick: () => setRackConflictSeed(null) },

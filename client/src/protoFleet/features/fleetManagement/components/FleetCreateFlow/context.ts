@@ -24,6 +24,11 @@ export interface BuildingCreateSeed {
   // mirroring the reparent flow. The call site computes it from data it
   // already holds (rack.buildingId, miner snapshots).
   conflictCount?: number;
+  // Whether the seeded miners include any currently in a rack. Only then is
+  // forceClearConflictingRackMembership set on the device assignment — the
+  // server requires rack:manage when that flag is on, so leaving it false for
+  // rack-less miners lets a site/building-only operator complete the flow.
+  forceClearRackMembership?: boolean;
 }
 
 export interface SiteCreateSeed {
@@ -34,6 +39,8 @@ export interface SiteCreateSeed {
   rackIds: bigint[];
   minerIds: string[];
   conflictCount?: number;
+  // See BuildingCreateSeed.forceClearRackMembership.
+  forceClearRackMembership?: boolean;
 }
 
 export interface FleetCreateFlowContextValue {

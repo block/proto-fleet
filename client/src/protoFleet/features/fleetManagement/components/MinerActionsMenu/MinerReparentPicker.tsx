@@ -695,6 +695,11 @@ const MinerReparentPicker = ({
     if (!resolved) return;
     const { ids, snapshots } = resolved;
     onClose();
+    // Whether any selected miner is in a rack — gates the device assignment's
+    // forceClearConflictingRackMembership (which the server treats as a
+    // rack:manage action). Rack-less miners leave it off so site/building-only
+    // operators aren't blocked.
+    const racked = !!snapshots && ids.some((id) => !!snapshots[id] && !!getMinerRackLabel(snapshots[id]));
     if (kind === "rack") {
       createFlow.launchCreateRack({ minerIds: ids, conflictCount: countMinersWithParent(ids, snapshots, "rack") });
     } else if (kind === "building") {
@@ -702,6 +707,7 @@ const MinerReparentPicker = ({
         rackIds: [],
         minerIds: ids,
         conflictCount: countMinersWithParent(ids, snapshots, "building"),
+        forceClearRackMembership: racked,
       });
     } else {
       createFlow.launchCreateSite({
@@ -709,6 +715,7 @@ const MinerReparentPicker = ({
         rackIds: [],
         minerIds: ids,
         conflictCount: countMinersWithParent(ids, snapshots, "site"),
+        forceClearRackMembership: racked,
       });
     }
   };
