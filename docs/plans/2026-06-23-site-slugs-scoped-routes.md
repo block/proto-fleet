@@ -17,10 +17,12 @@ user-visible scoped routes to use it (`/{siteSlug}/dashboard`, `/{siteSlug}/flee
 mutation — the slug is a URL-only alias that the client resolves back to a
 numeric id at the route boundary.
 
-For v1 slugs are **auto-generated and immutable** (not user-editable), which
-removes the need for redirect/history tracking. Multi-site is **not live yet**,
-so there are no production sites to backfill and no live numeric-scoped URLs to
-preserve — the numeric route shape from #516 is simply replaced, not redirected.
+For v1 slugs are **auto-generated and not user-editable**, but they **track the
+site name**: renaming a site regenerates its slug (an edit that leaves the name
+unchanged keeps the slug stable). There is no slug-change redirect/history
+tracking. Multi-site is **not live yet**, so there are no production sites to
+backfill and no live numeric-scoped URLs to preserve — the numeric route shape
+from #516 is simply replaced, not redirected.
 
 This is a sub-workstream of [Multi-site support](2026-05-05-multi-site-support-plan.md).
 
@@ -37,7 +39,8 @@ This is a sub-workstream of [Multi-site support](2026-05-05-multi-site-support-p
 
 ## Non-goals
 
-- User-editable slugs, slug history, or slug-change redirects. (v1 = immutable.)
+- User-editable slugs, slug history, or slug-change redirects. (Slugs are not
+  user-editable and regenerate on rename; old slugs are not preserved.)
 - Migrating mutations/filters off numeric `site_id` to slug.
 - Scoped *detail* routes like `/{siteSlug}/sites/:slug`. The issue is explicit:
   do not nest site detail under a scope.
@@ -50,10 +53,14 @@ This is a sub-workstream of [Multi-site support](2026-05-05-multi-site-support-p
 
 ## Key decisions (call out for review)
 
-1. **Immutable slug for v1.** Auto-generated at create, never editable.
-   Rationale: the issue says slugs "do not need to be editable by the user for
-   v1", and immutability removes the entire redirect/history surface. A future
-   issue can add rename + 301 history if operators ask.
+1. **Slug is not user-editable, but tracks the site name.** Auto-generated at
+   create; regenerated from the name on a rename; stable across edits that don't
+   change the name. Rationale: the issue says slugs "do not need to be editable
+   by the user for v1", but a frozen slug would drift from a renamed site
+   (rename "North DC" → slug stays `north-dc`), which is confusing. Regenerating
+   on rename keeps the URL legible without exposing a slug field to the user. No
+   old-slug redirect/history surface (multi-site isn't live; no links to break).
+   A future issue can add slug-change 301 history if operators ask.
 2. **Slug is a read-only proto field for v1.** `Site.slug` is populated by the
    server; `CreateSiteRequest`/`UpdateSiteRequest` do **not** accept a slug.
    This keeps the API contract minimal and avoids client-side validation/
@@ -180,8 +187,12 @@ Down migration drops the index and the column. Follow the
   org's live slugs in the same transaction that holds `LockSiteForWrite`-style
   serialization; map the `uk_site_org_slug` unique-violation to a retry/suffix
   bump (belt-and-suspenders against a race).
-- `UpdateSite`: leave slug untouched (immutable). Renaming a site does **not**
-  change its slug — document this in the handler comment so it's intentional.
+- `UpdateSite`: read the current row; if the name is unchanged, carry the
+  existing slug through untouched (no churn on unrelated edits). If the name
+  changed, regenerate the slug from the new name — building the used-slug set
+  from the org's live slugs **excluding this site's own current slug** (so a
+  rename can re-derive the same/shorter base) — with the same
+  `uk_site_org_slug` collision retry/suffix loop as `CreateSite`.
 
 ### Translate (`server/internal/handlers/sites/translate.go`)
 - `toProtoSite`: copy `site.Slug` into the proto.

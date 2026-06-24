@@ -117,8 +117,13 @@ WHERE org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
 -- name: UpdateSite :exec
+-- The slug is not user-editable but tracks the name: the service regenerates
+-- it on a rename and re-sends the unchanged slug otherwise. A slug
+-- unique-violation (uk_site_org_slug) maps to a collision sentinel so the
+-- service can retry with the next suffix, mirroring CreateSite.
 UPDATE site
 SET name              = sqlc.arg('name'),
+    slug              = sqlc.arg('slug'),
     location_city     = sqlc.narg('location_city'),
     location_state    = sqlc.narg('location_state'),
     timezone          = sqlc.narg('timezone'),

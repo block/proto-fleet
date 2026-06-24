@@ -1065,23 +1065,25 @@ func (q *Queries) UnassignRacksFromSite(ctx context.Context, arg UnassignRacksFr
 const updateSite = `-- name: UpdateSite :exec
 UPDATE site
 SET name              = $1,
-    location_city     = $2,
-    location_state    = $3,
-    timezone          = $4,
-    power_capacity_mw = $5,
-    network_config    = $6,
-    address           = $7,
-    postal_code       = $8,
-    country           = COALESCE($9::text, country),
-    notes             = $10,
+    slug              = $2,
+    location_city     = $3,
+    location_state    = $4,
+    timezone          = $5,
+    power_capacity_mw = $6,
+    network_config    = $7,
+    address           = $8,
+    postal_code       = $9,
+    country           = COALESCE($10::text, country),
+    notes             = $11,
     updated_at        = CURRENT_TIMESTAMP
-WHERE id = $11
-  AND org_id = $12
+WHERE id = $12
+  AND org_id = $13
   AND deleted_at IS NULL
 `
 
 type UpdateSiteParams struct {
 	Name            string
+	Slug            string
 	LocationCity    sql.NullString
 	LocationState   sql.NullString
 	Timezone        sql.NullString
@@ -1095,9 +1097,14 @@ type UpdateSiteParams struct {
 	OrgID           int64
 }
 
+// The slug is not user-editable but tracks the name: the service regenerates
+// it on a rename and re-sends the unchanged slug otherwise. A slug
+// unique-violation (uk_site_org_slug) maps to a collision sentinel so the
+// service can retry with the next suffix, mirroring CreateSite.
 func (q *Queries) UpdateSite(ctx context.Context, arg UpdateSiteParams) error {
 	_, err := q.exec(ctx, q.updateSiteStmt, updateSite,
 		arg.Name,
+		arg.Slug,
 		arg.LocationCity,
 		arg.LocationState,
 		arg.Timezone,

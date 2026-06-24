@@ -1165,12 +1165,17 @@ func TestUpdateSite_canonicalizesAndPersists(t *testing.T) {
 	svc := NewService(store, nil, nil, nil, nil, tx, nil)
 
 	store.EXPECT().ListAllSiteNetworkConfigs(gomock.Any(), testOrgID, int64(11)).Return(nil, nil)
+	store.EXPECT().GetSite(gomock.Any(), testOrgID, int64(11)).Return(&models.Site{ID: 11, Name: "alpha", Slug: "alpha"}, nil)
 	store.EXPECT().UpdateSite(gomock.Any(), gomock.AssignableToTypeOf(models.UpdateSiteParams{})).
 		DoAndReturn(func(_ context.Context, p models.UpdateSiteParams) (*models.Site, error) {
 			if p.NetworkConfig != "10.0.0.0/24" {
 				return nil, errors.New("expected canonical, got " + p.NetworkConfig)
 			}
-			return &models.Site{ID: p.ID, Name: p.Name, NetworkConfig: p.NetworkConfig}, nil
+			// Name unchanged → existing slug carried through, not regenerated.
+			if p.Slug != "alpha" {
+				return nil, errors.New("expected slug alpha, got " + p.Slug)
+			}
+			return &models.Site{ID: p.ID, Name: p.Name, Slug: p.Slug, NetworkConfig: p.NetworkConfig}, nil
 		})
 
 	out, err := svc.UpdateSite(context.Background(), models.UpdateSiteParams{
@@ -1194,6 +1199,7 @@ func TestUpdateSite_excludesSelfFromOverlapWarnings(t *testing.T) {
 	svc := NewService(store, nil, nil, nil, nil, tx, nil)
 
 	store.EXPECT().ListAllSiteNetworkConfigs(gomock.Any(), testOrgID, int64(11)).Return(nil, nil)
+	store.EXPECT().GetSite(gomock.Any(), testOrgID, int64(11)).Return(&models.Site{ID: 11, Name: "alpha", Slug: "alpha"}, nil)
 	store.EXPECT().UpdateSite(gomock.Any(), gomock.Any()).Return(&models.Site{ID: 11}, nil)
 
 	out, err := svc.UpdateSite(context.Background(), models.UpdateSiteParams{
@@ -1219,6 +1225,7 @@ func TestUpdateSite_overlapWithDifferentSiteSurfacesWarning(t *testing.T) {
 	store.EXPECT().ListAllSiteNetworkConfigs(gomock.Any(), testOrgID, int64(11)).Return([]models.SiteNetworkConfigEntry{
 		{ID: 99, Name: "siteB", NetworkConfig: "10.0.0.0/22"},
 	}, nil)
+	store.EXPECT().GetSite(gomock.Any(), testOrgID, int64(11)).Return(&models.Site{ID: 11, Name: "siteA", Slug: "sitea"}, nil)
 	store.EXPECT().UpdateSite(gomock.Any(), gomock.Any()).Return(&models.Site{ID: 11}, nil)
 
 	out, err := svc.UpdateSite(context.Background(), models.UpdateSiteParams{
@@ -1250,6 +1257,68 @@ func TestUpdateSite_invalidNetworkConfigBlocksWrite(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected validation error, got nil")
+	}
+}
+
+func TestUpdateSite_regeneratesSlugOnRename(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+
+	store.EXPECT().GetSite(gomock.Any(), testOrgID, int64(11)).Return(&models.Site{ID: 11, Name: "North DC", Slug: "north-dc"}, nil)
+	// Another live site already owns "south-dc", so the rename must take the
+	// next suffix. The renamed site's own slug is excluded from the used set.
+	store.EXPECT().ListSiteSlugs(gomock.Any(), testOrgID).Return([]string{"north-dc", "south-dc"}, nil)
+	store.EXPECT().UpdateSite(gomock.Any(), gomock.AssignableToTypeOf(models.UpdateSiteParams{})).
+		DoAndReturn(func(_ context.Context, p models.UpdateSiteParams) (*models.Site, error) {
+			if p.Slug != "south-dc-2" {
+				return nil, errors.New("expected regenerated slug south-dc-2, got " + p.Slug)
+			}
+			return &models.Site{ID: p.ID, Name: p.Name, Slug: p.Slug}, nil
+		})
+
+	out, err := svc.UpdateSite(context.Background(), models.UpdateSiteParams{
+		OrgID: testOrgID,
+		ID:    11,
+		Name:  "South DC",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.Site.Slug != "south-dc-2" {
+		t.Fatalf("expected regenerated slug to round-trip, got %q", out.Site.Slug)
+	}
+}
+
+func TestUpdateSite_renameReusesOwnSlugBase(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, nil, nil, nil, nil, tx, nil)
+
+	store.EXPECT().GetSite(gomock.Any(), testOrgID, int64(11)).Return(&models.Site{ID: 11, Name: "North DC", Slug: "north-dc"}, nil)
+	// Only this site's own slug is in use, so a rename whose base differs can
+	// take the clean base without a suffix (own slug excluded from used set).
+	store.EXPECT().ListSiteSlugs(gomock.Any(), testOrgID).Return([]string{"north-dc"}, nil)
+	store.EXPECT().UpdateSite(gomock.Any(), gomock.AssignableToTypeOf(models.UpdateSiteParams{})).
+		DoAndReturn(func(_ context.Context, p models.UpdateSiteParams) (*models.Site, error) {
+			if p.Slug != "west-dc" {
+				return nil, errors.New("expected slug west-dc, got " + p.Slug)
+			}
+			return &models.Site{ID: p.ID, Name: p.Name, Slug: p.Slug}, nil
+		})
+
+	out, err := svc.UpdateSite(context.Background(), models.UpdateSiteParams{
+		OrgID: testOrgID,
+		ID:    11,
+		Name:  "West DC",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.Site.Slug != "west-dc" {
+		t.Fatalf("expected slug west-dc, got %q", out.Site.Slug)
 	}
 }
 

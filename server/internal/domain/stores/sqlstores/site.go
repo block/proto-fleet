@@ -151,6 +151,7 @@ func (s *SQLSiteStore) UpdateSite(ctx context.Context, params models.UpdateSiteP
 	q := s.GetQueries(ctx)
 	if err := q.UpdateSite(ctx, sqlc.UpdateSiteParams{
 		Name:            params.Name,
+		Slug:            params.Slug,
 		LocationCity:    emptyToNullString(params.LocationCity),
 		LocationState:   emptyToNullString(params.LocationState),
 		Timezone:        emptyToNullString(params.Timezone),
@@ -163,6 +164,9 @@ func (s *SQLSiteStore) UpdateSite(ctx context.Context, params models.UpdateSiteP
 		ID:              params.ID,
 		OrgID:           params.OrgID,
 	}); err != nil {
+		if isUniqueViolationOn(err, "uk_site_org_slug") {
+			return nil, models.ErrSiteSlugCollision
+		}
 		if isUniqueViolation(err) {
 			return nil, fleeterror.NewPlainError("a site with this name already exists", connect.CodeAlreadyExists).WithCallerStackTrace()
 		}

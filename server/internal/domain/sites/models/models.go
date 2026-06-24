@@ -59,9 +59,13 @@ type CreateSiteParams struct {
 
 // UpdateSiteParams is the input shape for the Update flow.
 type UpdateSiteParams struct {
-	OrgID           int64
-	ID              int64
-	Name            string
+	OrgID int64
+	ID    int64
+	Name  string
+	// Slug is populated by the service layer (regenerated from Name on a
+	// rename, carried through unchanged otherwise); it is never taken from
+	// the API request.
+	Slug            string
 	LocationCity    string
 	LocationState   string
 	Timezone        string
