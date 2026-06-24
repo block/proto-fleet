@@ -254,6 +254,12 @@ const DeviceSetActionsMenuInner = ({
     () => memberDeviceIds.map((id) => ({ deviceIdentifier: id })),
     [memberDeviceIds],
   );
+  const scopedActionsRef = useRef<BulkAction<DeviceSetActionType>[]>([]);
+  const [showWarnDialog, setShowWarnDialog] = useState(false);
+  const [pendingScopedAction, setPendingScopedAction] = useState<BulkAction<DeviceSetActionType> | null>(null);
+  const [pendingUnsupportedContinuation, setPendingUnsupportedContinuation] = useState<{
+    continueAction: () => void;
+  } | null>(null);
 
   const {
     currentAction,
@@ -297,6 +303,16 @@ const DeviceSetActionsMenuInner = ({
     removeDevicesFromBatch: batchOps.removeDevicesFromBatch,
     miners: fetchedMiners,
     onActionComplete,
+    onUnsupportedMinersContinue: ({ action, continueAction }) => {
+      if (!isScopedGroupAction) return false;
+      const scopedAction = scopedActionsRef.current.find((candidate) => candidate.action === action);
+      if (!scopedAction?.requiresConfirmation || !scopedAction.confirmation) return false;
+
+      setPendingScopedAction(scopedAction);
+      setPendingUnsupportedContinuation({ continueAction });
+      setShowWarnDialog(true);
+      return true;
+    },
   });
 
   // Keep actionActiveRef in sync so the parent can pause polling during action flows
@@ -360,9 +376,6 @@ const DeviceSetActionsMenuInner = ({
     return selectedMinersWithStatus;
   }, [poolFilteredDeviceIds, selectedMinersWithStatus]);
 
-  const [showWarnDialog, setShowWarnDialog] = useState(false);
-  const [pendingScopedAction, setPendingScopedAction] = useState<BulkAction<DeviceSetActionType> | null>(null);
-
   const scopedActionSummary = useMemo(() => {
     if (!isScopedGroupAction) return "";
     const scopedCount = memberDeviceIds.length;
@@ -408,6 +421,14 @@ const DeviceSetActionsMenuInner = ({
   }, []);
 
   const handleDialogConfirm = useCallback(() => {
+    if (pendingUnsupportedContinuation) {
+      const { continueAction } = pendingUnsupportedContinuation;
+      setPendingUnsupportedContinuation(null);
+      setPendingScopedAction(null);
+      setShowWarnDialog(false);
+      continueAction();
+      return;
+    }
     if (pendingScopedAction) {
       const action = pendingScopedAction;
       setPendingScopedAction(null);
@@ -417,9 +438,10 @@ const DeviceSetActionsMenuInner = ({
     }
     setShowWarnDialog(false);
     handleConfirmation();
-  }, [handleConfirmation, pendingScopedAction]);
+  }, [handleConfirmation, pendingScopedAction, pendingUnsupportedContinuation]);
 
   const handleDialogCancel = useCallback(() => {
+    setPendingUnsupportedContinuation(null);
     setPendingScopedAction(null);
     setShowWarnDialog(false);
     handleCancel();
@@ -470,7 +492,12 @@ const DeviceSetActionsMenuInner = ({
     });
   }, [groupPopoverActions, isScopedGroupAction, memberDeviceIds.length, scopedActionSubtitle, siteScopeLabel]);
 
-  // Prevent confirmation dialog flash when continuing from unsupported miners modal
+  useEffect(() => {
+    scopedActionsRef.current = scopedGroupPopoverActions;
+  }, [scopedGroupPopoverActions]);
+
+  // Keep the base confirmation hidden while the unsupported-miners modal is active.
+  // Scoped unsupported continuations can re-open the scoped confirmation after Continue.
   const handleUnsupportedMinersContinueWithReset = useCallback(() => {
     setShowWarnDialog(false);
     handleUnsupportedMinersContinue();

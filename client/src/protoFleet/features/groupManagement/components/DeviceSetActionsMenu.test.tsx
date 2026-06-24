@@ -99,7 +99,26 @@ vi.mock("@/protoFleet/features/fleetManagement/components/BulkActions", () => ({
 }));
 
 vi.mock("@/protoFleet/features/fleetManagement/components/BulkActions/BulkActionConfirmDialog", () => ({
-  default: () => null,
+  default: ({
+    open,
+    actionConfirmation,
+    onConfirmation,
+    onCancel,
+    testId,
+  }: {
+    open: boolean;
+    actionConfirmation: { subtitle?: string };
+    onConfirmation: () => void;
+    onCancel: () => void;
+    testId: string;
+  }) =>
+    open ? (
+      <div data-testid={testId}>
+        <p>{actionConfirmation.subtitle}</p>
+        <button onClick={onConfirmation}>Confirm</button>
+        <button onClick={onCancel}>Cancel</button>
+      </div>
+    ) : null,
 }));
 
 vi.mock("@/protoFleet/features/fleetManagement/components/BulkActions/UnsupportedMinersModal", () => ({
@@ -364,6 +383,71 @@ describe("DeviceSetActionsMenu", () => {
     };
     const sleepAction = latestCall.actions.find((action) => action.action === "shutdown");
     expect(sleepAction?.confirmation?.subtitle).toBe("These miners will go to sleep and stop hashing.");
+  });
+
+  it("chains scoped confirmation after unsupported miners continuation", async () => {
+    mockUseMinerActions.mockReturnValue({
+      ...defaultMinerActions(),
+      popoverActions: [
+        {
+          action: "shutdown",
+          title: "Sleep",
+          actionHandler: vi.fn(),
+          requiresConfirmation: true,
+          confirmation: {
+            title: "Sleep miners?",
+            subtitle: "These miners will go to sleep and stop hashing.",
+            confirmAction: { title: "Sleep" },
+          },
+        },
+      ],
+    });
+
+    const continueAction = vi.fn();
+    render(
+      <DeviceSetActionsMenu
+        memberDeviceIds={["d1", "d2"]}
+        deviceSetId={1n}
+        onEdit={vi.fn()}
+        activeSite={{ kind: "site", id: "2" }}
+        activeSiteLabel="Site 2"
+        deviceSetLabel="Group A"
+        totalMemberCount={5}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Device set actions"));
+
+    await waitFor(() => {
+      expect(mockBulkActionsPopover).toHaveBeenCalled();
+    });
+
+    const latestHookArgs = mockUseMinerActions.mock.calls[mockUseMinerActions.mock.calls.length - 1]?.[0] as {
+      onUnsupportedMinersContinue: (continuation: {
+        action: string;
+        filteredDeviceIdentifiers: string[];
+        continueAction: () => void;
+      }) => boolean;
+    };
+
+    let handled = false;
+    act(() => {
+      handled = latestHookArgs.onUnsupportedMinersContinue({
+        action: "shutdown",
+        filteredDeviceIdentifiers: ["d1"],
+        continueAction,
+      });
+    });
+
+    expect(handled).toBe(true);
+    expect(continueAction).not.toHaveBeenCalled();
+    expect(screen.getByTestId("group-actions-dialog")).toHaveTextContent(
+      "This action only applies to miners in Site 2, 2 of the 5 miners in Group A will go to sleep and stop hashing.",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    expect(continueAction).toHaveBeenCalledTimes(1);
   });
 
   it("shows loading immediately on open when fresh data is required", () => {
