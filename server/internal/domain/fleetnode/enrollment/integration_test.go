@@ -1,9 +1,11 @@
 package enrollment_test
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -215,6 +217,29 @@ func TestRevokeAgentLocksOutHandshake(t *testing.T) {
 	require.Error(t, handshakeErr, "BeginHandshake must fail with revoked api_key")
 }
 
+func TestRevokeFleetNodeInvalidatesPairedDeviceMiners(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	db, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
+	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
+	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
+	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-invalidate", pubKey)
+	_, _, err := enrollment.Confirm(ctx, agent.ID, orgID)
+	require.NoError(t, err)
+	deviceA := insertFleetNodeDevice(t, db, orgID, agent.ID)
+	deviceB := insertFleetNodeDevice(t, db, orgID, agent.ID)
+	var invalidated []int64
+	enrollment.WithMinerInvalidator(func(_ context.Context, deviceID int64) {
+		invalidated = append(invalidated, deviceID)
+	})
+
+	// Act
+	require.NoError(t, enrollment.RevokeFleetNode(ctx, agent.ID, orgID))
+
+	// Assert
+	require.ElementsMatch(t, []int64{deviceA, deviceB}, invalidated)
+}
+
 func TestConcurrentBeginHandshakesYieldOneChallenge(t *testing.T) {
 	// Arrange
 	ctx := t.Context()
@@ -240,6 +265,27 @@ func TestConcurrentBeginHandshakesYieldOneChallenge(t *testing.T) {
 	var count int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM fleet_node_auth_challenge WHERE fleet_node_id = $1`, agent.ID).Scan(&count))
 	require.Equal(t, 1, count, "concurrent BeginHandshakes for one fleet node must leave exactly one challenge row")
+}
+
+func insertFleetNodeDevice(t *testing.T, db *sql.DB, orgID, fleetNodeID int64) int64 {
+	t.Helper()
+	var ddID int64
+	err := db.QueryRow(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active)
+		VALUES ($1, gen_random_uuid()::text, '10.0.0.1', '80', 'http', 'virtual', TRUE) RETURNING id`, orgID).Scan(&ddID)
+	require.NoError(t, err)
+	var deviceID int64
+	err = db.QueryRow(`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		fmt.Sprintf("enroll-dev-%d", ddID),
+		fmt.Sprintf("aa:bb:ee:00:00:%02x", ddID%256),
+		fmt.Sprintf("enroll-sn-%d", ddID),
+		orgID,
+		ddID,
+	).Scan(&deviceID)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, $3)`, fleetNodeID, deviceID, orgID)
+	require.NoError(t, err)
+	return deviceID
 }
 
 func TestRevokeBeforeConfirmCannotBeResurrected(t *testing.T) {

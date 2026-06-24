@@ -804,6 +804,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listExistingDeviceIdentifiersStmt, err = db.PrepareContext(ctx, listExistingDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListExistingDeviceIdentifiers: %w", err)
 	}
+	if q.listFleetNodeDeviceIDsForRevocationStmt, err = db.PrepareContext(ctx, listFleetNodeDeviceIDsForRevocation); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFleetNodeDeviceIDsForRevocation: %w", err)
+	}
 	if q.listFleetNodeDevicesStmt, err = db.PrepareContext(ctx, listFleetNodeDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodeDevices: %w", err)
 	}
@@ -2610,6 +2613,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listExistingDeviceIdentifiersStmt: %w", cerr)
 		}
 	}
+	if q.listFleetNodeDeviceIDsForRevocationStmt != nil {
+		if cerr := q.listFleetNodeDeviceIDsForRevocationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFleetNodeDeviceIDsForRevocationStmt: %w", cerr)
+		}
+	}
 	if q.listFleetNodeDevicesStmt != nil {
 		if cerr := q.listFleetNodeDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFleetNodeDevicesStmt: %w", cerr)
@@ -3744,6 +3752,7 @@ type Queries struct {
 	listEnabledCurtailmentAutomationRulesByMQTTSourceStmt      *sql.Stmt
 	listEnabledMQTTSourcesStmt                                 *sql.Stmt
 	listExistingDeviceIdentifiersStmt                          *sql.Stmt
+	listFleetNodeDeviceIDsForRevocationStmt                    *sql.Stmt
 	listFleetNodeDevicesStmt                                   *sql.Stmt
 	listFleetNodeDiscoveredDevicesStmt                         *sql.Stmt
 	listFleetNodesForOrganizationStmt                          *sql.Stmt
@@ -4177,6 +4186,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listEnabledCurtailmentAutomationRulesByMQTTSourceStmt:      q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt,
 		listEnabledMQTTSourcesStmt:                                 q.listEnabledMQTTSourcesStmt,
 		listExistingDeviceIdentifiersStmt:                          q.listExistingDeviceIdentifiersStmt,
+		listFleetNodeDeviceIDsForRevocationStmt:                    q.listFleetNodeDeviceIDsForRevocationStmt,
 		listFleetNodeDevicesStmt:                                   q.listFleetNodeDevicesStmt,
 		listFleetNodeDiscoveredDevicesStmt:                         q.listFleetNodeDiscoveredDevicesStmt,
 		listFleetNodesForOrganizationStmt:                          q.listFleetNodesForOrganizationStmt,

@@ -387,6 +387,7 @@ func start(config *Config) error {
 	pairingSvc.WithMinerInvalidator(minerService.InvalidateMiner)
 	pairingSvc.WithOptionsCache(fleetOptionsCache)
 	fleetNodePairingSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
+	fleetNodeEnrollmentSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 
 	// Initialize IP scanner service
 	ipScannerService := ipscanner.NewIPScannerService(

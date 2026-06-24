@@ -130,6 +130,10 @@ func (s *registerFleetNodeStore) DeletePairingsForFleetNode(context.Context, int
 	panic("unexpected DeletePairingsForFleetNode")
 }
 
+func (s *registerFleetNodeStore) ListDeviceIDsForFleetNode(context.Context, int64, int64) ([]int64, error) {
+	panic("unexpected ListDeviceIDsForFleetNode")
+}
+
 func (s *registerFleetNodeStore) DeleteMinerCredentialsForFleetNode(context.Context, int64, int64) (int64, error) {
 	panic("unexpected DeleteMinerCredentialsForFleetNode")
 }
