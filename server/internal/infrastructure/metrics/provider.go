@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/block/proto-fleet/server/internal/domain/notifications"
+	"github.com/block/proto-fleet/server/internal/domain/alerts"
 )
 
 const ServiceName = "proto-fleet-api"
@@ -20,16 +20,16 @@ const maxPostgresBindParameters = 65535
 var maxSamplesPerInsert = maxPostgresBindParameters / columnsPerSample
 
 type Config struct {
-	Enabled         bool                        `help:"Persist Proto Fleet metrics into TimescaleDB for Grafana alerting" default:"false" env:"ENABLED"`
-	FlushInterval   time.Duration               `help:"How often the in-process buffer is flushed to TimescaleDB" default:"5s" env:"FLUSH_INTERVAL"`
-	BufferSize      int                         `help:"Bounded channel size between emit and flush; oldest samples are dropped when full" default:"4096" env:"BUFFER_SIZE"`
-	BatchSize       int                         `help:"Maximum number of samples written per INSERT statement" default:"512" env:"BATCH_SIZE"`
-	RetryBufferSize int                         `help:"Maximum number of samples queued for retry after a failed flush; oldest are dropped when full" default:"8192" env:"RETRY_BUFFER_SIZE"`
-	MaxRetryBackoff time.Duration               `help:"Upper bound on the exponential backoff between retries after a failed flush" default:"1m" env:"MAX_RETRY_BACKOFF"`
-	WebhookToken    string                      `help:"Shared secret required on incoming Alertmanager webhook deliveries as 'Authorization: Bearer <token>'. Configure the same value into Grafana's webhook contact point (authorization_scheme: Bearer, authorization_credentials: <token>). When empty the receiver refuses every request." env:"WEBHOOK_TOKEN"`
-	Grafana         notifications.GrafanaConfig `embed:"" prefix:"grafana-" envprefix:"GRAFANA_"`
+	Enabled         bool                 `help:"Persist Proto Fleet metrics into TimescaleDB for Grafana alerting" default:"false" env:"ENABLED"`
+	FlushInterval   time.Duration        `help:"How often the in-process buffer is flushed to TimescaleDB" default:"5s" env:"FLUSH_INTERVAL"`
+	BufferSize      int                  `help:"Bounded channel size between emit and flush; oldest samples are dropped when full" default:"4096" env:"BUFFER_SIZE"`
+	BatchSize       int                  `help:"Maximum number of samples written per INSERT statement" default:"512" env:"BATCH_SIZE"`
+	RetryBufferSize int                  `help:"Maximum number of samples queued for retry after a failed flush; oldest are dropped when full" default:"8192" env:"RETRY_BUFFER_SIZE"`
+	MaxRetryBackoff time.Duration        `help:"Upper bound on the exponential backoff between retries after a failed flush" default:"1m" env:"MAX_RETRY_BACKOFF"`
+	WebhookToken    string               `help:"Shared secret required on incoming Alertmanager webhook deliveries as 'Authorization: Bearer <token>'. Configure the same value into Grafana's webhook contact point (authorization_scheme: Bearer, authorization_credentials: <token>). When empty the receiver refuses every request." env:"WEBHOOK_TOKEN"`
+	Grafana         alerts.GrafanaConfig `embed:"" prefix:"grafana-" envprefix:"GRAFANA_"`
 
-	NotificationDestinations notifications.DestinationPolicy `embed:"" prefix:"notifications-" envprefix:"NOTIFICATIONS_"`
+	AlertDestinations alerts.DestinationPolicy `embed:""`
 }
 
 type Provider struct {

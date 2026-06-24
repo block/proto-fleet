@@ -50,5 +50,5 @@ type Config struct {
 	Diagnostics    diagnostics.Config           `embed:"" prefix:"diagnostics-" envprefix:"DIAGNOSTICS_"`
 	Files          files.Config                 `embed:"" prefix:"files-" envprefix:"FILES_"`
 	FleetTelemetry fleet_telemetry.Config       `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
-	Metrics        metrics.Config               `embed:"" prefix:"metrics-" envprefix:"FLEET_METRICS_"`
+	Metrics        metrics.Config               `embed:"" prefix:"metrics-" envprefix:"FLEET_ALERTS_"`
 }

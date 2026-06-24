@@ -5,7 +5,7 @@ import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Settings } from
 // Runtime-gated features: an entry tagged with one is shown only when the server
 // reports the feature enabled (see SecondaryNavigation). Distinct from
 // requiredPermission, which is a per-user capability the client already knows.
-export type NavFeature = "notifications";
+export type NavFeature = "alerts";
 
 export interface NavItem {
   path: string;
@@ -136,14 +136,14 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     requiredPermission: "apikey:manage",
   },
   {
-    path: "/settings/notifications",
-    label: "Notifications",
+    path: "/settings/alerts",
+    label: "Alerts",
     parent: "/settings",
-    requiredPermission: "notification:read",
+    requiredPermission: "alert:read",
     // Needs the Grafana sidecar, which is off in the default deployment. Gated
     // at runtime so an operator enabling the sidecar surfaces the entry without
     // a client rebuild.
-    requiredFeature: "notifications",
+    requiredFeature: "alerts",
   },
   {
     path: "/settings/server-logs",

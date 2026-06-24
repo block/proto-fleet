@@ -24,6 +24,7 @@ import {
   importRacksPage,
   importSecurityPage,
   importServerLogsPage,
+  importSettingsAlerts,
   importSettingsApiKeys,
   importSettingsAuth,
   importSettingsCurtailment,
@@ -31,7 +32,6 @@ import {
   importSettingsGeneral,
   importSettingsLayout,
   importSettingsMiningPools,
-  importSettingsNotifications,
   importSettingsRoles,
   importSettingsSchedules,
   importSettingsTeam,
@@ -81,7 +81,7 @@ const SettingsRoles = lazy(importSettingsRoles);
 const SettingsFirmware = lazy(importSettingsFirmware);
 const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsCurtailment = lazy(importSettingsCurtailment);
-const SettingsNotifications = lazy(importSettingsNotifications);
+const SettingsAlerts = lazy(importSettingsAlerts);
 const SettingsApiKeys = lazy(importSettingsApiKeys);
 const SiteDetailPage = lazy(importSiteDetailPage);
 const SitesPage = lazy(importSitesPage);
@@ -277,9 +277,9 @@ const router = createBrowserRouter([
     </SettingsLayout>,
   ),
   createRoute(
-    "/settings/notifications",
+    "/settings/alerts",
     <SettingsLayout>
-      <SettingsNotifications />
+      <SettingsAlerts />
     </SettingsLayout>,
   ),
   createRoute(

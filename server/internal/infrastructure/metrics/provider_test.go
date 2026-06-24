@@ -134,7 +134,7 @@ func TestEmitPreservesLabelsAndValue(t *testing.T) {
 	require.False(t, samples[0].Time.IsZero(), "Provider.record should stamp Sample.Time")
 }
 
-// when notifications are disabled the provider stays a fast no-op and
+// when alerts are disabled the provider stays a fast no-op and
 // never reaches for the store.
 func TestSetupDisabledIsNoOp(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
