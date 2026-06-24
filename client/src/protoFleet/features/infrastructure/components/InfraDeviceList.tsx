@@ -166,6 +166,7 @@ const buildDeviceId = (draft: InfraDeviceDraft, devices: InfraDeviceItem[]) => {
 };
 
 const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDeviceListProps) => {
+  const [devicesPropSnapshot, setDevicesPropSnapshot] = useState(devices);
   const [localDevices, setLocalDevices] = useState<InfraDeviceItem[]>(() => devices);
   const [detailDeviceId, setDetailDeviceId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -178,6 +179,16 @@ const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDev
   });
   const defaultColumnPrefs = useMemo(() => buildDefaultColumnPrefs(), []);
   const [columnPrefs, setColumnPrefs] = useState<InfraColumnPreference[]>(() => buildDefaultColumnPrefs());
+
+  if (devices !== devicesPropSnapshot) {
+    const deviceIds = new Set(devices.map((device) => device.id));
+    setDevicesPropSnapshot(devices);
+    setLocalDevices(devices);
+    if (detailDeviceId && !deviceIds.has(detailDeviceId)) {
+      setDetailDeviceId(null);
+    }
+    setCurrentPage(0);
+  }
 
   const detailDevice = useMemo(
     () => localDevices.find((device) => device.id === detailDeviceId) ?? null,
