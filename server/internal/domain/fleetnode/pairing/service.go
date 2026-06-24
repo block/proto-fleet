@@ -191,13 +191,32 @@ func (s *Service) scheduleTelemetry(ctx context.Context, deviceID, orgID int64) 
 	if err != nil {
 		return fleeterror.LogInternal(component, "lookup paired device identifier", clientErrPair, err)
 	}
-	if err := s.telemetry.AddDevices(ctx, telemetrymodels.DeviceIdentifier(identifier)); err != nil {
+	return s.scheduleTelemetryIdentifier(ctx, telemetrymodels.DeviceIdentifier(identifier))
+}
+
+func (s *Service) scheduleTelemetryIdentifier(ctx context.Context, identifier telemetrymodels.DeviceIdentifier) error {
+	if s.telemetry == nil {
+		return nil
+	}
+	if err := s.telemetry.AddDevices(ctx, identifier); err != nil {
 		return fleeterror.LogInternal(component, "schedule telemetry", clientErrPair, err)
 	}
 	return nil
 }
 
 func (s *Service) scheduleTelemetryBestEffort(ctx context.Context, deviceID, orgID int64) {
+	s.scheduleTelemetryBestEffortWith(ctx, deviceID, orgID, "", func(ctx context.Context) error {
+		return s.scheduleTelemetry(ctx, deviceID, orgID)
+	})
+}
+
+func (s *Service) scheduleTelemetryIdentifierBestEffort(ctx context.Context, identifier telemetrymodels.DeviceIdentifier, deviceID, orgID int64) {
+	s.scheduleTelemetryBestEffortWith(ctx, deviceID, orgID, identifier, func(ctx context.Context) error {
+		return s.scheduleTelemetryIdentifier(ctx, identifier)
+	})
+}
+
+func (s *Service) scheduleTelemetryBestEffortWith(ctx context.Context, deviceID, orgID int64, identifier telemetrymodels.DeviceIdentifier, schedule func(context.Context) error) {
 	if s.telemetry == nil {
 		return
 	}
@@ -205,11 +224,12 @@ func (s *Service) scheduleTelemetryBestEffort(ctx context.Context, deviceID, org
 	go func() {
 		scheduleCtx, cancel := context.WithTimeout(baseCtx, telemetryScheduleTimeout)
 		defer cancel()
-		if err := s.scheduleTelemetry(scheduleCtx, deviceID, orgID); err != nil {
-			slog.Warn("failed to schedule fleet-node telemetry after pairing",
-				"device_id", deviceID,
-				"org_id", orgID,
-				"err", err)
+		if err := schedule(scheduleCtx); err != nil {
+			attrs := []any{"device_id", deviceID, "org_id", orgID, "err", err}
+			if identifier != "" {
+				attrs = append(attrs, "device_identifier", identifier)
+			}
+			slog.Warn("failed to schedule fleet-node telemetry after pairing", attrs...)
 		}
 	}()
 }

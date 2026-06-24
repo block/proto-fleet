@@ -287,28 +287,23 @@ func (q *Queries) GetAllDeviceInfoForCapabilityCheck(ctx context.Context, orgID 
 const getAllPairedDeviceIdentifiers = `-- name: GetAllPairedDeviceIdentifiers :many
 SELECT d.device_identifier
 FROM device d
-LEFT JOIN device_pairing dp ON d.id = dp.device_id
+JOIN device_pairing dp ON d.id = dp.device_id
 WHERE d.deleted_at IS NULL
-    AND (
-        (
-            dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-            AND NOT EXISTS (
-                SELECT 1 FROM fleet_node_device fnd
-                WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
-            )
-        )
-        OR EXISTS (
-            SELECT 1
-            FROM fleet_node_device fnd
-            JOIN device_pairing fnd_dp ON fnd_dp.device_id = fnd.device_id
-            JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
-            WHERE fnd.device_id = d.id
-              AND fnd.org_id = d.org_id
-              AND fnd_dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-              AND fn.deleted_at IS NULL
-              AND fn.enrollment_status = 'CONFIRMED'
-        )
-    )
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND NOT EXISTS (
+      SELECT 1 FROM fleet_node_device fnd
+      WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
+  )
+UNION ALL
+SELECT d.device_identifier
+FROM device d
+JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+JOIN device_pairing dp ON dp.device_id = fnd.device_id
+JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+WHERE d.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND fn.deleted_at IS NULL
+  AND fn.enrollment_status = 'CONFIRMED'
 `
 
 // Returns identifiers of telemetry-eligible paired devices. Fleet-node-owned

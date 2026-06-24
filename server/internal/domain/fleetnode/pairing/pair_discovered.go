@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
@@ -320,7 +321,7 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 		s.invalidateMiner(ctx, boundDeviceID)
 	}
 	if boundDeviceID != 0 {
-		s.scheduleTelemetryBestEffort(ctx, boundDeviceID, orgID)
+		s.scheduleTelemetryIdentifierBestEffort(ctx, telemetrymodels.DeviceIdentifier(identifier), boundDeviceID, orgID)
 	}
 	return persisted, nil
 }

@@ -79,7 +79,7 @@ func (r *RunCmd) handleTelemetryCommand(ctx context.Context, stream acker, comma
 		if errors.As(err, &ce) {
 			code = ce.code
 		}
-		r.sendAck(stream, commandID, code, redactTelemetrySecrets(err.Error(), telemetryRequestRedactions(req)...), logger)
+		r.sendAck(stream, commandID, code, redactTelemetrySecrets(err.Error()), logger)
 		return
 	}
 	payload, err := proto.Marshal(result)
@@ -212,10 +212,6 @@ func telemetryDialTarget(req *telemetrypb.FleetNodeTelemetryRequest) *pb.MinerCo
 		CredentialUsername: req.GetCredentialUsername(),
 		CredentialPassword: req.GetCredentialPassword(),
 	}
-}
-
-func telemetryRequestRedactions(_ *telemetrypb.FleetNodeTelemetryRequest) []string {
-	return nil
 }
 
 func telemetrySecretRedactions(secret sdk.SecretBundle) []string {

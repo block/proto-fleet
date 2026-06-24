@@ -150,12 +150,8 @@ func (m *RemoteFleetNodeMiner) GetDeviceMetrics(ctx context.Context) (modelsV2.D
 	if err != nil {
 		return modelsV2.DeviceMetrics{}, err
 	}
-	if metrics.DeviceIdentifier != m.route.deviceIdentifier {
-		return modelsV2.DeviceMetrics{}, fleeterror.NewInternalErrorf(
-			"fleet node telemetry result device_identifier mismatch: got %q, want %q",
-			metrics.DeviceIdentifier,
-			m.route.deviceIdentifier,
-		)
+	if err := m.validateTelemetryDeviceIdentifier("result", metrics.DeviceIdentifier); err != nil {
+		return modelsV2.DeviceMetrics{}, err
 	}
 	m.rememberStatus(result.GetDeviceStatus())
 	return metrics, nil
@@ -174,16 +170,24 @@ func (m *RemoteFleetNodeMiner) GetDeviceStatus(ctx context.Context) (models.Mine
 	if err != nil {
 		return models.MinerStatusOffline, err
 	}
-	if result.GetDeviceIdentifier() != m.route.deviceIdentifier {
-		return models.MinerStatusOffline, fleeterror.NewInternalErrorf(
-			"fleet node telemetry status device_identifier mismatch: got %q, want %q",
-			result.GetDeviceIdentifier(),
-			m.route.deviceIdentifier,
-		)
+	if err := m.validateTelemetryDeviceIdentifier("status", result.GetDeviceIdentifier()); err != nil {
+		return models.MinerStatusOffline, err
 	}
 	status := deviceStatusToMinerStatus(result.GetDeviceStatus())
 	m.rememberStatus(result.GetDeviceStatus())
 	return status, nil
+}
+
+func (m *RemoteFleetNodeMiner) validateTelemetryDeviceIdentifier(kind string, got string) error {
+	if got == m.route.deviceIdentifier {
+		return nil
+	}
+	return fleeterror.NewInternalErrorf(
+		"fleet node telemetry %s device_identifier mismatch: got %q, want %q",
+		kind,
+		got,
+		m.route.deviceIdentifier,
+	)
 }
 
 func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb.FleetNodeTelemetryResult, error) {
