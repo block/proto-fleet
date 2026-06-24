@@ -276,7 +276,7 @@ const FleetLayout = () => {
       <div className="p-6 text-300 text-text-primary-70 laptop:p-10">
         You do not have permission to view Fleet sections.
       </div>
-    ) : onBareFleet && visibleTabs.length === 0 ? (
+    ) : (onBareFleet || !currentTabAllowed) && visibleTabs.length === 0 ? (
       <div className="p-6 text-300 text-text-primary-70 laptop:p-10">No Fleet sections are currently available.</div>
     ) : !currentTabAllowed ? (
       <div className="p-6 text-300 text-text-primary-70 laptop:p-10">Loading...</div>
