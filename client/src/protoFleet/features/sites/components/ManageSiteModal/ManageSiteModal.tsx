@@ -198,9 +198,13 @@ const ManageSiteModal = ({
     return () => controller.abort();
   }, [shouldFetchBuildings, fetchSiteId, listBuildingsBySite, buildingsRefreshKey]);
 
-  // Create mode never fetches, so its working set is empty by construction.
+  // Create mode never fetches (there's no persisted site yet) but still keeps
+  // a working set: buildings the operator stages via the picker before the
+  // first Save, which the host then assigns to the freshly-created site.
+  // `entries` starts undefined there, so fall back to an empty (loaded, not
+  // loading) list rather than the edit-mode loading skeleton.
   const displayEntries: BuildingEntry[] | undefined = useMemo(
-    () => (shouldFetchBuildings ? entries : []),
+    () => (shouldFetchBuildings ? entries : (entries ?? [])),
     [shouldFetchBuildings, entries],
   );
   const sortedEntries = useMemo(
@@ -282,8 +286,10 @@ const ManageSiteModal = ({
             text: "Manage buildings",
             variant: variants.secondary,
             onClick: () => setShowManageBuildings(true),
-            // Create mode has no persisted site to assign buildings to yet.
-            disabled: saving || mode === "create" || sortedEntries === undefined,
+            // Enabled in both modes — create stages buildings into the working
+            // set and assigns them on the first Save. Only blocked while the
+            // edit-mode list is still loading (sortedEntries undefined).
+            disabled: saving || sortedEntries === undefined,
             testId: "manage-site-modal-manage-buildings",
           },
           {
@@ -305,11 +311,7 @@ const ManageSiteModal = ({
                 title={`${buildingCount} ${buildingCount === 1 ? "building" : "buildings"}`}
                 titleSize="text-heading-100"
               />
-              {mode === "create" ? (
-                <div className="rounded-xl border border-dashed border-border-5 p-4 text-300 text-text-primary-50">
-                  Save the site first to add buildings.
-                </div>
-              ) : sortedEntries === undefined ? (
+              {sortedEntries === undefined ? (
                 <div className="text-300 text-text-primary-50">Loading…</div>
               ) : sortedEntries.length === 0 ? (
                 <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-50">
@@ -387,10 +389,13 @@ const ManageSiteModal = ({
         }
       />
 
-      {showManageBuildings && site ? (
+      {showManageBuildings ? (
+        // siteId 0n in create mode (no persisted site yet): the picker treats
+        // every unassigned building as eligible and disables buildings already
+        // in another site, which is exactly the create-time rule.
         <ManageBuildingsModal
           open={showManageBuildings}
-          siteId={site.id}
+          siteId={site?.id ?? 0n}
           initialSelectedBuildingIds={currentBuildingIds}
           onDismiss={() => setShowManageBuildings(false)}
           onConfirm={handleManageBuildingsConfirm}

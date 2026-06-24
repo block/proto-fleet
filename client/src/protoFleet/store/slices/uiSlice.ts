@@ -25,6 +25,13 @@ export interface UISlice {
   racksViewMode: RacksViewMode;
   isActionBarVisible: boolean;
   activeSite: ActiveSite;
+  // Monotonic counter bumped whenever the org's site list changes (create /
+  // rename / delete). The PageHeader's SitePicker fetches sites once on mount
+  // and holds them in local state, so it has no other way to learn a site was
+  // just created from a page or modal below it; watching this nonce lets it
+  // refetch without coupling to every mutation site. Not persisted — it's an
+  // in-memory refresh signal, not a preference.
+  sitesRevision: number;
 
   // Actions
   setTheme: (theme: Theme) => void;
@@ -36,6 +43,7 @@ export interface UISlice {
   setRacksViewMode: (mode: RacksViewMode) => void;
   setActionBarVisible: (visible: boolean) => void;
   setActiveSite: (next: ActiveSite) => void;
+  bumpSitesRevision: () => void;
 }
 
 // =============================================================================
@@ -53,6 +61,7 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   racksViewMode: "grid",
   isActionBarVisible: false,
   activeSite: DEFAULT_ACTIVE_SITE,
+  sitesRevision: 0,
 
   // Actions
   setTheme: (theme) =>
@@ -98,5 +107,10 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   setActiveSite: (next) =>
     set((state) => {
       state.ui.activeSite = next;
+    }),
+
+  bumpSitesRevision: () =>
+    set((state) => {
+      state.ui.sitesRevision += 1;
     }),
 });

@@ -175,6 +175,28 @@ const FleetBuildingsPage = () => {
     enabled: canReadBuildings,
   });
 
+  // Unfiltered building count for the "X of Y buildings" line. Only needed
+  // when filters are active (otherwise the displayed count already is the
+  // total). Fetched with the path/site scope alone — no issue/telemetry/`?site=`
+  // filters — mirroring how the Miners tab sources its unfiltered denominator.
+  const scopeOnlyFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
+  const [totalUnfilteredBuildings, setTotalUnfilteredBuildings] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    // Only consumed while filters are active (the count line otherwise shows
+    // the displayed total). Skip the fetch when filters are off and leave the
+    // last value — it's ignored, and a scope change re-runs this effect.
+    if (!canReadBuildings || !hasActiveFilters) return;
+    const controller = new AbortController();
+    void listBuildings({
+      siteIds: scopeOnlyFilter.siteIds,
+      includeUnassigned: scopeOnlyFilter.includeUnassigned,
+      signal: controller.signal,
+      onSuccess: (rows) => setTotalUnfilteredBuildings(rows.length),
+      onError: () => setTotalUnfilteredBuildings(undefined),
+    });
+    return () => controller.abort();
+  }, [canReadBuildings, hasActiveFilters, scopeOnlyFilter, listBuildings]);
+
   // Drop the previous scope's rows the moment the site filter changes so
   // the now-mismatched buildings can't render (or be selected/edited)
   // under the new scope during the in-flight refetch. Resetting to
@@ -543,6 +565,8 @@ const FleetBuildingsPage = () => {
           <BuildingList
             buildings={visibleBuildings}
             sites={sites}
+            totalUnfiltered={totalUnfilteredBuildings}
+            hasActiveFilters={hasActiveFilters}
             onEditBuilding={canManageBuildings ? openEditBuilding : undefined}
             onAddBuildingToSite={canManageBuildings ? handleAddBuildingToSite : undefined}
             selectedIds={selectedBuildingIds}

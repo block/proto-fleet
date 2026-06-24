@@ -61,6 +61,7 @@ import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import FilterChipsBar, { type FilterChipsBarNumericFilter } from "@/shared/components/List/Filters/FilterChipsBar";
+import { formatListCountLabel } from "@/shared/components/List/listCountLabel";
 import { SORT_ASC, SORT_DESC, type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
@@ -767,6 +768,34 @@ const RacksPage = () => {
     selectedZones.length > 0 ||
     selectedIssues.length > 0 ||
     telemetryRanges.length > 0;
+
+  // Unfiltered rack count for the "X of Y racks" line. `totalCount` from the
+  // list hook is the filtered total; this fetches the path-scope total (no
+  // zone/building/issue/`?site=`/telemetry filters) so the count line can show
+  // a denominator, mirroring the Miners tab. Only fetched while filters are
+  // active — otherwise the displayed count already is the total.
+  const [totalUnfilteredRacks, setTotalUnfilteredRacks] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    // Only consumed while filters are active (the count line otherwise shows
+    // `totalCount`). Skip the fetch when filters are off and leave the last
+    // value — it's ignored, and a scope change re-runs this effect.
+    if (!hasActiveFilters) return;
+    let cancelled = false;
+    void listRacks({
+      pageSize: 1,
+      siteIds: activeSiteFilter.siteIds,
+      includeUnassigned: activeSiteFilter.includeUnassigned,
+      onSuccess: (_sets, _token, total) => {
+        if (!cancelled) setTotalUnfilteredRacks(total);
+      },
+      onError: () => {
+        if (!cancelled) setTotalUnfilteredRacks(undefined);
+      },
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasActiveFilters, activeSiteFilter, listRacks]);
   const visibleRackScopes = useMemo(
     () =>
       racks.flatMap((rack) => {
@@ -1186,6 +1215,20 @@ const RacksPage = () => {
             ) : null}
           </div>
         </div>
+      </div>
+      <div
+        className={clsx(
+          "sticky left-0 px-6 pb-4 text-emphasis-300 text-text-primary-70 laptop:px-10",
+          PAGE_SCROLL_CHROME_WIDTH,
+        )}
+        data-testid="racks-count-label"
+      >
+        {formatListCountLabel(totalCount, {
+          unfilteredTotal: totalUnfilteredRacks,
+          hasActiveFilters,
+          singular: "rack",
+          plural: "racks",
+        })}
       </div>
       {error ? (
         <Callout className="mx-6 mb-4 laptop:mx-10" intent="danger" prefixIcon={<Alert />} title={error} />

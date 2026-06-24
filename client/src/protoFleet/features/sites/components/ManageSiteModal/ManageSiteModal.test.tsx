@@ -124,7 +124,7 @@ describe("ManageSiteModal", () => {
     expect(onDeleteRequested).toHaveBeenCalled();
   });
 
-  it("create mode prompts to save the site before adding buildings", () => {
+  it("create mode lets buildings be staged before the site is saved", () => {
     render(
       <ManageSiteModal
         open
@@ -137,9 +137,14 @@ describe("ManageSiteModal", () => {
       />,
     );
 
-    expect(screen.getByText("Save the site first to add buildings.")).toBeInTheDocument();
-    // Manage buildings is disabled until the site exists.
-    expect(screen.getAllByTestId("manage-site-modal-manage-buildings")[0]).toBeDisabled();
+    // No "save first" gate — the empty working set renders the same
+    // add-buildings affordance as edit mode, and Manage buildings is enabled.
+    expect(screen.queryByText("Save the site first to add buildings.")).not.toBeInTheDocument();
+    expect(screen.getByText("No buildings added to this site")).toBeInTheDocument();
+    expect(screen.getAllByTestId("manage-site-modal-manage-buildings")[0]).toBeEnabled();
+    expect(screen.getAllByTestId("manage-site-modal-empty-state-add")[0]).toBeEnabled();
+    // Save is allowed immediately (creates the site with an empty building set).
+    expect(screen.getAllByTestId("manage-site-modal-save")[0]).toBeEnabled();
   });
 
   it("shows comma-separated meta on each corner of the preview", () => {

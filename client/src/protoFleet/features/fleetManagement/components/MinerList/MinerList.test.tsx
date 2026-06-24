@@ -170,12 +170,14 @@ describe("MinerList", () => {
 
   describe("miner count subtitle", () => {
     it("shows total miner count", () => {
+      // loading must be false: the count line now renders inside the List
+      // (beneath the filter row), which mounts once the initial load completes.
       renderMinerList({
         title: "Miners",
         minerIds: [],
         totalMiners: 14,
         onAddMiners: vi.fn(),
-        loading: true,
+        loading: false,
       });
 
       expect(screen.getByText("14 miners")).toBeInTheDocument();
@@ -189,7 +191,7 @@ describe("MinerList", () => {
           totalMiners: 5,
           totalUnfilteredMiners: 14,
           onAddMiners: vi.fn(),
-          loading: true,
+          loading: false,
         },
         ["/?status=hashing"],
       );
@@ -205,7 +207,7 @@ describe("MinerList", () => {
           totalMiners: 14,
           totalUnfilteredMiners: 14,
           onAddMiners: vi.fn(),
-          loading: true,
+          loading: false,
         },
         ["/?status=hashing"],
       );

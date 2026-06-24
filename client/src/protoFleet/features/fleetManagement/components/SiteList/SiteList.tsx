@@ -62,9 +62,21 @@ interface SiteListProps {
   onEditSite?: (site: Site) => void;
   selectedIds?: string[];
   onSelectedIdsChange?: (ids: string[]) => void;
+  // Unfiltered site total for the count line; when filters are active and it
+  // differs from the displayed count, the line reads "X of Y sites".
+  totalUnfiltered?: number;
+  hasActiveFilters?: boolean;
 }
 
-const SiteList = ({ sites, emptyStateRow, onEditSite, selectedIds, onSelectedIdsChange }: SiteListProps) => {
+const SiteList = ({
+  sites,
+  emptyStateRow,
+  onEditSite,
+  selectedIds,
+  onSelectedIdsChange,
+  totalUnfiltered,
+  hasActiveFilters,
+}: SiteListProps) => {
   const navigate = useNavigate();
   const temperatureUnit = useTemperatureUnit();
 
@@ -143,7 +155,10 @@ const SiteList = ({ sites, emptyStateRow, onEditSite, selectedIds, onSelectedIds
     colConfig,
     items,
     itemKey: "id" as const,
-    hideTotal: true,
+    total: items.length,
+    totalUnfiltered,
+    hasActiveFilters,
+    itemName: { singular: "site", plural: "sites" },
     onRowClick: handleRowClick,
     emptyStateRow,
     paddingLeft: { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" },

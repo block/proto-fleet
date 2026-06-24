@@ -36,6 +36,7 @@ import Checkbox from "@/shared/components/Checkbox";
 import Filters from "@/shared/components/List/Filters";
 import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
 import ListActions from "@/shared/components/List/ListActions";
+import { formatListCountLabel } from "@/shared/components/List/listCountLabel";
 import {
   ColConfig,
   ColTitles,
@@ -166,6 +167,14 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   ) => ReactNode;
   containerClassName?: string;
   tableClassName?: string;
+  /**
+   * Overrides the filter row's default `py-6` vertical padding. The `gap-4`
+   * spacing and the horizontal list padding are always applied; only the
+   * top/bottom padding is replaced. Lets a page-scroll consumer (e.g. the
+   * Miners tab) line its filter row up with sibling tabs that render their
+   * filter row in a `pt-10 … pb-6` container outside the List.
+   */
+  filtersClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   paddingRight?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
@@ -191,6 +200,14 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
     singular: string;
     plural: string;
   };
+  /**
+   * Unfiltered total for the current scope. When provided alongside an active
+   * filter set (`hasActiveFilters`), the built-in count line reads "X of Y
+   * nouns" once the filtered `total` diverges from this value; otherwise it
+   * falls back to the plain "X nouns" form. Leave unset for lists that have no
+   * meaningful unfiltered denominator.
+   */
+  totalUnfiltered?: number;
   initialActiveFilters?: ActiveFilters;
   /**
    * When true, suppresses the built-in item count display below the filter bar.
@@ -700,12 +717,14 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   renderActionBar,
   containerClassName = "",
   tableClassName,
+  filtersClassName,
   paddingLeft,
   paddingRight,
   overflowContainer = true,
   stickyChromeClassName,
   stickyBgColor = "bg-surface-base",
   total,
+  totalUnfiltered,
   totalDisabled = 0,
   itemName = { singular: "item", plural: "items" },
   itemRef,
@@ -1175,7 +1194,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   const filtersElement =
     filters?.length || headerControls ? (
       <Filters<ListItem>
-        className={clsx("gap-4 py-6", paddingClasses)}
+        className={clsx("gap-4", filtersClassName ?? "py-6", paddingClasses)}
         filterItems={filters ?? []}
         filterSize={filterSize}
         items={items}
@@ -1411,7 +1430,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         {!hideTotal && total !== undefined ? (
           <div className={clsx("sticky left-0 flex", stickyChromeClassName)}>
             <div className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", paddingClasses)}>
-              {total} {total === 1 ? itemName.singular : itemName.plural}
+              {formatListCountLabel(total, {
+                unfilteredTotal: totalUnfiltered,
+                hasActiveFilters,
+                singular: itemName.singular,
+                plural: itemName.plural,
+              })}
             </div>
           </div>
         ) : null}

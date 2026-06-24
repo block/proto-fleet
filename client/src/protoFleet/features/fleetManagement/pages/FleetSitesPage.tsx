@@ -393,6 +393,8 @@ const FleetSitesPage = () => {
         <div className={LIST_WRAPPER}>
           <SiteList
             sites={displaySites}
+            totalUnfiltered={sites?.length}
+            hasActiveFilters={hasListFilters}
             onEditSite={canManageSites ? modals.openManageEdit : undefined}
             selectedIds={selectedSiteIds}
             onSelectedIdsChange={handleSelectedSiteIdsChange}

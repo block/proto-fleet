@@ -21,6 +21,7 @@ import SiteModals from "@/protoFleet/features/sites/components/SiteModals";
 import SiteSettingsModal from "@/protoFleet/features/sites/components/SiteSettingsModal";
 import { useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
 import { useHasPermission } from "@/protoFleet/store";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -83,11 +84,15 @@ const FleetCreateFlowProvider = ({
     notifyMinersChanged();
   }, [notifyMinersChanged]);
   // Refresh the shared site catalog AND pulse list pages — used by the site
-  // create/edit paths so the new site resolves everywhere right away.
+  // create/edit paths so the new site resolves everywhere right away. Also
+  // bumps the header SitePicker's refresh signal so a site created via the
+  // bulk "New site" seeded flow shows up there without a reload.
+  const bumpSitesRevision = useFleetStore((state) => state.ui.bumpSitesRevision);
   const refreshSitesAndBump = useCallback(() => {
     refetchSites();
     bumpEntities();
-  }, [refetchSites, bumpEntities]);
+    bumpSitesRevision();
+  }, [refetchSites, bumpEntities, bumpSitesRevision]);
 
   // Rack create flow. rackSettings drives RackSettingsModal; once the
   // operator continues, rackFormData opens ManageRackModal seeded with the

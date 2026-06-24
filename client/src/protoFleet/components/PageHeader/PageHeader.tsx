@@ -133,6 +133,10 @@ function PageHeader({
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(MULTI_SITE_ENABLED ? undefined : []);
   const [sitesError, setSitesError] = useState<string | null>(null);
+  // Bumped by the site create / rename / delete flows on pages and modals
+  // below this header. Watching it lets the picker pick up a just-created
+  // site without a full page reload.
+  const sitesRevision = useFleetStore((state) => state.ui.sitesRevision);
 
   const fetchSites = useCallback(() => {
     const controller = new AbortController();
@@ -153,7 +157,7 @@ function PageHeader({
   useEffect(() => {
     if (!MULTI_SITE_ENABLED) return;
     return fetchSites();
-  }, [fetchSites]);
+  }, [fetchSites, sitesRevision]);
 
   const handleCompleteSetup = () => {
     setDismissedSetup(false);

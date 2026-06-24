@@ -64,10 +64,10 @@ export interface SiteModalsApi {
   // ManageSiteModal handlers
   manageEditDetails: () => void;
   // Persists building-membership changes accumulated in the manage modal.
-  // In create mode the delta is empty (building management is gated until
-  // the site exists) and this just runs CreateSite. In edit mode it applies
-  // the delta via AssignBuildingsToSite. Returns whether the modal should
-  // close on success, or null if the save failed.
+  // In create mode this runs CreateSite, then assigns any buildings the
+  // operator staged (the delta's `added`) to the new site. In edit mode it
+  // applies the delta via AssignBuildingsToSite. Returns whether the modal
+  // should close on success, or null if the save failed.
   manageSave: (delta: { added: bigint[]; removed: bigint[] }) => Promise<{ closeOnSuccess: boolean } | null>;
   // SiteDeleteDialog handlers
   deleteConfirm: () => Promise<void>;
@@ -100,6 +100,10 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
   const { createSite, updateSite, deleteSite, assignBuildingsToSite } = useSites();
   const setActiveSite = useFleetStore((store) => store.ui.setActiveSite);
   const activeSite = useFleetStore((store) => store.ui.activeSite);
+  // Signals the PageHeader's SitePicker (which fetches sites once on mount and
+  // can't see this page's refetchSites) to refresh after a site is created,
+  // renamed, or deleted.
+  const bumpSitesRevision = useFleetStore((store) => store.ui.bumpSitesRevision);
 
   const openCreate = useCallback(() => {
     setState({ kind: "detailsCreate", draft: emptySiteFormValues() });
@@ -193,6 +197,7 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
               status: STATUSES.success,
             });
             refetchSites();
+            bumpSitesRevision();
             // Functional setState so a mid-flight dismiss (state transition
             // back to manageEdit or none) can't be silently overwritten by a
             // stale onSuccess closure.
@@ -214,7 +219,7 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
         });
       });
     },
-    [updateSite, refetchSites],
+    [updateSite, refetchSites, bumpSitesRevision],
   );
 
   const manageEditDetails = useCallback(() => {
@@ -233,36 +238,72 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
     async (delta: { added: bigint[]; removed: bigint[] }) => {
       if (savingRef.current) return null;
 
-      // Create flow: the manage modal gates building management until the
-      // site exists, so the delta is empty here — just persist the site.
-      // The modal closes on success; the operator reopens to add buildings.
+      // Create flow: persist the site, then assign any buildings the operator
+      // staged in the manage modal before the site existed. `added` carries
+      // those buildings (the working set started empty, so there's never a
+      // `removed`); they're assigned to the freshly-created site's id. The two
+      // steps are sequenced explicitly (rather than chained through
+      // createSite's onFinally) so the saving guard stays held across both —
+      // an async onSuccess would otherwise release it the moment the building
+      // assign awaited.
       if (state.kind === "manageCreate") {
         const draft = state.draft;
         savingRef.current = true;
         setSaving(true);
-        const result = await new Promise<{ closeOnSuccess: boolean } | null>((resolve) => {
-          void createSite({
-            values: draft,
-            onSuccess: (site, warnings) => {
-              pushToast({
-                message:
-                  warnings.length > 0 ? `Site "${site.name}" created with warnings` : `Site "${site.name}" created`,
-                status: STATUSES.success,
-              });
-              refetchSites();
-              resolve({ closeOnSuccess: true });
-            },
-            onError: (msg) => {
-              pushToast({ message: `Failed to create site: ${msg}`, status: STATUSES.error });
-              resolve(null);
-            },
-            onFinally: () => {
-              savingRef.current = false;
-              setSaving(false);
-            },
+        try {
+          const created = await new Promise<{ site: Site; warnings: string[] } | null>((resolve) => {
+            void createSite({
+              values: draft,
+              onSuccess: (site, warnings) => resolve({ site, warnings }),
+              onError: (msg) => {
+                pushToast({ message: `Failed to create site: ${msg}`, status: STATUSES.error });
+                resolve(null);
+              },
+            });
           });
-        });
-        return result;
+          if (!created) return null;
+
+          // The site is committed past this point. A subsequent
+          // AssignBuildingsToSite failure must not read as a failed create —
+          // surface a partial-success warning and still close, matching the
+          // bulk "New site" seeded flow in FleetCreateFlowProvider.
+          let buildingsFailed: string | null = null;
+          if (delta.added.length > 0) {
+            await new Promise<void>((resolve) => {
+              void assignBuildingsToSite({
+                buildingIds: delta.added,
+                targetSiteId: created.site.id,
+                onSuccess: () => resolve(),
+                onError: (msg) => {
+                  buildingsFailed = msg;
+                  resolve();
+                },
+              });
+            });
+          }
+
+          pushToast(
+            buildingsFailed
+              ? {
+                  message: `Site "${created.site.name}" created, but adding buildings failed: ${buildingsFailed}`,
+                  status: STATUSES.error,
+                }
+              : {
+                  message:
+                    created.warnings.length > 0
+                      ? `Site "${created.site.name}" created with warnings`
+                      : `Site "${created.site.name}" created`,
+                  status: STATUSES.success,
+                },
+          );
+          refetchSites();
+          refetchBuildings?.();
+          bumpSitesRevision();
+          return { closeOnSuccess: true };
+        } finally {
+          savingRef.current = false;
+          setSaving(false);
+        }
       }
 
       // Edit flow: site details are owned by SiteSettingsModal, so the
@@ -321,7 +362,7 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
 
       return null;
     },
-    [state, createSite, assignBuildingsToSite, refetchSites, refetchBuildings],
+    [state, createSite, assignBuildingsToSite, refetchSites, refetchBuildings, bumpSitesRevision],
   );
 
   const deleteConfirm = useCallback(async () => {
@@ -344,6 +385,7 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
             setActiveSite({ kind: "all" });
           }
           refetchSites();
+          bumpSitesRevision();
           setDeleteTarget(null);
           // Edit-flow callers come from manageEditEditingDetails or
           // manageEdit; the deleted site is gone so we collapse the stack.
@@ -357,7 +399,7 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
         onFinally: () => setDeleting(false),
       });
     });
-  }, [deleteTarget, deleteSite, refetchSites, activeSite, setActiveSite]);
+  }, [deleteTarget, deleteSite, refetchSites, activeSite, setActiveSite, bumpSitesRevision]);
 
   return {
     state,

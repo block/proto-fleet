@@ -243,6 +243,7 @@ type ScopedMinerListBodyProps = {
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   overflowContainer?: boolean;
   totalMiners?: number;
+  totalUnfilteredMiners?: number;
   totalDisabledMiners: number;
   totalDisabledMinersFresh: boolean;
   itemRef?: (itemKey: string, element: HTMLTableRowElement | null) => void;
@@ -283,6 +284,7 @@ const ScopedMinerListBody = ({
   paddingLeft,
   overflowContainer,
   totalMiners,
+  totalUnfilteredMiners,
   totalDisabledMiners,
   totalDisabledMinersFresh,
   itemRef,
@@ -408,16 +410,20 @@ const ScopedMinerListBody = ({
         )}
         containerClassName={listClassName}
         tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
+        // Match the sibling fleet tabs (Sites/Buildings/Racks), whose filter
+        // row sits in a pt-6 laptop:pt-10 … pb-6 container. The List default
+        // (py-6) made the Miners filter row start higher than the others.
+        filtersClassName="pt-6 pb-6 laptop:pt-10"
         paddingLeft={paddingLeft}
         paddingRight={paddingLeft}
         overflowContainer={overflowContainer}
         stickyChromeClassName={overflowContainer === false ? PAGE_SCROLL_CHROME_WIDTH : undefined}
         applyColumnWidthsToCells
         total={totalMiners}
+        totalUnfiltered={totalUnfilteredMiners}
         // Every row is selectable; `totalSelectable = totalMiners` so action-bar
         // copy and confirmation counts cover both paired and auth-needed miners.
         totalDisabled={0}
-        hideTotal
         itemName={{ singular: "miner", plural: "miners" }}
         itemRef={itemRef}
         initialActiveFilters={initialActiveFilters}
@@ -1146,25 +1152,20 @@ const MinerList = ({
 
   return (
     <>
+      {/* Scroll anchor for pagination. When a title is present (standalone
+          /miners) it renders an <h2> with the page's top padding; in the fleet
+          shell there's no title, so it collapses to a zero-height anchor rather
+          than an empty padded band above the filter row (which made the Miners
+          tab sit lower than the other fleet tabs). */}
       <div
         ref={topRef}
         className={clsx(
-          "sticky left-0 px-6 pt-6 laptop:px-10 laptop:pt-10",
+          "sticky left-0 px-6 laptop:px-10",
+          title && "pt-6 laptop:pt-10",
           overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
         )}
       >
         {title ? <h2 className="text-heading-300">{title}</h2> : null}
-      </div>
-
-      <div
-        className={clsx(
-          "sticky left-0 px-6 text-300 text-text-primary-70 laptop:px-10",
-          overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
-        )}
-      >
-        {hasActiveFilters && totalUnfilteredMiners !== undefined && totalMiners !== totalUnfilteredMiners
-          ? `${totalMiners} of ${totalUnfilteredMiners} miners`
-          : `${totalMiners ?? 0} miners`}
       </div>
 
       {loading ? (
@@ -1184,6 +1185,7 @@ const MinerList = ({
           paddingLeft={paddingLeft}
           overflowContainer={overflowContainer}
           totalMiners={totalMiners}
+          totalUnfilteredMiners={totalUnfilteredMiners}
           totalDisabledMiners={totalDisabledMiners}
           totalDisabledMinersFresh={totalDisabledMinersFresh}
           itemRef={itemRef}
