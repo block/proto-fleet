@@ -194,6 +194,10 @@ const curtailmentModeOptions = [
 ];
 const wholeFleetScopeRowId = "whole-org";
 const getSiteScopeRowId = (siteId: string) => `site:${siteId}`;
+const getPopulatedSiteScopeId = (siteId?: string): string | undefined => {
+  const normalizedSiteId = siteId?.trim();
+  return normalizedSiteId ? normalizedSiteId : undefined;
+};
 
 function withWholeFleetScope(values: CurtailmentFormValues): CurtailmentFormValues {
   return {
@@ -218,8 +222,10 @@ function withSiteScope(values: CurtailmentFormValues, siteId: string, siteName?:
 }
 
 function withResponseProfileScope(values: CurtailmentFormValues): CurtailmentFormValues {
-  if (values.scopeType === "site" && values.siteId) {
-    return withSiteScope(values, values.siteId, values.scopeId);
+  const siteId = getPopulatedSiteScopeId(values.siteId);
+
+  if (values.scopeType === "site" && siteId) {
+    return withSiteScope(values, siteId, values.scopeId);
   }
 
   return withWholeFleetScope(values);
@@ -266,9 +272,10 @@ function withSelectedResponseProfileValues(
     return nextValues;
   }
 
+  const siteId = getPopulatedSiteScopeId(responseProfileValues.siteId);
   const scopeType =
     responseProfileValues.scopeType ??
-    (responseProfileValues.siteId
+    (siteId
       ? "site"
       : responseProfileValues.deviceSetIds?.length
         ? "deviceSet"
@@ -276,8 +283,12 @@ function withSelectedResponseProfileValues(
           ? "explicitMiners"
           : "wholeOrg");
 
-  if (scopeType === "site" && responseProfileValues.siteId) {
-    return withSiteScope(nextValues, responseProfileValues.siteId, responseProfileValues.scopeId);
+  if (scopeType === "site") {
+    if (siteId) {
+      return withSiteScope(nextValues, siteId, responseProfileValues.scopeId);
+    }
+
+    return withWholeFleetScope(nextValues);
   }
 
   if (scopeType === "deviceSet") {
@@ -813,9 +824,10 @@ function CurtailmentStartModalContent({
   }, [editedFields, localErrors]);
   const effectiveErrors = { ...errors, ...visibleLocalErrors };
   const canSelectSiteScope = siteScopeEnabled && !siteScopeDisabledReason;
+  const selectedSiteId = getPopulatedSiteScopeId(values.siteId);
   const selectedSiteOption = useMemo(
-    () => siteOptions.find((option) => option.id === values.siteId),
-    [siteOptions, values.siteId],
+    () => (selectedSiteId ? siteOptions.find((option) => option.id === selectedSiteId) : undefined),
+    [siteOptions, selectedSiteId],
   );
   const effectiveValues = useMemo(() => {
     if (values.scopeType === "site" && selectedSiteOption) {
@@ -913,18 +925,18 @@ function CurtailmentStartModalContent({
       return [];
     }
 
-    if (!values.siteId || selectedSiteOption || (!isSiteScopeLoading && siteOptions.length === 0)) {
+    if (!selectedSiteId || selectedSiteOption || (!isSiteScopeLoading && siteOptions.length === 0)) {
       return siteOptions;
     }
 
     return [
       ...siteOptions,
       {
-        id: values.siteId,
-        name: values.scopeId || `Site ${values.siteId}`,
+        id: selectedSiteId,
+        name: values.scopeId || `Site ${selectedSiteId}`,
       },
     ];
-  }, [canSelectSiteScope, isSiteScopeLoading, selectedSiteOption, siteOptions, values.scopeId, values.siteId]);
+  }, [canSelectSiteScope, isSiteScopeLoading, selectedSiteId, selectedSiteOption, siteOptions, values.scopeId]);
   const responseProfileSiteOptionByRowId = useMemo(
     () => new Map(responseProfileSiteOptions.map((siteOption) => [getSiteScopeRowId(siteOption.id), siteOption])),
     [responseProfileSiteOptions],
@@ -938,7 +950,7 @@ function CurtailmentStartModalContent({
       disabled: !canSelectSiteScope,
       "data-testid": `response-profile-scope-site-${siteOption.id}`,
     }));
-    const currentSiteId = values.scopeType === "site" ? values.siteId : undefined;
+    const currentSiteId = values.scopeType === "site" ? selectedSiteId : undefined;
     const shouldShowCurrentSiteFallback =
       currentSiteId !== undefined && !responseProfileSiteOptionByRowId.has(getSiteScopeRowId(currentSiteId));
 
@@ -981,10 +993,10 @@ function CurtailmentStartModalContent({
     isSiteScopeLoading,
     responseProfileSiteOptionByRowId,
     responseProfileSiteOptions,
+    selectedSiteId,
     siteScopeDisabledReason,
     values.scopeId,
     values.scopeType,
-    values.siteId,
   ]);
   const responseProfileSelectOptions = useMemo(
     () => [
@@ -1183,7 +1195,7 @@ function CurtailmentStartModalContent({
   });
 
   const confirmMaintenanceInclusion = () => {
-    const nextValues = resetResponseProfileSelection({ ...values, includeMaintenance: true });
+    const nextValues = resetResponseProfileSelection({ ...effectiveValues, includeMaintenance: true });
 
     setMaintenanceInclusionConfirmed(true);
     setValues(nextValues);

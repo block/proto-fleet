@@ -463,6 +463,50 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
+  it("normalizes a site-scoped response profile without a site id to whole fleet", async () => {
+    const user = userEvent.setup();
+    const malformedSiteResponseProfiles: CurtailmentResponseProfileOption[] = [
+      {
+        id: "missing-site-id-shed",
+        label: "Missing site id shed",
+        values: {
+          ...responseProfiles[0].values,
+          scopeType: "site",
+          scopeId: "Missing site",
+          siteId: "   ",
+          deviceSetIds: [],
+          deviceIdentifiers: [],
+          includeMaintenance: false,
+        },
+      },
+    ];
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      responseProfiles: malformedSiteResponseProfiles,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Missing site id shed"));
+
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Missing site id shed");
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseProfileId: "missing-site-id-shed",
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
+        siteId: "",
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+      }),
+    );
+  });
+
   it("preserves the selected target when a response profile option has no scope values", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
@@ -512,7 +556,7 @@ describe("CurtailmentStartModal", () => {
       initialValues: {
         ...configuredValues,
         scopeType: "site",
-        scopeId: "Austin, TX",
+        scopeId: "Stale Austin label",
         siteId: "101",
         curtailmentMode: "fullFleet",
         targetKw: "",
