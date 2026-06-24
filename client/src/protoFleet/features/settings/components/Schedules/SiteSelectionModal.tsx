@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
+import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import Checkbox from "@/shared/components/Checkbox";
 import Modal from "@/shared/components/Modal";
 import ModalSelectAllFooter from "@/shared/components/Modal/ModalSelectAllFooter";
@@ -12,26 +13,34 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 interface SiteSelectionModalProps {
   open: boolean;
   selectedSiteIds: string[];
+  // Soft default from the topbar SitePicker. A single selected site limits the
+  // sites offered to that one site; "all sites" lists every site. Same
+  // filter-the-options model as the rack/building/miner pickers. `listSites`
+  // takes no server-side site filter (it returns the org's sites), so the
+  // narrowing is applied client-side here.
+  scope?: SiteFilterFields;
   onDismiss: () => void;
   onSave: (siteIds: string[]) => void;
 }
 
-// Site targeting is only offered when the topbar SitePicker is on "all sites";
-// once a single site is selected the schedule modal hides this picker and the
-// site is implied (see ScheduleModal / issue #524 follow-up). So this modal
-// always lists every org site, unfiltered.
-const SiteSelectionModal = ({ open, selectedSiteIds, onDismiss, onSave }: SiteSelectionModalProps) => {
+const SiteSelectionModal = ({ open, selectedSiteIds, scope, onDismiss, onSave }: SiteSelectionModalProps) => {
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[]>([]);
   const [draftSelection, setDraftSelection] = useState<Set<string>>(new Set(selectedSiteIds));
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadError, setHasLoadError] = useState(false);
 
+  const scopeSiteIds = scope?.siteIds;
+  const scopeKey = (scopeSiteIds ?? []).map(String).join(",");
+
   useEffect(() => {
     void listSites({
       onSuccess: (rows) => {
-        setSites(rows);
-        const validIds = new Set(rows.map((row) => (row.site?.id ?? 0n).toString()));
+        // Narrow to the active site when one is selected; otherwise show all.
+        const allowed = scopeSiteIds && scopeSiteIds.length > 0 ? new Set(scopeSiteIds.map(String)) : null;
+        const visible = allowed ? rows.filter((row) => allowed.has((row.site?.id ?? 0n).toString())) : rows;
+        setSites(visible);
+        const validIds = new Set(visible.map((row) => (row.site?.id ?? 0n).toString()));
         setDraftSelection((current) => new Set([...current].filter((siteId) => validIds.has(siteId))));
       },
       onError: (message: string) => {
@@ -40,7 +49,8 @@ const SiteSelectionModal = ({ open, selectedSiteIds, onDismiss, onSave }: SiteSe
       },
       onFinally: () => setIsLoading(false),
     });
-  }, [listSites]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listSites, scopeKey]);
 
   const selectableSiteIds = useMemo(
     () => sites.map((site) => (site.site?.id ?? 0n).toString()).filter((id) => id !== "0"),

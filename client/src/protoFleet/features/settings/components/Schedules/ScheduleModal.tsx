@@ -290,11 +290,10 @@ const ScheduleModal = ({
   // list itself stays org-wide (see issue #524).
   const { activeSite } = useActiveSite({});
   const scope = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
-  // With a single site selected, the schedule is implicitly working within that
-  // site: hide the Site target picker (targeting "a site" is redundant) and let
-  // the building/rack/miner pickers filter to it via `scope`. Site targeting is
-  // only meaningful from the all-sites view. Groups stay cross-site (#524).
-  const showSiteTarget = activeSite.kind !== "site";
+  // The Site/Building/Rack/Miner pickers all filter their options to the active
+  // site (via `scope`) — including the Site picker, which narrows to the one
+  // selected site so it behaves like the others rather than being hidden or
+  // forcing a whole-site selection. Groups stay cross-site (#524).
   const { totalMiners: totalAvailableMiners, hasInitialLoadCompleted: hasLoadedAvailableMiners } = useFleet({
     pageSize: 1,
     pairingStatuses: [PairingStatus.PAIRED],
@@ -852,13 +851,11 @@ const ScheduleModal = ({
             <div className={sectionBodyClassName}>
               <div className={sectionTitleClassName}>Apply to</div>
               <div className="grid">
-                {showSiteTarget ? (
-                  <TargetSelectButton
-                    label="Sites"
-                    value={getTargetButtonLabel(values.siteTargetIds.length, "site")}
-                    onClick={() => setShowSiteSelectionModal(true)}
-                  />
-                ) : null}
+                <TargetSelectButton
+                  label="Sites"
+                  value={getTargetButtonLabel(values.siteTargetIds.length, "site")}
+                  onClick={() => setShowSiteSelectionModal(true)}
+                />
                 <TargetSelectButton
                   label="Buildings"
                   value={getTargetButtonLabel(values.buildingTargetIds.length, "building")}
@@ -880,13 +877,6 @@ const ScheduleModal = ({
                   onClick={() => setShowMinerSelectionModal(true)}
                 />
               </div>
-              {!showSiteTarget && values.siteTargetIds.length > 0 ? (
-                <div className="text-200 text-text-primary-70">
-                  This schedule also targets {values.siteTargetIds.length}{" "}
-                  {values.siteTargetIds.length === 1 ? "site" : "sites"}. Switch the header to All sites to edit site
-                  targets. They&apos;re preserved when you save.
-                </div>
-              ) : null}
             </div>
           </section>
         }
@@ -897,6 +887,7 @@ const ScheduleModal = ({
         <SiteSelectionModal
           open={showSiteSelectionModal}
           selectedSiteIds={values.siteTargetIds}
+          scope={scope}
           onDismiss={() => setShowSiteSelectionModal(false)}
           onSave={(siteTargetIds) => {
             setNextValues((current) => ({ ...current, siteTargetIds }));

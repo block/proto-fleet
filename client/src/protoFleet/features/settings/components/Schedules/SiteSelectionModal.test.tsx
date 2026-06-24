@@ -86,4 +86,31 @@ describe("SiteSelectionModal", () => {
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(onSave).toHaveBeenCalledWith(["7"]);
   });
+
+  it("narrows the list to the active site and prunes off-site selections", async () => {
+    // listSites returns the org's sites; the modal filters client-side to scope.
+    listSitesMock.mockImplementation(({ onSuccess, onFinally }: Callbacks) => {
+      onSuccess?.([createSite(7n, "Site Seven"), createSite(9n, "Site Nine")]);
+      onFinally?.();
+    });
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <SiteSelectionModal
+        open
+        selectedSiteIds={["7", "9"]}
+        scope={{ siteIds: [7n], includeUnassigned: false }}
+        onDismiss={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("Site Seven")).toBeVisible());
+    expect(screen.queryByText("Site Nine")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    // Site 9 is out of scope and isn't offered, so it's pruned.
+    expect(onSave).toHaveBeenCalledWith(["7"]);
+  });
 });

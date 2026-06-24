@@ -359,7 +359,7 @@ describe("ScheduleModal Apply-to targets", () => {
       />,
     );
 
-  it("offers Site and Building targets in all-sites mode", () => {
+  it("offers all target types in all-sites mode", () => {
     renderCreateModal();
 
     expect(screen.getByText("Sites")).toBeInTheDocument();
@@ -369,13 +369,16 @@ describe("ScheduleModal Apply-to targets", () => {
     expect(screen.getByText("Miners")).toBeInTheDocument();
   });
 
-  it("hides the Site target when a single site is selected (Buildings and Groups stay)", () => {
+  it("keeps every target type (including Sites) when a single site is selected", () => {
     activeSiteMock.current = { kind: "site", id: "7" };
     renderCreateModal();
 
-    expect(screen.queryByText("Sites")).not.toBeInTheDocument();
+    // Site is shown like the others — its picker just narrows to the one site
+    // (filtered, not hidden). Groups stay cross-site.
+    expect(screen.getByText("Sites")).toBeInTheDocument();
     expect(screen.getByText("Buildings")).toBeInTheDocument();
-    // Groups are intentionally never scoped or hidden.
+    expect(screen.getByText("Racks")).toBeInTheDocument();
     expect(screen.getByText("Groups")).toBeInTheDocument();
+    expect(screen.getByText("Miners")).toBeInTheDocument();
   });
 });
