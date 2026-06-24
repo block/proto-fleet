@@ -27,6 +27,11 @@ import (
 // retried while the node still runs it (duplicate reboot/curtail). var so tests shrink it.
 var minerCommandTimeout = 25 * time.Second
 
+const (
+	supportedMiningPoolSlots       = 3
+	maxSupportedMiningPoolPriority = supportedMiningPoolSlots - 1
+)
+
 // driverGetter is the plugin-manager seam the executor needs; *plugins.Manager satisfies it.
 type driverGetter interface {
 	GetDriverByDriverName(driverName string) (sdk.Driver, error)
@@ -222,13 +227,39 @@ func validateGetMiningPoolsResult(result *pb.GetMiningPoolsResult) error {
 }
 
 func miningPoolConfigsFromSDK(pools []sdk.ConfiguredPool) []*pb.MiningPoolConfig {
-	configured := make([]*pb.MiningPoolConfig, 0, len(pools))
+	var defaultPool, backup1Pool, backup2Pool *pb.MiningPoolConfig
 	for _, pool := range pools {
-		configured = append(configured, &pb.MiningPoolConfig{
+		config := &pb.MiningPoolConfig{
 			Priority: pool.Priority,
 			Url:      pool.URL,
 			Username: pool.Username,
-		})
+		}
+		switch pool.Priority {
+		case 0:
+			if defaultPool == nil {
+				defaultPool = config
+			}
+		case 1:
+			if backup1Pool == nil {
+				backup1Pool = config
+			}
+		case 2:
+			if backup2Pool == nil {
+				backup2Pool = config
+			}
+		default:
+			if pool.Priority > maxSupportedMiningPoolPriority {
+				continue
+			}
+			return []*pb.MiningPoolConfig{config}
+		}
+	}
+
+	configured := make([]*pb.MiningPoolConfig, 0, supportedMiningPoolSlots)
+	for _, pool := range []*pb.MiningPoolConfig{defaultPool, backup1Pool, backup2Pool} {
+		if pool != nil {
+			configured = append(configured, pool)
+		}
 	}
 	return configured
 }
