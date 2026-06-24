@@ -176,7 +176,7 @@ func runMinerAction(ctx context.Context, dev sdk.Device, mc *pb.MinerCommand) ([
 		}
 		payload, err := proto.Marshal(&pb.GetMiningPoolsResult{Pools: configuredMiningPoolsFromSDK(pools)})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("marshal get mining pools result: %w", err)
 		}
 		return payload, nil
 	default:
