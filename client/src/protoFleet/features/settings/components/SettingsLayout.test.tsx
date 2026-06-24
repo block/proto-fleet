@@ -6,6 +6,7 @@ import SettingsLayout from "./SettingsLayout";
 
 const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
 const featureFlagsMock = vi.hoisted(() => ({ multiSite: false }));
+const activeSiteMock = vi.hoisted(() => ({ current: { kind: "all" } as { kind: string; id?: string } }));
 
 vi.mock("@/protoFleet/store", () => ({
   usePermissions: () => permissionsMock.current,
@@ -15,6 +16,10 @@ vi.mock("@/protoFleet/constants/featureFlags", () => ({
   get MULTI_SITE_ENABLED() {
     return featureFlagsMock.multiSite;
   },
+}));
+
+vi.mock("@/protoFleet/components/PageHeader/SitePicker", () => ({
+  useActiveSite: () => ({ activeSite: activeSiteMock.current, setActiveSite: vi.fn() }),
 }));
 
 vi.mock("@/protoFleet/components/SecondaryNavigation", () => ({
@@ -91,14 +96,25 @@ describe("SettingsLayout org-wide notice", () => {
   beforeEach(() => {
     permissionsMock.current = [];
     featureFlagsMock.multiSite = false;
+    activeSiteMock.current = { kind: "site", id: "7" };
   });
 
-  test("shows the org-wide notice on org-wide pages when multi-site is enabled", () => {
+  test("shows the org-wide notice on org-wide pages when a site is selected", () => {
     featureFlagsMock.multiSite = true;
 
     renderSettingsRoute("/settings/general");
 
     expect(screen.getByTestId("org-wide-notice")).toBeInTheDocument();
+    expect(screen.getByTestId("general-page")).toBeInTheDocument();
+  });
+
+  test("hides the org-wide notice when all sites is selected", () => {
+    featureFlagsMock.multiSite = true;
+    activeSiteMock.current = { kind: "all" };
+
+    renderSettingsRoute("/settings/general");
+
+    expect(screen.queryByTestId("org-wide-notice")).not.toBeInTheDocument();
     expect(screen.getByTestId("general-page")).toBeInTheDocument();
   });
 
@@ -113,6 +129,8 @@ describe("SettingsLayout org-wide notice", () => {
   });
 
   test("hides the org-wide notice when multi-site is disabled", () => {
+    featureFlagsMock.multiSite = false;
+
     renderSettingsRoute("/settings/general");
 
     expect(screen.queryByTestId("org-wide-notice")).not.toBeInTheDocument();

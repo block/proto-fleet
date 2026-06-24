@@ -436,7 +436,22 @@ export const buildScheduleRequest = (values: ScheduleFormValues, scheduleId?: st
   const action = toProtoAction(values.action);
   const scheduleType = toProtoScheduleType(values.scheduleType);
 
+  // Emit broad → narrow (site, building, rack, group, miner) so the server's
+  // order-preserving expansion produces deduped device order matching how the
+  // "Apply to" section presents the targets.
   const targets = [
+    ...values.siteTargetIds.map((targetId) =>
+      create(ScheduleTargetSchema, {
+        targetType: ScheduleTargetType.SITE,
+        targetId,
+      }),
+    ),
+    ...values.buildingTargetIds.map((targetId) =>
+      create(ScheduleTargetSchema, {
+        targetType: ScheduleTargetType.BUILDING,
+        targetId,
+      }),
+    ),
     ...values.rackTargetIds.map((targetId) =>
       create(ScheduleTargetSchema, {
         targetType: ScheduleTargetType.RACK,
@@ -452,18 +467,6 @@ export const buildScheduleRequest = (values: ScheduleFormValues, scheduleId?: st
     ...values.minerTargetIds.map((targetId) =>
       create(ScheduleTargetSchema, {
         targetType: ScheduleTargetType.MINER,
-        targetId,
-      }),
-    ),
-    ...values.siteTargetIds.map((targetId) =>
-      create(ScheduleTargetSchema, {
-        targetType: ScheduleTargetType.SITE,
-        targetId,
-      }),
-    ),
-    ...values.buildingTargetIds.map((targetId) =>
-      create(ScheduleTargetSchema, {
-        targetType: ScheduleTargetType.BUILDING,
         targetId,
       }),
     ),
