@@ -228,7 +228,7 @@ describe("FleetLayout scoped-permission fallback", () => {
     expect(screen.queryByTestId("tab-content-racks")).not.toBeInTheDocument();
   });
 
-  test("does not mount Infrastructure deep links without rack read", async () => {
+  test("does not mount Infrastructure deep links without fleet read", async () => {
     hasPermissionMock.current = () => false;
 
     renderAt("/fleet/infrastructure");
@@ -237,6 +237,15 @@ describe("FleetLayout scoped-permission fallback", () => {
       expect(screen.getByText("You do not have permission to view Fleet sections.")).toBeInTheDocument();
     });
     expect(screen.queryByTestId("tab-content-infrastructure")).not.toBeInTheDocument();
+  });
+
+  test("mounts Infrastructure deep links for fleet-read roles", async () => {
+    hasPermissionMock.current = (key: string) => key === "fleet:read";
+
+    renderAt("/fleet/infrastructure");
+
+    await waitFor(() => expect(screen.getByTestId("tab-content-infrastructure")).toBeInTheDocument());
+    expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/infrastructure");
   });
 
   test("mounts Racks for rack-only roles without site metadata access", async () => {

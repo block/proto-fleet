@@ -9,7 +9,7 @@ interface FleetInfraPageProps {
 }
 
 const FleetInfraPage = ({ devices = mockInfraDevices, canManage }: FleetInfraPageProps) => {
-  const canManageInfrastructure = useHasPermission("rack:manage");
+  const canManageInfrastructure = useHasPermission("site:manage");
 
   return <InfraDeviceList devices={devices} canManage={canManage ?? canManageInfrastructure} />;
 };

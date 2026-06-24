@@ -70,7 +70,6 @@ const FleetLayout = () => {
   const canReadMiners = useHasPermission("miner:read");
   const canReadRacks = useHasPermission("rack:read");
   const canReadFleet = useHasPermission("fleet:read");
-  const canReadInfrastructure = useHasPermission("rack:read");
 
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canReadSites ? undefined : []);
@@ -122,7 +121,7 @@ const FleetLayout = () => {
   const siteCatalogAccessGranted = canReadSites && sitesLoaded && !sitesPermissionDenied;
   const canReadRacksTab = canReadRacks;
   const canReadMinersTab = canReadMiners && canReadRacks && canReadFleet;
-  const canReadInfrastructureTab = canReadInfrastructure;
+  const canReadInfrastructureTab = canReadFleet;
 
   // Permission source of truth for Fleet tabs. Feature flags can hide tab-strip
   // entries, but registered routes stay reachable for authorized deep links.
