@@ -512,6 +512,23 @@ function CurtailmentManagementPanel({
     [activeEvent, activeEventFormValues, activeEventId, enableManage, cancelManageSelection, selectActiveCurtailment],
   );
 
+  const selectHistoryActiveEvent = useCallback(
+    (event: CurtailmentHistoryEvent) => {
+      cancelManageSelection();
+      const abortController = new AbortController();
+      manageSelectionAbortControllerRef.current = abortController;
+
+      void selectActiveCurtailment(event.id, { signal: abortController.signal })
+        .catch(() => {})
+        .finally(() => {
+          if (manageSelectionAbortControllerRef.current === abortController) {
+            manageSelectionAbortControllerRef.current = null;
+          }
+        });
+    },
+    [cancelManageSelection, selectActiveCurtailment],
+  );
+
   const openStopConfirmation = useCallback(
     (action: CurtailmentStopConfirmationAction, eventId = activeEventId) => {
       if (!enableManage || !eventId) {
@@ -725,6 +742,7 @@ function CurtailmentManagementPanel({
             onPageChange={handleHistoryPageChange}
             onStatusFiltersChange={handleHistoryStatusFiltersChange}
             onManageActiveEvent={enableManage ? openHistoryManageModal : undefined}
+            onSelectActiveEvent={canUseRecovery ? selectHistoryActiveEvent : undefined}
             onStopActiveEventRequested={enableManage ? cancelManageSelection : undefined}
             onStopActiveEvent={enableManage ? handleHistoryStop : undefined}
           />

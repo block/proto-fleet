@@ -101,6 +101,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
     selectedStatusFilters,
     onPageChange,
     onManageActiveEvent,
+    onSelectActiveEvent,
     onStatusFiltersChange,
     onStopActiveEvent,
     onStopActiveEventRequested,
@@ -113,6 +114,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
     selectedStatusFilters?: string[];
     onPageChange?: (page: number) => void;
     onManageActiveEvent?: (event: CurtailmentHistoryEvent) => void;
+    onSelectActiveEvent?: (event: CurtailmentHistoryEvent) => void;
     onStatusFiltersChange?: (filters: string[]) => void;
     onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void | Promise<unknown>;
     onStopActiveEventRequested?: (event: CurtailmentHistoryEvent) => void;
@@ -149,6 +151,11 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
             </button>
           ) : null}
         </>
+      ) : null}
+      {onSelectActiveEvent && events[0] ? (
+        <button type="button" onClick={() => onSelectActiveEvent(events[0])}>
+          Select history event
+        </button>
       ) : null}
       {onStopActiveEvent ? (
         <button
@@ -553,6 +560,34 @@ describe("CurtailmentManagementPanel", () => {
     render(<CurtailmentManagementPanel enableRecover />);
 
     expect(screen.queryByRole("button", { name: "Request terminate recovery" })).not.toBeInTheDocument();
+  });
+
+  it("selects non-selected restoring history events for recovery", async () => {
+    const user = userEvent.setup();
+    const restoringHistoryEvent = {
+      ...historyEvent,
+      id: "curt-restoring",
+      state: "restoring",
+    } as CurtailmentHistoryEvent;
+    mocks.selectActiveCurtailment.mockResolvedValue({
+      activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+      activeEventId: "curt-restoring",
+      activeEventFormValues: null,
+    });
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEvents: [{ ...historyEvent, state: "active" }, restoringHistoryEvent],
+        activeEventId: "curt-1",
+        historyEvents: [restoringHistoryEvent],
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Select history event" }));
+
+    expect(mocks.selectActiveCurtailment).toHaveBeenCalledWith("curt-restoring", { signal: expect.any(AbortSignal) });
   });
 
   it("keeps terminate recovery dialog open while submitting", async () => {
