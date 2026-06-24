@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { mockInfraDevices } from "../stories/mockInfraDevices";
 import InfraDeviceDetailModal from "./InfraDeviceDetailModal";
+import {
+  infraBuildingOptionsFromDevices,
+  uniqueSortedLocationNames,
+} from "@/protoFleet/features/infrastructure/locationOptions";
 import type { InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
 import Button, { variants } from "@/shared/components/Button";
 
@@ -9,8 +13,8 @@ export default {
   component: InfraDeviceDetailModal,
 };
 
-const siteOptions = [...new Set(mockInfraDevices.map((device) => device.siteName))].sort();
-const buildingOptions = [...new Set(mockInfraDevices.map((device) => device.buildingName))].sort();
+const siteOptions = uniqueSortedLocationNames(mockInfraDevices.map((device) => device.siteName));
+const buildingOptions = infraBuildingOptionsFromDevices(mockInfraDevices);
 const findDevice = (id: string): InfraDeviceItem => {
   const device = mockInfraDevices.find((candidate) => candidate.id === id);
   if (!device) throw new Error(`Missing infrastructure device story fixture: ${id}`);

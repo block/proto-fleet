@@ -3,7 +3,11 @@ import { useCallback, useMemo, useState } from "react";
 import { infraDeviceConnectionTypeOptions } from "@/protoFleet/features/infrastructure/connectionTypes";
 import { FieldHelpPopover } from "@/protoFleet/features/infrastructure/fieldHelp";
 import { infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelpContent";
-import type { InfraDeviceConnectionType, InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
+import type {
+  InfraBuildingOption,
+  InfraDeviceConnectionType,
+  InfraDeviceItem,
+} from "@/protoFleet/features/infrastructure/types";
 import { Alert, Success } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { DialogIcon } from "@/shared/components/Dialog";
@@ -41,7 +45,7 @@ const formatDeviceType = (device: InfraDeviceItem) => {
 interface InfraDeviceDetailModalProps {
   device: InfraDeviceItem;
   siteOptions?: string[];
-  buildingOptions?: string[];
+  buildingOptions?: InfraBuildingOption[];
   canManage?: boolean;
   onSave: (device: InfraDeviceItem) => void;
   onDelete: (deviceId: string) => void;
@@ -58,15 +62,19 @@ const InfraDeviceDetailModal = ({
   onDismiss,
 }: InfraDeviceDetailModalProps) => {
   const siteSelectOptions = useMemo(() => buildOptions(siteOptions, device.siteName), [siteOptions, device.siteName]);
+  const [site, setSite] = useState(device.siteName);
   const buildingSelectOptions = useMemo(
-    () => buildOptions(buildingOptions, device.buildingName),
-    [buildingOptions, device.buildingName],
+    () =>
+      buildOptions(
+        buildingOptions.filter((option) => option.siteName === site).map((option) => option.buildingName),
+        site === device.siteName ? device.buildingName : "",
+      ),
+    [buildingOptions, device.buildingName, device.siteName, site],
   );
   const [name, setName] = useState(device.name);
   const [connectionType, setConnectionType] = useState(device.connectionType);
   const [endpoint, setEndpoint] = useState(device.endpoint);
   const [port, setPort] = useState(String(device.port));
-  const [site, setSite] = useState(device.siteName);
   const [building, setBuilding] = useState(device.buildingName);
   const [enabled, setEnabled] = useState(device.enabled);
   const portNumber = Number(port);
@@ -92,6 +100,22 @@ const InfraDeviceDetailModal = ({
   const handleDelete = useCallback(() => {
     onDelete(device.id);
   }, [device.id, onDelete]);
+
+  const handleSiteChange = useCallback(
+    (nextSite: string) => {
+      setSite(nextSite);
+      setBuilding((currentBuilding) => {
+        const currentBuildingIsValid = buildingOptions.some(
+          (option) => option.siteName === nextSite && option.buildingName === currentBuilding,
+        );
+        if (currentBuildingIsValid) {
+          return currentBuilding;
+        }
+        return buildingOptions.find((option) => option.siteName === nextSite)?.buildingName ?? "";
+      });
+    },
+    [buildingOptions],
+  );
 
   const statusIcon = (() => {
     if (device.status === "offline")
@@ -159,7 +183,7 @@ const InfraDeviceDetailModal = ({
               label="Site"
               options={siteSelectOptions}
               value={site}
-              onChange={setSite}
+              onChange={handleSiteChange}
               disabled={!canManage}
               forceBelow
             />

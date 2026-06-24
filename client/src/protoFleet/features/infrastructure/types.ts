@@ -18,6 +18,11 @@ export interface InfraDeviceItem {
   endpointKind?: InfraDeviceEndpointKind;
 }
 
+export interface InfraBuildingOption {
+  siteName: string;
+  buildingName: string;
+}
+
 export type InfraDeviceDraft = Pick<
   InfraDeviceItem,
   "name" | "buildingName" | "siteName" | "connectionType" | "endpoint" | "port"

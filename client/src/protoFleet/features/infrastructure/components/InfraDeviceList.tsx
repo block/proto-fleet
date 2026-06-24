@@ -6,7 +6,15 @@ import InfraDeviceDetailModal from "./InfraDeviceDetail/InfraDeviceDetailModal";
 import ManageColumnsModal, { type InfraColumnPreference } from "./ManageColumnsModal";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
-import type { InfraDeviceDraft, InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
+import {
+  infraBuildingOptionsFromDevices,
+  uniqueSortedLocationNames,
+} from "@/protoFleet/features/infrastructure/locationOptions";
+import type {
+  InfraBuildingOption,
+  InfraDeviceDraft,
+  InfraDeviceItem,
+} from "@/protoFleet/features/infrastructure/types";
 import { Alert, ChevronDown, Plus, Slider } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
@@ -193,6 +201,8 @@ const EMPTY_ACTIVE_FILTERS: ActiveFilters = {
 interface InfraDeviceListProps {
   devices?: InfraDeviceItem[];
   canManage?: boolean;
+  siteOptions?: string[];
+  buildingOptions?: InfraBuildingOption[];
 }
 
 const buildDefaultColumnPrefs = () =>
@@ -203,8 +213,6 @@ const hasAnyActiveFilters = (filters: ActiveFilters) =>
   Object.values(filters.dropdownFilters).some((values) => values.length > 0) ||
   Object.keys(filters.numericFilters).length > 0 ||
   Object.values(filters.textareaListFilters).some((values) => values.length > 0);
-
-const uniqueSorted = (values: string[]) => [...new Set(values.filter(Boolean))].sort();
 
 const slugify = (value: string) =>
   value
@@ -227,7 +235,12 @@ const buildDeviceId = (draft: InfraDeviceDraft, devices: InfraDeviceItem[]) => {
   return id;
 };
 
-const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDeviceListProps) => {
+const InfraDeviceList = ({
+  devices = EMPTY_DEVICES,
+  canManage = true,
+  siteOptions,
+  buildingOptions,
+}: InfraDeviceListProps) => {
   const [devicesPropSnapshot, setDevicesPropSnapshot] = useState(devices);
   const [localDevices, setLocalDevices] = useState<InfraDeviceItem[]>(() => devices);
   const [detailDeviceId, setDetailDeviceId] = useState<string | null>(null);
@@ -256,11 +269,13 @@ const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDev
     () => localDevices.find((device) => device.id === detailDeviceId) ?? null,
     [localDevices, detailDeviceId],
   );
-  const siteOptions = useMemo(() => uniqueSorted(localDevices.map((device) => device.siteName)), [localDevices]);
-  const buildingOptions = useMemo(
-    () => uniqueSorted(localDevices.map((device) => device.buildingName)),
+  const fallbackSiteOptions = useMemo(
+    () => uniqueSortedLocationNames(localDevices.map((device) => device.siteName)),
     [localDevices],
   );
+  const fallbackBuildingOptions = useMemo(() => infraBuildingOptionsFromDevices(localDevices), [localDevices]);
+  const resolvedSiteOptions = siteOptions ?? fallbackSiteOptions;
+  const resolvedBuildingOptions = buildingOptions ?? fallbackBuildingOptions;
 
   const updateDevice = useCallback((updated: InfraDeviceItem) => {
     setLocalDevices((prev) => prev.map((device) => (device.id === updated.id ? updated : device)));
@@ -591,8 +606,8 @@ const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDev
       {detailDevice !== null ? (
         <InfraDeviceDetailModal
           device={detailDevice}
-          siteOptions={siteOptions}
-          buildingOptions={buildingOptions}
+          siteOptions={resolvedSiteOptions}
+          buildingOptions={resolvedBuildingOptions}
           canManage={canManage}
           onSave={updateDevice}
           onDelete={(deviceId) => deleteDevices([deviceId])}

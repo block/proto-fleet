@@ -7,6 +7,14 @@ import FleetInfraPage from "./FleetInfraPage";
 import type { InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
 import { useHasPermission } from "@/protoFleet/store";
 
+const listAllBuildingsMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/protoFleet/api/buildings", () => ({
+  useBuildings: () => ({
+    listAllBuildings: listAllBuildingsMock,
+  }),
+}));
+
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: vi.fn(),
 }));
@@ -39,6 +47,7 @@ const renderPage = (props?: ComponentProps<typeof FleetInfraPage>) =>
 describe("FleetInfraPage", () => {
   beforeEach(() => {
     vi.mocked(useHasPermission).mockReset();
+    listAllBuildingsMock.mockReset();
   });
 
   test("uses site permissions for default read and management access", () => {
