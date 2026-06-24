@@ -541,6 +541,37 @@ describe("CurtailmentManagementPanel", () => {
     );
   });
 
+  it("keeps admin terminate dialog open while submitting", async () => {
+    const user = userEvent.setup();
+    const restoringEvent = { ...activeEvent, state: "restoring" } satisfies ActiveCurtailmentEvent;
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: restoringEvent,
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    const { rerender } = render(<CurtailmentManagementPanel canAdminRecoverCurtailment />);
+
+    await user.click(screen.getByRole("button", { name: "Request admin terminate" }));
+    expect(screen.getByText("Admin terminate event?")).toBeInTheDocument();
+
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: restoringEvent,
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+        adminTerminatingEventId: "curt-1",
+      }),
+    );
+    rerender(<CurtailmentManagementPanel canAdminRecoverCurtailment />);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.getByText("Admin terminate event?")).toBeInTheDocument();
+  });
+
   it("does not submit stale stop confirmations for events that are no longer active", async () => {
     const user = userEvent.setup();
     const staleEvent = { ...historyEvent, state: "active" } as CurtailmentHistoryEvent;

@@ -27,7 +27,7 @@ function getStopDialogCopy(action: CurtailmentStopConfirmationAction): StopDialo
   if (action === "forceRestore") {
     return {
       title: "Force restore automation event?",
-      body: "Force restore overrides active automation demand and minimum-duration guards. Miners will start restoring even if MQTT demand is still OFF or the source is stale.",
+      body: "Force restore bypasses restore guards for this event only. If automation demand is still asserted, stop or disable the automation first so it does not curtail miners again.",
       confirmText: "Force restore",
       confirmVariant: variants.secondaryDanger,
       icon: <Power />,
@@ -64,12 +64,13 @@ function CurtailmentStopConfirmationDialog({
   onConfirm,
 }: CurtailmentStopConfirmationDialogProps): ReactElement {
   const copy = getStopDialogCopy(action);
+  const dismissDialog = isSubmitting ? undefined : onCancel;
 
   return (
     <Dialog
       open={open}
       title={copy.title}
-      onDismiss={onCancel}
+      onDismiss={dismissDialog}
       icon={<DialogIcon intent={copy.iconIntent}>{copy.icon}</DialogIcon>}
       buttons={[
         {

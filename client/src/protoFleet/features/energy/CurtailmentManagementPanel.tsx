@@ -186,12 +186,13 @@ function CurtailmentAdminTerminateDialog({
     setReasonError(null);
     onConfirm({ reason: trimmedReason, targetState });
   }, [onConfirm, reason, targetState]);
+  const dismissDialog = isSubmitting ? undefined : onCancel;
 
   return (
     <Dialog
       open={open}
       title="Admin terminate event?"
-      onDismiss={onCancel}
+      onDismiss={dismissDialog}
       icon={
         <DialogIcon intent="critical">
           <Alert />
