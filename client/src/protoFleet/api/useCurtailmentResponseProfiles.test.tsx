@@ -235,7 +235,7 @@ describe("useCurtailmentResponseProfiles", () => {
         useCurtailmentResponseProfiles(true, { siteNameById }),
       {
         initialProps: {
-          siteNameById: undefined,
+          siteNameById: undefined as Map<string, string> | undefined,
         },
       },
     );
