@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { emptySiteFormValues, type SiteFormValues, siteFormValuesFromSite, useSites } from "@/protoFleet/api/sites";
+import { scopeCurrentOrDashboardPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
+import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
@@ -104,6 +107,9 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
   // can't see this page's refetchSites) to refresh after a site is created,
   // renamed, or deleted.
   const bumpSitesRevision = useFleetStore((store) => store.ui.bumpSitesRevision);
+  const routeScope = useRouteSiteScope();
+  const navigate = useNavigate();
+  const { pathname, search, hash } = useLocation();
 
   const openCreate = useCallback(() => {
     setState({ kind: "detailsCreate", draft: emptySiteFormValues() });
@@ -198,6 +204,19 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
             });
             refetchSites();
             bumpSitesRevision();
+            // The server regenerates the slug when the name changes. If the
+            // renamed site is the active scope, sync the store — and the
+            // current scoped URL — to the new slug. Otherwise the stale slug
+            // makes ResolveSiteBySlug clear the selection on the next refresh
+            // or "/" entry (the persisted entry path also goes through the
+            // store, so updating it keeps appEntryPath correct).
+            if (activeSite.kind === "site" && activeSite.id === site.id.toString() && activeSite.slug !== site.slug) {
+              const next: ActiveSite = { kind: "site", id: activeSite.id, slug: site.slug };
+              setActiveSite(next);
+              if (routeScope?.kind === "site" && routeScope.id === site.id.toString()) {
+                navigate(scopeCurrentOrDashboardPath(pathname, search, hash, next), { replace: true });
+              }
+            }
             // Functional setState so a mid-flight dismiss (state transition
             // back to manageEdit or none) can't be silently overwritten by a
             // stale onSuccess closure.
@@ -219,7 +238,18 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
         });
       });
     },
-    [updateSite, refetchSites, bumpSitesRevision],
+    [
+      updateSite,
+      refetchSites,
+      bumpSitesRevision,
+      activeSite,
+      setActiveSite,
+      routeScope,
+      navigate,
+      pathname,
+      search,
+      hash,
+    ],
   );
 
   const manageEditDetails = useCallback(() => {

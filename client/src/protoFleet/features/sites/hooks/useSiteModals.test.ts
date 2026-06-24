@@ -1,3 +1,5 @@
+import { createElement, type ReactNode } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
@@ -44,6 +46,10 @@ vi.mock("@/shared/features/toaster", () => ({
   STATUSES: { success: "success", error: "error", queued: "queued", loading: "loading" },
 }));
 
+// useSiteModals now reads route scope + navigation (to keep the active-site
+// slug in sync after a rename), so the hook must render inside a Router.
+const wrapper = ({ children }: { children: ReactNode }) => createElement(MemoryRouter, null, children);
+
 const makeSiteResponse = (
   id: bigint,
   name: string,
@@ -73,7 +79,7 @@ describe("useSiteModals", () => {
   });
 
   it("openCreate seeds detailsCreate with empty draft", () => {
-    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
     act(() => result.current.openCreate());
     expect(result.current.state).toEqual({
       kind: "detailsCreate",
@@ -82,7 +88,7 @@ describe("useSiteModals", () => {
   });
 
   it("detailsContinueCreate round-trips manageCreate ↔ details preserving edited fields", () => {
-    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
     act(() => result.current.openCreate());
     act(() =>
       result.current.detailsContinueCreate({
@@ -112,7 +118,7 @@ describe("useSiteModals", () => {
   });
 
   it("dismiss from manageCreateEditingDetails returns to manageCreate", () => {
-    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
     act(() => result.current.openCreate());
     act(() =>
       result.current.detailsContinueCreate({
@@ -127,7 +133,7 @@ describe("useSiteModals", () => {
   });
 
   it("manageEditDetails on manageEdit stacks to manageEditEditingDetails; dismiss drops back to manageEdit", () => {
-    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
     const site = create(SiteSchema, { id: 1n, name: "S" });
     act(() => result.current.openManageEdit(site));
     act(() => result.current.manageEditDetails());
@@ -140,7 +146,7 @@ describe("useSiteModals", () => {
     const { create: createResp } = makeSiteResponse(7n, "North DC", "10.0.0.0/24");
     vi.mocked(sitesClient.createSite).mockResolvedValue(createResp);
     const refetchSites = vi.fn();
-    const { result } = renderHook(() => useSiteModals({ refetchSites }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites }), { wrapper });
     act(() => result.current.openCreate());
     act(() =>
       result.current.detailsContinueCreate({
@@ -199,7 +205,7 @@ describe("useSiteModals", () => {
     const refetchSites = vi.fn();
     const refetchBuildings = vi.fn();
     const site = create(SiteSchema, { id: 3n, name: "North DC" });
-    const { result } = renderHook(() => useSiteModals({ refetchSites, refetchBuildings }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites, refetchBuildings }), { wrapper });
     act(() => result.current.openManageEdit(site));
 
     let saveResult: { closeOnSuccess: boolean } | null | undefined;
@@ -226,7 +232,7 @@ describe("useSiteModals", () => {
   });
 
   it("manageSave on manageEdit with an empty delta closes without an RPC", async () => {
-    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
     act(() => result.current.openManageEdit(create(SiteSchema, { id: 3n, name: "North DC" })));
 
     let saveResult: { closeOnSuccess: boolean } | null | undefined;
@@ -242,7 +248,7 @@ describe("useSiteModals", () => {
     const initialSite = create(SiteSchema, { id: 9n, name: "Old" });
     const { update: updateResp } = makeSiteResponse(9n, "New");
     vi.mocked(sitesClient.updateSite).mockResolvedValue(updateResp);
-    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
     act(() => result.current.openManageEdit(initialSite));
     act(() => result.current.manageEditDetails());
 
@@ -270,7 +276,7 @@ describe("useSiteModals", () => {
         buildingCount: 0n,
       }),
     ];
-    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
     act(() => result.current.openManageEdit(site));
     act(() => result.current.manageEditDetails());
     act(() => result.current.requestDeleteCurrent(sites));
@@ -283,7 +289,7 @@ describe("useSiteModals", () => {
   it("dismissDeleteConfirm clears deleteTarget; underlying manage state stays (details was already closed)", () => {
     const site = create(SiteSchema, { id: 5n, name: "T" });
     const sites = [create(SiteWithCountsSchema, { site, deviceCount: 0n, rackCount: 0n, buildingCount: 0n })];
-    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
     act(() => result.current.openManageEdit(site));
     act(() => result.current.manageEditDetails());
     act(() => result.current.requestDeleteCurrent(sites));
@@ -304,7 +310,7 @@ describe("useSiteModals", () => {
         s.ui.activeSite = { kind: "site", id: "11", slug: "active" };
       });
     });
-    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
     act(() => result.current.openManageEdit(site));
     act(() => result.current.requestDeleteCurrent(sites));
 
@@ -317,9 +323,55 @@ describe("useSiteModals", () => {
     expect(result.current.state.kind).toBe("none");
   });
 
+  it("detailsSaveEdit syncs the active-site slug when the active site is renamed", async () => {
+    const renamed = create(SiteSchema, { id: 11n, name: "Renamed", slug: "renamed" });
+    vi.mocked(sitesClient.updateSite).mockResolvedValue(
+      create(UpdateSiteResponseSchema, { site: renamed, networkConfigWarnings: [] }),
+    );
+    const editing = create(SiteSchema, { id: 11n, name: "Active", slug: "active" });
+    act(() => {
+      useFleetStore.setState((s) => {
+        s.ui.activeSite = { kind: "site", id: "11", slug: "active" };
+      });
+    });
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
+    act(() => result.current.openManageEdit(editing));
+    act(() => result.current.manageEditDetails());
+
+    await act(async () => {
+      await result.current.detailsSaveEdit({ ...emptySiteFormValues(), name: "Renamed" });
+    });
+
+    // Stale slug would otherwise make ResolveSiteBySlug clear the selection on
+    // the next refresh; the store must now carry the regenerated slug.
+    expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "11", slug: "renamed" });
+  });
+
+  it("detailsSaveEdit leaves the active site untouched when a different site is renamed", async () => {
+    const renamed = create(SiteSchema, { id: 99n, name: "Renamed", slug: "renamed" });
+    vi.mocked(sitesClient.updateSite).mockResolvedValue(
+      create(UpdateSiteResponseSchema, { site: renamed, networkConfigWarnings: [] }),
+    );
+    const editing = create(SiteSchema, { id: 99n, name: "Other", slug: "other" });
+    act(() => {
+      useFleetStore.setState((s) => {
+        s.ui.activeSite = { kind: "site", id: "11", slug: "active" };
+      });
+    });
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
+    act(() => result.current.openManageEdit(editing));
+    act(() => result.current.manageEditDetails());
+
+    await act(async () => {
+      await result.current.detailsSaveEdit({ ...emptySiteFormValues(), name: "Renamed" });
+    });
+
+    expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "11", slug: "active" });
+  });
+
   it("cancelAll closes every modal and clears deleteTarget", () => {
     const site = create(SiteSchema, { id: 5n, name: "T" });
-    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
     act(() => result.current.openManageEdit(site));
     act(() =>
       result.current.requestDeleteCurrent([
