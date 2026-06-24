@@ -99,16 +99,22 @@ while leaving the threshold to the rule:
 2. A device that reports no nameplate collapses to `1.0` for any positive
    hashrate and `0.0` for zero. This preserves zero coverage for plugins
    that don't surface an expected value, under the same rule threshold.
-3. A device that is intentionally idle (`health_healthy_inactive`),
-   indeterminate (`health_unknown`), or reporting no hashrate reading
-   emits a non-alerting `1.0` instead of a ratio. This clears any earlier
-   low sample, so a miner that briefly hashed low and is then paused cannot
-   keep the rule firing during its ten-minute window.
-4. An unreachable device stops returning telemetry, so the status writer
-   emits a clearing `1.0` as it marks the device offline — it is then paged
-   by `DeviceOffline` rather than `Device Hashrate Low`. Only a removed
-   device's series vanishes; its last value ages out of the ten-minute
-   window, the same staleness `DeviceOffline` carries.
+3. A device that is intentionally idle (`health_healthy_inactive`) or
+   indeterminate (`health_unknown`) emits a non-alerting `1.0` instead of a
+   ratio. This clears any earlier low sample, so a miner that briefly hashed
+   low and is then paused cannot keep the rule firing during its ten-minute
+   window.
+4. A device that is still expected to hash but reports a missing or invalid
+   (NaN / Inf / negative) hashrate emits **nothing** — a telemetry gap or
+   buggy plugin must not clear a real low sample. The previous reading
+   stands until a valid one replaces it.
+5. An unreachable device stops returning telemetry, so the status writer
+   emits a clearing `1.0` only on the explicit offline transition
+   (`MinerStatusOffline`) — not on `Error`/`Critical`, which still report
+   telemetry and must keep alerting on low hashrate. The device is then
+   paged by `DeviceOffline` rather than `Device Hashrate Low`. Only a
+   removed device's series vanishes; its last value ages out of the
+   ten-minute window, the same staleness `DeviceOffline` carries.
 
 The expected value is sourced from the plugin-reported nameplate
 (`MetaData.Max`); the **threshold** lives in the rule, not the emitter, so

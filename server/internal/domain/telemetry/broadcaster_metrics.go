@@ -97,8 +97,8 @@ func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID, siteID int
 		Driver:         driver,
 	}
 
-	// fleet_device_hashing defaults to a non-alerting 1.0; only an active device with a valid reading emits the ratio, so a stale low sample can't keep the Device Hashrate Low rule firing after a miner is paused, goes unknown, or stops reporting hashrate.
-	hashing := 1.0
+	var ratio float64
+	hasReading := false
 	if dm.HashrateHS != nil {
 		observedHS := dm.HashrateHS.Value
 		var nameplateHS *float64
@@ -110,12 +110,16 @@ func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID, siteID int
 		}
 		if observed, expected, ok := sanitizeHashrate(observedHS, nameplateHS, string(deviceID), driver); ok {
 			o.emitter.EmitDeviceHashrate(ctx, labels, observed, expected)
-			if dm.Health.ExpectsHashing() {
-				hashing = hashingRatio(observed, expected)
-			}
+			ratio, hasReading = hashingRatio(observed, expected), true
 		}
 	}
-	o.emitter.EmitDeviceHashing(ctx, labels, hashing)
+	// fleet_device_hashing: the ratio while a device expected to hash has a valid reading, a non-alerting 1.0 once it's no longer expected, and nothing for a still-expected device with a missing/invalid reading so a telemetry gap or buggy plugin can't clear a real low.
+	switch {
+	case !dm.Health.ExpectsHashing():
+		o.emitter.EmitDeviceHashing(ctx, labels, 1)
+	case hasReading:
+		o.emitter.EmitDeviceHashing(ctx, labels, ratio)
+	}
 
 	// Temperature aggregation per sensor kind. The aggregator caps how many
 	// plugin-supplied components it walks and drops non-finite / implausible
@@ -150,10 +154,9 @@ func (o *metricsObserver) onDeviceStatus(ctx context.Context, orgID, siteID int6
 		DeviceID:       string(deviceID),
 		Driver:         driver,
 	}
-	online := isOnlineStatus(status)
-	o.emitter.EmitDeviceOnline(ctx, labels, online)
-	if !online {
-		// Clear any stale low hashing sample as the device goes offline so it's paged by Device Offline, not Device Hashrate Low.
+	o.emitter.EmitDeviceOnline(ctx, labels, isOnlineStatus(status))
+	if status == mm.MinerStatusOffline {
+		// Clear a stale low sample only when truly offline; an Error/Critical device still reports telemetry and must keep alerting on low hashrate.
 		o.emitter.EmitDeviceHashing(ctx, labels, 1)
 	}
 }
