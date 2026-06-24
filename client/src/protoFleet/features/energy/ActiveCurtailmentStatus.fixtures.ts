@@ -5,6 +5,7 @@ export const curtailingCurtailmentEvent: ActiveCurtailmentEvent = {
   state: "active",
   scopeLabel: "Rockdale, TX",
   sourceLabel: "Manual",
+  isAutomationOwned: false,
   selectedMiners: 18,
   estimatedReductionKw: 60.2,
   targetKw: 60,

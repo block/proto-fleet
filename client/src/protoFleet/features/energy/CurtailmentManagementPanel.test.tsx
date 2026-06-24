@@ -218,6 +218,9 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStopConfirmationDialog", () => 
 const activeEvent = {
   reason: "Grid peak",
   state: "active",
+  scopeLabel: "Whole fleet",
+  sourceLabel: "Manual",
+  isAutomationOwned: false,
   selectedMiners: 2,
   targetKw: 5,
   estimatedReductionKw: 6.2,
@@ -480,6 +483,11 @@ describe("CurtailmentManagementPanel", () => {
 
     render(<CurtailmentManagementPanel canAdminRecoverCurtailment />);
 
+    await user.click(screen.getByRole("button", { name: "Request restore" }));
+    expect(screen.getByRole("dialog", { name: "restore confirmation" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Confirm confirmation" }));
+    await waitFor(() => expect(mocks.stopCurtailment).toHaveBeenCalledWith("curt-1"));
+
     await user.click(screen.getByRole("button", { name: "Request force restore" }));
     expect(screen.getByRole("dialog", { name: "forceRestore confirmation" })).toBeInTheDocument();
 
@@ -507,7 +515,7 @@ describe("CurtailmentManagementPanel", () => {
     const user = userEvent.setup();
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
-        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+        activeEvent: { ...activeEvent, state: "restoring" },
         activeEvents: [{ ...historyEvent, state: "restoring" }],
         activeEventId: "curt-1",
       }),

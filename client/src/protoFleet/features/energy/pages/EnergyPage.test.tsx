@@ -57,6 +57,32 @@ describe("EnergyPage", () => {
     expect(screen.getByTestId("curtailment-management-panel")).toHaveTextContent("true,true");
   });
 
+  it("withholds admin recovery access when admin lacks curtailment manage permission", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:read");
+    vi.mocked(useRole).mockReturnValue("ADMIN");
+
+    render(
+      <MemoryRouter>
+        <EnergyPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTestId("curtailment-management-panel")).toHaveTextContent("false,false");
+  });
+
+  it("passes admin recovery access for super admin managers", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:read" || key === "curtailment:manage");
+    vi.mocked(useRole).mockReturnValue("SUPER_ADMIN");
+
+    render(
+      <MemoryRouter>
+        <EnergyPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTestId("curtailment-management-panel")).toHaveTextContent("true,true");
+  });
+
   it("redirects without curtailment read permission", () => {
     vi.mocked(useHasPermission).mockReturnValue(false);
 

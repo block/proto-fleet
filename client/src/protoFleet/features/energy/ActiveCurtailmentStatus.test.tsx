@@ -160,6 +160,7 @@ describe("ActiveCurtailmentStatus", () => {
   it("renders automation recovery context with force restore available", async () => {
     const user = userEvent.setup();
     const onRequestForceRestore = vi.fn();
+    const onRequestRestore = vi.fn();
 
     render(
       <ActiveCurtailmentStatus
@@ -169,16 +170,17 @@ describe("ActiveCurtailmentStatus", () => {
           sourceLabel: "MQTT automation",
         }}
         onRequestForceRestore={onRequestForceRestore}
-        onRequestRestore={vi.fn()}
+        onRequestRestore={onRequestRestore}
       />,
     );
 
     expect(screen.getByText("MQTT automation recovery")).toBeVisible();
     expect(screen.getByText(/Normal restore can be blocked while OFF demand remains asserted/)).toBeVisible();
-    expectActionButtonHidden("Restore");
 
+    await user.click(screen.getByRole("button", { name: "Restore" }));
     await user.click(screen.getByRole("button", { name: "Force restore" }));
 
+    expect(onRequestRestore).toHaveBeenCalledOnce();
     expect(onRequestForceRestore).toHaveBeenCalledOnce();
   });
 

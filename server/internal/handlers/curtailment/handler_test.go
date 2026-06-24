@@ -289,9 +289,8 @@ func TestHandler_RequestValidation(t *testing.T) {
 	})
 }
 
-// AdminTerminateEvent gates on PermCurtailmentManage; callers without
-// the permission see PermissionDenied; callers with it fall through to
-// the Unimplemented stub body.
+// AdminTerminateEvent gates on PermCurtailmentManage and Admin role; callers
+// without either are rejected before the Unimplemented stub body.
 func TestHandler_AdminTerminateEventPermissionGate(t *testing.T) {
 	t.Parallel()
 
@@ -304,12 +303,14 @@ func TestHandler_AdminTerminateEventPermissionGate(t *testing.T) {
 
 	cases := []struct {
 		name        string
+		role        string
 		permissions []string
 		wantCode    connect.Code
 	}{
-		{"caller without curtailment:manage is rejected", []string{authz.PermFleetRead}, connect.CodePermissionDenied},
-		{"empty permissions set is rejected", nil, connect.CodePermissionDenied},
-		{"caller with curtailment:manage reaches Unimplemented body", []string{authz.PermCurtailmentManage}, connect.CodeUnimplemented},
+		{"admin without curtailment:manage is rejected", domainAuth.AdminRoleName, []string{authz.PermFleetRead}, connect.CodePermissionDenied},
+		{"admin with empty permissions set is rejected", domainAuth.AdminRoleName, nil, connect.CodePermissionDenied},
+		{"non-admin with curtailment:manage is rejected", "OPERATOR", []string{authz.PermCurtailmentManage}, connect.CodePermissionDenied},
+		{"admin with curtailment:manage reaches Unimplemented body", domainAuth.AdminRoleName, []string{authz.PermCurtailmentManage}, connect.CodeUnimplemented},
 	}
 
 	for _, tc := range cases {
@@ -321,7 +322,7 @@ func TestHandler_AdminTerminateEventPermissionGate(t *testing.T) {
 				ScopeType:    authz.ScopeOrg,
 				Permissions:  tc.permissions,
 			}})
-			ctx := authn.SetInfo(t.Context(), &session.Info{})
+			ctx := authn.SetInfo(t.Context(), &session.Info{Role: tc.role})
 			ctx = middleware.WithEffectivePermissions(ctx, eff)
 
 			_, err := h.AdminTerminateEvent(ctx, req)

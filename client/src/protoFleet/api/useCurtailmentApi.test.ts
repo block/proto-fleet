@@ -220,6 +220,32 @@ describe("useCurtailmentApi", () => {
     );
   });
 
+  it("maps MQTT automation ownership onto active and history events", async () => {
+    const activeEvent = curtailmentEvent({
+      externalSource: "curtailment_automation",
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [activeEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent).toEqual(
+      expect.objectContaining({
+        isAutomationOwned: true,
+        sourceLabel: "MQTT automation",
+      }),
+    );
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        sourceLabel: "MQTT automation",
+      }),
+    );
+  });
+
   it("clears cached active state when refresh loses curtailment read permission", async () => {
     const activeEvent = curtailmentEvent({ eventUuid: "curt-permission-loss" });
     applyActiveCurtailmentEvent(activeEvent, { mergeActiveEvents: true });
@@ -2031,6 +2057,32 @@ describe("useCurtailmentApi", () => {
       expect.objectContaining({
         id: "curt-1",
         state: "cancelled",
+      }),
+    );
+  });
+
+  it("admin terminates restoring events as failed", async () => {
+    const failedEvent = curtailmentEvent({
+      state: CurtailmentEventState.FAILED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+    });
+    mockAdminTerminateEvent.mockResolvedValueOnce({ event: failedEvent });
+    mockListCurtailmentEvents.mockResolvedValue({ events: [failedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.adminTerminateCurtailment("curt-1", {
+        reason: "Operator marked restore failed",
+        targetState: "failed",
+      });
+    });
+
+    expect(mockAdminTerminateEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventUuid: "curt-1",
+        reason: "Operator marked restore failed",
+        targetState: CurtailmentEventState.FAILED,
       }),
     );
   });

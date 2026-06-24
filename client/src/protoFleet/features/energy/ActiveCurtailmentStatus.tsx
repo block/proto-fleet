@@ -33,7 +33,7 @@ export interface ActiveCurtailmentEvent {
   state: CurtailmentEventState;
   scopeLabel: string;
   sourceLabel: string;
-  isAutomationOwned?: boolean;
+  isAutomationOwned: boolean;
   endedAt?: string;
   selectedMiners: number;
   estimatedReductionKw: number;
@@ -152,6 +152,7 @@ const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
 };
 
 const manageableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
+const forceRestorableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
 
 function SectionHeader({ title, children }: SectionHeaderProps): ReactElement {
   return (
@@ -373,7 +374,6 @@ function getActiveCurtailmentActionButton({
   displayState,
   onDismissRestored,
   onRequestAdminTerminate,
-  onRequestForceRestore,
   onRequestRestore,
   onRequestStop,
 }: ActiveCurtailmentActionButtonsProps): ReactElement | null {
@@ -387,20 +387,14 @@ function getActiveCurtailmentActionButton({
     case "failed":
       return null;
     case "curtailed":
-      return (
-        getForceRestoreButton(onRequestForceRestore) ??
-        (onRequestRestore ? (
-          <Button variant={variants.primary} size={sizes.compact} text="Restore" onClick={onRequestRestore} />
-        ) : null)
-      );
+      return onRequestRestore ? (
+        <Button variant={variants.primary} size={sizes.compact} text="Restore" onClick={onRequestRestore} />
+      ) : null;
     case "pending":
     case "curtailing":
-      return (
-        getForceRestoreButton(onRequestForceRestore) ??
-        (onRequestStop ? (
-          <Button variant={variants.danger} size={sizes.compact} text="Stop" onClick={onRequestStop} />
-        ) : null)
-      );
+      return onRequestStop ? (
+        <Button variant={variants.danger} size={sizes.compact} text="Stop" onClick={onRequestStop} />
+      ) : null;
     case "restoring":
       return onRequestAdminTerminate ? (
         <Button
@@ -426,13 +420,15 @@ function ActiveCurtailmentActionButtons({
     displayState,
     onDismissRestored,
     onRequestAdminTerminate,
-    onRequestForceRestore,
     onRequestRestore,
     onRequestStop,
   });
+  const forceRestoreButton = forceRestorableDisplayStates.has(displayState)
+    ? getForceRestoreButton(onRequestForceRestore)
+    : null;
   const showManageButton = Boolean(onRequestEdit && manageableDisplayStates.has(displayState));
 
-  if (!actionButton && !showManageButton) {
+  if (!actionButton && !forceRestoreButton && !showManageButton) {
     return null;
   }
 
@@ -442,6 +438,7 @@ function ActiveCurtailmentActionButtons({
         <Button variant={variants.secondary} size={sizes.compact} text="Manage" onClick={onRequestEdit} />
       ) : null}
       {actionButton}
+      {forceRestoreButton}
     </div>
   );
 }
