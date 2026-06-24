@@ -543,12 +543,17 @@ func (r *RunCmd) streamReports(ctx context.Context, client gatewayClient, comman
 }
 
 func (r *RunCmd) sendAck(stream acker, commandID string, code pb.AckCode, errMsg string, logger *slog.Logger) {
+	r.sendAckWithPayload(stream, commandID, code, errMsg, nil, logger)
+}
+
+func (r *RunCmd) sendAckWithPayload(stream acker, commandID string, code pb.AckCode, errMsg string, payload []byte, logger *slog.Logger) {
 	errMsg = truncateUTF8(errMsg, maxAckErrorMessageBytes)
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{
 		CommandId:    commandID,
 		Succeeded:    code == pb.AckCode_ACK_CODE_OK,
 		ErrorMessage: errMsg,
 		Code:         code,
+		Payload:      payload,
 	}}}); err != nil {
 		logger.Warn("send ack failed", "command_id", commandID, "err", err)
 	}

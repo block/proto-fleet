@@ -259,6 +259,8 @@ message MinerCommand {
         UncurtailAction uncurtail = 7;
         SetCoolingModeAction set_cooling_mode = 8;
         SetPowerTargetAction set_power_target = 9;
+        UpdateMiningPoolsAction update_mining_pools = 10;
+        GetMiningPoolsAction get_mining_pools = 11;
     }
 }
 
@@ -267,6 +269,7 @@ message StartMiningAction {}
 message StopMiningAction {}
 message BlinkLedAction {}
 message UncurtailAction {}
+message GetMiningPoolsAction {}
 
 message CurtailAction {
     curtailment.v1.CurtailmentLevel level = 1;
@@ -278,6 +281,26 @@ message SetCoolingModeAction {
 
 message SetPowerTargetAction {
     minercommand.v1.PerformanceMode performance_mode = 1;
+}
+
+message MiningPoolConfig {
+    int32 priority = 1 [(buf.validate.field).int32 = {gte: 0, lte: 2}];
+    string url = 2 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string username = 3 [(buf.validate.field).string.max_len = 512];
+}
+
+message UpdateMiningPoolsAction {
+    repeated MiningPoolConfig pools = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 3}];
+}
+
+message ConfiguredMiningPool {
+    int32 priority = 1;
+    string url = 2;
+    string username = 3;
+}
+
+message GetMiningPoolsResult {
+    repeated ConfiguredMiningPool pools = 1;
 }
 
 // AgentCommand is the typed envelope marshaled into ControlCommand.payload so a
@@ -304,6 +327,8 @@ message ControlAck {
     bool   succeeded     = 2;
     string error_message = 3 [(buf.validate.field).string.max_len = 4096];
     AckCode code         = 4;
+    // Optional typed result payload for command kinds that return data.
+    bytes payload        = 5 [(buf.validate.field).bytes.max_len = 1048576];
 }
 
 // AckCode is the structured outcome class for a ControlCommand. error_message

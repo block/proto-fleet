@@ -8,9 +8,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"unicode/utf8"
 
+	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
@@ -158,12 +160,20 @@ func (m *Miner) SetPowerTarget(ctx context.Context, payload dto.PowerTargetPaylo
 }
 
 func (m *Miner) dispatch(ctx context.Context, mc *gatewaypb.MinerCommand) error {
+	ack, err := m.send(ctx, mc)
+	if err != nil {
+		return err
+	}
+	return ackToError(ack)
+}
+
+func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
 	// Pace per fleet node so a large batch can't oversubscribe the node (-> BUSY);
 	// the DB command queue holds the backlog while this worker waits for a slot.
 	if m.gate != nil {
 		release, err := m.gate.Acquire(ctx, m.fleetNodeID)
 		if err != nil {
-			return fleeterror.NewPlainError(
+			return nil, fleeterror.NewPlainError(
 				fmt.Sprintf("timed out waiting for a fleet node command slot: %v", err),
 				connect.CodeResourceExhausted,
 			)
@@ -175,7 +185,7 @@ func (m *Miner) dispatch(ctx context.Context, mc *gatewaypb.MinerCommand) error 
 		Command: &gatewaypb.AgentCommand_MinerCommand{MinerCommand: mc},
 	})
 	if err != nil {
-		return fleeterror.NewInternalErrorf("marshal miner command: %v", err)
+		return nil, fleeterror.NewInternalErrorf("marshal miner command: %v", err)
 	}
 	ack, err := m.sender.SendCommand(ctx, m.fleetNodeID, &gatewaypb.ControlCommand{
 		CommandId: id.GenerateID(),
@@ -185,11 +195,11 @@ func (m *Miner) dispatch(ctx context.Context, mc *gatewaypb.MinerCommand) error 
 		if errors.Is(err, control.ErrNoActiveStream) {
 			// Retryable, not permanent (Unavailable is not in the queue's permanent-fail
 			// set), so a node mid-reconnect re-attempts rather than dropping the command.
-			return fleeterror.NewUnavailableErrorf("fleet node has no active control stream; retry shortly")
+			return nil, fleeterror.NewUnavailableErrorf("fleet node has no active control stream; retry shortly")
 		}
-		return err
+		return nil, err
 	}
-	return ackToError(ack)
+	return ack, nil
 }
 
 // maxAckReasonBytes mirrors the node's send-side cap so a buggy/hostile node can't
@@ -244,8 +254,14 @@ func ackToError(ack *gatewaypb.ControlAck) error {
 	return fleeterror.NewInternalErrorf("fleet node reported command failure: %s", reason)
 }
 
-func (m *Miner) UpdateMiningPools(_ context.Context, _ dto.UpdateMiningPoolsPayload) error {
-	return errUnsupported("UpdateMiningPools")
+func (m *Miner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
+	pools, err := miningPoolConfigsFromPayload(payload)
+	if err != nil {
+		return err
+	}
+	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_UpdateMiningPools{
+		UpdateMiningPools: &gatewaypb.UpdateMiningPoolsAction{Pools: pools},
+	}})
 }
 
 func (m *Miner) UpdateMinerPassword(_ context.Context, _ dto.UpdateMinerPasswordPayload) error {
@@ -280,10 +296,77 @@ func (m *Miner) GetCoolingMode(_ context.Context) (commonpb.CoolingMode, error) 
 	return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, errUnsupported("GetCoolingMode")
 }
 
-func (m *Miner) GetMiningPools(_ context.Context) ([]interfaces.MinerConfiguredPool, error) {
-	return nil, errUnsupported("GetMiningPools")
+func (m *Miner) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfiguredPool, error) {
+	ack, err := m.send(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetMiningPools{
+		GetMiningPools: &gatewaypb.GetMiningPoolsAction{},
+	}})
+	if err != nil {
+		return nil, err
+	}
+	if err := ackToError(ack); err != nil {
+		return nil, err
+	}
+	if len(ack.GetPayload()) == 0 {
+		return nil, fleeterror.NewInternalErrorf("fleet node get mining pools returned no payload")
+	}
+
+	var result gatewaypb.GetMiningPoolsResult
+	if err := proto.Unmarshal(ack.GetPayload(), &result); err != nil {
+		return nil, fleeterror.NewInternalErrorf("unmarshal get mining pools result: %v", err)
+	}
+	if err := protovalidate.Validate(&result); err != nil {
+		return nil, fleeterror.NewInternalErrorf("invalid get mining pools result: %v", err)
+	}
+
+	pools := make([]interfaces.MinerConfiguredPool, 0, len(result.GetPools()))
+	for _, pool := range result.GetPools() {
+		pools = append(pools, interfaces.MinerConfiguredPool{
+			Priority: pool.GetPriority(),
+			URL:      pool.GetUrl(),
+			Username: pool.GetUsername(),
+		})
+	}
+	return pools, nil
 }
 
 func errUnsupported(op string) error {
 	return fleeterror.NewUnimplementedErrorf("%s is not yet supported for fleet-node-paired miners", op)
+}
+
+func miningPoolConfigsFromPayload(payload dto.UpdateMiningPoolsPayload) ([]*gatewaypb.MiningPoolConfig, error) {
+	pools := make([]*gatewaypb.MiningPoolConfig, 0, 3)
+
+	pool, err := miningPoolConfigFromDTO(payload.DefaultPool, "default")
+	if err != nil {
+		return nil, err
+	}
+	pools = append(pools, pool)
+
+	if payload.Backup1Pool != nil {
+		pool, err := miningPoolConfigFromDTO(*payload.Backup1Pool, "backup1")
+		if err != nil {
+			return nil, err
+		}
+		pools = append(pools, pool)
+	}
+	if payload.Backup2Pool != nil {
+		pool, err := miningPoolConfigFromDTO(*payload.Backup2Pool, "backup2")
+		if err != nil {
+			return nil, err
+		}
+		pools = append(pools, pool)
+	}
+	return pools, nil
+}
+
+func miningPoolConfigFromDTO(pool dto.MiningPool, poolName string) (*gatewaypb.MiningPoolConfig, error) {
+	if pool.Priority > math.MaxInt32 {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"%s pool priority %d exceeds int32 maximum", poolName, pool.Priority)
+	}
+	return &gatewaypb.MiningPoolConfig{
+		Priority: int32(pool.Priority), //nolint:gosec // G115: Priority validated above to fit in int32.
+		Url:      pool.URL,
+		Username: pool.Username,
+	}, nil
 }

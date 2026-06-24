@@ -2,6 +2,7 @@ package remotenode
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -93,6 +94,29 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 		}, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.Equal(t, minercommandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY, mc.GetSetPowerTarget().GetPerformanceMode())
 		}},
+		{"update mining pools", func(m *Miner) error {
+			return m.UpdateMiningPools(ctx, dto.UpdateMiningPoolsPayload{
+				DefaultPool: dto.MiningPool{
+					Priority: 0,
+					URL:      "stratum+tcp://pool1.example.com:3333",
+					Username: "worker1",
+				},
+				Backup1Pool: &dto.MiningPool{
+					Priority: 1,
+					URL:      "stratum+tcp://pool2.example.com:3333",
+					Username: "worker2",
+				},
+			})
+		}, func(t *testing.T, mc *gatewaypb.MinerCommand) {
+			pools := mc.GetUpdateMiningPools().GetPools()
+			require.Len(t, pools, 2)
+			assert.Equal(t, int32(0), pools[0].GetPriority())
+			assert.Equal(t, "stratum+tcp://pool1.example.com:3333", pools[0].GetUrl())
+			assert.Equal(t, "worker1", pools[0].GetUsername())
+			assert.Equal(t, int32(1), pools[1].GetPriority())
+			assert.Equal(t, "stratum+tcp://pool2.example.com:3333", pools[1].GetUrl())
+			assert.Equal(t, "worker2", pools[1].GetUsername())
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -111,6 +135,70 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 			tc.check(t, mc)
 		})
 	}
+}
+
+func TestMiner_GetMiningPools_DecodesPayload(t *testing.T) {
+	// Arrange
+	payload, err := proto.Marshal(&gatewaypb.GetMiningPoolsResult{
+		Pools: []*gatewaypb.ConfiguredMiningPool{
+			{Priority: 0, Url: "stratum+tcp://pool1.example.com:3333", Username: "worker1"},
+			{Priority: 3, Url: "stratum+tcp://pool4.example.com:3333", Username: "worker4"},
+		},
+	})
+	require.NoError(t, err)
+	s := &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}}
+	m := newTestMiner(t, s)
+
+	// Act
+	pools, err := m.GetMiningPools(context.Background())
+
+	// Assert
+	require.NoError(t, err)
+	require.Len(t, pools, 2)
+	assert.Equal(t, int32(0), pools[0].Priority)
+	assert.Equal(t, "stratum+tcp://pool1.example.com:3333", pools[0].URL)
+	assert.Equal(t, "worker1", pools[0].Username)
+	assert.Equal(t, int32(3), pools[1].Priority)
+	assert.Equal(t, "stratum+tcp://pool4.example.com:3333", pools[1].URL)
+	assert.Equal(t, "worker4", pools[1].Username)
+	assert.NotNil(t, decodeSent(t, s).GetGetMiningPools())
+}
+
+func TestMiner_GetMiningPools_MissingPayloadReturnsInternal(t *testing.T) {
+	// Arrange
+	m := newTestMiner(t, okSender())
+
+	// Act
+	pools, err := m.GetMiningPools(context.Background())
+
+	// Assert
+	require.Error(t, err)
+	assert.Nil(t, pools)
+	assert.Contains(t, err.Error(), "returned no payload")
+}
+
+func TestMiner_UpdateMiningPools_RejectsPriorityBeyondSDKRange(t *testing.T) {
+	// Arrange
+	s := okSender()
+	m := newTestMiner(t, s)
+
+	// Act
+	err := m.UpdateMiningPools(context.Background(), dto.UpdateMiningPoolsPayload{
+		DefaultPool: dto.MiningPool{
+			Priority: uint32(math.MaxInt32) + 1,
+			URL:      "stratum+tcp://pool1.example.com:3333",
+			Username: "worker1",
+		},
+	})
+
+	// Assert
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Nil(t, s.cmd, "invalid payload should not be sent to the node")
 }
 
 func TestMiner_AckMapping(t *testing.T) {
@@ -193,7 +281,6 @@ func TestMiner_UnsupportedMethodsReturnUnimplemented(t *testing.T) {
 	ctx := context.Background()
 
 	// Assert: not-yet-supported methods return Unimplemented.
-	assert.True(t, fleeterror.IsUnimplementedError(m.UpdateMiningPools(ctx, dto.UpdateMiningPoolsPayload{})))
 	assert.True(t, fleeterror.IsUnimplementedError(m.Unpair(ctx)))
 	assert.True(t, fleeterror.IsUnimplementedError(m.DownloadLogs(ctx, "batch")))
 	_, err := m.GetDeviceStatus(ctx)
