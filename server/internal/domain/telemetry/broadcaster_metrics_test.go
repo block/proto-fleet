@@ -112,28 +112,27 @@ func TestObserverEmitsHashrateInTerahash(t *testing.T) {
 	require.Equal(t, "42", rec.hashrate[0].labels.SiteID)
 }
 
-// TestObserverEmitsHashingGauge checks fleet_device_hashing is the intent-gated observed/expected ratio, emitted only for devices expected to be hashing.
+// TestObserverEmitsHashingGauge checks fleet_device_hashing is the observed/expected ratio while a device is expected to hash, and a non-alerting 1.0 otherwise.
 func TestObserverEmitsHashingGauge(t *testing.T) {
 	cases := []struct {
 		name      string
 		health    modelsV2.HealthStatus
 		hashrate  *modelsV2.MetricValue
-		wantEmit  bool
 		wantRatio float64
 	}{
 		// No nameplate: collapse to 1.0 (hashing) / 0.0 (stopped).
-		{"no nameplate, hashing", modelsV2.HealthHealthyActive, metricVal(110e12), true, 1.0},
-		{"no nameplate, zero hashrate", modelsV2.HealthHealthyActive, metricVal(0), true, 0.0},
+		{"no nameplate, hashing", modelsV2.HealthHealthyActive, metricVal(110e12), 1.0},
+		{"no nameplate, zero hashrate", modelsV2.HealthHealthyActive, metricVal(0), 0.0},
 		// Nameplate known: ratio is observed/expected; the rule applies the threshold.
-		{"at expected", modelsV2.HealthHealthyActive, metricValWithMax(100e12, 100e12), true, 1.0},
-		{"above expected", modelsV2.HealthHealthyActive, metricValWithMax(120e12, 100e12), true, 1.2},
-		{"degraded", modelsV2.HealthHealthyActive, metricValWithMax(50e12, 100e12), true, 0.5},
-		{"warning degraded", modelsV2.HealthWarning, metricValWithMax(50e12, 100e12), true, 0.5},
-		{"critical zero hashrate", modelsV2.HealthCritical, metricValWithMax(0, 100e12), true, 0.0},
-		// Intent gating: not emitted regardless of value.
-		{"intentionally inactive", modelsV2.HealthHealthyInactive, metricValWithMax(0, 100e12), false, 0},
-		{"unknown health", modelsV2.HealthUnknown, metricVal(110e12), false, 0},
-		{"no hashrate reading", modelsV2.HealthHealthyActive, nil, false, 0},
+		{"at expected", modelsV2.HealthHealthyActive, metricValWithMax(100e12, 100e12), 1.0},
+		{"above expected", modelsV2.HealthHealthyActive, metricValWithMax(120e12, 100e12), 1.2},
+		{"degraded", modelsV2.HealthHealthyActive, metricValWithMax(50e12, 100e12), 0.5},
+		{"warning degraded", modelsV2.HealthWarning, metricValWithMax(50e12, 100e12), 0.5},
+		{"critical zero hashrate", modelsV2.HealthCritical, metricValWithMax(0, 100e12), 0.0},
+		// Not expected to hash (or no reading): clears with a non-alerting 1.0.
+		{"intentionally inactive", modelsV2.HealthHealthyInactive, metricValWithMax(0, 100e12), 1.0},
+		{"unknown health", modelsV2.HealthUnknown, metricVal(110e12), 1.0},
+		{"no hashrate reading", modelsV2.HealthHealthyActive, nil, 1.0},
 	}
 
 	for _, tc := range cases {
@@ -146,16 +145,33 @@ func TestObserverEmitsHashingGauge(t *testing.T) {
 				Health:           tc.health,
 			})
 
-			if !tc.wantEmit {
-				require.Empty(t, rec.hashing, "must not emit fleet_device_hashing")
-				return
-			}
 			require.Len(t, rec.hashing, 1)
 			require.InDelta(t, tc.wantRatio, rec.hashing[0].ratio, 1e-9)
 			require.Equal(t, "ant-1", rec.hashing[0].labels.DeviceID)
 			require.Equal(t, "7", rec.hashing[0].labels.OrganizationID)
 		})
 	}
+}
+
+// A miner that hashes low and then pauses or goes offline must emit a clearing 1.0 so the stale low sample can't keep Device Hashrate Low firing within the rule's window.
+func TestObserverClearsHashingWhenNoLongerExpected(t *testing.T) {
+	rec := &recordingEmitter{}
+	obs := newMetricsObserver(rec)
+	sample := func(h modelsV2.HealthStatus, hr *modelsV2.MetricValue) modelsV2.DeviceMetrics {
+		return modelsV2.DeviceMetrics{DeviceIdentifier: "ant-1", Health: h, HashrateHS: hr}
+	}
+
+	// Low while active, then intentionally paused: the second tick clears.
+	obs.onDeviceMetrics(context.Background(), 7, 0, "antminer", "ant-1", sample(modelsV2.HealthHealthyActive, metricValWithMax(50e12, 100e12)))
+	obs.onDeviceMetrics(context.Background(), 7, 0, "antminer", "ant-1", sample(modelsV2.HealthHealthyInactive, metricValWithMax(0, 100e12)))
+	require.Len(t, rec.hashing, 2)
+	require.InDelta(t, 0.5, rec.hashing[0].ratio, 1e-9)
+	require.InDelta(t, 1.0, rec.hashing[1].ratio, 1e-9)
+
+	// Going offline via the status path also clears.
+	obs.onDeviceStatus(context.Background(), 7, 0, "antminer", "ant-1", mm.MinerStatusOffline)
+	require.Len(t, rec.hashing, 3)
+	require.InDelta(t, 1.0, rec.hashing[2].ratio, 1e-9)
 }
 
 // Five chips at varied temps must collapse to one (chip, max=85, avg=80) emission.

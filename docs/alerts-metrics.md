@@ -27,7 +27,7 @@ All Proto Fleet metric names start with the `fleet_` prefix.
 | Metric | Type | Unit | Labels | Description |
 | --- | --- | --- | --- | --- |
 | `fleet_device_online` | gauge (0/1) | `1` | `organization_id`, `device_id`, `device_group?`, `driver?` | 1 when the device is reachable and reporting telemetry, 0 when the telemetry pipeline has marked it unreachable. The series stops being emitted when the device is removed from the fleet (see the staleness contract below for the caveats this implies for offline alerts). |
-| `fleet_device_hashing` | gauge (ratio) | `1` | `organization_id`, `device_id`, `device_group?`, `driver?` | Observed hashrate as a fraction of expected (nameplate): 1.0 is at/above expected, lower is degraded, 0 is stopped. Devices with no reported nameplate collapse to 1.0 (producing hashrate) / 0.0 (stopped). Emitted only for devices expected to be hashing; like `fleet_device_online`, the series stops being emitted for intentionally idle, indeterminate, unreachable, or removed devices, so intentionally-paused miners never trip the Device Hashrate Low rule. The below-expected threshold lives in the rule, not the emitter. |
+| `fleet_device_hashing` | gauge (ratio) | `1` | `organization_id`, `device_id`, `device_group?`, `driver?` | Observed hashrate as a fraction of expected (nameplate) while the device is expected to be hashing: 1.0 is at/above expected, lower is degraded, 0 is stopped (no nameplate collapses to 1.0/0.0). A device that is not currently expected to hash (paused, indeterminate, offline, or reporting no hashrate) emits a non-alerting `1.0`, which clears any earlier low sample so intentionally-paused miners never trip the Device Hashrate Low rule. The below-expected threshold lives in the rule, not the emitter. |
 | `fleet_device_hashrate_terahash` | gauge | `Th/s` | `organization_id`, `device_id`, `device_group?`, `driver?` | Observed hashrate of the device. |
 | `fleet_device_hashrate_expected_terahash` | gauge | `Th/s` | `organization_id`, `device_id`, `device_group?`, `driver?` | Expected (nameplate) hashrate of the device. The Hashrate template compares observed against expected. |
 | `fleet_device_temperature_max_celsius` | gauge | `Cel` | `organization_id`, `device_id`, `device_group?`, `driver?`, `sensor_kind` | Maximum temperature observed across the device's sensors of the given kind. |
@@ -100,11 +100,15 @@ while leaving the threshold to the rule:
    hashrate and `0.0` for zero. This preserves zero coverage for plugins
    that don't surface an expected value, under the same rule threshold.
 3. A device that is intentionally idle (`health_healthy_inactive`),
-   indeterminate (`health_unknown`), or reporting no hashrate reading at
-   all emits nothing — the series vanishes, exactly like the offline
-   gauge for a removed device.
-4. An unreachable device produces no telemetry sample, so it is covered
-   by `DeviceOffline` rather than `Device Hashrate Low`.
+   indeterminate (`health_unknown`), or reporting no hashrate reading
+   emits a non-alerting `1.0` instead of a ratio. This clears any earlier
+   low sample, so a miner that briefly hashed low and is then paused cannot
+   keep the rule firing during its ten-minute window.
+4. An unreachable device stops returning telemetry, so the status writer
+   emits a clearing `1.0` as it marks the device offline — it is then paged
+   by `DeviceOffline` rather than `Device Hashrate Low`. Only a removed
+   device's series vanishes; its last value ages out of the ten-minute
+   window, the same staleness `DeviceOffline` carries.
 
 The expected value is sourced from the plugin-reported nameplate
 (`MetaData.Max`); the **threshold** lives in the rule, not the emitter, so

@@ -97,6 +97,8 @@ func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID, siteID int
 		Driver:         driver,
 	}
 
+	// fleet_device_hashing defaults to a non-alerting 1.0; only an active device with a valid reading emits the ratio, so a stale low sample can't keep the Device Hashrate Low rule firing after a miner is paused, goes unknown, or stops reporting hashrate.
+	hashing := 1.0
 	if dm.HashrateHS != nil {
 		observedHS := dm.HashrateHS.Value
 		var nameplateHS *float64
@@ -108,12 +110,12 @@ func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID, siteID int
 		}
 		if observed, expected, ok := sanitizeHashrate(observedHS, nameplateHS, string(deviceID), driver); ok {
 			o.emitter.EmitDeviceHashrate(ctx, labels, observed, expected)
-			// Intent-gated observed/expected ratio; only devices expected to be hashing emit it, and the threshold lives in the rule.
 			if dm.Health.ExpectsHashing() {
-				o.emitter.EmitDeviceHashing(ctx, labels, hashingRatio(observed, expected))
+				hashing = hashingRatio(observed, expected)
 			}
 		}
 	}
+	o.emitter.EmitDeviceHashing(ctx, labels, hashing)
 
 	// Temperature aggregation per sensor kind. The aggregator caps how many
 	// plugin-supplied components it walks and drops non-finite / implausible
@@ -148,7 +150,12 @@ func (o *metricsObserver) onDeviceStatus(ctx context.Context, orgID, siteID int6
 		DeviceID:       string(deviceID),
 		Driver:         driver,
 	}
-	o.emitter.EmitDeviceOnline(ctx, labels, isOnlineStatus(status))
+	online := isOnlineStatus(status)
+	o.emitter.EmitDeviceOnline(ctx, labels, online)
+	if !online {
+		// Clear any stale low hashing sample as the device goes offline so it's paged by Device Offline, not Device Hashrate Low.
+		o.emitter.EmitDeviceHashing(ctx, labels, 1)
+	}
 }
 
 // onDeviceRemoved is called when a device leaves the fleet.
