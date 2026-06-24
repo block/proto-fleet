@@ -17,7 +17,6 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
-	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
@@ -67,7 +66,7 @@ type Miner struct {
 	fleetNodeID int64
 	orgID       int64
 	siteID      int64
-	desc        *pairingpb.MinerConnectionDescriptor
+	desc        *gatewaypb.MinerConnectionDescriptor
 	connInfo    networking.ConnectionInfo
 }
 
@@ -90,7 +89,7 @@ func New(cfg Config) (*Miner, error) {
 		fleetNodeID: cfg.FleetNodeID,
 		orgID:       cfg.OrgID,
 		siteID:      cfg.SiteID,
-		desc: &pairingpb.MinerConnectionDescriptor{
+		desc: &gatewaypb.MinerConnectionDescriptor{
 			DeviceIdentifier: cfg.DeviceIdentifier,
 			DriverName:       cfg.DriverName,
 			IpAddress:        cfg.IPAddress,
@@ -118,44 +117,44 @@ func (m *Miner) GetConnectionInfo() networking.ConnectionInfo { return m.connInf
 func (m *Miner) GetWebViewURL() *url.URL { return nil }
 
 func (m *Miner) Reboot(ctx context.Context) error {
-	return m.dispatch(ctx, &pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}}})
+	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_Reboot{Reboot: &gatewaypb.RebootAction{}}})
 }
 
 func (m *Miner) StartMining(ctx context.Context) error {
-	return m.dispatch(ctx, &pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_StartMining{StartMining: &pairingpb.StartMiningAction{}}})
+	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_StartMining{StartMining: &gatewaypb.StartMiningAction{}}})
 }
 
 func (m *Miner) StopMining(ctx context.Context) error {
-	return m.dispatch(ctx, &pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_StopMining{StopMining: &pairingpb.StopMiningAction{}}})
+	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_StopMining{StopMining: &gatewaypb.StopMiningAction{}}})
 }
 
 func (m *Miner) BlinkLED(ctx context.Context) error {
-	return m.dispatch(ctx, &pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_BlinkLed{BlinkLed: &pairingpb.BlinkLedAction{}}})
+	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_BlinkLed{BlinkLed: &gatewaypb.BlinkLedAction{}}})
 }
 
 func (m *Miner) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
-	return m.dispatch(ctx, &pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Curtail{
-		Curtail: &pairingpb.CurtailAction{Level: curtailmentpb.CurtailmentLevel(req.Level)},
+	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_Curtail{
+		Curtail: &gatewaypb.CurtailAction{Level: curtailmentpb.CurtailmentLevel(req.Level)},
 	}})
 }
 
 func (m *Miner) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
-	return m.dispatch(ctx, &pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Uncurtail{Uncurtail: &pairingpb.UncurtailAction{}}})
+	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_Uncurtail{Uncurtail: &gatewaypb.UncurtailAction{}}})
 }
 
 func (m *Miner) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {
-	return m.dispatch(ctx, &pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_SetCoolingMode{
-		SetCoolingMode: &pairingpb.SetCoolingModeAction{Mode: payload.Mode},
+	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_SetCoolingMode{
+		SetCoolingMode: &gatewaypb.SetCoolingModeAction{Mode: payload.Mode},
 	}})
 }
 
 func (m *Miner) SetPowerTarget(ctx context.Context, payload dto.PowerTargetPayload) error {
-	return m.dispatch(ctx, &pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_SetPowerTarget{
-		SetPowerTarget: &pairingpb.SetPowerTargetAction{PerformanceMode: payload.PerformanceMode},
+	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_SetPowerTarget{
+		SetPowerTarget: &gatewaypb.SetPowerTargetAction{PerformanceMode: payload.PerformanceMode},
 	}})
 }
 
-func (m *Miner) dispatch(ctx context.Context, mc *pairingpb.MinerCommand) error {
+func (m *Miner) dispatch(ctx context.Context, mc *gatewaypb.MinerCommand) error {
 	// Pace per fleet node so a large batch can't oversubscribe the node (-> BUSY);
 	// the DB command queue holds the backlog while this worker waits for a slot.
 	if m.gate != nil {
@@ -169,8 +168,8 @@ func (m *Miner) dispatch(ctx context.Context, mc *pairingpb.MinerCommand) error 
 		defer release()
 	}
 	mc.Target = m.desc
-	payload, err := proto.Marshal(&pairingpb.AgentCommand{
-		Command: &pairingpb.AgentCommand_MinerCommand{MinerCommand: mc},
+	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
+		Command: &gatewaypb.AgentCommand_MinerCommand{MinerCommand: mc},
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("marshal miner command: %v", err)

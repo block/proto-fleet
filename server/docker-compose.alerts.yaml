@@ -1,0 +1,67 @@
+# Dev-mode alerts overlay used by `just dev-alerts`.
+#
+# Mirrors deployment-files/docker-compose.alerts.yaml but mounts
+# the in-tree provisioning bundle directly so edits to the YAML files
+# are picked up on container restart without a release rebuild.
+services:
+  fleet-api:
+    environment:
+      FLEET_TELEMETRY_ENABLED: "${FLEET_TELEMETRY_ENABLED:-true}"
+      FLEET_ALERTS_ENABLED: "${FLEET_ALERTS_ENABLED:-true}"
+      FLEET_ALERTS_FLUSH_INTERVAL: "${FLEET_ALERTS_FLUSH_INTERVAL:-5s}"
+      FLEET_ALERTS_BUFFER_SIZE: "${FLEET_ALERTS_BUFFER_SIZE:-4096}"
+      FLEET_ALERTS_GRAFANA_USER: "${FLEET_ALERTS_GRAFANA_USER:-admin}"
+      FLEET_ALERTS_GRAFANA_PASSWORD: localdev-grafana-admin-not-for-prod
+      FLEET_ALERTS_WEBHOOK_TOKEN: localdev-webhook-token-not-for-prod
+      FLEET_ALERTS_ALLOW_PRIVATE_DESTINATIONS: "${FLEET_ALERTS_ALLOW_PRIVATE_DESTINATIONS:-true}"
+    depends_on:
+      otel-collector:
+        condition: service_started
+      grafana:
+        condition: service_healthy
+    networks:
+      - monitoring
+
+  otel-collector:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: otel-collector
+    depends_on:
+      - jaeger
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+
+  jaeger:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: jaeger
+    ports:
+      - "127.0.0.1:16686:16686" # UI
+
+  grafana:
+    environment:
+      # db creds for dev only
+      GRAFANA_DB_NAME: "${DB_NAME:-fleet}"
+      GRAFANA_DB_USERNAME: "${GRAFANA_DB_USERNAME:-fleet}"
+      GRAFANA_DB_PASSWORD: "${GRAFANA_DB_PASSWORD:-fleet}"
+      GF_SECURITY_ADMIN_PASSWORD: localdev-grafana-admin-not-for-prod
+      GF_SECURITY_SECRET_KEY: localdev-grafana-secret-key-not-for-prod
+      FLEET_ALERTS_WEBHOOK_TOKEN: localdev-webhook-token-not-for-prod
+    extends:
+      file: ./docker-compose.base.yaml
+      service: grafana
+    volumes:
+      - ./monitoring/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  grafana-data:
+
+networks:
+  monitoring:
+    driver: bridge

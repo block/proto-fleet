@@ -14,7 +14,6 @@ import (
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
-	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
@@ -48,11 +47,11 @@ func newTestMiner(t *testing.T, s CommandSender) *Miner {
 	return m
 }
 
-func decodeSent(t *testing.T, s *fakeSender) *pairingpb.MinerCommand {
+func decodeSent(t *testing.T, s *fakeSender) *gatewaypb.MinerCommand {
 	t.Helper()
 	require.NotNil(t, s.cmd, "no command was sent")
 	require.NotEmpty(t, s.cmd.GetCommandId())
-	var env pairingpb.AgentCommand
+	var env gatewaypb.AgentCommand
 	require.NoError(t, proto.Unmarshal(s.cmd.GetPayload(), &env))
 	mc := env.GetMinerCommand()
 	require.NotNil(t, mc, "payload was not a MinerCommand")
@@ -64,34 +63,34 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 	cases := []struct {
 		name  string
 		call  func(*Miner) error
-		check func(*testing.T, *pairingpb.MinerCommand)
+		check func(*testing.T, *gatewaypb.MinerCommand)
 	}{
-		{"reboot", func(m *Miner) error { return m.Reboot(ctx) }, func(t *testing.T, mc *pairingpb.MinerCommand) {
+		{"reboot", func(m *Miner) error { return m.Reboot(ctx) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.NotNil(t, mc.GetReboot())
 		}},
-		{"start", func(m *Miner) error { return m.StartMining(ctx) }, func(t *testing.T, mc *pairingpb.MinerCommand) {
+		{"start", func(m *Miner) error { return m.StartMining(ctx) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.NotNil(t, mc.GetStartMining())
 		}},
-		{"stop", func(m *Miner) error { return m.StopMining(ctx) }, func(t *testing.T, mc *pairingpb.MinerCommand) {
+		{"stop", func(m *Miner) error { return m.StopMining(ctx) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.NotNil(t, mc.GetStopMining())
 		}},
-		{"blink", func(m *Miner) error { return m.BlinkLED(ctx) }, func(t *testing.T, mc *pairingpb.MinerCommand) {
+		{"blink", func(m *Miner) error { return m.BlinkLED(ctx) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.NotNil(t, mc.GetBlinkLed())
 		}},
-		{"uncurtail", func(m *Miner) error { return m.Uncurtail(ctx, sdk.UncurtailRequest{}) }, func(t *testing.T, mc *pairingpb.MinerCommand) {
+		{"uncurtail", func(m *Miner) error { return m.Uncurtail(ctx, sdk.UncurtailRequest{}) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.NotNil(t, mc.GetUncurtail())
 		}},
-		{"curtail full", func(m *Miner) error { return m.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevelFull}) }, func(t *testing.T, mc *pairingpb.MinerCommand) {
+		{"curtail full", func(m *Miner) error { return m.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevelFull}) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.Equal(t, curtailmentpb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL, mc.GetCurtail().GetLevel())
 		}},
 		{"cooling immersion", func(m *Miner) error {
 			return m.SetCoolingMode(ctx, dto.CoolingModePayload{Mode: commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED})
-		}, func(t *testing.T, mc *pairingpb.MinerCommand) {
+		}, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.Equal(t, commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED, mc.GetSetCoolingMode().GetMode())
 		}},
 		{"power efficiency", func(m *Miner) error {
 			return m.SetPowerTarget(ctx, dto.PowerTargetPayload{PerformanceMode: minercommandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY})
-		}, func(t *testing.T, mc *pairingpb.MinerCommand) {
+		}, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.Equal(t, minercommandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY, mc.GetSetPowerTarget().GetPerformanceMode())
 		}},
 	}

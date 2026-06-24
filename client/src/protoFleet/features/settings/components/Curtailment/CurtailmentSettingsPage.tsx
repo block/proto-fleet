@@ -1,15 +1,19 @@
-import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
+import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { useSites } from "@/protoFleet/api/sites";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
 import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutomationRules";
 import useCurtailmentResponseProfiles, {
   getResponseProfileScopeLabelForActionType,
 } from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
+import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
+  type CurtailmentSiteOption,
   type CurtailmentSubmitValues,
   type ResponseProfileModalMode,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
@@ -222,6 +226,17 @@ function getResponseProfileScopeSummary(values: ResponseProfileFormValues): stri
   return values.siteId
     ? values.siteName || `Site ${values.siteId}`
     : getResponseProfileScopeLabelForActionType(values.actionType);
+}
+
+function createSiteOptions(sites: SiteWithCounts[]): CurtailmentSiteOption[] {
+  return sites
+    .flatMap((siteWithCounts) => {
+      const site = siteWithCounts.site;
+      const id = site?.id ? site.id.toString() : "";
+
+      return id ? [{ id, name: site?.name || `Site ${id}` }] : [];
+    })
+    .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
 }
 
 function secondsToDeadlineMinutes(value: string): string {
@@ -1135,6 +1150,10 @@ type CurtailmentSettingsContentProps = {
   updatingResponseProfileIds?: ReadonlySet<string>;
   updatingSourceIds?: ReadonlySet<string>;
   updatingAutomationRuleIds?: ReadonlySet<string>;
+  siteOptions?: CurtailmentSiteOption[];
+  isLoadingSiteOptions?: boolean;
+  siteScopeDisabledReason?: string;
+  onResponseProfileModalOpen?: () => void;
   onCreateResponseProfile?: (values: ResponseProfileFormValues) => Promise<ResponseProfile | void>;
   onUpdateResponseProfile?: (
     profile: ResponseProfile,
@@ -1195,6 +1214,10 @@ export function CurtailmentSettingsContent({
   updatingResponseProfileIds = emptyUpdatingResponseProfileIds,
   updatingSourceIds = emptyUpdatingSourceIds,
   updatingAutomationRuleIds = emptyUpdatingAutomationRuleIds,
+  siteOptions = [],
+  isLoadingSiteOptions = false,
+  siteScopeDisabledReason,
+  onResponseProfileModalOpen,
   onCreateResponseProfile,
   onUpdateResponseProfile,
   onTestResponseProfileCurtailment,
@@ -1243,16 +1266,21 @@ export function CurtailmentSettingsContent({
   const isEditingSource = editingSource ? updatingSourceIds.has(editingSource.id) : false;
 
   const openCreateResponseProfileModal = useCallback(() => {
+    onResponseProfileModalOpen?.();
     setResponseProfileActionError(null);
     setEditingResponseProfile(null);
     setIsResponseProfileModalOpen(true);
-  }, []);
+  }, [onResponseProfileModalOpen]);
 
-  const openEditResponseProfileModal = useCallback((profile: ResponseProfile) => {
-    setResponseProfileActionError(null);
-    setEditingResponseProfile(profile);
-    setIsResponseProfileModalOpen(true);
-  }, []);
+  const openEditResponseProfileModal = useCallback(
+    (profile: ResponseProfile) => {
+      onResponseProfileModalOpen?.();
+      setResponseProfileActionError(null);
+      setEditingResponseProfile(profile);
+      setIsResponseProfileModalOpen(true);
+    },
+    [onResponseProfileModalOpen],
+  );
 
   const closeResponseProfileModal = useCallback(() => {
     setResponseProfileActionError(null);
@@ -1533,6 +1561,10 @@ export function CurtailmentSettingsContent({
         variant="responseProfile"
         responseProfileMode={responseProfileModalMode}
         initialValues={responseProfileCurtailmentInitialValues}
+        siteOptions={siteOptions}
+        siteScopeEnabled={siteOptions.length > 0 || isLoadingSiteOptions}
+        isSiteScopeLoading={isLoadingSiteOptions}
+        siteScopeDisabledReason={siteScopeDisabledReason}
         actionError={responseProfileActionError}
         onDismiss={closeResponseProfileModal}
         onSubmit={handleResponseProfileModalSubmit}
@@ -1563,9 +1595,16 @@ export function CurtailmentSettingsContent({
 
 function CurtailmentSettingsPage(): ReactElement {
   const canManageCurtailment = useHasPermission("curtailment:manage");
+  const canReadSiteCatalog = useHasPermission("site:read");
   const navigate = useNavigate();
+  const { listSites } = useSites();
   const { startCurtailment } = useCurtailmentApi();
   const [isTestingResponseProfileCurtailment, setIsTestingResponseProfileCurtailment] = useState(false);
+  const [siteOptions, setSiteOptions] = useState<CurtailmentSiteOption[]>([]);
+  const [isLoadingSiteOptions, setIsLoadingSiteOptions] = useState(false);
+  const [siteOptionsLoadError, setSiteOptionsLoadError] = useState<string | null>(null);
+  const siteOptionsAbortControllerRef = useRef<AbortController | null>(null);
+  const canLoadSiteOptions = MULTI_SITE_ENABLED && canManageCurtailment && canReadSiteCatalog;
   const {
     responseProfiles,
     isLoading: isLoadingResponseProfiles,
@@ -1600,6 +1639,44 @@ function CurtailmentSettingsPage(): ReactElement {
     setAutomationRuleEnabled,
     deleteAutomationRule,
   } = useCurtailmentAutomationRules(canManageCurtailment);
+
+  const ensureSiteOptionsLoaded = useCallback(() => {
+    if (!canLoadSiteOptions || isLoadingSiteOptions || (siteOptions.length > 0 && !siteOptionsLoadError)) {
+      return;
+    }
+
+    siteOptionsAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    siteOptionsAbortControllerRef.current = abortController;
+    const { signal } = abortController;
+
+    setIsLoadingSiteOptions(true);
+    setSiteOptionsLoadError(null);
+    void listSites({
+      signal,
+      onSuccess: (sites) => {
+        if (!signal.aborted) {
+          setSiteOptions(createSiteOptions(sites));
+        }
+      },
+      onError: (message) => {
+        if (!signal.aborted) {
+          setSiteOptionsLoadError(message);
+        }
+      },
+      onFinally: () => {
+        if (!signal.aborted) {
+          setIsLoadingSiteOptions(false);
+        }
+      },
+    });
+  }, [canLoadSiteOptions, isLoadingSiteOptions, listSites, siteOptions.length, siteOptionsLoadError]);
+
+  useEffect(() => {
+    return () => {
+      siteOptionsAbortControllerRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (!loadError) {
@@ -1800,6 +1877,13 @@ function CurtailmentSettingsPage(): ReactElement {
     return <Navigate to="/settings/general" replace />;
   }
 
+  const effectiveSiteOptions = canLoadSiteOptions ? siteOptions : [];
+  const siteScopeDisabledReason = MULTI_SITE_ENABLED
+    ? canReadSiteCatalog
+      ? (siteOptionsLoadError ?? undefined)
+      : "Site scope is not available for the current user."
+    : undefined;
+
   return (
     <CurtailmentSettingsContent
       responseProfiles={responseProfiles}
@@ -1819,6 +1903,10 @@ function CurtailmentSettingsPage(): ReactElement {
       updatingResponseProfileIds={updatingProfileIds}
       updatingSourceIds={updatingSourceIds}
       updatingAutomationRuleIds={updatingAutomationRuleIds}
+      siteOptions={effectiveSiteOptions}
+      isLoadingSiteOptions={canLoadSiteOptions ? isLoadingSiteOptions : false}
+      siteScopeDisabledReason={siteScopeDisabledReason}
+      onResponseProfileModalOpen={ensureSiteOptionsLoaded}
       onCreateResponseProfile={handleCreateResponseProfile}
       onUpdateResponseProfile={handleUpdateResponseProfile}
       onTestResponseProfileCurtailment={handleTestResponseProfileCurtailment}

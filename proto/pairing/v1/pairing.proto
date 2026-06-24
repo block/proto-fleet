@@ -4,8 +4,6 @@ package pairing.v1;
 
 import "buf/validate/validate.proto";
 import "capabilities/v1/capabilities.proto";
-import "common/v1/cooling.proto";
-import "curtailment/v1/curtailment.proto";
 import "minercommand/v1/command.proto";
 
 // Device represents a discovered network device that can be paired with the system
@@ -125,87 +123,6 @@ message DiscoverResponse {
   // Error message if discovery failed
   // Empty if discovery was successful
   string error = 2;
-}
-
-// AgentCommand is the typed envelope marshaled into ControlCommand.payload so a
-// fleet node can tell command kinds apart rather than assuming a bare
-// DiscoverRequest. command_id stays on the transport-level
-// ControlCommand/ControlAck and is not duplicated here.
-//
-// Field numbers are shared across efforts so the discovery payload is migrated
-// into this envelope exactly once and later arms are purely additive:
-//   2 = FleetNodePairRequest pair    (fleet-node pairing path)
-//   3 = MinerCommand miner_command   (per-miner command path)
-message AgentCommand {
-  oneof command {
-    option (buf.validate.oneof).required = true;
-
-    DiscoverRequest discover = 1;
-    FleetNodePairRequest pair = 2;
-    MinerCommand miner_command = 3;
-  }
-}
-
-// MinerConnectionDescriptor tells a fleet node how to reach one of its local
-// miners. The cloud supplies it per command because the node holds no device DB.
-message MinerConnectionDescriptor {
-  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-  // Plugin routing key (e.g. "antminer", "virtual"); selects the node-side driver.
-  string driver_name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 50}];
-  string ip_address = 3 [(buf.validate.field).string = {min_len: 1, max_len: 45, ip: true}];
-  string port = 4 [
-    (buf.validate.field).string = {min_len: 1, max_len: 5},
-    (buf.validate.field).cel = {
-      id: "port.range",
-      message: "port must be a decimal number in 1..65535",
-      expression: "this.matches('^[1-9][0-9]*$') && int(this) <= 65535"
-    }
-  ];
-  string url_scheme = 5 [(buf.validate.field).string.max_len = 32];
-  string serial_number = 6 [(buf.validate.field).string.max_len = 255];
-  string mac_address = 7 [(buf.validate.field).string.max_len = 255];
-  // Opaque, encrypted miner credential the node decrypts just-in-time with its
-  // per-org key (empty for no-secret drivers like the virtual driver). The cloud
-  // never ships plaintext down the stream; see RFC 0001.
-  bytes credential = 8 [(buf.validate.field).bytes.max_len = 8192];
-}
-
-// MinerCommand is one operator command targeting a single fleet-node-paired miner,
-// carried in AgentCommand.miner_command. The node reconstructs a local device from
-// `target` and executes the selected action, then acks the outcome.
-message MinerCommand {
-  MinerConnectionDescriptor target = 1 [(buf.validate.field).required = true];
-
-  oneof action {
-    option (buf.validate.oneof).required = true;
-
-    RebootAction reboot = 2;
-    StartMiningAction start_mining = 3;
-    StopMiningAction stop_mining = 4;
-    BlinkLedAction blink_led = 5;
-    CurtailAction curtail = 6;
-    UncurtailAction uncurtail = 7;
-    SetCoolingModeAction set_cooling_mode = 8;
-    SetPowerTargetAction set_power_target = 9;
-  }
-}
-
-message RebootAction {}
-message StartMiningAction {}
-message StopMiningAction {}
-message BlinkLedAction {}
-message UncurtailAction {}
-
-message CurtailAction {
-  curtailment.v1.CurtailmentLevel level = 1;
-}
-
-message SetCoolingModeAction {
-  common.v1.CoolingMode mode = 1;
-}
-
-message SetPowerTargetAction {
-  minercommand.v1.PerformanceMode performance_mode = 1;
 }
 
 // Request to pair with discovered devices

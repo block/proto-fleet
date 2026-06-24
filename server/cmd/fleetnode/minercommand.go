@@ -16,7 +16,6 @@ import (
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
-	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -34,18 +33,18 @@ type driverGetter interface {
 // secretProvider builds the auth bundle to reach a miner. The default returns an empty
 // bundle (no-secret drivers); pairing later supplies the JWT / decrypted credential.
 type secretProvider interface {
-	SecretBundle(target *pairingpb.MinerConnectionDescriptor) (sdk.SecretBundle, error)
+	SecretBundle(target *pb.MinerConnectionDescriptor) (sdk.SecretBundle, error)
 }
 
 // nodeSecretProvider is the default: empty bundle only. It ignores credential ciphertext
 // because the per-org decryption key is a pairing concern, so authed drivers fail until then.
 type nodeSecretProvider struct{}
 
-func (nodeSecretProvider) SecretBundle(_ *pairingpb.MinerConnectionDescriptor) (sdk.SecretBundle, error) {
+func (nodeSecretProvider) SecretBundle(_ *pb.MinerConnectionDescriptor) (sdk.SecretBundle, error) {
 	return sdk.SecretBundle{}, nil
 }
 
-func (r *RunCmd) handleMinerCommand(ctx context.Context, stream acker, commandID string, mc *pairingpb.MinerCommand, logger *slog.Logger) {
+func (r *RunCmd) handleMinerCommand(ctx context.Context, stream acker, commandID string, mc *pb.MinerCommand, logger *slog.Logger) {
 	if r.driverGetter == nil || r.minerSecrets == nil {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no plugins loaded", logger)
 		return
@@ -112,7 +111,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, stream acker, commandID
 // validateDialTarget rejects descriptors the node should never dial: a non-IP, public,
 // or link-local address, or a scheme the drivers can't dial. Loopback is allowed for the
 // dev virtual driver; mirrors the discovery path's private-address policy.
-func validateDialTarget(t *pairingpb.MinerConnectionDescriptor) error {
+func validateDialTarget(t *pb.MinerConnectionDescriptor) error {
 	addr, err := netip.ParseAddr(t.GetIpAddress())
 	if err != nil {
 		return fmt.Errorf("ip_address %q is not a valid IP", t.GetIpAddress())
@@ -127,17 +126,17 @@ func validateDialTarget(t *pairingpb.MinerConnectionDescriptor) error {
 	return nil
 }
 
-func runMinerAction(ctx context.Context, dev sdk.Device, mc *pairingpb.MinerCommand) error {
+func runMinerAction(ctx context.Context, dev sdk.Device, mc *pb.MinerCommand) error {
 	switch a := mc.GetAction().(type) {
-	case *pairingpb.MinerCommand_Reboot:
+	case *pb.MinerCommand_Reboot:
 		return dev.Reboot(ctx)
-	case *pairingpb.MinerCommand_StartMining:
+	case *pb.MinerCommand_StartMining:
 		return dev.StartMining(ctx)
-	case *pairingpb.MinerCommand_StopMining:
+	case *pb.MinerCommand_StopMining:
 		return dev.StopMining(ctx)
-	case *pairingpb.MinerCommand_BlinkLed:
+	case *pb.MinerCommand_BlinkLed:
 		return dev.BlinkLED(ctx)
-	case *pairingpb.MinerCommand_Curtail:
+	case *pb.MinerCommand_Curtail:
 		level, err := toSDKCurtailLevel(a.Curtail.GetLevel())
 		if err != nil {
 			return err
@@ -147,19 +146,19 @@ func runMinerAction(ctx context.Context, dev sdk.Device, mc *pairingpb.MinerComm
 			return sdk.NewErrUnsupportedCapability("curtailment")
 		}
 		return curtailer.Curtail(ctx, sdk.CurtailRequest{Level: level})
-	case *pairingpb.MinerCommand_Uncurtail:
+	case *pb.MinerCommand_Uncurtail:
 		curtailer, ok := dev.(sdk.DeviceCurtailment)
 		if !ok {
 			return sdk.NewErrUnsupportedCapability("curtailment")
 		}
 		return curtailer.Uncurtail(ctx, sdk.UncurtailRequest{})
-	case *pairingpb.MinerCommand_SetCoolingMode:
+	case *pb.MinerCommand_SetCoolingMode:
 		mode, err := toSDKCoolingMode(a.SetCoolingMode.GetMode())
 		if err != nil {
 			return err
 		}
 		return dev.SetCoolingMode(ctx, mode)
-	case *pairingpb.MinerCommand_SetPowerTarget:
+	case *pb.MinerCommand_SetPowerTarget:
 		mode, err := toSDKPerformanceMode(a.SetPowerTarget.GetPerformanceMode())
 		if err != nil {
 			return err

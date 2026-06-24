@@ -1,5 +1,5 @@
 import { type NavFeature } from "@/protoFleet/config/navItems";
-import { useNotificationsEnabled } from "@/protoFleet/features/notifications/api/useNotificationsEnabled";
+import { useAlertsEnabled } from "@/protoFleet/features/alerts/api/useAlertsEnabled";
 
 /**
  * Runtime on/off state for nav features the server gates (see
@@ -8,6 +8,6 @@ import { useNotificationsEnabled } from "@/protoFleet/features/notifications/api
  */
 export function useNavFeatureEnabled(): Record<NavFeature, boolean> {
   return {
-    notifications: useNotificationsEnabled(),
+    alerts: useAlertsEnabled(),
   };
 }

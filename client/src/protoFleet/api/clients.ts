@@ -1,6 +1,12 @@
 import { createClient } from "@connectrpc/connect";
 import { transport } from "./transport";
 import { ActivityService } from "@/protoFleet/api/generated/activity/v1/activity_pb";
+import {
+  ChannelService as AlertChannelService,
+  HistoryService as AlertHistoryService,
+  MaintenanceWindowService as AlertMaintenanceWindowService,
+  RuleService as AlertRuleService,
+} from "@/protoFleet/api/generated/alerts/v1/alerts_pb";
 import { ApiKeyService } from "@/protoFleet/api/generated/apikey/v1/apikey_pb";
 import { AuthService } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { AuthzService } from "@/protoFleet/api/generated/authz/v1/authz_pb";
@@ -12,12 +18,6 @@ import { FleetManagementService } from "@/protoFleet/api/generated/fleetmanageme
 import { ForemanImportService } from "@/protoFleet/api/generated/foremanimport/v1/foremanimport_pb";
 import { MinerCommandService } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { NetworkInfoService } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
-import {
-  ChannelService as NotificationChannelService,
-  HistoryService as NotificationHistoryService,
-  MaintenanceWindowService as NotificationMaintenanceWindowService,
-  RuleService as NotificationRuleService,
-} from "@/protoFleet/api/generated/notifications/v1/notifications_pb";
 import { OnboardingService } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
 import { PairingService } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { PoolsService } from "@/protoFleet/api/generated/pools/v1/pools_pb";
@@ -45,16 +45,16 @@ const telemetryClient = createClient(TelemetryService, transport);
 const foremanImportClient = createClient(ForemanImportService, transport);
 const sitesClient = createClient(SiteService, transport);
 const buildingsClient = createClient(BuildingService, transport);
-const notificationChannelClient = createClient(NotificationChannelService, transport);
-const notificationRuleClient = createClient(NotificationRuleService, transport);
-const notificationMaintenanceWindowClient = createClient(NotificationMaintenanceWindowService, transport);
-const notificationHistoryClient = createClient(NotificationHistoryService, transport);
+const alertChannelClient = createClient(AlertChannelService, transport);
+const alertRuleClient = createClient(AlertRuleService, transport);
+const alertMaintenanceWindowClient = createClient(AlertMaintenanceWindowService, transport);
+const alertHistoryClient = createClient(AlertHistoryService, transport);
 
 export {
-  notificationChannelClient,
-  notificationRuleClient,
-  notificationMaintenanceWindowClient,
-  notificationHistoryClient,
+  alertChannelClient,
+  alertRuleClient,
+  alertMaintenanceWindowClient,
+  alertHistoryClient,
   activityClient,
   apiKeyClient,
   authClient,

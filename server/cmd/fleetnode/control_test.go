@@ -662,8 +662,8 @@ func mustMarshal(t *testing.T, m proto.Message) []byte {
 // way DiscoverOnFleetNode now sends it over the ControlStream.
 func discoverPayload(t *testing.T, req *pairingpb.DiscoverRequest) []byte {
 	t.Helper()
-	return mustMarshal(t, &pairingpb.AgentCommand{
-		Command: &pairingpb.AgentCommand_Discover{Discover: req},
+	return mustMarshal(t, &pb.AgentCommand{
+		Command: &pb.AgentCommand_Discover{Discover: req},
 	})
 }
 
@@ -906,9 +906,9 @@ func TestControlLoop_CommandPoolCeilingAcksBusy(t *testing.T) {
 	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 	state := &bootstrap.State{FleetNodeID: 7}
 
-	payload := mustMarshal(t, &pairingpb.AgentCommand{
-		Command: &pairingpb.AgentCommand_MinerCommand{MinerCommand: withTarget(
-			&pairingpb.MinerCommand{Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}}},
+	payload := mustMarshal(t, &pb.AgentCommand{
+		Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+			&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}},
 		)},
 	})
 	fake := &controlFakeGateway{}
@@ -1213,12 +1213,12 @@ func TestDecodeAgentCommandLane(t *testing.T) {
 	discover := discoverPayload(t, &pairingpb.DiscoverRequest{
 		Mode: &pairingpb.DiscoverRequest_IpList{IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}}},
 	})
-	minerCmd := mustMarshal(t, &pairingpb.AgentCommand{
-		Command: &pairingpb.AgentCommand_MinerCommand{MinerCommand: &pairingpb.MinerCommand{
-			Target: &pairingpb.MinerConnectionDescriptor{
+	minerCmd := mustMarshal(t, &pb.AgentCommand{
+		Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
+			Target: &pb.MinerConnectionDescriptor{
 				DeviceIdentifier: "d1", DriverName: "virtual", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http",
 			},
-			Action: &pairingpb.MinerCommand_Reboot{Reboot: &pairingpb.RebootAction{}},
+			Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}},
 		}},
 	})
 

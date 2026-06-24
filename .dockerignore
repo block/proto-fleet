@@ -16,7 +16,6 @@ tests/
 
 server/e2e/
 server/testing/
-server/plugins/
 server/out/
 server/fake-antminer/
 server/docs/

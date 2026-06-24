@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/alerts/v1/alertsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
@@ -28,7 +29,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/notifications/v1/notificationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
@@ -78,10 +78,10 @@ var registeredServices = []struct {
 	{foremanimportv1connect.ForemanImportServiceName, reflect.TypeOf((*foremanimportv1connect.ForemanImportServiceHandler)(nil)).Elem()},
 	{minercommandv1connect.MinerCommandServiceName, reflect.TypeOf((*minercommandv1connect.MinerCommandServiceHandler)(nil)).Elem()},
 	{networkinfov1connect.NetworkInfoServiceName, reflect.TypeOf((*networkinfov1connect.NetworkInfoServiceHandler)(nil)).Elem()},
-	{notificationsv1connect.ChannelServiceName, reflect.TypeOf((*notificationsv1connect.ChannelServiceHandler)(nil)).Elem()},
-	{notificationsv1connect.RuleServiceName, reflect.TypeOf((*notificationsv1connect.RuleServiceHandler)(nil)).Elem()},
-	{notificationsv1connect.MaintenanceWindowServiceName, reflect.TypeOf((*notificationsv1connect.MaintenanceWindowServiceHandler)(nil)).Elem()},
-	{notificationsv1connect.HistoryServiceName, reflect.TypeOf((*notificationsv1connect.HistoryServiceHandler)(nil)).Elem()},
+	{alertsv1connect.ChannelServiceName, reflect.TypeOf((*alertsv1connect.ChannelServiceHandler)(nil)).Elem()},
+	{alertsv1connect.RuleServiceName, reflect.TypeOf((*alertsv1connect.RuleServiceHandler)(nil)).Elem()},
+	{alertsv1connect.MaintenanceWindowServiceName, reflect.TypeOf((*alertsv1connect.MaintenanceWindowServiceHandler)(nil)).Elem()},
+	{alertsv1connect.HistoryServiceName, reflect.TypeOf((*alertsv1connect.HistoryServiceHandler)(nil)).Elem()},
 	{onboardingv1connect.OnboardingServiceName, reflect.TypeOf((*onboardingv1connect.OnboardingServiceHandler)(nil)).Elem()},
 	{pairingv1connect.PairingServiceName, reflect.TypeOf((*pairingv1connect.PairingServiceHandler)(nil)).Elem()},
 	{poolsv1connect.PoolsServiceName, reflect.TypeOf((*poolsv1connect.PoolsServiceHandler)(nil)).Elem()},

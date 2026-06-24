@@ -219,7 +219,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 			wg.Add(1)
 			// All loop-scoped values the handler needs are passed as arguments,
 			// including the acquired lane, so each goroutine releases the same lane.
-			go func(c *pb.ControlCommand, e *pairingpb.AgentCommand, pErr error, lane chan struct{}) {
+			go func(c *pb.ControlCommand, e *pb.AgentCommand, pErr error, lane chan struct{}) {
 				defer wg.Done()
 				defer func() { <-lane }()
 				r.handleCommand(sessionCtx, client, sender, c, e, pErr, logger)
@@ -236,15 +236,15 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 // time. Discovery (and the pairing effort's future pair) is the heavy, report-bearing
 // kind that takes the exclusive single-flight slot; everything else, including a
 // malformed payload, takes the per-miner command pool and is acked by handleCommand.
-func decodeAgentCommand(payload []byte) (*pairingpb.AgentCommand, error) {
-	env := &pairingpb.AgentCommand{}
+func decodeAgentCommand(payload []byte) (*pb.AgentCommand, error) {
+	env := &pb.AgentCommand{}
 	if err := proto.Unmarshal(payload, env); err != nil {
 		return nil, fmt.Errorf("decode AgentCommand: %w", err)
 	}
 	return env, nil
 }
 
-func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, env *pairingpb.AgentCommand, parseErr error, logger *slog.Logger) {
+func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream acker, cmd *pb.ControlCommand, env *pb.AgentCommand, parseErr error, logger *slog.Logger) {
 	commandID := cmd.GetCommandId()
 	// Drop silently if command_id is itself unsafe to echo in an ack; the
 	// gateway would reject the ack and close the stream. Server retries.
@@ -263,11 +263,11 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		return
 	}
 	switch k := env.GetCommand().(type) {
-	case *pairingpb.AgentCommand_Discover:
+	case *pb.AgentCommand_Discover:
 		r.handleDiscover(ctx, client, stream, commandID, k.Discover, logger)
-	case *pairingpb.AgentCommand_MinerCommand:
+	case *pb.AgentCommand_MinerCommand:
 		r.handleMinerCommand(ctx, stream, commandID, k.MinerCommand, logger)
-	case *pairingpb.AgentCommand_Pair:
+	case *pb.AgentCommand_Pair:
 		r.handlePairCommand(ctx, client, stream, commandID, k.Pair, logger)
 	default:
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "AgentCommand has no recognized command kind", logger)

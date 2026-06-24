@@ -1,0 +1,88 @@
+services:
+  fleet-api:
+    platform: linux/arm64
+    ports: !override
+      - "127.0.0.1:4000:4000"
+
+  fleetnode-ui-test:
+    platform: linux/arm64
+    build:
+      context: ..
+      dockerfile: server/Dockerfile.fleetnode.dev
+    command: ["--state-dir=/state", "run"]
+    environment:
+      FLEETNODE_LOCAL_DISCOVERY_SUBNET: "10.90.0.0/24"
+      PROTO_MINER_PORT: "8080"
+    volumes:
+      - fleetnode-ui-test-state:/state
+    depends_on:
+      - fleet-api
+      - ui-test-proto-rig
+      - ui-test-antminer
+    networks:
+      - fleet-network
+      - fleetnode-miner-network
+    restart: unless-stopped
+
+  ui-test-proto-rig:
+    build:
+      context: ..
+      dockerfile: server/fake-proto-rig/Dockerfile
+    environment:
+      HTTP_PORT: "8080"
+      SERIAL_NUMBER: "UI-TEST-PROTO-001"
+      FAKE_RIG_PASSWORD: "proto"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 8080
+    networks:
+      fleetnode-miner-network:
+        ipv4_address: 10.90.0.10
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+  ui-test-antminer:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S19 UI Test"
+      SERIAL_NUMBER: "UI-TEST-ANTMINER-001"
+      MAC_ADDRESS: "02:42:0a:5a:00:20"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      IP_ADDRESS: "10.90.0.20"
+      GATEWAY: "10.90.0.1"
+      DNS_SERVERS: ""
+      USERNAME: "root"
+      PASSWORD: "root"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
+    networks:
+      fleetnode-miner-network:
+        ipv4_address: 10.90.0.20
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+volumes:
+  fleetnode-ui-test-state:
+
+networks:
+  fleetnode-miner-network:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: "10.90.0.0/24"
+          gateway: "10.90.0.1"

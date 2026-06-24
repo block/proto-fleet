@@ -167,6 +167,87 @@ mqtt-sim-down:
 mqtt-sim-logs:
   just mqtt-sim-logs
 
+# start backend, an enrolled fleet node, isolated fake miners, and the ProtoFleet client for manual UI testing
+fleetnode-ui-test-up:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  just build-plugins-docker
+  cd server
+  COMPOSE=(docker compose -f docker-compose.yaml -f docker-compose.fleetnode-ui-test.yaml)
+  DEFAULT_FAKE_MINERS=(
+    fake-proto-rig
+    fake-antminer
+    fake-antminer-high-temp
+    fake-antminer-hw-errors
+    fake-antminer-board-dead
+    fake-antminer-pool-issues
+    fake-antminer-rejected-shares
+    proto-sim
+    antminer-sim
+  )
+  "${COMPOSE[@]}" stop "${DEFAULT_FAKE_MINERS[@]}" >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" rm -f "${DEFAULT_FAKE_MINERS[@]}" >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" up -d --build timescaledb fleet-api ui-test-proto-rig ui-test-antminer
+  for _ in $(seq 1 90); do
+    if curl -fsS \
+      -H 'Content-Type: application/json' \
+      -d '{}' \
+      http://localhost:4000/onboarding.v1.OnboardingService/GetFleetInitStatus >/dev/null; then
+      break
+    fi
+    sleep 1
+  done
+  curl -fsS \
+    -H 'Content-Type: application/json' \
+    -d '{}' \
+    http://localhost:4000/onboarding.v1.OnboardingService/GetFleetInitStatus >/dev/null
+  "${COMPOSE[@]}" run --rm \
+    -e FLEET_ADMIN_USERNAME \
+    -e FLEET_ADMIN_PASSWORD \
+    --entrypoint /app/fleetnode-ui-test fleetnode-ui-test \
+    --api-url=http://fleet-api:4000 \
+    --node-server-url=http://fleet-api:4000 \
+    --state-dir=/state
+  "${COMPOSE[@]}" up -d --build fleetnode-ui-test
+  cd ../client
+  GIT_VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+  BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "development")
+  echo "ProtoFleet UI: http://localhost:5173"
+  echo "Fleet node UI-test services are running; use 'just fleetnode-ui-test-down' to stop them."
+  VITE_VERSION="$GIT_VERSION" \
+  VITE_BUILD_DATE="$BUILD_DATE" \
+  VITE_COMMIT="$GIT_COMMIT" \
+  VITE_NOTIFICATIONS_ENABLED=false \
+  npm run dev:protoFleet
+
+# follow logs for the fleetnode manual UI-test stack
+fleetnode-ui-test-logs:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd server
+  docker compose -f docker-compose.yaml -f docker-compose.fleetnode-ui-test.yaml logs -f \
+    fleet-api fleetnode-ui-test ui-test-proto-rig ui-test-antminer
+
+# stop the fleetnode manual UI-test stack
+fleetnode-ui-test-down:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd server
+  docker compose -f docker-compose.yaml -f docker-compose.fleetnode-ui-test.yaml down
+
+# remove fleetnode UI-test containers and fleetnode state for a clean re-enrollment
+fleetnode-ui-test-reset:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd server
+  COMPOSE=(docker compose -f docker-compose.yaml -f docker-compose.fleetnode-ui-test.yaml)
+  "${COMPOSE[@]}" stop fleetnode-ui-test ui-test-proto-rig ui-test-antminer || true
+  "${COMPOSE[@]}" rm -f fleetnode-ui-test ui-test-proto-rig ui-test-antminer || true
+  PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}"
+  docker volume rm "${PROJECT}_fleetnode-ui-test-state" >/dev/null 2>&1 || true
+  echo "Fleet node UI-test state reset."
+
 # --- Dependency management ---
 
 # update all Go dependencies across workspace

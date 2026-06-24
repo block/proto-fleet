@@ -25,12 +25,12 @@ export const MULTI_SITE_ENABLED = import.meta.env.VITE_MULTI_SITE_ENABLED === "t
 export const INFRASTRUCTURE_DEVICES_ENABLED = import.meta.env.VITE_INFRASTRUCTURE_DEVICES_ENABLED === "true";
 
 /**
- * Notifications settings (webhook/Slack delivery channels). When on, the
- * `/settings/notifications` entry is discoverable in the settings subnav.
+ * Alerts settings (webhook/Slack delivery channels). When on, the
+ * `/settings/alerts` entry is discoverable in the settings subnav.
  *
- * Notifications require the Grafana sidecar, which only runs when the server is
- * started with notifications enabled (`ENABLE_BETA_NOTIFICATIONS=true` →
- * `just dev-notifs`). With the sidecar absent the page can't load anything, so
- * the nav stays hidden by default. Override with `VITE_NOTIFICATIONS_ENABLED=true`.
+ * Alerts require the Grafana sidecar, which only runs when the server is
+ * started with alerts enabled (`ENABLE_BETA_ALERTS=true` →
+ * `just dev-alerts`). With the sidecar absent the page can't load anything, so
+ * the nav stays hidden by default. Override with `VITE_ALERTS_ENABLED=true`.
  */
-export const NOTIFICATIONS_ENABLED = import.meta.env.VITE_NOTIFICATIONS_ENABLED === "true";
+export const ALERTS_ENABLED = import.meta.env.VITE_ALERTS_ENABLED === "true";
