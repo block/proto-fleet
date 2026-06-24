@@ -23,7 +23,8 @@ import Input from "@/shared/components/Input";
 import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Select from "@/shared/components/Select";
-import { positions } from "@/shared/constants";
+import SelectRowList from "@/shared/components/SelectRowList";
+import { positions, selectTypes } from "@/shared/constants";
 
 export type CurtailmentPriority = "normal" | "emergency";
 export type CurtailmentScopeType = "wholeOrg" | "site" | "deviceSet" | "explicitMiners";
@@ -64,6 +65,11 @@ export interface CurtailmentResponseProfileOption {
   values: Partial<Omit<CurtailmentFormValues, "responseProfileId">>;
 }
 
+export interface CurtailmentSiteOption {
+  id: string;
+  name: string;
+}
+
 export interface CurtailmentPlanPreview {
   selectedMinerCount: number;
   targetKw: number;
@@ -96,6 +102,9 @@ interface CurtailmentStartModalProps {
   responseProfileMode?: ResponseProfileModalMode;
   initialValues?: Partial<CurtailmentFormValues>;
   responseProfiles?: CurtailmentResponseProfileOption[];
+  siteOptions?: CurtailmentSiteOption[];
+  isSiteScopeLoading?: boolean;
+  siteScopeDisabledReason?: string;
   errors?: CurtailmentFormErrors;
   preview?: CurtailmentPlanPreview;
   previewError?: string;
@@ -137,6 +146,14 @@ interface ApplyToTarget {
 
 type ParsedNumberField = { parsed?: number; error?: string };
 type EditableCurtailmentField = "reason" | "restoreIntervalSec";
+type ResponseProfileScopeRow = {
+  id: string;
+  text: string;
+  subtext: string;
+  isSelected: boolean;
+  disabled?: boolean;
+  "data-testid": string;
+};
 
 export const customResponseProfileId = "customPlan";
 const responseProfileDescription = "Saved configurations that define how much power to shed and how to restore it.";
@@ -174,6 +191,8 @@ const curtailmentModeOptions = [
   { value: "fixedKwReduction", label: "Fixed kW reduction" },
   { value: "fullFleet", label: "Full shutdown" },
 ];
+const wholeFleetScopeRowId = "whole-org";
+const getSiteScopeRowId = (siteId: string) => `site:${siteId}`;
 
 function withWholeFleetScope(values: CurtailmentFormValues): CurtailmentFormValues {
   return {
@@ -186,18 +205,20 @@ function withWholeFleetScope(values: CurtailmentFormValues): CurtailmentFormValu
   };
 }
 
-function withResponseProfileScope(
-  values: CurtailmentFormValues,
-  responseProfileMode: ResponseProfileModalMode,
-): CurtailmentFormValues {
-  if (responseProfileMode === "edit" && values.scopeType === "site" && values.siteId) {
-    return {
-      ...values,
-      scopeType: "site",
-      scopeId: values.scopeId ?? `Site ${values.siteId}`,
-      deviceSetIds: [],
-      deviceIdentifiers: [],
-    };
+function withSiteScope(values: CurtailmentFormValues, siteId: string, siteName?: string): CurtailmentFormValues {
+  return {
+    ...values,
+    scopeType: "site",
+    scopeId: siteName || `Site ${siteId}`,
+    siteId,
+    deviceSetIds: [],
+    deviceIdentifiers: [],
+  };
+}
+
+function withResponseProfileScope(values: CurtailmentFormValues): CurtailmentFormValues {
+  if (values.scopeType === "site" && values.siteId) {
+    return withSiteScope(values, values.siteId, values.scopeId);
   }
 
   return withWholeFleetScope(values);
@@ -254,7 +275,11 @@ function withSelectedResponseProfileValues(
           ? "explicitMiners"
           : "wholeOrg");
 
-  if (scopeType === "site" || scopeType === "deviceSet") {
+  if (scopeType === "site" && responseProfileValues.siteId) {
+    return withSiteScope(nextValues, responseProfileValues.siteId, responseProfileValues.scopeId);
+  }
+
+  if (scopeType === "deviceSet") {
     return withWholeFleetScope(nextValues);
   }
 
@@ -279,14 +304,13 @@ function isCurtailmentMode(value: string): value is CurtailmentMode {
 function getInitialValues(
   initialValues?: Partial<CurtailmentFormValues>,
   variant: CurtailmentStartModalVariant = "curtailment",
-  responseProfileMode: ResponseProfileModalMode = "create",
 ): CurtailmentFormValues {
   const values = {
     ...defaultValues,
     ...initialValues,
   };
 
-  return variant === "responseProfile" ? withResponseProfileScope(values, responseProfileMode) : values;
+  return variant === "responseProfile" ? withResponseProfileScope(values) : values;
 }
 
 function parseRequiredPositiveNumberField(value: string, fieldLabel: string): ParsedNumberField {
@@ -715,6 +739,9 @@ function CurtailmentStartModalContent({
   responseProfileMode = "create",
   initialValues,
   responseProfiles = [],
+  siteOptions = [],
+  isSiteScopeLoading = false,
+  siteScopeDisabledReason,
   errors,
   preview,
   previewError,
@@ -723,9 +750,7 @@ function CurtailmentStartModalContent({
   isTestingCurtailment = false,
   isDeleting = false,
 }: CurtailmentStartModalProps): ReactElement {
-  const [initialFormValues] = useState<CurtailmentFormValues>(() =>
-    getInitialValues(initialValues, variant, responseProfileMode),
-  );
+  const [initialFormValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues, variant));
   const [values, setValues] = useState<CurtailmentFormValues>(() => initialFormValues);
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
   const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);
@@ -818,7 +843,7 @@ function CurtailmentStartModalContent({
   const isSubmitDisabled = isBusy || hasBlockingSubmitPreviewState || hasExternalFormError || !hasEditableChanges;
   const displayedPreviewState = isResponseProfileVariant ? responseProfilePreviewState(previewState) : previewState;
   const selectedMinerIds = getSelectedMinerIds(values);
-  const applyToTarget = getApplyToTarget(values, isLiveCurtailmentEditMode);
+  const applyToTarget = getApplyToTarget(values, isLiveCurtailmentEditMode || values.scopeType === "site");
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
   const curtailmentBehaviorSubtext = isLiveCurtailmentEditMode
     ? undefined
@@ -866,6 +891,58 @@ function CurtailmentStartModalContent({
       : "Close curtailment planner";
   const primaryButtonText = isResponseProfileVariant ? "Save profile" : isEditMode ? "Save" : "Run curtailment";
   const shouldShowResponseProfileSelector = !isResponseProfileVariant && !isEditMode;
+  const selectedSiteOption = useMemo(
+    () => siteOptions.find((option) => option.id === values.siteId),
+    [siteOptions, values.siteId],
+  );
+  const responseProfileSiteOptions = useMemo(() => {
+    if (!values.siteId || selectedSiteOption) {
+      return siteOptions;
+    }
+
+    return [
+      ...siteOptions,
+      {
+        id: values.siteId,
+        name: values.scopeId || `Site ${values.siteId}`,
+      },
+    ];
+  }, [selectedSiteOption, siteOptions, values.scopeId, values.siteId]);
+  const responseProfileSiteOptionByRowId = useMemo(
+    () => new Map(responseProfileSiteOptions.map((siteOption) => [getSiteScopeRowId(siteOption.id), siteOption])),
+    [responseProfileSiteOptions],
+  );
+  const responseProfileScopeRows = useMemo(() => {
+    const siteRows: ResponseProfileScopeRow[] = responseProfileSiteOptions.map((siteOption) => ({
+      id: getSiteScopeRowId(siteOption.id),
+      text: siteOption.name,
+      subtext: "Site",
+      isSelected: values.scopeType === "site" && values.siteId === siteOption.id,
+      "data-testid": `response-profile-scope-site-${siteOption.id}`,
+    }));
+
+    if (siteRows.length === 0 && (isSiteScopeLoading || siteScopeDisabledReason)) {
+      siteRows.push({
+        id: "site-unavailable",
+        text: "Site",
+        subtext: isSiteScopeLoading ? "Loading sites..." : (siteScopeDisabledReason ?? "Site scope unavailable"),
+        isSelected: false,
+        disabled: true,
+        "data-testid": "response-profile-scope-site-unavailable",
+      });
+    }
+
+    return [
+      {
+        id: wholeFleetScopeRowId,
+        text: "Whole fleet",
+        subtext: "All miners in the fleet",
+        isSelected: values.scopeType !== "site",
+        "data-testid": "response-profile-scope-whole-fleet",
+      },
+      ...siteRows,
+    ];
+  }, [isSiteScopeLoading, responseProfileSiteOptions, siteScopeDisabledReason, values.scopeType, values.siteId]);
   const responseProfileSelectOptions = useMemo(
     () => [
       { value: customResponseProfileId, label: "Custom plan" },
@@ -899,6 +976,24 @@ function CurtailmentStartModalContent({
       ...withSelectedResponseProfileValues(current, responseProfile.values),
       responseProfileId: responseProfile.id,
     }));
+  };
+
+  const handleResponseProfileScopeChange = (scopeRowId: string, isSelected: boolean) => {
+    if (!isSelected) {
+      return;
+    }
+
+    if (scopeRowId === wholeFleetScopeRowId) {
+      updateValues(withWholeFleetScope);
+      return;
+    }
+
+    const siteOption = responseProfileSiteOptionByRowId.get(scopeRowId);
+    if (!siteOption) {
+      return;
+    }
+
+    updateValues((current) => withSiteScope(current, siteOption.id, siteOption.name));
   };
 
   const handleMinerSelection = (deviceIdentifiers: string[]) => {
@@ -1079,16 +1174,25 @@ function CurtailmentStartModalContent({
               </div>
             ) : null}
             {isResponseProfileVariant ? (
-              <Section title="Profile" subtext={responseProfileDescription}>
-                <Input
-                  id={nameFieldId}
-                  label={nameFieldLabel}
-                  initValue={values.reason}
-                  type="text"
-                  error={effectiveErrors.reason}
-                  onChange={(value) => updateValue("reason", value)}
-                />
-              </Section>
+              <>
+                <Section title="Profile" subtext={responseProfileDescription}>
+                  <Input
+                    id={nameFieldId}
+                    label={nameFieldLabel}
+                    initValue={values.reason}
+                    type="text"
+                    error={effectiveErrors.reason}
+                    onChange={(value) => updateValue("reason", value)}
+                  />
+                </Section>
+                <Section title="Apply to" subtext="Scope this response profile to the whole fleet or one site.">
+                  <SelectRowList
+                    selectRows={responseProfileScopeRows}
+                    type={selectTypes.radio}
+                    onChange={handleResponseProfileScopeChange}
+                  />
+                </Section>
+              </>
             ) : (
               <div className="grid gap-3">
                 {shouldShowResponseProfileSelector ? (
