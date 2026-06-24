@@ -2,6 +2,7 @@ package miner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -145,7 +146,10 @@ func (m *RemoteFleetNodeMiner) GetDeviceMetrics(ctx context.Context) (modelsV2.D
 	if err != nil {
 		return modelsV2.DeviceMetrics{}, err
 	}
-	metrics := telemetryResultToDeviceMetrics(result)
+	metrics, err := telemetryResultToDeviceMetrics(result)
+	if err != nil {
+		return modelsV2.DeviceMetrics{}, err
+	}
 	if metrics.DeviceIdentifier != m.route.deviceIdentifier {
 		return modelsV2.DeviceMetrics{}, fleeterror.NewInternalErrorf(
 			"fleet node telemetry result device_identifier mismatch: got %q, want %q",
@@ -319,6 +323,8 @@ func (m *RemoteFleetNodeMiner) errorFromAck(ack *gatewaypb.ControlAck) error {
 		return fleeterror.NewInvalidArgumentError(msg)
 	case gatewaypb.AckCode_ACK_CODE_BUSY:
 		return fleeterror.NewUnavailableErrorf("%s", msg)
+	case gatewaypb.AckCode_ACK_CODE_FORBIDDEN:
+		return fleeterror.NewForbiddenError(msg)
 	case gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED:
 		return fleeterror.NewUnauthenticatedErrorf("fleet node telemetry authentication failed: %s", msg)
 	case gatewaypb.AckCode_ACK_CODE_OK:
@@ -354,6 +360,12 @@ func validateTelemetryResult(result *telemetrypb.FleetNodeTelemetryResult) error
 			return fleeterror.NewInternalErrorf("invalid fleet node telemetry %s: non-finite value", name)
 		}
 	}
+	if len(result.GetDeviceMetricsJson()) > 0 {
+		var metrics modelsV2.DeviceMetrics
+		if err := json.Unmarshal(result.GetDeviceMetricsJson(), &metrics); err != nil {
+			return fleeterror.NewInternalErrorf("invalid fleet node telemetry device metrics payload: %v", err)
+		}
+	}
 	return nil
 }
 
@@ -366,7 +378,17 @@ func (m *RemoteFleetNodeMiner) rememberStatus(status telemetrypb.DeviceStatus) {
 	}
 }
 
-func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult) modelsV2.DeviceMetrics {
+func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult) (modelsV2.DeviceMetrics, error) {
+	if len(result.GetDeviceMetricsJson()) > 0 {
+		var metrics modelsV2.DeviceMetrics
+		if err := json.Unmarshal(result.GetDeviceMetricsJson(), &metrics); err != nil {
+			return modelsV2.DeviceMetrics{}, fleeterror.NewInternalErrorf("unmarshal fleet node telemetry device metrics: %v", err)
+		}
+		metrics.DeviceIdentifier = result.GetDeviceIdentifier()
+		metrics.Timestamp = result.GetTimestamp().AsTime()
+		metrics.FirmwareVersion = result.GetFirmwareVersion()
+		return metrics, nil
+	}
 	var healthReason *string
 	if result.GetHealthReason() != "" {
 		reason := result.GetHealthReason()
@@ -384,7 +406,7 @@ func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult
 		FanRPM:                scalarMetricToV2(result.FanRpm, modelsV2.MetricKindGauge),
 		PowerW:                scalarMetricToV2(result.PowerW, modelsV2.MetricKindGauge),
 		EfficiencyJH:          scalarMetricToV2(result.EfficiencyJh, modelsV2.MetricKindGauge),
-	}
+	}, nil
 }
 
 func scalarMetricToV2(value *float64, kind modelsV2.MetricKind) *modelsV2.MetricValue {

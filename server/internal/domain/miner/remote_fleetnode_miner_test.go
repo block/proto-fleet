@@ -2,6 +2,7 @@ package miner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"testing"
@@ -42,6 +43,48 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsHappyPath(t *testing.T) {
 	assert.Equal(t, "node-device", got.metrics.DeviceIdentifier)
 	assert.Equal(t, 100.0, got.metrics.HashrateHS.Value)
 	assert.Equal(t, "fw-1", got.metrics.FirmwareVersion)
+}
+
+func TestRemoteFleetNodeMinerGetDeviceMetricsPreservesComponentPayload(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	result := telemetryResult("node-device")
+	payloadMetrics := modelsV2.DeviceMetrics{
+		DeviceIdentifier: "plugin-reported-id",
+		Timestamp:        result.GetTimestamp().AsTime(),
+		FirmwareVersion:  "plugin-fw",
+		Health:           modelsV2.HealthHealthyActive,
+		HashBoards: []modelsV2.HashBoardMetrics{{
+			ComponentInfo: modelsV2.ComponentInfo{Index: 0, Name: "board-0"},
+			TempC:         &modelsV2.MetricValue{Value: 72, Kind: modelsV2.MetricKindGauge},
+			ASICs: []modelsV2.ASICMetrics{{
+				ComponentInfo: modelsV2.ComponentInfo{Index: 2, Name: "asic-2"},
+				TempC:         &modelsV2.MetricValue{Value: 83, Kind: modelsV2.MetricKindGauge},
+			}},
+		}},
+	}
+	payload, err := json.Marshal(payloadMetrics)
+	require.NoError(t, err)
+	result.DeviceMetricsJson = payload
+	publishTelemetryAck(t, stream, cmd.GetCommandId(), result)
+
+	got := receiveMetricsResult(t, results)
+	require.NoError(t, got.err)
+	assert.Equal(t, "node-device", got.metrics.DeviceIdentifier)
+	assert.Equal(t, "fw-1", got.metrics.FirmwareVersion)
+	require.Len(t, got.metrics.HashBoards, 1)
+	require.Len(t, got.metrics.HashBoards[0].ASICs, 1)
+	assert.Equal(t, 83.0, got.metrics.HashBoards[0].ASICs[0].TempC.Value)
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsUsesNodeLimiter(t *testing.T) {
@@ -200,6 +243,30 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsMapsUnauthenticatedAck(t *testing.T
 	got := receiveMetricsResult(t, results)
 	require.Error(t, got.err)
 	assert.True(t, fleeterror.IsAuthenticationError(got.err))
+}
+
+func TestRemoteFleetNodeMinerGetDeviceMetricsMapsForbiddenAck(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	stream.PublishAck(&gatewaypb.ControlAck{
+		CommandId:    cmd.GetCommandId(),
+		Code:         gatewaypb.AckCode_ACK_CODE_FORBIDDEN,
+		ErrorMessage: "default password must be changed",
+	})
+
+	got := receiveMetricsResult(t, results)
+	require.Error(t, got.err)
+	assert.True(t, fleeterror.IsForbiddenError(got.err))
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsMapsScanFailedAckToConnectionError(t *testing.T) {

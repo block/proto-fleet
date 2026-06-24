@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"buf.build/go/protovalidate"
@@ -30,6 +32,8 @@ var telemetryCommandTimeout = 4 * time.Second
 // return their own error before the supervisor abandons context-ignoring calls.
 var telemetrySupervisorGrace = 100 * time.Millisecond
 
+const maxTelemetryDeviceMetricsJSONBytes = 256 * 1024
+
 type telemetryFetcher interface {
 	Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error)
 }
@@ -42,6 +46,7 @@ type telemetryFetchOutcome struct {
 type pluginTelemetryFetcher struct {
 	manager      *plugins.Manager
 	minerSecrets secretProvider
+	inflight     sync.Map
 }
 
 func newPluginTelemetryFetcher(manager *plugins.Manager, minerSecrets secretProvider) (*pluginTelemetryFetcher, error) {
@@ -145,6 +150,12 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 		code, msg := classifyMinerCommandError("build telemetry secret bundle", err)
 		return nil, cmdErr(code, "%s", msg)
 	}
+	release, err := f.acquireTelemetrySlot(req.GetDeviceIdentifier())
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	redactions := telemetrySecretRedactions(secret)
 	created, err := plugin.Driver.NewDevice(ctx, req.GetDeviceIdentifier(), deviceInfo, secret)
 	if err != nil {
@@ -166,7 +177,20 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 	if err := validateTelemetryMetricsIdentity(req.GetDeviceIdentifier(), v2Metrics); err != nil {
 		return nil, err
 	}
-	return telemetryResultFromV2(req.GetDeviceIdentifier(), v2Metrics, deviceStatusFromSDKHealth(sdkMetrics.Health)), nil
+	result, err := telemetryResultFromV2(req.GetDeviceIdentifier(), v2Metrics, deviceStatusFromSDKHealth(sdkMetrics.Health))
+	if err != nil {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_INTERNAL, "marshal telemetry metrics: %v", err)
+	}
+	return result, nil
+}
+
+func (f *pluginTelemetryFetcher) acquireTelemetrySlot(deviceIdentifier string) (func(), error) {
+	if _, loaded := f.inflight.LoadOrStore(deviceIdentifier, struct{}{}); loaded {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_BUSY, "telemetry already in progress for device %q", deviceIdentifier)
+	}
+	return func() {
+		f.inflight.Delete(deviceIdentifier)
+	}, nil
 }
 
 func validateTelemetryMetricsIdentity(requestedDeviceIdentifier string, metrics modelsV2.DeviceMetrics) error {
@@ -226,6 +250,9 @@ func telemetryTimeout(req *telemetrypb.FleetNodeTelemetryRequest) time.Duration 
 
 func classifyTelemetryError(stage string, err error, redactions ...string) (pb.AckCode, string) {
 	msg := redactTelemetrySecrets(fmt.Sprintf("%s: %v", stage, err), redactions...)
+	if isDefaultPasswordActiveTelemetryError(err) {
+		return pb.AckCode_ACK_CODE_FORBIDDEN, msg
+	}
 	if isNodeAuthFailure(err) {
 		return pb.AckCode_ACK_CODE_UNAUTHENTICATED, msg
 	}
@@ -247,21 +274,38 @@ func classifyTelemetryError(stage string, err error, redactions ...string) (pb.A
 	return pb.AckCode_ACK_CODE_INTERNAL, msg
 }
 
-func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetrics, status telemetrypb.DeviceStatus) *telemetrypb.FleetNodeTelemetryResult {
+func isDefaultPasswordActiveTelemetryError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "default password must be changed") ||
+		strings.Contains(msg, "default_password_active")
+}
+
+func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetrics, status telemetrypb.DeviceStatus) (*telemetrypb.FleetNodeTelemetryResult, error) {
 	if metrics.Timestamp.IsZero() {
 		metrics.Timestamp = time.Now().UTC()
 	}
+	metricsJSON, err := json.Marshal(metrics)
+	if err != nil {
+		return nil, fmt.Errorf("marshal device metrics: %w", err)
+	}
+	if len(metricsJSON) > maxTelemetryDeviceMetricsJSONBytes {
+		return nil, fmt.Errorf("device metrics payload is %d bytes, max %d", len(metricsJSON), maxTelemetryDeviceMetricsJSONBytes)
+	}
 	result := &telemetrypb.FleetNodeTelemetryResult{
-		DeviceIdentifier: deviceIdentifier,
-		Timestamp:        timestamppb.New(metrics.Timestamp),
-		FirmwareVersion:  metrics.FirmwareVersion,
-		DeviceStatus:     status,
-		HealthStatus:     healthStatusFromV2(metrics.Health),
-		HashrateHs:       metricValue(metrics.HashrateHS),
-		TempC:            metricValue(metrics.TempC),
-		FanRpm:           metricValue(metrics.FanRPM),
-		PowerW:           metricValue(metrics.PowerW),
-		EfficiencyJh:     metricValue(metrics.EfficiencyJH),
+		DeviceIdentifier:  deviceIdentifier,
+		Timestamp:         timestamppb.New(metrics.Timestamp),
+		FirmwareVersion:   metrics.FirmwareVersion,
+		DeviceStatus:      status,
+		HealthStatus:      healthStatusFromV2(metrics.Health),
+		HashrateHs:        metricValue(metrics.HashrateHS),
+		TempC:             metricValue(metrics.TempC),
+		FanRpm:            metricValue(metrics.FanRPM),
+		PowerW:            metricValue(metrics.PowerW),
+		EfficiencyJh:      metricValue(metrics.EfficiencyJH),
+		DeviceMetricsJson: metricsJSON,
 	}
 	if metrics.HealthReason != nil {
 		result.HealthReason = truncateUTF8(*metrics.HealthReason, maxAckErrorMessageBytes)
@@ -269,7 +313,7 @@ func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetri
 	if metrics.DefaultPasswordActive != nil {
 		result.DefaultPasswordActive = metrics.DefaultPasswordActive
 	}
-	return result
+	return result, nil
 }
 
 func metricValue(metric *modelsV2.MetricValue) *float64 {

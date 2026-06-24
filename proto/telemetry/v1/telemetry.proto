@@ -273,6 +273,10 @@ message FleetNodeTelemetryResult {
   string error_message = 11 [(buf.validate.field).string.max_len = 4096];
   optional bool default_password_active = 12;
   DeviceHealthStatus health_status = 13 [(buf.validate.field).enum.defined_only = true];
+  // JSON encoding of server/internal/domain/telemetry/models/v2.DeviceMetrics.
+  // This preserves component-level metrics without duplicating the V2 model in
+  // the control proto. Scalar fields above remain for validation and fallback.
+  bytes device_metrics_json = 14 [(buf.validate.field).bytes.max_len = 262144];
 }
 
 message GetCombinedMetricsRequest {

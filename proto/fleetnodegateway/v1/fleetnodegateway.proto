@@ -360,4 +360,7 @@ enum AckCode {
     // UNIMPLEMENTED: the device (or this agent) does not support the requested
     // command, e.g. a curtail level the model can't honor.
     ACK_CODE_UNIMPLEMENTED   = 10;
+    // FORBIDDEN: the miner denied access for a non-authentication remediation
+    // reason, e.g. default-password lockout.
+    ACK_CODE_FORBIDDEN       = 11;
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -310,13 +311,54 @@ func TestTelemetryDialTargetCarriesEncryptedCredentials(t *testing.T) {
 }
 
 func TestTelemetryResultFromV2CarriesWarningHealthSeparatelyFromStatus(t *testing.T) {
-	result := telemetryResultFromV2("node-device", modelsV2.DeviceMetrics{
+	result, err := telemetryResultFromV2("node-device", modelsV2.DeviceMetrics{
 		Timestamp: time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC),
 		Health:    modelsV2.HealthWarning,
 	}, telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE)
+	require.NoError(t, err)
 
 	assert.Equal(t, telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE, result.GetDeviceStatus())
 	assert.Equal(t, telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_WARNING, result.GetHealthStatus())
+}
+
+func TestTelemetryResultFromV2CarriesComponentMetricsPayload(t *testing.T) {
+	result, err := telemetryResultFromV2("node-device", modelsV2.DeviceMetrics{
+		DeviceIdentifier: "node-device",
+		Timestamp:        time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC),
+		Health:           modelsV2.HealthHealthyActive,
+		HashBoards: []modelsV2.HashBoardMetrics{{
+			ComponentInfo: modelsV2.ComponentInfo{Index: 0, Name: "board-0"},
+			TempC:         &modelsV2.MetricValue{Value: 72, Kind: modelsV2.MetricKindGauge},
+			ASICs: []modelsV2.ASICMetrics{{
+				ComponentInfo: modelsV2.ComponentInfo{Index: 1, Name: "asic-1"},
+				TempC:         &modelsV2.MetricValue{Value: 80, Kind: modelsV2.MetricKindGauge},
+			}},
+		}},
+	}, telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, result.GetDeviceMetricsJson())
+	var decoded modelsV2.DeviceMetrics
+	require.NoError(t, json.Unmarshal(result.GetDeviceMetricsJson(), &decoded))
+	require.Len(t, decoded.HashBoards, 1)
+	require.Len(t, decoded.HashBoards[0].ASICs, 1)
+	assert.Equal(t, 80.0, decoded.HashBoards[0].ASICs[0].TempC.Value)
+}
+
+func TestPluginTelemetryFetcherAcquireTelemetrySlotRejectsDuplicate(t *testing.T) {
+	fetcher := &pluginTelemetryFetcher{}
+	release, err := fetcher.acquireTelemetrySlot("node-device")
+	require.NoError(t, err)
+
+	_, err = fetcher.acquireTelemetrySlot("node-device")
+
+	require.Error(t, err)
+	var ce *commandError
+	require.True(t, errors.As(err, &ce))
+	assert.Equal(t, pb.AckCode_ACK_CODE_BUSY, ce.code)
+	release()
+	_, err = fetcher.acquireTelemetrySlot("node-device")
+	require.NoError(t, err)
 }
 
 func TestValidateTelemetryMetricsIdentity(t *testing.T) {
@@ -359,6 +401,11 @@ func TestClassifyTelemetryError(t *testing.T) {
 			name: "auth failure",
 			err:  sdk.NewErrorAuthenticationFailed("node-device"),
 			want: pb.AckCode_ACK_CODE_UNAUTHENTICATED,
+		},
+		{
+			name: "default password lockout",
+			err:  grpcstatus.Error(codes.PermissionDenied, "default password must be changed"),
+			want: pb.AckCode_ACK_CODE_FORBIDDEN,
 		},
 		{
 			name: "sdk unavailable",
