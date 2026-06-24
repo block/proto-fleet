@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"database/sql"
-	"encoding/base64"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -31,7 +30,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
-	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -63,10 +61,8 @@ func newControlHarness(t *testing.T) *controlHarness {
 	authSvc := auth.NewService(authStore, enrollmentStore, apiKeySvc)
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
 	registry := control.NewRegistry()
-	encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32))})
-	require.NoError(t, err)
 	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor).
-		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), encryptSvc, registry)
+		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), registry)
 
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, err := enrollmentSvc.CreateCode(t.Context(), 1, 1, time.Hour)

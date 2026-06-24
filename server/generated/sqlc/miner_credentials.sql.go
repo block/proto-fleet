@@ -9,13 +9,21 @@ import (
 	"context"
 )
 
-const deleteMinerCredentialsByDeviceID = `-- name: DeleteMinerCredentialsByDeviceID :execrows
-DELETE FROM miner_credentials
-WHERE device_id = $1
+const deleteMinerCredentialsByDeviceIDAndOrgID = `-- name: DeleteMinerCredentialsByDeviceIDAndOrgID :execrows
+DELETE FROM miner_credentials mc
+USING device d
+WHERE mc.device_id = d.id
+  AND d.id = $1
+  AND d.org_id = $2
 `
 
-func (q *Queries) DeleteMinerCredentialsByDeviceID(ctx context.Context, deviceID int64) (int64, error) {
-	result, err := q.exec(ctx, q.deleteMinerCredentialsByDeviceIDStmt, deleteMinerCredentialsByDeviceID, deviceID)
+type DeleteMinerCredentialsByDeviceIDAndOrgIDParams struct {
+	ID    int64
+	OrgID int64
+}
+
+func (q *Queries) DeleteMinerCredentialsByDeviceIDAndOrgID(ctx context.Context, arg DeleteMinerCredentialsByDeviceIDAndOrgIDParams) (int64, error) {
+	result, err := q.exec(ctx, q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt, deleteMinerCredentialsByDeviceIDAndOrgID, arg.ID, arg.OrgID)
 	if err != nil {
 		return 0, err
 	}

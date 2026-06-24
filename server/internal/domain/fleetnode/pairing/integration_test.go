@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -18,7 +17,6 @@ import (
 	fleetnodeenrollment "github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -40,10 +38,8 @@ func setupPairingTest(t *testing.T) (*sql.DB, int64, *fleetnodepairing.Service, 
 	enrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(db)
 	enrollmentSvc := fleetnodeenrollment.NewService(enrollmentStore, apiKeySvc, transactor, nil)
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
-	encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32))})
-	require.NoError(t, err)
 	pairingSvc := fleetnodepairing.NewService(pairingStore, enrollmentStore, transactor).
-		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), encryptSvc, nil)
+		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), nil)
 
 	return db, 1, pairingSvc, enrollmentSvc
 }
@@ -118,7 +114,7 @@ func TestPairUnpairListRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, pairing.PairDevice(ctx, fleetNodeID, deviceID, orgID, &assignedBy))
 	require.NoError(t, db.QueryRow(`SELECT count(*) FROM miner_credentials WHERE device_id=$1`, deviceID).Scan(&credentialRows))
-	assert.Zero(t, credentialRows, "idempotent same-node pair also clears stale credentials")
+	assert.Equal(t, 1, credentialRows, "idempotent same-node pair preserves working node credentials")
 
 	// Act 2: list scoped to this fleet node
 	pairs, err := pairing.ListDevicesForFleetNode(ctx, fleetNodeID, orgID)
@@ -131,13 +127,6 @@ func TestPairUnpairListRoundTrip(t *testing.T) {
 	require.NotNil(t, pairs[0].AssignedBy)
 	assert.Equal(t, assignedBy, *pairs[0].AssignedBy)
 
-	_, err = db.Exec(
-		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
-		 VALUES ($1, 'node-username', 'node-password')`,
-		deviceID,
-	)
-	require.NoError(t, err)
-
 	// Act 3: unpair
 	require.NoError(t, pairing.UnpairDevice(ctx, deviceID, orgID))
 
@@ -147,6 +136,33 @@ func TestPairUnpairListRoundTrip(t *testing.T) {
 	assert.Len(t, pairs, 0)
 	require.NoError(t, db.QueryRow(`SELECT count(*) FROM miner_credentials WHERE device_id=$1`, deviceID).Scan(&credentialRows))
 	assert.Zero(t, credentialRows)
+}
+
+func TestUnpairDoesNotDeleteCredentialsAcrossOrgs(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-cross-org-unpair")
+	deviceID := insertDevice(t, db, orgID)
+	require.NoError(t, pairing.PairDevice(ctx, fleetNodeID, deviceID, orgID, nil))
+	_, err := db.Exec(
+		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		 VALUES ($1, 'node-owned-username', 'node-owned-password')`,
+		deviceID,
+	)
+	require.NoError(t, err)
+
+	const otherOrgID = int64(2)
+	_, err = db.Exec(`INSERT INTO organization (id, org_id, name) VALUES ($1, 'other-org', 'Other Org') ON CONFLICT DO NOTHING`, otherOrgID)
+	require.NoError(t, err)
+
+	// Act: the target device id exists, but not as a fleet-node binding in this org.
+	require.NoError(t, pairing.UnpairDevice(ctx, deviceID, otherOrgID))
+
+	// Assert
+	var credentialRows int
+	require.NoError(t, db.QueryRow(`SELECT count(*) FROM miner_credentials WHERE device_id=$1`, deviceID).Scan(&credentialRows))
+	assert.Equal(t, 1, credentialRows)
 }
 
 func TestPairUnpairInvalidatesMinerCache(t *testing.T) {

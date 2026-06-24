@@ -37,6 +37,12 @@ const (
 	minerCacheSize = 10_000
 
 	protoPasswordUpdateUsername = "admin"
+
+	fleetNodeCredentialBlobVersion  = byte(1)
+	fleetNodeCredentialBlobMagic    = "PFNC"
+	fleetNodeCredentialNonceBytes   = 12
+	fleetNodeCredentialTagBytes     = 16
+	fleetNodeCredentialMaxBlobBytes = 4096
 )
 
 var _ telemetry.CachedMinerGetter = &Service{}
@@ -274,10 +280,20 @@ func fleetNodeCredentialBytes(value sql.NullString) []byte {
 		return nil
 	}
 	decoded, err := base64.StdEncoding.DecodeString(value.String)
-	if err != nil {
-		return []byte(value.String)
+	if err != nil || !isFleetNodeCredentialBlob(decoded) {
+		return nil
 	}
 	return decoded
+}
+
+func isFleetNodeCredentialBlob(blob []byte) bool {
+	minLen := 1 + len(fleetNodeCredentialBlobMagic) + fleetNodeCredentialNonceBytes + fleetNodeCredentialTagBytes
+	magicStart := 1
+	magicEnd := magicStart + len(fleetNodeCredentialBlobMagic)
+	return len(blob) >= minLen &&
+		len(blob) <= fleetNodeCredentialMaxBlobBytes &&
+		blob[0] == fleetNodeCredentialBlobVersion &&
+		string(blob[magicStart:magicEnd]) == fleetNodeCredentialBlobMagic
 }
 
 // InvalidateMiner removes the cached miner handle for the given device identifier

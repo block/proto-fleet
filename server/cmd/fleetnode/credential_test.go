@@ -45,5 +45,9 @@ func TestCredentialCodecRoundTripUsernamePassword(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
+	assert.LessOrEqual(t, len(encrypted.GetUsername()), maxCredentialBlobBytes)
+	assert.LessOrEqual(t, len(encrypted.GetPassword()), maxCredentialBlobBytes)
+	assert.Equal(t, credentialBlobVersion, encrypted.GetUsername()[0])
+	assert.Equal(t, credentialBlobMagic, string(encrypted.GetUsername()[1:1+len(credentialBlobMagic)]))
 	assert.Equal(t, sdk.UsernamePassword{Username: "root", Password: "hunter2"}, bundle.Kind)
 }

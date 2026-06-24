@@ -37,6 +37,14 @@ func sentMinerCommand(t *testing.T, sender *fakeCommandSender) *gatewaypb.MinerC
 	return env.GetMinerCommand()
 }
 
+func validFleetNodeCredentialBlob(suffix byte) []byte {
+	blob := make([]byte, 1+len("PFNC")+12+16)
+	blob[0] = 1
+	copy(blob[1:], "PFNC")
+	blob[len(blob)-1] = suffix
+	return blob
+}
+
 // TestMinerService_ResolvesFleetNodePairedDeviceToRemoteMiner verifies that a device
 // bound to a CONFIRMED fleet node resolves to a remote-node miner whose commands
 // route over the ControlStream, not a directly-dialed PluginMiner.
@@ -88,8 +96,8 @@ func TestMinerService_RoutesFleetNodeEncryptedCredentialsFromMinerCredentials(t 
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceIdentifier := "fleetnode-routed-with-credentials"
 	deviceID := createTestDevice(t, db, deviceIdentifier)
-	encryptedUsername := []byte("node-owned-username-ciphertext")
-	encryptedPassword := []byte("node-owned-password-ciphertext")
+	encryptedUsername := validFleetNodeCredentialBlob('u')
+	encryptedPassword := validFleetNodeCredentialBlob('p')
 
 	var fleetNodeID int64
 	require.NoError(t, db.QueryRow(
@@ -124,7 +132,7 @@ func TestMinerService_RoutesFleetNodeEncryptedCredentialsFromMinerCredentials(t 
 	assert.Equal(t, encryptedPassword, target.GetCredentialPassword())
 }
 
-func TestMinerService_RoutesMalformedFleetNodeCredentialStringsToNode(t *testing.T) {
+func TestMinerService_IgnoresMalformedFleetNodeCredentialStrings(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -160,11 +168,56 @@ func TestMinerService_RoutesMalformedFleetNodeCredentialStringsToNode(t *testing
 	require.NoError(t, err)
 	require.NoError(t, m.Reboot(t.Context()))
 
-	// Assert: malformed strings still route to the node, where credential
-	// decryption maps them to an authentication ACK instead of breaking lookup.
+	// Assert: malformed strings route the command but are not forwarded as node
+	// credentials. They may be legacy server-encrypted values, so the node should
+	// treat them as absent instead of as decryptable node ciphertext.
 	target := sentMinerCommand(t, sender).GetTarget()
-	assert.Equal(t, []byte("not base64"), target.GetCredentialUsername())
-	assert.Equal(t, []byte("also not base64"), target.GetCredentialPassword())
+	assert.Empty(t, target.GetCredentialUsername())
+	assert.Empty(t, target.GetCredentialPassword())
+}
+
+func TestMinerService_IgnoresLegacyServerEncryptedCredentialStrings(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange
+	db, encryptService, filesService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
+	deviceIdentifier := "fleetnode-routed-with-legacy-credentials"
+	deviceID := createTestDevice(t, db, deviceIdentifier)
+
+	var fleetNodeID int64
+	require.NoError(t, db.QueryRow(
+		`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
+		 VALUES (1, $1, $2, 'CONFIRMED') RETURNING id`,
+		"test-fleet-node-legacy-credentials", []byte("identity-pubkey-legacy-credentials"),
+	).Scan(&fleetNodeID))
+	_, err := db.Exec(
+		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
+		fleetNodeID, deviceID)
+	require.NoError(t, err)
+	_, err = db.Exec(
+		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		 VALUES ($1, $2, $3)`,
+		deviceID,
+		base64.StdEncoding.EncodeToString([]byte("server-encrypted-username")),
+		base64.StdEncoding.EncodeToString([]byte("server-encrypted-password")))
+	require.NoError(t, err)
+
+	sender := &fakeCommandSender{}
+	svc := miner.NewMinerService(db, userStore, encryptService, filesService, &fakePluginManager{driverName: "antminer"}).
+		WithCommandSender(sender)
+
+	// Act
+	m, err := svc.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(deviceIdentifier))
+	require.NoError(t, err)
+	require.NoError(t, m.Reboot(t.Context()))
+
+	// Assert
+	target := sentMinerCommand(t, sender).GetTarget()
+	assert.Empty(t, target.GetCredentialUsername())
+	assert.Empty(t, target.GetCredentialPassword())
 }
 
 // TestMinerService_DoesNotRouteUnpairedFleetNodeBoundDevice verifies that a device

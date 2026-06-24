@@ -9,9 +9,12 @@ ON CONFLICT (device_id) DO UPDATE SET
 SELECT * FROM miner_credentials
 WHERE device_id = $1;
 
--- name: DeleteMinerCredentialsByDeviceID :execrows
-DELETE FROM miner_credentials
-WHERE device_id = $1;
+-- name: DeleteMinerCredentialsByDeviceIDAndOrgID :execrows
+DELETE FROM miner_credentials mc
+USING device d
+WHERE mc.device_id = d.id
+  AND d.id = $1
+  AND d.org_id = $2;
 
 -- name: DeleteMinerCredentialsForFleetNode :execrows
 DELETE FROM miner_credentials mc

@@ -16,8 +16,9 @@ import (
 const (
 	credentialKeySize        = 32
 	credentialBlobVersion    = byte(1)
+	credentialBlobMagic      = "PFNC"
 	credentialBlobAAD        = "proto-fleet/fleetnode/miner-credential/v1"
-	maxCredentialBlobBytes   = 8192
+	maxCredentialBlobBytes   = 4096
 	credentialPayloadVersion = "v1"
 )
 
@@ -123,8 +124,9 @@ func (c *credentialCodec) sealValue(label, plaintext string) ([]byte, error) {
 	}
 	ciphertext := aead.Seal(nil, nonce, []byte(plaintext), credentialAAD(label))
 
-	blob := make([]byte, 0, 1+len(nonce)+len(ciphertext))
+	blob := make([]byte, 0, 1+len(credentialBlobMagic)+len(nonce)+len(ciphertext))
 	blob = append(blob, credentialBlobVersion)
+	blob = append(blob, credentialBlobMagic...)
 	blob = append(blob, nonce...)
 	blob = append(blob, ciphertext...)
 	if len(blob) > maxCredentialBlobBytes {
@@ -138,12 +140,14 @@ func (c *credentialCodec) openValue(label string, blob []byte) (string, error) {
 	if err != nil {
 		return "", credentialAuthError(err)
 	}
-	if len(blob) < 1+aead.NonceSize() || blob[0] != credentialBlobVersion {
+	magicStart := 1
+	magicEnd := magicStart + len(credentialBlobMagic)
+	nonceStart := magicEnd
+	nonceEnd := nonceStart + aead.NonceSize()
+	if len(blob) < nonceEnd+aead.Overhead() || len(blob) > maxCredentialBlobBytes || blob[0] != credentialBlobVersion || string(blob[magicStart:magicEnd]) != credentialBlobMagic {
 		return "", credentialAuthError(fmt.Errorf("invalid encrypted credential"))
 	}
 
-	nonceStart := 1
-	nonceEnd := nonceStart + aead.NonceSize()
 	plaintext, err := aead.Open(nil, blob[nonceStart:nonceEnd], blob[nonceEnd:], credentialAAD(label))
 	if err != nil {
 		return "", credentialAuthError(err)

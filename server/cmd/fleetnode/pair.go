@@ -144,7 +144,10 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 
 func (p *pluginPairer) credentialReport(bundle sdk.SecretBundle) (*pb.EncryptedCredentials, error) {
 	if p.credentials == nil {
-		return nil, nil
+		if bundle.Kind == nil {
+			return nil, nil
+		}
+		return nil, errors.New("credential sealer is not configured")
 	}
 	encrypted, err := p.credentials.Seal(bundle)
 	if err != nil {

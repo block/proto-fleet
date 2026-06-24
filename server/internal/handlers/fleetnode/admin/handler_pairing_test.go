@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -27,7 +26,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
-	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -58,11 +56,9 @@ func newPairingHarness(t *testing.T) *pairingHarness {
 	enrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(db)
 	enrollmentSvc := enrollment.NewService(enrollmentStore, apiKeySvc, transactor, nil)
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
-	encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32))})
-	require.NoError(t, err)
 	registry := control.NewRegistry()
 	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor).
-		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), encryptSvc, registry)
+		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), registry)
 
 	discoverySvc := discovery.NewService(registry, enrollmentSvc)
 	return &pairingHarness{

@@ -465,6 +465,22 @@ func TestPluginPairer_BasicAuthReportsEncryptedCredentials(t *testing.T) {
 	assert.Equal(t, sdk.UsernamePassword{Username: "root", Password: "hunter2"}, bundle.Kind)
 }
 
+func TestPluginPairer_BasicAuthRequiresCredentialSealer(t *testing.T) {
+	// Arrange
+	drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
+	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
+	pw := "hunter2"
+
+	// Act
+	res := p.Pair(context.Background(), fakePairTarget(), &pairingpb.Credentials{Username: "root", Password: &pw})
+
+	// Assert: refuse before pairing so credentials cannot authenticate the miner
+	// without also producing node-owned ciphertext for future commands.
+	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_ERROR, res.GetOutcome())
+	assert.Contains(t, res.GetErrorMessage(), "credential sealer is not configured")
+	assert.Empty(t, drv.gotBundles)
+}
+
 func TestPluginPairer_CredentialSealErrorSkipsPairAttempt(t *testing.T) {
 	// Arrange
 	drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
