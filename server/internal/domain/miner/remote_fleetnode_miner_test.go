@@ -66,7 +66,7 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsUsesNodeLimiter(t *testing.T) {
 	assert.Equal(t, []int64{12}, gate.released)
 }
 
-func TestRemoteFleetNodeMinerGetDeviceMetricsDoesNotSpendCommandBudgetWaitingForLimiter(t *testing.T) {
+func TestRemoteFleetNodeMinerGetDeviceMetricsStopsWaitingForLimiterWhenCallerExpires(t *testing.T) {
 	registry := control.NewRegistry()
 	stream := registry.Register(12)
 	defer stream.Unregister()
@@ -82,19 +82,15 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsDoesNotSpendCommandBudgetWaitingFor
 	}()
 
 	require.Equal(t, int64(12), gate.waitForAcquire(t))
-	time.Sleep(150 * time.Millisecond)
-	gate.releaseAcquire()
+	got := receiveMetricsResult(t, results)
 
-	cmd := receiveRemoteCommand(t, stream)
-	env := &gatewaypb.AgentCommand{}
-	require.NoError(t, proto.Unmarshal(cmd.GetPayload(), env))
-	req := env.GetTelemetry()
-	require.NotNil(t, req)
-	require.NotNil(t, req.GetTimeout())
-	assert.Greater(t, req.GetTimeout().AsDuration(), 50*time.Millisecond)
-	publishTelemetryAck(t, stream, cmd.GetCommandId(), telemetryResult("node-device"))
-
-	require.NoError(t, receiveMetricsResult(t, results).err)
+	require.Error(t, got.err)
+	assert.Contains(t, got.err.Error(), "timed out waiting for a fleet node telemetry command slot")
+	select {
+	case cmd := <-stream.Outgoing:
+		t.Fatalf("caller deadline should prevent sending command after limiter wait, got command %q", cmd.GetCommandId())
+	default:
+	}
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsSendsContextTimeoutWithSlack(t *testing.T) {
@@ -204,6 +200,30 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsMapsUnauthenticatedAck(t *testing.T
 	got := receiveMetricsResult(t, results)
 	require.Error(t, got.err)
 	assert.True(t, fleeterror.IsAuthenticationError(got.err))
+}
+
+func TestRemoteFleetNodeMinerGetDeviceMetricsMapsScanFailedAckToConnectionError(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	stream.PublishAck(&gatewaypb.ControlAck{
+		CommandId:    cmd.GetCommandId(),
+		Code:         gatewaypb.AckCode_ACK_CODE_SCAN_FAILED,
+		ErrorMessage: "miner unreachable",
+	})
+
+	got := receiveMetricsResult(t, results)
+	require.Error(t, got.err)
+	assert.True(t, fleeterror.IsConnectionError(got.err))
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsMalformedPayload(t *testing.T) {

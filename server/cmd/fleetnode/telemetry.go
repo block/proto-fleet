@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"buf.build/go/protovalidate"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -106,10 +108,8 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 	}
 	created, err := plugin.Driver.NewDevice(ctx, req.GetDeviceIdentifier(), deviceInfo, secret)
 	if err != nil {
-		if isNodeAuthFailure(err) {
-			return nil, cmdErr(pb.AckCode_ACK_CODE_UNAUTHENTICATED, "telemetry authentication failed: %v", err)
-		}
-		return nil, cmdErr(pb.AckCode_ACK_CODE_INTERNAL, "create telemetry device: %v", err)
+		code, msg := classifyTelemetryError("create telemetry device", err)
+		return nil, cmdErr(code, "%s", msg)
 	}
 	defer func() {
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -119,10 +119,8 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 
 	sdkMetrics, err := created.Device.Status(ctx)
 	if err != nil {
-		if isNodeAuthFailure(err) {
-			return nil, cmdErr(pb.AckCode_ACK_CODE_UNAUTHENTICATED, "telemetry authentication failed: %v", err)
-		}
-		return nil, cmdErr(pb.AckCode_ACK_CODE_INTERNAL, "fetch telemetry: %v", err)
+		code, msg := classifyTelemetryError("fetch telemetry", err)
+		return nil, cmdErr(code, "%s", msg)
 	}
 	v2Metrics := mappers.SDKDeviceMetricsToV2(sdkMetrics)
 	return telemetryResultFromV2(req.GetDeviceIdentifier(), v2Metrics, deviceStatusFromSDKHealth(sdkMetrics.Health)), nil
@@ -149,6 +147,29 @@ func telemetryTimeout(req *telemetrypb.FleetNodeTelemetryRequest) time.Duration 
 		}
 	}
 	return telemetryCommandTimeout
+}
+
+func classifyTelemetryError(stage string, err error) (pb.AckCode, string) {
+	msg := fmt.Sprintf("%s: %v", stage, err)
+	if isNodeAuthFailure(err) {
+		return pb.AckCode_ACK_CODE_UNAUTHENTICATED, msg
+	}
+	var sdkErr sdk.SDKError
+	if errors.As(err, &sdkErr) {
+		if sdkErr.Code == sdk.ErrCodeDeviceUnavailable {
+			return pb.AckCode_ACK_CODE_SCAN_FAILED, msg
+		}
+	}
+	if st, ok := grpcstatus.FromError(err); ok {
+		code := st.Code()
+		if code == codes.Unavailable || code == codes.DeadlineExceeded || code == codes.NotFound {
+			return pb.AckCode_ACK_CODE_SCAN_FAILED, msg
+		}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return pb.AckCode_ACK_CODE_SCAN_FAILED, msg
+	}
+	return pb.AckCode_ACK_CODE_INTERNAL, msg
 }
 
 func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetrics, status telemetrypb.DeviceStatus) *telemetrypb.FleetNodeTelemetryResult {

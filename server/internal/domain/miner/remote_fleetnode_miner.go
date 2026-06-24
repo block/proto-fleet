@@ -188,7 +188,7 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 	}
 	commandTimeout := remoteTelemetryCommandTimeoutFromContext(ctx)
 	if m.gate != nil {
-		gateCtx, cancel := remoteTelemetryGateContext(ctx, commandTimeout)
+		gateCtx, cancel := remoteTelemetryGateContext(ctx)
 		release, err := m.gate.Acquire(gateCtx, m.route.fleetNodeID)
 		cancel()
 		if err != nil {
@@ -198,6 +198,12 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 			)
 		}
 		defer release()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fleeterror.NewPlainError(
+			fmt.Sprintf("fleet node telemetry context ended before command send: %v", err),
+			connect.CodeDeadlineExceeded,
+		)
 	}
 	commandCtx, cancel := remoteTelemetryCommandContext(ctx, commandTimeout)
 	defer cancel()
@@ -275,22 +281,15 @@ func remoteTelemetryCommandTimeoutFromContext(ctx context.Context) time.Duration
 	return timeout
 }
 
-func remoteTelemetryGateContext(ctx context.Context, commandTimeout time.Duration) (context.Context, context.CancelFunc) {
-	if commandTimeout <= 0 {
-		return ctx, func() {}
-	}
-	timeout := remoteTelemetryGateAcquireTimeout
-	if commandTimeout > timeout {
-		timeout = commandTimeout
-	}
-	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
+func remoteTelemetryGateContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, remoteTelemetryGateAcquireTimeout)
 }
 
 func remoteTelemetryCommandContext(ctx context.Context, commandTimeout time.Duration) (context.Context, context.CancelFunc) {
 	if commandTimeout <= 0 {
 		return ctx, func() {}
 	}
-	return context.WithTimeout(context.WithoutCancel(ctx), commandTimeout)
+	return context.WithTimeout(ctx, commandTimeout)
 }
 
 func remoteTelemetryTimeoutFromContext(ctx context.Context) time.Duration {
@@ -324,8 +323,9 @@ func (m *RemoteFleetNodeMiner) errorFromAck(ack *gatewaypb.ControlAck) error {
 		return fleeterror.NewUnauthenticatedErrorf("fleet node telemetry authentication failed: %s", msg)
 	case gatewaypb.AckCode_ACK_CODE_OK:
 		return fleeterror.NewInternalError(msg)
-	case gatewaypb.AckCode_ACK_CODE_SCAN_FAILED,
-		gatewaypb.AckCode_ACK_CODE_REPORT_FAILED,
+	case gatewaypb.AckCode_ACK_CODE_SCAN_FAILED:
+		return fleeterror.NewConnectionError(m.route.deviceIdentifier, errors.New(msg))
+	case gatewaypb.AckCode_ACK_CODE_REPORT_FAILED,
 		gatewaypb.AckCode_ACK_CODE_PARTIAL,
 		gatewaypb.AckCode_ACK_CODE_UNIMPLEMENTED,
 		gatewaypb.AckCode_ACK_CODE_INTERNAL,

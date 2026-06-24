@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -291,6 +293,23 @@ func TestTelemetrySecretBundleForAsymmetricAuthValidationErrors(t *testing.T) {
 }
 
 func TestTelemetrySecretBundleForBasicAuthValidationErrors(t *testing.T) {
+	t.Run("empty username with password is allowed when present", func(t *testing.T) {
+		fetcher := &pluginTelemetryFetcher{}
+		req := validTelemetryRequest()
+		username := ""
+		password := "pw"
+		req.Username = &username
+		req.Password = &password
+
+		secret, err := fetcher.secretBundleFor(nil, req)
+
+		require.NoError(t, err)
+		basic, ok := secret.Kind.(sdk.UsernamePassword)
+		require.True(t, ok)
+		assert.Equal(t, "", basic.Username)
+		assert.Equal(t, "pw", basic.Password)
+	})
+
 	t.Run("password without username", func(t *testing.T) {
 		fetcher := &pluginTelemetryFetcher{}
 		req := validTelemetryRequest()
@@ -314,6 +333,43 @@ func TestTelemetrySecretBundleForBasicAuthValidationErrors(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "password is required")
 	})
+}
+
+func TestClassifyTelemetryError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want pb.AckCode
+	}{
+		{
+			name: "auth failure",
+			err:  sdk.NewErrorAuthenticationFailed("node-device"),
+			want: pb.AckCode_ACK_CODE_UNAUTHENTICATED,
+		},
+		{
+			name: "sdk unavailable",
+			err:  sdk.NewErrorDeviceUnavailable("node-device"),
+			want: pb.AckCode_ACK_CODE_SCAN_FAILED,
+		},
+		{
+			name: "grpc deadline exceeded",
+			err:  grpcstatus.Error(codes.DeadlineExceeded, "timed out"),
+			want: pb.AckCode_ACK_CODE_SCAN_FAILED,
+		},
+		{
+			name: "generic failure",
+			err:  errors.New("plugin exploded"),
+			want: pb.AckCode_ACK_CODE_INTERNAL,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			code, msg := classifyTelemetryError("fetch telemetry", tc.err)
+
+			assert.Equal(t, tc.want, code)
+			assert.Contains(t, msg, "fetch telemetry")
+		})
+	}
 }
 
 func validTelemetryRequest() *telemetrypb.FleetNodeTelemetryRequest {
