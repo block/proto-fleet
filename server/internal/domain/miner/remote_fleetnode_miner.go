@@ -31,8 +31,9 @@ import (
 )
 
 const (
-	remoteTelemetryStatusTTL = 15 * time.Second
-	remoteTelemetryAckSlack  = time.Second
+	remoteTelemetryStatusTTL          = 15 * time.Second
+	remoteTelemetryAckSlack           = time.Second
+	remoteTelemetryGateAcquireTimeout = 30 * time.Second
 )
 
 var _ interfaces.Miner = (*RemoteFleetNodeMiner)(nil)
@@ -185,8 +186,11 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 	if m.sender == nil {
 		return nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, errors.New("fleet node control registry is not configured"))
 	}
+	commandTimeout := remoteTelemetryCommandTimeoutFromContext(ctx)
 	if m.gate != nil {
-		release, err := m.gate.Acquire(ctx, m.route.fleetNodeID)
+		gateCtx, cancel := remoteTelemetryGateContext(ctx, commandTimeout)
+		release, err := m.gate.Acquire(gateCtx, m.route.fleetNodeID)
+		cancel()
 		if err != nil {
 			return nil, fleeterror.NewPlainError(
 				fmt.Sprintf("timed out waiting for a fleet node telemetry command slot: %v", err),
@@ -195,15 +199,17 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 		}
 		defer release()
 	}
+	commandCtx, cancel := remoteTelemetryCommandContext(ctx, commandTimeout)
+	defer cancel()
 	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
 		Command: &gatewaypb.AgentCommand_Telemetry{
-			Telemetry: m.telemetryRequest(ctx),
+			Telemetry: m.telemetryRequest(commandCtx),
 		},
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("marshal fleet node telemetry command: %v", err)
 	}
-	ack, err := m.sender.SendCommand(ctx, m.route.fleetNodeID, &gatewaypb.ControlCommand{
+	ack, err := m.sender.SendCommand(commandCtx, m.route.fleetNodeID, &gatewaypb.ControlCommand{
 		CommandId: id.GenerateID(),
 		Payload:   payload,
 	})
@@ -255,6 +261,36 @@ func (m *RemoteFleetNodeMiner) telemetryRequest(ctx context.Context) *telemetryp
 		req.Timeout = durationpb.New(timeout)
 	}
 	return req
+}
+
+func remoteTelemetryCommandTimeoutFromContext(ctx context.Context) time.Duration {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return 0
+	}
+	timeout := time.Until(deadline)
+	if timeout <= 0 {
+		return 0
+	}
+	return timeout
+}
+
+func remoteTelemetryGateContext(ctx context.Context, commandTimeout time.Duration) (context.Context, context.CancelFunc) {
+	if commandTimeout <= 0 {
+		return ctx, func() {}
+	}
+	timeout := remoteTelemetryGateAcquireTimeout
+	if commandTimeout > timeout {
+		timeout = commandTimeout
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
+}
+
+func remoteTelemetryCommandContext(ctx context.Context, commandTimeout time.Duration) (context.Context, context.CancelFunc) {
+	if commandTimeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), commandTimeout)
 }
 
 func remoteTelemetryTimeoutFromContext(ctx context.Context) time.Duration {

@@ -2,6 +2,7 @@ package miner
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -63,6 +64,37 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsUsesNodeLimiter(t *testing.T) {
 
 	require.NoError(t, receiveMetricsResult(t, results).err)
 	assert.Equal(t, []int64{12}, gate.released)
+}
+
+func TestRemoteFleetNodeMinerGetDeviceMetricsDoesNotSpendCommandBudgetWaitingForLimiter(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	gate := newBlockingTelemetryGate()
+	miner := newTestRemoteFleetNodeMinerWithGate(t, registry, gate)
+
+	results := make(chan metricsResult, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(ctx)
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	require.Equal(t, int64(12), gate.waitForAcquire(t))
+	time.Sleep(150 * time.Millisecond)
+	gate.releaseAcquire()
+
+	cmd := receiveRemoteCommand(t, stream)
+	env := &gatewaypb.AgentCommand{}
+	require.NoError(t, proto.Unmarshal(cmd.GetPayload(), env))
+	req := env.GetTelemetry()
+	require.NotNil(t, req)
+	require.NotNil(t, req.GetTimeout())
+	assert.Greater(t, req.GetTimeout().AsDuration(), 50*time.Millisecond)
+	publishTelemetryAck(t, stream, cmd.GetCommandId(), telemetryResult("node-device"))
+
+	require.NoError(t, receiveMetricsResult(t, results).err)
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsSendsContextTimeoutWithSlack(t *testing.T) {
@@ -386,6 +418,43 @@ type recordingTelemetryGate struct {
 func (g *recordingTelemetryGate) Acquire(_ context.Context, fleetNodeID int64) (func(), error) {
 	g.acquired = append(g.acquired, fleetNodeID)
 	return func() { g.released = append(g.released, fleetNodeID) }, nil
+}
+
+type blockingTelemetryGate struct {
+	acquired chan int64
+	release  chan struct{}
+}
+
+func newBlockingTelemetryGate() *blockingTelemetryGate {
+	return &blockingTelemetryGate{
+		acquired: make(chan int64, 1),
+		release:  make(chan struct{}),
+	}
+}
+
+func (g *blockingTelemetryGate) Acquire(ctx context.Context, fleetNodeID int64) (func(), error) {
+	g.acquired <- fleetNodeID
+	select {
+	case <-g.release:
+		return func() {}, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("waiting for test limiter release: %w", ctx.Err())
+	}
+}
+
+func (g *blockingTelemetryGate) waitForAcquire(t *testing.T) int64 {
+	t.Helper()
+	select {
+	case fleetNodeID := <-g.acquired:
+		return fleetNodeID
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for limiter acquire")
+		return 0
+	}
+}
+
+func (g *blockingTelemetryGate) releaseAcquire() {
+	close(g.release)
 }
 
 func receiveRemoteCommand(t *testing.T, stream *control.Stream) *gatewaypb.ControlCommand {
