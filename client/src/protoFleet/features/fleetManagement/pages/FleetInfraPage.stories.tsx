@@ -27,6 +27,7 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     devices: mockInfraDevices,
+    canRead: true,
     canManage: true,
   },
 };
@@ -34,6 +35,7 @@ export const Default: Story = {
 export const Empty: Story = {
   args: {
     devices: [],
+    canRead: true,
     canManage: true,
   },
 };

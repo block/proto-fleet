@@ -228,26 +228,26 @@ describe("FleetLayout scoped-permission fallback", () => {
     expect(screen.queryByTestId("tab-content-racks")).not.toBeInTheDocument();
   });
 
-  test("shows an empty state on bare Fleet when only hidden Infrastructure is reachable", async () => {
+  test("shows permission denied on bare Fleet when only fleet read is held", async () => {
     hasPermissionMock.current = (key: string) => key === "fleet:read";
 
     renderAt("/fleet");
 
     await waitFor(() => {
-      expect(screen.getByText("No Fleet sections are currently available.")).toBeInTheDocument();
+      expect(screen.getByText("You do not have permission to view Fleet sections.")).toBeInTheDocument();
     });
     expect(screen.getByTestId("location-probe").textContent).toBe("/fleet");
     expect(screen.queryByTestId("fleet-tab-infrastructure")).not.toBeInTheDocument();
     expect(screen.queryByTestId("tab-content-infrastructure")).not.toBeInTheDocument();
   });
 
-  test("shows an empty state on denied Fleet tabs when only hidden Infrastructure is reachable", async () => {
+  test("shows permission denied on denied Fleet tabs when only fleet read is held", async () => {
     hasPermissionMock.current = (key: string) => key === "fleet:read";
 
     renderAt("/fleet/racks");
 
     await waitFor(() => {
-      expect(screen.getByText("No Fleet sections are currently available.")).toBeInTheDocument();
+      expect(screen.getByText("You do not have permission to view Fleet sections.")).toBeInTheDocument();
     });
     expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks");
     expect(screen.queryByTestId("fleet-tab-infrastructure")).not.toBeInTheDocument();
@@ -255,8 +255,8 @@ describe("FleetLayout scoped-permission fallback", () => {
     expect(screen.queryByTestId("tab-content-infrastructure")).not.toBeInTheDocument();
   });
 
-  test("does not mount Infrastructure deep links without fleet read", async () => {
-    hasPermissionMock.current = () => false;
+  test("does not mount Infrastructure deep links without site read", async () => {
+    hasPermissionMock.current = (key: string) => key === "fleet:read";
 
     renderAt("/fleet/infrastructure");
 
@@ -266,8 +266,8 @@ describe("FleetLayout scoped-permission fallback", () => {
     expect(screen.queryByTestId("tab-content-infrastructure")).not.toBeInTheDocument();
   });
 
-  test("mounts Infrastructure deep links for fleet-read roles", async () => {
-    hasPermissionMock.current = (key: string) => key === "fleet:read";
+  test("mounts Infrastructure deep links for site-read roles", async () => {
+    hasPermissionMock.current = (key: string) => key === "site:read";
 
     renderAt("/fleet/infrastructure");
 
