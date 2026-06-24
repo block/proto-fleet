@@ -366,6 +366,52 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsCarriesDefaultPasswordActive(t *tes
 	assert.True(t, *got.metrics.DefaultPasswordActive)
 }
 
+func TestRemoteFleetNodeMinerGetDeviceMetricsPreservesTelemetryHealthWarning(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	result := telemetryResult("node-device")
+	result.DeviceStatus = telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE
+	result.HealthStatus = telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_WARNING
+	publishTelemetryAck(t, stream, cmd.GetCommandId(), result)
+
+	got := receiveMetricsResult(t, results)
+	require.NoError(t, got.err)
+	assert.Equal(t, modelsV2.HealthWarning, got.metrics.Health)
+}
+
+func TestRemoteFleetNodeMinerGetDeviceMetricsFallsBackToStatusForLegacyHealth(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	result := telemetryResult("node-device")
+	result.DeviceStatus = telemetrypb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL
+	result.HealthStatus = telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_UNSPECIFIED
+	publishTelemetryAck(t, stream, cmd.GetCommandId(), result)
+
+	got := receiveMetricsResult(t, results)
+	require.NoError(t, got.err)
+	assert.Equal(t, modelsV2.HealthHealthyInactive, got.metrics.Health)
+}
+
 func TestRemoteFleetNodeMinerNeedsMiningPoolKeepsExactStatus(t *testing.T) {
 	registry := control.NewRegistry()
 	stream := registry.Register(12)
@@ -381,6 +427,7 @@ func TestRemoteFleetNodeMinerNeedsMiningPoolKeepsExactStatus(t *testing.T) {
 	cmd := receiveRemoteCommand(t, stream)
 	result := telemetryResult("node-device")
 	result.DeviceStatus = telemetrypb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL
+	result.HealthStatus = telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_HEALTHY_INACTIVE
 	publishTelemetryAck(t, stream, cmd.GetCommandId(), result)
 
 	got := receiveMetricsResult(t, results)
@@ -529,6 +576,7 @@ func telemetryResult(deviceID string) *telemetrypb.FleetNodeTelemetryResult {
 		Timestamp:        timestamppb.New(time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC)),
 		FirmwareVersion:  "fw-1",
 		DeviceStatus:     telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE,
+		HealthStatus:     telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_HEALTHY_ACTIVE,
 		HashrateHs:       ptrFloat64(100),
 	}
 }

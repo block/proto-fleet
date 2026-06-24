@@ -122,6 +122,16 @@ enum DeviceStatus {
   DEVICE_STATUS_REBOOT_REQUIRED = 8;
 }
 
+// Health of a miner, separate from operational device status.
+enum DeviceHealthStatus {
+  DEVICE_HEALTH_STATUS_UNSPECIFIED = 0;
+  DEVICE_HEALTH_STATUS_UNKNOWN = 1;
+  DEVICE_HEALTH_STATUS_HEALTHY_ACTIVE = 2;
+  DEVICE_HEALTH_STATUS_HEALTHY_INACTIVE = 3;
+  DEVICE_HEALTH_STATUS_WARNING = 4;
+  DEVICE_HEALTH_STATUS_CRITICAL = 5;
+}
+
 enum UpdateType {
   UPDATE_TYPE_UNSPECIFIED = 0;
   UPDATE_TYPE_TELEMETRY = 1;
@@ -262,6 +272,7 @@ message FleetNodeTelemetryResult {
   optional double efficiency_jh = 10;
   string error_message = 11 [(buf.validate.field).string.max_len = 4096];
   optional bool default_password_active = 12;
+  DeviceHealthStatus health_status = 13 [(buf.validate.field).enum.defined_only = true];
 }
 
 message GetCombinedMetricsRequest {

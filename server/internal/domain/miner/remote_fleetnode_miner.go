@@ -376,7 +376,7 @@ func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult
 		DeviceIdentifier:      result.GetDeviceIdentifier(),
 		Timestamp:             result.GetTimestamp().AsTime(),
 		FirmwareVersion:       result.GetFirmwareVersion(),
-		Health:                deviceStatusToHealth(result.GetDeviceStatus()),
+		Health:                telemetryHealthToV2(result.GetHealthStatus(), result.GetDeviceStatus()),
 		HealthReason:          healthReason,
 		DefaultPasswordActive: result.DefaultPasswordActive,
 		HashrateHS:            scalarMetricToV2(result.HashrateHs, modelsV2.MetricKindRate),
@@ -394,6 +394,25 @@ func scalarMetricToV2(value *float64, kind modelsV2.MetricKind) *modelsV2.Metric
 	return &modelsV2.MetricValue{
 		Value: *value,
 		Kind:  kind,
+	}
+}
+
+func telemetryHealthToV2(health telemetrypb.DeviceHealthStatus, status telemetrypb.DeviceStatus) modelsV2.HealthStatus {
+	switch health {
+	case telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_HEALTHY_ACTIVE:
+		return modelsV2.HealthHealthyActive
+	case telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_HEALTHY_INACTIVE:
+		return modelsV2.HealthHealthyInactive
+	case telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_WARNING:
+		return modelsV2.HealthWarning
+	case telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_CRITICAL:
+		return modelsV2.HealthCritical
+	case telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_UNKNOWN:
+		return modelsV2.HealthUnknown
+	case telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_UNSPECIFIED:
+		return deviceStatusToHealth(status)
+	default:
+		return modelsV2.HealthUnknown
 	}
 }
 

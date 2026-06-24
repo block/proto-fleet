@@ -181,6 +181,7 @@ func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetri
 		Timestamp:        timestamppb.New(metrics.Timestamp),
 		FirmwareVersion:  metrics.FirmwareVersion,
 		DeviceStatus:     status,
+		HealthStatus:     healthStatusFromV2(metrics.Health),
 		HashrateHs:       metricValue(metrics.HashrateHS),
 		TempC:            metricValue(metrics.TempC),
 		FanRpm:           metricValue(metrics.FanRPM),
@@ -202,6 +203,23 @@ func metricValue(metric *modelsV2.MetricValue) *float64 {
 	}
 	value := metric.Value
 	return &value
+}
+
+func healthStatusFromV2(health modelsV2.HealthStatus) telemetrypb.DeviceHealthStatus {
+	switch health {
+	case modelsV2.HealthHealthyActive:
+		return telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_HEALTHY_ACTIVE
+	case modelsV2.HealthHealthyInactive:
+		return telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_HEALTHY_INACTIVE
+	case modelsV2.HealthWarning:
+		return telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_WARNING
+	case modelsV2.HealthCritical:
+		return telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_CRITICAL
+	case modelsV2.HealthUnknown:
+		return telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_UNKNOWN
+	default:
+		return telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_UNKNOWN
+	}
 }
 
 func deviceStatusFromSDKHealth(health sdk.HealthStatus) telemetrypb.DeviceStatus {

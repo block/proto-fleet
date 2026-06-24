@@ -19,6 +19,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
+	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -333,6 +334,16 @@ func TestTelemetrySecretBundleForBasicAuthValidationErrors(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "password is required")
 	})
+}
+
+func TestTelemetryResultFromV2CarriesWarningHealthSeparatelyFromStatus(t *testing.T) {
+	result := telemetryResultFromV2("node-device", modelsV2.DeviceMetrics{
+		Timestamp: time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC),
+		Health:    modelsV2.HealthWarning,
+	}, telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE)
+
+	assert.Equal(t, telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE, result.GetDeviceStatus())
+	assert.Equal(t, telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_WARNING, result.GetHealthStatus())
 }
 
 func TestClassifyTelemetryError(t *testing.T) {
