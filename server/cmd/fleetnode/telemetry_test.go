@@ -463,12 +463,20 @@ func TestCloseTelemetryDeviceAsyncDoesNotBlock(t *testing.T) {
 	}
 }
 
-func TestCloseTelemetryDeviceAsyncRejectsWhenCloseWorkersAreExhausted(t *testing.T) {
+func TestCloseTelemetryDeviceAsyncClosesSynchronouslyWhenCloseWorkersAreExhausted(t *testing.T) {
 	tokens := make(chan struct{}, 1)
 	tokens <- struct{}{}
 	oldTokens := telemetryDeviceCloseTokens
+	oldTimeout := telemetryDeviceCloseTimeout
+	oldGrace := telemetryDeviceCloseSupervisorGrace
 	telemetryDeviceCloseTokens = tokens
-	t.Cleanup(func() { telemetryDeviceCloseTokens = oldTokens })
+	telemetryDeviceCloseTimeout = 10 * time.Millisecond
+	telemetryDeviceCloseSupervisorGrace = 5 * time.Millisecond
+	t.Cleanup(func() {
+		telemetryDeviceCloseTokens = oldTokens
+		telemetryDeviceCloseTimeout = oldTimeout
+		telemetryDeviceCloseSupervisorGrace = oldGrace
+	})
 
 	closer := blockingTelemetryCloser{
 		started: make(chan struct{}),
@@ -476,11 +484,13 @@ func TestCloseTelemetryDeviceAsyncRejectsWhenCloseWorkersAreExhausted(t *testing
 	}
 	t.Cleanup(func() { close(closer.release) })
 
+	start := time.Now()
 	assert.False(t, closeTelemetryDeviceAsync(closer))
+	assert.Less(t, time.Since(start), 200*time.Millisecond)
 	select {
 	case <-closer.started:
-		t.Fatal("close should not start when close worker capacity is exhausted")
-	default:
+	case <-time.After(time.Second):
+		t.Fatal("close should start synchronously when close worker capacity is exhausted")
 	}
 }
 
