@@ -3,9 +3,11 @@ package pairing
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
@@ -23,6 +25,8 @@ const (
 	clientErrLookupDeviceForPairing    = "device lookup failed"
 	clientErrLookupFleetNodeForPairing = "fleet node lookup failed"
 )
+
+var telemetryScheduleTimeout = 5 * time.Second
 
 type Store interface { //nolint:interfacebloat // Pairing coordinates several sqlc-backed persistence operations in one transaction boundary.
 	PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error)
@@ -113,7 +117,8 @@ func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID i
 	if s.invalidateMiner != nil {
 		s.invalidateMiner(ctx, deviceID)
 	}
-	return s.scheduleTelemetry(ctx, deviceID, orgID)
+	s.scheduleTelemetryBestEffort(ctx, deviceID, orgID)
+	return nil
 }
 
 // pairDeviceLocked binds a device to a fleet node within the caller's transaction:
@@ -190,6 +195,23 @@ func (s *Service) scheduleTelemetry(ctx context.Context, deviceID, orgID int64) 
 		return fleeterror.LogInternal(component, "schedule telemetry", clientErrPair, err)
 	}
 	return nil
+}
+
+func (s *Service) scheduleTelemetryBestEffort(ctx context.Context, deviceID, orgID int64) {
+	if s.telemetry == nil {
+		return
+	}
+	baseCtx := context.WithoutCancel(ctx)
+	go func() {
+		scheduleCtx, cancel := context.WithTimeout(baseCtx, telemetryScheduleTimeout)
+		defer cancel()
+		if err := s.scheduleTelemetry(scheduleCtx, deviceID, orgID); err != nil {
+			slog.Warn("failed to schedule fleet-node telemetry after pairing",
+				"device_id", deviceID,
+				"org_id", orgID,
+				"err", err)
+		}
+	}()
 }
 
 func (s *Service) UnpairDevice(ctx context.Context, deviceID, orgID int64) error {

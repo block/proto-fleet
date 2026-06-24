@@ -118,7 +118,7 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 	created, err := plugin.Driver.NewDevice(ctx, req.GetDeviceIdentifier(), deviceInfo, secret)
 	if err != nil {
 		if isNodeAuthFailure(err) {
-			return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "telemetry authentication failed: %v", err)
+			return nil, cmdErr(pb.AckCode_ACK_CODE_UNAUTHENTICATED, "telemetry authentication failed: %v", err)
 		}
 		return nil, cmdErr(pb.AckCode_ACK_CODE_INTERNAL, "create telemetry device: %v", err)
 	}
@@ -131,7 +131,7 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 	sdkMetrics, err := created.Device.Status(ctx)
 	if err != nil {
 		if isNodeAuthFailure(err) {
-			return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "telemetry authentication failed: %v", err)
+			return nil, cmdErr(pb.AckCode_ACK_CODE_UNAUTHENTICATED, "telemetry authentication failed: %v", err)
 		}
 		return nil, cmdErr(pb.AckCode_ACK_CODE_INTERNAL, "fetch telemetry: %v", err)
 	}

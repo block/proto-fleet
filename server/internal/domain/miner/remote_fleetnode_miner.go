@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"sync"
 	"time"
 
+	"buf.build/go/protovalidate"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
@@ -221,6 +223,9 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 	if err := proto.Unmarshal(ack.GetPayload(), result); err != nil {
 		return nil, fleeterror.NewInternalErrorf("unmarshal fleet node telemetry payload: %v", err)
 	}
+	if err := validateTelemetryResult(result); err != nil {
+		return nil, err
+	}
 	if result.GetDeviceIdentifier() != m.route.deviceIdentifier {
 		return nil, fleeterror.NewInternalErrorf(
 			"fleet node telemetry result device_identifier mismatch: got %q, want %q",
@@ -261,12 +266,13 @@ func (m *RemoteFleetNodeMiner) errorFromAck(ack *gatewaypb.ControlAck) error {
 		return fleeterror.NewInvalidArgumentError(msg)
 	case gatewaypb.AckCode_ACK_CODE_BUSY:
 		return fleeterror.NewUnavailableErrorf("%s", msg)
+	case gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED:
+		return fleeterror.NewUnauthenticatedErrorf("fleet node telemetry authentication failed: %s", msg)
 	case gatewaypb.AckCode_ACK_CODE_OK:
 		return nil
 	case gatewaypb.AckCode_ACK_CODE_SCAN_FAILED,
 		gatewaypb.AckCode_ACK_CODE_REPORT_FAILED,
 		gatewaypb.AckCode_ACK_CODE_PARTIAL,
-		gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED,
 		gatewaypb.AckCode_ACK_CODE_UNIMPLEMENTED,
 		gatewaypb.AckCode_ACK_CODE_INTERNAL,
 		gatewaypb.AckCode_ACK_CODE_UNSPECIFIED:
@@ -274,6 +280,27 @@ func (m *RemoteFleetNodeMiner) errorFromAck(ack *gatewaypb.ControlAck) error {
 	default:
 		return fleeterror.NewInternalError(msg)
 	}
+}
+
+func validateTelemetryResult(result *telemetrypb.FleetNodeTelemetryResult) error {
+	if err := protovalidate.Validate(result); err != nil {
+		return fleeterror.NewInternalErrorf("invalid fleet node telemetry payload: %v", err)
+	}
+	if ts := result.GetTimestamp().AsTime(); ts.Before(time.Unix(0, 0)) || ts.After(time.Now().Add(5*time.Minute)) {
+		return fleeterror.NewInternalErrorf("invalid fleet node telemetry timestamp: %s", ts.Format(time.RFC3339Nano))
+	}
+	for name, value := range map[string]*float64{
+		"hashrate_hs":   result.HashrateHs,
+		"temp_c":        result.TempC,
+		"fan_rpm":       result.FanRpm,
+		"power_w":       result.PowerW,
+		"efficiency_jh": result.EfficiencyJh,
+	} {
+		if value != nil && (math.IsNaN(*value) || math.IsInf(*value, 0)) {
+			return fleeterror.NewInternalErrorf("invalid fleet node telemetry %s: non-finite value", name)
+		}
+	}
+	return nil
 }
 
 func (m *RemoteFleetNodeMiner) rememberStatus(status telemetrypb.DeviceStatus) {

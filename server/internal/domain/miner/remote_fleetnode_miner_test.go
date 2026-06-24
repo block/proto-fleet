@@ -2,6 +2,7 @@ package miner
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -74,6 +75,30 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsNonOKAck(t *testing.T) {
 	assert.True(t, fleeterror.IsUnimplementedError(got.err))
 }
 
+func TestRemoteFleetNodeMinerGetDeviceMetricsMapsUnauthenticatedAck(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	stream.PublishAck(&gatewaypb.ControlAck{
+		CommandId:    cmd.GetCommandId(),
+		Code:         gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED,
+		ErrorMessage: "bad credentials",
+	})
+
+	got := receiveMetricsResult(t, results)
+	require.Error(t, got.err)
+	assert.True(t, fleeterror.IsAuthenticationError(got.err))
+}
+
 func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsMalformedPayload(t *testing.T) {
 	registry := control.NewRegistry()
 	stream := registry.Register(12)
@@ -97,6 +122,50 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsMalformedPayload(t *testing.
 	got := receiveMetricsResult(t, results)
 	require.Error(t, got.err)
 	assert.Contains(t, got.err.Error(), "unmarshal fleet node telemetry payload")
+}
+
+func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsInvalidPayload(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	result := telemetryResult("node-device")
+	result.Timestamp = nil
+	publishTelemetryAck(t, stream, cmd.GetCommandId(), result)
+
+	got := receiveMetricsResult(t, results)
+	require.Error(t, got.err)
+	assert.Contains(t, got.err.Error(), "invalid fleet node telemetry payload")
+}
+
+func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsNonFiniteMetric(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	result := telemetryResult("node-device")
+	result.HashrateHs = ptrFloat64(math.NaN())
+	publishTelemetryAck(t, stream, cmd.GetCommandId(), result)
+
+	got := receiveMetricsResult(t, results)
+	require.Error(t, got.err)
+	assert.Contains(t, got.err.Error(), "non-finite")
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsMismatchedIdentifier(t *testing.T) {

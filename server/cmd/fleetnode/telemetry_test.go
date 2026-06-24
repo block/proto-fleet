@@ -106,6 +106,20 @@ func TestControlLoop_TelemetryFetcherCommandError(t *testing.T) {
 	assert.Contains(t, acks[0].GetErrorMessage(), "auth failed")
 }
 
+func TestControlLoop_TelemetryFetcherAuthError(t *testing.T) {
+	cmd := &RunCmd{telemetry: &stubTelemetryFetcher{err: cmdErr(pb.AckCode_ACK_CODE_UNAUTHENTICATED, "auth failed")}}
+	fake := &controlFakeGateway{}
+	fake.queue(telemetryCmd(t, validTelemetryRequest()))
+
+	runControlLoopOnce(t, cmd, fake)
+
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.False(t, acks[0].GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_UNAUTHENTICATED, acks[0].GetCode())
+	assert.Contains(t, acks[0].GetErrorMessage(), "auth failed")
+}
+
 func TestControlLoop_TelemetryFetcherGenericError(t *testing.T) {
 	cmd := &RunCmd{telemetry: &stubTelemetryFetcher{err: errors.New("plugin exploded")}}
 	fake := &controlFakeGateway{}
@@ -117,6 +131,26 @@ func TestControlLoop_TelemetryFetcherGenericError(t *testing.T) {
 	require.Len(t, acks, 1)
 	assert.False(t, acks[0].GetSucceeded())
 	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, acks[0].GetCode())
+}
+
+func TestTelemetryDialTargetRejectsPublicAddress(t *testing.T) {
+	req := validTelemetryRequest()
+	req.IpAddress = "8.8.8.8"
+
+	err := validateDialTarget(telemetryDialTarget(req))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a private or loopback address")
+}
+
+func TestTelemetryDialTargetRejectsUnsupportedScheme(t *testing.T) {
+	req := validTelemetryRequest()
+	req.UrlScheme = "ftp"
+
+	err := validateDialTarget(telemetryDialTarget(req))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported url_scheme")
 }
 
 func validTelemetryRequest() *telemetrypb.FleetNodeTelemetryRequest {
