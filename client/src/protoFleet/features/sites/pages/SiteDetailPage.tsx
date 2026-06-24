@@ -190,7 +190,6 @@ const SiteDetailPage = () => {
           ) : null}
         </div>
         <PlaceholderBlock label="Metrics row — coming soon" className="h-20" />
-        <PlaceholderBlock label="Details table — coming soon" className="h-40" />
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <Header title="Buildings" titleSize="text-heading-200" />
@@ -238,6 +237,7 @@ const SiteDetailPage = () => {
             )}
           </div>
         </div>
+        <PlaceholderBlock label="Details table — coming soon" className="h-40" />
       </div>
       <SiteModals modals={modals} sites={sites} buildingsRefreshKey={buildingsRefreshKey} />
       <BuildingModals modals={buildingModals} sites={sites} />
