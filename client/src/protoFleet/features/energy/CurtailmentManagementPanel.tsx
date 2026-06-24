@@ -3,9 +3,9 @@ import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
 import {
-  type AdminTerminateCurtailmentOptions,
-  type AdminTerminateCurtailmentState,
   adminTerminateReasonRequiredMessage,
+  type AdminTerminateCurtailmentOptions as TerminateRecoveryOptions,
+  type AdminTerminateCurtailmentState as TerminateRecoveryState,
   useCurtailmentApi,
 } from "@/protoFleet/api/useCurtailmentApi";
 import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
@@ -37,8 +37,8 @@ import Radio from "@/shared/components/Radio";
 import Textarea from "@/shared/components/Textarea";
 
 interface CurtailmentManagementPanelProps {
-  canAdminRecoverCurtailment?: boolean;
-  canManageCurtailment?: boolean;
+  enableManage?: boolean;
+  enableRecover?: boolean;
   className?: string;
 }
 
@@ -57,11 +57,11 @@ interface CurtailmentMessageProps {
   message: string;
 }
 
-interface AdminTerminateDialogProps {
+interface TerminateRecoveryDialogProps {
   error?: string | null;
   isSubmitting?: boolean;
   onCancel: () => void;
-  onConfirm: (options: AdminTerminateCurtailmentOptions) => void;
+  onConfirm: (options: TerminateRecoveryOptions) => void;
   open: boolean;
 }
 
@@ -73,7 +73,7 @@ const defaultResponseDeadlineMinutes = "15";
 const defaultMaxDurationSec = "900";
 const immediateRestoreBatchSize = "10000";
 
-const adminTerminateStateOptions: { label: string; value: AdminTerminateCurtailmentState }[] = [
+const terminateRecoveryStateOptions: { label: string; value: TerminateRecoveryState }[] = [
   { label: "Cancelled", value: "cancelled" },
   { label: "Failed", value: "failed" },
 ];
@@ -164,14 +164,14 @@ function CurtailmentMessage({ message }: CurtailmentMessageProps): ReactElement 
   );
 }
 
-function CurtailmentAdminTerminateDialog({
+function CurtailmentRecoveryTerminateDialog({
   error,
   isSubmitting = false,
   onCancel,
   onConfirm,
   open,
-}: AdminTerminateDialogProps): ReactElement {
-  const [targetState, setTargetState] = useState<AdminTerminateCurtailmentState>("cancelled");
+}: TerminateRecoveryDialogProps): ReactElement {
+  const [targetState, setTargetState] = useState<TerminateRecoveryState>("cancelled");
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);
   const validationError = reasonError ?? error ?? null;
@@ -191,7 +191,7 @@ function CurtailmentAdminTerminateDialog({
   return (
     <Dialog
       open={open}
-      title="Admin terminate event?"
+      title="Terminate recovery event?"
       onDismiss={dismissDialog}
       icon={
         <DialogIcon intent="critical">
@@ -220,10 +220,10 @@ function CurtailmentAdminTerminateDialog({
         <fieldset className="grid gap-2">
           <legend className="text-emphasis-300">Target state</legend>
           <div className="flex flex-wrap gap-4">
-            {adminTerminateStateOptions.map((option) => (
+            {terminateRecoveryStateOptions.map((option) => (
               <label key={option.value} className="flex items-center gap-2">
                 <Radio
-                  name="admin-terminate-target-state"
+                  name="terminate-recovery-target-state"
                   value={option.value}
                   selected={targetState === option.value}
                   onChange={() => setTargetState(option.value)}
@@ -235,7 +235,7 @@ function CurtailmentAdminTerminateDialog({
           </div>
         </fieldset>
         <Textarea
-          id="admin-terminate-reason"
+          id="terminate-recovery-reason"
           label="Reason"
           initValue={reason}
           rows={3}
@@ -273,13 +273,13 @@ function canForceRestoreCurtailmentEvent(event: ActiveCurtailmentEvent): boolean
   return Boolean(event.isAutomationOwned && forceRestorableCurtailmentEventStates.has(event.state));
 }
 
-function canAdminTerminateCurtailmentEvent(event: Pick<ActiveCurtailmentEvent, "state">): boolean {
-  return event.state === "restoring";
+function canTerminateRecoveryCurtailmentEvent(event: ActiveCurtailmentEvent): boolean {
+  return Boolean(event.isAutomationOwned && event.state === "restoring");
 }
 
 function CurtailmentManagementPanel({
-  canAdminRecoverCurtailment = false,
-  canManageCurtailment = true,
+  enableManage = true,
+  enableRecover = false,
   className,
 }: CurtailmentManagementPanelProps): ReactElement {
   const navigate = useNavigate();
@@ -314,7 +314,7 @@ function CurtailmentManagementPanel({
     stopCurtailment,
     adminTerminateCurtailment,
   } = useCurtailmentApi();
-  const { responseProfiles } = useCurtailmentResponseProfiles(canManageCurtailment);
+  const { responseProfiles } = useCurtailmentResponseProfiles(enableManage);
   const responseProfileOptions = useMemo(
     () => responseProfiles.map(createCurtailmentResponseProfileOption),
     [responseProfiles],
@@ -323,27 +323,27 @@ function CurtailmentManagementPanel({
   const [modalMode, setModalMode] = useState<CurtailmentStartModalMode | null>(null);
   const [editSession, setEditSession] = useState<EditCurtailmentSession | null>(null);
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
-  const [pendingAdminTerminateEventId, setPendingAdminTerminateEventId] = useState<string | null>(null);
+  const [pendingTerminateRecoveryEventId, setPendingTerminateRecoveryEventId] = useState<string | null>(null);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const activeRefreshAbortControllerRef = useRef<AbortController | null>(null);
   const manageSelectionAbortControllerRef = useRef<AbortController | null>(null);
   const manageSelectionRequestIdRef = useRef(0);
   const foregroundRefreshInFlightRef = useRef(false);
-  const canUseAdminRecovery = canManageCurtailment && canAdminRecoverCurtailment;
+  const canUseRecovery = enableManage && enableRecover;
   const recoveryStopError =
     stopError && activeEvent?.isAutomationOwned
       ? `${stopError} ${
-          canUseAdminRecovery
-            ? "Use Force restore to override active automation demand and minimum-duration guards."
-            : "Ask an admin to force restore if automation demand remains asserted or the source is stale."
+          canUseRecovery
+            ? "Stop or disable automation before Force restore if demand remains asserted."
+            : "Ask an admin to stop automation and force restore if demand remains asserted or the source is stale."
         }`
       : stopError;
   const errorMessage = startError ?? updateError ?? recoveryStopError ?? adminTerminateError ?? loadError;
   const isInitialLoading = isLoading && !activeEvent && historyEvents.length === 0;
   const isStopConfirmationSubmitting =
     pendingStopConfirmation !== null && stoppingEventId === pendingStopConfirmation.eventId;
-  const isAdminTerminateSubmitting =
-    pendingAdminTerminateEventId !== null && adminTerminatingEventId === pendingAdminTerminateEventId;
+  const isTerminateRecoverySubmitting =
+    pendingTerminateRecoveryEventId !== null && adminTerminatingEventId === pendingTerminateRecoveryEventId;
   const isEditingCurtailment = modalMode === "edit";
   const isModalSubmitting = isEditingCurtailment ? isUpdating : isStarting;
   const hasOngoingCurtailment = activeEvents.some((event) => nonTerminalActiveEventStates.has(event.state));
@@ -435,7 +435,7 @@ function CurtailmentManagementPanel({
   }, [cancelManageSelection]);
 
   const openEditModal = useCallback(() => {
-    if (!canManageCurtailment || !activeEvent || !activeEventId || !activeEventFormValues) {
+    if (!enableManage || !activeEvent || !activeEventId || !activeEventFormValues) {
       return;
     }
 
@@ -446,11 +446,11 @@ function CurtailmentManagementPanel({
       preview: createActiveCurtailmentPreview(activeEvent, activeEventFormValues),
     });
     setModalMode("edit");
-  }, [activeEvent, activeEventFormValues, activeEventId, canManageCurtailment, cancelManageSelection]);
+  }, [activeEvent, activeEventFormValues, activeEventId, enableManage, cancelManageSelection]);
 
   const openHistoryManageModal = useCallback(
     (event: CurtailmentHistoryEvent) => {
-      if (!canManageCurtailment) {
+      if (!enableManage) {
         return;
       }
 
@@ -509,36 +509,29 @@ function CurtailmentManagementPanel({
           }
         });
     },
-    [
-      activeEvent,
-      activeEventFormValues,
-      activeEventId,
-      canManageCurtailment,
-      cancelManageSelection,
-      selectActiveCurtailment,
-    ],
+    [activeEvent, activeEventFormValues, activeEventId, enableManage, cancelManageSelection, selectActiveCurtailment],
   );
 
   const openStopConfirmation = useCallback(
     (action: CurtailmentStopConfirmationAction, eventId = activeEventId) => {
-      if (!canManageCurtailment || !eventId) {
+      if (!enableManage || !eventId) {
         return;
       }
 
       cancelManageSelection();
       setPendingStopConfirmation({ action, eventId });
     },
-    [activeEventId, canManageCurtailment, cancelManageSelection],
+    [activeEventId, enableManage, cancelManageSelection],
   );
 
-  const openAdminTerminateConfirmation = useCallback(() => {
-    if (!canUseAdminRecovery || !activeEvent || !activeEventId || !canAdminTerminateCurtailmentEvent(activeEvent)) {
+  const openTerminateRecoveryConfirmation = useCallback(() => {
+    if (!canUseRecovery || !activeEvent || !activeEventId || !canTerminateRecoveryCurtailmentEvent(activeEvent)) {
       return;
     }
 
     cancelManageSelection();
-    setPendingAdminTerminateEventId(activeEventId);
-  }, [activeEvent, activeEventId, canUseAdminRecovery, cancelManageSelection]);
+    setPendingTerminateRecoveryEventId(activeEventId);
+  }, [activeEvent, activeEventId, canUseRecovery, cancelManageSelection]);
 
   const handleStartSubmit = useCallback(
     (values: CurtailmentSubmitValues) => {
@@ -598,14 +591,14 @@ function CurtailmentManagementPanel({
   );
 
   const handleConfirmStop = useCallback(() => {
-    if (!canManageCurtailment || !pendingStopConfirmation) {
+    if (!enableManage || !pendingStopConfirmation) {
       return;
     }
 
     const force = pendingStopConfirmation.action === "forceRestore";
     if (
       force &&
-      (!canUseAdminRecovery ||
+      (!canUseRecovery ||
         pendingStopConfirmation.eventId !== activeEventId ||
         !activeEvent ||
         !canForceRestoreCurtailmentEvent(activeEvent))
@@ -629,39 +622,32 @@ function CurtailmentManagementPanel({
     activeEvent,
     activeEventId,
     activeEvents,
-    canUseAdminRecovery,
-    canManageCurtailment,
+    canUseRecovery,
+    enableManage,
     pendingStopConfirmation,
     stopCurtailment,
   ]);
 
-  const handleConfirmAdminTerminate = useCallback(
-    (options: AdminTerminateCurtailmentOptions) => {
-      if (!canUseAdminRecovery || !pendingAdminTerminateEventId) {
+  const handleConfirmTerminateRecovery = useCallback(
+    (options: TerminateRecoveryOptions) => {
+      if (!canUseRecovery || !pendingTerminateRecoveryEventId) {
         return;
       }
 
-      const currentEvent =
-        pendingAdminTerminateEventId === activeEventId
-          ? activeEvent
-          : activeEvents.find((event) => event.id === pendingAdminTerminateEventId);
-      if (!currentEvent || !canAdminTerminateCurtailmentEvent(currentEvent)) {
-        setPendingAdminTerminateEventId(null);
+      if (
+        pendingTerminateRecoveryEventId !== activeEventId ||
+        !activeEvent ||
+        !canTerminateRecoveryCurtailmentEvent(activeEvent)
+      ) {
+        setPendingTerminateRecoveryEventId(null);
         return;
       }
 
-      void adminTerminateCurtailment(pendingAdminTerminateEventId, options)
-        .then(() => setPendingAdminTerminateEventId(null))
+      void adminTerminateCurtailment(pendingTerminateRecoveryEventId, options)
+        .then(() => setPendingTerminateRecoveryEventId(null))
         .catch(() => {});
     },
-    [
-      activeEvent,
-      activeEventId,
-      activeEvents,
-      adminTerminateCurtailment,
-      canUseAdminRecovery,
-      pendingAdminTerminateEventId,
-    ],
+    [activeEvent, activeEventId, adminTerminateCurtailment, canUseRecovery, pendingTerminateRecoveryEventId],
   );
 
   const handleEditStopCurtailment = useCallback(() => {
@@ -678,7 +664,7 @@ function CurtailmentManagementPanel({
     <section className={clsx("grid gap-6", className)}>
       <div className="flex items-center justify-between gap-4 phone:flex-col phone:items-stretch">
         <Header title="Curtailment" titleSize="text-heading-300" />
-        {canManageCurtailment ? (
+        {enableManage ? (
           <div className="flex items-center gap-2 phone:flex-col phone:items-stretch">
             <Button
               variant={variants.secondary}
@@ -711,19 +697,19 @@ function CurtailmentManagementPanel({
             <ActiveCurtailmentStatus
               event={activeEvent}
               onDismissRestored={dismissTerminalCurtailment}
-              onRequestAdminTerminate={
-                canUseAdminRecovery && canAdminTerminateCurtailmentEvent(activeEvent)
-                  ? openAdminTerminateConfirmation
+              onRequestTerminateRecovery={
+                canUseRecovery && canTerminateRecoveryCurtailmentEvent(activeEvent)
+                  ? openTerminateRecoveryConfirmation
                   : undefined
               }
-              onRequestEdit={canManageCurtailment ? openEditModal : undefined}
+              onRequestEdit={enableManage ? openEditModal : undefined}
               onRequestForceRestore={
-                canUseAdminRecovery && canForceRestoreCurtailmentEvent(activeEvent)
+                canUseRecovery && canForceRestoreCurtailmentEvent(activeEvent)
                   ? () => openStopConfirmation("forceRestore")
                   : undefined
               }
-              onRequestRestore={canManageCurtailment ? () => openStopConfirmation("restore") : undefined}
-              onRequestStop={canManageCurtailment ? () => openStopConfirmation("stopCurtailment") : undefined}
+              onRequestRestore={enableManage ? () => openStopConfirmation("restore") : undefined}
+              onRequestStop={enableManage ? () => openStopConfirmation("stopCurtailment") : undefined}
             />
           ) : null}
 
@@ -738,9 +724,9 @@ function CurtailmentManagementPanel({
             selectedStatusFilters={historyStatusFilters}
             onPageChange={handleHistoryPageChange}
             onStatusFiltersChange={handleHistoryStatusFiltersChange}
-            onManageActiveEvent={canManageCurtailment ? openHistoryManageModal : undefined}
-            onStopActiveEventRequested={canManageCurtailment ? cancelManageSelection : undefined}
-            onStopActiveEvent={canManageCurtailment ? handleHistoryStop : undefined}
+            onManageActiveEvent={enableManage ? openHistoryManageModal : undefined}
+            onStopActiveEventRequested={enableManage ? cancelManageSelection : undefined}
+            onStopActiveEvent={enableManage ? handleHistoryStop : undefined}
           />
         </>
       )}
@@ -769,13 +755,13 @@ function CurtailmentManagementPanel({
         />
       ) : null}
 
-      {pendingAdminTerminateEventId ? (
-        <CurtailmentAdminTerminateDialog
+      {pendingTerminateRecoveryEventId ? (
+        <CurtailmentRecoveryTerminateDialog
           open
           error={adminTerminateError}
-          isSubmitting={isAdminTerminateSubmitting}
-          onCancel={() => setPendingAdminTerminateEventId(null)}
-          onConfirm={handleConfirmAdminTerminate}
+          isSubmitting={isTerminateRecoverySubmitting}
+          onCancel={() => setPendingTerminateRecoveryEventId(null)}
+          onConfirm={handleConfirmTerminateRecovery}
         />
       ) : null}
     </section>

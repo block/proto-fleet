@@ -21,7 +21,7 @@ import type { CurtailmentMode, CurtailmentSubmitValues } from "@/protoFleet/feat
 
 const wattsPerKilowatt = 1000;
 const automationExternalSource = "curtailment_automation";
-const automationSourceLabel = "MQTT automation";
+const automationSourceLabel = "Curtailment automation";
 const estimatedReductionKwSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
 const selectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
 

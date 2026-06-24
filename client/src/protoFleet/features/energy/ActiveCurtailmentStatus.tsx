@@ -49,21 +49,21 @@ interface ActiveCurtailmentStatusProps {
   event: ActiveCurtailmentEvent;
   className?: string;
   onDismissRestored?: () => void;
-  onRequestAdminTerminate?: () => void;
   onRequestEdit?: () => void;
   onRequestForceRestore?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
+  onRequestTerminateRecovery?: () => void;
 }
 
 interface ActiveCurtailmentActionButtonsProps {
   displayState: ActiveCurtailmentDisplayState;
   onDismissRestored?: () => void;
-  onRequestAdminTerminate?: () => void;
   onRequestEdit?: () => void;
   onRequestForceRestore?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
+  onRequestTerminateRecovery?: () => void;
 }
 
 interface SectionHeaderProps {
@@ -373,9 +373,9 @@ function getForceRestoreButton(onRequestForceRestore?: () => void): ReactElement
 function getActiveCurtailmentActionButton({
   displayState,
   onDismissRestored,
-  onRequestAdminTerminate,
   onRequestRestore,
   onRequestStop,
+  onRequestTerminateRecovery,
 }: ActiveCurtailmentActionButtonsProps): ReactElement | null {
   switch (displayState) {
     case "restored":
@@ -396,12 +396,12 @@ function getActiveCurtailmentActionButton({
         <Button variant={variants.danger} size={sizes.compact} text="Stop" onClick={onRequestStop} />
       ) : null;
     case "restoring":
-      return onRequestAdminTerminate ? (
+      return onRequestTerminateRecovery ? (
         <Button
           variant={variants.secondaryDanger}
           size={sizes.compact}
-          text="Admin terminate"
-          onClick={onRequestAdminTerminate}
+          text="Terminate recovery"
+          onClick={onRequestTerminateRecovery}
         />
       ) : null;
   }
@@ -410,18 +410,18 @@ function getActiveCurtailmentActionButton({
 function ActiveCurtailmentActionButtons({
   displayState,
   onDismissRestored,
-  onRequestAdminTerminate,
   onRequestEdit,
   onRequestForceRestore,
   onRequestRestore,
   onRequestStop,
+  onRequestTerminateRecovery,
 }: ActiveCurtailmentActionButtonsProps): ReactElement | null {
   const actionButton = getActiveCurtailmentActionButton({
     displayState,
     onDismissRestored,
-    onRequestAdminTerminate,
     onRequestRestore,
     onRequestStop,
+    onRequestTerminateRecovery,
   });
   const forceRestoreButton = forceRestorableDisplayStates.has(displayState)
     ? getForceRestoreButton(onRequestForceRestore)
@@ -468,11 +468,11 @@ export default function ActiveCurtailmentStatus({
   event,
   className,
   onDismissRestored,
-  onRequestAdminTerminate,
   onRequestEdit,
   onRequestForceRestore,
   onRequestRestore,
   onRequestStop,
+  onRequestTerminateRecovery,
 }: ActiveCurtailmentStatusProps): ReactElement {
   const targetKw = getTargetKw(event);
   const compliance = getMinerCompliance(event);
@@ -531,11 +531,11 @@ export default function ActiveCurtailmentStatus({
         <ActiveCurtailmentActionButtons
           displayState={displayState}
           onDismissRestored={onDismissRestored}
-          onRequestAdminTerminate={onRequestAdminTerminate}
           onRequestEdit={onRequestEdit}
           onRequestForceRestore={onRequestForceRestore}
           onRequestRestore={onRequestRestore}
           onRequestStop={onRequestStop}
+          onRequestTerminateRecovery={onRequestTerminateRecovery}
         />
 
         <div className="grid gap-3 tablet:pr-32">
@@ -568,7 +568,7 @@ export default function ActiveCurtailmentStatus({
 
         {event.isAutomationOwned ? (
           <div className="mt-6 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">
-            <div className="text-emphasis-300">MQTT automation recovery</div>
+            <div className="text-emphasis-300">Curtailment automation recovery</div>
             <div className="mt-1 text-text-primary-70">
               {event.sourceLabel} owns this event. Normal restore can be blocked while OFF demand remains asserted or
               the source is stale.

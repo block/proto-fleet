@@ -45,18 +45,18 @@ vi.mock("react-router-dom", () => ({
 vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
   default: ({
     onDismissRestored,
-    onRequestAdminTerminate,
     onRequestEdit,
     onRequestForceRestore,
     onRequestRestore,
     onRequestStop,
+    onRequestTerminateRecovery,
   }: {
     onDismissRestored?: () => void;
-    onRequestAdminTerminate?: () => void;
     onRequestEdit?: () => void;
     onRequestForceRestore?: () => void;
     onRequestRestore?: () => void;
     onRequestStop?: () => void;
+    onRequestTerminateRecovery?: () => void;
   }) => (
     <div data-testid="active-curtailment-status">
       <button type="button" onClick={onDismissRestored}>
@@ -82,9 +82,9 @@ vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
           Request stop
         </button>
       ) : null}
-      {onRequestAdminTerminate ? (
-        <button type="button" onClick={onRequestAdminTerminate}>
-          Request admin terminate
+      {onRequestTerminateRecovery ? (
+        <button type="button" onClick={onRequestTerminateRecovery}>
+          Request terminate recovery
         </button>
       ) : null}
     </div>
@@ -481,7 +481,7 @@ describe("CurtailmentManagementPanel", () => {
       }),
     );
 
-    render(<CurtailmentManagementPanel canAdminRecoverCurtailment />);
+    render(<CurtailmentManagementPanel enableRecover />);
 
     await user.click(screen.getByRole("button", { name: "Request restore" }));
     expect(screen.getByRole("dialog", { name: "restore confirmation" })).toBeInTheDocument();
@@ -504,26 +504,26 @@ describe("CurtailmentManagementPanel", () => {
       }),
     );
 
-    render(<CurtailmentManagementPanel canAdminRecoverCurtailment={false} />);
+    render(<CurtailmentManagementPanel enableRecover={false} />);
 
     expect(screen.queryByRole("button", { name: "Request force restore" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Request admin terminate" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request terminate recovery" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Request restore" })).toBeInTheDocument();
   });
 
-  it("admin terminates restoring events with target state and required reason", async () => {
+  it("terminates automation-owned restoring events with target state and required reason", async () => {
     const user = userEvent.setup();
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
-        activeEvent: { ...activeEvent, state: "restoring" },
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
         activeEvents: [{ ...historyEvent, state: "restoring" }],
         activeEventId: "curt-1",
       }),
     );
 
-    render(<CurtailmentManagementPanel canAdminRecoverCurtailment />);
+    render(<CurtailmentManagementPanel enableRecover />);
 
-    await user.click(screen.getByRole("button", { name: "Request admin terminate" }));
+    await user.click(screen.getByRole("button", { name: "Request terminate recovery" }));
     await user.click(screen.getByRole("button", { name: "Terminate event" }));
 
     expect(screen.getByText("Enter a reason before terminating the event.")).toBeInTheDocument();
@@ -541,9 +541,27 @@ describe("CurtailmentManagementPanel", () => {
     );
   });
 
-  it("keeps admin terminate dialog open while submitting", async () => {
+  it("hides terminate recovery for non-automation restoring events", () => {
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: false, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    expect(screen.queryByRole("button", { name: "Request terminate recovery" })).not.toBeInTheDocument();
+  });
+
+  it("keeps terminate recovery dialog open while submitting", async () => {
     const user = userEvent.setup();
-    const restoringEvent = { ...activeEvent, state: "restoring" } satisfies ActiveCurtailmentEvent;
+    const restoringEvent = {
+      ...activeEvent,
+      isAutomationOwned: true,
+      state: "restoring",
+    } satisfies ActiveCurtailmentEvent;
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         activeEvent: restoringEvent,
@@ -552,10 +570,10 @@ describe("CurtailmentManagementPanel", () => {
       }),
     );
 
-    const { rerender } = render(<CurtailmentManagementPanel canAdminRecoverCurtailment />);
+    const { rerender } = render(<CurtailmentManagementPanel enableRecover />);
 
-    await user.click(screen.getByRole("button", { name: "Request admin terminate" }));
-    expect(screen.getByText("Admin terminate event?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Request terminate recovery" }));
+    expect(screen.getByText("Terminate recovery event?")).toBeInTheDocument();
 
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
@@ -565,11 +583,11 @@ describe("CurtailmentManagementPanel", () => {
         adminTerminatingEventId: "curt-1",
       }),
     );
-    rerender(<CurtailmentManagementPanel canAdminRecoverCurtailment />);
+    rerender(<CurtailmentManagementPanel enableRecover />);
 
     fireEvent.keyDown(document, { key: "Escape" });
 
-    expect(screen.getByText("Admin terminate event?")).toBeInTheDocument();
+    expect(screen.getByText("Terminate recovery event?")).toBeInTheDocument();
   });
 
   it("does not submit stale stop confirmations for events that are no longer active", async () => {
@@ -1121,7 +1139,7 @@ describe("CurtailmentManagementPanel", () => {
       }),
     );
 
-    render(<CurtailmentManagementPanel canManageCurtailment={false} />);
+    render(<CurtailmentManagementPanel enableManage={false} />);
 
     expect(screen.getByTestId("active-curtailment-status")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request edit" })).not.toBeInTheDocument();

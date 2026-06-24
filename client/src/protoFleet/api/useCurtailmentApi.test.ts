@@ -236,12 +236,12 @@ describe("useCurtailmentApi", () => {
     expect(result.current.activeEvent).toEqual(
       expect.objectContaining({
         isAutomationOwned: true,
-        sourceLabel: "MQTT automation",
+        sourceLabel: "Curtailment automation",
       }),
     );
     expect(result.current.historyEvents[0]).toEqual(
       expect.objectContaining({
-        sourceLabel: "MQTT automation",
+        sourceLabel: "Curtailment automation",
       }),
     );
   });

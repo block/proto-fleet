@@ -167,14 +167,14 @@ describe("ActiveCurtailmentStatus", () => {
         event={{
           ...curtailedCurtailmentEvent,
           isAutomationOwned: true,
-          sourceLabel: "MQTT automation",
+          sourceLabel: "Curtailment automation",
         }}
         onRequestForceRestore={onRequestForceRestore}
         onRequestRestore={onRequestRestore}
       />,
     );
 
-    expect(screen.getByText("MQTT automation recovery")).toBeVisible();
+    expect(screen.getByText("Curtailment automation recovery")).toBeVisible();
     expect(screen.getByText(/Normal restore can be blocked while OFF demand remains asserted/)).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Restore" }));
@@ -201,25 +201,25 @@ describe("ActiveCurtailmentStatus", () => {
     expectActionButtonHidden("Restore");
   });
 
-  it("renders admin terminate while restoring when recovery is available", async () => {
+  it("renders terminate recovery while restoring when recovery is available", async () => {
     const user = userEvent.setup();
-    const onRequestAdminTerminate = vi.fn();
+    const onRequestTerminateRecovery = vi.fn();
 
     render(
       <ActiveCurtailmentStatus
         event={{
           ...restoringCurtailmentEvent,
           isAutomationOwned: true,
-          sourceLabel: "MQTT automation",
+          sourceLabel: "Curtailment automation",
         }}
-        onRequestAdminTerminate={onRequestAdminTerminate}
+        onRequestTerminateRecovery={onRequestTerminateRecovery}
       />,
     );
 
-    expect(screen.getByText("MQTT automation recovery")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Admin terminate" }));
+    expect(screen.getByText("Curtailment automation recovery")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Terminate recovery" }));
 
-    expect(onRequestAdminTerminate).toHaveBeenCalledOnce();
+    expect(onRequestTerminateRecovery).toHaveBeenCalledOnce();
   });
 
   it("counts released targets as restored during restoration", () => {

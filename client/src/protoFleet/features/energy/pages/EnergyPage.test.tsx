@@ -11,15 +11,9 @@ vi.mock("@/protoFleet/store", () => ({
 }));
 
 vi.mock("@/protoFleet/features/energy/CurtailmentManagementPanel", () => ({
-  default: ({
-    canAdminRecoverCurtailment,
-    canManageCurtailment,
-  }: {
-    canAdminRecoverCurtailment?: boolean;
-    canManageCurtailment?: boolean;
-  }) => (
+  default: ({ enableManage, enableRecover }: { enableManage?: boolean; enableRecover?: boolean }) => (
     <div data-testid="curtailment-management-panel">
-      {String(canManageCurtailment)},{String(canAdminRecoverCurtailment)}
+      {String(enableManage)},{String(enableRecover)}
     </div>
   ),
 }));
