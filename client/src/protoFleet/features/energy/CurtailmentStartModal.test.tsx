@@ -766,8 +766,10 @@ describe("CurtailmentStartModal", () => {
       },
     });
 
-    expect(screen.getByTestId("response-profile-scope-site-101")).toBeDisabled();
-    expect(screen.getByTestId("response-profile-scope-site-101")).toHaveTextContent("Saved site");
+    const savedSiteRow = screen.getByTestId("response-profile-scope-site-101");
+    expect(savedSiteRow).toBeDisabled();
+    expect(savedSiteRow).toHaveTextContent("Saved site");
+    expect(within(savedSiteRow).getByRole("radio")).toBeChecked();
     expect(screen.getByTestId("response-profile-scope-site-102")).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "Save profile" }));
