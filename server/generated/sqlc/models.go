@@ -831,6 +831,10 @@ type FleetNodeSession struct {
 	CreatedAt   time.Time
 }
 
+type FleetPollableDevicePresence struct {
+	HasPollableDevice bool
+}
+
 type FleetTelemetryPollHeartbeat struct {
 	Bucket         interface{}
 	OrganizationID string

@@ -780,19 +780,20 @@ provision_grafana_db_role() {
 
     # `up --wait` only confirms containers are running, not that
     # fleet-api has finished its migration pass. Poll for every object
-    # the Grafana alert rules read — the raw hypertable AND the
-    # fleet_telemetry_poll_heartbeat continuous aggregate the
-    # protofleet-ingest-stalled rule queries.
-    echo "Waiting for notification_metric_sample and fleet_telemetry_poll_heartbeat to be available…"
+    # the Grafana alert rules read — the raw hypertable, the
+    # fleet_telemetry_poll_heartbeat continuous aggregate, and the
+    # fleet_pollable_device_presence view the protofleet-ingest-stalled
+    # rule queries.
+    echo "Waiting for notification_metric_sample, fleet_telemetry_poll_heartbeat and fleet_pollable_device_presence to be available…"
     for attempt in $(seq 1 60); do
         objects_check=$(docker compose "${COMPOSE_FILES[@]}" exec -T timescaledb \
-            bash -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL\"" \
+            bash -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL AND to_regclass('public.fleet_pollable_device_presence') IS NOT NULL\"" \
             2>/dev/null | tr -d '[:space:]')
         if [ "$objects_check" = "t" ]; then
             break
         fi
         if [ "$attempt" -eq 60 ]; then
-            echo "Warning: notification_metric_sample / fleet_telemetry_poll_heartbeat did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2
+            echo "Warning: notification_metric_sample / fleet_telemetry_poll_heartbeat / fleet_pollable_device_presence did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2
             return 1
         fi
         sleep 2
@@ -892,11 +893,14 @@ GRANT CONNECT ON DATABASE "${db_name}" TO "${grafana_user}";
 GRANT USAGE ON SCHEMA public TO "${grafana_user}";
 GRANT SELECT ON notification_metric_sample TO "${grafana_user}";
 GRANT SELECT ON fleet_telemetry_poll_heartbeat TO "${grafana_user}";
+-- Owner-privilege view: grafana_ro reads the boolean without grants on device/device_pairing.
+GRANT SELECT ON fleet_pollable_device_presence TO "${grafana_user}";
 
 -- smoke check
 SET ROLE "${grafana_user}";
 SELECT 1 FROM notification_metric_sample LIMIT 0;
 SELECT 1 FROM fleet_telemetry_poll_heartbeat LIMIT 0;
+SELECT 1 FROM fleet_pollable_device_presence LIMIT 0;
 RESET ROLE;
 SQL
 }
