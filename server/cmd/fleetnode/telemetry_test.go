@@ -49,6 +49,17 @@ func (waitingTelemetryFetcher) Fetch(ctx context.Context, _ *telemetrypb.FleetNo
 	return nil, fmt.Errorf("wait for telemetry timeout: %w", ctx.Err())
 }
 
+type stuckTelemetryFetcher struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (f *stuckTelemetryFetcher) Fetch(_ context.Context, _ *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error) {
+	close(f.started)
+	<-f.release
+	return nil, errors.New("released stuck telemetry fetch")
+}
+
 type delayedTelemetryFetcher struct {
 	delay  time.Duration
 	result *telemetrypb.FleetNodeTelemetryResult
@@ -126,6 +137,41 @@ func TestControlLoop_TelemetryUsesShortCommandTimeout(t *testing.T) {
 	require.Len(t, acks, 1)
 	assert.False(t, acks[0].GetSucceeded())
 	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, acks[0].GetCode())
+}
+
+func TestControlLoop_TelemetrySupervisorReturnsAckForStuckFetcher(t *testing.T) {
+	oldTelemetryTimeout := telemetryCommandTimeout
+	oldSupervisorGrace := telemetrySupervisorGrace
+	telemetryCommandTimeout = 20 * time.Millisecond
+	telemetrySupervisorGrace = 10 * time.Millisecond
+	t.Cleanup(func() {
+		telemetryCommandTimeout = oldTelemetryTimeout
+		telemetrySupervisorGrace = oldSupervisorGrace
+	})
+
+	fetcher := &stuckTelemetryFetcher{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	t.Cleanup(func() { close(fetcher.release) })
+	cmd := &RunCmd{telemetry: fetcher}
+	fake := &controlFakeGateway{}
+	fake.queue(telemetryCmd(t, validTelemetryRequest()))
+
+	start := time.Now()
+	runControlLoopOnce(t, cmd, fake)
+
+	require.Less(t, time.Since(start), 500*time.Millisecond)
+	select {
+	case <-fetcher.started:
+	default:
+		t.Fatal("telemetry fetch did not start")
+	}
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.False(t, acks[0].GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_SCAN_FAILED, acks[0].GetCode())
+	assert.Contains(t, acks[0].GetErrorMessage(), "supervisor budget exceeded")
 }
 
 func TestControlLoop_TelemetryUsesRequestTimeout(t *testing.T) {
@@ -344,6 +390,28 @@ func TestTelemetryResultFromV2CarriesWarningHealthSeparatelyFromStatus(t *testin
 
 	assert.Equal(t, telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE, result.GetDeviceStatus())
 	assert.Equal(t, telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_WARNING, result.GetHealthStatus())
+}
+
+func TestValidateTelemetryMetricsIdentity(t *testing.T) {
+	t.Run("allows matching identifier", func(t *testing.T) {
+		err := validateTelemetryMetricsIdentity("node-device", modelsV2.DeviceMetrics{DeviceIdentifier: "node-device"})
+		require.NoError(t, err)
+	})
+
+	t.Run("allows empty plugin identifier", func(t *testing.T) {
+		err := validateTelemetryMetricsIdentity("node-device", modelsV2.DeviceMetrics{})
+		require.NoError(t, err)
+	})
+
+	t.Run("rejects mismatched identifier", func(t *testing.T) {
+		err := validateTelemetryMetricsIdentity("node-device", modelsV2.DeviceMetrics{DeviceIdentifier: "other-device"})
+
+		require.Error(t, err)
+		var ce *commandError
+		require.True(t, errors.As(err, &ce))
+		assert.Equal(t, pb.AckCode_ACK_CODE_SCAN_FAILED, ce.code)
+		assert.Contains(t, err.Error(), "device_identifier mismatch")
+	})
 }
 
 func TestClassifyTelemetryError(t *testing.T) {

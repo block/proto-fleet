@@ -25,8 +25,17 @@ import (
 // a successful near-deadline sample still has slack to marshal and return its ack.
 var telemetryCommandTimeout = 4 * time.Second
 
+// Give context-aware plugins a small window to observe fetchCtx cancellation and
+// return their own error before the supervisor abandons context-ignoring calls.
+var telemetrySupervisorGrace = 100 * time.Millisecond
+
 type telemetryFetcher interface {
 	Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error)
+}
+
+type telemetryFetchOutcome struct {
+	result *telemetrypb.FleetNodeTelemetryResult
+	err    error
 }
 
 type pluginTelemetryFetcher struct {
@@ -56,10 +65,8 @@ func (r *RunCmd) handleTelemetryCommand(ctx context.Context, stream acker, comma
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid telemetry request: %v", vErr), logger)
 		return
 	}
-	cmdCtx, cancel := context.WithTimeout(ctx, telemetryTimeout(req))
-	defer cancel()
 
-	result, err := r.telemetry.Fetch(cmdCtx, req)
+	result, err := supervisedTelemetryFetch(ctx, r.telemetry, req, telemetryTimeout(req), logger)
 	if err != nil {
 		code := pb.AckCode_ACK_CODE_INTERNAL
 		var ce *commandError
@@ -75,6 +82,37 @@ func (r *RunCmd) handleTelemetryCommand(ctx context.Context, stream acker, comma
 		return
 	}
 	r.sendAckWithPayload(stream, commandID, pb.AckCode_ACK_CODE_OK, "", payload, logger)
+}
+
+func supervisedTelemetryFetch(ctx context.Context, fetcher telemetryFetcher, req *telemetrypb.FleetNodeTelemetryRequest, timeout time.Duration, logger *slog.Logger) (*telemetrypb.FleetNodeTelemetryResult, error) {
+	if timeout <= 0 {
+		timeout = telemetryCommandTimeout
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	outcomeCh := make(chan telemetryFetchOutcome, 1)
+	go func() {
+		result, err := fetcher.Fetch(fetchCtx, req)
+		outcomeCh <- telemetryFetchOutcome{result: result, err: err}
+	}()
+
+	supervisorBudget := timeout + telemetrySupervisorGrace
+	timer := time.NewTimer(supervisorBudget)
+	defer timer.Stop()
+	select {
+	case outcome := <-outcomeCh:
+		return outcome.result, outcome.err
+	case <-timer.C:
+		cancel()
+		logger.Warn("telemetry fetch exceeded supervisor budget; returning failed ack",
+			"device_identifier", req.GetDeviceIdentifier(),
+			"timeout", timeout.String(),
+			"supervisor_budget", supervisorBudget.String())
+		return nil, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "telemetry supervisor budget exceeded after %s", supervisorBudget)
+	case <-ctx.Done():
+		cancel()
+		return nil, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "telemetry command context ended: %v", ctx.Err())
+	}
 }
 
 func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error) {
@@ -123,7 +161,17 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 		return nil, cmdErr(code, "%s", msg)
 	}
 	v2Metrics := mappers.SDKDeviceMetricsToV2(sdkMetrics)
+	if err := validateTelemetryMetricsIdentity(req.GetDeviceIdentifier(), v2Metrics); err != nil {
+		return nil, err
+	}
 	return telemetryResultFromV2(req.GetDeviceIdentifier(), v2Metrics, deviceStatusFromSDKHealth(sdkMetrics.Health)), nil
+}
+
+func validateTelemetryMetricsIdentity(requestedDeviceIdentifier string, metrics modelsV2.DeviceMetrics) error {
+	if metrics.DeviceIdentifier == "" || metrics.DeviceIdentifier == requestedDeviceIdentifier {
+		return nil
+	}
+	return cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "telemetry device_identifier mismatch: requested %q, plugin reported %q", requestedDeviceIdentifier, metrics.DeviceIdentifier)
 }
 
 func telemetryDialTarget(req *telemetrypb.FleetNodeTelemetryRequest) *pb.MinerConnectionDescriptor {
