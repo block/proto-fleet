@@ -8,7 +8,7 @@ interface FleetInfraPageProps {
   canManage?: boolean;
 }
 
-const FleetInfraPage = ({ devices = EMPTY_DEVICES, canManage = false }: FleetInfraPageProps) => (
+const FleetInfraPage = ({ devices = EMPTY_DEVICES, canManage = true }: FleetInfraPageProps) => (
   <InfraDeviceList devices={devices} canManage={canManage} />
 );
 

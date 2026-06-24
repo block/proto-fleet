@@ -20,18 +20,18 @@ const device: InfraDeviceItem = {
 };
 
 describe("FleetInfraPage", () => {
-  test("does not expose local-only management controls by default", () => {
+  test("exposes feature-flagged management controls by default", () => {
     render(<FleetInfraPage devices={[device]} />);
 
-    expect(screen.queryByRole("button", { name: "Add device" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add device" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Actions for Roof exhaust" })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeEnabled();
   });
 
-  test("allows stories or future persistence-backed callers to opt into management controls", () => {
-    render(<FleetInfraPage devices={[device]} canManage />);
+  test("allows callers to disable management controls", () => {
+    render(<FleetInfraPage devices={[device]} canManage={false} />);
 
-    expect(screen.getByRole("button", { name: "Add device" })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Add device" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeDisabled();
   });
 });
