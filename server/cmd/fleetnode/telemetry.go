@@ -38,6 +38,10 @@ type telemetryFetcher interface {
 	Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error)
 }
 
+type abandonedTelemetryFetcher interface {
+	AbandonTelemetryFetch(deviceIdentifier string) bool
+}
+
 type telemetryFetchOutcome struct {
 	result *telemetrypb.FleetNodeTelemetryResult
 	err    error
@@ -46,7 +50,15 @@ type telemetryFetchOutcome struct {
 type pluginTelemetryFetcher struct {
 	manager      *plugins.Manager
 	minerSecrets secretProvider
-	inflight     sync.Map
+	mu           sync.Mutex
+	inflight     map[string]*telemetrySlot
+	workerTokens chan struct{}
+}
+
+type telemetrySlot struct {
+	fetcher          *pluginTelemetryFetcher
+	deviceIdentifier string
+	released         bool
 }
 
 func newPluginTelemetryFetcher(manager *plugins.Manager, minerSecrets secretProvider) (*pluginTelemetryFetcher, error) {
@@ -110,15 +122,23 @@ func supervisedTelemetryFetch(ctx context.Context, fetcher telemetryFetcher, req
 		return outcome.result, outcome.err
 	case <-timer.C:
 		cancel()
+		abandoned := abandonTelemetryFetch(fetcher, req)
 		logger.Warn("telemetry fetch exceeded supervisor budget; returning failed ack",
 			"device_identifier", req.GetDeviceIdentifier(),
 			"timeout", timeout.String(),
-			"supervisor_budget", supervisorBudget.String())
+			"supervisor_budget", supervisorBudget.String(),
+			"abandoned", abandoned)
 		return nil, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "telemetry supervisor budget exceeded after %s", supervisorBudget)
 	case <-ctx.Done():
 		cancel()
+		abandonTelemetryFetch(fetcher, req)
 		return nil, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "telemetry command context ended: %v", ctx.Err())
 	}
+}
+
+func abandonTelemetryFetch(fetcher telemetryFetcher, req *telemetrypb.FleetNodeTelemetryRequest) bool {
+	abandoner, ok := fetcher.(abandonedTelemetryFetcher)
+	return ok && abandoner.AbandonTelemetryFetch(req.GetDeviceIdentifier())
 }
 
 func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error) {
@@ -150,11 +170,11 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 		code, msg := classifyMinerCommandError("build telemetry secret bundle", err)
 		return nil, cmdErr(code, "%s", msg)
 	}
-	release, err := f.acquireTelemetrySlot(req.GetDeviceIdentifier())
+	slot, err := f.acquireTelemetrySlot(req.GetDeviceIdentifier())
 	if err != nil {
 		return nil, err
 	}
-	defer release()
+	defer slot.releaseWorker()
 
 	redactions := telemetrySecretRedactions(secret)
 	created, err := plugin.Driver.NewDevice(ctx, req.GetDeviceIdentifier(), deviceInfo, secret)
@@ -162,11 +182,7 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 		code, msg := classifyTelemetryError("create telemetry device", err, redactions...)
 		return nil, cmdErr(code, "%s", msg)
 	}
-	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = created.Device.Close(closeCtx)
-	}()
+	defer closeTelemetryDeviceAsync(created.Device)
 
 	sdkMetrics, err := created.Device.Status(ctx)
 	if err != nil {
@@ -184,13 +200,70 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 	return result, nil
 }
 
-func (f *pluginTelemetryFetcher) acquireTelemetrySlot(deviceIdentifier string) (func(), error) {
-	if _, loaded := f.inflight.LoadOrStore(deviceIdentifier, struct{}{}); loaded {
+func (f *pluginTelemetryFetcher) acquireTelemetrySlot(deviceIdentifier string) (*telemetrySlot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.initTelemetrySlotsLocked()
+
+	if _, loaded := f.inflight[deviceIdentifier]; loaded {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BUSY, "telemetry already in progress for device %q", deviceIdentifier)
 	}
-	return func() {
-		f.inflight.Delete(deviceIdentifier)
-	}, nil
+	select {
+	case f.workerTokens <- struct{}{}:
+	default:
+		return nil, cmdErr(pb.AckCode_ACK_CODE_BUSY, "telemetry worker capacity exhausted")
+	}
+	slot := &telemetrySlot{
+		fetcher:          f,
+		deviceIdentifier: deviceIdentifier,
+	}
+	f.inflight[deviceIdentifier] = slot
+	return slot, nil
+}
+
+func (f *pluginTelemetryFetcher) initTelemetrySlotsLocked() {
+	if f.inflight == nil {
+		f.inflight = make(map[string]*telemetrySlot)
+	}
+	if f.workerTokens == nil {
+		f.workerTokens = make(chan struct{}, commandPoolSize)
+	}
+}
+
+func (f *pluginTelemetryFetcher) AbandonTelemetryFetch(deviceIdentifier string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	slot := f.inflight[deviceIdentifier]
+	if slot == nil {
+		return false
+	}
+	delete(f.inflight, deviceIdentifier)
+	return true
+}
+
+func (s *telemetrySlot) releaseWorker() {
+	s.fetcher.mu.Lock()
+	defer s.fetcher.mu.Unlock()
+	if s.released {
+		return
+	}
+	s.released = true
+	if s.fetcher.inflight[s.deviceIdentifier] == s {
+		delete(s.fetcher.inflight, s.deviceIdentifier)
+	}
+	<-s.fetcher.workerTokens
+}
+
+type telemetryDeviceCloser interface {
+	Close(ctx context.Context) error
+}
+
+func closeTelemetryDeviceAsync(device telemetryDeviceCloser) {
+	go func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = device.Close(closeCtx)
+	}()
 }
 
 func validateTelemetryMetricsIdentity(requestedDeviceIdentifier string, metrics modelsV2.DeviceMetrics) error {

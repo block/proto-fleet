@@ -49,14 +49,22 @@ func (waitingTelemetryFetcher) Fetch(ctx context.Context, _ *telemetrypb.FleetNo
 }
 
 type stuckTelemetryFetcher struct {
-	started chan struct{}
-	release chan struct{}
+	started   chan struct{}
+	release   chan struct{}
+	abandoned chan string
 }
 
 func (f *stuckTelemetryFetcher) Fetch(_ context.Context, _ *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error) {
 	close(f.started)
 	<-f.release
 	return nil, errors.New("released stuck telemetry fetch")
+}
+
+func (f *stuckTelemetryFetcher) AbandonTelemetryFetch(deviceIdentifier string) bool {
+	if f.abandoned != nil {
+		f.abandoned <- deviceIdentifier
+	}
+	return true
 }
 
 type delayedTelemetryFetcher struct {
@@ -149,8 +157,9 @@ func TestControlLoop_TelemetrySupervisorReturnsAckForStuckFetcher(t *testing.T) 
 	})
 
 	fetcher := &stuckTelemetryFetcher{
-		started: make(chan struct{}),
-		release: make(chan struct{}),
+		started:   make(chan struct{}),
+		release:   make(chan struct{}),
+		abandoned: make(chan string, 1),
 	}
 	t.Cleanup(func() { close(fetcher.release) })
 	cmd := &RunCmd{telemetry: fetcher}
@@ -171,6 +180,7 @@ func TestControlLoop_TelemetrySupervisorReturnsAckForStuckFetcher(t *testing.T) 
 	assert.False(t, acks[0].GetSucceeded())
 	assert.Equal(t, pb.AckCode_ACK_CODE_SCAN_FAILED, acks[0].GetCode())
 	assert.Contains(t, acks[0].GetErrorMessage(), "supervisor budget exceeded")
+	assert.Equal(t, "node-device", <-fetcher.abandoned)
 }
 
 func TestControlLoop_TelemetryUsesRequestTimeout(t *testing.T) {
@@ -347,7 +357,7 @@ func TestTelemetryResultFromV2CarriesComponentMetricsPayload(t *testing.T) {
 
 func TestPluginTelemetryFetcherAcquireTelemetrySlotRejectsDuplicate(t *testing.T) {
 	fetcher := &pluginTelemetryFetcher{}
-	release, err := fetcher.acquireTelemetrySlot("node-device")
+	slot, err := fetcher.acquireTelemetrySlot("node-device")
 	require.NoError(t, err)
 
 	_, err = fetcher.acquireTelemetrySlot("node-device")
@@ -356,9 +366,80 @@ func TestPluginTelemetryFetcherAcquireTelemetrySlotRejectsDuplicate(t *testing.T
 	var ce *commandError
 	require.True(t, errors.As(err, &ce))
 	assert.Equal(t, pb.AckCode_ACK_CODE_BUSY, ce.code)
-	release()
-	_, err = fetcher.acquireTelemetrySlot("node-device")
+	slot.releaseWorker()
+	retry, err := fetcher.acquireTelemetrySlot("node-device")
 	require.NoError(t, err)
+	retry.releaseWorker()
+}
+
+func TestPluginTelemetryFetcherAbandonReleasesDeviceSlotButKeepsWorkerBudget(t *testing.T) {
+	fetcher := &pluginTelemetryFetcher{}
+	slot, err := fetcher.acquireTelemetrySlot("node-device")
+	require.NoError(t, err)
+
+	assert.True(t, fetcher.AbandonTelemetryFetch("node-device"))
+	retry, err := fetcher.acquireTelemetrySlot("node-device")
+	require.NoError(t, err)
+
+	retry.releaseWorker()
+	slot.releaseWorker()
+}
+
+func TestPluginTelemetryFetcherAbandonedWorkersAreBounded(t *testing.T) {
+	fetcher := &pluginTelemetryFetcher{}
+	var slots []*telemetrySlot
+	for i := range commandPoolSize {
+		deviceIdentifier := fmt.Sprintf("node-device-%d", i)
+		slot, err := fetcher.acquireTelemetrySlot(deviceIdentifier)
+		require.NoError(t, err)
+		slots = append(slots, slot)
+		assert.True(t, fetcher.AbandonTelemetryFetch(deviceIdentifier))
+	}
+
+	_, err := fetcher.acquireTelemetrySlot("extra-device")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "telemetry worker capacity exhausted")
+	slots[0].releaseWorker()
+	slot, err := fetcher.acquireTelemetrySlot("extra-device")
+	require.NoError(t, err)
+	slot.releaseWorker()
+	for _, abandoned := range slots[1:] {
+		abandoned.releaseWorker()
+	}
+}
+
+type blockingTelemetryCloser struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (c blockingTelemetryCloser) Close(ctx context.Context) error {
+	close(c.started)
+	select {
+	case <-c.release:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("close telemetry device: %w", ctx.Err())
+	}
+}
+
+func TestCloseTelemetryDeviceAsyncDoesNotBlock(t *testing.T) {
+	closer := blockingTelemetryCloser{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	t.Cleanup(func() { close(closer.release) })
+
+	start := time.Now()
+	closeTelemetryDeviceAsync(closer)
+
+	require.Less(t, time.Since(start), 50*time.Millisecond)
+	select {
+	case <-closer.started:
+	case <-time.After(time.Second):
+		t.Fatal("close did not start")
+	}
 }
 
 func TestValidateTelemetryMetricsIdentity(t *testing.T) {
