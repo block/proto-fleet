@@ -57,7 +57,7 @@ services:
       - ./monitoring/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3030:3000"
 
 volumes:
   grafana-data:
