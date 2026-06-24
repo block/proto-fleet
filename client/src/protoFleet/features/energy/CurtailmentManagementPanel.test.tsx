@@ -13,6 +13,7 @@ import type {
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const mocks = vi.hoisted(() => ({
+  adminTerminateCurtailment: vi.fn(),
   dismissTerminalCurtailment: vi.fn(),
   goToHistoryPage: vi.fn(),
   navigate: vi.fn(),
@@ -29,6 +30,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/protoFleet/api/useCurtailmentApi", () => ({
+  adminTerminateReasonRequiredMessage: "Enter a reason before terminating the event.",
   useCurtailmentApi: () => mocks.useCurtailmentApi(),
 }));
 
@@ -44,13 +46,17 @@ vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
   default: ({
     onDismissRestored,
     onRequestEdit,
+    onRequestForceRestore,
     onRequestRestore,
     onRequestStop,
+    onRequestTerminateRecovery,
   }: {
     onDismissRestored?: () => void;
     onRequestEdit?: () => void;
+    onRequestForceRestore?: () => void;
     onRequestRestore?: () => void;
     onRequestStop?: () => void;
+    onRequestTerminateRecovery?: () => void;
   }) => (
     <div data-testid="active-curtailment-status">
       <button type="button" onClick={onDismissRestored}>
@@ -61,6 +67,11 @@ vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
           Request edit
         </button>
       ) : null}
+      {onRequestForceRestore ? (
+        <button type="button" onClick={onRequestForceRestore}>
+          Request force restore
+        </button>
+      ) : null}
       {onRequestRestore ? (
         <button type="button" onClick={onRequestRestore}>
           Request restore
@@ -69,6 +80,11 @@ vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
       {onRequestStop ? (
         <button type="button" onClick={onRequestStop}>
           Request stop
+        </button>
+      ) : null}
+      {onRequestTerminateRecovery ? (
+        <button type="button" onClick={onRequestTerminateRecovery}>
+          Request terminate recovery
         </button>
       ) : null}
     </div>
@@ -85,6 +101,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
     selectedStatusFilters,
     onPageChange,
     onManageActiveEvent,
+    onSelectActiveEvent,
     onStatusFiltersChange,
     onStopActiveEvent,
     onStopActiveEventRequested,
@@ -97,6 +114,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
     selectedStatusFilters?: string[];
     onPageChange?: (page: number) => void;
     onManageActiveEvent?: (event: CurtailmentHistoryEvent) => void;
+    onSelectActiveEvent?: (event: CurtailmentHistoryEvent) => void;
     onStatusFiltersChange?: (filters: string[]) => void;
     onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void | Promise<unknown>;
     onStopActiveEventRequested?: (event: CurtailmentHistoryEvent) => void;
@@ -133,6 +151,11 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
             </button>
           ) : null}
         </>
+      ) : null}
+      {onSelectActiveEvent && events[0] ? (
+        <button type="button" onClick={() => onSelectActiveEvent(events[0])}>
+          Select history event
+        </button>
       ) : null}
       {onStopActiveEvent ? (
         <button
@@ -202,6 +225,9 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStopConfirmationDialog", () => 
 const activeEvent = {
   reason: "Grid peak",
   state: "active",
+  scopeLabel: "Whole fleet",
+  sourceLabel: "Manual",
+  isAutomationOwned: false,
   selectedMiners: 2,
   targetKw: 5,
   estimatedReductionKw: 6.2,
@@ -247,10 +273,12 @@ function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseC
     isStarting: false,
     isUpdating: false,
     stoppingEventId: null,
+    adminTerminatingEventId: null,
     loadError: null,
     startError: null,
     updateError: null,
     stopError: null,
+    adminTerminateError: null,
     historyCurrentPage: 0,
     historyHasNextPage: false,
     historyHasPreviousPage: false,
@@ -266,6 +294,7 @@ function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseC
       mocks.dismissTerminalCurtailment as UseCurtailmentApiResult["dismissTerminalCurtailment"],
     updateCurtailment: mocks.updateCurtailment as UseCurtailmentApiResult["updateCurtailment"],
     stopCurtailment: mocks.stopCurtailment as UseCurtailmentApiResult["stopCurtailment"],
+    adminTerminateCurtailment: mocks.adminTerminateCurtailment as UseCurtailmentApiResult["adminTerminateCurtailment"],
     ...overrides,
   };
 }
@@ -284,6 +313,7 @@ describe("CurtailmentManagementPanel", () => {
     mocks.setHistoryStatusFilters.mockResolvedValue(emptySnapshot);
     mocks.startCurtailment.mockResolvedValue({});
     mocks.stopCurtailment.mockResolvedValue({});
+    mocks.adminTerminateCurtailment.mockResolvedValue({});
     mocks.updateCurtailment.mockResolvedValue({});
     mocks.useCurtailmentApi.mockReturnValue(createApiResult());
     mocks.useCurtailmentResponseProfiles.mockReturnValue({
@@ -446,6 +476,153 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Stop history event" }));
 
     expect(mocks.stopCurtailment).toHaveBeenLastCalledWith("curt-1");
+  });
+
+  it("force restores automation-owned events only for admins", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true },
+        activeEvents: [{ ...historyEvent, state: "active" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request restore" }));
+    expect(screen.getByRole("dialog", { name: "restore confirmation" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Confirm confirmation" }));
+    await waitFor(() => expect(mocks.stopCurtailment).toHaveBeenCalledWith("curt-1"));
+
+    await user.click(screen.getByRole("button", { name: "Request force restore" }));
+    expect(screen.getByRole("dialog", { name: "forceRestore confirmation" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Confirm confirmation" }));
+
+    await waitFor(() => expect(mocks.stopCurtailment).toHaveBeenCalledWith("curt-1", { force: true }));
+  });
+
+  it("hides force recovery controls from non-admin curtailment managers", () => {
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true },
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover={false} />);
+
+    expect(screen.queryByRole("button", { name: "Request force restore" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request terminate recovery" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request restore" })).toBeInTheDocument();
+  });
+
+  it("terminates automation-owned restoring events with target state and required reason", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request terminate recovery" }));
+    await user.click(screen.getByRole("button", { name: "Terminate event" }));
+
+    expect(screen.getByText("Enter a reason before terminating the event.")).toBeInTheDocument();
+    expect(mocks.adminTerminateCurtailment).not.toHaveBeenCalled();
+
+    await user.click(screen.getByLabelText("Failed"));
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Recovered from stale MQTT source");
+    await user.click(screen.getByRole("button", { name: "Terminate event" }));
+
+    await waitFor(() =>
+      expect(mocks.adminTerminateCurtailment).toHaveBeenCalledWith("curt-1", {
+        reason: "Recovered from stale MQTT source",
+        targetState: "failed",
+      }),
+    );
+  });
+
+  it("hides terminate recovery for non-automation restoring events", () => {
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: false, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    expect(screen.queryByRole("button", { name: "Request terminate recovery" })).not.toBeInTheDocument();
+  });
+
+  it("selects non-selected restoring history events for recovery", async () => {
+    const user = userEvent.setup();
+    const restoringHistoryEvent = {
+      ...historyEvent,
+      id: "curt-restoring",
+      state: "restoring",
+    } as CurtailmentHistoryEvent;
+    mocks.selectActiveCurtailment.mockResolvedValue({
+      activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+      activeEventId: "curt-restoring",
+      activeEventFormValues: null,
+    });
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEvents: [{ ...historyEvent, state: "active" }, restoringHistoryEvent],
+        activeEventId: "curt-1",
+        historyEvents: [restoringHistoryEvent],
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Select history event" }));
+
+    expect(mocks.selectActiveCurtailment).toHaveBeenCalledWith("curt-restoring", { signal: expect.any(AbortSignal) });
+  });
+
+  it("keeps terminate recovery dialog open while submitting", async () => {
+    const user = userEvent.setup();
+    const restoringEvent = {
+      ...activeEvent,
+      isAutomationOwned: true,
+      state: "restoring",
+    } satisfies ActiveCurtailmentEvent;
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: restoringEvent,
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    const { rerender } = render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request terminate recovery" }));
+    expect(screen.getByText("Terminate recovery event?")).toBeInTheDocument();
+
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: restoringEvent,
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+        adminTerminatingEventId: "curt-1",
+      }),
+    );
+    rerender(<CurtailmentManagementPanel enableRecover />);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.getByText("Terminate recovery event?")).toBeInTheDocument();
   });
 
   it("does not submit stale stop confirmations for events that are no longer active", async () => {
@@ -997,7 +1174,7 @@ describe("CurtailmentManagementPanel", () => {
       }),
     );
 
-    render(<CurtailmentManagementPanel canManageCurtailment={false} />);
+    render(<CurtailmentManagementPanel enableManage={false} />);
 
     expect(screen.getByTestId("active-curtailment-status")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request edit" })).not.toBeInTheDocument();

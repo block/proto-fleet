@@ -158,6 +158,9 @@ func buildCollectionCountQueryWithTelemetryMaxAge(orgID int64, collectionType pb
 	if filter != nil && collectionType == pb.CollectionType_COLLECTION_TYPE_RACK {
 		args, argNum = appendDeviceSetRackFilterSQL(&sb, args, argNum, filter)
 	}
+	if filter != nil && collectionType == pb.CollectionType_COLLECTION_TYPE_GROUP {
+		args, argNum = appendDeviceSetGroupSiteFilterSQL(&sb, args, argNum, filter)
+	}
 
 	var errorComponentTypes []int32
 	if filter != nil {
@@ -241,6 +244,34 @@ func appendDeviceSetRackFilterSQL(sb *strings.Builder, args []any, argNum int, f
 		args, argNum = appendZoneKeyPredicate(sb, args, argNum, "dcr", filter.ZoneKeys)
 		sb.WriteString(")")
 	}
+
+	return args, argNum
+}
+
+func appendDeviceSetGroupSiteFilterSQL(sb *strings.Builder, args []any, argNum int, filter *stores.DeviceSetFilter) ([]any, int) {
+	if len(filter.SiteIDs) == 0 && !filter.IncludeUnassigned {
+		return args, argNum
+	}
+
+	sb.WriteString(fmt.Sprintf(` AND EXISTS (
+			SELECT 1 FROM device_set_membership dcm_site
+			JOIN device d_site ON dcm_site.device_id = d_site.id AND d_site.deleted_at IS NULL
+			WHERE dcm_site.device_set_id = dc.id AND dcm_site.org_id = $1
+			  AND (`))
+	first := true
+	if len(filter.SiteIDs) > 0 {
+		sb.WriteString(fmt.Sprintf("d_site.site_id = ANY($%d::bigint[])", argNum))
+		args = append(args, pq.Array(filter.SiteIDs))
+		argNum++
+		first = false
+	}
+	if filter.IncludeUnassigned {
+		if !first {
+			sb.WriteString(" OR ")
+		}
+		sb.WriteString("d_site.site_id IS NULL")
+	}
+	sb.WriteString(")\n\t\t)")
 
 	return args, argNum
 }
@@ -343,6 +374,9 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 	// Building / zone filters apply only to RACK-typed collections.
 	if filter != nil && collectionType == pb.CollectionType_COLLECTION_TYPE_RACK {
 		args, argNum = appendDeviceSetRackFilterSQL(&sb, args, argNum, filter)
+	}
+	if filter != nil && collectionType == pb.CollectionType_COLLECTION_TYPE_GROUP {
+		args, argNum = appendDeviceSetGroupSiteFilterSQL(&sb, args, argNum, filter)
 	}
 
 	var errorComponentTypes []int32

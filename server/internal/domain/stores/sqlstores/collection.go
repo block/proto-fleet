@@ -681,7 +681,7 @@ func (s *SQLCollectionStore) LockRacksForReparent(ctx context.Context, orgID int
 	return ids, nil
 }
 
-func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID int64, collectionID int64, pageSize int32, pageToken string) ([]*pb.CollectionMember, string, error) {
+func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID int64, collectionID int64, pageSize int32, pageToken string, filter *interfaces.DeviceSetFilter) ([]*pb.CollectionMember, string, error) {
 	cursor, err := decodeMemberCursor(pageToken)
 	if err != nil {
 		return nil, "", err
@@ -699,7 +699,8 @@ func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID in
 
 	var rows []memberRow
 
-	if cursor == nil {
+	hasSiteFilter := filter != nil && (len(filter.SiteIDs) > 0 || filter.IncludeUnassigned)
+	if !hasSiteFilter && cursor == nil {
 		sqlRows, err := s.GetQueries(ctx).ListDeviceSetMembersPaginated(ctx, sqlc.ListDeviceSetMembersPaginatedParams{
 			DeviceSetID: collectionID,
 			OrgID:       orgID,
@@ -711,13 +712,43 @@ func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID in
 		for _, r := range sqlRows {
 			rows = append(rows, memberRow{r.ID, r.DeviceIdentifier, r.CreatedAt, r.SlotRow, r.SlotCol})
 		}
-	} else {
+	} else if !hasSiteFilter {
 		sqlRows, err := s.GetQueries(ctx).ListDeviceSetMembersPaginatedAfter(ctx, sqlc.ListDeviceSetMembersPaginatedAfterParams{
 			DeviceSetID:     collectionID,
 			OrgID:           orgID,
 			Limit:           fetchLimit,
 			CursorCreatedAt: cursor.CreatedAt,
 			CursorID:        cursor.ID,
+		})
+		if err != nil {
+			return nil, "", fleeterror.NewInternalErrorf("failed to list collection members: %v", err)
+		}
+		for _, r := range sqlRows {
+			rows = append(rows, memberRow{r.ID, r.DeviceIdentifier, r.CreatedAt, r.SlotRow, r.SlotCol})
+		}
+	} else if cursor == nil {
+		sqlRows, err := s.GetQueries(ctx).ListDeviceSetMembersPaginatedFiltered(ctx, sqlc.ListDeviceSetMembersPaginatedFilteredParams{
+			DeviceSetID:       collectionID,
+			OrgID:             orgID,
+			SiteIds:           filter.SiteIDs,
+			IncludeUnassigned: filter.IncludeUnassigned,
+			LimitCount:        fetchLimit,
+		})
+		if err != nil {
+			return nil, "", fleeterror.NewInternalErrorf("failed to list collection members: %v", err)
+		}
+		for _, r := range sqlRows {
+			rows = append(rows, memberRow{r.ID, r.DeviceIdentifier, r.CreatedAt, r.SlotRow, r.SlotCol})
+		}
+	} else {
+		sqlRows, err := s.GetQueries(ctx).ListDeviceSetMembersPaginatedFilteredAfter(ctx, sqlc.ListDeviceSetMembersPaginatedFilteredAfterParams{
+			DeviceSetID:       collectionID,
+			OrgID:             orgID,
+			SiteIds:           filter.SiteIDs,
+			IncludeUnassigned: filter.IncludeUnassigned,
+			LimitCount:        fetchLimit,
+			CursorCreatedAt:   cursor.CreatedAt,
+			CursorID:          cursor.ID,
 		})
 		if err != nil {
 			return nil, "", fleeterror.NewInternalErrorf("failed to list collection members: %v", err)

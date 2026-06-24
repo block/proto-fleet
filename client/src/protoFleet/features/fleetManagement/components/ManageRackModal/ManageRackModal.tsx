@@ -69,6 +69,10 @@ interface ManageRackModalProps {
   rackSettings: RackFormData;
   existingRackId?: bigint;
   existingRacks: DeviceSet[];
+  // Pre-seeds the new rack's miner list (e.g. from a bulk "Add to rack →
+  // New rack" flow) so the selected miners land in the left pane ready
+  // for slot assignment. Ignored in edit mode (existingRackId set).
+  seededMinerIds?: string[];
   onDismiss: () => void;
   onSave: () => void;
   onDelete?: () => Promise<void> | void;
@@ -79,6 +83,7 @@ export default function ManageRackModal({
   rackSettings: initialRackSettings,
   existingRackId,
   existingRacks,
+  seededMinerIds,
   onDismiss,
   onSave,
   onDelete,
@@ -94,8 +99,10 @@ export default function ManageRackModal({
   const totalSlots = rackSettings.rows * rackSettings.columns;
   const numberingOrigin = orderIndexToOrigin(rackSettings.orderIndex);
 
-  // Core assignment state
-  const [rackMiners, setRackMiners] = useState<string[]>([]);
+  // Core assignment state. A new rack (no existingRackId) can be seeded
+  // with miners from a bulk "Add to rack → New rack" flow; edit mode
+  // ignores the seed and loads the rack's real membership below.
+  const [rackMiners, setRackMiners] = useState<string[]>(() => (existingRackId ? [] : (seededMinerIds ?? [])));
   const [slotAssignments, setSlotAssignments] = useState<Record<string, string>>({});
   const [assignmentMode, setAssignmentMode] = useState<AssignmentMode>("manual");
   const [manualAssignmentCache, setManualAssignmentCache] = useState<Record<string, string>>({});
@@ -401,6 +408,17 @@ export default function ManageRackModal({
 
   // Save handler — single atomic RPC
   const handleSave = useCallback(async () => {
+    // Capacity guard. handleManageMinersConfirm enforces this when miners are
+    // added through the sub-modal, but a seeded new rack (bulk "New rack")
+    // populates rackMiners directly and bypasses that path — saveRack accepts
+    // members beyond the slot count, so an over-fill would persist silently.
+    if (rackMiners.length > totalSlots) {
+      setErrorMsg(
+        `Cannot add ${rackMiners.length} miners with only ${totalSlots} available slots. Deselect some miners or update your rack settings.`,
+      );
+      return;
+    }
+
     setIsSaving(true);
     setErrorMsg("");
 
@@ -437,7 +455,7 @@ export default function ManageRackModal({
     } finally {
       setIsSaving(false);
     }
-  }, [existingRackId, rackSettings, rackMiners, activeAssignments, saveRack, onSave]);
+  }, [existingRackId, rackSettings, rackMiners, totalSlots, activeAssignments, saveRack, onSave]);
 
   if (!show) return null;
 

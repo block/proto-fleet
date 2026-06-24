@@ -16,6 +16,8 @@ const makeModals = (overrides: Partial<SiteModalsApi> = {}): SiteModalsApi => ({
   deleteTarget: null,
   saving: false,
   deleting: false,
+  manageUnassignedRackCount: undefined,
+  manageUnassignedMinerCount: undefined,
   openCreate: vi.fn(),
   openManageEdit: vi.fn(),
   requestDeleteCurrent: vi.fn(),

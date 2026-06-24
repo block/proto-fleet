@@ -494,6 +494,35 @@ WHERE dsm.device_set_id = $1 AND dsm.org_id = $2
 ORDER BY dsm.created_at DESC, dsm.id DESC
 LIMIT $3;
 
+-- name: ListDeviceSetMembersPaginatedFiltered :many
+SELECT dsm.id, dsm.device_identifier, dsm.created_at,
+       rs.row AS slot_row, rs.col AS slot_col
+FROM device_set_membership dsm
+JOIN device d ON dsm.device_id = d.id AND d.deleted_at IS NULL
+LEFT JOIN rack_slot rs ON dsm.device_set_id = rs.device_set_id AND dsm.device_id = rs.device_id
+WHERE dsm.device_set_id = @device_set_id::bigint AND dsm.org_id = @org_id::bigint
+  AND (
+    d.site_id = ANY(@site_ids::bigint[])
+    OR (@include_unassigned::boolean AND d.site_id IS NULL)
+  )
+ORDER BY dsm.created_at DESC, dsm.id DESC
+LIMIT @limit_count::int;
+
+-- name: ListDeviceSetMembersPaginatedFilteredAfter :many
+SELECT dsm.id, dsm.device_identifier, dsm.created_at,
+       rs.row AS slot_row, rs.col AS slot_col
+FROM device_set_membership dsm
+JOIN device d ON dsm.device_id = d.id AND d.deleted_at IS NULL
+LEFT JOIN rack_slot rs ON dsm.device_set_id = rs.device_set_id AND dsm.device_id = rs.device_id
+WHERE dsm.device_set_id = @device_set_id::bigint AND dsm.org_id = @org_id::bigint
+  AND (
+    d.site_id = ANY(@site_ids::bigint[])
+    OR (@include_unassigned::boolean AND d.site_id IS NULL)
+  )
+  AND (dsm.created_at < @cursor_created_at::timestamptz OR (dsm.created_at = @cursor_created_at::timestamptz AND dsm.id < @cursor_id::bigint))
+ORDER BY dsm.created_at DESC, dsm.id DESC
+LIMIT @limit_count::int;
+
 -- name: GetDeviceDeviceSets :many
 SELECT ds.id, ds.type, ds.label, ds.description, ds.created_at, ds.updated_at,
        (SELECT COUNT(*) FROM device_set_membership WHERE device_set_id = ds.id)::int AS device_count

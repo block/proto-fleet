@@ -66,6 +66,8 @@ type AgentStore interface {
 }
 
 type RevocationCleanupStore interface {
+	ListDeviceIDsForFleetNode(ctx context.Context, fleetNodeID, orgID int64) ([]int64, error)
+	DeleteMinerCredentialsForFleetNode(ctx context.Context, fleetNodeID, orgID int64) (int64, error)
 	DeletePairingsForFleetNode(ctx context.Context, fleetNodeID, orgID int64) (int64, error)
 }
 
@@ -80,10 +82,19 @@ type Service struct {
 	apiKeySvc   *apikey.Service
 	transactor  stores.Transactor
 	activitySvc *activity.Service
+
+	invalidateMiner func(context.Context, int64)
 }
 
 func NewService(store Store, apiKeySvc *apikey.Service, transactor stores.Transactor, activitySvc *activity.Service) *Service {
 	return &Service{store: store, apiKeySvc: apiKeySvc, transactor: transactor, activitySvc: activitySvc}
+}
+
+// WithMinerInvalidator wires miner-cache eviction for node revocation. Revoking
+// deletes fleet_node_device rows and credentials, so any cached remote-node miner
+// for those devices must be evicted before another command can reuse its descriptor.
+func (s *Service) WithMinerInvalidator(invalidate func(context.Context, int64)) {
+	s.invalidateMiner = invalidate
 }
 
 // CreateCode mints an enrollment code. Plaintext is returned exactly once;
@@ -240,6 +251,7 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 // 30s TTL.
 func (s *Service) RevokeFleetNode(ctx context.Context, agentID, orgID int64) error {
 	var agentName string
+	var deviceIDs []int64
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Lock-then-mutate the fleet node row first; matches Confirm's lock order
 		// (agent -> pending_enrollment) so the two flows can't deadlock.
@@ -260,6 +272,14 @@ func (s *Service) RevokeFleetNode(ctx context.Context, agentID, orgID int64) err
 		if _, err := s.apiKeySvc.RevokeForFleetNode(ctx, agentID, orgID); err != nil {
 			return err
 		}
+		var listErr error
+		deviceIDs, listErr = s.store.ListDeviceIDsForFleetNode(ctx, agentID, orgID)
+		if listErr != nil {
+			return logInternal("list fleet node device ids", clientErrRevokeFleetNode, listErr)
+		}
+		if _, err := s.store.DeleteMinerCredentialsForFleetNode(ctx, agentID, orgID); err != nil {
+			return logInternal("delete miner credentials for fleet node", clientErrRevokeFleetNode, err)
+		}
 		if _, err := s.store.DeletePairingsForFleetNode(ctx, agentID, orgID); err != nil {
 			return logInternal("delete pairings for fleet node", clientErrRevokeFleetNode, err)
 		}
@@ -270,6 +290,11 @@ func (s *Service) RevokeFleetNode(ctx context.Context, agentID, orgID int64) err
 		return nil
 	}); err != nil {
 		return err
+	}
+	if s.invalidateMiner != nil {
+		for _, deviceID := range deviceIDs {
+			s.invalidateMiner(ctx, deviceID)
+		}
 	}
 	s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d)", agentName, agentID))
 	return nil

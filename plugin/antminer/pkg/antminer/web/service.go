@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -77,6 +78,8 @@ const (
 
 	// Firmware upload can transfer hundreds of megabytes over slow links.
 	firmwareUploadTimeout = 30 * time.Minute
+
+	digestChallengeAttempts = 2
 )
 
 type ServiceOptions func(*Service)
@@ -584,12 +587,23 @@ func (s *Service) UploadFirmware(ctx context.Context, connInfo *AntminerConnecti
 }
 
 func (s *Service) addDigestAuth(req *http.Request, creds sdk.UsernamePassword) error {
-	challengeReq, err := http.NewRequestWithContext(req.Context(), req.Method, req.URL.String(), nil)
-	if err != nil {
-		return fmt.Errorf("failed to create challenge request: %w", err)
+	var challengeResp *http.Response
+	var err error
+	for attempt := range digestChallengeAttempts {
+		challengeReq, reqErr := http.NewRequestWithContext(req.Context(), req.Method, req.URL.String(), nil)
+		if reqErr != nil {
+			return fmt.Errorf("failed to create challenge request: %w", reqErr)
+		}
+
+		challengeResp, err = s.httpClient.Do(challengeReq)
+		if err == nil {
+			break
+		}
+		if !isRetryableDigestChallengeError(err) || attempt == digestChallengeAttempts-1 {
+			return fmt.Errorf("failed to get auth challenge: %w", err)
+		}
 	}
 
-	challengeResp, err := s.httpClient.Do(challengeReq)
 	if err != nil {
 		return fmt.Errorf("failed to get auth challenge: %w", err)
 	}
@@ -618,6 +632,23 @@ func (s *Service) addDigestAuth(req *http.Request, creds sdk.UsernamePassword) e
 	req.Header.Set("Authorization", authHeaderValue)
 
 	return nil
+}
+
+func isRetryableDigestChallengeError(err error) bool {
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "connection reset by peer") ||
+		strings.Contains(msg, "transport connection broken") ||
+		strings.Contains(msg, "closeidleconnections called") ||
+		strings.Contains(msg, "server closed idle connection")
 }
 
 func parseDigestChallenge(authHeader string) (*DigestChallenge, error) {

@@ -23,6 +23,7 @@ import (
 // Action verb for requireAdminFromContext error messages on the legacy
 // admin-only override checks that run after the curtailment:manage gate.
 const actionSupplyOverrideFields = "supply curtailment override fields"
+const actionAdminTerminateEvents = "admin terminate curtailment events"
 const actionManageMqttSources = "manage MaestroOS curtailment sources"
 const listCurtailmentEventsDefaultPageSize int32 = 50
 const listCurtailmentEventsMaxPageSize int32 = 200
@@ -273,11 +274,14 @@ func (h *Handler) GetCurtailmentEvent(ctx context.Context, req *connect.Request[
 }
 
 // AdminTerminateEvent forces a non-terminal event to terminal. Paired
-// with SessionOnlyProcedures (see interceptors/config.go); the
-// curtailment:manage permission gate is the authoritative RBAC check.
+// with SessionOnlyProcedures (see interceptors/config.go); callers need
+// curtailment:manage for the event plus an Admin/SuperAdmin role.
 func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[pb.AdminTerminateEventRequest]) (*connect.Response[pb.AdminTerminateEventResponse], error) {
 	if h.service == nil {
 		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+		if err := requireAdminFromContext(ctx, actionAdminTerminateEvents); err != nil {
 			return nil, err
 		}
 		return nil, errCurtailmentNotImplemented("AdminTerminateEvent")
@@ -288,6 +292,9 @@ func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[
 	}
 	info, _, err := h.requireEventPermission(ctx, authz.PermCurtailmentManage, eventUUID)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireAdminFromContext(ctx, actionAdminTerminateEvents); err != nil {
 		return nil, err
 	}
 	terminateReq, err := toAdminTerminateRequest(req.Msg, info)

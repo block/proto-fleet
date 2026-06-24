@@ -70,6 +70,10 @@ interface BuildingListProps {
   selectedIds?: string[];
   onSelectedIdsChange?: (ids: string[]) => void;
   activeSite?: ActiveSite;
+  // Unfiltered building total for the count line; when filters are active and
+  // it differs from the displayed count, the line reads "X of Y buildings".
+  totalUnfiltered?: number;
+  hasActiveFilters?: boolean;
 }
 
 const BuildingList = ({
@@ -81,6 +85,8 @@ const BuildingList = ({
   selectedIds,
   onSelectedIdsChange,
   activeSite,
+  totalUnfiltered,
+  hasActiveFilters,
 }: BuildingListProps) => {
   const navigate = useNavigate();
   const temperatureUnit = useTemperatureUnit();
@@ -180,7 +186,10 @@ const BuildingList = ({
     colConfig,
     items,
     itemKey: "id" as const,
-    hideTotal: true,
+    total: items.length,
+    totalUnfiltered,
+    hasActiveFilters,
+    itemName: { singular: "building", plural: "buildings" },
     onRowClick: handleRowClick,
     emptyStateRow,
     paddingLeft: { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" },

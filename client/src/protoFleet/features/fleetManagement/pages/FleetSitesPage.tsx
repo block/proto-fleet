@@ -8,6 +8,7 @@ import SiteList from "../components/SiteList";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { issueOptions } from "@/protoFleet/components/DeviceSetList";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
+import NullState from "@/protoFleet/components/NullState";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import {
@@ -23,10 +24,9 @@ import {
   type TelemetryFilterKey,
 } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import SiteModals from "@/protoFleet/features/sites/components/SiteModals";
-import SitesEmptyState from "@/protoFleet/features/sites/components/SitesEmptyState";
 import { useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
 import { useHasPermission } from "@/protoFleet/store";
-import { Alert } from "@/shared/assets/icons";
+import { Alert, Site } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
@@ -337,10 +337,20 @@ const FleetSitesPage = () => {
   // the operator still needs the create CTA.
   if (!hasListFilters && displaySites.length === 0) {
     pageContent = (
-      <FilterRow testId="fleet-sites-page">
+      <>
         {inlineError}
-        <SitesEmptyState onAddSite={canManageSites ? modals.openCreate : undefined} />
-      </FilterRow>
+        <NullState
+          icon={<Site width="w-5" />}
+          title="No sites yet"
+          description="Create your first site to organize miners by location."
+          action={
+            canManageSites ? (
+              <Button variant={variants.primary} onClick={modals.openCreate} text="Add a site" />
+            ) : undefined
+          }
+          testId="fleet-sites-page"
+        />
+      </>
     );
   } else if (hasListFilters && displaySites.length === 0) {
     pageContent = (
@@ -383,6 +393,8 @@ const FleetSitesPage = () => {
         <div className={LIST_WRAPPER}>
           <SiteList
             sites={displaySites}
+            totalUnfiltered={sites?.length}
+            hasActiveFilters={hasListFilters}
             onEditSite={canManageSites ? modals.openManageEdit : undefined}
             selectedIds={selectedSiteIds}
             onSelectedIdsChange={handleSelectedSiteIdsChange}

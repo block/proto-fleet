@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -390,8 +391,12 @@ func (d *fakePairDriver) GetDefaultCredentials(context.Context, string, string) 
 }
 
 func newTestPairer(t *testing.T, caps sdk.Capabilities, driver sdk.Driver) *pluginPairer {
+	return newTestPairerWithCredentials(t, caps, driver, nil)
+}
+
+func newTestPairerWithCredentials(t *testing.T, caps sdk.Capabilities, driver sdk.Driver, credentials credentialSealer) *pluginPairer {
 	t.Helper()
-	p := newPluginPairer(plugins.NewManager(&plugins.Config{}))
+	p := newPluginPairer(plugins.NewManager(&plugins.Config{}), credentials)
 	require.NoError(t, p.manager.RegisterPluginForTest(&plugins.LoadedPlugin{
 		Name:       "fake",
 		Identifier: sdk.DriverIdentifier{DriverName: "fakedrv"},
@@ -399,6 +404,12 @@ func newTestPairer(t *testing.T, caps sdk.Capabilities, driver sdk.Driver) *plug
 		Caps:       caps,
 	}))
 	return p
+}
+
+type failingCredentialSealer struct{}
+
+func (failingCredentialSealer) Seal(sdk.SecretBundle) (*pb.EncryptedCredentials, error) {
+	return nil, errors.New("seal failed")
 }
 
 func fakePairTarget() *pairingpb.FleetNodePairTarget {
@@ -434,7 +445,27 @@ func TestPluginPairer_BasicAuthRejectsUnreportableCredentials(t *testing.T) {
 	}
 }
 
-func TestPluginPairer_BasicAuthReportsUsedCredentials(t *testing.T) {
+func TestPluginPairer_BasicAuthReportsEncryptedCredentials(t *testing.T) {
+	// Arrange
+	drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
+	codec := &credentialCodec{key: bytes.Repeat([]byte{1}, credentialKeySize)}
+	p := newTestPairerWithCredentials(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv, codec)
+	pw := "hunter2"
+
+	// Act
+	res := p.Pair(context.Background(), fakePairTarget(), &pairingpb.Credentials{Username: "root", Password: &pw})
+
+	// Assert: production fleet-node pairing reports only node-owned ciphertext.
+	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
+	require.NotEmpty(t, res.GetEncryptedCredentials())
+	require.NotEmpty(t, res.GetEncryptedCredentials().GetUsername())
+	require.NotEmpty(t, res.GetEncryptedCredentials().GetPassword())
+	bundle, err := codec.Open(res.GetEncryptedCredentials())
+	require.NoError(t, err)
+	assert.Equal(t, sdk.UsernamePassword{Username: "root", Password: "hunter2"}, bundle.Kind)
+}
+
+func TestPluginPairer_BasicAuthRequiresCredentialSealer(t *testing.T) {
 	// Arrange
 	drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
 	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
@@ -443,30 +474,49 @@ func TestPluginPairer_BasicAuthReportsUsedCredentials(t *testing.T) {
 	// Act
 	res := p.Pair(context.Background(), fakePairTarget(), &pairingpb.Credentials{Username: "root", Password: &pw})
 
-	// Assert: the node reports the credentials it authenticated with so the cloud persists them.
-	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
-	require.NotNil(t, res.GetUsedCredentials())
-	assert.Equal(t, "root", res.GetUsedCredentials().GetUsername())
-	assert.Equal(t, "hunter2", res.GetUsedCredentials().GetPassword())
+	// Assert: refuse before pairing so credentials cannot authenticate the miner
+	// without also producing node-owned ciphertext for future commands.
+	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_ERROR, res.GetOutcome())
+	assert.Contains(t, res.GetErrorMessage(), "credential sealer is not configured")
+	assert.Empty(t, drv.gotBundles)
 }
 
-func TestPluginPairer_DefaultCredentialsReportsUsedCredentials(t *testing.T) {
+func TestPluginPairer_CredentialSealErrorSkipsPairAttempt(t *testing.T) {
+	// Arrange
+	drv := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "SN1"}}
+	p := newTestPairerWithCredentials(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv, failingCredentialSealer{})
+	pw := "hunter2"
+
+	// Act
+	res := p.Pair(context.Background(), fakePairTarget(), &pairingpb.Credentials{Username: "root", Password: &pw})
+
+	// Assert: refuse before pairing so a local reporting failure cannot follow
+	// a successful miner-side pair.
+	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_ERROR, res.GetOutcome())
+	assert.Contains(t, res.GetErrorMessage(), "encrypt credentials")
+	assert.Empty(t, drv.gotBundles)
+}
+
+func TestPluginPairer_DefaultCredentialsReportsEncryptedCredentials(t *testing.T) {
 	// Arrange: no operator creds; the driver provides a working default.
 	active := true
 	drv := &fakePairDriver{
 		pairResult: sdk.DeviceInfo{SerialNumber: "SN1", DefaultPasswordActive: &active},
 		defaults:   []sdk.UsernamePassword{{Username: "admin", Password: "admin"}},
 	}
-	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
+	codec := &credentialCodec{key: bytes.Repeat([]byte{2}, credentialKeySize)}
+	p := newTestPairerWithCredentials(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv, codec)
 
 	// Act
 	res := p.Pair(context.Background(), fakePairTarget(), nil)
 
-	// Assert: the default that worked is reported so the cloud stores it.
+	// Assert: the default that worked is sealed so the cloud can store it without
+	// seeing plaintext.
 	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
-	require.NotNil(t, res.GetUsedCredentials())
-	assert.Equal(t, "admin", res.GetUsedCredentials().GetUsername())
-	assert.Equal(t, "admin", res.GetUsedCredentials().GetPassword())
+	require.NotEmpty(t, res.GetEncryptedCredentials())
+	bundle, err := codec.Open(res.GetEncryptedCredentials())
+	require.NoError(t, err)
+	assert.Equal(t, sdk.UsernamePassword{Username: "admin", Password: "admin"}, bundle.Kind)
 	require.NotNil(t, res.DefaultPasswordActive)
 	assert.True(t, res.GetDefaultPasswordActive())
 }
@@ -480,15 +530,18 @@ func TestPluginPairer_DefaultCredentialsSkipsUnreportable(t *testing.T) {
 			{Username: "admin", Password: "admin"},
 		},
 	}
-	p := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv)
+	codec := &credentialCodec{key: bytes.Repeat([]byte{3}, credentialKeySize)}
+	p := newTestPairerWithCredentials(t, sdk.Capabilities{sdk.CapabilityPairing: true}, drv, codec)
 
 	// Act
 	res := p.Pair(context.Background(), fakePairTarget(), nil)
 
 	// Assert: the oversized default is skipped without a pair attempt; the usable one pairs.
 	assert.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, res.GetOutcome())
-	require.NotNil(t, res.GetUsedCredentials())
-	assert.Equal(t, "admin", res.GetUsedCredentials().GetUsername())
+	require.NotEmpty(t, res.GetEncryptedCredentials())
+	bundle, err := codec.Open(res.GetEncryptedCredentials())
+	require.NoError(t, err)
+	assert.Equal(t, sdk.UsernamePassword{Username: "admin", Password: "admin"}, bundle.Kind)
 	require.Len(t, drv.gotBundles, 1)
 	up, ok := drv.gotBundles[0].Kind.(sdk.UsernamePassword)
 	require.True(t, ok)

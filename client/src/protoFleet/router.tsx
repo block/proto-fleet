@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- lazy() route components colocated with route config; not HMR-relevant */
 import { createElement, lazy, ReactNode } from "react";
-import { createBrowserRouter, LoaderFunction, Navigate, Outlet, redirect } from "react-router-dom";
+import { createBrowserRouter, LoaderFunction, LoaderFunctionArgs, Navigate, Outlet, redirect } from "react-router-dom";
 
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
@@ -37,18 +37,21 @@ import {
   importSettingsSchedules,
   importSettingsTeam,
   importSiteDetailPage,
-  importSitesPage,
   importUpdatePassword,
   importWelcomePage,
 } from "./routePrefetch";
 import { onboardingClient } from "@/protoFleet/api/clients";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import {
   minersRedirectLoader,
   racksRedirectLoader,
   sitesRedirectLoader,
 } from "@/protoFleet/features/fleetManagement/redirectLoaders";
-import { appEntryPath, SiteScopeLayout, SiteScopeProvider } from "@/protoFleet/routing/siteScope";
+import {
+  activeSiteFromSegment,
+  appEntryPath,
+  SiteScopeLayout,
+  SiteScopeProvider,
+} from "@/protoFleet/routing/siteScope";
 import { sanitizeActiveSite } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
@@ -85,7 +88,6 @@ const SettingsCurtailment = lazy(importSettingsCurtailment);
 const SettingsAlerts = lazy(importSettingsAlerts);
 const SettingsApiKeys = lazy(importSettingsApiKeys);
 const SiteDetailPage = lazy(importSiteDetailPage);
-const SitesPage = lazy(importSitesPage);
 const BuildingPage = lazy(importBuildingPage);
 const FleetLayout = lazy(importFleetLayout);
 const FleetBuildingsPage = lazy(importFleetBuildingsPage);
@@ -127,6 +129,18 @@ const welcomeLoader = async () => {
 
 const appEntryLoader = () => redirect(appEntryPath(sanitizeActiveSite(useFleetStore.getState().ui.activeSite)));
 
+const scopedGroupDetailRedirectLoader = ({ params, request }: LoaderFunctionArgs) => {
+  const activeSite = activeSiteFromSegment(params.siteScope);
+  if (!activeSite) {
+    return redirect("/");
+  }
+
+  useFleetStore.getState().ui.setActiveSite(activeSite);
+  const url = new URL(request.url);
+  const groupLabel = params.groupLabel ? encodeURIComponent(params.groupLabel) : "";
+  return redirect(`/groups/${groupLabel}${url.search}`);
+};
+
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
   fullscreen?: boolean;
@@ -167,7 +181,6 @@ const createScopableRoutes = (absolute: boolean) => [
   createRoute(absolute ? "/dashboard" : "dashboard", <Dashboard />, { bg: "surface-5" }),
   createFleetRoute(absolute ? "/fleet" : "fleet"),
   createRoute(absolute ? "/groups" : "groups", <GroupsPage />),
-  createRoute(absolute ? "/groups/:groupLabel" : "groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
   createRoute(absolute ? "/energy" : "energy", <EnergyPage />),
   createRoute(absolute ? "/activity" : "activity", <ActivityPage />),
 ];
@@ -204,19 +217,17 @@ const router = createBrowserRouter([
   {
     path: "/:siteScope",
     element: <SiteScopeLayout />,
-    children: createScopableRoutes(false),
+    children: [...createScopableRoutes(false), { path: "groups/:groupLabel", loader: scopedGroupDetailRedirectLoader }],
   },
 
   { path: "/miners", loader: minersRedirectLoader },
   { path: "/racks", loader: racksRedirectLoader },
 
   createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
+  createRoute("/groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
 
-  // Sites tab is hidden from /fleet when MULTI_SITE_ENABLED is false, so the
-  // legacy SitesPage stays reachable at /sites for QA/dogfood until the
-  // tracked cleanup in #376. When the flag is on, /sites redirects into
-  // /fleet/sites.
-  MULTI_SITE_ENABLED ? { path: "/sites", loader: sitesRedirectLoader } : createRoute("/sites", <SitesPage />),
+  // /sites redirects into /fleet/sites.
+  { path: "/sites", loader: sitesRedirectLoader },
   createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5" }),
   createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
 

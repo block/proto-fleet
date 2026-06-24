@@ -11,6 +11,8 @@ import {
 } from "@/protoFleet/components/DeviceSetList";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
+import { type SiteFilterFields, siteFilterFromActive } from "@/protoFleet/components/PageHeader/SitePicker";
+import { useOptionalFleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout/outletContext";
 import {
   FILTER_URL_PARAM_KEYS,
   fleetListTelemetryRangesFromURL,
@@ -46,6 +48,7 @@ const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_K
 const GroupsPage = () => {
   const navigate = useNavigate();
   const activeSite = useRouteSiteScope() ?? DEFAULT_ACTIVE_SITE;
+  const fleetContext = useOptionalFleetOutletContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const { listGroups } = useDeviceSets();
   const [showGroupModal, setShowGroupModal] = useState(false);
@@ -69,6 +72,17 @@ const GroupsPage = () => {
     telemetryRangesRef.current = telemetryRanges;
   }, [telemetryRanges]);
   const getTelemetryRanges = useCallback(() => telemetryRangesRef.current, []);
+  const activeSiteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
+  const getActiveSiteFilter = useCallback((): SiteFilterFields => activeSiteFilter, [activeSiteFilter]);
+  const activeSiteLabel = useMemo(() => {
+    if (activeSite.kind === "site") {
+      return fleetContext?.sites?.find((s) => (s.site?.id ?? 0n).toString() === activeSite.id)?.site?.name;
+    }
+    if (activeSite.kind === "unassigned") {
+      return "unassigned miners";
+    }
+    return undefined;
+  }, [activeSite, fleetContext?.sites]);
 
   const { selectedIssuesRef, getErrorComponentTypes } = useIssueFilter();
   // eslint-disable-next-line react-hooks/refs -- intentional render-time sync so the initial list fetch reads URL-restored filters
@@ -94,7 +108,7 @@ const GroupsPage = () => {
     getErrorComponentTypes,
     undefined,
     undefined,
-    undefined,
+    getActiveSiteFilter,
     undefined,
     undefined,
     undefined,
@@ -152,8 +166,8 @@ const GroupsPage = () => {
   const hasActiveFilters = selectedIssues.length > 0 || telemetryRanges.length > 0;
 
   const filterFetchKey = useMemo(
-    () => JSON.stringify([selectedIssues, telemetryRanges]),
-    [selectedIssues, telemetryRanges],
+    () => JSON.stringify([selectedIssues, telemetryRanges, activeSite]),
+    [selectedIssues, telemetryRanges, activeSite],
   );
   const prevFilterFetchKey = useRef<string | null>(null);
   useEffect(() => {
@@ -176,13 +190,18 @@ const GroupsPage = () => {
 
   const emptyStateRow: ReactNode = useMemo(() => {
     if (isLoading || totalCount > 0) return undefined;
+    if (!hasActiveFilters && activeSite.kind !== "all") {
+      const scopeLabel = activeSite.kind === "unassigned" ? "unassigned miners" : `site ${activeSite.id}`;
+      return (
+        <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
+          <div className="text-heading-200 text-text-primary">No groups have miners in {scopeLabel}</div>
+        </div>
+      );
+    }
     return <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />;
-  }, [hasActiveFilters, isLoading, totalCount, handleClearFilters]);
+  }, [activeSite, hasActiveFilters, isLoading, totalCount, handleClearFilters]);
 
-  const groupDetailHref = useCallback(
-    (label: string) => scopedPath(`/groups/${encodeURIComponent(label)}`, activeSite),
-    [activeSite],
-  );
+  const groupDetailHref = useCallback((label: string) => `/groups/${encodeURIComponent(label)}`, []);
 
   const renderName = useCallback(
     (item: DeviceSetListItem) => (
@@ -191,9 +210,12 @@ const GroupsPage = () => {
         onEdit={setEditGroup}
         onActionComplete={resetAndFetch}
         href={groupDetailHref(item.deviceSet.label)}
+        activeSite={activeSite}
+        activeSiteLabel={activeSiteLabel}
+        totalMemberCount={Number(item.deviceSet.deviceCount)}
       />
     ),
-    [groupDetailHref, resetAndFetch],
+    [activeSite, activeSiteLabel, groupDetailHref, resetAndFetch],
   );
 
   const handleRowClick = useCallback(
@@ -232,7 +254,7 @@ const GroupsPage = () => {
     );
   }
 
-  const hasGroups = groups.length > 0 || hasEverLoaded || hasActiveFilters;
+  const hasGroups = groups.length > 0 || hasEverLoaded || hasActiveFilters || activeSite.kind !== "all";
 
   return (
     <>

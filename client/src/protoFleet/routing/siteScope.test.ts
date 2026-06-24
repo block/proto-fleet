@@ -22,7 +22,7 @@ describe("siteScope routing helpers", () => {
     expect(unscopedScopablePath("/fleet/miners")).toBe("/fleet/miners");
     expect(unscopedScopablePath("/7/fleet/racks")).toBe("/fleet/racks");
     expect(unscopedScopablePath("/7/dashboard")).toBe("/dashboard");
-    expect(unscopedScopablePath("/7/groups/team-a")).toBe("/groups/team-a");
+    expect(unscopedScopablePath("/7/groups/team-a")).toBe("/7/groups/team-a");
     expect(unscopedScopablePath("/unassigned/activity")).toBe("/activity");
     expect(unscopedScopablePath("/unassigned/fleet/buildings")).toBe("/fleet/buildings");
     expect(unscopedScopablePath("/settings/general")).toBe("/settings/general");
@@ -32,7 +32,7 @@ describe("siteScope routing helpers", () => {
     expect(isPathScopable("/dashboard")).toBe(true);
     expect(isPathScopable("/fleet")).toBe(true);
     expect(isPathScopable("/7/fleet/miners")).toBe(true);
-    expect(isPathScopable("/7/groups/team-a")).toBe(true);
+    expect(isPathScopable("/7/groups/team-a")).toBe(false);
     expect(isPathScopable("/energy")).toBe(true);
     expect(isPathScopable("/settings")).toBe(false);
   });
@@ -51,7 +51,8 @@ describe("siteScope routing helpers", () => {
     expect(scopedPath("/7/fleet/miners?site=8", { kind: "all" })).toBe("/fleet/miners?site=8");
     expect(scopedPath("/fleet/racks", { kind: "unassigned" })).toBe("/unassigned/fleet/racks");
     expect(scopedPath("/dashboard", { kind: "site", id: "7" })).toBe("/7/dashboard");
-    expect(scopedPath("/groups/team-a", { kind: "site", id: "7" })).toBe("/7/groups/team-a");
+    expect(scopedPath("/groups", { kind: "site", id: "7" })).toBe("/7/groups");
+    expect(scopedPath("/groups/team-a", { kind: "site", id: "7" })).toBe("/groups/team-a");
   });
 
   it("does not prefix non-scopable paths", () => {

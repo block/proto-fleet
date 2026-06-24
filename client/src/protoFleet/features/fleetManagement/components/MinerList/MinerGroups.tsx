@@ -4,8 +4,6 @@ import { createPortal } from "react-dom";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { getMinerGroupRefs } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
-import { scopedPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
-import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFloatingPosition } from "@/shared/hooks/useFloatingPosition";
 
 type MinerGroupsProps = {
@@ -14,7 +12,6 @@ type MinerGroupsProps = {
 };
 
 const MinerGroups = ({ miner, availableGroups }: MinerGroupsProps) => {
-  const activeSite = useRouteSiteScope() ?? DEFAULT_ACTIVE_SITE;
   const groupRefs = getMinerGroupRefs(miner);
   const { triggerRef, floatingStyle, isVisible, show, hide } = useFloatingPosition<HTMLSpanElement>({
     placement: "bottom-start",
@@ -43,7 +40,7 @@ const MinerGroups = ({ miner, availableGroups }: MinerGroupsProps) => {
 
   const getGroupLink = (groupId: bigint | undefined, label: string) => {
     const id = groupId ?? availableGroups.find((g) => g.label === label)?.id;
-    return id ? scopedPath(`/groups/${encodeURIComponent(label)}`, activeSite) : undefined;
+    return id ? `/groups/${encodeURIComponent(label)}` : undefined;
   };
 
   if (groupRefs.length === 1) {

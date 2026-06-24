@@ -63,13 +63,13 @@ type ZoneRefRow struct {
 }
 
 // DeviceSetFilter is the rack-list / collection-list filter input.
-// Mirrors the MinerFilter shape but joined directly on
-// device_set_rack — no device membership traversal needed since the
-// list query already returns one row per rack.
+// For racks, site/building/zone predicates apply to device_set_rack.
+// For groups, site predicates apply as a membership semi-join so row
+// inclusion is scoped without changing org-wide group counts.
 type DeviceSetFilter struct {
 	ErrorComponentTypes []int32   // OR across types; surfaces racks with any device having an open error of those types
-	SiteIDs             []int64   // OR across sites. Only valid for RACK collections; ignored for GROUP.
-	IncludeUnassigned   bool      // Include racks where dsr.site_id IS NULL. OR'd with SiteIDs.
+	SiteIDs             []int64   // OR across sites. Valid for RACK and GROUP collections.
+	IncludeUnassigned   bool      // Include rows where the relevant site_id is NULL. OR'd with SiteIDs.
 	BuildingIDs         []int64   // OR across buildings. Only valid for RACK collections; ignored for GROUP.
 	IncludeNoBuilding   bool      // Include racks where dsr.building_id IS NULL. OR'd with BuildingIDs.
 	ZoneKeys            []ZoneKey // (building_id, zone) pairs. BuildingID == 0 is the wildcard sentinel.
@@ -281,7 +281,7 @@ type CollectionStore interface {
 
 	// ListCollectionMembers returns paginated members of a collection ordered by when they were added (newest first).
 	// Returns the members and a next page token (empty if no more results).
-	ListCollectionMembers(ctx context.Context, orgID int64, collectionID int64, pageSize int32, pageToken string) ([]*pb.CollectionMember, string, error)
+	ListCollectionMembers(ctx context.Context, orgID int64, collectionID int64, pageSize int32, pageToken string, filter *DeviceSetFilter) ([]*pb.CollectionMember, string, error)
 
 	// GetDeviceCollections returns all collections a device belongs to, ordered by label.
 	// If collectionType is UNSPECIFIED, returns all types.

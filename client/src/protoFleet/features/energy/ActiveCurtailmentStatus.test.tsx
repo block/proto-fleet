@@ -157,6 +157,33 @@ describe("ActiveCurtailmentStatus", () => {
     expect(onRequestRestore).toHaveBeenCalledOnce();
   });
 
+  it("renders automation recovery context with force restore available", async () => {
+    const user = userEvent.setup();
+    const onRequestForceRestore = vi.fn();
+    const onRequestRestore = vi.fn();
+
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailedCurtailmentEvent,
+          isAutomationOwned: true,
+          sourceLabel: "Curtailment automation",
+        }}
+        onRequestForceRestore={onRequestForceRestore}
+        onRequestRestore={onRequestRestore}
+      />,
+    );
+
+    expect(screen.getByText("Curtailment automation recovery")).toBeVisible();
+    expect(screen.getByText(/Normal restore can be blocked while OFF demand remains asserted/)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Restore" }));
+    await user.click(screen.getByRole("button", { name: "Force restore" }));
+
+    expect(onRequestRestore).toHaveBeenCalledOnce();
+    expect(onRequestForceRestore).toHaveBeenCalledOnce();
+  });
+
   it("renders a restoring event without stop, restore, or manage actions", () => {
     render(<ActiveCurtailmentStatus event={restoringCurtailmentEvent} />);
 
@@ -172,6 +199,27 @@ describe("ActiveCurtailmentStatus", () => {
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
+  });
+
+  it("renders terminate recovery while restoring when recovery is available", async () => {
+    const user = userEvent.setup();
+    const onRequestTerminateRecovery = vi.fn();
+
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...restoringCurtailmentEvent,
+          isAutomationOwned: true,
+          sourceLabel: "Curtailment automation",
+        }}
+        onRequestTerminateRecovery={onRequestTerminateRecovery}
+      />,
+    );
+
+    expect(screen.getByText("Curtailment automation recovery")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Terminate recovery" }));
+
+    expect(onRequestTerminateRecovery).toHaveBeenCalledOnce();
   });
 
   it("counts released targets as restored during restoration", () => {

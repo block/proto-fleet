@@ -212,8 +212,7 @@ func TestHandler_AdminTerminateEvent_HappyPath(t *testing.T) {
 
 // TestHandler_AdminTerminateEvent_RejectsCallerWithoutCurtailmentManage:
 // the caller is denied when curtailment:manage is absent from their
-// effective permissions, regardless of role. RBAC is the authoritative
-// gate on this handler.
+// effective permissions, regardless of role.
 func TestHandler_AdminTerminateEvent_RejectsCallerWithoutCurtailmentManage(t *testing.T) {
 	t.Parallel()
 	eventUUID := uuid.New()
@@ -240,6 +239,34 @@ func TestHandler_AdminTerminateEvent_RejectsCallerWithoutCurtailmentManage(t *te
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 	assert.Equal(t, 0, store.calls, "permission gate must fail before reaching the service")
+}
+
+func TestHandler_AdminTerminateEvent_RejectsNonAdminWithCurtailmentManage(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		authEvent: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateRestoring,
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.AdminTerminateEvent(
+		adminTerminateSessionCtx(42, "OPERATOR"),
+		connect.NewRequest(&pb.AdminTerminateEventRequest{
+			EventUuid:   eventUUID.String(),
+			TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
+			Reason:      "admin role gate test",
+		}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Equal(t, 0, store.calls, "admin role gate must fail before reaching the service")
 }
 
 // TestHandler_AdminTerminateEvent_RejectsMissingSession: missing

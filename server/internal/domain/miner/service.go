@@ -3,6 +3,7 @@ package miner
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -36,6 +37,12 @@ const (
 	minerCacheSize = 10_000
 
 	protoPasswordUpdateUsername = "admin"
+
+	fleetNodeCredentialBlobVersion  = byte(1)
+	fleetNodeCredentialBlobMagic    = "PFNC"
+	fleetNodeCredentialNonceBytes   = 12
+	fleetNodeCredentialTagBytes     = 16
+	fleetNodeCredentialMaxBlobBytes = 4096
 )
 
 var _ telemetry.CachedMinerGetter = &Service{}
@@ -247,25 +254,46 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 	// No server-side plugin gate: the fleet node (not the server) dials the miner
 	// and loads the driver plugin; the server only routes the command.
 	m, err := remotenode.New(remotenode.Config{
-		Sender:           s.commandSender,
-		Gate:             s.nodeLimiter,
-		FleetNodeID:      row.FleetNodeID,
-		OrgID:            row.OrgID,
-		SiteID:           row.SiteID.Int64,
-		DeviceIdentifier: row.DeviceIdentifier,
-		DriverName:       row.DriverName,
-		IPAddress:        row.IpAddress,
-		Port:             row.Port,
-		URLScheme:        row.UrlScheme,
-		SerialNumber:     row.SerialNumber.String,
-		MacAddress:       row.MacAddress,
-		// Credential intentionally empty: the node's per-org decryption key is a pairing
-		// concern. No-secret drivers (e.g. virtual) work end to end now.
+		Sender:             s.commandSender,
+		Gate:               s.nodeLimiter,
+		FleetNodeID:        row.FleetNodeID,
+		OrgID:              row.OrgID,
+		SiteID:             row.SiteID.Int64,
+		DeviceIdentifier:   row.DeviceIdentifier,
+		DriverName:         row.DriverName,
+		IPAddress:          row.IpAddress,
+		Port:               row.Port,
+		URLScheme:          row.UrlScheme,
+		SerialNumber:       row.SerialNumber.String,
+		MacAddress:         row.MacAddress,
+		CredentialUsername: fleetNodeCredentialBytes(row.EncryptedUsername),
+		CredentialPassword: fleetNodeCredentialBytes(row.EncryptedPassword),
 	})
 	if err != nil {
 		return nil, false, err
 	}
 	return m, true, nil
+}
+
+func fleetNodeCredentialBytes(value sql.NullString) []byte {
+	if !value.Valid {
+		return nil
+	}
+	decoded, err := base64.StdEncoding.DecodeString(value.String)
+	if err != nil || !isFleetNodeCredentialBlob(decoded) {
+		return nil
+	}
+	return decoded
+}
+
+func isFleetNodeCredentialBlob(blob []byte) bool {
+	minLen := 1 + len(fleetNodeCredentialBlobMagic) + fleetNodeCredentialNonceBytes + fleetNodeCredentialTagBytes
+	magicStart := 1
+	magicEnd := magicStart + len(fleetNodeCredentialBlobMagic)
+	return len(blob) >= minLen &&
+		len(blob) <= fleetNodeCredentialMaxBlobBytes &&
+		blob[0] == fleetNodeCredentialBlobVersion &&
+		string(blob[magicStart:magicEnd]) == fleetNodeCredentialBlobMagic
 }
 
 // InvalidateMiner removes the cached miner handle for the given device identifier

@@ -32,6 +32,8 @@ export interface ActiveCurtailmentEvent {
   reason: string;
   state: CurtailmentEventState;
   scopeLabel: string;
+  sourceLabel: string;
+  isAutomationOwned: boolean;
   endedAt?: string;
   selectedMiners: number;
   estimatedReductionKw: number;
@@ -48,16 +50,20 @@ interface ActiveCurtailmentStatusProps {
   className?: string;
   onDismissRestored?: () => void;
   onRequestEdit?: () => void;
+  onRequestForceRestore?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
+  onRequestTerminateRecovery?: () => void;
 }
 
 interface ActiveCurtailmentActionButtonsProps {
   displayState: ActiveCurtailmentDisplayState;
   onDismissRestored?: () => void;
   onRequestEdit?: () => void;
+  onRequestForceRestore?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
+  onRequestTerminateRecovery?: () => void;
 }
 
 interface SectionHeaderProps {
@@ -146,6 +152,7 @@ const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
 };
 
 const manageableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
+const forceRestorableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
 
 function SectionHeader({ title, children }: SectionHeaderProps): ReactElement {
   return (
@@ -352,11 +359,23 @@ function formatActiveCurtailmentHeaderDetail(event: ActiveCurtailmentEvent): str
   return `${event.reason} (Applies to ${event.scopeLabel})`;
 }
 
+function getForceRestoreButton(onRequestForceRestore?: () => void): ReactElement | null {
+  return onRequestForceRestore ? (
+    <Button
+      variant={variants.secondaryDanger}
+      size={sizes.compact}
+      text="Force restore"
+      onClick={onRequestForceRestore}
+    />
+  ) : null;
+}
+
 function getActiveCurtailmentActionButton({
   displayState,
   onDismissRestored,
   onRequestRestore,
   onRequestStop,
+  onRequestTerminateRecovery,
 }: ActiveCurtailmentActionButtonsProps): ReactElement | null {
   switch (displayState) {
     case "restored":
@@ -377,7 +396,14 @@ function getActiveCurtailmentActionButton({
         <Button variant={variants.danger} size={sizes.compact} text="Stop" onClick={onRequestStop} />
       ) : null;
     case "restoring":
-      return null;
+      return onRequestTerminateRecovery ? (
+        <Button
+          variant={variants.secondaryDanger}
+          size={sizes.compact}
+          text="Terminate recovery"
+          onClick={onRequestTerminateRecovery}
+        />
+      ) : null;
   }
 }
 
@@ -385,18 +411,24 @@ function ActiveCurtailmentActionButtons({
   displayState,
   onDismissRestored,
   onRequestEdit,
+  onRequestForceRestore,
   onRequestRestore,
   onRequestStop,
+  onRequestTerminateRecovery,
 }: ActiveCurtailmentActionButtonsProps): ReactElement | null {
   const actionButton = getActiveCurtailmentActionButton({
     displayState,
     onDismissRestored,
     onRequestRestore,
     onRequestStop,
+    onRequestTerminateRecovery,
   });
+  const forceRestoreButton = forceRestorableDisplayStates.has(displayState)
+    ? getForceRestoreButton(onRequestForceRestore)
+    : null;
   const showManageButton = Boolean(onRequestEdit && manageableDisplayStates.has(displayState));
 
-  if (!actionButton && !showManageButton) {
+  if (!actionButton && !forceRestoreButton && !showManageButton) {
     return null;
   }
 
@@ -406,6 +438,7 @@ function ActiveCurtailmentActionButtons({
         <Button variant={variants.secondary} size={sizes.compact} text="Manage" onClick={onRequestEdit} />
       ) : null}
       {actionButton}
+      {forceRestoreButton}
     </div>
   );
 }
@@ -436,8 +469,10 @@ export default function ActiveCurtailmentStatus({
   className,
   onDismissRestored,
   onRequestEdit,
+  onRequestForceRestore,
   onRequestRestore,
   onRequestStop,
+  onRequestTerminateRecovery,
 }: ActiveCurtailmentStatusProps): ReactElement {
   const targetKw = getTargetKw(event);
   const compliance = getMinerCompliance(event);
@@ -497,8 +532,10 @@ export default function ActiveCurtailmentStatus({
           displayState={displayState}
           onDismissRestored={onDismissRestored}
           onRequestEdit={onRequestEdit}
+          onRequestForceRestore={onRequestForceRestore}
           onRequestRestore={onRequestRestore}
           onRequestStop={onRequestStop}
+          onRequestTerminateRecovery={onRequestTerminateRecovery}
         />
 
         <div className="grid gap-3 tablet:pr-32">
@@ -528,6 +565,16 @@ export default function ActiveCurtailmentStatus({
             </>
           )}
         </div>
+
+        {event.isAutomationOwned ? (
+          <div className="mt-6 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">
+            <div className="text-emphasis-300">Curtailment automation recovery</div>
+            <div className="mt-1 text-text-primary-70">
+              {event.sourceLabel} owns this event. Normal restore can be blocked while OFF demand remains asserted or
+              the source is stale.
+            </div>
+          </div>
+        ) : null}
       </div>
     </section>
   );

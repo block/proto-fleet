@@ -101,6 +101,8 @@ interface UseMinerActionsParams {
   miners?: Record<string, MinerStateSnapshot>;
   /** Replaces store-based refetchMiners — called after unpair completes */
   onRefetchMiners?: () => void;
+  /** Allows callers to gate unsupported-miner continuation behind another confirmation. */
+  onUnsupportedMinersContinue?: (continuation: UnsupportedMinersContinuation) => boolean;
 }
 
 /**
@@ -148,11 +150,19 @@ function getUniqueModels(
  */
 type PendingActionCallback = (filteredSelector?: DeviceSelector, filteredDeviceIdentifiers?: string[]) => void;
 
+type UnsupportedMinersContinuation = {
+  action: SupportedAction;
+  filteredSelector?: DeviceSelector;
+  filteredDeviceIdentifiers: string[];
+  continueAction: () => void;
+};
+
 /**
  * Internal state for unsupported miners modal, extends UnsupportedMinersInfo with pendingAction.
  */
 interface UnsupportedMinersState extends UnsupportedMinersInfo {
   pendingAction: PendingActionCallback | null;
+  pendingActionType: SupportedAction | null;
 }
 
 const initialUnsupportedMinersState: UnsupportedMinersState = {
@@ -161,6 +171,7 @@ const initialUnsupportedMinersState: UnsupportedMinersState = {
   totalUnsupportedCount: 0,
   noneSupported: false,
   pendingAction: null,
+  pendingActionType: null,
   supportedDeviceIdentifiers: [],
 };
 
@@ -264,6 +275,7 @@ export const useMinerActions = ({
   currentFilter,
   onActionStart,
   onActionComplete,
+  onUnsupportedMinersContinue,
   startBatchOperation = noop as (batch: BatchOperationInput) => void,
   completeBatchOperation = noop as (batchIdentifier: string) => void,
   removeDevicesFromBatch = noop as (batchIdentifier: string, deviceIds: string[]) => void,
@@ -369,6 +381,7 @@ export const useMinerActions = ({
               totalUnsupportedCount: result.unsupportedCount,
               noneSupported: result.noneSupported,
               pendingAction: result.noneSupported ? null : proceedAction,
+              pendingActionType: result.noneSupported ? null : action,
               supportedDeviceIdentifiers: result.supportedDeviceIdentifiers,
             });
 
@@ -416,12 +429,27 @@ export const useMinerActions = ({
   // Handle continuing from unsupported miners modal
   // Creates a filtered device selector with only supported miners
   const handleUnsupportedMinersContinue = useCallback(() => {
-    const { pendingAction, supportedDeviceIdentifiers } = unsupportedMinersInfo;
+    const { pendingAction, pendingActionType, supportedDeviceIdentifiers } = unsupportedMinersInfo;
     const filteredSelector =
       supportedDeviceIdentifiers.length > 0 ? createDeviceSelector("subset", supportedDeviceIdentifiers) : undefined;
+    const continueAction = () => pendingAction?.(filteredSelector, supportedDeviceIdentifiers);
+
+    if (
+      pendingActionType &&
+      onUnsupportedMinersContinue?.({
+        action: pendingActionType,
+        filteredSelector,
+        filteredDeviceIdentifiers: supportedDeviceIdentifiers,
+        continueAction,
+      })
+    ) {
+      setUnsupportedMinersInfo(initialUnsupportedMinersState);
+      return;
+    }
+
     setUnsupportedMinersInfo(initialUnsupportedMinersState);
-    pendingAction?.(filteredSelector, supportedDeviceIdentifiers);
-  }, [unsupportedMinersInfo]);
+    continueAction();
+  }, [onUnsupportedMinersContinue, unsupportedMinersInfo]);
 
   // Handle dismissing unsupported miners modal
   const handleUnsupportedMinersDismiss = useCallback(() => {
@@ -1582,7 +1610,7 @@ export const useMinerActions = ({
   ]);
 
   // Extract public UnsupportedMinersInfo (omit internal pendingAction)
-  const { pendingAction: _, ...publicUnsupportedMinersInfo } = unsupportedMinersInfo;
+  const { pendingAction: _, pendingActionType: __, ...publicUnsupportedMinersInfo } = unsupportedMinersInfo;
 
   // Count for cooling mode modal - use filtered count if available, otherwise displayCount
   const coolingModeCount = coolingModeFilteredDeviceIds?.length ?? displayCount;

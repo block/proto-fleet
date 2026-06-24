@@ -30,14 +30,14 @@ type driverGetter interface {
 	GetDriverByDriverName(driverName string) (sdk.Driver, error)
 }
 
-// secretProvider builds the auth bundle to reach a miner. The default returns an empty
-// bundle (no-secret drivers); pairing later supplies the JWT / decrypted credential.
+// secretProvider builds the auth bundle to reach a miner. Production decrypts the
+// opaque descriptor credential with the node-local key; tests can inject an empty
+// provider for no-secret drivers.
 type secretProvider interface {
 	SecretBundle(target *pb.MinerConnectionDescriptor) (sdk.SecretBundle, error)
 }
 
-// nodeSecretProvider is the default: empty bundle only. It ignores credential ciphertext
-// because the per-org decryption key is a pairing concern, so authed drivers fail until then.
+// nodeSecretProvider returns an empty bundle for tests and no-secret drivers.
 type nodeSecretProvider struct{}
 
 func (nodeSecretProvider) SecretBundle(_ *pb.MinerConnectionDescriptor) (sdk.SecretBundle, error) {
@@ -71,7 +71,8 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, stream acker, commandID
 	}
 	bundle, err := r.minerSecrets.SecretBundle(target)
 	if err != nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_INTERNAL, fmt.Sprintf("build secret bundle: %v", err), logger)
+		code, msg := classifyMinerCommandError("build secret bundle", err)
+		r.sendAck(stream, commandID, code, msg, logger)
 		return
 	}
 

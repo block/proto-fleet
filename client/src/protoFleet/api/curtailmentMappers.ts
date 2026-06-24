@@ -20,6 +20,8 @@ import type { CurtailmentHistoryEvent, CurtailmentPriority } from "@/protoFleet/
 import type { CurtailmentMode, CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const wattsPerKilowatt = 1000;
+const automationExternalSource = "curtailment_automation";
+const automationSourceLabel = "Curtailment automation";
 const estimatedReductionKwSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
 const selectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
 
@@ -142,8 +144,16 @@ export function mapCurtailmentPriority(priority: ProtoCurtailmentPriority): Curt
   }
 }
 
-function getSourceLabel(event: ProtoCurtailmentEvent): string {
-  return event.externalSource.trim() || "Manual";
+function isAutomationExternalSource(externalSource: string): boolean {
+  return externalSource === automationExternalSource;
+}
+
+function getSourceLabel(externalSource: string): string {
+  if (isAutomationExternalSource(externalSource)) {
+    return automationSourceLabel;
+  }
+
+  return externalSource || "Manual";
 }
 
 function hasSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]): boolean {
@@ -179,11 +189,14 @@ function getObservedPowerSummary(event: ProtoCurtailmentEvent, estimatedReductio
 export function mapActiveCurtailmentEvent(event: ProtoCurtailmentEvent): ActiveCurtailmentEvent {
   const estimatedReductionKw = getCurtailmentEventEstimatedReductionKw(event);
   const observedPowerSummary = getObservedPowerSummary(event, estimatedReductionKw);
+  const externalSource = event.externalSource.trim();
 
   return {
     reason: event.reason || "Curtailment",
     state: mapCurtailmentEventState(event.state),
     scopeLabel: getCurtailmentEventScopeLabel(event),
+    sourceLabel: getSourceLabel(externalSource),
+    isAutomationOwned: isAutomationExternalSource(externalSource),
     endedAt: timestampToIsoString(event.endedAt),
     selectedMiners: getCurtailmentEventSelectedMinerCount(event),
     estimatedReductionKw,
@@ -197,6 +210,8 @@ export function mapActiveCurtailmentEvent(event: ProtoCurtailmentEvent): ActiveC
 }
 
 export function mapCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): CurtailmentHistoryEvent {
+  const externalSource = event.externalSource.trim();
+
   return {
     id: event.eventUuid,
     reason: event.reason || "Curtailment",
@@ -207,7 +222,7 @@ export function mapCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): Curtai
     estimatedReductionKw: getCurtailmentEventEstimatedReductionKw(event),
     targetMetricsAvailable: hasCurtailmentTargetMetrics(event),
     targetKw: getFixedKwTarget(event),
-    sourceLabel: getSourceLabel(event),
+    sourceLabel: getSourceLabel(externalSource),
     startedAt: timestampToIsoString(event.startedAt),
     endedAt: timestampToIsoString(event.endedAt),
     scheduledAt: timestampToIsoString(event.scheduledStartAt),

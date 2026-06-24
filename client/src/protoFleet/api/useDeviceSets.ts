@@ -124,6 +124,8 @@ interface ListRackTypesProps {
 
 interface ListGroupMembersProps {
   deviceSetId: bigint;
+  siteIds?: bigint[];
+  includeUnassigned?: boolean;
   signal?: AbortSignal;
   onSuccess?: (deviceIdentifiers: string[]) => void;
   onError?: (message: string) => void;
@@ -337,6 +339,8 @@ const useDeviceSets = () => {
       pageToken,
       sort,
       errorComponentTypes,
+      siteIds,
+      includeUnassigned,
       telemetryRanges,
       onSuccess,
       onError,
@@ -350,6 +354,8 @@ const useDeviceSets = () => {
             pageToken: pageToken ?? "",
             sort,
             errorComponentTypes: errorComponentTypes ?? [],
+            siteIds: siteIds ?? [],
+            includeUnassigned: includeUnassigned ?? false,
             telemetryRanges: telemetryRanges ?? [],
           });
           onSuccess?.(response.deviceSets, response.nextPageToken, response.totalCount);
@@ -365,6 +371,8 @@ const useDeviceSets = () => {
               pageToken: nextToken,
               sort,
               errorComponentTypes: errorComponentTypes ?? [],
+              siteIds: siteIds ?? [],
+              includeUnassigned: includeUnassigned ?? false,
               telemetryRanges: telemetryRanges ?? [],
             });
             all.push(...response.deviceSets);
@@ -485,7 +493,15 @@ const useDeviceSets = () => {
   );
 
   const listGroupMembers = useCallback(
-    async ({ deviceSetId, signal, onSuccess, onError, onFinally }: ListGroupMembersProps) => {
+    async ({
+      deviceSetId,
+      siteIds,
+      includeUnassigned,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: ListGroupMembersProps) => {
       try {
         const allIdentifiers: string[] = [];
         let pageToken = "";
@@ -496,6 +512,8 @@ const useDeviceSets = () => {
               deviceSetId,
               pageSize: memberPageSize,
               pageToken,
+              siteIds: siteIds ?? [],
+              includeUnassigned: includeUnassigned ?? false,
             },
             { signal },
           );

@@ -152,6 +152,12 @@ WHERE device_id = $1 AND org_id = $2;
 DELETE FROM fleet_node_device
 WHERE fleet_node_id = $1 AND org_id = $2;
 
+-- name: ListFleetNodeDeviceIDsForRevocation :many
+SELECT device_id
+FROM fleet_node_device
+WHERE fleet_node_id = $1 AND org_id = $2
+ORDER BY device_id ASC;
+
 -- name: ListFleetNodeDevices :many
 SELECT fnd.fleet_node_id,
        fnd.device_id,

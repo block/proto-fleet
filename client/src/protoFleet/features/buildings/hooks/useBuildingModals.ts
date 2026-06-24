@@ -62,7 +62,12 @@ export interface BuildingModalsApi {
   // a parent-site context — the dropdown inside the modal collects it.
   openDetailsCreate: (siteId?: bigint, siteName?: string) => void;
   openDetailsEdit: (row: BuildingWithCounts, siteName?: string) => void;
-  openManage: (row: BuildingWithCounts, siteName?: string) => void;
+  // unassignedMinerCount surfaces the count-line in ManageBuildingModal when
+  // the building was created from a bulk "New building" action seeded with
+  // loose miners. Omitted by every normal edit caller → no count line.
+  openManage: (row: BuildingWithCounts, siteName?: string, unassignedMinerCount?: number) => void;
+  // Count carried alongside the manage state for the seeded-create flow.
+  manageUnassignedMinerCount: number | undefined;
   // Closes the topmost modal: drops details if details is stacked on manage,
   // otherwise collapses to none. Mirrors useSiteModals.dismiss.
   dismiss: () => void;
@@ -96,6 +101,10 @@ const useBuildingModals = ({
   const [deleteTarget, setDeleteTarget] = useState<BuildingWithCounts | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Set by openManage; read while the manage modal is open. Stale values
+  // while closed are harmless (the modal isn't rendered), and the next
+  // openManage overwrites — so no explicit reset is needed.
+  const [manageUnassignedMinerCount, setManageUnassignedMinerCount] = useState<number | undefined>(undefined);
 
   // Synchronous in-flight guard so the disabled-prop lag on the button
   // (setState batching) can't slip a double-click past us.
@@ -115,7 +124,8 @@ const useBuildingModals = ({
     setState({ kind: "detailsEdit", row, siteName, draft: buildingFormValuesFromBuilding(unwrap(row)) });
   }, []);
 
-  const openManage = useCallback((row: BuildingWithCounts, siteName?: string) => {
+  const openManage = useCallback((row: BuildingWithCounts, siteName?: string, unassignedMinerCount?: number) => {
+    setManageUnassignedMinerCount(unassignedMinerCount);
     setState({ kind: "manage", row, siteName });
   }, []);
 
@@ -299,6 +309,7 @@ const useBuildingModals = ({
     deleteTarget,
     saving,
     deleting,
+    manageUnassignedMinerCount,
     openDetailsCreate,
     openDetailsEdit,
     openManage,

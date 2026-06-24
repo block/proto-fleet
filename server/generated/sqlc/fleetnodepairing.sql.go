@@ -96,6 +96,41 @@ func (q *Queries) DeviceHasActivePairing(ctx context.Context, arg DeviceHasActiv
 	return exists, err
 }
 
+const listFleetNodeDeviceIDsForRevocation = `-- name: ListFleetNodeDeviceIDsForRevocation :many
+SELECT device_id
+FROM fleet_node_device
+WHERE fleet_node_id = $1 AND org_id = $2
+ORDER BY device_id ASC
+`
+
+type ListFleetNodeDeviceIDsForRevocationParams struct {
+	FleetNodeID int64
+	OrgID       int64
+}
+
+func (q *Queries) ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.listFleetNodeDeviceIDsForRevocationStmt, listFleetNodeDeviceIDsForRevocation, arg.FleetNodeID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var device_id int64
+		if err := rows.Scan(&device_id); err != nil {
+			return nil, err
+		}
+		items = append(items, device_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listFleetNodeDevices = `-- name: ListFleetNodeDevices :many
 SELECT fnd.fleet_node_id,
        fnd.device_id,

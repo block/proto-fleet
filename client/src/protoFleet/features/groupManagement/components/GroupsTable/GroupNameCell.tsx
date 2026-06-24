@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/components/DeviceSetActionsMenu";
+import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
 import { variants } from "@/shared/components/Button";
 
 type GroupNameCellProps = {
@@ -9,9 +10,20 @@ type GroupNameCellProps = {
   onEdit: (group: DeviceSet) => void;
   onActionComplete?: () => void;
   href: string;
+  activeSite: ActiveSite;
+  activeSiteLabel?: string;
+  totalMemberCount: number;
 };
 
-const GroupNameCell = ({ group, onEdit, onActionComplete, href }: GroupNameCellProps) => {
+const GroupNameCell = ({
+  group,
+  onEdit,
+  onActionComplete,
+  href,
+  activeSite,
+  activeSiteLabel,
+  totalMemberCount,
+}: GroupNameCellProps) => {
   const navigate = useNavigate();
 
   return (
@@ -25,6 +37,10 @@ const GroupNameCell = ({ group, onEdit, onActionComplete, href }: GroupNameCellP
         onView={() => navigate(href)}
         onActionComplete={onActionComplete}
         buttonVariant={variants.textOnly}
+        activeSite={activeSite}
+        activeSiteLabel={activeSiteLabel}
+        deviceSetLabel={group.label}
+        totalMemberCount={totalMemberCount}
       />
     </div>
   );

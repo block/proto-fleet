@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sync"
@@ -76,6 +77,81 @@ func TestHandleMinerCommand_ExecutesAndAcksOK(t *testing.T) {
 	assert.Equal(t, "cmd-1", got.GetCommandId())
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
 	assert.True(t, got.GetSucceeded())
+}
+
+func TestHandleMinerCommand_DecryptsTargetCredential(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().Reboot(gomock.Any()).Return(nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	codec := &credentialCodec{key: bytes.Repeat([]byte{2}, credentialKeySize)}
+	encrypted, err := codec.Seal(sdk.SecretBundle{
+		Version: "v1",
+		Kind:    sdk.UsernamePassword{Username: "root", Password: "hunter2"},
+	})
+	require.NoError(t, err)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+			assert.Equal(t, sdk.UsernamePassword{Username: "root", Password: "hunter2"}, secret.Kind)
+			return sdk.NewDeviceResult{Device: dev}, nil
+		})
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: codec}
+	ack := &captureAcker{}
+	mc := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}})
+	mc.Target.CredentialUsername = encrypted.GetUsername()
+	mc.Target.CredentialPassword = encrypted.GetPassword()
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+
+	// Assert
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, ack.only(t).GetCode())
+}
+
+func TestHandleMinerCommand_InvalidTargetCredentialAcksUnauthenticated(t *testing.T) {
+	// Arrange: the credential bytes cannot be decrypted with this node's key.
+	ctrl := gomock.NewController(t)
+	r := &RunCmd{
+		driverGetter: fakeDriverGetter{d: mocks.NewMockDriver(ctrl)},
+		minerSecrets: &credentialCodec{key: bytes.Repeat([]byte{3}, credentialKeySize)},
+	}
+	ack := &captureAcker{}
+	mc := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}})
+	mc.Target.CredentialUsername = []byte("not-a-valid-credential")
+	mc.Target.CredentialPassword = []byte("not-a-valid-credential")
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+
+	// Assert: rejected before the driver is dialed.
+	assert.Equal(t, pb.AckCode_ACK_CODE_UNAUTHENTICATED, ack.only(t).GetCode())
+}
+
+func TestHandleMinerCommand_WrongKeyTargetCredentialAcksUnauthenticated(t *testing.T) {
+	// Arrange: the credential bytes are well-formed, but sealed by another node key.
+	ctrl := gomock.NewController(t)
+	sealingCodec := &credentialCodec{key: bytes.Repeat([]byte{4}, credentialKeySize)}
+	encrypted, err := sealingCodec.Seal(sdk.SecretBundle{
+		Version: "v1",
+		Kind:    sdk.UsernamePassword{Username: "root", Password: "hunter2"},
+	})
+	require.NoError(t, err)
+	r := &RunCmd{
+		driverGetter: fakeDriverGetter{d: mocks.NewMockDriver(ctrl)},
+		minerSecrets: &credentialCodec{key: bytes.Repeat([]byte{5}, credentialKeySize)},
+	}
+	ack := &captureAcker{}
+	mc := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}})
+	mc.Target.CredentialUsername = encrypted.GetUsername()
+	mc.Target.CredentialPassword = encrypted.GetPassword()
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+
+	// Assert: rejected before the driver is dialed.
+	assert.Equal(t, pb.AckCode_ACK_CODE_UNAUTHENTICATED, ack.only(t).GetCode())
 }
 
 func TestHandleMinerCommand_ConvertsCoolingMode(t *testing.T) {

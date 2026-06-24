@@ -445,9 +445,9 @@ func (mr *MockCollectionStoreMockRecorder) GetRackSlots(ctx, collectionID, orgID
 }
 
 // ListCollectionMembers mocks base method.
-func (m *MockCollectionStore) ListCollectionMembers(ctx context.Context, orgID, collectionID int64, pageSize int32, pageToken string) ([]*collectionv1.CollectionMember, string, error) {
+func (m *MockCollectionStore) ListCollectionMembers(ctx context.Context, orgID, collectionID int64, pageSize int32, pageToken string, filter *interfaces.DeviceSetFilter) ([]*collectionv1.CollectionMember, string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListCollectionMembers", ctx, orgID, collectionID, pageSize, pageToken)
+	ret := m.ctrl.Call(m, "ListCollectionMembers", ctx, orgID, collectionID, pageSize, pageToken, filter)
 	ret0, _ := ret[0].([]*collectionv1.CollectionMember)
 	ret1, _ := ret[1].(string)
 	ret2, _ := ret[2].(error)
@@ -455,9 +455,9 @@ func (m *MockCollectionStore) ListCollectionMembers(ctx context.Context, orgID, 
 }
 
 // ListCollectionMembers indicates an expected call of ListCollectionMembers.
-func (mr *MockCollectionStoreMockRecorder) ListCollectionMembers(ctx, orgID, collectionID, pageSize, pageToken any) *gomock.Call {
+func (mr *MockCollectionStoreMockRecorder) ListCollectionMembers(ctx, orgID, collectionID, pageSize, pageToken, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCollectionMembers", reflect.TypeOf((*MockCollectionStore)(nil).ListCollectionMembers), ctx, orgID, collectionID, pageSize, pageToken)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCollectionMembers", reflect.TypeOf((*MockCollectionStore)(nil).ListCollectionMembers), ctx, orgID, collectionID, pageSize, pageToken, filter)
 }
 
 // ListCollections mocks base method.

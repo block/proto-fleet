@@ -10,7 +10,6 @@ import useCurtailmentResponseProfiles, {
   getResponseProfileScopeLabelForActionType,
 } from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
   type CurtailmentSiteOption,
@@ -1604,7 +1603,7 @@ function CurtailmentSettingsPage(): ReactElement {
   const [isLoadingSiteOptions, setIsLoadingSiteOptions] = useState(false);
   const [siteOptionsLoadError, setSiteOptionsLoadError] = useState<string | null>(null);
   const siteOptionsAbortControllerRef = useRef<AbortController | null>(null);
-  const canLoadSiteOptions = MULTI_SITE_ENABLED && canManageCurtailment && canReadSiteCatalog;
+  const canLoadSiteOptions = canManageCurtailment && canReadSiteCatalog;
   const {
     responseProfiles,
     isLoading: isLoadingResponseProfiles,
@@ -1878,11 +1877,9 @@ function CurtailmentSettingsPage(): ReactElement {
   }
 
   const effectiveSiteOptions = canLoadSiteOptions ? siteOptions : [];
-  const siteScopeDisabledReason = MULTI_SITE_ENABLED
-    ? canReadSiteCatalog
-      ? (siteOptionsLoadError ?? undefined)
-      : "Site scope is not available for the current user."
-    : undefined;
+  const siteScopeDisabledReason = canReadSiteCatalog
+    ? (siteOptionsLoadError ?? undefined)
+    : "Site scope is not available for the current user.";
 
   return (
     <CurtailmentSettingsContent

@@ -11,7 +11,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 )
 
 const (
@@ -37,6 +36,10 @@ type Store interface {
 	GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error)
 }
 
+type minerCredentialDeleter interface {
+	DeleteMinerCredentialsByDeviceIDAndOrgID(ctx context.Context, deviceID, orgID int64) (int64, error)
+}
+
 type FleetNodeDiscoveredDeviceFilter struct {
 	Identifiers       []string
 	PairingStatuses   []string
@@ -56,7 +59,6 @@ type Service struct {
 	// listing work without them.
 	deviceStore           stores.DeviceStore
 	discoveredDeviceStore stores.DiscoveredDeviceStore
-	encryptService        *encrypt.Service
 	dispatcher            control.Sender
 
 	invalidateMiner func(context.Context, int64)
@@ -66,13 +68,11 @@ func NewService(store Store, enrollmentStore enrollment.AgentStore, transactor s
 	return &Service{store: store, enrollmentStore: enrollmentStore, transactor: transactor}
 }
 
-// WithProvisioning wires the collaborators the pair-discovered flow needs: the
-// stores + encryptService PersistFleetNodePairResult uses, and the dispatcher
-// PairOnNode sends pair commands through. Returns the service for chaining.
-func (s *Service) WithProvisioning(deviceStore stores.DeviceStore, discoveredDeviceStore stores.DiscoveredDeviceStore, encryptService *encrypt.Service, dispatcher control.Sender) *Service {
+// WithProvisioning wires the stores PersistFleetNodePairResult uses and the
+// dispatcher PairOnNode sends pair commands through. Returns the service for chaining.
+func (s *Service) WithProvisioning(deviceStore stores.DeviceStore, discoveredDeviceStore stores.DiscoveredDeviceStore, dispatcher control.Sender) *Service {
 	s.deviceStore = deviceStore
 	s.discoveredDeviceStore = discoveredDeviceStore
-	s.encryptService = encryptService
 	s.dispatcher = dispatcher
 	return s
 }
@@ -142,6 +142,9 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 		}
 		return fleeterror.NewFailedPreconditionError("device already paired; unpair first")
 	}
+	if err := s.deleteMinerCredentialsByDeviceIDAndOrgID(ctx, deviceID, orgID, clientErrPair); err != nil {
+		return err
+	}
 	// Make the paired node the discovery owner so its future reports refresh the row
 	// instead of being rejected by the attribution guard. No-op without a discovered_device.
 	if _, attrErr := s.store.TransferDiscoveredDeviceAttribution(ctx, fleetNodeID, deviceID, orgID); attrErr != nil {
@@ -164,11 +167,36 @@ func (s *Service) deviceBoundToFleetNode(ctx context.Context, fleetNodeID, devic
 }
 
 func (s *Service) UnpairDevice(ctx context.Context, deviceID, orgID int64) error {
-	if _, err := s.store.UnpairDevice(ctx, deviceID, orgID); err != nil {
-		return fleeterror.LogInternal(component, "unpair device", clientErrUnpair, err)
+	var rows int64
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		var err error
+		rows, err = s.store.UnpairDevice(ctx, deviceID, orgID)
+		if err != nil {
+			return fleeterror.LogInternal(component, "unpair device", clientErrUnpair, err)
+		}
+		if rows == 0 {
+			return nil
+		}
+		if err := s.deleteMinerCredentialsByDeviceIDAndOrgID(ctx, deviceID, orgID, clientErrUnpair); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
-	if s.invalidateMiner != nil {
+	if rows > 0 && s.invalidateMiner != nil {
 		s.invalidateMiner(ctx, deviceID)
+	}
+	return nil
+}
+
+func (s *Service) deleteMinerCredentialsByDeviceIDAndOrgID(ctx context.Context, deviceID, orgID int64, clientMessage string) error {
+	store, ok := s.store.(minerCredentialDeleter)
+	if !ok {
+		return fleeterror.NewInternalError("fleet node pairing credential cleanup is not configured")
+	}
+	if _, err := store.DeleteMinerCredentialsByDeviceIDAndOrgID(ctx, deviceID, orgID); err != nil {
+		return fleeterror.LogInternal(component, "clear miner credentials", clientMessage, err)
 	}
 	return nil
 }

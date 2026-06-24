@@ -21,8 +21,7 @@ import type {
 import { useHasPermission } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
 
-const { mockMultiSiteEnabled, mockNavigate, mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
-  mockMultiSiteEnabled: { value: true },
+const { mockNavigate, mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockUseCurtailmentPlanPreview: vi.fn(),
 }));
@@ -38,12 +37,6 @@ vi.mock("react-router-dom", async () => {
 
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: vi.fn(),
-}));
-
-vi.mock("@/protoFleet/constants/featureFlags", () => ({
-  get MULTI_SITE_ENABLED() {
-    return mockMultiSiteEnabled.value;
-  },
 }));
 
 vi.mock("@/protoFleet/api/sites", () => ({
@@ -466,7 +459,6 @@ function mockSitesApi() {
 
 describe("CurtailmentSettingsPage", () => {
   beforeEach(() => {
-    mockMultiSiteEnabled.value = true;
     vi.mocked(useHasPermission).mockReset();
     vi.mocked(useMqttCurtailmentSources).mockReset();
     vi.mocked(useSites).mockReset();
@@ -678,24 +670,6 @@ describe("CurtailmentSettingsPage", () => {
     );
   });
 
-  it("does not expose site scope when the multi-site flag is off", () => {
-    mockMultiSiteEnabled.value = false;
-    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage" || key === "site:read");
-
-    render(
-      <MemoryRouter>
-        <CurtailmentSettingsPage />
-      </MemoryRouter>,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Create profile" }));
-
-    expect(listSitesMock).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("response-profile-scope-site-101")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("response-profile-scope-site-unavailable")).not.toBeInTheDocument();
-    expect(screen.getByTestId("response-profile-scope-whole-fleet")).toBeInTheDocument();
-  });
-
   it("keeps the response profile modal open and shows create failures", async () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
     createResponseProfileMock.mockRejectedValue(new Error("Profile name already exists"));
@@ -873,33 +847,6 @@ describe("CurtailmentSettingsPage", () => {
         expect.objectContaining({
           siteId: "101",
           siteName: "Austin, TX",
-        }),
-      ),
-    );
-  });
-
-  it("preserves an existing site-scoped response profile when the multi-site flag is off", async () => {
-    mockMultiSiteEnabled.value = false;
-    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage" || key === "site:read");
-    mockResponseProfilesApi({ responseProfiles: [siteScopedResponseProfile] });
-    updateResponseProfileMock.mockResolvedValue(siteScopedResponseProfile);
-
-    render(
-      <MemoryRouter>
-        <CurtailmentSettingsPage />
-      </MemoryRouter>,
-    );
-
-    fireEvent.click(within(getResponseProfileCard("Site scoped profile")).getByRole("button", { name: "Edit" }));
-    expect(screen.getByTestId("response-profile-scope-site-101")).toBeDisabled();
-    fireEvent.click(getEnabledButton("Save profile"));
-
-    await waitFor(() =>
-      expect(updateResponseProfileMock).toHaveBeenCalledWith(
-        "site-scoped-profile",
-        expect.objectContaining({
-          siteId: "101",
-          siteName: "Site 101",
         }),
       ),
     );

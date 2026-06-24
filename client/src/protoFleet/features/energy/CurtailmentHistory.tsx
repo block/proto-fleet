@@ -61,6 +61,11 @@ interface CurtailmentHistoryProps {
    */
   onManageActiveEvent?: (event: CurtailmentHistoryEvent) => void;
   /**
+   * Called from the detail modal for active restoring events that cannot be
+   * edited or stopped directly. The parent owns selecting/hydrating the event.
+   */
+  onSelectActiveEvent?: (event: CurtailmentHistoryEvent) => void;
+  /**
    * Called after the operator confirms stopping the active event. The parent
    * owns persistence. Return a promise only after an actual stop request
    * starts; a rejected promise re-enables retry controls.
@@ -84,6 +89,7 @@ interface CurtailmentSummaryModalProps {
   open: boolean;
   onDismiss: () => void;
   onManage?: () => void;
+  onSelectActive?: () => void;
   onStop?: () => void;
   stopDisabled?: boolean;
 }
@@ -107,6 +113,7 @@ interface CurtailmentSummaryModalButton {
 const defaultPageSize = 50;
 const stoppableEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
 const manageableEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
+const selectableEventStates = new Set<CurtailmentEventState>(["restoring"]);
 const rowInteractiveElementSelector =
   'button, a, input, select, textarea, [role="button"], [role="link"], [data-interactive]';
 const unavailableTargetMetricsLabel = "Target details unavailable";
@@ -245,6 +252,10 @@ function isActiveManageableEvent(event: CurtailmentHistoryEvent, activeEventIds:
   return activeEventIds.has(event.id) && manageableEventStates.has(event.state);
 }
 
+function isActiveSelectableEvent(event: CurtailmentHistoryEvent, activeEventIds: Set<string>): boolean {
+  return activeEventIds.has(event.id) && selectableEventStates.has(event.state);
+}
+
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) {
     return false;
@@ -289,6 +300,7 @@ function CurtailmentSummaryModal({
   open,
   onDismiss,
   onManage,
+  onSelectActive,
   onStop,
   stopDisabled,
 }: CurtailmentSummaryModalProps): ReactElement {
@@ -315,6 +327,15 @@ function CurtailmentSummaryModal({
       text: "Manage",
       variant: variants.primary,
       onClick: onManage,
+      dismissModalOnClick: false,
+    });
+  }
+
+  if (onSelectActive) {
+    buttons.push({
+      text: "View active event",
+      variant: variants.primary,
+      onClick: onSelectActive,
       dismissModalOnClick: false,
     });
   }
@@ -451,6 +472,7 @@ function CurtailmentHistory({
   onStatusFilterChange,
   onStatusFiltersChange,
   onManageActiveEvent,
+  onSelectActiveEvent,
   onStopActiveEvent,
   onStopActiveEventRequested,
 }: CurtailmentHistoryProps): ReactElement {
@@ -622,6 +644,14 @@ function CurtailmentHistory({
         }
       : undefined;
 
+  const handleSelectActiveDetailEvent =
+    selectedDetailEvent && onSelectActiveEvent && isActiveSelectableEvent(selectedDetailEvent, activeEventIds)
+      ? () => {
+          setSelectedDetailEventId(undefined);
+          onSelectActiveEvent(selectedDetailEvent);
+        }
+      : undefined;
+
   const handleStopSelectedDetailEvent =
     selectedDetailEvent && onStopActiveEvent && isActiveStoppableEvent(selectedDetailEvent, activeEventIds)
       ? () => handleOpenStopConfirmation(selectedDetailEvent)
@@ -730,6 +760,7 @@ function CurtailmentHistory({
           open
           onDismiss={handleDismissSummary}
           onManage={handleManageSelectedDetailEvent}
+          onSelectActive={handleSelectActiveDetailEvent}
           onStop={handleStopSelectedDetailEvent}
           stopDisabled={pendingStopEventIds.has(selectedDetailEvent.id)}
         />

@@ -19,6 +19,10 @@ import { SettingsPoolsPage } from "../pages/settingsPools";
 
 const VALID_POOL_URL = "stratum+tcp://mine.ocean.xyz:3334";
 const AUTOMATION_ZONE = "AutomationZone";
+// Racks no longer auto-generate a label from the zone, so tests type one
+// explicitly. The afterEach deletes all racks, so a shared constant is safe
+// for single-rack tests (no cross-test label collisions).
+const RACK_LABEL = "AutomationRack";
 const RACK_COLUMNS = 2;
 const RACK_ROWS = 2;
 const VALIDATION_RACK_COLUMNS = 1;
@@ -116,8 +120,8 @@ test.describe("Racks", () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
 
-      rackLabel = await racksPage.getGeneratedRackLabel();
-      test.expect(rackLabel).toBeTruthy();
+      rackLabel = RACK_LABEL;
+      await racksPage.inputRackLabel(rackLabel);
 
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(RACK_COLUMNS);
@@ -168,6 +172,7 @@ test.describe("Racks", () => {
     await test.step("Create a new 2x2 rack", async () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
+      await racksPage.inputRackLabel(RACK_LABEL);
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(RACK_COLUMNS);
       await racksPage.inputRows(RACK_ROWS);
@@ -212,8 +217,8 @@ test.describe("Racks", () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
 
-      rackLabel = await racksPage.getGeneratedRackLabel();
-      test.expect(rackLabel).toBeTruthy();
+      rackLabel = RACK_LABEL;
+      await racksPage.inputRackLabel(rackLabel);
 
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(LARGE_RACK_COLUMNS);
@@ -314,8 +319,8 @@ test.describe("Racks", () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
 
-      rackLabel = await racksPage.getGeneratedRackLabel();
-      test.expect(rackLabel).toBeTruthy();
+      rackLabel = RACK_LABEL;
+      await racksPage.inputRackLabel(rackLabel);
 
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(OVERVIEW_RACK_COLUMNS);
@@ -403,8 +408,8 @@ test.describe("Racks", () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
 
-      rackLabel = await racksPage.getGeneratedRackLabel();
-      test.expect(rackLabel).toBeTruthy();
+      rackLabel = RACK_LABEL;
+      await racksPage.inputRackLabel(rackLabel);
 
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(RACK_COLUMNS);
@@ -486,7 +491,8 @@ test.describe("Racks", () => {
 
           await racksPage.clickAddRackButton();
           await racksPage.inputZone(AUTOMATION_ZONE);
-          rackLabel = await racksPage.getGeneratedRackLabel();
+          rackLabel = RACK_LABEL;
+          await racksPage.inputRackLabel(rackLabel);
           await racksPage.enableCustomRackLayout();
           await racksPage.inputColumns(OVERVIEW_RACK_COLUMNS);
           await racksPage.inputRows(OVERVIEW_RACK_ROWS);
@@ -558,7 +564,8 @@ test.describe("Racks", () => {
     await test.step("Create a rack with two assigned Proto rigs and open the overview security flow", async () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
-      rackLabel = await racksPage.getGeneratedRackLabel();
+      rackLabel = RACK_LABEL;
+      await racksPage.inputRackLabel(rackLabel);
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(OVERVIEW_RACK_COLUMNS);
       await racksPage.inputRows(OVERVIEW_RACK_ROWS);
@@ -598,7 +605,7 @@ test.describe("Racks", () => {
     await test.step("Create rack A-01 with three miners", async () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(zoneA);
-      test.expect(await racksPage.getGeneratedRackLabel()).toBe("A-01");
+      await racksPage.inputRackLabel("A-01");
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(RACK_COLUMNS);
       await racksPage.inputRows(RACK_ROWS);
@@ -614,7 +621,7 @@ test.describe("Racks", () => {
     await test.step("Create rack A-02 with two miners", async () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(zoneA);
-      test.expect(await racksPage.getGeneratedRackLabel()).toBe("A-02");
+      await racksPage.inputRackLabel("A-02");
       await racksPage.clickContinueFromRackSettings();
       await addSelectableMinersToSlots(racksPage, 2, [1, 2]);
       await racksPage.clickSaveRack();
@@ -627,7 +634,7 @@ test.describe("Racks", () => {
     await test.step("Create rack B-01 with one miner", async () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(zoneB);
-      test.expect(await racksPage.getGeneratedRackLabel()).toBe("B-01");
+      await racksPage.inputRackLabel("B-01");
       await racksPage.clickContinueFromRackSettings();
       await addSelectableMinersToSlots(racksPage, 1, [1]);
       await racksPage.clickSaveRack();
@@ -679,6 +686,7 @@ test.describe("Racks", () => {
     await test.step("Create a new 9x9 rack and add all visible miners", async () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
+      await racksPage.inputRackLabel(RACK_LABEL);
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(NETWORK_RACK_COLUMNS);
       await racksPage.inputRows(NETWORK_RACK_ROWS);
@@ -704,19 +712,13 @@ test.describe("Racks", () => {
     let generatedRackLabel = "";
     let selectedMiners: RackSelectorMiner[] = [];
 
-    await test.step("Validate required zone before continuing", async () => {
-      await racksPage.clickAddRackButton();
-      await racksPage.clickContinueFromRackSettings();
-      await racksPage.validateRackSettingsFieldError("rack-zone", "A zone is required");
-      await racksPage.validateTitleInModal("Rack settings");
-    });
-
     await test.step("Validate required label and invalid dimensions", async () => {
+      // Zone is optional now; the label is required and empty by default, so
+      // continuing without typing one surfaces the label error.
+      await racksPage.clickAddRackButton();
       await racksPage.inputZone(validationZone);
-      generatedRackLabel = await racksPage.getGeneratedRackLabel();
-      test.expect(generatedRackLabel).toBe("A-01");
+      generatedRackLabel = "A-01";
 
-      await racksPage.inputRackLabel("");
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(0);
       await racksPage.inputRows(13);

@@ -60,6 +60,8 @@ const SiteModals = ({ modals, sites, buildingsRefreshKey }: SiteModalsProps) => 
           onDismiss={modals.dismiss}
           saving={modals.saving}
           buildingsRefreshKey={buildingsRefreshKey}
+          unassignedRackCount={modals.manageUnassignedRackCount}
+          unassignedMinerCount={modals.manageUnassignedMinerCount}
         />
       ) : null}
       {state.kind === "detailsCreate" ? (

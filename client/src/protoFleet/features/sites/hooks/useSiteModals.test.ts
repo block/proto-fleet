@@ -158,9 +158,36 @@ describe("useSiteModals", () => {
     await waitFor(() => {
       expect(sitesClient.createSite).toHaveBeenCalledTimes(1);
     });
-    // Create never touches the buildings RPC — building management is gated
-    // until the site exists.
+    // With no staged buildings the create skips the buildings RPC entirely.
     expect(sitesClient.assignBuildingsToSite).not.toHaveBeenCalled();
+    expect(saveResult?.closeOnSuccess).toBe(true);
+    expect(refetchSites).toHaveBeenCalled();
+  });
+
+  it("manageSave on manageCreate assigns staged buildings to the new site", async () => {
+    const { create: createResp } = makeSiteResponse(7n, "North DC");
+    vi.mocked(sitesClient.createSite).mockResolvedValue(createResp);
+    vi.mocked(sitesClient.assignBuildingsToSite).mockResolvedValue(
+      create(AssignBuildingsToSiteResponseSchema, { reassignedRackCount: 0n, reassignedDeviceCount: 0n }),
+    );
+    const refetchSites = vi.fn();
+    const { result } = renderHook(() => useSiteModals({ refetchSites }));
+    act(() => result.current.openCreate());
+    act(() => result.current.detailsContinueCreate({ ...emptySiteFormValues(), name: "North DC" }));
+
+    let saveResult: { closeOnSuccess: boolean } | null | undefined;
+    await act(async () => {
+      saveResult = await result.current.manageSave({ added: [11n, 12n], removed: [] });
+    });
+
+    await waitFor(() => {
+      expect(sitesClient.createSite).toHaveBeenCalledTimes(1);
+    });
+    // Staged buildings are assigned to the freshly-created site (id 7).
+    expect(sitesClient.assignBuildingsToSite).toHaveBeenCalledWith(
+      { buildingIds: [11n, 12n], targetSiteId: 7n },
+      expect.anything(),
+    );
     expect(saveResult?.closeOnSuccess).toBe(true);
     expect(refetchSites).toHaveBeenCalled();
   });

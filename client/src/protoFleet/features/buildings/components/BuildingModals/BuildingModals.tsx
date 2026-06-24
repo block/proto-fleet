@@ -43,6 +43,7 @@ const BuildingModals = ({ modals, sites }: BuildingModalsProps) => {
           // fire on its own. Surface refreshBuildings here so host
           // caches (rack_count, layout) re-pull from the server.
           onSaved={modals.refreshBuildings}
+          unassignedMinerCount={modals.manageUnassignedMinerCount}
         />
       ) : null}
       {state.kind === "detailsCreate" ? (

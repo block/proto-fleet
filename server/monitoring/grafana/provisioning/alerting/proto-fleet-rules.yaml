@@ -170,21 +170,11 @@ groups:
       - uid: protofleet-ingest-stalled
         title: Metric Ingest Stalled
         condition: B
-        # Edge cases:
-        #   - Fresh deploy with no samples ever emitted → the inner
-        #     SELECT returns no orgs; Grafana falls through to
-        #     noDataState=Alerting and emits an unscoped instance.
-        #     That's acceptable; "no org is emitting metrics yet" is
-        #     fundamentally global.
-        #   - Ingest stalled globally for >24h → ditto: every active
-        #     org ages out of the inner SELECT, the query returns no
-        #     rows, noDataState=Alerting fires a single global alert.
-        #     By that point operators have had 24h of per-org alerts
-        #     and this fallback is informational.
-        #   - Heartbeat lag: the aggregate refreshes every 30s with a
-        #     1m end_offset, so observed staleness can run up to ~1.5m
-        #     ahead of true ingest staleness. The 5m threshold and 5m
-        #     `for` clause absorb that lag.
+        # Edge cases (full rationale in commit/PR):
+        # Driven from presence + LEFT JOIN heartbeat: every org with pollable miners is evaluated; a missing bucket (cold-start / aged out) reads as stale and fires even if other orgs are healthy.
+        # Per-org: removing an org's miners drops it from presence, so its stale heartbeat stops firing while other orgs are unaffected.
+        # No pollable miners anywhere: UNION ALL sentinel returns a healthy row so noData can't fire on a fresh/emptied fleet.
+        # Heartbeat lag (~1.5m from 30s refresh + 1m end_offset) is absorbed by the 5m threshold and 5m `for`.
         data:
           - refId: A
             relativeTimeRange:
@@ -196,11 +186,18 @@ groups:
               format: table
               rawSql: |
                 SELECT
-                    organization_id,
-                    extract(epoch from now() - max(bucket))::float8 AS staleness_seconds
-                FROM fleet_telemetry_poll_heartbeat
-                WHERE bucket > NOW() - INTERVAL '24 hours'
-                GROUP BY organization_id
+                    p.organization_id,
+                    -- No bucket for a pollable org (cold-start or aged out) reads as stale so it fires per-org, not only when every org is missing.
+                    COALESCE(extract(epoch from now() - max(h.bucket))::float8, 1e9) AS staleness_seconds
+                FROM fleet_pollable_device_presence p
+                LEFT JOIN fleet_telemetry_poll_heartbeat h
+                    ON h.organization_id = p.organization_id
+                    AND h.bucket > NOW() - INTERVAL '24 hours'
+                GROUP BY p.organization_id
+                UNION ALL
+                -- No pollable miners anywhere: nothing to ingest, so emit a healthy sentinel instead of tripping noData.
+                SELECT '', 0::float8
+                WHERE NOT EXISTS (SELECT 1 FROM fleet_pollable_device_presence)
           - refId: B
             datasourceUid: __expr__
             model:
@@ -223,8 +220,8 @@ groups:
         annotations:
           summary: "Proto Fleet metric ingest has stalled."
           description: |
-            No samples have been written to notification_metric_sample for
-            organization {{ $labels.organization_id }} in the last five
-            minutes, despite that org having emitted samples in the past
-            day. Either fleet-api is down or the in-process metrics writer
-            is wedged. Alerts cannot fire until ingest resumes.
+            No telemetry-poll samples have been ingested for organization
+            {{ $labels.organization_id }} in the last five minutes, even
+            though it has pollable miners. Either fleet-api is down or the
+            in-process metrics writer is wedged. Alerts cannot fire until
+            ingest resumes.

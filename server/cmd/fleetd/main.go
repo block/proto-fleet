@@ -318,7 +318,7 @@ func start(config *Config) error {
 	discoverer := pluginService.CreateDiscoverer()
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(conn)
 
-	fleetNodePairingSvc.WithProvisioning(deviceStore, discoveredDeviceStore, encryptSvc, fleetNodeControlRegistry)
+	fleetNodePairingSvc.WithProvisioning(deviceStore, discoveredDeviceStore, fleetNodeControlRegistry)
 
 	timescaledbService, err := timescaledb.NewTelemetryStore(conn, config.TimescaleDB)
 	if err != nil {
@@ -387,6 +387,7 @@ func start(config *Config) error {
 	pairingSvc.WithMinerInvalidator(minerService.InvalidateMiner)
 	pairingSvc.WithOptionsCache(fleetOptionsCache)
 	fleetNodePairingSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
+	fleetNodeEnrollmentSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 
 	// Initialize IP scanner service
 	ipScannerService := ipscanner.NewIPScannerService(

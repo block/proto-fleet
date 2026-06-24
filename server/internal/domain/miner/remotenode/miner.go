@@ -52,9 +52,11 @@ type Config struct {
 	URLScheme        string
 	SerialNumber     string
 	MacAddress       string
-	// Credential is the opaque, encrypted miner credential the node decrypts
-	// just-in-time. Empty for no-secret drivers.
-	Credential []byte
+	// CredentialUsername and CredentialPassword are the miner credentials encrypted
+	// separately by the fleet node and decrypted just-in-time there. Empty for
+	// no-secret drivers.
+	CredentialUsername []byte
+	CredentialPassword []byte
 }
 
 // Miner routes interfaces.Miner control commands to a fleet node. It is a pure
@@ -90,14 +92,15 @@ func New(cfg Config) (*Miner, error) {
 		orgID:       cfg.OrgID,
 		siteID:      cfg.SiteID,
 		desc: &gatewaypb.MinerConnectionDescriptor{
-			DeviceIdentifier: cfg.DeviceIdentifier,
-			DriverName:       cfg.DriverName,
-			IpAddress:        cfg.IPAddress,
-			Port:             cfg.Port,
-			UrlScheme:        cfg.URLScheme,
-			SerialNumber:     cfg.SerialNumber,
-			MacAddress:       cfg.MacAddress,
-			Credential:       cfg.Credential,
+			DeviceIdentifier:   cfg.DeviceIdentifier,
+			DriverName:         cfg.DriverName,
+			IpAddress:          cfg.IPAddress,
+			Port:               cfg.Port,
+			UrlScheme:          cfg.URLScheme,
+			SerialNumber:       cfg.SerialNumber,
+			MacAddress:         cfg.MacAddress,
+			CredentialUsername: cfg.CredentialUsername,
+			CredentialPassword: cfg.CredentialPassword,
 		},
 		connInfo: *connInfo,
 	}, nil

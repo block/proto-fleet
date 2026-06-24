@@ -671,10 +671,13 @@ func (s *Service) ListCollectionsDomain(ctx context.Context, params ListCollecti
 		return nil, fleeterror.NewInvalidArgumentErrorf("zone sort is only supported for rack collections")
 	}
 	if params.Filter != nil && params.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
-		if len(params.Filter.SiteIDs) > 0 || params.Filter.IncludeUnassigned ||
-			len(params.Filter.BuildingIDs) > 0 || params.Filter.IncludeNoBuilding ||
+		if len(params.Filter.BuildingIDs) > 0 || params.Filter.IncludeNoBuilding ||
 			len(params.Filter.ZoneKeys) > 0 {
-			return nil, fleeterror.NewInvalidArgumentErrorf("site / building / zone filters are only supported for rack collections")
+			return nil, fleeterror.NewInvalidArgumentErrorf("building / zone filters are only supported for rack collections")
+		}
+		if params.Type != pb.CollectionType_COLLECTION_TYPE_GROUP &&
+			(len(params.Filter.SiteIDs) > 0 || params.Filter.IncludeUnassigned) {
+			return nil, fleeterror.NewInvalidArgumentErrorf("site filters are only supported for rack or group collections")
 		}
 	}
 
@@ -1284,30 +1287,49 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 	}, nil
 }
 
-// ListCollectionMembers returns all members of a collection.
-func (s *Service) ListCollectionMembers(ctx context.Context, req *pb.ListCollectionMembersRequest) (*pb.ListCollectionMembersResponse, error) {
+type ListCollectionMembersParams struct {
+	CollectionID int64
+	PageSize     int32
+	PageToken    string
+	Filter       *interfaces.DeviceSetFilter
+}
+
+func (s *Service) ListCollectionMembersDomain(ctx context.Context, params ListCollectionMembersParams) (*pb.ListCollectionMembersResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	// Verify collection exists and belongs to org
-	belongs, err := s.collectionStore.CollectionBelongsToOrg(ctx, req.CollectionId, info.OrganizationID)
+	belongs, err := s.collectionStore.CollectionBelongsToOrg(ctx, params.CollectionID, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 	if !belongs {
-		return nil, fleeterror.NewNotFoundErrorf("collection not found: %d", req.CollectionId)
+		return nil, fleeterror.NewNotFoundErrorf("collection not found: %d", params.CollectionID)
 	}
 
-	pageSize := validatePageSize(req.PageSize)
+	pageSize := validatePageSize(params.PageSize)
 
-	members, nextPageToken, err := s.collectionStore.ListCollectionMembers(ctx, info.OrganizationID, req.CollectionId, pageSize, req.PageToken)
+	if err := s.validateFilterSites(ctx, info.OrganizationID, params.Filter); err != nil {
+		return nil, err
+	}
+
+	members, nextPageToken, err := s.collectionStore.ListCollectionMembers(ctx, info.OrganizationID, params.CollectionID, pageSize, params.PageToken, params.Filter)
 	if err != nil {
 		return nil, err
 	}
 
 	return &pb.ListCollectionMembersResponse{Members: members, NextPageToken: nextPageToken}, nil
+}
+
+// ListCollectionMembers returns all members of a collection.
+func (s *Service) ListCollectionMembers(ctx context.Context, req *pb.ListCollectionMembersRequest) (*pb.ListCollectionMembersResponse, error) {
+	return s.ListCollectionMembersDomain(ctx, ListCollectionMembersParams{
+		CollectionID: req.CollectionId,
+		PageSize:     req.PageSize,
+		PageToken:    req.PageToken,
+	})
 }
 
 // GetDeviceCollections returns all collections a device belongs to.
@@ -1720,6 +1742,25 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			buildingChanged bool
 		)
 
+		// Canonical lock pre-pass, mirroring AssignDevicesToRack: lock the
+		// target plus every source rack the members currently sit in, in one
+		// ascending device_set.id order, BEFORE the per-path target lock and
+		// the replaceRackMembershipAndSlots deletes. This is what keeps the
+		// new RemoveDevicesFromAnyRack delete from deadlocking against a
+		// concurrent rack save moving devices the opposite way. targetRackID
+		// is 0 on the create path (the rack doesn't exist yet; it's created +
+		// locked below and sorts last by id). Guarded on a non-empty member
+		// set — an empty save removes members and touches no source racks.
+		if len(deviceIdentifiers) > 0 {
+			var lockTargetRackID int64
+			if req.CollectionId != nil {
+				lockTargetRackID = *req.CollectionId
+			}
+			if _, err := s.collectionStore.LockRacksForReparent(ctx, info.OrganizationID, deviceIdentifiers, lockTargetRackID); err != nil {
+				return nil, err
+			}
+		}
+
 		if isUpdate {
 			res, err := s.saveRackUpdate(ctx, info, req, rackInfo)
 			if err != nil {
@@ -2055,6 +2096,15 @@ func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, coll
 	// lockstep; its IS-DISTINCT-FROM-guarded queries no-op the column that
 	// didn't change, so cascadeCount stays accurate.
 	if len(deviceIdentifiers) > 0 {
+		// Clear any prior rack membership for these devices (excluding this
+		// rack) before adding them, so a device seeded from another rack
+		// MOVES here instead of tripping idx_one_rack_per_device. Mirrors
+		// AssignDevicesToRack's move semantics within the same transaction —
+		// no orphan window. A no-op for the edit flow, which never sends
+		// devices already sitting in a different rack.
+		if _, err := s.collectionStore.RemoveDevicesFromAnyRack(ctx, orgID, deviceIdentifiers, collectionID); err != nil {
+			return out, err
+		}
 		if _, err := s.collectionStore.AddDevicesToCollection(ctx, orgID, collectionID, deviceIdentifiers); err != nil {
 			return out, err
 		}

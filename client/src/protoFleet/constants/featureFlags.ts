@@ -9,14 +9,6 @@
  */
 
 /**
- * Multi-site UI. When on:
- * - `/sites` and `/buildings/:id` routes are discoverable via nav entry points.
- * - The topbar SitePicker replaces the placeholder LocationSelector.
- * Override with `VITE_MULTI_SITE_ENABLED=true`.
- */
-export const MULTI_SITE_ENABLED = import.meta.env.VITE_MULTI_SITE_ENABLED === "true";
-
-/**
  * Infrastructure devices tab. When on, `/fleet/infrastructure` is
  * discoverable from the Fleet tab strip. The route stays registered so QA
  * and dogfood can still deep-link while the feature is in development.

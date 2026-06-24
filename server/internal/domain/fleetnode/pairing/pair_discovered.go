@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"context"
+	"encoding/base64"
 	"log/slog"
 
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -153,10 +154,10 @@ func pairingStatusFilterValues(statuses []fleetmanagementv1.PairingStatus) ([]st
 
 // PersistFleetNodePairResult records one device's reported pairing outcome in a
 // single transaction and returns the resulting status. PAIRED binds the device to
-// the node and stores basic-auth credentials; AUTH_NEEDED/AUTH_FAILED record
-// AUTHENTICATION_NEEDED for retry; ERROR/UNSPECIFIED persist nothing.
+// the node and stores node-encrypted credentials when reported; AUTH_NEEDED/AUTH_FAILED
+// record AUTHENTICATION_NEEDED for retry; ERROR/UNSPECIFIED persist nothing.
 func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, orgID int64, result *gatewaypb.FleetNodePairResult, assignedBy *int64) (string, error) {
-	if s.deviceStore == nil || s.discoveredDeviceStore == nil || s.encryptService == nil {
+	if s.deviceStore == nil || s.discoveredDeviceStore == nil {
 		return "", fleeterror.NewInternalError("fleet node pairing provisioning is not configured")
 	}
 	identifier := result.GetDeviceIdentifier()
@@ -287,8 +288,8 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			return err
 		}
 		boundDeviceID = deviceID
-		if creds := nodeUsedCredentials(result); creds != nil {
-			if err := s.saveMinerCredentials(ctx, &dd.Device, orgID, creds); err != nil {
+		if encrypted := result.GetEncryptedCredentials(); encrypted != nil {
+			if err := s.saveFleetNodeEncryptedCredentials(ctx, &dd.Device, orgID, encrypted); err != nil {
 				return err
 			}
 		}
@@ -321,30 +322,18 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 	return persisted, nil
 }
 
-// nodeUsedCredentials returns the credentials to persist for a successful pairing.
-// The cloud can't verify a driver's auth mechanism in server mode, so the node's
-// used_credentials presence is the password-auth signal: present (even blank) ->
-// store as reported; nil -> store nothing.
-func nodeUsedCredentials(result *gatewaypb.FleetNodePairResult) *pairingpb.Credentials {
-	uc := result.GetUsedCredentials()
-	if uc == nil {
-		return nil
+func (s *Service) saveFleetNodeEncryptedCredentials(ctx context.Context, device *pairingpb.Device, orgID int64, encrypted *gatewaypb.EncryptedCredentials) error {
+	if len(encrypted.GetUsername()) == 0 || len(encrypted.GetPassword()) == 0 {
+		return fleeterror.NewFailedPreconditionError("encrypted credentials must include username and password")
 	}
-	pw := uc.GetPassword()
-	return &pairingpb.Credentials{Username: uc.GetUsername(), Password: &pw}
+	encodedUsername := base64.StdEncoding.EncodeToString(encrypted.GetUsername())
+	encodedPassword := base64.StdEncoding.EncodeToString(encrypted.GetPassword())
+	return s.upsertMinerCredentialStrings(ctx, device, orgID, encodedUsername, encodedPassword, "save fleet node credentials")
 }
 
-func (s *Service) saveMinerCredentials(ctx context.Context, device *pairingpb.Device, orgID int64, creds *pairingpb.Credentials) error {
-	encUser, err := s.encryptService.Encrypt([]byte(creds.GetUsername()))
-	if err != nil {
-		return fleeterror.NewInternalErrorf("encrypt username: %v", err)
-	}
-	encPass, err := s.encryptService.Encrypt([]byte(creds.GetPassword()))
-	if err != nil {
-		return fleeterror.NewInternalErrorf("encrypt password: %v", err)
-	}
-	if err := s.deviceStore.UpsertMinerCredentials(ctx, device, orgID, encUser, secrets.NewText(encPass)); err != nil {
-		return fleeterror.LogInternal(component, "save credentials", clientErrPair, err)
+func (s *Service) upsertMinerCredentialStrings(ctx context.Context, device *pairingpb.Device, orgID int64, username, password, operation string) error {
+	if err := s.deviceStore.UpsertMinerCredentials(ctx, device, orgID, username, secrets.NewText(password)); err != nil {
+		return fleeterror.LogInternal(component, operation, clientErrPair, err)
 	}
 	return nil
 }

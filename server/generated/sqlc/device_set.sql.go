@@ -1233,6 +1233,143 @@ func (q *Queries) ListDeviceSetMembersPaginatedAfter(ctx context.Context, arg Li
 	return items, nil
 }
 
+const listDeviceSetMembersPaginatedFiltered = `-- name: ListDeviceSetMembersPaginatedFiltered :many
+SELECT dsm.id, dsm.device_identifier, dsm.created_at,
+       rs.row AS slot_row, rs.col AS slot_col
+FROM device_set_membership dsm
+JOIN device d ON dsm.device_id = d.id AND d.deleted_at IS NULL
+LEFT JOIN rack_slot rs ON dsm.device_set_id = rs.device_set_id AND dsm.device_id = rs.device_id
+WHERE dsm.device_set_id = $1::bigint AND dsm.org_id = $2::bigint
+  AND (
+    d.site_id = ANY($3::bigint[])
+    OR ($4::boolean AND d.site_id IS NULL)
+  )
+ORDER BY dsm.created_at DESC, dsm.id DESC
+LIMIT $5::int
+`
+
+type ListDeviceSetMembersPaginatedFilteredParams struct {
+	DeviceSetID       int64
+	OrgID             int64
+	SiteIds           []int64
+	IncludeUnassigned bool
+	LimitCount        int32
+}
+
+type ListDeviceSetMembersPaginatedFilteredRow struct {
+	ID               int64
+	DeviceIdentifier string
+	CreatedAt        time.Time
+	SlotRow          sql.NullInt32
+	SlotCol          sql.NullInt32
+}
+
+func (q *Queries) ListDeviceSetMembersPaginatedFiltered(ctx context.Context, arg ListDeviceSetMembersPaginatedFilteredParams) ([]ListDeviceSetMembersPaginatedFilteredRow, error) {
+	rows, err := q.query(ctx, q.listDeviceSetMembersPaginatedFilteredStmt, listDeviceSetMembersPaginatedFiltered,
+		arg.DeviceSetID,
+		arg.OrgID,
+		pq.Array(arg.SiteIds),
+		arg.IncludeUnassigned,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDeviceSetMembersPaginatedFilteredRow
+	for rows.Next() {
+		var i ListDeviceSetMembersPaginatedFilteredRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceIdentifier,
+			&i.CreatedAt,
+			&i.SlotRow,
+			&i.SlotCol,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDeviceSetMembersPaginatedFilteredAfter = `-- name: ListDeviceSetMembersPaginatedFilteredAfter :many
+SELECT dsm.id, dsm.device_identifier, dsm.created_at,
+       rs.row AS slot_row, rs.col AS slot_col
+FROM device_set_membership dsm
+JOIN device d ON dsm.device_id = d.id AND d.deleted_at IS NULL
+LEFT JOIN rack_slot rs ON dsm.device_set_id = rs.device_set_id AND dsm.device_id = rs.device_id
+WHERE dsm.device_set_id = $1::bigint AND dsm.org_id = $2::bigint
+  AND (
+    d.site_id = ANY($3::bigint[])
+    OR ($4::boolean AND d.site_id IS NULL)
+  )
+  AND (dsm.created_at < $5::timestamptz OR (dsm.created_at = $5::timestamptz AND dsm.id < $6::bigint))
+ORDER BY dsm.created_at DESC, dsm.id DESC
+LIMIT $7::int
+`
+
+type ListDeviceSetMembersPaginatedFilteredAfterParams struct {
+	DeviceSetID       int64
+	OrgID             int64
+	SiteIds           []int64
+	IncludeUnassigned bool
+	CursorCreatedAt   time.Time
+	CursorID          int64
+	LimitCount        int32
+}
+
+type ListDeviceSetMembersPaginatedFilteredAfterRow struct {
+	ID               int64
+	DeviceIdentifier string
+	CreatedAt        time.Time
+	SlotRow          sql.NullInt32
+	SlotCol          sql.NullInt32
+}
+
+func (q *Queries) ListDeviceSetMembersPaginatedFilteredAfter(ctx context.Context, arg ListDeviceSetMembersPaginatedFilteredAfterParams) ([]ListDeviceSetMembersPaginatedFilteredAfterRow, error) {
+	rows, err := q.query(ctx, q.listDeviceSetMembersPaginatedFilteredAfterStmt, listDeviceSetMembersPaginatedFilteredAfter,
+		arg.DeviceSetID,
+		arg.OrgID,
+		pq.Array(arg.SiteIds),
+		arg.IncludeUnassigned,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDeviceSetMembersPaginatedFilteredAfterRow
+	for rows.Next() {
+		var i ListDeviceSetMembersPaginatedFilteredAfterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceIdentifier,
+			&i.CreatedAt,
+			&i.SlotRow,
+			&i.SlotCol,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRackTypes = `-- name: ListRackTypes :many
 SELECT dsr.rows, dsr.columns, COUNT(*)::int AS rack_count
 FROM device_set_rack dsr

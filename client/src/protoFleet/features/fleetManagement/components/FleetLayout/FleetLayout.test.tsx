@@ -4,12 +4,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
 
-// Force MULTI_SITE_ENABLED=true at module-load time so FleetLayout's route
-// order includes Sites + Buildings under test. CI default is false; the
-// tests below pin behavior to the flag-on path explicitly.
+// Keep Infrastructure hidden in the tab strip under test while preserving
+// direct-link reachability for authorized QA/dogfood paths.
 vi.mock("@/protoFleet/constants/featureFlags", () => ({
   INFRASTRUCTURE_DEVICES_ENABLED: false,
-  MULTI_SITE_ENABLED: true,
 }));
 
 import FleetLayout from "./FleetLayout";

@@ -24,9 +24,9 @@ import {
   useActiveSite,
 } from "@/protoFleet/components/PageHeader/SitePicker";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
 import FleetGroupListActionBar from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar";
 import { useOptionalFleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout";
@@ -60,6 +60,7 @@ import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import FilterChipsBar, { type FilterChipsBarNumericFilter } from "@/shared/components/List/Filters/FilterChipsBar";
+import { formatListCountLabel } from "@/shared/components/List/listCountLabel";
 import { SORT_ASC, SORT_DESC, type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
@@ -365,43 +366,74 @@ const RacksPage = () => {
     fetchZones();
   }, [fetchZones]);
 
-  // One-shot load — org-scoped buildings are small + stable.
+  const createFlow = useFleetCreateFlow();
+  const entitiesChangedAt = createFlow?.entitiesChangedAt ?? 0;
+
+  // Org-scoped parent catalogs powering the Site/Building columns + filter
+  // labels. Extracted into callbacks so the create-flow pulse can refresh
+  // them — a building/site created from this tab must resolve to a name
+  // immediately, not only after a remount.
+  const fetchBuildingCatalog = useCallback(
+    (signal?: AbortSignal) => {
+      if (!canReadSiteCatalog) return;
+      void listAllBuildings({
+        signal,
+        onSuccess: (buildings: BuildingWithCounts[]) => {
+          setAllBuildings(
+            buildings
+              .filter((b) => b.building !== undefined)
+              .map((b) => ({
+                id: b.building!.id.toString(),
+                label: b.building!.name,
+                siteId: (b.building!.siteId ?? 0n).toString(),
+              })),
+          );
+        },
+      });
+    },
+    [canReadSiteCatalog, listAllBuildings],
+  );
+
+  const fetchSiteCatalog = useCallback(
+    (signal?: AbortSignal) => {
+      if (!canReadSiteCatalog) return;
+      void listSites({
+        signal,
+        onSuccess: (sites: SiteWithCounts[]) => {
+          setAllSites(
+            sites.filter((s) => s.site !== undefined).map((s) => ({ id: s.site!.id.toString(), label: s.site!.name })),
+          );
+        },
+        onError: () => setAllSites((prev) => prev),
+      });
+    },
+    [canReadSiteCatalog, listSites],
+  );
+
+  // Refetch when the hoisted create flow commits a new entity so this list
+  // AND its parent-name catalogs reflect it without waiting for the next poll.
+  // entitiesChangedAt starts at 0 and only bumps post-create, so the initial
+  // mount is a no-op.
   useEffect(() => {
-    if (!canReadSiteCatalog) return;
+    if (entitiesChangedAt === 0) return;
+    resetAndFetch();
+    fetchZones();
+    fetchBuildingCatalog();
+    fetchSiteCatalog();
+  }, [entitiesChangedAt, resetAndFetch, fetchZones, fetchBuildingCatalog, fetchSiteCatalog]);
 
+  // One-shot loads on mount — org-scoped catalogs are small + stable.
+  useEffect(() => {
     const controller = new AbortController();
-    void listAllBuildings({
-      signal: controller.signal,
-      onSuccess: (buildings: BuildingWithCounts[]) => {
-        setAllBuildings(
-          buildings
-            .filter((b) => b.building !== undefined)
-            .map((b) => ({
-              id: b.building!.id.toString(),
-              label: b.building!.name,
-              siteId: (b.building!.siteId ?? 0n).toString(),
-            })),
-        );
-      },
-    });
+    fetchBuildingCatalog(controller.signal);
     return () => controller.abort();
-  }, [canReadSiteCatalog, listAllBuildings]);
+  }, [fetchBuildingCatalog]);
 
   useEffect(() => {
-    if (!canReadSiteCatalog) return;
-
     const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: (sites: SiteWithCounts[]) => {
-        setAllSites(
-          sites.filter((s) => s.site !== undefined).map((s) => ({ id: s.site!.id.toString(), label: s.site!.name })),
-        );
-      },
-      onError: () => setAllSites((prev) => prev),
-    });
+    fetchSiteCatalog(controller.signal);
     return () => controller.abort();
-  }, [canReadSiteCatalog, listSites]);
+  }, [fetchSiteCatalog]);
 
   const siteNameById = useMemo(() => new Map((allSites ?? []).map((s) => [s.id, s.label])), [allSites]);
   const buildingNameById = useMemo(() => new Map(allBuildings.map((b) => [b.id, b.label])), [allBuildings]);
@@ -735,6 +767,39 @@ const RacksPage = () => {
     selectedZones.length > 0 ||
     selectedIssues.length > 0 ||
     telemetryRanges.length > 0;
+
+  // Unfiltered rack count for the "X of Y racks" line. `totalCount` from the
+  // list hook is the filtered total; this fetches the path-scope total (no
+  // zone/building/issue/`?site=`/telemetry filters) so the count line can show
+  // a denominator, mirroring the Miners tab. Only fetched while filters are
+  // active — otherwise the displayed count already is the total.
+  const [totalUnfilteredRacks, setTotalUnfilteredRacks] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    // Only consumed while filters are active (the count line otherwise shows
+    // `totalCount`). Skip the fetch when filters are off and leave the last
+    // value — it's ignored, and a scope change re-runs this effect.
+    if (!hasActiveFilters) return;
+    let cancelled = false;
+    // `racks` is in the deps as the list-refresh signal: its reference changes
+    // whenever the rack list refetches (poll, resetAndFetch, create/delete/move),
+    // so this cheap pageSize:1 count stays in sync with `totalCount` instead of
+    // going stale until the filter/scope changes. The count itself is
+    // page-independent, so re-running it on pagination is harmless.
+    void listRacks({
+      pageSize: 1,
+      siteIds: activeSiteFilter.siteIds,
+      includeUnassigned: activeSiteFilter.includeUnassigned,
+      onSuccess: (_sets, _token, total) => {
+        if (!cancelled) setTotalUnfilteredRacks(total);
+      },
+      onError: () => {
+        if (!cancelled) setTotalUnfilteredRacks(undefined);
+      },
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasActiveFilters, activeSiteFilter, listRacks, racks]);
   const visibleRackScopes = useMemo(
     () =>
       racks.flatMap((rack) => {
@@ -742,8 +807,11 @@ const RacksPage = () => {
         // Carry the rack's current building so the bulk Add-to-building
         // dispatch can drop no-op moves (a same-building request without a
         // grid position is treated server-side as an explicit unplace).
-        const buildingId = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value.buildingId : 0n;
-        return [{ kind: "rack" as const, id: rack.id, name: rack.label || "(unnamed)", buildingId }];
+        // siteId rides along for the "New site" conflict pre-warning.
+        const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
+        const buildingId = rackInfo?.buildingId ?? 0n;
+        const siteId = rackInfo?.siteId ?? 0n;
+        return [{ kind: "rack" as const, id: rack.id, name: rack.label || "(unnamed)", buildingId, siteId }];
       }),
     [racks],
   );
@@ -1152,6 +1220,20 @@ const RacksPage = () => {
           </div>
         </div>
       </div>
+      <div
+        className={clsx(
+          "sticky left-0 px-6 pb-4 text-emphasis-300 text-text-primary-70 laptop:px-10",
+          PAGE_SCROLL_CHROME_WIDTH,
+        )}
+        data-testid="racks-count-label"
+      >
+        {formatListCountLabel(totalCount, {
+          unfilteredTotal: totalUnfilteredRacks,
+          hasActiveFilters,
+          singular: "rack",
+          plural: "racks",
+        })}
+      </div>
       {error ? (
         <Callout className="mx-6 mb-4 laptop:mx-10" intent="danger" prefixIcon={<Alert />} title={error} />
       ) : null}
@@ -1169,7 +1251,7 @@ const RacksPage = () => {
             renderMiners={renderMiners}
             renderSite={renderSite}
             renderBuilding={renderBuilding}
-            columns={insideFleetShell && MULTI_SITE_ENABLED ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
+            columns={insideFleetShell ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
             currentSort={currentSort}
             onSort={handleRackSort}
             itemName={{ singular: "rack", plural: "racks" }}
@@ -1284,6 +1366,34 @@ const RacksPage = () => {
           sourceLabel={
             selectedRackScopes.length === 1 ? selectedRackScopes[0]!.name : `${selectedRackScopes.length} racks`
           }
+          createNewLaunchLabel={
+            createFlow ? (bulkReparentKind === "building" ? "New building" : "New site") : undefined
+          }
+          onCreateNewLaunch={
+            createFlow
+              ? () => {
+                  const rackIds = selectedRackScopes.map((scope) => scope.id);
+                  setBulkReparentKind(null);
+                  setSelectedRackIds([]);
+                  if (bulkReparentKind === "building") {
+                    // A rack in another building OR directly in another site
+                    // will be moved into the new building's site.
+                    const conflictCount = selectedRackScopes.filter(
+                      (scope) => scope.buildingId !== 0n || scope.siteId !== 0n,
+                    ).length;
+                    createFlow.launchCreateBuilding({ rackIds, minerIds: [], conflictCount });
+                  } else {
+                    // A rack directly in another site OR in a building (whose
+                    // building_id AssignRacksToSite clears on the cross-site
+                    // move) is displaced — warn for both.
+                    const conflictCount = selectedRackScopes.filter(
+                      (scope) => scope.siteId !== 0n || scope.buildingId !== 0n,
+                    ).length;
+                    createFlow.launchCreateSite({ buildingIds: [], rackIds, minerIds: [], conflictCount });
+                  }
+                }
+              : undefined
+          }
           onDismiss={() => setBulkReparentKind(null)}
           onConfirm={(parentIds) =>
             new Promise<void>((resolve, reject) => {
@@ -1358,6 +1468,39 @@ const RacksPage = () => {
               ? reparentTarget.kind === "building"
                 ? reparentTarget.rack.typeDetails.value.buildingId
                 : reparentTarget.rack.typeDetails.value.siteId
+              : undefined
+          }
+          createNewLaunchLabel={
+            createFlow ? (reparentTarget.kind === "building" ? "New building" : "New site") : undefined
+          }
+          onCreateNewLaunch={
+            createFlow
+              ? () => {
+                  const rack = reparentTarget.rack;
+                  const targetKind = reparentTarget.kind;
+                  const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
+                  setReparentTarget(null);
+                  if (targetKind === "building") {
+                    const buildingId = rackInfo?.buildingId ?? 0n;
+                    const siteId = rackInfo?.siteId ?? 0n;
+                    createFlow.launchCreateBuilding({
+                      rackIds: [rack.id],
+                      minerIds: [],
+                      conflictCount: buildingId !== 0n || siteId !== 0n ? 1 : 0,
+                    });
+                  } else {
+                    const siteId = rackInfo?.siteId ?? 0n;
+                    const buildingId = rackInfo?.buildingId ?? 0n;
+                    createFlow.launchCreateSite({
+                      buildingIds: [],
+                      rackIds: [rack.id],
+                      minerIds: [],
+                      // AssignRacksToSite clears building_id on the cross-site
+                      // move, so a building-held rack is displaced too.
+                      conflictCount: siteId !== 0n || buildingId !== 0n ? 1 : 0,
+                    });
+                  }
+                }
               : undefined
           }
           onDismiss={() => setReparentTarget(null)}

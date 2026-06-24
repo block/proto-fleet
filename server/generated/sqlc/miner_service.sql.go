@@ -21,12 +21,15 @@ SELECT
     dd.driver_name,
     dd.ip_address,
     dd.port,
-    dd.url_scheme
+    dd.url_scheme,
+    mc.username_enc AS encrypted_username,
+    mc.password_enc AS encrypted_password
 FROM fleet_node_device fnd
 JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
 JOIN device_pairing dp ON dp.device_id = d.id
 JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
+LEFT JOIN miner_credentials mc ON mc.device_id = d.id
 WHERE d.device_identifier = $1
     AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
     AND fn.deleted_at IS NULL
@@ -35,16 +38,18 @@ LIMIT 1
 `
 
 type GetActiveFleetNodeForDeviceRow struct {
-	FleetNodeID      int64
-	OrgID            int64
-	SiteID           sql.NullInt64
-	DeviceIdentifier string
-	SerialNumber     sql.NullString
-	MacAddress       string
-	DriverName       string
-	IpAddress        string
-	Port             string
-	UrlScheme        string
+	FleetNodeID       int64
+	OrgID             int64
+	SiteID            sql.NullInt64
+	DeviceIdentifier  string
+	SerialNumber      sql.NullString
+	MacAddress        string
+	DriverName        string
+	IpAddress         string
+	Port              string
+	UrlScheme         string
+	EncryptedUsername sql.NullString
+	EncryptedPassword sql.NullString
 }
 
 // Resolve the active fleet node a device is paired to, with the connection
@@ -68,6 +73,8 @@ func (q *Queries) GetActiveFleetNodeForDevice(ctx context.Context, deviceIdentif
 		&i.IpAddress,
 		&i.Port,
 		&i.UrlScheme,
+		&i.EncryptedUsername,
+		&i.EncryptedPassword,
 	)
 	return i, err
 }

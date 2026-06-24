@@ -65,7 +65,7 @@ export const activeSiteFromScopablePath = (pathname: string): ActiveSite | null 
   }
 
   const parts = normalized.split("/").filter(Boolean);
-  if (parts.length >= 2 && SCOPABLE_ROOT_SEGMENTS.has(parts[1])) {
+  if (parts.length >= 2 && isScopableParts(parts.slice(1))) {
     return activeSiteFromSegment(parts[0]);
   }
 
@@ -79,7 +79,7 @@ export const unscopedScopablePath = (pathname: string): string => {
   }
 
   const parts = normalized.split("/").filter(Boolean);
-  if (parts.length >= 2 && activeSiteFromSegment(parts[0]) && SCOPABLE_ROOT_SEGMENTS.has(parts[1])) {
+  if (parts.length >= 2 && activeSiteFromSegment(parts[0]) && isScopableParts(parts.slice(1))) {
     return `/${parts.slice(1).join("/")}`;
   }
 
@@ -118,7 +118,13 @@ const normalizePathname = (pathname: string): string => {
 
 const isUnscopedScopablePath = (pathname: string): boolean => {
   const parts = normalizePathname(pathname).split("/").filter(Boolean);
-  return parts.length > 0 && SCOPABLE_ROOT_SEGMENTS.has(parts[0]);
+  return isScopableParts(parts);
+};
+
+const isScopableParts = (parts: string[]): boolean => {
+  if (parts.length === 0) return false;
+  if (parts[0] === "groups") return parts.length === 1;
+  return SCOPABLE_ROOT_SEGMENTS.has(parts[0]);
 };
 
 const splitPath = (to: string): { pathname: string; search: string; hash: string } => {

@@ -8,9 +8,10 @@ import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
-import { INFRASTRUCTURE_DEVICES_ENABLED, MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
+import { INFRASTRUCTURE_DEVICES_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import FleetCreateFlowProvider from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetCreateFlowProvider";
 import FleetViewTabs from "@/protoFleet/features/fleetManagement/components/FleetViewTabs";
 import { type FleetTabId } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import useFleetViews from "@/protoFleet/features/fleetManagement/views/useFleetViews";
@@ -22,12 +23,7 @@ import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
-const ROUTE_TAB_ORDER: FleetTabId[] = [
-  ...(MULTI_SITE_ENABLED ? (["sites", "buildings"] as FleetTabId[]) : []),
-  "racks",
-  "miners",
-  "infrastructure",
-];
+const ROUTE_TAB_ORDER: FleetTabId[] = ["sites", "buildings", "racks", "miners", "infrastructure"];
 const DISCOVERABLE_TAB_ORDER: FleetTabId[] = ROUTE_TAB_ORDER.filter(
   (tab) => tab !== "infrastructure" || INFRASTRUCTURE_DEVICES_ENABLED,
 );
@@ -317,7 +313,15 @@ const FleetLayout = () => {
           ))}
         </TabStrip>
       </div>
-      <div className="min-h-0 flex-1">{outlet}</div>
+      <div className="min-h-0 flex-1">
+        <FleetCreateFlowProvider
+          sites={sites ?? []}
+          refetchSites={fetchSites}
+          notifyMinersChanged={notifyMinersChanged}
+        >
+          {outlet}
+        </FleetCreateFlowProvider>
+      </div>
     </div>
   );
 };

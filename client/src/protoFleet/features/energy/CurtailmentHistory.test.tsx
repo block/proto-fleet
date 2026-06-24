@@ -525,6 +525,33 @@ describe("CurtailmentHistory", () => {
     expect(onManageActiveEvent).not.toHaveBeenCalled();
   });
 
+  it("selects restoring active row summaries for recovery", async () => {
+    const user = userEvent.setup();
+    const onSelectActiveEvent = vi.fn();
+    const restoringEvent = {
+      ...mockCurtailmentHistoryEvents[0],
+      id: "curt-restoring",
+      reason: "Restoring event",
+      state: "restoring" as const,
+    };
+
+    render(
+      <CurtailmentHistory
+        events={[restoringEvent]}
+        activeEventId="curt-restoring"
+        onSelectActiveEvent={onSelectActiveEvent}
+      />,
+    );
+
+    await user.click(screen.getByTestId("curtailment-history-row-curt-restoring"));
+
+    const modal = screen.getByTestId("modal");
+    await user.click(within(modal).getByRole("button", { name: "View active event" }));
+
+    expect(onSelectActiveEvent).toHaveBeenCalledWith(restoringEvent);
+    expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
+  });
+
   it("routes secondary active row actions from activeEventIds", async () => {
     const user = userEvent.setup();
     const onManageActiveEvent = vi.fn();
