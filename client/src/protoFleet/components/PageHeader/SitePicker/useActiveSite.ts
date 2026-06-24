@@ -81,13 +81,20 @@ const useActiveSite = ({ knownSiteIds, knownSiteSlugById }: UseActiveSiteOptions
   // one — left alone, appEntryPath/picker navigation would emit a dead slug
   // that ResolveSiteBySlug treats as missing and clears the scope. Same id +
   // changed slug is a pure rename, so refresh the slug in place.
+  //
+  // Skip while a route scope is active (same guard as the deleted-site reset
+  // above): on a scoped route the route-scope mirror effect owns the store, so
+  // reconciling here would alternate writes with it forever when the URL slug
+  // is stale. A stale *route* slug is healed by SiteScopeLayout's
+  // ResolveSiteBySlug; this only keeps the off-route persisted slug fresh.
   useEffect(() => {
+    if (routeScope) return;
     if (stored.kind !== "site" || !knownSiteSlugById) return;
     const freshSlug = knownSiteSlugById.get(stored.id);
     if (freshSlug && freshSlug !== stored.slug) {
       setStored({ kind: "site", id: stored.id, slug: freshSlug });
     }
-  }, [stored, knownSiteSlugById, setStored]);
+  }, [routeScope, stored, knownSiteSlugById, setStored]);
 
   const activeSite = useMemo<ActiveSite>(() => {
     if (routeScopeStale) return DEFAULT_ACTIVE_SITE;

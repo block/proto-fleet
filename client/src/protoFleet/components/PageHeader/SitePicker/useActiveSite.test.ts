@@ -88,6 +88,27 @@ describe("useActiveSite", () => {
     );
   });
 
+  it("does not reconcile the stored slug while a route scope is active (route scope wins)", async () => {
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "7", slug: "north-dc" };
+    });
+    // The URL is scoped to the same site with the old slug; the catalog map
+    // reports a newer slug. Reconciliation must defer to the route-scope mirror
+    // (which tracks the URL slug) so the two effects can't alternate forever.
+    const { result } = renderHook(
+      () =>
+        useActiveSite({
+          knownSiteIds: new Set(["7"]),
+          knownSiteSlugById: new Map([["7", "south-dc"]]),
+        }),
+      { wrapper: routerWrapper(["/north-dc/activity"], { kind: "site", id: "7", slug: "north-dc" }) },
+    );
+    await waitFor(() =>
+      expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "north-dc" }),
+    );
+    expect(result.current.activeSite).toEqual({ kind: "site", id: "7", slug: "north-dc" });
+  });
+
   it("leaves the stored slug untouched when knownSiteSlugById matches", () => {
     useFleetStore.setState((state) => {
       state.ui.activeSite = { kind: "site", id: "7", slug: "north-dc" };
