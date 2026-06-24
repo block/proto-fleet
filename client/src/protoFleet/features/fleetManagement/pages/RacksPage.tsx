@@ -781,6 +781,11 @@ const RacksPage = () => {
     // value — it's ignored, and a scope change re-runs this effect.
     if (!hasActiveFilters) return;
     let cancelled = false;
+    // `racks` is in the deps as the list-refresh signal: its reference changes
+    // whenever the rack list refetches (poll, resetAndFetch, create/delete/move),
+    // so this cheap pageSize:1 count stays in sync with `totalCount` instead of
+    // going stale until the filter/scope changes. The count itself is
+    // page-independent, so re-running it on pagination is harmless.
     void listRacks({
       pageSize: 1,
       siteIds: activeSiteFilter.siteIds,
@@ -795,7 +800,7 @@ const RacksPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [hasActiveFilters, activeSiteFilter, listRacks]);
+  }, [hasActiveFilters, activeSiteFilter, listRacks, racks]);
   const visibleRackScopes = useMemo(
     () =>
       racks.flatMap((rack) => {

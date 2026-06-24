@@ -134,6 +134,16 @@ const FleetBuildingsPage = () => {
     listFilterKeyRef.current = listFilterKey;
   }, [listFilterKey]);
 
+  // Unfiltered building count for the "X of Y buildings" line — the path/site
+  // scope alone, no issue/telemetry/`?site=` filters. Fetched alongside the
+  // filtered list inside fetchBuildings (below) so the denominator refreshes on
+  // exactly the same triggers as the rows it's compared against: poll ticks,
+  // filter/scope changes, create-flow pulses, and modal mutations. Its own
+  // request-id guard rejects out-of-order count responses.
+  const scopeOnlyFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
+  const [totalUnfilteredBuildings, setTotalUnfilteredBuildings] = useState<number | undefined>(undefined);
+  const unfilteredCountRequestIdRef = useRef(0);
+
   // Returning the promise lets usePoll schedule the next tick from response
   // completion (not from request start) so slow responses can't overlap.
   const fetchBuildings = useCallback(() => {
@@ -143,6 +153,23 @@ const FleetBuildingsPage = () => {
       setBuildings([]);
       setBuildingsError(null);
       return Promise.resolve();
+    }
+
+    // Refresh the unfiltered denominator on the same beat as the filtered list.
+    // Only needed while filters are active (otherwise the displayed count is
+    // already the total).
+    if (hasActiveFilters && !isMatchNoneSiteFilter(scopeOnlyFilter)) {
+      const countRequestId = ++unfilteredCountRequestIdRef.current;
+      void listBuildings({
+        siteIds: scopeOnlyFilter.siteIds,
+        includeUnassigned: scopeOnlyFilter.includeUnassigned,
+        onSuccess: (rows) => {
+          if (countRequestId === unfilteredCountRequestIdRef.current) setTotalUnfilteredBuildings(rows.length);
+        },
+        onError: () => {
+          if (countRequestId === unfilteredCountRequestIdRef.current) setTotalUnfilteredBuildings(undefined);
+        },
+      });
     }
 
     return listBuildings({
@@ -163,7 +190,15 @@ const FleetBuildingsPage = () => {
         setBuildings((prev) => prev ?? []);
       },
     });
-  }, [listBuildings, requestSiteFilter, errorComponentTypes, telemetryRanges, listFilterKey]);
+  }, [
+    listBuildings,
+    requestSiteFilter,
+    errorComponentTypes,
+    telemetryRanges,
+    listFilterKey,
+    hasActiveFilters,
+    scopeOnlyFilter,
+  ]);
 
   // Gate the poll on site:read — same gate FleetLayout uses to redirect.
   const canReadBuildings = useHasPermission("site:read");
@@ -174,28 +209,6 @@ const FleetBuildingsPage = () => {
     pollIntervalMs: POLL_INTERVAL_MS,
     enabled: canReadBuildings,
   });
-
-  // Unfiltered building count for the "X of Y buildings" line. Only needed
-  // when filters are active (otherwise the displayed count already is the
-  // total). Fetched with the path/site scope alone — no issue/telemetry/`?site=`
-  // filters — mirroring how the Miners tab sources its unfiltered denominator.
-  const scopeOnlyFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
-  const [totalUnfilteredBuildings, setTotalUnfilteredBuildings] = useState<number | undefined>(undefined);
-  useEffect(() => {
-    // Only consumed while filters are active (the count line otherwise shows
-    // the displayed total). Skip the fetch when filters are off and leave the
-    // last value — it's ignored, and a scope change re-runs this effect.
-    if (!canReadBuildings || !hasActiveFilters) return;
-    const controller = new AbortController();
-    void listBuildings({
-      siteIds: scopeOnlyFilter.siteIds,
-      includeUnassigned: scopeOnlyFilter.includeUnassigned,
-      signal: controller.signal,
-      onSuccess: (rows) => setTotalUnfilteredBuildings(rows.length),
-      onError: () => setTotalUnfilteredBuildings(undefined),
-    });
-    return () => controller.abort();
-  }, [canReadBuildings, hasActiveFilters, scopeOnlyFilter, listBuildings]);
 
   // Drop the previous scope's rows the moment the site filter changes so
   // the now-mismatched buildings can't render (or be selected/edited)
