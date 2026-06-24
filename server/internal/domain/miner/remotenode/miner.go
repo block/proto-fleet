@@ -25,6 +25,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
@@ -181,6 +182,9 @@ func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewayp
 		defer release()
 	}
 	mc.Target = m.desc
+	if err := protovalidate.Validate(mc); err != nil {
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid fleet node miner command: %v", err)
+	}
 	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
 		Command: &gatewaypb.AgentCommand_MinerCommand{MinerCommand: mc},
 	})
@@ -313,6 +317,11 @@ func (m *Miner) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfigure
 	}
 	if err := protovalidate.Validate(&result); err != nil {
 		return nil, fleeterror.NewInternalErrorf("invalid get mining pools result: %v", err)
+	}
+	for _, pool := range result.GetPools() {
+		if err := sv2.ValidatePoolURL(pool.GetUrl()); err != nil {
+			return nil, fleeterror.NewInternalErrorf("invalid get mining pools result: %v", err)
+		}
 	}
 
 	pools := make([]interfaces.MinerConfiguredPool, 0, len(result.GetPools()))
