@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
 import InfraDeviceList from "./InfraDeviceList";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import type { InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
 
 const device: InfraDeviceItem = {
@@ -30,5 +31,17 @@ describe("InfraDeviceList", () => {
     await waitFor(() => expect(screen.getByText("Roof exhaust")).toBeInTheDocument());
     expect(screen.getByText("Fan group (12 fans)")).toBeInTheDocument();
     expect(screen.getByText("1 device")).toBeInTheDocument();
+  });
+
+  test("constrains pagination footer to the page-scroll chrome width", () => {
+    const devices = Array.from({ length: 51 }, (_, index) => ({
+      ...device,
+      id: `device-${index + 1}`,
+      name: `Device ${index + 1}`,
+    }));
+
+    render(<InfraDeviceList devices={devices} />);
+
+    expect(screen.getByTestId("infra-devices-pagination")).toHaveClass(...PAGE_SCROLL_CHROME_WIDTH.split(" "));
   });
 });

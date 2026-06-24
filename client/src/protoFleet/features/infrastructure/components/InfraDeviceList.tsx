@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import clsx from "clsx";
 
 import AddInfraDeviceModal from "./AddInfraDevice/AddInfraDeviceModal";
 import InfraDeviceDetailModal from "./InfraDeviceDetail/InfraDeviceDetailModal";
@@ -518,7 +519,10 @@ const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDev
       />
 
       {shouldRenderPagination ? (
-        <div className="sticky left-0 flex flex-col items-center gap-4 pt-6 pb-6">
+        <div
+          className={clsx("sticky left-0 flex flex-col items-center gap-4 pt-6 pb-6", PAGE_SCROLL_CHROME_WIDTH)}
+          data-testid="infra-devices-pagination"
+        >
           <span className="text-300 text-text-primary">
             Showing {firstItemIndex}–{lastItemIndex} of {totalDevices} devices
           </span>
@@ -542,7 +546,7 @@ const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDev
           </div>
         </div>
       ) : (
-        <div className="sticky left-0 flex flex-col items-center pt-6 pb-6">
+        <div className={clsx("sticky left-0 flex flex-col items-center pt-6 pb-6", PAGE_SCROLL_CHROME_WIDTH)}>
           <span className="text-300 text-text-primary">
             {totalDevices} {totalDevices === 1 ? "device" : "devices"}
           </span>
