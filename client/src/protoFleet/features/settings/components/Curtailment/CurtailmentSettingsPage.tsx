@@ -2,16 +2,12 @@ import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo,
 import { Navigate, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
-import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { useSites } from "@/protoFleet/api/sites";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
 import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutomationRules";
 import useCurtailmentResponseProfiles, {
   getResponseProfileScopeLabelForActionType,
 } from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
-import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
   type CurtailmentSubmitValues,
@@ -1116,11 +1112,6 @@ function createCurtailmentSourceColConfig({
 }
 
 type CurtailmentSettingsContentProps = {
-  // Soft default from the topbar SitePicker: when a single site is selected,
-  // new response profiles default to scopeType "site" with this site prefilled
-  // (still user-overridable to whole-org). Undefined → today's whole-org
-  // default. Existing profiles being edited are never re-scoped. See #524.
-  defaultSiteScope?: { siteId: string; siteName: string };
   initialResponseProfiles?: ResponseProfile[];
   initialResponseProfileModalOpen?: boolean;
   initialSources?: CurtailmentSource[];
@@ -1181,7 +1172,6 @@ function getSourcesEmptyState(loadSourcesError: string | null, isLoadingSources:
 }
 
 export function CurtailmentSettingsContent({
-  defaultSiteScope,
   initialResponseProfiles = emptyResponseProfiles,
   initialResponseProfileModalOpen = false,
   initialSources = emptyCurtailmentSources,
@@ -1231,21 +1221,13 @@ export function CurtailmentSettingsContent({
   const responseProfiles = controlledResponseProfiles ?? localResponseProfiles;
   const sources = controlledSources ?? localSources;
   const responseProfileModalMode: ResponseProfileModalMode = editingResponseProfile ? "edit" : "create";
-  const responseProfileModalInitialValues = useMemo(() => {
-    if (editingResponseProfile) {
-      // Editing reuses the profile's stored scope verbatim — the picker never
-      // silently re-scopes an existing whole-org profile to the active site.
-      return createResponseProfileFormValuesFromProfile(editingResponseProfile);
-    }
-    if (defaultSiteScope) {
-      return {
-        ...emptyResponseProfileFormValues,
-        siteId: defaultSiteScope.siteId,
-        siteName: defaultSiteScope.siteName,
-      };
-    }
-    return emptyResponseProfileFormValues;
-  }, [defaultSiteScope, editingResponseProfile]);
+  const responseProfileModalInitialValues = useMemo(
+    () =>
+      editingResponseProfile
+        ? createResponseProfileFormValuesFromProfile(editingResponseProfile)
+        : emptyResponseProfileFormValues,
+    [editingResponseProfile],
+  );
   const responseProfileCurtailmentInitialValues = useMemo(
     () => createCurtailmentFormValuesFromResponseProfile(responseProfileModalInitialValues),
     [responseProfileModalInitialValues],
@@ -1583,33 +1565,6 @@ function CurtailmentSettingsPage(): ReactElement {
   const canManageCurtailment = useHasPermission("curtailment:manage");
   const navigate = useNavigate();
   const { startCurtailment } = useCurtailmentApi();
-
-  // Soft default from the topbar SitePicker (store-driven; settings routes are
-  // unscoped). A single selected site pre-scopes new response profiles to that
-  // site; "all sites"/"unassigned" keep today's whole-org default. We fetch
-  // sites only when multi-site is live to resolve the display name the response
-  // profile form shows — the same ListSites the picker uses.
-  const { activeSite } = useActiveSite({});
-  const { listSites } = useSites();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
-
-  useEffect(() => {
-    if (!MULTI_SITE_ENABLED || activeSite.kind !== "site") return;
-    const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: setSites,
-      onError: () => setSites([]),
-    });
-    return () => controller.abort();
-  }, [activeSite.kind, listSites]);
-
-  const defaultSiteScope = useMemo(() => {
-    if (!MULTI_SITE_ENABLED || activeSite.kind !== "site") return undefined;
-    const match = sites?.find((row) => (row.site?.id ?? 0n).toString() === activeSite.id);
-    return { siteId: activeSite.id, siteName: match?.site?.name ?? "" };
-  }, [activeSite, sites]);
-
   const [isTestingResponseProfileCurtailment, setIsTestingResponseProfileCurtailment] = useState(false);
   const {
     responseProfiles,
@@ -1847,7 +1802,6 @@ function CurtailmentSettingsPage(): ReactElement {
 
   return (
     <CurtailmentSettingsContent
-      defaultSiteScope={defaultSiteScope}
       responseProfiles={responseProfiles}
       sources={sources}
       automationRules={automationRules}

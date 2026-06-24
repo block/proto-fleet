@@ -37,17 +37,6 @@ vi.mock("@/protoFleet/store", () => ({
   useHasPermission: vi.fn(),
 }));
 
-// The page reads the SitePicker selection and resolves site names via ListSites
-// to default new response profiles. Multi-site is off in tests, so the fetch
-// never fires — stub the hook so it doesn't pull in the connect client.
-vi.mock("@/protoFleet/api/sites", async () => {
-  const actual = await vi.importActual<typeof import("@/protoFleet/api/sites")>("@/protoFleet/api/sites");
-  return {
-    ...actual,
-    useSites: () => ({ listSites: vi.fn() }),
-  };
-});
-
 vi.mock("@/protoFleet/api/useMqttCurtailmentSources", () => ({
   default: vi.fn(),
 }));

@@ -3,7 +3,6 @@ import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from 
 import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
 } from "@/protoFleet/components/FullScreenTwoPaneModal";
-import { type SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
 import { formatCurtailmentKw as formatKw } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import {
@@ -736,16 +735,6 @@ function CurtailmentStartModalContent({
   const [pendingCurtailmentConfirmation, setPendingCurtailmentConfirmation] =
     useState<PendingCurtailmentConfirmation | null>(null);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
-  // When the plan is scoped to a site, the explicit-miner picker only offers
-  // that site's miners (soft default — the user picked the site upstream).
-  // A numeric site id is expected; guard so a malformed value can't throw.
-  const minerSelectionScope = useMemo<SiteFilterFields | undefined>(
-    () =>
-      values.scopeType === "site" && values.siteId && /^\d+$/.test(values.siteId)
-        ? { siteIds: [BigInt(values.siteId)], includeUnassigned: false }
-        : undefined,
-    [values.scopeType, values.siteId],
-  );
   const [editedFields, setEditedFields] = useState<ReadonlySet<keyof CurtailmentFormValues>>(() => new Set());
   const isEditMode = mode === "edit";
   const isResponseProfileVariant = variant === "responseProfile";
@@ -1366,7 +1355,6 @@ function CurtailmentStartModalContent({
         <MinerSelectionModal
           open={showMinerSelectionModal}
           selectedMinerIds={selectedMinerIds}
-          scope={minerSelectionScope}
           onDismiss={() => setShowMinerSelectionModal(false)}
           onSave={(minerIds) => {
             handleMinerSelection(minerIds);

@@ -53,13 +53,13 @@ by the store (`useActiveSite`), not a new URL segment.** Rejected
 alternatives:
 
 - **Per-child middle segment (`/settings/{siteId}/logs`)** — introduces a
-  *second* positional convention. The #516 toolkit (`scopedPath`,
+  _second_ positional convention. The #516 toolkit (`scopedPath`,
   `unscopedScopablePath`, `segmentFromActiveSite`, `SCOPABLE_ROOT_SEGMENTS`)
   assumes site scope is the **leading** segment. A middle segment needs a
   parallel parser/guard/stale-heal stack for one feature. Rejected.
 - **Settings as a scopable root (`/{siteId}/settings/...`)** — reuses the
   toolkit by adding `"settings"` to `SCOPABLE_ROOT_SEGMENTS`, but
-  *over-applies* scope: `/{siteId}/settings/team` implies team is
+  _over-applies_ scope: `/{siteId}/settings/team` implies team is
   site-filtered when it is org-wide. Settings mixes org-wide and site-aware
   children under one root, so a root-level scope is semantically wrong for
   the majority of the tree. Rejected.
@@ -83,19 +83,19 @@ segment) and intersect via `intersectSiteFilters` — out of scope here.
 
 ## Per-page classification and decisions
 
-| Route | Component | Decision | Work |
-|---|---|---|---|
-| `/settings/general` | `General.tsx` | **Org-wide** | Label only |
-| `/settings/security` | `Auth.tsx` | **Org-wide** | Label only |
-| `/settings/team` | `Team.tsx` | **Org-wide** | Label only |
-| `/settings/roles` | `Roles.tsx` | **Org-wide** | Label only |
-| `/settings/api-keys` | `ApiKeys.tsx` | **Org-wide** | Label only |
-| `/settings/firmware` | `Firmware.tsx` | **Org-wide** | Label only |
-| `/settings/mining-pools` | `MiningPools.tsx` | **Org-wide** | Label only (pool *defs* are an org catalog; per-miner assignment happens on Fleet, not here) |
-| `/settings/notifications` | `Notifications.tsx` | **Org-wide** (today) | Label only; note maintenance-window/rule site-targeting as a possible follow-up |
-| `/settings/server-logs` | `ServerLogsPage.tsx` | **Org-wide** | Label only (see audit below — no site-attributable data) |
-| `/settings/schedules` | `Schedules/SchedulesPage.tsx` | **Site-aware** | Enrich (§Schedules) |
-| `/settings/curtailment` | `Curtailment/CurtailmentSettingsPage.tsx` | **Site-aware** | Enrich (§Curtailment) |
+| Route                     | Component                                 | Decision               | Work                                                                                         |
+| ------------------------- | ----------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------- |
+| `/settings/general`       | `General.tsx`                             | **Org-wide**           | Label only                                                                                   |
+| `/settings/security`      | `Auth.tsx`                                | **Org-wide**           | Label only                                                                                   |
+| `/settings/team`          | `Team.tsx`                                | **Org-wide**           | Label only                                                                                   |
+| `/settings/roles`         | `Roles.tsx`                               | **Org-wide**           | Label only                                                                                   |
+| `/settings/api-keys`      | `ApiKeys.tsx`                             | **Org-wide**           | Label only                                                                                   |
+| `/settings/firmware`      | `Firmware.tsx`                            | **Org-wide**           | Label only                                                                                   |
+| `/settings/mining-pools`  | `MiningPools.tsx`                         | **Org-wide**           | Label only (pool _defs_ are an org catalog; per-miner assignment happens on Fleet, not here) |
+| `/settings/notifications` | `Notifications.tsx`                       | **Org-wide** (today)   | Label only; note maintenance-window/rule site-targeting as a possible follow-up              |
+| `/settings/server-logs`   | `ServerLogsPage.tsx`                      | **Org-wide**           | Label only (see audit below — no site-attributable data)                                     |
+| `/settings/schedules`     | `Schedules/SchedulesPage.tsx`             | **Site-aware**         | Enrich (§Schedules)                                                                          |
+| `/settings/curtailment`   | `Curtailment/CurtailmentSettingsPage.tsx` | **Org-wide (for now)** | Deferred — see §Curtailment                                                                  |
 
 ### Server-logs audit (why org-wide)
 
@@ -175,19 +175,30 @@ were built pre-multi-site and fetch globally. Enrich:
    options and the miner list both scope.
 4. **`GroupSelectionModal`** ([`Schedules/GroupSelectionModal.tsx`](../../client/src/protoFleet/features/settings/components/Schedules/GroupSelectionModal.tsx))
    — **gated on #520.** Once `listGroups` accepts `{ siteIds,
-   includeUnassigned }`, pass `scope` through (line ~29). **UX note (from
-   #520 proto):** site-filtering groups returns groups that *have a member
-   at the site*, but group counts/rollups stay org-wide — if the modal shows
+includeUnassigned }`, pass `scope` through (line ~29). **UX note (from
+   #520 proto):** site-filtering groups returns groups that _have a member
+   at the site_, but group counts/rollups stay org-wide — if the modal shows
    a per-group count, either scope it via `listGroupMembers({ siteIds })` or
    label it org-wide. Decide explicitly.
 5. **Schedule list itself.** `listSchedules()` takes no site param and
    schedules target rack/group/miner sets, not sites. Decision: **leave the
-   schedule *list* org-wide for now**; only the selection of targets is
+   schedule _list_ org-wide for now**; only the selection of targets is
    scoped. A schedule may legitimately span sites via its chosen sets, so a
    soft default on selection (not a hard filter on the list) is correct.
    Document this; revisit if product wants per-site schedule lists.
 
-### Curtailment (site-aware enrichment)
+### Curtailment (deferred to #521)
+
+> **Update (2026-06-23):** Curtailment site-scoping was attempted, then pulled
+> from this work and **deferred to [#521](https://github.com/block/proto-fleet/issues/521)**
+> (Energy + curtailment flows, which are intrinsically linked). It proved inert
+> in the real UI: `CurtailmentStartModal.withResponseProfileScope` forces
+> whole-org scope on newly-created response profiles (site is kept only in edit
+> mode), and the modal has **no site-picker control** to set or show a site
+> scope — that UI is tracked in [#425](https://github.com/block/proto-fleet/issues/425).
+> The settings curtailment page therefore stays **org-wide** here (gets the
+> shared OrgWideNotice like the other org-wide tabs). The original analysis
+> below is retained for context.
 
 `CurtailmentSettingsPage.tsx` already models site scope partially:
 `ResponseProfileFormValues` carries `siteId` / `siteName`, and response
@@ -221,6 +232,7 @@ confirm Schedules and any "view in fleet" affordances follow.
 ## Test plan
 
 **Schedules (acceptance criterion):**
+
 - `RackSelectionModal` with "all sites" → `listRacks` called with empty
   `siteIds`, `includeUnassigned=false` (regression: shows all racks).
 - with a single site selected → `listRacks` called with that `siteId`;
@@ -230,6 +242,7 @@ confirm Schedules and any "view in fleet" affordances follow.
   group-count UX behaves per the decided rule.
 
 **Curtailment (acceptance criterion):**
+
 - opening a new response profile with a site selected defaults
   `scopeType:"site"` + prefilled `siteId`; with "all sites" → `wholeOrg`.
 - device/rack selection in the curtailment flow is constrained to the
@@ -237,11 +250,13 @@ confirm Schedules and any "view in fleet" affordances follow.
 - editing an existing `wholeOrg` profile does not get silently re-scoped.
 
 **Org-wide pages:**
+
 - the org-wide affordance renders on all nine pages; the picker selection
   does not change their data (no site param sent — most send none today, so
   assert no regression).
 
 **e2e** (`proto-fleet-playwright-e2e` skill):
+
 - select a site → open `/settings/schedules` → rack modal lists only that
   site's racks; switch to "all sites" → all racks return.
 - navigate from a settings escape-hatch link → lands on the scoped primary
@@ -269,7 +284,7 @@ confirm Schedules and any "view in fleet" affordances follow.
 ## Open questions
 
 1. Org-wide affordance: header subtext vs. disabled picker? (design review)
-2. Schedules list: confirm product wants the schedule *list* to stay
+2. Schedules list: confirm product wants the schedule _list_ to stay
    org-wide while only target selection is scoped.
 3. Curtailment site field: confirm the current site-selection UX so the
    picker default wires into the real input.

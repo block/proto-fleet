@@ -27,9 +27,10 @@ export interface SecondaryNavItem {
   // When set, the entry is shown only if the server reports this feature enabled.
   requiredFeature?: NavFeature;
   // Whether the page honors the topbar SitePicker selection as a soft default
-  // filter (schedules, curtailment). Org-wide pages (the default) deliberately
-  // ignore the picker; SettingsLayout surfaces an OrgWideNotice on those so the
-  // affordance can't be mistaken for a site filter. See issue #524.
+  // filter (schedules today). Org-wide pages (the default) deliberately ignore
+  // the picker; SettingsLayout surfaces an OrgWideNotice on those so the
+  // affordance can't be mistaken for a site filter. See issue #524. Curtailment
+  // is org-wide for now; scoping it is tracked with the Energy page in #521.
   siteAware?: boolean;
 }
 
@@ -134,7 +135,6 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     label: "Curtailment",
     parent: "/settings",
     requiredPermission: "curtailment:manage",
-    siteAware: true,
   },
   {
     path: "/settings/api-keys",
