@@ -242,6 +242,7 @@ JOIN requested r ON (
                       JOIN device_set_rack dsr ON dsr.device_set_id = dcm.device_set_id
                       WHERE dcm.device_id = d.id
                         AND dcm.org_id = s.org_id
+                        AND ds.org_id = s.org_id
                         AND dcm.device_set_type = 'rack'
                         AND ds.deleted_at IS NULL
                         AND dsr.building_id = CASE WHEN st.target_id ~ '^[0-9]+$' THEN st.target_id::bigint ELSE NULL END
