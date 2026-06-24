@@ -18,7 +18,9 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
-var telemetryCommandTimeout = 5 * time.Second
+// Keep node-side plugin work below TelemetryService's default 5s MetricTimeout so
+// a successful near-deadline sample still has slack to marshal and return its ack.
+var telemetryCommandTimeout = 4 * time.Second
 
 type telemetryFetcher interface {
 	Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error)

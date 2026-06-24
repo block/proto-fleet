@@ -42,6 +42,22 @@ func (waitingTelemetryFetcher) Fetch(ctx context.Context, _ *telemetrypb.FleetNo
 	return nil, fmt.Errorf("wait for telemetry timeout: %w", ctx.Err())
 }
 
+type delayedTelemetryFetcher struct {
+	delay  time.Duration
+	result *telemetrypb.FleetNodeTelemetryResult
+}
+
+func (f delayedTelemetryFetcher) Fetch(ctx context.Context, _ *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error) {
+	timer := time.NewTimer(f.delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return f.result, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("wait for delayed telemetry: %w", ctx.Err())
+	}
+}
+
 func TestControlLoop_TelemetryAckCarriesPayload(t *testing.T) {
 	fetcher := &stubTelemetryFetcher{result: &telemetrypb.FleetNodeTelemetryResult{
 		DeviceIdentifier: "node-device",
@@ -103,6 +119,31 @@ func TestControlLoop_TelemetryUsesShortCommandTimeout(t *testing.T) {
 	require.Len(t, acks, 1)
 	assert.False(t, acks[0].GetSucceeded())
 	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, acks[0].GetCode())
+}
+
+func TestControlLoop_TelemetryReturnsAckNearNodeTimeout(t *testing.T) {
+	oldTelemetryTimeout := telemetryCommandTimeout
+	telemetryCommandTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { telemetryCommandTimeout = oldTelemetryTimeout })
+
+	cmd := &RunCmd{telemetry: delayedTelemetryFetcher{
+		delay: 40 * time.Millisecond,
+		result: &telemetrypb.FleetNodeTelemetryResult{
+			DeviceIdentifier: "node-device",
+			Timestamp:        timestamppb.New(time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC)),
+			DeviceStatus:     telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE,
+		},
+	}}
+	fake := &controlFakeGateway{}
+	fake.queue(telemetryCmd(t, validTelemetryRequest()))
+
+	runControlLoopOnce(t, cmd, fake)
+
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.True(t, acks[0].GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, acks[0].GetCode())
+	assert.NotEmpty(t, acks[0].GetPayload())
 }
 
 func ptrFloat64(v float64) *float64 {
