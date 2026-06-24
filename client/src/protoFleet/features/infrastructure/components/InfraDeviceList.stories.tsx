@@ -1,5 +1,5 @@
 import InfraDeviceList from "./InfraDeviceList";
-import { mockInfraDevices } from "@/protoFleet/features/infrastructure/mockInfraDevices";
+import { mockInfraDevices } from "./stories/mockInfraDevices";
 
 export default {
   title: "Proto Fleet/Infrastructure/InfraDeviceList",

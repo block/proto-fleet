@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 
 import FleetInfraPage from "./FleetInfraPage";
-import { mockInfraDevices } from "@/protoFleet/features/infrastructure/mockInfraDevices";
+import { mockInfraDevices } from "@/protoFleet/features/infrastructure/components/stories/mockInfraDevices";
 
 const meta = {
   title: "Proto Fleet/Fleet/Infrastructure",
