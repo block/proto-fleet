@@ -20,6 +20,7 @@ import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/
 import SiteModals from "@/protoFleet/features/sites/components/SiteModals";
 import SiteSettingsModal from "@/protoFleet/features/sites/components/SiteSettingsModal";
 import { useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
+import { useHasPermission } from "@/protoFleet/store";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -35,6 +36,14 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 // assignment RPC rejects.
 const MAX_PARENT_BATCH = 1000;
 const MAX_DEVICE_BATCH = 10000;
+
+// A seed that moves racked miners into a new building/site sends
+// forceClearConflictingRackMembership, which the server gates on rack:manage.
+// "Add to building/site" is reachable with only site:manage, so without this
+// preflight a site-only operator would create the parent, then 403 on the
+// assignment — leaving an orphaned empty parent.
+const RACK_CLEAR_PERMISSION_MESSAGE =
+  "You need rack permissions to move these miners out of their racks. Remove the racked miners from the selection or ask an admin.";
 
 // Returns an operator-facing message when a seed exceeds the relevant cap, else
 // null. Per type so the message names the right limit and entity.
@@ -135,6 +144,10 @@ const FleetCreateFlowProvider = ({
   // useBuildingModals instance rendered through <BuildingModals>.
   const { createBuilding, assignRacksToBuilding, assignDevicesToBuilding } = useBuildings();
   const buildingModals = useBuildingModals({ refetchBuildings: bumpEntities });
+  // Gates the force-clear preflight below: a force-clearing device assignment
+  // needs rack:manage on the server, but the create flow is reachable with
+  // only site:manage.
+  const canManageRacks = useHasPermission("rack:manage");
   const [buildingSeed, setBuildingSeed] = useState<BuildingCreateSeed | null>(null);
   // Holds a seed whose items have existing parents until the operator
   // confirms the move; null when no confirmation is pending.
@@ -145,18 +158,27 @@ const FleetCreateFlowProvider = ({
   const [creatingBuilding, setCreatingBuilding] = useState(false);
   const creatingBuildingRef = useRef(false);
 
-  const launchCreateBuilding = useCallback((seed: BuildingCreateSeed) => {
-    const capErr = batchCapError(seed);
-    if (capErr) {
-      pushToast({ message: capErr, status: STATUSES.error });
-      return;
-    }
-    if (seed.conflictCount && seed.conflictCount > 0) {
-      setBuildingConflictSeed(seed);
-      return;
-    }
-    setBuildingSeed(seed);
-  }, []);
+  const launchCreateBuilding = useCallback(
+    (seed: BuildingCreateSeed) => {
+      const capErr = batchCapError(seed);
+      if (capErr) {
+        pushToast({ message: capErr, status: STATUSES.error });
+        return;
+      }
+      // Block before creating the parent: a force-clear assignment would 403
+      // for a site-only operator and strand an empty building.
+      if (seed.forceClearRackMembership && !canManageRacks) {
+        pushToast({ message: RACK_CLEAR_PERMISSION_MESSAGE, status: STATUSES.error });
+        return;
+      }
+      if (seed.conflictCount && seed.conflictCount > 0) {
+        setBuildingConflictSeed(seed);
+        return;
+      }
+      setBuildingSeed(seed);
+    },
+    [canManageRacks],
+  );
 
   const confirmBuildingConflict = useCallback(() => {
     setBuildingSeed(buildingConflictSeed);
@@ -244,18 +266,27 @@ const FleetCreateFlowProvider = ({
   const [creatingSite, setCreatingSite] = useState(false);
   const creatingSiteRef = useRef(false);
 
-  const launchCreateSite = useCallback((seed: SiteCreateSeed) => {
-    const capErr = batchCapError(seed);
-    if (capErr) {
-      pushToast({ message: capErr, status: STATUSES.error });
-      return;
-    }
-    if (seed.conflictCount && seed.conflictCount > 0) {
-      setSiteConflictSeed(seed);
-      return;
-    }
-    setSiteSeed(seed);
-  }, []);
+  const launchCreateSite = useCallback(
+    (seed: SiteCreateSeed) => {
+      const capErr = batchCapError(seed);
+      if (capErr) {
+        pushToast({ message: capErr, status: STATUSES.error });
+        return;
+      }
+      // Block before creating the parent: a force-clear assignment would 403
+      // for a site-only operator and strand an empty site.
+      if (seed.forceClearRackMembership && !canManageRacks) {
+        pushToast({ message: RACK_CLEAR_PERMISSION_MESSAGE, status: STATUSES.error });
+        return;
+      }
+      if (seed.conflictCount && seed.conflictCount > 0) {
+        setSiteConflictSeed(seed);
+        return;
+      }
+      setSiteSeed(seed);
+    },
+    [canManageRacks],
+  );
 
   const confirmSiteConflict = useCallback(() => {
     setSiteSeed(siteConflictSeed);
