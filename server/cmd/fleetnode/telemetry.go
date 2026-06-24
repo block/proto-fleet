@@ -341,6 +341,9 @@ func classifyTelemetryError(stage string, err error, redactions ...string) (pb.A
 	if errors.Is(err, context.DeadlineExceeded) {
 		return pb.AckCode_ACK_CODE_SCAN_FAILED, msg
 	}
+	if plugins.IsNetworkError(err) {
+		return pb.AckCode_ACK_CODE_SCAN_FAILED, msg
+	}
 	return pb.AckCode_ACK_CODE_INTERNAL, msg
 }
 

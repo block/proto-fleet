@@ -511,6 +511,16 @@ func TestClassifyTelemetryError(t *testing.T) {
 			want: pb.AckCode_ACK_CODE_SCAN_FAILED,
 		},
 		{
+			name: "generic connection refused",
+			err:  errors.New("dial tcp 10.0.0.5:80: connection refused"),
+			want: pb.AckCode_ACK_CODE_SCAN_FAILED,
+		},
+		{
+			name: "grpc unknown connection refused",
+			err:  grpcstatus.Error(codes.Unknown, "failed to connect: connection refused"),
+			want: pb.AckCode_ACK_CODE_SCAN_FAILED,
+		},
+		{
 			name: "generic failure",
 			err:  errors.New("plugin exploded"),
 			want: pb.AckCode_ACK_CODE_INTERNAL,
