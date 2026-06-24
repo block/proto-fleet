@@ -28,20 +28,46 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 // launch a create flow in place — no cross-page navigation. Owns the rack +
 // building create modal stacks; the site flow extends this provider.
 
-// Matches the server-side max_items cap on AssignDevicesToSite/Building and
-// AssignRacksTo* — mirrors MinerReparentPicker.MAX_REASSIGN_BATCH. Checked
-// before creating the parent so an over-cap seed can't leave an orphaned
-// empty parent when the assignment RPC rejects.
-const MAX_REASSIGN_BATCH = 10000;
+// Server-side max_items caps differ by assignment RPC: AssignBuildingsToSite /
+// AssignRacksToSite / AssignRacksToBuilding cap at 1000, while
+// AssignDevicesToSite/Building (miners) cap at 10000. Checked before creating
+// the parent so an over-cap seed can't leave an orphaned empty parent when the
+// assignment RPC rejects.
+const MAX_PARENT_BATCH = 1000;
+const MAX_DEVICE_BATCH = 10000;
 
-const overBatchCap = (seed: { buildingIds?: bigint[]; rackIds?: bigint[]; minerIds?: string[] }): boolean =>
-  (seed.buildingIds?.length ?? 0) > MAX_REASSIGN_BATCH ||
-  (seed.rackIds?.length ?? 0) > MAX_REASSIGN_BATCH ||
-  (seed.minerIds?.length ?? 0) > MAX_REASSIGN_BATCH;
+// Returns an operator-facing message when a seed exceeds the relevant cap, else
+// null. Per type so the message names the right limit and entity.
+const batchCapError = (seed: { buildingIds?: bigint[]; rackIds?: bigint[]; minerIds?: string[] }): string | null => {
+  if ((seed.buildingIds?.length ?? 0) > MAX_PARENT_BATCH)
+    return `Can't add more than ${MAX_PARENT_BATCH} buildings at once. Filter the selection and try again.`;
+  if ((seed.rackIds?.length ?? 0) > MAX_PARENT_BATCH)
+    return `Can't add more than ${MAX_PARENT_BATCH} racks at once. Filter the selection and try again.`;
+  if ((seed.minerIds?.length ?? 0) > MAX_DEVICE_BATCH)
+    return `Can't add more than ${MAX_DEVICE_BATCH} miners at once. Filter the selection and try again.`;
+  return null;
+};
 
-const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sites: SiteWithCounts[] }) => {
+const FleetCreateFlowProvider = ({
+  children,
+  sites,
+  refetchSites,
+}: {
+  children: ReactNode;
+  sites: SiteWithCounts[];
+  // FleetLayout's site-catalog refetch. Called after a site is created so the
+  // shared `sites` list (site column names, pickers) reflects the new site
+  // immediately, not just on the next poll.
+  refetchSites: () => void;
+}) => {
   const [entitiesChangedAt, setEntitiesChangedAt] = useState(0);
   const bumpEntities = useCallback(() => setEntitiesChangedAt(Date.now()), []);
+  // Refresh the shared site catalog AND pulse list pages — used by the site
+  // create/edit paths so the new site resolves everywhere right away.
+  const refreshSitesAndBump = useCallback(() => {
+    refetchSites();
+    bumpEntities();
+  }, [refetchSites, bumpEntities]);
 
   // Rack create flow. rackSettings drives RackSettingsModal; once the
   // operator continues, rackFormData opens ManageRackModal seeded with the
@@ -109,11 +135,9 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
   const creatingBuildingRef = useRef(false);
 
   const launchCreateBuilding = useCallback((seed: BuildingCreateSeed) => {
-    if (overBatchCap(seed)) {
-      pushToast({
-        message: `Can't add more than ${MAX_REASSIGN_BATCH} items at once. Filter the selection and try again.`,
-        status: STATUSES.error,
-      });
+    const capErr = batchCapError(seed);
+    if (capErr) {
+      pushToast({ message: capErr, status: STATUSES.error });
       return;
     }
     if (seed.conflictCount && seed.conflictCount > 0) {
@@ -203,18 +227,16 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
   // routes through edit mode (openManageEdit) because create mode gates
   // building assignment until the site exists.
   const { createSite, assignBuildingsToSite, assignRacksToSite, assignDevicesToSite } = useSites();
-  const siteModals = useSiteModals({ refetchSites: bumpEntities });
+  const siteModals = useSiteModals({ refetchSites: refreshSitesAndBump });
   const [siteSeed, setSiteSeed] = useState<SiteCreateSeed | null>(null);
   const [siteConflictSeed, setSiteConflictSeed] = useState<SiteCreateSeed | null>(null);
   const [creatingSite, setCreatingSite] = useState(false);
   const creatingSiteRef = useRef(false);
 
   const launchCreateSite = useCallback((seed: SiteCreateSeed) => {
-    if (overBatchCap(seed)) {
-      pushToast({
-        message: `Can't add more than ${MAX_REASSIGN_BATCH} items at once. Filter the selection and try again.`,
-        status: STATUSES.error,
-      });
+    const capErr = batchCapError(seed);
+    if (capErr) {
+      pushToast({ message: capErr, status: STATUSES.error });
       return;
     }
     if (seed.conflictCount && seed.conflictCount > 0) {
@@ -292,7 +314,7 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
           });
         }
 
-        bumpEntities();
+        refreshSitesAndBump();
         setSiteSeed(null);
         siteModals.openManageEdit(site, {
           unassignedRackCount: seed?.rackIds.length || undefined,
@@ -303,7 +325,15 @@ const FleetCreateFlowProvider = ({ children, sites }: { children: ReactNode; sit
         setCreatingSite(false);
       }
     },
-    [siteSeed, createSite, assignBuildingsToSite, assignRacksToSite, assignDevicesToSite, bumpEntities, siteModals],
+    [
+      siteSeed,
+      createSite,
+      assignBuildingsToSite,
+      assignRacksToSite,
+      assignDevicesToSite,
+      refreshSitesAndBump,
+      siteModals,
+    ],
   );
 
   const value = useMemo<FleetCreateFlowContextValue>(
