@@ -127,7 +127,7 @@ The alerts deployment runs an extra grafana service:
 ### Network topology
 
 Grafana runs on a private docker bridge network called `monitoring`.
-The UI is bound to `127.0.0.1:3000` so operators on the box can reach
+The UI is bound to `127.0.0.1:3030` so operators on the box can reach
 it without exposing the dashboard to the LAN. Grafana reaches
 `fleet-api` (host-networked) via the docker host gateway for outbound
 webhook deliveries, and TimescaleDB on the standard fleet network for

@@ -919,7 +919,7 @@ provision_grafana_service_account_token() {
         return 1
     fi
 
-    grafana_url="http://127.0.0.1:3000"
+    grafana_url="http://127.0.0.1:3030"
     sa_name="fleet-api"
     token_name="fleet-api-$(date +%Y%m%d%H%M%S)"
 
@@ -985,7 +985,7 @@ if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
     if ! provision_grafana_service_account_token; then
         echo "Warning: Grafana service-account token provisioning failed; fleet-api cannot authenticate to Grafana" >&2
         echo "         so alert channel/rule/silence management will 401 until this succeeds." >&2
-        echo "         Re-run this script (Grafana must be reachable on 127.0.0.1:3000) to retry." >&2
+        echo "         Re-run this script (Grafana must be reachable on 127.0.0.1:3030) to retry." >&2
     fi
 fi
 
