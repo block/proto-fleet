@@ -165,7 +165,7 @@ const siteResponseProfiles: CurtailmentResponseProfileOption[] = [
       ...responseProfiles[0].values,
       scopeType: "site",
       scopeId: "Austin, TX",
-      siteId: "austin-tx",
+      siteId: "101",
       deviceSetIds: [],
       deviceIdentifiers: [],
       includeMaintenance: false,
@@ -456,7 +456,7 @@ describe("CurtailmentStartModal", () => {
         responseProfileId: "customPlan",
         scopeType: "site",
         scopeId: "Austin, TX",
-        siteId: "austin-tx",
+        siteId: "101",
         deviceSetIds: [],
         deviceIdentifiers: [],
       }),
@@ -498,6 +498,50 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         responseProfileId: "missing-site-id-shed",
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
+        siteId: "",
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+      }),
+    );
+  });
+
+  it("normalizes a site-scoped response profile with an invalid site id to whole fleet", async () => {
+    const user = userEvent.setup();
+    const malformedSiteResponseProfiles: CurtailmentResponseProfileOption[] = [
+      {
+        id: "invalid-site-id-shed",
+        label: "Invalid site id shed",
+        values: {
+          ...responseProfiles[0].values,
+          scopeType: "site",
+          scopeId: "Austin, TX",
+          siteId: "austin-tx",
+          deviceSetIds: [],
+          deviceIdentifiers: [],
+          includeMaintenance: false,
+        },
+      },
+    ];
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      responseProfiles: malformedSiteResponseProfiles,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Invalid site id shed"));
+
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Invalid site id shed");
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseProfileId: "invalid-site-id-shed",
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         siteId: "",
@@ -704,6 +748,62 @@ describe("CurtailmentStartModal", () => {
         siteId: "101",
         scopeType: "site",
         scopeId: "Austin, TX",
+      }),
+    );
+  });
+
+  it("renders a missing saved site as a disabled fallback row", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      siteOptions: [{ id: "102", name: "Denver, CO" }],
+      initialValues: {
+        ...configuredValues,
+        scopeType: "site",
+        scopeId: "Austin, TX",
+        siteId: "101",
+        includeMaintenance: false,
+      },
+    });
+
+    expect(screen.getByTestId("response-profile-scope-site-101")).toBeDisabled();
+    expect(screen.getByTestId("response-profile-scope-site-101")).toHaveTextContent("Saved site");
+    expect(screen.getByTestId("response-profile-scope-site-102")).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        siteId: "101",
+        scopeType: "site",
+        scopeId: "Austin, TX",
+      }),
+    );
+  });
+
+  it("normalizes an invalid response profile initial site id before saving", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      initialValues: {
+        ...configuredValues,
+        scopeType: "site",
+        scopeId: "Austin, TX",
+        siteId: "austin-tx",
+        includeMaintenance: false,
+      },
+    });
+
+    expect(screen.getByTestId("response-profile-scope-whole-fleet")).toBeInTheDocument();
+    expect(screen.queryByTestId("response-profile-scope-site-austin-tx")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        siteId: "",
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
       }),
     );
   });

@@ -9,6 +9,7 @@ import {
   curtailmentNumericFieldLimits,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
+import { parseCurtailmentSiteId } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import {
   createCurtailmentPlanPreview,
   getUnsupportedDeviceSetPreviewError,
@@ -194,9 +195,14 @@ const curtailmentModeOptions = [
 ];
 const wholeFleetScopeRowId = "whole-org";
 const getSiteScopeRowId = (siteId: string) => `site:${siteId}`;
-const getPopulatedSiteScopeId = (siteId?: string): string | undefined => {
+const getValidSiteScopeId = (siteId?: string): string | undefined => {
   const normalizedSiteId = siteId?.trim();
-  return normalizedSiteId ? normalizedSiteId : undefined;
+  if (!normalizedSiteId) {
+    return undefined;
+  }
+
+  const parsedSiteId = parseCurtailmentSiteId(normalizedSiteId);
+  return parsedSiteId?.toString() === normalizedSiteId ? normalizedSiteId : undefined;
 };
 
 function withWholeFleetScope(values: CurtailmentFormValues): CurtailmentFormValues {
@@ -222,7 +228,7 @@ function withSiteScope(values: CurtailmentFormValues, siteId: string, siteName?:
 }
 
 function withResponseProfileScope(values: CurtailmentFormValues): CurtailmentFormValues {
-  const siteId = getPopulatedSiteScopeId(values.siteId);
+  const siteId = getValidSiteScopeId(values.siteId);
 
   if (values.scopeType === "site" && siteId) {
     return withSiteScope(values, siteId, values.scopeId);
@@ -272,7 +278,7 @@ function withSelectedResponseProfileValues(
     return nextValues;
   }
 
-  const siteId = getPopulatedSiteScopeId(responseProfileValues.siteId);
+  const siteId = getValidSiteScopeId(responseProfileValues.siteId);
   const scopeType =
     responseProfileValues.scopeType ??
     (siteId
@@ -824,7 +830,7 @@ function CurtailmentStartModalContent({
   }, [editedFields, localErrors]);
   const effectiveErrors = { ...errors, ...visibleLocalErrors };
   const canSelectSiteScope = siteScopeEnabled && !siteScopeDisabledReason;
-  const selectedSiteId = getPopulatedSiteScopeId(values.siteId);
+  const selectedSiteId = getValidSiteScopeId(values.siteId);
   const selectedSiteOption = useMemo(
     () => (selectedSiteId ? siteOptions.find((option) => option.id === selectedSiteId) : undefined),
     [siteOptions, selectedSiteId],
@@ -925,18 +931,8 @@ function CurtailmentStartModalContent({
       return [];
     }
 
-    if (!selectedSiteId || selectedSiteOption || (!isSiteScopeLoading && siteOptions.length === 0)) {
-      return siteOptions;
-    }
-
-    return [
-      ...siteOptions,
-      {
-        id: selectedSiteId,
-        name: values.scopeId || `Site ${selectedSiteId}`,
-      },
-    ];
-  }, [canSelectSiteScope, isSiteScopeLoading, selectedSiteId, selectedSiteOption, siteOptions, values.scopeId]);
+    return siteOptions;
+  }, [canSelectSiteScope, siteOptions]);
   const responseProfileSiteOptionByRowId = useMemo(
     () => new Map(responseProfileSiteOptions.map((siteOption) => [getSiteScopeRowId(siteOption.id), siteOption])),
     [responseProfileSiteOptions],
