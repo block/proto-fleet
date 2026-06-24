@@ -655,25 +655,21 @@ const MinerReparentPicker = ({
     return { ids: deviceIdentifiers, snapshots: miners };
   };
 
-  // Count selected miners that already belong to a parent the new entity
-  // would displace — drives the create-flow pre-warn dialog, mirroring the
-  // reparent flow. A building move conflicts with any current building/rack;
-  // a site move conflicts with any current site/building/rack.
-  const countMinersWithParent = (
+  // Count selected miners that already have ANY placement (site, building, or
+  // rack) — drives the create-flow pre-warn dialog, mirroring the reparent
+  // flow. Every "New …" target displaces an existing placement: a new
+  // rack/site re-stamps or clears it, and a new building cascades the
+  // building's site onto the miner (which can differ from the miner's current
+  // direct site), so a direct-site-only miner must warn here too.
+  const countMinersWithPlacement = (
     ids: string[],
     snapshots: Record<string, MinerStateSnapshot> | undefined,
-    target: ReparentKind,
   ): number => {
     if (!snapshots) return 0;
     return ids.filter((id) => {
       const snapshot = snapshots[id];
       if (!snapshot) return false;
-      const hasRack = !!getMinerRackLabel(snapshot);
-      const hasBuilding = !!getMinerBuildingLabel(snapshot);
-      const hasSite = !!getMinerSiteLabel(snapshot);
-      // A new rack/site displaces any current placement; a new building
-      // displaces a current building or rack (a direct site is preserved).
-      return target === "building" ? hasBuilding || hasRack : hasSite || hasBuilding || hasRack;
+      return !!getMinerSiteLabel(snapshot) || !!getMinerBuildingLabel(snapshot) || !!getMinerRackLabel(snapshot);
     }).length;
   };
 
@@ -701,12 +697,12 @@ const MinerReparentPicker = ({
     // operators aren't blocked.
     const racked = !!snapshots && ids.some((id) => !!snapshots[id] && !!getMinerRackLabel(snapshots[id]));
     if (kind === "rack") {
-      createFlow.launchCreateRack({ minerIds: ids, conflictCount: countMinersWithParent(ids, snapshots, "rack") });
+      createFlow.launchCreateRack({ minerIds: ids, conflictCount: countMinersWithPlacement(ids, snapshots) });
     } else if (kind === "building") {
       createFlow.launchCreateBuilding({
         rackIds: [],
         minerIds: ids,
-        conflictCount: countMinersWithParent(ids, snapshots, "building"),
+        conflictCount: countMinersWithPlacement(ids, snapshots),
         forceClearRackMembership: racked,
       });
     } else {
@@ -714,7 +710,7 @@ const MinerReparentPicker = ({
         buildingIds: [],
         rackIds: [],
         minerIds: ids,
-        conflictCount: countMinersWithParent(ids, snapshots, "site"),
+        conflictCount: countMinersWithPlacement(ids, snapshots),
         forceClearRackMembership: racked,
       });
     }
