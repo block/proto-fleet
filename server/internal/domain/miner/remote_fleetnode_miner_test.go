@@ -65,6 +65,33 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsUsesNodeLimiter(t *testing.T) {
 	assert.Equal(t, []int64{12}, gate.released)
 }
 
+func TestRemoteFleetNodeMinerGetDeviceMetricsSendsContextTimeoutWithSlack(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+	defer cancel()
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(ctx)
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	env := &gatewaypb.AgentCommand{}
+	require.NoError(t, proto.Unmarshal(cmd.GetPayload(), env))
+	req := env.GetTelemetry()
+	require.NotNil(t, req)
+	require.NotNil(t, req.GetTimeout())
+	assert.Greater(t, req.GetTimeout().AsDuration(), 5*time.Second)
+	assert.LessOrEqual(t, req.GetTimeout().AsDuration(), 7*time.Second)
+	publishTelemetryAck(t, stream, cmd.GetCommandId(), telemetryResult("node-device"))
+
+	require.NoError(t, receiveMetricsResult(t, results).err)
+}
+
 func TestRemoteFleetNodeMinerGetDeviceMetricsNoActiveStream(t *testing.T) {
 	miner := newTestRemoteFleetNodeMiner(t, control.NewRegistry())
 
@@ -96,6 +123,31 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsNonOKAck(t *testing.T) {
 	got := receiveMetricsResult(t, results)
 	require.Error(t, got.err)
 	assert.True(t, fleeterror.IsUnimplementedError(got.err))
+}
+
+func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsFailedOKAck(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	stream.PublishAck(&gatewaypb.ControlAck{
+		CommandId:    cmd.GetCommandId(),
+		Succeeded:    false,
+		Code:         gatewaypb.AckCode_ACK_CODE_OK,
+		ErrorMessage: "agent rejected telemetry command",
+	})
+
+	got := receiveMetricsResult(t, results)
+	require.Error(t, got.err)
+	assert.Contains(t, got.err.Error(), "agent rejected telemetry command")
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsMapsUnauthenticatedAck(t *testing.T) {

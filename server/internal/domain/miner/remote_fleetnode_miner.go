@@ -27,9 +27,13 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-const remoteTelemetryStatusTTL = 15 * time.Second
+const (
+	remoteTelemetryStatusTTL = 15 * time.Second
+	remoteTelemetryAckSlack  = time.Second
+)
 
 var _ interfaces.Miner = (*RemoteFleetNodeMiner)(nil)
 
@@ -193,7 +197,7 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 	}
 	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
 		Command: &gatewaypb.AgentCommand_Telemetry{
-			Telemetry: m.telemetryRequest(),
+			Telemetry: m.telemetryRequest(ctx),
 		},
 	})
 	if err != nil {
@@ -232,7 +236,7 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 	return result, nil
 }
 
-func (m *RemoteFleetNodeMiner) telemetryRequest() *telemetrypb.FleetNodeTelemetryRequest {
+func (m *RemoteFleetNodeMiner) telemetryRequest(ctx context.Context) *telemetrypb.FleetNodeTelemetryRequest {
 	req := &telemetrypb.FleetNodeTelemetryRequest{
 		DeviceIdentifier:   m.route.deviceIdentifier,
 		IpAddress:          m.route.ipAddress,
@@ -247,7 +251,25 @@ func (m *RemoteFleetNodeMiner) telemetryRequest() *telemetrypb.FleetNodeTelemetr
 		CredentialUsername: m.route.credentialUsername,
 		CredentialPassword: m.route.credentialPassword,
 	}
+	if timeout := remoteTelemetryTimeoutFromContext(ctx); timeout > 0 {
+		req.Timeout = durationpb.New(timeout)
+	}
 	return req
+}
+
+func remoteTelemetryTimeoutFromContext(ctx context.Context) time.Duration {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return 0
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return 0
+	}
+	if remaining > remoteTelemetryAckSlack {
+		return remaining - remoteTelemetryAckSlack
+	}
+	return remaining
 }
 
 func (m *RemoteFleetNodeMiner) errorFromAck(ack *gatewaypb.ControlAck) error {
@@ -265,7 +287,7 @@ func (m *RemoteFleetNodeMiner) errorFromAck(ack *gatewaypb.ControlAck) error {
 	case gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED:
 		return fleeterror.NewUnauthenticatedErrorf("fleet node telemetry authentication failed: %s", msg)
 	case gatewaypb.AckCode_ACK_CODE_OK:
-		return nil
+		return fleeterror.NewInternalError(msg)
 	case gatewaypb.AckCode_ACK_CODE_SCAN_FAILED,
 		gatewaypb.AckCode_ACK_CODE_REPORT_FAILED,
 		gatewaypb.AckCode_ACK_CODE_PARTIAL,

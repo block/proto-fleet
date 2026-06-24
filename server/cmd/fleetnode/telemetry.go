@@ -54,7 +54,7 @@ func (r *RunCmd) handleTelemetryCommand(ctx context.Context, stream acker, comma
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid telemetry request: %v", vErr), logger)
 		return
 	}
-	cmdCtx, cancel := context.WithTimeout(ctx, telemetryCommandTimeout)
+	cmdCtx, cancel := context.WithTimeout(ctx, telemetryTimeout(req))
 	defer cancel()
 
 	result, err := r.telemetry.Fetch(cmdCtx, req)
@@ -140,6 +140,15 @@ func telemetryDialTarget(req *telemetrypb.FleetNodeTelemetryRequest) *pb.MinerCo
 		CredentialUsername: req.GetCredentialUsername(),
 		CredentialPassword: req.GetCredentialPassword(),
 	}
+}
+
+func telemetryTimeout(req *telemetrypb.FleetNodeTelemetryRequest) time.Duration {
+	if req.GetTimeout() != nil {
+		if timeout := req.GetTimeout().AsDuration(); timeout > 0 {
+			return timeout
+		}
+	}
+	return telemetryCommandTimeout
 }
 
 func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetrics, status telemetrypb.DeviceStatus) *telemetrypb.FleetNodeTelemetryResult {

@@ -245,6 +245,7 @@ message FleetNodeTelemetryRequest {
   reserved "username", "password";
   bytes credential_username = 13 [(buf.validate.field).bytes.max_len = 4096];
   bytes credential_password = 14 [(buf.validate.field).bytes.max_len = 4096];
+  google.protobuf.Duration timeout = 15;
 }
 
 message FleetNodeTelemetryResult {

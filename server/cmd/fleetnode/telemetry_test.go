@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -113,6 +114,27 @@ func TestControlLoop_TelemetryUsesShortCommandTimeout(t *testing.T) {
 	cmd := &RunCmd{telemetry: waitingTelemetryFetcher{}}
 	fake := &controlFakeGateway{}
 	fake.queue(telemetryCmd(t, validTelemetryRequest()))
+
+	start := time.Now()
+	runControlLoopOnce(t, cmd, fake)
+
+	require.Less(t, time.Since(start), 500*time.Millisecond)
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.False(t, acks[0].GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, acks[0].GetCode())
+}
+
+func TestControlLoop_TelemetryUsesRequestTimeout(t *testing.T) {
+	oldTelemetryTimeout := telemetryCommandTimeout
+	telemetryCommandTimeout = time.Second
+	t.Cleanup(func() { telemetryCommandTimeout = oldTelemetryTimeout })
+
+	cmd := &RunCmd{telemetry: waitingTelemetryFetcher{}}
+	fake := &controlFakeGateway{}
+	req := validTelemetryRequest()
+	req.Timeout = durationpb.New(10 * time.Millisecond)
+	fake.queue(telemetryCmd(t, req))
 
 	start := time.Now()
 	runControlLoopOnce(t, cmd, fake)
@@ -265,6 +287,32 @@ func TestTelemetrySecretBundleForAsymmetricAuthValidationErrors(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "decode miner signing private key")
+	})
+}
+
+func TestTelemetrySecretBundleForBasicAuthValidationErrors(t *testing.T) {
+	t.Run("password without username", func(t *testing.T) {
+		fetcher := &pluginTelemetryFetcher{}
+		req := validTelemetryRequest()
+		password := "pw"
+		req.Password = &password
+
+		_, err := fetcher.secretBundleFor(nil, req)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "username is required")
+	})
+
+	t.Run("username without password", func(t *testing.T) {
+		fetcher := &pluginTelemetryFetcher{}
+		req := validTelemetryRequest()
+		username := "root"
+		req.Username = &username
+
+		_, err := fetcher.secretBundleFor(nil, req)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "password is required")
 	})
 }
 
