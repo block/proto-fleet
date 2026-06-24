@@ -208,6 +208,25 @@ describe("useCurtailmentResponseProfiles", () => {
     });
   });
 
+  it("uses loaded site names for site-scoped API profiles", async () => {
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({ profiles: [apiProfile()] });
+    const siteNameById = new Map([["101", "Austin, TX"]]);
+
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false, { siteNameById }));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles[0]).toMatchObject({
+      scope: "Austin, TX",
+      formValues: expect.objectContaining({
+        siteId: "101",
+        siteName: "Austin, TX",
+      }),
+    });
+  });
+
   it("treats default zero curtail batch intervals as unset without a batch size", async () => {
     mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
       profiles: [apiProfile({ curtailBatchSize: 0, curtailBatchIntervalSec: 0 })],

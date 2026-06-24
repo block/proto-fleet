@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   adminTerminateCurtailment: vi.fn(),
   dismissTerminalCurtailment: vi.fn(),
   goToHistoryPage: vi.fn(),
+  listSites: vi.fn(),
   navigate: vi.fn(),
   refreshCurtailment: vi.fn(),
   selectActiveCurtailment: vi.fn(),
@@ -25,17 +26,28 @@ const mocks = vi.hoisted(() => ({
   stopCurtailment: vi.fn(),
   submitValues: { reason: "Grid peak" },
   updateCurtailment: vi.fn(),
+  useHasPermission: vi.fn(),
   useCurtailmentApi: vi.fn(),
   useCurtailmentResponseProfiles: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/useCurtailmentApi", () => ({
   adminTerminateReasonRequiredMessage: "Enter a reason before terminating the event.",
-  useCurtailmentApi: () => mocks.useCurtailmentApi(),
+  useCurtailmentApi: (options?: unknown) => mocks.useCurtailmentApi(options),
 }));
 
 vi.mock("@/protoFleet/api/useCurtailmentResponseProfiles", () => ({
-  default: () => mocks.useCurtailmentResponseProfiles(),
+  default: (...args: unknown[]) => mocks.useCurtailmentResponseProfiles(...args),
+}));
+
+vi.mock("@/protoFleet/api/sites", () => ({
+  useSites: () => ({
+    listSites: mocks.listSites,
+  }),
+}));
+
+vi.mock("@/protoFleet/store", () => ({
+  useHasPermission: (key: string) => mocks.useHasPermission(key),
 }));
 
 vi.mock("react-router-dom", () => ({
@@ -302,6 +314,10 @@ function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseC
 describe("CurtailmentManagementPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.listSites.mockImplementation(({ onSuccess, onFinally } = {}) => {
+      onSuccess?.([{ site: { id: 101n, name: "Austin, TX" } }]);
+      onFinally?.();
+    });
     mocks.refreshCurtailment.mockResolvedValue(emptySnapshot);
     mocks.goToHistoryPage.mockResolvedValue(emptySnapshot);
     mocks.selectActiveCurtailment.mockResolvedValue({
@@ -315,6 +331,7 @@ describe("CurtailmentManagementPanel", () => {
     mocks.stopCurtailment.mockResolvedValue({});
     mocks.adminTerminateCurtailment.mockResolvedValue({});
     mocks.updateCurtailment.mockResolvedValue({});
+    mocks.useHasPermission.mockReturnValue(false);
     mocks.useCurtailmentApi.mockReturnValue(createApiResult());
     mocks.useCurtailmentResponseProfiles.mockReturnValue({
       responseProfiles: [],
@@ -327,6 +344,26 @@ describe("CurtailmentManagementPanel", () => {
       createResponseProfile: vi.fn(),
       updateResponseProfile: vi.fn(),
       deleteResponseProfile: vi.fn(),
+    });
+  });
+
+  it("loads site names and passes them to curtailment hooks when the operator can read sites", async () => {
+    mocks.useHasPermission.mockImplementation((key: string) => key === "site:read");
+
+    render(<CurtailmentManagementPanel />);
+
+    await waitFor(() => expect(mocks.listSites).toHaveBeenCalled());
+    await waitFor(() => {
+      const latestApiCall = mocks.useCurtailmentApi.mock.calls[mocks.useCurtailmentApi.mock.calls.length - 1];
+      const latestResponseProfileCall =
+        mocks.useCurtailmentResponseProfiles.mock.calls[mocks.useCurtailmentResponseProfiles.mock.calls.length - 1];
+      const apiOptions = latestApiCall?.[0] as { siteNameById?: Map<string, string> } | undefined;
+      const responseProfileOptions = latestResponseProfileCall?.[1] as
+        | { siteNameById?: Map<string, string> }
+        | undefined;
+
+      expect(apiOptions?.siteNameById?.get("101")).toBe("Austin, TX");
+      expect(responseProfileOptions?.siteNameById?.get("101")).toBe("Austin, TX");
     });
   });
 

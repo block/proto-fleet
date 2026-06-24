@@ -17,6 +17,7 @@ import {
   UpdateCurtailmentResponseProfileRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
+import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
 import type {
   ResponseProfile,
   ResponseProfileFormValues,
@@ -38,6 +39,10 @@ export type UseCurtailmentResponseProfilesResult = {
   updateResponseProfile: (profileId: string, values: ResponseProfileFormValues) => Promise<ResponseProfile>;
   deleteResponseProfile: (profileId: string) => Promise<void>;
 };
+
+interface UseCurtailmentResponseProfilesOptions {
+  siteNameById?: SiteNameById;
+}
 
 function numberToInputValue(value: number | undefined): string {
   return value && Number.isFinite(value) && value > 0 ? value.toString() : "";
@@ -81,10 +86,20 @@ function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues
   };
 }
 
-function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile): ResponseProfile {
+function getResponseProfileSiteName(
+  siteId: string,
+  cachedFormValues?: ResponseProfileFormValues,
+  siteNameById?: SiteNameById,
+): string {
+  const loadedSiteName = siteNameById?.get(siteId)?.trim();
+  const cachedSiteName = cachedFormValues?.siteName.trim();
+  return loadedSiteName || cachedSiteName || getSiteDisplayName(siteId);
+}
+
+function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameById?: SiteNameById): ResponseProfile {
   const cachedFormValues = sessionFormValuesByProfileId.get(profile.profileId.toString());
   const siteId = profile.site?.siteId ? profile.site.siteId.toString() : "";
-  const siteName = siteId ? cachedFormValues?.siteName || `Site ${siteId}` : "";
+  const siteName = siteId ? getResponseProfileSiteName(siteId, cachedFormValues, siteNameById) : "";
   const fixedKw = profile.modeParams.case === "fixedKw" ? profile.modeParams.value.targetKw : undefined;
   const actionType: ResponseProfileFormValues["actionType"] =
     profile.mode === CurtailmentMode.FIXED_KW ? "fixedKwReduction" : "fullFleet";
@@ -216,7 +231,11 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
   };
 }
 
-export default function useCurtailmentResponseProfiles(enabled = true): UseCurtailmentResponseProfilesResult {
+export default function useCurtailmentResponseProfiles(
+  enabled = true,
+  options: UseCurtailmentResponseProfilesOptions = {},
+): UseCurtailmentResponseProfilesResult {
+  const { siteNameById } = options;
   const { handleAuthErrors } = useAuthErrors();
   const [apiProfiles, setApiProfiles] = useState<ApiCurtailmentResponseProfile[]>([]);
   const [isLoading, setIsLoading] = useState(enabled);
@@ -226,7 +245,10 @@ export default function useCurtailmentResponseProfiles(enabled = true): UseCurta
   const [createError, setCreateError] = useState<string | null>(null);
   const hasLoadedProfilesRef = useRef(false);
 
-  const responseProfiles = useMemo(() => apiProfiles.map((profile) => mapApiResponseProfile(profile)), [apiProfiles]);
+  const responseProfiles = useMemo(
+    () => apiProfiles.map((profile) => mapApiResponseProfile(profile, siteNameById)),
+    [apiProfiles, siteNameById],
+  );
 
   const handleFailure = useCallback(
     (error: unknown, fallbackMessage: string): Error => {
@@ -238,8 +260,8 @@ export default function useCurtailmentResponseProfiles(enabled = true): UseCurta
   );
 
   const mapProfile = useCallback(
-    (profile: ApiCurtailmentResponseProfile): ResponseProfile => mapApiResponseProfile(profile),
-    [],
+    (profile: ApiCurtailmentResponseProfile): ResponseProfile => mapApiResponseProfile(profile, siteNameById),
+    [siteNameById],
   );
 
   const listResponseProfiles = useCallback(

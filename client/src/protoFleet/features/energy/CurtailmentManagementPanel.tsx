@@ -2,6 +2,8 @@ import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } 
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
+import { buildSiteNameById } from "@/protoFleet/api/siteNames";
+import { useSites } from "@/protoFleet/api/sites";
 import {
   adminTerminateReasonRequiredMessage,
   type AdminTerminateCurtailmentOptions as TerminateRecoveryOptions,
@@ -28,6 +30,7 @@ import type {
   ResponseProfile,
   ResponseProfileFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
+import { useHasPermission } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
@@ -283,6 +286,27 @@ function CurtailmentManagementPanel({
   className,
 }: CurtailmentManagementPanelProps): ReactElement {
   const navigate = useNavigate();
+  const canReadSiteCatalog = useHasPermission("site:read");
+  const { listSites } = useSites();
+  const [loadedSiteNameById, setLoadedSiteNameById] = useState(() => new Map<string, string>());
+  useEffect(() => {
+    if (!canReadSiteCatalog) {
+      return undefined;
+    }
+
+    const abortController = new AbortController();
+    void listSites({
+      signal: abortController.signal,
+      onSuccess: (sites) => {
+        if (!abortController.signal.aborted) {
+          setLoadedSiteNameById(buildSiteNameById(sites));
+        }
+      },
+    });
+
+    return () => abortController.abort();
+  }, [canReadSiteCatalog, listSites]);
+  const siteNameById = canReadSiteCatalog ? loadedSiteNameById : undefined;
   const {
     activeEvent,
     activeEvents,
@@ -313,8 +337,8 @@ function CurtailmentManagementPanel({
     updateCurtailment,
     stopCurtailment,
     adminTerminateCurtailment,
-  } = useCurtailmentApi();
-  const { responseProfiles } = useCurtailmentResponseProfiles(enableManage);
+  } = useCurtailmentApi({ siteNameById });
+  const { responseProfiles } = useCurtailmentResponseProfiles(enableManage, { siteNameById });
   const responseProfileOptions = useMemo(
     () => responseProfiles.map(createCurtailmentResponseProfileOption),
     [responseProfiles],

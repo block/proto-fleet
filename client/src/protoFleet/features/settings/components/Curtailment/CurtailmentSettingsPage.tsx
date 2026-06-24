@@ -1604,6 +1604,13 @@ function CurtailmentSettingsPage(): ReactElement {
   const [siteOptionsLoadError, setSiteOptionsLoadError] = useState<string | null>(null);
   const siteOptionsAbortControllerRef = useRef<AbortController | null>(null);
   const canLoadSiteOptions = canManageCurtailment && canReadSiteCatalog;
+  const siteNameById = useMemo(() => {
+    if (!canLoadSiteOptions) {
+      return undefined;
+    }
+
+    return new Map(siteOptions.map(({ id, name }) => [id, name]));
+  }, [canLoadSiteOptions, siteOptions]);
   const {
     responseProfiles,
     isLoading: isLoadingResponseProfiles,
@@ -1613,7 +1620,7 @@ function CurtailmentSettingsPage(): ReactElement {
     createResponseProfile,
     updateResponseProfile,
     deleteResponseProfile,
-  } = useCurtailmentResponseProfiles(canManageCurtailment);
+  } = useCurtailmentResponseProfiles(canManageCurtailment, { siteNameById });
   const {
     sources,
     isLoading,
@@ -1676,6 +1683,20 @@ function CurtailmentSettingsPage(): ReactElement {
       siteOptionsAbortControllerRef.current?.abort();
     };
   }, []);
+
+  const hasSiteScopedResponseProfiles = useMemo(
+    () => responseProfiles.some((profile) => Boolean(profile.formValues?.siteId.trim())),
+    [responseProfiles],
+  );
+
+  useEffect(() => {
+    if (!hasSiteScopedResponseProfiles || siteOptionsLoadError) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(ensureSiteOptionsLoaded, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [ensureSiteOptionsLoaded, hasSiteScopedResponseProfiles, siteOptionsLoadError]);
 
   useEffect(() => {
     if (!loadError) {

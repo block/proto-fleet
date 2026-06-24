@@ -1,5 +1,5 @@
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
@@ -507,7 +507,7 @@ describe("CurtailmentSettingsPage", () => {
     );
 
     expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
-    expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(true);
+    expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(true, { siteNameById: undefined });
     expect(useMqttCurtailmentSources).toHaveBeenCalledWith(true);
     expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(true);
     expect(screen.getByTestId("settings-curtailment-page")).toBeVisible();
@@ -582,6 +582,89 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByText("Emergency full shed")).toBeVisible();
     expect(screen.getByText("100% reduction")).toBeVisible();
     expect(within(getResponseProfileCard("Emergency full shed")).getByText("Whole fleet")).toBeVisible();
+  });
+
+  it("loads site names for site-scoped response profile cards after reload", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage" || key === "site:read");
+    vi.mocked(useCurtailmentResponseProfiles).mockImplementation((_enabled, options) => {
+      const siteName = options?.siteNameById?.get("101") ?? "Site 101";
+
+      return {
+        responseProfiles: [
+          {
+            ...siteScopedResponseProfile,
+            scope: siteName,
+            formValues: {
+              ...siteScopedResponseProfile.formValues!,
+              siteName,
+            },
+          },
+        ],
+        isLoading: false,
+        isCreating: false,
+        updatingProfileIds: new Set<string>(),
+        loadError: null,
+        createError: null,
+        listResponseProfiles: vi.fn(),
+        createResponseProfile: createResponseProfileMock,
+        updateResponseProfile: updateResponseProfileMock,
+        deleteResponseProfile: deleteResponseProfileMock,
+      };
+    });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(listSitesMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(within(getResponseProfileCard("Site scoped profile")).getByText("Austin, TX")).toBeVisible(),
+    );
+  });
+
+  it("does not auto-retry site name loading after ListSites fails", async () => {
+    vi.useFakeTimers();
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage" || key === "site:read");
+    vi.mocked(useCurtailmentResponseProfiles).mockImplementation(() => ({
+      responseProfiles: [siteScopedResponseProfile],
+      isLoading: false,
+      isCreating: false,
+      updatingProfileIds: new Set<string>(),
+      loadError: null,
+      createError: null,
+      listResponseProfiles: vi.fn(),
+      createResponseProfile: createResponseProfileMock,
+      updateResponseProfile: updateResponseProfileMock,
+      deleteResponseProfile: deleteResponseProfileMock,
+    }));
+    listSitesMock.mockImplementation(
+      ({ onError, onFinally }: { onError?: (message: string) => void; onFinally?: () => void } = {}) => {
+        onError?.("network down");
+        onFinally?.();
+      },
+    );
+
+    try {
+      render(
+        <MemoryRouter>
+          <CurtailmentSettingsPage />
+        </MemoryRouter>,
+      );
+
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+      expect(listSitesMock).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+      expect(listSitesMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("creates a response profile through the API hook", async () => {
@@ -1530,7 +1613,7 @@ describe("CurtailmentSettingsPage", () => {
     );
 
     expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
-    expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(false);
+    expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(false, { siteNameById: undefined });
     expect(useMqttCurtailmentSources).toHaveBeenCalledWith(false);
     expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(false);
     expect(screen.queryByTestId("settings-curtailment-page")).not.toBeInTheDocument();

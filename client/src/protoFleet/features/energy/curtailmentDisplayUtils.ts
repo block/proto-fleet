@@ -3,6 +3,7 @@ import {
   CurtailmentEventState as ProtoCurtailmentEventState,
   CurtailmentTargetState as ProtoCurtailmentTargetState,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
 
 export const curtailmentEventStateConfigs = {
   pending: {
@@ -293,12 +294,12 @@ export function getCurtailmentEventObservedReductionKw(
     : getEstimatedObservedReductionKw(event, estimatedReductionKw);
 }
 
-export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent): string {
+export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent, siteNameById?: SiteNameById): string {
   switch (event.scope.case) {
     case "wholeOrg":
       return "Whole fleet";
     case "site":
-      return `Site ${event.scope.value.siteId.toString()}`;
+      return getSiteDisplayName(event.scope.value.siteId, siteNameById);
     case "deviceSetIds":
       return `${event.scope.value.deviceSetIds.length.toLocaleString()} device sets`;
     case "deviceIdentifiers": {

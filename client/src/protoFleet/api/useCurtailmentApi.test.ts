@@ -20,6 +20,7 @@ import {
   CurtailmentTargetSchema,
   CurtailmentTargetState,
   FixedKwParamsSchema,
+  ScopeSiteSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
@@ -335,6 +336,69 @@ describe("useCurtailmentApi", () => {
       }),
     );
     expect(result.current.activeEvent?.targetKw).toBeUndefined();
+  });
+
+  it("uses loaded site names for site-scoped active and history events", async () => {
+    const siteScopedEvent = curtailmentEvent({
+      scope: {
+        case: "site",
+        value: create(ScopeSiteSchema, { siteId: 101n }),
+      },
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: siteScopedEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [siteScopedEvent], nextPageToken: "" });
+    const siteNameById = new Map([["101", "Austin, TX"]]);
+
+    const { result } = renderHook(() => useCurtailmentApi({ siteNameById }));
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent).toEqual(
+      expect.objectContaining({
+        scopeLabel: "Austin, TX",
+      }),
+    );
+    expect(result.current.activeEventFormValues).toEqual(
+      expect.objectContaining({
+        scopeType: "site",
+        scopeId: "Austin, TX",
+        siteId: "101",
+      }),
+    );
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        scopeLabel: "Austin, TX",
+      }),
+    );
+  });
+
+  it("falls back to Site id labels for site-scoped events without a loaded site name", async () => {
+    const siteScopedEvent = curtailmentEvent({
+      scope: {
+        case: "site",
+        value: create(ScopeSiteSchema, { siteId: 101n }),
+      },
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: siteScopedEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [siteScopedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent?.scopeLabel).toBe("Site 101");
+    expect(result.current.activeEventFormValues).toEqual(
+      expect.objectContaining({
+        scopeType: "site",
+        scopeId: "Site 101",
+        siteId: "101",
+      }),
+    );
+    expect(result.current.historyEvents[0]?.scopeLabel).toBe("Site 101");
   });
 
   it("estimates observed reduction from confirmed targets when telemetry is absent", async () => {

@@ -5,6 +5,7 @@ import {
   CurtailmentMode as ProtoCurtailmentMode,
   CurtailmentPriority as ProtoCurtailmentPriority,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
 import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
   getActiveCurtailmentDisplayState,
@@ -28,6 +29,10 @@ const selectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
 interface ObservedPowerSummary {
   observedReductionKw: number;
   remainingPowerKw?: number;
+}
+
+interface CurtailmentMapperOptions {
+  siteNameById?: SiteNameById;
 }
 
 export function timestampToIsoString(timestamp?: Timestamp): string | undefined {
@@ -69,16 +74,19 @@ function mapCurtailmentModeToFormValue(event: ProtoCurtailmentEvent): Curtailmen
 
 function mapCurtailmentEventScopeToFormValues(
   event: ProtoCurtailmentEvent,
+  options: CurtailmentMapperOptions = {},
 ): Pick<CurtailmentSubmitValues, "scopeType" | "scopeId" | "siteId" | "deviceSetIds" | "deviceIdentifiers"> {
   switch (event.scope.case) {
-    case "site":
+    case "site": {
+      const siteId = event.scope.value.siteId.toString();
       return {
         scopeType: "site",
-        scopeId: `site-${event.scope.value.siteId.toString()}`,
-        siteId: event.scope.value.siteId.toString(),
+        scopeId: getSiteDisplayName(siteId, options.siteNameById),
+        siteId,
         deviceSetIds: [],
         deviceIdentifiers: [],
       };
+    }
     case "deviceIdentifiers":
       return {
         scopeType: "explicitMiners",
@@ -107,13 +115,16 @@ function mapCurtailmentEventScopeToFormValues(
   }
 }
 
-export function mapCurtailmentEventToFormValues(event: ProtoCurtailmentEvent): CurtailmentSubmitValues {
+export function mapCurtailmentEventToFormValues(
+  event: ProtoCurtailmentEvent,
+  options: CurtailmentMapperOptions = {},
+): CurtailmentSubmitValues {
   const fixedKwTarget = getFixedKwTarget(event);
   const fixedKwTolerance = getFixedKwTolerance(event);
   const hasCurtailBatchSize = (event.curtailBatchSize ?? 0) > 0;
 
   return {
-    ...mapCurtailmentEventScopeToFormValues(event),
+    ...mapCurtailmentEventScopeToFormValues(event, options),
     responseProfileId: "customPlan",
     curtailmentMode: mapCurtailmentModeToFormValue(event),
     minerSelectionStrategy: "leastEfficientFirst",
@@ -186,7 +197,10 @@ function getObservedPowerSummary(event: ProtoCurtailmentEvent, estimatedReductio
   };
 }
 
-export function mapActiveCurtailmentEvent(event: ProtoCurtailmentEvent): ActiveCurtailmentEvent {
+export function mapActiveCurtailmentEvent(
+  event: ProtoCurtailmentEvent,
+  options: CurtailmentMapperOptions = {},
+): ActiveCurtailmentEvent {
   const estimatedReductionKw = getCurtailmentEventEstimatedReductionKw(event);
   const observedPowerSummary = getObservedPowerSummary(event, estimatedReductionKw);
   const externalSource = event.externalSource.trim();
@@ -194,7 +208,7 @@ export function mapActiveCurtailmentEvent(event: ProtoCurtailmentEvent): ActiveC
   return {
     reason: event.reason || "Curtailment",
     state: mapCurtailmentEventState(event.state),
-    scopeLabel: getCurtailmentEventScopeLabel(event),
+    scopeLabel: getCurtailmentEventScopeLabel(event, options.siteNameById),
     sourceLabel: getSourceLabel(externalSource),
     isAutomationOwned: isAutomationExternalSource(externalSource),
     endedAt: timestampToIsoString(event.endedAt),
@@ -209,7 +223,10 @@ export function mapActiveCurtailmentEvent(event: ProtoCurtailmentEvent): ActiveC
   };
 }
 
-export function mapCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): CurtailmentHistoryEvent {
+export function mapCurtailmentHistoryEvent(
+  event: ProtoCurtailmentEvent,
+  options: CurtailmentMapperOptions = {},
+): CurtailmentHistoryEvent {
   const externalSource = event.externalSource.trim();
 
   return {
@@ -217,7 +234,7 @@ export function mapCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): Curtai
     reason: event.reason || "Curtailment",
     state: mapCurtailmentEventState(event.state),
     priority: mapCurtailmentPriority(event.priority),
-    scopeLabel: getCurtailmentEventScopeLabel(event),
+    scopeLabel: getCurtailmentEventScopeLabel(event, options.siteNameById),
     selectedMiners: getCurtailmentEventSelectedMinerCount(event),
     estimatedReductionKw: getCurtailmentEventEstimatedReductionKw(event),
     targetMetricsAvailable: hasCurtailmentTargetMetrics(event),
@@ -230,8 +247,11 @@ export function mapCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): Curtai
   };
 }
 
-export function mapActiveCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): CurtailmentHistoryEvent {
-  const historyEvent = mapCurtailmentHistoryEvent(event);
+export function mapActiveCurtailmentHistoryEvent(
+  event: ProtoCurtailmentEvent,
+  options: CurtailmentMapperOptions = {},
+): CurtailmentHistoryEvent {
+  const historyEvent = mapCurtailmentHistoryEvent(event, options);
 
   if (!isActiveCurtailmentEventState(historyEvent.state)) {
     return historyEvent;
@@ -239,7 +259,7 @@ export function mapActiveCurtailmentHistoryEvent(event: ProtoCurtailmentEvent): 
 
   return {
     ...historyEvent,
-    displayState: getActiveCurtailmentDisplayState(mapActiveCurtailmentEvent(event), {
+    displayState: getActiveCurtailmentDisplayState(mapActiveCurtailmentEvent(event, options), {
       dispatchStartedAsCurtailing: true,
     }),
   };
