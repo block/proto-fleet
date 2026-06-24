@@ -30,10 +30,6 @@ export class RacksPage extends BasePage {
     await this.page.locator("#rack-label").fill(label);
   }
 
-  async getGeneratedRackLabel(): Promise<string> {
-    return await this.page.locator("#rack-label").inputValue();
-  }
-
   async enableCustomRackLayout() {
     const columnsInput = this.page.locator("#rack-columns");
     if (!(await columnsInput.isDisabled())) {
