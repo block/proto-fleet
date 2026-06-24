@@ -119,6 +119,20 @@ func (h *HealthStatus) String() string {
 	}
 }
 
+// ExpectsHashing reports whether a device in this health state is meant to be actively hashing, so absent or degraded hashrate is alarming rather than intentional.
+func (h *HealthStatus) ExpectsHashing() bool {
+	if h == nil {
+		return false
+	}
+	switch *h {
+	case HealthHealthyActive, HealthWarning, HealthCritical:
+		return true
+	case HealthUnknown, HealthHealthyInactive:
+		return false
+	}
+	return false
+}
+
 // MarshalJSON implements json.Marshaler for HealthStatus.
 func (h *HealthStatus) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + h.String() + `"`), nil

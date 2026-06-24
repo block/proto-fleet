@@ -51,6 +51,14 @@ func (p *Provider) EmitDeviceOnline(_ context.Context, labels DeviceLabels, onli
 	})
 }
 
+func (p *Provider) EmitDeviceHashing(_ context.Context, labels DeviceLabels, ratio float64) {
+	p.record(Sample{
+		Metric: MetricDeviceHashing,
+		Labels: labels.toLabels(),
+		Value:  ratio,
+	})
+}
+
 func (p *Provider) EmitDeviceHashrate(_ context.Context, labels DeviceLabels, observedTHs, expectedTHs float64) {
 	base := labels.toLabels()
 	p.record(Sample{

@@ -17,6 +17,7 @@ import (
 // MetricsEmitter is the subset of metrics.Provider the telemetry observer depends on.
 type MetricsEmitter interface {
 	EmitDeviceOnline(ctx context.Context, labels metrics.DeviceLabels, online bool)
+	EmitDeviceHashing(ctx context.Context, labels metrics.DeviceLabels, ratio float64)
 	EmitDeviceHashrate(ctx context.Context, labels metrics.DeviceLabels, observedTHs, expectedTHs float64)
 	EmitDeviceTemperature(ctx context.Context, labels metrics.DeviceLabels, sensorKind string, maxC, avgC float64)
 	EmitDevicePoolConnected(ctx context.Context, labels metrics.DeviceLabels, connected bool)
@@ -27,6 +28,8 @@ type MetricsEmitter interface {
 type nopMetricsEmitter struct{}
 
 func (nopMetricsEmitter) EmitDeviceOnline(context.Context, metrics.DeviceLabels, bool) {
+}
+func (nopMetricsEmitter) EmitDeviceHashing(context.Context, metrics.DeviceLabels, float64) {
 }
 func (nopMetricsEmitter) EmitDeviceHashrate(context.Context, metrics.DeviceLabels, float64, float64) {
 }
@@ -105,6 +108,10 @@ func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID, siteID int
 		}
 		if observed, expected, ok := sanitizeHashrate(observedHS, nameplateHS, string(deviceID), driver); ok {
 			o.emitter.EmitDeviceHashrate(ctx, labels, observed, expected)
+			// Intent-gated observed/expected ratio; only devices expected to be hashing emit it, and the threshold lives in the rule.
+			if dm.Health.ExpectsHashing() {
+				o.emitter.EmitDeviceHashing(ctx, labels, hashingRatio(observed, expected))
+			}
 		}
 	}
 
@@ -164,6 +171,17 @@ func (o *metricsObserver) onPollResult(ctx context.Context, orgID, siteID int64,
 		DeviceID:       string(deviceID),
 		Result:         result,
 	})
+}
+
+// hashingRatio is observed over expected (nameplate) hashrate; with no nameplate it collapses to 1.0 (hashing) / 0.0 (stopped) so the rule's threshold still catches a full stop.
+func hashingRatio(observedTHs, expectedTHs float64) float64 {
+	if expectedTHs > 0 {
+		return observedTHs / expectedTHs
+	}
+	if observedTHs > 0 {
+		return 1
+	}
+	return 0
 }
 
 // isOnlineStatus reports whether a MinerStatus should map to fleet_device_online=1.

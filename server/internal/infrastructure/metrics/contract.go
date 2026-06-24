@@ -23,6 +23,9 @@ const (
 	// absent_over_time(fleet_device_online[10m]).
 	MetricDeviceOnline = "fleet_device_online"
 
+	// MetricDeviceHashing is a per-device observed/expected hashrate ratio (1.0 at/above expected, lower degraded, 0 stopped), emitted only for devices expected to be hashing; the below-expected threshold lives in the alert rule.
+	MetricDeviceHashing = "fleet_device_hashing"
+
 	// MetricDeviceHashrateTerahash is the device's currently observed hashrate
 	// expressed in terahash per second.
 	MetricDeviceHashrateTerahash = "fleet_device_hashrate_terahash"
@@ -109,6 +112,7 @@ const (
 // AllMetricNames is the canonical list of metric names emitted by Proto Fleet.
 var AllMetricNames = []string{
 	MetricDeviceOnline,
+	MetricDeviceHashing,
 	MetricDeviceHashrateTerahash,
 	MetricDeviceHashrateExpectedTerahash,
 	MetricDeviceTemperatureMaxCelsius,
