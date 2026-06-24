@@ -1,16 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import clsx from "clsx";
+import { useCallback, useMemo, useState } from "react";
 
 import AddInfraDeviceModal from "./AddInfraDevice/AddInfraDeviceModal";
 import InfraDeviceDetailModal from "./InfraDeviceDetail/InfraDeviceDetailModal";
 import ManageColumnsModal, { type InfraColumnPreference } from "./ManageColumnsModal";
-import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
 import type { InfraDeviceDraft, InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
-import { useSetActionBarVisible } from "@/protoFleet/store";
 import { Alert, ChevronDown, Plus, Slider } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
-import List, { type SelectionMode } from "@/shared/components/List";
+import List from "@/shared/components/List";
 import type { ActiveFilters, FilterItem, NestedFilterDropdownItem } from "@/shared/components/List/Filters/types";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import { SORT_ASC, type SortDirection } from "@/shared/components/List/types";
@@ -166,72 +163,11 @@ const buildDeviceId = (draft: InfraDeviceDraft, devices: InfraDeviceItem[]) => {
   return id;
 };
 
-interface InfraDeviceActionBarProps {
-  selected: string[];
-  clearSelection: () => void;
-  onDeleteSelected: () => void;
-  selectionMode: SelectionMode;
-  totalSelectable?: number;
-}
-
-const InfraDeviceActionBar = ({
-  selected,
-  clearSelection,
-  onDeleteSelected,
-  selectionMode,
-  totalSelectable,
-}: InfraDeviceActionBarProps) => {
-  const setActionBarVisible = useSetActionBarVisible();
-
-  useEffect(() => {
-    setActionBarVisible(selected.length > 0);
-  }, [selected.length, setActionBarVisible]);
-
-  useEffect(() => {
-    return () => setActionBarVisible(false);
-  }, [setActionBarVisible]);
-
-  return (
-    <div className="flex w-full justify-center">
-      <ActionBar
-        className="fixed right-0 bottom-4 left-0 z-20 laptop:left-16 desktop:left-50"
-        selectedItems={selected}
-        itemNoun={infraItemName}
-        selectionMode={selectionMode}
-        totalCount={totalSelectable}
-        onClose={clearSelection}
-        selectionControls={
-          <Button
-            className="py-1"
-            size={buttonSizes.textOnly}
-            variant={variants.textOnly}
-            textColor="text-core-accent-fill"
-            textOnlyUnderlineOnHover={false}
-            onClick={clearSelection}
-          >
-            Select none
-          </Button>
-        }
-        renderActions={() => (
-          <Button
-            className="bg-grayscale-white-10! text-grayscale-white-90!"
-            text="Delete"
-            variant={variants.danger}
-            size={buttonSizes.compact}
-            onClick={onDeleteSelected}
-          />
-        )}
-      />
-    </div>
-  );
-};
-
 const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDeviceListProps) => {
   const [localDevices, setLocalDevices] = useState<InfraDeviceItem[]>(() => devices);
   const [detailDeviceId, setDetailDeviceId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showManageColumns, setShowManageColumns] = useState(false);
-  const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
   const [currentPage, setCurrentPage] = useState(0);
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>(EMPTY_ACTIVE_FILTERS);
   const [currentSort, setCurrentSort] = useState<{ field: InfraColumn; direction: SortDirection }>({
@@ -512,30 +448,6 @@ const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDev
     setDetailDeviceId(device.id);
   }, []);
 
-  const renderActionBar = useCallback(
-    (selected: string[], clearSelection: () => void, currentSelectionMode: SelectionMode, totalSelectable?: number) => {
-      if (selected.length === 0) {
-        return null;
-      }
-      if (!canManage) {
-        return null;
-      }
-
-      return (
-        <InfraDeviceActionBar
-          selected={selected}
-          clearSelection={clearSelection}
-          onDeleteSelected={() => {
-            deleteDevices(selected);
-            clearSelection();
-          }}
-          selectionMode={currentSelectionMode}
-          totalSelectable={totalSelectable}
-        />
-      );
-    },
-    [canManage, deleteDevices],
-  );
   const hasPreviousPage = currentPageIndex > 0;
   const hasNextPage = currentPageIndex < maxPage;
   const firstItemIndex = currentPageIndex * PAGE_SIZE + 1;
@@ -572,8 +484,6 @@ const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDev
             ) : null}
           </div>
         }
-        itemSelectable
-        pageScopedSelection
         stickyFirstColumn
         tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
         paddingLeft={paddingLeft}
@@ -589,17 +499,10 @@ const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDev
         onSort={handleSort}
         getDefaultSortDirection={getDefaultSortDirection}
         onRowClick={handleRowClick}
-        onSelectionModeChange={setSelectionMode}
-        renderActionBar={renderActionBar}
       />
 
       {shouldRenderPagination ? (
-        <div
-          className={clsx("sticky left-0 flex flex-col items-center gap-4 pt-6", {
-            "pb-24": selectionMode !== "none",
-            "pb-6": selectionMode === "none",
-          })}
-        >
+        <div className="sticky left-0 flex flex-col items-center gap-4 pt-6 pb-6">
           <span className="text-300 text-text-primary">
             Showing {firstItemIndex}–{lastItemIndex} of {totalDevices} devices
           </span>
