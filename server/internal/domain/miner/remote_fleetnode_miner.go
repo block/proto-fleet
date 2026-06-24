@@ -228,7 +228,7 @@ func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb
 		Payload:   payload,
 	})
 	if err != nil {
-		if errors.Is(err, control.ErrNoActiveStream) {
+		if errors.Is(err, control.ErrNoActiveStream) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, err)
 		}
 		return nil, err

@@ -172,6 +172,27 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsNoActiveStream(t *testing.T) {
 	assert.True(t, fleeterror.IsConnectionError(err))
 }
 
+func TestRemoteFleetNodeMinerGetDeviceMetricsMapsAckTimeoutToConnectionError(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(ctx)
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	_ = receiveRemoteCommand(t, stream)
+	got := receiveMetricsResult(t, results)
+
+	require.Error(t, got.err)
+	assert.True(t, fleeterror.IsConnectionError(got.err))
+}
+
 func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsNonOKAck(t *testing.T) {
 	registry := control.NewRegistry()
 	stream := registry.Register(12)
