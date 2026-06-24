@@ -160,6 +160,9 @@ func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetri
 	if metrics.HealthReason != nil {
 		result.HealthReason = truncateUTF8(*metrics.HealthReason, maxAckErrorMessageBytes)
 	}
+	if metrics.DefaultPasswordActive != nil {
+		result.DefaultPasswordActive = metrics.DefaultPasswordActive
+	}
 	return result
 }
 

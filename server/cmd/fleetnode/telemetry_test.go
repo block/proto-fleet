@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"testing"
@@ -14,6 +16,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 func telemetryCmd(t *testing.T, req *telemetrypb.FleetNodeTelemetryRequest) []byte {
@@ -224,6 +227,45 @@ func TestTelemetryDialTargetRejectsUnsupportedScheme(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported url_scheme")
+}
+
+func TestTelemetrySecretBundleForAsymmetricAuth(t *testing.T) {
+	_, privateKey, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	fetcher := &pluginTelemetryFetcher{minerSigningPrivateKeyHex: hex.EncodeToString(privateKey)}
+	req := validTelemetryRequest()
+	req.SerialNumber = "SN123"
+
+	secret, err := fetcher.secretBundleFor(sdk.Capabilities{capabilityAsymmetricAuthKey: true}, req)
+
+	require.NoError(t, err)
+	assert.Equal(t, "v1", secret.Version)
+	bearer, ok := secret.Kind.(sdk.BearerToken)
+	require.True(t, ok)
+	assert.NotEmpty(t, bearer.Token)
+}
+
+func TestTelemetrySecretBundleForAsymmetricAuthValidationErrors(t *testing.T) {
+	t.Run("missing serial number", func(t *testing.T) {
+		fetcher := &pluginTelemetryFetcher{}
+		req := validTelemetryRequest()
+
+		_, err := fetcher.secretBundleFor(sdk.Capabilities{capabilityAsymmetricAuthKey: true}, req)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "serial_number is required")
+	})
+
+	t.Run("invalid signing key", func(t *testing.T) {
+		fetcher := &pluginTelemetryFetcher{minerSigningPrivateKeyHex: "not-hex"}
+		req := validTelemetryRequest()
+		req.SerialNumber = "SN123"
+
+		_, err := fetcher.secretBundleFor(sdk.Capabilities{capabilityAsymmetricAuthKey: true}, req)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "decode miner signing private key")
+	})
 }
 
 func validTelemetryRequest() *telemetrypb.FleetNodeTelemetryRequest {

@@ -238,6 +238,62 @@ func TestRemoteFleetNodeMinerGetDeviceStatusReusesFreshTelemetryResult(t *testin
 	}
 }
 
+func TestRemoteFleetNodeMinerGetDeviceMetricsCarriesDefaultPasswordActive(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	active := true
+	result := telemetryResult("node-device")
+	result.DefaultPasswordActive = &active
+	publishTelemetryAck(t, stream, cmd.GetCommandId(), result)
+
+	got := receiveMetricsResult(t, results)
+	require.NoError(t, got.err)
+	require.NotNil(t, got.metrics.DefaultPasswordActive)
+	assert.True(t, *got.metrics.DefaultPasswordActive)
+}
+
+func TestRemoteFleetNodeMinerNeedsMiningPoolKeepsExactStatus(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	result := telemetryResult("node-device")
+	result.DeviceStatus = telemetrypb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL
+	publishTelemetryAck(t, stream, cmd.GetCommandId(), result)
+
+	got := receiveMetricsResult(t, results)
+	require.NoError(t, got.err)
+	assert.Equal(t, modelsV2.HealthHealthyInactive, got.metrics.Health)
+
+	status, err := miner.GetDeviceStatus(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, models.MinerStatusNeedsMiningPool, status)
+	select {
+	case cmd := <-stream.Outgoing:
+		t.Fatalf("status should have reused cached telemetry result, got extra command %q", cmd.GetCommandId())
+	default:
+	}
+}
+
 type metricsResult struct {
 	metrics modelsV2.DeviceMetrics
 	err     error

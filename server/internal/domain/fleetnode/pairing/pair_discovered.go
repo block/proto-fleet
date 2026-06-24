@@ -319,6 +319,9 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 	if boundDeviceID != 0 && s.invalidateMiner != nil {
 		s.invalidateMiner(ctx, boundDeviceID)
 	}
+	if boundDeviceID != 0 {
+		s.scheduleTelemetryBestEffort(ctx, boundDeviceID, orgID)
+	}
 	return persisted, nil
 }
 

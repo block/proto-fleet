@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +17,7 @@ import (
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 func pairResult(identifier string, outcome gatewaypb.PairOutcome) *gatewaypb.FleetNodePairResult {
@@ -102,6 +104,16 @@ func fleetNodeEncryptedCredentials(t *testing.T, db *sql.DB, orgID int64, identi
 	password, err = base64.StdEncoding.DecodeString(passwordEnc)
 	require.NoError(t, err)
 	return username, password
+}
+
+type recordingTelemetryScheduler struct {
+	devices chan []telemetrymodels.DeviceIdentifier
+}
+
+func (s recordingTelemetryScheduler) AddDevices(_ context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error {
+	copied := append([]telemetrymodels.DeviceIdentifier(nil), deviceID...)
+	s.devices <- copied
+	return nil
 }
 
 func deviceExists(t *testing.T, db *sql.DB, orgID int64, identifier string) bool {
@@ -729,6 +741,31 @@ func TestPersistFleetNodePairResult_PairedInvalidatesMinerCache(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, fleetnodepairing.StatusPaired, status)
 	assert.Equal(t, []int64{deviceIDByIdentifier(t, db, orgID, "mac:p-invalidate")}, invalidated)
+}
+
+func TestPersistFleetNodePairResult_PairedSchedulesTelemetry(t *testing.T) {
+	// Arrange: a node-discovered device and a recorder for telemetry refreshes.
+	ctx := t.Context()
+	_, orgID, pairing, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, orgID, "node-persist-schedule")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-schedule")
+	scheduler := recordingTelemetryScheduler{devices: make(chan []telemetrymodels.DeviceIdentifier, 1)}
+	pairing.WithTelemetryScheduler(scheduler)
+	assignedBy := int64(1)
+
+	// Act
+	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:p-schedule", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
+
+	// Assert: the node-reported pair queues the same immediate telemetry refresh
+	// as the direct PairDevice path.
+	require.NoError(t, err)
+	assert.Equal(t, fleetnodepairing.StatusPaired, status)
+	select {
+	case got := <-scheduler.devices:
+		assert.Equal(t, []telemetrymodels.DeviceIdentifier{"mac:p-schedule"}, got)
+	case <-time.After(time.Second):
+		t.Fatal("telemetry scheduling was not started")
+	}
 }
 
 func TestPersistFleetNodePairResult_AuthNeededDoesNotInvalidate(t *testing.T) {

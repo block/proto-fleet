@@ -2,7 +2,6 @@ package miner
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"math"
@@ -67,22 +66,6 @@ type RemoteFleetNodeMiner struct {
 	mu     sync.Mutex
 	latest *cachedTelemetryStatus
 	now    func() time.Time
-}
-
-func (s *Service) remoteMinerFromDeviceIdentifier(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
-	route, err := s.GetQueries(ctx).GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx, string(deviceID))
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, sql.ErrNoRows
-		}
-		return nil, fmt.Errorf("failed to get fleet node telemetry route: %w", err)
-	}
-
-	remoteRoute, err := s.remoteRouteFromRow(route)
-	if err != nil {
-		return nil, err
-	}
-	return newRemoteFleetNodeMiner(remoteRoute, s.commandSender, s.nodeLimiter, nil)
 }
 
 func (s *Service) remoteRouteFromRow(row sqlc.GetFleetNodeTelemetryRouteByDeviceIdentifierRow) (remoteTelemetryRoute, error) {
@@ -332,16 +315,17 @@ func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult
 		healthReason = &reason
 	}
 	return modelsV2.DeviceMetrics{
-		DeviceIdentifier: result.GetDeviceIdentifier(),
-		Timestamp:        result.GetTimestamp().AsTime(),
-		FirmwareVersion:  result.GetFirmwareVersion(),
-		Health:           deviceStatusToHealth(result.GetDeviceStatus()),
-		HealthReason:     healthReason,
-		HashrateHS:       scalarMetricToV2(result.HashrateHs, modelsV2.MetricKindRate),
-		TempC:            scalarMetricToV2(result.TempC, modelsV2.MetricKindGauge),
-		FanRPM:           scalarMetricToV2(result.FanRpm, modelsV2.MetricKindGauge),
-		PowerW:           scalarMetricToV2(result.PowerW, modelsV2.MetricKindGauge),
-		EfficiencyJH:     scalarMetricToV2(result.EfficiencyJh, modelsV2.MetricKindGauge),
+		DeviceIdentifier:      result.GetDeviceIdentifier(),
+		Timestamp:             result.GetTimestamp().AsTime(),
+		FirmwareVersion:       result.GetFirmwareVersion(),
+		Health:                deviceStatusToHealth(result.GetDeviceStatus()),
+		HealthReason:          healthReason,
+		DefaultPasswordActive: result.DefaultPasswordActive,
+		HashrateHS:            scalarMetricToV2(result.HashrateHs, modelsV2.MetricKindRate),
+		TempC:                 scalarMetricToV2(result.TempC, modelsV2.MetricKindGauge),
+		FanRPM:                scalarMetricToV2(result.FanRpm, modelsV2.MetricKindGauge),
+		PowerW:                scalarMetricToV2(result.PowerW, modelsV2.MetricKindGauge),
+		EfficiencyJH:          scalarMetricToV2(result.EfficiencyJh, modelsV2.MetricKindGauge),
 	}
 }
 
@@ -360,10 +344,9 @@ func deviceStatusToHealth(status telemetrypb.DeviceStatus) modelsV2.HealthStatus
 	case telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE:
 		return modelsV2.HealthHealthyActive
 	case telemetrypb.DeviceStatus_DEVICE_STATUS_INACTIVE,
-		telemetrypb.DeviceStatus_DEVICE_STATUS_MAINTENANCE:
+		telemetrypb.DeviceStatus_DEVICE_STATUS_MAINTENANCE,
+		telemetrypb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
 		return modelsV2.HealthHealthyInactive
-	case telemetrypb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL:
-		return modelsV2.HealthWarning
 	case telemetrypb.DeviceStatus_DEVICE_STATUS_ERROR:
 		return modelsV2.HealthCritical
 	case telemetrypb.DeviceStatus_DEVICE_STATUS_OFFLINE,
