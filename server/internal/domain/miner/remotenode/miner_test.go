@@ -149,7 +149,7 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 func TestMiner_GetMiningPools_DecodesPayload(t *testing.T) {
 	// Arrange
 	payload, err := proto.Marshal(&gatewaypb.GetMiningPoolsResult{
-		Pools: []*gatewaypb.ConfiguredMiningPool{
+		Pools: []*gatewaypb.MiningPoolConfig{
 			{Priority: 0, Url: "stratum+tcp://pool1.example.com:3333", Username: "worker1"},
 			{Priority: 2, Url: "stratum+tcp://pool4.example.com:3333", Username: "worker4"},
 		},
@@ -207,8 +207,8 @@ func TestMiner_GetMiningPools_MalformedPayloadReturnsInternal(t *testing.T) {
 }
 
 func TestMiner_GetMiningPools_RejectsInvalidPayloadData(t *testing.T) {
-	validPool := func(priority int32) *gatewaypb.ConfiguredMiningPool {
-		return &gatewaypb.ConfiguredMiningPool{
+	validPool := func(priority int32) *gatewaypb.MiningPoolConfig {
+		return &gatewaypb.MiningPoolConfig{
 			Priority: priority,
 			Url:      fmt.Sprintf("stratum+tcp://pool%d.example.com:3333", priority),
 			Username: "worker",
@@ -220,7 +220,7 @@ func TestMiner_GetMiningPools_RejectsInvalidPayloadData(t *testing.T) {
 		result *gatewaypb.GetMiningPoolsResult
 	}{
 		{"too many pools", &gatewaypb.GetMiningPoolsResult{
-			Pools: []*gatewaypb.ConfiguredMiningPool{
+			Pools: []*gatewaypb.MiningPoolConfig{
 				validPool(0),
 				validPool(1),
 				validPool(2),
@@ -228,22 +228,22 @@ func TestMiner_GetMiningPools_RejectsInvalidPayloadData(t *testing.T) {
 			},
 		}},
 		{"priority beyond slots", &gatewaypb.GetMiningPoolsResult{
-			Pools: []*gatewaypb.ConfiguredMiningPool{
+			Pools: []*gatewaypb.MiningPoolConfig{
 				{Priority: 3, Url: "stratum+tcp://pool3.example.com:3333", Username: "worker"},
 			},
 		}},
 		{"invalid URL shape", &gatewaypb.GetMiningPoolsResult{
-			Pools: []*gatewaypb.ConfiguredMiningPool{
+			Pools: []*gatewaypb.MiningPoolConfig{
 				{Priority: 0, Url: "https://pool.example.com", Username: "worker"},
 			},
 		}},
 		{"invalid SV2 authority key", &gatewaypb.GetMiningPoolsResult{
-			Pools: []*gatewaypb.ConfiguredMiningPool{
+			Pools: []*gatewaypb.MiningPoolConfig{
 				{Priority: 0, Url: "stratum2+tcp://pool.example.com:3333/not_base58", Username: "worker"},
 			},
 		}},
 		{"username too long", &gatewaypb.GetMiningPoolsResult{
-			Pools: []*gatewaypb.ConfiguredMiningPool{
+			Pools: []*gatewaypb.MiningPoolConfig{
 				{Priority: 0, Url: "stratum+tcp://pool.example.com:3333", Username: strings.Repeat("x", 513)},
 			},
 		}},

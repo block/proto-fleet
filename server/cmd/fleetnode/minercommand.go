@@ -174,7 +174,7 @@ func runMinerAction(ctx context.Context, dev sdk.Device, mc *pb.MinerCommand) ([
 		if err != nil {
 			return nil, err
 		}
-		payload, err := proto.Marshal(&pb.GetMiningPoolsResult{Pools: configuredMiningPoolsFromSDK(pools)})
+		payload, err := proto.Marshal(&pb.GetMiningPoolsResult{Pools: miningPoolConfigsFromSDK(pools)})
 		if err != nil {
 			return nil, fmt.Errorf("marshal get mining pools result: %w", err)
 		}
@@ -196,10 +196,10 @@ func toSDKMiningPoolConfigs(pools []*pb.MiningPoolConfig) []sdk.MiningPoolConfig
 	return sdkPools
 }
 
-func configuredMiningPoolsFromSDK(pools []sdk.ConfiguredPool) []*pb.ConfiguredMiningPool {
-	configured := make([]*pb.ConfiguredMiningPool, 0, len(pools))
+func miningPoolConfigsFromSDK(pools []sdk.ConfiguredPool) []*pb.MiningPoolConfig {
+	configured := make([]*pb.MiningPoolConfig, 0, len(pools))
 	for _, pool := range pools {
-		configured = append(configured, &pb.ConfiguredMiningPool{
+		configured = append(configured, &pb.MiningPoolConfig{
 			Priority: pool.Priority,
 			Url:      pool.URL,
 			Username: pool.Username,
