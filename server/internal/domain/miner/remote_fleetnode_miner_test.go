@@ -163,6 +163,34 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsSendsContextTimeoutWithSlack(t *tes
 	require.NoError(t, receiveMetricsResult(t, results).err)
 }
 
+func TestRemoteFleetNodeMinerGetDeviceMetricsSendsDefaultTimeoutWithoutCallerDeadline(t *testing.T) {
+	oldTimeout := remoteTelemetryDefaultCommandTimeout
+	remoteTelemetryDefaultCommandTimeout = 3 * time.Second
+	defer func() { remoteTelemetryDefaultCommandTimeout = oldTimeout }()
+
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	env := &gatewaypb.AgentCommand{}
+	require.NoError(t, proto.Unmarshal(cmd.GetPayload(), env))
+	req := env.GetTelemetry()
+	require.NotNil(t, req)
+	require.NotNil(t, req.GetTimeout())
+	assert.InDelta(t, 2, req.GetTimeout().AsDuration().Seconds(), 0.5)
+	publishTelemetryAck(t, stream, cmd.GetCommandId(), telemetryResult("node-device"))
+
+	require.NoError(t, receiveMetricsResult(t, results).err)
+}
+
 func TestRemoteFleetNodeMinerGetDeviceMetricsNoActiveStream(t *testing.T) {
 	miner := newTestRemoteFleetNodeMiner(t, control.NewRegistry())
 
@@ -170,6 +198,29 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsNoActiveStream(t *testing.T) {
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsConnectionError(err))
+}
+
+func TestRemoteFleetNodeMinerGetDeviceMetricsTimesOutWithoutCallerDeadline(t *testing.T) {
+	oldTimeout := remoteTelemetryDefaultCommandTimeout
+	remoteTelemetryDefaultCommandTimeout = 20 * time.Millisecond
+	defer func() { remoteTelemetryDefaultCommandTimeout = oldTimeout }()
+
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	_ = receiveRemoteCommand(t, stream)
+	got := receiveMetricsResult(t, results)
+
+	require.Error(t, got.err)
+	assert.True(t, fleeterror.IsConnectionError(got.err))
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsMapsAckTimeoutToConnectionError(t *testing.T) {

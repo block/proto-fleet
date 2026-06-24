@@ -37,6 +37,8 @@ const (
 	remoteTelemetryGateAcquireTimeout = 30 * time.Second
 )
 
+var remoteTelemetryDefaultCommandTimeout = 5 * time.Second
+
 var _ interfaces.Miner = (*RemoteFleetNodeMiner)(nil)
 
 type remoteTelemetryRoute struct {
@@ -295,7 +297,7 @@ func remoteTelemetryGateContext(ctx context.Context) (context.Context, context.C
 
 func remoteTelemetryCommandContext(ctx context.Context, commandTimeout time.Duration) (context.Context, context.CancelFunc) {
 	if commandTimeout <= 0 {
-		return ctx, func() {}
+		commandTimeout = remoteTelemetryDefaultCommandTimeout
 	}
 	return context.WithTimeout(ctx, commandTimeout)
 }
