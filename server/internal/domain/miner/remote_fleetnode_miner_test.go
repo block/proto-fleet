@@ -458,20 +458,20 @@ func newTestRemoteFleetNodeMiner(t *testing.T, registry *control.Registry) *Remo
 func newTestRemoteFleetNodeMinerWithGate(t *testing.T, registry *control.Registry, gate remotenode.Gate) *RemoteFleetNodeMiner {
 	t.Helper()
 	miner, err := newRemoteFleetNodeMiner(remoteTelemetryRoute{
-		fleetNodeID:      12,
-		orgID:            7,
-		deviceIdentifier: "node-device",
-		driverName:       "antminer",
-		manufacturer:     "Bitmain",
-		model:            "S19",
-		firmwareVersion:  "fw-0",
-		serialNumber:     "SN123",
-		macAddress:       "aa:bb:cc:dd:ee:ff",
-		ipAddress:        "10.0.0.5",
-		port:             "80",
-		urlScheme:        "http",
-		username:         "root",
-		password:         "pw",
+		fleetNodeID:        12,
+		orgID:              7,
+		deviceIdentifier:   "node-device",
+		driverName:         "antminer",
+		manufacturer:       "Bitmain",
+		model:              "S19",
+		firmwareVersion:    "fw-0",
+		serialNumber:       "SN123",
+		macAddress:         "aa:bb:cc:dd:ee:ff",
+		ipAddress:          "10.0.0.5",
+		port:               "80",
+		urlScheme:          "http",
+		credentialUsername: []byte("node-encrypted-user"),
+		credentialPassword: []byte("node-encrypted-pass"),
 	}, registry, gate, nil)
 	require.NoError(t, err)
 	return miner
@@ -554,8 +554,8 @@ func assertTelemetryRequest(t *testing.T, cmd *gatewaypb.ControlCommand, wantDev
 	require.NotNil(t, req)
 	assert.Equal(t, wantDeviceID, req.GetDeviceIdentifier())
 	assert.Equal(t, "10.0.0.5", req.GetIpAddress())
-	assert.Equal(t, "root", req.GetUsername())
-	assert.Equal(t, "pw", req.GetPassword())
+	assert.Equal(t, []byte("node-encrypted-user"), req.GetCredentialUsername())
+	assert.Equal(t, []byte("node-encrypted-pass"), req.GetCredentialPassword())
 }
 
 func publishTelemetryAck(t *testing.T, stream *control.Stream, commandID string, result *telemetrypb.FleetNodeTelemetryResult) {

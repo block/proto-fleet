@@ -39,6 +39,10 @@ func (s *pairServiceStore) GetFleetNodePairedDeviceIdentifier(context.Context, i
 	return s.identifier, nil
 }
 
+func (s *pairServiceStore) DeleteMinerCredentialsByDeviceIDAndOrgID(context.Context, int64, int64) (int64, error) {
+	return 0, nil
+}
+
 type pairServiceEnrollmentStore struct {
 	enrollment.AgentStore
 }

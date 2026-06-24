@@ -190,7 +190,7 @@ func telemetryDialTarget(req *telemetrypb.FleetNodeTelemetryRequest) *pb.MinerCo
 	}
 }
 
-func telemetryRequestRedactions(req *telemetrypb.FleetNodeTelemetryRequest) []string {
+func telemetryRequestRedactions(_ *telemetrypb.FleetNodeTelemetryRequest) []string {
 	return nil
 }
 

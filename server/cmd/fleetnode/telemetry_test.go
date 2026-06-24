@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/ed25519"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"testing"
@@ -280,24 +278,6 @@ func TestControlLoop_TelemetryFetcherGenericError(t *testing.T) {
 	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, acks[0].GetCode())
 }
 
-func TestControlLoop_TelemetryRedactsRequestPasswordFromFetcherError(t *testing.T) {
-	cmd := &RunCmd{telemetry: &stubTelemetryFetcher{err: errors.New("auth failed with password secret-pw")}}
-	fake := &controlFakeGateway{}
-	req := validTelemetryRequest()
-	username := "root"
-	password := "secret-pw"
-	req.Username = &username
-	req.Password = &password
-	fake.queue(telemetryCmd(t, req))
-
-	runControlLoopOnce(t, cmd, fake)
-
-	acks := fake.acksCopy()
-	require.Len(t, acks, 1)
-	assert.NotContains(t, acks[0].GetErrorMessage(), "secret-pw")
-	assert.Contains(t, acks[0].GetErrorMessage(), "[REDACTED]")
-}
-
 func TestTelemetryDialTargetRejectsPublicAddress(t *testing.T) {
 	req := validTelemetryRequest()
 	req.IpAddress = "8.8.8.8"
@@ -318,86 +298,15 @@ func TestTelemetryDialTargetRejectsUnsupportedScheme(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported url_scheme")
 }
 
-func TestTelemetrySecretBundleForAsymmetricAuth(t *testing.T) {
-	_, privateKey, err := ed25519.GenerateKey(nil)
-	require.NoError(t, err)
-	fetcher := &pluginTelemetryFetcher{minerSigningPrivateKeyHex: hex.EncodeToString(privateKey)}
+func TestTelemetryDialTargetCarriesEncryptedCredentials(t *testing.T) {
 	req := validTelemetryRequest()
-	req.SerialNumber = "SN123"
+	req.CredentialUsername = []byte("node-encrypted-user")
+	req.CredentialPassword = []byte("node-encrypted-pass")
 
-	secret, err := fetcher.secretBundleFor(sdk.Capabilities{capabilityAsymmetricAuthKey: true}, req)
+	target := telemetryDialTarget(req)
 
-	require.NoError(t, err)
-	assert.Equal(t, "v1", secret.Version)
-	bearer, ok := secret.Kind.(sdk.BearerToken)
-	require.True(t, ok)
-	assert.NotEmpty(t, bearer.Token)
-}
-
-func TestTelemetrySecretBundleForAsymmetricAuthValidationErrors(t *testing.T) {
-	t.Run("missing serial number", func(t *testing.T) {
-		fetcher := &pluginTelemetryFetcher{}
-		req := validTelemetryRequest()
-
-		_, err := fetcher.secretBundleFor(sdk.Capabilities{capabilityAsymmetricAuthKey: true}, req)
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "serial_number is required")
-	})
-
-	t.Run("invalid signing key", func(t *testing.T) {
-		fetcher := &pluginTelemetryFetcher{minerSigningPrivateKeyHex: "not-hex"}
-		req := validTelemetryRequest()
-		req.SerialNumber = "SN123"
-
-		_, err := fetcher.secretBundleFor(sdk.Capabilities{capabilityAsymmetricAuthKey: true}, req)
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "decode miner signing private key")
-	})
-}
-
-func TestTelemetrySecretBundleForBasicAuthValidationErrors(t *testing.T) {
-	t.Run("empty username with password is allowed when present", func(t *testing.T) {
-		fetcher := &pluginTelemetryFetcher{}
-		req := validTelemetryRequest()
-		username := ""
-		password := "pw"
-		req.Username = &username
-		req.Password = &password
-
-		secret, err := fetcher.secretBundleFor(nil, req)
-
-		require.NoError(t, err)
-		basic, ok := secret.Kind.(sdk.UsernamePassword)
-		require.True(t, ok)
-		assert.Equal(t, "", basic.Username)
-		assert.Equal(t, "pw", basic.Password)
-	})
-
-	t.Run("password without username", func(t *testing.T) {
-		fetcher := &pluginTelemetryFetcher{}
-		req := validTelemetryRequest()
-		password := "pw"
-		req.Password = &password
-
-		_, err := fetcher.secretBundleFor(nil, req)
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "username is required")
-	})
-
-	t.Run("username without password", func(t *testing.T) {
-		fetcher := &pluginTelemetryFetcher{}
-		req := validTelemetryRequest()
-		username := "root"
-		req.Username = &username
-
-		_, err := fetcher.secretBundleFor(nil, req)
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "password is required")
-	})
+	assert.Equal(t, []byte("node-encrypted-user"), target.GetCredentialUsername())
+	assert.Equal(t, []byte("node-encrypted-pass"), target.GetCredentialPassword())
 }
 
 func TestTelemetryResultFromV2CarriesWarningHealthSeparatelyFromStatus(t *testing.T) {
