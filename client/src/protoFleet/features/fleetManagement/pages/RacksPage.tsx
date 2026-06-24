@@ -1336,7 +1336,12 @@ const RacksPage = () => {
                     ).length;
                     createFlow.launchCreateBuilding({ rackIds, minerIds: [], conflictCount });
                   } else {
-                    const conflictCount = selectedRackScopes.filter((scope) => scope.siteId !== 0n).length;
+                    // A rack directly in another site OR in a building (whose
+                    // building_id AssignRacksToSite clears on the cross-site
+                    // move) is displaced — warn for both.
+                    const conflictCount = selectedRackScopes.filter(
+                      (scope) => scope.siteId !== 0n || scope.buildingId !== 0n,
+                    ).length;
                     createFlow.launchCreateSite({ buildingIds: [], rackIds, minerIds: [], conflictCount });
                   }
                 }
@@ -1438,11 +1443,14 @@ const RacksPage = () => {
                     });
                   } else {
                     const siteId = rackInfo?.siteId ?? 0n;
+                    const buildingId = rackInfo?.buildingId ?? 0n;
                     createFlow.launchCreateSite({
                       buildingIds: [],
                       rackIds: [rack.id],
                       minerIds: [],
-                      conflictCount: siteId !== 0n ? 1 : 0,
+                      // AssignRacksToSite clears building_id on the cross-site
+                      // move, so a building-held rack is displaced too.
+                      conflictCount: siteId !== 0n || buildingId !== 0n ? 1 : 0,
                     });
                   }
                 }
