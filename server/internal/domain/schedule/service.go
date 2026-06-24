@@ -558,10 +558,16 @@ func validateTargets(targets []*pb.ScheduleTarget) error {
 			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_SITE,
 			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_BUILDING:
 			// rack/group/site/building ids are positive BIGSERIAL row ids.
-			// Reject non-positive values: "0"/negatives parse fine but resolve
-			// zero devices, leaving a schedule that saves yet never applies.
+			// Require the canonical decimal form: reject non-positive values
+			// ("0"/negatives resolve zero devices → a no-op schedule) and signed
+			// or zero-padded forms ("+7", "007"). ParseInt accepts those and
+			// expansion would dispatch to the underlying id, but the overlap
+			// SQL only casts ids matching ^[0-9]+$, so a non-canonical id would
+			// run yet escape the power-target conflict filter. FormatInt round-
+			// trips only the canonical form, keeping validation, expansion, and
+			// overlap resolution in agreement.
 			parsedID, err := strconv.ParseInt(trimmedID, 10, 64)
-			if err != nil || parsedID <= 0 {
+			if err != nil || parsedID <= 0 || strconv.FormatInt(parsedID, 10) != trimmedID {
 				return fleeterror.NewInvalidArgumentErrorf(
 					"invalid target_id for %s: %q is not a valid identifier",
 					scheduleTargetTypeToString(t.TargetType), trimmedID,

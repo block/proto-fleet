@@ -261,6 +261,20 @@ func TestValidateTargets(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "signed site target_id is rejected (would escape overlap SQL)",
+			targets: []*pb.ScheduleTarget{
+				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_SITE, TargetId: "+7"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "zero-padded rack target_id is rejected",
+			targets: []*pb.ScheduleTarget{
+				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK, TargetId: "007"},
+			},
+			wantErr: true,
+		},
+		{
 			name:    "nil target",
 			targets: []*pb.ScheduleTarget{nil},
 			wantErr: true,
