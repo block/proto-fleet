@@ -23,6 +23,7 @@ import {
   mapCurtailmentHistoryEvent,
 } from "@/protoFleet/api/curtailmentMappers";
 import {
+  AdminTerminateEventRequestSchema,
   CurtailmentEventSchema,
   GetCurtailmentEventRequestSchema,
   ListCurtailmentEventsRequestSchema,
@@ -76,15 +77,30 @@ interface CurtailmentHistoryPaginationState {
   pageTokens: (string | undefined)[];
 }
 
+export type AdminTerminateCurtailmentState = Extract<CurtailmentEventState, "cancelled" | "failed">;
+
+export interface AdminTerminateCurtailmentOptions {
+  reason: string;
+  targetState: AdminTerminateCurtailmentState;
+}
+
+export interface StopCurtailmentOptions {
+  force?: boolean;
+}
+
+export const adminTerminateReasonRequiredMessage = "Enter a reason before terminating the event.";
+
 export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
   isLoading: boolean;
   isStarting: boolean;
   isUpdating: boolean;
   stoppingEventId: string | null;
+  adminTerminatingEventId: string | null;
   loadError: string | null;
   startError: string | null;
   updateError: string | null;
   stopError: string | null;
+  adminTerminateError: string | null;
   historyCurrentPage: number;
   historyHasNextPage: boolean;
   historyHasPreviousPage: boolean;
@@ -115,7 +131,11 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
     values: CurtailmentSubmitValues,
     initialValues?: Partial<CurtailmentSubmitValues>,
   ) => Promise<ProtoCurtailmentEvent>;
-  stopCurtailment: (eventUuid: string) => Promise<ProtoCurtailmentEvent>;
+  stopCurtailment: (eventUuid: string, options?: StopCurtailmentOptions) => Promise<ProtoCurtailmentEvent>;
+  adminTerminateCurtailment: (
+    eventUuid: string,
+    options: AdminTerminateCurtailmentOptions,
+  ) => Promise<ProtoCurtailmentEvent>;
 }
 
 const curtailmentHistoryPageSize = 50;
@@ -153,6 +173,10 @@ const activeReconciliationHistoryStateFilters: CurtailmentEventState[] = [
   "failed",
 ];
 const vanishedRestoringUnreadableErrorCodes = new Set<Code>([Code.NotFound, Code.PermissionDenied]);
+const adminTerminateStateMap: Record<AdminTerminateCurtailmentState, ProtoCurtailmentEventState> = {
+  cancelled: ProtoCurtailmentEventState.CANCELLED,
+  failed: ProtoCurtailmentEventState.FAILED,
+};
 
 function isVanishedRestoringUnreadableError(error: unknown): boolean {
   return error instanceof ConnectError && vanishedRestoringUnreadableErrorCodes.has(error.code);
@@ -188,6 +212,10 @@ function mapHistoryStateFilters(stateFilters: readonly CurtailmentEventState[]):
   return normalizeHistoryStateFilters(stateFilters)
     .map(mapHistoryStateFilter)
     .filter((state) => state !== ProtoCurtailmentEventState.UNSPECIFIED);
+}
+
+function mapAdminTerminateState(targetState: AdminTerminateCurtailmentState): ProtoCurtailmentEventState {
+  return adminTerminateStateMap[targetState];
 }
 
 function getActiveSnapshotEvent(activeEvent: ProtoCurtailmentEvent | undefined): ActiveCurtailmentEvent | null {
@@ -559,10 +587,12 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
   const [isStarting, setIsStarting] = useState(false);
   const [updatingEventId, setUpdatingEventId] = useState<string | null>(null);
   const [stoppingEventId, setStoppingEventId] = useState<string | null>(null);
+  const [adminTerminatingEventId, setAdminTerminatingEventId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [stopError, setStopError] = useState<string | null>(null);
+  const [adminTerminateError, setAdminTerminateError] = useState<string | null>(null);
   const [historyPagination, setHistoryPagination] =
     useState<CurtailmentHistoryPaginationState>(initialHistoryPagination);
   const [historyStatusFilters, setHistoryStatusFiltersState] = useState<CurtailmentEventState[]>([]);
@@ -1111,13 +1141,13 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
   );
 
   const stopCurtailment = useCallback(
-    async (eventUuid: string) => {
+    async (eventUuid: string, { force = false }: StopCurtailmentOptions = {}) => {
       setStoppingEventId(eventUuid);
       setStopError(null);
 
       try {
         const response = await curtailmentClient.stopCurtailment(
-          create(StopCurtailmentRequestSchema, { eventUuid, force: false }),
+          create(StopCurtailmentRequestSchema, { eventUuid, force }),
         );
         if (!response.event) {
           throw new Error("Stopped curtailment response was missing an event.");
@@ -1132,6 +1162,44 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
         throw resolvedError;
       } finally {
         setStoppingEventId((currentEventId) => (currentEventId === eventUuid ? null : currentEventId));
+      }
+    },
+    [applyEvent, handleFailure, refreshAfterMutation],
+  );
+
+  const adminTerminateCurtailment = useCallback(
+    async (eventUuid: string, { reason, targetState }: AdminTerminateCurtailmentOptions) => {
+      const trimmedReason = reason.trim();
+      if (!trimmedReason) {
+        const validationError = new Error(adminTerminateReasonRequiredMessage);
+        setAdminTerminateError(validationError.message);
+        throw validationError;
+      }
+
+      setAdminTerminatingEventId(eventUuid);
+      setAdminTerminateError(null);
+
+      try {
+        const response = await curtailmentClient.adminTerminateEvent(
+          create(AdminTerminateEventRequestSchema, {
+            eventUuid,
+            reason: trimmedReason,
+            targetState: mapAdminTerminateState(targetState),
+          }),
+        );
+        if (!response.event) {
+          throw new Error("Admin terminate response was missing an event.");
+        }
+
+        applyEvent(response.event);
+        await refreshAfterMutation();
+        return response.event;
+      } catch (error) {
+        const resolvedError = handleFailure(error, "Failed to terminate curtailment event.");
+        setAdminTerminateError(resolvedError.message);
+        throw resolvedError;
+      } finally {
+        setAdminTerminatingEventId((currentEventId) => (currentEventId === eventUuid ? null : currentEventId));
       }
     },
     [applyEvent, handleFailure, refreshAfterMutation],
@@ -1175,10 +1243,12 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       isStarting,
       isUpdating: updatingEventId !== null,
       stoppingEventId,
+      adminTerminatingEventId,
       loadError,
       startError,
       updateError,
       stopError,
+      adminTerminateError,
       historyCurrentPage: historyPagination.currentPage,
       historyHasNextPage: historyPagination.nextPageToken !== "",
       historyHasPreviousPage: historyPagination.currentPage > 0,
@@ -1194,10 +1264,14 @@ export function useCurtailmentApi(): UseCurtailmentApiResult {
       dismissTerminalCurtailment,
       updateCurtailment,
       stopCurtailment,
+      adminTerminateCurtailment,
     }),
     [
       activeSnapshotFields,
       activeHistoryEvents,
+      adminTerminateCurtailment,
+      adminTerminateError,
+      adminTerminatingEventId,
       goToHistoryPage,
       historyEvents,
       historyPagination.currentPage,

@@ -32,6 +32,8 @@ export interface ActiveCurtailmentEvent {
   reason: string;
   state: CurtailmentEventState;
   scopeLabel: string;
+  sourceLabel: string;
+  isAutomationOwned?: boolean;
   endedAt?: string;
   selectedMiners: number;
   estimatedReductionKw: number;
@@ -47,7 +49,9 @@ interface ActiveCurtailmentStatusProps {
   event: ActiveCurtailmentEvent;
   className?: string;
   onDismissRestored?: () => void;
+  onRequestAdminTerminate?: () => void;
   onRequestEdit?: () => void;
+  onRequestForceRestore?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
 }
@@ -55,7 +59,9 @@ interface ActiveCurtailmentStatusProps {
 interface ActiveCurtailmentActionButtonsProps {
   displayState: ActiveCurtailmentDisplayState;
   onDismissRestored?: () => void;
+  onRequestAdminTerminate?: () => void;
   onRequestEdit?: () => void;
+  onRequestForceRestore?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
 }
@@ -352,9 +358,22 @@ function formatActiveCurtailmentHeaderDetail(event: ActiveCurtailmentEvent): str
   return `${event.reason} (Applies to ${event.scopeLabel})`;
 }
 
+function getForceRestoreButton(onRequestForceRestore?: () => void): ReactElement | null {
+  return onRequestForceRestore ? (
+    <Button
+      variant={variants.secondaryDanger}
+      size={sizes.compact}
+      text="Force restore"
+      onClick={onRequestForceRestore}
+    />
+  ) : null;
+}
+
 function getActiveCurtailmentActionButton({
   displayState,
   onDismissRestored,
+  onRequestAdminTerminate,
+  onRequestForceRestore,
   onRequestRestore,
   onRequestStop,
 }: ActiveCurtailmentActionButtonsProps): ReactElement | null {
@@ -368,29 +387,46 @@ function getActiveCurtailmentActionButton({
     case "failed":
       return null;
     case "curtailed":
-      return onRequestRestore ? (
-        <Button variant={variants.primary} size={sizes.compact} text="Restore" onClick={onRequestRestore} />
-      ) : null;
+      return (
+        getForceRestoreButton(onRequestForceRestore) ??
+        (onRequestRestore ? (
+          <Button variant={variants.primary} size={sizes.compact} text="Restore" onClick={onRequestRestore} />
+        ) : null)
+      );
     case "pending":
     case "curtailing":
-      return onRequestStop ? (
-        <Button variant={variants.danger} size={sizes.compact} text="Stop" onClick={onRequestStop} />
-      ) : null;
+      return (
+        getForceRestoreButton(onRequestForceRestore) ??
+        (onRequestStop ? (
+          <Button variant={variants.danger} size={sizes.compact} text="Stop" onClick={onRequestStop} />
+        ) : null)
+      );
     case "restoring":
-      return null;
+      return onRequestAdminTerminate ? (
+        <Button
+          variant={variants.secondaryDanger}
+          size={sizes.compact}
+          text="Admin terminate"
+          onClick={onRequestAdminTerminate}
+        />
+      ) : null;
   }
 }
 
 function ActiveCurtailmentActionButtons({
   displayState,
   onDismissRestored,
+  onRequestAdminTerminate,
   onRequestEdit,
+  onRequestForceRestore,
   onRequestRestore,
   onRequestStop,
 }: ActiveCurtailmentActionButtonsProps): ReactElement | null {
   const actionButton = getActiveCurtailmentActionButton({
     displayState,
     onDismissRestored,
+    onRequestAdminTerminate,
+    onRequestForceRestore,
     onRequestRestore,
     onRequestStop,
   });
@@ -435,7 +471,9 @@ export default function ActiveCurtailmentStatus({
   event,
   className,
   onDismissRestored,
+  onRequestAdminTerminate,
   onRequestEdit,
+  onRequestForceRestore,
   onRequestRestore,
   onRequestStop,
 }: ActiveCurtailmentStatusProps): ReactElement {
@@ -496,7 +534,9 @@ export default function ActiveCurtailmentStatus({
         <ActiveCurtailmentActionButtons
           displayState={displayState}
           onDismissRestored={onDismissRestored}
+          onRequestAdminTerminate={onRequestAdminTerminate}
           onRequestEdit={onRequestEdit}
+          onRequestForceRestore={onRequestForceRestore}
           onRequestRestore={onRequestRestore}
           onRequestStop={onRequestStop}
         />
@@ -528,6 +568,16 @@ export default function ActiveCurtailmentStatus({
             </>
           )}
         </div>
+
+        {event.isAutomationOwned ? (
+          <div className="mt-6 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">
+            <div className="text-emphasis-300">MQTT automation recovery</div>
+            <div className="mt-1 text-text-primary-70">
+              {event.sourceLabel} owns this event. Normal restore can be blocked while OFF demand remains asserted or
+              the source is stale.
+            </div>
+          </div>
+        ) : null}
       </div>
     </section>
   );

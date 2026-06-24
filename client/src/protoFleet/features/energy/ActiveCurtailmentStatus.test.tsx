@@ -157,6 +157,31 @@ describe("ActiveCurtailmentStatus", () => {
     expect(onRequestRestore).toHaveBeenCalledOnce();
   });
 
+  it("renders automation recovery context with force restore available", async () => {
+    const user = userEvent.setup();
+    const onRequestForceRestore = vi.fn();
+
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailedCurtailmentEvent,
+          isAutomationOwned: true,
+          sourceLabel: "MQTT automation",
+        }}
+        onRequestForceRestore={onRequestForceRestore}
+        onRequestRestore={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("MQTT automation recovery")).toBeVisible();
+    expect(screen.getByText(/Normal restore can be blocked while OFF demand remains asserted/)).toBeVisible();
+    expectActionButtonHidden("Restore");
+
+    await user.click(screen.getByRole("button", { name: "Force restore" }));
+
+    expect(onRequestForceRestore).toHaveBeenCalledOnce();
+  });
+
   it("renders a restoring event without stop, restore, or manage actions", () => {
     render(<ActiveCurtailmentStatus event={restoringCurtailmentEvent} />);
 
@@ -172,6 +197,27 @@ describe("ActiveCurtailmentStatus", () => {
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
+  });
+
+  it("renders admin terminate while restoring when recovery is available", async () => {
+    const user = userEvent.setup();
+    const onRequestAdminTerminate = vi.fn();
+
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...restoringCurtailmentEvent,
+          isAutomationOwned: true,
+          sourceLabel: "MQTT automation",
+        }}
+        onRequestAdminTerminate={onRequestAdminTerminate}
+      />,
+    );
+
+    expect(screen.getByText("MQTT automation recovery")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Admin terminate" }));
+
+    expect(onRequestAdminTerminate).toHaveBeenCalledOnce();
   });
 
   it("counts released targets as restored during restoration", () => {

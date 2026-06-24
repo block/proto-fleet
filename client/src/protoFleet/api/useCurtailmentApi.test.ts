@@ -26,6 +26,7 @@ import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
 import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const {
+  mockAdminTerminateEvent,
   mockListActiveCurtailments,
   mockGetCurtailmentEvent,
   mockHandleAuthErrors,
@@ -34,6 +35,7 @@ const {
   mockStopCurtailment,
   mockUpdateCurtailment,
 } = vi.hoisted(() => ({
+  mockAdminTerminateEvent: vi.fn(),
   mockListActiveCurtailments: vi.fn(),
   mockGetCurtailmentEvent: vi.fn(),
   mockHandleAuthErrors: vi.fn(),
@@ -63,6 +65,7 @@ vi.mock("@/protoFleet/api/clients", () => ({
       listCurtailmentEvents: mockListCurtailmentEvents,
       startCurtailment: mockStartCurtailment,
       stopCurtailment: mockStopCurtailment,
+      adminTerminateEvent: mockAdminTerminateEvent,
       updateCurtailmentEvent: mockUpdateCurtailment,
     };
   })(),
@@ -1963,6 +1966,73 @@ describe("useCurtailmentApi", () => {
     expect(result.current.activeEvent?.state).toBe("restoring");
 
     window.removeEventListener(CURTAILMENT_CHANGED_EVENT, changedListener);
+  });
+
+  it("force stops curtailment when requested", async () => {
+    const restoringEvent = curtailmentEvent({
+      state: CurtailmentEventState.RESTORING,
+    });
+    mockStopCurtailment.mockResolvedValueOnce({ event: restoringEvent });
+    mockListActiveCurtailments.mockResolvedValue({ event: restoringEvent });
+    mockListCurtailmentEvents.mockResolvedValue({ events: [restoringEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.stopCurtailment("curt-1", { force: true });
+    });
+
+    expect(mockStopCurtailment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventUuid: "curt-1",
+        force: true,
+      }),
+    );
+    expect(result.current.activeEvent?.state).toBe("restoring");
+  });
+
+  it("admin terminates restoring events with a required reason", async () => {
+    const cancelledEvent = curtailmentEvent({
+      state: CurtailmentEventState.CANCELLED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+    });
+    mockAdminTerminateEvent.mockResolvedValueOnce({ event: cancelledEvent });
+    mockListCurtailmentEvents.mockResolvedValue({ events: [cancelledEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await expect(
+        result.current.adminTerminateCurtailment("curt-1", {
+          reason: "   ",
+          targetState: "cancelled",
+        }),
+      ).rejects.toThrow("Enter a reason before terminating the event.");
+    });
+
+    expect(mockAdminTerminateEvent).not.toHaveBeenCalled();
+    expect(result.current.adminTerminateError).toBe("Enter a reason before terminating the event.");
+
+    await act(async () => {
+      await result.current.adminTerminateCurtailment("curt-1", {
+        reason: " Operator recovered stale source ",
+        targetState: "cancelled",
+      });
+    });
+
+    expect(mockAdminTerminateEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventUuid: "curt-1",
+        reason: "Operator recovered stale source",
+        targetState: CurtailmentEventState.CANCELLED,
+      }),
+    );
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-1",
+        state: "cancelled",
+      }),
+    );
   });
 
   it("starts full-fleet curtailment without fixed-kW mode params", async () => {

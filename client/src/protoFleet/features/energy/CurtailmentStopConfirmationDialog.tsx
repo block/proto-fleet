@@ -4,7 +4,7 @@ import { Power, Stop } from "@/shared/assets/icons";
 import { type ButtonVariant, variants } from "@/shared/components/Button";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 
-export type CurtailmentStopConfirmationAction = "restore" | "stopCurtailment";
+export type CurtailmentStopConfirmationAction = "forceRestore" | "restore" | "stopCurtailment";
 
 interface CurtailmentStopConfirmationDialogProps {
   open: boolean;
@@ -24,6 +24,17 @@ interface StopDialogCopy {
 }
 
 function getStopDialogCopy(action: CurtailmentStopConfirmationAction): StopDialogCopy {
+  if (action === "forceRestore") {
+    return {
+      title: "Force restore automation event?",
+      body: "Force restore overrides active automation demand and minimum-duration guards. Miners will start restoring even if MQTT demand is still OFF or the source is stale.",
+      confirmText: "Force restore",
+      confirmVariant: variants.secondaryDanger,
+      icon: <Power />,
+      iconIntent: "critical",
+    };
+  }
+
   if (action === "restore") {
     return {
       title: "Restore power?",
