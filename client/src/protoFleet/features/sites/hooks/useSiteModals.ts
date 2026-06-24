@@ -40,7 +40,12 @@ export interface SiteModalsApi {
   saving: boolean;
   deleting: boolean;
   openCreate: () => void;
-  openManageEdit: (site: Site) => void;
+  // unassigned*Count surface count-lines in ManageSiteModal when the site was
+  // created from a bulk "New site" action seeded with loose racks/miners.
+  // Omitted by normal edit callers → no count lines.
+  openManageEdit: (site: Site, opts?: { unassignedRackCount?: number; unassignedMinerCount?: number }) => void;
+  manageUnassignedRackCount: number | undefined;
+  manageUnassignedMinerCount: number | undefined;
   // Resolve a SiteWithCounts from the page's sites cache and open the
   // cascade dialog. The hook does the lookup so callers don't duplicate the
   // same id-matching logic.
@@ -73,6 +78,10 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
   const [deleteTarget, setDeleteTarget] = useState<SiteWithCounts | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Set by openManageEdit; read while the manage modal is open. Stale values
+  // while closed are harmless, and the next openManageEdit overwrites.
+  const [manageUnassignedRackCount, setManageUnassignedRackCount] = useState<number | undefined>(undefined);
+  const [manageUnassignedMinerCount, setManageUnassignedMinerCount] = useState<number | undefined>(undefined);
 
   // Synchronous in-flight guard for Save dispatches. setState batching means
   // the `saving` prop driving the button's `disabled` lags one render behind
@@ -96,9 +105,14 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
     setState({ kind: "detailsCreate", draft: emptySiteFormValues() });
   }, []);
 
-  const openManageEdit = useCallback((site: Site) => {
-    setState({ kind: "manageEdit", site, draft: siteFormValuesFromSite(site) });
-  }, []);
+  const openManageEdit = useCallback(
+    (site: Site, opts?: { unassignedRackCount?: number; unassignedMinerCount?: number }) => {
+      setManageUnassignedRackCount(opts?.unassignedRackCount);
+      setManageUnassignedMinerCount(opts?.unassignedMinerCount);
+      setState({ kind: "manageEdit", site, draft: siteFormValuesFromSite(site) });
+    },
+    [],
+  );
 
   const requestDeleteCurrent = useCallback((sites: SiteWithCounts[] | undefined) => {
     // Pulls the currently-edited site id from state and resolves the matching
@@ -350,6 +364,8 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
     deleteTarget,
     saving,
     deleting,
+    manageUnassignedRackCount,
+    manageUnassignedMinerCount,
     openCreate,
     openManageEdit,
     requestDeleteCurrent,

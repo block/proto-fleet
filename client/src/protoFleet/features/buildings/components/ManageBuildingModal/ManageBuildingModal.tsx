@@ -31,6 +31,10 @@ interface ManageBuildingModalProps {
   // sibling-building labels via listBuildingsBySite, so no
   // siblingBuildings prop is plumbed through.
   onSaved?: (updated: Building) => void;
+  // Count of miners assigned directly to this building (no rack), shown as a
+  // count line under the racks list. Set when the building was created from a
+  // bulk "New building" action seeded with loose miners.
+  unassignedMinerCount?: number;
 }
 
 const ManageBuildingModal = ({
@@ -41,6 +45,7 @@ const ManageBuildingModal = ({
   onEditDetails,
   onDeleteRequested,
   onSaved,
+  unassignedMinerCount,
 }: ManageBuildingModalProps) => {
   const { listBuildingRacks, assignRacksToBuilding } = useBuildings();
 
@@ -598,6 +603,7 @@ const ManageBuildingModal = ({
             onSelectRack={handleSelectRack}
             onRemoveRack={handleRemoveRack}
             onOpenManageRacks={() => setShowManageRacks(true)}
+            unassignedMinerCount={unassignedMinerCount}
             saving={isSaving}
           />
         }

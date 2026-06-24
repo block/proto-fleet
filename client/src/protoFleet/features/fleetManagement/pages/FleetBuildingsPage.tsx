@@ -10,6 +10,7 @@ import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { issueOptions } from "@/protoFleet/components/DeviceSetList";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
+import NullState from "@/protoFleet/components/NullState";
 import {
   intersectSiteFilters,
   isMatchNoneSiteFilter,
@@ -20,6 +21,7 @@ import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
+import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import {
   FILTER_URL_PARAM_KEYS,
   fleetListTelemetryRangesFromURL,
@@ -36,7 +38,7 @@ import {
   type TelemetryFilterKey,
 } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { useHasPermission } from "@/protoFleet/store";
-import { Alert } from "@/shared/assets/icons";
+import { Alert, Building, Plus } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
@@ -200,6 +202,8 @@ const FleetBuildingsPage = () => {
             kind: "building" as const,
             id: building.building.id,
             name: building.building.name,
+            // Rides along for the "New site" conflict pre-warning.
+            siteId: building.building.siteId ?? 0n,
           },
         ];
       }),
@@ -265,7 +269,17 @@ const FleetBuildingsPage = () => {
 
   const { assignBuildingsToSite } = useSites();
   const [reparentTarget, setReparentTarget] = useState<BuildingWithCounts | null>(null);
+  const [bulkAddToSite, setBulkAddToSite] = useState(false);
   const handleAddBuildingToSite = useCallback((row: BuildingWithCounts) => setReparentTarget(row), []);
+
+  // Open the hoisted create flow in place when it commits a new entity.
+  const createFlow = useFleetCreateFlow();
+  const entitiesChangedAt = createFlow?.entitiesChangedAt ?? 0;
+  useEffect(() => {
+    if (entitiesChangedAt === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- refetch on a cross-component create signal; external-sync pattern.
+    fetchBuildings();
+  }, [entitiesChangedAt, fetchBuildings]);
 
   const siteFilterOptions = useMemo(
     () => [
@@ -436,6 +450,15 @@ const FleetBuildingsPage = () => {
       <FleetGroupListActionBar
         selectedScopes={selectedBuildingScopes}
         kind="building"
+        bulkExtraActions={[
+          {
+            label: "Add to site",
+            icon: <Plus />,
+            testId: "fleet-bulk-building-actions-add-to-site",
+            onClick: () => setBulkAddToSite(true),
+            hidden: !canManageBuildings,
+          },
+        ]}
         onClearSelection={handleClearBuildingSelection}
         onSelectAllVisible={handleSelectAllVisibleBuildings}
         onActionBusyChange={setIsBulkActionBusy}
@@ -470,19 +493,23 @@ const FleetBuildingsPage = () => {
         </div>
       </FilterRow>
     ) : (
-      <FilterRow testId="fleet-buildings-page">
-        {filterControls}
-        <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-border-5 p-6">
-          <Header title="No buildings yet" titleSize="text-heading-200" />
-          <p className="text-300 text-text-primary-70">
-            {!canManageBuildings
-              ? "No buildings have been added to this fleet yet."
-              : hasSites
-                ? "Add a building to start organizing racks."
-                : "Create a site first, then add buildings to organize racks."}
-          </p>
-        </div>
-      </FilterRow>
+      <NullState
+        icon={<Building width="w-5" />}
+        title="No buildings yet"
+        description={
+          !canManageBuildings
+            ? "No buildings have been added to this fleet yet."
+            : hasSites
+              ? "Add a building to start organizing racks."
+              : "Create a site first, then add buildings to organize racks."
+        }
+        action={
+          canManageBuildings ? (
+            <Button variant={variants.primary} onClick={handleAddBuilding} disabled={!hasSites} text="Add building" />
+          ) : undefined
+        }
+        testId="fleet-buildings-page"
+      />
     );
   } else if (visibleBuildings.length === 0) {
     pageContent = (
@@ -536,6 +563,18 @@ const FleetBuildingsPage = () => {
           selectionMode="single"
           sourceLabel={reparentTarget.building.name || "building"}
           currentParentId={reparentTarget.building.siteId}
+          createNewLaunchLabel={createFlow ? "New site" : undefined}
+          onCreateNewLaunch={
+            createFlow
+              ? () => {
+                  const building = reparentTarget.building;
+                  if (!building) return;
+                  const conflictCount = building.siteId !== undefined && building.siteId !== 0n ? 1 : 0;
+                  setReparentTarget(null);
+                  createFlow.launchCreateSite({ buildingIds: [building.id], rackIds: [], minerIds: [], conflictCount });
+                }
+              : undefined
+          }
           onDismiss={() => setReparentTarget(null)}
           onConfirm={(siteIds) =>
             new Promise<void>((resolve, reject) => {
@@ -557,6 +596,60 @@ const FleetBuildingsPage = () => {
                 },
                 onError: (msg) => {
                   pushToast({ message: `Couldn't move building: ${msg}`, status: STATUSES.error });
+                  reject(new Error(msg));
+                },
+              });
+            })
+          }
+        />
+      ) : null}
+      {bulkAddToSite ? (
+        <ParentPickerModal
+          kind="site"
+          show
+          selectionMode="single"
+          sourceLabel={
+            selectedBuildingScopes.length === 1
+              ? selectedBuildingScopes[0]!.name
+              : `${selectedBuildingScopes.length} buildings`
+          }
+          createNewLaunchLabel={createFlow ? "New site" : undefined}
+          onCreateNewLaunch={
+            createFlow
+              ? () => {
+                  const buildingIds = selectedBuildingScopes.map((scope) => scope.id);
+                  const conflictCount = selectedBuildingScopes.filter((scope) => scope.siteId !== 0n).length;
+                  setBulkAddToSite(false);
+                  setSelectedBuildingIds([]);
+                  createFlow.launchCreateSite({ buildingIds, rackIds: [], minerIds: [], conflictCount });
+                }
+              : undefined
+          }
+          onDismiss={() => setBulkAddToSite(false)}
+          onConfirm={(siteIds) =>
+            new Promise<void>((resolve, reject) => {
+              const targetSiteId = siteIds[0];
+              if (targetSiteId === undefined) {
+                resolve();
+                return;
+              }
+              const buildingIds = selectedBuildingScopes.map((scope) => scope.id);
+              const count = buildingIds.length;
+              void assignBuildingsToSite({
+                buildingIds,
+                targetSiteId,
+                onSuccess: () => {
+                  pushToast({
+                    message: `Moved ${count} ${count === 1 ? "building" : "buildings"} to selected site.`,
+                    status: STATUSES.success,
+                  });
+                  fetchBuildings();
+                  setBulkAddToSite(false);
+                  setSelectedBuildingIds([]);
+                  resolve();
+                },
+                onError: (msg) => {
+                  pushToast({ message: `Couldn't move buildings: ${msg}`, status: STATUSES.error });
                   reject(new Error(msg));
                 },
               });

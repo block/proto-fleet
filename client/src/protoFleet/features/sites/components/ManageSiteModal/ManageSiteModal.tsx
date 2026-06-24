@@ -54,6 +54,11 @@ interface ManageSiteModalProps {
   // (e.g. a building deleted from the settings table) so the modal's local
   // list re-fetches without bouncing through unmount/remount.
   buildingsRefreshKey?: number;
+  // Counts of items assigned directly to this site (not via a building),
+  // shown as count lines under the buildings list. Set when the site was
+  // created from a bulk "New site" action seeded with loose racks/miners.
+  unassignedRackCount?: number;
+  unassignedMinerCount?: number;
 }
 
 // Row layout mirrors MinerRow from ManageRackModal: name + secondary line
@@ -150,6 +155,8 @@ const ManageSiteModal = ({
   onDismiss,
   saving = false,
   buildingsRefreshKey = 0,
+  unassignedRackCount,
+  unassignedMinerCount,
 }: ManageSiteModalProps) => {
   const { listBuildingsBySite } = useBuildings();
   // undefined = loading; [] = loaded-empty. Working set the operator edits
@@ -330,6 +337,16 @@ const ManageSiteModal = ({
                   ))}
                 </div>
               )}
+              {unassignedRackCount ? (
+                <p className="text-200 text-text-primary-50" data-testid="manage-site-unassigned-racks">
+                  {unassignedRackCount} {unassignedRackCount === 1 ? "rack" : "racks"} unassigned to a building
+                </p>
+              ) : null}
+              {unassignedMinerCount ? (
+                <p className="text-200 text-text-primary-50" data-testid="manage-site-unassigned-miners">
+                  {unassignedMinerCount} {unassignedMinerCount === 1 ? "miner" : "miners"} unassigned to a building
+                </p>
+              ) : null}
             </section>
           </div>
         }

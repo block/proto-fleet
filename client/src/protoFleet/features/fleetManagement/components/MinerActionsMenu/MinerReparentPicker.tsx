@@ -13,7 +13,12 @@ import {
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
-import { getMinerRackLabel } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
+import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
+import {
+  getMinerBuildingLabel,
+  getMinerRackLabel,
+  getMinerSiteLabel,
+} from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import { pushToast, removeToast, STATUSES, updateToast } from "@/shared/features/toaster";
@@ -225,6 +230,7 @@ const MinerReparentPicker = ({
   const { assignDevicesToSite } = useSites();
   const { assignDevicesToBuilding } = useBuildings();
   const { assignDevicesToRack, getDeviceSet, listRacks } = useDeviceSets();
+  const createFlow = useFleetCreateFlow();
   const [siteMoveConfirmation, setSiteMoveConfirmation] = useState<SiteMoveConfirmation | null>(null);
   const [siteMoveInFlight, setSiteMoveInFlight] = useState(false);
   const [buildingMoveConfirmation, setBuildingMoveConfirmation] = useState<BuildingMoveConfirmation | null>(null);
@@ -605,6 +611,107 @@ const MinerReparentPicker = ({
     settleDialog();
   };
 
+  // Resolve the operator's selection to a concrete id list plus the snapshots
+  // (for conflict counting). Subset mode already has both; all-mode paginates
+  // the snapshot endpoint behind a loading toast (same path as onConfirm).
+  // Returns null on abort / error / empty so callers can bail quietly.
+  const resolveSelectionIds = async (): Promise<{
+    ids: string[];
+    snapshots: Record<string, MinerStateSnapshot> | undefined;
+  } | null> => {
+    if (selectionMode === "all") {
+      const effectiveFilter = currentFilter ?? create(MinerListFilterSchema);
+      const loadingToast = pushToast({
+        message: "Loading selected miners…",
+        status: STATUSES.loading,
+        longRunning: true,
+      });
+      let ids: string[];
+      let snapshots: Record<string, MinerStateSnapshot>;
+      try {
+        const resolved = await resolveAllModeIds(effectiveFilter, abortRef.current?.signal);
+        if (abortRef.current?.signal.aborted) {
+          removeToast(loadingToast);
+          return null;
+        }
+        ids = resolved.ids;
+        snapshots = resolved.snapshots;
+      } catch (err) {
+        const message = err instanceof Error && err.message ? err.message : "Couldn't load selected miners. Try again.";
+        updateToast(loadingToast, { message, status: STATUSES.error });
+        return null;
+      }
+      removeToast(loadingToast);
+      if (ids.length === 0) {
+        pushToast({ message: "No miners selected.", status: STATUSES.queued });
+        return null;
+      }
+      return { ids, snapshots };
+    }
+    if (deviceIdentifiers.length === 0) {
+      pushToast({ message: "No miners selected.", status: STATUSES.queued });
+      return null;
+    }
+    return { ids: deviceIdentifiers, snapshots: miners };
+  };
+
+  // Count selected miners that already belong to a parent the new entity
+  // would displace — drives the create-flow pre-warn dialog, mirroring the
+  // reparent flow. A building move conflicts with any current building/rack;
+  // a site move conflicts with any current site/building/rack.
+  const countMinersWithParent = (
+    ids: string[],
+    snapshots: Record<string, MinerStateSnapshot> | undefined,
+    target: "building" | "site",
+  ): number => {
+    if (!snapshots) return 0;
+    return ids.filter((id) => {
+      const snapshot = snapshots[id];
+      if (!snapshot) return false;
+      const hasRack = !!getMinerRackLabel(snapshot);
+      const hasBuilding = !!getMinerBuildingLabel(snapshot);
+      const hasSite = !!getMinerSiteLabel(snapshot);
+      return target === "building" ? hasBuilding || hasRack : hasSite || hasBuilding || hasRack;
+    }).length;
+  };
+
+  // "New …" hand-off: resolve the selection, close the picker, then open the
+  // hoisted create flow seeded with these miners. For rack, membership
+  // conflicts resolve at ManageRackModal save (atomic replace). For building,
+  // the miners are assigned directly with force-clear after create — the
+  // server-side clear mirrors the reparent confirm path.
+  const createNewLaunchLabel = createFlow
+    ? kind === "rack"
+      ? "New rack"
+      : kind === "building"
+        ? "New building"
+        : "New site"
+    : undefined;
+
+  const handleCreateNewLaunch = async () => {
+    if (!createFlow) return;
+    const resolved = await resolveSelectionIds();
+    if (!resolved) return;
+    const { ids, snapshots } = resolved;
+    onClose();
+    if (kind === "rack") {
+      createFlow.launchCreateRack({ minerIds: ids });
+    } else if (kind === "building") {
+      createFlow.launchCreateBuilding({
+        rackIds: [],
+        minerIds: ids,
+        conflictCount: countMinersWithParent(ids, snapshots, "building"),
+      });
+    } else {
+      createFlow.launchCreateSite({
+        buildingIds: [],
+        rackIds: [],
+        minerIds: ids,
+        conflictCount: countMinersWithParent(ids, snapshots, "site"),
+      });
+    }
+  };
+
   const conflictRackLabels = siteMoveConfirmation ? Array.from(siteMoveConfirmation.conflictsByLabel.keys()) : [];
   const conflictCount = siteMoveConfirmation
     ? Array.from(siteMoveConfirmation.conflictsByLabel.values()).reduce((sum, list) => sum + list.length, 0)
@@ -623,6 +730,8 @@ const MinerReparentPicker = ({
             ? `${totalCount} miners`
             : sourceLabel
         }
+        createNewLaunchLabel={createNewLaunchLabel}
+        onCreateNewLaunch={createNewLaunchLabel ? () => void handleCreateNewLaunch() : undefined}
         onDismiss={onClose}
         // Returning a promise that only resolves after the dispatch
         // (including any cross-site confirm Dialog) completes keeps

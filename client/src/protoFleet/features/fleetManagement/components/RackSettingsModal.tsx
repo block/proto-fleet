@@ -42,19 +42,6 @@ const coolingTypeOptions: SelectOption[] = [
   { value: String(RackCoolingType.IMMERSION), label: "Immersion" },
 ];
 
-function abbreviateZone(zone: string): string {
-  if (!zone.trim()) return "";
-  return zone
-    .trim()
-    .split(/\s+/)
-    .map((word) => {
-      const letters = word.replace(/[0-9]/g, "");
-      const digits = word.replace(/[^0-9]/g, "");
-      return (letters.charAt(0) || "").toUpperCase() + digits;
-    })
-    .join("");
-}
-
 const RackSettingsModal = ({
   show,
   existingRacks,
@@ -70,7 +57,6 @@ const RackSettingsModal = ({
   const { updateRack, listRackZones, listRackTypes } = useDeviceSets();
 
   const [label, setLabel] = useState(initialFormData?.label ?? rack?.label ?? "");
-  const [labelManuallyEdited, setLabelManuallyEdited] = useState(isEditMode || !!initialFormData?.label);
   const [zone, setZone] = useState(() => {
     if (initialFormData?.zone) return initialFormData.zone;
     if (rackInfo?.zone) return rackInfo.zone;
@@ -99,7 +85,6 @@ const RackSettingsModal = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [labelError, setLabelError] = useState<string | undefined>();
-  const [zoneError, setZoneError] = useState<string | undefined>();
   const [columnsError, setColumnsError] = useState<string | undefined>();
   const [rowsError, setRowsError] = useState<string | undefined>();
 
@@ -135,21 +120,6 @@ const RackSettingsModal = ({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on mount; initialFormData and rackInfo are initial values
   }, [listRackZones, listRackTypes]);
-
-  // Auto-generate label when zone changes
-  const autoLabel = useMemo(() => {
-    const abbr = abbreviateZone(zone);
-    if (!abbr) return "";
-    const trimmedZone = zone.trim();
-    const racksInZone = existingRacks.filter((r) => {
-      if (r.typeDetails.case !== "rackInfo") return false;
-      return r.typeDetails.value.zone === trimmedZone;
-    });
-    const nextNum = racksInZone.length + 1;
-    return `${abbr}-${String(nextNum).padStart(2, "0")}`;
-  }, [zone, existingRacks]);
-
-  const effectiveLabel = labelManuallyEdited ? label : autoLabel;
 
   const filteredSuggestions = useMemo(() => {
     if (!zone.trim()) return zoneSuggestions;
@@ -230,19 +200,14 @@ const RackSettingsModal = ({
 
   const handleSubmit = useCallback(() => {
     setLabelError(undefined);
-    setZoneError(undefined);
     setColumnsError(undefined);
     setRowsError(undefined);
     setErrorMsg("");
 
     let hasError = false;
 
-    if (!effectiveLabel.trim()) {
+    if (!label.trim()) {
       setLabelError("A label is required");
-      hasError = true;
-    }
-    if (!zone.trim()) {
-      setZoneError("A zone is required");
       hasError = true;
     }
     const colsNum = Number(columns);
@@ -259,7 +224,7 @@ const RackSettingsModal = ({
     if (hasError) return;
 
     const formData: RackFormData = {
-      label: effectiveLabel.trim(),
+      label: label.trim(),
       zone: zone.trim(),
       rows: rowsNum,
       columns: colsNum,
@@ -298,7 +263,7 @@ const RackSettingsModal = ({
       },
     });
   }, [
-    effectiveLabel,
+    label,
     zone,
     rows,
     columns,
@@ -340,10 +305,18 @@ const RackSettingsModal = ({
         <div className="flex flex-col gap-4 pt-1">
           {errorMsg ? <Callout intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
 
+          <Input
+            id="rack-label"
+            label="Label"
+            initValue={label}
+            onChange={(value) => setLabel(value)}
+            error={labelError}
+          />
+
           <div className="relative">
             <Input
               id="rack-zone"
-              label="Zone"
+              label="Zone (optional)"
               initValue={zone}
               inputRef={zoneInputRef}
               onChange={(value) => {
@@ -356,7 +329,6 @@ const RackSettingsModal = ({
                   setShowZoneSuggestions(false);
                 }
               }}
-              error={zoneError}
               autoComplete="off"
             />
             {showZoneSuggestions && filteredSuggestions.length > 0 ? (
@@ -388,17 +360,6 @@ const RackSettingsModal = ({
               </div>
             ) : null}
           </div>
-
-          <Input
-            id="rack-label"
-            label="Label"
-            initValue={effectiveLabel}
-            onChange={(value) => {
-              setLabel(value);
-              setLabelManuallyEdited(true);
-            }}
-            error={labelError}
-          />
 
           {rackTypes.length > 0 ? (
             <Select

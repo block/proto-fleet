@@ -44,6 +44,7 @@ const makeApi = (overrides: Partial<BuildingModalsApi> = {}): BuildingModalsApi 
   deleteTarget: null,
   saving: false,
   deleting: false,
+  manageUnassignedMinerCount: undefined,
   openDetailsCreate: vi.fn(),
   openDetailsEdit: vi.fn(),
   openManage: vi.fn(),

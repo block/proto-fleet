@@ -11,6 +11,7 @@ import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import FleetCreateFlowProvider from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetCreateFlowProvider";
 import FleetViewTabs from "@/protoFleet/features/fleetManagement/components/FleetViewTabs";
 import { type FleetTabId } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import useFleetViews from "@/protoFleet/features/fleetManagement/views/useFleetViews";
@@ -306,7 +307,9 @@ const FleetLayout = () => {
           ))}
         </TabStrip>
       </div>
-      <div className="min-h-0 flex-1">{outlet}</div>
+      <div className="min-h-0 flex-1">
+        <FleetCreateFlowProvider sites={sites ?? []}>{outlet}</FleetCreateFlowProvider>
+      </div>
     </div>
   );
 };

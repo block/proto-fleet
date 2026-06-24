@@ -69,6 +69,10 @@ interface ManageRackModalProps {
   rackSettings: RackFormData;
   existingRackId?: bigint;
   existingRacks: DeviceSet[];
+  // Pre-seeds the new rack's miner list (e.g. from a bulk "Add to rack →
+  // New rack" flow) so the selected miners land in the left pane ready
+  // for slot assignment. Ignored in edit mode (existingRackId set).
+  seededMinerIds?: string[];
   onDismiss: () => void;
   onSave: () => void;
   onDelete?: () => Promise<void> | void;
@@ -79,6 +83,7 @@ export default function ManageRackModal({
   rackSettings: initialRackSettings,
   existingRackId,
   existingRacks,
+  seededMinerIds,
   onDismiss,
   onSave,
   onDelete,
@@ -94,8 +99,10 @@ export default function ManageRackModal({
   const totalSlots = rackSettings.rows * rackSettings.columns;
   const numberingOrigin = orderIndexToOrigin(rackSettings.orderIndex);
 
-  // Core assignment state
-  const [rackMiners, setRackMiners] = useState<string[]>([]);
+  // Core assignment state. A new rack (no existingRackId) can be seeded
+  // with miners from a bulk "Add to rack → New rack" flow; edit mode
+  // ignores the seed and loads the rack's real membership below.
+  const [rackMiners, setRackMiners] = useState<string[]>(() => (existingRackId ? [] : (seededMinerIds ?? [])));
   const [slotAssignments, setSlotAssignments] = useState<Record<string, string>>({});
   const [assignmentMode, setAssignmentMode] = useState<AssignmentMode>("manual");
   const [manualAssignmentCache, setManualAssignmentCache] = useState<Record<string, string>>({});

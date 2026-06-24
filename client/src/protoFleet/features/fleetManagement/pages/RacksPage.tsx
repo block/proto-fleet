@@ -27,6 +27,7 @@ import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
 import FleetGroupListActionBar from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar";
 import { useOptionalFleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout";
@@ -364,6 +365,18 @@ const RacksPage = () => {
   useEffect(() => {
     fetchZones();
   }, [fetchZones]);
+
+  // Refetch when the hoisted create flow commits a new rack (or other
+  // entity) so this list reflects it without waiting for the next poll.
+  // entitiesChangedAt starts at 0 and only bumps post-create, so the
+  // initial mount is a no-op.
+  const createFlow = useFleetCreateFlow();
+  const entitiesChangedAt = createFlow?.entitiesChangedAt ?? 0;
+  useEffect(() => {
+    if (entitiesChangedAt === 0) return;
+    resetAndFetch();
+    fetchZones();
+  }, [entitiesChangedAt, resetAndFetch, fetchZones]);
 
   // One-shot load — org-scoped buildings are small + stable.
   useEffect(() => {
@@ -742,8 +755,11 @@ const RacksPage = () => {
         // Carry the rack's current building so the bulk Add-to-building
         // dispatch can drop no-op moves (a same-building request without a
         // grid position is treated server-side as an explicit unplace).
-        const buildingId = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value.buildingId : 0n;
-        return [{ kind: "rack" as const, id: rack.id, name: rack.label || "(unnamed)", buildingId }];
+        // siteId rides along for the "New site" conflict pre-warning.
+        const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
+        const buildingId = rackInfo?.buildingId ?? 0n;
+        const siteId = rackInfo?.siteId ?? 0n;
+        return [{ kind: "rack" as const, id: rack.id, name: rack.label || "(unnamed)", buildingId, siteId }];
       }),
     [racks],
   );
@@ -1284,6 +1300,25 @@ const RacksPage = () => {
           sourceLabel={
             selectedRackScopes.length === 1 ? selectedRackScopes[0]!.name : `${selectedRackScopes.length} racks`
           }
+          createNewLaunchLabel={
+            createFlow ? (bulkReparentKind === "building" ? "New building" : "New site") : undefined
+          }
+          onCreateNewLaunch={
+            createFlow
+              ? () => {
+                  const rackIds = selectedRackScopes.map((scope) => scope.id);
+                  setBulkReparentKind(null);
+                  setSelectedRackIds([]);
+                  if (bulkReparentKind === "building") {
+                    const conflictCount = selectedRackScopes.filter((scope) => scope.buildingId !== 0n).length;
+                    createFlow.launchCreateBuilding({ rackIds, minerIds: [], conflictCount });
+                  } else {
+                    const conflictCount = selectedRackScopes.filter((scope) => scope.siteId !== 0n).length;
+                    createFlow.launchCreateSite({ buildingIds: [], rackIds, minerIds: [], conflictCount });
+                  }
+                }
+              : undefined
+          }
           onDismiss={() => setBulkReparentKind(null)}
           onConfirm={(parentIds) =>
             new Promise<void>((resolve, reject) => {
@@ -1358,6 +1393,35 @@ const RacksPage = () => {
               ? reparentTarget.kind === "building"
                 ? reparentTarget.rack.typeDetails.value.buildingId
                 : reparentTarget.rack.typeDetails.value.siteId
+              : undefined
+          }
+          createNewLaunchLabel={
+            createFlow ? (reparentTarget.kind === "building" ? "New building" : "New site") : undefined
+          }
+          onCreateNewLaunch={
+            createFlow
+              ? () => {
+                  const rack = reparentTarget.rack;
+                  const targetKind = reparentTarget.kind;
+                  const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
+                  setReparentTarget(null);
+                  if (targetKind === "building") {
+                    const buildingId = rackInfo?.buildingId ?? 0n;
+                    createFlow.launchCreateBuilding({
+                      rackIds: [rack.id],
+                      minerIds: [],
+                      conflictCount: buildingId !== 0n ? 1 : 0,
+                    });
+                  } else {
+                    const siteId = rackInfo?.siteId ?? 0n;
+                    createFlow.launchCreateSite({
+                      buildingIds: [],
+                      rackIds: [rack.id],
+                      minerIds: [],
+                      conflictCount: siteId !== 0n ? 1 : 0,
+                    });
+                  }
+                }
               : undefined
           }
           onDismiss={() => setReparentTarget(null)}
