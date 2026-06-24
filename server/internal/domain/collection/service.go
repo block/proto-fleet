@@ -1720,6 +1720,25 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			buildingChanged bool
 		)
 
+		// Canonical lock pre-pass, mirroring AssignDevicesToRack: lock the
+		// target plus every source rack the members currently sit in, in one
+		// ascending device_set.id order, BEFORE the per-path target lock and
+		// the replaceRackMembershipAndSlots deletes. This is what keeps the
+		// new RemoveDevicesFromAnyRack delete from deadlocking against a
+		// concurrent rack save moving devices the opposite way. targetRackID
+		// is 0 on the create path (the rack doesn't exist yet; it's created +
+		// locked below and sorts last by id). Guarded on a non-empty member
+		// set — an empty save removes members and touches no source racks.
+		if len(deviceIdentifiers) > 0 {
+			var lockTargetRackID int64
+			if req.CollectionId != nil {
+				lockTargetRackID = *req.CollectionId
+			}
+			if _, err := s.collectionStore.LockRacksForReparent(ctx, info.OrganizationID, deviceIdentifiers, lockTargetRackID); err != nil {
+				return nil, err
+			}
+		}
+
 		if isUpdate {
 			res, err := s.saveRackUpdate(ctx, info, req, rackInfo)
 			if err != nil {
