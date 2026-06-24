@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"buf.build/go/protovalidate"
@@ -73,7 +74,7 @@ func (r *RunCmd) handleTelemetryCommand(ctx context.Context, stream acker, comma
 		if errors.As(err, &ce) {
 			code = ce.code
 		}
-		r.sendAck(stream, commandID, code, err.Error(), logger)
+		r.sendAck(stream, commandID, code, redactTelemetrySecrets(err.Error(), telemetryRequestRedactions(req)...), logger)
 		return
 	}
 	payload, err := proto.Marshal(result)
@@ -144,9 +145,10 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 		code, msg := classifyMinerCommandError("build telemetry secret bundle", err)
 		return nil, cmdErr(code, "%s", msg)
 	}
+	redactions := telemetrySecretRedactions(secret)
 	created, err := plugin.Driver.NewDevice(ctx, req.GetDeviceIdentifier(), deviceInfo, secret)
 	if err != nil {
-		code, msg := classifyTelemetryError("create telemetry device", err)
+		code, msg := classifyTelemetryError("create telemetry device", err, redactions...)
 		return nil, cmdErr(code, "%s", msg)
 	}
 	defer func() {
@@ -157,7 +159,7 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 
 	sdkMetrics, err := created.Device.Status(ctx)
 	if err != nil {
-		code, msg := classifyTelemetryError("fetch telemetry", err)
+		code, msg := classifyTelemetryError("fetch telemetry", err, redactions...)
 		return nil, cmdErr(code, "%s", msg)
 	}
 	v2Metrics := mappers.SDKDeviceMetricsToV2(sdkMetrics)
@@ -188,6 +190,31 @@ func telemetryDialTarget(req *telemetrypb.FleetNodeTelemetryRequest) *pb.MinerCo
 	}
 }
 
+func telemetryRequestRedactions(req *telemetrypb.FleetNodeTelemetryRequest) []string {
+	return nil
+}
+
+func telemetrySecretRedactions(secret sdk.SecretBundle) []string {
+	switch kind := secret.Kind.(type) {
+	case sdk.UsernamePassword:
+		return []string{kind.Password}
+	case sdk.BearerToken:
+		return []string{kind.Token}
+	default:
+		return nil
+	}
+}
+
+func redactTelemetrySecrets(msg string, secrets ...string) string {
+	for _, secret := range secrets {
+		if secret == "" {
+			continue
+		}
+		msg = strings.ReplaceAll(msg, secret, "[REDACTED]")
+	}
+	return msg
+}
+
 func telemetryTimeout(req *telemetrypb.FleetNodeTelemetryRequest) time.Duration {
 	if req.GetTimeout() != nil {
 		if timeout := req.GetTimeout().AsDuration(); timeout > 0 {
@@ -197,8 +224,8 @@ func telemetryTimeout(req *telemetrypb.FleetNodeTelemetryRequest) time.Duration 
 	return telemetryCommandTimeout
 }
 
-func classifyTelemetryError(stage string, err error) (pb.AckCode, string) {
-	msg := fmt.Sprintf("%s: %v", stage, err)
+func classifyTelemetryError(stage string, err error, redactions ...string) (pb.AckCode, string) {
+	msg := redactTelemetrySecrets(fmt.Sprintf("%s: %v", stage, err), redactions...)
 	if isNodeAuthFailure(err) {
 		return pb.AckCode_ACK_CODE_UNAUTHENTICATED, msg
 	}

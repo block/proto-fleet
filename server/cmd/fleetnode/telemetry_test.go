@@ -280,6 +280,24 @@ func TestControlLoop_TelemetryFetcherGenericError(t *testing.T) {
 	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, acks[0].GetCode())
 }
 
+func TestControlLoop_TelemetryRedactsRequestPasswordFromFetcherError(t *testing.T) {
+	cmd := &RunCmd{telemetry: &stubTelemetryFetcher{err: errors.New("auth failed with password secret-pw")}}
+	fake := &controlFakeGateway{}
+	req := validTelemetryRequest()
+	username := "root"
+	password := "secret-pw"
+	req.Username = &username
+	req.Password = &password
+	fake.queue(telemetryCmd(t, req))
+
+	runControlLoopOnce(t, cmd, fake)
+
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.NotContains(t, acks[0].GetErrorMessage(), "secret-pw")
+	assert.Contains(t, acks[0].GetErrorMessage(), "[REDACTED]")
+}
+
 func TestTelemetryDialTargetRejectsPublicAddress(t *testing.T) {
 	req := validTelemetryRequest()
 	req.IpAddress = "8.8.8.8"
@@ -412,6 +430,14 @@ func TestValidateTelemetryMetricsIdentity(t *testing.T) {
 		assert.Equal(t, pb.AckCode_ACK_CODE_SCAN_FAILED, ce.code)
 		assert.Contains(t, err.Error(), "device_identifier mismatch")
 	})
+}
+
+func TestTelemetryErrorClassificationRedactsSecrets(t *testing.T) {
+	code, msg := classifyTelemetryError("fetch telemetry", errors.New("bearer token abc123 failed"), "abc123")
+
+	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, code)
+	assert.NotContains(t, msg, "abc123")
+	assert.Contains(t, msg, "[REDACTED]")
 }
 
 func TestClassifyTelemetryError(t *testing.T) {
