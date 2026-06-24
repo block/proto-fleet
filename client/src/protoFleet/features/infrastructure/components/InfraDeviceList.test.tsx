@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
 import InfraDeviceList from "./InfraDeviceList";
@@ -19,6 +19,12 @@ const device: InfraDeviceItem = {
   endpointKind: "fan_group",
   fanCount: 12,
 };
+
+const getDeviceNameOrder = (names: string[]) =>
+  screen
+    .getAllByRole("button")
+    .map((button) => button.textContent ?? "")
+    .filter((text) => names.includes(text));
 
 describe("InfraDeviceList", () => {
   test("syncs rows when devices prop changes", async () => {
@@ -43,5 +49,33 @@ describe("InfraDeviceList", () => {
     render(<InfraDeviceList devices={devices} />);
 
     expect(screen.getByTestId("infra-devices-pagination")).toHaveClass(...PAGE_SCROLL_CHROME_WIDTH.split(" "));
+  });
+
+  test("sorts last seen by age instead of display label", () => {
+    const devices = [
+      { ...device, id: "older", name: "Older exhaust", lastSeen: "1h ago" },
+      { ...device, id: "recent", name: "Recent exhaust", lastSeen: "2 min ago" },
+      { ...device, id: "never", name: "Never seen exhaust", lastSeen: "Never" },
+      { ...device, id: "current", name: "Current exhaust", lastSeen: "Just now" },
+    ];
+    const deviceNames = devices.map((infraDevice) => infraDevice.name);
+
+    render(<InfraDeviceList devices={devices} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Last seen" }));
+    expect(getDeviceNameOrder(deviceNames)).toEqual([
+      "Current exhaust",
+      "Recent exhaust",
+      "Older exhaust",
+      "Never seen exhaust",
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Last seen" }));
+    expect(getDeviceNameOrder(deviceNames)).toEqual([
+      "Never seen exhaust",
+      "Older exhaust",
+      "Recent exhaust",
+      "Current exhaust",
+    ]);
   });
 });

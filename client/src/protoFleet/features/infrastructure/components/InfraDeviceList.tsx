@@ -68,6 +68,17 @@ const CONFIGURABLE_COLS: InfraColumn[] = [
   "id",
 ];
 
+const SORT_FIELD_TO_DEVICE_KEY: Partial<Record<InfraColumn, keyof InfraDeviceItem>> = {
+  name: "name",
+  id: "id",
+  site: "siteName",
+  building: "buildingName",
+  endpoint: "endpoint",
+  port: "port",
+  status: "status",
+  enabled: "enabled",
+};
+
 const STATUS_OPTIONS = [
   { id: "online", label: "Online" },
   { id: "offline", label: "Offline" },
@@ -96,6 +107,48 @@ const statusToCircle = (status: string) => {
 
 const formatStatus = (status: string) => (status === "online" ? "Online" : "Offline");
 
+const LAST_SEEN_UNIT_MS: Record<string, number> = {
+  s: 1000,
+  sec: 1000,
+  secs: 1000,
+  second: 1000,
+  seconds: 1000,
+  m: 60 * 1000,
+  min: 60 * 1000,
+  mins: 60 * 1000,
+  minute: 60 * 1000,
+  minutes: 60 * 1000,
+  h: 60 * 60 * 1000,
+  hr: 60 * 60 * 1000,
+  hrs: 60 * 60 * 1000,
+  hour: 60 * 60 * 1000,
+  hours: 60 * 60 * 1000,
+  d: 24 * 60 * 60 * 1000,
+  day: 24 * 60 * 60 * 1000,
+  days: 24 * 60 * 60 * 1000,
+  w: 7 * 24 * 60 * 60 * 1000,
+  week: 7 * 24 * 60 * 60 * 1000,
+  weeks: 7 * 24 * 60 * 60 * 1000,
+};
+
+const getLastSeenSortValue = (lastSeen: string) => {
+  const normalized = lastSeen.trim().toLowerCase();
+  if (!normalized || normalized === "never") return Number.POSITIVE_INFINITY;
+  if (normalized === "just now") return 0;
+
+  const relativeMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*([a-z]+)\s+ago$/);
+  if (relativeMatch) {
+    const amount = Number(relativeMatch[1]);
+    const unitMs = LAST_SEEN_UNIT_MS[relativeMatch[2]];
+    if (Number.isFinite(amount) && unitMs) return amount * unitMs;
+  }
+
+  const timestamp = Date.parse(lastSeen);
+  if (!Number.isNaN(timestamp)) return Math.max(Date.now() - timestamp, 0);
+
+  return Number.POSITIVE_INFINITY;
+};
+
 const getDeviceType = (device: InfraDeviceItem) => {
   if (device.endpointKind) return device.endpointKind;
   if (device.fanCount === 1) return "single_fan";
@@ -109,6 +162,14 @@ const formatDeviceType = (device: InfraDeviceItem) => {
   if (device.fanCount && device.fanCount > 1) return `Fan group (${device.fanCount} fans)`;
   if (type === "fan_group") return "Fan group";
   return "";
+};
+
+const getSortValue = (device: InfraDeviceItem, field: InfraColumn) => {
+  if (field === "lastSeen") return getLastSeenSortValue(device.lastSeen);
+  if (field === "type") return formatDeviceType(device);
+
+  const key = SORT_FIELD_TO_DEVICE_KEY[field];
+  return key ? device[key] : "";
 };
 
 const SORTABLE_COLS = new Set<InfraColumn>(Object.values(infraCols));
@@ -394,35 +455,9 @@ const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDev
   }, []);
 
   const sortedDevices = useMemo(() => {
-    const fieldToKey: Partial<Record<InfraColumn, keyof InfraDeviceItem>> = {
-      name: "name",
-      id: "id",
-      site: "siteName",
-      building: "buildingName",
-      endpoint: "endpoint",
-      port: "port",
-      lastSeen: "lastSeen",
-      status: "status",
-      enabled: "enabled",
-    };
     return [...localDevices].sort((a, b) => {
-      const key = fieldToKey[currentSort.field];
-      const aVal =
-        currentSort.field === "enabled"
-          ? a.enabled
-          : currentSort.field === "type"
-            ? formatDeviceType(a)
-            : key
-              ? a[key]
-              : "";
-      const bVal =
-        currentSort.field === "enabled"
-          ? b.enabled
-          : currentSort.field === "type"
-            ? formatDeviceType(b)
-            : key
-              ? b[key]
-              : "";
+      const aVal = getSortValue(a, currentSort.field);
+      const bVal = getSortValue(b, currentSort.field);
       if (aVal == null && bVal == null) return 0;
       if (aVal == null) return 1;
       if (bVal == null) return -1;
