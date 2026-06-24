@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -60,7 +61,7 @@ func (r *RunCmd) handleTelemetryCommand(ctx context.Context, stream acker, comma
 	if err != nil {
 		code := pb.AckCode_ACK_CODE_INTERNAL
 		var ce *commandError
-		if asCommandError(err, &ce) {
+		if errors.As(err, &ce) {
 			code = ce.code
 		}
 		r.sendAck(stream, commandID, code, err.Error(), logger)
@@ -72,22 +73,6 @@ func (r *RunCmd) handleTelemetryCommand(ctx context.Context, stream acker, comma
 		return
 	}
 	r.sendAckWithPayload(stream, commandID, pb.AckCode_ACK_CODE_OK, "", payload, logger)
-}
-
-func asCommandError(err error, target **commandError) bool {
-	for err != nil {
-		if ce, ok := err.(*commandError); ok {
-			*target = ce
-			return true
-		}
-		type unwrapper interface{ Unwrap() error }
-		u, ok := err.(unwrapper)
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
 }
 
 func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error) {
