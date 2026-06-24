@@ -123,7 +123,7 @@ const FleetLayout = () => {
   const siteCatalogAccessGranted = canReadSites && sitesLoaded && !sitesPermissionDenied;
   const canReadRacksTab = canReadRacks;
   const canReadMinersTab = canReadMiners && canReadRacks && canReadFleet;
-  const canReadInfrastructureTab = canReadSites;
+  const canReadInfrastructureTab = !sitesAccessBlocked;
 
   // Permission source of truth for Fleet tabs. Feature flags can hide tab-strip
   // entries, but registered routes stay reachable for authorized deep links.

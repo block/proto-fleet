@@ -209,6 +209,20 @@ describe("FleetLayout scoped-permission fallback", () => {
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks"));
   });
 
+  test("does not mount Infrastructure when site access is denied at runtime", async () => {
+    hasPermissionMock.current = (key: string) => key === "site:read";
+    listSitesMock.mockImplementation(async ({ onError }) => {
+      onError?.("access denied", Code.PermissionDenied);
+    });
+
+    renderAt("/fleet/infrastructure");
+
+    await waitFor(() => {
+      expect(screen.getByText("You do not have permission to view Fleet sections.")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("tab-content-infrastructure")).not.toBeInTheDocument();
+  });
+
   test("keeps stored lastTab=racks when site access is blocked", async () => {
     localStorage.setItem("fleet:lastActiveTab", JSON.stringify("racks"));
     hasPermissionMock.current = (key: string) => key !== "site:read";
