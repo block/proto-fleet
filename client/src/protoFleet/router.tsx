@@ -36,12 +36,10 @@ import {
   importSettingsSchedules,
   importSettingsTeam,
   importSiteDetailPage,
-  importSitesPage,
   importUpdatePassword,
   importWelcomePage,
 } from "./routePrefetch";
 import { onboardingClient } from "@/protoFleet/api/clients";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import {
   minersRedirectLoader,
   racksRedirectLoader,
@@ -89,7 +87,6 @@ const SettingsCurtailment = lazy(importSettingsCurtailment);
 const SettingsAlerts = lazy(importSettingsAlerts);
 const SettingsApiKeys = lazy(importSettingsApiKeys);
 const SiteDetailPage = lazy(importSiteDetailPage);
-const SitesPage = lazy(importSitesPage);
 const BuildingPage = lazy(importBuildingPage);
 const FleetLayout = lazy(importFleetLayout);
 const FleetBuildingsPage = lazy(importFleetBuildingsPage);
@@ -226,11 +223,8 @@ const router = createBrowserRouter([
   createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
   createRoute("/groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
 
-  // Sites tab is hidden from /fleet when MULTI_SITE_ENABLED is false, so the
-  // legacy SitesPage stays reachable at /sites for QA/dogfood until the
-  // tracked cleanup in #376. When the flag is on, /sites redirects into
-  // /fleet/sites.
-  MULTI_SITE_ENABLED ? { path: "/sites", loader: sitesRedirectLoader } : createRoute("/sites", <SitesPage />),
+  // /sites redirects into /fleet/sites.
+  { path: "/sites", loader: sitesRedirectLoader },
   createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5" }),
   createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
 

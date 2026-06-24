@@ -8,7 +8,6 @@ import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import FleetCreateFlowProvider from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetCreateFlowProvider";
@@ -23,7 +22,7 @@ import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
-const TAB_ORDER: FleetTabId[] = MULTI_SITE_ENABLED ? ["sites", "buildings", "racks", "miners"] : ["racks", "miners"];
+const TAB_ORDER: FleetTabId[] = ["sites", "buildings", "racks", "miners"];
 const LAST_TAB_KEY = "fleet:lastActiveTab";
 
 const tabLabel: Record<FleetTabId, string> = {

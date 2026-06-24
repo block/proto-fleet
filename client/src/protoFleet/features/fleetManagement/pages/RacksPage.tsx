@@ -24,7 +24,6 @@ import {
   useActiveSite,
 } from "@/protoFleet/components/PageHeader/SitePicker";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
@@ -1204,7 +1203,7 @@ const RacksPage = () => {
             renderMiners={renderMiners}
             renderSite={renderSite}
             renderBuilding={renderBuilding}
-            columns={insideFleetShell && MULTI_SITE_ENABLED ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
+            columns={insideFleetShell ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
             currentSort={currentSort}
             onSort={handleRackSort}
             itemName={{ singular: "rack", plural: "racks" }}

@@ -21,10 +21,6 @@ vi.mock("./CurtailmentPill", () => ({
   },
 }));
 
-vi.mock("./LocationSelector", () => ({
-  default: () => <div>Location selector</div>,
-}));
-
 vi.mock("./SchedulePill", () => ({
   __esModule: true,
   default: ({ pillSchedule }: { pillSchedule: { name: string } }) => <div>{pillSchedule.name}</div>,

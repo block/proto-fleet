@@ -9,14 +9,6 @@
  */
 
 /**
- * Multi-site UI. When on:
- * - `/sites` and `/buildings/:id` routes are discoverable via nav entry points.
- * - The topbar SitePicker replaces the placeholder LocationSelector.
- * Override with `VITE_MULTI_SITE_ENABLED=true`.
- */
-export const MULTI_SITE_ENABLED = import.meta.env.VITE_MULTI_SITE_ENABLED === "true";
-
-/**
  * Alerts settings (webhook/Slack delivery channels). When on, the
  * `/settings/alerts` entry is discoverable in the settings subnav.
  *

@@ -10,13 +10,11 @@ import {
   shouldInlineFirstPhoneHeaderWidget,
   shouldStackPhoneHeaderWidgets,
 } from "./headerWidgetLayout";
-import LocationSelector from "./LocationSelector";
 import SchedulePill from "./SchedulePill";
 import SitePicker from "./SitePicker";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
@@ -124,14 +122,13 @@ function PageHeader({
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
 
-  // Multi-site: the SitePicker replaces today's LocationSelector when the
-  // feature flag is on. Sites are fetched once on mount and held here so the
-  // picker doesn't re-fire ListSites on every route change. `undefined`
-  // means "still loading" (the picker renders a skeleton); `[]` means "no
-  // sites" (the picker hides itself unless `sitesError` is non-null, in
-  // which case it shows the retry affordance).
+  // Sites are fetched once on mount and held here so the SitePicker doesn't
+  // re-fire ListSites on every route change. `undefined` means "still
+  // loading" (the picker renders a skeleton); `[]` means "no sites" (the
+  // picker hides itself unless `sitesError` is non-null, in which case it
+  // shows the retry affordance).
   const { listSites } = useSites();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(MULTI_SITE_ENABLED ? undefined : []);
+  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
   const [sitesError, setSitesError] = useState<string | null>(null);
 
   const fetchSites = useCallback(() => {
@@ -151,7 +148,6 @@ function PageHeader({
   }, [listSites]);
 
   useEffect(() => {
-    if (!MULTI_SITE_ENABLED) return;
     return fetchSites();
   }, [fetchSites]);
 
@@ -210,11 +206,7 @@ function PageHeader({
               />
             ) : null}
             <div className="min-w-0 flex-1" data-testid="page-header-selector-area">
-              {MULTI_SITE_ENABLED ? (
-                <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} />
-              ) : (
-                <LocationSelector />
-              )}
+              <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} />
             </div>
           </div>
           {!isPhone && headerWidgetEnabled ? (
