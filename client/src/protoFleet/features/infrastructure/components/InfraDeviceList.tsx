@@ -113,7 +113,7 @@ const SORTABLE_COLS = new Set<InfraColumn>(Object.values(infraCols));
 
 const getDefaultSortDirection = (_column: InfraColumn): SortDirection => SORT_ASC;
 
-const paddingLeft = { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" };
+const firstColumnPadding = { phone: "16px", tablet: "16px", laptop: "16px", desktop: "16px" };
 const infraItemName = { singular: "device", plural: "devices" };
 const columnsExemptFromDisabledStyling = new Set<InfraColumn>([infraCols.name, infraCols.status, infraCols.enabled]);
 
@@ -486,7 +486,7 @@ const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDev
         }
         stickyFirstColumn
         tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
-        paddingLeft={paddingLeft}
+        paddingLeft={firstColumnPadding}
         applyColumnWidthsToCells
         total={totalDevices}
         totalDisabled={0}
