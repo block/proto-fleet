@@ -228,6 +228,19 @@ describe("FleetLayout scoped-permission fallback", () => {
     expect(screen.queryByTestId("tab-content-racks")).not.toBeInTheDocument();
   });
 
+  test("shows an empty state on bare Fleet when only hidden Infrastructure is reachable", async () => {
+    hasPermissionMock.current = (key: string) => key === "fleet:read";
+
+    renderAt("/fleet");
+
+    await waitFor(() => {
+      expect(screen.getByText("No Fleet sections are currently available.")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("location-probe").textContent).toBe("/fleet");
+    expect(screen.queryByTestId("fleet-tab-infrastructure")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tab-content-infrastructure")).not.toBeInTheDocument();
+  });
+
   test("does not mount Infrastructure deep links without fleet read", async () => {
     hasPermissionMock.current = () => false;
 

@@ -114,6 +114,8 @@ const FleetLayout = () => {
   const sitesTabHidden = activeSite.kind === "site" && (validatedKnownSiteIds?.has(activeSite.id) ?? false);
 
   const currentTab = tabFromPath(location.pathname);
+  const unscopedPath = useMemo(() => unscopedScopablePath(location.pathname), [location.pathname]);
+  const onBareFleet = unscopedPath === "/fleet" || unscopedPath === "/fleet/";
   const rawPathScope = useMemo(() => activeSiteFromScopablePath(location.pathname), [location.pathname]);
   const pathScope = useMemo(() => rawPathScope ?? activeSite, [rawPathScope, activeSite]);
 
@@ -158,12 +160,9 @@ const FleetLayout = () => {
       validatedKnownSiteIds !== undefined &&
       !validatedKnownSiteIds.has(rawPathScope.id)
     ) {
-      navigate(
-        scopedPath(`${unscopedScopablePath(location.pathname)}${location.search}${location.hash}`, { kind: "all" }),
-        {
-          replace: true,
-        },
-      );
+      navigate(scopedPath(`${unscopedPath}${location.search}${location.hash}`, { kind: "all" }), {
+        replace: true,
+      });
       return;
     }
 
@@ -175,18 +174,17 @@ const FleetLayout = () => {
       return;
     }
 
-    const unscopedPath = unscopedScopablePath(location.pathname);
-    const onBareFleet = unscopedPath === "/fleet" || unscopedPath === "/fleet/";
     const currentTabHidden = currentTab !== undefined && !reachableTabs.includes(currentTab);
     if ((onBareFleet || currentTabHidden) && targetTab) {
       navigate(scopedPath(`/fleet/${targetTab}`, pathScope), { replace: true });
     }
   }, [
     sites,
-    location.pathname,
     location.search,
     location.hash,
     currentTab,
+    unscopedPath,
+    onBareFleet,
     sitesTabHidden,
     activeSite,
     pathScope,
@@ -278,6 +276,8 @@ const FleetLayout = () => {
       <div className="p-6 text-300 text-text-primary-70 laptop:p-10">
         You do not have permission to view Fleet sections.
       </div>
+    ) : onBareFleet && visibleTabs.length === 0 ? (
+      <div className="p-6 text-300 text-text-primary-70 laptop:p-10">No Fleet sections are currently available.</div>
     ) : !currentTabAllowed ? (
       <div className="p-6 text-300 text-text-primary-70 laptop:p-10">Loading...</div>
     ) : (
