@@ -686,6 +686,7 @@ test.describe("Racks", () => {
     await test.step("Create a new 9x9 rack and add all visible miners", async () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
+      await racksPage.inputRackLabel(RACK_LABEL);
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(NETWORK_RACK_COLUMNS);
       await racksPage.inputRows(NETWORK_RACK_ROWS);
