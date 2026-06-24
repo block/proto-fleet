@@ -21,7 +21,8 @@ import type {
 import { useHasPermission } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
 
-const { mockNavigate, mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
+const { mockMultiSiteEnabled, mockNavigate, mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
+  mockMultiSiteEnabled: { value: true },
   mockNavigate: vi.fn(),
   mockUseCurtailmentPlanPreview: vi.fn(),
 }));
@@ -37,6 +38,12 @@ vi.mock("react-router-dom", async () => {
 
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/constants/featureFlags", () => ({
+  get MULTI_SITE_ENABLED() {
+    return mockMultiSiteEnabled.value;
+  },
 }));
 
 vi.mock("@/protoFleet/api/sites", () => ({
@@ -459,6 +466,7 @@ function mockSitesApi() {
 
 describe("CurtailmentSettingsPage", () => {
   beforeEach(() => {
+    mockMultiSiteEnabled.value = true;
     vi.mocked(useHasPermission).mockReset();
     vi.mocked(useMqttCurtailmentSources).mockReset();
     vi.mocked(useSites).mockReset();
@@ -668,6 +676,24 @@ describe("CurtailmentSettingsPage", () => {
         }),
       ),
     );
+  });
+
+  it("does not expose site scope when the multi-site flag is off", () => {
+    mockMultiSiteEnabled.value = false;
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage" || key === "site:read");
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create profile" }));
+
+    expect(listSitesMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("response-profile-scope-site-101")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("response-profile-scope-site-unavailable")).not.toBeInTheDocument();
+    expect(screen.getByTestId("response-profile-scope-whole-fleet")).toBeInTheDocument();
   });
 
   it("keeps the response profile modal open and shows create failures", async () => {
