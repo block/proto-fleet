@@ -17,6 +17,7 @@ import (
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -174,9 +175,9 @@ func runMinerAction(ctx context.Context, dev sdk.Device, mc *pb.MinerCommand) ([
 		if err != nil {
 			return nil, err
 		}
-		payload, err := proto.Marshal(&pb.GetMiningPoolsResult{Pools: miningPoolConfigsFromSDK(pools)})
+		payload, err := getMiningPoolsResultPayload(pools)
 		if err != nil {
-			return nil, fmt.Errorf("marshal get mining pools result: %w", err)
+			return nil, err
 		}
 		return payload, nil
 	default:
@@ -194,6 +195,30 @@ func toSDKMiningPoolConfigs(pools []*pb.MiningPoolConfig) []sdk.MiningPoolConfig
 		})
 	}
 	return sdkPools
+}
+
+func getMiningPoolsResultPayload(pools []sdk.ConfiguredPool) ([]byte, error) {
+	result := &pb.GetMiningPoolsResult{Pools: miningPoolConfigsFromSDK(pools)}
+	if err := validateGetMiningPoolsResult(result); err != nil {
+		return nil, err
+	}
+	payload, err := proto.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal get mining pools result: %w", err)
+	}
+	return payload, nil
+}
+
+func validateGetMiningPoolsResult(result *pb.GetMiningPoolsResult) error {
+	if err := protovalidate.Validate(result); err != nil {
+		return fmt.Errorf("invalid get mining pools result: %w", err)
+	}
+	for _, pool := range result.GetPools() {
+		if err := sv2.ValidatePoolURL(pool.GetUrl()); err != nil {
+			return fmt.Errorf("invalid get mining pools result: %w", err)
+		}
+	}
+	return nil
 }
 
 func miningPoolConfigsFromSDK(pools []sdk.ConfiguredPool) []*pb.MiningPoolConfig {
