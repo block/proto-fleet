@@ -82,7 +82,7 @@ describe("BuildingSelectionModal", () => {
     expect(listBuildingsMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [], includeUnassigned: false }));
   });
 
-  it("filters buildings to the selected site and prunes off-site selections", async () => {
+  it("filters buildings to the selected site and preserves off-site selections", async () => {
     listBuildingsMock.mockImplementation(({ siteIds, onSuccess, onFinally }: Callbacks) => {
       expect(siteIds).toEqual([7n]);
       onSuccess?.([createBuilding(1n, "Building A")]);
@@ -105,6 +105,8 @@ describe("BuildingSelectionModal", () => {
     expect(screen.queryByText("Building B")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Done" }));
-    expect(onSave).toHaveBeenCalledWith(["1"]);
+    // Building 99 is off-site (not in the scoped list) but was already
+    // selected, so it's preserved rather than silently dropped on save.
+    expect(onSave).toHaveBeenCalledWith(["1", "99"]);
   });
 });

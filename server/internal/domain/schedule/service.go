@@ -557,7 +557,11 @@ func validateTargets(targets []*pb.ScheduleTarget) error {
 			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP,
 			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_SITE,
 			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_BUILDING:
-			if _, err := strconv.ParseInt(trimmedID, 10, 64); err != nil {
+			// rack/group/site/building ids are positive BIGSERIAL row ids.
+			// Reject non-positive values: "0"/negatives parse fine but resolve
+			// zero devices, leaving a schedule that saves yet never applies.
+			parsedID, err := strconv.ParseInt(trimmedID, 10, 64)
+			if err != nil || parsedID <= 0 {
 				return fleeterror.NewInvalidArgumentErrorf(
 					"invalid target_id for %s: %q is not a valid identifier",
 					scheduleTargetTypeToString(t.TargetType), trimmedID,

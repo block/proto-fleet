@@ -112,7 +112,7 @@ describe("RackSelectionModal", () => {
     expect(listRacksMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [], includeUnassigned: false }));
   });
 
-  it("passes the selected site filter into listRacks and prunes off-site selections", async () => {
+  it("passes the selected site filter into listRacks and preserves off-site selections", async () => {
     // Server already scopes to the site; the modal sees only the in-site rack.
     listRacksMock.mockImplementation(
       ({ siteIds, onSuccess, onFinally }: ListRacksCallbacks & { siteIds?: bigint[] }) => {
@@ -139,7 +139,9 @@ describe("RackSelectionModal", () => {
     expect(screen.queryByText("Rack 2")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Done" }));
-    // Rack 9 lives at another site and isn't in the scoped list, so it's pruned.
-    expect(onSave).toHaveBeenCalledWith(["1"]);
+    // Rack 9 belongs to another site and isn't in the scoped list, but it was
+    // already selected — under a site filter we can't tell off-site from
+    // deleted, so it's preserved rather than silently dropped.
+    expect(onSave).toHaveBeenCalledWith(["1", "9"]);
   });
 });

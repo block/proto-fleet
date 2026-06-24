@@ -40,6 +40,10 @@ const SiteSelectionModal = ({ open, selectedSiteIds, scope, onDismiss, onSave }:
         const allowed = scopeSiteIds && scopeSiteIds.length > 0 ? new Set(scopeSiteIds.map(String)) : null;
         const visible = allowed ? rows.filter((row) => allowed.has((row.site?.id ?? 0n).toString())) : rows;
         setSites(visible);
+        // While scoped we only see the active site, so preserve preselected ids
+        // (a cross-site schedule's other-site targets must survive an
+        // open-and-Done). Only prune deleted sites under the unscoped list.
+        if (allowed) return;
         const validIds = new Set(visible.map((row) => (row.site?.id ?? 0n).toString()));
         setDraftSelection((current) => new Set([...current].filter((siteId) => validIds.has(siteId))));
       },

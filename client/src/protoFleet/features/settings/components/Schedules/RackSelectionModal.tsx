@@ -32,6 +32,12 @@ const RackSelectionModal = ({ open, selectedRackIds, scope, onDismiss, onSave }:
 
   const siteIds = scope?.siteIds;
   const includeUnassigned = scope?.includeUnassigned;
+  // When a site filter is active the list only contains that site's racks, so
+  // we can't tell a deleted rack from one that simply belongs to another site.
+  // Pruning to the response would silently drop a cross-site schedule's
+  // off-site rack targets on save, so preserve preselected ids while scoped and
+  // only prune deleted ones under the unscoped (all-sites) list.
+  const isScoped = (siteIds !== undefined && siteIds.length > 0) || includeUnassigned === true;
 
   useEffect(() => {
     listRacks({
@@ -40,6 +46,7 @@ const RackSelectionModal = ({ open, selectedRackIds, scope, onDismiss, onSave }:
       onSuccess: (deviceSets) => {
         setRacks(deviceSets);
 
+        if (isScoped) return;
         const validRackIds = new Set(deviceSets.map((rack) => rack.id.toString()));
         setDraftSelection((current) => new Set([...current].filter((rackId) => validRackIds.has(rackId))));
       },

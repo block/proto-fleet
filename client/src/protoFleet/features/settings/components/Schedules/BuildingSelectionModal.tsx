@@ -37,6 +37,11 @@ const BuildingSelectionModal = ({
 
   const siteIds = scope?.siteIds;
   const includeUnassigned = scope?.includeUnassigned;
+  // While scoped the list holds only the active site's buildings, so we can't
+  // distinguish a deleted building from an off-site one. Preserve preselected
+  // ids when scoped (don't drop a cross-site schedule's off-site building
+  // targets); only prune deleted ones under the unscoped list.
+  const isScoped = (siteIds !== undefined && siteIds.length > 0) || includeUnassigned === true;
 
   useEffect(() => {
     void listBuildings({
@@ -44,6 +49,7 @@ const BuildingSelectionModal = ({
       includeUnassigned,
       onSuccess: (rows) => {
         setBuildings(rows);
+        if (isScoped) return;
         const validIds = new Set(rows.map((row) => (row.building?.id ?? 0n).toString()));
         setDraftSelection((current) => new Set([...current].filter((buildingId) => validIds.has(buildingId))));
       },

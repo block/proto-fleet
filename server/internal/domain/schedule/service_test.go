@@ -240,6 +240,27 @@ func TestValidateTargets(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "valid site and building target ids",
+			targets: []*pb.ScheduleTarget{
+				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_SITE, TargetId: "7"},
+				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_BUILDING, TargetId: "9"},
+			},
+		},
+		{
+			name: "zero site target_id",
+			targets: []*pb.ScheduleTarget{
+				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_SITE, TargetId: "0"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative building target_id",
+			targets: []*pb.ScheduleTarget{
+				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_BUILDING, TargetId: "-3"},
+			},
+			wantErr: true,
+		},
+		{
 			name:    "nil target",
 			targets: []*pb.ScheduleTarget{nil},
 			wantErr: true,
