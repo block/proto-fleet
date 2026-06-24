@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import AddInfraDeviceModal from "./AddInfraDevice/AddInfraDeviceModal";
 import InfraDeviceDetailModal from "./InfraDeviceDetail/InfraDeviceDetailModal";
 import ManageColumnsModal, { type InfraColumnPreference } from "./ManageColumnsModal";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
 import type { InfraDeviceDraft, InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
 import { Alert, ChevronDown, Plus, Slider } from "@/shared/assets/icons";
@@ -114,6 +115,7 @@ const SORTABLE_COLS = new Set<InfraColumn>(Object.values(infraCols));
 const getDefaultSortDirection = (_column: InfraColumn): SortDirection => SORT_ASC;
 
 const firstColumnPadding = { phone: "16px", tablet: "16px", laptop: "16px", desktop: "16px" };
+const fleetChromePadding = { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" };
 const infraItemName = { singular: "device", plural: "devices" };
 const columnsExemptFromDisabledStyling = new Set<InfraColumn>([infraCols.name, infraCols.status, infraCols.enabled]);
 
@@ -487,6 +489,9 @@ const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDev
         stickyFirstColumn
         tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
         paddingLeft={firstColumnPadding}
+        overflowContainer={false}
+        stickyChromePaddingLeft={fleetChromePadding}
+        stickyChromeClassName={PAGE_SCROLL_CHROME_WIDTH}
         applyColumnWidthsToCells
         total={totalDevices}
         totalDisabled={0}
