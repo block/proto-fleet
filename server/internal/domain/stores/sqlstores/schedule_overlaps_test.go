@@ -24,7 +24,7 @@ func TestGetRunningPowerTargetScheduleOverlaps_SiteAndBuilding(t *testing.T) {
 
 	store := sqlstores.NewSQLScheduleStore(conn)
 	overlaps, err := store.GetRunningPowerTargetScheduleOverlaps(ctx, 1, []string{
-		"m-site", "m-bldg-direct", "m-bldg-rack", "m-none",
+		"m-site", "m-bldg-direct", "m-bldg-rack", "m-none", "m-site-unpaired", "m-site-inactive",
 	})
 	require.NoError(t, err)
 
@@ -38,6 +38,10 @@ func TestGetRunningPowerTargetScheduleOverlaps_SiteAndBuilding(t *testing.T) {
 	require.ElementsMatch(t, []int64{2}, got["m-bldg-direct"], "building target should own a directly-assigned miner")
 	require.ElementsMatch(t, []int64{2}, got["m-bldg-rack"], "building target should own a miner via its rack")
 	require.Empty(t, got["m-none"], "an unscoped miner must not overlap any site/building schedule")
+	// Devices excluded by target expansion's active + paired-like filter must
+	// not be reported as overlaps — the schedule never controlled them.
+	require.Empty(t, got["m-site-unpaired"], "a non-paired-like miner at the site must not overlap")
+	require.Empty(t, got["m-site-inactive"], "an inactive discovered device at the site must not overlap")
 }
 
 func seedOverlapFixture(t *testing.T, conn *sql.DB) {
@@ -51,24 +55,33 @@ func seedOverlapFixture(t *testing.T, conn *sql.DB) {
 	exec(`INSERT INTO site (id, org_id, name) VALUES (7, 1, 'Site Seven')`)
 	exec(`INSERT INTO building (id, org_id, site_id, name) VALUES (9, 1, 7, 'Building Nine')`)
 
-	// device_identifier, site_id, building_id (NULL = unset)
+	site7 := sql.NullInt64{Int64: 7, Valid: true}
+	// device_identifier, site_id, building_id, discovered_device.is_active,
+	// device_pairing.pairing_status. The last two exercise the active +
+	// paired-like filter the overlap query mirrors from target expansion.
 	devices := []struct {
 		id         int64
 		ident      string
 		mac        string
 		siteID     sql.NullInt64
 		buildingID sql.NullInt64
+		active     bool
+		pairing    string
 	}{
-		{1, "m-site", "AA:BB:CC:DD:EE:01", sql.NullInt64{Int64: 7, Valid: true}, sql.NullInt64{}},
-		{2, "m-bldg-direct", "AA:BB:CC:DD:EE:02", sql.NullInt64{}, sql.NullInt64{Int64: 9, Valid: true}},
-		{3, "m-bldg-rack", "AA:BB:CC:DD:EE:03", sql.NullInt64{}, sql.NullInt64{}},
-		{4, "m-none", "AA:BB:CC:DD:EE:04", sql.NullInt64{}, sql.NullInt64{}},
+		{1, "m-site", "AA:BB:CC:DD:EE:01", site7, sql.NullInt64{}, true, "PAIRED"},
+		{2, "m-bldg-direct", "AA:BB:CC:DD:EE:02", sql.NullInt64{}, sql.NullInt64{Int64: 9, Valid: true}, true, "AUTHENTICATION_NEEDED"},
+		{3, "m-bldg-rack", "AA:BB:CC:DD:EE:03", sql.NullInt64{}, sql.NullInt64{}, true, "DEFAULT_PASSWORD"},
+		{4, "m-none", "AA:BB:CC:DD:EE:04", sql.NullInt64{}, sql.NullInt64{}, true, "PAIRED"},
+		// At site 7 but excluded by expansion: not paired-like / inactive.
+		{5, "m-site-unpaired", "AA:BB:CC:DD:EE:05", site7, sql.NullInt64{}, true, "UNPAIRED"},
+		{6, "m-site-inactive", "AA:BB:CC:DD:EE:06", site7, sql.NullInt64{}, false, "PAIRED"},
 	}
 	for _, d := range devices {
 		exec(`INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
-			VALUES ($1, 1, $2, 'm', 'mfr', 'proto', '10.0.0.1', '50051', 'grpc', TRUE)`, d.id, d.ident)
+			VALUES ($1, 1, $2, 'm', 'mfr', 'proto', '10.0.0.1', '50051', 'grpc', $3)`, d.id, d.ident, d.active)
 		exec(`INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address, site_id, building_id)
 			VALUES ($1, 1, $1, $2, $3, $4, $5)`, d.id, d.ident, d.mac, d.siteID, d.buildingID)
+		exec(`INSERT INTO device_pairing (device_id, pairing_status, paired_at) VALUES ($1, $2, NOW())`, d.id, d.pairing)
 	}
 
 	// Rack in building 9 with m-bldg-rack as a member (building-via-rack path).
