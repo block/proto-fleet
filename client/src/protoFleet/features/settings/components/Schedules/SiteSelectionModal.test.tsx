@@ -114,4 +114,32 @@ describe("SiteSelectionModal", () => {
     // preserved rather than silently dropped on save.
     expect(onSave).toHaveBeenCalledWith(["7", "9"]);
   });
+
+  it("offers no sites under the Unassigned scope and preserves preselected ids", async () => {
+    listSitesMock.mockImplementation(({ onSuccess, onFinally }: Callbacks) => {
+      onSuccess?.([createSite(7n, "Site Seven"), createSite(9n, "Site Nine")]);
+      onFinally?.();
+    });
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <SiteSelectionModal
+        open
+        selectedSiteIds={["7"]}
+        scope={{ siteIds: [], includeUnassigned: true }}
+        onDismiss={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    // A site target is incompatible with "no site" — no sites are selectable.
+    await waitFor(() => expect(screen.getByText("Sites unavailable")).toBeInTheDocument());
+    expect(screen.queryByText("Site Seven")).not.toBeInTheDocument();
+    expect(screen.queryByText("Site Nine")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    // The preselected site target survives (not silently dropped).
+    expect(onSave).toHaveBeenCalledWith(["7"]);
+  });
 });

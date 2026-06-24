@@ -31,19 +31,32 @@ const SiteSelectionModal = ({ open, selectedSiteIds, scope, onDismiss, onSave }:
   const [hasLoadError, setHasLoadError] = useState(false);
 
   const scopeSiteIds = scope?.siteIds;
-  const scopeKey = (scopeSiteIds ?? []).map(String).join(",");
+  // "Unassigned" (includeUnassigned, no siteIds) is a scoped state: a site
+  // target is incompatible with "no site", so no sites are selectable — mirrors
+  // how the building/rack/miner pickers restrict to unassigned resources.
+  const scopeUnassigned = scope?.includeUnassigned === true;
+  const isScoped = (scopeSiteIds !== undefined && scopeSiteIds.length > 0) || scopeUnassigned;
+  const scopeKey = `${(scopeSiteIds ?? []).map(String).join(",")}|${scopeUnassigned}`;
 
   useEffect(() => {
     void listSites({
       onSuccess: (rows) => {
-        // Narrow to the active site when one is selected; otherwise show all.
-        const allowed = scopeSiteIds && scopeSiteIds.length > 0 ? new Set(scopeSiteIds.map(String)) : null;
-        const visible = allowed ? rows.filter((row) => allowed.has((row.site?.id ?? 0n).toString())) : rows;
+        // Single/multi site → that site's rows; Unassigned → none; all-sites → all.
+        let visible: SiteWithCounts[];
+        if (scopeSiteIds && scopeSiteIds.length > 0) {
+          const allowed = new Set(scopeSiteIds.map(String));
+          visible = rows.filter((row) => allowed.has((row.site?.id ?? 0n).toString()));
+        } else if (scopeUnassigned) {
+          visible = [];
+        } else {
+          visible = rows;
+        }
         setSites(visible);
-        // While scoped we only see the active site, so preserve preselected ids
-        // (a cross-site schedule's other-site targets must survive an
-        // open-and-Done). Only prune deleted sites under the unscoped list.
-        if (allowed) return;
+        // While scoped we only see the in-scope sites (or none), so preserve
+        // preselected ids — a cross-site schedule's other-site targets must
+        // survive an open-and-Done. Only prune deleted sites under the
+        // unscoped (all-sites) list.
+        if (isScoped) return;
         const validIds = new Set(visible.map((row) => (row.site?.id ?? 0n).toString()));
         setDraftSelection((current) => new Set([...current].filter((siteId) => validIds.has(siteId))));
       },
@@ -87,7 +100,15 @@ const SiteSelectionModal = ({ open, selectedSiteIds, scope, onDismiss, onSave }:
     <Modal
       open={open}
       onDismiss={onDismiss}
-      title={hasLoadError ? "Couldn't load sites" : showEmptyState ? "No sites configured" : "Select sites"}
+      title={
+        hasLoadError
+          ? "Couldn't load sites"
+          : scopeUnassigned
+            ? "Sites unavailable"
+            : showEmptyState
+              ? "No sites configured"
+              : "Select sites"
+      }
       divider={false}
       buttons={[
         {
@@ -105,6 +126,11 @@ const SiteSelectionModal = ({ open, selectedSiteIds, scope, onDismiss, onSave }:
         </div>
       ) : hasLoadError ? (
         <div className="text-300 text-text-primary-70">Couldn&apos;t load sites. Close this modal and try again.</div>
+      ) : scopeUnassigned ? (
+        <div className="text-300 text-text-primary-70">
+          Site targeting doesn&apos;t apply to the Unassigned scope. Switch the site selector to a specific site or All
+          sites to target sites.
+        </div>
       ) : showEmptyState ? (
         <div className="text-300 text-text-primary-70">Set up sites to enable site-wide targeting.</div>
       ) : (
