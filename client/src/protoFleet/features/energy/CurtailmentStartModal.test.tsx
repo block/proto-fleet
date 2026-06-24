@@ -636,7 +636,7 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("does not preserve hidden site scope when site scope is disabled", async () => {
+  it("preserves hidden site scope when site scope is disabled", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       variant: "responseProfile",
@@ -650,16 +650,16 @@ describe("CurtailmentStartModal", () => {
       },
     });
 
-    expect(screen.queryByTestId("response-profile-scope-site-101")).not.toBeInTheDocument();
+    expect(screen.getByTestId("response-profile-scope-site-101")).toBeDisabled();
     expect(screen.getByTestId("response-profile-scope-whole-fleet")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Save profile" }));
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        siteId: "",
-        scopeType: "wholeOrg",
-        scopeId: "whole-org",
+        siteId: "101",
+        scopeType: "site",
+        scopeId: "Austin, TX",
       }),
     );
   });

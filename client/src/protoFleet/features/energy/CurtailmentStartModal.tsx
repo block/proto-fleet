@@ -818,16 +818,12 @@ function CurtailmentStartModalContent({
     [siteOptions, values.siteId],
   );
   const effectiveValues = useMemo(() => {
-    if (values.scopeType === "site" && !canSelectSiteScope) {
-      return withWholeFleetScope(values);
-    }
-
     if (values.scopeType === "site" && selectedSiteOption) {
       return withSiteScope(values, selectedSiteOption.id, selectedSiteOption.name);
     }
 
     return values;
-  }, [canSelectSiteScope, selectedSiteOption, values]);
+  }, [selectedSiteOption, values]);
   const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(effectiveValues);
   const controlledPreviewValue = preview
     ? createCurtailmentPlanPreview(effectiveValues, {
@@ -939,8 +935,23 @@ function CurtailmentStartModalContent({
       text: siteOption.name,
       subtext: "Site",
       isSelected: effectiveValues.scopeType === "site" && effectiveValues.siteId === siteOption.id,
+      disabled: !canSelectSiteScope,
       "data-testid": `response-profile-scope-site-${siteOption.id}`,
     }));
+    const currentSiteId = values.scopeType === "site" ? values.siteId : undefined;
+    const shouldShowCurrentSiteFallback =
+      currentSiteId !== undefined && !responseProfileSiteOptionByRowId.has(getSiteScopeRowId(currentSiteId));
+
+    if (shouldShowCurrentSiteFallback) {
+      siteRows.push({
+        id: getSiteScopeRowId(currentSiteId),
+        text: values.scopeId || `Site ${currentSiteId}`,
+        subtext: siteScopeDisabledReason ?? "Saved site",
+        isSelected: true,
+        disabled: true,
+        "data-testid": `response-profile-scope-site-${currentSiteId}`,
+      });
+    }
 
     if (siteRows.length === 0 && (isSiteScopeLoading || siteScopeDisabledReason)) {
       siteRows.push({
@@ -964,11 +975,16 @@ function CurtailmentStartModalContent({
       ...siteRows,
     ];
   }, [
+    canSelectSiteScope,
     effectiveValues.scopeType,
     effectiveValues.siteId,
     isSiteScopeLoading,
+    responseProfileSiteOptionByRowId,
     responseProfileSiteOptions,
     siteScopeDisabledReason,
+    values.scopeId,
+    values.scopeType,
+    values.siteId,
   ]);
   const responseProfileSelectOptions = useMemo(
     () => [

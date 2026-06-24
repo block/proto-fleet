@@ -878,19 +878,11 @@ describe("CurtailmentSettingsPage", () => {
     );
   });
 
-  it("saves an existing site-scoped response profile as whole fleet when the multi-site flag is off", async () => {
+  it("preserves an existing site-scoped response profile when the multi-site flag is off", async () => {
     mockMultiSiteEnabled.value = false;
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage" || key === "site:read");
     mockResponseProfilesApi({ responseProfiles: [siteScopedResponseProfile] });
-    updateResponseProfileMock.mockResolvedValue({
-      ...siteScopedResponseProfile,
-      scope: "Whole fleet",
-      formValues: {
-        ...siteScopedResponseProfile.formValues!,
-        siteId: "",
-        siteName: "",
-      },
-    });
+    updateResponseProfileMock.mockResolvedValue(siteScopedResponseProfile);
 
     render(
       <MemoryRouter>
@@ -899,15 +891,15 @@ describe("CurtailmentSettingsPage", () => {
     );
 
     fireEvent.click(within(getResponseProfileCard("Site scoped profile")).getByRole("button", { name: "Edit" }));
-    expect(screen.queryByTestId("response-profile-scope-site-101")).not.toBeInTheDocument();
+    expect(screen.getByTestId("response-profile-scope-site-101")).toBeDisabled();
     fireEvent.click(getEnabledButton("Save profile"));
 
     await waitFor(() =>
       expect(updateResponseProfileMock).toHaveBeenCalledWith(
         "site-scoped-profile",
         expect.objectContaining({
-          siteId: "",
-          siteName: "",
+          siteId: "101",
+          siteName: "Site 101",
         }),
       ),
     );
