@@ -4,7 +4,7 @@ import clsx from "clsx";
 
 import { type ActiveSite, useActiveSite } from "./useActiveSite";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { buildKnownSiteIds } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds, buildSiteSlugById } from "@/protoFleet/api/sites";
 import { scopeCurrentOrDashboardPath, scopedPath } from "@/protoFleet/routing/siteScope";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -58,7 +58,9 @@ const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
     [sites],
   );
 
-  const { activeSite, setActiveSite } = useActiveSite({ knownSiteIds });
+  const knownSiteSlugById = useMemo(() => buildSiteSlugById(sites), [sites]);
+
+  const { activeSite, setActiveSite } = useActiveSite({ knownSiteIds, knownSiteSlugById });
 
   // Loading: show a skeleton so the topbar layout doesn't shift when sites arrive.
   if (sites === undefined) {

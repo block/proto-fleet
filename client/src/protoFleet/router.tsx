@@ -134,25 +134,31 @@ const appEntryLoader = () => redirect(appEntryPath(sanitizeActiveSite(useFleetSt
 // the wire (unassigned needs no lookup) and set the store scope before
 // redirecting. An unresolvable segment still lands on the group page (the
 // page is unscoped) rather than bouncing the user to "/".
-const resolveScopeSegment = async (segment: string | undefined): Promise<ActiveSite | null> => {
+const resolveScopeSegment = async (segment: string | undefined, signal: AbortSignal): Promise<ActiveSite | null> => {
   // Covers "unassigned"; site slugs return null here without a slug map.
   const local = activeSiteFromSegment(segment);
   if (local) return local;
   if (!segment) return null;
   try {
-    const response = await sitesClient.resolveSiteBySlug({ slug: segment });
+    const response = await sitesClient.resolveSiteBySlug({ slug: segment }, { signal });
     const id = (response.site?.id ?? 0n).toString();
     if (response.site?.slug && id !== "0") {
       return { kind: "site", id, slug: response.site.slug };
     }
   } catch {
-    // Unknown or unreachable slug — fall through and redirect unscoped.
+    // Unknown or unreachable slug (or an aborted request) — fall through.
   }
   return null;
 };
 
 const scopedGroupDetailRedirectLoader = async ({ params, request }: LoaderFunctionArgs) => {
-  const scope = await resolveScopeSegment(params.siteScope);
+  const scope = await resolveScopeSegment(params.siteScope, request.signal);
+  // The slug lookup is async, so a superseded navigation may have aborted this
+  // loader while it was in flight. Skip the store write + redirect in that case
+  // so a stale route can't leave the picker scoped to the wrong site.
+  if (request.signal.aborted) {
+    return null;
+  }
   if (scope) {
     useFleetStore.getState().ui.setActiveSite(scope);
   }

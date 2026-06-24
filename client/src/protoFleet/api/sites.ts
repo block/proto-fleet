@@ -63,6 +63,23 @@ export const buildSiteSlugToId = (sites: SiteWithCounts[] | undefined): Map<stri
   return out;
 };
 
+// id (decimal string) -> current slug, from the latest ListSites response.
+// Lets useActiveSite reconcile a stored selection whose slug went stale after
+// a rename in another tab/session (same id, new slug) so the persisted entry
+// path and picker don't emit a dead slug. `undefined` until ListSites returns.
+export const buildSiteSlugById = (sites: SiteWithCounts[] | undefined): Map<string, string> | undefined => {
+  if (!sites) return undefined;
+  const out = new Map<string, string>();
+  for (const row of sites) {
+    const site = row.site;
+    const id = (site?.id ?? 0n).toString();
+    if (site?.slug && id !== "0") {
+      out.set(id, site.slug);
+    }
+  }
+  return out;
+};
+
 // Shared shape passed between SiteDetailsModal and ManageSiteModal so the
 // create flow can hold the in-progress draft in memory while the operator
 // switches between the two surfaces.

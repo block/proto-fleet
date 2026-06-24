@@ -69,6 +69,40 @@ describe("useActiveSite", () => {
     expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "north" });
   });
 
+  it("reconciles a stale stored slug from knownSiteSlugById (rename in another session)", async () => {
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "7", slug: "north-dc" };
+    });
+    renderHook(
+      () =>
+        useActiveSite({
+          knownSiteIds: new Set(["7"]),
+          knownSiteSlugById: new Map([["7", "south-dc"]]),
+        }),
+      { wrapper: routerWrapper(["/"]) },
+    );
+    // Same id, new slug → refresh the stored slug in place rather than letting
+    // the dead slug clear the scope on the next ResolveSiteBySlug.
+    await waitFor(() =>
+      expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "south-dc" }),
+    );
+  });
+
+  it("leaves the stored slug untouched when knownSiteSlugById matches", () => {
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "7", slug: "north-dc" };
+    });
+    const { result } = renderHook(
+      () =>
+        useActiveSite({
+          knownSiteIds: new Set(["7"]),
+          knownSiteSlugById: new Map([["7", "north-dc"]]),
+        }),
+      { wrapper: routerWrapper(["/"]) },
+    );
+    expect(result.current.activeSite).toEqual({ kind: "site", id: "7", slug: "north-dc" });
+  });
+
   it("falls back to { kind: 'all' } when the stored site id is not in the known set", () => {
     useFleetStore.setState((state) => {
       state.ui.activeSite = { kind: "site", id: "999", slug: "missing" };

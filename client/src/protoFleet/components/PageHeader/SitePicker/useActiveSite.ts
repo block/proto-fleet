@@ -14,6 +14,13 @@ interface UseActiveSiteOptions {
   // not in a loaded set, the hook falls back to { kind: "all" } and overwrites
   // the store.
   knownSiteIds?: Set<string>;
+  // id (decimal string) -> current slug from the same ListSites response.
+  // When provided, the hook reconciles a stored selection whose slug went
+  // stale (renamed in another tab/session: same id, new slug) so the persisted
+  // entry path + picker don't emit a dead slug that ResolveSiteBySlug then
+  // treats as missing. Optional — only callers with the full sites list pass
+  // it (the header SitePicker), so the reconcile has a single owner.
+  knownSiteSlugById?: Map<string, string>;
 }
 
 interface UseActiveSiteResult {
@@ -25,7 +32,7 @@ interface UseActiveSiteResult {
 // `duration` and other UI prefs) is handled by useFleetStore's persist
 // middleware — this hook only adds the "selection points at a deleted site"
 // validation effect.
-const useActiveSite = ({ knownSiteIds }: UseActiveSiteOptions): UseActiveSiteResult => {
+const useActiveSite = ({ knownSiteIds, knownSiteSlugById }: UseActiveSiteOptions): UseActiveSiteResult => {
   const stored = useFleetStore((state) => state.ui.activeSite);
   const setStored = useFleetStore((state) => state.ui.setActiveSite);
   const routeScope = useRouteSiteScope();
@@ -67,6 +74,20 @@ const useActiveSite = ({ knownSiteIds }: UseActiveSiteOptions): UseActiveSiteRes
       setStored(DEFAULT_ACTIVE_SITE);
     }
   }, [routeScope, stored, knownSiteIds, knownSiteIdsLoaded, setStored]);
+
+  // Reconcile a stale stored slug against the latest ListSites response. If the
+  // selected site was renamed elsewhere (another tab/session), ListSites
+  // returns the same id with a new slug while the store still holds the old
+  // one — left alone, appEntryPath/picker navigation would emit a dead slug
+  // that ResolveSiteBySlug treats as missing and clears the scope. Same id +
+  // changed slug is a pure rename, so refresh the slug in place.
+  useEffect(() => {
+    if (stored.kind !== "site" || !knownSiteSlugById) return;
+    const freshSlug = knownSiteSlugById.get(stored.id);
+    if (freshSlug && freshSlug !== stored.slug) {
+      setStored({ kind: "site", id: stored.id, slug: freshSlug });
+    }
+  }, [stored, knownSiteSlugById, setStored]);
 
   const activeSite = useMemo<ActiveSite>(() => {
     if (routeScopeStale) return DEFAULT_ACTIVE_SITE;
