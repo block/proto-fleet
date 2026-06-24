@@ -236,6 +236,8 @@ export default function useCurtailmentResponseProfiles(
   options: UseCurtailmentResponseProfilesOptions = {},
 ): UseCurtailmentResponseProfilesResult {
   const { siteNameById } = options;
+  const siteNameByIdRef = useRef<SiteNameById | undefined>(siteNameById);
+  siteNameByIdRef.current = siteNameById;
   const { handleAuthErrors } = useAuthErrors();
   const [apiProfiles, setApiProfiles] = useState<ApiCurtailmentResponseProfile[]>([]);
   const [isLoading, setIsLoading] = useState(enabled);
@@ -282,7 +284,7 @@ export default function useCurtailmentResponseProfiles(
         setApiProfiles(response.profiles);
         hasLoadedProfilesRef.current = true;
         setLoadError(null);
-        return response.profiles.map(mapProfile);
+        return response.profiles.map((profile) => mapApiResponseProfile(profile, siteNameByIdRef.current));
       } catch (error) {
         if (isAbortError(error, signal)) {
           throw error;
@@ -297,7 +299,7 @@ export default function useCurtailmentResponseProfiles(
         }
       }
     },
-    [handleFailure, mapProfile],
+    [handleFailure],
   );
 
   useEffect(() => {

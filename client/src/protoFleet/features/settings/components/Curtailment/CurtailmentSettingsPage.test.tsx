@@ -667,6 +667,49 @@ describe("CurtailmentSettingsPage", () => {
     }
   });
 
+  it("does not auto-retry site name loading after ListSites succeeds with no sites", async () => {
+    vi.useFakeTimers();
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage" || key === "site:read");
+    vi.mocked(useCurtailmentResponseProfiles).mockImplementation(() => ({
+      responseProfiles: [siteScopedResponseProfile],
+      isLoading: false,
+      isCreating: false,
+      updatingProfileIds: new Set<string>(),
+      loadError: null,
+      createError: null,
+      listResponseProfiles: vi.fn(),
+      createResponseProfile: createResponseProfileMock,
+      updateResponseProfile: updateResponseProfileMock,
+      deleteResponseProfile: deleteResponseProfileMock,
+    }));
+    listSitesMock.mockImplementation(
+      ({ onSuccess, onFinally }: { onSuccess?: (sites: SiteWithCounts[]) => void; onFinally?: () => void } = {}) => {
+        onSuccess?.([]);
+        onFinally?.();
+      },
+    );
+
+    try {
+      render(
+        <MemoryRouter>
+          <CurtailmentSettingsPage />
+        </MemoryRouter>,
+      );
+
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+      expect(listSitesMock).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+      expect(listSitesMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("creates a response profile through the API hook", async () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
     createResponseProfileMock.mockResolvedValue(testResponseProfiles[0]);

@@ -1601,6 +1601,7 @@ function CurtailmentSettingsPage(): ReactElement {
   const [isTestingResponseProfileCurtailment, setIsTestingResponseProfileCurtailment] = useState(false);
   const [siteOptions, setSiteOptions] = useState<CurtailmentSiteOption[]>([]);
   const [isLoadingSiteOptions, setIsLoadingSiteOptions] = useState(false);
+  const [hasLoadedSiteOptions, setHasLoadedSiteOptions] = useState(false);
   const [siteOptionsLoadError, setSiteOptionsLoadError] = useState<string | null>(null);
   const siteOptionsAbortControllerRef = useRef<AbortController | null>(null);
   const canLoadSiteOptions = canManageCurtailment && canReadSiteCatalog;
@@ -1647,7 +1648,7 @@ function CurtailmentSettingsPage(): ReactElement {
   } = useCurtailmentAutomationRules(canManageCurtailment);
 
   const ensureSiteOptionsLoaded = useCallback(() => {
-    if (!canLoadSiteOptions || isLoadingSiteOptions || (siteOptions.length > 0 && !siteOptionsLoadError)) {
+    if (!canLoadSiteOptions || isLoadingSiteOptions || (hasLoadedSiteOptions && !siteOptionsLoadError)) {
       return;
     }
 
@@ -1663,6 +1664,7 @@ function CurtailmentSettingsPage(): ReactElement {
       onSuccess: (sites) => {
         if (!signal.aborted) {
           setSiteOptions(createSiteOptions(sites));
+          setHasLoadedSiteOptions(true);
         }
       },
       onError: (message) => {
@@ -1676,7 +1678,7 @@ function CurtailmentSettingsPage(): ReactElement {
         }
       },
     });
-  }, [canLoadSiteOptions, isLoadingSiteOptions, listSites, siteOptions.length, siteOptionsLoadError]);
+  }, [canLoadSiteOptions, hasLoadedSiteOptions, isLoadingSiteOptions, listSites, siteOptionsLoadError]);
 
   useEffect(() => {
     return () => {
