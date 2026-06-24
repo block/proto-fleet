@@ -2,6 +2,7 @@ package sites
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"connectrpc.com/authn"
@@ -285,9 +286,19 @@ func TestHandler_UpdateSite_happy(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Empty network_config short-circuits overlap-warning lookup, so
-	// ListAllSiteNetworkConfigs is not expected on this path.
+	// ListAllSiteNetworkConfigs is not expected on this path. The name
+	// changes, so the slug is regenerated: GetSite reads the current row and
+	// ListSiteSlugs supplies the org's used slugs for collision avoidance.
+	h.siteStore.EXPECT().GetSite(gomock.Any(), int64(7), int64(42)).
+		Return(&models.Site{ID: 42, Name: "old name", Slug: "old-name"}, nil)
+	h.siteStore.EXPECT().ListSiteSlugs(gomock.Any(), int64(7)).Return([]string{"old-name"}, nil)
 	h.siteStore.EXPECT().UpdateSite(gomock.Any(), gomock.AssignableToTypeOf(models.UpdateSiteParams{})).
-		Return(&models.Site{ID: 42, Name: "renamed"}, nil)
+		DoAndReturn(func(_ context.Context, p models.UpdateSiteParams) (*models.Site, error) {
+			if p.Slug != "renamed" {
+				return nil, errors.New("expected regenerated slug renamed, got " + p.Slug)
+			}
+			return &models.Site{ID: 42, Name: p.Name, Slug: p.Slug}, nil
+		})
 
 	resp, err := h.handler.UpdateSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.UpdateSiteRequest{
 		Id:   42,
@@ -295,6 +306,7 @@ func TestHandler_UpdateSite_happy(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "renamed", resp.Msg.GetSite().GetName())
+	assert.Equal(t, "renamed", resp.Msg.GetSite().GetSlug())
 }
 
 func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
