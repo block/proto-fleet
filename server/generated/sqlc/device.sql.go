@@ -290,17 +290,31 @@ FROM device d
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
 WHERE d.deleted_at IS NULL
     AND (
-        dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+        (
+            dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+            AND NOT EXISTS (
+                SELECT 1 FROM fleet_node_device fnd
+                WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
+            )
+        )
         OR EXISTS (
-        SELECT 1 FROM fleet_node_device fnd
-        WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
+            SELECT 1
+            FROM fleet_node_device fnd
+            JOIN device_pairing fnd_dp ON fnd_dp.device_id = fnd.device_id
+            JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+            WHERE fnd.device_id = d.id
+              AND fnd.org_id = d.org_id
+              AND fnd_dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+              AND fn.deleted_at IS NULL
+              AND fn.enrollment_status = 'CONFIRMED'
         )
     )
 `
 
 // Returns identifiers of telemetry-eligible paired devices. Fleet-node-owned
-// devices stay in this scheduling set; miner.Service abstracts the remote hop
-// behind the same interfaces.Miner path.
+// devices stay in this scheduling set only when their route can resolve through
+// an active, confirmed node; miner.Service abstracts the remote hop behind the
+// same interfaces.Miner path.
 // DEFAULT_PASSWORD devices are paired and report telemetry, so they must enter
 // the polling loop too (it's how their state is reconciled after a password change).
 func (q *Queries) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]string, error) {

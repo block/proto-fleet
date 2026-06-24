@@ -284,7 +284,7 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 	if err != nil {
 		return nil, false, err
 	}
-	telemetryMiner, err := newRemoteFleetNodeMiner(remoteRoute, s.commandSender, remoteCommandMiner)
+	telemetryMiner, err := newRemoteFleetNodeMiner(remoteRoute, s.commandSender, s.nodeLimiter, remoteCommandMiner)
 	if err != nil {
 		return nil, false, err
 	}

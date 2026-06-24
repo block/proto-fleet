@@ -16,6 +16,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
@@ -40,6 +41,28 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsHappyPath(t *testing.T) {
 	assert.Equal(t, "node-device", got.metrics.DeviceIdentifier)
 	assert.Equal(t, 100.0, got.metrics.HashrateHS.Value)
 	assert.Equal(t, "fw-1", got.metrics.FirmwareVersion)
+}
+
+func TestRemoteFleetNodeMinerGetDeviceMetricsUsesNodeLimiter(t *testing.T) {
+	registry := control.NewRegistry()
+	stream := registry.Register(12)
+	defer stream.Unregister()
+	gate := &recordingTelemetryGate{}
+	miner := newTestRemoteFleetNodeMinerWithGate(t, registry, gate)
+
+	results := make(chan metricsResult, 1)
+	go func() {
+		metrics, err := miner.GetDeviceMetrics(context.Background())
+		results <- metricsResult{metrics: metrics, err: err}
+	}()
+
+	cmd := receiveRemoteCommand(t, stream)
+	assert.Equal(t, []int64{12}, gate.acquired)
+	assert.Empty(t, gate.released)
+	publishTelemetryAck(t, stream, cmd.GetCommandId(), telemetryResult("node-device"))
+
+	require.NoError(t, receiveMetricsResult(t, results).err)
+	assert.Equal(t, []int64{12}, gate.released)
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsNoActiveStream(t *testing.T) {
@@ -222,6 +245,11 @@ type metricsResult struct {
 
 func newTestRemoteFleetNodeMiner(t *testing.T, registry *control.Registry) *RemoteFleetNodeMiner {
 	t.Helper()
+	return newTestRemoteFleetNodeMinerWithGate(t, registry, nil)
+}
+
+func newTestRemoteFleetNodeMinerWithGate(t *testing.T, registry *control.Registry, gate remotenode.Gate) *RemoteFleetNodeMiner {
+	t.Helper()
 	miner, err := newRemoteFleetNodeMiner(remoteTelemetryRoute{
 		fleetNodeID:      12,
 		orgID:            7,
@@ -237,9 +265,19 @@ func newTestRemoteFleetNodeMiner(t *testing.T, registry *control.Registry) *Remo
 		urlScheme:        "http",
 		username:         "root",
 		password:         "pw",
-	}, registry, nil)
+	}, registry, gate, nil)
 	require.NoError(t, err)
 	return miner
+}
+
+type recordingTelemetryGate struct {
+	acquired []int64
+	released []int64
+}
+
+func (g *recordingTelemetryGate) Acquire(_ context.Context, fleetNodeID int64) (func(), error) {
+	g.acquired = append(g.acquired, fleetNodeID)
+	return func() { g.released = append(g.released, fleetNodeID) }, nil
 }
 
 func receiveRemoteCommand(t *testing.T, stream *control.Stream) *gatewaypb.ControlCommand {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -32,6 +33,13 @@ func (s *stubTelemetryFetcher) Fetch(_ context.Context, req *telemetrypb.FleetNo
 		return nil, s.err
 	}
 	return s.result, nil
+}
+
+type waitingTelemetryFetcher struct{}
+
+func (waitingTelemetryFetcher) Fetch(ctx context.Context, _ *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error) {
+	<-ctx.Done()
+	return nil, fmt.Errorf("wait for telemetry timeout: %w", ctx.Err())
 }
 
 func TestControlLoop_TelemetryAckCarriesPayload(t *testing.T) {
@@ -71,6 +79,30 @@ func TestControlLoop_TelemetryAgentIncapableWithoutFetcher(t *testing.T) {
 	require.Len(t, acks, 1)
 	assert.False(t, acks[0].GetSucceeded())
 	assert.Equal(t, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, acks[0].GetCode())
+}
+
+func TestControlLoop_TelemetryUsesShortCommandTimeout(t *testing.T) {
+	oldTelemetryTimeout := telemetryCommandTimeout
+	oldCommandTimeout := commandTimeout
+	telemetryCommandTimeout = 10 * time.Millisecond
+	commandTimeout = time.Second
+	t.Cleanup(func() {
+		telemetryCommandTimeout = oldTelemetryTimeout
+		commandTimeout = oldCommandTimeout
+	})
+
+	cmd := &RunCmd{telemetry: waitingTelemetryFetcher{}}
+	fake := &controlFakeGateway{}
+	fake.queue(telemetryCmd(t, validTelemetryRequest()))
+
+	start := time.Now()
+	runControlLoopOnce(t, cmd, fake)
+
+	require.Less(t, time.Since(start), 500*time.Millisecond)
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.False(t, acks[0].GetSucceeded())
+	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, acks[0].GetCode())
 }
 
 func ptrFloat64(v float64) *float64 {

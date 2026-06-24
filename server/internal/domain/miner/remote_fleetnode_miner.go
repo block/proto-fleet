@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"buf.build/go/protovalidate"
+	"connectrpc.com/connect"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
@@ -59,6 +60,7 @@ type cachedTelemetryStatus struct {
 type RemoteFleetNodeMiner struct {
 	route          remoteTelemetryRoute
 	sender         remotenode.CommandSender
+	gate           remotenode.Gate
 	delegate       interfaces.Miner
 	connectionInfo networking.ConnectionInfo
 
@@ -80,7 +82,7 @@ func (s *Service) remoteMinerFromDeviceIdentifier(ctx context.Context, deviceID 
 	if err != nil {
 		return nil, err
 	}
-	return newRemoteFleetNodeMiner(remoteRoute, s.commandSender, nil)
+	return newRemoteFleetNodeMiner(remoteRoute, s.commandSender, s.nodeLimiter, nil)
 }
 
 func (s *Service) remoteRouteFromRow(row sqlc.GetFleetNodeTelemetryRouteByDeviceIdentifierRow) (remoteTelemetryRoute, error) {
@@ -103,7 +105,7 @@ func (s *Service) remoteRouteFromRow(row sqlc.GetFleetNodeTelemetryRouteByDevice
 	}, nil
 }
 
-func newRemoteFleetNodeMiner(route remoteTelemetryRoute, sender remotenode.CommandSender, delegate interfaces.Miner) (*RemoteFleetNodeMiner, error) {
+func newRemoteFleetNodeMiner(route remoteTelemetryRoute, sender remotenode.CommandSender, gate remotenode.Gate, delegate interfaces.Miner) (*RemoteFleetNodeMiner, error) {
 	scheme, err := networking.ProtocolFromString(route.urlScheme)
 	if err != nil {
 		return nil, err
@@ -115,6 +117,7 @@ func newRemoteFleetNodeMiner(route remoteTelemetryRoute, sender remotenode.Comma
 	return &RemoteFleetNodeMiner{
 		route:          route,
 		sender:         sender,
+		gate:           gate,
 		delegate:       delegate,
 		connectionInfo: *conn,
 		now:            time.Now,
@@ -194,6 +197,16 @@ func (m *RemoteFleetNodeMiner) GetDeviceStatus(ctx context.Context) (models.Mine
 func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb.FleetNodeTelemetryResult, error) {
 	if m.sender == nil {
 		return nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, errors.New("fleet node control registry is not configured"))
+	}
+	if m.gate != nil {
+		release, err := m.gate.Acquire(ctx, m.route.fleetNodeID)
+		if err != nil {
+			return nil, fleeterror.NewPlainError(
+				fmt.Sprintf("timed out waiting for a fleet node telemetry command slot: %v", err),
+				connect.CodeResourceExhausted,
+			)
+		}
+		defer release()
 	}
 	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
 		Command: &gatewaypb.AgentCommand_Telemetry{

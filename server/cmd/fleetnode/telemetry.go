@@ -18,6 +18,8 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
+var telemetryCommandTimeout = 5 * time.Second
+
 type telemetryFetcher interface {
 	Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error)
 }
@@ -49,7 +51,7 @@ func (r *RunCmd) handleTelemetryCommand(ctx context.Context, stream acker, comma
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid telemetry request: %v", vErr), logger)
 		return
 	}
-	cmdCtx, cancel := context.WithTimeout(ctx, commandTimeout)
+	cmdCtx, cancel := context.WithTimeout(ctx, telemetryCommandTimeout)
 	defer cancel()
 
 	result, err := r.telemetry.Fetch(cmdCtx, req)
