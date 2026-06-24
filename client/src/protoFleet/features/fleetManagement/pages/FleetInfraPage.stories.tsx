@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 
 import FleetInfraPage from "./FleetInfraPage";
-import { mockInfraDevices } from "@/protoFleet/features/infrastructure/components/stories/mockInfraDevices";
+import { mockInfraDevices } from "@/protoFleet/features/infrastructure/mockInfraDevices";
 
 const meta = {
   title: "Proto Fleet/Fleet/Infrastructure",
@@ -27,11 +27,13 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     devices: mockInfraDevices,
+    canManage: true,
   },
 };
 
 export const Empty: Story = {
   args: {
     devices: [],
+    canManage: true,
   },
 };

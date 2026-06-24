@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
 
-// Force MULTI_SITE_ENABLED=true at module-load time so FleetLayout's
-// TAB_ORDER includes Sites + Buildings under test. CI default is false; the
+// Force MULTI_SITE_ENABLED=true at module-load time so FleetLayout's route
+// order includes Sites + Buildings under test. CI default is false; the
 // tests below pin behavior to the flag-on path explicitly.
 vi.mock("@/protoFleet/constants/featureFlags", () => ({
   INFRASTRUCTURE_DEVICES_ENABLED: false,
@@ -168,10 +168,11 @@ describe("FleetLayout redirect logic", () => {
     expect(screen.queryByTestId("fleet-tab-infrastructure")).not.toBeInTheDocument();
   });
 
-  test("redirects away from Infrastructure when the infrastructure devices flag is off", async () => {
+  test("keeps Infrastructure deep links reachable while the infrastructure devices flag is off", async () => {
     renderAt("/fleet/infrastructure");
-    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/sites"));
-    expect(screen.queryByTestId("tab-content-infrastructure")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("tab-content-infrastructure")).toBeInTheDocument());
+    expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/infrastructure");
+    expect(screen.queryByTestId("fleet-tab-infrastructure")).not.toBeInTheDocument();
   });
 
   test("redirects hidden tab deep links without mounting their content", async () => {
@@ -225,6 +226,17 @@ describe("FleetLayout scoped-permission fallback", () => {
     expect(screen.getByTestId("location-probe").textContent).toBe("/fleet");
     expect(screen.queryByTestId("tab-content-miners")).not.toBeInTheDocument();
     expect(screen.queryByTestId("tab-content-racks")).not.toBeInTheDocument();
+  });
+
+  test("does not mount Infrastructure deep links without rack read", async () => {
+    hasPermissionMock.current = () => false;
+
+    renderAt("/fleet/infrastructure");
+
+    await waitFor(() => {
+      expect(screen.getByText("You do not have permission to view Fleet sections.")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("tab-content-infrastructure")).not.toBeInTheDocument();
   });
 
   test("mounts Racks for rack-only roles without site metadata access", async () => {

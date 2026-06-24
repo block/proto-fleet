@@ -1,9 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 
-import {
-  getInfraDeviceConnectionTypeLabel,
-  infraDeviceConnectionTypeOptions,
-} from "@/protoFleet/features/infrastructure/connectionTypes";
+import { infraDeviceConnectionTypeOptions } from "@/protoFleet/features/infrastructure/connectionTypes";
 import { FieldHelpPopover } from "@/protoFleet/features/infrastructure/fieldHelp";
 import { infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelpContent";
 import type { InfraDeviceConnectionType, InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
@@ -17,7 +14,6 @@ import Row from "@/shared/components/Row";
 import Select from "@/shared/components/Select";
 import StatusCircle from "@/shared/components/StatusCircle";
 import Switch from "@/shared/components/Switch";
-import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const buildOptions = (values: string[], currentValue: string) =>
   [...new Set([currentValue, ...values].filter(Boolean))].sort().map((value) => ({ value, label: value }));
@@ -46,6 +42,9 @@ interface InfraDeviceDetailModalProps {
   device: InfraDeviceItem;
   siteOptions?: string[];
   buildingOptions?: string[];
+  canManage?: boolean;
+  onSave: (device: InfraDeviceItem) => void;
+  onDelete: (deviceId: string) => void;
   onDismiss: () => void;
 }
 
@@ -53,6 +52,9 @@ const InfraDeviceDetailModal = ({
   device,
   siteOptions = [],
   buildingOptions = [],
+  canManage = true,
+  onSave,
+  onDelete,
   onDismiss,
 }: InfraDeviceDetailModalProps) => {
   const siteSelectOptions = useMemo(() => buildOptions(siteOptions, device.siteName), [siteOptions, device.siteName]);
@@ -67,26 +69,29 @@ const InfraDeviceDetailModal = ({
   const [site, setSite] = useState(device.siteName);
   const [building, setBuilding] = useState(device.buildingName);
   const [enabled, setEnabled] = useState(device.enabled);
-  const [isTesting, setIsTesting] = useState(false);
+  const portNumber = Number(port);
+  const isPortValid = Number.isInteger(portNumber) && portNumber > 0 && portNumber <= 65535;
+  const canSave =
+    [name, site, building, connectionType, endpoint].every((value) => value.trim().length > 0) && isPortValid;
 
   const handleSave = useCallback(() => {
+    if (!canSave) return;
+    onSave({
+      ...device,
+      name: name.trim(),
+      connectionType,
+      endpoint: endpoint.trim(),
+      port: portNumber,
+      siteName: site.trim(),
+      buildingName: building.trim(),
+      enabled,
+    });
     onDismiss();
-  }, [onDismiss]);
+  }, [building, canSave, connectionType, device, enabled, endpoint, name, onDismiss, onSave, portNumber, site]);
 
   const handleDelete = useCallback(() => {
-    onDismiss();
-  }, [onDismiss]);
-
-  const handleTest = useCallback(() => {
-    setIsTesting(true);
-    setTimeout(() => {
-      setIsTesting(false);
-      pushToast({
-        message: `${getInfraDeviceConnectionTypeLabel(connectionType)} connection to ${endpoint}:${port} successful (12ms)`,
-        status: STATUSES.success,
-      });
-    }, 1200);
-  }, [connectionType, endpoint, port]);
+    onDelete(device.id);
+  }, [device.id, onDelete]);
 
   const statusIcon = (() => {
     if (device.status === "offline")
@@ -110,27 +115,25 @@ const InfraDeviceDetailModal = ({
       open
       onDismiss={onDismiss}
       headerSpacingClassName="mt-6"
-      buttons={[
-        {
-          text: "Delete",
-          variant: variants.secondaryDanger,
-          onClick: handleDelete,
-          dismissModalOnClick: false,
-        },
-        {
-          text: "Test connection",
-          variant: variants.secondary,
-          onClick: handleTest,
-          loading: isTesting,
-          dismissModalOnClick: false,
-        },
-        {
-          text: "Save",
-          variant: variants.primary,
-          onClick: handleSave,
-          dismissModalOnClick: false,
-        },
-      ]}
+      buttons={
+        canManage
+          ? [
+              {
+                text: "Delete",
+                variant: variants.secondaryDanger,
+                onClick: handleDelete,
+                dismissModalOnClick: false,
+              },
+              {
+                text: "Save",
+                variant: variants.primary,
+                onClick: handleSave,
+                disabled: !canSave,
+                dismissModalOnClick: false,
+              },
+            ]
+          : []
+      }
     >
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-3">
@@ -149,7 +152,7 @@ const InfraDeviceDetailModal = ({
 
         {/* Editable fields */}
         <div className="flex flex-col gap-4">
-          <Input id="device-name" label="Name" initValue={name} onChange={(v) => setName(v)} />
+          <Input id="device-name" label="Name" initValue={name} readOnly={!canManage} onChange={(v) => setName(v)} />
           <div className="grid grid-cols-2 gap-3">
             <Select
               id="device-site"
@@ -157,6 +160,7 @@ const InfraDeviceDetailModal = ({
               options={siteSelectOptions}
               value={site}
               onChange={setSite}
+              disabled={!canManage}
               forceBelow
             />
             <Select
@@ -165,6 +169,7 @@ const InfraDeviceDetailModal = ({
               options={buildingSelectOptions}
               value={building}
               onChange={setBuilding}
+              disabled={!canManage}
               forceBelow
             />
           </div>
@@ -175,6 +180,7 @@ const InfraDeviceDetailModal = ({
             value={connectionType}
             onChange={(value) => setConnectionType(value as InfraDeviceConnectionType)}
             suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.connectionType} />}
+            disabled={!canManage}
             forceBelow
           />
           <div className="grid grid-cols-2 gap-3">
@@ -182,6 +188,7 @@ const InfraDeviceDetailModal = ({
               id="device-endpoint"
               label="Endpoint"
               initValue={endpoint}
+              readOnly={!canManage}
               suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.endpoint} />}
               onChange={(v) => setEndpoint(v)}
             />
@@ -191,6 +198,7 @@ const InfraDeviceDetailModal = ({
               type="number"
               inputMode="numeric"
               initValue={port}
+              readOnly={!canManage}
               suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.port} />}
               onChange={(v) => setPort(v)}
             />
@@ -200,6 +208,7 @@ const InfraDeviceDetailModal = ({
             <Switch
               ariaLabel="Enabled"
               checked={enabled === "auto"}
+              disabled={!canManage}
               setChecked={(next) => {
                 const checked = typeof next === "function" ? next(enabled === "auto") : next;
                 setEnabled(checked ? "auto" : "off");

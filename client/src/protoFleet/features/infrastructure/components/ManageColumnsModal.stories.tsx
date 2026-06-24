@@ -29,6 +29,7 @@ export const Default = () => {
       {open ? (
         <ManageColumnsModal
           columns={columns}
+          defaultColumns={defaultColumns}
           onDismiss={() => setOpen(false)}
           onSave={(updated) => {
             setColumns(updated);

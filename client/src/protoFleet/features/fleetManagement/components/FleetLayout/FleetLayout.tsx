@@ -22,12 +22,15 @@ import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
-const TAB_ORDER: FleetTabId[] = [
+const ROUTE_TAB_ORDER: FleetTabId[] = [
   ...(MULTI_SITE_ENABLED ? (["sites", "buildings"] as FleetTabId[]) : []),
   "racks",
   "miners",
-  ...(INFRASTRUCTURE_DEVICES_ENABLED ? (["infrastructure"] as FleetTabId[]) : []),
+  "infrastructure",
 ];
+const DISCOVERABLE_TAB_ORDER: FleetTabId[] = ROUTE_TAB_ORDER.filter(
+  (tab) => tab !== "infrastructure" || INFRASTRUCTURE_DEVICES_ENABLED,
+);
 const LAST_TAB_KEY = "fleet:lastActiveTab";
 
 const tabLabel: Record<FleetTabId, string> = {
@@ -67,6 +70,7 @@ const FleetLayout = () => {
   const canReadMiners = useHasPermission("miner:read");
   const canReadRacks = useHasPermission("rack:read");
   const canReadFleet = useHasPermission("fleet:read");
+  const canReadInfrastructure = useHasPermission("rack:read");
 
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canReadSites ? undefined : []);
@@ -118,21 +122,23 @@ const FleetLayout = () => {
   const siteCatalogAccessGranted = canReadSites && sitesLoaded && !sitesPermissionDenied;
   const canReadRacksTab = canReadRacks;
   const canReadMinersTab = canReadMiners && canReadRacks && canReadFleet;
+  const canReadInfrastructureTab = canReadInfrastructure;
 
-  // Source of truth for "which tabs are reachable right now." Hide-rule
-  // changes only need to touch this filter; the redirect effect, the tab
-  // strip, and the lastTab guard all derive from it.
-  const visibleTabs = useMemo(
-    () =>
-      TAB_ORDER.filter((t) => {
-        if (t === "sites" && (sitesTabHidden || sitesAccessBlocked)) return false;
-        if (t === "buildings" && sitesAccessBlocked) return false;
-        if (t === "racks" && !canReadRacksTab) return false;
-        if (t === "miners" && !canReadMinersTab) return false;
-        return true;
-      }),
-    [sitesTabHidden, sitesAccessBlocked, canReadRacksTab, canReadMinersTab],
+  // Permission source of truth for Fleet tabs. Feature flags can hide tab-strip
+  // entries, but registered routes stay reachable for authorized deep links.
+  const isTabReachable = useCallback(
+    (t: FleetTabId) => {
+      if (t === "sites" && (sitesTabHidden || sitesAccessBlocked)) return false;
+      if (t === "buildings" && sitesAccessBlocked) return false;
+      if (t === "racks" && !canReadRacksTab) return false;
+      if (t === "miners" && !canReadMinersTab) return false;
+      if (t === "infrastructure" && !canReadInfrastructureTab) return false;
+      return true;
+    },
+    [sitesTabHidden, sitesAccessBlocked, canReadRacksTab, canReadMinersTab, canReadInfrastructureTab],
   );
+  const reachableTabs = useMemo(() => ROUTE_TAB_ORDER.filter(isTabReachable), [isTabReachable]);
+  const visibleTabs = useMemo(() => DISCOVERABLE_TAB_ORDER.filter(isTabReachable), [isTabReachable]);
 
   // Fallbacks must come from visibleTabs so roles don't get redirected into
   // tabs whose required RPCs they cannot call. Racks stays reachable without
@@ -140,7 +146,7 @@ const FleetLayout = () => {
   const fallbackTab = visibleTabs[0];
   const usableLastTab = lastTab && visibleTabs.includes(lastTab) ? lastTab : undefined;
   const targetTab = usableLastTab ?? fallbackTab;
-  const currentTabAllowed = currentTab === undefined || visibleTabs.includes(currentTab);
+  const currentTabAllowed = currentTab === undefined || reachableTabs.includes(currentTab);
 
   // Defer redirect until the initial sites load resolves so a stale
   // single-site picker selection doesn't briefly hide the Sites tab before
@@ -172,7 +178,7 @@ const FleetLayout = () => {
 
     const unscopedPath = unscopedScopablePath(location.pathname);
     const onBareFleet = unscopedPath === "/fleet" || unscopedPath === "/fleet/";
-    const currentTabHidden = currentTab !== undefined && !visibleTabs.includes(currentTab);
+    const currentTabHidden = currentTab !== undefined && !reachableTabs.includes(currentTab);
     if ((onBareFleet || currentTabHidden) && targetTab) {
       navigate(scopedPath(`/fleet/${targetTab}`, pathScope), { replace: true });
     }
@@ -187,7 +193,7 @@ const FleetLayout = () => {
     pathScope,
     rawPathScope,
     validatedKnownSiteIds,
-    visibleTabs,
+    reachableTabs,
     targetTab,
     navigate,
   ]);
@@ -269,7 +275,7 @@ const FleetLayout = () => {
   const viewTabs = <FleetViewTabs viewsState={viewsState} currentTab={currentTab} filterContext={viewFilterContext} />;
 
   const outlet =
-    visibleTabs.length === 0 ? (
+    reachableTabs.length === 0 ? (
       <div className="p-6 text-300 text-text-primary-70 laptop:p-10">
         You do not have permission to view Fleet sections.
       </div>

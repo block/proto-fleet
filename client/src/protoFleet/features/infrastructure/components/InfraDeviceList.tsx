@@ -6,7 +6,7 @@ import InfraDeviceDetailModal from "./InfraDeviceDetail/InfraDeviceDetailModal";
 import ManageColumnsModal, { type InfraColumnPreference } from "./ManageColumnsModal";
 import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
-import type { InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
+import type { InfraDeviceDraft, InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
 import { useSetActionBarVisible } from "@/protoFleet/store";
 import { Alert, ChevronDown, Plus, Slider } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
@@ -121,25 +121,55 @@ const infraItemName = { singular: "device", plural: "devices" };
 const columnsExemptFromDisabledStyling = new Set<InfraColumn>([infraCols.name, infraCols.status, infraCols.enabled]);
 
 const PAGE_SIZE = 50;
+const EMPTY_DEVICES: InfraDeviceItem[] = [];
+const EMPTY_ACTIVE_FILTERS: ActiveFilters = {
+  buttonFilters: [],
+  dropdownFilters: {},
+  numericFilters: {},
+  textareaListFilters: {},
+};
 
 interface InfraDeviceListProps {
   devices?: InfraDeviceItem[];
+  canManage?: boolean;
 }
+
+const buildDefaultColumnPrefs = () =>
+  CONFIGURABLE_COLS.map((c) => ({ id: c, label: infraColTitles[c], visible: DEFAULT_VISIBLE.includes(c) }));
+
+const hasAnyActiveFilters = (filters: ActiveFilters) =>
+  filters.buttonFilters.length > 0 ||
+  Object.values(filters.dropdownFilters).some((values) => values.length > 0) ||
+  Object.keys(filters.numericFilters).length > 0 ||
+  Object.values(filters.textareaListFilters).some((values) => values.length > 0);
 
 const uniqueSorted = (values: string[]) => [...new Set(values.filter(Boolean))].sort();
 
-const getBuildingOptionsBySite = (devices: InfraDeviceItem[]) =>
-  devices.reduce<Record<string, string[]>>((acc, device) => {
-    const siteBuildings = acc[device.siteName] ?? [];
-    if (!siteBuildings.includes(device.buildingName)) {
-      acc[device.siteName] = [...siteBuildings, device.buildingName].sort();
-    }
-    return acc;
-  }, {});
+const slugify = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const buildDeviceId = (draft: InfraDeviceDraft, devices: InfraDeviceItem[]) => {
+  const existingIds = new Set(devices.map((device) => device.id));
+  const baseId = slugify(`${draft.siteName}-${draft.buildingName}-${draft.name}`) || "infrastructure-device";
+  let id = baseId;
+  let suffix = 2;
+
+  while (existingIds.has(id)) {
+    id = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  return id;
+};
 
 interface InfraDeviceActionBarProps {
   selected: string[];
   clearSelection: () => void;
+  onDeleteSelected: () => void;
   selectionMode: SelectionMode;
   totalSelectable?: number;
 }
@@ -147,6 +177,7 @@ interface InfraDeviceActionBarProps {
 const InfraDeviceActionBar = ({
   selected,
   clearSelection,
+  onDeleteSelected,
   selectionMode,
   totalSelectable,
 }: InfraDeviceActionBarProps) => {
@@ -165,32 +196,21 @@ const InfraDeviceActionBar = ({
       <ActionBar
         className="fixed right-0 bottom-4 left-0 z-20 laptop:left-16 desktop:left-50"
         selectedItems={selected}
+        itemNoun={infraItemName}
         selectionMode={selectionMode}
         totalCount={totalSelectable}
         onClose={clearSelection}
         selectionControls={
-          <>
-            <Button
-              className="py-1"
-              size={buttonSizes.textOnly}
-              variant={variants.textOnly}
-              textColor="text-core-accent-fill"
-              textOnlyUnderlineOnHover={false}
-              onClick={() => {}}
-            >
-              Select all
-            </Button>
-            <Button
-              className="py-1"
-              size={buttonSizes.textOnly}
-              variant={variants.textOnly}
-              textColor="text-core-accent-fill"
-              textOnlyUnderlineOnHover={false}
-              onClick={clearSelection}
-            >
-              Select none
-            </Button>
-          </>
+          <Button
+            className="py-1"
+            size={buttonSizes.textOnly}
+            variant={variants.textOnly}
+            textColor="text-core-accent-fill"
+            textOnlyUnderlineOnHover={false}
+            onClick={clearSelection}
+          >
+            Select none
+          </Button>
         }
         renderActions={() => (
           <Button
@@ -198,6 +218,7 @@ const InfraDeviceActionBar = ({
             text="Delete"
             variant={variants.danger}
             size={buttonSizes.compact}
+            onClick={onDeleteSelected}
           />
         )}
       />
@@ -205,42 +226,69 @@ const InfraDeviceActionBar = ({
   );
 };
 
-const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
+const InfraDeviceList = ({ devices = EMPTY_DEVICES, canManage = true }: InfraDeviceListProps) => {
+  const [localDevices, setLocalDevices] = useState<InfraDeviceItem[]>(() => devices);
   const [detailDeviceId, setDetailDeviceId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showManageColumns, setShowManageColumns] = useState(false);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
+  const [currentPage, setCurrentPage] = useState(0);
+  const [activeFilters, setActiveFilters] = useState<ActiveFilters>(EMPTY_ACTIVE_FILTERS);
   const [currentSort, setCurrentSort] = useState<{ field: InfraColumn; direction: SortDirection }>({
     field: "name",
     direction: SORT_ASC,
   });
-  const [enabledOverrides, setEnabledOverrides] = useState<Record<string, InfraDeviceItem["enabled"]>>({});
-  const [columnPrefs, setColumnPrefs] = useState<InfraColumnPreference[]>(() =>
-    CONFIGURABLE_COLS.map((c) => ({ id: c, label: infraColTitles[c], visible: DEFAULT_VISIBLE.includes(c) })),
-  );
+  const defaultColumnPrefs = useMemo(() => buildDefaultColumnPrefs(), []);
+  const [columnPrefs, setColumnPrefs] = useState<InfraColumnPreference[]>(() => buildDefaultColumnPrefs());
 
   const detailDevice = useMemo(
-    () => devices.find((device) => device.id === detailDeviceId) ?? null,
-    [devices, detailDeviceId],
+    () => localDevices.find((device) => device.id === detailDeviceId) ?? null,
+    [localDevices, detailDeviceId],
   );
-  const siteOptions = useMemo(() => uniqueSorted(devices.map((device) => device.siteName)), [devices]);
-  const buildingOptions = useMemo(() => uniqueSorted(devices.map((device) => device.buildingName)), [devices]);
-  const buildingOptionsBySite = useMemo(() => getBuildingOptionsBySite(devices), [devices]);
-  const getEnabledMode = useCallback(
-    (device: InfraDeviceItem) => enabledOverrides[device.id] ?? device.enabled,
-    [enabledOverrides],
+  const siteOptions = useMemo(() => uniqueSorted(localDevices.map((device) => device.siteName)), [localDevices]);
+  const buildingOptions = useMemo(
+    () => uniqueSorted(localDevices.map((device) => device.buildingName)),
+    [localDevices],
   );
+
+  const updateDevice = useCallback((updated: InfraDeviceItem) => {
+    setLocalDevices((prev) => prev.map((device) => (device.id === updated.id ? updated : device)));
+  }, []);
+
+  const deleteDevices = useCallback((deviceIds: string[]) => {
+    const ids = new Set(deviceIds);
+    setLocalDevices((prev) => prev.filter((device) => !ids.has(device.id)));
+    setDetailDeviceId((id) => (id && ids.has(id) ? null : id));
+    setCurrentPage(0);
+  }, []);
+
   const setEnabledMode = useCallback((deviceId: string, enabled: boolean) => {
-    setEnabledOverrides((prev) => ({ ...prev, [deviceId]: enabled ? "auto" : "off" }));
+    setLocalDevices((prev) =>
+      prev.map((device) => (device.id === deviceId ? { ...device, enabled: enabled ? "auto" : "off" } : device)),
+    );
+  }, []);
+
+  const addDevice = useCallback((draft: InfraDeviceDraft) => {
+    setLocalDevices((prev) => [
+      {
+        ...draft,
+        id: buildDeviceId(draft, prev),
+        status: "offline",
+        enabled: "auto",
+        lastSeen: "Never",
+      },
+      ...prev,
+    ]);
+    setShowAddModal(false);
+    setCurrentPage(0);
   }, []);
 
   const getRowActions = useCallback(
     (device: InfraDeviceItem): RowAction[] => [
-      { label: "Edit", onClick: () => setDetailDeviceId(device.id) },
-      { label: "Test connection", onClick: () => {} },
-      { label: "Delete", onClick: () => {} },
+      { label: canManage ? "Edit" : "View details", onClick: () => setDetailDeviceId(device.id) },
+      ...(canManage ? [{ label: "Delete", onClick: () => deleteDevices([device.id]) }] : []),
     ],
-    [],
+    [canManage, deleteDevices],
   );
 
   const allActiveCols: InfraColumn[] = useMemo(
@@ -310,13 +358,14 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
       },
       [infraCols.enabled]: {
         component: (device) => {
-          const mode = getEnabledMode(device);
           return (
             <div data-no-row-click>
               <Switch
-                checked={mode === "auto"}
+                ariaLabel={`Enabled for ${device.name}`}
+                checked={device.enabled === "auto"}
+                disabled={!canManage}
                 setChecked={(next) => {
-                  const checked = typeof next === "function" ? next(mode === "auto") : next;
+                  const checked = typeof next === "function" ? next(device.enabled === "auto") : next;
                   setEnabledMode(device.id, checked);
                 }}
               />
@@ -326,7 +375,7 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
         width: "w-[88px]",
       },
     }),
-    [getEnabledMode, getRowActions, setEnabledMode],
+    [canManage, getRowActions, setEnabledMode],
   );
 
   const filters: FilterItem[] = useMemo(
@@ -341,14 +390,14 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
             type: "dropdown",
             title: "Site",
             value: "site",
-            options: [...new Set(devices.map((d) => d.siteName))].sort().map((s) => ({ id: s, label: s })),
+            options: [...new Set(localDevices.map((d) => d.siteName))].sort().map((s) => ({ id: s, label: s })),
             defaultOptionIds: [],
           },
           {
             type: "dropdown",
             title: "Building",
             value: "building",
-            options: [...new Set(devices.map((d) => d.buildingName))].sort().map((b) => ({ id: b, label: b })),
+            options: [...new Set(localDevices.map((d) => d.buildingName))].sort().map((b) => ({ id: b, label: b })),
             defaultOptionIds: [],
           },
           {
@@ -376,26 +425,23 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
         ],
       } satisfies NestedFilterDropdownItem,
     ],
-    [devices],
+    [localDevices],
   );
 
-  const filterDevice = useCallback(
-    (_device: InfraDeviceItem, _filters: ActiveFilters) => {
-      const statusF = _filters.dropdownFilters["status"];
-      if (statusF?.length && !statusF.includes(_device.status)) return false;
-      const enabledF = _filters.dropdownFilters["enabled"];
-      if (enabledF?.length && !enabledF.includes(getEnabledMode(_device))) return false;
-      const typeF = _filters.dropdownFilters["type"];
-      const deviceType = getDeviceType(_device);
-      if (typeF?.length && (!deviceType || !typeF.includes(deviceType))) return false;
-      const buildingF = _filters.dropdownFilters["building"];
-      if (buildingF?.length && !buildingF.includes(_device.buildingName)) return false;
-      const siteF = _filters.dropdownFilters["site"];
-      if (siteF?.length && !siteF.includes(_device.siteName)) return false;
-      return true;
-    },
-    [getEnabledMode],
-  );
+  const filterDevice = useCallback((_device: InfraDeviceItem, _filters: ActiveFilters) => {
+    const statusF = _filters.dropdownFilters["status"];
+    if (statusF?.length && !statusF.includes(_device.status)) return false;
+    const enabledF = _filters.dropdownFilters["enabled"];
+    if (enabledF?.length && !enabledF.includes(_device.enabled)) return false;
+    const typeF = _filters.dropdownFilters["type"];
+    const deviceType = getDeviceType(_device);
+    if (typeF?.length && (!deviceType || !typeF.includes(deviceType))) return false;
+    const buildingF = _filters.dropdownFilters["building"];
+    if (buildingF?.length && !buildingF.includes(_device.buildingName)) return false;
+    const siteF = _filters.dropdownFilters["site"];
+    if (siteF?.length && !siteF.includes(_device.siteName)) return false;
+    return true;
+  }, []);
 
   const sortedDevices = useMemo(() => {
     const fieldToKey: Partial<Record<InfraColumn, keyof InfraDeviceItem>> = {
@@ -409,11 +455,11 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
       status: "status",
       enabled: "enabled",
     };
-    return [...devices].sort((a, b) => {
+    return [...localDevices].sort((a, b) => {
       const key = fieldToKey[currentSort.field];
       const aVal =
         currentSort.field === "enabled"
-          ? getEnabledMode(a)
+          ? a.enabled
           : currentSort.field === "type"
             ? formatDeviceType(a)
             : key
@@ -421,7 +467,7 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
               : "";
       const bVal =
         currentSort.field === "enabled"
-          ? getEnabledMode(b)
+          ? b.enabled
           : currentSort.field === "type"
             ? formatDeviceType(b)
             : key
@@ -436,10 +482,30 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
           : String(aVal).localeCompare(String(bVal), undefined, { numeric: true });
       return currentSort.direction === SORT_ASC ? cmp : -cmp;
     });
-  }, [devices, currentSort, getEnabledMode]);
+  }, [localDevices, currentSort]);
 
   const handleSort = useCallback((field: InfraColumn, direction: SortDirection) => {
     setCurrentSort({ field, direction });
+    setCurrentPage(0);
+  }, []);
+
+  const filteredDevices = useMemo(
+    () => sortedDevices.filter((device) => filterDevice(device, activeFilters)),
+    [activeFilters, filterDevice, sortedDevices],
+  );
+  const filtersAreActive = useMemo(() => hasAnyActiveFilters(activeFilters), [activeFilters]);
+
+  const totalDevices = filteredDevices.length;
+  const maxPage = Math.max(Math.ceil(totalDevices / PAGE_SIZE) - 1, 0);
+  const currentPageIndex = Math.min(currentPage, maxPage);
+  const paginatedDevices = useMemo(
+    () => filteredDevices.slice(currentPageIndex * PAGE_SIZE, (currentPageIndex + 1) * PAGE_SIZE),
+    [currentPageIndex, filteredDevices],
+  );
+
+  const handleFilterChange = useCallback(async (filters: ActiveFilters) => {
+    setActiveFilters(filters);
+    setCurrentPage(0);
   }, []);
 
   const handleRowClick = useCallback((device: InfraDeviceItem) => {
@@ -451,38 +517,41 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
       if (selected.length === 0) {
         return null;
       }
+      if (!canManage) {
+        return null;
+      }
 
       return (
         <InfraDeviceActionBar
           selected={selected}
           clearSelection={clearSelection}
+          onDeleteSelected={() => {
+            deleteDevices(selected);
+            clearSelection();
+          }}
           selectionMode={currentSelectionMode}
           totalSelectable={totalSelectable}
         />
       );
     },
-    [],
+    [canManage, deleteDevices],
   );
-
-  // Pagination
-  const totalDevices = devices.length;
-  const [currentPage, setCurrentPage] = useState(0);
-  const hasPreviousPage = currentPage > 0;
-  const hasNextPage = (currentPage + 1) * PAGE_SIZE < totalDevices;
-  const firstItemIndex = currentPage * PAGE_SIZE + 1;
-  const lastItemIndex = Math.min((currentPage + 1) * PAGE_SIZE, totalDevices);
+  const hasPreviousPage = currentPageIndex > 0;
+  const hasNextPage = currentPageIndex < maxPage;
+  const firstItemIndex = currentPageIndex * PAGE_SIZE + 1;
+  const lastItemIndex = Math.min((currentPageIndex + 1) * PAGE_SIZE, totalDevices);
   const shouldRenderPagination = totalDevices > PAGE_SIZE;
 
   return (
     <div className="flex flex-col">
       <List
-        items={sortedDevices}
+        items={paginatedDevices}
         itemKey="id"
         activeCols={allActiveCols}
         colTitles={infraColTitles}
         colConfig={colConfig}
         filters={filters}
-        filterItem={filterDevice}
+        onServerFilter={handleFilterChange}
         headerControls={
           <div className="flex items-center gap-2">
             <Button
@@ -493,12 +562,14 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
               prefixIcon={<Slider width="w-4" />}
               onClick={() => setShowManageColumns(true)}
             />
-            <Button
-              text="Add device"
-              variant={variants.secondary}
-              size={buttonSizes.compact}
-              onClick={() => setShowAddModal(true)}
-            />
+            {canManage ? (
+              <Button
+                text="Add device"
+                variant={variants.secondary}
+                size={buttonSizes.compact}
+                onClick={() => setShowAddModal(true)}
+              />
+            ) : null}
           </div>
         }
         itemSelectable
@@ -511,6 +582,7 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
         totalDisabled={0}
         hideTotal
         itemName={infraItemName}
+        hasActiveFilters={filtersAreActive}
         columnsExemptFromDisabledStyling={columnsExemptFromDisabledStyling}
         sortableColumns={SORTABLE_COLS}
         currentSort={currentSort}
@@ -537,7 +609,7 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
               size={buttonSizes.compact}
               ariaLabel="Previous page"
               prefixIcon={<ChevronDown className="rotate-90" />}
-              onClick={() => setCurrentPage((p) => p - 1)}
+              onClick={() => setCurrentPage((p) => Math.max(p - 1, 0))}
               disabled={!hasPreviousPage}
             />
             <Button
@@ -545,7 +617,7 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
               size={buttonSizes.compact}
               ariaLabel="Next page"
               prefixIcon={<ChevronDown className="rotate-270" />}
-              onClick={() => setCurrentPage((p) => p + 1)}
+              onClick={() => setCurrentPage((p) => Math.min(p + 1, maxPage))}
               disabled={!hasNextPage}
             />
           </div>
@@ -563,26 +635,29 @@ const InfraDeviceList = ({ devices = [] }: InfraDeviceListProps) => {
           device={detailDevice}
           siteOptions={siteOptions}
           buildingOptions={buildingOptions}
+          canManage={canManage}
+          onSave={updateDevice}
+          onDelete={(deviceId) => deleteDevices([deviceId])}
           onDismiss={() => setDetailDeviceId(null)}
         />
       ) : null}
 
-      {showAddModal ? (
-        <AddInfraDeviceModal
-          siteOptions={siteOptions}
-          buildingOptions={buildingOptions}
-          buildingOptionsBySite={buildingOptionsBySite}
-          onDismiss={() => setShowAddModal(false)}
-          onSuccess={() => setShowAddModal(false)}
-        />
-      ) : null}
+      {showAddModal ? <AddInfraDeviceModal onDismiss={() => setShowAddModal(false)} onSuccess={addDevice} /> : null}
 
       {showManageColumns ? (
         <ManageColumnsModal
           columns={columnPrefs}
+          defaultColumns={defaultColumnPrefs}
           onDismiss={() => setShowManageColumns(false)}
           onSave={(updated) => {
             setColumnPrefs(updated);
+            const visibleColumns = new Set<InfraColumn>([
+              "name",
+              ...updated.filter((column) => column.visible).map((column) => column.id as InfraColumn),
+            ]);
+            if (!visibleColumns.has(currentSort.field)) {
+              setCurrentSort({ field: "name", direction: SORT_ASC });
+            }
             setShowManageColumns(false);
           }}
         />

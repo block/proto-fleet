@@ -59,6 +59,7 @@ export const globalRoutePrefetch: readonly RouteImporter[] = [
   importRacksPage,
   importFleetBuildingsPage,
   importFleetSitesPage,
+  importFleetInfraPage,
   importGroupsPage,
   importEnergyPage,
   importActivityPage,

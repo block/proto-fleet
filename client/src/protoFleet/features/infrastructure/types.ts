@@ -16,3 +16,8 @@ export interface InfraDeviceItem {
   fanCount?: number;
   endpointKind?: "single_fan" | "fan_group";
 }
+
+export type InfraDeviceDraft = Pick<
+  InfraDeviceItem,
+  "name" | "buildingName" | "siteName" | "connectionType" | "endpoint" | "port"
+>;

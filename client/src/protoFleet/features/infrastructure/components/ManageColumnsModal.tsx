@@ -29,6 +29,7 @@ export interface InfraColumnPreference {
 
 interface ManageColumnsModalProps {
   columns: InfraColumnPreference[];
+  defaultColumns: InfraColumnPreference[];
   onDismiss: () => void;
   onSave: (columns: InfraColumnPreference[]) => void;
 }
@@ -70,7 +71,7 @@ const SortableColumnRow = ({
   );
 };
 
-const ManageColumnsModal = ({ columns, onDismiss, onSave }: ManageColumnsModalProps) => {
+const ManageColumnsModal = ({ columns, defaultColumns, onDismiss, onSave }: ManageColumnsModalProps) => {
   const [draft, setDraft] = useState(() => columns);
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -98,8 +99,8 @@ const ManageColumnsModal = ({ columns, onDismiss, onSave }: ManageColumnsModalPr
   }, []);
 
   const handleReset = useCallback(() => {
-    setDraft(columns.map((c) => ({ ...c, visible: true })));
-  }, [columns]);
+    setDraft(defaultColumns.map((c) => ({ ...c })));
+  }, [defaultColumns]);
 
   return (
     <Modal open onDismiss={onDismiss} showHeader={false} bodyClassName="text-text-primary">

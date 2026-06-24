@@ -3,7 +3,6 @@ import { mockInfraDevices } from "../stories/mockInfraDevices";
 import InfraDeviceDetailModal from "./InfraDeviceDetailModal";
 import type { InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
 import Button, { variants } from "@/shared/components/Button";
-import { Toaster as ToasterComponent } from "@/shared/features/toaster";
 
 export default {
   title: "Proto Fleet/Infrastructure/InfraDeviceDetailModal",
@@ -29,10 +28,11 @@ export const Online = () => {
           device={device}
           siteOptions={siteOptions}
           buildingOptions={buildingOptions}
+          onSave={() => setOpen(false)}
+          onDelete={() => setOpen(false)}
           onDismiss={() => setOpen(false)}
         />
       ) : null}
-      <ToasterComponent />
     </>
   );
 };
@@ -48,10 +48,11 @@ export const Offline = () => {
           device={device}
           siteOptions={siteOptions}
           buildingOptions={buildingOptions}
+          onSave={() => setOpen(false)}
+          onDelete={() => setOpen(false)}
           onDismiss={() => setOpen(false)}
         />
       ) : null}
-      <ToasterComponent />
     </>
   );
 };
