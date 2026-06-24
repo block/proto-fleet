@@ -308,7 +308,11 @@ const FleetLayout = () => {
         </TabStrip>
       </div>
       <div className="min-h-0 flex-1">
-        <FleetCreateFlowProvider sites={sites ?? []} refetchSites={fetchSites}>
+        <FleetCreateFlowProvider
+          sites={sites ?? []}
+          refetchSites={fetchSites}
+          notifyMinersChanged={notifyMinersChanged}
+        >
           {outlet}
         </FleetCreateFlowProvider>
       </div>

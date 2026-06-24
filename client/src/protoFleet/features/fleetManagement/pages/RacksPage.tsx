@@ -366,55 +366,74 @@ const RacksPage = () => {
     fetchZones();
   }, [fetchZones]);
 
-  // Refetch when the hoisted create flow commits a new rack (or other
-  // entity) so this list reflects it without waiting for the next poll.
-  // entitiesChangedAt starts at 0 and only bumps post-create, so the
-  // initial mount is a no-op.
   const createFlow = useFleetCreateFlow();
   const entitiesChangedAt = createFlow?.entitiesChangedAt ?? 0;
+
+  // Org-scoped parent catalogs powering the Site/Building columns + filter
+  // labels. Extracted into callbacks so the create-flow pulse can refresh
+  // them — a building/site created from this tab must resolve to a name
+  // immediately, not only after a remount.
+  const fetchBuildingCatalog = useCallback(
+    (signal?: AbortSignal) => {
+      if (!canReadSiteCatalog) return;
+      void listAllBuildings({
+        signal,
+        onSuccess: (buildings: BuildingWithCounts[]) => {
+          setAllBuildings(
+            buildings
+              .filter((b) => b.building !== undefined)
+              .map((b) => ({
+                id: b.building!.id.toString(),
+                label: b.building!.name,
+                siteId: (b.building!.siteId ?? 0n).toString(),
+              })),
+          );
+        },
+      });
+    },
+    [canReadSiteCatalog, listAllBuildings],
+  );
+
+  const fetchSiteCatalog = useCallback(
+    (signal?: AbortSignal) => {
+      if (!canReadSiteCatalog) return;
+      void listSites({
+        signal,
+        onSuccess: (sites: SiteWithCounts[]) => {
+          setAllSites(
+            sites.filter((s) => s.site !== undefined).map((s) => ({ id: s.site!.id.toString(), label: s.site!.name })),
+          );
+        },
+        onError: () => setAllSites((prev) => prev),
+      });
+    },
+    [canReadSiteCatalog, listSites],
+  );
+
+  // Refetch when the hoisted create flow commits a new entity so this list
+  // AND its parent-name catalogs reflect it without waiting for the next poll.
+  // entitiesChangedAt starts at 0 and only bumps post-create, so the initial
+  // mount is a no-op.
   useEffect(() => {
     if (entitiesChangedAt === 0) return;
     resetAndFetch();
     fetchZones();
-  }, [entitiesChangedAt, resetAndFetch, fetchZones]);
+    fetchBuildingCatalog();
+    fetchSiteCatalog();
+  }, [entitiesChangedAt, resetAndFetch, fetchZones, fetchBuildingCatalog, fetchSiteCatalog]);
 
-  // One-shot load — org-scoped buildings are small + stable.
+  // One-shot loads on mount — org-scoped catalogs are small + stable.
   useEffect(() => {
-    if (!canReadSiteCatalog) return;
-
     const controller = new AbortController();
-    void listAllBuildings({
-      signal: controller.signal,
-      onSuccess: (buildings: BuildingWithCounts[]) => {
-        setAllBuildings(
-          buildings
-            .filter((b) => b.building !== undefined)
-            .map((b) => ({
-              id: b.building!.id.toString(),
-              label: b.building!.name,
-              siteId: (b.building!.siteId ?? 0n).toString(),
-            })),
-        );
-      },
-    });
+    fetchBuildingCatalog(controller.signal);
     return () => controller.abort();
-  }, [canReadSiteCatalog, listAllBuildings]);
+  }, [fetchBuildingCatalog]);
 
   useEffect(() => {
-    if (!canReadSiteCatalog) return;
-
     const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: (sites: SiteWithCounts[]) => {
-        setAllSites(
-          sites.filter((s) => s.site !== undefined).map((s) => ({ id: s.site!.id.toString(), label: s.site!.name })),
-        );
-      },
-      onError: () => setAllSites((prev) => prev),
-    });
+    fetchSiteCatalog(controller.signal);
     return () => controller.abort();
-  }, [canReadSiteCatalog, listSites]);
+  }, [fetchSiteCatalog]);
 
   const siteNameById = useMemo(() => new Map((allSites ?? []).map((s) => [s.id, s.label])), [allSites]);
   const buildingNameById = useMemo(() => new Map(allBuildings.map((b) => [b.id, b.label])), [allBuildings]);

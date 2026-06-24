@@ -52,6 +52,7 @@ const FleetCreateFlowProvider = ({
   children,
   sites,
   refetchSites,
+  notifyMinersChanged,
 }: {
   children: ReactNode;
   sites: SiteWithCounts[];
@@ -59,9 +60,19 @@ const FleetCreateFlowProvider = ({
   // shared `sites` list (site column names, pickers) reflects the new site
   // immediately, not just on the next poll.
   refetchSites: () => void;
+  // FleetLayout's Miners-tab refresh pulse. The Miners tab listens to
+  // minersChangedAt (not entitiesChangedAt), so a create flow launched from
+  // it must signal here for the moved miners' placement to refresh.
+  notifyMinersChanged: () => void;
 }) => {
   const [entitiesChangedAt, setEntitiesChangedAt] = useState(0);
-  const bumpEntities = useCallback(() => setEntitiesChangedAt(Date.now()), []);
+  // Bumping entities also refreshes the Miners tab: every create flow can move
+  // miners (rack seeds them; building/site direct-assign them), and the Miners
+  // tab refreshes off minersChangedAt rather than entitiesChangedAt.
+  const bumpEntities = useCallback(() => {
+    setEntitiesChangedAt(Date.now());
+    notifyMinersChanged();
+  }, [notifyMinersChanged]);
   // Refresh the shared site catalog AND pulse list pages — used by the site
   // create/edit paths so the new site resolves everywhere right away.
   const refreshSitesAndBump = useCallback(() => {
