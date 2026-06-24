@@ -33,6 +33,7 @@ var telemetryCommandTimeout = 4 * time.Second
 var telemetrySupervisorGrace = 100 * time.Millisecond
 
 const maxTelemetryDeviceMetricsJSONBytes = 256 * 1024
+const maxTelemetryFirmwareVersionBytes = 255
 
 type telemetryFetcher interface {
 	Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error)
@@ -366,7 +367,7 @@ func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetri
 	result := &telemetrypb.FleetNodeTelemetryResult{
 		DeviceIdentifier:  deviceIdentifier,
 		Timestamp:         timestamppb.New(metrics.Timestamp),
-		FirmwareVersion:   metrics.FirmwareVersion,
+		FirmwareVersion:   truncateUTF8(metrics.FirmwareVersion, maxTelemetryFirmwareVersionBytes),
 		DeviceStatus:      status,
 		HealthStatus:      healthStatusFromV2(metrics.Health),
 		HashrateHs:        metricValue(metrics.HashrateHS),

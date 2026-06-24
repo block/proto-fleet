@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -329,6 +330,17 @@ func TestTelemetryResultFromV2CarriesWarningHealthSeparatelyFromStatus(t *testin
 
 	assert.Equal(t, telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE, result.GetDeviceStatus())
 	assert.Equal(t, telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_WARNING, result.GetHealthStatus())
+}
+
+func TestTelemetryResultFromV2TruncatesFirmwareVersion(t *testing.T) {
+	result, err := telemetryResultFromV2("node-device", modelsV2.DeviceMetrics{
+		Timestamp:       time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC),
+		Health:          modelsV2.HealthHealthyActive,
+		FirmwareVersion: strings.Repeat("v", maxTelemetryFirmwareVersionBytes+1),
+	}, telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE)
+	require.NoError(t, err)
+
+	assert.Len(t, result.GetFirmwareVersion(), maxTelemetryFirmwareVersionBytes)
 }
 
 func TestTelemetryResultFromV2CarriesComponentMetricsPayload(t *testing.T) {
