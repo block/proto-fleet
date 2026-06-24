@@ -173,6 +173,47 @@ describe("scheduleValidation", () => {
     ]);
   });
 
+  it("maps site and building targets to their proto target types", () => {
+    const values = {
+      ...createDefaultScheduleFormValues("UTC"),
+      name: "Site cap",
+      startDate: "2026-04-03",
+      startTime: "06:00",
+      siteTargetIds: ["7"],
+      buildingTargetIds: ["12"],
+    };
+
+    const request = buildScheduleRequest(values);
+
+    expect(request.targets).toEqual([
+      expect.objectContaining({ targetType: ScheduleTargetType.SITE, targetId: "7" }),
+      expect.objectContaining({ targetType: ScheduleTargetType.BUILDING, targetId: "12" }),
+    ]);
+  });
+
+  it("parses saved site and building targets back into form values", () => {
+    const schedule = create(ScheduleSchema, {
+      id: 21n,
+      name: "Site schedule",
+      action: ScheduleAction.SLEEP,
+      scheduleType: ScheduleType.ONE_TIME,
+      startDate: "2026-04-05",
+      startTime: "23:00",
+      timezone: "UTC",
+      targets: [
+        create(ScheduleTargetSchema, { targetType: ScheduleTargetType.SITE, targetId: "7" }),
+        create(ScheduleTargetSchema, { targetType: ScheduleTargetType.BUILDING, targetId: "12" }),
+        create(ScheduleTargetSchema, { targetType: ScheduleTargetType.RACK, targetId: "3" }),
+      ],
+    });
+
+    expect(createScheduleFormValuesFromSchedule(schedule)).toMatchObject({
+      siteTargetIds: ["7"],
+      buildingTargetIds: ["12"],
+      rackTargetIds: ["3"],
+    });
+  });
+
   it("maps saved schedules into editable form values", () => {
     const schedule = create(ScheduleSchema, {
       id: 9n,

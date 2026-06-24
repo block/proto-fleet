@@ -11,7 +11,9 @@ import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
+import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
+import BuildingSelectionModal from "@/protoFleet/features/settings/components/Schedules/BuildingSelectionModal";
 import {
   formatClientTimezoneLabel,
   formatTimezoneLabel,
@@ -35,6 +37,7 @@ import {
   timeOptions,
   validateSchedule,
 } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
+import SiteSelectionModal from "@/protoFleet/features/settings/components/Schedules/SiteSelectionModal";
 import {
   formatDateValue,
   parseDate as parseScheduleDate,
@@ -279,6 +282,19 @@ const ScheduleModal = ({
 }: ScheduleModalProps) => {
   const isEditMode = Boolean(schedule);
   const { listRacks, listGroups } = useDeviceSets();
+  // Soft default from the topbar SitePicker (store-driven; settings routes are
+  // unscoped, so this reads the stored selection). A single selected site
+  // pre-filters the rack/miner selection modals; "all sites" passes the empty
+  // filter and shows everything. Selections already on the schedule are not
+  // pruned by site — a schedule may legitimately span sites — and the schedule
+  // list itself stays org-wide (see issue #524).
+  const { activeSite } = useActiveSite({});
+  const scope = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
+  // With a single site selected, the schedule is implicitly working within that
+  // site: hide the Site target picker (targeting "a site" is redundant) and let
+  // the building/rack/miner pickers filter to it via `scope`. Site targeting is
+  // only meaningful from the all-sites view. Groups stay cross-site (#524).
+  const showSiteTarget = activeSite.kind !== "site";
   const { totalMiners: totalAvailableMiners, hasInitialLoadCompleted: hasLoadedAvailableMiners } = useFleet({
     pageSize: 1,
     pairingStatuses: [PairingStatus.PAIRED],
@@ -293,6 +309,8 @@ const ScheduleModal = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [showSiteSelectionModal, setShowSiteSelectionModal] = useState(false);
+  const [showBuildingSelectionModal, setShowBuildingSelectionModal] = useState(false);
   const [showRackSelectionModal, setShowRackSelectionModal] = useState(false);
   const [showGroupSelectionModal, setShowGroupSelectionModal] = useState(false);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
@@ -317,6 +335,8 @@ const ScheduleModal = ({
     setErrors({});
     setTouchedFields({});
     setShowAllErrors(false);
+    setShowSiteSelectionModal(false);
+    setShowBuildingSelectionModal(false);
     setShowRackSelectionModal(false);
     setShowGroupSelectionModal(false);
     setShowMinerSelectionModal(false);
@@ -832,6 +852,18 @@ const ScheduleModal = ({
             <div className={sectionBodyClassName}>
               <div className={sectionTitleClassName}>Apply to</div>
               <div className="grid">
+                {showSiteTarget ? (
+                  <TargetSelectButton
+                    label="Sites"
+                    value={getTargetButtonLabel(values.siteTargetIds.length, "site")}
+                    onClick={() => setShowSiteSelectionModal(true)}
+                  />
+                ) : null}
+                <TargetSelectButton
+                  label="Buildings"
+                  value={getTargetButtonLabel(values.buildingTargetIds.length, "building")}
+                  onClick={() => setShowBuildingSelectionModal(true)}
+                />
                 <TargetSelectButton
                   label="Racks"
                   value={getTargetButtonLabel(validRackTargetCount, "rack")}
@@ -848,16 +880,49 @@ const ScheduleModal = ({
                   onClick={() => setShowMinerSelectionModal(true)}
                 />
               </div>
+              {!showSiteTarget && values.siteTargetIds.length > 0 ? (
+                <div className="text-200 text-text-primary-70">
+                  This schedule also targets {values.siteTargetIds.length}{" "}
+                  {values.siteTargetIds.length === 1 ? "site" : "sites"}. Switch the header to All sites to edit site
+                  targets. They&apos;re preserved when you save.
+                </div>
+              ) : null}
             </div>
           </section>
         }
         secondaryPane={<SchedulePreview values={values} isEditMode={isEditMode} />}
       />
 
+      {showSiteSelectionModal ? (
+        <SiteSelectionModal
+          open={showSiteSelectionModal}
+          selectedSiteIds={values.siteTargetIds}
+          onDismiss={() => setShowSiteSelectionModal(false)}
+          onSave={(siteTargetIds) => {
+            setNextValues((current) => ({ ...current, siteTargetIds }));
+            setShowSiteSelectionModal(false);
+          }}
+        />
+      ) : null}
+
+      {showBuildingSelectionModal ? (
+        <BuildingSelectionModal
+          open={showBuildingSelectionModal}
+          selectedBuildingIds={values.buildingTargetIds}
+          scope={scope}
+          onDismiss={() => setShowBuildingSelectionModal(false)}
+          onSave={(buildingTargetIds) => {
+            setNextValues((current) => ({ ...current, buildingTargetIds }));
+            setShowBuildingSelectionModal(false);
+          }}
+        />
+      ) : null}
+
       {showRackSelectionModal ? (
         <RackSelectionModal
           open={showRackSelectionModal}
           selectedRackIds={values.rackTargetIds}
+          scope={scope}
           onDismiss={() => setShowRackSelectionModal(false)}
           onSave={(rackTargetIds) => {
             setNextValues((current) => ({ ...current, rackTargetIds }));
@@ -866,6 +931,12 @@ const ScheduleModal = ({
         />
       ) : null}
 
+      {/*
+        Group selection is intentionally NOT site-scoped yet: ListGroups gains
+        { siteIds, includeUnassigned } in issue #520. Once that lands, thread
+        `scope` through here (and decide the per-group count semantics — counts
+        stay org-wide under a site filter). Tracked in issue #524.
+      */}
       {showGroupSelectionModal ? (
         <GroupSelectionModal
           open={showGroupSelectionModal}
@@ -882,6 +953,7 @@ const ScheduleModal = ({
         <MinerSelectionModal
           open={showMinerSelectionModal}
           selectedMinerIds={values.minerTargetIds}
+          scope={scope}
           onDismiss={() => setShowMinerSelectionModal(false)}
           onSave={(minerTargetIds) => {
             setNextValues((current) => ({ ...current, minerTargetIds }));

@@ -1,0 +1,89 @@
+import type { ReactNode } from "react";
+import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
+import userEvent from "@testing-library/user-event";
+
+import SiteSelectionModal from "./SiteSelectionModal";
+import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+
+const { listSitesMock, pushToastMock } = vi.hoisted(() => ({
+  listSitesMock: vi.fn(),
+  pushToastMock: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/api/sites", () => ({
+  useSites: () => ({ listSites: listSitesMock }),
+}));
+
+vi.mock("@/shared/components/Modal", () => ({
+  __esModule: true,
+  default: ({
+    children,
+    buttons,
+    title,
+  }: {
+    children: ReactNode;
+    buttons?: Array<{ text: string; onClick?: () => void }>;
+    title?: string;
+  }) => (
+    <div>
+      <div>{title}</div>
+      {children}
+      {buttons?.map((button) => (
+        <button key={button.text} type="button" onClick={button.onClick}>
+          {button.text}
+        </button>
+      ))}
+    </div>
+  ),
+}));
+
+vi.mock("@/shared/features/toaster", () => ({
+  pushToast: (...args: unknown[]) => pushToastMock(...args),
+  STATUSES: { error: "error" },
+}));
+
+const createSite = (id: bigint, name: string) =>
+  create(SiteWithCountsSchema, { site: create(SiteSchema, { id, name }) });
+
+type Callbacks = { onSuccess?: (rows: ReturnType<typeof createSite>[]) => void; onFinally?: () => void };
+
+describe("SiteSelectionModal", () => {
+  beforeEach(() => {
+    listSitesMock.mockReset();
+    pushToastMock.mockReset();
+  });
+
+  it("lists every org site and saves the selection", async () => {
+    listSitesMock.mockImplementation(({ onSuccess, onFinally }: Callbacks) => {
+      onSuccess?.([createSite(7n, "Site Seven"), createSite(9n, "Site Nine")]);
+      onFinally?.();
+    });
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(<SiteSelectionModal open selectedSiteIds={["7"]} onDismiss={vi.fn()} onSave={onSave} />);
+
+    await waitFor(() => expect(screen.getByText("Site Seven")).toBeVisible());
+    expect(screen.getByText("Site Nine")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(onSave).toHaveBeenCalledWith(["7"]);
+  });
+
+  it("prunes selected ids that are no longer present", async () => {
+    listSitesMock.mockImplementation(({ onSuccess, onFinally }: Callbacks) => {
+      onSuccess?.([createSite(7n, "Site Seven")]);
+      onFinally?.();
+    });
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(<SiteSelectionModal open selectedSiteIds={["7", "deleted"]} onDismiss={vi.fn()} onSave={onSave} />);
+
+    await waitFor(() => expect(screen.getByText("Site Seven")).toBeVisible());
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(onSave).toHaveBeenCalledWith(["7"]);
+  });
+});

@@ -554,7 +554,9 @@ func validateTargets(targets []*pb.ScheduleTarget) error {
 
 		switch t.TargetType {
 		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK,
-			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP:
+			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP,
+			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_SITE,
+			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_BUILDING:
 			if _, err := strconv.ParseInt(trimmedID, 10, 64); err != nil {
 				return fleeterror.NewInvalidArgumentErrorf(
 					"invalid target_id for %s: %q is not a valid identifier",
@@ -582,7 +584,9 @@ func isValidScheduleTargetType(targetType pb.ScheduleTargetType) bool {
 		return false
 	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK,
 		pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP,
-		pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER:
+		pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER,
+		pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_SITE,
+		pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_BUILDING:
 		return true
 	default:
 		return false
@@ -651,6 +655,10 @@ func scheduleTargetTypeToString(t pb.ScheduleTargetType) string {
 		return "group"
 	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER:
 		return "miner"
+	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_SITE:
+		return "site"
+	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_BUILDING:
+		return "building"
 	default:
 		return "unknown"
 	}

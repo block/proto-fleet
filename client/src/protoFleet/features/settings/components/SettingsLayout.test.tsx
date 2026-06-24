@@ -5,9 +5,16 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import SettingsLayout from "./SettingsLayout";
 
 const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
+const featureFlagsMock = vi.hoisted(() => ({ multiSite: false }));
 
 vi.mock("@/protoFleet/store", () => ({
   usePermissions: () => permissionsMock.current,
+}));
+
+vi.mock("@/protoFleet/constants/featureFlags", () => ({
+  get MULTI_SITE_ENABLED() {
+    return featureFlagsMock.multiSite;
+  },
 }));
 
 vi.mock("@/protoFleet/components/SecondaryNavigation", () => ({
@@ -43,6 +50,14 @@ const renderSettingsRoute = (initialPath: string) =>
             </SettingsLayout>
           }
         />
+        <Route
+          path="/settings/schedules"
+          element={
+            <SettingsLayout>
+              <div data-testid="schedules-page">Schedules</div>
+            </SettingsLayout>
+          }
+        />
       </Routes>
       <LocationProbe />
     </MemoryRouter>,
@@ -51,6 +66,7 @@ const renderSettingsRoute = (initialPath: string) =>
 describe("SettingsLayout permission guard", () => {
   beforeEach(() => {
     permissionsMock.current = [];
+    featureFlagsMock.multiSite = false;
   });
 
   test("redirects protected settings routes before rendering their children", async () => {
@@ -68,5 +84,38 @@ describe("SettingsLayout permission guard", () => {
 
     expect(screen.getByTestId("location-probe").textContent).toBe("/settings/team");
     expect(screen.getByTestId("team-page")).toBeInTheDocument();
+  });
+});
+
+describe("SettingsLayout org-wide notice", () => {
+  beforeEach(() => {
+    permissionsMock.current = [];
+    featureFlagsMock.multiSite = false;
+  });
+
+  test("shows the org-wide notice on org-wide pages when multi-site is enabled", () => {
+    featureFlagsMock.multiSite = true;
+
+    renderSettingsRoute("/settings/general");
+
+    expect(screen.getByTestId("org-wide-notice")).toBeInTheDocument();
+    expect(screen.getByTestId("general-page")).toBeInTheDocument();
+  });
+
+  test("hides the org-wide notice on site-aware pages", () => {
+    featureFlagsMock.multiSite = true;
+    permissionsMock.current = ["schedule:manage"];
+
+    renderSettingsRoute("/settings/schedules");
+
+    expect(screen.queryByTestId("org-wide-notice")).not.toBeInTheDocument();
+    expect(screen.getByTestId("schedules-page")).toBeInTheDocument();
+  });
+
+  test("hides the org-wide notice when multi-site is disabled", () => {
+    renderSettingsRoute("/settings/general");
+
+    expect(screen.queryByTestId("org-wide-notice")).not.toBeInTheDocument();
+    expect(screen.getByTestId("general-page")).toBeInTheDocument();
   });
 });

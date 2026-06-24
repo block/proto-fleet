@@ -26,6 +26,11 @@ export interface SecondaryNavItem {
   requiredPermission?: string;
   // When set, the entry is shown only if the server reports this feature enabled.
   requiredFeature?: NavFeature;
+  // Whether the page honors the topbar SitePicker selection as a soft default
+  // filter (schedules, curtailment). Org-wide pages (the default) deliberately
+  // ignore the picker; SettingsLayout surfaces an OrgWideNotice on those so the
+  // affordance can't be mistaken for a site filter. See issue #524.
+  siteAware?: boolean;
 }
 
 // Primary navigation items (shown in main nav menu)
@@ -122,12 +127,14 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     // nav on schedule:manage to match the page's capability rather
     // than schedule:read.
     requiredPermission: "schedule:manage",
+    siteAware: true,
   },
   {
     path: "/settings/curtailment",
     label: "Curtailment",
     parent: "/settings",
     requiredPermission: "curtailment:manage",
+    siteAware: true,
   },
   {
     path: "/settings/api-keys",
