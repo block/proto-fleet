@@ -1562,6 +1562,7 @@ export function CurtailmentSettingsContent({
         responseProfileMode={responseProfileModalMode}
         initialValues={responseProfileCurtailmentInitialValues}
         siteOptions={siteOptions}
+        siteScopeEnabled={siteOptions.length > 0 || isLoadingSiteOptions}
         isSiteScopeLoading={isLoadingSiteOptions}
         siteScopeDisabledReason={siteScopeDisabledReason}
         actionError={responseProfileActionError}

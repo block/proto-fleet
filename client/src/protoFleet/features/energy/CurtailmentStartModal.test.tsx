@@ -508,6 +508,7 @@ describe("CurtailmentStartModal", () => {
     });
     const { onSubmit } = renderModal({
       variant: "responseProfile",
+      siteOptions,
       initialValues: {
         ...configuredValues,
         scopeType: "site",
@@ -625,12 +626,41 @@ describe("CurtailmentStartModal", () => {
     renderModal({
       variant: "responseProfile",
       initialValues: configuredValues,
+      siteScopeEnabled: false,
       siteScopeDisabledReason: "Site scope is not available for the current user.",
     });
 
     expect(screen.getByTestId("response-profile-scope-site-unavailable")).toBeDisabled();
     expect(screen.getByTestId("response-profile-scope-site-unavailable")).toHaveTextContent(
       "Site scope is not available for the current user.",
+    );
+  });
+
+  it("does not preserve hidden site scope when site scope is disabled", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      siteScopeEnabled: false,
+      initialValues: {
+        ...configuredValues,
+        scopeType: "site",
+        scopeId: "Austin, TX",
+        siteId: "101",
+        includeMaintenance: false,
+      },
+    });
+
+    expect(screen.queryByTestId("response-profile-scope-site-101")).not.toBeInTheDocument();
+    expect(screen.getByTestId("response-profile-scope-whole-fleet")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        siteId: "",
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
+      }),
     );
   });
 
@@ -740,6 +770,7 @@ describe("CurtailmentStartModal", () => {
     const { onSubmit } = renderModal({
       variant: "responseProfile",
       responseProfileMode: "edit",
+      siteOptions,
       onDeleteResponseProfile,
       onTestCurtailment,
       initialValues: {

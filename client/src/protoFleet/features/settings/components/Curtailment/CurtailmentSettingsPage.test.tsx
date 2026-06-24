@@ -850,7 +850,7 @@ describe("CurtailmentSettingsPage", () => {
   });
 
   it("preserves site scope when saving an API response profile", async () => {
-    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage" || key === "site:read");
     mockResponseProfilesApi({ responseProfiles: [siteScopedResponseProfile] });
     updateResponseProfileMock.mockResolvedValue(siteScopedResponseProfile);
 
@@ -863,6 +863,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(within(getResponseProfileCard("Site scoped profile")).getByText("Site 101")).toBeVisible();
 
     fireEvent.click(within(getResponseProfileCard("Site scoped profile")).getByRole("button", { name: "Edit" }));
+    await waitFor(() => expect(screen.getByTestId("response-profile-scope-site-101")).toBeInTheDocument());
     expect(screen.getByText("Apply to")).toBeInTheDocument();
     fireEvent.click(getEnabledButton("Save profile"));
 
@@ -871,7 +872,42 @@ describe("CurtailmentSettingsPage", () => {
         "site-scoped-profile",
         expect.objectContaining({
           siteId: "101",
-          siteName: "Site 101",
+          siteName: "Austin, TX",
+        }),
+      ),
+    );
+  });
+
+  it("saves an existing site-scoped response profile as whole fleet when the multi-site flag is off", async () => {
+    mockMultiSiteEnabled.value = false;
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage" || key === "site:read");
+    mockResponseProfilesApi({ responseProfiles: [siteScopedResponseProfile] });
+    updateResponseProfileMock.mockResolvedValue({
+      ...siteScopedResponseProfile,
+      scope: "Whole fleet",
+      formValues: {
+        ...siteScopedResponseProfile.formValues!,
+        siteId: "",
+        siteName: "",
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(within(getResponseProfileCard("Site scoped profile")).getByRole("button", { name: "Edit" }));
+    expect(screen.queryByTestId("response-profile-scope-site-101")).not.toBeInTheDocument();
+    fireEvent.click(getEnabledButton("Save profile"));
+
+    await waitFor(() =>
+      expect(updateResponseProfileMock).toHaveBeenCalledWith(
+        "site-scoped-profile",
+        expect.objectContaining({
+          siteId: "",
+          siteName: "",
         }),
       ),
     );

@@ -103,6 +103,7 @@ interface CurtailmentStartModalProps {
   initialValues?: Partial<CurtailmentFormValues>;
   responseProfiles?: CurtailmentResponseProfileOption[];
   siteOptions?: CurtailmentSiteOption[];
+  siteScopeEnabled?: boolean;
   isSiteScopeLoading?: boolean;
   siteScopeDisabledReason?: string;
   errors?: CurtailmentFormErrors;
@@ -740,6 +741,7 @@ function CurtailmentStartModalContent({
   initialValues,
   responseProfiles = [],
   siteOptions = [],
+  siteScopeEnabled = true,
   isSiteScopeLoading = false,
   siteScopeDisabledReason,
   errors,
@@ -810,9 +812,25 @@ function CurtailmentStartModalContent({
     return visibleErrors;
   }, [editedFields, localErrors]);
   const effectiveErrors = { ...errors, ...visibleLocalErrors };
-  const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
+  const canSelectSiteScope = siteScopeEnabled && !siteScopeDisabledReason;
+  const selectedSiteOption = useMemo(
+    () => siteOptions.find((option) => option.id === values.siteId),
+    [siteOptions, values.siteId],
+  );
+  const effectiveValues = useMemo(() => {
+    if (values.scopeType === "site" && !canSelectSiteScope) {
+      return withWholeFleetScope(values);
+    }
+
+    if (values.scopeType === "site" && selectedSiteOption) {
+      return withSiteScope(values, selectedSiteOption.id, selectedSiteOption.name);
+    }
+
+    return values;
+  }, [canSelectSiteScope, selectedSiteOption, values]);
+  const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(effectiveValues);
   const controlledPreviewValue = preview
-    ? createCurtailmentPlanPreview(values, {
+    ? createCurtailmentPlanPreview(effectiveValues, {
         selectedMinerCount: preview.selectedMinerCount,
         targetKw: preview.targetKw,
         estimatedReductionKw: preview.estimatedReductionKw,
@@ -824,7 +842,7 @@ function CurtailmentStartModalContent({
       : undefined;
   const apiPreview = useCurtailmentPlanPreview({
     open,
-    values,
+    values: effectiveValues,
     disabled: isLiveCurtailmentEditMode || controlledPreview !== undefined,
   });
   const previewState = getPreviewState({
@@ -842,8 +860,11 @@ function CurtailmentStartModalContent({
   const hasEditableChanges = !isLiveCurtailmentEditMode || hasEditableCurtailmentChanges(values, initialFormValues);
   const isSubmitDisabled = isBusy || hasBlockingSubmitPreviewState || hasExternalFormError || !hasEditableChanges;
   const displayedPreviewState = isResponseProfileVariant ? responseProfilePreviewState(previewState) : previewState;
-  const selectedMinerIds = getSelectedMinerIds(values);
-  const applyToTarget = getApplyToTarget(values, isLiveCurtailmentEditMode || values.scopeType === "site");
+  const selectedMinerIds = getSelectedMinerIds(effectiveValues);
+  const applyToTarget = getApplyToTarget(
+    effectiveValues,
+    isLiveCurtailmentEditMode || effectiveValues.scopeType === "site",
+  );
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
   const curtailmentBehaviorSubtext = isLiveCurtailmentEditMode
     ? undefined
@@ -891,12 +912,12 @@ function CurtailmentStartModalContent({
       : "Close curtailment planner";
   const primaryButtonText = isResponseProfileVariant ? "Save profile" : isEditMode ? "Save" : "Run curtailment";
   const shouldShowResponseProfileSelector = !isResponseProfileVariant && !isEditMode;
-  const selectedSiteOption = useMemo(
-    () => siteOptions.find((option) => option.id === values.siteId),
-    [siteOptions, values.siteId],
-  );
   const responseProfileSiteOptions = useMemo(() => {
-    if (!values.siteId || selectedSiteOption) {
+    if (!canSelectSiteScope) {
+      return [];
+    }
+
+    if (!values.siteId || selectedSiteOption || (!isSiteScopeLoading && siteOptions.length === 0)) {
       return siteOptions;
     }
 
@@ -907,7 +928,7 @@ function CurtailmentStartModalContent({
         name: values.scopeId || `Site ${values.siteId}`,
       },
     ];
-  }, [selectedSiteOption, siteOptions, values.scopeId, values.siteId]);
+  }, [canSelectSiteScope, isSiteScopeLoading, selectedSiteOption, siteOptions, values.scopeId, values.siteId]);
   const responseProfileSiteOptionByRowId = useMemo(
     () => new Map(responseProfileSiteOptions.map((siteOption) => [getSiteScopeRowId(siteOption.id), siteOption])),
     [responseProfileSiteOptions],
@@ -917,7 +938,7 @@ function CurtailmentStartModalContent({
       id: getSiteScopeRowId(siteOption.id),
       text: siteOption.name,
       subtext: "Site",
-      isSelected: values.scopeType === "site" && values.siteId === siteOption.id,
+      isSelected: effectiveValues.scopeType === "site" && effectiveValues.siteId === siteOption.id,
       "data-testid": `response-profile-scope-site-${siteOption.id}`,
     }));
 
@@ -937,12 +958,18 @@ function CurtailmentStartModalContent({
         id: wholeFleetScopeRowId,
         text: "Whole fleet",
         subtext: "All miners in the fleet",
-        isSelected: values.scopeType !== "site",
+        isSelected: effectiveValues.scopeType !== "site",
         "data-testid": "response-profile-scope-whole-fleet",
       },
       ...siteRows,
     ];
-  }, [isSiteScopeLoading, responseProfileSiteOptions, siteScopeDisabledReason, values.scopeType, values.siteId]);
+  }, [
+    effectiveValues.scopeType,
+    effectiveValues.siteId,
+    isSiteScopeLoading,
+    responseProfileSiteOptions,
+    siteScopeDisabledReason,
+  ]);
   const responseProfileSelectOptions = useMemo(
     () => [
       { value: customResponseProfileId, label: "Custom plan" },
@@ -1070,11 +1097,11 @@ function CurtailmentStartModalContent({
     }
 
     if (!isResponseProfileVariant && !isEditMode) {
-      requestCurtailmentConfirmation("run", values);
+      requestCurtailmentConfirmation("run", effectiveValues);
       return;
     }
 
-    onSubmit(values);
+    onSubmit(effectiveValues);
   };
 
   const requestResponseProfileCurtailment = () => {
@@ -1097,7 +1124,7 @@ function CurtailmentStartModalContent({
       return;
     }
 
-    requestCurtailmentConfirmation("test", values);
+    requestCurtailmentConfirmation("test", effectiveValues);
   };
 
   const buttons: NonNullable<FullScreenTwoPaneModalProps["buttons"]> = [];
