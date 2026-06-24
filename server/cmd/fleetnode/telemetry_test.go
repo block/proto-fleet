@@ -384,17 +384,21 @@ func TestPluginTelemetryFetcherAcquireTelemetrySlotRejectsDuplicate(t *testing.T
 	retry.releaseWorker()
 }
 
-func TestPluginTelemetryFetcherAbandonReleasesDeviceSlotButKeepsWorkerBudget(t *testing.T) {
+func TestPluginTelemetryFetcherAbandonKeepsDeviceSlotUntilWorkerReturns(t *testing.T) {
 	fetcher := &pluginTelemetryFetcher{}
 	slot, err := fetcher.acquireTelemetrySlot("node-device")
 	require.NoError(t, err)
 
 	assert.True(t, fetcher.AbandonTelemetryFetch("node-device"))
+	_, err = fetcher.acquireTelemetrySlot("node-device")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "telemetry already in progress")
+
+	slot.releaseWorker()
 	retry, err := fetcher.acquireTelemetrySlot("node-device")
 	require.NoError(t, err)
 
 	retry.releaseWorker()
-	slot.releaseWorker()
 }
 
 func TestPluginTelemetryFetcherAbandonedWorkersAreBounded(t *testing.T) {
@@ -437,6 +441,11 @@ func (c blockingTelemetryCloser) Close(ctx context.Context) error {
 }
 
 func TestCloseTelemetryDeviceAsyncDoesNotBlock(t *testing.T) {
+	tokens := make(chan struct{}, 1)
+	oldTokens := telemetryDeviceCloseTokens
+	telemetryDeviceCloseTokens = tokens
+	t.Cleanup(func() { telemetryDeviceCloseTokens = oldTokens })
+
 	closer := blockingTelemetryCloser{
 		started: make(chan struct{}),
 		release: make(chan struct{}),
@@ -444,13 +453,34 @@ func TestCloseTelemetryDeviceAsyncDoesNotBlock(t *testing.T) {
 	t.Cleanup(func() { close(closer.release) })
 
 	start := time.Now()
-	closeTelemetryDeviceAsync(closer)
+	require.True(t, closeTelemetryDeviceAsync(closer))
 
 	require.Less(t, time.Since(start), 50*time.Millisecond)
 	select {
 	case <-closer.started:
 	case <-time.After(time.Second):
 		t.Fatal("close did not start")
+	}
+}
+
+func TestCloseTelemetryDeviceAsyncRejectsWhenCloseWorkersAreExhausted(t *testing.T) {
+	tokens := make(chan struct{}, 1)
+	tokens <- struct{}{}
+	oldTokens := telemetryDeviceCloseTokens
+	telemetryDeviceCloseTokens = tokens
+	t.Cleanup(func() { telemetryDeviceCloseTokens = oldTokens })
+
+	closer := blockingTelemetryCloser{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	t.Cleanup(func() { close(closer.release) })
+
+	assert.False(t, closeTelemetryDeviceAsync(closer))
+	select {
+	case <-closer.started:
+		t.Fatal("close should not start when close worker capacity is exhausted")
+	default:
 	}
 }
 

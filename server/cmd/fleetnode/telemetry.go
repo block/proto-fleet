@@ -35,6 +35,9 @@ var telemetrySupervisorGrace = 100 * time.Millisecond
 const maxTelemetryDeviceMetricsJSONBytes = 256 * 1024
 const maxTelemetryFirmwareVersionBytes = 255
 
+var telemetryDeviceCloseTimeout = 5 * time.Second
+var telemetryDeviceCloseTokens = make(chan struct{}, commandPoolSize)
+
 type telemetryFetcher interface {
 	Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error)
 }
@@ -235,11 +238,7 @@ func (f *pluginTelemetryFetcher) AbandonTelemetryFetch(deviceIdentifier string) 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	slot := f.inflight[deviceIdentifier]
-	if slot == nil {
-		return false
-	}
-	delete(f.inflight, deviceIdentifier)
-	return true
+	return slot != nil
 }
 
 func (s *telemetrySlot) releaseWorker() {
@@ -259,12 +258,22 @@ type telemetryDeviceCloser interface {
 	Close(ctx context.Context) error
 }
 
-func closeTelemetryDeviceAsync(device telemetryDeviceCloser) {
+func closeTelemetryDeviceAsync(device telemetryDeviceCloser) bool {
+	select {
+	case telemetryDeviceCloseTokens <- struct{}{}:
+	default:
+		slog.Warn("telemetry device close skipped because close worker capacity is exhausted")
+		return false
+	}
 	go func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer func() { <-telemetryDeviceCloseTokens }()
+		closeCtx, cancel := context.WithTimeout(context.Background(), telemetryDeviceCloseTimeout)
 		defer cancel()
-		_ = device.Close(closeCtx)
+		if err := device.Close(closeCtx); err != nil {
+			slog.Warn("telemetry device close failed", "err", err)
+		}
 	}()
+	return true
 }
 
 func validateTelemetryMetricsIdentity(requestedDeviceIdentifier string, metrics modelsV2.DeviceMetrics) error {
