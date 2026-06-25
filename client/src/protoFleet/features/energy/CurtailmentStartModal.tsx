@@ -348,18 +348,21 @@ function withSiteScopes(values: CurtailmentFormValues, sites: readonly Curtailme
     return withNoSiteScope(values);
   }
 
-  const hasSelectedMiners = getExplicitMinerCount(values) > 0;
+  const hadAllMinersSelected = hasAllMinersSelected(values);
+  const hasSelectedMiners = !hadAllMinersSelected && getExplicitMinerCount(values) > 0;
   const firstSite = selectedSites[0];
 
   return {
     ...values,
-    scopeType: hasAllMinersSelected(values) ? "wholeOrg" : hasSelectedMiners ? "explicitMiners" : "site",
+    scopeType: hasSelectedMiners ? "explicitMiners" : "site",
     scopeId: getSiteScopeLabel(selectedSites),
     siteSelection: "site",
     siteId: firstSite.id,
     siteIds: selectedSites.map((site) => site.id),
     siteNamesById: createSiteNamesById(selectedSites),
     deviceSetIds: [],
+    deviceIdentifiers: hadAllMinersSelected ? [] : values.deviceIdentifiers,
+    minerSelectionMode: "subset",
   };
 }
 
