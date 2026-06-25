@@ -192,13 +192,7 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 	if err := h.registry.AdmitCommandArtifact(subject.FleetNodeID, req.Msg.GetCommandId(), expectation); err != nil {
 		return mapArtifactAdmissionError(err)
 	}
-	completed := false
-	defer func() {
-		if completed {
-			return
-		}
-		h.registry.ReinstateCommandArtifactTransfer(subject.FleetNodeID, req.Msg.GetCommandId(), expectation)
-	}()
+	defer h.registry.ReinstateCommandArtifactTransfer(subject.FleetNodeID, req.Msg.GetCommandId(), expectation)
 
 	reader, info, err := h.files.OpenCommandArtifact(ref.GetArtifactId())
 	if err != nil {
@@ -231,8 +225,6 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 			}
 		}
 		if errors.Is(readErr, io.EOF) {
-			h.registry.CompleteCommandArtifactTransfer(subject.FleetNodeID, req.Msg.GetCommandId(), expectation)
-			completed = true
 			return nil
 		}
 		if readErr != nil {
@@ -296,6 +288,9 @@ func (r *commandArtifactUploadReader) Read(p []byte) (int, error) {
 		chunk := msg.GetChunk()
 		if chunk == nil {
 			return 0, fleeterror.NewInvalidArgumentError("UploadCommandArtifactRequest after header must be chunk")
+		}
+		if len(chunk.GetData()) > commandArtifactChunkSize {
+			return 0, fleeterror.NewInvalidArgumentErrorf("command artifact chunk exceeds %d bytes", commandArtifactChunkSize)
 		}
 		r.buf = chunk.GetData()
 	}
