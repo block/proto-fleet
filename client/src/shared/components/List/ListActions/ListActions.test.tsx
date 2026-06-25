@@ -36,6 +36,8 @@ describe("List actions", () => {
     );
     const triggerButton = screen.getByTestId("list-actions-trigger");
     expect(triggerButton).toBeInTheDocument();
+    expect(triggerButton).toHaveAttribute("aria-label", "Row actions");
+    expect(triggerButton).toHaveClass("text-text-primary");
     fireEvent.click(triggerButton);
 
     actions.forEach((action) => {

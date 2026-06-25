@@ -157,6 +157,7 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   initialSelectedItems?: ItemKeyValueType[];
   disabled?: boolean;
   actions?: ListAction<ListItem>[];
+  actionPlaceholder?: (item: ListItem) => ReactNode;
   noDataElement?: ReactNode;
   emptyStateRow?: ReactNode;
   renderActionBar?: (
@@ -344,6 +345,7 @@ type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyo
   currentSelectedItems: ItemKeyValueType[];
   activeCols: ColKey[];
   actions: ListAction<ListItem>[];
+  actionPlaceholder?: (item: ListItem) => ReactNode;
   rowDisabled: boolean;
   rowSelectable: boolean;
   columnsExemptFromDisabledStyling?: Set<ColKey>;
@@ -388,6 +390,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   currentSelectedItems,
   activeCols,
   actions,
+  actionPlaceholder,
   rowDisabled,
   rowSelectable,
   columnsExemptFromDisabledStyling,
@@ -415,6 +418,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   onRowClick,
 }: ListRowRenderProps<ListItem, ItemKeyValueType, ColKey>) => {
   const visibleActions = actions.filter((action) => !resolveListActionValue(action.hidden, item));
+  const placeholderContent = actionPlaceholder?.(item);
   const singleVisibleAction = visibleActions.length === 1 ? visibleActions[0] : null;
   const singleVisibleActionTitle = singleVisibleAction
     ? resolveListActionValue(singleVisibleAction.title, item)
@@ -622,7 +626,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
           data-testid="action"
           data-no-row-click
         >
-          <div className={clsx("w-11", tdPaddingClassList)} />
+          <div className={clsx("flex w-11 justify-center", tdPaddingClassList)}>{placeholderContent}</div>
           {extendRowDividerToContainerEdge ? (
             <div aria-hidden className={rowDividerExtensionClassList} data-testid="row-divider-extension" />
           ) : null}
@@ -711,6 +715,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   selectionType = "checkbox",
   disabled = false,
   actions = [],
+  actionPlaceholder,
   noDataElement,
   emptyStateRow,
   initialActiveFilters,
@@ -1215,11 +1220,17 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     "tablet:left-[calc(var(--list-padding-tablet)+theme(spacing.9))]",
   );
 
+  const hasVisibleRows = filteredItems.length > 0;
+  const shouldRenderNoDataElement = Boolean(noDataElement && !hasVisibleRows && !emptyStateRow);
+  const shouldShowFilterItems =
+    Boolean(filters?.length) && (items.length > 0 || !shouldRenderNoDataElement || hasActiveFilters);
+  const visibleFilters = shouldShowFilterItems ? (filters ?? []) : [];
+
   const filtersElement =
-    filters?.length || headerControls ? (
+    visibleFilters.length || headerControls ? (
       <Filters<ListItem>
         className={clsx("gap-4", filtersClassName ?? "py-6", stickyChromePaddingClasses)}
-        filterItems={filters ?? []}
+        filterItems={visibleFilters}
         filterSize={filterSize}
         items={items}
         onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}
@@ -1251,6 +1262,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   );
 
   const totalColumnCount = activeCols.length + (itemSelectable ? 1 : 0) + (actions.length > 0 ? 1 : 0);
+  const shouldShowTotal = !hideTotal && total !== undefined && !shouldRenderNoDataElement;
+
   const renderRow = (item: ListItem, index: number) => {
     const rowKey = item[itemKey] as ItemKeyValueType;
     const sharedRowProps: StaticListRowProps<ListItem, ItemKeyValueType, ColKey> = {
@@ -1265,6 +1278,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       currentSelectedItems,
       activeCols,
       actions,
+      actionPlaceholder,
       rowDisabled: isRowDisabled?.(item) ?? false,
       rowSelectable: isRowSelectable ? isRowSelectable(item) : !(isRowDisabled?.(item) ?? false),
       columnsExemptFromDisabledStyling,
@@ -1413,7 +1427,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         {rowDragEnabled ? (
           <SortableContext items={visibleItemKeys as UniqueIdentifier[]} strategy={verticalListSortingStrategy}>
             <tbody data-testid="list-body">
-              {filteredItems.length > 0 ? (
+              {hasVisibleRows ? (
                 filteredItems.map(renderRow)
               ) : emptyStateRow ? (
                 <tr data-testid="list-empty-row">
@@ -1424,7 +1438,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
           </SortableContext>
         ) : (
           <tbody data-testid="list-body">
-            {filteredItems.length > 0 ? (
+            {hasVisibleRows ? (
               filteredItems.map(renderRow)
             ) : emptyStateRow ? (
               <tr data-testid="list-empty-row">
@@ -1451,7 +1465,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         {filtersElement}
       </div>
       <div style={paddingCssVariables}>
-        {!hideTotal && total !== undefined ? (
+        {shouldShowTotal ? (
           <div style={stickyChromePaddingCssVariables} className={clsx("sticky left-0 flex", stickyChromeClassName)}>
             <div
               className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", stickyChromePaddingClasses)}
@@ -1473,7 +1487,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
               "overflow-x-hidden": overflowContainer && !hasHorizontalOverflow,
             })}
           >
-            {!noDataElement || (items && items.length > 0) ? (
+            {!shouldRenderNoDataElement ? (
               rowDragEnabled ? (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleRowDragEnd}>
                   {listContent}
