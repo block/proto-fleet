@@ -37,7 +37,9 @@ export function useActiveAlerts(): UseActiveAlertsResult {
     }
   }, [refreshHistory]);
 
-  usePoll({ fetchData, poll: true, pollIntervalMs: POLL_INTERVAL_MS });
+  // Stop polling once denied: the card unmounts to null but this hook stays mounted, so the poll
+  // would otherwise keep hitting the org-scoped RPC the grant can't reach.
+  usePoll({ fetchData, poll: true, pollIntervalMs: POLL_INTERVAL_MS, enabled: !denied });
 
   return { alerts: history, loading: historyLoading, error, denied, hasMore: historyHasMore };
 }

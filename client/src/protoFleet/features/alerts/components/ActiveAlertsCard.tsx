@@ -29,8 +29,9 @@ interface MinerAlertGroup {
 const groupByMiner = (alerts: AlertHistoryEntry[]): MinerAlertGroup[] => {
   const groups = new Map<string, MinerAlertGroup>();
   for (const alert of alerts) {
-    // Fall back to MAC/name so device-less alerts still get a stable, non-colliding row.
-    const key = alert.device_id || alert.device_mac || alert.device_name;
+    // Fall back to MAC/name, then to the alert's own fingerprint/id: when a grant can read alerts but
+    // not miners the device fields are redacted to "", and we must not collapse every alert into one row.
+    const key = alert.device_id || alert.device_mac || alert.device_name || alert.fingerprint || alert.id;
     let group = groups.get(key);
     if (!group) {
       group = { deviceId: key, deviceName: alert.device_name, deviceMac: alert.device_mac, alerts: [], alertNames: "" };
