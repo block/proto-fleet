@@ -63,6 +63,14 @@ func (s *stubGatewayClient) ReportPairedDevices(_ context.Context, _ *connect.Re
 	return connect.NewResponse(&pb.ReportPairedDevicesResponse{}), nil
 }
 
+func (s *stubGatewayClient) UploadCommandArtifact(_ context.Context) *connect.ClientStreamForClient[pb.UploadCommandArtifactRequest, pb.UploadCommandArtifactResponse] {
+	return nil
+}
+
+func (s *stubGatewayClient) DownloadCommandArtifact(_ context.Context, _ *connect.Request[pb.DownloadCommandArtifactRequest]) (*connect.ServerStreamForClient[pb.DownloadCommandArtifactResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("not implemented"))
+}
+
 func (s *stubGatewayClient) ControlStream(_ context.Context) *connect.BidiStreamForClient[pb.ControlStreamRequest, pb.ControlStreamResponse] {
 	return nil
 }

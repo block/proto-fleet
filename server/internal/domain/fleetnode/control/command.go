@@ -18,10 +18,17 @@ import (
 // FailedPrecondition). The returned *ControlAck is the agent's structured outcome:
 // a non-OK code is NOT a Go error here; the caller inspects ack.Code/Succeeded.
 func (r *Registry) SendCommand(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+	return r.SendCommandWithArtifacts(ctx, fleetNodeID, cmd, nil)
+}
+
+// SendCommandWithArtifacts dispatches an ack-only command with optional
+// artifact-transfer expectations attached to its command_id.
+func (r *Registry) SendCommandWithArtifacts(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, artifacts []ArtifactExpectation) (*gatewaypb.ControlAck, error) {
 	c := &inflightCommand{
-		id:   cmd.GetCommandId(),
-		ack:  make(chan *gatewaypb.ControlAck, 1), // never closed
-		done: make(chan struct{}),
+		id:        cmd.GetCommandId(),
+		ack:       make(chan *gatewaypb.ControlAck, 1), // never closed
+		artifacts: cloneArtifactExpectations(artifacts),
+		done:      make(chan struct{}),
 	}
 	outgoing, connDone, err := r.addCmd(fleetNodeID, c)
 	if err != nil {

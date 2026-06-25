@@ -49,6 +49,8 @@ type gatewayClient interface {
 	UploadHeartbeat(ctx context.Context, req *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error)
 	ReportDiscoveredDevices(ctx context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error)
 	ReportPairedDevices(ctx context.Context, req *connect.Request[pb.ReportPairedDevicesRequest]) (*connect.Response[pb.ReportPairedDevicesResponse], error)
+	UploadCommandArtifact(ctx context.Context) *connect.ClientStreamForClient[pb.UploadCommandArtifactRequest, pb.UploadCommandArtifactResponse]
+	DownloadCommandArtifact(ctx context.Context, req *connect.Request[pb.DownloadCommandArtifactRequest]) (*connect.ServerStreamForClient[pb.DownloadCommandArtifactResponse], error)
 	ControlStream(ctx context.Context) *connect.BidiStreamForClient[pb.ControlStreamRequest, pb.ControlStreamResponse]
 }
 

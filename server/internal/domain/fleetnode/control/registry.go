@@ -70,6 +70,13 @@ var (
 	// callers map it to InvalidArgument.
 	ErrEmptyReport = errors.New("report carried no results")
 
+	// ErrArtifactNotExpected: a command artifact transfer did not match the
+	// server-issued command's declared transfer expectations.
+	ErrArtifactNotExpected = errors.New("artifact transfer not expected for command")
+
+	// ErrArtifactAlreadyTransferred: an upload expectation was already consumed.
+	ErrArtifactAlreadyTransferred = errors.New("artifact transfer already completed for command")
+
 	// errDuplicateCommandID: a command_id is already in flight for the fleet_node.
 	// id.GenerateID() makes this practically impossible; callers map it to Internal.
 	errDuplicateCommandID = errors.New("duplicate command_id in flight for fleet_node")
@@ -108,6 +115,28 @@ type PairMeta struct {
 	Targets    map[string]struct{} // dispatched device identifiers; also the report quota
 }
 
+// ArtifactDirection indicates which side of a command artifact transfer owns the bytes.
+type ArtifactDirection int
+
+const (
+	ArtifactDirectionUpload ArtifactDirection = iota
+	ArtifactDirectionDownload
+)
+
+// ArtifactExpectation is attached to an in-flight command before dispatch. Gateway
+// upload/download RPCs must match one of these expectations before bytes move.
+type ArtifactExpectation struct {
+	Direction        ArtifactDirection
+	Purpose          gatewaypb.CommandArtifactPurpose
+	ArtifactID       string
+	DeviceIdentifier string
+}
+
+type artifactExpectation struct {
+	ArtifactExpectation
+	consumed bool
+}
+
 // connection is the server's view of one agent ControlStream. It can hold many
 // concurrent in-flight commands keyed by command_id. Fields guarded by Registry.mu.
 type connection struct {
@@ -135,6 +164,8 @@ type inflightCommand struct {
 
 	// ack-only (ack != nil): the terminal ack for a per-miner command.
 	ack chan *gatewaypb.ControlAck // cap 1, never closed
+
+	artifacts []artifactExpectation
 
 	done chan struct{} // closed once on teardown/free; wakes the waiter
 }

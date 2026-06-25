@@ -57,6 +57,12 @@ const (
 	// FleetNodeGatewayServiceUploadHeartbeatProcedure is the fully-qualified name of the
 	// FleetNodeGatewayService's UploadHeartbeat RPC.
 	FleetNodeGatewayServiceUploadHeartbeatProcedure = "/fleetnodegateway.v1.FleetNodeGatewayService/UploadHeartbeat"
+	// FleetNodeGatewayServiceUploadCommandArtifactProcedure is the fully-qualified name of the
+	// FleetNodeGatewayService's UploadCommandArtifact RPC.
+	FleetNodeGatewayServiceUploadCommandArtifactProcedure = "/fleetnodegateway.v1.FleetNodeGatewayService/UploadCommandArtifact"
+	// FleetNodeGatewayServiceDownloadCommandArtifactProcedure is the fully-qualified name of the
+	// FleetNodeGatewayService's DownloadCommandArtifact RPC.
+	FleetNodeGatewayServiceDownloadCommandArtifactProcedure = "/fleetnodegateway.v1.FleetNodeGatewayService/DownloadCommandArtifact"
 	// FleetNodeGatewayServiceReportDiscoveredDevicesProcedure is the fully-qualified name of the
 	// FleetNodeGatewayService's ReportDiscoveredDevices RPC.
 	FleetNodeGatewayServiceReportDiscoveredDevicesProcedure = "/fleetnodegateway.v1.FleetNodeGatewayService/ReportDiscoveredDevices"
@@ -77,6 +83,8 @@ type FleetNodeGatewayServiceClient interface {
 	UploadTelemetry(context.Context) *connect.ClientStreamForClient[v1.UploadTelemetryRequest, v1.UploadTelemetryResponse]
 	UploadEvents(context.Context) *connect.ClientStreamForClient[v1.UploadEventsRequest, v1.UploadEventsResponse]
 	UploadHeartbeat(context.Context, *connect.Request[v1.UploadHeartbeatRequest]) (*connect.Response[v1.UploadHeartbeatResponse], error)
+	UploadCommandArtifact(context.Context) *connect.ClientStreamForClient[v1.UploadCommandArtifactRequest, v1.UploadCommandArtifactResponse]
+	DownloadCommandArtifact(context.Context, *connect.Request[v1.DownloadCommandArtifactRequest]) (*connect.ServerStreamForClient[v1.DownloadCommandArtifactResponse], error)
 	ReportDiscoveredDevices(context.Context, *connect.Request[v1.ReportDiscoveredDevicesRequest]) (*connect.Response[v1.ReportDiscoveredDevicesResponse], error)
 	ReportPairedDevices(context.Context, *connect.Request[v1.ReportPairedDevicesRequest]) (*connect.Response[v1.ReportPairedDevicesResponse], error)
 	ControlStream(context.Context) *connect.BidiStreamForClient[v1.ControlStreamRequest, v1.ControlStreamResponse]
@@ -123,6 +131,16 @@ func NewFleetNodeGatewayServiceClient(httpClient connect.HTTPClient, baseURL str
 			baseURL+FleetNodeGatewayServiceUploadHeartbeatProcedure,
 			opts...,
 		),
+		uploadCommandArtifact: connect.NewClient[v1.UploadCommandArtifactRequest, v1.UploadCommandArtifactResponse](
+			httpClient,
+			baseURL+FleetNodeGatewayServiceUploadCommandArtifactProcedure,
+			opts...,
+		),
+		downloadCommandArtifact: connect.NewClient[v1.DownloadCommandArtifactRequest, v1.DownloadCommandArtifactResponse](
+			httpClient,
+			baseURL+FleetNodeGatewayServiceDownloadCommandArtifactProcedure,
+			opts...,
+		),
 		reportDiscoveredDevices: connect.NewClient[v1.ReportDiscoveredDevicesRequest, v1.ReportDiscoveredDevicesResponse](
 			httpClient,
 			baseURL+FleetNodeGatewayServiceReportDiscoveredDevicesProcedure,
@@ -149,6 +167,8 @@ type fleetNodeGatewayServiceClient struct {
 	uploadTelemetry         *connect.Client[v1.UploadTelemetryRequest, v1.UploadTelemetryResponse]
 	uploadEvents            *connect.Client[v1.UploadEventsRequest, v1.UploadEventsResponse]
 	uploadHeartbeat         *connect.Client[v1.UploadHeartbeatRequest, v1.UploadHeartbeatResponse]
+	uploadCommandArtifact   *connect.Client[v1.UploadCommandArtifactRequest, v1.UploadCommandArtifactResponse]
+	downloadCommandArtifact *connect.Client[v1.DownloadCommandArtifactRequest, v1.DownloadCommandArtifactResponse]
 	reportDiscoveredDevices *connect.Client[v1.ReportDiscoveredDevicesRequest, v1.ReportDiscoveredDevicesResponse]
 	reportPairedDevices     *connect.Client[v1.ReportPairedDevicesRequest, v1.ReportPairedDevicesResponse]
 	controlStream           *connect.Client[v1.ControlStreamRequest, v1.ControlStreamResponse]
@@ -184,6 +204,17 @@ func (c *fleetNodeGatewayServiceClient) UploadHeartbeat(ctx context.Context, req
 	return c.uploadHeartbeat.CallUnary(ctx, req)
 }
 
+// UploadCommandArtifact calls fleetnodegateway.v1.FleetNodeGatewayService.UploadCommandArtifact.
+func (c *fleetNodeGatewayServiceClient) UploadCommandArtifact(ctx context.Context) *connect.ClientStreamForClient[v1.UploadCommandArtifactRequest, v1.UploadCommandArtifactResponse] {
+	return c.uploadCommandArtifact.CallClientStream(ctx)
+}
+
+// DownloadCommandArtifact calls
+// fleetnodegateway.v1.FleetNodeGatewayService.DownloadCommandArtifact.
+func (c *fleetNodeGatewayServiceClient) DownloadCommandArtifact(ctx context.Context, req *connect.Request[v1.DownloadCommandArtifactRequest]) (*connect.ServerStreamForClient[v1.DownloadCommandArtifactResponse], error) {
+	return c.downloadCommandArtifact.CallServerStream(ctx, req)
+}
+
 // ReportDiscoveredDevices calls
 // fleetnodegateway.v1.FleetNodeGatewayService.ReportDiscoveredDevices.
 func (c *fleetNodeGatewayServiceClient) ReportDiscoveredDevices(ctx context.Context, req *connect.Request[v1.ReportDiscoveredDevicesRequest]) (*connect.Response[v1.ReportDiscoveredDevicesResponse], error) {
@@ -209,6 +240,8 @@ type FleetNodeGatewayServiceHandler interface {
 	UploadTelemetry(context.Context, *connect.ClientStream[v1.UploadTelemetryRequest]) (*connect.Response[v1.UploadTelemetryResponse], error)
 	UploadEvents(context.Context, *connect.ClientStream[v1.UploadEventsRequest]) (*connect.Response[v1.UploadEventsResponse], error)
 	UploadHeartbeat(context.Context, *connect.Request[v1.UploadHeartbeatRequest]) (*connect.Response[v1.UploadHeartbeatResponse], error)
+	UploadCommandArtifact(context.Context, *connect.ClientStream[v1.UploadCommandArtifactRequest]) (*connect.Response[v1.UploadCommandArtifactResponse], error)
+	DownloadCommandArtifact(context.Context, *connect.Request[v1.DownloadCommandArtifactRequest], *connect.ServerStream[v1.DownloadCommandArtifactResponse]) error
 	ReportDiscoveredDevices(context.Context, *connect.Request[v1.ReportDiscoveredDevicesRequest]) (*connect.Response[v1.ReportDiscoveredDevicesResponse], error)
 	ReportPairedDevices(context.Context, *connect.Request[v1.ReportPairedDevicesRequest]) (*connect.Response[v1.ReportPairedDevicesResponse], error)
 	ControlStream(context.Context, *connect.BidiStream[v1.ControlStreamRequest, v1.ControlStreamResponse]) error
@@ -250,6 +283,16 @@ func NewFleetNodeGatewayServiceHandler(svc FleetNodeGatewayServiceHandler, opts 
 		svc.UploadHeartbeat,
 		opts...,
 	)
+	fleetNodeGatewayServiceUploadCommandArtifactHandler := connect.NewClientStreamHandler(
+		FleetNodeGatewayServiceUploadCommandArtifactProcedure,
+		svc.UploadCommandArtifact,
+		opts...,
+	)
+	fleetNodeGatewayServiceDownloadCommandArtifactHandler := connect.NewServerStreamHandler(
+		FleetNodeGatewayServiceDownloadCommandArtifactProcedure,
+		svc.DownloadCommandArtifact,
+		opts...,
+	)
 	fleetNodeGatewayServiceReportDiscoveredDevicesHandler := connect.NewUnaryHandler(
 		FleetNodeGatewayServiceReportDiscoveredDevicesProcedure,
 		svc.ReportDiscoveredDevices,
@@ -279,6 +322,10 @@ func NewFleetNodeGatewayServiceHandler(svc FleetNodeGatewayServiceHandler, opts 
 			fleetNodeGatewayServiceUploadEventsHandler.ServeHTTP(w, r)
 		case FleetNodeGatewayServiceUploadHeartbeatProcedure:
 			fleetNodeGatewayServiceUploadHeartbeatHandler.ServeHTTP(w, r)
+		case FleetNodeGatewayServiceUploadCommandArtifactProcedure:
+			fleetNodeGatewayServiceUploadCommandArtifactHandler.ServeHTTP(w, r)
+		case FleetNodeGatewayServiceDownloadCommandArtifactProcedure:
+			fleetNodeGatewayServiceDownloadCommandArtifactHandler.ServeHTTP(w, r)
 		case FleetNodeGatewayServiceReportDiscoveredDevicesProcedure:
 			fleetNodeGatewayServiceReportDiscoveredDevicesHandler.ServeHTTP(w, r)
 		case FleetNodeGatewayServiceReportPairedDevicesProcedure:
@@ -316,6 +363,14 @@ func (UnimplementedFleetNodeGatewayServiceHandler) UploadEvents(context.Context,
 
 func (UnimplementedFleetNodeGatewayServiceHandler) UploadHeartbeat(context.Context, *connect.Request[v1.UploadHeartbeatRequest]) (*connect.Response[v1.UploadHeartbeatResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetnodegateway.v1.FleetNodeGatewayService.UploadHeartbeat is not implemented"))
+}
+
+func (UnimplementedFleetNodeGatewayServiceHandler) UploadCommandArtifact(context.Context, *connect.ClientStream[v1.UploadCommandArtifactRequest]) (*connect.Response[v1.UploadCommandArtifactResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetnodegateway.v1.FleetNodeGatewayService.UploadCommandArtifact is not implemented"))
+}
+
+func (UnimplementedFleetNodeGatewayServiceHandler) DownloadCommandArtifact(context.Context, *connect.Request[v1.DownloadCommandArtifactRequest], *connect.ServerStream[v1.DownloadCommandArtifactResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("fleetnodegateway.v1.FleetNodeGatewayService.DownloadCommandArtifact is not implemented"))
 }
 
 func (UnimplementedFleetNodeGatewayServiceHandler) ReportDiscoveredDevices(context.Context, *connect.Request[v1.ReportDiscoveredDevicesRequest]) (*connect.Response[v1.ReportDiscoveredDevicesResponse], error) {

@@ -23,6 +23,8 @@ service FleetNodeGatewayService {
     rpc UploadTelemetry(stream UploadTelemetryRequest) returns (UploadTelemetryResponse);
     rpc UploadEvents(stream UploadEventsRequest) returns (UploadEventsResponse);
     rpc UploadHeartbeat(UploadHeartbeatRequest) returns (UploadHeartbeatResponse);
+    rpc UploadCommandArtifact(stream UploadCommandArtifactRequest) returns (UploadCommandArtifactResponse);
+    rpc DownloadCommandArtifact(DownloadCommandArtifactRequest) returns (stream DownloadCommandArtifactResponse);
     rpc ReportDiscoveredDevices(ReportDiscoveredDevicesRequest) returns (ReportDiscoveredDevicesResponse);
     rpc ReportPairedDevices(ReportPairedDevicesRequest) returns (ReportPairedDevicesResponse);
     rpc ControlStream(stream ControlStreamRequest) returns (stream ControlStreamResponse);
@@ -93,6 +95,68 @@ message UploadHeartbeatRequest {
 
 message UploadHeartbeatResponse {
     google.protobuf.Timestamp received_at = 1;
+}
+
+// CommandArtifactPurpose describes the logical command feature that owns an
+// artifact transfer. The command_id plus purpose bind bytes to an in-flight
+// server-issued command; nodes do not get a generic file API.
+enum CommandArtifactPurpose {
+    COMMAND_ARTIFACT_PURPOSE_UNSPECIFIED      = 0;
+    COMMAND_ARTIFACT_PURPOSE_MINER_LOGS       = 1;
+    COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD = 2;
+}
+
+message CommandArtifactRef {
+    string artifact_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    CommandArtifactPurpose purpose = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    string filename = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    int64 size_bytes = 4 [(buf.validate.field).int64.gt = 0];
+    string sha256 = 5 [(buf.validate.field).string = {len: 64, pattern: "^[a-f0-9]{64}$"}];
+}
+
+message CommandArtifactUploadHeader {
+    string command_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    CommandArtifactPurpose purpose = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+    string filename = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    int64 size_bytes = 4 [(buf.validate.field).int64.gt = 0];
+    string sha256 = 5 [(buf.validate.field).string = {len: 64, pattern: "^[a-f0-9]{64}$"}];
+    string device_identifier = 6 [(buf.validate.field).string.max_len = 255];
+}
+
+message CommandArtifactChunk {
+    bytes data = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 1048576}];
+}
+
+message UploadCommandArtifactRequest {
+    oneof part {
+        option (buf.validate.oneof).required = true;
+
+        CommandArtifactUploadHeader header = 1;
+        CommandArtifactChunk chunk = 2;
+    }
+}
+
+message UploadCommandArtifactResponse {
+    CommandArtifactRef artifact = 1 [(buf.validate.field).required = true];
+}
+
+message DownloadCommandArtifactRequest {
+    string command_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    CommandArtifactRef artifact = 2 [(buf.validate.field).required = true];
+    string device_identifier = 3 [(buf.validate.field).string.max_len = 255];
+}
+
+message CommandArtifactDownloadHeader {
+    CommandArtifactRef artifact = 1 [(buf.validate.field).required = true];
+}
+
+message DownloadCommandArtifactResponse {
+    oneof part {
+        option (buf.validate.oneof).required = true;
+
+        CommandArtifactDownloadHeader header = 1;
+        CommandArtifactChunk chunk = 2;
+    }
 }
 
 message ReportDiscoveredDevicesRequest {

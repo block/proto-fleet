@@ -30,6 +30,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -45,6 +46,7 @@ func newControlHarness(t *testing.T) *controlHarness {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	t.Chdir(t.TempDir())
 
 	db := testutil.GetTestDB(t)
 	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org', 'Test Org') ON CONFLICT DO NOTHING`)
@@ -73,9 +75,11 @@ func newControlHarness(t *testing.T) *controlHarness {
 	// devices during ReportPairedDevices persistence.
 	_, _, err = enrollmentSvc.Confirm(t.Context(), agent.ID, 1)
 	require.NoError(t, err)
+	filesService, err := files.NewService(files.Config{})
+	require.NoError(t, err)
 
 	return &controlHarness{
-		handler:     gateway.NewHandler(enrollmentSvc, authSvc, pairingSvc, registry),
+		handler:     gateway.NewHandler(enrollmentSvc, authSvc, pairingSvc, registry, filesService),
 		registry:    registry,
 		fleetNodeID: agent.ID,
 		db:          db,

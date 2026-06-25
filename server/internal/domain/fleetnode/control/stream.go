@@ -84,6 +84,48 @@ func (r *Registry) AdmitReport(fleetNodeID int64, commandID string, deviceCount 
 	return nil
 }
 
+// AdmitCommandArtifact atomically verifies that a fleet node artifact transfer
+// matches the in-flight server-issued command. Upload expectations are consumed
+// on admission so the same command_id cannot upload the same artifact twice.
+func (r *Registry) AdmitCommandArtifact(fleetNodeID int64, commandID string, want ArtifactExpectation) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cmd := r.inflightFor(fleetNodeID, commandID)
+	if cmd == nil {
+		return errNoInFlightCommand
+	}
+	for i := range cmd.artifacts {
+		exp := &cmd.artifacts[i]
+		if !artifactExpectationMatches(exp.ArtifactExpectation, want) {
+			continue
+		}
+		if exp.consumed {
+			return ErrArtifactAlreadyTransferred
+		}
+		if exp.Direction == ArtifactDirectionUpload {
+			exp.consumed = true
+		}
+		return nil
+	}
+	return ErrArtifactNotExpected
+}
+
+func artifactExpectationMatches(exp, want ArtifactExpectation) bool {
+	if exp.Direction != want.Direction {
+		return false
+	}
+	if exp.Purpose != want.Purpose || exp.Purpose == gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_UNSPECIFIED {
+		return false
+	}
+	if exp.ArtifactID != "" && exp.ArtifactID != want.ArtifactID {
+		return false
+	}
+	if exp.DeviceIdentifier != "" && exp.DeviceIdentifier != want.DeviceIdentifier {
+		return false
+	}
+	return true
+}
+
 // PairPersistMeta is the operator context the gateway needs to persist a pair
 // result authoritatively, returned by AdmitAndScopePairResults.
 type PairPersistMeta struct {

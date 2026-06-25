@@ -35,6 +35,16 @@ func (s *Session) Close() {
 // pairing (gateway persistence context; its target set caps the report quota).
 // Many commands may be in flight per node concurrently.
 func (r *Registry) Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta) (*Session, error) {
+	return r.send(ctx, fleetNodeID, cmd, scope, kind, pair, nil)
+}
+
+// SendWithArtifacts is Send plus artifact-transfer expectations for the
+// dispatched command.
+func (r *Registry) SendWithArtifacts(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, artifacts []ArtifactExpectation) (*Session, error) {
+	return r.send(ctx, fleetNodeID, cmd, scope, kind, pair, artifacts)
+}
+
+func (r *Registry) send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, artifacts []ArtifactExpectation) (*Session, error) {
 	maxReports := maxReportsPerCommand
 	if pair != nil {
 		maxReports = len(pair.Targets)
@@ -46,6 +56,7 @@ func (r *Registry) Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.C
 		events:     make(chan CommandEvent, commandEventBuffer),
 		maxReports: maxReports,
 		pair:       pair,
+		artifacts:  cloneArtifactExpectations(artifacts),
 		done:       make(chan struct{}),
 	}
 	outgoing, connDone, err := r.addCmd(fleetNodeID, c)
@@ -62,6 +73,17 @@ func (r *Registry) Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.C
 		return nil, err
 	}
 	return session, nil
+}
+
+func cloneArtifactExpectations(in []ArtifactExpectation) []artifactExpectation {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]artifactExpectation, len(in))
+	for i, expectation := range in {
+		out[i] = artifactExpectation{ArtifactExpectation: expectation}
+	}
+	return out
 }
 
 // enqueue hands cmd to the connection's outbound queue, returning ErrNoActiveStream

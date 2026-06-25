@@ -19,7 +19,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
+
+const commandArtifactChunkSize = 1 << 20
 
 type Handler struct {
 	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
@@ -28,12 +31,13 @@ type Handler struct {
 	auth       *auth.Service
 	pairing    *pairing.Service
 	registry   *control.Registry
+	files      *files.Service
 }
 
 var _ fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler = &Handler{}
 
-func NewHandler(enrollment *enrollment.Service, auth *auth.Service, pairing *pairing.Service, registry *control.Registry) *Handler {
-	return &Handler{enrollment: enrollment, auth: auth, pairing: pairing, registry: registry}
+func NewHandler(enrollment *enrollment.Service, auth *auth.Service, pairing *pairing.Service, registry *control.Registry, filesService *files.Service) *Handler {
+	return &Handler{enrollment: enrollment, auth: auth, pairing: pairing, registry: registry, files: filesService}
 }
 
 func (h *Handler) Register(ctx context.Context, req *connect.Request[pb.RegisterRequest]) (*connect.Response[pb.RegisterResponse], error) {
@@ -82,6 +86,149 @@ func (h *Handler) UploadHeartbeat(ctx context.Context, _ *connect.Request[pb.Upl
 	return connect.NewResponse(&pb.UploadHeartbeatResponse{
 		ReceivedAt: timestamppb.New(now),
 	}), nil
+}
+
+func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.ClientStream[pb.UploadCommandArtifactRequest]) (*connect.Response[pb.UploadCommandArtifactResponse], error) {
+	subject, err := auth.GetSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if h.files == nil {
+		return nil, fleeterror.NewInternalError("command artifact store is not configured")
+	}
+
+	if !stream.Receive() {
+		if err := stream.Err(); err != nil {
+			return nil, fleeterror.NewInternalErrorf("receive command artifact header: %v", err)
+		}
+		return nil, fleeterror.NewInvalidArgumentError("first UploadCommandArtifactRequest must be header")
+	}
+	header := stream.Msg().GetHeader()
+	if header == nil {
+		return nil, fleeterror.NewInvalidArgumentError("first UploadCommandArtifactRequest must be header")
+	}
+	if err := h.registry.AdmitCommandArtifact(subject.FleetNodeID, header.GetCommandId(), control.ArtifactExpectation{
+		Direction:        control.ArtifactDirectionUpload,
+		Purpose:          header.GetPurpose(),
+		DeviceIdentifier: header.GetDeviceIdentifier(),
+	}); err != nil {
+		return nil, mapArtifactAdmissionError(err)
+	}
+
+	artifact, err := h.files.SaveCommandArtifact(
+		header.GetFilename(),
+		header.GetSizeBytes(),
+		header.GetSha256(),
+		&commandArtifactUploadReader{stream: stream},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.UploadCommandArtifactResponse{
+		Artifact: commandArtifactRef(artifact, header.GetPurpose()),
+	}), nil
+}
+
+func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Request[pb.DownloadCommandArtifactRequest], stream *connect.ServerStream[pb.DownloadCommandArtifactResponse]) error {
+	subject, err := auth.GetSubject(ctx)
+	if err != nil {
+		return err
+	}
+	if h.files == nil {
+		return fleeterror.NewInternalError("command artifact store is not configured")
+	}
+	ref := req.Msg.GetArtifact()
+	if ref == nil {
+		return fleeterror.NewInvalidArgumentError("artifact is required")
+	}
+	if err := h.registry.AdmitCommandArtifact(subject.FleetNodeID, req.Msg.GetCommandId(), control.ArtifactExpectation{
+		Direction:        control.ArtifactDirectionDownload,
+		Purpose:          ref.GetPurpose(),
+		ArtifactID:       ref.GetArtifactId(),
+		DeviceIdentifier: req.Msg.GetDeviceIdentifier(),
+	}); err != nil {
+		return mapArtifactAdmissionError(err)
+	}
+
+	reader, info, err := h.files.OpenCommandArtifact(ref.GetArtifactId())
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	if info.Size != ref.GetSizeBytes() || info.SHA256 != ref.GetSha256() {
+		return fleeterror.NewFailedPreconditionError("command artifact metadata no longer matches the issued reference")
+	}
+
+	if err := stream.Send(&pb.DownloadCommandArtifactResponse{Part: &pb.DownloadCommandArtifactResponse_Header{
+		Header: &pb.CommandArtifactDownloadHeader{Artifact: commandArtifactRef(&info, ref.GetPurpose())},
+	}}); err != nil {
+		return fleeterror.NewInternalErrorf("send command artifact header: %v", err)
+	}
+
+	buf := make([]byte, commandArtifactChunkSize)
+	for {
+		n, readErr := reader.Read(buf)
+		if n > 0 {
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			if err := stream.Send(&pb.DownloadCommandArtifactResponse{Part: &pb.DownloadCommandArtifactResponse_Chunk{
+				Chunk: &pb.CommandArtifactChunk{Data: chunk},
+			}}); err != nil {
+				return fleeterror.NewInternalErrorf("send command artifact chunk: %v", err)
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return nil
+		}
+		if readErr != nil {
+			return fleeterror.NewInternalErrorf("read command artifact: %v", readErr)
+		}
+	}
+}
+
+type commandArtifactUploadReader struct {
+	stream *connect.ClientStream[pb.UploadCommandArtifactRequest]
+	buf    []byte
+}
+
+func (r *commandArtifactUploadReader) Read(p []byte) (int, error) {
+	for len(r.buf) == 0 {
+		if !r.stream.Receive() {
+			if err := r.stream.Err(); err != nil {
+				return 0, err
+			}
+			return 0, io.EOF
+		}
+		chunk := r.stream.Msg().GetChunk()
+		if chunk == nil {
+			return 0, fleeterror.NewInvalidArgumentError("UploadCommandArtifactRequest after header must be chunk")
+		}
+		r.buf = chunk.GetData()
+	}
+	n := copy(p, r.buf)
+	r.buf = r.buf[n:]
+	return n, nil
+}
+
+func commandArtifactRef(info *files.CommandArtifactInfo, purpose pb.CommandArtifactPurpose) *pb.CommandArtifactRef {
+	return &pb.CommandArtifactRef{
+		ArtifactId: info.ID,
+		Purpose:    purpose,
+		Filename:   info.Filename,
+		SizeBytes:  info.Size,
+		Sha256:     info.SHA256,
+	}
+}
+
+func mapArtifactAdmissionError(err error) error {
+	switch {
+	case errors.Is(err, control.ErrArtifactAlreadyTransferred):
+		return connect.NewError(connect.CodeAlreadyExists, err)
+	case errors.Is(err, control.ErrArtifactNotExpected):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	default:
+		return fleeterror.NewFailedPreconditionError("command artifact transfer does not match an in-flight server-issued command")
+	}
 }
 
 func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error) {

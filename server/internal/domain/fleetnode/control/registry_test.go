@@ -714,3 +714,75 @@ func TestConnectedFleetNodeIDs_ReflectsRegisterAndUnregister(t *testing.T) {
 	s2.Unregister()
 	assert.Empty(t, r.ConnectedFleetNodeIDs())
 }
+
+func TestAdmitCommandArtifactConsumesUploadExpectation(t *testing.T) {
+	r := NewRegistry()
+	fleetNodeID := int64(12)
+	commandID := "artifact-upload-command"
+	c := &inflightCommand{
+		id:  commandID,
+		ack: make(chan *gatewaypb.ControlAck, 1),
+		artifacts: cloneArtifactExpectations([]ArtifactExpectation{{
+			Direction:        ArtifactDirectionUpload,
+			Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+			DeviceIdentifier: "miner-1",
+		}}),
+		done: make(chan struct{}),
+	}
+	r.conns[fleetNodeID] = &connection{
+		outgoing: make(chan *gatewaypb.ControlCommand, outgoingBuffer),
+		done:     make(chan struct{}),
+		cmds:     map[string]*inflightCommand{commandID: c},
+	}
+
+	err := r.AdmitCommandArtifact(fleetNodeID, commandID, ArtifactExpectation{
+		Direction:        ArtifactDirectionUpload,
+		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		DeviceIdentifier: "miner-1",
+	})
+	require.NoError(t, err)
+
+	err = r.AdmitCommandArtifact(fleetNodeID, commandID, ArtifactExpectation{
+		Direction:        ArtifactDirectionUpload,
+		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		DeviceIdentifier: "miner-1",
+	})
+	require.ErrorIs(t, err, ErrArtifactAlreadyTransferred)
+}
+
+func TestAdmitCommandArtifactAllowsRepeatedDownloadExpectation(t *testing.T) {
+	r := NewRegistry()
+	fleetNodeID := int64(12)
+	commandID := "artifact-download-command"
+	c := &inflightCommand{
+		id:  commandID,
+		ack: make(chan *gatewaypb.ControlAck, 1),
+		artifacts: cloneArtifactExpectations([]ArtifactExpectation{{
+			Direction:  ArtifactDirectionDownload,
+			Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD,
+			ArtifactID: "artifact-1",
+		}}),
+		done: make(chan struct{}),
+	}
+	r.conns[fleetNodeID] = &connection{
+		outgoing: make(chan *gatewaypb.ControlCommand, outgoingBuffer),
+		done:     make(chan struct{}),
+		cmds:     map[string]*inflightCommand{commandID: c},
+	}
+
+	for range 2 {
+		err := r.AdmitCommandArtifact(fleetNodeID, commandID, ArtifactExpectation{
+			Direction:  ArtifactDirectionDownload,
+			Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD,
+			ArtifactID: "artifact-1",
+		})
+		require.NoError(t, err)
+	}
+
+	err := r.AdmitCommandArtifact(fleetNodeID, commandID, ArtifactExpectation{
+		Direction:  ArtifactDirectionDownload,
+		Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD,
+		ArtifactID: "other-artifact",
+	})
+	require.ErrorIs(t, err, ErrArtifactNotExpected)
+}
