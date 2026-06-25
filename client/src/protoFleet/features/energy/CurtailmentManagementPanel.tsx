@@ -291,7 +291,7 @@ function CurtailmentForceReleaseDialog({
   return (
     <Dialog
       open={open}
-      title="Force release curtailment ownership?"
+      title="Abort restore?"
       onDismiss={dismissDialog}
       icon={
         <DialogIcon intent="critical">
@@ -306,7 +306,7 @@ function CurtailmentForceReleaseDialog({
           disabled: isSubmitting,
         },
         {
-          text: "Force release",
+          text: "Abort",
           variant: variants.danger,
           onClick: confirmRelease,
           loading: isSubmitting,
@@ -315,8 +315,8 @@ function CurtailmentForceReleaseDialog({
     >
       <div className="grid gap-4 text-300 text-text-primary">
         <p className="text-text-primary-70">
-          This immediately releases curtailment ownership so manual miner actions can proceed. It does not wake miners
-          or confirm that restore completed.
+          This aborts the restore workflow by immediately releasing curtailment ownership so manual miner actions can
+          proceed. It does not wake miners or confirm that restore completed.
         </p>
         <Textarea
           id="force-release-reason"
@@ -782,11 +782,16 @@ function CurtailmentManagementPanel({
         return;
       }
 
+      if (pendingForceReleaseEventId !== activeEventId || !activeEvent || activeEvent.state !== "restoring") {
+        setPendingForceReleaseEventId(null);
+        return;
+      }
+
       void forceReleaseCurtailment(pendingForceReleaseEventId, options)
         .then(() => setPendingForceReleaseEventId(null))
         .catch(() => {});
     },
-    [canUseRecovery, forceReleaseCurtailment, pendingForceReleaseEventId],
+    [activeEvent, activeEventId, canUseRecovery, forceReleaseCurtailment, pendingForceReleaseEventId],
   );
 
   const handleEditStopCurtailment = useCallback(() => {
@@ -842,7 +847,7 @@ function CurtailmentManagementPanel({
                   : undefined
               }
               onRequestForceRelease={
-                canUseRecovery && activeEventId && nonTerminalActiveEventStates.has(activeEvent.state)
+                canUseRecovery && activeEventId && activeEvent.state === "restoring"
                   ? () => setPendingForceReleaseEventId(activeEventId)
                   : undefined
               }

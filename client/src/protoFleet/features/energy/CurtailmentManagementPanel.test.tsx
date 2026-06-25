@@ -89,7 +89,7 @@ vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
       ) : null}
       {onRequestForceRelease ? (
         <button type="button" onClick={onRequestForceRelease}>
-          Request force release
+          Request abort
         </button>
       ) : null}
       {onRequestRestore ? (
@@ -550,8 +550,40 @@ describe("CurtailmentManagementPanel", () => {
     await waitFor(() => expect(mocks.stopCurtailment).toHaveBeenCalledWith("curt-1", { force: true }));
   });
 
-  it("force releases curtailment ownership for admin recovery users", async () => {
+  it("aborts restoring curtailment ownership for admin recovery users", async () => {
     const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+    mocks.useHasPermission.mockImplementation((permission: string) =>
+      ["curtailment:manage", "curtailment:read", "site:read", "admin:recovery"].includes(permission),
+    );
+
+    render(<CurtailmentManagementPanel enableManage enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request abort" }));
+    expect(screen.getByText("Abort restore?")).toBeInTheDocument();
+
+    const releaseButtons = screen.getAllByRole("button", { name: "Abort" });
+    await user.click(releaseButtons[releaseButtons.length - 1]);
+    expect(screen.getByText("Enter a reason before terminating the event.")).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Operator needs manual control");
+    const updatedReleaseButtons = screen.getAllByRole("button", { name: "Abort" });
+    await user.click(updatedReleaseButtons[updatedReleaseButtons.length - 1]);
+
+    await waitFor(() =>
+      expect(mocks.forceReleaseCurtailment).toHaveBeenCalledWith("curt-1", {
+        reason: "Operator needs manual control",
+      }),
+    );
+  });
+
+  it("hides abort while curtailment is still pending or active", () => {
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         activeEvent,
@@ -565,22 +597,8 @@ describe("CurtailmentManagementPanel", () => {
 
     render(<CurtailmentManagementPanel enableManage enableRecover />);
 
-    await user.click(screen.getByRole("button", { name: "Request force release" }));
-    expect(screen.getByText("Force release curtailment ownership?")).toBeInTheDocument();
-
-    const releaseButtons = screen.getAllByRole("button", { name: "Force release" });
-    await user.click(releaseButtons[releaseButtons.length - 1]);
-    expect(screen.getByText("Enter a reason before terminating the event.")).toBeInTheDocument();
-
-    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Operator needs manual control");
-    const updatedReleaseButtons = screen.getAllByRole("button", { name: "Force release" });
-    await user.click(updatedReleaseButtons[updatedReleaseButtons.length - 1]);
-
-    await waitFor(() =>
-      expect(mocks.forceReleaseCurtailment).toHaveBeenCalledWith("curt-1", {
-        reason: "Operator needs manual control",
-      }),
-    );
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request stop" })).toBeInTheDocument();
   });
 
   it("hides force recovery controls from non-admin curtailment managers", () => {
@@ -595,6 +613,7 @@ describe("CurtailmentManagementPanel", () => {
 
     expect(screen.queryByRole("button", { name: "Request force restore" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request terminate recovery" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Request restore" })).toBeInTheDocument();
   });
 

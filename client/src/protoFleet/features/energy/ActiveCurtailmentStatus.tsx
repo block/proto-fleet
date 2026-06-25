@@ -374,7 +374,7 @@ function getForceRestoreButton(onRequestForceRestore?: () => void): ReactElement
 
 function getForceReleaseButton(onRequestForceRelease?: () => void): ReactElement | null {
   return onRequestForceRelease ? (
-    <Button variant={variants.danger} size={sizes.compact} text="Force release" onClick={onRequestForceRelease} />
+    <Button variant={variants.danger} size={sizes.compact} text="Abort" onClick={onRequestForceRelease} />
   ) : null;
 }
 
