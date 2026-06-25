@@ -1,10 +1,11 @@
-import { render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import MinerSelectionList from "./MinerSelectionList";
 
-const { fleetArgsSpy, listRacksMock, listGroupsMock } = vi.hoisted(() => ({
+const { fleetArgsSpy, listPropsSpy, listRacksMock, listGroupsMock } = vi.hoisted(() => ({
   fleetArgsSpy: vi.fn(),
+  listPropsSpy: vi.fn(),
   listRacksMock: vi.fn(),
   listGroupsMock: vi.fn(),
 }));
@@ -14,9 +15,16 @@ vi.mock("@/protoFleet/api/useFleet", () => ({
   default: (args: unknown) => {
     fleetArgsSpy(args);
     return {
-      minerIds: [],
-      miners: {},
-      totalMiners: 0,
+      minerIds: ["miner-1"],
+      miners: {
+        "miner-1": {
+          deviceIdentifier: "miner-1",
+          name: "Miner 1",
+          model: "S21",
+          ipAddress: "192.0.2.10",
+        },
+      },
+      totalMiners: 2,
       isLoading: false,
       hasMore: false,
       currentPage: 0,
@@ -37,12 +45,16 @@ vi.mock("@/protoFleet/api/useDeviceSets", () => ({
 
 vi.mock("@/shared/components/List", () => ({
   __esModule: true,
-  default: () => <div data-testid="list-stub" />,
+  default: (props: unknown) => {
+    listPropsSpy(props);
+    return <div data-testid="list-stub" />;
+  },
 }));
 
 describe("MinerSelectionList site scope", () => {
   beforeEach(() => {
     fleetArgsSpy.mockReset();
+    listPropsSpy.mockReset();
     listRacksMock.mockReset();
     listGroupsMock.mockReset();
   });
@@ -81,5 +93,30 @@ describe("MinerSelectionList site scope", () => {
     rerender(<MinerSelectionList scope={{ siteIds: [], includeUnassigned: true }} />);
     expect(lastFleetFilter().siteIds).toEqual([]);
     expect(lastFleetFilter().includeUnassigned).toBe(true);
+  });
+
+  it("does not offer select-all for filtered results the curtailment backend cannot represent", async () => {
+    render(<MinerSelectionList />);
+    expect(screen.getByText("Select all")).toBeInTheDocument();
+
+    const listProps = listPropsSpy.mock.calls[listPropsSpy.mock.calls.length - 1]?.[0] as {
+      onServerFilter: (filters: {
+        buttonFilters: string[];
+        dropdownFilters: Record<string, string[]>;
+        numericFilters: Record<string, unknown>;
+        textareaListFilters: Record<string, string[]>;
+      }) => Promise<void>;
+    };
+
+    await act(async () => {
+      await listProps.onServerFilter({
+        buttonFilters: [],
+        dropdownFilters: { type: ["S21"] },
+        numericFilters: {},
+        textareaListFilters: {},
+      });
+    });
+
+    await waitFor(() => expect(screen.queryByText("Select all")).not.toBeInTheDocument());
   });
 });

@@ -140,6 +140,13 @@ const ALL_SORTABLE_COLUMNS = new Set<ModalColumn>(Object.keys(SORT_FIELD_BY_COLU
 
 const PAGE_SIZE = 50;
 
+const hasUnsupportedAllSelectionFilter = (filter: MinerListFilter): boolean =>
+  filter.models.length > 0 ||
+  filter.rackIds.length > 0 ||
+  filter.groupIds.length > 0 ||
+  filter.siteIds.length > 0 ||
+  filter.includeUnassigned;
+
 const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
   deviceIdentifier: miner.deviceIdentifier,
   name: miner.name,
@@ -231,6 +238,13 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       [currentPageItems, isRowDisabled],
     );
     const displayedSelectedItems = allSelected && !singleSelect ? currentSelectableItemIds : selectedItems;
+    const canSelectAll = !singleSelect && !hasUnsupportedAllSelectionFilter(filter);
+    const shouldShowSelectionFooter =
+      showSelectAllFooter &&
+      totalMiners !== undefined &&
+      totalMiners > 0 &&
+      !singleSelect &&
+      (canSelectAll || allSelected || selectedItems.length > 0);
 
     const handleSort = useCallback((field: ModalColumn, direction: SortDirection) => {
       setCurrentSort({ field, direction });
@@ -262,6 +276,14 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     useEffect(() => {
       onSelectionChange?.({ selectedItems, allSelected, totalMiners });
     }, [selectedItems, allSelected, totalMiners, onSelectionChange]);
+
+    useEffect(() => {
+      if (!allSelected || canSelectAll) {
+        return;
+      }
+      setAllSelected(false);
+      setSelectedItems([]);
+    }, [allSelected, canSelectAll]);
 
     // Expose selection state to parent via imperative handle
     useImperativeHandle(
@@ -461,21 +483,33 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             }
           />
         </div>
-        {showSelectAllFooter && totalMiners !== undefined && !singleSelect ? (
+        {shouldShowSelectionFooter ? (
           <div className="shrink-0">
             <ModalSelectAllFooter
-              label={allSelected ? `All ${totalMiners} miners selected` : `${selectedItems.length} miners selected`}
-              onSelectAll={() => {
-                setAllSelected(true);
-                const selectableItems = isRowDisabled
-                  ? currentPageItems.filter((d) => !isRowDisabled(d))
-                  : currentPageItems;
-                setSelectedItems(selectableItems.map((d) => d.deviceIdentifier));
-              }}
-              onSelectNone={() => {
-                setAllSelected(false);
-                setSelectedItems([]);
-              }}
+              label={
+                allSelected && canSelectAll
+                  ? `All ${totalMiners} miners selected`
+                  : `${selectedItems.length} miners selected`
+              }
+              onSelectAll={
+                canSelectAll
+                  ? () => {
+                      setAllSelected(true);
+                      const selectableItems = isRowDisabled
+                        ? currentPageItems.filter((d) => !isRowDisabled(d))
+                        : currentPageItems;
+                      setSelectedItems(selectableItems.map((d) => d.deviceIdentifier));
+                    }
+                  : undefined
+              }
+              onSelectNone={
+                allSelected || selectedItems.length > 0
+                  ? () => {
+                      setAllSelected(false);
+                      setSelectedItems([]);
+                    }
+                  : undefined
+              }
             />
           </div>
         ) : null}

@@ -1694,7 +1694,7 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("keeps filtered all-miner selection scoped to explicit miners", async () => {
+  it("treats filtered all-miner selection as all miners instead of submitting page-loaded ids", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       initialValues: { ...configuredValues, includeMaintenance: false },
@@ -1704,22 +1704,21 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
     await user.click(screen.getByRole("button", { name: "Save filtered all miners" }));
 
-    expect(screen.getByRole("button", { name: /Miners\s+2 miners/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+All miners/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sites\s+All sites/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     await confirmCurtailment(user);
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        scopeType: "explicitMiners",
-        scopeId: undefined,
-        siteSelection: "none",
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
+        siteSelection: "allSites",
         siteId: "",
-        siteIds: [],
         deviceSetIds: [],
-        deviceIdentifiers: ["miner-1", "miner-2"],
-        minerSelectionMode: "subset",
+        deviceIdentifiers: [],
+        minerSelectionMode: "all",
       }),
     );
   });
