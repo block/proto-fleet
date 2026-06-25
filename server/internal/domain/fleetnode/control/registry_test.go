@@ -237,6 +237,56 @@ func TestRegistry_AckRoutesByKind(t *testing.T) {
 	require.NotNil(t, res.ack)
 }
 
+func TestRegistry_SendCommandAckPayloadRoutesToMatchingCommand(t *testing.T) {
+	r := NewRegistry()
+	s := r.Register(1)
+	defer s.Unregister()
+
+	first := make(chan cmdResult, 1)
+	second := make(chan cmdResult, 1)
+	go func() {
+		ack, err := r.SendCommand(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "first"})
+		first <- cmdResult{ack: ack, err: err}
+	}()
+	go func() {
+		ack, err := r.SendCommand(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "second"})
+		second <- cmdResult{ack: ack, err: err}
+	}()
+	require.ElementsMatch(t, []string{"first", "second"}, []string{recvCommandID(t, s), recvCommandID(t, s)})
+
+	s.PublishAck(&gatewaypb.ControlAck{
+		CommandId: "second",
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   []byte("payload-second"),
+	})
+
+	select {
+	case res := <-second:
+		require.NoError(t, res.err)
+		require.NotNil(t, res.ack)
+		assert.Equal(t, []byte("payload-second"), res.ack.GetPayload())
+	case <-time.After(time.Second):
+		t.Fatal("second command did not receive matching ack payload")
+	}
+	select {
+	case res := <-first:
+		t.Fatalf("first command should still be waiting, got %+v", res)
+	default:
+	}
+
+	s.PublishAck(&gatewaypb.ControlAck{
+		CommandId: "first",
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   []byte("payload-first"),
+	})
+	res := recvResult(t, first)
+	require.NoError(t, res.err)
+	require.NotNil(t, res.ack)
+	assert.Equal(t, []byte("payload-first"), res.ack.GetPayload())
+}
+
 func TestRegistry_TeardownClosesAllInFlightCommands(t *testing.T) {
 	// Arrange: a discovery and an ack-only command are both in flight.
 	r := NewRegistry()

@@ -3,6 +3,7 @@ package timescaledb_test
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,6 +60,50 @@ func TestTelemetryStore_StoreDeviceMetrics(t *testing.T) {
 	assert.Equal(t, 100_000_000.0, hashRate)
 	assert.Equal(t, 72.5, temp)
 	assert.Equal(t, 1500.0, power)
+}
+
+func TestTelemetryStore_StoreDeviceMetricsStampsSiteWithDuplicateHistoricalDeviceIdentifier(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	oldSiteID := createTelemetryTestSite(t, db, user.OrganizationID, "Old duplicate site")
+	liveSiteID := createTelemetryTestSite(t, db, user.OrganizationID, "Live duplicate site")
+	oldDevice := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	liveDevice := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	deviceIdentifier := "dup-metrics-device"
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	t.Cleanup(func() {
+		cleanupDeviceMetrics(t, db, deviceIdentifier)
+	})
+
+	renameTelemetryTestDevice(t, db, oldDevice.DatabaseID, deviceIdentifier, oldSiteID, true)
+	renameTelemetryTestDevice(t, db, liveDevice.DatabaseID, deviceIdentifier, liveSiteID, false)
+
+	err = store.StoreDeviceMetrics(ctx, modelsV2.DeviceMetrics{
+		DeviceIdentifier: deviceIdentifier,
+		Timestamp:        now,
+		Health:           modelsV2.HealthHealthyActive,
+		HashrateHS:       &modelsV2.MetricValue{Value: 100_000_000},
+	})
+	require.NoError(t, err)
+
+	var gotSiteID sql.NullInt64
+	err = db.QueryRowContext(ctx,
+		"SELECT site_id FROM device_metrics WHERE device_identifier = $1 AND time = $2",
+		deviceIdentifier,
+		now,
+	).Scan(&gotSiteID)
+	require.NoError(t, err)
+	require.True(t, gotSiteID.Valid)
+	assert.Equal(t, liveSiteID, gotSiteID.Int64)
 }
 
 // TestTelemetryStore_StoreDeviceMetrics_EmptyInput tests that storing empty metrics is a no-op.
@@ -528,4 +573,44 @@ func insertTestMetrics(t *testing.T, db *sql.DB, deviceIdentifier string, ts tim
 		ts, deviceIdentifier, hashRate, temp, 3500.0, 1500.0, 15.0,
 	)
 	require.NoError(t, err, "Failed to insert test metrics")
+}
+
+func createTelemetryTestSite(t *testing.T, db *sql.DB, orgID int64, name string) int64 {
+	t.Helper()
+	var siteID int64
+	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+	err := db.QueryRowContext(context.Background(),
+		"INSERT INTO site (org_id, name, slug) VALUES ($1, $2, $3) RETURNING id",
+		orgID,
+		name,
+		slug,
+	).Scan(&siteID)
+	require.NoError(t, err)
+	return siteID
+}
+
+func renameTelemetryTestDevice(t *testing.T, db *sql.DB, deviceID int64, deviceIdentifier string, siteID int64, deleted bool) {
+	t.Helper()
+	deletedAt := sql.NullTime{Time: time.Now().UTC(), Valid: deleted}
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE discovered_device dd
+		 SET device_identifier = $1, deleted_at = $2
+		 FROM device d
+		 WHERE d.discovered_device_id = dd.id AND d.id = $3`,
+		deviceIdentifier,
+		deletedAt,
+		deviceID,
+	)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(context.Background(),
+		`UPDATE device
+		 SET device_identifier = $1, site_id = $2, deleted_at = $3
+		 WHERE id = $4`,
+		deviceIdentifier,
+		siteID,
+		deletedAt,
+		deviceID,
+	)
+	require.NoError(t, err)
 }

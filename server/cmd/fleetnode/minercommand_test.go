@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/proto"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
@@ -171,6 +173,164 @@ func TestHandleMinerCommand_ConvertsCoolingMode(t *testing.T) {
 
 	// Assert
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, ack.only(t).GetCode())
+}
+
+func TestHandleMinerCommand_UpdatesMiningPools(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().
+		UpdateMiningPools(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, pools []sdk.MiningPoolConfig) error {
+			require.Len(t, pools, 2)
+			assert.Equal(t, int32(0), pools[0].Priority)
+			assert.Equal(t, "stratum+tcp://pool1.example.com:3333", pools[0].URL)
+			assert.Equal(t, "worker1", pools[0].WorkerName)
+			assert.Equal(t, int32(1), pools[1].Priority)
+			assert.Equal(t, "stratum+tcp://pool2.example.com:3333", pools[1].URL)
+			assert.Equal(t, "worker2", pools[1].WorkerName)
+			return nil
+		})
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMiningPools{UpdateMiningPools: &pb.UpdateMiningPoolsAction{
+			Pools: []*pb.MiningPoolConfig{
+				{Priority: 0, Url: "stratum+tcp://pool1.example.com:3333", Username: "worker1"},
+				{Priority: 1, Url: "stratum+tcp://pool2.example.com:3333", Username: "worker2"},
+			},
+		}}}), discardLogger(t))
+
+	// Assert
+	got := ack.only(t)
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	assert.True(t, got.GetSucceeded())
+	assert.Empty(t, got.GetPayload())
+}
+
+func TestHandleMinerCommand_GetMiningPoolsReturnsPayload(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().GetMiningPools(gomock.Any()).Return([]sdk.ConfiguredPool{
+		{Priority: 0, URL: "stratum+tcp://pool1.example.com:3333", Username: "worker1"},
+		{Priority: 2, URL: "stratum+tcp://pool4.example.com:3333", Username: "worker4"},
+	}, nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetMiningPools{GetMiningPools: &pb.GetMiningPoolsAction{}}}), discardLogger(t))
+
+	// Assert
+	got := ack.only(t)
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	assert.True(t, got.GetSucceeded())
+	require.NotEmpty(t, got.GetPayload())
+	var result pb.GetMiningPoolsResult
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
+	require.Len(t, result.GetPools(), 2)
+	assert.Equal(t, int32(0), result.GetPools()[0].GetPriority())
+	assert.Equal(t, "stratum+tcp://pool1.example.com:3333", result.GetPools()[0].GetUrl())
+	assert.Equal(t, "worker1", result.GetPools()[0].GetUsername())
+	assert.Equal(t, int32(2), result.GetPools()[1].GetPriority())
+	assert.Equal(t, "stratum+tcp://pool4.example.com:3333", result.GetPools()[1].GetUrl())
+	assert.Equal(t, "worker4", result.GetPools()[1].GetUsername())
+}
+
+func TestHandleMinerCommand_GetMiningPoolsTrimsUnsupportedPoolSlots(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().GetMiningPools(gomock.Any()).Return([]sdk.ConfiguredPool{
+		{Priority: 3, URL: "stratum+tcp://pool3.example.com:3333", Username: "worker3"},
+		{Priority: 0, URL: "stratum+tcp://pool0.example.com:3333", Username: "worker0"},
+		{Priority: 1, URL: "stratum+tcp://pool1.example.com:3333", Username: "worker1"},
+		{Priority: 2, URL: "stratum+tcp://pool2.example.com:3333", Username: "worker2"},
+	}, nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetMiningPools{GetMiningPools: &pb.GetMiningPoolsAction{}}}), discardLogger(t))
+
+	// Assert
+	got := ack.only(t)
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	assert.True(t, got.GetSucceeded())
+	var result pb.GetMiningPoolsResult
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
+	require.Len(t, result.GetPools(), 3)
+	assert.Equal(t, int32(0), result.GetPools()[0].GetPriority())
+	assert.Equal(t, "stratum+tcp://pool0.example.com:3333", result.GetPools()[0].GetUrl())
+	assert.Equal(t, "worker0", result.GetPools()[0].GetUsername())
+	assert.Equal(t, int32(1), result.GetPools()[1].GetPriority())
+	assert.Equal(t, "stratum+tcp://pool1.example.com:3333", result.GetPools()[1].GetUrl())
+	assert.Equal(t, "worker1", result.GetPools()[1].GetUsername())
+	assert.Equal(t, int32(2), result.GetPools()[2].GetPriority())
+	assert.Equal(t, "stratum+tcp://pool2.example.com:3333", result.GetPools()[2].GetUrl())
+	assert.Equal(t, "worker2", result.GetPools()[2].GetUsername())
+}
+
+func TestHandleMinerCommand_GetMiningPoolsRejectsInvalidPluginResult(t *testing.T) {
+	validPoolURL := "stratum+tcp://pool.example.com:3333"
+	cases := []struct {
+		name  string
+		pools []sdk.ConfiguredPool
+	}{
+		{"negative priority", []sdk.ConfiguredPool{
+			{Priority: -1, URL: validPoolURL, Username: "worker"},
+		}},
+		{"invalid URL shape", []sdk.ConfiguredPool{
+			{Priority: 0, URL: "https://pool.example.com", Username: "worker"},
+		}},
+		{"invalid SV2 authority key", []sdk.ConfiguredPool{
+			{Priority: 0, URL: "stratum2+tcp://pool.example.com:3333/not_base58", Username: "worker"},
+		}},
+		{"username too long", []sdk.ConfiguredPool{{
+			Priority: 0,
+			URL:      validPoolURL,
+			Username: strings.Repeat("x", 513),
+		}}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			ctrl := gomock.NewController(t)
+			dev := mocks.NewMockDevice(ctrl)
+			dev.EXPECT().GetMiningPools(gomock.Any()).Return(tc.pools, nil)
+			dev.EXPECT().Close(gomock.Any()).Return(nil)
+			drv := mocks.NewMockDriver(ctrl)
+			drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+			r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+			ack := &captureAcker{}
+
+			// Act
+			r.handleMinerCommand(context.Background(), ack, "cmd-1",
+				withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetMiningPools{GetMiningPools: &pb.GetMiningPoolsAction{}}}), discardLogger(t))
+
+			// Assert
+			got := ack.only(t)
+			assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, got.GetCode())
+			assert.False(t, got.GetSucceeded())
+			assert.Empty(t, got.GetPayload())
+			assert.Contains(t, got.GetErrorMessage(), "invalid get mining pools result")
+		})
+	}
 }
 
 func TestHandleMinerCommand_DeviceErrorClassifiesToUnimplemented(t *testing.T) {

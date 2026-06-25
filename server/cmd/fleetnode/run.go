@@ -36,6 +36,7 @@ type RunCmd struct {
 	driverGetter  driverGetter                                                             `kong:"-"`
 	minerSecrets  secretProvider                                                           `kong:"-"`
 	pairer        pairer                                                                   `kong:"-"`
+	telemetry     telemetryFetcher                                                         `kong:"-"`
 	nmapPath      string                                                                   `kong:"-"`
 	resolver      ipResolver                                                               `kong:"-"`
 	localSubnets  func() ([]string, error)                                                 `kong:"-"` // test seam for local-subnet detection
@@ -148,7 +149,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		if credentialErr != nil {
 			return fmt.Errorf("prepare credential key: %w", credentialErr)
 		}
-		disc, prr, cleanup, bootstrapErr := newPluginComponents(ctx, resolvedPluginsDir, st.FleetNodeID, credentials)
+		disc, prr, tf, cleanup, bootstrapErr := newPluginComponents(ctx, resolvedPluginsDir, st.FleetNodeID, credentials)
 		if bootstrapErr != nil {
 			return fmt.Errorf("bootstrap plugins: %w", bootstrapErr)
 		}
@@ -163,6 +164,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 			r.minerSecrets = credentials
 		}
 		r.pairer = prr
+		r.telemetry = tf
 	}
 
 	if r.sessionNeedsRefresh(st) {

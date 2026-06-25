@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
@@ -318,6 +319,9 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 	// (mirrors PairDevice). boundDeviceID is set only on the true PAIRED bind path.
 	if boundDeviceID != 0 && s.invalidateMiner != nil {
 		s.invalidateMiner(ctx, boundDeviceID)
+	}
+	if boundDeviceID != 0 {
+		s.scheduleTelemetryIdentifierBestEffort(ctx, telemetrymodels.DeviceIdentifier(identifier), boundDeviceID, orgID)
 	}
 	return persisted, nil
 }

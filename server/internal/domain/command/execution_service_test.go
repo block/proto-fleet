@@ -1448,6 +1448,48 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PersistsWorkerNameWhenNoCurren
 	require.NoError(t, err)
 }
 
+func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyPreservesGetPoolsErrorClass(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+
+	payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
+		ReapplyCurrentPoolsWithStoredWorkerName: true,
+		DesiredWorkerName:                       "new-worker",
+	})
+	require.NoError(t, err)
+
+	message := queue.Message{
+		ID:           22,
+		BatchLogUUID: "batch-pools-reapply-get-pools-failure",
+		CommandType:  commandtype.UpdateMiningPools,
+		DeviceID:     54,
+		Payload:      payloadBytes,
+	}
+
+	mockMinerGetter.EXPECT().
+		GetMiner(gomock.Any(), int64(54)).
+		Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().
+		GetMiningPools(gomock.Any()).
+		Return(nil, fleeterror.NewUnimplementedErrorf("get pools not supported"))
+
+	svc := NewExecutionService(t.Context(), &Config{
+		MaxWorkers:             5,
+		MasterPollingInterval:  10 * time.Millisecond,
+		WorkerExecutionTimeout: 5 * time.Second,
+	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
+
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnimplementedError(err))
+}
+
 func TestStoredMinerWorkerName(t *testing.T) {
 	t.Run("prefers stored worker name", func(t *testing.T) {
 		assert.Equal(t, "rig-01", storedMinerWorkerName(stores.DeviceRenameProperties{

@@ -10,7 +10,8 @@
 -- filter by deleted_at: telemetry from a soft-deleted device is still
 -- legitimate per-site history, matching InsertError /
 -- InsertMinerStateSnapshot which also stamp from the device row
--- regardless of soft-delete state.
+-- regardless of soft-delete state. Duplicate historical identifiers are
+-- resolved deterministically, preferring the live device row.
 INSERT INTO device_metrics (
     time,
     device_identifier,
@@ -40,7 +41,13 @@ INSERT INTO device_metrics (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
     $21, $22, $23,
-    (SELECT site_id FROM device WHERE device_identifier = $2)
+    (
+        SELECT site_id
+        FROM device
+        WHERE device_identifier = $2
+        ORDER BY (deleted_at IS NULL) DESC, updated_at DESC, id DESC
+        LIMIT 1
+    )
 ) ON CONFLICT (time, device_identifier) DO NOTHING;
 
 -- name: GetLatestDeviceMetrics :many

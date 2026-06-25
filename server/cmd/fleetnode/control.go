@@ -42,6 +42,9 @@ const (
 	maxPortsPerIP          = discoverylimits.MaxPortsPerIP
 	// Mirrors the proto cap so a verbose error doesn't fail buf-validate on the ack itself.
 	maxAckErrorMessageBytes = 4096
+	// Mirrors ControlAck.payload's proto cap; result-bearing commands must not
+	// make the ack itself invalid.
+	maxAckPayloadBytes = 1 << 20
 	// commandPoolSize bounds quick per-miner commands handled concurrently per
 	// session. Discovery does not draw from this pool; it has its own exclusive,
 	// single-flight slot (see runControlSession). Commands past the ceiling are
@@ -269,6 +272,8 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		r.handleMinerCommand(ctx, stream, commandID, k.MinerCommand, logger)
 	case *pb.AgentCommand_Pair:
 		r.handlePairCommand(ctx, client, stream, commandID, k.Pair, logger)
+	case *pb.AgentCommand_Telemetry:
+		r.handleTelemetryCommand(ctx, stream, commandID, k.Telemetry, logger)
 	default:
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "AgentCommand has no recognized command kind", logger)
 	}
@@ -543,12 +548,28 @@ func (r *RunCmd) streamReports(ctx context.Context, client gatewayClient, comman
 }
 
 func (r *RunCmd) sendAck(stream acker, commandID string, code pb.AckCode, errMsg string, logger *slog.Logger) {
+	r.sendAckWithPayload(stream, commandID, code, errMsg, nil, logger)
+}
+
+func (r *RunCmd) sendAckWithPayload(stream acker, commandID string, code pb.AckCode, errMsg string, payload []byte, logger *slog.Logger) {
+	if len(payload) > maxAckPayloadBytes {
+		originalBytes := len(payload)
+		payload = nil
+		if code == pb.AckCode_ACK_CODE_OK {
+			code = pb.AckCode_ACK_CODE_INTERNAL
+			errMsg = fmt.Sprintf("ack payload too large: %d bytes exceeds %d byte limit", originalBytes, maxAckPayloadBytes)
+		} else if errMsg == "" {
+			errMsg = fmt.Sprintf("ack payload too large: %d bytes exceeds %d byte limit", originalBytes, maxAckPayloadBytes)
+		}
+		logger.Warn("dropping oversized ack payload", "command_id", commandID, "payload_bytes", originalBytes, "max_payload_bytes", maxAckPayloadBytes)
+	}
 	errMsg = truncateUTF8(errMsg, maxAckErrorMessageBytes)
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{
 		CommandId:    commandID,
 		Succeeded:    code == pb.AckCode_ACK_CODE_OK,
 		ErrorMessage: errMsg,
 		Code:         code,
+		Payload:      payload,
 	}}}); err != nil {
 		logger.Warn("send ack failed", "command_id", commandID, "err", err)
 	}
@@ -561,9 +582,9 @@ type pluginDiscoverer struct {
 	fleetNodeID int64
 }
 
-// newPluginComponents builds the discoverer and pairer over one shared manager
+// newPluginComponents builds the discoverer, pairer, and telemetry fetcher over one shared manager
 // so the node loads plugins only once.
-func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID int64, credentials credentialSealer) (*pluginDiscoverer, *pluginPairer, func(), error) {
+func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID int64, credentials *credentialCodec) (*pluginDiscoverer, *pluginPairer, *pluginTelemetryFetcher, func(), error) {
 	// Manager.Shutdown waits the full grace period even when a plugin already
 	// exited, so keep it tight; a stuck plugin still gets killed.
 	manager := plugins.NewManager(&plugins.Config{
@@ -582,7 +603,7 @@ func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID 
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		_ = manager.Shutdown(shutdownCtx)
 		shutdownCancel()
-		return nil, nil, func() {}, fmt.Errorf("load plugins: %w", err)
+		return nil, nil, nil, func() {}, fmt.Errorf("load plugins: %w", err)
 	}
 	// Parent ctx is typically already cancelled by a signal when cleanup
 	// runs; use a fresh background ctx bounded by the same 10s budget.
@@ -592,12 +613,17 @@ func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID 
 		_ = manager.Shutdown(shutdownCtx)
 	}
 	prr := newPluginPairer(manager, credentials)
+	tf, err := newPluginTelemetryFetcher(manager, credentials)
+	if err != nil {
+		cleanup()
+		return nil, nil, nil, func() {}, fmt.Errorf("init telemetry fetcher: %w", err)
+	}
 	disc := &pluginDiscoverer{
 		multi:       plugins.NewMultiTypeDiscoverer(manager),
 		svc:         plugins.NewService(manager),
 		fleetNodeID: fleetNodeID,
 	}
-	return disc, prr, cleanup, nil
+	return disc, prr, tf, cleanup, nil
 }
 
 func (p *pluginDiscoverer) Probe(ctx context.Context, ipAddress, port string) (*pb.DiscoveredDeviceReport, error) {

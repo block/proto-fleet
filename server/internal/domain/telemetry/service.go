@@ -354,7 +354,12 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 		return nil
 	}
 	for _, id := range deviceID {
-		s.tasks <- models.Device{ID: id, LastUpdatedAt: time.Now().Add(-s.config.NewDeviceLookback)}
+		device := models.Device{ID: id, LastUpdatedAt: time.Now().Add(-s.config.NewDeviceLookback)}
+		select {
+		case s.tasks <- device:
+		case <-ctx.Done():
+			return fmt.Errorf("enqueue telemetry device %s: %w", id, ctx.Err())
+		}
 		s.devicesForStatusPolling.Store(id, struct{}{})
 		s.lastDefaultPwActive.Delete(id)
 	}

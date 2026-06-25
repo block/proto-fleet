@@ -13,6 +13,7 @@ import "curtailment/v1/curtailment.proto";
 import "google/protobuf/timestamp.proto";
 import "minercommand/v1/command.proto";
 import "pairing/v1/pairing.proto";
+import "telemetry/v1/telemetry.proto";
 
 service FleetNodeGatewayService {
     rpc Register(RegisterRequest) returns (RegisterResponse);
@@ -259,6 +260,8 @@ message MinerCommand {
         UncurtailAction uncurtail = 7;
         SetCoolingModeAction set_cooling_mode = 8;
         SetPowerTargetAction set_power_target = 9;
+        UpdateMiningPoolsAction update_mining_pools = 10;
+        GetMiningPoolsAction get_mining_pools = 11;
     }
 }
 
@@ -267,6 +270,7 @@ message StartMiningAction {}
 message StopMiningAction {}
 message BlinkLedAction {}
 message UncurtailAction {}
+message GetMiningPoolsAction {}
 
 message CurtailAction {
     curtailment.v1.CurtailmentLevel level = 1;
@@ -280,6 +284,26 @@ message SetPowerTargetAction {
     minercommand.v1.PerformanceMode performance_mode = 1;
 }
 
+message MiningPoolConfig {
+    int32 priority = 1 [(buf.validate.field).int32 = {gte: 0, lte: 2}];
+    string url = 2 [(buf.validate.field) = {
+        string: {
+            pattern: "^(stratum\\+(tcp|ssl|ws):\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\])(:\\d{1,5})?|stratum2\\+tcp:\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\]):\\d{1,5}\\/[A-Za-z0-9_+\\/=:.-]+)$"
+            min_len: 12
+            max_len: 256
+        }
+    }];
+    string username = 3 [(buf.validate.field).string.max_len = 512];
+}
+
+message UpdateMiningPoolsAction {
+    repeated MiningPoolConfig pools = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 3}];
+}
+
+message GetMiningPoolsResult {
+    repeated MiningPoolConfig pools = 1 [(buf.validate.field).repeated.max_items = 3];
+}
+
 // AgentCommand is the typed envelope marshaled into ControlCommand.payload so a
 // fleet node can tell command kinds apart rather than assuming a bare
 // DiscoverRequest. command_id stays on the transport-level
@@ -289,6 +313,7 @@ message SetPowerTargetAction {
 // into this envelope exactly once and later arms are purely additive:
 //   2 = FleetNodePairRequest pair    (fleet-node pairing path)
 //   3 = MinerCommand miner_command   (per-miner command path)
+//   4 = FleetNodeTelemetryRequest telemetry (per-miner telemetry path)
 message AgentCommand {
     oneof command {
         option (buf.validate.oneof).required = true;
@@ -296,6 +321,7 @@ message AgentCommand {
         pairing.v1.DiscoverRequest discover = 1;
         pairing.v1.FleetNodePairRequest pair = 2;
         MinerCommand miner_command = 3;
+        telemetry.v1.FleetNodeTelemetryRequest telemetry = 4;
     }
 }
 
@@ -304,6 +330,8 @@ message ControlAck {
     bool   succeeded     = 2;
     string error_message = 3 [(buf.validate.field).string.max_len = 4096];
     AckCode code         = 4;
+    // Optional typed result payload for command kinds that return data.
+    bytes payload        = 5 [(buf.validate.field).bytes.max_len = 1048576];
 }
 
 // AckCode is the structured outcome class for a ControlCommand. error_message
@@ -332,4 +360,7 @@ enum AckCode {
     // UNIMPLEMENTED: the device (or this agent) does not support the requested
     // command, e.g. a curtail level the model can't honor.
     ACK_CODE_UNIMPLEMENTED   = 10;
+    // FORBIDDEN: the miner denied access for a non-authentication remediation
+    // reason, e.g. default-password lockout.
+    ACK_CODE_FORBIDDEN       = 11;
 }

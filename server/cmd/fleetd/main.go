@@ -357,6 +357,7 @@ func start(config *Config) error {
 		diagnosticsService,
 	)
 	telemetryService.WithMetricsEmitter(metricsProvider)
+	fleetNodePairingSvc.WithTelemetryScheduler(telemetryService)
 	if err := telemetryService.Start(context.Background()); err != nil {
 		slog.Error("failed to start telemetry service", "error", err)
 		return fmt.Errorf("failed to start telemetry service: %w", err)
