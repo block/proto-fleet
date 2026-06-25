@@ -306,6 +306,13 @@ function withAllMinerScope(values: CurtailmentFormValues): CurtailmentFormValues
   };
 }
 
+function hasActiveMinerSelectionFilter(filter: MinerSelectionValue["filter"]): boolean {
+  if (!filter) {
+    return false;
+  }
+  return filter.models.length > 0 || filter.rackIds.length > 0 || filter.groupIds.length > 0;
+}
+
 function withAllSitesScope(values: CurtailmentFormValues): CurtailmentFormValues {
   return {
     ...values,
@@ -1318,7 +1325,7 @@ function CurtailmentStartModalContent({
   };
 
   const handleMinerSelection = (selection: MinerSelectionValue) => {
-    if (selection.allSelected) {
+    if (selection.allSelected && !hasActiveMinerSelectionFilter(selection.filter)) {
       updateValues(withAllMinerScope, { resetResponseProfileSelection: true });
       return;
     }

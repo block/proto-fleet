@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 
+import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import MinerSelectionList, { type MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
 import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import Modal from "@/shared/components/Modal";
@@ -8,6 +9,7 @@ export interface MinerSelectionValue {
   selectedMinerIds: string[];
   allSelected: boolean;
   totalMiners: number | undefined;
+  filter?: MinerListFilter;
 }
 
 interface MinerSelectionModalProps {
@@ -49,6 +51,7 @@ const MinerSelectionModal = ({
       selectedMinerIds: selection.selectedItems,
       allSelected: selection.allSelected,
       totalMiners: selection.totalMiners,
+      filter: selection.filter,
     };
   };
 

@@ -93,7 +93,12 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal
     onSave,
   }: {
     open: boolean;
-    onSave: (selection: { selectedMinerIds: string[]; allSelected: boolean; totalMiners?: number }) => void;
+    onSave: (selection: {
+      selectedMinerIds: string[];
+      allSelected: boolean;
+      totalMiners?: number;
+      filter?: { models: string[]; rackIds: bigint[]; groupIds: bigint[] };
+    }) => void;
   }) =>
     open ? (
       <div role="dialog" aria-label="Miner selection">
@@ -110,6 +115,19 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal
           onClick={() => onSave({ selectedMinerIds: ["miner-1", "miner-2"], allSelected: true, totalMiners: 5000 })}
         >
           Save all miners
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            onSave({
+              selectedMinerIds: ["miner-1", "miner-2"],
+              allSelected: true,
+              totalMiners: 2,
+              filter: { models: ["S21"], rackIds: [], groupIds: [] },
+            })
+          }
+        >
+          Save filtered all miners
         </button>
       </div>
     ) : null,
@@ -1672,6 +1690,36 @@ describe("CurtailmentStartModal", () => {
         deviceSetIds: [],
         deviceIdentifiers: [],
         minerSelectionMode: "all",
+      }),
+    );
+  });
+
+  it("keeps filtered all-miner selection scoped to explicit miners", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      siteOptions,
+    });
+
+    await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
+    await user.click(screen.getByRole("button", { name: "Save filtered all miners" }));
+
+    expect(screen.getByRole("button", { name: /Miners\s+2 miners/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeType: "explicitMiners",
+        scopeId: undefined,
+        siteSelection: "none",
+        siteId: "",
+        siteIds: [],
+        deviceSetIds: [],
+        deviceIdentifiers: ["miner-1", "miner-2"],
+        minerSelectionMode: "subset",
       }),
     );
   });
