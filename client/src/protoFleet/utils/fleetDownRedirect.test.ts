@@ -32,11 +32,11 @@ describe("redirectFromFleetDown", () => {
   });
 
   it("redirects to the path from query parameter", () => {
-    window.location.search = "?from=%2Fsettings%2Fgeneral";
+    window.location.search = "?from=%2Fsettings%2Fnetwork";
 
     redirectFromFleetDown();
 
-    expect(window.location.href).toBe("/settings/general");
+    expect(window.location.href).toBe("/settings/network");
   });
 
   it("redirects to home page when no from parameter exists", () => {

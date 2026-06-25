@@ -4,7 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
 import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
-import { NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
+import { isNavItemAllowedByPermissions, NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
@@ -32,13 +32,9 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
   const featureEnabled = useNavFeatureEnabled();
   const { activeSite } = useActiveSite({});
   const [settingsManuallyToggled, setSettingsManuallyToggled] = useState(false);
-  const hasPermission = useCallback(
-    (key: string | undefined) => key === undefined || permissions.includes(key),
-    [permissions],
-  );
   const visibleItems = useMemo(
-    () => items.filter((item) => hasPermission(item.requiredPermission)),
-    [items, hasPermission],
+    () => items.filter((item) => isNavItemAllowedByPermissions(item, permissions)),
+    [items, permissions],
   );
   const [showSettingsHover, setShowSettingsHover] = useState(false);
 
@@ -46,6 +42,28 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
 
   const homeItem = useMemo(() => items.find((item) => item.label === "Home"), [items]);
   const settingsItem = useMemo(() => items.find((item) => item.label === "Settings"), [items]);
+  const visibleSettingsItems = useMemo(
+    () =>
+      secondaryNavItems
+        .filter((nav) => nav.parent === "/settings")
+        .filter((nav) => isNavItemAllowedByPermissions(nav, permissions))
+        .filter((nav) => !nav.requiredFeature || featureEnabled[nav.requiredFeature]),
+    [featureEnabled, permissions],
+  );
+  const visibleSettingsGroups = useMemo(
+    () =>
+      visibleSettingsItems.reduce<Array<{ section?: string; items: typeof visibleSettingsItems }>>((groups, item) => {
+        const lastGroup = groups[groups.length - 1];
+        if (lastGroup && lastGroup.section === item.section) {
+          lastGroup.items.push(item);
+          return groups;
+        }
+
+        groups.push({ section: item.section, items: [item] });
+        return groups;
+      }, []),
+    [visibleSettingsItems],
+  );
 
   // Check if current page is a settings sub-item
   const isOnSettingsSubPage = useMemo(() => {
@@ -160,9 +178,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
           })}
 
           {/* On mobile/tablet: show expandable Settings menu */}
-          {(isPhone || isTablet) &&
-          settingsItem &&
-          secondaryNavItems.filter((nav) => nav.parent === "/settings").length > 0 ? (
+          {(isPhone || isTablet) && settingsItem && visibleSettingsItems.length > 0 ? (
             <>
               <li className="w-full">
                 <button
@@ -209,30 +225,33 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                       y: -12,
                       transition: { duration: 0.3, ease: easeGentle },
                     }}
-                    className="flex w-full flex-col gap-3"
+                    className="flex w-full flex-col gap-5"
                   >
-                    {secondaryNavItems
-                      .filter((nav) => nav.parent === "/settings")
-                      .filter((nav) => hasPermission(nav.requiredPermission))
-                      .filter((nav) => !nav.requiredFeature || featureEnabled[nav.requiredFeature])
-                      .map((nav) => (
-                        <li key={nav.path} className="w-full">
-                          <Link
-                            to={nav.path}
-                            onClick={() => closeMenu?.()}
-                            aria-current={isCurrentPath(nav.path) ? "page" : undefined}
-                            className={clsx(
-                              "block rounded-lg px-9 py-1 text-emphasis-300 text-text-primary-70",
-                              "hover:cursor-pointer hover:bg-core-primary-5",
-                              {
-                                "bg-core-primary-5": isCurrentPath(nav.path),
-                              },
-                            )}
-                          >
-                            {nav.label}
-                          </Link>
-                        </li>
-                      ))}
+                    {visibleSettingsGroups.map((group, index) => (
+                      <div key={group.section ?? `settings-group-${index}`} className="flex w-full flex-col">
+                        {group.section ? (
+                          <div className="px-9 text-200 font-medium text-text-primary-50">{group.section}</div>
+                        ) : null}
+                        {group.items.map((nav) => (
+                          <li key={nav.path} className="w-full">
+                            <Link
+                              to={nav.path}
+                              onClick={() => closeMenu?.()}
+                              aria-current={isCurrentPath(nav.path) ? "page" : undefined}
+                              className={clsx(
+                                "block rounded-lg px-9 py-1 text-emphasis-300 text-text-primary-70",
+                                "hover:cursor-pointer hover:bg-core-primary-5",
+                                {
+                                  "bg-core-primary-5": isCurrentPath(nav.path),
+                                },
+                              )}
+                            >
+                              {nav.label}
+                            </Link>
+                          </li>
+                        ))}
+                      </div>
+                    ))}
                   </motion.div>
                 ) : null}
               </AnimatePresence>
