@@ -685,7 +685,11 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	}
 	replayRace := false
 	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.InsertEventResult, error) {
-		if usesHierarchicalCurtailmentScope(event) {
+		scopeSiteIDs, usesScopeGuard, err := hierarchicalScopeSiteIDs(event)
+		if err != nil {
+			return nil, err
+		}
+		if usesScopeGuard {
 			if err := q.LockCurtailmentScopeForWrite(ctx, strconv.FormatInt(event.OrgID, 10)); err != nil {
 				return nil, fleeterror.NewInternalErrorf("failed to lock curtailment scope: %v", err)
 			}
@@ -695,16 +699,12 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				replayRace = true
 				return nil, nil
 			}
-			scopeSiteID, err := hierarchicalScopeSiteID(event)
-			if err != nil {
-				return nil, err
-			}
 			conflicts, err := q.CountCurtailmentScopeConflicts(ctx, sqlc.CountCurtailmentScopeConflictsParams{
 				OrgID:     event.OrgID,
 				Mode:      string(event.Mode),
 				LoopType:  string(event.LoopType),
 				ScopeType: string(event.ScopeType),
-				SiteID:    scopeSiteID,
+				SiteIds:   scopeSiteIDs,
 			})
 			if err != nil {
 				return nil, fleeterror.NewInternalErrorf("failed to check curtailment scope conflicts: %v", err)
@@ -838,31 +838,52 @@ func cooldownSecFromDecisionSnapshot(snapshotJSON []byte) int32 {
 	return snapshot.PostEventCooldownSec
 }
 
-func usesHierarchicalCurtailmentScope(event models.InsertEventParams) bool {
+func hierarchicalScopeSiteIDs(event models.InsertEventParams) ([]int64, bool, error) {
 	if event.State.IsTerminal() {
-		return false
+		return nil, false, nil
 	}
 	switch event.ScopeType {
-	case models.ScopeTypeWholeOrg, models.ScopeTypeSite:
-		return true
-	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList, models.ScopeTypeMixed:
-		return false
+	case models.ScopeTypeWholeOrg:
+		return nil, true, nil
+	case models.ScopeTypeSite:
+		var scope struct {
+			SiteID int64 `json:"site_id"`
+		}
+		if err := json.Unmarshal(event.ScopeJSON, &scope); err != nil || scope.SiteID <= 0 {
+			return nil, false, fleeterror.NewInternalErrorf("invalid site scope for closed-loop curtailment event")
+		}
+		return []int64{scope.SiteID}, true, nil
+	case models.ScopeTypeMixed:
+		var scope struct {
+			SiteIDs           []int64  `json:"site_ids"`
+			DeviceSetIDs      []string `json:"device_set_ids"`
+			DeviceIdentifiers []string `json:"device_identifiers"`
+		}
+		if err := json.Unmarshal(event.ScopeJSON, &scope); err != nil {
+			return nil, false, fleeterror.NewInternalErrorf("invalid mixed scope for closed-loop curtailment event")
+		}
+		if containsNonPositiveInt64(scope.SiteIDs) {
+			return nil, false, fleeterror.NewInternalErrorf("invalid mixed site scope for closed-loop curtailment event")
+		}
+		siteIDs := uniqueSortedInt64s(scope.SiteIDs)
+		if len(siteIDs) > 0 && len(scope.DeviceSetIDs) == 0 && len(scope.DeviceIdentifiers) == 0 {
+			return siteIDs, true, nil
+		}
+		return nil, false, nil
+	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
+		return nil, false, nil
 	default:
-		return false
+		return nil, false, nil
 	}
 }
 
-func hierarchicalScopeSiteID(event models.InsertEventParams) (string, error) {
-	if event.ScopeType != models.ScopeTypeSite {
-		return "", nil
+func containsNonPositiveInt64(values []int64) bool {
+	for _, value := range values {
+		if value <= 0 {
+			return true
+		}
 	}
-	var scope struct {
-		SiteID int64 `json:"site_id"`
-	}
-	if err := json.Unmarshal(event.ScopeJSON, &scope); err != nil || scope.SiteID <= 0 {
-		return "", fleeterror.NewInternalErrorf("invalid site scope for closed-loop curtailment event")
-	}
-	return strconv.FormatInt(scope.SiteID, 10), nil
+	return false
 }
 
 func lookupReplayEventInTx(ctx context.Context, q *sqlc.Queries, event models.InsertEventParams) (*models.Event, error) {

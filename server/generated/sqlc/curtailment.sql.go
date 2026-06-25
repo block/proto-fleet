@@ -394,15 +394,63 @@ WHERE org_id = $1
   AND (
     (
       $4::TEXT = 'whole_org'
-      AND scope_type IN ('whole_org', 'site')
+      AND (
+        scope_type IN ('whole_org', 'site')
+        OR (
+          scope_type = 'mixed'
+          AND jsonb_array_length(
+            CASE WHEN jsonb_typeof(scope_jsonb->'site_ids') = 'array'
+              THEN scope_jsonb->'site_ids'
+              ELSE '[]'::jsonb
+            END
+          ) > 0
+          AND jsonb_array_length(
+            CASE WHEN jsonb_typeof(scope_jsonb->'device_identifiers') = 'array'
+              THEN scope_jsonb->'device_identifiers'
+              ELSE '[]'::jsonb
+            END
+          ) = 0
+          AND jsonb_array_length(
+            CASE WHEN jsonb_typeof(scope_jsonb->'device_set_ids') = 'array'
+              THEN scope_jsonb->'device_set_ids'
+              ELSE '[]'::jsonb
+            END
+          ) = 0
+        )
+      )
     )
     OR (
-      $4::TEXT = 'site'
+      $4::TEXT IN ('site', 'mixed')
       AND (
         scope_type = 'whole_org'
         OR (
           scope_type = 'site'
-          AND scope_jsonb->>'site_id' = $5::TEXT
+          AND (scope_jsonb->>'site_id')::BIGINT = ANY($5::BIGINT[])
+        )
+        OR (
+          scope_type = 'mixed'
+          AND jsonb_array_length(
+            CASE WHEN jsonb_typeof(scope_jsonb->'device_identifiers') = 'array'
+              THEN scope_jsonb->'device_identifiers'
+              ELSE '[]'::jsonb
+            END
+          ) = 0
+          AND jsonb_array_length(
+            CASE WHEN jsonb_typeof(scope_jsonb->'device_set_ids') = 'array'
+              THEN scope_jsonb->'device_set_ids'
+              ELSE '[]'::jsonb
+            END
+          ) = 0
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text(
+              CASE WHEN jsonb_typeof(scope_jsonb->'site_ids') = 'array'
+                THEN scope_jsonb->'site_ids'
+                ELSE '[]'::jsonb
+              END
+            ) AS existing_site_id(site_id)
+            WHERE existing_site_id.site_id::BIGINT = ANY($5::BIGINT[])
+          )
         )
       )
     )
@@ -414,19 +462,19 @@ type CountCurtailmentScopeConflictsParams struct {
 	Mode      string
 	LoopType  string
 	ScopeType string
-	SiteID    string
+	SiteIds   []int64
 }
 
-// Hierarchy for currently supported scopes: org > site.
-// A new whole-org event conflicts with existing whole-org or site events.
-// A new site event conflicts with existing whole-org or same-site events.
+// Hierarchy for currently supported closed-loop scopes: org > site.
+// A new whole-org event conflicts with existing whole-org, site, or site-only mixed events.
+// A new site or site-only mixed event conflicts with existing whole-org or overlapping site ownership.
 func (q *Queries) CountCurtailmentScopeConflicts(ctx context.Context, arg CountCurtailmentScopeConflictsParams) (int64, error) {
 	row := q.queryRow(ctx, q.countCurtailmentScopeConflictsStmt, countCurtailmentScopeConflicts,
 		arg.OrgID,
 		arg.Mode,
 		arg.LoopType,
 		arg.ScopeType,
-		arg.SiteID,
+		pq.Array(arg.SiteIds),
 	)
 	var column_1 int64
 	err := row.Scan(&column_1)

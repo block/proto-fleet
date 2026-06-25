@@ -32,6 +32,77 @@ func TestInsertEventWithTargets_RejectsEmptyTargetsForNonTerminalEvent(t *testin
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
+func TestHierarchicalScopeSiteIDs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		event             models.InsertEventParams
+		wantSiteIDs       []int64
+		wantUsesScopeLock bool
+		wantErr           bool
+	}{
+		{
+			name:              "whole org",
+			event:             models.InsertEventParams{State: models.EventStateActive, ScopeType: models.ScopeTypeWholeOrg, ScopeJSON: []byte(`{}`)},
+			wantUsesScopeLock: true,
+		},
+		{
+			name:              "single site",
+			event:             models.InsertEventParams{State: models.EventStateActive, ScopeType: models.ScopeTypeSite, ScopeJSON: []byte(`{"site_id":7}`)},
+			wantSiteIDs:       []int64{7},
+			wantUsesScopeLock: true,
+		},
+		{
+			name: "site-only mixed",
+			event: models.InsertEventParams{
+				State:     models.EventStateActive,
+				ScopeType: models.ScopeTypeMixed,
+				ScopeJSON: []byte(`{"site_ids":[8,7,7],"device_identifiers":null}`),
+			},
+			wantSiteIDs:       []int64{7, 8},
+			wantUsesScopeLock: true,
+		},
+		{
+			name: "mixed with explicit devices",
+			event: models.InsertEventParams{
+				State:     models.EventStateActive,
+				ScopeType: models.ScopeTypeMixed,
+				ScopeJSON: []byte(`{"site_ids":[7],"device_identifiers":["miner-a"]}`),
+			},
+		},
+		{
+			name:  "terminal site event",
+			event: models.InsertEventParams{State: models.EventStateCompleted, ScopeType: models.ScopeTypeSite, ScopeJSON: []byte(`{"site_id":7}`)},
+		},
+		{
+			name: "invalid mixed site id",
+			event: models.InsertEventParams{
+				State:     models.EventStateActive,
+				ScopeType: models.ScopeTypeMixed,
+				ScopeJSON: []byte(`{"site_ids":[0],"device_identifiers":null}`),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotSiteIDs, gotUsesScopeLock, err := hierarchicalScopeSiteIDs(tc.event)
+
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantSiteIDs, gotSiteIDs)
+			assert.Equal(t, tc.wantUsesScopeLock, gotUsesScopeLock)
+		})
+	}
+}
+
 func TestMapOrgConfigError(t *testing.T) {
 	t.Parallel()
 

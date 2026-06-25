@@ -189,6 +189,9 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 	if err != nil {
 		return err
 	}
+	if _, err := resolveScope(scope); err != nil {
+		return err
+	}
 	if err := validatePreviewRequest(PreviewRequest{
 		OrgID:    profile.OrgID,
 		Scope:    scope,

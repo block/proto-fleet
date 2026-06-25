@@ -104,6 +104,25 @@ func TestResponseProfileService_CreateAllowsWholeOrgScope(t *testing.T) {
 	assert.Equal(t, 0, store.siteCheckCount)
 }
 
+func TestResponseProfileService_CreateRejectsDeviceSetScope(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 2500.0
+	_, err := NewResponseProfileService(newResponseProfileFakeStore()).Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:       42,
+			ProfileName: "Device set shed",
+			Mode:        models.ModeFixedKw,
+			TargetKW:    &targetKW,
+			ScopeJSON:   []byte(`{"device_set_ids":["set-a"]}`),
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "device-set scope is not implemented")
+}
+
 func TestResponseProfileService_CreateAppliesBackendBatchDefaultsWithoutOverwritingImmediateRestore(t *testing.T) {
 	t.Parallel()
 
