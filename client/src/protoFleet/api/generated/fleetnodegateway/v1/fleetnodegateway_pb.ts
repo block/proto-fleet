@@ -1716,9 +1716,7 @@ export enum AckCode {
 /**
  * Describes the enum fleetnodegateway.v1.AckCode.
  */
-export const AckCodeSchema: GenEnum<AckCode> =
-  /*@__PURE__*/
-  enumDesc(file_fleetnodegateway_v1_fleetnodegateway, 3);
+export const AckCodeSchema: GenEnum<AckCode> = /*@__PURE__*/ enumDesc(file_fleetnodegateway_v1_fleetnodegateway, 3);
 
 /**
  * @generated from service fleetnodegateway.v1.FleetNodeGatewayService
