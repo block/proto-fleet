@@ -32,6 +32,9 @@ var (
 	CommandArtifactUploadHeaderTimeout = 5 * time.Second
 	CommandArtifactUploadChunkTimeout  = 30 * time.Second
 	CommandArtifactUploadTotalTimeout  = 10 * time.Minute
+
+	CommandArtifactDownloadSendTimeout  = 30 * time.Second
+	CommandArtifactDownloadTotalTimeout = 10 * time.Minute
 )
 
 type Handler struct {
@@ -106,10 +109,11 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 	if h.files == nil {
 		return nil, fleeterror.NewInternalError("command artifact store is not configured")
 	}
-	if err := h.registry.AcquireCommandArtifactUpload(subject.FleetNodeID); err != nil {
+	releaseUpload, err := h.registry.AcquireCommandArtifactUpload(subject.FleetNodeID)
+	if err != nil {
 		return nil, mapArtifactAdmissionError(err)
 	}
-	defer h.registry.ReleaseCommandArtifactUpload(subject.FleetNodeID)
+	defer releaseUpload()
 
 	msg, err := receiveCommandArtifactUploadRequest(ctx, stream, CommandArtifactUploadHeaderTimeout, "command artifact upload header")
 	if err != nil {
@@ -163,6 +167,12 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 	if ref == nil {
 		return fleeterror.NewInvalidArgumentError("artifact is required")
 	}
+	releaseDownload, err := h.registry.AcquireCommandArtifactDownload(subject.FleetNodeID)
+	if err != nil {
+		return mapArtifactAdmissionError(err)
+	}
+	defer releaseDownload()
+
 	expectation := control.ArtifactExpectation{
 		Direction:        control.ArtifactDirectionDownload,
 		Purpose:          ref.GetPurpose(),
@@ -189,10 +199,13 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 		return fleeterror.NewFailedPreconditionError("command artifact metadata no longer matches the issued reference")
 	}
 
-	if err := stream.Send(&pb.DownloadCommandArtifactResponse{Part: &pb.DownloadCommandArtifactResponse_Header{
+	downloadCtx, cancel := context.WithTimeout(ctx, CommandArtifactDownloadTotalTimeout)
+	defer cancel()
+
+	if err := sendCommandArtifactDownloadResponse(downloadCtx, stream, &pb.DownloadCommandArtifactResponse{Part: &pb.DownloadCommandArtifactResponse_Header{
 		Header: &pb.CommandArtifactDownloadHeader{Artifact: commandArtifactRef(&info, ref.GetPurpose())},
 	}}); err != nil {
-		return fleeterror.NewInternalErrorf("send command artifact header: %v", err)
+		return commandArtifactDownloadSendError("send command artifact header", err)
 	}
 
 	buf := make([]byte, commandArtifactChunkSize)
@@ -201,10 +214,10 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 		if n > 0 {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
-			if err := stream.Send(&pb.DownloadCommandArtifactResponse{Part: &pb.DownloadCommandArtifactResponse_Chunk{
+			if err := sendCommandArtifactDownloadResponse(downloadCtx, stream, &pb.DownloadCommandArtifactResponse{Part: &pb.DownloadCommandArtifactResponse_Chunk{
 				Chunk: &pb.CommandArtifactChunk{Data: chunk},
 			}}); err != nil {
-				return fleeterror.NewInternalErrorf("send command artifact chunk: %v", err)
+				return commandArtifactDownloadSendError("send command artifact chunk", err)
 			}
 		}
 		if errors.Is(readErr, io.EOF) {
@@ -216,6 +229,38 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 			return fleeterror.NewInternalErrorf("read command artifact: %v", readErr)
 		}
 	}
+}
+
+func sendCommandArtifactDownloadResponse(ctx context.Context, stream *connect.ServerStream[pb.DownloadCommandArtifactResponse], msg *pb.DownloadCommandArtifactResponse) error {
+	return runCommandArtifactDownloadSend(ctx, CommandArtifactDownloadSendTimeout, func() error {
+		return stream.Send(msg)
+	})
+}
+
+func runCommandArtifactDownloadSend(ctx context.Context, timeout time.Duration, send func() error) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- send()
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("command artifact download deadline exceeded: %w", ctx.Err()))
+	case <-timer.C:
+		return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("command artifact download send blocked for %s", timeout))
+	case err := <-done:
+		return err
+	}
+}
+
+func commandArtifactDownloadSendError(label string, err error) error {
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) && connectErr.Code() == connect.CodeDeadlineExceeded {
+		return err
+	}
+	return fleeterror.NewInternalErrorf("%s: %v", label, err)
 }
 
 type commandArtifactUploadReader struct {

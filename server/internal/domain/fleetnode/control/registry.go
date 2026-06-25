@@ -55,6 +55,8 @@ const outgoingBuffer = 64
 // their first message can be matched to a command expectation.
 const maxConcurrentCommandArtifactUploadsPerFleetNode = 2
 
+const maxConcurrentCommandArtifactDownloadsPerFleetNode = 2
+
 const maxCommandArtifactTransferAttempts = 3
 
 // maxReportsPerCommand caps devices reported per command at the scan ceiling
@@ -84,7 +86,7 @@ var (
 	ErrArtifactAlreadyTransferred = errors.New("artifact transfer already in progress or completed for command")
 
 	// ErrArtifactTransferLimitExceeded: the fleet_node already has the maximum
-	// allowed concurrent command artifact upload streams.
+	// allowed concurrent command artifact transfer streams.
 	ErrArtifactTransferLimitExceeded = errors.New("artifact transfer concurrency limit exceeded for fleet_node")
 
 	// ErrArtifactTransferAttemptsExceeded: an in-flight command has exhausted
@@ -156,10 +158,9 @@ type artifactExpectation struct {
 // connection is the server's view of one agent ControlStream. It can hold many
 // concurrent in-flight commands keyed by command_id. Fields guarded by Registry.mu.
 type connection struct {
-	outgoing               chan *gatewaypb.ControlCommand // commands to the ControlStream handler (buffered, never closed)
-	done                   chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
-	cmds                   map[string]*inflightCommand    // in-flight commands by command_id
-	commandArtifactUploads int
+	outgoing chan *gatewaypb.ControlCommand // commands to the ControlStream handler (buffered, never closed)
+	done     chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
+	cmds     map[string]*inflightCommand    // in-flight commands by command_id
 }
 
 // inflightCommand is the operator/worker side of one in-flight command. Its result
@@ -192,12 +193,18 @@ type inflightCommand struct {
 func (c *inflightCommand) reportBearing() bool { return c.events != nil }
 
 type Registry struct {
-	mu    sync.Mutex
-	conns map[int64]*connection
+	mu                       sync.Mutex
+	conns                    map[int64]*connection
+	commandArtifactUploads   map[int64]int
+	commandArtifactDownloads map[int64]int
 }
 
 func NewRegistry() *Registry {
-	return &Registry{conns: make(map[int64]*connection)}
+	return &Registry{
+		conns:                    make(map[int64]*connection),
+		commandArtifactUploads:   make(map[int64]int),
+		commandArtifactDownloads: make(map[int64]int),
+	}
 }
 
 // ConnectedFleetNodeIDs returns the fleet_node IDs with an active ControlStream

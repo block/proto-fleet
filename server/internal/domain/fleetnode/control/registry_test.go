@@ -798,20 +798,85 @@ func TestCommandArtifactUploadSlotsLimitConcurrentStreams(t *testing.T) {
 	stream := r.Register(fleetNodeID)
 	defer stream.Unregister()
 
+	var releases []ArtifactTransferRelease
 	for range maxConcurrentCommandArtifactUploadsPerFleetNode {
-		require.NoError(t, r.AcquireCommandArtifactUpload(fleetNodeID))
+		release, err := r.AcquireCommandArtifactUpload(fleetNodeID)
+		require.NoError(t, err)
+		releases = append(releases, release)
 	}
-	require.ErrorIs(t, r.AcquireCommandArtifactUpload(fleetNodeID), ErrArtifactTransferLimitExceeded)
+	_, err := r.AcquireCommandArtifactUpload(fleetNodeID)
+	require.ErrorIs(t, err, ErrArtifactTransferLimitExceeded)
 
-	r.ReleaseCommandArtifactUpload(fleetNodeID)
+	releases[0]()
 
-	require.NoError(t, r.AcquireCommandArtifactUpload(fleetNodeID))
+	release, err := r.AcquireCommandArtifactUpload(fleetNodeID)
+	require.NoError(t, err)
+	release()
+	for _, release := range releases[1:] {
+		release()
+	}
+}
+
+func TestCommandArtifactUploadSlotSurvivesControlStreamReconnect(t *testing.T) {
+	r := NewRegistry()
+	fleetNodeID := int64(12)
+	oldStream := r.Register(fleetNodeID)
+
+	release, err := r.AcquireCommandArtifactUpload(fleetNodeID)
+	require.NoError(t, err)
+	_ = r.Register(fleetNodeID)
+
+	var releases []ArtifactTransferRelease
+	for range maxConcurrentCommandArtifactUploadsPerFleetNode - 1 {
+		nextRelease, err := r.AcquireCommandArtifactUpload(fleetNodeID)
+		require.NoError(t, err)
+		releases = append(releases, nextRelease)
+	}
+	_, err = r.AcquireCommandArtifactUpload(fleetNodeID)
+	require.ErrorIs(t, err, ErrArtifactTransferLimitExceeded)
+
+	oldStream.Unregister()
+	_, err = r.AcquireCommandArtifactUpload(fleetNodeID)
+	require.ErrorIs(t, err, ErrArtifactTransferLimitExceeded)
+
+	release()
+	nextRelease, err := r.AcquireCommandArtifactUpload(fleetNodeID)
+	require.NoError(t, err)
+	nextRelease()
+	for _, release := range releases {
+		release()
+	}
+}
+
+func TestCommandArtifactDownloadSlotsLimitConcurrentStreams(t *testing.T) {
+	r := NewRegistry()
+	fleetNodeID := int64(12)
+	stream := r.Register(fleetNodeID)
+	defer stream.Unregister()
+
+	var releases []ArtifactTransferRelease
+	for range maxConcurrentCommandArtifactDownloadsPerFleetNode {
+		release, err := r.AcquireCommandArtifactDownload(fleetNodeID)
+		require.NoError(t, err)
+		releases = append(releases, release)
+	}
+	_, err := r.AcquireCommandArtifactDownload(fleetNodeID)
+	require.ErrorIs(t, err, ErrArtifactTransferLimitExceeded)
+
+	releases[0]()
+
+	release, err := r.AcquireCommandArtifactDownload(fleetNodeID)
+	require.NoError(t, err)
+	release()
+	for _, release := range releases[1:] {
+		release()
+	}
 }
 
 func TestCommandArtifactUploadSlotRequiresActiveStream(t *testing.T) {
 	r := NewRegistry()
 
-	err := r.AcquireCommandArtifactUpload(12)
+	_, err := r.AcquireCommandArtifactUpload(12)
 
 	require.ErrorIs(t, err, ErrNoActiveStream)
 }

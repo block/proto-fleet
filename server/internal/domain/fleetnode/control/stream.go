@@ -2,6 +2,7 @@ package control
 
 import (
 	"log/slog"
+	"sync"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
@@ -84,32 +85,50 @@ func (r *Registry) AdmitReport(fleetNodeID int64, commandID string, deviceCount 
 	return nil
 }
 
+// ArtifactTransferRelease releases a slot reserved by an AcquireCommandArtifact*
+// call. It is safe to call more than once.
+type ArtifactTransferRelease func()
+
 // AcquireCommandArtifactUpload reserves one per-node upload slot before the
-// stream's first message is read. ReleaseCommandArtifactUpload must be called
-// after the RPC ends.
-func (r *Registry) AcquireCommandArtifactUpload(fleetNodeID int64) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	conn := r.conns[fleetNodeID]
-	if conn == nil {
-		return ErrNoActiveStream
-	}
-	if conn.commandArtifactUploads >= maxConcurrentCommandArtifactUploadsPerFleetNode {
-		return ErrArtifactTransferLimitExceeded
-	}
-	conn.commandArtifactUploads++
-	return nil
+// stream's first message is read. The returned release is bound to this lease,
+// not to the fleet node's replaceable ControlStream connection.
+func (r *Registry) AcquireCommandArtifactUpload(fleetNodeID int64) (ArtifactTransferRelease, error) {
+	return r.acquireCommandArtifactSlot(fleetNodeID, r.commandArtifactUploads, maxConcurrentCommandArtifactUploadsPerFleetNode)
 }
 
-// ReleaseCommandArtifactUpload releases a slot reserved by AcquireCommandArtifactUpload.
-func (r *Registry) ReleaseCommandArtifactUpload(fleetNodeID int64) {
+// AcquireCommandArtifactDownload reserves one per-node download slot before the
+// server starts streaming artifact bytes.
+func (r *Registry) AcquireCommandArtifactDownload(fleetNodeID int64) (ArtifactTransferRelease, error) {
+	return r.acquireCommandArtifactSlot(fleetNodeID, r.commandArtifactDownloads, maxConcurrentCommandArtifactDownloadsPerFleetNode)
+}
+
+func (r *Registry) acquireCommandArtifactSlot(fleetNodeID int64, slots map[int64]int, limit int) (ArtifactTransferRelease, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	conn := r.conns[fleetNodeID]
-	if conn == nil || conn.commandArtifactUploads == 0 {
+	if r.conns[fleetNodeID] == nil {
+		return nil, ErrNoActiveStream
+	}
+	if slots[fleetNodeID] >= limit {
+		return nil, ErrArtifactTransferLimitExceeded
+	}
+	slots[fleetNodeID]++
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			r.releaseCommandArtifactSlot(fleetNodeID, slots)
+		})
+	}, nil
+}
+
+func (r *Registry) releaseCommandArtifactSlot(fleetNodeID int64, slots map[int64]int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if slots[fleetNodeID] <= 1 {
+		delete(slots, fleetNodeID)
 		return
 	}
-	conn.commandArtifactUploads--
+	slots[fleetNodeID]--
 }
 
 // AdmitCommandArtifact atomically verifies that a fleet node artifact transfer
