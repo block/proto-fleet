@@ -526,6 +526,66 @@ func (q *Queries) GetDeviceByID(ctx context.Context, arg GetDeviceByIDParams) (D
 	return i, err
 }
 
+const getDeviceCommandRoutes = `-- name: GetDeviceCommandRoutes :many
+SELECT
+    d.id,
+    d.device_identifier,
+    fn.id AS fleet_node_id,
+    fn.encryption_pubkey
+FROM device d
+LEFT JOIN fleet_node_device fnd
+    ON fnd.device_id = d.id
+   AND fnd.org_id = d.org_id
+LEFT JOIN fleet_node fn
+    ON fn.id = fnd.fleet_node_id
+   AND fn.org_id = fnd.org_id
+   AND fn.deleted_at IS NULL
+   AND fn.enrollment_status = 'CONFIRMED'
+WHERE d.device_identifier = ANY($2::text[])
+  AND d.org_id = $1
+  AND d.deleted_at IS NULL
+`
+
+type GetDeviceCommandRoutesParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type GetDeviceCommandRoutesRow struct {
+	ID               int64
+	DeviceIdentifier string
+	FleetNodeID      sql.NullInt64
+	EncryptionPubkey []byte
+}
+
+func (q *Queries) GetDeviceCommandRoutes(ctx context.Context, arg GetDeviceCommandRoutesParams) ([]GetDeviceCommandRoutesRow, error) {
+	rows, err := q.query(ctx, q.getDeviceCommandRoutesStmt, getDeviceCommandRoutes, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDeviceCommandRoutesRow
+	for rows.Next() {
+		var i GetDeviceCommandRoutesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceIdentifier,
+			&i.FleetNodeID,
+			&i.EncryptionPubkey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDeviceIDByDeviceIdentifier = `-- name: GetDeviceIDByDeviceIdentifier :one
 SELECT id
 FROM device

@@ -37,6 +37,7 @@ type FleetNode struct {
 	OrgID            int64
 	Name             string
 	IdentityPubkey   []byte
+	EncryptionPubkey []byte
 	EnrollmentStatus FleetNodeStatus
 	LastSeenAt       *time.Time
 	CreatedAt        time.Time

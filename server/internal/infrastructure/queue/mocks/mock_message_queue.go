@@ -71,6 +71,20 @@ func (mr *MockMessageQueueMockRecorder) Enqueue(ctx, commandBatchLogUUID, comman
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Enqueue", reflect.TypeOf((*MockMessageQueue)(nil).Enqueue), ctx, commandBatchLogUUID, commandType, deviceIDs, payload)
 }
 
+// EnqueueMany mocks base method.
+func (m *MockMessageQueue) EnqueueMany(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, messages []queue.EnqueueMessage) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EnqueueMany", ctx, commandBatchLogUUID, commandType, messages)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// EnqueueMany indicates an expected call of EnqueueMany.
+func (mr *MockMessageQueueMockRecorder) EnqueueMany(ctx, commandBatchLogUUID, commandType, messages any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnqueueMany", reflect.TypeOf((*MockMessageQueue)(nil).EnqueueMany), ctx, commandBatchLogUUID, commandType, messages)
+}
+
 // IsBatchFinished mocks base method.
 func (m *MockMessageQueue) IsBatchFinished(ctx context.Context, commandBatchLogUUID string) (bool, error) {
 	m.ctrl.T.Helper()

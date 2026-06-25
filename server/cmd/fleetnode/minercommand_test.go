@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -21,6 +23,8 @@ import (
 	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
+	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	sdkerrors "github.com/block/proto-fleet/server/sdk/v1/errors"
 	"github.com/block/proto-fleet/server/sdk/v1/mocks"
@@ -54,6 +58,18 @@ type fakeDriverGetter struct {
 }
 
 func (f fakeDriverGetter) GetDriverByDriverName(string) (sdk.Driver, error) { return f.d, f.err }
+
+type failingSealProvider struct {
+	bundle sdk.SecretBundle
+}
+
+func (f failingSealProvider) SecretBundle(*pb.MinerConnectionDescriptor) (sdk.SecretBundle, error) {
+	return f.bundle, nil
+}
+
+func (f failingSealProvider) Seal(sdk.SecretBundle) (*pb.EncryptedCredentials, error) {
+	return nil, errors.New("seal failed")
+}
 
 // withTarget stamps a standard descriptor onto a command built with just an action.
 func withTarget(mc *pb.MinerCommand) *pb.MinerCommand {
@@ -216,6 +232,242 @@ func TestHandleMinerCommand_UpdatesMiningPools(t *testing.T) {
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
 	assert.True(t, got.GetSucceeded())
 	assert.Empty(t, got.GetPayload())
+}
+
+func TestHandleMinerCommand_UpdateMinerPasswordReturnsEncryptedCredentials(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().
+		UpdateMinerPassword(gomock.Any(), "old-password", "new-password").
+		Return(nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	codec := &credentialCodec{key: bytes.Repeat([]byte{6}, credentialKeySize)}
+	encrypted, err := codec.Seal(sdk.SecretBundle{
+		Version: "v1",
+		Kind:    sdk.UsernamePassword{Username: "root", Password: "old-password"},
+	})
+	require.NoError(t, err)
+
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	action, privateKey := encryptedPasswordUpdateAction(t, "old-password", "new-password")
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: codec, passwordUpdatePrivateKey: privateKey}
+	ack := &captureAcker{}
+	mc := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMinerPassword{
+		UpdateMinerPassword: action,
+	}})
+	mc.Target.CredentialUsername = encrypted.GetUsername()
+	mc.Target.CredentialPassword = encrypted.GetPassword()
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+
+	// Assert
+	got := ack.only(t)
+	require.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	var result pb.UpdateMinerPasswordResult
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
+	bundle, err := codec.Open(result.GetEncryptedCredentials())
+	require.NoError(t, err)
+	assert.Equal(t, sdk.UsernamePassword{Username: "root", Password: "new-password"}, bundle.Kind)
+}
+
+func TestHandleMinerCommand_UpdateMinerPasswordDialsWithCurrentPassword(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().
+		UpdateMinerPassword(gomock.Any(), "current-password", "new-password").
+		Return(nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	codec := &credentialCodec{key: bytes.Repeat([]byte{4}, credentialKeySize)}
+	encrypted, err := codec.Seal(sdk.SecretBundle{
+		Version: "v1",
+		Kind:    sdk.UsernamePassword{Username: "root", Password: "stale-stored-password"},
+	})
+	require.NoError(t, err)
+
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().
+		NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+			assert.Equal(t, sdk.UsernamePassword{Username: "root", Password: "current-password"}, secret.Kind)
+			return sdk.NewDeviceResult{Device: dev}, nil
+		})
+	action, privateKey := encryptedPasswordUpdateAction(t, "current-password", "new-password")
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: codec, passwordUpdatePrivateKey: privateKey}
+	ack := &captureAcker{}
+	mc := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMinerPassword{
+		UpdateMinerPassword: action,
+	}})
+	mc.Target.CredentialUsername = encrypted.GetUsername()
+	mc.Target.CredentialPassword = encrypted.GetPassword()
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+
+	// Assert
+	got := ack.only(t)
+	require.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	var result pb.UpdateMinerPasswordResult
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
+	bundle, err := codec.Open(result.GetEncryptedCredentials())
+	require.NoError(t, err)
+	assert.Equal(t, sdk.UsernamePassword{Username: "root", Password: "new-password"}, bundle.Kind)
+}
+
+func TestHandleMinerCommand_UpdateMinerPasswordAllowsPasswordOnlyCredentials(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().
+		UpdateMinerPassword(gomock.Any(), "old-password", "new-password").
+		Return(nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	codec := &credentialCodec{key: bytes.Repeat([]byte{9}, credentialKeySize)}
+	encrypted, err := codec.Seal(sdk.SecretBundle{
+		Version: "v1",
+		Kind:    sdk.UsernamePassword{Password: "old-password"},
+	})
+	require.NoError(t, err)
+
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	action, privateKey := encryptedPasswordUpdateAction(t, "old-password", "new-password")
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: codec, passwordUpdatePrivateKey: privateKey}
+	ack := &captureAcker{}
+	mc := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMinerPassword{
+		UpdateMinerPassword: action,
+	}})
+	mc.Target.CredentialUsername = encrypted.GetUsername()
+	mc.Target.CredentialPassword = encrypted.GetPassword()
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+
+	// Assert
+	got := ack.only(t)
+	require.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	var result pb.UpdateMinerPasswordResult
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
+	bundle, err := codec.Open(result.GetEncryptedCredentials())
+	require.NoError(t, err)
+	assert.Equal(t, sdk.UsernamePassword{Password: "new-password"}, bundle.Kind)
+}
+
+func TestHandleMinerCommand_UpdateMinerPasswordUsesCurrentPasswordWhenProtoCredentialsMissing(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().
+		UpdateMinerPassword(gomock.Any(), "old-password", "new-password").
+		Return(nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	codec := &credentialCodec{key: bytes.Repeat([]byte{7}, credentialKeySize)}
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().
+		NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ string, _ sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+			assert.Equal(t, sdk.UsernamePassword{Username: minermodels.ProtoDefaultUsername, Password: "old-password"}, secret.Kind)
+			return sdk.NewDeviceResult{Device: dev}, nil
+		})
+	action, privateKey := encryptedPasswordUpdateAction(t, "old-password", "new-password")
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: codec, passwordUpdatePrivateKey: privateKey}
+	ack := &captureAcker{}
+	mc := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMinerPassword{
+		UpdateMinerPassword: action,
+	}})
+	mc.Target.DriverName = minermodels.DriverNameProto
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+
+	// Assert
+	got := ack.only(t)
+	require.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	var result pb.UpdateMinerPasswordResult
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
+	bundle, err := codec.Open(result.GetEncryptedCredentials())
+	require.NoError(t, err)
+	assert.Equal(t, sdk.UsernamePassword{Username: minermodels.ProtoDefaultUsername, Password: "new-password"}, bundle.Kind)
+}
+
+func TestHandleMinerCommand_UpdateMinerPasswordSealsBeforeUpdatingDevice(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	r := &RunCmd{
+		driverGetter:             fakeDriverGetter{d: drv},
+		passwordUpdatePrivateKey: nil,
+		minerSecrets: failingSealProvider{
+			bundle: sdk.SecretBundle{
+				Version: "v1",
+				Kind:    sdk.UsernamePassword{Username: "root", Password: "old-password"},
+			},
+		},
+	}
+	action, privateKey := encryptedPasswordUpdateAction(t, "old-password", "new-password")
+	r.passwordUpdatePrivateKey = privateKey
+	ack := &captureAcker{}
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMinerPassword{
+			UpdateMinerPassword: action,
+		}}), discardLogger(t))
+
+	// Assert: gomock fails the test if UpdateMinerPassword is called.
+	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, ack.only(t).GetCode())
+}
+
+func TestHandleMinerCommand_UpdateMinerPasswordFailedPreconditionAcksUnauthenticated(t *testing.T) {
+	// Arrange: plugin reports an incorrect current password as FailedPrecondition.
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().
+		UpdateMinerPassword(gomock.Any(), "old-password", "new-password").
+		Return(grpcstatus.Error(codes.FailedPrecondition, "bad current password"))
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	codec := &credentialCodec{key: bytes.Repeat([]byte{8}, credentialKeySize)}
+	encrypted, err := codec.Seal(sdk.SecretBundle{
+		Version: "v1",
+		Kind:    sdk.UsernamePassword{Username: "root", Password: "old-password"},
+	})
+	require.NoError(t, err)
+
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	action, privateKey := encryptedPasswordUpdateAction(t, "old-password", "new-password")
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: codec, passwordUpdatePrivateKey: privateKey}
+	ack := &captureAcker{}
+	mc := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMinerPassword{
+		UpdateMinerPassword: action,
+	}})
+	mc.Target.CredentialUsername = encrypted.GetUsername()
+	mc.Target.CredentialPassword = encrypted.GetPassword()
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+
+	// Assert
+	assert.Equal(t, pb.AckCode_ACK_CODE_UNAUTHENTICATED, ack.only(t).GetCode())
+}
+
+func encryptedPasswordUpdateAction(t *testing.T, currentPassword, newPassword string) (*pb.UpdateMinerPasswordAction, []byte) {
+	t.Helper()
+	publicKey, privateKey, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	encrypted, err := passwordupdate.Encrypt(publicKey, passwordupdate.Secret{
+		DeviceIdentifier: "dev-1",
+		CurrentPassword:  currentPassword,
+		NewPassword:      newPassword,
+	})
+	require.NoError(t, err)
+	return &pb.UpdateMinerPasswordAction{EncryptedPasswordUpdate: encrypted}, privateKey
 }
 
 func TestHandleMinerCommand_GetMiningPoolsReturnsPayload(t *testing.T) {

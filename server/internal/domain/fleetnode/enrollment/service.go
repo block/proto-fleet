@@ -13,6 +13,7 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
@@ -49,7 +50,7 @@ type PendingEnrollmentStore interface {
 }
 
 type AgentStore interface {
-	CreateFleetNode(ctx context.Context, orgID int64, name string, identityPubkey []byte) (*FleetNode, error)
+	CreateFleetNode(ctx context.Context, orgID int64, name string, identityPubkey, encryptionPubkey []byte) (*FleetNode, error)
 	GetFleetNodeByID(ctx context.Context, agentID, orgID int64) (*FleetNode, error)
 	GetFleetNodeByIDUnscoped(ctx context.Context, agentID int64) (*FleetNode, error)
 	// LockFleetNodeByID is GetFleetNodeByID with SELECT ... FOR UPDATE. Both Confirm
@@ -135,18 +136,24 @@ func (s *Service) resolveCode(ctx context.Context, plaintextCode string) (*Pendi
 
 // RegisterFleetNode runs in a transaction so a partial failure cannot leave an
 // orphan fleet_node row behind a still-PENDING enrollment code.
-func (s *Service) RegisterFleetNode(ctx context.Context, plaintextCode, name string, identityPubkey []byte) (*FleetNode, *PendingEnrollment, error) {
+func (s *Service) RegisterFleetNode(ctx context.Context, plaintextCode, name string, identityPubkey, encryptionPubkey []byte) (*FleetNode, *PendingEnrollment, error) {
 	var (
 		agent *FleetNode
 		pe    *PendingEnrollment
 	)
+	if len(encryptionPubkey) != 32 {
+		return nil, nil, fleeterror.NewFailedPreconditionError("fleet node encryption public key must be 32 bytes")
+	}
+	if err := passwordupdate.ValidateRecipientPublicKey(encryptionPubkey); err != nil {
+		return nil, nil, fleeterror.NewFailedPreconditionErrorf("invalid fleet node encryption public key: %v", err)
+	}
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		var err error
 		pe, err = s.resolveCode(ctx, plaintextCode)
 		if err != nil {
 			return err
 		}
-		agent, err = s.store.CreateFleetNode(ctx, pe.OrgID, name, identityPubkey)
+		agent, err = s.store.CreateFleetNode(ctx, pe.OrgID, name, identityPubkey, encryptionPubkey)
 		if err != nil {
 			// Concurrent Register calls with the same identity_pubkey or
 			// (org_id, name) lose on the partial unique indexes; surface as

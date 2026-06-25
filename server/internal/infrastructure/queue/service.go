@@ -19,6 +19,11 @@ type DatabaseMessageQueue struct {
 	conn   *sql.DB
 }
 
+type encodedMessage struct {
+	deviceID int64
+	payload  []byte
+}
+
 var _ MessageQueue = DatabaseMessageQueue{}
 
 func NewDatabaseMessageQueue(config *Config, conn *sql.DB) *DatabaseMessageQueue {
@@ -33,15 +38,35 @@ func (d DatabaseMessageQueue) Enqueue(ctx context.Context, commandBatchLogUUID s
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to marshal payload: %v", err)
 	}
+	messages := make([]encodedMessage, 0, len(deviceIDs))
+	for _, deviceID := range deviceIDs {
+		messages = append(messages, encodedMessage{deviceID: deviceID, payload: payloadBytes})
+	}
+	return d.enqueueEncoded(ctx, commandBatchLogUUID, commandType, messages)
+}
+
+func (d DatabaseMessageQueue) EnqueueMany(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, messages []EnqueueMessage) error {
+	encoded := make([]encodedMessage, 0, len(messages))
+	for _, message := range messages {
+		payloadBytes, err := json.Marshal(message.Payload)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to marshal payload: %v", err)
+		}
+		encoded = append(encoded, encodedMessage{deviceID: message.DeviceID, payload: payloadBytes})
+	}
+	return d.enqueueEncoded(ctx, commandBatchLogUUID, commandType, encoded)
+}
+
+func (d DatabaseMessageQueue) enqueueEncoded(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, messages []encodedMessage) error {
 	return db.WithTransactionNoResult(ctx, d.conn, func(q *sqlc.Queries) error {
-		for _, deviceID := range deviceIDs {
+		for _, message := range messages {
 			err := q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
 				CommandBatchLogUuid: commandBatchLogUUID,
 				CommandType:         commandType.String(),
-				DeviceID:            deviceID,
+				DeviceID:            message.deviceID,
 				Status:              sqlc.QueueStatusEnumPENDING,
 				RetryCount:          0,
-				Payload:             pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: true},
+				Payload:             pqtype.NullRawMessage{RawMessage: message.payload, Valid: true},
 			})
 			if err != nil {
 				return fleeterror.NewInternalErrorf("failed to enqueue message: %v", err)

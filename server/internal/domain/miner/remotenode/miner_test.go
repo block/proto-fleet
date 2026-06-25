@@ -1,6 +1,7 @@
 package remotenode
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math"
@@ -21,6 +22,7 @@ import (
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -89,38 +91,40 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
 		name  string
-		call  func(*Miner) error
+		call  func(*Miner, *fakeSender) error
 		check func(*testing.T, *gatewaypb.MinerCommand)
 	}{
-		{"reboot", func(m *Miner) error { return m.Reboot(ctx) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
+		{"reboot", func(m *Miner, _ *fakeSender) error { return m.Reboot(ctx) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.NotNil(t, mc.GetReboot())
 		}},
-		{"start", func(m *Miner) error { return m.StartMining(ctx) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
+		{"start", func(m *Miner, _ *fakeSender) error { return m.StartMining(ctx) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.NotNil(t, mc.GetStartMining())
 		}},
-		{"stop", func(m *Miner) error { return m.StopMining(ctx) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
+		{"stop", func(m *Miner, _ *fakeSender) error { return m.StopMining(ctx) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.NotNil(t, mc.GetStopMining())
 		}},
-		{"blink", func(m *Miner) error { return m.BlinkLED(ctx) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
+		{"blink", func(m *Miner, _ *fakeSender) error { return m.BlinkLED(ctx) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.NotNil(t, mc.GetBlinkLed())
 		}},
-		{"uncurtail", func(m *Miner) error { return m.Uncurtail(ctx, sdk.UncurtailRequest{}) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
+		{"uncurtail", func(m *Miner, _ *fakeSender) error { return m.Uncurtail(ctx, sdk.UncurtailRequest{}) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.NotNil(t, mc.GetUncurtail())
 		}},
-		{"curtail full", func(m *Miner) error { return m.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevelFull}) }, func(t *testing.T, mc *gatewaypb.MinerCommand) {
+		{"curtail full", func(m *Miner, _ *fakeSender) error {
+			return m.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
+		}, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.Equal(t, curtailmentpb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL, mc.GetCurtail().GetLevel())
 		}},
-		{"cooling immersion", func(m *Miner) error {
+		{"cooling immersion", func(m *Miner, _ *fakeSender) error {
 			return m.SetCoolingMode(ctx, dto.CoolingModePayload{Mode: commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED})
 		}, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.Equal(t, commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED, mc.GetSetCoolingMode().GetMode())
 		}},
-		{"power efficiency", func(m *Miner) error {
+		{"power efficiency", func(m *Miner, _ *fakeSender) error {
 			return m.SetPowerTarget(ctx, dto.PowerTargetPayload{PerformanceMode: minercommandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY})
 		}, func(t *testing.T, mc *gatewaypb.MinerCommand) {
 			assert.Equal(t, minercommandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY, mc.GetSetPowerTarget().GetPerformanceMode())
 		}},
-		{"update mining pools", func(m *Miner) error {
+		{"update mining pools", func(m *Miner, _ *fakeSender) error {
 			return m.UpdateMiningPools(ctx, dto.UpdateMiningPoolsPayload{
 				DefaultPool: dto.MiningPool{
 					Priority: 0,
@@ -151,6 +155,23 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 			assert.Equal(t, "stratum+tcp://pool4.example.com:3333", pools[2].GetUrl())
 			assert.Equal(t, "worker4", pools[2].GetUsername())
 		}},
+		{"update miner password", func(m *Miner, s *fakeSender) error {
+			payload, err := proto.Marshal(&gatewaypb.UpdateMinerPasswordResult{
+				EncryptedCredentials: &gatewaypb.EncryptedCredentials{
+					Username: []byte("node-user"),
+					Password: []byte("node-pass"),
+				},
+			})
+			require.NoError(t, err)
+			s.ack.Payload = payload
+			return m.UpdateMinerPassword(ctx, dto.UpdateMinerPasswordPayload{
+				EncryptedPasswordUpdate: testEncryptedPasswordUpdatePayload(),
+			})
+		}, func(t *testing.T, mc *gatewaypb.MinerCommand) {
+			action := mc.GetUpdateMinerPassword()
+			require.NotNil(t, action)
+			assert.Equal(t, passwordupdate.Algorithm, action.GetEncryptedPasswordUpdate().GetAlgorithm())
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -159,7 +180,7 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 			m := newTestMiner(t, s)
 
 			// Act
-			err := tc.call(m)
+			err := tc.call(m, s)
 
 			// Assert
 			require.NoError(t, err)
@@ -169,6 +190,87 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 			tc.check(t, mc)
 		})
 	}
+}
+
+func TestMiner_UpdateMinerPasswordWithCredentials_DecodesEncryptedCredentials(t *testing.T) {
+	// Arrange
+	payload, err := proto.Marshal(&gatewaypb.UpdateMinerPasswordResult{
+		EncryptedCredentials: &gatewaypb.EncryptedCredentials{
+			Username: []byte("node-user"),
+			Password: []byte("node-pass"),
+		},
+	})
+	require.NoError(t, err)
+	s := &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}}
+	m := newTestMiner(t, s)
+
+	// Act
+	creds, err := m.UpdateMinerPasswordWithCredentials(context.Background(), dto.UpdateMinerPasswordPayload{
+		EncryptedPasswordUpdate: testEncryptedPasswordUpdatePayload(),
+	})
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, []byte("node-user"), creds.GetUsername())
+	assert.Equal(t, []byte("node-pass"), creds.GetPassword())
+}
+
+func testEncryptedPasswordUpdatePayload() *dto.NodeEncryptedPayload {
+	return &dto.NodeEncryptedPayload{
+		Algorithm:       passwordupdate.Algorithm,
+		EphemeralPubkey: bytes.Repeat([]byte{1}, 32),
+		Nonce:           bytes.Repeat([]byte{2}, 12),
+		Ciphertext:      bytes.Repeat([]byte{3}, 17),
+	}
+}
+
+func TestMiner_UpdateMinerPassword_RejectsInvalidPayloadData(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload []byte
+	}{
+		{"malformed", []byte{0xff}},
+		{"missing credentials", mustMarshalUpdateMinerPasswordResult(t, &gatewaypb.UpdateMinerPasswordResult{})},
+		{"empty username", mustMarshalUpdateMinerPasswordResult(t, &gatewaypb.UpdateMinerPasswordResult{
+			EncryptedCredentials: &gatewaypb.EncryptedCredentials{Password: []byte("node-pass")},
+		})},
+		{"empty password", mustMarshalUpdateMinerPasswordResult(t, &gatewaypb.UpdateMinerPasswordResult{
+			EncryptedCredentials: &gatewaypb.EncryptedCredentials{Username: []byte("node-user")},
+		})},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			s := &fakeSender{ack: &gatewaypb.ControlAck{
+				Succeeded: true,
+				Code:      gatewaypb.AckCode_ACK_CODE_OK,
+				Payload:   tc.payload,
+			}}
+			m := newTestMiner(t, s)
+
+			// Act
+			err := m.UpdateMinerPassword(context.Background(), dto.UpdateMinerPasswordPayload{
+				EncryptedPasswordUpdate: testEncryptedPasswordUpdatePayload(),
+			})
+
+			// Assert
+			require.Error(t, err)
+			require.NotNil(t, s.cmd)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
+		})
+	}
+}
+
+func mustMarshalUpdateMinerPasswordResult(t *testing.T, result *gatewaypb.UpdateMinerPasswordResult) []byte {
+	t.Helper()
+	payload, err := proto.Marshal(result)
+	require.NoError(t, err)
+	return payload
 }
 
 func TestMiner_GetMiningPools_DecodesPayload(t *testing.T) {

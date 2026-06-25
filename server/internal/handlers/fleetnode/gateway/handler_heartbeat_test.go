@@ -50,7 +50,7 @@ func newHeartbeatHandler(t *testing.T) (*gateway.Handler, *sql.DB, int64) {
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, err := enrollmentSvc.CreateCode(t.Context(), 1, 1, time.Hour)
 	require.NoError(t, err)
-	agent, _, err := enrollmentSvc.RegisterFleetNode(t.Context(), code, "agent-heartbeat", pubKey)
+	agent, _, err := enrollmentSvc.RegisterFleetNode(t.Context(), code, "agent-heartbeat", pubKey, []byte("01234567890123456789012345678901"))
 	require.NoError(t, err)
 
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)

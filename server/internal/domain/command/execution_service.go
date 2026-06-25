@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
-	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/domain/workername"
@@ -23,6 +23,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
@@ -595,18 +596,25 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 	case commandtype.UpdateMinerPassword:
 		p := *passwordPayload
 
-		// Update device via plugin
-		err = minerInfo.UpdateMinerPassword(ctx, p)
+		var encryptedCredentials *gatewaypb.EncryptedCredentials
+		if updater, ok := minerInfo.(interfaces.MinerPasswordCredentialUpdater); ok {
+			encryptedCredentials, err = updater.UpdateMinerPasswordWithCredentials(ctx, p)
+		} else {
+			err = minerInfo.UpdateMinerPassword(ctx, p)
+		}
 		if err != nil {
+			if fleeterror.IsAuthenticationError(err) {
+				err = fleeterror.NewFailedPreconditionErrorf("miner rejected current password: %v", err)
+			}
 			break
 		}
 
 		// Surface a persistence failure as a command error: the on-device password
 		// already changed, so a silent success would leave Fleet with stale credentials.
-		if dbErr := es.persistMinerPassword(ctx, message.DeviceID, minerInfo.GetDriverName(), p.NewPassword); dbErr != nil {
+		if dbErr := es.persistUpdatedMinerPassword(ctx, message.DeviceID, minerInfo, p.NewPassword, encryptedCredentials); dbErr != nil {
 			slog.Error("device password updated but database sync failed",
 				"device_id", message.DeviceID, "error", dbErr)
-			err = fleeterror.NewInternalErrorf(
+			err = fleeterror.NewFailedPreconditionErrorf(
 				"device %d password changed on-device but credential persistence failed: %v",
 				message.DeviceID, dbErr)
 			es.minerService.InvalidateMiner(minerInfo.GetID())
@@ -640,21 +648,13 @@ func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandT
 		miner interfaces.Miner
 		err   error
 	)
-	if commandType == commandtype.UpdateMinerPassword && passwordPayload != nil {
+	if commandType == commandtype.UpdateMinerPassword && passwordPayload != nil && passwordPayload.EncryptedPasswordUpdate == nil {
 		miner, err = es.minerService.GetMinerForPasswordUpdate(ctx, deviceID, passwordPayload.CurrentPassword)
 	} else {
 		miner, err = es.minerService.GetMiner(ctx, deviceID)
 	}
 	if err != nil {
 		return nil, err
-	}
-	if commandType == commandtype.UpdateMinerPassword {
-		if _, ok := miner.(*remotenode.Miner); ok {
-			return nil, fleeterror.NewFailedPreconditionErrorf(
-				"device %d is paired through a fleet node; password update remediation is not supported through fleet nodes yet",
-				deviceID,
-			)
-		}
 	}
 	return miner, nil
 }
@@ -1202,15 +1202,37 @@ func (es *ExecutionService) rebootAfterFirmwareInstall(ctx context.Context, mine
 	return nil
 }
 
-// protoDefaultUsername is the nominal username stored for Proto credentials; Proto
-// authenticates by password only, so it's cosmetic and used only when inserting a
-// defensive row for a Proto device that reached password persistence without one.
-const protoDefaultUsername = "admin"
-
 var errMinerCredentialsMissing = errors.New("no miner credentials row for device")
 
 // persistMinerPassword updates the device's stored password, inserting a defensive
 // row for Proto if the command reached persistence before credentials existed.
+func (es *ExecutionService) persistUpdatedMinerPassword(ctx context.Context, deviceID int64, minerInfo interfaces.Miner, password string, encrypted *gatewaypb.EncryptedCredentials) error {
+	if encrypted != nil {
+		return es.persistFleetNodeMinerCredentials(ctx, deviceID, encrypted)
+	}
+	return es.persistMinerPassword(ctx, deviceID, minerInfo.GetDriverName(), password)
+}
+
+func (es *ExecutionService) persistFleetNodeMinerCredentials(ctx context.Context, deviceID int64, encrypted *gatewaypb.EncryptedCredentials) error {
+	encodedUsername, encodedPassword, err := credentialblob.EncodeValid(encrypted)
+	if errors.Is(err, credentialblob.ErrMissingCredentials) {
+		return fleeterror.NewInternalErrorf("fleet node password update returned empty encrypted credentials")
+	}
+	if errors.Is(err, credentialblob.ErrMalformedCredentials) {
+		return fleeterror.NewInternalErrorf("fleet node password update returned malformed encrypted credentials")
+	}
+	if err != nil {
+		return fleeterror.NewInternalErrorf("encode fleet node password update credentials: %v", err)
+	}
+	return db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
+		return q.UpsertMinerCredentials(ctx, sqlc.UpsertMinerCredentialsParams{
+			DeviceID:    deviceID,
+			UsernameEnc: encodedUsername,
+			PasswordEnc: encodedPassword,
+		})
+	})
+}
+
 func (es *ExecutionService) persistMinerPassword(ctx context.Context, deviceID int64, driverName, password string) error {
 	err := es.updateMinerPasswordInDB(ctx, deviceID, password)
 	if errors.Is(err, errMinerCredentialsMissing) && driverName == models.DriverNameProto {
@@ -1220,7 +1242,7 @@ func (es *ExecutionService) persistMinerPassword(ctx context.Context, deviceID i
 }
 
 func (es *ExecutionService) insertProtoCredentials(ctx context.Context, deviceID int64, password string) error {
-	usernameEnc, err := es.encryptService.Encrypt([]byte(protoDefaultUsername))
+	usernameEnc, err := es.encryptService.Encrypt([]byte(models.ProtoDefaultUsername))
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to encrypt username: %v", err)
 	}

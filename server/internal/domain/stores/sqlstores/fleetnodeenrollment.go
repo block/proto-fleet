@@ -97,16 +97,17 @@ func (s *SQLFleetNodeEnrollmentStore) SweepExpiredEnrollments(ctx context.Contex
 	return s.q(ctx).SweepExpiredEnrollments(ctx, now)
 }
 
-func (s *SQLFleetNodeEnrollmentStore) CreateFleetNode(ctx context.Context, orgID int64, name string, identityPubkey []byte) (*enrollment.FleetNode, error) {
+func (s *SQLFleetNodeEnrollmentStore) CreateFleetNode(ctx context.Context, orgID int64, name string, identityPubkey, encryptionPubkey []byte) (*enrollment.FleetNode, error) {
 	row, err := s.q(ctx).CreateFleetNode(ctx, sqlc.CreateFleetNodeParams{
-		OrgID:          orgID,
-		Name:           name,
-		IdentityPubkey: identityPubkey,
+		OrgID:            orgID,
+		Name:             name,
+		IdentityPubkey:   identityPubkey,
+		EncryptionPubkey: encryptionPubkey,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
+	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.EncryptionPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
 }
 
 func (s *SQLFleetNodeEnrollmentStore) GetFleetNodeByID(ctx context.Context, fleetNodeID, orgID int64) (*enrollment.FleetNode, error) {
@@ -117,7 +118,7 @@ func (s *SQLFleetNodeEnrollmentStore) GetFleetNodeByID(ctx context.Context, flee
 		}
 		return nil, err
 	}
-	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
+	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.EncryptionPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
 }
 
 func (s *SQLFleetNodeEnrollmentStore) LockFleetNodeByID(ctx context.Context, fleetNodeID, orgID int64) (*enrollment.FleetNode, error) {
@@ -128,7 +129,7 @@ func (s *SQLFleetNodeEnrollmentStore) LockFleetNodeByID(ctx context.Context, fle
 		}
 		return nil, err
 	}
-	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
+	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.EncryptionPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
 }
 
 func (s *SQLFleetNodeEnrollmentStore) GetFleetNodeByIDUnscoped(ctx context.Context, fleetNodeID int64) (*enrollment.FleetNode, error) {
@@ -139,7 +140,7 @@ func (s *SQLFleetNodeEnrollmentStore) GetFleetNodeByIDUnscoped(ctx context.Conte
 		}
 		return nil, err
 	}
-	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
+	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.EncryptionPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
 }
 
 func (s *SQLFleetNodeEnrollmentStore) ListFleetNodesForOrganization(ctx context.Context, orgID int64) ([]enrollment.FleetNodeListing, error) {
@@ -150,7 +151,7 @@ func (s *SQLFleetNodeEnrollmentStore) ListFleetNodesForOrganization(ctx context.
 	out := make([]enrollment.FleetNodeListing, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, enrollment.FleetNodeListing{
-			FleetNode:               *rowToFleetNode(r.ID, r.OrgID, r.Name, r.IdentityPubkey, r.EnrollmentStatus, r.LastSeenAt, r.CreatedAt, r.UpdatedAt),
+			FleetNode:               *rowToFleetNode(r.ID, r.OrgID, r.Name, r.IdentityPubkey, nil, r.EnrollmentStatus, r.LastSeenAt, r.CreatedAt, r.UpdatedAt),
 			PendingEnrollmentStatus: enrollment.Status(r.PendingEnrollmentStatus),
 		})
 	}
@@ -220,12 +221,13 @@ func rowToPending(row sqlc.PendingEnrollment) *enrollment.PendingEnrollment {
 	}
 }
 
-func rowToFleetNode(id, orgID int64, name string, identityPubkey []byte, status string, lastSeenAt sql.NullTime, createdAt, updatedAt time.Time) *enrollment.FleetNode {
+func rowToFleetNode(id, orgID int64, name string, identityPubkey, encryptionPubkey []byte, status string, lastSeenAt sql.NullTime, createdAt, updatedAt time.Time) *enrollment.FleetNode {
 	return &enrollment.FleetNode{
 		ID:               id,
 		OrgID:            orgID,
 		Name:             name,
 		IdentityPubkey:   identityPubkey,
+		EncryptionPubkey: encryptionPubkey,
 		EnrollmentStatus: enrollment.FleetNodeStatus(status),
 		LastSeenAt:       nullTimeToPtr(lastSeenAt),
 		CreatedAt:        createdAt,

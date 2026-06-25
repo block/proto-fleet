@@ -58,7 +58,7 @@ func createPendingFleetNode(t *testing.T, enrollment *fleetnodeenrollment.Servic
 	require.NoError(t, err)
 	code, _, err := enrollment.CreateCode(t.Context(), 1, orgID, time.Hour)
 	require.NoError(t, err)
-	node, _, err := enrollment.RegisterFleetNode(t.Context(), code, name, pubKey)
+	node, _, err := enrollment.RegisterFleetNode(t.Context(), code, name, pubKey, []byte("01234567890123456789012345678901"))
 	require.NoError(t, err)
 	return node.ID
 }

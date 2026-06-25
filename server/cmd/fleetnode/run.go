@@ -28,18 +28,19 @@ type RunCmd struct {
 	HeartbeatInterval    time.Duration `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls"`
 	LocalDiscoverySubnet string        `name:"local-discovery-subnet" env:"FLEETNODE_LOCAL_DISCOVERY_SUBNET" help:"CIDR to scan for automatic local-subnet discovery instead of detecting the host subnet"`
 
-	now           func() time.Time                                                         `kong:"-"`
-	clientFactory func(serverURL string, tokenSource func() string) (gatewayClient, error) `kong:"-"`
-	signals       []os.Signal                                                              `kong:"-"`
-	parentCtx     context.Context                                                          `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
-	discoverer    discoverer                                                               `kong:"-"`
-	driverGetter  driverGetter                                                             `kong:"-"`
-	minerSecrets  secretProvider                                                           `kong:"-"`
-	pairer        pairer                                                                   `kong:"-"`
-	telemetry     telemetryFetcher                                                         `kong:"-"`
-	nmapPath      string                                                                   `kong:"-"`
-	resolver      ipResolver                                                               `kong:"-"`
-	localSubnets  func() ([]string, error)                                                 `kong:"-"` // test seam for local-subnet detection
+	now                      func() time.Time                                                         `kong:"-"`
+	clientFactory            func(serverURL string, tokenSource func() string) (gatewayClient, error) `kong:"-"`
+	signals                  []os.Signal                                                              `kong:"-"`
+	parentCtx                context.Context                                                          `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
+	discoverer               discoverer                                                               `kong:"-"`
+	driverGetter             driverGetter                                                             `kong:"-"`
+	minerSecrets             secretProvider                                                           `kong:"-"`
+	passwordUpdatePrivateKey []byte                                                                   `kong:"-"`
+	pairer                   pairer                                                                   `kong:"-"`
+	telemetry                telemetryFetcher                                                         `kong:"-"`
+	nmapPath                 string                                                                   `kong:"-"`
+	resolver                 ipResolver                                                               `kong:"-"`
+	localSubnets             func() ([]string, error)                                                 `kong:"-"` // test seam for local-subnet detection
 
 	stateMu sync.Mutex `kong:"-"` // guards st.SessionToken across refreshAndSave + tokenSource.
 	pairMu  sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
@@ -164,6 +165,13 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		}
 		if r.minerSecrets == nil {
 			r.minerSecrets = credentials
+		}
+		if r.passwordUpdatePrivateKey == nil {
+			privateKey, err := decodePasswordUpdatePrivateKey(st)
+			if err != nil {
+				return err
+			}
+			r.passwordUpdatePrivateKey = privateKey
 		}
 		r.pairer = prr
 		r.telemetry = tf

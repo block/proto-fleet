@@ -115,9 +115,10 @@ func TestReportDiscoveredDevices_PublishesOnlyAcceptedDevices(t *testing.T) {
 	// the same identifier. The upsert's ownership guard rejects B's row;
 	// the accepted row alongside it should still flow through.
 	var otherNodeID int64
-	require.NoError(t, db.QueryRow(`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
-		VALUES (1, 'other-node-for-partial', $1, 'CONFIRMED') RETURNING id`,
-		[]byte("partial-pubkey")).Scan(&otherNodeID))
+	require.NoError(t, db.QueryRow(`INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'other-node-for-partial', $1, $2, 'CONFIRMED') RETURNING id`,
+		[]byte("partial-pubkey"),
+		[]byte("01234567890123456789012345678901")).Scan(&otherNodeID))
 	var ddID int64
 	require.NoError(t, db.QueryRow(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
 		VALUES (1, 'owned-by-other', '10.0.0.70', '80', 'http', 'virtual', TRUE, $1) RETURNING id`, otherNodeID).Scan(&ddID))

@@ -95,6 +95,9 @@ func GetTestDB(t *testing.T) *sql.DB {
 const (
 	migrationMaxRetries     = 5
 	migrationRetryBaseDelay = 200 * time.Millisecond
+
+	pgInternalError                   = "XX000"
+	timescaleTupleConcurrentlyDeleted = "tuple concurrently deleted"
 )
 
 // connectAndMigrateWithRetry wraps db.ConnectAndMigrate with retry logic for
@@ -135,11 +138,16 @@ func connectAndMigrateWithRetry(
 // deadlock or serialization failure. golang-migrate wraps database errors as
 // strings, so we check for SQLSTATE codes in the message text.
 func isRetryableMigrationError(err error) bool {
+	if err == nil {
+		return false
+	}
 	if db.IsRetryablePostgresError(err) {
 		return true
 	}
 	msg := err.Error()
-	return strings.Contains(msg, db.PGDeadlockDetected) || strings.Contains(msg, db.PGSerializationFailure)
+	return strings.Contains(msg, db.PGDeadlockDetected) ||
+		strings.Contains(msg, db.PGSerializationFailure) ||
+		(strings.Contains(msg, pgInternalError) && strings.Contains(msg, timescaleTupleConcurrentlyDeleted))
 }
 
 // recreateTestDatabase drops and recreates a test database via the admin connection.

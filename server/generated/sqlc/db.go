@@ -408,6 +408,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceByIDStmt, err = db.PrepareContext(ctx, getDeviceByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceByID: %w", err)
 	}
+	if q.getDeviceCommandRoutesStmt, err = db.PrepareContext(ctx, getDeviceCommandRoutes); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceCommandRoutes: %w", err)
+	}
 	if q.getDeviceDeviceSetsStmt, err = db.PrepareContext(ctx, getDeviceDeviceSets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceDeviceSets: %w", err)
 	}
@@ -1984,6 +1987,11 @@ func (q *Queries) Close() error {
 	if q.getDeviceByIDStmt != nil {
 		if cerr := q.getDeviceByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceByIDStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceCommandRoutesStmt != nil {
+		if cerr := q.getDeviceCommandRoutesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceCommandRoutesStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceDeviceSetsStmt != nil {
@@ -3708,6 +3716,7 @@ type Queries struct {
 	getCurtailmentTargetRollupByEventStmt                      *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                            *sql.Stmt
 	getDeviceByIDStmt                                          *sql.Stmt
+	getDeviceCommandRoutesStmt                                 *sql.Stmt
 	getDeviceDeviceSetsStmt                                    *sql.Stmt
 	getDeviceDeviceSetsByTypeStmt                              *sql.Stmt
 	getDeviceIDByDeviceIdentifierStmt                          *sql.Stmt
@@ -4153,6 +4162,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getCurtailmentTargetRollupByEventStmt:                      q.getCurtailmentTargetRollupByEventStmt,
 		getDeviceByDeviceIdentifierStmt:                            q.getDeviceByDeviceIdentifierStmt,
 		getDeviceByIDStmt:                                          q.getDeviceByIDStmt,
+		getDeviceCommandRoutesStmt:                                 q.getDeviceCommandRoutesStmt,
 		getDeviceDeviceSetsStmt:                                    q.getDeviceDeviceSetsStmt,
 		getDeviceDeviceSetsByTypeStmt:                              q.getDeviceDeviceSetsByTypeStmt,
 		getDeviceIDByDeviceIdentifierStmt:                          q.getDeviceIDByDeviceIdentifierStmt,

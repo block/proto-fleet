@@ -44,6 +44,19 @@ func validFleetNodeCredentialBlob(suffix byte) []byte {
 	return blob
 }
 
+func createTestFleetNode(t *testing.T, db sqlc.DBTX, name string, identityPubkey []byte) int64 {
+	t.Helper()
+	var fleetNodeID int64
+	require.NoError(t, db.QueryRowContext(t.Context(),
+		`INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		 VALUES (1, $1, $2, $3, 'CONFIRMED') RETURNING id`,
+		name,
+		identityPubkey,
+		[]byte("01234567890123456789012345678901"),
+	).Scan(&fleetNodeID))
+	return fleetNodeID
+}
+
 // TestMinerService_ResolvesFleetNodePairedDeviceToRemoteMiner verifies that a device
 // bound to a CONFIRMED fleet node resolves to a remote-node miner whose commands
 // route over the ControlStream, not a directly-dialed PluginMiner.
@@ -58,12 +71,7 @@ func TestMinerService_ResolvesFleetNodePairedDeviceToRemoteMiner(t *testing.T) {
 	deviceIdentifier := "fleetnode-routed-device"
 	deviceID := createTestDevice(t, db, deviceIdentifier)
 
-	var fleetNodeID int64
-	require.NoError(t, db.QueryRow(
-		`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
-		 VALUES (1, $1, $2, 'CONFIRMED') RETURNING id`,
-		"test-fleet-node", []byte("identity-pubkey"),
-	).Scan(&fleetNodeID))
+	fleetNodeID := createTestFleetNode(t, db, "test-fleet-node", []byte("identity-pubkey"))
 	_, err := db.Exec(
 		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
 		fleetNodeID, deviceID)
@@ -98,12 +106,7 @@ func TestMinerService_RoutesFleetNodeEncryptedCredentialsFromMinerCredentials(t 
 	encryptedUsername := validFleetNodeCredentialBlob('u')
 	encryptedPassword := validFleetNodeCredentialBlob('p')
 
-	var fleetNodeID int64
-	require.NoError(t, db.QueryRow(
-		`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
-		 VALUES (1, $1, $2, 'CONFIRMED') RETURNING id`,
-		"test-fleet-node-credentials", []byte("identity-pubkey-credentials"),
-	).Scan(&fleetNodeID))
+	fleetNodeID := createTestFleetNode(t, db, "test-fleet-node-credentials", []byte("identity-pubkey-credentials"))
 	_, err := db.Exec(
 		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
 		fleetNodeID, deviceID)
@@ -142,12 +145,7 @@ func TestMinerService_IgnoresMalformedFleetNodeCredentialStrings(t *testing.T) {
 	deviceIdentifier := "fleetnode-routed-with-malformed-credentials"
 	deviceID := createTestDevice(t, db, deviceIdentifier)
 
-	var fleetNodeID int64
-	require.NoError(t, db.QueryRow(
-		`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
-		 VALUES (1, $1, $2, 'CONFIRMED') RETURNING id`,
-		"test-fleet-node-malformed-credentials", []byte("identity-pubkey-malformed-credentials"),
-	).Scan(&fleetNodeID))
+	fleetNodeID := createTestFleetNode(t, db, "test-fleet-node-malformed-credentials", []byte("identity-pubkey-malformed-credentials"))
 	_, err := db.Exec(
 		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
 		fleetNodeID, deviceID)
@@ -186,12 +184,7 @@ func TestMinerService_IgnoresLegacyServerEncryptedCredentialStrings(t *testing.T
 	deviceIdentifier := "fleetnode-routed-with-legacy-credentials"
 	deviceID := createTestDevice(t, db, deviceIdentifier)
 
-	var fleetNodeID int64
-	require.NoError(t, db.QueryRow(
-		`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
-		 VALUES (1, $1, $2, 'CONFIRMED') RETURNING id`,
-		"test-fleet-node-legacy-credentials", []byte("identity-pubkey-legacy-credentials"),
-	).Scan(&fleetNodeID))
+	fleetNodeID := createTestFleetNode(t, db, "test-fleet-node-legacy-credentials", []byte("identity-pubkey-legacy-credentials"))
 	_, err := db.Exec(
 		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
 		fleetNodeID, deviceID)
@@ -234,12 +227,7 @@ func TestMinerService_DoesNotRouteUnpairedFleetNodeBoundDevice(t *testing.T) {
 	deviceIdentifier := "fleetnode-bound-unpaired"
 	deviceID := createTestDevice(t, db, deviceIdentifier)
 
-	var fleetNodeID int64
-	require.NoError(t, db.QueryRow(
-		`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
-		 VALUES (1, $1, $2, 'CONFIRMED') RETURNING id`,
-		"unpaired-fleet-node", []byte("identity-pubkey"),
-	).Scan(&fleetNodeID))
+	fleetNodeID := createTestFleetNode(t, db, "unpaired-fleet-node", []byte("identity-pubkey"))
 	_, err := db.Exec(
 		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
 		fleetNodeID, deviceID)
@@ -267,12 +255,7 @@ func TestMinerService_RoutesDefaultPasswordFleetNodeDeviceForCommands(t *testing
 	deviceIdentifier := "fleetnode-default-password-device"
 	deviceID := createTestDevice(t, db, deviceIdentifier)
 
-	var fleetNodeID int64
-	require.NoError(t, db.QueryRow(
-		`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
-		 VALUES (1, $1, $2, 'CONFIRMED') RETURNING id`,
-		"default-password-fleet-node", []byte("identity-pubkey"),
-	).Scan(&fleetNodeID))
+	fleetNodeID := createTestFleetNode(t, db, "default-password-fleet-node", []byte("identity-pubkey"))
 	_, err := db.Exec(
 		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
 		fleetNodeID, deviceID)

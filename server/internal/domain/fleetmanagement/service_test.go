@@ -26,6 +26,7 @@ import (
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
@@ -1513,6 +1514,14 @@ func TestService_GetMinerCoolingMode_ShouldDenyAccessToOtherOrgMiner(t *testing.
 
 // --- DeleteMiners tests ---
 
+func validFleetNodeEncryptionPubkey(t *testing.T) []byte {
+	t.Helper()
+
+	publicKey, _, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	return publicKey
+}
+
 func pairMinerToFleetNode(t *testing.T, db *sql.DB, orgID int64, deviceIdentifier string) int64 {
 	t.Helper()
 
@@ -1529,12 +1538,13 @@ func pairMinerToFleetNode(t *testing.T, db *sql.DB, orgID int64, deviceIdentifie
 
 	var fleetNodeID int64
 	require.NoError(t, db.QueryRowContext(t.Context(), `
-		INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
-		VALUES ($1, $2, $3, 'CONFIRMED')
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES ($1, $2, $3, $4, 'CONFIRMED')
 		RETURNING id`,
 		orgID,
 		"delete-miners-node-"+deviceIdentifier,
 		[]byte("identity-"+deviceIdentifier),
+		validFleetNodeEncryptionPubkey(t),
 	).Scan(&fleetNodeID))
 
 	rows, err := sqlstores.NewSQLFleetNodePairingStore(db).PairDeviceToFleetNode(t.Context(), fleetNodeID, deviceID, orgID, nil)
@@ -1549,12 +1559,13 @@ func createStaleFleetNodeDevicePairing(t *testing.T, db *sql.DB, orgID int64, de
 
 	var fleetNodeID int64
 	require.NoError(t, db.QueryRowContext(t.Context(), `
-		INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
-		VALUES ($1, $2, $3, 'CONFIRMED')
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES ($1, $2, $3, $4, 'CONFIRMED')
 		RETURNING id`,
 		orgID,
 		"stale-delete-miners-node-"+deviceIdentifier,
 		[]byte("stale-identity-"+deviceIdentifier),
+		validFleetNodeEncryptionPubkey(t),
 	).Scan(&fleetNodeID))
 
 	var discoveredDeviceID int64

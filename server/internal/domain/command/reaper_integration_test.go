@@ -119,6 +119,9 @@ type noopMessageQueue struct{}
 func (n *noopMessageQueue) Enqueue(_ context.Context, _ string, _ commandtype.Type, _ []int64, _ interface{}) error {
 	return nil
 }
+func (n *noopMessageQueue) EnqueueMany(_ context.Context, _ string, _ commandtype.Type, _ []queue.EnqueueMessage) error {
+	return nil
+}
 func (n *noopMessageQueue) Dequeue(ctx context.Context) ([]queue.Message, error) {
 	<-ctx.Done()
 	return nil, fmt.Errorf("dequeue cancelled: %w", ctx.Err())

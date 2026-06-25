@@ -91,16 +91,17 @@ func (q *Queries) ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentPa
 }
 
 const createFleetNode = `-- name: CreateFleetNode :one
-INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
-VALUES ($1, $2, $3, 'PENDING')
-RETURNING id, org_id, name, identity_pubkey,
+INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+VALUES ($1, $2, $3, $4, 'PENDING')
+RETURNING id, org_id, name, identity_pubkey, encryption_pubkey,
           enrollment_status, last_seen_at, created_at, updated_at
 `
 
 type CreateFleetNodeParams struct {
-	OrgID          int64
-	Name           string
-	IdentityPubkey []byte
+	OrgID            int64
+	Name             string
+	IdentityPubkey   []byte
+	EncryptionPubkey []byte
 }
 
 type CreateFleetNodeRow struct {
@@ -108,6 +109,7 @@ type CreateFleetNodeRow struct {
 	OrgID            int64
 	Name             string
 	IdentityPubkey   []byte
+	EncryptionPubkey []byte
 	EnrollmentStatus string
 	LastSeenAt       sql.NullTime
 	CreatedAt        time.Time
@@ -115,13 +117,19 @@ type CreateFleetNodeRow struct {
 }
 
 func (q *Queries) CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams) (CreateFleetNodeRow, error) {
-	row := q.queryRow(ctx, q.createFleetNodeStmt, createFleetNode, arg.OrgID, arg.Name, arg.IdentityPubkey)
+	row := q.queryRow(ctx, q.createFleetNodeStmt, createFleetNode,
+		arg.OrgID,
+		arg.Name,
+		arg.IdentityPubkey,
+		arg.EncryptionPubkey,
+	)
 	var i CreateFleetNodeRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.Name,
 		&i.IdentityPubkey,
+		&i.EncryptionPubkey,
 		&i.EnrollmentStatus,
 		&i.LastSeenAt,
 		&i.CreatedAt,
@@ -166,7 +174,7 @@ func (q *Queries) CreatePendingEnrollment(ctx context.Context, arg CreatePending
 }
 
 const getFleetNodeByID = `-- name: GetFleetNodeByID :one
-SELECT id, org_id, name, identity_pubkey,
+SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
 FROM fleet_node
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL
@@ -182,6 +190,7 @@ type GetFleetNodeByIDRow struct {
 	OrgID            int64
 	Name             string
 	IdentityPubkey   []byte
+	EncryptionPubkey []byte
 	EnrollmentStatus string
 	LastSeenAt       sql.NullTime
 	CreatedAt        time.Time
@@ -196,6 +205,7 @@ func (q *Queries) GetFleetNodeByID(ctx context.Context, arg GetFleetNodeByIDPara
 		&i.OrgID,
 		&i.Name,
 		&i.IdentityPubkey,
+		&i.EncryptionPubkey,
 		&i.EnrollmentStatus,
 		&i.LastSeenAt,
 		&i.CreatedAt,
@@ -205,7 +215,7 @@ func (q *Queries) GetFleetNodeByID(ctx context.Context, arg GetFleetNodeByIDPara
 }
 
 const getFleetNodeByIDUnscoped = `-- name: GetFleetNodeByIDUnscoped :one
-SELECT id, org_id, name, identity_pubkey,
+SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
 FROM fleet_node
 WHERE id = $1 AND deleted_at IS NULL
@@ -216,6 +226,7 @@ type GetFleetNodeByIDUnscopedRow struct {
 	OrgID            int64
 	Name             string
 	IdentityPubkey   []byte
+	EncryptionPubkey []byte
 	EnrollmentStatus string
 	LastSeenAt       sql.NullTime
 	CreatedAt        time.Time
@@ -230,6 +241,7 @@ func (q *Queries) GetFleetNodeByIDUnscoped(ctx context.Context, id int64) (GetFl
 		&i.OrgID,
 		&i.Name,
 		&i.IdentityPubkey,
+		&i.EncryptionPubkey,
 		&i.EnrollmentStatus,
 		&i.LastSeenAt,
 		&i.CreatedAt,
@@ -355,7 +367,7 @@ func (q *Queries) ListFleetNodesForOrganization(ctx context.Context, orgID int64
 }
 
 const lockFleetNodeByID = `-- name: LockFleetNodeByID :one
-SELECT id, org_id, name, identity_pubkey,
+SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
 FROM fleet_node
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL
@@ -372,6 +384,7 @@ type LockFleetNodeByIDRow struct {
 	OrgID            int64
 	Name             string
 	IdentityPubkey   []byte
+	EncryptionPubkey []byte
 	EnrollmentStatus string
 	LastSeenAt       sql.NullTime
 	CreatedAt        time.Time
@@ -386,6 +399,7 @@ func (q *Queries) LockFleetNodeByID(ctx context.Context, arg LockFleetNodeByIDPa
 		&i.OrgID,
 		&i.Name,
 		&i.IdentityPubkey,
+		&i.EncryptionPubkey,
 		&i.EnrollmentStatus,
 		&i.LastSeenAt,
 		&i.CreatedAt,

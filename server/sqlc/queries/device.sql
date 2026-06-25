@@ -239,6 +239,25 @@ WHERE id = $1
   AND deleted_at IS NULL
 LIMIT 1;
 
+-- name: GetDeviceCommandRoutes :many
+SELECT
+    d.id,
+    d.device_identifier,
+    fn.id AS fleet_node_id,
+    fn.encryption_pubkey
+FROM device d
+LEFT JOIN fleet_node_device fnd
+    ON fnd.device_id = d.id
+   AND fnd.org_id = d.org_id
+LEFT JOIN fleet_node fn
+    ON fn.id = fnd.fleet_node_id
+   AND fn.org_id = fnd.org_id
+   AND fn.deleted_at IS NULL
+   AND fn.enrollment_status = 'CONFIRMED'
+WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.org_id = $1
+  AND d.deleted_at IS NULL;
+
 -- name: GetDeviceIDsByDeviceIdentifiers :many
 SELECT id
 FROM device

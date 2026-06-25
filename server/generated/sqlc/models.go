@@ -807,6 +807,7 @@ type FleetNode struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	DeletedAt        sql.NullTime
+	EncryptionPubkey []byte
 }
 
 type FleetNodeAuthChallenge struct {

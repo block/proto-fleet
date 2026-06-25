@@ -30,8 +30,16 @@ type UpdateMiningPoolsPayload struct {
 }
 
 type UpdateMinerPasswordPayload struct {
-	NewPassword     string `json:"new_password"`
-	CurrentPassword string `json:"current_password"`
+	NewPassword             string                `json:"new_password,omitempty"`
+	CurrentPassword         string                `json:"current_password,omitempty"`
+	EncryptedPasswordUpdate *NodeEncryptedPayload `json:"encrypted_password_update,omitempty"`
+}
+
+type NodeEncryptedPayload struct {
+	Algorithm       string `json:"algorithm"`
+	EphemeralPubkey []byte `json:"ephemeral_pubkey"`
+	Nonce           []byte `json:"nonce"`
+	Ciphertext      []byte `json:"ciphertext"`
 }
 
 // CurtailPayload carries the curtailment level for a Curtail dispatch.

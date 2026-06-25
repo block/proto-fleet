@@ -1586,5 +1586,6 @@ func TestExecuteCommand_UpdateMinerPassword_PersistFailureFailsCommand(t *testin
 
 	// Assert
 	require.Error(t, err, "persist failure after on-device change must fail the command")
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "post-change persistence failure must not be retryable")
 	assert.Contains(t, err.Error(), "credential persistence failed")
 }
