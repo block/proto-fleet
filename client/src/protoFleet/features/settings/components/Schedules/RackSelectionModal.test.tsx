@@ -90,4 +90,58 @@ describe("RackSelectionModal", () => {
     expect(listRacksMock).toHaveBeenCalledWith(expect.not.objectContaining({ pageSize: expect.anything() }));
     expect(onSave).toHaveBeenCalledWith(["1"]);
   });
+
+  it("requests every rack with the all-sites filter (no regression)", async () => {
+    listRacksMock.mockImplementation(({ onSuccess, onFinally }: ListRacksCallbacks) => {
+      onSuccess?.([createRack(1n, "Rack 1"), createRack(2n, "Rack 2")]);
+      onFinally?.();
+    });
+
+    render(
+      <RackSelectionModal
+        open
+        selectedRackIds={[]}
+        scope={{ siteIds: [], includeUnassigned: false }}
+        onDismiss={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("Rack 1")).toBeVisible());
+    expect(screen.getByText("Rack 2")).toBeVisible();
+    expect(listRacksMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [], includeUnassigned: false }));
+  });
+
+  it("passes the selected site filter into listRacks and preserves off-site selections", async () => {
+    // Server already scopes to the site; the modal sees only the in-site rack.
+    listRacksMock.mockImplementation(
+      ({ siteIds, onSuccess, onFinally }: ListRacksCallbacks & { siteIds?: bigint[] }) => {
+        expect(siteIds).toEqual([7n]);
+        onSuccess?.([createRack(1n, "Rack 1")]);
+        onFinally?.();
+      },
+    );
+
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <RackSelectionModal
+        open
+        selectedRackIds={["1", "9"]}
+        scope={{ siteIds: [7n], includeUnassigned: false }}
+        onDismiss={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("Rack 1")).toBeVisible());
+    expect(screen.queryByText("Rack 2")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    // Rack 9 belongs to another site and isn't in the scoped list, but it was
+    // already selected — under a site filter we can't tell off-site from
+    // deleted, so it's preserved rather than silently dropped.
+    expect(onSave).toHaveBeenCalledWith(["1", "9"]);
+  });
 });

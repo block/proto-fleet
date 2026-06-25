@@ -146,10 +146,14 @@ const summarizeTargets = (schedule: Schedule) => {
     return "Applies to all miners";
   }
 
+  const siteCount = schedule.targets.filter((target) => target.targetType === ScheduleTargetType.SITE).length;
+  const buildingCount = schedule.targets.filter((target) => target.targetType === ScheduleTargetType.BUILDING).length;
   const rackCount = schedule.targets.filter((target) => target.targetType === ScheduleTargetType.RACK).length;
   const groupCount = schedule.targets.filter((target) => target.targetType === ScheduleTargetType.GROUP).length;
   const minerCount = schedule.targets.filter((target) => target.targetType === ScheduleTargetType.MINER).length;
   const parts = [
+    siteCount > 0 ? `${siteCount} ${siteCount === 1 ? "site" : "sites"}` : null,
+    buildingCount > 0 ? `${buildingCount} ${buildingCount === 1 ? "building" : "buildings"}` : null,
     rackCount > 0 ? `${rackCount} ${rackCount === 1 ? "rack" : "racks"}` : null,
     groupCount > 0 ? `${groupCount} ${groupCount === 1 ? "group" : "groups"}` : null,
     minerCount > 0 ? `${minerCount} ${minerCount === 1 ? "miner" : "miners"}` : null,

@@ -11,11 +11,13 @@ import (
 	"buf.build/go/protovalidate"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -24,6 +26,11 @@ import (
 // WorkerExecutionTimeout (default 30s) minus ack slack, or a slow command can be
 // retried while the node still runs it (duplicate reboot/curtail). var so tests shrink it.
 var minerCommandTimeout = 25 * time.Second
+
+const (
+	supportedMiningPoolSlots       = 3
+	maxSupportedMiningPoolPriority = supportedMiningPoolSlots - 1
+)
 
 // driverGetter is the plugin-manager seam the executor needs; *plugins.Manager satisfies it.
 type driverGetter interface {
@@ -101,12 +108,13 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, stream acker, commandID
 		}
 	}()
 
-	if err := runMinerAction(cmdCtx, dev, mc); err != nil {
+	payload, err := runMinerAction(cmdCtx, dev, mc)
+	if err != nil {
 		code, msg := classifyMinerCommandError("execute command", err)
 		r.sendAck(stream, commandID, code, msg, logger)
 		return
 	}
-	r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_OK, "", logger)
+	r.sendAckWithPayload(stream, commandID, pb.AckCode_ACK_CODE_OK, "", payload, logger)
 }
 
 // validateDialTarget rejects descriptors the node should never dial: a non-IP, public,
@@ -127,47 +135,133 @@ func validateDialTarget(t *pb.MinerConnectionDescriptor) error {
 	return nil
 }
 
-func runMinerAction(ctx context.Context, dev sdk.Device, mc *pb.MinerCommand) error {
+func runMinerAction(ctx context.Context, dev sdk.Device, mc *pb.MinerCommand) ([]byte, error) {
 	switch a := mc.GetAction().(type) {
 	case *pb.MinerCommand_Reboot:
-		return dev.Reboot(ctx)
+		return nil, dev.Reboot(ctx)
 	case *pb.MinerCommand_StartMining:
-		return dev.StartMining(ctx)
+		return nil, dev.StartMining(ctx)
 	case *pb.MinerCommand_StopMining:
-		return dev.StopMining(ctx)
+		return nil, dev.StopMining(ctx)
 	case *pb.MinerCommand_BlinkLed:
-		return dev.BlinkLED(ctx)
+		return nil, dev.BlinkLED(ctx)
 	case *pb.MinerCommand_Curtail:
 		level, err := toSDKCurtailLevel(a.Curtail.GetLevel())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		curtailer, ok := dev.(sdk.DeviceCurtailment)
 		if !ok {
-			return sdk.NewErrUnsupportedCapability("curtailment")
+			return nil, sdk.NewErrUnsupportedCapability("curtailment")
 		}
-		return curtailer.Curtail(ctx, sdk.CurtailRequest{Level: level})
+		return nil, curtailer.Curtail(ctx, sdk.CurtailRequest{Level: level})
 	case *pb.MinerCommand_Uncurtail:
 		curtailer, ok := dev.(sdk.DeviceCurtailment)
 		if !ok {
-			return sdk.NewErrUnsupportedCapability("curtailment")
+			return nil, sdk.NewErrUnsupportedCapability("curtailment")
 		}
-		return curtailer.Uncurtail(ctx, sdk.UncurtailRequest{})
+		return nil, curtailer.Uncurtail(ctx, sdk.UncurtailRequest{})
 	case *pb.MinerCommand_SetCoolingMode:
 		mode, err := toSDKCoolingMode(a.SetCoolingMode.GetMode())
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return dev.SetCoolingMode(ctx, mode)
+		return nil, dev.SetCoolingMode(ctx, mode)
 	case *pb.MinerCommand_SetPowerTarget:
 		mode, err := toSDKPerformanceMode(a.SetPowerTarget.GetPerformanceMode())
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return dev.SetPowerTarget(ctx, mode)
+		return nil, dev.SetPowerTarget(ctx, mode)
+	case *pb.MinerCommand_UpdateMiningPools:
+		return nil, dev.UpdateMiningPools(ctx, toSDKMiningPoolConfigs(a.UpdateMiningPools.GetPools()))
+	case *pb.MinerCommand_GetMiningPools:
+		pools, err := dev.GetMiningPools(ctx)
+		if err != nil {
+			return nil, err
+		}
+		payload, err := getMiningPoolsResultPayload(pools)
+		if err != nil {
+			return nil, err
+		}
+		return payload, nil
 	default:
-		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unrecognized miner command action")
+		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unrecognized miner command action")
 	}
+}
+
+func toSDKMiningPoolConfigs(pools []*pb.MiningPoolConfig) []sdk.MiningPoolConfig {
+	sdkPools := make([]sdk.MiningPoolConfig, 0, len(pools))
+	for _, pool := range pools {
+		sdkPools = append(sdkPools, sdk.MiningPoolConfig{
+			Priority:   pool.GetPriority(),
+			URL:        pool.GetUrl(),
+			WorkerName: pool.GetUsername(),
+		})
+	}
+	return sdkPools
+}
+
+func getMiningPoolsResultPayload(pools []sdk.ConfiguredPool) ([]byte, error) {
+	result := &pb.GetMiningPoolsResult{Pools: miningPoolConfigsFromSDK(pools)}
+	if err := validateGetMiningPoolsResult(result); err != nil {
+		return nil, err
+	}
+	payload, err := proto.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal get mining pools result: %w", err)
+	}
+	return payload, nil
+}
+
+func validateGetMiningPoolsResult(result *pb.GetMiningPoolsResult) error {
+	if err := protovalidate.Validate(result); err != nil {
+		return fmt.Errorf("invalid get mining pools result: %w", err)
+	}
+	for _, pool := range result.GetPools() {
+		if err := sv2.ValidatePoolURL(pool.GetUrl()); err != nil {
+			return fmt.Errorf("invalid get mining pools result: %w", err)
+		}
+	}
+	return nil
+}
+
+func miningPoolConfigsFromSDK(pools []sdk.ConfiguredPool) []*pb.MiningPoolConfig {
+	var defaultPool, backup1Pool, backup2Pool *pb.MiningPoolConfig
+	for _, pool := range pools {
+		config := &pb.MiningPoolConfig{
+			Priority: pool.Priority,
+			Url:      pool.URL,
+			Username: pool.Username,
+		}
+		switch pool.Priority {
+		case 0:
+			if defaultPool == nil {
+				defaultPool = config
+			}
+		case 1:
+			if backup1Pool == nil {
+				backup1Pool = config
+			}
+		case 2:
+			if backup2Pool == nil {
+				backup2Pool = config
+			}
+		default:
+			if pool.Priority > maxSupportedMiningPoolPriority {
+				continue
+			}
+			return []*pb.MiningPoolConfig{config}
+		}
+	}
+
+	configured := make([]*pb.MiningPoolConfig, 0, supportedMiningPoolSlots)
+	for _, pool := range []*pb.MiningPoolConfig{defaultPool, backup1Pool, backup2Pool} {
+		if pool != nil {
+			configured = append(configured, pool)
+		}
+	}
+	return configured
 }
 
 // Reject undefined / non-actionable (UNSPECIFIED) enum values with BAD_REQUEST rather

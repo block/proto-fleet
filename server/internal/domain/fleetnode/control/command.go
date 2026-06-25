@@ -50,6 +50,6 @@ func (r *Registry) SendCommand(ctx context.Context, fleetNodeID int64, cmd *gate
 			return nil, ErrNoActiveStream
 		}
 	case <-ctx.Done():
-		return nil, fleeterror.NewInternalErrorf("await ack: %v", ctx.Err())
+		return nil, fleeterror.NewInternalErrorf("await ack: %w", ctx.Err())
 	}
 }

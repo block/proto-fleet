@@ -33,4 +33,13 @@ describe("MinerSelectionModal", () => {
       }),
     );
   });
+
+  it("forwards the active-site scope to the miner selection list", () => {
+    const scope = { siteIds: [7n], includeUnassigned: false };
+    render(
+      <MinerSelectionModal open selectedMinerIds={["miner-1"]} scope={scope} onDismiss={vi.fn()} onSave={vi.fn()} />,
+    );
+
+    expect(mockMinerSelectionList).toHaveBeenCalledWith(expect.objectContaining({ scope }));
+  });
 });

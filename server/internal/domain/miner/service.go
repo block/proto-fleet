@@ -244,35 +244,43 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 	if s.commandSender == nil {
 		return nil, false, nil
 	}
-	row, err := s.GetQueries(ctx).GetActiveFleetNodeForDevice(ctx, string(deviceID))
+	telemetryRoute, err := s.GetQueries(ctx).GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx, string(deviceID))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, false, nil
 		}
-		return nil, false, fmt.Errorf("failed to resolve fleet node for device: %w", err)
+		return nil, false, fmt.Errorf("failed to resolve fleet node telemetry route: %w", err)
 	}
 	// No server-side plugin gate: the fleet node (not the server) dials the miner
 	// and loads the driver plugin; the server only routes the command.
-	m, err := remotenode.New(remotenode.Config{
+	remoteCommandMiner, err := remotenode.New(remotenode.Config{
 		Sender:             s.commandSender,
 		Gate:               s.nodeLimiter,
-		FleetNodeID:        row.FleetNodeID,
-		OrgID:              row.OrgID,
-		SiteID:             row.SiteID.Int64,
-		DeviceIdentifier:   row.DeviceIdentifier,
-		DriverName:         row.DriverName,
-		IPAddress:          row.IpAddress,
-		Port:               row.Port,
-		URLScheme:          row.UrlScheme,
-		SerialNumber:       row.SerialNumber.String,
-		MacAddress:         row.MacAddress,
-		CredentialUsername: fleetNodeCredentialBytes(row.EncryptedUsername),
-		CredentialPassword: fleetNodeCredentialBytes(row.EncryptedPassword),
+		FleetNodeID:        telemetryRoute.FleetNodeID,
+		OrgID:              telemetryRoute.OrgID,
+		SiteID:             telemetryRoute.SiteID.Int64,
+		DeviceIdentifier:   telemetryRoute.DeviceIdentifier,
+		DriverName:         telemetryRoute.DriverName,
+		IPAddress:          telemetryRoute.IpAddress,
+		Port:               telemetryRoute.Port,
+		URLScheme:          telemetryRoute.UrlScheme,
+		SerialNumber:       telemetryRoute.SerialNumber.String,
+		MacAddress:         telemetryRoute.MacAddress,
+		CredentialUsername: fleetNodeCredentialBytes(telemetryRoute.UsernameEnc),
+		CredentialPassword: fleetNodeCredentialBytes(telemetryRoute.PasswordEnc),
 	})
 	if err != nil {
 		return nil, false, err
 	}
-	return m, true, nil
+	remoteRoute, err := s.remoteRouteFromRow(telemetryRoute)
+	if err != nil {
+		return nil, false, err
+	}
+	telemetryMiner, err := newRemoteFleetNodeMiner(remoteRoute, s.commandSender, s.nodeLimiter, remoteCommandMiner)
+	if err != nil {
+		return nil, false, err
+	}
+	return telemetryMiner, true, nil
 }
 
 func fleetNodeCredentialBytes(value sql.NullString) []byte {

@@ -62,6 +62,7 @@ func TestEmitsPersistContractMetrics(t *testing.T) {
 	}
 
 	provider.EmitDeviceOnline(ctx, labels, true)
+	provider.EmitDeviceHashing(ctx, labels, 0.95)
 	provider.EmitDeviceHashrate(ctx, labels, 110.5, 115.0)
 	provider.EmitDeviceTemperature(ctx, labels, SensorKindBoard, 75.0, 70.0)
 	provider.EmitDevicePoolConnected(ctx, labels, true)
@@ -87,6 +88,7 @@ func TestEmitsPersistContractMetrics(t *testing.T) {
 
 	want := []string{
 		MetricDeviceOnline,
+		MetricDeviceHashing,
 		MetricDeviceHashrateTerahash,
 		MetricDeviceHashrateExpectedTerahash,
 		MetricDeviceTemperatureMaxCelsius,
@@ -146,6 +148,7 @@ func TestSetupDisabledIsNoOp(t *testing.T) {
 
 	labels := DeviceLabels{OrganizationID: "org-1", DeviceID: "device-1"}
 	provider.EmitDeviceOnline(ctx, labels, false)
+	provider.EmitDeviceHashing(ctx, labels, 0)
 	provider.EmitDeviceHashrate(ctx, labels, 0, 0)
 	provider.EmitDeviceTemperature(ctx, labels, SensorKindBoard, 0, 0)
 	provider.EmitDevicePoolConnected(ctx, labels, false)

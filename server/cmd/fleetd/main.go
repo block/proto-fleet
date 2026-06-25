@@ -357,6 +357,7 @@ func start(config *Config) error {
 		diagnosticsService,
 	)
 	telemetryService.WithMetricsEmitter(metricsProvider)
+	fleetNodePairingSvc.WithTelemetryScheduler(telemetryService)
 	if err := telemetryService.Start(context.Background()); err != nil {
 		slog.Error("failed to start telemetry service", "error", err)
 		return fmt.Errorf("failed to start telemetry service: %w", err)
@@ -474,7 +475,7 @@ func start(config *Config) error {
 	// devices; reconciler self-traffic bypasses via ActorCurtailment.
 	commandSvc.RegisterFilter(commandDomain.NewCurtailmentActiveFilter(curtailmentStore))
 
-	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, commandSvc, activitySvc)
+	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, deviceStore, commandSvc, activitySvc)
 	if err := scheduleProcessor.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start schedule processor: %w", err)
 	}

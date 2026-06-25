@@ -1334,6 +1334,24 @@ func TestSendAck_TruncationPreservesUTF8Boundaries(t *testing.T) {
 	assert.True(t, strings.HasSuffix(got, "..."))
 }
 
+func TestSendAckWithPayload_DowngradesOversizedOKPayload(t *testing.T) {
+	// Arrange
+	r := &RunCmd{}
+	captured := &capturingAcker{}
+	payload := make([]byte, maxAckPayloadBytes+1)
+
+	// Act
+	r.sendAckWithPayload(captured, "cmd-x", pb.AckCode_ACK_CODE_OK, "", payload, discardLogger(t))
+
+	// Assert
+	require.Len(t, captured.sent, 1)
+	got := captured.sent[0].GetAck()
+	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, got.GetCode())
+	assert.False(t, got.GetSucceeded())
+	assert.Empty(t, got.GetPayload())
+	assert.Contains(t, got.GetErrorMessage(), "ack payload too large")
+}
+
 type capturingAcker struct {
 	sent []*pb.ControlStreamRequest
 }

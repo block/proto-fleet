@@ -664,11 +664,11 @@ func isDefaultPasswordActiveError(err error) bool {
 		strings.Contains(msg, "default_password_active")
 }
 
-// isNetworkError determines if an error represents a network connectivity failure.
+// IsNetworkError determines if an error represents a network connectivity failure.
 // It uses a layered approach: type-based detection via standard Go error interfaces,
 // then syscall errno matching, and finally string matching as a fallback for errors
 // that have crossed serialization boundaries (e.g., gRPC status errors).
-func isNetworkError(err error) bool {
+func IsNetworkError(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -736,4 +736,8 @@ func isNetworkError(err error) bool {
 	}
 
 	return false
+}
+
+func isNetworkError(err error) bool {
+	return IsNetworkError(err)
 }

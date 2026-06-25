@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 
 import MinerSelectionList, { type MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
+import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import Modal from "@/shared/components/Modal";
 
 export interface MinerSelectionValue {
@@ -13,6 +14,8 @@ interface MinerSelectionModalProps {
   open: boolean;
   allMinersSelected?: boolean;
   selectedMinerIds: string[];
+  // Soft default from the topbar SitePicker; forwarded to MinerSelectionList.
+  scope?: SiteFilterFields;
   onDismiss: () => void;
   onSave: (selection: MinerSelectionValue) => void;
 }
@@ -21,6 +24,7 @@ const MinerSelectionModal = ({
   open,
   allMinersSelected = false,
   selectedMinerIds,
+  scope,
   onDismiss,
   onSave,
 }: MinerSelectionModalProps) => {
@@ -72,6 +76,7 @@ const MinerSelectionModal = ({
           key={`${allMinersSelected ? "all" : "subset"}:${selectedMinerIds.join(",")}`}
           initialAllSelected={allMinersSelected}
           initialSelectedItems={selectedMinerIds}
+          scope={scope}
           onSelectionChange={({ selectedItems, allSelected, totalMiners }) =>
             setDraftSelection({ selectedMinerIds: selectedItems, allSelected, totalMiners })
           }

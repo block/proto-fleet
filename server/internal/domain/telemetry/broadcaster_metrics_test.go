@@ -19,6 +19,7 @@ type recordingEmitter struct {
 	mu sync.Mutex
 
 	online        []onlineEvent
+	hashing       []hashingEvent
 	hashrate      []hashrateEvent
 	temperature   []temperatureEvent
 	pool          []poolEvent
@@ -28,6 +29,10 @@ type recordingEmitter struct {
 type onlineEvent struct {
 	labels metrics.DeviceLabels
 	online bool
+}
+type hashingEvent struct {
+	labels metrics.DeviceLabels
+	ratio  float64
 }
 type hashrateEvent struct {
 	labels      metrics.DeviceLabels
@@ -52,6 +57,11 @@ func (r *recordingEmitter) EmitDeviceOnline(_ context.Context, labels metrics.De
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.online = append(r.online, onlineEvent{labels: labels, online: online})
+}
+func (r *recordingEmitter) EmitDeviceHashing(_ context.Context, labels metrics.DeviceLabels, ratio float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.hashing = append(r.hashing, hashingEvent{labels: labels, ratio: ratio})
 }
 func (r *recordingEmitter) EmitDeviceHashrate(_ context.Context, labels metrics.DeviceLabels, observedTHs, expectedTHs float64) {
 	r.mu.Lock()
@@ -78,6 +88,11 @@ func metricVal(v float64) *modelsV2.MetricValue {
 	return &modelsV2.MetricValue{Value: v}
 }
 
+// metricValWithMax builds a reading whose nameplate (expected) is reported as MetaData.Max.
+func metricValWithMax(observedHS, maxHS float64) *modelsV2.MetricValue {
+	return &modelsV2.MetricValue{Value: observedHS, MetaData: &modelsV2.MetricValueMetaData{Max: &maxHS}}
+}
+
 // TestObserverEmitsHashrateInTerahash converts the H/s reading exposed in DeviceMetrics into TH/s.
 func TestObserverEmitsHashrateInTerahash(t *testing.T) {
 	rec := &recordingEmitter{}
@@ -95,6 +110,98 @@ func TestObserverEmitsHashrateInTerahash(t *testing.T) {
 	require.Equal(t, "antminer", rec.hashrate[0].labels.Driver)
 	require.Equal(t, "7", rec.hashrate[0].labels.OrganizationID)
 	require.Equal(t, "42", rec.hashrate[0].labels.SiteID)
+}
+
+// TestObserverEmitsHashingGauge checks fleet_device_hashing: the observed/expected ratio while a device is expected to hash, a non-alerting 1.0 once it is not, and nothing for a still-expected device with a missing/invalid reading.
+func TestObserverEmitsHashingGauge(t *testing.T) {
+	cases := []struct {
+		name      string
+		health    modelsV2.HealthStatus
+		hashrate  *modelsV2.MetricValue
+		wantEmit  bool
+		wantRatio float64
+	}{
+		// Expected to hash + valid reading: emit the ratio (the rule applies the threshold).
+		{"no nameplate, hashing", modelsV2.HealthHealthyActive, metricVal(110e12), true, 1.0},
+		{"no nameplate, zero hashrate", modelsV2.HealthHealthyActive, metricVal(0), true, 0.0},
+		{"at expected", modelsV2.HealthHealthyActive, metricValWithMax(100e12, 100e12), true, 1.0},
+		{"above expected", modelsV2.HealthHealthyActive, metricValWithMax(120e12, 100e12), true, 1.2},
+		{"degraded", modelsV2.HealthHealthyActive, metricValWithMax(50e12, 100e12), true, 0.5},
+		{"warning degraded", modelsV2.HealthWarning, metricValWithMax(50e12, 100e12), true, 0.5},
+		{"critical zero hashrate", modelsV2.HealthCritical, metricValWithMax(0, 100e12), true, 0.0},
+		// Not expected to hash: clear with a non-alerting 1.0 regardless of reading.
+		{"intentionally inactive", modelsV2.HealthHealthyInactive, metricValWithMax(0, 100e12), true, 1.0},
+		{"unknown health", modelsV2.HealthUnknown, metricVal(110e12), true, 1.0},
+		// Expected to hash but no usable reading: emit nothing so a gap/garbage can't clear a real low.
+		{"no hashrate reading", modelsV2.HealthHealthyActive, nil, false, 0},
+		{"invalid hashrate", modelsV2.HealthHealthyActive, metricVal(math.NaN()), false, 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &recordingEmitter{}
+			obs := newMetricsObserver(rec)
+			obs.onDeviceMetrics(context.Background(), 7, 42, "antminer", "ant-1", modelsV2.DeviceMetrics{
+				DeviceIdentifier: "ant-1",
+				HashrateHS:       tc.hashrate,
+				Health:           tc.health,
+			})
+
+			if !tc.wantEmit {
+				require.Empty(t, rec.hashing, "must not emit fleet_device_hashing")
+				return
+			}
+			require.Len(t, rec.hashing, 1)
+			require.InDelta(t, tc.wantRatio, rec.hashing[0].ratio, 1e-9)
+			require.Equal(t, "ant-1", rec.hashing[0].labels.DeviceID)
+			require.Equal(t, "7", rec.hashing[0].labels.OrganizationID)
+		})
+	}
+}
+
+// A low hashing sample must be cleared when a miner is paused or goes offline, but never by a telemetry gap, an invalid reading, or a still-reporting critical device.
+func TestObserverHashingClearSemantics(t *testing.T) {
+	sample := func(h modelsV2.HealthStatus, hr *modelsV2.MetricValue) modelsV2.DeviceMetrics {
+		return modelsV2.DeviceMetrics{DeviceIdentifier: "ant-1", Health: h, HashrateHS: hr}
+	}
+	low := func() *modelsV2.MetricValue { return metricValWithMax(50e12, 100e12) }
+
+	t.Run("paused clears", func(t *testing.T) {
+		rec := &recordingEmitter{}
+		obs := newMetricsObserver(rec)
+		obs.onDeviceMetrics(context.Background(), 7, 0, "antminer", "ant-1", sample(modelsV2.HealthHealthyActive, low()))
+		obs.onDeviceMetrics(context.Background(), 7, 0, "antminer", "ant-1", sample(modelsV2.HealthHealthyInactive, metricValWithMax(0, 100e12)))
+		require.Len(t, rec.hashing, 2)
+		require.InDelta(t, 0.5, rec.hashing[0].ratio, 1e-9)
+		require.InDelta(t, 1.0, rec.hashing[1].ratio, 1e-9)
+	})
+
+	t.Run("offline status clears", func(t *testing.T) {
+		rec := &recordingEmitter{}
+		obs := newMetricsObserver(rec)
+		obs.onDeviceMetrics(context.Background(), 7, 0, "antminer", "ant-1", sample(modelsV2.HealthHealthyActive, low()))
+		obs.onDeviceStatus(context.Background(), 7, 0, "antminer", "ant-1", mm.MinerStatusOffline)
+		require.Len(t, rec.hashing, 2)
+		require.InDelta(t, 1.0, rec.hashing[1].ratio, 1e-9)
+	})
+
+	t.Run("invalid reading does not clear", func(t *testing.T) {
+		rec := &recordingEmitter{}
+		obs := newMetricsObserver(rec)
+		obs.onDeviceMetrics(context.Background(), 7, 0, "antminer", "ant-1", sample(modelsV2.HealthHealthyActive, low()))
+		obs.onDeviceMetrics(context.Background(), 7, 0, "antminer", "ant-1", sample(modelsV2.HealthHealthyActive, metricVal(math.NaN())))
+		require.Len(t, rec.hashing, 1)
+		require.InDelta(t, 0.5, rec.hashing[0].ratio, 1e-9)
+	})
+
+	t.Run("error status does not clear critical", func(t *testing.T) {
+		rec := &recordingEmitter{}
+		obs := newMetricsObserver(rec)
+		obs.onDeviceMetrics(context.Background(), 7, 0, "antminer", "ant-1", sample(modelsV2.HealthCritical, metricValWithMax(0, 100e12)))
+		obs.onDeviceStatus(context.Background(), 7, 0, "antminer", "ant-1", mm.MinerStatusError)
+		require.Len(t, rec.hashing, 1)
+		require.InDelta(t, 0.0, rec.hashing[0].ratio, 1e-9)
+	})
 }
 
 // Five chips at varied temps must collapse to one (chip, max=85, avg=80) emission.
@@ -468,15 +575,11 @@ func TestObserverDropsNonFiniteHashrate(t *testing.T) {
 // hashrate — expectedTHs falls through as zero so the Hashrate template
 // degrades gracefully.
 func TestObserverEmitsObservedWhenNameplateIsNonFinite(t *testing.T) {
-	bogus := math.NaN()
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
 	obs.onDeviceMetrics(context.Background(), 1, 0, "virtual", "v-1", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "v-1",
-		HashrateHS: &modelsV2.MetricValue{
-			Value:    110e12,
-			MetaData: &modelsV2.MetricValueMetaData{Max: &bogus},
-		},
+		HashrateHS:       metricValWithMax(110e12, math.NaN()),
 	})
 	require.Len(t, rec.hashrate, 1)
 	require.InDelta(t, 110.0, rec.hashrate[0].observedTHs, 1e-9)

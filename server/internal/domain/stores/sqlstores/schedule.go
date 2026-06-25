@@ -620,6 +620,10 @@ func stringToScheduleTargetType(s string) pb.ScheduleTargetType {
 		return pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP
 	case "miner":
 		return pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER
+	case "site":
+		return pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_SITE
+	case "building":
+		return pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_BUILDING
 	default:
 		return pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_UNSPECIFIED
 	}

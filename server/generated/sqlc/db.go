@@ -300,9 +300,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.findDevicesWithSiteOrBuildingStmt, err = db.PrepareContext(ctx, findDevicesWithSiteOrBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query FindDevicesWithSiteOrBuilding: %w", err)
 	}
-	if q.getActiveFleetNodeForDeviceStmt, err = db.PrepareContext(ctx, getActiveFleetNodeForDevice); err != nil {
-		return nil, fmt.Errorf("error preparing query GetActiveFleetNodeForDevice: %w", err)
-	}
 	if q.getActiveSchedulesStmt, err = db.PrepareContext(ctx, getActiveSchedules); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveSchedules: %w", err)
 	}
@@ -513,8 +510,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getFleetNodeByIDUnscopedStmt, err = db.PrepareContext(ctx, getFleetNodeByIDUnscoped); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodeByIDUnscoped: %w", err)
 	}
+	if q.getFleetNodePairedDeviceIdentifierStmt, err = db.PrepareContext(ctx, getFleetNodePairedDeviceIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFleetNodePairedDeviceIdentifier: %w", err)
+	}
 	if q.getFleetNodeSessionByTokenHashStmt, err = db.PrepareContext(ctx, getFleetNodeSessionByTokenHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodeSessionByTokenHash: %w", err)
+	}
+	if q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getFleetNodeTelemetryRouteByDeviceIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFleetNodeTelemetryRouteByDeviceIdentifier: %w", err)
 	}
 	if q.getGroupRefsForDevicesStmt, err = db.PrepareContext(ctx, getGroupRefsForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetGroupRefsForDevices: %w", err)
@@ -1785,11 +1788,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing findDevicesWithSiteOrBuildingStmt: %w", cerr)
 		}
 	}
-	if q.getActiveFleetNodeForDeviceStmt != nil {
-		if cerr := q.getActiveFleetNodeForDeviceStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getActiveFleetNodeForDeviceStmt: %w", cerr)
-		}
-	}
 	if q.getActiveSchedulesStmt != nil {
 		if cerr := q.getActiveSchedulesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getActiveSchedulesStmt: %w", cerr)
@@ -2140,9 +2138,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getFleetNodeByIDUnscopedStmt: %w", cerr)
 		}
 	}
+	if q.getFleetNodePairedDeviceIdentifierStmt != nil {
+		if cerr := q.getFleetNodePairedDeviceIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFleetNodePairedDeviceIdentifierStmt: %w", cerr)
+		}
+	}
 	if q.getFleetNodeSessionByTokenHashStmt != nil {
 		if cerr := q.getFleetNodeSessionByTokenHashStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFleetNodeSessionByTokenHashStmt: %w", cerr)
+		}
+	}
+	if q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt != nil {
+		if cerr := q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFleetNodeTelemetryRouteByDeviceIdentifierStmt: %w", cerr)
 		}
 	}
 	if q.getGroupRefsForDevicesStmt != nil {
@@ -3616,7 +3624,6 @@ type Queries struct {
 	findDevicesInBuildingLessPlacedRacksStmt                   *sql.Stmt
 	findDevicesInSiteLessRacksStmt                             *sql.Stmt
 	findDevicesWithSiteOrBuildingStmt                          *sql.Stmt
-	getActiveFleetNodeForDeviceStmt                            *sql.Stmt
 	getActiveSchedulesStmt                                     *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt                     *sql.Stmt
 	getAddedDeviceSiteConflictsStmt                            *sql.Stmt
@@ -3687,7 +3694,9 @@ type Queries struct {
 	getFilteredDeviceIdsStmt                                   *sql.Stmt
 	getFleetNodeByIDStmt                                       *sql.Stmt
 	getFleetNodeByIDUnscopedStmt                               *sql.Stmt
+	getFleetNodePairedDeviceIdentifierStmt                     *sql.Stmt
 	getFleetNodeSessionByTokenHashStmt                         *sql.Stmt
+	getFleetNodeTelemetryRouteByDeviceIdentifierStmt           *sql.Stmt
 	getGroupRefsForDevicesStmt                                 *sql.Stmt
 	getKnownSubnetsStmt                                        *sql.Stmt
 	getLatestAllDeviceMetricsStmt                              *sql.Stmt
@@ -4054,7 +4063,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		findDevicesInBuildingLessPlacedRacksStmt:                   q.findDevicesInBuildingLessPlacedRacksStmt,
 		findDevicesInSiteLessRacksStmt:                             q.findDevicesInSiteLessRacksStmt,
 		findDevicesWithSiteOrBuildingStmt:                          q.findDevicesWithSiteOrBuildingStmt,
-		getActiveFleetNodeForDeviceStmt:                            q.getActiveFleetNodeForDeviceStmt,
 		getActiveSchedulesStmt:                                     q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:                     q.getActiveUnpairedDiscoveredDevicesStmt,
 		getAddedDeviceSiteConflictsStmt:                            q.getAddedDeviceSiteConflictsStmt,
@@ -4125,7 +4133,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFilteredDeviceIdsStmt:                                   q.getFilteredDeviceIdsStmt,
 		getFleetNodeByIDStmt:                                       q.getFleetNodeByIDStmt,
 		getFleetNodeByIDUnscopedStmt:                               q.getFleetNodeByIDUnscopedStmt,
+		getFleetNodePairedDeviceIdentifierStmt:                     q.getFleetNodePairedDeviceIdentifierStmt,
 		getFleetNodeSessionByTokenHashStmt:                         q.getFleetNodeSessionByTokenHashStmt,
+		getFleetNodeTelemetryRouteByDeviceIdentifierStmt:           q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt,
 		getGroupRefsForDevicesStmt:                                 q.getGroupRefsForDevicesStmt,
 		getKnownSubnetsStmt:                                        q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                              q.getLatestAllDeviceMetricsStmt,

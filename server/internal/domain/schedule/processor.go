@@ -59,6 +59,7 @@ type Processor struct {
 	procStore       interfaces.ScheduleProcessorStore
 	targetStore     interfaces.ScheduleTargetStore
 	collectionStore interfaces.CollectionStore
+	deviceStore     scheduletargets.DeviceResolver
 	commandSvc      CommandDispatcher
 	activitySvc     *activity.Service
 	now             func() time.Time
@@ -76,6 +77,7 @@ func NewProcessor(
 	procStore interfaces.ScheduleProcessorStore,
 	targetStore interfaces.ScheduleTargetStore,
 	collectionStore interfaces.CollectionStore,
+	deviceStore scheduletargets.DeviceResolver,
 	commandSvc CommandDispatcher,
 	activitySvc *activity.Service,
 ) *Processor {
@@ -83,6 +85,7 @@ func NewProcessor(
 		procStore:       procStore,
 		targetStore:     targetStore,
 		collectionStore: collectionStore,
+		deviceStore:     deviceStore,
 		commandSvc:      commandSvc,
 		activitySvc:     activitySvc,
 		now:             time.Now,
@@ -508,7 +511,7 @@ func (p *Processor) dispatch(ctx context.Context, sched *pb.Schedule, selector *
 
 // expandTargets converts a slice of ScheduleTarget into deduplicated device identifiers.
 func (p *Processor) expandTargets(ctx context.Context, targets []*pb.ScheduleTarget, orgID int64) ([]string, error) {
-	return scheduletargets.Expand(ctx, p.collectionStore, targets, orgID, func(targetID string) {
+	return scheduletargets.Expand(ctx, p.collectionStore, p.deviceStore, targets, orgID, func(targetID string) {
 		slog.Warn("unspecified target type", "target_id", targetID)
 	})
 }
