@@ -69,7 +69,6 @@ async function selectAllSitesIfNeeded(page: Page) {
   const sitePickerTrigger = page.getByTestId("site-picker-trigger");
   if (!(await sitePickerTrigger.isVisible().catch(() => false))) {
     await test.expect(page.getByTestId("fleet-sites-page")).toBeVisible();
-    await test.expect(page.getByTestId("fleet-sites-add")).toBeVisible();
     return;
   }
 
@@ -83,6 +82,18 @@ async function selectAllSitesIfNeeded(page: Page) {
   await test.expect(allSitesOption).toBeVisible();
   await allSitesOption.click();
   await test.expect(sitePickerTrigger).toContainText("All sites");
+}
+
+async function clickAddSiteButton(page: Page) {
+  const headerAddSiteButton = page.getByTestId("fleet-sites-add");
+  if (await headerAddSiteButton.isVisible().catch(() => false)) {
+    await headerAddSiteButton.click();
+    return;
+  }
+
+  const emptyStateAddSiteButton = page.getByRole("button", { name: "Add a site", exact: true });
+  await test.expect(emptyStateAddSiteButton).toBeVisible();
+  await emptyStateAddSiteButton.click();
 }
 
 async function detectSiteManagementMode(page: Page): Promise<SiteManagementMode> {
@@ -295,9 +306,7 @@ async function pickUnrackedPairedMiner(page: Page, miners: VisibleMinerSnapshot[
 
 async function createSite(page: Page, name: string, mode: SiteManagementMode): Promise<bigint> {
   await openSitesManagementPage(page, mode);
-  const addSiteButton = page.getByTestId("fleet-sites-add");
-  await test.expect(addSiteButton).toBeVisible();
-  await addSiteButton.click();
+  await clickAddSiteButton(page);
   await page.getByTestId("site-settings-name-input").fill(name);
   await page.getByTestId("site-settings-modal-continue").click();
   const saveSiteButton = page.locator('[data-testid="manage-site-modal-save"]:visible');
