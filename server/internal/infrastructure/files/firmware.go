@@ -14,7 +14,6 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
-	"github.com/google/uuid"
 )
 
 // FirmwareFileInfo holds metadata about a stored firmware file.
@@ -51,11 +50,11 @@ func getFirmwareDirPath(fileID string) string {
 // so we normalize to the lowercase hyphenated form to ensure consistent
 // on-disk paths.
 func canonicalizeFirmwareFileID(fileID string) (string, error) {
-	parsed, err := uuid.Parse(fileID)
+	canonical, err := canonicalizeStorageUUID("firmware file", fileID)
 	if err != nil {
-		return "", fleeterror.NewInvalidArgumentErrorf("invalid firmware file ID: %s", fileID)
+		return "", fleeterror.NewInvalidArgumentError(err.Error())
 	}
-	return parsed.String(), nil
+	return canonical, nil
 }
 
 // initFirmwareDir creates the firmware root directory if it doesn't exist.
@@ -481,30 +480,6 @@ func computeFileChecksum(filePath string) (string, error) {
 		return "", fmt.Errorf("failed to compute checksum: %w", err)
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
-}
-
-// findSingleFileInDir returns the path to the single non-directory entry inside
-// a directory. Returns an error if zero or more than one file exists, so callers
-// fail fast on corrupted firmware directories.
-func findSingleFileInDir(dir string) (string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return "", fmt.Errorf("failed to read firmware dir %s: %w", dir, err)
-	}
-	var foundPath string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if foundPath != "" {
-			return "", fmt.Errorf("multiple files found in %s", dir)
-		}
-		foundPath = filepath.Join(dir, e.Name())
-	}
-	if foundPath == "" {
-		return "", fmt.Errorf("no file found in %s", dir)
-	}
-	return foundPath, nil
 }
 
 func hasAllowedFirmwareExtension(filename string) bool {

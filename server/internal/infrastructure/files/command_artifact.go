@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
@@ -27,6 +26,7 @@ const (
 	commandArtifactMetadataFile = "metadata.json"
 
 	defaultMaxCommandArtifactSize int64 = 500 * 1024 * 1024 // 500 MB
+	commandArtifactCopyBufferSize       = 1 << 20
 
 	defaultCommandArtifactRetentionTTL    = 7 * 24 * time.Hour
 	defaultCommandArtifactCleanupInterval = time.Hour
@@ -84,11 +84,11 @@ func getCommandArtifactMetadataPath(artifactID string) string {
 }
 
 func canonicalizeCommandArtifactID(artifactID string) (string, error) {
-	parsed, err := uuid.Parse(artifactID)
+	canonical, err := canonicalizeStorageUUID("command artifact", artifactID)
 	if err != nil {
-		return "", fleeterror.NewInvalidArgumentErrorf("invalid command artifact ID: %s", artifactID)
+		return "", fleeterror.NewInvalidArgumentError(err.Error())
 	}
-	return parsed.String(), nil
+	return canonical, nil
 }
 
 func sanitizeCommandArtifactFilename(filename string) string {
@@ -134,27 +134,6 @@ func readCommandArtifactMetadata(artifactID string) (commandArtifactMetadata, er
 	return metadata, nil
 }
 
-func findCommandArtifactFileInDir(dir string) (string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return "", fmt.Errorf("failed to read command artifact dir %s: %w", dir, err)
-	}
-	var foundPath string
-	for _, e := range entries {
-		if e.IsDir() || e.Name() == commandArtifactMetadataFile {
-			continue
-		}
-		if foundPath != "" {
-			return "", fmt.Errorf("multiple artifact files found in %s", dir)
-		}
-		foundPath = filepath.Join(dir, e.Name())
-	}
-	if foundPath == "" {
-		return "", fmt.Errorf("no artifact file found in %s", dir)
-	}
-	return foundPath, nil
-}
-
 // SaveCommandArtifact streams a command artifact to disk, validating declared size
 // and SHA-256 as it writes. The artifact ID is generated server-side.
 func (s *Service) SaveCommandArtifact(filename string, sizeBytes int64, sha256Hex string, reader io.Reader) (*CommandArtifactInfo, error) {
@@ -191,7 +170,8 @@ func (s *Service) SaveCommandArtifact(filename string, sizeBytes int64, sha256He
 
 	hasher := sha256.New()
 	limitedReader := io.LimitReader(reader, sizeBytes+1)
-	written, err := io.Copy(file, io.TeeReader(limitedReader, hasher))
+	fileWriter := struct{ io.Writer }{file}
+	written, err := io.CopyBuffer(fileWriter, io.TeeReader(limitedReader, hasher), make([]byte, commandArtifactCopyBufferSize))
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to write command artifact: %v", err)
 	}
@@ -244,7 +224,7 @@ func (s *Service) OpenCommandArtifact(artifactID string) (io.ReadCloser, Command
 		return nil, CommandArtifactInfo{}, err
 	}
 	dir := getCommandArtifactDirPath(canonical)
-	filePath, err := findCommandArtifactFileInDir(dir)
+	filePath, err := findSingleFileInDir(dir, commandArtifactMetadataFile)
 	if err != nil {
 		return nil, CommandArtifactInfo{}, fleeterror.NewNotFoundErrorf("command artifact not found: %s", canonical)
 	}
@@ -318,7 +298,7 @@ func (s *Service) SweepExpiredCommandArtifacts(now time.Time, ttl time.Duration)
 	deleted := 0
 	var firstErr error
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == "staging" {
+		if !entry.IsDir() || entry.Name() == filepath.Base(commandArtifactsStagingDir) {
 			continue
 		}
 		artifactID, err := canonicalizeCommandArtifactID(entry.Name())
@@ -338,7 +318,7 @@ func (s *Service) SweepExpiredCommandArtifacts(now time.Time, ttl time.Duration)
 		if now.Sub(info.ModTime()) <= ttl {
 			continue
 		}
-		if err := os.RemoveAll(dir); err != nil {
+		if err := s.DeleteCommandArtifact(artifactID); err != nil {
 			if firstErr == nil {
 				firstErr = fleeterror.NewInternalErrorf("failed to remove command artifact dir %s: %v", artifactID, err)
 			}

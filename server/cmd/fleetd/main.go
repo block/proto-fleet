@@ -343,10 +343,10 @@ func start(config *Config) error {
 			slog.Debug("swept expired command artifacts", "count", deleted)
 		}
 	}
-	runCommandArtifactSweep()
 	go func() {
 		ticker := time.NewTicker(filesService.CommandArtifactCleanupInterval())
 		defer ticker.Stop()
+		runCommandArtifactSweep()
 
 		for {
 			select {
