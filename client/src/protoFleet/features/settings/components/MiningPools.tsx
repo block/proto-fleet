@@ -8,9 +8,10 @@ import {
 } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import type { Pool } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import usePools from "@/protoFleet/api/usePools";
+import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
+import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import Ellipsis from "@/shared/assets/icons/Ellipsis";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import Header from "@/shared/components/Header";
 import { fleetUsernameHelperText } from "@/shared/components/MiningPools/PoolForm/constants";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
 import type { PoolInfo } from "@/shared/components/MiningPools/types";
@@ -96,18 +97,20 @@ const PoolRowMenu = ({
   onDelete,
 }: PoolRowMenuProps) => (
   <div className="relative" ref={triggerRef}>
-    <Button
-      variant="ghost"
-      size="compact"
+    <button
+      type="button"
+      className="flex h-8 w-8 items-center justify-center text-text-primary hover:cursor-pointer hover:opacity-70"
       onClick={(e) => {
         e.stopPropagation();
         setShowMenu(!showMenu);
       }}
-      ariaLabel="Options menu"
-      ariaHasPopup="menu"
-      ariaExpanded={showMenu}
-      prefixIcon={<Ellipsis />}
-    />
+      aria-label="Options menu"
+      aria-haspopup="menu"
+      aria-expanded={showMenu}
+      data-testid="pool-actions-trigger"
+    >
+      <Ellipsis />
+    </button>
     {showMenu ? (
       <Popover
         position={positions["top left"]}
@@ -434,7 +437,7 @@ const MiningPools = () => {
     <>
       <div className="flex flex-col gap-6">
         <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-          <Header title="Pools" description="Add and manage the pools for your fleet." titleSize="text-heading-300" />
+          <SettingsPageHeader title="Pools" description="Add and manage the pools for your fleet." />
           <Button
             variant={variants.primary}
             size={sizes.compact}
@@ -446,43 +449,41 @@ const MiningPools = () => {
         </div>
 
         <div className="flex flex-col">
-          {/* Conditional header based on screen size */}
-          {isPhone || isTablet ? (
-            /* Mobile & Tablet: Card header */
-            <div className="grid grid-cols-2 border-b border-core-primary-10 py-3 text-emphasis-300 text-text-primary-50">
-              <div>Name</div>
-              <div className="flex items-center justify-between">
-                <div>Username</div>
-              </div>
-            </div>
-          ) : (
-            /* Desktop: Table header */
-            <div className="grid grid-cols-3 gap-1 text-emphasis-300 text-text-primary-50">
-              <Row>Name</Row>
-              <Row>URL</Row>
-              <Row>Username</Row>
-            </div>
-          )}
-
-          {/* Table body */}
-          <div>
-            {pools.length === 0 ? (
-              <div className="py-10 text-center text-text-primary-50">
-                No pools yet. Add a pool to start assigning your miners.
+          {pools.length > 0 ? (
+            isPhone || isTablet ? (
+              <div className="grid grid-cols-2 border-b border-core-primary-10 py-3 text-emphasis-300 text-text-primary">
+                <div>Name</div>
+                <div className="flex items-center justify-between">
+                  <div>Username</div>
+                </div>
               </div>
             ) : (
-              pools.map((pool) => (
-                <PoolRowInner
-                  key={pool.poolId.toString()}
-                  pool={pool}
-                  onEdit={handleEditPool}
-                  onTestConnection={handleTestConnection}
-                  onDelete={handleDeletePool}
-                  connectionStatus={connectionStatuses[pool.poolId.toString()] || "idle"}
-                />
-              ))
-            )}
-          </div>
+              <div className="grid grid-cols-3 gap-1 text-emphasis-300 text-text-primary">
+                <Row>Name</Row>
+                <Row>URL</Row>
+                <Row>Username</Row>
+              </div>
+            )
+          ) : null}
+
+          {pools.length === 0 ? (
+            <SettingsEmptyState
+              className="mt-6"
+              title="No pools yet"
+              description="Add a pool to start assigning your miners."
+            />
+          ) : (
+            pools.map((pool) => (
+              <PoolRowInner
+                key={pool.poolId.toString()}
+                pool={pool}
+                onEdit={handleEditPool}
+                onTestConnection={handleTestConnection}
+                onDelete={handleDeletePool}
+                connectionStatus={connectionStatuses[pool.poolId.toString()] || "idle"}
+              />
+            ))
+          )}
         </div>
       </div>
 

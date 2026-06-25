@@ -99,7 +99,7 @@ describe("CurtailmentAutomationsContent", () => {
 
     expect(screen.getByText("Automations")).toBeVisible();
     expect(screen.getByRole("button", { name: "Create automation" })).toBeEnabled();
-    expect(screen.getByRole("columnheader", { name: "Name" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "Name" })).toHaveClass("text-text-primary");
     expect(screen.getByRole("columnheader", { name: "Condition" })).toBeVisible();
     expect(screen.getByRole("columnheader", { name: "Response profile" })).toBeVisible();
     expect(screen.getByRole("columnheader", { name: "Enabled" })).toBeInTheDocument();
