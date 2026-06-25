@@ -5,9 +5,7 @@ import { BasePage } from "./base";
 export class SettingsApiKeysPage extends BasePage {
   async waitForApiKeysListToLoad() {
     const rows = this.page.getByTestId("list-body").getByTestId("list-row");
-    const emptyState = this.page.getByText(
-      "No API keys yet. Create your first key to enable programmatic access to the Fleet API.",
-    );
+    const emptyState = this.page.getByText("No API keys yet", { exact: true });
 
     await expect(this.page.getByText("Loading API keys...")).toBeHidden();
     await expect(this.page.getByRole("button", { name: "Create API key" })).toBeVisible();
