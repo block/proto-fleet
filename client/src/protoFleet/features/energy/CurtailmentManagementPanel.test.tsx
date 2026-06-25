@@ -552,12 +552,12 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByText("Abort restore?")).toBeInTheDocument();
     expect(screen.getByText(/aborts the restore workflow/i)).toBeInTheDocument();
 
-    const releaseButtons = screen.getAllByRole("button", { name: "Abort" });
+    const releaseButtons = screen.getAllByRole("button", { name: "Abort restore" });
     await user.click(releaseButtons[releaseButtons.length - 1]);
     expect(screen.getByText("Enter a reason before terminating the event.")).toBeInTheDocument();
 
     await user.type(screen.getByRole("textbox", { name: "Reason" }), "Operator needs manual control");
-    const updatedReleaseButtons = screen.getAllByRole("button", { name: "Abort" });
+    const updatedReleaseButtons = screen.getAllByRole("button", { name: "Abort restore" });
     await user.click(updatedReleaseButtons[updatedReleaseButtons.length - 1]);
 
     await waitFor(() =>
@@ -608,7 +608,7 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByText(/disables the owning automation rule/i)).toBeInTheDocument();
 
     await user.type(screen.getByRole("textbox", { name: "Reason" }), "Need to disable automation");
-    const abortButtons = screen.getAllByRole("button", { name: "Abort" });
+    const abortButtons = screen.getAllByRole("button", { name: "Abort curtailment" });
     await user.click(abortButtons[abortButtons.length - 1]);
 
     await waitFor(() =>

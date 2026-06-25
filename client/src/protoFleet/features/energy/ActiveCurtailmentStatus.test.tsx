@@ -211,6 +211,37 @@ describe("ActiveCurtailmentStatus", () => {
     expect(onRequestTerminateRecovery).toHaveBeenCalledOnce();
   });
 
+  it("labels abort action for restoring events", async () => {
+    const user = userEvent.setup();
+    const onRequestForceRelease = vi.fn();
+
+    render(<ActiveCurtailmentStatus event={restoringCurtailmentEvent} onRequestForceRelease={onRequestForceRelease} />);
+
+    await user.click(screen.getByRole("button", { name: "Abort restore" }));
+
+    expect(onRequestForceRelease).toHaveBeenCalledOnce();
+  });
+
+  it("labels abort action for automation-owned active events", async () => {
+    const user = userEvent.setup();
+    const onRequestForceRelease = vi.fn();
+
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          isAutomationOwned: true,
+          sourceLabel: "Curtailment automation",
+        }}
+        onRequestForceRelease={onRequestForceRelease}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Abort curtailment" }));
+
+    expect(onRequestForceRelease).toHaveBeenCalledOnce();
+  });
+
   it("counts released targets as restored during restoration", () => {
     render(
       <ActiveCurtailmentStatus

@@ -299,6 +299,7 @@ function CurtailmentForceReleaseDialog({
   const [reasonError, setReasonError] = useState<string | null>(null);
   const validationError = reasonError ?? error ?? null;
   const title = mode === "restore" ? "Abort restore?" : "Abort curtailment?";
+  const confirmText = mode === "restore" ? "Abort restore" : "Abort curtailment";
   const body =
     mode === "restore"
       ? "This aborts the restore workflow by immediately releasing curtailment ownership. If automation owns this event, Abort also disables the automation rule. It does not wake miners or confirm that restore completed."
@@ -333,7 +334,7 @@ function CurtailmentForceReleaseDialog({
           disabled: isSubmitting,
         },
         {
-          text: "Abort",
+          text: confirmText,
           variant: variants.danger,
           onClick: confirmRelease,
           loading: isSubmitting,

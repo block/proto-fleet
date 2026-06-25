@@ -357,9 +357,13 @@ function formatActiveCurtailmentHeaderDetail(event: ActiveCurtailmentEvent): str
   return `${event.reason} (Applies to ${event.scopeLabel})`;
 }
 
-function getForceReleaseButton(onRequestForceRelease?: () => void): ReactElement | null {
+function getForceReleaseButton(
+  displayState: ActiveCurtailmentDisplayState,
+  onRequestForceRelease?: () => void,
+): ReactElement | null {
+  const label = displayState === "restoring" ? "Abort restore" : "Abort curtailment";
   return onRequestForceRelease ? (
-    <Button variant={variants.danger} size={sizes.compact} text="Abort" onClick={onRequestForceRelease} />
+    <Button variant={variants.danger} size={sizes.compact} text={label} onClick={onRequestForceRelease} />
   ) : null;
 }
 
@@ -417,7 +421,7 @@ function ActiveCurtailmentActionButtons({
     onRequestTerminateRecovery,
   });
   const showManageButton = Boolean(onRequestEdit && manageableDisplayStates.has(displayState));
-  const forceReleaseButton = getForceReleaseButton(onRequestForceRelease);
+  const forceReleaseButton = getForceReleaseButton(displayState, onRequestForceRelease);
 
   if (!actionButton && !forceReleaseButton && !showManageButton) {
     return null;
