@@ -170,7 +170,13 @@ FROM curtailment_automation_rule_state st
 WHERE st.rule_id = r.id
   AND r.org_id = sqlc.arg('org_id')
   AND r.enabled = TRUE
-  AND st.active_event_uuid = sqlc.arg('event_uuid');
+  AND (
+      st.active_event_uuid = sqlc.arg('event_uuid')
+      OR (
+          sqlc.narg('external_reference')::text IS NOT NULL
+          AND r.id::text = sqlc.narg('external_reference')::text
+      )
+  );
 
 -- name: DeleteCurtailmentAutomationRuleByOrg :execrows
 DELETE FROM curtailment_automation_rule

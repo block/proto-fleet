@@ -117,16 +117,23 @@ FROM curtailment_automation_rule_state st
 WHERE st.rule_id = r.id
   AND r.org_id = $1
   AND r.enabled = TRUE
-  AND st.active_event_uuid = $2
+  AND (
+      st.active_event_uuid = $2
+      OR (
+          $3::text IS NOT NULL
+          AND r.id::text = $3::text
+      )
+  )
 `
 
 type DisableCurtailmentAutomationRuleByActiveEventParams struct {
-	OrgID     int64
-	EventUuid uuid.NullUUID
+	OrgID             int64
+	EventUuid         uuid.NullUUID
+	ExternalReference sql.NullString
 }
 
 func (q *Queries) DisableCurtailmentAutomationRuleByActiveEvent(ctx context.Context, arg DisableCurtailmentAutomationRuleByActiveEventParams) (int64, error) {
-	result, err := q.exec(ctx, q.disableCurtailmentAutomationRuleByActiveEventStmt, disableCurtailmentAutomationRuleByActiveEvent, arg.OrgID, arg.EventUuid)
+	result, err := q.exec(ctx, q.disableCurtailmentAutomationRuleByActiveEventStmt, disableCurtailmentAutomationRuleByActiveEvent, arg.OrgID, arg.EventUuid, arg.ExternalReference)
 	if err != nil {
 		return 0, err
 	}

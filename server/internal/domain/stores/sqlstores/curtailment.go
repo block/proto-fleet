@@ -1153,8 +1153,9 @@ func (s *SQLCurtailmentStore) ForceReleaseEvent(
 		var disabledAutomationRows int64
 		if isAutomationEvent(event) {
 			disabled, err := q.DisableCurtailmentAutomationRuleByActiveEvent(ctx, sqlc.DisableCurtailmentAutomationRuleByActiveEventParams{
-				OrgID:     orgID,
-				EventUuid: uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
+				OrgID:             orgID,
+				EventUuid:         uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
+				ExternalReference: nullStringFromPtr(event.ExternalReference),
 			})
 			if err != nil {
 				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to disable curtailment automation after force release: %v", err)
