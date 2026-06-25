@@ -859,9 +859,7 @@ function CurtailmentManagementPanel({
                   : undefined
               }
               onRequestEdit={enableManage ? openEditModal : undefined}
-              onRequestRestore={
-                enableManage && !activeEvent.isAutomationOwned ? () => openStopConfirmation("restore") : undefined
-              }
+              onRequestRestore={enableManage ? () => openStopConfirmation("restore") : undefined}
               onRequestStop={
                 enableManage && !activeEvent.isAutomationOwned
                   ? () => openStopConfirmation("stopCurtailment")

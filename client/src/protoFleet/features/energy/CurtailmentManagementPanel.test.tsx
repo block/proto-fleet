@@ -518,7 +518,7 @@ describe("CurtailmentManagementPanel", () => {
     expect(mocks.stopCurtailment).toHaveBeenLastCalledWith("curt-1");
   });
 
-  it("hides restore actions for automation-owned events", () => {
+  it("shows restore for automation-owned events", () => {
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         activeEvent: { ...activeEvent, isAutomationOwned: true },
@@ -529,7 +529,7 @@ describe("CurtailmentManagementPanel", () => {
 
     render(<CurtailmentManagementPanel enableRecover />);
 
-    expect(screen.queryByRole("button", { name: "Request restore" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request restore" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
   });
 
@@ -601,7 +601,7 @@ describe("CurtailmentManagementPanel", () => {
     render(<CurtailmentManagementPanel enableManage enableRecover />);
 
     expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Request restore" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request restore" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Request abort" }));
     expect(screen.getByText("Abort curtailment?")).toBeInTheDocument();
@@ -630,7 +630,7 @@ describe("CurtailmentManagementPanel", () => {
 
     expect(screen.queryByRole("button", { name: "Request terminate recovery" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Request restore" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request restore" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
   });
 
