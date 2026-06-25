@@ -196,9 +196,12 @@ func runMinerAction(ctx context.Context, dev sdk.Device, mc *pb.MinerCommand) ([
 		if err != nil {
 			return nil, err
 		}
-		payload, err := getErrorsResultPayload(mc.GetTarget().GetDeviceIdentifier(), deviceErrors)
+		payload, truncated, reason, err := getErrorsResultPayload(mc.GetTarget().GetDeviceIdentifier(), deviceErrors)
 		if err != nil {
 			return nil, err
+		}
+		if truncated {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_PARTIAL, "%s", reason)
 		}
 		return payload, nil
 	default:
@@ -280,88 +283,54 @@ func miningPoolConfigsFromSDK(pools []sdk.ConfiguredPool) []*pb.MiningPoolConfig
 	return configured
 }
 
-func getErrorsResultPayload(targetDeviceID string, deviceErrors sdk.DeviceErrors) ([]byte, error) {
-	result, err := getErrorsResultFromSDK(targetDeviceID, deviceErrors)
+func getErrorsResultPayload(targetDeviceID string, deviceErrors sdk.DeviceErrors) ([]byte, bool, string, error) {
+	result, omittedReports, err := getErrorsResultFromSDK(targetDeviceID, deviceErrors)
 	if err != nil {
-		return nil, err
+		return nil, false, "", err
+	}
+	if omittedReports > 0 {
+		return nil, true, fmt.Sprintf("get errors result has %d report(s); max %d can be returned in one control ack", omittedReports+len(result.GetErrors()), maxGetErrorsReports), nil
 	}
 	if err := protovalidate.Validate(result); err != nil {
-		return nil, fmt.Errorf("invalid get errors result: %w", err)
+		return nil, false, "", fmt.Errorf("invalid get errors result: %w", err)
 	}
 	payload, err := proto.Marshal(result)
 	if err != nil {
-		return nil, fmt.Errorf("marshal get errors result: %w", err)
+		return nil, false, "", fmt.Errorf("marshal get errors result: %w", err)
 	}
 	if len(payload) > maxAckPayloadBytes {
-		payload, err = marshalGetErrorsResultWithinAckLimit(result)
-		if err != nil {
-			return nil, err
-		}
+		return nil, true, fmt.Sprintf("get errors result payload is %d bytes; max %d can be returned in one control ack", len(payload), maxAckPayloadBytes), nil
 	}
-	return payload, nil
+	return payload, false, "", nil
 }
 
-func marshalGetErrorsResultWithinAckLimit(result *pb.GetErrorsResult) ([]byte, error) {
-	originalErrors := result.Errors
-	low, high := 0, len(originalErrors)
-	for low < high {
-		mid := (low + high + 1) / 2
-		result.Errors = originalErrors[:mid]
-		payload, err := proto.Marshal(result)
-		if err != nil {
-			return nil, fmt.Errorf("marshal get errors result: %w", err)
-		}
-		if len(payload) <= maxAckPayloadBytes {
-			low = mid
-		} else {
-			high = mid - 1
-		}
-	}
-
-	result.Errors = originalErrors[:low]
-	payload, err := proto.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("marshal get errors result: %w", err)
-	}
-	if len(payload) > maxAckPayloadBytes {
-		return nil, fmt.Errorf("marshal get errors result: payload is %d bytes, max %d", len(payload), maxAckPayloadBytes)
-	}
-	return payload, nil
-}
-
-func getErrorsResultFromSDK(targetDeviceID string, deviceErrors sdk.DeviceErrors) (*pb.GetErrorsResult, error) {
-	deviceID := deviceErrors.DeviceID
-	if deviceID == "" {
-		deviceID = targetDeviceID
-	}
+func getErrorsResultFromSDK(targetDeviceID string, deviceErrors sdk.DeviceErrors) (*pb.GetErrorsResult, int, error) {
 	pluginErrors := deviceErrors.Errors
+	omittedReports := 0
 	if len(pluginErrors) > maxGetErrorsReports {
+		omittedReports = len(pluginErrors) - maxGetErrorsReports
 		pluginErrors = pluginErrors[:maxGetErrorsReports]
 	}
 	result := &pb.GetErrorsResult{
-		DeviceId: deviceID,
+		DeviceId: targetDeviceID,
 		Errors:   make([]*pb.MinerErrorReport, 0, len(pluginErrors)),
 	}
 	for _, sdkErr := range pluginErrors {
-		errorDeviceID := sdkErr.DeviceID
-		if errorDeviceID == "" {
-			errorDeviceID = deviceID
-		}
 		minerError, err := gatewayMinerError(sdkErr.MinerError)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		severity, err := gatewaySeverity(sdkErr.Severity)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		componentType, err := gatewayComponentType(sdkErr.ComponentType)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		vendorAttributes, err := boundedVendorAttributes(sdkErr.VendorAttributes)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		report := &pb.MinerErrorReport{
 			MinerError:        minerError,
@@ -369,7 +338,7 @@ func getErrorsResultFromSDK(targetDeviceID string, deviceErrors sdk.DeviceErrors
 			RecommendedAction: sdkErr.RecommendedAction,
 			Severity:          severity,
 			VendorAttributes:  vendorAttributes,
-			DeviceId:          errorDeviceID,
+			DeviceId:          targetDeviceID,
 			ComponentId:       sdkErr.ComponentID,
 			Impact:            sdkErr.Impact,
 			Summary:           sdkErr.Summary,
@@ -386,7 +355,7 @@ func getErrorsResultFromSDK(targetDeviceID string, deviceErrors sdk.DeviceErrors
 		}
 		result.Errors = append(result.Errors, report)
 	}
-	return result, nil
+	return result, omittedReports, nil
 }
 
 func gatewayMinerError(value sdk.MinerError) (errorspb.MinerError, error) {

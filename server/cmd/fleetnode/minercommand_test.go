@@ -259,7 +259,7 @@ func TestHandleMinerCommand_GetErrorsReturnsPayload(t *testing.T) {
 	componentID := "psu-0"
 	dev := mocks.NewMockDevice(ctrl)
 	dev.EXPECT().GetErrors(gomock.Any()).Return(sdk.DeviceErrors{
-		DeviceID: "dev-1",
+		DeviceID: "plugin-local-id",
 		Errors: []sdk.DeviceError{{
 			MinerError:        1003,
 			CauseSummary:      "PSU fault",
@@ -270,7 +270,7 @@ func TestHandleMinerCommand_GetErrorsReturnsPayload(t *testing.T) {
 			VendorAttributes: map[string]string{
 				"vendor_code": "PSU_001",
 			},
-			DeviceID:      "dev-1",
+			DeviceID:      "plugin-report-id",
 			ComponentID:   &componentID,
 			Impact:        "Stops mining",
 			Summary:       "Power supply fault detected",
@@ -361,7 +361,7 @@ func TestGetErrorsResultFromSDKRejectsInvalidPluginErrorData(t *testing.T) {
 			tc.mutate(&sdkErr)
 
 			// Act
-			_, err := getErrorsResultFromSDK("dev-1", sdk.DeviceErrors{
+			_, _, err := getErrorsResultFromSDK("dev-1", sdk.DeviceErrors{
 				DeviceID: "dev-1",
 				Errors:   []sdk.DeviceError{sdkErr},
 			})
@@ -386,18 +386,27 @@ func TestGetErrorsResultFromSDKCapsPluginErrorCountBeforeConversion(t *testing.T
 	}
 
 	// Act
-	result, err := getErrorsResultFromSDK("dev-1", sdk.DeviceErrors{
+	result, omitted, err := getErrorsResultFromSDK("dev-1", sdk.DeviceErrors{
 		DeviceID: "dev-1",
 		Errors:   pluginErrors,
 	})
 
 	// Assert
 	require.NoError(t, err)
+	assert.Equal(t, 88, omitted)
 	require.Len(t, result.GetErrors(), maxGetErrorsReports)
 	require.NoError(t, protovalidate.Validate(result))
+
+	_, truncated, reason, err := getErrorsResultPayload("dev-1", sdk.DeviceErrors{
+		DeviceID: "dev-1",
+		Errors:   pluginErrors,
+	})
+	require.NoError(t, err)
+	assert.True(t, truncated)
+	assert.Contains(t, reason, "max 512")
 }
 
-func TestHandleMinerCommand_GetErrorsTruncatesOversizedPayload(t *testing.T) {
+func TestHandleMinerCommand_GetErrorsReturnsPartialForOversizedPayload(t *testing.T) {
 	// Arrange
 	ctrl := gomock.NewController(t)
 	pluginErrors := make([]sdk.DeviceError, 512)
@@ -428,18 +437,10 @@ func TestHandleMinerCommand_GetErrorsTruncatesOversizedPayload(t *testing.T) {
 
 	// Assert
 	got := ack.only(t)
-	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
-	assert.True(t, got.GetSucceeded())
-	require.LessOrEqual(t, len(got.GetPayload()), maxAckPayloadBytes)
-
-	var result pb.GetErrorsResult
-	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
-	require.NotEmpty(t, result.GetErrors())
-	assert.Less(t, len(result.GetErrors()), len(pluginErrors))
-	for _, report := range result.GetErrors() {
-		assert.Equal(t, "dev-1", report.GetDeviceId())
-		assert.Equal(t, verboseSummary, report.GetSummary())
-	}
+	assert.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, got.GetCode())
+	assert.False(t, got.GetSucceeded())
+	assert.Empty(t, got.GetPayload())
+	assert.Contains(t, got.GetErrorMessage(), "max")
 }
 
 func TestHandleMinerCommand_GetMiningPoolsTrimsUnsupportedPoolSlots(t *testing.T) {
