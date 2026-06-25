@@ -2,8 +2,8 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { getFirstAllowedSecondaryNavPath } from "@/protoFleet/config/navItems";
 import SettingsLayout from "./SettingsLayout";
+import { getFirstAllowedSecondaryNavPath } from "@/protoFleet/config/navItems";
 
 const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
 const activeSiteMock = vi.hoisted(() => ({ current: { kind: "all" } as { kind: string; id?: string } }));
