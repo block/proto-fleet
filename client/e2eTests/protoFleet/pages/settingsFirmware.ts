@@ -55,7 +55,7 @@ export class SettingsFirmwarePage extends BasePage {
     const deleteAllDialog = this.page.getByTestId("delete-all-firmware-dialog");
     await deleteAllDialog.getByRole("button", { name: "Delete all" }).click();
     await expect(deleteAllDialog).toBeHidden();
-    await expect(deleteAllButton).toBeDisabled();
+    await expect(deleteAllButton).toBeHidden();
     await expect(emptyState).toBeVisible();
   }
 }
