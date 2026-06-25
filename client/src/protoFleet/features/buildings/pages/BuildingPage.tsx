@@ -5,6 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import BuildingMetricsRow from "../components/BuildingMetricsRow";
 import BuildingModals from "../components/BuildingModals";
 import BuildingPageHeader from "../components/BuildingPageHeader";
+import { BuildingRackGrid } from "../components/BuildingRackGrid";
 import { useBuildingModals } from "../hooks/useBuildingModals";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type Building, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
@@ -281,10 +282,21 @@ const BuildingPage = () => {
           <BuildingMetricsRow powerCapacityKw={effectiveBuilding.powerKw} stats={stats} />
         </section>
 
-        {/* Diagnostics: rack-health module (FPO) + component health */}
+        {/* Diagnostics: building rack grid + component health */}
         <section className="p-6 laptop:p-10">
-          <div className="flex flex-col gap-1">
-            <PlaceholderBlock label="Rack health module — #264" className="h-64" />
+          <div className="flex flex-col gap-6">
+            {stats ? (
+              <BuildingRackGrid
+                rackHealth={stats.rackHealth}
+                aisles={effectiveBuilding.aisles}
+                racksPerAisle={effectiveBuilding.racksPerAisle}
+              />
+            ) : (
+              <PlaceholderBlock
+                label={statsError ? "Rack health unavailable" : "Loading rack health…"}
+                className="h-64"
+              />
+            )}
             <FleetErrors
               controlBoardErrors={controlBoardErrors}
               fanErrors={fanErrors}

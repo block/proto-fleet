@@ -22,7 +22,7 @@ vi.mock("@/protoFleet/api/useBuildingStats", () => ({
   useBuildingStats: () => ({
     stats: {
       deviceIdentifiers: [],
-      rackCount: 0,
+      rackCount: 2,
       deviceCount: 0,
       reportingCount: 0,
       hashrateReportingCount: 0,
@@ -35,6 +35,28 @@ vi.mock("@/protoFleet/api/useBuildingStats", () => ({
       brokenCount: 0,
       offlineCount: 0,
       sleepingCount: 0,
+      rackHealth: [
+        {
+          rackId: 1n,
+          rackLabel: "R01",
+          aisleIndex: 0,
+          positionInAisle: 0,
+          hashingCount: 8,
+          brokenCount: 0,
+          offlineCount: 0,
+          sleepingCount: 0,
+        },
+        {
+          rackId: 2n,
+          rackLabel: "R02",
+          aisleIndex: 0,
+          positionInAisle: 1,
+          hashingCount: 6,
+          brokenCount: 1,
+          offlineCount: 0,
+          sleepingCount: 0,
+        },
+      ],
     },
     error: null,
     hasLoaded: true,
@@ -108,6 +130,8 @@ describe("BuildingPage", () => {
           id: 123n,
           name: "Building A",
           siteId: 8n,
+          aisles: 1,
+          racksPerAisle: 2,
         }),
       ),
     );
@@ -140,6 +164,15 @@ describe("BuildingPage", () => {
     fireEvent.click(screen.getByTestId("building-page-view-racks"));
 
     expect(screen.getByTestId("location-probe")).toHaveTextContent("/austin/fleet/racks?building=123");
+  });
+
+  it("renders the building rack grid from building stats", async () => {
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId("building-rack-grid")).toBeVisible());
+
+    expect(screen.getByTestId("building-rack-grid-tile-R01")).toBeVisible();
+    expect(screen.getByTestId("building-rack-grid-tile-R02")).toBeVisible();
   });
 
   it("uses all-sites fleet routes when all-sites is selected", async () => {
