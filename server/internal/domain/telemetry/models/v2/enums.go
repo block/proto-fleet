@@ -1,6 +1,9 @@
 package models
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 const (
 	metricKindUnknownStr      = "metric_kind_unknown"
@@ -52,16 +55,27 @@ func (mk *MetricKind) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements json.Unmarshaler for MetricKind.
 func (mk *MetricKind) UnmarshalJSON(data []byte) error {
-	if len(data) < 2 || data[0] != '"' || data[len(data)-1] != '"' {
-		return fmt.Errorf("invalid JSON string for MetricKind")
+	if len(data) >= 2 && data[0] == '"' && data[len(data)-1] == '"' {
+		s := string(data[1 : len(data)-1])
+		parsed, err := ParseMetricKind(s)
+		if err != nil {
+			return err
+		}
+		*mk = parsed
+		return nil
 	}
-	s := string(data[1 : len(data)-1])
-	parsed, err := ParseMetricKind(s)
+	n, err := strconv.Atoi(string(data))
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid JSON value for MetricKind: %w", err)
 	}
-	*mk = parsed
-	return nil
+	parsed := MetricKind(n)
+	switch parsed {
+	case MetricKindUnknown, MetricKindGauge, MetricKindRate, MetricKindCounter:
+		*mk = parsed
+		return nil
+	default:
+		return fmt.Errorf("invalid metric kind: %d", n)
+	}
 }
 
 // ParseMetricKind parses a string into a MetricKind.
@@ -140,16 +154,27 @@ func (h *HealthStatus) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements json.Unmarshaler for HealthStatus.
 func (h *HealthStatus) UnmarshalJSON(data []byte) error {
-	if len(data) < 2 || data[0] != '"' || data[len(data)-1] != '"' {
-		return fmt.Errorf("invalid JSON string for HealthStatus")
+	if len(data) >= 2 && data[0] == '"' && data[len(data)-1] == '"' {
+		s := string(data[1 : len(data)-1])
+		parsed, err := ParseHealthStatus(s)
+		if err != nil {
+			return err
+		}
+		*h = parsed
+		return nil
 	}
-	s := string(data[1 : len(data)-1])
-	parsed, err := ParseHealthStatus(s)
+	n, err := strconv.Atoi(string(data))
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid JSON value for HealthStatus: %w", err)
 	}
-	*h = parsed
-	return nil
+	parsed := HealthStatus(n)
+	switch parsed {
+	case HealthUnknown, HealthHealthyActive, HealthHealthyInactive, HealthWarning, HealthCritical:
+		*h = parsed
+		return nil
+	default:
+		return fmt.Errorf("invalid health status: %d", n)
+	}
 }
 
 // ParseHealthStatus parses a string into a HealthStatus.
@@ -219,16 +244,27 @@ func (cs *ComponentStatus) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements json.Unmarshaler for ComponentStatus.
 func (cs *ComponentStatus) UnmarshalJSON(data []byte) error {
-	if len(data) < 2 || data[0] != '"' || data[len(data)-1] != '"' {
-		return fmt.Errorf("invalid JSON string for ComponentStatus")
+	if len(data) >= 2 && data[0] == '"' && data[len(data)-1] == '"' {
+		s := string(data[1 : len(data)-1])
+		parsed, err := ParseComponentStatus(s)
+		if err != nil {
+			return err
+		}
+		*cs = parsed
+		return nil
 	}
-	s := string(data[1 : len(data)-1])
-	parsed, err := ParseComponentStatus(s)
+	n, err := strconv.Atoi(string(data))
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid JSON value for ComponentStatus: %w", err)
 	}
-	*cs = parsed
-	return nil
+	parsed := ComponentStatus(n)
+	switch parsed {
+	case ComponentStatusUnknown, ComponentStatusHealthy, ComponentStatusWarning, ComponentStatusCritical, ComponentStatusOffline, ComponentStatusDisabled:
+		*cs = parsed
+		return nil
+	default:
+		return fmt.Errorf("invalid component status: %d", n)
+	}
 }
 
 // ParseComponentStatus parses a string into a ComponentStatus.
@@ -301,16 +337,27 @@ func (ct *ComponentType) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements json.Unmarshaler for ComponentType.
 func (ct *ComponentType) UnmarshalJSON(data []byte) error {
-	if len(data) < 2 || data[0] != '"' || data[len(data)-1] != '"' {
-		return fmt.Errorf("invalid JSON string for ComponentType")
+	if len(data) >= 2 && data[0] == '"' && data[len(data)-1] == '"' {
+		s := string(data[1 : len(data)-1])
+		parsed, err := ParseComponentType(s)
+		if err != nil {
+			return err
+		}
+		*ct = parsed
+		return nil
 	}
-	s := string(data[1 : len(data)-1])
-	parsed, err := ParseComponentType(s)
+	n, err := strconv.Atoi(string(data))
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid JSON value for ComponentType: %w", err)
 	}
-	*ct = parsed
-	return nil
+	parsed := ComponentType(n)
+	switch parsed {
+	case ComponentTypeUnknown, ComponentTypeHashBoard, ComponentTypeFan, ComponentTypePSU, ComponentTypeControlBoard, ComponentTypeSensor:
+		*ct = parsed
+		return nil
+	default:
+		return fmt.Errorf("invalid component type: %d", n)
+	}
 }
 
 // ParseComponentType parses a string into a ComponentType.

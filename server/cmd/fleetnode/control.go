@@ -272,6 +272,8 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		r.handleMinerCommand(ctx, stream, commandID, k.MinerCommand, logger)
 	case *pb.AgentCommand_Pair:
 		r.handlePairCommand(ctx, client, stream, commandID, k.Pair, logger)
+	case *pb.AgentCommand_Telemetry:
+		r.handleTelemetryCommand(ctx, stream, commandID, k.Telemetry, logger)
 	default:
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, "AgentCommand has no recognized command kind", logger)
 	}
@@ -580,9 +582,9 @@ type pluginDiscoverer struct {
 	fleetNodeID int64
 }
 
-// newPluginComponents builds the discoverer and pairer over one shared manager
+// newPluginComponents builds the discoverer, pairer, and telemetry fetcher over one shared manager
 // so the node loads plugins only once.
-func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID int64, credentials credentialSealer) (*pluginDiscoverer, *pluginPairer, func(), error) {
+func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID int64, credentials *credentialCodec) (*pluginDiscoverer, *pluginPairer, *pluginTelemetryFetcher, func(), error) {
 	// Manager.Shutdown waits the full grace period even when a plugin already
 	// exited, so keep it tight; a stuck plugin still gets killed.
 	manager := plugins.NewManager(&plugins.Config{
@@ -601,7 +603,7 @@ func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID 
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		_ = manager.Shutdown(shutdownCtx)
 		shutdownCancel()
-		return nil, nil, func() {}, fmt.Errorf("load plugins: %w", err)
+		return nil, nil, nil, func() {}, fmt.Errorf("load plugins: %w", err)
 	}
 	// Parent ctx is typically already cancelled by a signal when cleanup
 	// runs; use a fresh background ctx bounded by the same 10s budget.
@@ -611,12 +613,17 @@ func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID 
 		_ = manager.Shutdown(shutdownCtx)
 	}
 	prr := newPluginPairer(manager, credentials)
+	tf, err := newPluginTelemetryFetcher(manager, credentials)
+	if err != nil {
+		cleanup()
+		return nil, nil, nil, func() {}, fmt.Errorf("init telemetry fetcher: %w", err)
+	}
 	disc := &pluginDiscoverer{
 		multi:       plugins.NewMultiTypeDiscoverer(manager),
 		svc:         plugins.NewService(manager),
 		fleetNodeID: fleetNodeID,
 	}
-	return disc, prr, cleanup, nil
+	return disc, prr, tf, cleanup, nil
 }
 
 func (p *pluginDiscoverer) Probe(ctx context.Context, ipAddress, port string) (*pb.DiscoveredDeviceReport, error) {

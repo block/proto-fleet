@@ -13,6 +13,7 @@ import "curtailment/v1/curtailment.proto";
 import "google/protobuf/timestamp.proto";
 import "minercommand/v1/command.proto";
 import "pairing/v1/pairing.proto";
+import "telemetry/v1/telemetry.proto";
 
 service FleetNodeGatewayService {
     rpc Register(RegisterRequest) returns (RegisterResponse);
@@ -312,6 +313,7 @@ message GetMiningPoolsResult {
 // into this envelope exactly once and later arms are purely additive:
 //   2 = FleetNodePairRequest pair    (fleet-node pairing path)
 //   3 = MinerCommand miner_command   (per-miner command path)
+//   4 = FleetNodeTelemetryRequest telemetry (per-miner telemetry path)
 message AgentCommand {
     oneof command {
         option (buf.validate.oneof).required = true;
@@ -319,6 +321,7 @@ message AgentCommand {
         pairing.v1.DiscoverRequest discover = 1;
         pairing.v1.FleetNodePairRequest pair = 2;
         MinerCommand miner_command = 3;
+        telemetry.v1.FleetNodeTelemetryRequest telemetry = 4;
     }
 }
 
@@ -357,4 +360,7 @@ enum AckCode {
     // UNIMPLEMENTED: the device (or this agent) does not support the requested
     // command, e.g. a curtail level the model can't honor.
     ACK_CODE_UNIMPLEMENTED   = 10;
+    // FORBIDDEN: the miner denied access for a non-authentication remediation
+    // reason, e.g. default-password lockout.
+    ACK_CODE_FORBIDDEN       = 11;
 }

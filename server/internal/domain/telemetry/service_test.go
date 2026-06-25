@@ -111,6 +111,30 @@ func TestTelemetryService_AddDevices(t *testing.T) {
 	}
 }
 
+func TestTelemetryService_AddDevicesReturnsWhenTaskQueueFullAndContextCanceled(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	service := NewTelemetryService(Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   1,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service.tasks <- models.Device{ID: "already-queued"}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+
+	err := service.AddDevices(ctx, "blocked-device")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "enqueue telemetry device blocked-device")
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
 func TestTelemetryService_RemoveDevices(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

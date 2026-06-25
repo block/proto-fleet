@@ -13,7 +13,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
-	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 )
 
@@ -77,10 +76,10 @@ func TestMinerService_ResolvesFleetNodePairedDeviceToRemoteMiner(t *testing.T) {
 	// Act
 	m, err := svc.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(deviceIdentifier))
 
-	// Assert: routed to the remote-node adapter, and commands reach the sender.
+	// Assert: routed to the fleet-node remote adapter, and commands reach the sender.
 	require.NoError(t, err)
-	_, ok := m.(*remotenode.Miner)
-	require.True(t, ok, "fleet-node-paired device should resolve to a remote-node miner")
+	_, ok := m.(*miner.RemoteFleetNodeMiner)
+	require.True(t, ok, "fleet-node-paired device should resolve to the remote telemetry wrapper")
 
 	require.NoError(t, m.Reboot(t.Context()))
 	assert.True(t, sender.called, "command should dispatch over the ControlStream sender")
@@ -287,8 +286,8 @@ func TestMinerService_RoutesDefaultPasswordFleetNodeDeviceForCommands(t *testing
 
 	m, err := svc.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(deviceIdentifier))
 	require.NoError(t, err)
-	_, ok := m.(*remotenode.Miner)
-	require.True(t, ok, "default-password command resolution should keep fleet-node routing")
+	_, ok := m.(*miner.RemoteFleetNodeMiner)
+	require.True(t, ok, "default-password command resolution should keep fleet-node remote routing")
 
 	require.NoError(t, m.Reboot(t.Context()))
 	assert.True(t, sender.called, "remediation miner should dispatch over the ControlStream sender")
