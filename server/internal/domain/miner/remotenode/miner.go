@@ -18,6 +18,7 @@ import (
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -417,25 +418,28 @@ func sdkDeviceErrorsFromResult(result *gatewaypb.GetErrorsResult) (sdk.DeviceErr
 	return out, nil
 }
 
-func sdkMinerError(value uint32) (sdk.MinerError, error) {
-	if value > math.MaxInt32 {
-		return sdk.MinerError(0), fleeterror.NewInternalErrorf("invalid get errors result: miner_error %d exceeds int32 maximum", value)
+func sdkMinerError(value errorspb.MinerError) (sdk.MinerError, error) {
+	raw := int32(value)
+	if _, ok := errorspb.MinerError_name[raw]; !ok {
+		return sdk.MinerError(0), fleeterror.NewInternalErrorf("invalid get errors result: miner_error %d is not defined", raw)
 	}
-	return sdk.MinerError(int32(value)), nil //nolint:gosec // checked above before narrowing.
+	return sdk.MinerError(raw), nil
 }
 
-func sdkSeverity(value uint32) (sdk.Severity, error) {
-	if value > math.MaxInt32 {
-		return sdk.Severity(0), fleeterror.NewInternalErrorf("invalid get errors result: severity %d exceeds int32 maximum", value)
+func sdkSeverity(value errorspb.Severity) (sdk.Severity, error) {
+	raw := int32(value)
+	if _, ok := errorspb.Severity_name[raw]; !ok {
+		return sdk.Severity(0), fleeterror.NewInternalErrorf("invalid get errors result: severity %d is not defined", raw)
 	}
-	return sdk.Severity(int32(value)), nil //nolint:gosec // checked above before narrowing.
+	return sdk.Severity(raw), nil
 }
 
-func sdkComponentType(value uint32) (sdk.ComponentType, error) {
-	if value > math.MaxInt32 {
-		return sdk.ComponentType(0), fleeterror.NewInternalErrorf("invalid get errors result: component_type %d exceeds int32 maximum", value)
+func sdkComponentType(value errorspb.ComponentType) (sdk.ComponentType, error) {
+	raw := int32(value)
+	if _, ok := errorspb.ComponentType_name[raw]; !ok {
+		return sdk.ComponentType(0), fleeterror.NewInternalErrorf("invalid get errors result: component_type %d is not defined", raw)
 	}
-	return sdk.ComponentType(int32(value)), nil //nolint:gosec // checked above before narrowing.
+	return sdk.ComponentType(raw), nil
 }
 
 func miningPoolConfigsFromPayload(payload dto.UpdateMiningPoolsPayload) ([]*gatewaypb.MiningPoolConfig, error) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -16,9 +17,11 @@ import (
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	sdkerrors "github.com/block/proto-fleet/server/sdk/v1/errors"
 	"github.com/block/proto-fleet/server/sdk/v1/mocks"
 )
 
@@ -293,10 +296,10 @@ func TestHandleMinerCommand_GetErrorsReturnsPayload(t *testing.T) {
 	assert.Equal(t, "dev-1", result.GetDeviceId())
 	require.Len(t, result.GetErrors(), 1)
 	errReport := result.GetErrors()[0]
-	assert.Equal(t, uint32(1003), errReport.GetMinerError())
+	assert.Equal(t, errorspb.MinerError_MINER_ERROR_PSU_FAULT_GENERIC, errReport.GetMinerError())
 	assert.Equal(t, "PSU fault", errReport.GetCauseSummary())
 	assert.Equal(t, "Replace PSU", errReport.GetRecommendedAction())
-	assert.Equal(t, uint32(1), errReport.GetSeverity())
+	assert.Equal(t, errorspb.Severity_SEVERITY_CRITICAL, errReport.GetSeverity())
 	assert.Equal(t, now, errReport.GetFirstSeenAt().AsTime())
 	assert.Equal(t, now.Add(time.Minute), errReport.GetLastSeenAt().AsTime())
 	assert.Equal(t, "PSU_001", errReport.GetVendorAttributes()["vendor_code"])
@@ -304,7 +307,69 @@ func TestHandleMinerCommand_GetErrorsReturnsPayload(t *testing.T) {
 	assert.Equal(t, &componentID, errReport.ComponentId)
 	assert.Equal(t, "Stops mining", errReport.GetImpact())
 	assert.Equal(t, "Power supply fault detected", errReport.GetSummary())
-	assert.Equal(t, uint32(1), errReport.GetComponentType())
+	assert.Equal(t, errorspb.ComponentType_COMPONENT_TYPE_PSU, errReport.GetComponentType())
+}
+
+func TestGetErrorsResultFromSDKRejectsInvalidPluginErrorData(t *testing.T) {
+	validError := func() sdk.DeviceError {
+		return sdk.DeviceError{
+			MinerError:       sdkerrors.PSUFaultGeneric,
+			Severity:         sdkerrors.SeverityCritical,
+			VendorAttributes: map[string]string{"vendor_code": "PSU_001"},
+			DeviceID:         "dev-1",
+			ComponentType:    sdkerrors.ComponentTypePSU,
+		}
+	}
+	tooManyAttributes := make(map[string]string, maxErrorVendorAttributes+1)
+	for i := range maxErrorVendorAttributes + 1 {
+		tooManyAttributes[fmt.Sprintf("key-%d", i)] = "value"
+	}
+
+	cases := []struct {
+		name    string
+		mutate  func(*sdk.DeviceError)
+		wantErr string
+	}{
+		{"undefined miner error", func(err *sdk.DeviceError) {
+			err.MinerError = sdk.MinerError(123456)
+		}, "miner_error 123456 is not defined"},
+		{"undefined severity", func(err *sdk.DeviceError) {
+			err.Severity = sdk.Severity(99)
+		}, "severity 99 is not defined"},
+		{"undefined component type", func(err *sdk.DeviceError) {
+			err.ComponentType = sdk.ComponentType(99)
+		}, "component_type 99 is not defined"},
+		{"too many vendor attributes", func(err *sdk.DeviceError) {
+			err.VendorAttributes = tooManyAttributes
+		}, "vendor_attributes has 33 entries"},
+		{"empty vendor attribute key", func(err *sdk.DeviceError) {
+			err.VendorAttributes = map[string]string{"": "value"}
+		}, "vendor_attributes key must not be empty"},
+		{"long vendor attribute key", func(err *sdk.DeviceError) {
+			err.VendorAttributes = map[string]string{strings.Repeat("k", maxErrorVendorAttributeKeyLen+1): "value"}
+		}, "vendor_attributes key"},
+		{"long vendor attribute value", func(err *sdk.DeviceError) {
+			err.VendorAttributes = map[string]string{"key": strings.Repeat("v", maxErrorVendorAttributeValueLen+1)}
+		}, "vendor_attributes value for key"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			sdkErr := validError()
+			tc.mutate(&sdkErr)
+
+			// Act
+			_, err := getErrorsResultFromSDK("dev-1", sdk.DeviceErrors{
+				DeviceID: "dev-1",
+				Errors:   []sdk.DeviceError{sdkErr},
+			})
+
+			// Assert
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
 }
 
 func TestHandleMinerCommand_GetMiningPoolsTrimsUnsupportedPoolSlots(t *testing.T) {

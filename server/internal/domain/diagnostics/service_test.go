@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
@@ -152,8 +153,8 @@ func TestPollErrors_WithRemoteNodeMiner_ShouldDispatchAndUpsertErrors(t *testing
 	payload, err := proto.Marshal(&gatewaypb.GetErrorsResult{
 		DeviceId: "dev-remote",
 		Errors: []*gatewaypb.MinerErrorReport{{
-			MinerError:   1003,
-			Severity:     1,
+			MinerError:   errorspb.MinerError_MINER_ERROR_PSU_FAULT_GENERIC,
+			Severity:     errorspb.Severity_SEVERITY_CRITICAL,
 			FirstSeenAt:  timestamppb.New(now),
 			LastSeenAt:   timestamppb.New(now.Add(time.Minute)),
 			DeviceId:     "dev-remote",
@@ -162,7 +163,7 @@ func TestPollErrors_WithRemoteNodeMiner_ShouldDispatchAndUpsertErrors(t *testing
 			VendorAttributes: map[string]string{
 				"vendor_code": "PSU_001",
 			},
-			ComponentType: 1,
+			ComponentType: errorspb.ComponentType_COMPONENT_TYPE_PSU,
 		}},
 	})
 	require.NoError(t, err)

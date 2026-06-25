@@ -16,6 +16,7 @@ import (
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/sv2"
@@ -29,8 +30,11 @@ import (
 var minerCommandTimeout = 25 * time.Second
 
 const (
-	supportedMiningPoolSlots       = 3
-	maxSupportedMiningPoolPriority = supportedMiningPoolSlots - 1
+	supportedMiningPoolSlots        = 3
+	maxSupportedMiningPoolPriority  = supportedMiningPoolSlots - 1
+	maxErrorVendorAttributes        = 32
+	maxErrorVendorAttributeKeyLen   = 128
+	maxErrorVendorAttributeValueLen = 1024
 )
 
 // driverGetter is the plugin-manager seam the executor needs; *plugins.Manager satisfies it.
@@ -304,15 +308,19 @@ func getErrorsResultFromSDK(targetDeviceID string, deviceErrors sdk.DeviceErrors
 		if errorDeviceID == "" {
 			errorDeviceID = deviceID
 		}
-		minerError, err := nonNegativeEnumUint32(int32(sdkErr.MinerError), "miner_error")
+		minerError, err := gatewayMinerError(sdkErr.MinerError)
 		if err != nil {
 			return nil, err
 		}
-		severity, err := nonNegativeEnumUint32(int32(sdkErr.Severity), "severity")
+		severity, err := gatewaySeverity(sdkErr.Severity)
 		if err != nil {
 			return nil, err
 		}
-		componentType, err := nonNegativeEnumUint32(int32(sdkErr.ComponentType), "component_type")
+		componentType, err := gatewayComponentType(sdkErr.ComponentType)
+		if err != nil {
+			return nil, err
+		}
+		vendorAttributes, err := boundedVendorAttributes(sdkErr.VendorAttributes)
 		if err != nil {
 			return nil, err
 		}
@@ -321,7 +329,7 @@ func getErrorsResultFromSDK(targetDeviceID string, deviceErrors sdk.DeviceErrors
 			CauseSummary:      sdkErr.CauseSummary,
 			RecommendedAction: sdkErr.RecommendedAction,
 			Severity:          severity,
-			VendorAttributes:  sdkErr.VendorAttributes,
+			VendorAttributes:  vendorAttributes,
 			DeviceId:          errorDeviceID,
 			ComponentId:       sdkErr.ComponentID,
 			Impact:            sdkErr.Impact,
@@ -342,11 +350,51 @@ func getErrorsResultFromSDK(targetDeviceID string, deviceErrors sdk.DeviceErrors
 	return result, nil
 }
 
-func nonNegativeEnumUint32(value int32, field string) (uint32, error) {
-	if value < 0 {
-		return 0, fmt.Errorf("invalid get errors result: %s must be non-negative, got %d", field, value)
+func gatewayMinerError(value sdk.MinerError) (errorspb.MinerError, error) {
+	raw := int32(value)
+	if _, ok := errorspb.MinerError_name[raw]; !ok {
+		return errorspb.MinerError_MINER_ERROR_UNSPECIFIED, fmt.Errorf("invalid get errors result: miner_error %d is not defined", raw)
 	}
-	return uint32(value), nil //nolint:gosec // value is checked non-negative before widening.
+	return errorspb.MinerError(raw), nil
+}
+
+func gatewaySeverity(value sdk.Severity) (errorspb.Severity, error) {
+	raw := int32(value)
+	if _, ok := errorspb.Severity_name[raw]; !ok {
+		return errorspb.Severity_SEVERITY_UNSPECIFIED, fmt.Errorf("invalid get errors result: severity %d is not defined", raw)
+	}
+	return errorspb.Severity(raw), nil
+}
+
+func gatewayComponentType(value sdk.ComponentType) (errorspb.ComponentType, error) {
+	raw := int32(value)
+	if _, ok := errorspb.ComponentType_name[raw]; !ok {
+		return errorspb.ComponentType_COMPONENT_TYPE_UNSPECIFIED, fmt.Errorf("invalid get errors result: component_type %d is not defined", raw)
+	}
+	return errorspb.ComponentType(raw), nil
+}
+
+func boundedVendorAttributes(attrs map[string]string) (map[string]string, error) {
+	if len(attrs) == 0 {
+		return nil, nil
+	}
+	if len(attrs) > maxErrorVendorAttributes {
+		return nil, fmt.Errorf("invalid get errors result: vendor_attributes has %d entries, max %d", len(attrs), maxErrorVendorAttributes)
+	}
+	bounded := make(map[string]string, len(attrs))
+	for key, value := range attrs {
+		if key == "" {
+			return nil, fmt.Errorf("invalid get errors result: vendor_attributes key must not be empty")
+		}
+		if len(key) > maxErrorVendorAttributeKeyLen {
+			return nil, fmt.Errorf("invalid get errors result: vendor_attributes key %q exceeds %d bytes", key, maxErrorVendorAttributeKeyLen)
+		}
+		if len(value) > maxErrorVendorAttributeValueLen {
+			return nil, fmt.Errorf("invalid get errors result: vendor_attributes value for key %q exceeds %d bytes", key, maxErrorVendorAttributeValueLen)
+		}
+		bounded[key] = value
+	}
+	return bounded, nil
 }
 
 // Reject undefined / non-actionable (UNSPECIFIED) enum values with BAD_REQUEST rather

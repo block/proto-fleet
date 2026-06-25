@@ -16,6 +16,7 @@ import (
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -187,10 +188,10 @@ func TestMiner_GetErrors_DecodesPayload(t *testing.T) {
 	payload, err := proto.Marshal(&gatewaypb.GetErrorsResult{
 		DeviceId: "dev-1",
 		Errors: []*gatewaypb.MinerErrorReport{{
-			MinerError:        1003,
+			MinerError:        errorspb.MinerError_MINER_ERROR_PSU_FAULT_GENERIC,
 			CauseSummary:      "PSU fault",
 			RecommendedAction: "Replace PSU",
-			Severity:          1,
+			Severity:          errorspb.Severity_SEVERITY_CRITICAL,
 			FirstSeenAt:       timestamppb.New(now),
 			LastSeenAt:        timestamppb.New(now.Add(time.Minute)),
 			ClosedAt:          timestamppb.New(closedAt),
@@ -202,7 +203,7 @@ func TestMiner_GetErrors_DecodesPayload(t *testing.T) {
 			ComponentId:   &componentID,
 			Impact:        "Stops mining",
 			Summary:       "Power supply fault detected",
-			ComponentType: 1,
+			ComponentType: errorspb.ComponentType_COMPONENT_TYPE_PSU,
 		}},
 	})
 	require.NoError(t, err)
@@ -279,7 +280,7 @@ func TestMiner_GetErrors_RejectsMismatchedErrorDeviceID(t *testing.T) {
 		Errors: []*gatewaypb.MinerErrorReport{{
 			DeviceId:      "other-device",
 			CauseSummary:  "wrong miner",
-			ComponentType: 1,
+			ComponentType: errorspb.ComponentType_COMPONENT_TYPE_PSU,
 		}},
 	})
 	require.NoError(t, err)
@@ -295,6 +296,76 @@ func TestMiner_GetErrors_RejectsMismatchedErrorDeviceID(t *testing.T) {
 	// Assert
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not match result device_id")
+}
+
+func TestMiner_GetErrors_RejectsInvalidPayloadData(t *testing.T) {
+	validReport := func() *gatewaypb.MinerErrorReport {
+		return &gatewaypb.MinerErrorReport{
+			DeviceId:      "dev-1",
+			MinerError:    errorspb.MinerError_MINER_ERROR_PSU_FAULT_GENERIC,
+			Severity:      errorspb.Severity_SEVERITY_CRITICAL,
+			ComponentType: errorspb.ComponentType_COMPONENT_TYPE_PSU,
+			VendorAttributes: map[string]string{
+				"vendor_code": "PSU_001",
+			},
+		}
+	}
+	tooManyAttributes := make(map[string]string, 33)
+	for i := range 33 {
+		tooManyAttributes[fmt.Sprintf("key-%d", i)] = "value"
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*gatewaypb.MinerErrorReport)
+	}{
+		{"undefined miner error", func(report *gatewaypb.MinerErrorReport) {
+			report.MinerError = errorspb.MinerError(123456)
+		}},
+		{"undefined severity", func(report *gatewaypb.MinerErrorReport) {
+			report.Severity = errorspb.Severity(99)
+		}},
+		{"undefined component type", func(report *gatewaypb.MinerErrorReport) {
+			report.ComponentType = errorspb.ComponentType(99)
+		}},
+		{"too many vendor attributes", func(report *gatewaypb.MinerErrorReport) {
+			report.VendorAttributes = tooManyAttributes
+		}},
+		{"empty vendor attribute key", func(report *gatewaypb.MinerErrorReport) {
+			report.VendorAttributes = map[string]string{"": "value"}
+		}},
+		{"long vendor attribute key", func(report *gatewaypb.MinerErrorReport) {
+			report.VendorAttributes = map[string]string{strings.Repeat("k", 129): "value"}
+		}},
+		{"long vendor attribute value", func(report *gatewaypb.MinerErrorReport) {
+			report.VendorAttributes = map[string]string{"key": strings.Repeat("v", 1025)}
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			report := validReport()
+			tc.mutate(report)
+			payload, err := proto.Marshal(&gatewaypb.GetErrorsResult{
+				DeviceId: "dev-1",
+				Errors:   []*gatewaypb.MinerErrorReport{report},
+			})
+			require.NoError(t, err)
+			m := newTestMiner(t, &fakeSender{ack: &gatewaypb.ControlAck{
+				Succeeded: true,
+				Code:      gatewaypb.AckCode_ACK_CODE_OK,
+				Payload:   payload,
+			}})
+
+			// Act
+			_, err = m.GetErrors(context.Background())
+
+			// Assert
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid get errors result")
+		})
+	}
 }
 
 func TestMiner_GetMiningPools_EmptyPayloadReturnsEmptyList(t *testing.T) {
