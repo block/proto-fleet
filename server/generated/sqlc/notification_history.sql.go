@@ -109,12 +109,14 @@ LEFT JOIN device d
 LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id
 WHERE na.organization_id = $1
   AND na.status = 'firing'
+  AND na.received_at >= $2 -- drop alerts not re-asserted within the freshness window
 ORDER BY na.received_at DESC, na.history_id DESC
-LIMIT $2
+LIMIT $3
 `
 
 type ListActiveNotificationsParams struct {
 	OrganizationID int64
+	ActiveSince    time.Time
 	PageLimit      int32
 }
 
@@ -139,7 +141,7 @@ type ListActiveNotificationsRow struct {
 // notification_active table, which also retains resolved tombstones; device name/MAC are joined live
 // so they reflect current device records.
 func (q *Queries) ListActiveNotifications(ctx context.Context, arg ListActiveNotificationsParams) ([]ListActiveNotificationsRow, error) {
-	rows, err := q.query(ctx, q.listActiveNotificationsStmt, listActiveNotifications, arg.OrganizationID, arg.PageLimit)
+	rows, err := q.query(ctx, q.listActiveNotificationsStmt, listActiveNotifications, arg.OrganizationID, arg.ActiveSince, arg.PageLimit)
 	if err != nil {
 		return nil, err
 	}
