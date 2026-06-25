@@ -3,6 +3,7 @@ package timescaledb_test
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -577,10 +578,12 @@ func insertTestMetrics(t *testing.T, db *sql.DB, deviceIdentifier string, ts tim
 func createTelemetryTestSite(t *testing.T, db *sql.DB, orgID int64, name string) int64 {
 	t.Helper()
 	var siteID int64
+	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
 	err := db.QueryRowContext(context.Background(),
-		"INSERT INTO site (org_id, name) VALUES ($1, $2) RETURNING id",
+		"INSERT INTO site (org_id, name, slug) VALUES ($1, $2, $3) RETURNING id",
 		orgID,
 		name,
+		slug,
 	).Scan(&siteID)
 	require.NoError(t, err)
 	return siteID
