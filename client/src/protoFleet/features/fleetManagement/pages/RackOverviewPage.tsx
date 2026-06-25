@@ -3,13 +3,17 @@ import { useParams } from "react-router-dom";
 
 import { create } from "@bufbuild/protobuf";
 
+import { useBuildings } from "@/protoFleet/api/buildings";
+import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import {
   type DeviceSet,
   type RackCoolingType,
   type RackOrderIndex,
   RackSlotPositionSchema,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { useSites } from "@/protoFleet/api/sites";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { useDeviceSetStateCounts } from "@/protoFleet/api/useDeviceSetStateCounts";
@@ -27,7 +31,7 @@ import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
-import { ChevronDown } from "@/shared/assets/icons";
+import Breadcrumb, { type BreadcrumbSegment } from "@/shared/components/Breadcrumb";
 import Button, { variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
@@ -54,6 +58,8 @@ const RackOverviewPage = () => {
   // Rack resolution state
   const [rack, setRack] = useState<DeviceSet | null>(null);
   const [memberDeviceIds, setMemberDeviceIds] = useState<string[] | null>(null);
+  const [sites, setSites] = useState<SiteWithCounts[]>([]);
+  const [allBuildings, setAllBuildings] = useState<BuildingWithCounts[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
@@ -63,6 +69,8 @@ const RackOverviewPage = () => {
   const actionActiveRef = useRef(false);
 
   const { getDeviceSet, listGroupMembers, assignDevicesToRack, setRackSlotPosition, deleteGroup } = useDeviceSets();
+  const { listAllBuildings } = useBuildings();
+  const { listSites } = useSites();
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);
@@ -141,6 +149,21 @@ const RackOverviewPage = () => {
     [getDeviceSet, listGroupMembers],
   );
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void listSites({
+      signal: controller.signal,
+      onSuccess: setSites,
+      onError: () => setSites([]),
+    });
+    void listAllBuildings({
+      signal: controller.signal,
+      onSuccess: setAllBuildings,
+      onError: () => setAllBuildings([]),
+    });
+    return () => controller.abort();
+  }, [listAllBuildings, listSites]);
+
   // Initial resolution from URL param
   useEffect(() => {
     if (!rackIdParam) {
@@ -176,6 +199,20 @@ const RackOverviewPage = () => {
   const cols = rackInfo?.columns ?? 1;
   const orderIndex = rackInfo?.orderIndex;
   const numberingOrigin = orderIndex !== undefined ? orderIndexToOrigin(orderIndex) : "bottom-left";
+  const siteNameById = useMemo(
+    () =>
+      new Map(sites.filter((row) => row.site !== undefined).map((row) => [row.site!.id.toString(), row.site!.name])),
+    [sites],
+  );
+  const buildingById = useMemo(
+    () =>
+      new Map(
+        allBuildings
+          .filter((row) => row.building !== undefined)
+          .map((row) => [row.building!.id.toString(), row.building!]),
+      ),
+    [allBuildings],
+  );
 
   const duration = useDuration();
   const setDuration = useSetDuration();
@@ -270,11 +307,33 @@ const RackOverviewPage = () => {
     );
   }
 
+  const rackBuildingId = rackInfo?.buildingId?.toString();
+  const rackBuilding = rackBuildingId ? buildingById.get(rackBuildingId) : undefined;
+  const rackSiteId = rackInfo?.siteId?.toString() ?? rackBuilding?.siteId?.toString();
+  const rackBreadcrumbSegments: BreadcrumbSegment[] = [];
+  if (rackSiteId) {
+    rackBreadcrumbSegments.push({ label: "Sites", to: "/fleet/sites" });
+    rackBreadcrumbSegments.push({ label: siteNameById.get(rackSiteId) ?? "Site", to: `/sites/${rackSiteId}` });
+    if (rackBuildingId) {
+      rackBreadcrumbSegments.push({
+        label: rackBuilding?.name || "Building",
+        to: `/buildings/${rackBuildingId}`,
+      });
+    }
+  } else {
+    rackBreadcrumbSegments.push({
+      label: "Racks",
+      to: rackSiteId ? `/racks?site=${rackSiteId}` : "/fleet/racks",
+    });
+  }
+  rackBreadcrumbSegments.push({ label: rack?.label ?? "Rack" });
+
   return (
     <div className="h-full">
       <div className="flex flex-col">
         {/* Header */}
         <div className="p-6 pb-0 laptop:p-10 laptop:pb-0">
+          <Breadcrumb segments={rackBreadcrumbSegments} testId="rack-page-breadcrumb" />
           <Header
             title={rack?.label ?? ""}
             titleSize="text-heading-300"
@@ -282,9 +341,7 @@ const RackOverviewPage = () => {
             subtitleSize="text-300"
             subtitleClassName="text-text-primary"
             inline
-            icon={<ChevronDown className="rotate-90" />}
-            iconAriaLabel="Back to racks"
-            iconOnClick={() => navigate(scopedPath("/fleet/racks", activeSite))}
+            className="mt-3"
           >
             <div className="ml-3 flex items-center gap-3">
               <Button
