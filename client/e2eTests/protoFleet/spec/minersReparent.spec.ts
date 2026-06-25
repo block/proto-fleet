@@ -8,15 +8,21 @@ import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fle
 
 type SiteManagementMode = "fleet";
 
+type PlacementRefSnapshot = {
+  id?: string;
+  label?: string;
+};
+
 type VisibleMinerSnapshot = {
   deviceIdentifier: string;
   ipAddress: string;
-  name: string;
   pairingStatus: PairingStatus;
-  rackLabel: string;
   rackPosition: string;
-  siteId?: string;
-  siteLabel: string;
+  placement?: {
+    site?: PlacementRefSnapshot;
+    building?: PlacementRefSnapshot;
+    rack?: PlacementRefSnapshot;
+  };
 };
 
 const LIST_MINERS_RESPONSE = "ListMinerStateSnapshots";
@@ -30,6 +36,13 @@ function getListRowByName(page: Page, name: string) {
   return page
     .getByTestId("list-row")
     .filter({ has: page.getByTestId("name").getByText(name, { exact: true }) })
+    .first();
+}
+
+function getMinerRowByIp(page: Page, ipAddress: string) {
+  return page
+    .getByTestId("list-row")
+    .filter({ has: page.getByText(ipAddress, { exact: true }) })
     .first();
 }
 
@@ -54,9 +67,7 @@ async function resetActiveSiteSelection(page: Page) {
 
 async function selectAllSitesIfNeeded(page: Page) {
   const sitePickerTrigger = page.getByTestId("site-picker-trigger");
-  if (!(await sitePickerTrigger.isVisible().catch(() => false))) {
-    return;
-  }
+  await test.expect(sitePickerTrigger).toBeVisible();
 
   const currentLabel = (await sitePickerTrigger.textContent())?.trim();
   if (currentLabel === "All sites") {
@@ -82,6 +93,8 @@ async function openSitesManagementPage(page: Page, mode: SiteManagementMode) {
   await selectAllSitesIfNeeded(page);
   await page.goto("/fleet/sites");
   await test.expect(page).toHaveURL(/\/fleet\/sites(?:[?#].*)?$/);
+  await test.expect(page.getByTestId("site-picker-trigger")).toContainText("All sites");
+  await test.expect(page.getByTestId("fleet-sites-redirecting")).toHaveCount(0);
   await test.expect(page.getByTestId("fleet-sites-page")).toBeVisible();
 }
 
@@ -166,8 +179,9 @@ async function clickRowAction(page: Page, label: string) {
 }
 
 async function selectParentPickerTarget(page: Page, label: string) {
-  await page.getByText(label, { exact: true }).click();
-  await page.getByTestId("modal").getByRole("button", { name: "Save", exact: true }).click();
+  const modal = page.getByTestId("modal");
+  await modal.getByText(label, { exact: true }).click();
+  await modal.getByRole("button", { name: "Save", exact: true }).click();
 }
 
 async function continueDialogIfVisible(page: Page, title: string) {
@@ -223,18 +237,45 @@ async function loadVisibleMiners({
   return await responsePromise;
 }
 
-function pickUnrackedPairedMiner(miners: VisibleMinerSnapshot[]): VisibleMinerSnapshot {
-  const candidate =
-    miners.find((miner) => miner.pairingStatus === PairingStatus.PAIRED && miner.rackLabel === "") ??
-    miners.find((miner) => miner.rackLabel === "") ??
-    miners.find((miner) => miner.pairingStatus === PairingStatus.PAIRED) ??
-    miners[0];
+function isBlankListCell(value: string | null | undefined): boolean {
+  const normalized = value?.trim();
+  return normalized === undefined || normalized === "" || normalized === "—";
+}
 
-  if (!candidate) {
-    throw new Error("Expected at least one visible miner for reparent coverage");
+async function isMinerSafeToRestore(page: Page, miner: VisibleMinerSnapshot): Promise<boolean> {
+  const row = getMinerRowByIp(page, miner.ipAddress);
+  if (!(await row.isVisible().catch(() => false))) {
+    return false;
   }
 
-  return candidate;
+  const buildingText = await row
+    .getByTestId("building")
+    .textContent()
+    .catch(() => null);
+  const rackText = await row
+    .getByTestId("rack")
+    .textContent()
+    .catch(() => null);
+  return isBlankListCell(buildingText) && isBlankListCell(rackText);
+}
+
+async function pickUnrackedPairedMiner(page: Page, miners: VisibleMinerSnapshot[]): Promise<VisibleMinerSnapshot> {
+  for (const miner of miners) {
+    if (miner.pairingStatus !== PairingStatus.PAIRED) {
+      continue;
+    }
+    if (await isMinerSafeToRestore(page, miner)) {
+      return miner;
+    }
+  }
+
+  for (const miner of miners) {
+    if (await isMinerSafeToRestore(page, miner)) {
+      return miner;
+    }
+  }
+
+  throw new Error("Expected at least one visible miner without building or rack placement for reparent coverage");
 }
 
 async function createSite(page: Page, name: string, mode: SiteManagementMode): Promise<bigint> {
@@ -259,7 +300,10 @@ async function deleteSite(page: Page, name: string, mode: SiteManagementMode) {
   await openRowActions(page, name);
   await clickRowAction(page, "Edit site");
   await clickManageSiteDelete(page);
-  await page.getByTestId("site-delete-dialog-confirm").click();
+  const confirmDeleteButton = page.getByTestId("site-delete-dialog-confirm");
+  await test.expect(confirmDeleteButton).toBeVisible();
+  await confirmDeleteButton.click({ trial: true });
+  await confirmDeleteButton.click();
   await test.expect(getListRowByName(page, name)).toHaveCount(0);
 }
 
@@ -292,7 +336,10 @@ async function deleteBuilding(page: Page, siteName: string, name: string, mode: 
   await openRowActions(page, name);
   await clickRowAction(page, "Edit building");
   await clickManageBuildingDelete(page);
-  await page.getByTestId("building-delete-dialog-confirm").click();
+  const confirmDeleteButton = page.getByTestId("building-delete-dialog-confirm");
+  await test.expect(confirmDeleteButton).toBeVisible();
+  await confirmDeleteButton.click({ trial: true });
+  await confirmDeleteButton.click();
   await test.expect(getListRowByName(page, name)).toHaveCount(0);
 }
 
@@ -594,6 +641,22 @@ async function deleteSiteIfCreated({
 
 test.describe("Miners reparent", () => {
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(
+      ({ storageKey }) => {
+        localStorage.setItem(
+          storageKey,
+          JSON.stringify({
+            state: {
+              ui: {
+                activeSite: { kind: "all" },
+              },
+            },
+            version: 0,
+          }),
+        );
+      },
+      { storageKey: ACTIVE_SITE_STORAGE_KEY },
+    );
     await page.goto("/");
   });
 
@@ -669,10 +732,17 @@ test.describe("Miners reparent", () => {
 
     try {
       const snapshots = await loadVisibleMiners({ page, commonSteps });
-      const miner = pickUnrackedPairedMiner(snapshots);
+      const miner = await pickUnrackedPairedMiner(page, snapshots);
+      const minerRow = getMinerRowByIp(page, miner.ipAddress);
       minerIp = miner.ipAddress;
-      originalSiteLabel = miner.siteLabel || undefined;
-      originalRackLabel = miner.rackLabel || undefined;
+      originalSiteLabel =
+        (
+          await minerRow
+            .getByTestId("site")
+            .textContent()
+            .catch(() => null)
+        )?.trim() || undefined;
+      originalRackLabel = miner.placement?.rack?.label || undefined;
       originalRackPosition = miner.rackPosition || undefined;
 
       const targetSiteId = await createSite(page, targetSiteName, siteManagementMode);
@@ -737,10 +807,17 @@ test.describe("Miners reparent", () => {
 
     try {
       const snapshots = await loadVisibleMiners({ page, commonSteps });
-      const miner = pickUnrackedPairedMiner(snapshots);
+      const miner = await pickUnrackedPairedMiner(page, snapshots);
+      const minerRow = getMinerRowByIp(page, miner.ipAddress);
       minerIp = miner.ipAddress;
-      originalSiteLabel = miner.siteLabel || undefined;
-      originalRackLabel = miner.rackLabel || undefined;
+      originalSiteLabel =
+        (
+          await minerRow
+            .getByTestId("site")
+            .textContent()
+            .catch(() => null)
+        )?.trim() || undefined;
+      originalRackLabel = miner.placement?.rack?.label || undefined;
       originalRackPosition = miner.rackPosition || undefined;
 
       await createSite(page, targetSiteName, siteManagementMode);
