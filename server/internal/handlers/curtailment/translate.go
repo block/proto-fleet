@@ -619,13 +619,13 @@ func toAdminTerminateRequest(msg *pb.AdminTerminateEventRequest, info *session.I
 	}, nil
 }
 
-func toForceReleaseRequest(msg *pb.ForceReleaseCurtailmentOwnershipRequest, info *session.Info) (curtailment.ForceReleaseRequest, error) {
+func toForceReleaseRequest(
+	msg *pb.ForceReleaseCurtailmentOwnershipRequest,
+	info *session.Info,
+	eventUUID uuid.UUID,
+) (curtailment.ForceReleaseRequest, error) {
 	if info == nil || info.OrganizationID <= 0 {
 		return curtailment.ForceReleaseRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
-	}
-	eventUUID, err := parseEventUUID(msg.GetEventUuid())
-	if err != nil {
-		return curtailment.ForceReleaseRequest{}, err
 	}
 	return curtailment.ForceReleaseRequest{
 		OrgID:     info.OrganizationID,

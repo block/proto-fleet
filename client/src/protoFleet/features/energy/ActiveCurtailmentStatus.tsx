@@ -4,29 +4,17 @@ import clsx from "clsx";
 import {
   type ActiveCurtailmentDisplayState,
   type CurtailmentEventState,
+  type CurtailmentTargetRollup,
   formatCurtailmentKw as formatKw,
   formatCurtailmentMinerCount as formatMinerCount,
   getActiveCurtailmentDisplayState,
+  getActiveCurtailmentMinerCompliance,
   getCurtailmentTargetKw as getTargetKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-
-export type CurtailmentTargetState =
-  | "pending"
-  | "dispatched"
-  | "confirmed"
-  | "drifted"
-  | "resolved"
-  | "released"
-  | "restoreFailed";
-
-export interface CurtailmentTargetRollup {
-  state: CurtailmentTargetState;
-  count: number;
-}
 
 export interface ActiveCurtailmentEvent {
   reason: string;
@@ -77,13 +65,6 @@ interface StatBlockProps {
   detail?: string;
 }
 
-interface MinerCompliance {
-  curtailedCount: number;
-  restoreFailedCount: number;
-  restoredCount: number;
-  totalCount: number;
-}
-
 interface FormatActivePowerValueArgs {
   isRestored: boolean;
   isRestoreIncomplete: boolean;
@@ -126,19 +107,6 @@ const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
 });
 const millisecondsPerSecond = 1000;
 const unavailableTimeLabel = "Time unavailable";
-
-const countedTargetStates: CurtailmentTargetState[] = [
-  "pending",
-  "dispatched",
-  "confirmed",
-  "drifted",
-  "resolved",
-  "released",
-  "restoreFailed",
-];
-const curtailedTargetStates: CurtailmentTargetState[] = ["confirmed", "resolved"];
-const restoreFailedTargetStates: CurtailmentTargetState[] = ["restoreFailed"];
-const restoredTargetStates: CurtailmentTargetState[] = ["resolved", "released"];
 
 const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
   cancelled: "Cancelled",
@@ -213,31 +181,6 @@ function formatEstimatedCompletion(remainingSeconds: number, currentTime = new D
   return Number.isNaN(estimatedCompletionDate.getTime())
     ? unavailableTimeLabel
     : formatDateTimeValue(estimatedCompletionDate);
-}
-
-function getRollupCount(event: ActiveCurtailmentEvent, states: CurtailmentTargetState[]): number {
-  return event.rollups.reduce((total, rollup) => {
-    if (!states.includes(rollup.state)) {
-      return total;
-    }
-
-    return total + rollup.count;
-  }, 0);
-}
-
-function getMinerCompliance(event: ActiveCurtailmentEvent): MinerCompliance {
-  const curtailedCount = getRollupCount(event, curtailedTargetStates);
-  const restoreFailedCount = getRollupCount(event, restoreFailedTargetStates);
-  const restoredCount = getRollupCount(event, restoredTargetStates);
-  const countedTargetCount = getRollupCount(event, countedTargetStates);
-  const totalCount = Math.max(event.selectedMiners, countedTargetCount);
-
-  return {
-    curtailedCount,
-    restoreFailedCount,
-    restoredCount,
-    totalCount,
-  };
 }
 
 function formatActivePowerValue({ isRestored, isRestoreIncomplete, targetKw }: FormatActivePowerValueArgs): string {
@@ -470,7 +413,7 @@ export default function ActiveCurtailmentStatus({
   onRequestTerminateRecovery,
 }: ActiveCurtailmentStatusProps): ReactElement {
   const targetKw = getTargetKw(event);
-  const compliance = getMinerCompliance(event);
+  const compliance = getActiveCurtailmentMinerCompliance(event);
   const displayState = getActiveCurtailmentDisplayState(event, { dispatchStartedAsCurtailing: true });
   const displayFlags = getDisplayFlags(displayState);
   const remainingRestoreSeconds = getRestoreRemainingSeconds(

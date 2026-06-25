@@ -520,7 +520,6 @@ type ForceReleaseResult struct {
 	Event               *models.Event
 	ReleasedTargetCount int64
 	OwnershipReleased   bool
-	RestoreAttempted    bool
 	AutomationDisabled  bool
 }
 
@@ -546,7 +545,6 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 		Event:               released.Event,
 		ReleasedTargetCount: released.SweptTargets,
 		OwnershipReleased:   released.OwnershipReleased,
-		RestoreAttempted:    false,
 		AutomationDisabled:  released.AutomationDisabled,
 	}, nil
 }

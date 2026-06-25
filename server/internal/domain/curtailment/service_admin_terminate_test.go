@@ -70,7 +70,6 @@ func TestService_ForceRelease_HappyPathForwardsToStore(t *testing.T) {
 	assert.Equal(t, models.EventStateCancelled, got.Event.State)
 	assert.Equal(t, int64(52), got.ReleasedTargetCount)
 	assert.True(t, got.OwnershipReleased)
-	assert.False(t, got.RestoreAttempted)
 	assert.True(t, got.AutomationDisabled)
 	assert.Equal(t, 1, store.forceReleaseCalls)
 	assert.Equal(t, eventUUID, store.lastForceReleaseUUID)

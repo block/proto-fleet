@@ -342,7 +342,7 @@ func (h *Handler) ForceReleaseCurtailmentOwnership(ctx context.Context, req *con
 	if err := h.requireForceReleasePermission(ctx, info.OrganizationID, event); err != nil {
 		return nil, err
 	}
-	forceReq, err := toForceReleaseRequest(req.Msg, info)
+	forceReq, err := toForceReleaseRequest(req.Msg, info, eventUUID)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +354,6 @@ func (h *Handler) ForceReleaseCurtailmentOwnership(ctx context.Context, req *con
 		Event:               toForceReleaseEventProto(result.Event),
 		ReleasedTargetCount: uint32SaturatingInt64(result.ReleasedTargetCount),
 		OwnershipReleased:   result.OwnershipReleased,
-		RestoreAttempted:    result.RestoreAttempted,
 		AutomationDisabled:  result.AutomationDisabled,
 	}), nil
 }
