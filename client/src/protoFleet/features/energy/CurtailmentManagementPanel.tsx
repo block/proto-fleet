@@ -72,6 +72,7 @@ interface TerminateRecoveryDialogProps {
 interface ForceReleaseDialogProps {
   error?: string | null;
   isSubmitting?: boolean;
+  mode: "curtailment" | "restore";
   onCancel: () => void;
   onConfirm: (options: ForceReleaseCurtailmentOptions) => void;
   open: boolean;
@@ -89,6 +90,26 @@ const terminateRecoveryStateOptions: { label: string; value: TerminateRecoverySt
   { label: "Cancelled", value: "cancelled" },
   { label: "Failed", value: "failed" },
 ];
+const automationRestoreBlockedErrorPrefix = "cannot restore automation-owned curtailment event";
+
+function getRecoveryStopErrorMessage(
+  stopError: string | null,
+  isAutomationOwned: boolean | undefined,
+  canUseRecovery: boolean,
+): string | null {
+  if (!stopError) {
+    return null;
+  }
+  if (!isAutomationOwned) {
+    return stopError;
+  }
+  if (stopError.startsWith(automationRestoreBlockedErrorPrefix)) {
+    return canUseRecovery
+      ? "Automation is still requesting curtailment. Use Abort to cancel this event and disable the automation before restoring miners."
+      : "Automation is still requesting curtailment. Ask an admin to Abort this event and disable the automation before restoring miners.";
+  }
+  return stopError;
+}
 
 function minutesToSeconds(value: string): string {
   const minutes = Number(value);
@@ -269,6 +290,7 @@ function CurtailmentRecoveryTerminateDialog({
 function CurtailmentForceReleaseDialog({
   error,
   isSubmitting = false,
+  mode,
   onCancel,
   onConfirm,
   open,
@@ -276,6 +298,11 @@ function CurtailmentForceReleaseDialog({
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);
   const validationError = reasonError ?? error ?? null;
+  const title = mode === "restore" ? "Abort restore?" : "Abort curtailment?";
+  const body =
+    mode === "restore"
+      ? "This aborts the restore workflow by immediately releasing curtailment ownership. If automation owns this event, Abort also disables the automation rule. It does not wake miners or confirm that restore completed."
+      : "This cancels the current automation-owned curtailment event and disables the owning automation rule so it cannot immediately curtail miners again. It does not wake miners.";
 
   const confirmRelease = useCallback(() => {
     const trimmedReason = reason.trim();
@@ -291,7 +318,7 @@ function CurtailmentForceReleaseDialog({
   return (
     <Dialog
       open={open}
-      title="Abort restore?"
+      title={title}
       onDismiss={dismissDialog}
       icon={
         <DialogIcon intent="critical">
@@ -314,10 +341,7 @@ function CurtailmentForceReleaseDialog({
       ]}
     >
       <div className="grid gap-4 text-300 text-text-primary">
-        <p className="text-text-primary-70">
-          This aborts the restore workflow by immediately releasing curtailment ownership so manual miner actions can
-          proceed. It does not wake miners or confirm that restore completed.
-        </p>
+        <p className="text-text-primary-70">{body}</p>
         <Textarea
           id="force-release-reason"
           label="Reason"
@@ -353,12 +377,14 @@ function canUpdateCurtailmentEvent(event: ActiveCurtailmentEvent): boolean {
   return updateableCurtailmentEventStates.has(event.state);
 }
 
-function canForceRestoreCurtailmentEvent(event: ActiveCurtailmentEvent): boolean {
-  return Boolean(event.isAutomationOwned && forceRestorableCurtailmentEventStates.has(event.state));
-}
-
 function canTerminateRecoveryCurtailmentEvent(event: ActiveCurtailmentEvent): boolean {
   return Boolean(event.isAutomationOwned && event.state === "restoring");
+}
+
+function canAbortCurtailmentOwnership(event: ActiveCurtailmentEvent): boolean {
+  return (
+    event.state === "restoring" || (event.isAutomationOwned && forceRestorableCurtailmentEventStates.has(event.state))
+  );
 }
 
 function CurtailmentManagementPanel({
@@ -437,14 +463,7 @@ function CurtailmentManagementPanel({
   const manageSelectionRequestIdRef = useRef(0);
   const foregroundRefreshInFlightRef = useRef(false);
   const canUseRecovery = enableManage && enableRecover;
-  const recoveryStopError =
-    stopError && activeEvent?.isAutomationOwned
-      ? `${stopError} ${
-          canUseRecovery
-            ? "Stop or disable automation before Force restore if demand remains asserted."
-            : "Ask an admin to stop automation and force restore if demand remains asserted or the source is stale."
-        }`
-      : stopError;
+  const recoveryStopError = getRecoveryStopErrorMessage(stopError, activeEvent?.isAutomationOwned, canUseRecovery);
   const errorMessage = startError ?? updateError ?? recoveryStopError ?? adminTerminateError ?? loadError;
   const isInitialLoading = isLoading && !activeEvent && historyEvents.length === 0;
   const isStopConfirmationSubmitting =
@@ -458,6 +477,13 @@ function CurtailmentManagementPanel({
   const hasOngoingCurtailment = activeEvents.some((event) => nonTerminalActiveEventStates.has(event.state));
   const hasOngoingHistoryEvent = historyEvents.some((event) => nonTerminalActiveEventStates.has(event.state));
   const shouldPollCurtailment = hasOngoingCurtailment || hasOngoingHistoryEvent;
+  const pendingForceReleaseEvent =
+    pendingForceReleaseEventId === null
+      ? undefined
+      : activeEventId === pendingForceReleaseEventId
+        ? activeEvent
+        : activeEvents.find((event) => event.id === pendingForceReleaseEventId);
+  const pendingForceReleaseMode = pendingForceReleaseEvent?.state === "restoring" ? "restore" : "curtailment";
 
   const runAbortableRefresh = useCallback(<T,>(operation: (signal: AbortSignal) => Promise<T>) => {
     activeRefreshAbortControllerRef.current?.abort();
@@ -721,38 +747,16 @@ function CurtailmentManagementPanel({
       return;
     }
 
-    const force = pendingStopConfirmation.action === "forceRestore";
-    if (
-      force &&
-      (!canUseRecovery ||
-        pendingStopConfirmation.eventId !== activeEventId ||
-        !activeEvent ||
-        !canForceRestoreCurtailmentEvent(activeEvent))
-    ) {
-      setPendingStopConfirmation(null);
-      return;
-    }
-
     const currentEvent = activeEvents.find((event) => event.id === pendingStopConfirmation.eventId);
     if (!currentEvent || !nonTerminalActiveEventStates.has(currentEvent.state)) {
       setPendingStopConfirmation(null);
       return;
     }
 
-    const stopPromise = force
-      ? stopCurtailment(pendingStopConfirmation.eventId, { force: true })
-      : stopCurtailment(pendingStopConfirmation.eventId);
+    const stopPromise = stopCurtailment(pendingStopConfirmation.eventId);
 
     void stopPromise.then(() => setPendingStopConfirmation(null)).catch(() => {});
-  }, [
-    activeEvent,
-    activeEventId,
-    activeEvents,
-    canUseRecovery,
-    enableManage,
-    pendingStopConfirmation,
-    stopCurtailment,
-  ]);
+  }, [activeEvents, enableManage, pendingStopConfirmation, stopCurtailment]);
 
   const handleConfirmTerminateRecovery = useCallback(
     (options: TerminateRecoveryOptions) => {
@@ -782,7 +786,7 @@ function CurtailmentManagementPanel({
         return;
       }
 
-      if (pendingForceReleaseEventId !== activeEventId || !activeEvent || activeEvent.state !== "restoring") {
+      if (pendingForceReleaseEventId !== activeEventId || !activeEvent || !canAbortCurtailmentOwnership(activeEvent)) {
         setPendingForceReleaseEventId(null);
         return;
       }
@@ -847,18 +851,19 @@ function CurtailmentManagementPanel({
                   : undefined
               }
               onRequestForceRelease={
-                canUseRecovery && activeEventId && activeEvent.state === "restoring"
+                canUseRecovery && activeEventId && canAbortCurtailmentOwnership(activeEvent)
                   ? () => setPendingForceReleaseEventId(activeEventId)
                   : undefined
               }
               onRequestEdit={enableManage ? openEditModal : undefined}
-              onRequestForceRestore={
-                canUseRecovery && canForceRestoreCurtailmentEvent(activeEvent)
-                  ? () => openStopConfirmation("forceRestore")
+              onRequestRestore={
+                enableManage && !activeEvent.isAutomationOwned ? () => openStopConfirmation("restore") : undefined
+              }
+              onRequestStop={
+                enableManage && !activeEvent.isAutomationOwned
+                  ? () => openStopConfirmation("stopCurtailment")
                   : undefined
               }
-              onRequestRestore={enableManage ? () => openStopConfirmation("restore") : undefined}
-              onRequestStop={enableManage ? () => openStopConfirmation("stopCurtailment") : undefined}
             />
           ) : null}
 
@@ -920,6 +925,7 @@ function CurtailmentManagementPanel({
           open
           error={adminTerminateError}
           isSubmitting={isForceReleaseSubmitting}
+          mode={pendingForceReleaseMode}
           onCancel={() => setPendingForceReleaseEventId(null)}
           onConfirm={handleConfirmForceRelease}
         />

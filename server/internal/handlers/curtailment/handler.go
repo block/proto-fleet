@@ -342,6 +342,7 @@ func (h *Handler) ForceReleaseCurtailmentOwnership(ctx context.Context, req *con
 		ReleasedTargetCount: uint32SaturatingInt64(result.ReleasedTargetCount),
 		OwnershipReleased:   result.OwnershipReleased,
 		RestoreAttempted:    result.RestoreAttempted,
+		AutomationDisabled:  result.AutomationDisabled,
 	}), nil
 }
 

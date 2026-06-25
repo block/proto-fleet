@@ -51,7 +51,6 @@ interface ActiveCurtailmentStatusProps {
   onDismissRestored?: () => void;
   onRequestEdit?: () => void;
   onRequestForceRelease?: () => void;
-  onRequestForceRestore?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
   onRequestTerminateRecovery?: () => void;
@@ -62,7 +61,6 @@ interface ActiveCurtailmentActionButtonsProps {
   onDismissRestored?: () => void;
   onRequestEdit?: () => void;
   onRequestForceRelease?: () => void;
-  onRequestForceRestore?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
   onRequestTerminateRecovery?: () => void;
@@ -154,8 +152,6 @@ const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
 };
 
 const manageableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
-const forceRestorableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
-
 function SectionHeader({ title, children }: SectionHeaderProps): ReactElement {
   return (
     <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
@@ -361,17 +357,6 @@ function formatActiveCurtailmentHeaderDetail(event: ActiveCurtailmentEvent): str
   return `${event.reason} (Applies to ${event.scopeLabel})`;
 }
 
-function getForceRestoreButton(onRequestForceRestore?: () => void): ReactElement | null {
-  return onRequestForceRestore ? (
-    <Button
-      variant={variants.secondaryDanger}
-      size={sizes.compact}
-      text="Force restore"
-      onClick={onRequestForceRestore}
-    />
-  ) : null;
-}
-
 function getForceReleaseButton(onRequestForceRelease?: () => void): ReactElement | null {
   return onRequestForceRelease ? (
     <Button variant={variants.danger} size={sizes.compact} text="Abort" onClick={onRequestForceRelease} />
@@ -420,7 +405,6 @@ function ActiveCurtailmentActionButtons({
   onDismissRestored,
   onRequestEdit,
   onRequestForceRelease,
-  onRequestForceRestore,
   onRequestRestore,
   onRequestStop,
   onRequestTerminateRecovery,
@@ -432,13 +416,10 @@ function ActiveCurtailmentActionButtons({
     onRequestStop,
     onRequestTerminateRecovery,
   });
-  const forceRestoreButton = forceRestorableDisplayStates.has(displayState)
-    ? getForceRestoreButton(onRequestForceRestore)
-    : null;
   const showManageButton = Boolean(onRequestEdit && manageableDisplayStates.has(displayState));
   const forceReleaseButton = getForceReleaseButton(onRequestForceRelease);
 
-  if (!actionButton && !forceRestoreButton && !forceReleaseButton && !showManageButton) {
+  if (!actionButton && !forceReleaseButton && !showManageButton) {
     return null;
   }
 
@@ -448,7 +429,6 @@ function ActiveCurtailmentActionButtons({
         <Button variant={variants.secondary} size={sizes.compact} text="Manage" onClick={onRequestEdit} />
       ) : null}
       {actionButton}
-      {forceRestoreButton}
       {forceReleaseButton}
     </div>
   );
@@ -481,7 +461,6 @@ export default function ActiveCurtailmentStatus({
   onDismissRestored,
   onRequestEdit,
   onRequestForceRelease,
-  onRequestForceRestore,
   onRequestRestore,
   onRequestStop,
   onRequestTerminateRecovery,
@@ -545,7 +524,6 @@ export default function ActiveCurtailmentStatus({
           onDismissRestored={onDismissRestored}
           onRequestEdit={onRequestEdit}
           onRequestForceRelease={onRequestForceRelease}
-          onRequestForceRestore={onRequestForceRestore}
           onRequestRestore={onRequestRestore}
           onRequestStop={onRequestStop}
           onRequestTerminateRecovery={onRequestTerminateRecovery}
@@ -583,8 +561,8 @@ export default function ActiveCurtailmentStatus({
           <div className="mt-6 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">
             <div className="text-emphasis-300">Curtailment automation recovery</div>
             <div className="mt-1 text-text-primary-70">
-              {event.sourceLabel} owns this event. Normal restore can be blocked while OFF demand remains asserted or
-              the source is stale.
+              {event.sourceLabel} owns this event. Abort cancels this event and disables the owning automation rule so
+              it cannot immediately curtail miners again.
             </div>
           </div>
         ) : null}

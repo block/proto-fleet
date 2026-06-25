@@ -26,22 +26,23 @@ import (
 // tests. Only recovery methods are wired; the rest panic so an
 // unintended path is loud rather than silently zero-valuing.
 type adminTerminateStubStore struct {
-	authEvent              *models.Event
-	result                 *models.Event
-	transitioned           bool
-	idempotentReplay       bool
-	err                    error
-	calls                  int
-	lastOrgID              int64
-	lastEventUUID          uuid.UUID
-	lastTargetState        models.EventState
-	lastReason             string
-	forceReleaseCalls      int
-	lastForceReleaseOrgID  int64
-	lastForceReleaseUUID   uuid.UUID
-	lastForceReleaseReason string
-	forceReleaseResult     *models.Event
-	forceReleaseErr        error
+	authEvent                      *models.Event
+	result                         *models.Event
+	transitioned                   bool
+	idempotentReplay               bool
+	err                            error
+	calls                          int
+	lastOrgID                      int64
+	lastEventUUID                  uuid.UUID
+	lastTargetState                models.EventState
+	lastReason                     string
+	forceReleaseCalls              int
+	lastForceReleaseOrgID          int64
+	lastForceReleaseUUID           uuid.UUID
+	lastForceReleaseReason         string
+	forceReleaseResult             *models.Event
+	forceReleaseAutomationDisabled bool
+	forceReleaseErr                error
 	// Targets returned by ListTargetsByEvent; admin-terminate fetches them
 	// post-terminate so the response shape mirrors the read endpoints.
 	targets          []*models.Target
@@ -63,18 +64,23 @@ func (s *adminTerminateStubStore) AdminTerminateEvent(_ context.Context, orgID i
 	return s.result, transitioned, nil
 }
 
-func (s *adminTerminateStubStore) ForceReleaseEvent(_ context.Context, orgID int64, eventUUID uuid.UUID, reason string) (*models.Event, int64, error) {
+func (s *adminTerminateStubStore) ForceReleaseEvent(_ context.Context, orgID int64, eventUUID uuid.UUID, reason string) (interfaces.ForceReleaseEventResult, error) {
 	s.forceReleaseCalls++
 	s.lastForceReleaseOrgID = orgID
 	s.lastForceReleaseUUID = eventUUID
 	s.lastForceReleaseReason = reason
 	if s.forceReleaseErr != nil {
-		return nil, 0, s.forceReleaseErr
+		return interfaces.ForceReleaseEventResult{}, s.forceReleaseErr
 	}
+	event := s.result
 	if s.forceReleaseResult != nil {
-		return s.forceReleaseResult, int64(len(s.targets)), nil
+		event = s.forceReleaseResult
 	}
-	return s.result, int64(len(s.targets)), nil
+	return interfaces.ForceReleaseEventResult{
+		Event:              event,
+		SweptTargets:       int64(len(s.targets)),
+		AutomationDisabled: s.forceReleaseAutomationDisabled,
+	}, nil
 }
 
 func (s *adminTerminateStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
@@ -246,6 +252,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_HappyPath(t *testing.T) {
 		targets: []*models.Target{
 			{DeviceIdentifier: "miner-1", State: models.TargetStateReleased},
 		},
+		forceReleaseAutomationDisabled: true,
 	}
 	h := NewHandler(domainCurtailment.NewService(store))
 
@@ -266,6 +273,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_HappyPath(t *testing.T) {
 	assert.Equal(t, uint32(1), resp.Msg.ReleasedTargetCount)
 	assert.True(t, resp.Msg.OwnershipReleased)
 	assert.False(t, resp.Msg.RestoreAttempted)
+	assert.True(t, resp.Msg.AutomationDisabled)
 	assert.Equal(t, 1, store.forceReleaseCalls)
 	assert.Equal(t, 0, store.listTargetsCalls)
 	assert.Equal(t, int64(42), store.lastForceReleaseOrgID)

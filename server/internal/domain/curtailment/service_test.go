@@ -98,12 +98,13 @@ type fakeStore struct {
 	adminTerminateErr              error
 	adminTerminateIdempotentReplay bool
 
-	forceReleaseCalls        int
-	lastForceReleaseUUID     uuid.UUID
-	lastForceReleaseReason   string
-	forceReleaseResult       *models.Event
-	forceReleaseSweptTargets int64
-	forceReleaseErr          error
+	forceReleaseCalls              int
+	lastForceReleaseUUID           uuid.UUID
+	lastForceReleaseReason         string
+	forceReleaseResult             *models.Event
+	forceReleaseSweptTargets       int64
+	forceReleaseAutomationDisabled bool
+	forceReleaseErr                error
 
 	// Idempotent replay fakes. eventsByIdempotencyKey / eventsByExternalRef
 	// drive Service.Start's pre-insert webhook-replay lookup; nil results
@@ -281,14 +282,18 @@ func (f *fakeStore) AdminTerminateEvent(_ context.Context, _ int64, eventUUID uu
 	return f.adminTerminateResult, transitioned, nil
 }
 
-func (f *fakeStore) ForceReleaseEvent(_ context.Context, _ int64, eventUUID uuid.UUID, reason string) (*models.Event, int64, error) {
+func (f *fakeStore) ForceReleaseEvent(_ context.Context, _ int64, eventUUID uuid.UUID, reason string) (interfaces.ForceReleaseEventResult, error) {
 	f.forceReleaseCalls++
 	f.lastForceReleaseUUID = eventUUID
 	f.lastForceReleaseReason = reason
 	if f.forceReleaseErr != nil {
-		return nil, 0, f.forceReleaseErr
+		return interfaces.ForceReleaseEventResult{}, f.forceReleaseErr
 	}
-	return f.forceReleaseResult, f.forceReleaseSweptTargets, nil
+	return interfaces.ForceReleaseEventResult{
+		Event:              f.forceReleaseResult,
+		SweptTargets:       f.forceReleaseSweptTargets,
+		AutomationDisabled: f.forceReleaseAutomationDisabled,
+	}, nil
 }
 
 // filterNonTerminalReplayEvent mirrors the production SQL's

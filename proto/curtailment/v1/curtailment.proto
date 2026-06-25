@@ -754,6 +754,10 @@ message ForceReleaseCurtailmentOwnershipResponse {
     // Always false for force-release: this path does not issue restore
     // commands or claim miners were gracefully restored.
     bool restore_attempted = 4;
+
+    // True when this recovery action also disabled the automation rule that
+    // owned the event.
+    bool automation_disabled = 5;
 }
 
 message IngestCurtailmentSignalRequest {

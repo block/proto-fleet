@@ -205,7 +205,7 @@ func (s *listStubStore) UpdateOperatorFields(context.Context, int64, int64, inte
 func (s *listStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, bool, error) {
 	panic("AdminTerminateEvent not exercised by List handler tests")
 }
-func (s *listStubStore) ForceReleaseEvent(context.Context, int64, uuid.UUID, string) (*models.Event, int64, error) {
+func (s *listStubStore) ForceReleaseEvent(context.Context, int64, uuid.UUID, string) (interfaces.ForceReleaseEventResult, error) {
 	panic("ForceReleaseEvent not exercised by List handler tests")
 }
 func (s *listStubStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {

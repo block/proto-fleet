@@ -110,6 +110,29 @@ func (q *Queries) DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg 
 	return result.RowsAffected()
 }
 
+const disableCurtailmentAutomationRuleByActiveEvent = `-- name: DisableCurtailmentAutomationRuleByActiveEvent :execrows
+UPDATE curtailment_automation_rule r
+SET enabled = FALSE
+FROM curtailment_automation_rule_state st
+WHERE st.rule_id = r.id
+  AND r.org_id = $1
+  AND r.enabled = TRUE
+  AND st.active_event_uuid = $2
+`
+
+type DisableCurtailmentAutomationRuleByActiveEventParams struct {
+	OrgID     int64
+	EventUuid uuid.NullUUID
+}
+
+func (q *Queries) DisableCurtailmentAutomationRuleByActiveEvent(ctx context.Context, arg DisableCurtailmentAutomationRuleByActiveEventParams) (int64, error) {
+	result, err := q.exec(ctx, q.disableCurtailmentAutomationRuleByActiveEventStmt, disableCurtailmentAutomationRuleByActiveEvent, arg.OrgID, arg.EventUuid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getCurtailmentAutomationRuleByOrg = `-- name: GetCurtailmentAutomationRuleByOrg :one
 SELECT
     r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at,

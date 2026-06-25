@@ -32,6 +32,7 @@ const (
 	idempotencyKeyUniqueIndex    = "uq_curtailment_event_idempotency"
 	externalReferenceUniqueIndex = "uq_curtailment_event_external_ref"
 	automationRuleOrgNameUnique  = "uq_curtailment_automation_rule_org_name"
+	automationExternalSource     = "curtailment_automation"
 )
 
 func mapOrgConfigError(err error, orgID int64) error {
@@ -1112,18 +1113,13 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 	return result.event, result.transitioned, nil
 }
 
-type forceReleaseResult struct {
-	event        *models.Event
-	sweptTargets int64
-}
-
 func (s *SQLCurtailmentStore) ForceReleaseEvent(
 	ctx context.Context,
 	orgID int64,
 	eventUUID uuid.UUID,
 	reason string,
-) (*models.Event, int64, error) {
-	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (forceReleaseResult, error) {
+) (interfaces.ForceReleaseEventResult, error) {
+	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (interfaces.ForceReleaseEventResult, error) {
 		updated, err := q.ForceReleaseCurtailmentEvent(ctx, sqlc.ForceReleaseCurtailmentEventParams{
 			EventUuid: eventUUID,
 			OrgID:     orgID,
@@ -1134,15 +1130,15 @@ func (s *SQLCurtailmentStore) ForceReleaseEvent(
 				OrgID:     orgID,
 			})
 			if errors.Is(getErr, sql.ErrNoRows) {
-				return forceReleaseResult{}, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 			}
 			if getErr != nil {
-				return forceReleaseResult{}, fleeterror.NewInternalErrorf("failed to re-read curtailment event after force-release race: %v", getErr)
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to re-read curtailment event after force-release race: %v", getErr)
 			}
-			return forceReleaseResult{event: convertEventRow(current), sweptTargets: 0}, nil
+			return interfaces.ForceReleaseEventResult{Event: convertEventRow(current)}, nil
 		}
 		if err != nil {
-			return forceReleaseResult{}, fleeterror.NewInternalErrorf("failed to force-release curtailment event: %v", err)
+			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to force-release curtailment event: %v", err)
 		}
 
 		swept, err := q.SweepCurtailmentTargetsToReleased(ctx, sqlc.SweepCurtailmentTargetsToReleasedParams{
@@ -1150,15 +1146,39 @@ func (s *SQLCurtailmentStore) ForceReleaseEvent(
 			LastError:          reason,
 		})
 		if err != nil {
-			return forceReleaseResult{}, fleeterror.NewInternalErrorf("failed to sweep curtailment targets for force release: %v", err)
+			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to sweep curtailment targets for force release: %v", err)
 		}
 
-		return forceReleaseResult{event: convertEventRow(updated), sweptTargets: swept}, nil
+		event := convertEventRow(updated)
+		var disabledAutomationRows int64
+		if isAutomationEvent(event) {
+			disabled, err := q.DisableCurtailmentAutomationRuleByActiveEvent(ctx, sqlc.DisableCurtailmentAutomationRuleByActiveEventParams{
+				OrgID:     orgID,
+				EventUuid: uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
+			})
+			if err != nil {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to disable curtailment automation after force release: %v", err)
+			}
+			disabledAutomationRows = disabled
+		}
+
+		return interfaces.ForceReleaseEventResult{
+			Event:              event,
+			SweptTargets:       swept,
+			AutomationDisabled: disabledAutomationRows > 0,
+		}, nil
 	})
 	if err != nil {
-		return nil, 0, err
+		return interfaces.ForceReleaseEventResult{}, err
 	}
-	return result.event, result.sweptTargets, nil
+	return result, nil
+}
+
+func isAutomationEvent(event *models.Event) bool {
+	return event != nil &&
+		event.SourceActorType == models.SourceActorAutomation &&
+		event.ExternalSource != nil &&
+		*event.ExternalSource == automationExternalSource
 }
 
 func (s *SQLCurtailmentStore) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {

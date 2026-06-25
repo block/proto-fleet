@@ -99,6 +99,7 @@ export interface ForceReleaseCurtailmentResult {
   releasedTargetCount: number;
   ownershipReleased: boolean;
   restoreAttempted: boolean;
+  automationDisabled: boolean;
 }
 
 export interface StopCurtailmentOptions {
@@ -1292,6 +1293,7 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
           releasedTargetCount: response.releasedTargetCount,
           ownershipReleased: response.ownershipReleased,
           restoreAttempted: response.restoreAttempted,
+          automationDisabled: response.automationDisabled,
         };
       } catch (error) {
         const resolvedError = handleFailure(error, "Failed to force release curtailment ownership.");

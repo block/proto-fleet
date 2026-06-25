@@ -163,6 +163,15 @@ WHERE curtailment_automation_rule.id = sqlc.arg('id')
   )
 RETURNING *;
 
+-- name: DisableCurtailmentAutomationRuleByActiveEvent :execrows
+UPDATE curtailment_automation_rule r
+SET enabled = FALSE
+FROM curtailment_automation_rule_state st
+WHERE st.rule_id = r.id
+  AND r.org_id = sqlc.arg('org_id')
+  AND r.enabled = TRUE
+  AND st.active_event_uuid = sqlc.arg('event_uuid');
+
 -- name: DeleteCurtailmentAutomationRuleByOrg :execrows
 DELETE FROM curtailment_automation_rule
 WHERE curtailment_automation_rule.id = sqlc.arg('id')

@@ -121,7 +121,7 @@ func (s *startStubStore) UpdateOperatorFields(context.Context, int64, int64, int
 func (s *startStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, bool, error) {
 	panic("AdminTerminateEvent not exercised by Start handler tests")
 }
-func (s *startStubStore) ForceReleaseEvent(context.Context, int64, uuid.UUID, string) (*models.Event, int64, error) {
+func (s *startStubStore) ForceReleaseEvent(context.Context, int64, uuid.UUID, string) (interfaces.ForceReleaseEventResult, error) {
 	panic("ForceReleaseEvent not exercised by Start handler tests")
 }
 func (s *startStubStore) GetEventByIdempotencyKey(_ context.Context, _ int64, key string) (*models.Event, error) {

@@ -2164,6 +2164,7 @@ describe("useCurtailmentApi", () => {
       releasedTargetCount: 17,
       ownershipReleased: true,
       restoreAttempted: false,
+      automationDisabled: true,
     });
     mockListCurtailmentEvents.mockResolvedValue({ events: [releasedEvent], nextPageToken: "" });
 
@@ -2203,6 +2204,7 @@ describe("useCurtailmentApi", () => {
       releasedTargetCount: 17,
       ownershipReleased: true,
       restoreAttempted: false,
+      automationDisabled: true,
     });
   });
 

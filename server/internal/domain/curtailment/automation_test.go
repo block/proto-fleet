@@ -365,7 +365,7 @@ func TestAutomationService_HandleMQTTSignal_RepeatedOffNoopsWhenEventIsActive(t 
 	assert.Equal(t, 0, h.rules.setActiveCalls)
 }
 
-func TestAutomationService_HandleMQTTSignal_OffDoesNotRecaptureCancelledEvent(t *testing.T) {
+func TestAutomationService_HandleMQTTSignal_OffRecapturesAfterCancelledEvent(t *testing.T) {
 	t.Parallel()
 
 	h := newAutomationHarness(t)
@@ -386,11 +386,12 @@ func TestAutomationService_HandleMQTTSignal_OffDoesNotRecaptureCancelledEvent(t 
 
 	require.NoError(t, err)
 	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
-	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
 	assert.Equal(t, 0, h.curtailments.beginRecurtailCalls)
-	assert.Equal(t, 0, h.rules.setActiveCalls)
+	assert.Equal(t, 1, h.rules.setActiveCalls)
 	require.NotNil(t, h.rule.ActiveEventUUID)
-	assert.Equal(t, activeEventUUID, *h.rule.ActiveEventUUID)
+	assert.NotEqual(t, activeEventUUID, *h.rule.ActiveEventUUID)
+	assert.Equal(t, *h.rule.ActiveEventUUID, h.rules.lastActiveEvent)
 }
 
 func TestAutomationService_HandleMQTTSignal_CoalescesRecentRepeatedOff(t *testing.T) {

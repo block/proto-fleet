@@ -114,11 +114,13 @@ func TestSQLCurtailmentStore_ForceReleaseEvent_CancelsEventAndReleasesTargets(t 
 	assert.Contains(t, activeBefore, "force-release-dispatched")
 	assert.Contains(t, activeBefore, "force-release-restoring")
 
-	event, swept, err := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "operator needs manual control")
+	released, err := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "operator needs manual control")
 	require.NoError(t, err)
+	event := released.Event
 	require.NotNil(t, event)
 	assert.Equal(t, models.EventStateCancelled, event.State)
-	assert.Equal(t, int64(3), swept)
+	assert.Equal(t, int64(3), released.SweptTargets)
+	assert.False(t, released.AutomationDisabled)
 
 	targets, err := store.ListTargetsByEvent(ctx, user.OrganizationID, eventUUID)
 	require.NoError(t, err)
@@ -175,11 +177,13 @@ func TestSQLCurtailmentStore_ForceReleaseEvent_UnblocksClosedLoopFullFleetPrefli
 	require.NoError(t, err)
 	assert.Contains(t, activeBefore, device.ID)
 
-	event, swept, err := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "operator needs manual control")
+	released, err := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "operator needs manual control")
 	require.NoError(t, err)
+	event := released.Event
 	require.NotNil(t, event)
 	assert.Equal(t, models.EventStateCancelled, event.State)
-	assert.Zero(t, swept)
+	assert.Zero(t, released.SweptTargets)
+	assert.False(t, released.AutomationDisabled)
 
 	activeAfter, err := store.ListActiveCurtailedDevices(ctx, user.OrganizationID)
 	require.NoError(t, err)
@@ -206,11 +210,13 @@ func TestSQLCurtailmentStore_ForceReleaseEvent_UpdatesTerminalEvents(t *testing.
 	)
 	require.NoError(t, err)
 
-	event, swept, err := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "operator needs manual control")
+	released, err := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "operator needs manual control")
 	require.NoError(t, err)
+	event := released.Event
 	require.NotNil(t, event)
 	assert.Equal(t, models.EventStateCancelled, event.State)
-	assert.Zero(t, swept)
+	assert.Zero(t, released.SweptTargets)
+	assert.False(t, released.AutomationDisabled)
 }
 
 func TestSQLCurtailmentStore_BeginRecurtailTransition_ReopensResolvedTarget(t *testing.T) {

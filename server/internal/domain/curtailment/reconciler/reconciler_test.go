@@ -233,7 +233,7 @@ func (f *fakeStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, model
 	panic("AdminTerminateEvent not exercised by reconciler tests")
 }
 
-func (f *fakeStore) ForceReleaseEvent(context.Context, int64, uuid.UUID, string) (*models.Event, int64, error) {
+func (f *fakeStore) ForceReleaseEvent(context.Context, int64, uuid.UUID, string) (interfaces.ForceReleaseEventResult, error) {
 	panic("ForceReleaseEvent not exercised by reconciler tests")
 }
 

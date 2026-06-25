@@ -56,6 +56,7 @@ func TestService_ForceRelease_HappyPathForwardsToStore(t *testing.T) {
 		State:     models.EventStateCancelled,
 	}
 	store.forceReleaseSweptTargets = 52
+	store.forceReleaseAutomationDisabled = true
 	svc := NewService(store)
 
 	got, err := svc.ForceRelease(t.Context(), ForceReleaseRequest{
@@ -70,6 +71,7 @@ func TestService_ForceRelease_HappyPathForwardsToStore(t *testing.T) {
 	assert.Equal(t, int64(52), got.ReleasedTargetCount)
 	assert.True(t, got.OwnershipReleased)
 	assert.False(t, got.RestoreAttempted)
+	assert.True(t, got.AutomationDisabled)
 	assert.Equal(t, 1, store.forceReleaseCalls)
 	assert.Equal(t, eventUUID, store.lastForceReleaseUUID)
 	assert.Equal(t, "operator release", store.lastForceReleaseReason)

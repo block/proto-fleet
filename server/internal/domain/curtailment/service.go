@@ -521,6 +521,7 @@ type ForceReleaseResult struct {
 	ReleasedTargetCount int64
 	OwnershipReleased   bool
 	RestoreAttempted    bool
+	AutomationDisabled  bool
 }
 
 func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*ForceReleaseResult, error) {
@@ -534,16 +535,17 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 		return nil, err
 	}
 
-	event, sweptTargets, err := s.store.ForceReleaseEvent(ctx, req.OrgID, req.EventUUID, req.Reason)
+	released, err := s.store.ForceReleaseEvent(ctx, req.OrgID, req.EventUUID, req.Reason)
 	if err != nil {
 		return nil, err
 	}
-	s.emitForceReleaseAuditTrail(ctx, req, event, sweptTargets)
+	s.emitForceReleaseAuditTrail(ctx, req, released.Event, released.SweptTargets)
 	return &ForceReleaseResult{
-		Event:               event,
-		ReleasedTargetCount: sweptTargets,
+		Event:               released.Event,
+		ReleasedTargetCount: released.SweptTargets,
 		OwnershipReleased:   true,
 		RestoreAttempted:    false,
+		AutomationDisabled:  released.AutomationDisabled,
 	}, nil
 }
 

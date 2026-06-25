@@ -284,12 +284,8 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		switch {
 		case event == nil:
 			// Stale state; start a fresh event below.
-		case event.State == models.EventStateCancelled:
-			// CANCELLED is an explicit operator/admin release. Do not recapture
-			// while the external demand remains OFF; wait for ON to reset rule state.
-			return nil
 		case event.State.IsTerminal():
-			// Stale completed/failed state; start a fresh event below.
+			// Stale terminal state; start a fresh event below.
 		case event.State == models.EventStateRestoring:
 			if eventMaxDurationElapsed(event, s.clock()) {
 				return nil
