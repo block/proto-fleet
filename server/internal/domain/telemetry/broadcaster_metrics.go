@@ -194,21 +194,9 @@ func hashingRatio(observedTHs, expectedTHs float64) float64 {
 	return 0
 }
 
-// isOnlineStatus reports whether a MinerStatus should map to fleet_device_online=1.
+// isOnlineStatus maps a MinerStatus to fleet_device_online=1; only a truly-unreachable device (MinerStatusOffline) is offline, so error/unknown devices stay online.
 func isOnlineStatus(status mm.MinerStatus) bool {
-	switch status {
-	case mm.MinerStatusOffline, mm.MinerStatusError, mm.MinerStatusUnknown:
-		return false
-
-	case mm.MinerStatusActive,
-		mm.MinerStatusInactive,
-		mm.MinerStatusMaintenance,
-		mm.MinerStatusNeedsMiningPool,
-		mm.MinerStatusUpdating,
-		mm.MinerStatusRebootRequired:
-		return true
-	}
-	return false
+	return status != mm.MinerStatusOffline
 }
 
 // temperatureAggregate is the per-sensor-kind result of walking a DeviceMetrics value.

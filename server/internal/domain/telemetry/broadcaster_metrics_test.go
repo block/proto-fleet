@@ -267,19 +267,26 @@ func TestObserverDoesNotEmitPoolGaugeFromHealth(t *testing.T) {
 	}
 }
 
-// an unreachable device must produce fleet_device_online=0
+// only a truly-unreachable device (MinerStatusOffline) emits fleet_device_online=0; error/unknown devices are still reachable and stay online=1.
 func TestObserverEmitsExplicitZeroOnOffline(t *testing.T) {
-	rec := &recordingEmitter{}
-	obs := newMetricsObserver(rec)
-
-	obs.onDeviceStatus(context.Background(), 1, 0, "virtual", "v-1", mm.MinerStatusOffline)
-	obs.onDeviceStatus(context.Background(), 1, 0, "virtual", "v-1", mm.MinerStatusError)
-	obs.onDeviceStatus(context.Background(), 1, 0, "virtual", "v-1", mm.MinerStatusActive)
-
-	require.Len(t, rec.online, 3)
-	require.False(t, rec.online[0].online, "offline must emit 0")
-	require.False(t, rec.online[1].online, "error must emit 0")
-	require.True(t, rec.online[2].online, "active must emit 1")
+	cases := []struct {
+		status mm.MinerStatus
+		online bool
+	}{
+		{mm.MinerStatusOffline, false},
+		{mm.MinerStatusError, true},
+		{mm.MinerStatusUnknown, true},
+		{mm.MinerStatusActive, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.status.String(), func(t *testing.T) {
+			rec := &recordingEmitter{}
+			obs := newMetricsObserver(rec)
+			obs.onDeviceStatus(context.Background(), 1, 0, "virtual", "v-1", tc.status)
+			require.Len(t, rec.online, 1)
+			require.Equal(t, tc.online, rec.online[0].online)
+		})
+	}
 }
 
 // exercises the success/failure branch of the telemetry-poll counter.
