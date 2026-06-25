@@ -36,6 +36,16 @@ func (f *fakeSender) SendCommand(_ context.Context, _ int64, cmd *gatewaypb.Cont
 	return f.ack, f.err
 }
 
+type blockingSender struct {
+	started chan struct{}
+}
+
+func (s *blockingSender) SendCommand(ctx context.Context, _ int64, _ *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+	close(s.started)
+	<-ctx.Done()
+	return nil, fmt.Errorf("wait for ack: %w", ctx.Err())
+}
+
 func okSender() *fakeSender {
 	return &fakeSender{ack: &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}}
 }
@@ -253,6 +263,30 @@ func TestMiner_GetErrors_MalformedPayloadReturnsInternal(t *testing.T) {
 	require.Error(t, err)
 	assert.Empty(t, deviceErrors.Errors)
 	assert.Contains(t, err.Error(), "unmarshal get errors result")
+}
+
+func TestMiner_GetErrors_UsesBoundedCommandContext(t *testing.T) {
+	// Arrange
+	oldTimeout := remoteGetErrorsCommandTimeout
+	remoteGetErrorsCommandTimeout = 25 * time.Millisecond
+	t.Cleanup(func() { remoteGetErrorsCommandTimeout = oldTimeout })
+	s := &blockingSender{started: make(chan struct{})}
+	m := newTestMiner(t, s)
+
+	// Act
+	startedAt := time.Now()
+	_, err := m.GetErrors(context.Background())
+
+	// Assert
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.True(t, fleeterror.IsConnectionError(err), "expected connection error, got %v", err)
+	assert.Less(t, time.Since(startedAt), time.Second)
+	select {
+	case <-s.started:
+	default:
+		t.Fatal("SendCommand was not called")
+	}
 }
 
 func TestMiner_GetErrors_RejectsMismatchedResultDeviceID(t *testing.T) {

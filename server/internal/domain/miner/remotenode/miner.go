@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"time"
 	"unicode/utf8"
 
 	"buf.build/go/protovalidate"
@@ -78,6 +79,8 @@ type Miner struct {
 }
 
 var _ interfaces.Miner = (*Miner)(nil)
+
+var remoteGetErrorsCommandTimeout = 5 * time.Second
 
 // New builds a remote-node miner. It returns an error only if the connection
 // coordinates are malformed (bad port/scheme), matching the direct PluginMiner.
@@ -295,10 +298,16 @@ func (m *Miner) GetDeviceStatus(_ context.Context) (minermodels.MinerStatus, err
 }
 
 func (m *Miner) GetErrors(ctx context.Context) (models.DeviceErrors, error) {
-	ack, err := m.send(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{
+	commandCtx, cancel := context.WithTimeout(ctx, remoteGetErrorsCommandTimeout)
+	defer cancel()
+
+	ack, err := m.send(commandCtx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{
 		GetErrors: &gatewaypb.GetErrorsAction{},
 	}})
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return models.DeviceErrors{}, fleeterror.NewConnectionError(m.desc.GetDeviceIdentifier(), err)
+		}
 		return models.DeviceErrors{}, err
 	}
 	if err := ackToError(ack); err != nil {
