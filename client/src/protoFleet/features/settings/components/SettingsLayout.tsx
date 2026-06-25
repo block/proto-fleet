@@ -3,7 +3,6 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import SecondaryNavigation from "@/protoFleet/components/SecondaryNavigation";
 import { secondaryNavItems } from "@/protoFleet/config/navItems";
-import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import OrgWideNotice from "@/protoFleet/features/settings/components/OrgWideNotice";
 import { settingsRoutePrefetch } from "@/protoFleet/routePrefetch";
 import { usePermissions } from "@/protoFleet/store";
@@ -32,8 +31,7 @@ const SettingsLayout = ({ children }: { children?: ReactNode }) => {
   // a filter). With "all sites" there's nothing to clarify, so we stay quiet.
   // Also require a matched settings tab — an unmatched route shouldn't claim to
   // be org-wide.
-  const showOrgWideNotice =
-    MULTI_SITE_ENABLED && activeSite.kind === "site" && currentNavItem !== undefined && !currentNavItem.siteAware;
+  const showOrgWideNotice = activeSite.kind === "site" && currentNavItem !== undefined && !currentNavItem.siteAware;
 
   return (
     <>
