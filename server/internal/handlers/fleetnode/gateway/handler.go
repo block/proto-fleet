@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"time"
@@ -197,7 +198,7 @@ func (r *commandArtifactUploadReader) Read(p []byte) (int, error) {
 	for len(r.buf) == 0 {
 		if !r.stream.Receive() {
 			if err := r.stream.Err(); err != nil {
-				return 0, err
+				return 0, fmt.Errorf("receive command artifact chunk: %w", err)
 			}
 			return 0, io.EOF
 		}

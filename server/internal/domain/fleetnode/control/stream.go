@@ -94,20 +94,17 @@ func (r *Registry) AdmitCommandArtifact(fleetNodeID int64, commandID string, wan
 	if cmd == nil {
 		return errNoInFlightCommand
 	}
-	for i := range cmd.artifacts {
-		exp := &cmd.artifacts[i]
-		if !artifactExpectationMatches(exp.ArtifactExpectation, want) {
-			continue
-		}
-		if exp.consumed {
-			return ErrArtifactAlreadyTransferred
-		}
-		if exp.Direction == ArtifactDirectionUpload {
-			exp.consumed = true
-		}
-		return nil
+	exp := cmd.artifactExpectationFor(want)
+	if exp == nil {
+		return ErrArtifactNotExpected
 	}
-	return ErrArtifactNotExpected
+	if exp.consumed {
+		return ErrArtifactAlreadyTransferred
+	}
+	if exp.Direction == ArtifactDirectionUpload {
+		exp.consumed = true
+	}
+	return nil
 }
 
 // ReinstateCommandArtifactUpload clears a consumed upload expectation after the
@@ -120,14 +117,21 @@ func (r *Registry) ReinstateCommandArtifactUpload(fleetNodeID int64, commandID s
 	if cmd == nil {
 		return
 	}
-	for i := range cmd.artifacts {
-		exp := &cmd.artifacts[i]
-		if exp.Direction != ArtifactDirectionUpload || !artifactExpectationMatches(exp.ArtifactExpectation, want) {
-			continue
-		}
-		exp.consumed = false
+	exp := cmd.artifactExpectationFor(want)
+	if exp == nil || exp.Direction != ArtifactDirectionUpload {
 		return
 	}
+	exp.consumed = false
+}
+
+func (c *inflightCommand) artifactExpectationFor(want ArtifactExpectation) *artifactExpectation {
+	for i := range c.artifacts {
+		exp := &c.artifacts[i]
+		if artifactExpectationMatches(exp.ArtifactExpectation, want) {
+			return exp
+		}
+	}
+	return nil
 }
 
 func artifactExpectationMatches(exp, want ArtifactExpectation) bool {

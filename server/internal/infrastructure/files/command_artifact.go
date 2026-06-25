@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -30,11 +29,10 @@ var sha256HexRe = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 // CommandArtifactInfo holds metadata about a stored fleet node command artifact.
 type CommandArtifactInfo struct {
-	ID        string
-	Filename  string
-	Size      int64
-	SHA256    string
-	CreatedAt time.Time
+	ID       string
+	Filename string
+	Size     int64
+	SHA256   string
 }
 
 func initCommandArtifactDir() error {
@@ -117,60 +115,55 @@ func (s *Service) SaveCommandArtifact(filename string, sizeBytes int64, sha256He
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create command artifact: %v", err)
 	}
+	promoted := false
+	defer func() {
+		if promoted {
+			return
+		}
+		_ = file.Close()
+		_ = os.Remove(stagingPath)
+	}()
 
 	hasher := sha256.New()
 	limitedReader := io.LimitReader(reader, sizeBytes+1)
 	written, err := io.Copy(file, io.TeeReader(limitedReader, hasher))
 	if err != nil {
-		_ = file.Close()
-		_ = os.Remove(stagingPath)
 		return nil, fleeterror.NewInternalErrorf("failed to write command artifact: %v", err)
 	}
 	if written > sizeBytes {
-		_ = file.Close()
-		_ = os.Remove(stagingPath)
 		return nil, fleeterror.NewInvalidArgumentErrorf("command artifact size mismatch: declared %d bytes, received more", sizeBytes)
 	}
 	if written != sizeBytes {
-		_ = file.Close()
-		_ = os.Remove(stagingPath)
 		return nil, fleeterror.NewInvalidArgumentErrorf("command artifact size mismatch: declared %d bytes, received %d bytes", sizeBytes, written)
 	}
 
 	actualSHA := hex.EncodeToString(hasher.Sum(nil))
 	if actualSHA != expectedSHA {
-		_ = file.Close()
-		_ = os.Remove(stagingPath)
 		return nil, fleeterror.NewInvalidArgumentError("command artifact sha256 mismatch")
 	}
 	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		_ = os.Remove(stagingPath)
 		return nil, fleeterror.NewInternalErrorf("failed to sync command artifact: %v", err)
 	}
 	if err := file.Close(); err != nil {
-		_ = os.Remove(stagingPath)
 		return nil, fleeterror.NewInternalErrorf("failed to close command artifact: %v", err)
 	}
 
 	dir := getCommandArtifactDirPath(artifactID)
 	if err := os.MkdirAll(dir, 0750); err != nil {
-		_ = os.Remove(stagingPath)
 		return nil, fleeterror.NewInternalErrorf("failed to create command artifact dir: %v", err)
 	}
 	filePath := filepath.Join(dir, sanitized)
 	if err := os.Rename(stagingPath, filePath); err != nil {
-		_ = os.Remove(stagingPath)
 		_ = os.RemoveAll(dir)
 		return nil, fleeterror.NewInternalErrorf("failed to promote command artifact: %v", err)
 	}
+	promoted = true
 
 	return &CommandArtifactInfo{
-		ID:        artifactID,
-		Filename:  sanitized,
-		Size:      written,
-		SHA256:    actualSHA,
-		CreatedAt: time.Now().UTC(),
+		ID:       artifactID,
+		Filename: sanitized,
+		Size:     written,
+		SHA256:   actualSHA,
 	}, nil
 }
 
@@ -200,10 +193,9 @@ func (s *Service) OpenCommandArtifact(artifactID string) (io.ReadCloser, Command
 		return nil, CommandArtifactInfo{}, fleeterror.NewInternalErrorf("failed to compute command artifact checksum: %v", err)
 	}
 	return file, CommandArtifactInfo{
-		ID:        canonical,
-		Filename:  filepath.Base(filePath),
-		Size:      info.Size(),
-		SHA256:    sha,
-		CreatedAt: info.ModTime(),
+		ID:       canonical,
+		Filename: filepath.Base(filePath),
+		Size:     info.Size(),
+		SHA256:   sha,
 	}, nil
 }
