@@ -170,7 +170,23 @@ func (q *Queries) CreateSite(ctx context.Context, arg CreateSiteParams) (Site, e
 const deleteCurtailmentResponseProfilesBySite = `-- name: DeleteCurtailmentResponseProfilesBySite :execrows
 DELETE FROM curtailment_response_profile
 WHERE org_id = $1
-  AND site_id = $2
+  AND (
+    site_id = $2
+    OR (
+      scope_json ? 'site_id'
+      AND (scope_json->>'site_id')::BIGINT = $2
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements_text(
+        CASE
+          WHEN jsonb_typeof(scope_json->'site_ids') = 'array' THEN scope_json->'site_ids'
+          ELSE '[]'::jsonb
+        END
+      ) AS scope_site(site_id)
+      WHERE scope_site.site_id::BIGINT = $2
+    )
+  )
 `
 
 type DeleteCurtailmentResponseProfilesBySiteParams struct {

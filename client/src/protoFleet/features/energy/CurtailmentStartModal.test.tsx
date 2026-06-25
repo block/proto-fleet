@@ -1711,6 +1711,45 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
+  it("clears a miner subset when saving all sites", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+        scopeType: "explicitMiners",
+        deviceIdentifiers: ["miner-1", "miner-2"],
+        minerSelectionMode: "subset",
+      },
+      siteOptions,
+    });
+
+    expect(screen.getByRole("button", { name: /Miners\s+2 miners/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Sites\s+Select/ }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(screen.getByRole("button", { name: /Sites\s+All sites/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
+        siteSelection: "allSites",
+        siteId: "",
+        siteIds: [],
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+        minerSelectionMode: "subset",
+      }),
+    );
+  });
+
   it("blocks invalid uint32-backed numeric settings", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({

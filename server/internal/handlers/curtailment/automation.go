@@ -29,22 +29,35 @@ func (h *Handler) ListCurtailmentAutomationRules(ctx context.Context, _ *connect
 	out := make([]*pb.CurtailmentAutomationRule, 0, len(rules))
 	siteAllowed := make(map[int64]bool)
 	for _, rule := range rules {
-		if rule.ResponseProfileSiteID != nil {
-			allowed, ok := siteAllowed[*rule.ResponseProfileSiteID]
+		siteContexts, err := automationRuleProfileSiteResourceContexts(rule)
+		if err != nil {
+			return nil, err
+		}
+		allowed := true
+		for _, siteContext := range siteContexts {
+			if siteContext.SiteID == nil {
+				continue
+			}
+			siteAllowedValue, ok := siteAllowed[*siteContext.SiteID]
 			if !ok {
-				if err := requireAutomationProfileSitePermission(ctx, rule.ResponseProfileSiteID); err != nil {
+				if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, siteContext); err != nil {
 					if fleeterror.IsForbiddenError(err) {
-						siteAllowed[*rule.ResponseProfileSiteID] = false
-						continue
+						siteAllowed[*siteContext.SiteID] = false
+						allowed = false
+						break
 					}
 					return nil, err
 				}
-				allowed = true
-				siteAllowed[*rule.ResponseProfileSiteID] = true
+				siteAllowedValue = true
+				siteAllowed[*siteContext.SiteID] = true
 			}
-			if !allowed {
-				continue
+			if !siteAllowedValue {
+				allowed = false
+				break
 			}
+		}
+		if !allowed {
+			continue
 		}
 		out = append(out, toAutomationRuleProto(rule))
 	}
@@ -172,15 +185,29 @@ func (h *Handler) requireAutomationRuleProfilePermission(ctx context.Context, ru
 	if rule == nil {
 		return nil
 	}
-	return requireAutomationProfileSitePermission(ctx, rule.ResponseProfileSiteID)
+	siteContexts, err := automationRuleProfileSiteResourceContexts(rule)
+	if err != nil {
+		return err
+	}
+	for _, siteContext := range siteContexts {
+		if siteContext.SiteID == nil {
+			continue
+		}
+		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, siteContext); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func requireAutomationProfileSitePermission(ctx context.Context, siteID *int64) error {
-	if siteID == nil {
-		return nil
+func automationRuleProfileSiteResourceContexts(rule *models.AutomationRule) ([]authz.ResourceContext, error) {
+	if rule == nil {
+		return nil, nil
 	}
-	_, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{SiteID: siteID})
-	return err
+	return responseProfileSiteResourceContexts(&models.ResponseProfile{
+		SiteID:    rule.ResponseProfileSiteID,
+		ScopeJSON: rule.ResponseProfileScopeJSON,
+	})
 }
 
 func automationRuleFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentAutomationRuleRequest) models.AutomationRule {

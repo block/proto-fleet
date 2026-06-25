@@ -10,7 +10,8 @@ SELECT
     st.last_error,
     st.last_error_at,
     profile.profile_name AS response_profile_name,
-    profile.site_id AS response_profile_site_id
+    profile.site_id AS response_profile_site_id,
+    profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
@@ -35,7 +36,8 @@ SELECT
     st.last_error,
     st.last_error_at,
     profile.profile_name AS response_profile_name,
-    profile.site_id AS response_profile_site_id
+    profile.site_id AS response_profile_site_id,
+    profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
@@ -60,7 +62,8 @@ SELECT
     st.last_error,
     st.last_error_at,
     profile.profile_name AS response_profile_name,
-    profile.site_id AS response_profile_site_id
+    profile.site_id AS response_profile_site_id,
+    profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
@@ -86,7 +89,8 @@ SELECT
     st.last_error,
     st.last_error_at,
     profile.profile_name AS response_profile_name,
-    profile.site_id AS response_profile_site_id
+    profile.site_id AS response_profile_site_id,
+    profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id

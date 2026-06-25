@@ -316,6 +316,8 @@ function withAllSitesScope(values: CurtailmentFormValues): CurtailmentFormValues
     siteIds: [],
     siteNamesById: {},
     deviceSetIds: [],
+    deviceIdentifiers: [],
+    minerSelectionMode: "subset",
   };
 }
 

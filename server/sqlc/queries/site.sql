@@ -163,7 +163,23 @@ WHERE org_id = sqlc.arg('org_id')
 -- site delete cascade so they cannot outlive a soft-deleted site.
 DELETE FROM curtailment_response_profile
 WHERE org_id = sqlc.arg('org_id')
-  AND site_id = sqlc.arg('site_id');
+  AND (
+    site_id = sqlc.arg('site_id')
+    OR (
+      scope_json ? 'site_id'
+      AND (scope_json->>'site_id')::BIGINT = sqlc.arg('site_id')
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements_text(
+        CASE
+          WHEN jsonb_typeof(scope_json->'site_ids') = 'array' THEN scope_json->'site_ids'
+          ELSE '[]'::jsonb
+        END
+      ) AS scope_site(site_id)
+      WHERE scope_site.site_id::BIGINT = sqlc.arg('site_id')
+    )
+  );
 
 -- name: SoftDeleteBuildingsBySite :execrows
 -- Soft-deletes every live building under the given site. Caller wraps

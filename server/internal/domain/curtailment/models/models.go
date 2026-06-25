@@ -58,25 +58,26 @@ const (
 
 // AutomationRule binds an external trigger source to a response profile.
 type AutomationRule struct {
-	ID                    int64
-	OrgID                 int64
-	RuleName              string
-	TriggerType           AutomationTriggerType
-	MQTTSourceID          int64
-	MQTTSourceName        string
-	ResponseProfileID     int64
-	ResponseProfileName   string
-	ResponseProfileSiteID *int64
-	Enabled               bool
-	LastSignal            *AutomationSignal
-	LastSignalAt          *time.Time
-	ActiveEventUUID       *uuid.UUID
-	LastStartedAt         *time.Time
-	LastRestoredAt        *time.Time
-	LastError             *string
-	LastErrorAt           *time.Time
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	ID                       int64
+	OrgID                    int64
+	RuleName                 string
+	TriggerType              AutomationTriggerType
+	MQTTSourceID             int64
+	MQTTSourceName           string
+	ResponseProfileID        int64
+	ResponseProfileName      string
+	ResponseProfileSiteID    *int64
+	ResponseProfileScopeJSON []byte
+	Enabled                  bool
+	LastSignal               *AutomationSignal
+	LastSignalAt             *time.Time
+	ActiveEventUUID          *uuid.UUID
+	LastStartedAt            *time.Time
+	LastRestoredAt           *time.Time
+	LastError                *string
+	LastErrorAt              *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 // EventState is a typed wrapper for `curtailment_event.state` to keep the

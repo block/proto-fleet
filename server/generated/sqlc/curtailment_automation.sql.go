@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -122,7 +123,8 @@ SELECT
     st.last_error,
     st.last_error_at,
     profile.profile_name AS response_profile_name,
-    profile.site_id AS response_profile_site_id
+    profile.site_id AS response_profile_site_id,
+    profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
@@ -142,25 +144,26 @@ type GetCurtailmentAutomationRuleByOrgParams struct {
 }
 
 type GetCurtailmentAutomationRuleByOrgRow struct {
-	ID                    int64
-	OrgID                 int64
-	RuleName              string
-	TriggerType           string
-	MqttSourceID          int64
-	ResponseProfileID     int64
-	Enabled               bool
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-	MqttSourceName        string
-	LastSignal            sql.NullString
-	LastSignalAt          sql.NullTime
-	ActiveEventUuid       uuid.NullUUID
-	LastStartedAt         sql.NullTime
-	LastRestoredAt        sql.NullTime
-	LastError             sql.NullString
-	LastErrorAt           sql.NullTime
-	ResponseProfileName   string
-	ResponseProfileSiteID sql.NullInt64
+	ID                       int64
+	OrgID                    int64
+	RuleName                 string
+	TriggerType              string
+	MqttSourceID             int64
+	ResponseProfileID        int64
+	Enabled                  bool
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	MqttSourceName           string
+	LastSignal               sql.NullString
+	LastSignalAt             sql.NullTime
+	ActiveEventUuid          uuid.NullUUID
+	LastStartedAt            sql.NullTime
+	LastRestoredAt           sql.NullTime
+	LastError                sql.NullString
+	LastErrorAt              sql.NullTime
+	ResponseProfileName      string
+	ResponseProfileSiteID    sql.NullInt64
+	ResponseProfileScopeJson json.RawMessage
 }
 
 func (q *Queries) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error) {
@@ -186,6 +189,7 @@ func (q *Queries) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg Get
 		&i.LastErrorAt,
 		&i.ResponseProfileName,
 		&i.ResponseProfileSiteID,
+		&i.ResponseProfileScopeJson,
 	)
 	return i, err
 }
@@ -202,7 +206,8 @@ SELECT
     st.last_error,
     st.last_error_at,
     profile.profile_name AS response_profile_name,
-    profile.site_id AS response_profile_site_id
+    profile.site_id AS response_profile_site_id,
+    profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
@@ -233,25 +238,26 @@ type GetEnabledCurtailmentAutomationRuleByEventParams struct {
 }
 
 type GetEnabledCurtailmentAutomationRuleByEventRow struct {
-	ID                    int64
-	OrgID                 int64
-	RuleName              string
-	TriggerType           string
-	MqttSourceID          int64
-	ResponseProfileID     int64
-	Enabled               bool
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-	MqttSourceName        string
-	LastSignal            sql.NullString
-	LastSignalAt          sql.NullTime
-	ActiveEventUuid       uuid.NullUUID
-	LastStartedAt         sql.NullTime
-	LastRestoredAt        sql.NullTime
-	LastError             sql.NullString
-	LastErrorAt           sql.NullTime
-	ResponseProfileName   string
-	ResponseProfileSiteID sql.NullInt64
+	ID                       int64
+	OrgID                    int64
+	RuleName                 string
+	TriggerType              string
+	MqttSourceID             int64
+	ResponseProfileID        int64
+	Enabled                  bool
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	MqttSourceName           string
+	LastSignal               sql.NullString
+	LastSignalAt             sql.NullTime
+	ActiveEventUuid          uuid.NullUUID
+	LastStartedAt            sql.NullTime
+	LastRestoredAt           sql.NullTime
+	LastError                sql.NullString
+	LastErrorAt              sql.NullTime
+	ResponseProfileName      string
+	ResponseProfileSiteID    sql.NullInt64
+	ResponseProfileScopeJson json.RawMessage
 }
 
 func (q *Queries) GetEnabledCurtailmentAutomationRuleByEvent(ctx context.Context, arg GetEnabledCurtailmentAutomationRuleByEventParams) (GetEnabledCurtailmentAutomationRuleByEventRow, error) {
@@ -277,6 +283,7 @@ func (q *Queries) GetEnabledCurtailmentAutomationRuleByEvent(ctx context.Context
 		&i.LastErrorAt,
 		&i.ResponseProfileName,
 		&i.ResponseProfileSiteID,
+		&i.ResponseProfileScopeJson,
 	)
 	return i, err
 }
@@ -345,7 +352,8 @@ SELECT
     st.last_error,
     st.last_error_at,
     profile.profile_name AS response_profile_name,
-    profile.site_id AS response_profile_site_id
+    profile.site_id AS response_profile_site_id,
+    profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
@@ -360,25 +368,26 @@ ORDER BY r.id
 `
 
 type ListCurtailmentAutomationRulesByOrgRow struct {
-	ID                    int64
-	OrgID                 int64
-	RuleName              string
-	TriggerType           string
-	MqttSourceID          int64
-	ResponseProfileID     int64
-	Enabled               bool
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-	MqttSourceName        string
-	LastSignal            sql.NullString
-	LastSignalAt          sql.NullTime
-	ActiveEventUuid       uuid.NullUUID
-	LastStartedAt         sql.NullTime
-	LastRestoredAt        sql.NullTime
-	LastError             sql.NullString
-	LastErrorAt           sql.NullTime
-	ResponseProfileName   string
-	ResponseProfileSiteID sql.NullInt64
+	ID                       int64
+	OrgID                    int64
+	RuleName                 string
+	TriggerType              string
+	MqttSourceID             int64
+	ResponseProfileID        int64
+	Enabled                  bool
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	MqttSourceName           string
+	LastSignal               sql.NullString
+	LastSignalAt             sql.NullTime
+	ActiveEventUuid          uuid.NullUUID
+	LastStartedAt            sql.NullTime
+	LastRestoredAt           sql.NullTime
+	LastError                sql.NullString
+	LastErrorAt              sql.NullTime
+	ResponseProfileName      string
+	ResponseProfileSiteID    sql.NullInt64
+	ResponseProfileScopeJson json.RawMessage
 }
 
 func (q *Queries) ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID int64) ([]ListCurtailmentAutomationRulesByOrgRow, error) {
@@ -410,6 +419,7 @@ func (q *Queries) ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID
 			&i.LastErrorAt,
 			&i.ResponseProfileName,
 			&i.ResponseProfileSiteID,
+			&i.ResponseProfileScopeJson,
 		); err != nil {
 			return nil, err
 		}
@@ -436,7 +446,8 @@ SELECT
     st.last_error,
     st.last_error_at,
     profile.profile_name AS response_profile_name,
-    profile.site_id AS response_profile_site_id
+    profile.site_id AS response_profile_site_id,
+    profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
@@ -452,25 +463,26 @@ ORDER BY r.id
 `
 
 type ListEnabledCurtailmentAutomationRulesByMQTTSourceRow struct {
-	ID                    int64
-	OrgID                 int64
-	RuleName              string
-	TriggerType           string
-	MqttSourceID          int64
-	ResponseProfileID     int64
-	Enabled               bool
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-	MqttSourceName        string
-	LastSignal            sql.NullString
-	LastSignalAt          sql.NullTime
-	ActiveEventUuid       uuid.NullUUID
-	LastStartedAt         sql.NullTime
-	LastRestoredAt        sql.NullTime
-	LastError             sql.NullString
-	LastErrorAt           sql.NullTime
-	ResponseProfileName   string
-	ResponseProfileSiteID sql.NullInt64
+	ID                       int64
+	OrgID                    int64
+	RuleName                 string
+	TriggerType              string
+	MqttSourceID             int64
+	ResponseProfileID        int64
+	Enabled                  bool
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	MqttSourceName           string
+	LastSignal               sql.NullString
+	LastSignalAt             sql.NullTime
+	ActiveEventUuid          uuid.NullUUID
+	LastStartedAt            sql.NullTime
+	LastRestoredAt           sql.NullTime
+	LastError                sql.NullString
+	LastErrorAt              sql.NullTime
+	ResponseProfileName      string
+	ResponseProfileSiteID    sql.NullInt64
+	ResponseProfileScopeJson json.RawMessage
 }
 
 func (q *Queries) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]ListEnabledCurtailmentAutomationRulesByMQTTSourceRow, error) {
@@ -502,6 +514,7 @@ func (q *Queries) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.
 			&i.LastErrorAt,
 			&i.ResponseProfileName,
 			&i.ResponseProfileSiteID,
+			&i.ResponseProfileScopeJson,
 		); err != nil {
 			return nil, err
 		}

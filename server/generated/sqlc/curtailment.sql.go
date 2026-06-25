@@ -1146,6 +1146,36 @@ JOIN device d ON d.org_id = ce.org_id
             ce.scope_type = 'site'
             AND d.site_id = (ce.scope_jsonb->>'site_id')::BIGINT
         )
+        OR (
+            ce.scope_type = 'mixed'
+            AND d.site_id IN (
+                SELECT mixed_site.site_id::BIGINT
+                FROM jsonb_array_elements_text(
+                    CASE WHEN jsonb_typeof(ce.scope_jsonb->'site_ids') = 'array'
+                      THEN ce.scope_jsonb->'site_ids'
+                      ELSE '[]'::jsonb
+                    END
+                ) AS mixed_site(site_id)
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements_text(
+                    CASE WHEN jsonb_typeof(ce.scope_jsonb->'device_identifiers') = 'array'
+                      THEN ce.scope_jsonb->'device_identifiers'
+                      ELSE '[]'::jsonb
+                    END
+                ) AS mixed_device(device_identifier)
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements_text(
+                    CASE WHEN jsonb_typeof(ce.scope_jsonb->'device_set_ids') = 'array'
+                      THEN ce.scope_jsonb->'device_set_ids'
+                      ELSE '[]'::jsonb
+                    END
+                ) AS mixed_device_set(device_set_id)
+            )
+        )
     )
 WHERE ce.org_id = $1
     AND ce.state IN ('pending', 'active', 'restoring')

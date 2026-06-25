@@ -100,3 +100,58 @@ func TestDeleteSite_ClearsAllDeviceSitePointers(t *testing.T) {
 	require.NoError(t, row.Scan(&unassignedCount))
 	assert.GreaterOrEqual(t, unassignedCount, 3, "all 3 devices should now have site_id IS NULL")
 }
+
+func TestDeleteCurtailmentResponseProfilesBySite_RemovesScopedProfiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	ctx := t.Context()
+	db := testContext.ServiceProvider.DB
+	siteStore := sqlstores.NewSQLSiteStore(db)
+
+	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Calgary"})
+	require.NoError(t, err)
+	siteB, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Austin"})
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO curtailment_response_profile (
+			org_id,
+			profile_name,
+			site_id,
+			scope_json,
+			mode,
+			target_kw
+		) VALUES
+			($1, 'Legacy site', $2, jsonb_build_object('site_ids', jsonb_build_array($2::bigint)), 'FIXED_KW', 100),
+			($1, 'Scoped site list', NULL, jsonb_build_object('site_ids', jsonb_build_array($2::bigint, $3::bigint)), 'FIXED_KW', 100),
+			($1, 'Other site', NULL, jsonb_build_object('site_ids', jsonb_build_array($3::bigint)), 'FIXED_KW', 100)
+	`, orgID, siteA.ID, siteB.ID)
+	require.NoError(t, err)
+
+	deleted, err := siteStore.DeleteCurtailmentResponseProfilesBySite(ctx, orgID, siteA.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), deleted)
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT profile_name
+		FROM curtailment_response_profile
+		WHERE org_id = $1
+		ORDER BY profile_name
+	`, orgID)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		require.NoError(t, rows.Scan(&name))
+		names = append(names, name)
+	}
+	require.NoError(t, rows.Err())
+	assert.Equal(t, []string{"Other site"}, names)
+}
