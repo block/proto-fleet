@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -245,6 +246,65 @@ func TestHandleMinerCommand_GetMiningPoolsReturnsPayload(t *testing.T) {
 	assert.Equal(t, int32(2), result.GetPools()[1].GetPriority())
 	assert.Equal(t, "stratum+tcp://pool4.example.com:3333", result.GetPools()[1].GetUrl())
 	assert.Equal(t, "worker4", result.GetPools()[1].GetUsername())
+}
+
+func TestHandleMinerCommand_GetErrorsReturnsPayload(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	componentID := "psu-0"
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().GetErrors(gomock.Any()).Return(sdk.DeviceErrors{
+		DeviceID: "dev-1",
+		Errors: []sdk.DeviceError{{
+			MinerError:        1003,
+			CauseSummary:      "PSU fault",
+			RecommendedAction: "Replace PSU",
+			Severity:          1,
+			FirstSeenAt:       now,
+			LastSeenAt:        now.Add(time.Minute),
+			VendorAttributes: map[string]string{
+				"vendor_code": "PSU_001",
+			},
+			DeviceID:      "dev-1",
+			ComponentID:   &componentID,
+			Impact:        "Stops mining",
+			Summary:       "Power supply fault detected",
+			ComponentType: 1,
+		}},
+	}, nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}}}), discardLogger(t))
+
+	// Assert
+	got := ack.only(t)
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	assert.True(t, got.GetSucceeded())
+
+	var result pb.GetErrorsResult
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
+	assert.Equal(t, "dev-1", result.GetDeviceId())
+	require.Len(t, result.GetErrors(), 1)
+	errReport := result.GetErrors()[0]
+	assert.Equal(t, uint32(1003), errReport.GetMinerError())
+	assert.Equal(t, "PSU fault", errReport.GetCauseSummary())
+	assert.Equal(t, "Replace PSU", errReport.GetRecommendedAction())
+	assert.Equal(t, uint32(1), errReport.GetSeverity())
+	assert.Equal(t, now, errReport.GetFirstSeenAt().AsTime())
+	assert.Equal(t, now.Add(time.Minute), errReport.GetLastSeenAt().AsTime())
+	assert.Equal(t, "PSU_001", errReport.GetVendorAttributes()["vendor_code"])
+	assert.Equal(t, "dev-1", errReport.GetDeviceId())
+	assert.Equal(t, &componentID, errReport.ComponentId)
+	assert.Equal(t, "Stops mining", errReport.GetImpact())
+	assert.Equal(t, "Power supply fault detected", errReport.GetSummary())
+	assert.Equal(t, uint32(1), errReport.GetComponentType())
 }
 
 func TestHandleMinerCommand_GetMiningPoolsTrimsUnsupportedPoolSlots(t *testing.T) {

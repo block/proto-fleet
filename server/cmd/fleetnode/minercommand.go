@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
@@ -185,6 +186,16 @@ func runMinerAction(ctx context.Context, dev sdk.Device, mc *pb.MinerCommand) ([
 			return nil, err
 		}
 		return payload, nil
+	case *pb.MinerCommand_GetErrors:
+		deviceErrors, err := dev.GetErrors(ctx)
+		if err != nil {
+			return nil, err
+		}
+		payload, err := getErrorsResultPayload(mc.GetTarget().GetDeviceIdentifier(), deviceErrors)
+		if err != nil {
+			return nil, err
+		}
+		return payload, nil
 	default:
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unrecognized miner command action")
 	}
@@ -262,6 +273,80 @@ func miningPoolConfigsFromSDK(pools []sdk.ConfiguredPool) []*pb.MiningPoolConfig
 		}
 	}
 	return configured
+}
+
+func getErrorsResultPayload(targetDeviceID string, deviceErrors sdk.DeviceErrors) ([]byte, error) {
+	result, err := getErrorsResultFromSDK(targetDeviceID, deviceErrors)
+	if err != nil {
+		return nil, err
+	}
+	if err := protovalidate.Validate(result); err != nil {
+		return nil, fmt.Errorf("invalid get errors result: %w", err)
+	}
+	payload, err := proto.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal get errors result: %w", err)
+	}
+	return payload, nil
+}
+
+func getErrorsResultFromSDK(targetDeviceID string, deviceErrors sdk.DeviceErrors) (*pb.GetErrorsResult, error) {
+	deviceID := deviceErrors.DeviceID
+	if deviceID == "" {
+		deviceID = targetDeviceID
+	}
+	result := &pb.GetErrorsResult{
+		DeviceId: deviceID,
+		Errors:   make([]*pb.MinerErrorReport, 0, len(deviceErrors.Errors)),
+	}
+	for _, sdkErr := range deviceErrors.Errors {
+		errorDeviceID := sdkErr.DeviceID
+		if errorDeviceID == "" {
+			errorDeviceID = deviceID
+		}
+		minerError, err := nonNegativeEnumUint32(int32(sdkErr.MinerError), "miner_error")
+		if err != nil {
+			return nil, err
+		}
+		severity, err := nonNegativeEnumUint32(int32(sdkErr.Severity), "severity")
+		if err != nil {
+			return nil, err
+		}
+		componentType, err := nonNegativeEnumUint32(int32(sdkErr.ComponentType), "component_type")
+		if err != nil {
+			return nil, err
+		}
+		report := &pb.MinerErrorReport{
+			MinerError:        minerError,
+			CauseSummary:      sdkErr.CauseSummary,
+			RecommendedAction: sdkErr.RecommendedAction,
+			Severity:          severity,
+			VendorAttributes:  sdkErr.VendorAttributes,
+			DeviceId:          errorDeviceID,
+			ComponentId:       sdkErr.ComponentID,
+			Impact:            sdkErr.Impact,
+			Summary:           sdkErr.Summary,
+			ComponentType:     componentType,
+		}
+		if !sdkErr.FirstSeenAt.IsZero() {
+			report.FirstSeenAt = timestamppb.New(sdkErr.FirstSeenAt)
+		}
+		if !sdkErr.LastSeenAt.IsZero() {
+			report.LastSeenAt = timestamppb.New(sdkErr.LastSeenAt)
+		}
+		if sdkErr.ClosedAt != nil && !sdkErr.ClosedAt.IsZero() {
+			report.ClosedAt = timestamppb.New(*sdkErr.ClosedAt)
+		}
+		result.Errors = append(result.Errors, report)
+	}
+	return result, nil
+}
+
+func nonNegativeEnumUint32(value int32, field string) (uint32, error) {
+	if value < 0 {
+		return 0, fmt.Errorf("invalid get errors result: %s must be non-negative, got %d", field, value)
+	}
+	return uint32(value), nil //nolint:gosec // value is checked non-negative before widening.
 }
 
 // Reject undefined / non-actionable (UNSPECIFIED) enum values with BAD_REQUEST rather

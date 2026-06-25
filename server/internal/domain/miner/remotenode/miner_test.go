@@ -6,11 +6,13 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
@@ -175,6 +177,124 @@ func TestMiner_GetMiningPools_DecodesPayload(t *testing.T) {
 	assert.Equal(t, "stratum+tcp://pool4.example.com:3333", pools[1].URL)
 	assert.Equal(t, "worker4", pools[1].Username)
 	assert.NotNil(t, decodeSent(t, s).GetGetMiningPools())
+}
+
+func TestMiner_GetErrors_DecodesPayload(t *testing.T) {
+	// Arrange
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	closedAt := now.Add(time.Hour)
+	componentID := "psu-0"
+	payload, err := proto.Marshal(&gatewaypb.GetErrorsResult{
+		DeviceId: "dev-1",
+		Errors: []*gatewaypb.MinerErrorReport{{
+			MinerError:        1003,
+			CauseSummary:      "PSU fault",
+			RecommendedAction: "Replace PSU",
+			Severity:          1,
+			FirstSeenAt:       timestamppb.New(now),
+			LastSeenAt:        timestamppb.New(now.Add(time.Minute)),
+			ClosedAt:          timestamppb.New(closedAt),
+			VendorAttributes: map[string]string{
+				"vendor_code": "PSU_001",
+				"firmware":    "v1.2.3",
+			},
+			DeviceId:      "dev-1",
+			ComponentId:   &componentID,
+			Impact:        "Stops mining",
+			Summary:       "Power supply fault detected",
+			ComponentType: 1,
+		}},
+	})
+	require.NoError(t, err)
+	s := &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}}
+	m := newTestMiner(t, s)
+
+	// Act
+	deviceErrors, err := m.GetErrors(context.Background())
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, "dev-1", deviceErrors.DeviceID)
+	require.Len(t, deviceErrors.Errors, 1)
+	got := deviceErrors.Errors[0]
+	assert.Equal(t, "PSU fault", got.CauseSummary)
+	assert.Equal(t, "Replace PSU", got.RecommendedAction)
+	assert.Equal(t, "Power supply fault detected", got.Summary)
+	assert.Equal(t, "PSU_001", got.VendorCode)
+	assert.Equal(t, "v1.2.3", got.Firmware)
+	assert.Equal(t, &componentID, got.ComponentID)
+	assert.NotZero(t, got.MinerError)
+	assert.NotZero(t, got.Severity)
+	assert.NotZero(t, got.ComponentType)
+	assert.Equal(t, now, got.FirstSeenAt)
+	assert.Equal(t, now.Add(time.Minute), got.LastSeenAt)
+	require.NotNil(t, got.ClosedAt)
+	assert.Equal(t, closedAt, *got.ClosedAt)
+	assert.NotNil(t, decodeSent(t, s).GetGetErrors())
+}
+
+func TestMiner_GetErrors_MalformedPayloadReturnsInternal(t *testing.T) {
+	// Arrange
+	m := newTestMiner(t, &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   []byte{0xff},
+	}})
+
+	// Act
+	deviceErrors, err := m.GetErrors(context.Background())
+
+	// Assert
+	require.Error(t, err)
+	assert.Empty(t, deviceErrors.Errors)
+	assert.Contains(t, err.Error(), "unmarshal get errors result")
+}
+
+func TestMiner_GetErrors_RejectsMismatchedResultDeviceID(t *testing.T) {
+	// Arrange
+	payload, err := proto.Marshal(&gatewaypb.GetErrorsResult{DeviceId: "other-device"})
+	require.NoError(t, err)
+	m := newTestMiner(t, &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}})
+
+	// Act
+	_, err = m.GetErrors(context.Background())
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match requested device")
+}
+
+func TestMiner_GetErrors_RejectsMismatchedErrorDeviceID(t *testing.T) {
+	// Arrange
+	payload, err := proto.Marshal(&gatewaypb.GetErrorsResult{
+		DeviceId: "dev-1",
+		Errors: []*gatewaypb.MinerErrorReport{{
+			DeviceId:      "other-device",
+			CauseSummary:  "wrong miner",
+			ComponentType: 1,
+		}},
+	})
+	require.NoError(t, err)
+	m := newTestMiner(t, &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}})
+
+	// Act
+	_, err = m.GetErrors(context.Background())
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match result device_id")
 }
 
 func TestMiner_GetMiningPools_EmptyPayloadReturnsEmptyList(t *testing.T) {

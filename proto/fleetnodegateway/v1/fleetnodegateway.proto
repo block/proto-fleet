@@ -262,6 +262,7 @@ message MinerCommand {
         SetPowerTargetAction set_power_target = 9;
         UpdateMiningPoolsAction update_mining_pools = 10;
         GetMiningPoolsAction get_mining_pools = 11;
+        GetErrorsAction get_errors = 12;
     }
 }
 
@@ -271,6 +272,7 @@ message StopMiningAction {}
 message BlinkLedAction {}
 message UncurtailAction {}
 message GetMiningPoolsAction {}
+message GetErrorsAction {}
 
 message CurtailAction {
     curtailment.v1.CurtailmentLevel level = 1;
@@ -302,6 +304,27 @@ message UpdateMiningPoolsAction {
 
 message GetMiningPoolsResult {
     repeated MiningPoolConfig pools = 1 [(buf.validate.field).repeated.max_items = 3];
+}
+
+message MinerErrorReport {
+    uint32 miner_error = 1;
+    string cause_summary = 2 [(buf.validate.field).string.max_len = 4096];
+    string recommended_action = 3 [(buf.validate.field).string.max_len = 4096];
+    uint32 severity = 4;
+    google.protobuf.Timestamp first_seen_at = 5;
+    google.protobuf.Timestamp last_seen_at = 6;
+    google.protobuf.Timestamp closed_at = 7;
+    map<string, string> vendor_attributes = 8;
+    string device_id = 9 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    optional string component_id = 10 [(buf.validate.field).string.max_len = 255];
+    string impact = 11 [(buf.validate.field).string.max_len = 4096];
+    string summary = 12 [(buf.validate.field).string.max_len = 4096];
+    uint32 component_type = 13;
+}
+
+message GetErrorsResult {
+    string device_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    repeated MinerErrorReport errors = 2 [(buf.validate.field).repeated.max_items = 512];
 }
 
 // AgentCommand is the typed envelope marshaled into ControlCommand.payload so a

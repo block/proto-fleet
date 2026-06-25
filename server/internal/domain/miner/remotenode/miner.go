@@ -25,6 +25,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/plugins/mappers"
 	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
@@ -292,8 +293,34 @@ func (m *Miner) GetDeviceStatus(_ context.Context) (minermodels.MinerStatus, err
 	return minermodels.MinerStatusUnknown, errUnsupported("GetDeviceStatus")
 }
 
-func (m *Miner) GetErrors(_ context.Context) (models.DeviceErrors, error) {
-	return models.DeviceErrors{}, errUnsupported("GetErrors")
+func (m *Miner) GetErrors(ctx context.Context) (models.DeviceErrors, error) {
+	ack, err := m.send(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{
+		GetErrors: &gatewaypb.GetErrorsAction{},
+	}})
+	if err != nil {
+		return models.DeviceErrors{}, err
+	}
+	if err := ackToError(ack); err != nil {
+		return models.DeviceErrors{}, err
+	}
+
+	var result gatewaypb.GetErrorsResult
+	if err := proto.Unmarshal(ack.GetPayload(), &result); err != nil {
+		return models.DeviceErrors{}, fleeterror.NewInternalErrorf("unmarshal get errors result: %v", err)
+	}
+	if err := protovalidate.Validate(&result); err != nil {
+		return models.DeviceErrors{}, fleeterror.NewInternalErrorf("invalid get errors result: %v", err)
+	}
+	if result.GetDeviceId() != m.desc.GetDeviceIdentifier() {
+		return models.DeviceErrors{}, fleeterror.NewInternalErrorf(
+			"invalid get errors result: device_id %q does not match requested device %q",
+			result.GetDeviceId(), m.desc.GetDeviceIdentifier())
+	}
+	sdkErrors, err := sdkDeviceErrorsFromResult(&result)
+	if err != nil {
+		return models.DeviceErrors{}, err
+	}
+	return mappers.SDKDeviceErrorsToFleetDeviceErrors(sdkErrors), nil
 }
 
 func (m *Miner) GetCoolingMode(_ context.Context) (commonpb.CoolingMode, error) {
@@ -337,6 +364,78 @@ func (m *Miner) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfigure
 
 func errUnsupported(op string) error {
 	return fleeterror.NewUnimplementedErrorf("%s is not yet supported for fleet-node-paired miners", op)
+}
+
+func sdkDeviceErrorsFromResult(result *gatewaypb.GetErrorsResult) (sdk.DeviceErrors, error) {
+	deviceID := result.GetDeviceId()
+	out := sdk.DeviceErrors{
+		DeviceID: deviceID,
+		Errors:   make([]sdk.DeviceError, 0, len(result.GetErrors())),
+	}
+	for _, report := range result.GetErrors() {
+		if report.GetDeviceId() != deviceID {
+			return sdk.DeviceErrors{}, fleeterror.NewInternalErrorf(
+				"invalid get errors result: error device_id %q does not match result device_id %q",
+				report.GetDeviceId(), deviceID)
+		}
+		minerError, err := sdkMinerError(report.GetMinerError())
+		if err != nil {
+			return sdk.DeviceErrors{}, err
+		}
+		severity, err := sdkSeverity(report.GetSeverity())
+		if err != nil {
+			return sdk.DeviceErrors{}, err
+		}
+		componentType, err := sdkComponentType(report.GetComponentType())
+		if err != nil {
+			return sdk.DeviceErrors{}, err
+		}
+		sdkErr := sdk.DeviceError{
+			MinerError:        minerError,
+			CauseSummary:      report.GetCauseSummary(),
+			RecommendedAction: report.GetRecommendedAction(),
+			Severity:          severity,
+			VendorAttributes:  report.GetVendorAttributes(),
+			DeviceID:          report.GetDeviceId(),
+			ComponentID:       report.ComponentId,
+			ComponentType:     componentType,
+			Impact:            report.GetImpact(),
+			Summary:           report.GetSummary(),
+		}
+		if report.GetFirstSeenAt() != nil {
+			sdkErr.FirstSeenAt = report.GetFirstSeenAt().AsTime()
+		}
+		if report.GetLastSeenAt() != nil {
+			sdkErr.LastSeenAt = report.GetLastSeenAt().AsTime()
+		}
+		if report.GetClosedAt() != nil {
+			closedAt := report.GetClosedAt().AsTime()
+			sdkErr.ClosedAt = &closedAt
+		}
+		out.Errors = append(out.Errors, sdkErr)
+	}
+	return out, nil
+}
+
+func sdkMinerError(value uint32) (sdk.MinerError, error) {
+	if value > math.MaxInt32 {
+		return sdk.MinerError(0), fleeterror.NewInternalErrorf("invalid get errors result: miner_error %d exceeds int32 maximum", value)
+	}
+	return sdk.MinerError(int32(value)), nil //nolint:gosec // checked above before narrowing.
+}
+
+func sdkSeverity(value uint32) (sdk.Severity, error) {
+	if value > math.MaxInt32 {
+		return sdk.Severity(0), fleeterror.NewInternalErrorf("invalid get errors result: severity %d exceeds int32 maximum", value)
+	}
+	return sdk.Severity(int32(value)), nil //nolint:gosec // checked above before narrowing.
+}
+
+func sdkComponentType(value uint32) (sdk.ComponentType, error) {
+	if value > math.MaxInt32 {
+		return sdk.ComponentType(0), fleeterror.NewInternalErrorf("invalid get errors result: component_type %d exceeds int32 maximum", value)
+	}
+	return sdk.ComponentType(int32(value)), nil //nolint:gosec // checked above before narrowing.
 }
 
 func miningPoolConfigsFromPayload(payload dto.UpdateMiningPoolsPayload) ([]*gatewaypb.MiningPoolConfig, error) {
