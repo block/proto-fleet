@@ -153,6 +153,7 @@ type artifactExpectation struct {
 	inProgress bool
 	completed  bool
 	attempts   int
+	uploadRef  *gatewaypb.CommandArtifactRef
 }
 
 // connection is the server's view of one agent ControlStream. It can hold many

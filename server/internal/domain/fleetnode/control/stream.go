@@ -173,6 +173,61 @@ func (r *Registry) CompleteCommandArtifactTransfer(fleetNodeID int64, commandID 
 	exp.completed = true
 }
 
+// CompleteCommandArtifactUpload marks an upload as completed and stores the
+// artifact reference so a retry can idempotently recover the response while the
+// command remains in flight.
+func (r *Registry) CompleteCommandArtifactUpload(fleetNodeID int64, commandID string, want ArtifactExpectation, ref *gatewaypb.CommandArtifactRef) {
+	if want.Direction != ArtifactDirectionUpload || ref == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cmd := r.inflightFor(fleetNodeID, commandID)
+	if cmd == nil {
+		return
+	}
+	exp := cmd.artifactExpectationFor(want)
+	if exp == nil {
+		return
+	}
+	exp.inProgress = false
+	exp.completed = true
+	exp.uploadRef = cloneCommandArtifactRef(ref)
+}
+
+// CompletedCommandArtifactUpload returns the stored artifact ref for a completed
+// upload expectation. ok is false for absent, in-progress, non-upload, or
+// not-yet-completed expectations.
+func (r *Registry) CompletedCommandArtifactUpload(fleetNodeID int64, commandID string, want ArtifactExpectation) (*gatewaypb.CommandArtifactRef, bool) {
+	if want.Direction != ArtifactDirectionUpload {
+		return nil, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cmd := r.inflightFor(fleetNodeID, commandID)
+	if cmd == nil {
+		return nil, false
+	}
+	exp := cmd.artifactExpectationFor(want)
+	if exp == nil || !exp.completed || exp.uploadRef == nil {
+		return nil, false
+	}
+	return cloneCommandArtifactRef(exp.uploadRef), true
+}
+
+func cloneCommandArtifactRef(ref *gatewaypb.CommandArtifactRef) *gatewaypb.CommandArtifactRef {
+	if ref == nil {
+		return nil
+	}
+	return &gatewaypb.CommandArtifactRef{
+		ArtifactId: ref.GetArtifactId(),
+		Purpose:    ref.GetPurpose(),
+		Filename:   ref.GetFilename(),
+		SizeBytes:  ref.GetSizeBytes(),
+		Sha256:     ref.GetSha256(),
+	}
+}
+
 // ReinstateCommandArtifactTransfer clears an in-progress expectation after the
 // gateway fails before the transfer completes. No-op if the command is gone or
 // the expectation no longer matches.

@@ -98,6 +98,22 @@ func TestCommandArtifactUploadAndDownloadRequireInFlightExpectation(t *testing.T
 	assert.Equal(t, "miner-a.zip", artifact.GetFilename())
 	assert.Equal(t, int64(len(payload)), artifact.GetSizeBytes())
 	assert.Equal(t, sha256Hex(payload), artifact.GetSha256())
+
+	completedRetry := client.UploadCommandArtifact(context.Background())
+	require.NoError(t, completedRetry.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Header{
+		Header: &pb.CommandArtifactUploadHeader{
+			CommandId:        uploadCommandID,
+			Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+			Filename:         "miner-a.zip",
+			SizeBytes:        int64(len(payload)),
+			Sha256:           sha256Hex(payload),
+			DeviceIdentifier: "miner-a",
+		},
+	}}))
+	completedRetryResp, err := completedRetry.CloseAndReceive()
+	require.NoError(t, err)
+	assert.Equal(t, artifact.GetArtifactId(), completedRetryResp.Msg.GetArtifact().GetArtifactId())
+
 	finishAckOnlyCommand(t, uploadStream, uploadCommandID, uploadDone)
 
 	duplicate := client.UploadCommandArtifact(context.Background())

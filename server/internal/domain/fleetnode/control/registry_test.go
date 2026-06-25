@@ -773,6 +773,39 @@ func TestReinstateCommandArtifactUploadAllowsRetry(t *testing.T) {
 	require.NoError(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation))
 }
 
+func TestCompletedCommandArtifactUploadReturnsStoredRef(t *testing.T) {
+	r := NewRegistry()
+	fleetNodeID := int64(12)
+	commandID := "artifact-upload-command"
+	expectation := ArtifactExpectation{
+		Direction:        ArtifactDirectionUpload,
+		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		DeviceIdentifier: "miner-1",
+	}
+	registerInFlightCommandWithArtifacts(t, r, fleetNodeID, commandID, []ArtifactExpectation{expectation})
+
+	require.NoError(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation))
+	ref := &gatewaypb.CommandArtifactRef{
+		ArtifactId: "artifact-1",
+		Purpose:    expectation.Purpose,
+		Filename:   "logs.zip",
+		SizeBytes:  123,
+		Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+	}
+	r.CompleteCommandArtifactUpload(fleetNodeID, commandID, expectation, ref)
+
+	got, ok := r.CompletedCommandArtifactUpload(fleetNodeID, commandID, expectation)
+	require.True(t, ok)
+	assert.Equal(t, ref.GetArtifactId(), got.GetArtifactId())
+	assert.Equal(t, ref.GetSha256(), got.GetSha256())
+	got.ArtifactId = "mutated"
+
+	got, ok = r.CompletedCommandArtifactUpload(fleetNodeID, commandID, expectation)
+	require.True(t, ok)
+	assert.Equal(t, "artifact-1", got.GetArtifactId())
+	require.ErrorIs(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation), ErrArtifactAlreadyTransferred)
+}
+
 func TestCommandArtifactTransferAttemptsAreCapped(t *testing.T) {
 	r := NewRegistry()
 	fleetNodeID := int64(12)

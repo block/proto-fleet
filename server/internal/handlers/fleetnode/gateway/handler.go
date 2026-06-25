@@ -136,6 +136,11 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 		DeviceIdentifier: header.GetDeviceIdentifier(),
 	}
 	if err := h.registry.AdmitCommandArtifact(subject.FleetNodeID, header.GetCommandId(), expectation); err != nil {
+		if errors.Is(err, control.ErrArtifactAlreadyTransferred) {
+			if ref, ok := h.registry.CompletedCommandArtifactUpload(subject.FleetNodeID, header.GetCommandId(), expectation); ok && commandArtifactUploadHeaderMatchesRef(header, ref) {
+				return connect.NewResponse(&pb.UploadCommandArtifactResponse{Artifact: ref}), nil
+			}
+		}
 		return nil, mapArtifactAdmissionError(err)
 	}
 
@@ -153,9 +158,10 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 		h.registry.ReinstateCommandArtifactUpload(subject.FleetNodeID, header.GetCommandId(), expectation)
 		return nil, err
 	}
-	h.registry.CompleteCommandArtifactTransfer(subject.FleetNodeID, header.GetCommandId(), expectation)
+	ref := commandArtifactRef(artifact, header.GetPurpose())
+	h.registry.CompleteCommandArtifactUpload(subject.FleetNodeID, header.GetCommandId(), expectation, ref)
 	return connect.NewResponse(&pb.UploadCommandArtifactResponse{
-		Artifact: commandArtifactRef(artifact, header.GetPurpose()),
+		Artifact: ref,
 	}), nil
 }
 
@@ -265,6 +271,12 @@ func commandArtifactDownloadSendError(label string, err error) error {
 		return err
 	}
 	return fleeterror.NewInternalErrorf("%s: %v", label, err)
+}
+
+func commandArtifactUploadHeaderMatchesRef(header *pb.CommandArtifactUploadHeader, ref *pb.CommandArtifactRef) bool {
+	return header.GetPurpose() == ref.GetPurpose() &&
+		header.GetSizeBytes() == ref.GetSizeBytes() &&
+		header.GetSha256() == ref.GetSha256()
 }
 
 type commandArtifactUploadReader struct {
