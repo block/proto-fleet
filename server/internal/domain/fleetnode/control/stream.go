@@ -129,6 +129,10 @@ func (r *Registry) AdmitCommandArtifact(fleetNodeID int64, commandID string, wan
 	if exp.inProgress || exp.completed {
 		return ErrArtifactAlreadyTransferred
 	}
+	if exp.attempts >= maxCommandArtifactTransferAttempts {
+		return ErrArtifactTransferAttemptsExceeded
+	}
+	exp.attempts++
 	exp.inProgress = true
 	return nil
 }
@@ -194,10 +198,11 @@ func artifactExpectationMatches(exp, want ArtifactExpectation) bool {
 	if exp.Purpose != want.Purpose || exp.Purpose == gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_UNSPECIFIED {
 		return false
 	}
-	if exp.Direction == ArtifactDirectionDownload && (exp.ArtifactID == "" || want.ArtifactID == "" || exp.ArtifactID != want.ArtifactID) {
-		return false
-	}
-	if exp.ArtifactID != "" && exp.ArtifactID != want.ArtifactID {
+	if exp.Direction == ArtifactDirectionDownload {
+		if exp.ArtifactID == "" || want.ArtifactID == "" || exp.ArtifactID != want.ArtifactID {
+			return false
+		}
+	} else if exp.ArtifactID != "" && exp.ArtifactID != want.ArtifactID {
 		return false
 	}
 	if exp.DeviceIdentifier != "" && exp.DeviceIdentifier != want.DeviceIdentifier {

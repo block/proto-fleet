@@ -779,6 +779,35 @@ func TestReinstateCommandArtifactUploadAllowsRetry(t *testing.T) {
 	require.NoError(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation))
 }
 
+func TestCommandArtifactTransferAttemptsAreCapped(t *testing.T) {
+	r := NewRegistry()
+	fleetNodeID := int64(12)
+	commandID := "artifact-upload-command"
+	expectation := ArtifactExpectation{
+		Direction:        ArtifactDirectionUpload,
+		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		DeviceIdentifier: "miner-1",
+	}
+	c := &inflightCommand{
+		id:        commandID,
+		ack:       make(chan *gatewaypb.ControlAck, 1),
+		artifacts: cloneArtifactExpectations([]ArtifactExpectation{expectation}),
+		done:      make(chan struct{}),
+	}
+	r.conns[fleetNodeID] = &connection{
+		outgoing: make(chan *gatewaypb.ControlCommand, outgoingBuffer),
+		done:     make(chan struct{}),
+		cmds:     map[string]*inflightCommand{commandID: c},
+	}
+
+	for range maxCommandArtifactTransferAttempts {
+		require.NoError(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation))
+		r.ReinstateCommandArtifactUpload(fleetNodeID, commandID, expectation)
+	}
+
+	require.ErrorIs(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation), ErrArtifactTransferAttemptsExceeded)
+}
+
 func TestCommandArtifactUploadSlotsLimitConcurrentStreams(t *testing.T) {
 	r := NewRegistry()
 	fleetNodeID := int64(12)

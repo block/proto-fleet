@@ -244,6 +244,8 @@ func mapArtifactAdmissionError(err error) error {
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.Is(err, control.ErrArtifactTransferLimitExceeded):
 		return connect.NewError(connect.CodeResourceExhausted, err)
+	case errors.Is(err, control.ErrArtifactTransferAttemptsExceeded):
+		return connect.NewError(connect.CodeResourceExhausted, err)
 	case errors.Is(err, control.ErrArtifactNotExpected):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:

@@ -3,6 +3,8 @@ package files
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,8 +22,9 @@ import (
 )
 
 const (
-	commandArtifactsDir        = "command-artifacts"
-	commandArtifactsStagingDir = "command-artifacts/staging"
+	commandArtifactsDir         = "command-artifacts"
+	commandArtifactsStagingDir  = "command-artifacts/staging"
+	commandArtifactMetadataFile = "metadata.json"
 
 	defaultMaxCommandArtifactSize int64 = 500 * 1024 * 1024 // 500 MB
 
@@ -37,6 +40,12 @@ type CommandArtifactInfo struct {
 	Filename string
 	Size     int64
 	SHA256   string
+}
+
+type commandArtifactMetadata struct {
+	Filename string `json:"filename"`
+	Size     int64  `json:"size"`
+	SHA256   string `json:"sha256"`
 }
 
 func initCommandArtifactDir() error {
@@ -70,6 +79,10 @@ func getCommandArtifactDirPath(artifactID string) string {
 	return filepath.Join(commandArtifactsDir, artifactID)
 }
 
+func getCommandArtifactMetadataPath(artifactID string) string {
+	return filepath.Join(getCommandArtifactDirPath(artifactID), commandArtifactMetadataFile)
+}
+
 func canonicalizeCommandArtifactID(artifactID string) (string, error) {
 	parsed, err := uuid.Parse(artifactID)
 	if err != nil {
@@ -92,6 +105,54 @@ func validateCommandArtifactSHA256(sha256Hex string) (string, error) {
 		return "", fleeterror.NewInvalidArgumentError("command artifact sha256 must be 64 lowercase hexadecimal characters")
 	}
 	return normalized, nil
+}
+
+func writeCommandArtifactMetadata(artifactID string, info CommandArtifactInfo) error {
+	payload, err := json.Marshal(commandArtifactMetadata{
+		Filename: info.Filename,
+		Size:     info.Size,
+		SHA256:   info.SHA256,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal command artifact metadata: %w", err)
+	}
+	if err := os.WriteFile(getCommandArtifactMetadataPath(artifactID), payload, 0600); err != nil {
+		return fmt.Errorf("write command artifact metadata: %w", err)
+	}
+	return nil
+}
+
+func readCommandArtifactMetadata(artifactID string) (commandArtifactMetadata, error) {
+	payload, err := os.ReadFile(getCommandArtifactMetadataPath(artifactID))
+	if err != nil {
+		return commandArtifactMetadata{}, fmt.Errorf("read command artifact metadata: %w", err)
+	}
+	var metadata commandArtifactMetadata
+	if err := json.Unmarshal(payload, &metadata); err != nil {
+		return commandArtifactMetadata{}, fmt.Errorf("decode command artifact metadata: %w", err)
+	}
+	return metadata, nil
+}
+
+func findCommandArtifactFileInDir(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read command artifact dir %s: %w", dir, err)
+	}
+	var foundPath string
+	for _, e := range entries {
+		if e.IsDir() || e.Name() == commandArtifactMetadataFile {
+			continue
+		}
+		if foundPath != "" {
+			return "", fmt.Errorf("multiple artifact files found in %s", dir)
+		}
+		foundPath = filepath.Join(dir, e.Name())
+	}
+	if foundPath == "" {
+		return "", fmt.Errorf("no artifact file found in %s", dir)
+	}
+	return foundPath, nil
 }
 
 // SaveCommandArtifact streams a command artifact to disk, validating declared size
@@ -161,14 +222,19 @@ func (s *Service) SaveCommandArtifact(filename string, sizeBytes int64, sha256He
 		_ = os.RemoveAll(dir)
 		return nil, fleeterror.NewInternalErrorf("failed to promote command artifact: %v", err)
 	}
-	promoted = true
-
-	return &CommandArtifactInfo{
+	info := CommandArtifactInfo{
 		ID:       artifactID,
 		Filename: sanitized,
 		Size:     written,
 		SHA256:   actualSHA,
-	}, nil
+	}
+	if err := writeCommandArtifactMetadata(artifactID, info); err != nil {
+		_ = os.RemoveAll(dir)
+		return nil, fleeterror.NewInternalErrorf("failed to write command artifact metadata: %v", err)
+	}
+	promoted = true
+
+	return &info, nil
 }
 
 // OpenCommandArtifact opens a stored command artifact and returns its metadata.
@@ -178,7 +244,7 @@ func (s *Service) OpenCommandArtifact(artifactID string) (io.ReadCloser, Command
 		return nil, CommandArtifactInfo{}, err
 	}
 	dir := getCommandArtifactDirPath(canonical)
-	filePath, err := findSingleFileInDir(dir)
+	filePath, err := findCommandArtifactFileInDir(dir)
 	if err != nil {
 		return nil, CommandArtifactInfo{}, fleeterror.NewNotFoundErrorf("command artifact not found: %s", canonical)
 	}
@@ -191,16 +257,28 @@ func (s *Service) OpenCommandArtifact(artifactID string) (io.ReadCloser, Command
 		file.Close()
 		return nil, CommandArtifactInfo{}, fleeterror.NewInternalErrorf("failed to stat command artifact: %v", err)
 	}
-	sha, err := computeFileChecksum(filePath)
+	metadata, err := readCommandArtifactMetadata(canonical)
 	if err != nil {
-		file.Close()
-		return nil, CommandArtifactInfo{}, fleeterror.NewInternalErrorf("failed to compute command artifact checksum: %v", err)
+		if !errors.Is(err, os.ErrNotExist) {
+			file.Close()
+			return nil, CommandArtifactInfo{}, fleeterror.NewInternalErrorf("failed to read command artifact metadata: %v", err)
+		}
+		sha, err := computeFileChecksum(filePath)
+		if err != nil {
+			file.Close()
+			return nil, CommandArtifactInfo{}, fleeterror.NewInternalErrorf("failed to compute command artifact checksum: %v", err)
+		}
+		metadata = commandArtifactMetadata{
+			Filename: filepath.Base(filePath),
+			Size:     info.Size(),
+			SHA256:   sha,
+		}
 	}
 	return file, CommandArtifactInfo{
 		ID:       canonical,
-		Filename: filepath.Base(filePath),
-		Size:     info.Size(),
-		SHA256:   sha,
+		Filename: metadata.Filename,
+		Size:     metadata.Size,
+		SHA256:   metadata.SHA256,
 	}, nil
 }
 

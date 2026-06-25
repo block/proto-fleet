@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 
@@ -30,7 +31,7 @@ func uploadCommandArtifact(ctx context.Context, client gatewayClient, header *pb
 				return nil, fmt.Errorf("send command artifact chunk: %w", err)
 			}
 		}
-		if readErr == io.EOF {
+		if errors.Is(readErr, io.EOF) {
 			break
 		}
 		if readErr != nil {

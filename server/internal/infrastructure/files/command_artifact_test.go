@@ -51,10 +51,29 @@ func TestSaveCommandArtifactValidatesAndOpens(t *testing.T) {
 	assert.Equal(t, info.Filename, opened.Filename)
 	assert.Equal(t, info.Size, opened.Size)
 	assert.Equal(t, info.SHA256, opened.SHA256)
+	assert.FileExists(t, getCommandArtifactMetadataPath(info.ID))
 	got, err := io.ReadAll(reader)
 	require.NoError(t, err)
 	assert.Equal(t, content, string(got))
 	assert.Empty(t, commandArtifactStagingEntries(t))
+}
+
+func TestOpenCommandArtifactFallsBackForLegacyArtifactWithoutMetadata(t *testing.T) {
+	svc := setupService(t)
+	content := "legacy miner log bundle bytes"
+
+	info, err := svc.SaveCommandArtifact("legacy.zip", int64(len(content)), checksumOf(content), strings.NewReader(content))
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(getCommandArtifactMetadataPath(info.ID)))
+
+	reader, opened, err := svc.OpenCommandArtifact(info.ID)
+	require.NoError(t, err)
+	defer reader.Close()
+
+	assert.Equal(t, info.ID, opened.ID)
+	assert.Equal(t, info.Filename, opened.Filename)
+	assert.Equal(t, int64(len(content)), opened.Size)
+	assert.Equal(t, checksumOf(content), opened.SHA256)
 }
 
 func TestSaveCommandArtifactRejectsSizeMismatchAndCleansUp(t *testing.T) {

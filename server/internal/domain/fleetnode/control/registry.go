@@ -55,6 +55,8 @@ const outgoingBuffer = 64
 // their first message can be matched to a command expectation.
 const maxConcurrentCommandArtifactUploadsPerFleetNode = 2
 
+const maxCommandArtifactTransferAttempts = 3
+
 // maxReportsPerCommand caps devices reported per command at the scan ceiling
 // (targets × ports): a broad scan isn't truncated, a runaway agent is bounded.
 const maxReportsPerCommand = discoverylimits.MaxScanTargets * discoverylimits.MaxPortsPerIP
@@ -84,6 +86,10 @@ var (
 	// ErrArtifactTransferLimitExceeded: the fleet_node already has the maximum
 	// allowed concurrent command artifact upload streams.
 	ErrArtifactTransferLimitExceeded = errors.New("artifact transfer concurrency limit exceeded for fleet_node")
+
+	// ErrArtifactTransferAttemptsExceeded: an in-flight command has exhausted
+	// retry attempts for one artifact expectation.
+	ErrArtifactTransferAttemptsExceeded = errors.New("artifact transfer attempts exceeded for command")
 
 	// errDuplicateCommandID: a command_id is already in flight for the fleet_node.
 	// id.GenerateID() makes this practically impossible; callers map it to Internal.
@@ -144,6 +150,7 @@ type artifactExpectation struct {
 	ArtifactExpectation
 	inProgress bool
 	completed  bool
+	attempts   int
 }
 
 // connection is the server's view of one agent ControlStream. It can hold many
