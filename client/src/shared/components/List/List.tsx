@@ -1222,7 +1222,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
   const hasVisibleRows = filteredItems.length > 0;
   const shouldRenderNoDataElement = Boolean(noDataElement && !hasVisibleRows && !emptyStateRow);
-  const shouldShowFilterItems = Boolean(filters?.length) && (!shouldRenderNoDataElement || hasActiveFilters);
+  const shouldShowFilterItems =
+    Boolean(filters?.length) && (items.length > 0 || !shouldRenderNoDataElement || hasActiveFilters);
   const visibleFilters = shouldShowFilterItems ? (filters ?? []) : [];
 
   const filtersElement =
