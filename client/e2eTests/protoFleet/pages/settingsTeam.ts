@@ -20,7 +20,7 @@ export class SettingsTeamPage extends BasePage {
   }
 
   private async pickRoleFromOpenModal(roleLabel: string) {
-    await this.page.getByRole("button", { name: "Role" }).click();
+    await this.page.getByTestId("modal").getByRole("button", { name: "Role" }).click();
     // The Select option's accessible name is "<label> <description>"
     // (e.g. "Field Tech Field Tech role"), so we can't use `exact: true`
     // — match the role label as the visible text inside the option's

@@ -149,7 +149,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     if (this.isMobile) {
-      await this.page.getByTestId("navigation-menu").locator('a[href="/settings/general"]').click();
+      await this.page.getByTestId("navigation-menu").locator('a[href="/settings/network"]').click();
     } else {
       await this.page.getByTestId("navigation-menu").locator('a[href="/settings"]').click();
     }
@@ -169,6 +169,22 @@ export class BasePage {
     await this.navigateSettingsIfDesktop();
     await this.page.getByTestId("secondary-nav").locator('a[href="/settings/security"]').click();
     await expect(this.page).toHaveURL(/.*\/settings\/security/);
+  }
+
+  async navigateToNetworkSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/network"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/network/);
+  }
+
+  async navigateToPreferencesSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/preferences"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/preferences/);
   }
 
   async navigateToTeamSettings() {
@@ -199,8 +215,8 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/api-keys"]').click();
-    await expect(this.page).toHaveURL(/.*\/settings\/api-keys/);
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/integrations"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/integrations/);
   }
 
   async navigateToSchedulesSettings() {
