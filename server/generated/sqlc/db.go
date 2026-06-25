@@ -255,6 +255,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
 	}
+	if q.deleteFleetNodeDevicePairingsStmt, err = db.PrepareContext(ctx, deleteFleetNodeDevicePairings); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteFleetNodeDevicePairings: %w", err)
+	}
 	if q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt, err = db.PrepareContext(ctx, deleteMinerCredentialsByDeviceIDAndOrgID); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteMinerCredentialsByDeviceIDAndOrgID: %w", err)
 	}
@@ -1714,6 +1717,11 @@ func (q *Queries) Close() error {
 	if q.deleteExpiredSessionsStmt != nil {
 		if cerr := q.deleteExpiredSessionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteExpiredSessionsStmt: %w", cerr)
+		}
+	}
+	if q.deleteFleetNodeDevicePairingsStmt != nil {
+		if cerr := q.deleteFleetNodeDevicePairingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteFleetNodeDevicePairingsStmt: %w", cerr)
 		}
 	}
 	if q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt != nil {
@@ -3617,6 +3625,7 @@ type Queries struct {
 	deleteCurtailmentResponseProfilesBySiteStmt                *sql.Stmt
 	deleteDisabledMQTTSourceConfigByOrgStmt                    *sql.Stmt
 	deleteExpiredSessionsStmt                                  *sql.Stmt
+	deleteFleetNodeDevicePairingsStmt                          *sql.Stmt
 	deleteMinerCredentialsByDeviceIDAndOrgIDStmt               *sql.Stmt
 	deleteMinerCredentialsForFleetNodeStmt                     *sql.Stmt
 	deleteOrganizationStmt                                     *sql.Stmt
@@ -4057,6 +4066,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteCurtailmentResponseProfilesBySiteStmt:                q.deleteCurtailmentResponseProfilesBySiteStmt,
 		deleteDisabledMQTTSourceConfigByOrgStmt:                    q.deleteDisabledMQTTSourceConfigByOrgStmt,
 		deleteExpiredSessionsStmt:                                  q.deleteExpiredSessionsStmt,
+		deleteFleetNodeDevicePairingsStmt:                          q.deleteFleetNodeDevicePairingsStmt,
 		deleteMinerCredentialsByDeviceIDAndOrgIDStmt:               q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt,
 		deleteMinerCredentialsForFleetNodeStmt:                     q.deleteMinerCredentialsForFleetNodeStmt,
 		deleteOrganizationStmt:                                     q.deleteOrganizationStmt,
