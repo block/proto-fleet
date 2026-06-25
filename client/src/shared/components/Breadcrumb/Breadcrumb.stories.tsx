@@ -22,9 +22,10 @@ export default meta;
 type Story = StoryObj<BreadcrumbProps>;
 
 export const SiteLevel: Story = {
-  name: "Site (single level with switcher)",
+  name: "Site detail",
   args: {
     segments: [
+      { label: "Sites", to: "/fleet/sites" },
       {
         label: "Denver",
         siblings: [
@@ -40,9 +41,10 @@ export const SiteLevel: Story = {
 };
 
 export const BuildingLevel: Story = {
-  name: "Building (site link + building switcher)",
+  name: "Building detail",
   args: {
     segments: [
+      { label: "Sites", to: "/fleet/sites" },
       { label: "Denver", to: "/sites/3" },
       {
         label: "Building 3",
@@ -58,9 +60,10 @@ export const BuildingLevel: Story = {
 };
 
 export const RackLevel: Story = {
-  name: "Rack (site + building links, rack switcher)",
+  name: "Rack detail",
   args: {
     segments: [
+      { label: "Sites", to: "/fleet/sites" },
       { label: "Denver", to: "/sites/3" },
       { label: "Building 3", to: "/buildings/3" },
       {
@@ -81,6 +84,6 @@ export const RackLevel: Story = {
 export const NoSiblings: Story = {
   name: "No sibling switcher",
   args: {
-    segments: [{ label: "Denver", to: "/sites/3" }, { label: "Building 3" }],
+    segments: [{ label: "Sites", to: "/fleet/sites" }, { label: "Denver", to: "/sites/3" }, { label: "Building 3" }],
   },
 };

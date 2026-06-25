@@ -95,7 +95,7 @@ const Breadcrumb = ({ segments, testId = "breadcrumb" }: BreadcrumbProps) => {
         const hasSiblings = isLast && seg.siblings && seg.siblings.length > 0;
 
         return (
-          <Fragment key={i}>
+          <Fragment key={`${seg.label}-${i}`}>
             {i > 0 ? <span className="text-text-primary-70">/</span> : null}
             {!isLast && seg.to ? (
               <Link
@@ -162,7 +162,7 @@ const SiblingMenu = forwardRef<HTMLDivElement, SiblingMenuProps>(
         role="menu"
         data-testid={testId}
         onKeyDown={onKeyDown}
-        className="absolute top-full left-0 z-30 mt-1.5 max-h-72 min-w-44 overflow-y-auto rounded-2xl border border-border-5 bg-surface-elevated-base p-1.5 shadow-300"
+        className="absolute top-full left-0 z-30 mt-1.5 max-h-72 min-w-44 overflow-y-auto rounded-lg border border-border-5 bg-surface-elevated-base p-1.5 shadow-300"
       >
         {siblings.map((sib) => (
           <button
