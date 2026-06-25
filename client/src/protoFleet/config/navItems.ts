@@ -16,6 +16,7 @@ export interface NavItem {
   // filter via UserInfo.permissions. Entries without a requiredPermission
   // are visible to every authenticated user.
   requiredPermission?: string;
+  requiredAnyPermission?: string[];
   scopable?: boolean;
 }
 
@@ -23,10 +24,23 @@ export interface SecondaryNavItem {
   path: string;
   label: string;
   parent: string;
+  section?: "Fleet" | "Automation" | "Admin" | "Account";
   requiredPermission?: string;
+  requiredAnyPermission?: string[];
   // When set, the entry is shown only if the server reports this feature enabled.
   requiredFeature?: NavFeature;
 }
+
+export const isNavItemAllowedByPermissions = (
+  item: Pick<NavItem | SecondaryNavItem, "requiredPermission" | "requiredAnyPermission">,
+  permissions: readonly string[],
+) => {
+  const hasRequiredPermission = !item.requiredPermission || permissions.includes(item.requiredPermission);
+  const hasAnyPermission =
+    !item.requiredAnyPermission || item.requiredAnyPermission.some((permission) => permissions.includes(permission));
+
+  return hasRequiredPermission && hasAnyPermission;
+};
 
 // Primary navigation items (shown in main nav menu)
 export const primaryNavItems: NavItem[] = [
@@ -73,35 +87,16 @@ export const primaryNavItems: NavItem[] = [
 // Secondary navigation items (shown in settings submenu)
 export const secondaryNavItems: SecondaryNavItem[] = [
   {
-    path: "/settings/general",
-    label: "General",
+    path: "/settings/network",
+    label: "Network",
     parent: "/settings",
-  },
-  {
-    path: "/settings/security",
-    label: "Security",
-    parent: "/settings",
-  },
-  {
-    path: "/settings/team",
-    label: "Team",
-    parent: "/settings",
-    // ListUsers is server-gated on user:read (held by ADMIN + SUPER_ADMIN
-    // but not FIELD_TECH). Without this gate the entry shows for every
-    // authenticated user even though the page can't load anything.
-    requiredPermission: "user:read",
-  },
-  {
-    path: "/settings/roles",
-    label: "Roles",
-    parent: "/settings",
-    // Roles management reads/writes are server-gated on role:manage.
-    requiredPermission: "role:manage",
+    section: "Fleet",
   },
   {
     path: "/settings/mining-pools",
     label: "Pools",
     parent: "/settings",
+    section: "Fleet",
     // The Pools settings page is a management surface (Add / Edit /
     // Test / Delete with no read-only mode), so gate the nav on
     // pool:manage to match the page's capability rather than pool:read.
@@ -112,11 +107,13 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     path: "/settings/firmware",
     label: "Firmware",
     parent: "/settings",
+    section: "Fleet",
   },
   {
     path: "/settings/schedules",
     label: "Schedules",
     parent: "/settings",
+    section: "Automation",
     // The Schedules settings page is a management surface (Add, edit,
     // pause, resume, delete, reorder; no view-only mode), so gate the
     // nav on schedule:manage to match the page's capability rather
@@ -127,18 +124,14 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     path: "/settings/curtailment",
     label: "Curtailment",
     parent: "/settings",
+    section: "Automation",
     requiredPermission: "curtailment:manage",
-  },
-  {
-    path: "/settings/api-keys",
-    label: "API Keys",
-    parent: "/settings",
-    requiredPermission: "apikey:manage",
   },
   {
     path: "/settings/alerts",
     label: "Alerts",
     parent: "/settings",
+    section: "Automation",
     requiredPermission: "alert:read",
     // Needs the Grafana sidecar, which is off in the default deployment. Gated
     // at runtime so an operator enabling the sidecar surfaces the entry without
@@ -146,9 +139,38 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     requiredFeature: "alerts",
   },
   {
+    path: "/settings/security",
+    label: "Security",
+    parent: "/settings",
+    section: "Admin",
+  },
+  {
+    path: "/settings/team",
+    label: "Team",
+    parent: "/settings",
+    section: "Admin",
+    // Team now owns member and role management. Show the entry when either
+    // surface is usable so role-only admins are not stranded after the merge.
+    requiredAnyPermission: ["user:read", "role:manage"],
+  },
+  {
+    path: "/settings/integrations",
+    label: "Integrations",
+    parent: "/settings",
+    section: "Admin",
+    requiredPermission: "apikey:manage",
+  },
+  {
     path: "/settings/server-logs",
     label: "Server Logs",
     parent: "/settings",
+    section: "Admin",
     requiredPermission: "serverlog:read",
+  },
+  {
+    path: "/settings/preferences",
+    label: "Preferences",
+    parent: "/settings",
+    section: "Account",
   },
 ];

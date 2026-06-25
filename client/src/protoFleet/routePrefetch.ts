@@ -30,17 +30,17 @@ export const importMinersPage = () => import("@/protoFleet/features/onboarding/c
 export const importSecurityPage = () => import("@/protoFleet/features/onboarding/components/Security");
 export const importOnboardingSettingsPage = () => import("@/protoFleet/features/onboarding/components/Settings");
 export const importSettingsLayout = () => import("@/protoFleet/features/settings/components/SettingsLayout");
-export const importSettingsGeneral = () => import("@/protoFleet/features/settings/components/General");
+export const importSettingsNetwork = () => import("@/protoFleet/features/settings/components/Network");
+export const importSettingsPreferences = () => import("@/protoFleet/features/settings/components/Preferences");
 export const importSettingsAuth = () => import("@/protoFleet/features/settings/components/Auth");
 export const importSettingsMiningPools = () => import("@/protoFleet/features/settings/components/MiningPools");
 export const importSettingsTeam = () => import("@/protoFleet/features/settings/components/Team");
-export const importSettingsRoles = () => import("@/protoFleet/features/settings/components/Roles");
 export const importSettingsFirmware = () => import("@/protoFleet/features/settings/components/Firmware");
 export const importSettingsSchedules = () =>
   import("@/protoFleet/features/settings/components/Schedules/SchedulesPage");
 export const importSettingsCurtailment = () => import("@/protoFleet/features/settings/components/Curtailment");
 export const importSettingsAlerts = () => import("@/protoFleet/features/alerts/pages/Alerts");
-export const importSettingsApiKeys = () => import("@/protoFleet/features/settings/components/ApiKeys");
+export const importSettingsIntegrations = () => import("@/protoFleet/features/settings/components/ApiKeys");
 export const importSiteDetailPage = () => import("@/protoFleet/features/sites/pages/SiteDetailPage");
 export const importSitesPage = () => import("@/protoFleet/features/sites/pages/SitesPage");
 export const importBuildingPage = () => import("@/protoFleet/features/buildings/pages/BuildingPage");
@@ -64,20 +64,21 @@ export const globalRoutePrefetch: readonly RouteImporter[] = [
   importEnergyPage,
   importActivityPage,
   importSettingsLayout,
-  importSettingsGeneral,
+  importSettingsNetwork,
 ];
 
 // Settings sub-routes; SettingsLayout triggers this on mount so the rest of
 // the tab strip is warm by the time the user clicks across.
 export const settingsRoutePrefetch: readonly RouteImporter[] = [
+  importSettingsNetwork,
   importSettingsAuth,
   importSettingsMiningPools,
   importSettingsTeam,
-  importSettingsRoles,
   importSettingsFirmware,
   importSettingsSchedules,
   importSettingsCurtailment,
   importSettingsAlerts,
-  importSettingsApiKeys,
+  importSettingsIntegrations,
+  importSettingsPreferences,
   importServerLogsPage,
 ];

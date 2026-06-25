@@ -36,10 +36,10 @@ const renderSettingsRoute = (initialPath: string) =>
           }
         />
         <Route
-          path="/settings/general"
+          path="/settings/network"
           element={
             <SettingsLayout>
-              <div data-testid="general-page">General</div>
+              <div data-testid="network-page">Network</div>
             </SettingsLayout>
           }
         />
@@ -56,13 +56,22 @@ describe("SettingsLayout permission guard", () => {
   test("redirects protected settings routes before rendering their children", async () => {
     renderSettingsRoute("/settings/team");
 
-    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/settings/general"));
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/settings/network"));
     expect(screen.queryByTestId("team-page")).not.toBeInTheDocument();
-    expect(screen.getByTestId("general-page")).toBeInTheDocument();
+    expect(screen.getByTestId("network-page")).toBeInTheDocument();
   });
 
   test("renders protected settings routes when the org permission is present", () => {
     permissionsMock.current = ["user:read"];
+
+    renderSettingsRoute("/settings/team");
+
+    expect(screen.getByTestId("location-probe").textContent).toBe("/settings/team");
+    expect(screen.getByTestId("team-page")).toBeInTheDocument();
+  });
+
+  test("renders Team when only role management permission is present", () => {
+    permissionsMock.current = ["role:manage"];
 
     renderSettingsRoute("/settings/team");
 
