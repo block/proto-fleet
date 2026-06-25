@@ -346,6 +346,8 @@ func isClosedLoopFullFleetStartResponse(req *pb.StartCurtailmentRequest) bool {
 		switch scope.Type {
 		case models.ScopeTypeWholeOrg, models.ScopeTypeSite:
 			return true
+		case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList, models.ScopeTypeMixed:
+			return false
 		default:
 			return false
 		}
