@@ -547,19 +547,26 @@ func (q *Queries) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.
 }
 
 const setCurtailmentAutomationActiveEvent = `-- name: SetCurtailmentAutomationActiveEvent :exec
+WITH enabled_rule AS (
+    SELECT id
+    FROM curtailment_automation_rule
+    WHERE id = $3
+      AND enabled = TRUE
+)
 INSERT INTO curtailment_automation_rule_state (
     rule_id,
     active_event_uuid,
     last_started_at,
     last_error,
     last_error_at
-) VALUES (
+)
+SELECT
+    id,
     $1,
     $2,
-    $3,
     NULL,
     NULL
-)
+FROM enabled_rule
 ON CONFLICT (rule_id) DO UPDATE
 SET
     active_event_uuid = EXCLUDED.active_event_uuid,
@@ -569,13 +576,13 @@ SET
 `
 
 type SetCurtailmentAutomationActiveEventParams struct {
-	RuleID          int64
 	ActiveEventUuid uuid.NullUUID
 	LastStartedAt   sql.NullTime
+	RuleID          int64
 }
 
 func (q *Queries) SetCurtailmentAutomationActiveEvent(ctx context.Context, arg SetCurtailmentAutomationActiveEventParams) error {
-	_, err := q.exec(ctx, q.setCurtailmentAutomationActiveEventStmt, setCurtailmentAutomationActiveEvent, arg.RuleID, arg.ActiveEventUuid, arg.LastStartedAt)
+	_, err := q.exec(ctx, q.setCurtailmentAutomationActiveEventStmt, setCurtailmentAutomationActiveEvent, arg.ActiveEventUuid, arg.LastStartedAt, arg.RuleID)
 	return err
 }
 

@@ -225,19 +225,26 @@ SET
     last_error_at = NULL;
 
 -- name: SetCurtailmentAutomationActiveEvent :exec
+WITH enabled_rule AS (
+    SELECT id
+    FROM curtailment_automation_rule
+    WHERE id = sqlc.arg('rule_id')
+      AND enabled = TRUE
+)
 INSERT INTO curtailment_automation_rule_state (
     rule_id,
     active_event_uuid,
     last_started_at,
     last_error,
     last_error_at
-) VALUES (
-    sqlc.arg('rule_id'),
+)
+SELECT
+    id,
     sqlc.arg('active_event_uuid'),
     sqlc.arg('last_started_at'),
     NULL,
     NULL
-)
+FROM enabled_rule
 ON CONFLICT (rule_id) DO UPDATE
 SET
     active_event_uuid = EXCLUDED.active_event_uuid,

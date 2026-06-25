@@ -394,6 +394,36 @@ func TestAutomationService_HandleMQTTSignal_OffRecapturesAfterCancelledEvent(t *
 	assert.Equal(t, *h.rule.ActiveEventUUID, h.rules.lastActiveEvent)
 }
 
+func TestAutomationService_HandleMQTTSignal_OffDoesNotRecordActiveEventAfterRuleDisabled(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	activeEventUUID := uuid.New()
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.curtailments.eventsByUUID[activeEventUUID] = &models.Event{
+		ID:        77,
+		EventUUID: activeEventUUID,
+		OrgID:     h.orgID,
+		State:     models.EventStateCancelled,
+	}
+	staleRule := *h.rule
+	h.rule.Enabled = false
+
+	err := h.automation.handleRuleSignal(t.Context(), &staleRule, mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disabled")
+	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.Equal(t, 1, h.rules.setActiveCalls)
+	require.NotNil(t, h.rule.ActiveEventUUID)
+	assert.Equal(t, activeEventUUID, *h.rule.ActiveEventUUID)
+}
+
 func TestAutomationService_HandleMQTTSignal_CoalescesRecentRepeatedOff(t *testing.T) {
 	t.Parallel()
 
@@ -883,6 +913,9 @@ func (f *automationFakeStore) SetAutomationActiveEvent(_ context.Context, ruleID
 	}
 	for _, rule := range f.rules {
 		if rule.ID == ruleID {
+			if !rule.Enabled {
+				return fleeterror.NewFailedPreconditionErrorf("curtailment automation rule %d is disabled", ruleID)
+			}
 			rule.ActiveEventUUID = &eventUUID
 			rule.LastStartedAt = &at
 			return nil
