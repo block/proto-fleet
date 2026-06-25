@@ -111,44 +111,58 @@ func (s *Service) SaveCommandArtifact(filename string, sizeBytes int64, sha256He
 	}
 
 	artifactID := id.GenerateID()
-	dir := getCommandArtifactDirPath(artifactID)
-	if err := os.MkdirAll(dir, 0750); err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to create command artifact dir: %v", err)
-	}
-
 	sanitized := sanitizeCommandArtifactFilename(filename)
-	filePath := filepath.Join(dir, sanitized)
-	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	stagingPath := filepath.Join(commandArtifactsStagingDir, artifactID)
+	file, err := os.OpenFile(stagingPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
-		_ = os.RemoveAll(dir)
 		return nil, fleeterror.NewInternalErrorf("failed to create command artifact: %v", err)
 	}
-	defer file.Close()
 
 	hasher := sha256.New()
-	limitedReader := io.LimitReader(reader, maxSize+1)
+	limitedReader := io.LimitReader(reader, sizeBytes+1)
 	written, err := io.Copy(file, io.TeeReader(limitedReader, hasher))
 	if err != nil {
-		_ = os.RemoveAll(dir)
+		_ = file.Close()
+		_ = os.Remove(stagingPath)
 		return nil, fleeterror.NewInternalErrorf("failed to write command artifact: %v", err)
 	}
-	if written > maxSize {
-		_ = os.RemoveAll(dir)
-		return nil, fleeterror.NewPlainError(fmt.Sprintf("command artifact too large: exceeded %d byte limit during upload", maxSize), connect.CodeResourceExhausted)
+	if written > sizeBytes {
+		_ = file.Close()
+		_ = os.Remove(stagingPath)
+		return nil, fleeterror.NewInvalidArgumentErrorf("command artifact size mismatch: declared %d bytes, received more", sizeBytes)
 	}
 	if written != sizeBytes {
-		_ = os.RemoveAll(dir)
+		_ = file.Close()
+		_ = os.Remove(stagingPath)
 		return nil, fleeterror.NewInvalidArgumentErrorf("command artifact size mismatch: declared %d bytes, received %d bytes", sizeBytes, written)
 	}
 
 	actualSHA := hex.EncodeToString(hasher.Sum(nil))
 	if actualSHA != expectedSHA {
-		_ = os.RemoveAll(dir)
+		_ = file.Close()
+		_ = os.Remove(stagingPath)
 		return nil, fleeterror.NewInvalidArgumentError("command artifact sha256 mismatch")
 	}
 	if err := file.Sync(); err != nil {
-		_ = os.RemoveAll(dir)
+		_ = file.Close()
+		_ = os.Remove(stagingPath)
 		return nil, fleeterror.NewInternalErrorf("failed to sync command artifact: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(stagingPath)
+		return nil, fleeterror.NewInternalErrorf("failed to close command artifact: %v", err)
+	}
+
+	dir := getCommandArtifactDirPath(artifactID)
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		_ = os.Remove(stagingPath)
+		return nil, fleeterror.NewInternalErrorf("failed to create command artifact dir: %v", err)
+	}
+	filePath := filepath.Join(dir, sanitized)
+	if err := os.Rename(stagingPath, filePath); err != nil {
+		_ = os.Remove(stagingPath)
+		_ = os.RemoveAll(dir)
+		return nil, fleeterror.NewInternalErrorf("failed to promote command artifact: %v", err)
 	}
 
 	return &CommandArtifactInfo{

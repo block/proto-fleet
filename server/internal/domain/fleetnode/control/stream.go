@@ -110,11 +110,34 @@ func (r *Registry) AdmitCommandArtifact(fleetNodeID int64, commandID string, wan
 	return ErrArtifactNotExpected
 }
 
+// ReinstateCommandArtifactUpload clears a consumed upload expectation after the
+// gateway failed before it could durably return an artifact reference. No-op if
+// the command is gone or the expectation no longer matches.
+func (r *Registry) ReinstateCommandArtifactUpload(fleetNodeID int64, commandID string, want ArtifactExpectation) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cmd := r.inflightFor(fleetNodeID, commandID)
+	if cmd == nil {
+		return
+	}
+	for i := range cmd.artifacts {
+		exp := &cmd.artifacts[i]
+		if exp.Direction != ArtifactDirectionUpload || !artifactExpectationMatches(exp.ArtifactExpectation, want) {
+			continue
+		}
+		exp.consumed = false
+		return
+	}
+}
+
 func artifactExpectationMatches(exp, want ArtifactExpectation) bool {
 	if exp.Direction != want.Direction {
 		return false
 	}
 	if exp.Purpose != want.Purpose || exp.Purpose == gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_UNSPECIFIED {
+		return false
+	}
+	if exp.Direction == ArtifactDirectionDownload && (exp.ArtifactID == "" || want.ArtifactID == "" || exp.ArtifactID != want.ArtifactID) {
 		return false
 	}
 	if exp.ArtifactID != "" && exp.ArtifactID != want.ArtifactID {

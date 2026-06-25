@@ -107,11 +107,12 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 	if header == nil {
 		return nil, fleeterror.NewInvalidArgumentError("first UploadCommandArtifactRequest must be header")
 	}
-	if err := h.registry.AdmitCommandArtifact(subject.FleetNodeID, header.GetCommandId(), control.ArtifactExpectation{
+	expectation := control.ArtifactExpectation{
 		Direction:        control.ArtifactDirectionUpload,
 		Purpose:          header.GetPurpose(),
 		DeviceIdentifier: header.GetDeviceIdentifier(),
-	}); err != nil {
+	}
+	if err := h.registry.AdmitCommandArtifact(subject.FleetNodeID, header.GetCommandId(), expectation); err != nil {
 		return nil, mapArtifactAdmissionError(err)
 	}
 
@@ -122,6 +123,7 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 		&commandArtifactUploadReader{stream: stream},
 	)
 	if err != nil {
+		h.registry.ReinstateCommandArtifactUpload(subject.FleetNodeID, header.GetCommandId(), expectation)
 		return nil, err
 	}
 	return connect.NewResponse(&pb.UploadCommandArtifactResponse{

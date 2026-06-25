@@ -24,6 +24,13 @@ func commandArtifactEntries(t *testing.T) []os.DirEntry {
 	return filtered
 }
 
+func commandArtifactStagingEntries(t *testing.T) []os.DirEntry {
+	t.Helper()
+	entries, err := os.ReadDir(commandArtifactsStagingDir)
+	require.NoError(t, err)
+	return entries
+}
+
 func TestSaveCommandArtifactValidatesAndOpens(t *testing.T) {
 	svc := setupService(t)
 	content := "miner log bundle bytes"
@@ -46,6 +53,7 @@ func TestSaveCommandArtifactValidatesAndOpens(t *testing.T) {
 	got, err := io.ReadAll(reader)
 	require.NoError(t, err)
 	assert.Equal(t, content, string(got))
+	assert.Empty(t, commandArtifactStagingEntries(t))
 }
 
 func TestSaveCommandArtifactRejectsSizeMismatchAndCleansUp(t *testing.T) {
@@ -55,6 +63,20 @@ func TestSaveCommandArtifactRejectsSizeMismatchAndCleansUp(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "size mismatch")
 	assert.Empty(t, commandArtifactEntries(t))
+	assert.Empty(t, commandArtifactStagingEntries(t))
+}
+
+func TestSaveCommandArtifactStopsAfterDeclaredSizeMismatch(t *testing.T) {
+	svc := setupService(t)
+	content := "longer-payload"
+	reader := strings.NewReader(content)
+
+	_, err := svc.SaveCommandArtifact("logs.zip", 4, checksumOf("long"), reader)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "received more")
+	assert.Equal(t, len(content)-5, reader.Len())
+	assert.Empty(t, commandArtifactEntries(t))
+	assert.Empty(t, commandArtifactStagingEntries(t))
 }
 
 func TestSaveCommandArtifactRejectsChecksumMismatchAndCleansUp(t *testing.T) {
@@ -64,6 +86,75 @@ func TestSaveCommandArtifactRejectsChecksumMismatchAndCleansUp(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "sha256 mismatch")
 	assert.Empty(t, commandArtifactEntries(t))
+	assert.Empty(t, commandArtifactStagingEntries(t))
+}
+
+func TestSaveCommandArtifactRejectsInvalidMetadataAndCleansUp(t *testing.T) {
+	tests := []struct {
+		name      string
+		filename  string
+		sizeBytes int64
+		sha256    string
+		content   string
+		want      string
+	}{
+		{
+			name:      "empty filename",
+			filename:  "",
+			sizeBytes: int64(len("data")),
+			sha256:    checksumOf("data"),
+			content:   "data",
+			want:      "filename is required",
+		},
+		{
+			name:      "zero size",
+			filename:  "logs.zip",
+			sizeBytes: 0,
+			sha256:    checksumOf(""),
+			content:   "",
+			want:      "size must be greater than zero",
+		},
+		{
+			name:      "negative size",
+			filename:  "logs.zip",
+			sizeBytes: -1,
+			sha256:    checksumOf("data"),
+			content:   "data",
+			want:      "size must be greater than zero",
+		},
+		{
+			name:      "malformed sha",
+			filename:  "logs.zip",
+			sizeBytes: int64(len("data")),
+			sha256:    "not-a-sha",
+			content:   "data",
+			want:      "sha256 must be 64 lowercase hexadecimal characters",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := setupService(t)
+
+			_, err := svc.SaveCommandArtifact(tt.filename, tt.sizeBytes, tt.sha256, strings.NewReader(tt.content))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+			assert.Empty(t, commandArtifactEntries(t))
+			assert.Empty(t, commandArtifactStagingEntries(t))
+		})
+	}
+}
+
+func TestSaveCommandArtifactRejectsOversizeAndCleansUp(t *testing.T) {
+	t.Chdir(t.TempDir())
+	svc, err := NewService(Config{MaxCommandArtifactSize: 3})
+	require.NoError(t, err)
+
+	_, err = svc.SaveCommandArtifact("logs.zip", 4, checksumOf("data"), strings.NewReader("data"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too large")
+	assert.Empty(t, commandArtifactEntries(t))
+	assert.Empty(t, commandArtifactStagingEntries(t))
 }
 
 func TestOpenCommandArtifactRejectsPathTraversal(t *testing.T) {
