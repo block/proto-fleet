@@ -634,8 +634,7 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
   });
 
-  it("terminates automation-owned restoring events with target state and required reason", async () => {
-    const user = userEvent.setup();
+  it("hides terminate recovery when abort restore is available", () => {
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
@@ -646,22 +645,9 @@ describe("CurtailmentManagementPanel", () => {
 
     render(<CurtailmentManagementPanel enableRecover />);
 
-    await user.click(screen.getByRole("button", { name: "Request terminate recovery" }));
-    await user.click(screen.getByRole("button", { name: "Terminate event" }));
-
-    expect(screen.getByText("Enter a reason before terminating the event.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request terminate recovery" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request abort" })).toBeInTheDocument();
     expect(mocks.adminTerminateCurtailment).not.toHaveBeenCalled();
-
-    await user.click(screen.getByLabelText("Failed"));
-    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Recovered from stale MQTT source");
-    await user.click(screen.getByRole("button", { name: "Terminate event" }));
-
-    await waitFor(() =>
-      expect(mocks.adminTerminateCurtailment).toHaveBeenCalledWith("curt-1", {
-        reason: "Recovered from stale MQTT source",
-        targetState: "failed",
-      }),
-    );
   });
 
   it("hides terminate recovery for non-automation restoring events", () => {
@@ -704,41 +690,6 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Select history event" }));
 
     expect(mocks.selectActiveCurtailment).toHaveBeenCalledWith("curt-restoring", { signal: expect.any(AbortSignal) });
-  });
-
-  it("keeps terminate recovery dialog open while submitting", async () => {
-    const user = userEvent.setup();
-    const restoringEvent = {
-      ...activeEvent,
-      isAutomationOwned: true,
-      state: "restoring",
-    } satisfies ActiveCurtailmentEvent;
-    mocks.useCurtailmentApi.mockReturnValue(
-      createApiResult({
-        activeEvent: restoringEvent,
-        activeEvents: [{ ...historyEvent, state: "restoring" }],
-        activeEventId: "curt-1",
-      }),
-    );
-
-    const { rerender } = render(<CurtailmentManagementPanel enableRecover />);
-
-    await user.click(screen.getByRole("button", { name: "Request terminate recovery" }));
-    expect(screen.getByText("Terminate recovery event?")).toBeInTheDocument();
-
-    mocks.useCurtailmentApi.mockReturnValue(
-      createApiResult({
-        activeEvent: restoringEvent,
-        activeEvents: [{ ...historyEvent, state: "restoring" }],
-        activeEventId: "curt-1",
-        adminTerminatingEventId: "curt-1",
-      }),
-    );
-    rerender(<CurtailmentManagementPanel enableRecover />);
-
-    fireEvent.keyDown(document, { key: "Escape" });
-
-    expect(screen.getByText("Terminate recovery event?")).toBeInTheDocument();
   });
 
   it("does not submit stale stop confirmations for events that are no longer active", async () => {

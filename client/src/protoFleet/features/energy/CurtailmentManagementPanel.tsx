@@ -847,7 +847,9 @@ function CurtailmentManagementPanel({
               event={activeEvent}
               onDismissRestored={dismissTerminalCurtailment}
               onRequestTerminateRecovery={
-                canUseRecovery && canTerminateRecoveryCurtailmentEvent(activeEvent)
+                canUseRecovery &&
+                canTerminateRecoveryCurtailmentEvent(activeEvent) &&
+                !canAbortCurtailmentOwnership(activeEvent)
                   ? openTerminateRecoveryConfirmation
                   : undefined
               }
