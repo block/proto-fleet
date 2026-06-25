@@ -66,6 +66,19 @@ func (s *ResponseProfileService) Get(ctx context.Context, orgID, profileID int64
 	return s.store.GetResponseProfile(ctx, orgID, profileID)
 }
 
+func (s *ResponseProfileService) ListDeviceSites(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]*int64, error) {
+	if s == nil || s.store == nil {
+		return nil, fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
+	}
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if len(deviceIdentifiers) == 0 {
+		return map[string]*int64{}, nil
+	}
+	return s.store.ListResponseProfileDeviceSites(ctx, orgID, deviceIdentifiers)
+}
+
 func (s *ResponseProfileService) Create(ctx context.Context, req SaveResponseProfileRequest) (*models.ResponseProfile, error) {
 	if s == nil || s.store == nil {
 		return nil, fleeterror.NewUnimplementedError("curtailment response profile service is not configured")

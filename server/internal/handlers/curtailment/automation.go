@@ -27,9 +27,13 @@ func (h *Handler) ListCurtailmentAutomationRules(ctx context.Context, _ *connect
 		return nil, err
 	}
 	out := make([]*pb.CurtailmentAutomationRule, 0, len(rules))
+	deviceSites, err := h.responseProfileDeviceSitesForAutomationRules(ctx, info.OrganizationID, rules)
+	if err != nil {
+		return nil, err
+	}
 	siteAllowed := make(map[int64]bool)
 	for _, rule := range rules {
-		siteContexts, err := automationRuleProfileSiteResourceContexts(rule)
+		siteContexts, err := h.automationRuleProfileSiteResourceContexts(ctx, info.OrganizationID, rule, deviceSites)
 		if err != nil {
 			return nil, err
 		}
@@ -185,29 +189,52 @@ func (h *Handler) requireAutomationRuleProfilePermission(ctx context.Context, ru
 	if rule == nil {
 		return nil
 	}
-	siteContexts, err := automationRuleProfileSiteResourceContexts(rule)
+	siteContexts, err := h.automationRuleProfileSiteResourceContexts(ctx, rule.OrgID, rule, nil)
 	if err != nil {
 		return err
 	}
-	for _, siteContext := range siteContexts {
-		if siteContext.SiteID == nil {
-			continue
-		}
-		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, siteContext); err != nil {
-			return err
-		}
-	}
-	return nil
+	return requireSiteContextPermissions(ctx, authz.PermCurtailmentManage, siteContexts)
 }
 
-func automationRuleProfileSiteResourceContexts(rule *models.AutomationRule) ([]authz.ResourceContext, error) {
+func (h *Handler) responseProfileDeviceSitesForAutomationRules(
+	ctx context.Context,
+	orgID int64,
+	rules []*models.AutomationRule,
+) (map[string]*int64, error) {
+	var deviceIdentifiers []string
+	for _, rule := range rules {
+		if rule == nil {
+			continue
+		}
+		scope, err := domainCurtailment.ResponseProfileScope(models.ResponseProfile{
+			SiteID:    rule.ResponseProfileSiteID,
+			ScopeJSON: rule.ResponseProfileScopeJSON,
+		})
+		if err != nil {
+			return nil, err
+		}
+		deviceIdentifiers = append(deviceIdentifiers, scope.DeviceIdentifiers...)
+	}
+	deviceIdentifiers = uniqueResponseProfileDeviceIdentifiers(deviceIdentifiers)
+	if len(deviceIdentifiers) == 0 {
+		return map[string]*int64{}, nil
+	}
+	return h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
+}
+
+func (h *Handler) automationRuleProfileSiteResourceContexts(
+	ctx context.Context,
+	orgID int64,
+	rule *models.AutomationRule,
+	deviceSites map[string]*int64,
+) ([]authz.ResourceContext, error) {
 	if rule == nil {
 		return nil, nil
 	}
-	return responseProfileSiteResourceContexts(&models.ResponseProfile{
+	return h.responseProfileSiteResourceContexts(ctx, orgID, &models.ResponseProfile{
 		SiteID:    rule.ResponseProfileSiteID,
 		ScopeJSON: rule.ResponseProfileScopeJSON,
-	})
+	}, deviceSites, false)
 }
 
 func automationRuleFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentAutomationRuleRequest) models.AutomationRule {

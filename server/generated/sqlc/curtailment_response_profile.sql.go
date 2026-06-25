@@ -9,6 +9,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+
+	"github.com/lib/pq"
 )
 
 const deleteCurtailmentResponseProfileByOrg = `-- name: DeleteCurtailmentResponseProfileByOrg :execrows
@@ -184,6 +186,48 @@ func (q *Queries) InsertCurtailmentResponseProfile(ctx context.Context, arg Inse
 		&i.ScopeJson,
 	)
 	return i, err
+}
+
+const listCurtailmentResponseProfileDeviceSitesByOrg = `-- name: ListCurtailmentResponseProfileDeviceSitesByOrg :many
+SELECT device_identifier, site_id
+FROM device
+WHERE org_id = $1
+  AND device_identifier = ANY($2::text[])
+  AND deleted_at IS NULL
+ORDER BY device_identifier
+`
+
+type ListCurtailmentResponseProfileDeviceSitesByOrgParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type ListCurtailmentResponseProfileDeviceSitesByOrgRow struct {
+	DeviceIdentifier string
+	SiteID           sql.NullInt64
+}
+
+func (q *Queries) ListCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Context, arg ListCurtailmentResponseProfileDeviceSitesByOrgParams) ([]ListCurtailmentResponseProfileDeviceSitesByOrgRow, error) {
+	rows, err := q.query(ctx, q.listCurtailmentResponseProfileDeviceSitesByOrgStmt, listCurtailmentResponseProfileDeviceSitesByOrg, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCurtailmentResponseProfileDeviceSitesByOrgRow
+	for rows.Next() {
+		var i ListCurtailmentResponseProfileDeviceSitesByOrgRow
+		if err := rows.Scan(&i.DeviceIdentifier, &i.SiteID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listCurtailmentResponseProfilesByOrg = `-- name: ListCurtailmentResponseProfilesByOrg :many

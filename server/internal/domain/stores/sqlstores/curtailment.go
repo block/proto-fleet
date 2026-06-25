@@ -164,6 +164,24 @@ func (s *SQLCurtailmentStore) GetResponseProfile(ctx context.Context, orgID, pro
 	return responseProfileFromRow(row), nil
 }
 
+func (s *SQLCurtailmentStore) ListResponseProfileDeviceSites(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]*int64, error) {
+	if len(deviceIdentifiers) == 0 {
+		return map[string]*int64{}, nil
+	}
+	rows, err := s.GetQueries(ctx).ListCurtailmentResponseProfileDeviceSitesByOrg(ctx, sqlc.ListCurtailmentResponseProfileDeviceSitesByOrgParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list curtailment response profile device sites: %v", err)
+	}
+	out := make(map[string]*int64, len(rows))
+	for _, row := range rows {
+		out[row.DeviceIdentifier] = nullInt64ToPtr(row.SiteID)
+	}
+	return out, nil
+}
+
 func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
 		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, [][]byte{profile.ScopeJSON}, profile.SiteID); err != nil {

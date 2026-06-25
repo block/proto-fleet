@@ -10,6 +10,14 @@ FROM curtailment_response_profile
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id');
 
+-- name: ListCurtailmentResponseProfileDeviceSitesByOrg :many
+SELECT device_identifier, site_id
+FROM device
+WHERE org_id = sqlc.arg('org_id')
+  AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND deleted_at IS NULL
+ORDER BY device_identifier;
+
 -- name: InsertCurtailmentResponseProfile :one
 INSERT INTO curtailment_response_profile (
     org_id,

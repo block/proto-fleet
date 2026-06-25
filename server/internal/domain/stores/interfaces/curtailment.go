@@ -95,6 +95,7 @@ type ListTargetsByEventPageParams struct {
 type ResponseProfileStore interface {
 	ListResponseProfiles(ctx context.Context, orgID int64) ([]*models.ResponseProfile, error)
 	GetResponseProfile(ctx context.Context, orgID, profileID int64) (*models.ResponseProfile, error)
+	ListResponseProfileDeviceSites(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]*int64, error)
 	CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error)
 	UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedSiteID *int64, expectedScopeJSON []byte) (*models.ResponseProfile, error)
 	DeleteResponseProfile(ctx context.Context, orgID, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte) error

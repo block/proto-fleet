@@ -774,6 +774,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listCurtailmentEventsForOrgStmt, err = db.PrepareContext(ctx, listCurtailmentEventsForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentEventsForOrg: %w", err)
 	}
+	if q.listCurtailmentResponseProfileDeviceSitesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentResponseProfileDeviceSitesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentResponseProfileDeviceSitesByOrg: %w", err)
+	}
 	if q.listCurtailmentResponseProfilesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentResponseProfilesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentResponseProfilesByOrg: %w", err)
 	}
@@ -2578,6 +2581,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listCurtailmentEventsForOrgStmt: %w", cerr)
 		}
 	}
+	if q.listCurtailmentResponseProfileDeviceSitesByOrgStmt != nil {
+		if cerr := q.listCurtailmentResponseProfileDeviceSitesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentResponseProfileDeviceSitesByOrgStmt: %w", cerr)
+		}
+	}
 	if q.listCurtailmentResponseProfilesByOrgStmt != nil {
 		if cerr := q.listCurtailmentResponseProfilesByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCurtailmentResponseProfilesByOrgStmt: %w", cerr)
@@ -3782,6 +3790,7 @@ type Queries struct {
 	listCurtailmentAutomationRulesByOrgStmt                    *sql.Stmt
 	listCurtailmentCandidatesByOrgStmt                         *sql.Stmt
 	listCurtailmentEventsForOrgStmt                            *sql.Stmt
+	listCurtailmentResponseProfileDeviceSitesByOrgStmt         *sql.Stmt
 	listCurtailmentResponseProfilesByOrgStmt                   *sql.Stmt
 	listCurtailmentTargetSiteCoverageByEventStmt               *sql.Stmt
 	listCurtailmentTargetsByEventStmt                          *sql.Stmt
@@ -4221,6 +4230,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listCurtailmentAutomationRulesByOrgStmt:                    q.listCurtailmentAutomationRulesByOrgStmt,
 		listCurtailmentCandidatesByOrgStmt:                         q.listCurtailmentCandidatesByOrgStmt,
 		listCurtailmentEventsForOrgStmt:                            q.listCurtailmentEventsForOrgStmt,
+		listCurtailmentResponseProfileDeviceSitesByOrgStmt:         q.listCurtailmentResponseProfileDeviceSitesByOrgStmt,
 		listCurtailmentResponseProfilesByOrgStmt:                   q.listCurtailmentResponseProfilesByOrgStmt,
 		listCurtailmentTargetSiteCoverageByEventStmt:               q.listCurtailmentTargetSiteCoverageByEventStmt,
 		listCurtailmentTargetsByEventStmt:                          q.listCurtailmentTargetsByEventStmt,

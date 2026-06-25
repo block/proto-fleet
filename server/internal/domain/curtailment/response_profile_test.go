@@ -404,6 +404,10 @@ func (s *responseProfileFakeStore) GetResponseProfile(_ context.Context, _ int64
 	return nil, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
 }
 
+func (*responseProfileFakeStore) ListResponseProfileDeviceSites(context.Context, int64, []string) (map[string]*int64, error) {
+	return map[string]*int64{}, nil
+}
+
 func (s *responseProfileFakeStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
 	profile.ID = 101
 	s.created = &profile
