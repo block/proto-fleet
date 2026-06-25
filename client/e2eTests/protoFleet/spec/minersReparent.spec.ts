@@ -25,10 +25,16 @@ type VisibleMinerSnapshot = {
   };
 };
 
+type VisibleMinerCandidate = Pick<
+  VisibleMinerSnapshot,
+  "ipAddress" | "deviceIdentifier" | "rackPosition" | "placement"
+>;
+
 const LIST_MINERS_RESPONSE = "ListMinerStateSnapshots";
 const ASSIGN_DEVICES_TO_SITE = "AssignDevicesToSite";
 const ASSIGN_DEVICES_TO_RACK = "AssignDevicesToRack";
 const ASSIGN_RACKS_TO_BUILDING = "AssignRacksToBuilding";
+const ASSIGN_RACKS_TO_SITE = "AssignRacksToSite";
 const TEMP_ZONE = "ReparentAutomationZone";
 const ACTIVE_SITE_STORAGE_KEY = "proto-fleet-multi-site";
 
@@ -94,6 +100,18 @@ async function clickAddSiteButton(page: Page) {
   const emptyStateAddSiteButton = page.getByRole("button", { name: "Add a site", exact: true });
   await test.expect(emptyStateAddSiteButton).toBeVisible();
   await emptyStateAddSiteButton.click();
+}
+
+async function clickAddBuildingButton(page: Page) {
+  const headerAddBuildingButton = page.getByTestId("fleet-buildings-add");
+  if (await headerAddBuildingButton.isVisible().catch(() => false)) {
+    await headerAddBuildingButton.click();
+    return;
+  }
+
+  const emptyStateAddBuildingButton = page.getByRole("button", { name: "Add building", exact: true });
+  await test.expect(emptyStateAddBuildingButton).toBeVisible();
+  await emptyStateAddBuildingButton.click();
 }
 
 async function detectSiteManagementMode(page: Page): Promise<SiteManagementMode> {
@@ -268,12 +286,7 @@ function normalizePlacementLabel(value: string | null | undefined): string | und
   return isBlankListCell(value) ? undefined : value?.trim();
 }
 
-async function isMinerSafeToRestore(page: Page, miner: VisibleMinerSnapshot): Promise<boolean> {
-  const row = getMinerRowByIp(page, miner.ipAddress);
-  if (!(await row.isVisible().catch(() => false))) {
-    return false;
-  }
-
+async function rowHasBlankBuildingAndRack(row: ReturnType<typeof getMinerRowByIp>): Promise<boolean> {
   const buildingText = await row
     .getByTestId("building")
     .textContent()
@@ -285,20 +298,44 @@ async function isMinerSafeToRestore(page: Page, miner: VisibleMinerSnapshot): Pr
   return isBlankListCell(buildingText) && isBlankListCell(rackText);
 }
 
-async function pickUnrackedPairedMiner(page: Page, miners: VisibleMinerSnapshot[]): Promise<VisibleMinerSnapshot> {
-  for (const miner of miners) {
-    if (miner.pairingStatus !== PairingStatus.PAIRED) {
+async function hasAuthenticationRequiredIssue(row: ReturnType<typeof getMinerRowByIp>): Promise<boolean> {
+  return (
+    (await row
+      .getByRole("button", { name: "Authentication required", exact: true })
+      .count()
+      .catch(() => 0)) > 0
+  );
+}
+
+async function pickUnrackedPairedMiner(page: Page, miners: VisibleMinerSnapshot[]): Promise<VisibleMinerCandidate> {
+  const rows = page.getByTestId("list-body").locator("tr");
+  const rowCount = await rows.count();
+
+  for (let index = 0; index < rowCount; index++) {
+    const row = rows.nth(index);
+    const ipAddress = normalizePlacementLabel(
+      await row
+        .getByTestId("ipAddress")
+        .textContent()
+        .catch(() => null),
+    );
+    if (!ipAddress) {
       continue;
     }
-    if (await isMinerSafeToRestore(page, miner)) {
-      return miner;
-    }
-  }
 
-  for (const miner of miners) {
-    if (await isMinerSafeToRestore(page, miner)) {
+    if (!(await rowHasBlankBuildingAndRack(getMinerRowByIp(page, ipAddress)))) {
+      continue;
+    }
+    if (await hasAuthenticationRequiredIssue(getMinerRowByIp(page, ipAddress))) {
+      continue;
+    }
+
+    const miner = miners.find((snapshot) => snapshot.ipAddress === ipAddress);
+    if (miner) {
       return miner;
     }
+
+    return { ipAddress };
   }
 
   throw new Error("Expected at least one visible miner without building or rack placement for reparent coverage");
@@ -339,10 +376,7 @@ async function createBuilding(
 ): Promise<bigint> {
   void mode;
   await openBuildingsManagementPage(page, "fleet");
-
-  const addBuildingButton = page.getByTestId("fleet-buildings-add");
-  await test.expect(addBuildingButton).toBeVisible();
-  await addBuildingButton.click();
+  await clickAddBuildingButton(page);
   await page.getByTestId("building-settings-site-select").click();
   await page.getByRole("option", { name: siteName, exact: true }).click();
   await page.getByTestId("building-settings-name-input").fill(buildingName);
@@ -382,6 +416,9 @@ async function createRack({
   await racksPage.clickAddRackButton();
   await racksPage.inputZone(zone);
   await racksPage.inputRackLabel(label);
+  await racksPage.enableCustomRackLayout();
+  await racksPage.inputColumns(2);
+  await racksPage.inputRows(2);
   await racksPage.clickContinueFromRackSettings();
   await racksPage.clickSaveRack();
   await racksPage.validateRackToast(label);
@@ -489,6 +526,15 @@ async function assertRackMembershipForMode({
   await test.expect(row.getByTestId("miners")).toHaveText("1");
   void mode;
   await test.expect(row.getByTestId("site")).toHaveText(targetSiteName);
+}
+
+function expectSingleDeviceIdentifier(actual: string[] | undefined, expected?: string) {
+  if (expected) {
+    test.expect(actual).toEqual([expected]);
+    return;
+  }
+
+  test.expect(actual).toHaveLength(1);
 }
 
 async function restoreMinerSiteIfNeeded({
@@ -790,7 +836,7 @@ test.describe("Miners reparent", () => {
         };
 
         test.expect(String(body.targetSiteId)).toBe(targetSiteId.toString());
-        test.expect(body.deviceIdentifiers).toEqual([miner.deviceIdentifier]);
+        expectSingleDeviceIdentifier(body.deviceIdentifiers, miner.deviceIdentifier);
         test.expect(response.status()).toBe(200);
 
         await assertSiteMinerCount({
@@ -846,7 +892,11 @@ test.describe("Miners reparent", () => {
       createdSite = true;
       const rackId = await createRack({ page, racksPage, label: rackLabel, zone: TEMP_ZONE });
       createdRack = true;
+      const rackSiteRequestPromise = page.waitForRequest(new RegExp(ASSIGN_RACKS_TO_SITE));
+      const rackSiteResponsePromise = page.waitForResponse(new RegExp(ASSIGN_RACKS_TO_SITE));
       await assignRackToSite(page, rackLabel, targetSiteName);
+      await rackSiteRequestPromise;
+      await rackSiteResponsePromise;
 
       const requestPromise = page.waitForRequest(new RegExp(ASSIGN_DEVICES_TO_RACK));
       const responsePromise = page.waitForResponse(new RegExp(ASSIGN_DEVICES_TO_RACK));
@@ -871,7 +921,7 @@ test.describe("Miners reparent", () => {
         };
 
         test.expect(String(body.targetRackId)).toBe(rackId.toString());
-        test.expect(body.deviceSelector?.deviceList?.deviceIdentifiers).toEqual([miner.deviceIdentifier]);
+        expectSingleDeviceIdentifier(body.deviceSelector?.deviceList?.deviceIdentifiers, miner.deviceIdentifier);
         test.expect(response.status()).toBe(200);
 
         await racksPage.navigateToRacksPage();

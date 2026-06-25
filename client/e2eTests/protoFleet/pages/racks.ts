@@ -270,7 +270,10 @@ export class RacksPage extends BasePage {
   }
 
   async clickSaveRack() {
-    await this.clickButton("Save");
+    await this.page
+      .getByTestId("full-screen-two-pane-modal")
+      .getByRole("button", { name: "Save", disabled: false, exact: true })
+      .click();
   }
 
   async clickViewMiners() {
