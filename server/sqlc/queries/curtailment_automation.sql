@@ -167,15 +167,22 @@ RETURNING *;
 UPDATE curtailment_automation_rule r
 SET enabled = FALSE
 FROM curtailment_automation_rule_state st
+LEFT JOIN curtailment_event active_event
+    ON active_event.event_uuid = st.active_event_uuid
+    AND active_event.org_id = sqlc.arg('org_id')
 WHERE st.rule_id = r.id
   AND r.org_id = sqlc.arg('org_id')
   AND r.enabled = TRUE
   AND (
       st.active_event_uuid = sqlc.arg('event_uuid')
       OR (
-          st.active_event_uuid IS NULL
-          AND sqlc.narg('external_reference')::text IS NOT NULL
+          sqlc.narg('external_reference')::text IS NOT NULL
           AND r.id::text = sqlc.narg('external_reference')::text
+          AND (
+              st.active_event_uuid IS NULL
+              OR active_event.state IS NULL
+              OR active_event.state NOT IN ('pending', 'active', 'restoring')
+          )
       )
   );
 
@@ -231,6 +238,7 @@ WITH enabled_rule AS (
     FROM curtailment_automation_rule
     WHERE id = sqlc.arg('rule_id')
       AND enabled = TRUE
+    FOR UPDATE
 )
 INSERT INTO curtailment_automation_rule_state (
     rule_id,

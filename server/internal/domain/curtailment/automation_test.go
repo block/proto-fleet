@@ -426,6 +426,35 @@ func TestAutomationService_HandleMQTTSignal_OffDoesNotRecordActiveEventAfterRule
 	assert.Equal(t, activeEventUUID, *h.rule.ActiveEventUUID)
 }
 
+func TestAutomationService_HandleMQTTSignal_OffDoesNotReleaseOnTransientActiveEventRecordFailure(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	activeEventUUID := uuid.New()
+	h.rule.ActiveEventUUID = &activeEventUUID
+	h.curtailments.eventsByUUID[activeEventUUID] = &models.Event{
+		ID:        77,
+		EventUUID: activeEventUUID,
+		OrgID:     h.orgID,
+		State:     models.EventStateCancelled,
+	}
+	h.rules.setActiveErr = assert.AnError
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.ErrorIs(t, err, assert.AnError)
+	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.Equal(t, 1, h.rules.setActiveCalls)
+	assert.Equal(t, 0, h.curtailments.forceReleaseCalls)
+	require.NotNil(t, h.rule.ActiveEventUUID)
+	assert.Equal(t, activeEventUUID, *h.rule.ActiveEventUUID)
+}
+
 func TestAutomationService_HandleMQTTSignal_CoalescesRecentRepeatedOff(t *testing.T) {
 	t.Parallel()
 

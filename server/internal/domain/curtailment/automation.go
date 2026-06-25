@@ -323,12 +323,14 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 		return fleeterror.NewInternalError("automation response profile start did not return an event UUID")
 	}
 	if err := s.store.SetAutomationActiveEvent(ctx, rule.ID, *plan.EventUUID, at); err != nil {
-		if _, releaseErr := s.curtailment.ForceRelease(ctx, ForceReleaseRequest{
-			OrgID:     rule.OrgID,
-			EventUUID: *plan.EventUUID,
-			Reason:    "automation rule disabled before active event could be recorded",
-		}); releaseErr != nil {
-			return fmt.Errorf("%w; failed to release untracked automation event: %v", err, releaseErr)
+		if fleeterror.IsFailedPreconditionError(err) {
+			if _, releaseErr := s.curtailment.ForceRelease(ctx, ForceReleaseRequest{
+				OrgID:     rule.OrgID,
+				EventUUID: *plan.EventUUID,
+				Reason:    "automation rule disabled before active event could be recorded",
+			}); releaseErr != nil {
+				return fmt.Errorf("%w; failed to release untracked automation event: %v", err, releaseErr)
+			}
 		}
 		return err
 	}

@@ -114,15 +114,22 @@ const disableCurtailmentAutomationRuleByActiveEvent = `-- name: DisableCurtailme
 UPDATE curtailment_automation_rule r
 SET enabled = FALSE
 FROM curtailment_automation_rule_state st
+LEFT JOIN curtailment_event active_event
+    ON active_event.event_uuid = st.active_event_uuid
+    AND active_event.org_id = $1
 WHERE st.rule_id = r.id
   AND r.org_id = $1
   AND r.enabled = TRUE
   AND (
       st.active_event_uuid = $2
       OR (
-          st.active_event_uuid IS NULL
-          AND $3::text IS NOT NULL
+          $3::text IS NOT NULL
           AND r.id::text = $3::text
+          AND (
+              st.active_event_uuid IS NULL
+              OR active_event.state IS NULL
+              OR active_event.state NOT IN ('pending', 'active', 'restoring')
+          )
       )
   )
 `
@@ -553,6 +560,7 @@ WITH enabled_rule AS (
     FROM curtailment_automation_rule
     WHERE id = $3
       AND enabled = TRUE
+    FOR UPDATE
 )
 INSERT INTO curtailment_automation_rule_state (
     rule_id,
