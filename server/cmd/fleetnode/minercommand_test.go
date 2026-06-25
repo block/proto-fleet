@@ -321,8 +321,8 @@ func TestGetErrorsResultFromSDKRejectsInvalidPluginErrorData(t *testing.T) {
 			ComponentType:    sdkerrors.ComponentTypePSU,
 		}
 	}
-	tooManyAttributes := make(map[string]string, maxErrorVendorAttributes+1)
-	for i := range maxErrorVendorAttributes + 1 {
+	tooManyAttributes := make(map[string]string, 33)
+	for i := range 33 {
 		tooManyAttributes[fmt.Sprintf("key-%d", i)] = "value"
 	}
 
@@ -333,25 +333,25 @@ func TestGetErrorsResultFromSDKRejectsInvalidPluginErrorData(t *testing.T) {
 	}{
 		{"undefined miner error", func(err *sdk.DeviceError) {
 			err.MinerError = sdk.MinerError(123456)
-		}, "miner_error 123456 is not defined"},
+		}, "miner_error: value must be one of the defined enum values"},
 		{"undefined severity", func(err *sdk.DeviceError) {
 			err.Severity = sdk.Severity(99)
-		}, "severity 99 is not defined"},
+		}, "severity: value must be one of the defined enum values"},
 		{"undefined component type", func(err *sdk.DeviceError) {
 			err.ComponentType = sdk.ComponentType(99)
-		}, "component_type 99 is not defined"},
+		}, "component_type: value must be one of the defined enum values"},
 		{"too many vendor attributes", func(err *sdk.DeviceError) {
 			err.VendorAttributes = tooManyAttributes
-		}, "vendor_attributes has 33 entries"},
+		}, "map must be at most 32 entries"},
 		{"empty vendor attribute key", func(err *sdk.DeviceError) {
 			err.VendorAttributes = map[string]string{"": "value"}
-		}, "vendor_attributes key must not be empty"},
+		}, "must be at least 1 characters"},
 		{"long vendor attribute key", func(err *sdk.DeviceError) {
-			err.VendorAttributes = map[string]string{strings.Repeat("k", maxErrorVendorAttributeKeyLen+1): "value"}
-		}, "vendor_attributes key"},
+			err.VendorAttributes = map[string]string{strings.Repeat("k", 129): "value"}
+		}, "must be at most 128 characters"},
 		{"long vendor attribute value", func(err *sdk.DeviceError) {
-			err.VendorAttributes = map[string]string{"key": strings.Repeat("v", maxErrorVendorAttributeValueLen+1)}
-		}, "vendor_attributes value for key"},
+			err.VendorAttributes = map[string]string{"key": strings.Repeat("v", 1025)}
+		}, "must be at most 1024 characters"},
 	}
 
 	for _, tc := range cases {
@@ -361,7 +361,7 @@ func TestGetErrorsResultFromSDKRejectsInvalidPluginErrorData(t *testing.T) {
 			tc.mutate(&sdkErr)
 
 			// Act
-			_, _, err := getErrorsResultFromSDK("dev-1", sdk.DeviceErrors{
+			_, _, _, err := getErrorsResultPayload("dev-1", sdk.DeviceErrors{
 				DeviceID: "dev-1",
 				Errors:   []sdk.DeviceError{sdkErr},
 			})

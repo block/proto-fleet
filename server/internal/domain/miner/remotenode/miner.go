@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/url"
 	"time"
@@ -27,7 +28,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
-	"github.com/block/proto-fleet/server/internal/domain/plugins/mappers"
 	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
@@ -329,11 +329,11 @@ func (m *Miner) GetErrors(ctx context.Context) (models.DeviceErrors, error) {
 			"invalid get errors result: device_id %q does not match requested device %q",
 			result.GetDeviceId(), m.desc.GetDeviceIdentifier())
 	}
-	sdkErrors, err := sdkDeviceErrorsFromResult(&result)
+	deviceErrors, err := deviceErrorsFromResult(&result)
 	if err != nil {
 		return models.DeviceErrors{}, err
 	}
-	return mappers.SDKDeviceErrorsToFleetDeviceErrors(sdkErrors), nil
+	return deviceErrors, nil
 }
 
 func (m *Miner) GetCoolingMode(_ context.Context) (commonpb.CoolingMode, error) {
@@ -379,79 +379,85 @@ func errUnsupported(op string) error {
 	return fleeterror.NewUnimplementedErrorf("%s is not yet supported for fleet-node-paired miners", op)
 }
 
-func sdkDeviceErrorsFromResult(result *gatewaypb.GetErrorsResult) (sdk.DeviceErrors, error) {
+func deviceErrorsFromResult(result *gatewaypb.GetErrorsResult) (models.DeviceErrors, error) {
 	deviceID := result.GetDeviceId()
-	out := sdk.DeviceErrors{
+	out := models.DeviceErrors{
 		DeviceID: deviceID,
-		Errors:   make([]sdk.DeviceError, 0, len(result.GetErrors())),
+		Errors:   make([]models.ErrorMessage, 0, len(result.GetErrors())),
 	}
 	for _, report := range result.GetErrors() {
 		if report.GetDeviceId() != deviceID {
-			return sdk.DeviceErrors{}, fleeterror.NewInternalErrorf(
+			return models.DeviceErrors{}, fleeterror.NewInternalErrorf(
 				"invalid get errors result: error device_id %q does not match result device_id %q",
 				report.GetDeviceId(), deviceID)
 		}
-		minerError, err := sdkMinerError(report.GetMinerError())
-		if err != nil {
-			return sdk.DeviceErrors{}, err
-		}
-		severity, err := sdkSeverity(report.GetSeverity())
-		if err != nil {
-			return sdk.DeviceErrors{}, err
-		}
-		componentType, err := sdkComponentType(report.GetComponentType())
-		if err != nil {
-			return sdk.DeviceErrors{}, err
-		}
-		sdkErr := sdk.DeviceError{
+		// #nosec G115 -- protovalidate enforces a defined non-negative enum before conversion.
+		minerError := models.MinerError(report.GetMinerError())
+		errMsg := models.ErrorMessage{
 			MinerError:        minerError,
 			CauseSummary:      report.GetCauseSummary(),
 			RecommendedAction: report.GetRecommendedAction(),
-			Severity:          severity,
+			Severity:          severityFromResult(report.GetSeverity(), minerError, deviceID),
 			VendorAttributes:  report.GetVendorAttributes(),
 			DeviceID:          report.GetDeviceId(),
 			ComponentID:       report.ComponentId,
-			ComponentType:     componentType,
+			ComponentType:     componentTypeFromResult(report.GetComponentType()),
 			Impact:            report.GetImpact(),
 			Summary:           report.GetSummary(),
+			VendorCode:        report.GetVendorAttributes()["vendor_code"],
+			Firmware:          report.GetVendorAttributes()["firmware"],
 		}
 		if report.GetFirstSeenAt() != nil {
-			sdkErr.FirstSeenAt = report.GetFirstSeenAt().AsTime()
+			errMsg.FirstSeenAt = report.GetFirstSeenAt().AsTime()
 		}
 		if report.GetLastSeenAt() != nil {
-			sdkErr.LastSeenAt = report.GetLastSeenAt().AsTime()
+			errMsg.LastSeenAt = report.GetLastSeenAt().AsTime()
 		}
 		if report.GetClosedAt() != nil {
 			closedAt := report.GetClosedAt().AsTime()
-			sdkErr.ClosedAt = &closedAt
+			errMsg.ClosedAt = &closedAt
 		}
-		out.Errors = append(out.Errors, sdkErr)
+		out.Errors = append(out.Errors, errMsg)
 	}
 	return out, nil
 }
 
-func sdkMinerError(value errorspb.MinerError) (sdk.MinerError, error) {
-	raw := int32(value)
-	if _, ok := errorspb.MinerError_name[raw]; !ok {
-		return sdk.MinerError(0), fleeterror.NewInternalErrorf("invalid get errors result: miner_error %d is not defined", raw)
+func severityFromResult(value errorspb.Severity, minerError models.MinerError, deviceID string) models.Severity {
+	// #nosec G115 -- protovalidate enforces a defined non-negative enum before conversion.
+	severity := models.Severity(value)
+	if severity != models.SeverityUnspecified {
+		return severity
 	}
-	return sdk.MinerError(raw), nil
+	if info, ok := models.GetMinerErrorInfo()[minerError]; ok {
+		severity = info.DefaultSeverity
+	} else {
+		severity = models.SeverityInfo
+	}
+	slog.Warn("plugin emitted error with SeverityUnspecified; normalized to default severity",
+		"device_id", deviceID,
+		"miner_error", minerError,
+		"normalized_severity", severity,
+	)
+	return severity
 }
 
-func sdkSeverity(value errorspb.Severity) (sdk.Severity, error) {
-	raw := int32(value)
-	if _, ok := errorspb.Severity_name[raw]; !ok {
-		return sdk.Severity(0), fleeterror.NewInternalErrorf("invalid get errors result: severity %d is not defined", raw)
+func componentTypeFromResult(value errorspb.ComponentType) models.ComponentType {
+	switch value {
+	case errorspb.ComponentType_COMPONENT_TYPE_UNSPECIFIED:
+		return models.ComponentTypeUnspecified
+	case errorspb.ComponentType_COMPONENT_TYPE_PSU:
+		return models.ComponentTypePSU
+	case errorspb.ComponentType_COMPONENT_TYPE_HASH_BOARD:
+		return models.ComponentTypeHashBoards
+	case errorspb.ComponentType_COMPONENT_TYPE_FAN:
+		return models.ComponentTypeFans
+	case errorspb.ComponentType_COMPONENT_TYPE_CONTROL_BOARD:
+		return models.ComponentTypeControlBoard
+	case errorspb.ComponentType_COMPONENT_TYPE_EEPROM, errorspb.ComponentType_COMPONENT_TYPE_IO_MODULE:
+		return models.ComponentTypeUnspecified
+	default:
+		return models.ComponentTypeUnspecified
 	}
-	return sdk.Severity(raw), nil
-}
-
-func sdkComponentType(value errorspb.ComponentType) (sdk.ComponentType, error) {
-	raw := int32(value)
-	if _, ok := errorspb.ComponentType_name[raw]; !ok {
-		return sdk.ComponentType(0), fleeterror.NewInternalErrorf("invalid get errors result: component_type %d is not defined", raw)
-	}
-	return sdk.ComponentType(raw), nil
 }
 
 func miningPoolConfigsFromPayload(payload dto.UpdateMiningPoolsPayload) ([]*gatewaypb.MiningPoolConfig, error) {
