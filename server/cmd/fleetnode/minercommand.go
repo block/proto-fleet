@@ -32,6 +32,7 @@ var minerCommandTimeout = 25 * time.Second
 const (
 	supportedMiningPoolSlots        = 3
 	maxSupportedMiningPoolPriority  = supportedMiningPoolSlots - 1
+	maxGetErrorsReports             = 512
 	maxErrorVendorAttributes        = 32
 	maxErrorVendorAttributeKeyLen   = 128
 	maxErrorVendorAttributeValueLen = 1024
@@ -333,11 +334,15 @@ func getErrorsResultFromSDK(targetDeviceID string, deviceErrors sdk.DeviceErrors
 	if deviceID == "" {
 		deviceID = targetDeviceID
 	}
+	pluginErrors := deviceErrors.Errors
+	if len(pluginErrors) > maxGetErrorsReports {
+		pluginErrors = pluginErrors[:maxGetErrorsReports]
+	}
 	result := &pb.GetErrorsResult{
 		DeviceId: deviceID,
-		Errors:   make([]*pb.MinerErrorReport, 0, len(deviceErrors.Errors)),
+		Errors:   make([]*pb.MinerErrorReport, 0, len(pluginErrors)),
 	}
-	for _, sdkErr := range deviceErrors.Errors {
+	for _, sdkErr := range pluginErrors {
 		errorDeviceID := sdkErr.DeviceID
 		if errorDeviceID == "" {
 			errorDeviceID = deviceID

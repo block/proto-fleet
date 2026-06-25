@@ -80,7 +80,10 @@ type Miner struct {
 
 var _ interfaces.Miner = (*Miner)(nil)
 
-var remoteGetErrorsCommandTimeout = 5 * time.Second
+// Keep the remote diagnostics wait aligned with the cloud command worker budget
+// and above the fleet node's minerCommandTimeout, while still bounding callers
+// such as telemetry error polling that use a long-lived worker context.
+var remoteGetErrorsCommandTimeout = 30 * time.Second
 
 // New builds a remote-node miner. It returns an error only if the connection
 // coordinates are malformed (bad port/scheme), matching the direct PluginMiner.

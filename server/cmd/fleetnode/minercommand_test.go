@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -370,6 +371,30 @@ func TestGetErrorsResultFromSDKRejectsInvalidPluginErrorData(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.wantErr)
 		})
 	}
+}
+
+func TestGetErrorsResultFromSDKCapsPluginErrorCountBeforeConversion(t *testing.T) {
+	// Arrange
+	pluginErrors := make([]sdk.DeviceError, maxGetErrorsReports+88)
+	for i := range pluginErrors {
+		pluginErrors[i] = sdk.DeviceError{
+			MinerError:    sdkerrors.PSUFaultGeneric,
+			Severity:      sdkerrors.SeverityCritical,
+			DeviceID:      "dev-1",
+			ComponentType: sdkerrors.ComponentTypePSU,
+		}
+	}
+
+	// Act
+	result, err := getErrorsResultFromSDK("dev-1", sdk.DeviceErrors{
+		DeviceID: "dev-1",
+		Errors:   pluginErrors,
+	})
+
+	// Assert
+	require.NoError(t, err)
+	require.Len(t, result.GetErrors(), maxGetErrorsReports)
+	require.NoError(t, protovalidate.Validate(result))
 }
 
 func TestHandleMinerCommand_GetErrorsTruncatesOversizedPayload(t *testing.T) {
