@@ -30,7 +30,7 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async deleteAllFirmwareFilesIfAny() {
-    const emptyState = this.page.getByText("No firmware files uploaded.", { exact: true });
+    const emptyState = this.page.getByText("No firmware files uploaded", { exact: true });
     const firmwareRows = this.page.getByTestId("list-body").locator("tr");
     const loadingState = this.page.getByText("Loading firmware files...", { exact: true });
     const deleteAllButton = this.page.getByRole("button", { name: "Delete all", exact: true }).first();

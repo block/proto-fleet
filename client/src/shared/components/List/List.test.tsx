@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createPortal } from "react-dom";
 import { defaultListFilter } from "@/shared/components/List/constants";
@@ -347,6 +347,32 @@ describe("List", () => {
     expect(screen.getByText("No miners found")).toBeInTheDocument();
     expect(screen.queryByText("All Items")).not.toBeInTheDocument();
     expect(screen.queryByText("Value Range")).not.toBeInTheDocument();
+  });
+
+  it("renders rows when data arrives after an empty filtered no-data state", async () => {
+    const props = {
+      activeCols,
+      colTitles: testColTitles,
+      colConfig: testColConfig,
+      filters: testFilters,
+      itemKey: "id" as const,
+      total: 0,
+      noDataElement: <div>No miners found</div>,
+      filterItem: () => true,
+    };
+
+    const { rerender } = render(<List<TestItem, TestItemKey> {...props} items={[]} />);
+
+    expect(screen.getByText("No miners found")).toBeInTheDocument();
+    expect(screen.queryByText("All Items")).not.toBeInTheDocument();
+
+    rerender(<List<TestItem, TestItemKey> {...props} items={testItems} total={testItems.length} />);
+
+    expect(screen.getByText("All Items")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(testItems[0].name)).toBeInTheDocument();
+    });
+    expect(screen.queryByText("No miners found")).not.toBeInTheDocument();
   });
 
   it("keeps header controls visible for a true no-data state", () => {
