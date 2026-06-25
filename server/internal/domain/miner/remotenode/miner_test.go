@@ -62,6 +62,18 @@ func newTestMiner(t *testing.T, s CommandSender) *Miner {
 	return m
 }
 
+func newTestMinerWithGate(t *testing.T, s CommandSender, gate Gate) *Miner {
+	t.Helper()
+	m, err := New(Config{
+		Sender: s, Gate: gate, FleetNodeID: 7, OrgID: 1,
+		DeviceIdentifier: "dev-1", DriverName: "virtual",
+		IPAddress: "10.0.0.5", Port: "4028", URLScheme: "http",
+		SerialNumber: "SN1", MacAddress: "AA:BB:CC:DD:EE:FF",
+	})
+	require.NoError(t, err)
+	return m
+}
+
 func decodeSent(t *testing.T, s *fakeSender) *gatewaypb.MinerCommand {
 	t.Helper()
 	require.NotNil(t, s.cmd, "no command was sent")
@@ -252,6 +264,43 @@ func TestMiner_GetErrors_DecodesPayload(t *testing.T) {
 	assert.NotNil(t, decodeSent(t, s).GetGetErrors())
 }
 
+func TestMiner_GetErrors_ClampsDerivedDatabaseColumns(t *testing.T) {
+	// Arrange
+	overlongVendorCode := strings.Repeat("v", maxErrorColumnStringLen+1)
+	overlongFirmware := strings.Repeat("f", maxErrorColumnStringLen+1)
+	payload, err := proto.Marshal(&gatewaypb.GetErrorsResult{
+		DeviceId: "dev-1",
+		Errors: []*gatewaypb.MinerErrorReport{{
+			DeviceId:      "dev-1",
+			MinerError:    errorspb.MinerError_MINER_ERROR_PSU_FAULT_GENERIC,
+			Severity:      errorspb.Severity_SEVERITY_CRITICAL,
+			ComponentType: errorspb.ComponentType_COMPONENT_TYPE_PSU,
+			VendorAttributes: map[string]string{
+				"vendor_code": overlongVendorCode,
+				"firmware":    overlongFirmware,
+			},
+		}},
+	})
+	require.NoError(t, err)
+	m := newTestMiner(t, &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}})
+
+	// Act
+	deviceErrors, err := m.GetErrors(context.Background())
+
+	// Assert
+	require.NoError(t, err)
+	require.Len(t, deviceErrors.Errors, 1)
+	got := deviceErrors.Errors[0]
+	assert.Len(t, got.VendorCode, maxErrorColumnStringLen)
+	assert.Len(t, got.Firmware, maxErrorColumnStringLen)
+	assert.Equal(t, overlongVendorCode, got.VendorAttributes["vendor_code"])
+	assert.Equal(t, overlongFirmware, got.VendorAttributes["firmware"])
+}
+
 func TestMiner_GetErrors_MalformedPayloadReturnsInternal(t *testing.T) {
 	// Arrange
 	m := newTestMiner(t, &fakeSender{ack: &gatewaypb.ControlAck{
@@ -267,6 +316,21 @@ func TestMiner_GetErrors_MalformedPayloadReturnsInternal(t *testing.T) {
 	require.Error(t, err)
 	assert.Empty(t, deviceErrors.Errors)
 	assert.Contains(t, err.Error(), "unmarshal get errors result")
+}
+
+type releasableGate struct {
+	acquired chan int64
+	release  chan struct{}
+}
+
+func (g *releasableGate) Acquire(ctx context.Context, fleetNodeID int64) (func(), error) {
+	g.acquired <- fleetNodeID
+	select {
+	case <-g.release:
+		return func() {}, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("waiting for release: %w", ctx.Err())
+	}
 }
 
 func TestMiner_GetErrors_UsesBoundedCommandContext(t *testing.T) {
@@ -290,6 +354,42 @@ func TestMiner_GetErrors_UsesBoundedCommandContext(t *testing.T) {
 	case <-s.started:
 	default:
 		t.Fatal("SendCommand was not called")
+	}
+}
+
+func TestMiner_GetErrors_CommandTimeoutStartsAfterGateAcquisition(t *testing.T) {
+	// Arrange
+	oldTimeout := remoteGetErrorsCommandTimeout
+	remoteGetErrorsCommandTimeout = 25 * time.Millisecond
+	t.Cleanup(func() { remoteGetErrorsCommandTimeout = oldTimeout })
+	payload, err := proto.Marshal(&gatewaypb.GetErrorsResult{DeviceId: "dev-1"})
+	require.NoError(t, err)
+	gate := &releasableGate{
+		acquired: make(chan int64, 1),
+		release:  make(chan struct{}),
+	}
+	m := newTestMinerWithGate(t, &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}}, gate)
+	resultCh := make(chan error, 1)
+
+	// Act
+	go func() {
+		_, err := m.GetErrors(context.Background())
+		resultCh <- err
+	}()
+	require.Equal(t, int64(7), <-gate.acquired)
+	time.Sleep(2 * remoteGetErrorsCommandTimeout)
+	close(gate.release)
+
+	// Assert
+	select {
+	case err := <-resultCh:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for GetErrors")
 	}
 }
 

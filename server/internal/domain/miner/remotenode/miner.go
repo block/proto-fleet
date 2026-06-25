@@ -85,6 +85,8 @@ var _ interfaces.Miner = (*Miner)(nil)
 // such as telemetry error polling that use a long-lived worker context.
 var remoteGetErrorsCommandTimeout = 30 * time.Second
 
+const maxErrorColumnStringLen = 255
+
 // New builds a remote-node miner. It returns an error only if the connection
 // coordinates are malformed (bad port/scheme), matching the direct PluginMiner.
 func New(cfg Config) (*Miner, error) {
@@ -177,18 +179,31 @@ func (m *Miner) dispatch(ctx context.Context, mc *gatewaypb.MinerCommand) error 
 }
 
 func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
+	release, err := m.acquireGate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return m.sendWithoutGate(ctx, mc)
+}
+
+func (m *Miner) acquireGate(ctx context.Context) (func(), error) {
+	if m.gate == nil {
+		return func() {}, nil
+	}
 	// Pace per fleet node so a large batch can't oversubscribe the node (-> BUSY);
 	// the DB command queue holds the backlog while this worker waits for a slot.
-	if m.gate != nil {
-		release, err := m.gate.Acquire(ctx, m.fleetNodeID)
-		if err != nil {
-			return nil, fleeterror.NewPlainError(
-				fmt.Sprintf("timed out waiting for a fleet node command slot: %v", err),
-				connect.CodeResourceExhausted,
-			)
-		}
-		defer release()
+	release, err := m.gate.Acquire(ctx, m.fleetNodeID)
+	if err != nil {
+		return nil, fleeterror.NewPlainError(
+			fmt.Sprintf("timed out waiting for a fleet node command slot: %v", err),
+			connect.CodeResourceExhausted,
+		)
 	}
+	return release, nil
+}
+
+func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
 	mc.Target = m.desc
 	if err := protovalidate.Validate(mc); err != nil {
 		return nil, fleeterror.NewInvalidArgumentErrorf("invalid fleet node miner command: %v", err)
@@ -301,10 +316,16 @@ func (m *Miner) GetDeviceStatus(_ context.Context) (minermodels.MinerStatus, err
 }
 
 func (m *Miner) GetErrors(ctx context.Context) (models.DeviceErrors, error) {
+	release, err := m.acquireGate(ctx)
+	if err != nil {
+		return models.DeviceErrors{}, err
+	}
+	defer release()
+
 	commandCtx, cancel := context.WithTimeout(ctx, remoteGetErrorsCommandTimeout)
 	defer cancel()
 
-	ack, err := m.send(commandCtx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{
+	ack, err := m.sendWithoutGate(commandCtx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{
 		GetErrors: &gatewaypb.GetErrorsAction{},
 	}})
 	if err != nil {
@@ -406,8 +427,8 @@ func deviceErrorsFromResult(result *gatewaypb.GetErrorsResult) (models.DeviceErr
 			ComponentType:     componentTypeFromResult(report.GetComponentType()),
 			Impact:            report.GetImpact(),
 			Summary:           report.GetSummary(),
-			VendorCode:        report.GetVendorAttributes()["vendor_code"],
-			Firmware:          report.GetVendorAttributes()["firmware"],
+			VendorCode:        clampErrorColumnValue(report.GetVendorAttributes()["vendor_code"]),
+			Firmware:          clampErrorColumnValue(report.GetVendorAttributes()["firmware"]),
 		}
 		if report.GetFirstSeenAt() != nil {
 			errMsg.FirstSeenAt = report.GetFirstSeenAt().AsTime()
@@ -441,6 +462,20 @@ func severityFromResult(value errorspb.Severity, minerError models.MinerError, d
 		"normalized_severity", severity,
 	)
 	return severity
+}
+
+func clampErrorColumnValue(value string) string {
+	if utf8.RuneCountInString(value) <= maxErrorColumnStringLen {
+		return value
+	}
+	count := 0
+	for i := range value {
+		if count == maxErrorColumnStringLen {
+			return value[:i]
+		}
+		count++
+	}
+	return value
 }
 
 func componentTypeFromResult(value errorspb.ComponentType) models.ComponentType {
