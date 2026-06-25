@@ -891,7 +891,13 @@ func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandida
 			return interfaces.ListCandidatesParams{}, false
 		}
 		return interfaces.ListCandidatesParams{SiteIDs: []int64{scope.SiteID}}, true
-	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList, models.ScopeTypeMixed:
+	case models.ScopeTypeMixed:
+		scope, hasScope, err := curtailment.ScopeFromJSON(ev.ScopeJSON)
+		if err != nil || !hasScope || !curtailment.IsSiteOnlyScope(scope) {
+			return interfaces.ListCandidatesParams{}, false
+		}
+		return interfaces.ListCandidatesParams{SiteIDs: scope.SiteIDs}, true
+	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
 		return interfaces.ListCandidatesParams{}, false
 	default:
 		return interfaces.ListCandidatesParams{}, false

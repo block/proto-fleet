@@ -568,6 +568,55 @@ func TestHandler_ListActiveCurtailments_FiltersDeviceListEventsWithIncompleteTar
 	assert.Empty(t, resp.Msg.Events)
 }
 
+func TestHandler_ListActiveCurtailments_UsesMixedSiteOnlyScopeJSON(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+		deniedSite  = int64(8)
+	)
+	eventUUID := uuid.New()
+	store := &listStubStore{
+		activeEvents: []*models.Event{
+			{
+				ID:        1,
+				EventUUID: eventUUID,
+				OrgID:     orgID,
+				State:     models.EventStateActive,
+				ScopeType: models.ScopeTypeMixed,
+				ScopeJSON: []byte(`{"site_ids":[7,8],"device_identifiers":null}`),
+				Reason:    "multi-site full-fleet",
+			},
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	allowedCtx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+	}, testOrgAssignment(authz.PermCurtailmentRead),
+		testSiteAssignment(allowedSite, authz.PermCurtailmentRead),
+		testSiteAssignment(deniedSite, authz.PermCurtailmentRead))
+	resp, err := h.ListActiveCurtailments(allowedCtx, connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Events, 1)
+	assert.Equal(t, eventUUID.String(), resp.Msg.Events[0].EventUuid)
+
+	deniedCtx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+	}, testOrgAssignment(authz.PermCurtailmentRead),
+		testSiteAssignment(allowedSite, authz.PermCurtailmentRead),
+		testSiteAssignment(deniedSite))
+	resp, err = h.ListActiveCurtailments(deniedCtx, connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.Events)
+}
+
 func TestHandler_GetCurtailmentEvent_UsesTargetSitesForDeviceListEvents(t *testing.T) {
 	t.Parallel()
 	const (

@@ -992,6 +992,51 @@ func TestReconciler_ActiveClosedLoopFullFleetUsesPersistedSiteScope(t *testing.T
 	assert.ElementsMatch(t, []string{"site-miner"}, disp.curtailLastIDs)
 }
 
+func TestReconciler_ActiveClosedLoopFullFleetUsesPersistedMultiSiteScope(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	siteIDs := []int64{77, 88}
+	store.events = []*models.Event{
+		{
+			ID:                   eventID,
+			EventUUID:            eventUUID,
+			OrgID:                1,
+			State:                models.EventStateActive,
+			Mode:                 models.ModeFullFleet,
+			LoopType:             models.LoopTypeClosed,
+			ScopeType:            models.ScopeTypeMixed,
+			ScopeJSON:            []byte(`{"site_ids":[77,88],"device_identifiers":null}`),
+			DecisionSnapshotJSON: []byte(`{"post_event_cooldown_sec":600}`),
+			CreatedByUserID:      99,
+		},
+	}
+	driver := "antminer"
+	now := time.Now()
+	store.candidates = []*models.Candidate{
+		{
+			DeviceIdentifier: "site-miner",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestPowerW:     ptrFloat64(3000),
+			LatestHashRateHS: ptrFloat64(100),
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, siteIDs, store.lastListCandidatesSiteIDs)
+	assert.Equal(t, 1, store.cooldownCalls)
+	assert.Equal(t, siteIDs, store.lastCooldownSiteIDs)
+	assert.Equal(t, 1, store.claimTargetsCalls)
+	assert.ElementsMatch(t, []string{"site-miner"}, disp.curtailLastIDs)
+}
+
 func TestReconciler_DispatchingFailureDoesNotRetryAgainAsPendingInSameTick(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{curtailErr: errors.New("queue unavailable")}

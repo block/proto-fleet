@@ -560,6 +560,9 @@ func (h *Handler) eventSiteResourceContexts(
 	if event == nil || event.ScopeType == "" || event.ScopeType == models.ScopeTypeWholeOrg {
 		return nil, nil
 	}
+	if contexts, handled, err := mixedSiteOnlyEventResourceContexts(event); handled || err != nil {
+		return contexts, err
+	}
 	siteIDs, complete, err := h.service.ListTargetSiteIDsByEvent(ctx, orgID, event.EventUUID)
 	if err != nil {
 		return nil, err
@@ -572,6 +575,26 @@ func (h *Handler) eventSiteResourceContexts(
 		contexts = append(contexts, authz.ResourceContext{SiteID: &siteID})
 	}
 	return contexts, nil
+}
+
+func mixedSiteOnlyEventResourceContexts(event *models.Event) ([]authz.ResourceContext, bool, error) {
+	if event == nil || event.ScopeType != models.ScopeTypeMixed {
+		return nil, false, nil
+	}
+	scope, hasScope, err := curtailment.ScopeFromJSON(event.ScopeJSON)
+	if err != nil {
+		return nil, true, fleeterror.NewInternalErrorf(
+			"failed to decode mixed curtailment event scope: %v", err,
+		)
+	}
+	if !hasScope || !curtailment.IsSiteOnlyScope(scope) {
+		return nil, false, nil
+	}
+	contexts := siteResourceContextsForScope(scope)
+	if len(contexts) == 0 {
+		return nil, true, fleeterror.NewInternalError("mixed site-only curtailment event has no site_ids")
+	}
+	return contexts, true, nil
 }
 
 // requireAdminFromContext returns Forbidden unless the caller has Admin

@@ -1664,12 +1664,21 @@ func isClosedLoopFullFleetStart(scope Scope, mode models.Mode) bool {
 	case models.ScopeTypeWholeOrg, models.ScopeTypeSite, "":
 		return true
 	case models.ScopeTypeMixed:
-		return len(scope.SiteIDs) > 0 && len(scope.DeviceIdentifiers) == 0 && len(scope.DeviceSetIDs) == 0
+		return IsSiteOnlyScope(scope)
 	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
 		return false
 	default:
 		return false
 	}
+}
+
+// IsSiteOnlyScope reports whether scope targets only one or more sites, with
+// no explicit devices or device-set selectors.
+func IsSiteOnlyScope(scope Scope) bool {
+	scope = normalizeScope(scope)
+	return len(scope.SiteIDs) > 0 &&
+		len(scope.DeviceIdentifiers) == 0 &&
+		len(scope.DeviceSetIDs) == 0
 }
 
 // MarshalScopeJSON renders the request scope as the JSONB column value.
