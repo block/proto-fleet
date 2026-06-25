@@ -122,6 +122,36 @@ func RequirePermission(ctx context.Context, key string, rc authz.ResourceContext
 	return info, nil
 }
 
+func RequireOrgWidePermission(ctx context.Context, key string) (*session.Info, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	if info.Actor != "" {
+		switch info.Actor {
+		case session.ActorScheduler, session.ActorCurtailment:
+			return info, nil
+		default:
+			return nil, fleeterror.NewInternalErrorf(
+				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
+				info.Actor,
+			)
+		}
+	}
+
+	eff := effectivePermissionsFromContext(ctx)
+	if eff == nil {
+		return nil, fleeterror.NewInternalError(
+			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
+		)
+	}
+	if !eff.HasOrgWide(key) {
+		return nil, permissionDeniedError(key, authz.ResourceContext{})
+	}
+	return info, nil
+}
+
 // HasPermission reports whether the caller holds key against rc WITHOUT
 // erroring on a plain denial — use it to conditionally widen a response
 // (e.g. include extra fields) rather than to gate a whole RPC. It still

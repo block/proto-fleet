@@ -4,6 +4,7 @@ package curtailment
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -25,6 +26,7 @@ import (
 const actionSupplyOverrideFields = "supply curtailment override fields"
 const actionAdminTerminateEvents = "admin terminate curtailment events"
 const actionManageMqttSources = "manage MaestroOS curtailment sources"
+const incompleteTargetSiteContextMessage = "curtailment target site context is incomplete"
 const listCurtailmentEventsDefaultPageSize int32 = 50
 const listCurtailmentEventsMaxPageSize int32 = 200
 const listCurtailmentEventsMaxPermissionScanPages = 3
@@ -329,6 +331,17 @@ func (h *Handler) ForceReleaseCurtailmentOwnership(ctx context.Context, req *con
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("ForceReleaseCurtailmentOwnership")
 	}
+	eventUUID, err := parseEventUUID(req.Msg.GetEventUuid())
+	if err != nil {
+		return nil, err
+	}
+	event, err := h.service.GetEvent(ctx, info.OrganizationID, eventUUID)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.requireForceReleasePermission(ctx, info.OrganizationID, event); err != nil {
+		return nil, err
+	}
 	forceReq, err := toForceReleaseRequest(req.Msg, info)
 	if err != nil {
 		return nil, err
@@ -407,6 +420,23 @@ func (h *Handler) requireEventPermission(ctx context.Context, permission string,
 		info = checkedInfo
 	}
 	return info, event, nil
+}
+
+func (h *Handler) requireForceReleasePermission(ctx context.Context, orgID int64, event *models.Event) error {
+	siteContexts, err := h.eventSiteResourceContexts(ctx, orgID, event)
+	if err != nil {
+		if isIncompleteTargetSiteContextError(err) {
+			_, err := middleware.RequireOrgWidePermission(ctx, authz.PermCurtailmentManage)
+			return err
+		}
+		return err
+	}
+	for _, rc := range siteContexts {
+		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, rc); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *Handler) filterEventsByPermission(
@@ -541,13 +571,17 @@ func (h *Handler) eventSiteResourceContexts(
 		return nil, err
 	}
 	if !complete {
-		return nil, fleeterror.NewForbiddenError("curtailment target site context is incomplete")
+		return nil, fleeterror.NewForbiddenError(incompleteTargetSiteContextMessage)
 	}
 	contexts := make([]authz.ResourceContext, 0, len(siteIDs))
 	for _, siteID := range siteIDs {
 		contexts = append(contexts, authz.ResourceContext{SiteID: &siteID})
 	}
 	return contexts, nil
+}
+
+func isIncompleteTargetSiteContextError(err error) bool {
+	return fleeterror.IsForbiddenError(err) && strings.Contains(err.Error(), incompleteTargetSiteContextMessage)
 }
 
 // requireAdminFromContext returns Forbidden unless the caller has Admin

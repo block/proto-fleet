@@ -45,9 +45,11 @@ type adminTerminateStubStore struct {
 	forceReleaseErr                error
 	// Targets returned by ListTargetsByEvent; admin-terminate fetches them
 	// post-terminate so the response shape mirrors the read endpoints.
-	targets          []*models.Target
-	targetsErr       error
-	listTargetsCalls int
+	targets             []*models.Target
+	targetsErr          error
+	listTargetsCalls    int
+	targetSiteIDs       []int64
+	targetSitesComplete bool
 }
 
 func (s *adminTerminateStubStore) AdminTerminateEvent(_ context.Context, orgID int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, bool, error) {
@@ -140,7 +142,7 @@ func (s *adminTerminateStubStore) ListTargetsByEventPage(context.Context, interf
 	panic("ListTargetsByEventPage not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, bool, error) {
-	panic("ListTargetSiteIDsByEvent not exercised by AdminTerminate handler tests")
+	return append([]int64(nil), s.targetSiteIDs...), s.targetSitesComplete, nil
 }
 func (s *adminTerminateStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by AdminTerminate handler tests")
@@ -329,6 +331,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_BypassesIncompleteTargetSiteCo
 			State:     models.EventStateCancelled,
 			ScopeType: models.ScopeTypeDeviceList,
 		},
+		targetSitesComplete: false,
 	}
 	h := NewHandler(domainCurtailment.NewService(store))
 
@@ -344,7 +347,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_BypassesIncompleteTargetSiteCo
 	assert.Equal(t, 1, store.forceReleaseCalls)
 }
 
-func TestHandler_ForceReleaseCurtailmentOwnership_BypassesSiteNarrowingForOrgAdmin(t *testing.T) {
+func TestHandler_ForceReleaseCurtailmentOwnership_RejectsSiteNarrowedKnownSite(t *testing.T) {
 	t.Parallel()
 	const (
 		orgID        = int64(42)
@@ -374,8 +377,89 @@ func TestHandler_ForceReleaseCurtailmentOwnership_BypassesSiteNarrowingForOrgAdm
 		Reason:    "operator release",
 	}))
 
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Equal(t, 0, store.forceReleaseCalls)
+}
+
+func TestHandler_ForceReleaseCurtailmentOwnership_AllowsMatchingSiteNarrowingForKnownSite(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID  = int64(42)
+		siteID = int64(7)
+	)
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     orgID,
+			State:     models.EventStateCancelled,
+			ScopeType: models.ScopeTypeSite,
+			ScopeJSON: siteScopeJSON(t, siteID),
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           domainAuth.AdminRoleName,
+	}, testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(siteID, authz.PermCurtailmentManage))
+
+	_, err := h.ForceReleaseCurtailmentOwnership(ctx, connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+		EventUuid: eventUUID.String(),
+		Reason:    "operator release",
+	}))
+
 	require.NoError(t, err)
 	assert.Equal(t, 1, store.forceReleaseCalls)
+}
+
+func TestHandler_ForceReleaseCurtailmentOwnership_RejectsIncompleteCoverageWhenOrgGrantIsNarrowed(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID        = int64(42)
+		narrowedSite = int64(7)
+	)
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		authEvent: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     orgID,
+			State:     models.EventStateActive,
+			ScopeType: models.ScopeTypeDeviceList,
+		},
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     orgID,
+			State:     models.EventStateCancelled,
+			ScopeType: models.ScopeTypeDeviceList,
+		},
+		targetSitesComplete: false,
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           domainAuth.AdminRoleName,
+	}, testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(narrowedSite))
+
+	_, err := h.ForceReleaseCurtailmentOwnership(ctx, connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+		EventUuid: eventUUID.String(),
+		Reason:    "operator release",
+	}))
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Equal(t, 0, store.forceReleaseCalls)
 }
 
 func TestHandler_ForceReleaseCurtailmentOwnership_RejectsSiteOnlyManage(t *testing.T) {
