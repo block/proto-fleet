@@ -11,6 +11,7 @@ import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuil
 import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
 import { useHasPermission } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
+import Breadcrumb from "@/shared/components/Breadcrumb";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
@@ -105,20 +106,24 @@ const SiteDetailPage = () => {
   if (!site || !site.site) {
     return (
       <div className="flex flex-col gap-6 p-10 phone:p-6">
+        <Breadcrumb
+          segments={[{ label: "Sites", to: "/fleet/sites" }, { label: "Site not found" }]}
+          testId="site-detail-breadcrumb"
+        />
         <Header title="Site not found" titleSize="text-heading-200" />
         <p className="text-300 text-text-primary-70">No site matches id {targetId}.</p>
-        <Button
-          variant={variants.primary}
-          size={sizes.compact}
-          text="Back to sites"
-          onClick={() => navigate("/fleet/sites")}
-          testId="site-detail-back"
-        />
       </div>
     );
   }
 
   const address = formatSiteAddress(site.site);
+  const siteSiblings = sites
+    .filter((row) => row.site !== undefined)
+    .map((row) => ({
+      label: row.site!.name,
+      to: `/sites/${row.site!.id.toString()}`,
+      isActive: row.site!.id === site.site!.id,
+    }));
 
   return (
     <>
@@ -134,6 +139,13 @@ const SiteDetailPage = () => {
             testId="site-detail-inline-error"
           />
         ) : null}
+        <Breadcrumb
+          segments={[
+            { label: "Sites", to: "/fleet/sites" },
+            { label: site.site.name, siblings: siteSiblings.length > 1 ? siteSiblings : undefined },
+          ]}
+          testId="site-detail-breadcrumb"
+        />
         <div className="flex items-start justify-between gap-4">
           <Header title={site.site.name} titleSize="text-heading-300" subtitle={address || undefined} />
           {canManageSites ? (
