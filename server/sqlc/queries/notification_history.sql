@@ -96,5 +96,6 @@ LEFT JOIN device d
 LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id
 WHERE na.organization_id = sqlc.arg('organization_id')
   AND na.status = 'firing'
+  AND na.received_at >= sqlc.arg('active_since') -- drop alerts not re-asserted within the freshness window
 ORDER BY na.received_at DESC, na.history_id DESC
 LIMIT sqlc.arg('page_limit');
