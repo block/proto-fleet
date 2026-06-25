@@ -108,8 +108,9 @@ const ActiveAlertsCard = () => {
   const { alerts, loading, error, denied, hasMore } = useActiveAlerts();
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
-  // Fleet-wide (proto-fleet-self) alerts are split into their own rows; everything else rolls up per miner.
-  const fleetWideAlerts = useMemo(() => alerts.filter(isFleetWideAlert), [alerts]);
+  // At most one fleet-wide (proto-fleet-self) alert is ever active; surface it as a callout above the
+  // per-miner rollup rather than as a device row.
+  const fleetWideAlert = useMemo(() => alerts.find(isFleetWideAlert) ?? null, [alerts]);
   const groups = useMemo(() => groupByMiner(alerts.filter((alert) => !isFleetWideAlert(alert))), [alerts]);
   const selectedGroup = useMemo(
     () => groups.find((group) => group.deviceId === selectedDeviceId) ?? null,
@@ -124,7 +125,7 @@ const ActiveAlertsCard = () => {
   if (denied) return null;
 
   const isInitialLoad = loading && alerts.length === 0;
-  const isEmpty = groups.length === 0 && fleetWideAlerts.length === 0;
+  const isEmpty = groups.length === 0 && !fleetWideAlert;
 
   return (
     <section className="flex flex-col gap-4 rounded-xl bg-surface-base p-6 dark:bg-core-primary-5">
@@ -140,14 +141,12 @@ const ActiveAlertsCard = () => {
         <div className="py-6 text-center text-text-primary-50">No active alerts.</div>
       ) : (
         <div className="flex flex-col gap-4">
-          {fleetWideAlerts.length ? (
-            <List<AlertHistoryEntry, string, AlertColumns>
-              items={fleetWideAlerts}
-              itemKey="id"
-              activeCols={alertActiveCols}
-              colTitles={alertColTitles}
-              colConfig={alertColConfig}
-              noDataElement={null}
+          {fleetWideAlert ? (
+            <Callout
+              intent={fleetWideAlert.severity === "critical" ? "danger" : "warning"}
+              prefixIcon={<Alert />}
+              title={fleetWideAlert.alert_name}
+              subtitle={fleetWideAlert.summary}
             />
           ) : null}
           {groups.length ? (
