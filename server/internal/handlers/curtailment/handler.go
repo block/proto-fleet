@@ -436,6 +436,10 @@ func (h *Handler) requireForceReleasePermission(ctx context.Context, orgID int64
 			return err
 		}
 	}
+	if len(siteContexts) == 0 {
+		_, err := middleware.RequireOrgWidePermission(ctx, authz.PermCurtailmentManage)
+		return err
+	}
 	return nil
 }
 

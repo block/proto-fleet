@@ -462,6 +462,49 @@ func TestHandler_ForceReleaseCurtailmentOwnership_RejectsIncompleteCoverageWhenO
 	assert.Equal(t, 0, store.forceReleaseCalls)
 }
 
+func TestHandler_ForceReleaseCurtailmentOwnership_RejectsWholeOrgWhenOrgGrantIsNarrowed(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID        = int64(42)
+		narrowedSite = int64(7)
+	)
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		authEvent: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     orgID,
+			State:     models.EventStateActive,
+			ScopeType: models.ScopeTypeWholeOrg,
+		},
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     orgID,
+			State:     models.EventStateCancelled,
+			ScopeType: models.ScopeTypeWholeOrg,
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           domainAuth.AdminRoleName,
+	}, testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(narrowedSite))
+
+	_, err := h.ForceReleaseCurtailmentOwnership(ctx, connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+		EventUuid: eventUUID.String(),
+		Reason:    "operator release",
+	}))
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Equal(t, 0, store.forceReleaseCalls)
+}
+
 func TestHandler_ForceReleaseCurtailmentOwnership_RejectsSiteOnlyManage(t *testing.T) {
 	t.Parallel()
 	const (
