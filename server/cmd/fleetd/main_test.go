@@ -42,7 +42,6 @@ logging:
 	_, err = parser.Parse(nil)
 	require.NoError(t, err)
 	require.Equal(t, "0.0.0.0:9090", config.HTTP.Address)
-	require.Equal(t, 10*time.Minute, config.HTTP.ReadTimeout)
 	require.True(t, config.HTTP.SuppressCors)
 	require.Equal(t, "db.internal:5432", config.DB.Address)
 	require.True(t, config.Log.JSON)

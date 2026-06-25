@@ -694,7 +694,6 @@ func start(config *Config) error {
 		Addr:              config.HTTP.Address,
 		Handler:           handler,
 		ReadHeaderTimeout: config.HTTP.ReadHeaderTimeout,
-		ReadTimeout:       config.HTTP.ReadTimeout,
 	}
 	err = httpServer.ListenAndServe()
 	if err != nil {
