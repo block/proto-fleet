@@ -93,7 +93,7 @@ func canonicalizeCommandArtifactID(artifactID string) (string, error) {
 
 func sanitizeCommandArtifactFilename(filename string) string {
 	name := filepath.Base(strings.TrimSpace(filename))
-	if name == "" || name == "." || name == string(filepath.Separator) {
+	if name == "" || name == "." || name == string(filepath.Separator) || name == commandArtifactMetadataFile {
 		return "artifact.bin"
 	}
 	return name
@@ -173,6 +173,14 @@ func (s *Service) SaveCommandArtifact(filename string, sizeBytes int64, sha256He
 	fileWriter := struct{ io.Writer }{file}
 	written, err := io.CopyBuffer(fileWriter, io.TeeReader(limitedReader, hasher), make([]byte, commandArtifactCopyBufferSize))
 	if err != nil {
+		var fleetErr fleeterror.FleetError
+		if errors.As(err, &fleetErr) {
+			return nil, fleetErr
+		}
+		var connectErr *connect.Error
+		if errors.As(err, &connectErr) {
+			return nil, connectErr
+		}
 		return nil, fleeterror.NewInternalErrorf("failed to write command artifact: %v", err)
 	}
 	if written > sizeBytes {

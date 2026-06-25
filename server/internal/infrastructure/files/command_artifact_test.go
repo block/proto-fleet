@@ -58,6 +58,26 @@ func TestSaveCommandArtifactValidatesAndOpens(t *testing.T) {
 	assert.Empty(t, commandArtifactStagingEntries(t))
 }
 
+func TestSaveCommandArtifactReservesMetadataFilename(t *testing.T) {
+	svc := setupService(t)
+	content := "miner log bundle bytes"
+
+	info, err := svc.SaveCommandArtifact("metadata.json", int64(len(content)), checksumOf(content), strings.NewReader(content))
+	require.NoError(t, err)
+	assert.Equal(t, "artifact.bin", info.Filename)
+
+	reader, opened, err := svc.OpenCommandArtifact(info.ID)
+	require.NoError(t, err)
+	defer reader.Close()
+
+	assert.Equal(t, "artifact.bin", opened.Filename)
+	got, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.Equal(t, content, string(got))
+	assert.FileExists(t, getCommandArtifactMetadataPath(info.ID))
+	assert.FileExists(t, filepath.Join(getCommandArtifactDirPath(info.ID), "artifact.bin"))
+}
+
 func TestOpenCommandArtifactFallsBackForLegacyArtifactWithoutMetadata(t *testing.T) {
 	svc := setupService(t)
 	content := "legacy miner log bundle bytes"

@@ -25,6 +25,15 @@ import (
 
 const commandArtifactChunkSize = 1 << 20
 
+var (
+	// CommandArtifactUploadHeaderTimeout bounds the wait for the first upload
+	// message, so a node can't reserve one of its upload slots and never send a
+	// header. Vars so tests can shrink them.
+	CommandArtifactUploadHeaderTimeout = 5 * time.Second
+	CommandArtifactUploadChunkTimeout  = 30 * time.Second
+	CommandArtifactUploadTotalTimeout  = 10 * time.Minute
+)
+
 type Handler struct {
 	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
 
@@ -102,13 +111,14 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 	}
 	defer h.registry.ReleaseCommandArtifactUpload(subject.FleetNodeID)
 
-	if !stream.Receive() {
-		if err := stream.Err(); err != nil {
-			return nil, fleeterror.NewInternalErrorf("receive command artifact header: %v", err)
+	msg, err := receiveCommandArtifactUploadRequest(ctx, stream, CommandArtifactUploadHeaderTimeout, "command artifact upload header")
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, fleeterror.NewInvalidArgumentError("first UploadCommandArtifactRequest must be header")
 		}
-		return nil, fleeterror.NewInvalidArgumentError("first UploadCommandArtifactRequest must be header")
+		return nil, err
 	}
-	header := stream.Msg().GetHeader()
+	header := msg.GetHeader()
 	if header == nil {
 		return nil, fleeterror.NewInvalidArgumentError("first UploadCommandArtifactRequest must be header")
 	}
@@ -121,11 +131,15 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 		return nil, mapArtifactAdmissionError(err)
 	}
 
+	uploadCtx, cancel := context.WithTimeout(ctx, CommandArtifactUploadTotalTimeout)
+	defer cancel()
 	artifact, err := h.files.SaveCommandArtifact(
 		header.GetFilename(),
 		header.GetSizeBytes(),
 		header.GetSha256(),
-		&commandArtifactUploadReader{stream: stream},
+		&commandArtifactUploadReader{receive: func() (*pb.UploadCommandArtifactRequest, error) {
+			return receiveCommandArtifactUploadRequest(uploadCtx, stream, CommandArtifactUploadChunkTimeout, "command artifact upload chunk")
+		}},
 	)
 	if err != nil {
 		h.registry.ReinstateCommandArtifactUpload(subject.FleetNodeID, header.GetCommandId(), expectation)
@@ -205,19 +219,20 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 }
 
 type commandArtifactUploadReader struct {
-	stream *connect.ClientStream[pb.UploadCommandArtifactRequest]
-	buf    []byte
+	receive func() (*pb.UploadCommandArtifactRequest, error)
+	buf     []byte
 }
 
 func (r *commandArtifactUploadReader) Read(p []byte) (int, error) {
 	for len(r.buf) == 0 {
-		if !r.stream.Receive() {
-			if err := r.stream.Err(); err != nil {
-				return 0, fmt.Errorf("receive command artifact chunk: %w", err)
+		msg, err := r.receive()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return 0, io.EOF
 			}
-			return 0, io.EOF
+			return 0, err
 		}
-		chunk := r.stream.Msg().GetChunk()
+		chunk := msg.GetChunk()
 		if chunk == nil {
 			return 0, fleeterror.NewInvalidArgumentError("UploadCommandArtifactRequest after header must be chunk")
 		}
@@ -226,6 +241,37 @@ func (r *commandArtifactUploadReader) Read(p []byte) (int, error) {
 	n := copy(p, r.buf)
 	r.buf = r.buf[n:]
 	return n, nil
+}
+
+type commandArtifactUploadReceive struct {
+	msg *pb.UploadCommandArtifactRequest
+	err error
+}
+
+func receiveCommandArtifactUploadRequest(ctx context.Context, stream *connect.ClientStream[pb.UploadCommandArtifactRequest], timeout time.Duration, label string) (*pb.UploadCommandArtifactRequest, error) {
+	received := make(chan commandArtifactUploadReceive, 1)
+	go func() {
+		if !stream.Receive() {
+			if err := stream.Err(); err != nil {
+				received <- commandArtifactUploadReceive{err: fmt.Errorf("receive %s: %w", label, err)}
+				return
+			}
+			received <- commandArtifactUploadReceive{err: io.EOF}
+			return
+		}
+		received <- commandArtifactUploadReceive{msg: stream.Msg()}
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return nil, connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("%s closed before receive completed: %w", label, ctx.Err()))
+	case <-timer.C:
+		return nil, connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("%s not received within %s", label, timeout))
+	case got := <-received:
+		return got.msg, got.err
+	}
 }
 
 func commandArtifactRef(info *files.CommandArtifactInfo, purpose pb.CommandArtifactPurpose) *pb.CommandArtifactRef {
