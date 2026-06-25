@@ -1,3 +1,4 @@
+import { MemoryRouter } from "react-router-dom";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
@@ -7,8 +8,10 @@ import { DeviceSetSchema } from "@/protoFleet/api/generated/device_set/v1/device
 
 const mockUseParams = vi.fn();
 const mockNavigate = vi.fn();
+const mockUseBuildings = vi.fn();
 const mockUseDeviceSets = vi.fn();
 const mockUseDeviceSetStateCounts = vi.fn();
+const mockUseSites = vi.fn();
 const mockUseTelemetryMetrics = vi.fn();
 const mockUseComponentErrors = vi.fn();
 
@@ -25,6 +28,14 @@ vi.mock("react-router-dom", async () => {
 
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: () => mockUseDeviceSets(),
+}));
+
+vi.mock("@/protoFleet/api/buildings", () => ({
+  useBuildings: () => mockUseBuildings(),
+}));
+
+vi.mock("@/protoFleet/api/sites", () => ({
+  useSites: () => mockUseSites(),
 }));
 
 vi.mock("@/protoFleet/api/useDeviceSetStateCounts", () => ({
@@ -116,12 +127,18 @@ const rack = create(DeviceSetSchema, {
 
 function mockResolvedRackPageData(deviceSet = rack): void {
   mockUseParams.mockReturnValue({ rackId: "7" });
+  mockUseBuildings.mockReturnValue({
+    listAllBuildings: ({ onSuccess }: { onSuccess: (buildings: unknown[]) => void }) => onSuccess([]),
+  });
   mockUseDeviceSets.mockReturnValue({
     getDeviceSet: ({ onSuccess }: { onSuccess: (resolvedDeviceSet: typeof rack) => void }) => onSuccess(deviceSet),
     listGroupMembers: ({ onSuccess }: { onSuccess: (deviceIds: string[]) => void }) => onSuccess([]),
     addDevicesToDeviceSet: vi.fn(),
     setRackSlotPosition: vi.fn(),
     deleteGroup: vi.fn(),
+  });
+  mockUseSites.mockReturnValue({
+    listSites: ({ onSuccess }: { onSuccess: (sites: unknown[]) => void }) => onSuccess([]),
   });
   mockUseDeviceSetStateCounts.mockReturnValue({
     stateCounts: {
@@ -149,6 +166,14 @@ function mockResolvedRackPageData(deviceSet = rack): void {
   });
 }
 
+function renderRackOverviewPage() {
+  return render(
+    <MemoryRouter>
+      <RackOverviewPage />
+    </MemoryRouter>,
+  );
+}
+
 describe("RackOverviewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -156,13 +181,15 @@ describe("RackOverviewPage", () => {
   });
 
   it("renders the rack zone as a subtitle under the rack name", async () => {
-    render(<RackOverviewPage />);
+    renderRackOverviewPage();
 
-    await waitFor(() => expect(screen.getByText(rackName)).toBeVisible());
+    await waitFor(() => expect(screen.getAllByText(rackName).length).toBeGreaterThan(0));
 
     const zone = screen.getByText(rackZone);
     expect(zone).toBeVisible();
     expect(zone.className).toContain("text-text-primary");
+    expect(screen.getByTestId("rack-page-breadcrumb")).toBeVisible();
+    expect(screen.queryByTestId("header-icon-button")).not.toBeInTheDocument();
   });
 
   it("does not render a subtitle when the rack zone is empty", async () => {
@@ -181,9 +208,9 @@ describe("RackOverviewPage", () => {
 
     mockResolvedRackPageData(rackWithoutZone);
 
-    render(<RackOverviewPage />);
+    renderRackOverviewPage();
 
-    await waitFor(() => expect(screen.getByText(rackName)).toBeVisible());
+    await waitFor(() => expect(screen.getAllByText(rackName).length).toBeGreaterThan(0));
 
     expect(screen.queryByText(rackZone)).not.toBeInTheDocument();
   });
