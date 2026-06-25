@@ -291,6 +291,40 @@ func getErrorsResultPayload(targetDeviceID string, deviceErrors sdk.DeviceErrors
 	if err != nil {
 		return nil, fmt.Errorf("marshal get errors result: %w", err)
 	}
+	if len(payload) > maxAckPayloadBytes {
+		payload, err = marshalGetErrorsResultWithinAckLimit(result)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return payload, nil
+}
+
+func marshalGetErrorsResultWithinAckLimit(result *pb.GetErrorsResult) ([]byte, error) {
+	originalErrors := result.Errors
+	low, high := 0, len(originalErrors)
+	for low < high {
+		mid := (low + high + 1) / 2
+		result.Errors = originalErrors[:mid]
+		payload, err := proto.Marshal(result)
+		if err != nil {
+			return nil, fmt.Errorf("marshal get errors result: %w", err)
+		}
+		if len(payload) <= maxAckPayloadBytes {
+			low = mid
+		} else {
+			high = mid - 1
+		}
+	}
+
+	result.Errors = originalErrors[:low]
+	payload, err := proto.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal get errors result: %w", err)
+	}
+	if len(payload) > maxAckPayloadBytes {
+		return nil, fmt.Errorf("marshal get errors result: payload is %d bytes, max %d", len(payload), maxAckPayloadBytes)
+	}
 	return payload, nil
 }
 

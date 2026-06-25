@@ -372,6 +372,51 @@ func TestGetErrorsResultFromSDKRejectsInvalidPluginErrorData(t *testing.T) {
 	}
 }
 
+func TestHandleMinerCommand_GetErrorsTruncatesOversizedPayload(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+	pluginErrors := make([]sdk.DeviceError, 512)
+	verboseSummary := strings.Repeat("s", 4096)
+	for i := range pluginErrors {
+		pluginErrors[i] = sdk.DeviceError{
+			MinerError:    sdkerrors.PSUFaultGeneric,
+			Severity:      sdkerrors.SeverityCritical,
+			DeviceID:      "dev-1",
+			Summary:       verboseSummary,
+			ComponentType: sdkerrors.ComponentTypePSU,
+		}
+	}
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().GetErrors(gomock.Any()).Return(sdk.DeviceErrors{
+		DeviceID: "dev-1",
+		Errors:   pluginErrors,
+	}, nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}}}), discardLogger(t))
+
+	// Assert
+	got := ack.only(t)
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	assert.True(t, got.GetSucceeded())
+	require.LessOrEqual(t, len(got.GetPayload()), maxAckPayloadBytes)
+
+	var result pb.GetErrorsResult
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
+	require.NotEmpty(t, result.GetErrors())
+	assert.Less(t, len(result.GetErrors()), len(pluginErrors))
+	for _, report := range result.GetErrors() {
+		assert.Equal(t, "dev-1", report.GetDeviceId())
+		assert.Equal(t, verboseSummary, report.GetSummary())
+	}
+}
+
 func TestHandleMinerCommand_GetMiningPoolsTrimsUnsupportedPoolSlots(t *testing.T) {
 	// Arrange
 	ctrl := gomock.NewController(t)
