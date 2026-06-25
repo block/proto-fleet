@@ -16,6 +16,11 @@ import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal, { sizes } from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
+// The Metric Ingest Stalled rule (uid protofleet-ingest-stalled, group proto-fleet-self) is a single
+// fleet-wide instance with no device, so it gets its own row rather than landing in the per-miner rollup.
+const METRIC_INGEST_STALLED_ALERT = "Metric Ingest Stalled";
+const isMetricIngestStalled = (alert: AlertHistoryEntry) => alert.alert_name === METRIC_INGEST_STALLED_ALERT;
+
 interface MinerAlertGroup {
   deviceId: string;
   deviceName: string;
@@ -101,7 +106,9 @@ const ActiveAlertsCard = () => {
   const { alerts, loading, error, denied, hasMore } = useActiveAlerts();
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
-  const groups = useMemo(() => groupByMiner(alerts), [alerts]);
+  // The fleet-wide ingest-stalled alert is split out into its own row; everything else rolls up per miner.
+  const ingestStalledAlerts = useMemo(() => alerts.filter(isMetricIngestStalled), [alerts]);
+  const groups = useMemo(() => groupByMiner(alerts.filter((alert) => !isMetricIngestStalled(alert))), [alerts]);
   const selectedGroup = useMemo(
     () => groups.find((group) => group.deviceId === selectedDeviceId) ?? null,
     [groups, selectedDeviceId],
@@ -115,6 +122,7 @@ const ActiveAlertsCard = () => {
   if (denied) return null;
 
   const isInitialLoad = loading && alerts.length === 0;
+  const isEmpty = groups.length === 0 && ingestStalledAlerts.length === 0;
 
   return (
     <section className="flex flex-col gap-4 rounded-xl bg-surface-base p-6 dark:bg-core-primary-5">
@@ -126,16 +134,32 @@ const ActiveAlertsCard = () => {
         <div className="flex justify-center py-10">
           <ProgressCircular indeterminate />
         </div>
+      ) : isEmpty ? (
+        <div className="py-6 text-center text-text-primary-50">No active alerts.</div>
       ) : (
-        <List<MinerAlertGroup, string, MinerColumns>
-          items={groups}
-          itemKey="deviceId"
-          activeCols={minerActiveCols}
-          colTitles={minerColTitles}
-          colConfig={minerColConfig}
-          onRowClick={handleRowClick}
-          noDataElement={<div className="py-6 text-center text-text-primary-50">No active alerts.</div>}
-        />
+        <div className="flex flex-col gap-4">
+          {ingestStalledAlerts.length ? (
+            <List<AlertHistoryEntry, string, AlertColumns>
+              items={ingestStalledAlerts}
+              itemKey="id"
+              activeCols={alertActiveCols}
+              colTitles={alertColTitles}
+              colConfig={alertColConfig}
+              noDataElement={null}
+            />
+          ) : null}
+          {groups.length ? (
+            <List<MinerAlertGroup, string, MinerColumns>
+              items={groups}
+              itemKey="deviceId"
+              activeCols={minerActiveCols}
+              colTitles={minerColTitles}
+              colConfig={minerColConfig}
+              onRowClick={handleRowClick}
+              noDataElement={null}
+            />
+          ) : null}
+        </div>
       )}
 
       {hasMore ? (
