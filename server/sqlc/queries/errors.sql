@@ -262,6 +262,22 @@ SELECT COUNT(*) as total FROM (
 -- Error Lifecycle Management
 -- ============================================================================
 
+-- name: RefreshOpenErrorsLastSeenByDevice :execresult
+-- Refreshes open errors for a device after an incomplete diagnostics poll.
+-- Uses GREATEST so a delayed partial poll cannot move newer observations backward.
+UPDATE errors
+SET last_seen_at = GREATEST(last_seen_at, sqlc.arg('observed_at')::timestamptz),
+    updated_at = CURRENT_TIMESTAMP
+WHERE errors.org_id = sqlc.arg('org_id')
+  AND errors.closed_at IS NULL
+  AND errors.device_id = (
+    SELECT id
+    FROM device
+    WHERE device_identifier = sqlc.arg('device_identifier')
+      AND device.org_id = sqlc.arg('org_id')
+      AND deleted_at IS NULL
+  );
+
 -- name: CloseStaleErrors :execresult
 -- Closes stale errors only when device was successfully polled after the staleness cutoff time.
 -- This ensures we have confirmed the error is absent from a recent poll.

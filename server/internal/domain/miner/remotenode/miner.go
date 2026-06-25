@@ -382,8 +382,10 @@ func errUnsupported(op string) error {
 func deviceErrorsFromResult(result *gatewaypb.GetErrorsResult) (models.DeviceErrors, error) {
 	deviceID := result.GetDeviceId()
 	out := models.DeviceErrors{
-		DeviceID: deviceID,
-		Errors:   make([]models.ErrorMessage, 0, len(result.GetErrors())),
+		DeviceID:           deviceID,
+		Errors:             make([]models.ErrorMessage, 0, len(result.GetErrors())),
+		Partial:            result.GetTruncated(),
+		OmittedReportCount: result.GetOmittedReportCount(),
 	}
 	for _, report := range result.GetErrors() {
 		if report.GetDeviceId() != deviceID {

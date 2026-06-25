@@ -361,7 +361,7 @@ func TestGetErrorsResultFromSDKRejectsInvalidPluginErrorData(t *testing.T) {
 			tc.mutate(&sdkErr)
 
 			// Act
-			_, _, _, err := getErrorsResultPayload("dev-1", sdk.DeviceErrors{
+			_, err := getErrorsResultPayload("dev-1", sdk.DeviceErrors{
 				DeviceID: "dev-1",
 				Errors:   []sdk.DeviceError{sdkErr},
 			})
@@ -386,27 +386,31 @@ func TestGetErrorsResultFromSDKCapsPluginErrorCountBeforeConversion(t *testing.T
 	}
 
 	// Act
-	result, omitted, err := getErrorsResultFromSDK("dev-1", sdk.DeviceErrors{
+	result, err := getErrorsResultFromSDK("dev-1", sdk.DeviceErrors{
 		DeviceID: "dev-1",
 		Errors:   pluginErrors,
 	})
 
 	// Assert
 	require.NoError(t, err)
-	assert.Equal(t, 88, omitted)
+	assert.True(t, result.GetTruncated())
+	assert.Equal(t, uint32(88), result.GetOmittedReportCount())
 	require.Len(t, result.GetErrors(), maxGetErrorsReports)
 	require.NoError(t, protovalidate.Validate(result))
 
-	_, truncated, reason, err := getErrorsResultPayload("dev-1", sdk.DeviceErrors{
+	payload, err := getErrorsResultPayload("dev-1", sdk.DeviceErrors{
 		DeviceID: "dev-1",
 		Errors:   pluginErrors,
 	})
 	require.NoError(t, err)
-	assert.True(t, truncated)
-	assert.Contains(t, reason, "max 512")
+	var payloadResult pb.GetErrorsResult
+	require.NoError(t, proto.Unmarshal(payload, &payloadResult))
+	assert.True(t, payloadResult.GetTruncated())
+	assert.Equal(t, uint32(88), payloadResult.GetOmittedReportCount())
+	require.Len(t, payloadResult.GetErrors(), maxGetErrorsReports)
 }
 
-func TestHandleMinerCommand_GetErrorsReturnsPartialForOversizedPayload(t *testing.T) {
+func TestHandleMinerCommand_GetErrorsReturnsTruncatedPayloadForOversizedPayload(t *testing.T) {
 	// Arrange
 	ctrl := gomock.NewController(t)
 	pluginErrors := make([]sdk.DeviceError, 512)
@@ -437,10 +441,17 @@ func TestHandleMinerCommand_GetErrorsReturnsPartialForOversizedPayload(t *testin
 
 	// Assert
 	got := ack.only(t)
-	assert.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, got.GetCode())
-	assert.False(t, got.GetSucceeded())
-	assert.Empty(t, got.GetPayload())
-	assert.Contains(t, got.GetErrorMessage(), "max")
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	assert.True(t, got.GetSucceeded())
+	require.NotEmpty(t, got.GetPayload())
+	require.LessOrEqual(t, len(got.GetPayload()), maxAckPayloadBytes)
+
+	var result pb.GetErrorsResult
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
+	assert.Equal(t, "dev-1", result.GetDeviceId())
+	assert.True(t, result.GetTruncated())
+	assert.Greater(t, result.GetOmittedReportCount(), uint32(0))
+	assert.Less(t, len(result.GetErrors()), len(pluginErrors))
 }
 
 func TestHandleMinerCommand_GetMiningPoolsTrimsUnsupportedPoolSlots(t *testing.T) {

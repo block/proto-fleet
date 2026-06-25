@@ -334,6 +334,8 @@ message MinerErrorReport {
 message GetErrorsResult {
     string device_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
     repeated MinerErrorReport errors = 2 [(buf.validate.field).repeated.max_items = 512];
+    bool truncated = 3;
+    uint32 omitted_report_count = 4;
 }
 
 // AgentCommand is the typed envelope marshaled into ControlCommand.payload so a

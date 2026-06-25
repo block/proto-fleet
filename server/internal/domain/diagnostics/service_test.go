@@ -98,6 +98,50 @@ func TestPollErrors_WithSingleMiner_ShouldUpsertErrors(t *testing.T) {
 	assert.False(t, result.Cancelled)
 }
 
+func TestPollErrors_WithPartialResult_ShouldRefreshOpenErrorsAndUpsertIncludedReports(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	now := time.Now()
+	testDeviceID := "test-device-123"
+
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+	mockMiner.EXPECT().GetID().Return(minerModels.DeviceIdentifier(testDeviceID)).AnyTimes()
+	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
+	mockMiner.EXPECT().GetErrors(gomock.Any()).Return(models.DeviceErrors{
+		DeviceID:           testDeviceID,
+		Partial:            true,
+		OmittedReportCount: 2,
+		Errors: []models.ErrorMessage{{
+			MinerError:  models.HashboardOverTemperature,
+			Severity:    models.SeverityMajor,
+			Summary:     "included partial error",
+			FirstSeenAt: now,
+			LastSeenAt:  now,
+		}},
+	}, nil)
+
+	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
+	mockErrorStore.EXPECT().
+		RefreshOpenErrorsLastSeen(gomock.Any(), int64(1), testDeviceID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ int64, _ string, observedAt time.Time) (int64, error) {
+			assert.False(t, observedAt.IsZero())
+			return int64(3), nil
+		})
+	mockErrorStore.EXPECT().
+		UpsertError(gomock.Any(), int64(1), testDeviceID, gomock.Any()).
+		Return(&models.ErrorMessage{}, nil)
+
+	svc := newTestService(ctrl, mockErrorStore)
+	result := svc.PollErrors(t.Context(), mockMiner)
+
+	assert.Equal(t, 1, result.MinersProcessed)
+	assert.Equal(t, 1, result.MinersPartial)
+	assert.Equal(t, 0, result.MinersFailed)
+	assert.Equal(t, 1, result.ErrorsUpserted)
+	assert.Equal(t, 0, result.UpsertsFailed)
+	assert.False(t, result.Cancelled)
+}
+
 func TestPollErrors_WithRemoteNodeMiner_ShouldDispatchAndUpsertErrors(t *testing.T) {
 	ctrl := gomock.NewController(t)
 

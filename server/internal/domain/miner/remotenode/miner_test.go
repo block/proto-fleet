@@ -196,7 +196,9 @@ func TestMiner_GetErrors_DecodesPayload(t *testing.T) {
 	closedAt := now.Add(time.Hour)
 	componentID := "psu-0"
 	payload, err := proto.Marshal(&gatewaypb.GetErrorsResult{
-		DeviceId: "dev-1",
+		DeviceId:           "dev-1",
+		Truncated:          true,
+		OmittedReportCount: 3,
 		Errors: []*gatewaypb.MinerErrorReport{{
 			MinerError:        errorspb.MinerError_MINER_ERROR_PSU_FAULT_GENERIC,
 			CauseSummary:      "PSU fault",
@@ -230,6 +232,8 @@ func TestMiner_GetErrors_DecodesPayload(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, "dev-1", deviceErrors.DeviceID)
+	assert.True(t, deviceErrors.Partial)
+	assert.Equal(t, uint32(3), deviceErrors.OmittedReportCount)
 	require.Len(t, deviceErrors.Errors, 1)
 	got := deviceErrors.Errors[0]
 	assert.Equal(t, "PSU fault", got.CauseSummary)

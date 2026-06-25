@@ -193,14 +193,7 @@ func runMinerAction(ctx context.Context, dev sdk.Device, mc *pb.MinerCommand) ([
 		if err != nil {
 			return nil, err
 		}
-		payload, truncated, reason, err := getErrorsResultPayload(mc.GetTarget().GetDeviceIdentifier(), deviceErrors)
-		if err != nil {
-			return nil, err
-		}
-		if truncated {
-			return nil, cmdErr(pb.AckCode_ACK_CODE_PARTIAL, "%s", reason)
-		}
-		return payload, nil
+		return getErrorsResultPayload(mc.GetTarget().GetDeviceIdentifier(), deviceErrors)
 	default:
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unrecognized miner command action")
 	}
@@ -280,28 +273,25 @@ func miningPoolConfigsFromSDK(pools []sdk.ConfiguredPool) []*pb.MiningPoolConfig
 	return configured
 }
 
-func getErrorsResultPayload(targetDeviceID string, deviceErrors sdk.DeviceErrors) ([]byte, bool, string, error) {
-	result, omittedReports, err := getErrorsResultFromSDK(targetDeviceID, deviceErrors)
+func getErrorsResultPayload(targetDeviceID string, deviceErrors sdk.DeviceErrors) ([]byte, error) {
+	result, err := getErrorsResultFromSDK(targetDeviceID, deviceErrors)
 	if err != nil {
-		return nil, false, "", err
+		return nil, err
 	}
 	if err := protovalidate.Validate(result); err != nil {
-		return nil, false, "", fmt.Errorf("invalid get errors result: %w", err)
-	}
-	if omittedReports > 0 {
-		return nil, true, fmt.Sprintf("get errors result has %d report(s); max %d can be returned in one control ack", omittedReports+len(result.GetErrors()), maxGetErrorsReports), nil
+		return nil, fmt.Errorf("invalid get errors result: %w", err)
 	}
 	payload, err := proto.Marshal(result)
 	if err != nil {
-		return nil, false, "", fmt.Errorf("marshal get errors result: %w", err)
+		return nil, fmt.Errorf("marshal get errors result: %w", err)
 	}
-	if len(payload) > maxAckPayloadBytes {
-		return nil, true, fmt.Sprintf("get errors result payload is %d bytes; max %d can be returned in one control ack", len(payload), maxAckPayloadBytes), nil
+	if len(payload) <= maxAckPayloadBytes {
+		return payload, nil
 	}
-	return payload, false, "", nil
+	return truncateGetErrorsResultPayload(result)
 }
 
-func getErrorsResultFromSDK(targetDeviceID string, deviceErrors sdk.DeviceErrors) (*pb.GetErrorsResult, int, error) {
+func getErrorsResultFromSDK(targetDeviceID string, deviceErrors sdk.DeviceErrors) (*pb.GetErrorsResult, error) {
 	pluginErrors := deviceErrors.Errors
 	omittedReports := 0
 	if len(pluginErrors) > maxGetErrorsReports {
@@ -309,8 +299,10 @@ func getErrorsResultFromSDK(targetDeviceID string, deviceErrors sdk.DeviceErrors
 		pluginErrors = pluginErrors[:maxGetErrorsReports]
 	}
 	result := &pb.GetErrorsResult{
-		DeviceId: targetDeviceID,
-		Errors:   make([]*pb.MinerErrorReport, 0, len(pluginErrors)),
+		DeviceId:           targetDeviceID,
+		Errors:             make([]*pb.MinerErrorReport, 0, len(pluginErrors)),
+		Truncated:          omittedReports > 0,
+		OmittedReportCount: uint32(omittedReports), // #nosec G115 -- omittedReports <= len(pluginErrors), bounded by memory.
 	}
 	for _, sdkErr := range pluginErrors {
 		report := &pb.MinerErrorReport{
@@ -336,7 +328,48 @@ func getErrorsResultFromSDK(targetDeviceID string, deviceErrors sdk.DeviceErrors
 		}
 		result.Errors = append(result.Errors, report)
 	}
-	return result, omittedReports, nil
+	return result, nil
+}
+
+func truncateGetErrorsResultPayload(result *pb.GetErrorsResult) ([]byte, error) {
+	originalCount := len(result.GetErrors()) + int(result.GetOmittedReportCount())
+	low, high := 0, len(result.GetErrors())
+	var best []byte
+	for low <= high {
+		mid := (low + high) / 2
+		candidate := &pb.GetErrorsResult{
+			DeviceId:           result.GetDeviceId(),
+			Errors:             result.GetErrors()[:mid],
+			Truncated:          mid < originalCount,
+			OmittedReportCount: uint32(originalCount - mid), // #nosec G115 -- originalCount is bounded by the plugin response slice length.
+		}
+		payload, err := proto.Marshal(candidate)
+		if err != nil {
+			return nil, fmt.Errorf("marshal truncated get errors result: %w", err)
+		}
+		if len(payload) <= maxAckPayloadBytes {
+			best = payload
+			low = mid + 1
+			continue
+		}
+		high = mid - 1
+	}
+	if best == nil {
+		empty := &pb.GetErrorsResult{
+			DeviceId:           result.GetDeviceId(),
+			Truncated:          true,
+			OmittedReportCount: uint32(originalCount), // #nosec G115 -- originalCount is bounded by the plugin response slice length.
+		}
+		payload, err := proto.Marshal(empty)
+		if err != nil {
+			return nil, fmt.Errorf("marshal empty get errors result: %w", err)
+		}
+		if len(payload) > maxAckPayloadBytes {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_PARTIAL, "get errors result metadata exceeds ack payload limit")
+		}
+		return payload, nil
+	}
+	return best, nil
 }
 
 // Reject undefined / non-actionable (UNSPECIFIED) enum values with BAD_REQUEST rather
