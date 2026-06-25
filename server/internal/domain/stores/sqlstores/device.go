@@ -1322,7 +1322,7 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 			DeviceIdentifiers: deviceIdentifiers,
 			OrgID:             orgID,
 		}); err != nil {
-			return 0, fleeterror.NewInternalErrorf("failed to delete fleet node device pairings: %v", err)
+			return 0, fleeterror.NewInternalErrorf("failed to delete fleet node device pairings: %w", err)
 		}
 
 		count, err := q.SoftDeleteDevices(ctx, sqlc.SoftDeleteDevicesParams{
