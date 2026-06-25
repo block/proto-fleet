@@ -70,6 +70,10 @@ describe("MiningPools", () => {
 
       expect(screen.getAllByText("Pools").length).toBeGreaterThan(0);
       expect(screen.getByText(/No pools yet/)).toBeInTheDocument();
+      expect(screen.getByText("Add a pool to start assigning your miners.")).toBeInTheDocument();
+      expect(screen.queryByText("Name")).not.toBeInTheDocument();
+      expect(screen.queryByText("URL")).not.toBeInTheDocument();
+      expect(screen.queryByText("Username")).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: /add pool/i })).toBeInTheDocument();
     });
 

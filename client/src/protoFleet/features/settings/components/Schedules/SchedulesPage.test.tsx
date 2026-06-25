@@ -100,6 +100,7 @@ describe("SchedulesPage", () => {
     await waitFor(() => expect(screen.getAllByText("Schedules")).toHaveLength(1));
     expect(screen.getByText(/No schedules yet/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Add a schedule" })).toBeEnabled();
+    expect(screen.queryByText(/All times/)).not.toBeInTheDocument();
     expect(mockScheduleModal).not.toHaveBeenCalled();
   });
 
@@ -125,6 +126,7 @@ describe("SchedulesPage", () => {
     expect(screen.getByRole("columnheader", { name: "Name" })).toBeInTheDocument();
     expect(screen.getByText("Night sleep")).toBeVisible();
     expect(screen.getByText("Weekdays · 10:00 PM")).toBeVisible();
+    expect(screen.getByText(/All times/)).toBeVisible();
   });
 
   it("keeps only the priority, name, schedule, and row action columns in the phone table layout", async () => {

@@ -30,7 +30,7 @@ export class SettingsFirmwarePage extends BasePage {
   }
 
   async deleteAllFirmwareFilesIfAny() {
-    const emptyState = this.page.getByText("No firmware files uploaded.", { exact: true });
+    const emptyState = this.page.getByText("No firmware files uploaded", { exact: true });
     const firmwareRows = this.page.getByTestId("list-body").locator("tr");
     const loadingState = this.page.getByText("Loading firmware files...", { exact: true });
     const deleteAllButton = this.page.getByRole("button", { name: "Delete all", exact: true }).first();
@@ -55,7 +55,7 @@ export class SettingsFirmwarePage extends BasePage {
     const deleteAllDialog = this.page.getByTestId("delete-all-firmware-dialog");
     await deleteAllDialog.getByRole("button", { name: "Delete all" }).click();
     await expect(deleteAllDialog).toBeHidden();
-    await expect(deleteAllButton).toBeDisabled();
+    await expect(deleteAllButton).toBeHidden();
     await expect(emptyState).toBeVisible();
   }
 }

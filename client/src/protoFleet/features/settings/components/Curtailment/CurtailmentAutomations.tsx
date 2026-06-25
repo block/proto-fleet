@@ -8,6 +8,7 @@ import type {
   CurtailmentSource,
   ResponseProfile,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
+import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import { Info } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -59,7 +60,6 @@ const automationColumnsExemptFromDisabledStyling = new Set<AutomationColumn>([au
 const automationTableClassName = [
   "mb-2 w-full",
   "phone:table-fixed",
-  "[&_thead_th]:text-text-primary-50",
   "phone:[&_thead_th:last-child]:w-14",
   "phone:[&_thead_th:last-child>div]:w-14",
   "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:box-border",
@@ -259,10 +259,11 @@ function SectionHeader({ title, buttonText, onButtonClick, infoToggle }: Section
 
 function AutomationsEmptyState(): ReactElement {
   return (
-    <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
-      <div className="text-heading-200 text-text-primary">No automations configured</div>
-      <p className="mt-1 text-400 text-text-primary-70">Add an automation to trigger a response profile.</p>
-    </div>
+    <SettingsEmptyState
+      size="section"
+      title="No automations configured"
+      description="Add an automation to trigger a response profile."
+    />
   );
 }
 
@@ -275,12 +276,7 @@ function AutomationsLoadingState(): ReactElement {
 }
 
 function AutomationsErrorState({ message }: { message: string }): ReactElement {
-  return (
-    <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
-      <div className="text-heading-200 text-text-primary">Unable to load automations</div>
-      <p className="mt-1 text-400 text-text-primary-70">{message}</p>
-    </div>
-  );
+  return <SettingsEmptyState size="section" title="Unable to load automations" description={message} />;
 }
 
 function AutomationDependencyMessage({ children }: { children: string }): ReactElement {
@@ -706,7 +702,7 @@ export function CurtailmentAutomationsContent({
   }, [controlledAutomationRules, editingAutomationRule, onDeleteAutomation]);
 
   const isEditingAutomation = editingAutomationRule ? updatingRuleIds.has(editingAutomationRule.id) : false;
-  const automationsEmptyStateRow = getAutomationsEmptyState(loadError, isLoading);
+  const automationsNoDataElement = getAutomationsEmptyState(loadError, isLoading);
 
   return (
     <section
@@ -735,7 +731,7 @@ export function CurtailmentAutomationsContent({
         isRowDisabled={(rule) => !rule.enabled}
         columnsExemptFromDisabledStyling={automationColumnsExemptFromDisabledStyling}
         tableClassName={automationTableClassName}
-        emptyStateRow={automationsEmptyStateRow}
+        noDataElement={automationsNoDataElement}
         applyColumnWidthsToCells
         onRowClick={openEditAutomationModal}
       />

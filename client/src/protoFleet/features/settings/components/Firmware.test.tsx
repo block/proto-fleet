@@ -51,7 +51,8 @@ describe("Firmware", () => {
     const { getByText } = render(<Firmware />);
 
     await waitFor(() => {
-      expect(getByText("No firmware files uploaded.")).toBeInTheDocument();
+      expect(getByText("No firmware files uploaded")).toBeInTheDocument();
+      expect(getByText("Upload firmware before deploying updates to your fleet.")).toBeInTheDocument();
     });
   });
 
@@ -66,14 +67,13 @@ describe("Firmware", () => {
     });
   });
 
-  it("disables Delete all button when no files exist", async () => {
+  it("hides Delete all button when no files exist", async () => {
     mockListFirmwareFiles.mockResolvedValue([]);
 
-    const { getByText } = render(<Firmware />);
+    const { queryByText } = render(<Firmware />);
 
     await waitFor(() => {
-      const deleteAllButton = getByText("Delete all").closest("button");
-      expect(deleteAllButton).toBeDisabled();
+      expect(queryByText("Delete all")).not.toBeInTheDocument();
     });
   });
 

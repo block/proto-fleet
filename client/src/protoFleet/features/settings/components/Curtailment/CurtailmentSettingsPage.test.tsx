@@ -497,7 +497,7 @@ describe("CurtailmentSettingsPage", () => {
     mockAutomationRulesApi();
   });
 
-  it("renders the curtailment header, response profile cards, and sources table", () => {
+  it("renders the curtailment header and section null states", () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
 
     render(
@@ -528,16 +528,11 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByRole("button", { name: "Create automation" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Save settings" })).not.toBeInTheDocument();
     expect(document.querySelector(".curtailment-section-header__icon")).not.toBeInTheDocument();
-    const nameColumnHeaders = screen.getAllByRole("columnheader", { name: "Name" });
-    expect(nameColumnHeaders[0].closest("table")?.className).toContain("[&_thead_th]:text-text-primary-50");
-
-    for (const columnName of ["Last signal", "Updated", "Connection"]) {
-      expect(screen.getByRole("columnheader", { name: columnName })).toBeInTheDocument();
-    }
-    expect(screen.getByRole("columnheader", { name: "Condition" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Response profile" })).toBeInTheDocument();
-    expect(screen.getAllByRole("columnheader", { name: "Enabled" })).toHaveLength(2);
-    expect(nameColumnHeaders).toHaveLength(2);
+    expect(screen.getByText("No sources configured")).toBeVisible();
+    expect(screen.getByText("No automations configured")).toBeVisible();
+    expect(screen.queryByRole("columnheader", { name: "Name" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Condition" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Enabled" })).not.toBeInTheDocument();
     for (const profileColumnName of ["Target", "Scope", "Selection", "Restore", "Deadline"]) {
       expect(screen.queryByRole("columnheader", { name: profileColumnName })).not.toBeInTheDocument();
     }
@@ -546,7 +541,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.queryByRole("columnheader", { name: "Broker hosts" })).not.toBeInTheDocument();
     expect(screen.queryByText("Site Alpha MQTT")).not.toBeInTheDocument();
     expect(screen.queryByText("Site Beta MQTT")).not.toBeInTheDocument();
-    expect(screen.getAllByTestId("list-empty-row")).toHaveLength(2);
+    expect(screen.queryByTestId("list-empty-row")).not.toBeInTheDocument();
     expect(screen.getByText("No response profiles configured")).toBeVisible();
     expect(screen.getByText("Add a profile to reuse curtailment actions across automation rules.")).toBeVisible();
     expect(screen.getByText("No sources configured")).toBeVisible();
