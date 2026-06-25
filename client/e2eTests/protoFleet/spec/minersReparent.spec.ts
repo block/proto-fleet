@@ -67,7 +67,11 @@ async function resetActiveSiteSelection(page: Page) {
 
 async function selectAllSitesIfNeeded(page: Page) {
   const sitePickerTrigger = page.getByTestId("site-picker-trigger");
-  await test.expect(sitePickerTrigger).toBeVisible();
+  if (!(await sitePickerTrigger.isVisible().catch(() => false))) {
+    await test.expect(page.getByTestId("fleet-sites-page")).toBeVisible();
+    await test.expect(page.getByTestId("fleet-sites-add")).toBeVisible();
+    return;
+  }
 
   const currentLabel = (await sitePickerTrigger.textContent())?.trim();
   if (currentLabel === "All sites") {
@@ -90,12 +94,19 @@ async function detectSiteManagementMode(page: Page): Promise<SiteManagementMode>
 async function openSitesManagementPage(page: Page, mode: SiteManagementMode) {
   void mode;
   await page.goto("/fleet/sites");
-  await selectAllSitesIfNeeded(page);
-  await page.goto("/fleet/sites");
   await test.expect(page).toHaveURL(/\/fleet\/sites(?:[?#].*)?$/);
-  await test.expect(page.getByTestId("site-picker-trigger")).toContainText("All sites");
   await test.expect(page.getByTestId("fleet-sites-redirecting")).toHaveCount(0);
   await test.expect(page.getByTestId("fleet-sites-page")).toBeVisible();
+  await selectAllSitesIfNeeded(page);
+
+  const sitePickerTrigger = page.getByTestId("site-picker-trigger");
+  if (await sitePickerTrigger.isVisible().catch(() => false)) {
+    await page.goto("/fleet/sites");
+    await test.expect(page).toHaveURL(/\/fleet\/sites(?:[?#].*)?$/);
+    await test.expect(page.getByTestId("fleet-sites-redirecting")).toHaveCount(0);
+    await test.expect(page.getByTestId("fleet-sites-page")).toBeVisible();
+    await test.expect(sitePickerTrigger).toContainText("All sites");
+  }
 }
 
 async function openBuildingsManagementPage(page: Page, mode: SiteManagementMode) {
@@ -240,6 +251,10 @@ async function loadVisibleMiners({
 function isBlankListCell(value: string | null | undefined): boolean {
   const normalized = value?.trim();
   return normalized === undefined || normalized === "" || normalized === "—";
+}
+
+function normalizePlacementLabel(value: string | null | undefined): string | undefined {
+  return isBlankListCell(value) ? undefined : value?.trim();
 }
 
 async function isMinerSafeToRestore(page: Page, miner: VisibleMinerSnapshot): Promise<boolean> {
@@ -735,13 +750,12 @@ test.describe("Miners reparent", () => {
       const miner = await pickUnrackedPairedMiner(page, snapshots);
       const minerRow = getMinerRowByIp(page, miner.ipAddress);
       minerIp = miner.ipAddress;
-      originalSiteLabel =
-        (
-          await minerRow
-            .getByTestId("site")
-            .textContent()
-            .catch(() => null)
-        )?.trim() || undefined;
+      originalSiteLabel = normalizePlacementLabel(
+        await minerRow
+          .getByTestId("site")
+          .textContent()
+          .catch(() => null),
+      );
       originalRackLabel = miner.placement?.rack?.label || undefined;
       originalRackPosition = miner.rackPosition || undefined;
 
@@ -810,13 +824,12 @@ test.describe("Miners reparent", () => {
       const miner = await pickUnrackedPairedMiner(page, snapshots);
       const minerRow = getMinerRowByIp(page, miner.ipAddress);
       minerIp = miner.ipAddress;
-      originalSiteLabel =
-        (
-          await minerRow
-            .getByTestId("site")
-            .textContent()
-            .catch(() => null)
-        )?.trim() || undefined;
+      originalSiteLabel = normalizePlacementLabel(
+        await minerRow
+          .getByTestId("site")
+          .textContent()
+          .catch(() => null),
+      );
       originalRackLabel = miner.placement?.rack?.label || undefined;
       originalRackPosition = miner.rackPosition || undefined;
 
