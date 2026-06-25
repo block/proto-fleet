@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -23,6 +24,9 @@ const (
 	commandArtifactsStagingDir = "command-artifacts/staging"
 
 	defaultMaxCommandArtifactSize int64 = 500 * 1024 * 1024 // 500 MB
+
+	defaultCommandArtifactRetentionTTL    = 7 * 24 * time.Hour
+	defaultCommandArtifactCleanupInterval = time.Hour
 )
 
 var sha256HexRe = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -198,4 +202,73 @@ func (s *Service) OpenCommandArtifact(artifactID string) (io.ReadCloser, Command
 		Size:     info.Size(),
 		SHA256:   sha,
 	}, nil
+}
+
+// DeleteCommandArtifact removes a finalized command artifact from disk.
+func (s *Service) DeleteCommandArtifact(artifactID string) error {
+	canonical, err := canonicalizeCommandArtifactID(artifactID)
+	if err != nil {
+		return err
+	}
+
+	dir := getCommandArtifactDirPath(canonical)
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
+			return fleeterror.NewNotFoundErrorf("command artifact not found: %s", canonical)
+		}
+		return fleeterror.NewInternalErrorf("failed to stat command artifact dir %s: %v", canonical, err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fleeterror.NewInternalErrorf("failed to remove command artifact dir %s: %v", canonical, err)
+	}
+
+	slog.Info("command artifact deleted", "artifact_id", canonical)
+	return nil
+}
+
+// SweepExpiredCommandArtifacts removes finalized command artifacts older than ttl.
+func (s *Service) SweepExpiredCommandArtifacts(now time.Time, ttl time.Duration) (int, error) {
+	if ttl <= 0 {
+		ttl = s.CommandArtifactRetentionTTL()
+	}
+
+	entries, err := os.ReadDir(commandArtifactsDir)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to read command artifacts dir: %v", err)
+	}
+
+	deleted := 0
+	var firstErr error
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == "staging" {
+			continue
+		}
+		artifactID, err := canonicalizeCommandArtifactID(entry.Name())
+		if err != nil {
+			continue
+		}
+
+		dir := getCommandArtifactDirPath(artifactID)
+		info, err := os.Stat(dir)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fleeterror.NewInternalErrorf("failed to stat command artifact dir %s: %v", artifactID, err)
+			}
+			slog.Warn("failed to stat command artifact during sweep", "artifact_id", artifactID, "error", err)
+			continue
+		}
+		if now.Sub(info.ModTime()) <= ttl {
+			continue
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			if firstErr == nil {
+				firstErr = fleeterror.NewInternalErrorf("failed to remove command artifact dir %s: %v", artifactID, err)
+			}
+			slog.Warn("failed to delete expired command artifact", "artifact_id", artifactID, "error", err)
+			continue
+		}
+		deleted++
+	}
+
+	return deleted, firstErr
 }

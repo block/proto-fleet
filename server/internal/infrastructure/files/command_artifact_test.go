@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -163,4 +164,62 @@ func TestOpenCommandArtifactRejectsPathTraversal(t *testing.T) {
 	_, _, err := svc.OpenCommandArtifact(filepath.Join("..", "logs", "tmp"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid command artifact ID")
+}
+
+func TestDeleteCommandArtifactRemovesDirectory(t *testing.T) {
+	svc := setupService(t)
+
+	info, err := svc.SaveCommandArtifact("logs.zip", int64(len("data")), checksumOf("data"), strings.NewReader("data"))
+	require.NoError(t, err)
+
+	require.NoError(t, svc.DeleteCommandArtifact(info.ID))
+
+	assert.NoDirExists(t, getCommandArtifactDirPath(info.ID))
+	_, _, err = svc.OpenCommandArtifact(info.ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "command artifact not found")
+}
+
+func TestDeleteCommandArtifactRejectsInvalidID(t *testing.T) {
+	svc := setupService(t)
+
+	err := svc.DeleteCommandArtifact(filepath.Join("..", "logs", "tmp"))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid command artifact ID")
+}
+
+func TestDeleteCommandArtifactReturnsNotFoundForMissingArtifact(t *testing.T) {
+	svc := setupService(t)
+
+	err := svc.DeleteCommandArtifact("00000000-0000-0000-0000-000000000000")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "command artifact not found")
+}
+
+func TestSweepExpiredCommandArtifacts(t *testing.T) {
+	svc := setupService(t)
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+
+	oldInfo, err := svc.SaveCommandArtifact("old.zip", int64(len("old")), checksumOf("old"), strings.NewReader("old"))
+	require.NoError(t, err)
+	freshInfo, err := svc.SaveCommandArtifact("fresh.zip", int64(len("fresh")), checksumOf("fresh"), strings.NewReader("fresh"))
+	require.NoError(t, err)
+
+	oldTime := now.Add(-8 * 24 * time.Hour)
+	freshTime := now.Add(-time.Hour)
+	require.NoError(t, os.Chtimes(getCommandArtifactDirPath(oldInfo.ID), oldTime, oldTime))
+	require.NoError(t, os.Chtimes(getCommandArtifactDirPath(freshInfo.ID), freshTime, freshTime))
+	require.NoError(t, os.Mkdir(filepath.Join(commandArtifactsDir, "not-a-uuid"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(commandArtifactsStagingDir, "orphan"), []byte("data"), 0600))
+
+	deleted, err := svc.SweepExpiredCommandArtifacts(now, 7*24*time.Hour)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, deleted)
+	assert.NoDirExists(t, getCommandArtifactDirPath(oldInfo.ID))
+	assert.DirExists(t, getCommandArtifactDirPath(freshInfo.ID))
+	assert.DirExists(t, filepath.Join(commandArtifactsDir, "not-a-uuid"))
+	assert.FileExists(t, filepath.Join(commandArtifactsStagingDir, "orphan"))
 }

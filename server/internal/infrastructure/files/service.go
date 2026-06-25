@@ -69,8 +69,10 @@ func getBatchLogsDirPath(batchLogUUID string) string {
 }
 
 type Service struct {
-	maxFirmwareFileSize    int64
-	maxCommandArtifactSize int64
+	maxFirmwareFileSize            int64
+	maxCommandArtifactSize         int64
+	commandArtifactRetentionTTL    time.Duration
+	commandArtifactCleanupInterval time.Duration
 
 	mu            sync.Mutex
 	checksumIndex map[string][]string // SHA-256 hex -> fileIDs
@@ -90,6 +92,22 @@ func (s *Service) MaxCommandArtifactSize() int64 {
 		return defaultMaxCommandArtifactSize
 	}
 	return s.maxCommandArtifactSize
+}
+
+// CommandArtifactRetentionTTL returns how long finalized command artifacts are retained.
+func (s *Service) CommandArtifactRetentionTTL() time.Duration {
+	if s.commandArtifactRetentionTTL <= 0 {
+		return defaultCommandArtifactRetentionTTL
+	}
+	return s.commandArtifactRetentionTTL
+}
+
+// CommandArtifactCleanupInterval returns how often finalized command artifacts are swept.
+func (s *Service) CommandArtifactCleanupInterval() time.Duration {
+	if s.commandArtifactCleanupInterval <= 0 {
+		return defaultCommandArtifactCleanupInterval
+	}
+	return s.commandArtifactCleanupInterval
 }
 
 func NewService(cfg Config) (*Service, error) {
@@ -114,11 +132,21 @@ func NewService(cfg Config) (*Service, error) {
 	if maxArtifactSize <= 0 {
 		maxArtifactSize = defaultMaxCommandArtifactSize
 	}
+	retentionTTL := cfg.CommandArtifactRetentionTTL
+	if retentionTTL <= 0 {
+		retentionTTL = defaultCommandArtifactRetentionTTL
+	}
+	cleanupInterval := cfg.CommandArtifactCleanupInterval
+	if cleanupInterval <= 0 {
+		cleanupInterval = defaultCommandArtifactCleanupInterval
+	}
 
 	svc := &Service{
-		maxFirmwareFileSize:    maxSize,
-		maxCommandArtifactSize: maxArtifactSize,
-		checksumIndex:          make(map[string][]string),
+		maxFirmwareFileSize:            maxSize,
+		maxCommandArtifactSize:         maxArtifactSize,
+		commandArtifactRetentionTTL:    retentionTTL,
+		commandArtifactCleanupInterval: cleanupInterval,
+		checksumIndex:                  make(map[string][]string),
 	}
 
 	if err := svc.initChecksumIndex(); err != nil {

@@ -779,7 +779,7 @@ func TestReinstateCommandArtifactUploadAllowsRetry(t *testing.T) {
 	require.NoError(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation))
 }
 
-func TestAdmitCommandArtifactAllowsRepeatedDownloadExpectation(t *testing.T) {
+func TestAdmitCommandArtifactConsumesDownloadExpectation(t *testing.T) {
 	r := NewRegistry()
 	fleetNodeID := int64(12)
 	commandID := "artifact-download-command"
@@ -799,16 +799,21 @@ func TestAdmitCommandArtifactAllowsRepeatedDownloadExpectation(t *testing.T) {
 		cmds:     map[string]*inflightCommand{commandID: c},
 	}
 
-	for range 2 {
-		err := r.AdmitCommandArtifact(fleetNodeID, commandID, ArtifactExpectation{
-			Direction:  ArtifactDirectionDownload,
-			Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD,
-			ArtifactID: "artifact-1",
-		})
-		require.NoError(t, err)
-	}
-
 	err := r.AdmitCommandArtifact(fleetNodeID, commandID, ArtifactExpectation{
+		Direction:  ArtifactDirectionDownload,
+		Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD,
+		ArtifactID: "artifact-1",
+	})
+	require.NoError(t, err)
+
+	err = r.AdmitCommandArtifact(fleetNodeID, commandID, ArtifactExpectation{
+		Direction:  ArtifactDirectionDownload,
+		Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD,
+		ArtifactID: "artifact-1",
+	})
+	require.ErrorIs(t, err, ErrArtifactAlreadyTransferred)
+
+	err = r.AdmitCommandArtifact(fleetNodeID, commandID, ArtifactExpectation{
 		Direction:  ArtifactDirectionDownload,
 		Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD,
 		ArtifactID: "other-artifact",

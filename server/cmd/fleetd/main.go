@@ -332,6 +332,32 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
+	commandArtifactCleanupCtx, commandArtifactCleanupCancel := context.WithCancel(context.Background())
+	runCommandArtifactSweep := func() {
+		deleted, sweepErr := filesService.SweepExpiredCommandArtifacts(time.Now().UTC(), filesService.CommandArtifactRetentionTTL())
+		if sweepErr != nil {
+			slog.Error("failed to sweep expired command artifacts", "error", sweepErr)
+			return
+		}
+		if deleted > 0 {
+			slog.Debug("swept expired command artifacts", "count", deleted)
+		}
+	}
+	runCommandArtifactSweep()
+	go func() {
+		ticker := time.NewTicker(filesService.CommandArtifactCleanupInterval())
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				runCommandArtifactSweep()
+			case <-commandArtifactCleanupCtx.Done():
+				return
+			}
+		}
+	}()
+	defer commandArtifactCleanupCancel()
 	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, pluginManager).
 		WithCommandSender(fleetNodeControlRegistry)
 

@@ -85,8 +85,8 @@ func (r *Registry) AdmitReport(fleetNodeID int64, commandID string, deviceCount 
 }
 
 // AdmitCommandArtifact atomically verifies that a fleet node artifact transfer
-// matches the in-flight server-issued command. Upload expectations are consumed
-// on admission so the same command_id cannot upload the same artifact twice.
+// matches the in-flight server-issued command. Expectations are consumed on
+// admission so the same command_id cannot transfer the same artifact twice.
 func (r *Registry) AdmitCommandArtifact(fleetNodeID int64, commandID string, want ArtifactExpectation) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -101,9 +101,7 @@ func (r *Registry) AdmitCommandArtifact(fleetNodeID int64, commandID string, wan
 	if exp.consumed {
 		return ErrArtifactAlreadyTransferred
 	}
-	if exp.Direction == ArtifactDirectionUpload {
-		exp.consumed = true
-	}
+	exp.consumed = true
 	return nil
 }
 

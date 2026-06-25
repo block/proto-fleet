@@ -145,6 +145,16 @@ func TestCommandArtifactUploadAndDownloadRequireInFlightExpectation(t *testing.T
 	require.NotNil(t, header)
 	assert.Equal(t, artifact.GetArtifactId(), header.GetArtifactId())
 	assert.Equal(t, payload, got.Bytes())
+
+	duplicateDownload, err := client.DownloadCommandArtifact(context.Background(), connect.NewRequest(&pb.DownloadCommandArtifactRequest{
+		CommandId:        downloadCommandID,
+		Artifact:         artifact,
+		DeviceIdentifier: "miner-a",
+	}))
+	require.NoError(t, err)
+	require.False(t, duplicateDownload.Receive())
+	require.Error(t, duplicateDownload.Err())
+	assert.Equal(t, connect.CodeAlreadyExists, connect.CodeOf(duplicateDownload.Err()))
 	finishAckOnlyCommand(t, downloadStream, downloadCommandID, downloadDone)
 
 	badDownload, err := client.DownloadCommandArtifact(context.Background(), connect.NewRequest(&pb.DownloadCommandArtifactRequest{
