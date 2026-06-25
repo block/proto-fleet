@@ -122,6 +122,23 @@ func TestCommandArtifactUploadAndDownloadRequireInFlightExpectation(t *testing.T
 		ArtifactID:       artifact.GetArtifactId(),
 		DeviceIdentifier: "miner-a",
 	}})
+	staleRef := &pb.CommandArtifactRef{
+		ArtifactId: artifact.GetArtifactId(),
+		Purpose:    artifact.GetPurpose(),
+		Filename:   artifact.GetFilename(),
+		SizeBytes:  artifact.GetSizeBytes() + 1,
+		Sha256:     artifact.GetSha256(),
+	}
+	staleDownload, err := client.DownloadCommandArtifact(context.Background(), connect.NewRequest(&pb.DownloadCommandArtifactRequest{
+		CommandId:        downloadCommandID,
+		Artifact:         staleRef,
+		DeviceIdentifier: "miner-a",
+	}))
+	require.NoError(t, err)
+	require.False(t, staleDownload.Receive())
+	require.Error(t, staleDownload.Err())
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(staleDownload.Err()))
+
 	download, err := client.DownloadCommandArtifact(context.Background(), connect.NewRequest(&pb.DownloadCommandArtifactRequest{
 		CommandId:        downloadCommandID,
 		Artifact:         artifact,

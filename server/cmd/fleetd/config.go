@@ -26,6 +26,7 @@ import (
 type HTTPConfig struct {
 	Address           string        `help:"Address to listen on" default:"127.0.0.1:8080" env:"LISTEN_ADDRESS"`
 	ReadHeaderTimeout time.Duration `help:"Read header timeout" default:"3s" env:"READ_HEADER_TIMEOUT"`
+	ReadTimeout       time.Duration `help:"Maximum duration for reading an entire request, including streaming bodies" default:"10m" env:"READ_TIMEOUT"`
 	SuppressCors      bool          `help:"Suppress CORS" default:"false" env:"SUPPRESS_CORS"`
 	PprofAddr         string        `help:"Address to listen for pprof debug server, e.g. 127.0.0.1:6060 (empty disables it; use a non-loopback address only if you intentionally want remote access)" default:"" env:"PPROF_ADDR"`
 }

@@ -84,9 +84,37 @@ func (r *Registry) AdmitReport(fleetNodeID int64, commandID string, deviceCount 
 	return nil
 }
 
+// AcquireCommandArtifactUpload reserves one per-node upload slot before the
+// stream's first message is read. ReleaseCommandArtifactUpload must be called
+// after the RPC ends.
+func (r *Registry) AcquireCommandArtifactUpload(fleetNodeID int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conn := r.conns[fleetNodeID]
+	if conn == nil {
+		return ErrNoActiveStream
+	}
+	if conn.commandArtifactUploads >= maxConcurrentCommandArtifactUploadsPerFleetNode {
+		return ErrArtifactTransferLimitExceeded
+	}
+	conn.commandArtifactUploads++
+	return nil
+}
+
+// ReleaseCommandArtifactUpload releases a slot reserved by AcquireCommandArtifactUpload.
+func (r *Registry) ReleaseCommandArtifactUpload(fleetNodeID int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conn := r.conns[fleetNodeID]
+	if conn == nil || conn.commandArtifactUploads == 0 {
+		return
+	}
+	conn.commandArtifactUploads--
+}
+
 // AdmitCommandArtifact atomically verifies that a fleet node artifact transfer
-// matches the in-flight server-issued command. Expectations are consumed on
-// admission so the same command_id cannot transfer the same artifact twice.
+// matches the in-flight server-issued command. Admission marks the expectation
+// in-progress so concurrent transfers for the same expectation are rejected.
 func (r *Registry) AdmitCommandArtifact(fleetNodeID int64, commandID string, want ArtifactExpectation) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -98,17 +126,16 @@ func (r *Registry) AdmitCommandArtifact(fleetNodeID int64, commandID string, wan
 	if exp == nil {
 		return ErrArtifactNotExpected
 	}
-	if exp.consumed {
+	if exp.inProgress || exp.completed {
 		return ErrArtifactAlreadyTransferred
 	}
-	exp.consumed = true
+	exp.inProgress = true
 	return nil
 }
 
-// ReinstateCommandArtifactUpload clears a consumed upload expectation after the
-// gateway failed before it could durably return an artifact reference. No-op if
-// the command is gone or the expectation no longer matches.
-func (r *Registry) ReinstateCommandArtifactUpload(fleetNodeID int64, commandID string, want ArtifactExpectation) {
+// CompleteCommandArtifactTransfer marks an admitted transfer as completed.
+// No-op if the command is gone or the expectation no longer matches.
+func (r *Registry) CompleteCommandArtifactTransfer(fleetNodeID int64, commandID string, want ArtifactExpectation) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cmd := r.inflightFor(fleetNodeID, commandID)
@@ -116,10 +143,38 @@ func (r *Registry) ReinstateCommandArtifactUpload(fleetNodeID int64, commandID s
 		return
 	}
 	exp := cmd.artifactExpectationFor(want)
-	if exp == nil || exp.Direction != ArtifactDirectionUpload {
+	if exp == nil {
 		return
 	}
-	exp.consumed = false
+	exp.inProgress = false
+	exp.completed = true
+}
+
+// ReinstateCommandArtifactTransfer clears an in-progress expectation after the
+// gateway fails before the transfer completes. No-op if the command is gone or
+// the expectation no longer matches.
+func (r *Registry) ReinstateCommandArtifactTransfer(fleetNodeID int64, commandID string, want ArtifactExpectation) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cmd := r.inflightFor(fleetNodeID, commandID)
+	if cmd == nil {
+		return
+	}
+	exp := cmd.artifactExpectationFor(want)
+	if exp == nil || exp.completed {
+		return
+	}
+	exp.inProgress = false
+}
+
+// ReinstateCommandArtifactUpload clears an admitted upload expectation after the
+// gateway failed before it could durably return an artifact reference. No-op if
+// the command is gone, the expectation no longer matches, or it is not an upload.
+func (r *Registry) ReinstateCommandArtifactUpload(fleetNodeID int64, commandID string, want ArtifactExpectation) {
+	if want.Direction != ArtifactDirectionUpload {
+		return
+	}
+	r.ReinstateCommandArtifactTransfer(fleetNodeID, commandID, want)
 }
 
 func (c *inflightCommand) artifactExpectationFor(want ArtifactExpectation) *artifactExpectation {

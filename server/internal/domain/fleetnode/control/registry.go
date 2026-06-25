@@ -51,6 +51,10 @@ const commandEventBuffer = 64
 // one node enqueue without serializing behind the gateway's single drain loop.
 const outgoingBuffer = 64
 
+// maxConcurrentCommandArtifactUploadsPerFleetNode bounds upload streams before
+// their first message can be matched to a command expectation.
+const maxConcurrentCommandArtifactUploadsPerFleetNode = 2
+
 // maxReportsPerCommand caps devices reported per command at the scan ceiling
 // (targets × ports): a broad scan isn't truncated, a runaway agent is bounded.
 const maxReportsPerCommand = discoverylimits.MaxScanTargets * discoverylimits.MaxPortsPerIP
@@ -74,8 +78,12 @@ var (
 	// server-issued command's declared transfer expectations.
 	ErrArtifactNotExpected = errors.New("artifact transfer not expected for command")
 
-	// ErrArtifactAlreadyTransferred: an upload expectation was already consumed.
-	ErrArtifactAlreadyTransferred = errors.New("artifact transfer already completed for command")
+	// ErrArtifactAlreadyTransferred: an artifact expectation is already in progress or completed.
+	ErrArtifactAlreadyTransferred = errors.New("artifact transfer already in progress or completed for command")
+
+	// ErrArtifactTransferLimitExceeded: the fleet_node already has the maximum
+	// allowed concurrent command artifact upload streams.
+	ErrArtifactTransferLimitExceeded = errors.New("artifact transfer concurrency limit exceeded for fleet_node")
 
 	// errDuplicateCommandID: a command_id is already in flight for the fleet_node.
 	// id.GenerateID() makes this practically impossible; callers map it to Internal.
@@ -134,15 +142,17 @@ type ArtifactExpectation struct {
 
 type artifactExpectation struct {
 	ArtifactExpectation
-	consumed bool
+	inProgress bool
+	completed  bool
 }
 
 // connection is the server's view of one agent ControlStream. It can hold many
 // concurrent in-flight commands keyed by command_id. Fields guarded by Registry.mu.
 type connection struct {
-	outgoing chan *gatewaypb.ControlCommand // commands to the ControlStream handler (buffered, never closed)
-	done     chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
-	cmds     map[string]*inflightCommand    // in-flight commands by command_id
+	outgoing               chan *gatewaypb.ControlCommand // commands to the ControlStream handler (buffered, never closed)
+	done                   chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
+	cmds                   map[string]*inflightCommand    // in-flight commands by command_id
+	commandArtifactUploads int
 }
 
 // inflightCommand is the operator/worker side of one in-flight command. Its result

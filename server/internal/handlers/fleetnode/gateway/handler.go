@@ -97,6 +97,10 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 	if h.files == nil {
 		return nil, fleeterror.NewInternalError("command artifact store is not configured")
 	}
+	if err := h.registry.AcquireCommandArtifactUpload(subject.FleetNodeID); err != nil {
+		return nil, mapArtifactAdmissionError(err)
+	}
+	defer h.registry.ReleaseCommandArtifactUpload(subject.FleetNodeID)
 
 	if !stream.Receive() {
 		if err := stream.Err(); err != nil {
@@ -127,6 +131,7 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 		h.registry.ReinstateCommandArtifactUpload(subject.FleetNodeID, header.GetCommandId(), expectation)
 		return nil, err
 	}
+	h.registry.CompleteCommandArtifactTransfer(subject.FleetNodeID, header.GetCommandId(), expectation)
 	return connect.NewResponse(&pb.UploadCommandArtifactResponse{
 		Artifact: commandArtifactRef(artifact, header.GetPurpose()),
 	}), nil
@@ -144,14 +149,22 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 	if ref == nil {
 		return fleeterror.NewInvalidArgumentError("artifact is required")
 	}
-	if err := h.registry.AdmitCommandArtifact(subject.FleetNodeID, req.Msg.GetCommandId(), control.ArtifactExpectation{
+	expectation := control.ArtifactExpectation{
 		Direction:        control.ArtifactDirectionDownload,
 		Purpose:          ref.GetPurpose(),
 		ArtifactID:       ref.GetArtifactId(),
 		DeviceIdentifier: req.Msg.GetDeviceIdentifier(),
-	}); err != nil {
+	}
+	if err := h.registry.AdmitCommandArtifact(subject.FleetNodeID, req.Msg.GetCommandId(), expectation); err != nil {
 		return mapArtifactAdmissionError(err)
 	}
+	completed := false
+	defer func() {
+		if completed {
+			return
+		}
+		h.registry.ReinstateCommandArtifactTransfer(subject.FleetNodeID, req.Msg.GetCommandId(), expectation)
+	}()
 
 	reader, info, err := h.files.OpenCommandArtifact(ref.GetArtifactId())
 	if err != nil {
@@ -181,6 +194,8 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 			}
 		}
 		if errors.Is(readErr, io.EOF) {
+			h.registry.CompleteCommandArtifactTransfer(subject.FleetNodeID, req.Msg.GetCommandId(), expectation)
+			completed = true
 			return nil
 		}
 		if readErr != nil {
@@ -227,6 +242,8 @@ func mapArtifactAdmissionError(err error) error {
 	switch {
 	case errors.Is(err, control.ErrArtifactAlreadyTransferred):
 		return connect.NewError(connect.CodeAlreadyExists, err)
+	case errors.Is(err, control.ErrArtifactTransferLimitExceeded):
+		return connect.NewError(connect.CodeResourceExhausted, err)
 	case errors.Is(err, control.ErrArtifactNotExpected):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:

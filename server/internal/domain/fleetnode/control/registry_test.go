@@ -779,6 +779,30 @@ func TestReinstateCommandArtifactUploadAllowsRetry(t *testing.T) {
 	require.NoError(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation))
 }
 
+func TestCommandArtifactUploadSlotsLimitConcurrentStreams(t *testing.T) {
+	r := NewRegistry()
+	fleetNodeID := int64(12)
+	stream := r.Register(fleetNodeID)
+	defer stream.Unregister()
+
+	for range maxConcurrentCommandArtifactUploadsPerFleetNode {
+		require.NoError(t, r.AcquireCommandArtifactUpload(fleetNodeID))
+	}
+	require.ErrorIs(t, r.AcquireCommandArtifactUpload(fleetNodeID), ErrArtifactTransferLimitExceeded)
+
+	r.ReleaseCommandArtifactUpload(fleetNodeID)
+
+	require.NoError(t, r.AcquireCommandArtifactUpload(fleetNodeID))
+}
+
+func TestCommandArtifactUploadSlotRequiresActiveStream(t *testing.T) {
+	r := NewRegistry()
+
+	err := r.AcquireCommandArtifactUpload(12)
+
+	require.ErrorIs(t, err, ErrNoActiveStream)
+}
+
 func TestAdmitCommandArtifactConsumesDownloadExpectation(t *testing.T) {
 	r := NewRegistry()
 	fleetNodeID := int64(12)
@@ -819,6 +843,37 @@ func TestAdmitCommandArtifactConsumesDownloadExpectation(t *testing.T) {
 		ArtifactID: "other-artifact",
 	})
 	require.ErrorIs(t, err, ErrArtifactNotExpected)
+}
+
+func TestReinstateCommandArtifactDownloadAllowsRetryBeforeCompletion(t *testing.T) {
+	r := NewRegistry()
+	fleetNodeID := int64(12)
+	commandID := "artifact-download-command"
+	expectation := ArtifactExpectation{
+		Direction:  ArtifactDirectionDownload,
+		Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD,
+		ArtifactID: "artifact-1",
+	}
+	c := &inflightCommand{
+		id:        commandID,
+		ack:       make(chan *gatewaypb.ControlAck, 1),
+		artifacts: cloneArtifactExpectations([]ArtifactExpectation{expectation}),
+		done:      make(chan struct{}),
+	}
+	r.conns[fleetNodeID] = &connection{
+		outgoing: make(chan *gatewaypb.ControlCommand, outgoingBuffer),
+		done:     make(chan struct{}),
+		cmds:     map[string]*inflightCommand{commandID: c},
+	}
+
+	require.NoError(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation))
+	require.ErrorIs(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation), ErrArtifactAlreadyTransferred)
+
+	r.ReinstateCommandArtifactTransfer(fleetNodeID, commandID, expectation)
+
+	require.NoError(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation))
+	r.CompleteCommandArtifactTransfer(fleetNodeID, commandID, expectation)
+	require.ErrorIs(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation), ErrArtifactAlreadyTransferred)
 }
 
 func TestAdmitCommandArtifactRequiresDownloadArtifactID(t *testing.T) {
