@@ -52,7 +52,7 @@ func seedOverlapFixture(t *testing.T, conn *sql.DB) {
 	}
 
 	exec(`INSERT INTO organization (id, org_id, name) VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')`)
-	exec(`INSERT INTO site (id, org_id, name) VALUES (7, 1, 'Site Seven')`)
+	exec(`INSERT INTO site (id, org_id, name, slug) VALUES (7, 1, 'Site Seven', 'site-seven')`)
 	exec(`INSERT INTO building (id, org_id, site_id, name) VALUES (9, 1, 7, 'Building Nine')`)
 
 	site7 := sql.NullInt64{Int64: 7, Valid: true}
