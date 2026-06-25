@@ -234,7 +234,10 @@ func (s *Service) OpenCommandArtifact(artifactID string) (io.ReadCloser, Command
 	dir := getCommandArtifactDirPath(canonical)
 	filePath, err := findSingleFileInDir(dir, commandArtifactMetadataFile)
 	if err != nil {
-		return nil, CommandArtifactInfo{}, fleeterror.NewNotFoundErrorf("command artifact not found: %s", canonical)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, CommandArtifactInfo{}, fleeterror.NewNotFoundErrorf("command artifact not found: %s", canonical)
+		}
+		return nil, CommandArtifactInfo{}, fleeterror.NewInternalErrorf("corrupt command artifact dir %s: %v", canonical, err)
 	}
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -262,6 +265,10 @@ func (s *Service) OpenCommandArtifact(artifactID string) (io.ReadCloser, Command
 			SHA256:   sha,
 		}
 	}
+	if metadata.Size != info.Size() {
+		file.Close()
+		return nil, CommandArtifactInfo{}, fleeterror.NewInternalErrorf("corrupt command artifact metadata for %s: metadata size %d does not match file size %d", canonical, metadata.Size, info.Size())
+	}
 	return file, CommandArtifactInfo{
 		ID:       canonical,
 		Filename: metadata.Filename,
@@ -288,7 +295,7 @@ func (s *Service) DeleteCommandArtifact(artifactID string) error {
 		return fleeterror.NewInternalErrorf("failed to remove command artifact dir %s: %v", canonical, err)
 	}
 
-	slog.Info("command artifact deleted", "artifact_id", canonical)
+	slog.Debug("command artifact deleted", "artifact_id", canonical)
 	return nil
 }
 

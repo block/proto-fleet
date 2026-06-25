@@ -1,11 +1,17 @@
 package files
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/google/uuid"
+)
+
+var (
+	errStorageDirNoFile        = errors.New("no file found in storage dir")
+	errStorageDirMultipleFiles = errors.New("multiple files found in storage dir")
 )
 
 func canonicalizeStorageUUID(kind, value string) (string, error) {
@@ -38,12 +44,12 @@ func findSingleFileInDir(dir string, ignoredNames ...string) (string, error) {
 			continue
 		}
 		if foundPath != "" {
-			return "", fmt.Errorf("multiple files found in %s", dir)
+			return "", fmt.Errorf("%w: %s", errStorageDirMultipleFiles, dir)
 		}
 		foundPath = filepath.Join(dir, e.Name())
 	}
 	if foundPath == "" {
-		return "", fmt.Errorf("no file found in %s", dir)
+		return "", fmt.Errorf("%w: %s", errStorageDirNoFile, dir)
 	}
 	return foundPath, nil
 }

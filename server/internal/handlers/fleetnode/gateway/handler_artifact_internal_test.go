@@ -8,6 +8,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 )
 
 func TestRunCommandArtifactDownloadSendTimesOutBlockedSend(t *testing.T) {
@@ -36,4 +38,17 @@ func TestRunCommandArtifactDownloadSendTimesOutBlockedSend(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("send function did not exit")
 	}
+}
+
+func TestContextConnectErrorMapsCanceledSeparatelyFromDeadline(t *testing.T) {
+	assert.Equal(t, connect.CodeCanceled, connect.CodeOf(contextConnectError(context.Canceled, "upload closed")))
+	assert.Equal(t, connect.CodeDeadlineExceeded, connect.CodeOf(contextConnectError(context.DeadlineExceeded, "upload closed")))
+}
+
+func TestMapArtifactAdmissionErrorHandlesNoActiveStream(t *testing.T) {
+	err := mapArtifactAdmissionError(control.ErrNoActiveStream)
+
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	assert.ErrorIs(t, err, control.ErrNoActiveStream)
 }

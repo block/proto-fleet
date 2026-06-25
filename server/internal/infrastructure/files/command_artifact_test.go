@@ -96,6 +96,39 @@ func TestOpenCommandArtifactFallsBackForLegacyArtifactWithoutMetadata(t *testing
 	assert.Equal(t, checksumOf(content), opened.SHA256)
 }
 
+func TestOpenCommandArtifactRejectsCorruptDirectory(t *testing.T) {
+	svc := setupService(t)
+	content := "miner log bundle bytes"
+
+	info, err := svc.SaveCommandArtifact("logs.zip", int64(len(content)), checksumOf(content), strings.NewReader(content))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(getCommandArtifactDirPath(info.ID), "extra.bin"), []byte("extra"), 0600))
+
+	reader, _, err := svc.OpenCommandArtifact(info.ID)
+	require.Error(t, err)
+	assert.Nil(t, reader)
+	assert.Contains(t, err.Error(), "corrupt command artifact dir")
+}
+
+func TestOpenCommandArtifactRejectsMetadataSizeMismatch(t *testing.T) {
+	svc := setupService(t)
+	content := "miner log bundle bytes"
+
+	info, err := svc.SaveCommandArtifact("logs.zip", int64(len(content)), checksumOf(content), strings.NewReader(content))
+	require.NoError(t, err)
+	require.NoError(t, writeCommandArtifactMetadata(info.ID, CommandArtifactInfo{
+		ID:       info.ID,
+		Filename: info.Filename,
+		Size:     info.Size + 1,
+		SHA256:   info.SHA256,
+	}))
+
+	reader, _, err := svc.OpenCommandArtifact(info.ID)
+	require.Error(t, err)
+	assert.Nil(t, reader)
+	assert.Contains(t, err.Error(), "corrupt command artifact metadata")
+}
+
 func TestSaveCommandArtifactRejectsSizeMismatchAndCleansUp(t *testing.T) {
 	svc := setupService(t)
 

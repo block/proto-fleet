@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"time"
 
 	"buf.build/go/protovalidate"
@@ -115,7 +116,10 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 	}
 	defer releaseUpload()
 
-	msg, err := receiveCommandArtifactUploadRequest(ctx, stream, CommandArtifactUploadHeaderTimeout, "command artifact upload header")
+	uploadReceiver := newCommandArtifactUploadReceiver(stream)
+	defer uploadReceiver.Close()
+
+	msg, err := uploadReceiver.Receive(ctx, CommandArtifactUploadHeaderTimeout, "command artifact upload header")
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			return nil, fleeterror.NewInvalidArgumentError("first UploadCommandArtifactRequest must be header")
@@ -142,7 +146,7 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 		header.GetSizeBytes(),
 		header.GetSha256(),
 		&commandArtifactUploadReader{receive: func() (*pb.UploadCommandArtifactRequest, error) {
-			return receiveCommandArtifactUploadRequest(uploadCtx, stream, CommandArtifactUploadChunkTimeout, "command artifact upload chunk")
+			return uploadReceiver.Receive(uploadCtx, CommandArtifactUploadChunkTimeout, "command artifact upload chunk")
 		}},
 	)
 	if err != nil {
@@ -247,7 +251,7 @@ func runCommandArtifactDownloadSend(ctx context.Context, timeout time.Duration, 
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("command artifact download deadline exceeded: %w", ctx.Err()))
+		return contextConnectError(ctx.Err(), "command artifact download deadline exceeded")
 	case <-timer.C:
 		return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("command artifact download send blocked for %s", timeout))
 	case err := <-done:
@@ -293,30 +297,72 @@ type commandArtifactUploadReceive struct {
 	err error
 }
 
-func receiveCommandArtifactUploadRequest(ctx context.Context, stream *connect.ClientStream[pb.UploadCommandArtifactRequest], timeout time.Duration, label string) (*pb.UploadCommandArtifactRequest, error) {
-	received := make(chan commandArtifactUploadReceive, 1)
-	go func() {
-		if !stream.Receive() {
-			if err := stream.Err(); err != nil {
-				received <- commandArtifactUploadReceive{err: fmt.Errorf("receive %s: %w", label, err)}
-				return
+type commandArtifactUploadReceiver struct {
+	stream   *connect.ClientStream[pb.UploadCommandArtifactRequest]
+	receive  chan commandArtifactUploadReceive
+	done     chan struct{}
+	doneOnce sync.Once
+}
+
+func newCommandArtifactUploadReceiver(stream *connect.ClientStream[pb.UploadCommandArtifactRequest]) *commandArtifactUploadReceiver {
+	r := &commandArtifactUploadReceiver{
+		stream:  stream,
+		receive: make(chan commandArtifactUploadReceive, 1),
+		done:    make(chan struct{}),
+	}
+	go r.run()
+	return r
+}
+
+func (r *commandArtifactUploadReceiver) run() {
+	for {
+		var result commandArtifactUploadReceive
+		if !r.stream.Receive() {
+			if err := r.stream.Err(); err != nil {
+				result.err = fmt.Errorf("receive command artifact upload request: %w", err)
+			} else {
+				result.err = io.EOF
 			}
-			received <- commandArtifactUploadReceive{err: io.EOF}
+		} else {
+			result.msg = r.stream.Msg()
+		}
+
+		select {
+		case r.receive <- result:
+		case <-r.done:
 			return
 		}
-		received <- commandArtifactUploadReceive{msg: stream.Msg()}
-	}()
+		if result.err != nil {
+			return
+		}
+	}
+}
 
+func (r *commandArtifactUploadReceiver) Close() {
+	r.doneOnce.Do(func() {
+		close(r.done)
+	})
+}
+
+func (r *commandArtifactUploadReceiver) Receive(ctx context.Context, timeout time.Duration, label string) (*pb.UploadCommandArtifactRequest, error) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return nil, connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("%s closed before receive completed: %w", label, ctx.Err()))
+		return nil, contextConnectError(ctx.Err(), fmt.Sprintf("%s closed before receive completed", label))
 	case <-timer.C:
 		return nil, connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("%s not received within %s", label, timeout))
-	case got := <-received:
+	case got := <-r.receive:
 		return got.msg, got.err
 	}
+}
+
+func contextConnectError(err error, message string) error {
+	code := connect.CodeDeadlineExceeded
+	if errors.Is(err, context.Canceled) {
+		code = connect.CodeCanceled
+	}
+	return connect.NewError(code, fmt.Errorf("%s: %w", message, err))
 }
 
 func commandArtifactRef(info *files.CommandArtifactInfo, purpose pb.CommandArtifactPurpose) *pb.CommandArtifactRef {
@@ -338,6 +384,8 @@ func mapArtifactAdmissionError(err error) error {
 	case errors.Is(err, control.ErrArtifactTransferAttemptsExceeded):
 		return connect.NewError(connect.CodeResourceExhausted, err)
 	case errors.Is(err, control.ErrArtifactNotExpected):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, control.ErrNoActiveStream):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:
 		return fleeterror.NewFailedPreconditionError("command artifact transfer does not match an in-flight server-issued command")
