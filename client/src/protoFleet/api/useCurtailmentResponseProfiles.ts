@@ -3,13 +3,13 @@ import { create } from "@bufbuild/protobuf";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
-  type CurtailmentScope,
-  CurtailmentScopeSchema,
   type CurtailmentResponseProfile as ApiCurtailmentResponseProfile,
   CreateCurtailmentResponseProfileRequestSchema,
   CurtailmentLevel,
   CurtailmentMode,
   CurtailmentPriority,
+  type CurtailmentScope,
+  CurtailmentScopeSchema,
   CurtailmentStrategy,
   DeleteCurtailmentResponseProfileRequestSchema,
   FixedKwParamsSchema,

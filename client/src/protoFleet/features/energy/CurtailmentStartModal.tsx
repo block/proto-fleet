@@ -1066,10 +1066,7 @@ function CurtailmentStartModalContent({
   }, [editedFields, localErrors]);
   const effectiveErrors = { ...errors, ...visibleLocalErrors };
   const canSelectSiteScope = siteScopeEnabled && !siteScopeDisabledReason;
-  const selectedSiteIds = useMemo(
-    () => getSelectedSiteIds(values),
-    [values.siteId, values.siteIds, values.siteSelection],
-  );
+  const selectedSiteIds = useMemo(() => getSelectedSiteIds(values), [values]);
   const effectiveValues = useMemo(() => {
     if (values.siteSelection === "site" && selectedSiteIds.length > 0) {
       const siteOptionsById = new Map(siteOptions.map((siteOption) => [siteOption.id, siteOption]));
@@ -1222,11 +1219,7 @@ function CurtailmentStartModalContent({
     scopeSiteOptions,
     siteScopeOptionById,
     siteScopeDisabledReason,
-    values.siteId,
-    values.siteIds,
-    values.siteNamesById,
-    values.scopeId,
-    values.siteSelection,
+    values,
   ]);
   const responseProfileSelectOptions = useMemo(
     () => [

@@ -13,10 +13,10 @@ import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
 import {
   type CurtailmentEvent,
   CurtailmentEventSchema,
-  CurtailmentScopeSchema,
   CurtailmentEventState,
   CurtailmentMode,
   CurtailmentPriority,
+  CurtailmentScopeSchema,
   CurtailmentTargetRollupSchema,
   CurtailmentTargetSchema,
   CurtailmentTargetState,
