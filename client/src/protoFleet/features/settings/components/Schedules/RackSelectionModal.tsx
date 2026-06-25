@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
+import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import Checkbox from "@/shared/components/Checkbox";
 import Modal from "@/shared/components/Modal";
 import ModalSelectAllFooter from "@/shared/components/Modal/ModalSelectAllFooter";
@@ -13,22 +14,39 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 interface RackSelectionModalProps {
   open: boolean;
   selectedRackIds: string[];
+  // Soft default from the topbar SitePicker. A single selected site limits the
+  // racks offered to that site; "all sites" passes an empty filter and shows
+  // every rack (no regression). Defaulted so callers that don't scope keep the
+  // org-wide behavior.
+  scope?: SiteFilterFields;
   onDismiss: () => void;
   onSave: (rackIds: string[]) => void;
 }
 
-const RackSelectionModal = ({ open, selectedRackIds, onDismiss, onSave }: RackSelectionModalProps) => {
+const RackSelectionModal = ({ open, selectedRackIds, scope, onDismiss, onSave }: RackSelectionModalProps) => {
   const { listRacks } = useDeviceSets();
   const [racks, setRacks] = useState<DeviceSet[]>([]);
   const [draftSelection, setDraftSelection] = useState<Set<string>>(new Set(selectedRackIds));
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadError, setHasLoadError] = useState(false);
 
+  const siteIds = scope?.siteIds;
+  const includeUnassigned = scope?.includeUnassigned;
+  // When a site filter is active the list only contains that site's racks, so
+  // we can't tell a deleted rack from one that simply belongs to another site.
+  // Pruning to the response would silently drop a cross-site schedule's
+  // off-site rack targets on save, so preserve preselected ids while scoped and
+  // only prune deleted ones under the unscoped (all-sites) list.
+  const isScoped = (siteIds !== undefined && siteIds.length > 0) || includeUnassigned === true;
+
   useEffect(() => {
     listRacks({
+      siteIds,
+      includeUnassigned,
       onSuccess: (deviceSets) => {
         setRacks(deviceSets);
 
+        if (isScoped) return;
         const validRackIds = new Set(deviceSets.map((rack) => rack.id.toString()));
         setDraftSelection((current) => new Set([...current].filter((rackId) => validRackIds.has(rackId))));
       },
@@ -41,7 +59,10 @@ const RackSelectionModal = ({ open, selectedRackIds, onDismiss, onSave }: RackSe
       },
       onFinally: () => setIsLoading(false),
     });
-  }, [listRacks]);
+    // siteIds is a bigint[]; serialize it for a stable dep so re-runs only
+    // fire when the active-site selection actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listRacks, includeUnassigned, (siteIds ?? []).map(String).join(",")]);
 
   const selectedRackCount = useMemo(
     () => racks.filter((rack) => draftSelection.has(rack.id.toString())).length,

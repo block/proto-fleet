@@ -27,9 +27,10 @@ func newTestProcessor(t *testing.T, now time.Time) (*Processor, *mocks.MockSched
 	procStore := mocks.NewMockScheduleProcessorStore(ctrl)
 	targetStore := mocks.NewMockScheduleTargetStore(ctrl)
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
+	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	cmdSvc := NewMockCommandDispatcher(ctrl)
 
-	p := NewProcessor(procStore, targetStore, collectionStore, cmdSvc, nil)
+	p := NewProcessor(procStore, targetStore, collectionStore, deviceStore, cmdSvc, nil)
 	p.now = func() time.Time { return now }
 	return p, procStore, targetStore, collectionStore, cmdSvc
 }
