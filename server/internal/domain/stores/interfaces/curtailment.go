@@ -122,19 +122,20 @@ type AutomationStore interface {
 	RecordAutomationExecutionError(ctx context.Context, ruleID int64, message string, at time.Time) error
 }
 
-// ListCandidatesParams scopes selector candidate reads. A nil SiteID and
-// empty DeviceIdentifiers means whole-org.
+// ListCandidatesParams scopes selector candidate reads. Empty SiteIDs and
+// DeviceIdentifiers means whole-org. When both are present, results are the
+// union of matching sites and explicit device identifiers.
 type ListCandidatesParams struct {
 	OrgID             int64
 	DeviceIdentifiers []string
-	SiteID            *int64
+	SiteIDs           []int64
 }
 
 type ListRecentlyResolvedCurtailedDevicesParams struct {
 	OrgID             int64
 	CooldownSec       int32
 	DeviceIdentifiers []string
-	SiteID            *int64
+	SiteIDs           []int64
 }
 
 // UpdateOperatorFieldsParams carries the optional patch fields for a

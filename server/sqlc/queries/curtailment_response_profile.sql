@@ -15,6 +15,7 @@ INSERT INTO curtailment_response_profile (
     org_id,
     profile_name,
     site_id,
+    scope_json,
     mode,
     strategy,
     level,
@@ -32,6 +33,7 @@ INSERT INTO curtailment_response_profile (
     sqlc.arg('org_id'),
     sqlc.arg('profile_name'),
     sqlc.narg('site_id'),
+    sqlc.arg('scope_json'),
     sqlc.arg('mode'),
     sqlc.arg('strategy'),
     sqlc.arg('level'),
@@ -53,6 +55,7 @@ UPDATE curtailment_response_profile
 SET
     profile_name = sqlc.arg('profile_name'),
     site_id = sqlc.narg('site_id'),
+    scope_json = sqlc.arg('scope_json'),
     mode = sqlc.arg('mode'),
     strategy = sqlc.arg('strategy'),
     level = sqlc.arg('level'),

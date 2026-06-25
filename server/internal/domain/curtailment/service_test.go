@@ -32,17 +32,17 @@ type fakeStore struct {
 	sitesByOrg           map[int64]map[int64]bool
 
 	// Captures for assertions.
-	listCandidatesCalls      int
-	lastListCandidatesOrgID  int64
-	lastListCandidatesFilter []string
-	lastListCandidatesSiteID *int64
-	cooldownCalls            int
-	lastCooldownOrgID        int64
-	lastCooldownSec          int32
-	lastCooldownFilter       []string
-	lastCooldownSiteID       *int64
-	activeDevicesCalls       int
-	lastActiveDevicesOrgID   int64
+	listCandidatesCalls       int
+	lastListCandidatesOrgID   int64
+	lastListCandidatesFilter  []string
+	lastListCandidatesSiteIDs []int64
+	cooldownCalls             int
+	lastCooldownOrgID         int64
+	lastCooldownSec           int32
+	lastCooldownFilter        []string
+	lastCooldownSiteIDs       []int64
+	activeDevicesCalls        int
+	lastActiveDevicesOrgID    int64
 
 	// InsertEventWithTargets state. nextEventID is the synthetic id sequence
 	// returned to the service so plan.EventUUID is populated; Start tests
@@ -164,7 +164,7 @@ func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(
 	f.lastCooldownOrgID = params.OrgID
 	f.lastCooldownSec = params.CooldownSec
 	f.lastCooldownFilter = append([]string(nil), params.DeviceIdentifiers...)
-	f.lastCooldownSiteID = params.SiteID
+	f.lastCooldownSiteIDs = append([]int64(nil), params.SiteIDs...)
 	return append([]string(nil), f.cooldownDevicesByOrg[params.OrgID]...), nil
 }
 
@@ -176,22 +176,38 @@ func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCand
 	f.listCandidatesCalls++
 	f.lastListCandidatesOrgID = params.OrgID
 	f.lastListCandidatesFilter = append([]string(nil), params.DeviceIdentifiers...)
-	f.lastListCandidatesSiteID = params.SiteID
-	cands := f.candidatesByOrg[params.OrgID]
-	if params.SiteID != nil {
-		cands = f.candidatesBySite[params.OrgID][*params.SiteID]
+	f.lastListCandidatesSiteIDs = append([]int64(nil), params.SiteIDs...)
+	allCandidates := f.candidatesByOrg[params.OrgID]
+	if len(params.SiteIDs) == 0 && len(params.DeviceIdentifiers) == 0 {
+		return allCandidates, nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]*models.Candidate, 0, len(allCandidates))
+	appendCandidate := func(candidate *models.Candidate) {
+		if candidate == nil {
+			return
+		}
+		if _, ok := seen[candidate.DeviceIdentifier]; ok {
+			return
+		}
+		seen[candidate.DeviceIdentifier] = struct{}{}
+		out = append(out, candidate)
+	}
+	for _, siteID := range params.SiteIDs {
+		for _, candidate := range f.candidatesBySite[params.OrgID][siteID] {
+			appendCandidate(candidate)
+		}
 	}
 	if len(params.DeviceIdentifiers) == 0 {
-		return cands, nil
+		return out, nil
 	}
 	want := map[string]struct{}{}
 	for _, id := range params.DeviceIdentifiers {
 		want[id] = struct{}{}
 	}
-	out := make([]*models.Candidate, 0, len(cands))
-	for _, c := range cands {
+	for _, c := range allCandidates {
 		if _, ok := want[c.DeviceIdentifier]; ok {
-			out = append(out, c)
+			appendCandidate(c)
 		}
 	}
 	return out, nil
@@ -794,9 +810,47 @@ func TestService_Preview_SiteScopeValidatesSiteAndPassesFilterToStore(t *testing
 	req.Scope = Scope{Type: models.ScopeTypeSite, SiteID: siteID}
 	_, err := svc.Preview(t.Context(), req)
 	require.NoError(t, err)
-	require.NotNil(t, store.lastListCandidatesSiteID)
-	assert.Equal(t, siteID, *store.lastListCandidatesSiteID)
+	assert.Equal(t, []int64{siteID}, store.lastListCandidatesSiteIDs)
 	assert.Empty(t, store.lastListCandidatesFilter)
+}
+
+func TestService_Preview_MixedScopeUnionsSitesAndDevicesWithDeduplication(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID  = int64(1)
+		siteID = int64(99)
+	)
+	siteMiner := minerWithEff("site-miner", 3000, 100, 30)
+	explicitMiner := minerWithEff("explicit-miner", 4000, 100, 40)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.sitesByOrg[orgID] = map[int64]bool{siteID: true}
+	store.candidatesByOrg[orgID] = []*models.Candidate{siteMiner, explicitMiner}
+	store.candidatesBySite[orgID] = map[int64][]*models.Candidate{
+		siteID: {siteMiner},
+	}
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.Scope = Scope{
+		Type:              models.ScopeTypeMixed,
+		SiteIDs:           []int64{siteID},
+		DeviceIdentifiers: []string{"site-miner", "explicit-miner", "explicit-miner"},
+	}
+	req.Mode = models.ModeFullFleet
+
+	plan, err := svc.Preview(t.Context(), req)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.listCandidatesCalls)
+	assert.Equal(t, []int64{siteID}, store.lastListCandidatesSiteIDs)
+	assert.Equal(t, []string{"site-miner", "explicit-miner"}, store.lastListCandidatesFilter)
+	require.Len(t, plan.Selected, 2)
+	selectedIDs := make([]string, 0, len(plan.Selected))
+	for _, selected := range plan.Selected {
+		selectedIDs = append(selectedIDs, selected.DeviceIdentifier)
+	}
+	assert.ElementsMatch(t, []string{"site-miner", "explicit-miner"}, selectedIDs)
 }
 
 func TestService_Preview_SiteScopeRequiresExistingSite(t *testing.T) {
@@ -816,7 +870,7 @@ func TestService_Preview_SiteScopeRequiresExistingSite(t *testing.T) {
 	assert.Zero(t, store.listCandidatesCalls, "missing sites must reject before candidate selection")
 }
 
-func TestResolveScope_WholeOrgRejectsSelectorFields(t *testing.T) {
+func TestResolveScope_WholeOrgDominatesSelectorFields(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
@@ -832,8 +886,7 @@ func TestResolveScope_WholeOrgRejectsSelectorFields(t *testing.T) {
 
 			_, err := resolveScope(tc.scope)
 
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "must be empty for whole-org scope")
+			require.NoError(t, err)
 		})
 	}
 }
@@ -847,11 +900,7 @@ func TestService_Preview_DeviceListScopeRequiresNonEmptyList(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestService_Preview_DeviceListScopeRejectsMixedPayload pins the
-// oneof-style scope contract: explicit ScopeTypeDeviceList with a
-// populated DeviceSetIDs slice must reject as InvalidArgument rather
-// than silently ignore the set IDs and execute a device-list plan.
-func TestService_Preview_DeviceListScopeRejectsMixedPayload(t *testing.T) {
+func TestService_Preview_DeviceListWithDeviceSetsReturnsUnimplemented(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
 	req := validRequest(1)
@@ -862,16 +911,10 @@ func TestService_Preview_DeviceListScopeRejectsMixedPayload(t *testing.T) {
 	}
 	_, err := svc.Preview(t.Context(), req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "device_set_ids")
+	assert.Contains(t, err.Error(), "device-set scope is not implemented")
 }
 
-// TestService_Preview_DeviceSetScopeRejectsMixedPayload mirrors the
-// device-list mutual-exclusion guard for the symmetric case: explicit
-// ScopeTypeDeviceSets with a populated DeviceIdentifiers slice. The
-// scope branch is itself unimplemented, but the mutual-exclusion check
-// must fire first so the caller sees the contract violation rather
-// than the unimplemented status.
-func TestService_Preview_DeviceSetScopeRejectsMixedPayload(t *testing.T) {
+func TestService_Preview_DeviceSetWithDeviceListReturnsUnimplemented(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
 	req := validRequest(1)
@@ -882,7 +925,7 @@ func TestService_Preview_DeviceSetScopeRejectsMixedPayload(t *testing.T) {
 	}
 	_, err := svc.Preview(t.Context(), req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "device_identifiers")
+	assert.Contains(t, err.Error(), "device-set scope is not implemented")
 }
 
 // --- pre-selector filters ---
@@ -1005,7 +1048,7 @@ func TestService_Preview_PositiveCooldownExcludesRecentlyResolvedDevices(t *test
 	assert.Equal(t, orgID, store.lastCooldownOrgID)
 	assert.Equal(t, int32(600), store.lastCooldownSec)
 	assert.ElementsMatch(t, []string{"recent", "ok"}, store.lastCooldownFilter)
-	assert.Nil(t, store.lastCooldownSiteID)
+	assert.Nil(t, store.lastCooldownSiteIDs)
 	require.Len(t, plan.Selected, 1)
 	assert.Equal(t, "ok", plan.Selected[0].DeviceIdentifier)
 	reasons := map[string]SkipReason{}

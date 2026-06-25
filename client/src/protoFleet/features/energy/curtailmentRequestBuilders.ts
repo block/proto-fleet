@@ -1,6 +1,8 @@
 import { create } from "@bufbuild/protobuf";
 
 import {
+  type CurtailmentScope,
+  CurtailmentScopeSchema,
   type FixedKwParams,
   FixedKwParamsSchema,
   CurtailmentLevel as ProtoCurtailmentLevel,
@@ -26,7 +28,14 @@ type OptionalUint32FieldOptions = Parameters<typeof parseOptionalUint32Field>[1]
 
 type CurtailmentRequestFields = Pick<
   StartCurtailmentRequest,
-  "scope" | "mode" | "strategy" | "level" | "priority" | "modeParams" | "includeMaintenance" | "forceIncludeMaintenance"
+  | "scopes"
+  | "mode"
+  | "strategy"
+  | "level"
+  | "priority"
+  | "modeParams"
+  | "includeMaintenance"
+  | "forceIncludeMaintenance"
 >;
 
 const maxDurationOptions: OptionalUint32FieldOptions = {
@@ -136,34 +145,81 @@ function buildFixedKwParams(values: CurtailmentSubmitValues): FixedKwParams {
   });
 }
 
-function buildScope(values: CurtailmentSubmitValues): StartCurtailmentRequest["scope"] {
-  switch (values.scopeType) {
-    case "wholeOrg":
-      return { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) };
-    case "site":
-      {
-        const siteId = parseCurtailmentSiteId(values.siteId);
-        if (siteId !== undefined) {
-          return { case: "site", value: create(ScopeSiteSchema, { siteId }) };
-        }
-      }
-      break;
-    case "explicitMiners":
-      if (values.deviceIdentifiers.length > 0) {
-        return {
-          case: "deviceIdentifiers",
-          value: create(ScopeDeviceListSchema, { deviceIdentifiers: values.deviceIdentifiers }),
-        };
-      }
-      break;
-    case "deviceSet":
-      break;
+type CurtailmentScopeValues = Pick<
+  CurtailmentSubmitValues,
+  "scopeType" | "siteSelection" | "siteId" | "siteIds" | "deviceSetIds" | "deviceIdentifiers" | "minerSelectionMode"
+>;
+
+function uniqueNonEmptyStrings(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function getSelectedSiteIds(
+  values: CurtailmentScopeValues,
+  siteSelection: CurtailmentScopeValues["siteSelection"],
+): string[] {
+  if (siteSelection !== "site") {
+    return [];
   }
 
-  throw new Error("Unsupported curtailment target scope.");
+  const siteIds =
+    values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [];
+  return uniqueNonEmptyStrings(siteIds);
+}
+
+export function buildCurtailmentScopes(values: CurtailmentScopeValues): CurtailmentScope[] | undefined {
+  const siteSelection = values.siteSelection ?? (values.scopeType === "site" ? "site" : "none");
+  if (values.minerSelectionMode === "all" || siteSelection === "allSites") {
+    return [create(CurtailmentScopeSchema, { scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) } })];
+  }
+
+  const scopes: CurtailmentScope[] = [];
+  if (siteSelection === "site") {
+    const siteIds: bigint[] = [];
+    for (const siteIdValue of getSelectedSiteIds(values, siteSelection)) {
+      const siteId = parseCurtailmentSiteId(siteIdValue);
+      if (siteId === undefined) {
+        return undefined;
+      }
+      siteIds.push(siteId);
+    }
+    if (siteIds.length === 0) {
+      return undefined;
+    }
+    for (const siteId of siteIds) {
+      scopes.push(
+        create(CurtailmentScopeSchema, {
+          scope: { case: "site", value: create(ScopeSiteSchema, { siteId }) },
+        }),
+      );
+    }
+  }
+
+  const deviceIdentifiers = uniqueNonEmptyStrings(values.deviceIdentifiers);
+  if (deviceIdentifiers.length > 0) {
+    scopes.push(
+      create(CurtailmentScopeSchema, {
+        scope: { case: "deviceIdentifiers", value: create(ScopeDeviceListSchema, { deviceIdentifiers }) },
+      }),
+    );
+  }
+
+  if (scopes.length > 0) {
+    return scopes;
+  }
+
+  if (values.scopeType === "deviceSet" || values.scopeType === "explicitMiners") {
+    return undefined;
+  }
+
+  return [create(CurtailmentScopeSchema, { scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) } })];
 }
 
 function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): CurtailmentRequestFields {
+  const scopes = buildCurtailmentScopes(values);
+  if (scopes === undefined) {
+    throw new Error("Unsupported curtailment target scope.");
+  }
   const fixedKwModeFields =
     values.curtailmentMode === "fixedKwReduction"
       ? {
@@ -179,7 +235,7 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
         };
 
   return {
-    scope: buildScope(values),
+    scopes,
     ...fixedKwModeFields,
     // Server defaults unspecified strategy to least-efficient-first.
     strategy: ProtoCurtailmentStrategy.UNSPECIFIED,

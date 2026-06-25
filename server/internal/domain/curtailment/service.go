@@ -22,11 +22,13 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
-// Scope identifies the target set: whole-org, site, or explicit device-list;
-// device-sets are deferred (resolver lives outside the curtailment domain).
+// Scope identifies the target set. SiteIDs and DeviceIdentifiers are unioned
+// for mixed scopes; the store resolves site membership without expanding it in
+// callers.
 type Scope struct {
 	Type              models.ScopeType
 	SiteID            int64
+	SiteIDs           []int64
 	DeviceSetIDs      []string
 	DeviceIdentifiers []string
 }
@@ -946,13 +948,13 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	if err != nil {
 		return nil, 0, nil, err
 	}
-	if candidateFilter.SiteID != nil {
-		exists, err := s.store.SiteBelongsToOrg(ctx, req.OrgID, *candidateFilter.SiteID)
+	for _, siteID := range candidateFilter.SiteIDs {
+		exists, err := s.store.SiteBelongsToOrg(ctx, req.OrgID, siteID)
 		if err != nil {
 			return nil, 0, nil, err
 		}
 		if !exists {
-			return nil, 0, nil, fleeterror.NewNotFoundErrorf("site %d not found", *candidateFilter.SiteID)
+			return nil, 0, nil, fleeterror.NewNotFoundErrorf("site %d not found", siteID)
 		}
 	}
 
@@ -993,7 +995,7 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 				OrgID:             req.OrgID,
 				CooldownSec:       req.PostEventCooldownSec,
 				DeviceIdentifiers: candidateFilter.DeviceIdentifiers,
-				SiteID:            candidateFilter.SiteID,
+				SiteIDs:           candidateFilter.SiteIDs,
 			},
 		)
 		if err != nil {
@@ -1246,52 +1248,119 @@ func effectivePostEventCooldownSec(req PreviewRequest) int32 {
 }
 
 func resolveScope(s Scope) (interfaces.ListCandidatesParams, error) {
+	if s.SiteID < 0 || hasNonPositiveInt64(s.SiteIDs) {
+		return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError("site_ids must be positive")
+	}
+	s = normalizeScope(s)
 	switch s.Type {
 	case models.ScopeTypeWholeOrg, "":
-		// Empty Type defaults to whole-org, but device IDs alongside it
-		// signal mismatched intent — reject rather than silently widening.
-		if s.SiteID > 0 || len(s.DeviceIdentifiers) > 0 || len(s.DeviceSetIDs) > 0 {
-			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError(
-				"site_id, device_identifiers, and device_set_ids must be empty for whole-org scope",
-			)
-		}
+		// Whole-org dominates any narrower selectors supplied by composable
+		// clients, matching "all sites" behavior without expanding sites.
 		return interfaces.ListCandidatesParams{}, nil
 	case models.ScopeTypeSite:
-		if s.SiteID <= 0 {
+		if len(s.SiteIDs) != 1 {
 			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError("site_id must be set for site scope")
 		}
-		if len(s.DeviceIdentifiers) > 0 || len(s.DeviceSetIDs) > 0 {
-			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError(
-				"device_identifiers and device_set_ids must be empty when scope type is site",
-			)
-		}
-		siteID := s.SiteID
-		return interfaces.ListCandidatesParams{SiteID: &siteID}, nil
+		return interfaces.ListCandidatesParams{SiteIDs: s.SiteIDs}, nil
 	case models.ScopeTypeDeviceList:
 		if len(s.DeviceIdentifiers) == 0 {
 			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError("device_identifiers must be non-empty for device-list scope")
 		}
-		// Oneof-style mutual exclusion for non-Connect callers.
-		if s.SiteID > 0 || len(s.DeviceSetIDs) > 0 {
-			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError(
-				"site_id and device_set_ids must be empty when scope type is device_list",
-			)
-		}
 		return interfaces.ListCandidatesParams{DeviceIdentifiers: s.DeviceIdentifiers}, nil
+	case models.ScopeTypeMixed:
+		if len(s.DeviceSetIDs) > 0 {
+			return interfaces.ListCandidatesParams{}, fleeterror.NewUnimplementedErrorf("device-set scope is not implemented; use whole_org, site, or device_list")
+		}
+		if len(s.SiteIDs) == 0 && len(s.DeviceIdentifiers) == 0 {
+			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError("mixed scope must include site_ids or device_identifiers")
+		}
+		return interfaces.ListCandidatesParams{
+			SiteIDs:           s.SiteIDs,
+			DeviceIdentifiers: s.DeviceIdentifiers,
+		}, nil
 	case models.ScopeTypeDeviceSets:
 		// Deferred: device-set resolution requires DeviceSetStore wiring
 		// outside the curtailment domain. Whole-org and device-list cover
 		// the critical paths. Symmetric mutual-exclusion guard for callers
 		// who set this Type with DeviceIdentifiers populated.
-		if s.SiteID > 0 || len(s.DeviceIdentifiers) > 0 {
-			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError(
-				"site_id and device_identifiers must be empty when scope type is device_sets",
-			)
-		}
 		return interfaces.ListCandidatesParams{}, fleeterror.NewUnimplementedErrorf("device-set scope is not implemented; use whole_org, site, or device_list")
 	default:
 		return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentErrorf("unrecognized scope type: %q", s.Type)
 	}
+}
+
+func normalizeScope(s Scope) Scope {
+	siteIDs := append([]int64(nil), s.SiteIDs...)
+	if s.SiteID > 0 {
+		siteIDs = append(siteIDs, s.SiteID)
+	}
+	s.SiteIDs = uniquePositiveInt64s(siteIDs)
+	if len(s.SiteIDs) == 1 {
+		s.SiteID = s.SiteIDs[0]
+	} else {
+		s.SiteID = 0
+	}
+	s.DeviceIdentifiers = uniqueNonEmptyStrings(s.DeviceIdentifiers)
+	s.DeviceSetIDs = uniqueNonEmptyStrings(s.DeviceSetIDs)
+
+	if s.Type == models.ScopeTypeWholeOrg {
+		return s
+	}
+	if len(s.DeviceSetIDs) > 0 {
+		s.Type = models.ScopeTypeDeviceSets
+		return s
+	}
+	switch {
+	case len(s.SiteIDs) > 0 && len(s.DeviceIdentifiers) > 0:
+		s.Type = models.ScopeTypeMixed
+	case len(s.SiteIDs) > 1:
+		s.Type = models.ScopeTypeMixed
+	case len(s.SiteIDs) == 1:
+		s.Type = models.ScopeTypeSite
+	case len(s.DeviceIdentifiers) > 0:
+		s.Type = models.ScopeTypeDeviceList
+	case s.Type == "":
+		s.Type = models.ScopeTypeWholeOrg
+	}
+	return s
+}
+
+func uniquePositiveInt64s(values []int64) []int64 {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[int64]struct{}, len(values))
+	out := make([]int64, 0, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 type classifyOpts struct {
@@ -1446,7 +1515,8 @@ const targetTypeMiner = "miner"
 // ranked against; non-positive PowerW maps to NULL (a zero baseline would
 // produce a misleading "100% reduction" report at restore).
 func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.InsertEventParams, []models.InsertTargetParams, error) {
-	scopeJSON, err := marshalScopeJSON(req.Scope)
+	scope := normalizeScope(req.Scope)
+	scopeJSON, err := MarshalScopeJSON(scope)
 	if err != nil {
 		return models.InsertEventParams{}, nil, err
 	}
@@ -1476,13 +1546,13 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 	event := models.InsertEventParams{
 		EventUUID:               uuid.New(),
 		OrgID:                   req.OrgID,
-		State:                   eventStartState(req.Scope, mode, len(plan.Selected)),
+		State:                   eventStartState(scope, mode, len(plan.Selected)),
 		Mode:                    mode,
 		Strategy:                models.StrategyLeastEfficientFirst,
 		Level:                   models.LevelFull,
 		Priority:                req.Priority,
 		LoopType:                models.LoopTypeOpen,
-		ScopeType:               req.Scope.Type,
+		ScopeType:               scope.Type,
 		ScopeJSON:               scopeJSON,
 		ModeParamsJSON:          modeParamsJSON,
 		CurtailBatchSize:        req.CurtailBatchSize,
@@ -1511,7 +1581,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		event.ScopeType = models.ScopeTypeWholeOrg
 	}
 
-	if isClosedLoopFullFleetStart(req.Scope, mode) {
+	if isClosedLoopFullFleetStart(scope, mode) {
 		event.LoopType = models.LoopTypeClosed
 	}
 	if event.State == models.EventStateActive && event.StartedAt == nil {
@@ -1520,7 +1590,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 	}
 
 	var targets []models.InsertTargetParams
-	if !isClosedLoopFullFleetStart(req.Scope, mode) {
+	if !isClosedLoopFullFleetStart(scope, mode) {
 		targets = BuildInsertTargetParams(plan.Selected, mode, minPowerW)
 	}
 	return event, targets, nil
@@ -1586,22 +1656,24 @@ func eventStartState(scope Scope, mode models.Mode, targetCount int) models.Even
 }
 
 func isClosedLoopFullFleetStart(scope Scope, mode models.Mode) bool {
+	scope = normalizeScope(scope)
 	if mode != models.ModeFullFleet {
 		return false
 	}
 	switch scope.Type {
 	case models.ScopeTypeWholeOrg, models.ScopeTypeSite, "":
 		return true
-	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
+	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList, models.ScopeTypeMixed:
 		return false
 	default:
 		return false
 	}
 }
 
-// marshalScopeJSON renders the request scope as the JSONB column value.
+// MarshalScopeJSON renders the request scope as the JSONB column value.
 // Whole-org stores `{}` (NOT NULL).
-func marshalScopeJSON(s Scope) ([]byte, error) {
+func MarshalScopeJSON(s Scope) ([]byte, error) {
+	s = normalizeScope(s)
 	switch s.Type {
 	case models.ScopeTypeWholeOrg, "":
 		return []byte("{}"), nil
@@ -1624,6 +1696,15 @@ func marshalScopeJSON(s Scope) ([]byte, error) {
 	case models.ScopeTypeDeviceSets:
 		b, err := json.Marshal(map[string][]string{
 			"device_set_ids": s.DeviceSetIDs,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to encode scope: %v", err)
+		}
+		return b, nil
+	case models.ScopeTypeMixed:
+		b, err := json.Marshal(map[string]any{
+			"site_ids":           s.SiteIDs,
+			"device_identifiers": s.DeviceIdentifiers,
 		})
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to encode scope: %v", err)

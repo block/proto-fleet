@@ -112,9 +112,8 @@ WITH scoped_devices AS MATERIALIZED (
     FROM device d
     WHERE d.org_id = sqlc.arg('org_id')
         AND d.deleted_at IS NULL
-        AND sqlc.narg('device_identifiers')::text[] IS NULL
-        AND sqlc.narg('site_id')::BIGINT IS NOT NULL
-        AND d.site_id = sqlc.narg('site_id')::BIGINT
+        AND sqlc.narg('site_ids')::BIGINT[] IS NOT NULL
+        AND d.site_id = ANY(sqlc.narg('site_ids')::BIGINT[])
 )
 SELECT DISTINCT ct.device_identifier
 FROM scoped_devices sd
@@ -903,7 +902,7 @@ SET last_tick_at          = EXCLUDED.last_tick_at,
 -- name: ListCurtailmentCandidatesByOrg :many
 -- Per-device state for the selector. Returns every in-scope device;
 -- service applies skip-reason attribution. nil power/hash = stale
--- (15-min window). device_identifiers nil = whole-org.
+-- (15-min window). site_ids and device_identifiers nil = whole-org.
 WITH latest_metrics AS (
     SELECT DISTINCT ON (device_metrics.device_identifier)
         device_metrics.device_identifier,
@@ -951,12 +950,15 @@ LEFT JOIN latest_hourly lh ON lh.device_identifier = d.device_identifier
 WHERE d.org_id = sqlc.arg('org_id')
     AND d.deleted_at IS NULL
     AND (
-        sqlc.narg('site_id')::bigint IS NULL
-        OR d.site_id = sqlc.narg('site_id')::bigint
-    )
-    AND (
-        sqlc.narg('device_identifiers')::text[] IS NULL
-        OR d.device_identifier = ANY(sqlc.narg('device_identifiers')::text[])
+        (sqlc.narg('site_ids')::BIGINT[] IS NULL AND sqlc.narg('device_identifiers')::text[] IS NULL)
+        OR (
+            sqlc.narg('site_ids')::BIGINT[] IS NOT NULL
+            AND d.site_id = ANY(sqlc.narg('site_ids')::BIGINT[])
+        )
+        OR (
+            sqlc.narg('device_identifiers')::text[] IS NOT NULL
+            AND d.device_identifier = ANY(sqlc.narg('device_identifiers')::text[])
+        )
     )
 -- Stable order so the selector's stable sort is deterministic on ties.
 ORDER BY d.device_identifier;

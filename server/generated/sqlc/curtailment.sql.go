@@ -1338,19 +1338,22 @@ LEFT JOIN latest_hourly lh ON lh.device_identifier = d.device_identifier
 WHERE d.org_id = $1
     AND d.deleted_at IS NULL
     AND (
-        $2::bigint IS NULL
-        OR d.site_id = $2::bigint
-    )
-    AND (
-        $3::text[] IS NULL
-        OR d.device_identifier = ANY($3::text[])
+        ($2::BIGINT[] IS NULL AND $3::text[] IS NULL)
+        OR (
+            $2::BIGINT[] IS NOT NULL
+            AND d.site_id = ANY($2::BIGINT[])
+        )
+        OR (
+            $3::text[] IS NOT NULL
+            AND d.device_identifier = ANY($3::text[])
+        )
     )
 ORDER BY d.device_identifier
 `
 
 type ListCurtailmentCandidatesByOrgParams struct {
 	OrgID             int64
-	SiteID            sql.NullInt64
+	SiteIds           []int64
 	DeviceIdentifiers []string
 }
 
@@ -1368,10 +1371,10 @@ type ListCurtailmentCandidatesByOrgRow struct {
 
 // Per-device state for the selector. Returns every in-scope device;
 // service applies skip-reason attribution. nil power/hash = stale
-// (15-min window). device_identifiers nil = whole-org.
+// (15-min window). site_ids and device_identifiers nil = whole-org.
 // Stable order so the selector's stable sort is deterministic on ties.
 func (q *Queries) ListCurtailmentCandidatesByOrg(ctx context.Context, arg ListCurtailmentCandidatesByOrgParams) ([]ListCurtailmentCandidatesByOrgRow, error) {
-	rows, err := q.query(ctx, q.listCurtailmentCandidatesByOrgStmt, listCurtailmentCandidatesByOrg, arg.OrgID, arg.SiteID, pq.Array(arg.DeviceIdentifiers))
+	rows, err := q.query(ctx, q.listCurtailmentCandidatesByOrgStmt, listCurtailmentCandidatesByOrg, arg.OrgID, pq.Array(arg.SiteIds), pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
 		return nil, err
 	}
@@ -1895,9 +1898,8 @@ WITH scoped_devices AS MATERIALIZED (
     FROM device d
     WHERE d.org_id = $1
         AND d.deleted_at IS NULL
-        AND $3::text[] IS NULL
-        AND $4::BIGINT IS NOT NULL
-        AND d.site_id = $4::BIGINT
+        AND $4::BIGINT[] IS NOT NULL
+        AND d.site_id = ANY($4::BIGINT[])
 )
 SELECT DISTINCT ct.device_identifier
 FROM scoped_devices sd
@@ -1915,7 +1917,7 @@ type ListRecentlyResolvedCurtailedDevicesByScopeParams struct {
 	OrgID             int64
 	CooldownSec       int32
 	DeviceIdentifiers []string
-	SiteID            sql.NullInt64
+	SiteIds           []int64
 }
 
 // Scoped cooldown lookup: enumerate the request's live candidate devices first,
@@ -1925,7 +1927,7 @@ func (q *Queries) ListRecentlyResolvedCurtailedDevicesByScope(ctx context.Contex
 		arg.OrgID,
 		arg.CooldownSec,
 		pq.Array(arg.DeviceIdentifiers),
-		arg.SiteID,
+		pq.Array(arg.SiteIds),
 	)
 	if err != nil {
 		return nil, err

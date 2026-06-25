@@ -242,6 +242,17 @@ message ScopeDeviceList {
     }];
 }
 
+// CurtailmentScope is a composable selector. Multiple entries are unioned by
+// the backend and deduplicated before command dispatch.
+message CurtailmentScope {
+    oneof scope {
+        ScopeWholeOrg   whole_org          = 1;
+        ScopeDeviceSets device_set_ids     = 2;
+        ScopeDeviceList device_identifiers = 3;
+        ScopeSite       site               = 4;
+    }
+}
+
 // --- Mode parameter messages ---
 
 // FixedKwParams configures a fixed-kW reduction target.
@@ -288,6 +299,9 @@ message CurtailmentEvent {
         ScopeDeviceList device_identifiers  = 9;
         ScopeSite       site                = 25;
     }
+    // New clients should read scopes. Legacy oneof fields remain populated
+    // when an event was started with a singular selector.
+    repeated CurtailmentScope scopes = 35;
     oneof mode_params {
         FixedKwParams      fixed_kw       = 10;
         FixedCountParams   fixed_count    = 11;
@@ -417,8 +431,8 @@ message PreviewCurtailmentPlanRequest {
     // Keep these CEL validators in sync with supported v1 request shapes.
     option (buf.validate.message).cel = {
         id: "scope_required"
-        message: "exactly one scope must be set"
-        expression: "has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers) || has(this.site)"
+        message: "set scopes or exactly one legacy scope"
+        expression: "(this.scopes.size() > 0) != (has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers) || has(this.site))"
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
@@ -437,6 +451,7 @@ message PreviewCurtailmentPlanRequest {
         ScopeDeviceList device_identifiers  = 3;
         ScopeSite       site                = 27;
     }
+    repeated CurtailmentScope scopes = 29;
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
@@ -508,8 +523,8 @@ message StartCurtailmentRequest {
     // Keep these CEL validators in sync with supported v1 request shapes.
     option (buf.validate.message).cel = {
         id: "scope_required"
-        message: "exactly one scope must be set"
-        expression: "has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers) || has(this.site)"
+        message: "set scopes or exactly one legacy scope"
+        expression: "(this.scopes.size() > 0) != (has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers) || has(this.site))"
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
@@ -533,6 +548,7 @@ message StartCurtailmentRequest {
         ScopeDeviceList device_identifiers  = 3;
         ScopeSite       site                = 28;
     }
+    repeated CurtailmentScope scopes = 36;
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
@@ -937,6 +953,9 @@ message CurtailmentResponseProfile {
 
     // Unset site means the profile applies to the whole org.
     ScopeSite site = 3;
+    // New clients should read scopes. Empty scopes preserve legacy whole-org
+    // semantics unless site is populated.
+    repeated CurtailmentScope scopes = 17;
 
     CurtailmentMode mode = 4;
     CurtailmentStrategy strategy = 5;
@@ -989,6 +1008,9 @@ message CreateCurtailmentResponseProfileRequest {
     string profile_name = 1 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
     // Unset site means the profile applies to the whole org.
     ScopeSite site = 2;
+    // Empty scopes preserve legacy whole-org semantics unless site is
+    // populated. When set, scopes replaces site.
+    repeated CurtailmentScope scopes = 17;
 
     CurtailmentMode mode = 3 [(buf.validate.field).enum = {
         defined_only: true
@@ -1041,6 +1063,9 @@ message UpdateCurtailmentResponseProfileRequest {
     string profile_name = 2 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
     // Unset site means the profile applies to the whole org.
     ScopeSite site = 3;
+    // Empty scopes preserve legacy whole-org semantics unless site is
+    // populated. When set, scopes replaces site.
+    repeated CurtailmentScope scopes = 17;
 
     CurtailmentMode mode = 4 [(buf.validate.field).enum = {
         defined_only: true

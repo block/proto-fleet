@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"strings"
 	"unicode/utf8"
@@ -119,18 +120,29 @@ func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req S
 	if err := validateResponseProfileName(profile.ProfileName); err != nil {
 		return models.ResponseProfile{}, err
 	}
-	if profile.SiteID != nil {
-		if *profile.SiteID <= 0 {
-			return models.ResponseProfile{}, fleeterror.NewInvalidArgumentError("site_id must be positive when set")
-		}
-		belongs, err := s.store.SiteBelongsToOrg(ctx, profile.OrgID, *profile.SiteID)
+	scope, err := ResponseProfileScope(profile)
+	if err != nil {
+		return models.ResponseProfile{}, err
+	}
+	explicitWholeOrgScope := isExplicitWholeOrgScopeJSON(profile.ScopeJSON)
+	for _, siteID := range normalizeScope(scope).SiteIDs {
+		belongs, err := s.store.SiteBelongsToOrg(ctx, profile.OrgID, siteID)
 		if err != nil {
 			return models.ResponseProfile{}, err
 		}
 		if !belongs {
-			return models.ResponseProfile{}, fleeterror.NewNotFoundErrorf("site not found: %d", *profile.SiteID)
+			return models.ResponseProfile{}, fleeterror.NewNotFoundErrorf("site not found: %d", siteID)
 		}
 	}
+	scopeJSON, err := MarshalScopeJSON(scope)
+	if err != nil {
+		return models.ResponseProfile{}, err
+	}
+	if normalizeScope(scope).Type == models.ScopeTypeWholeOrg && explicitWholeOrgScope {
+		scopeJSON = []byte(`{"whole_org":true}`)
+	}
+	profile.ScopeJSON = scopeJSON
+	profile.SiteID = responseProfileLegacySiteID(scope)
 	if err := validateResponseProfileBehavior(profile, req.CanUseAdminControls); err != nil {
 		return models.ResponseProfile{}, err
 	}
@@ -173,9 +185,13 @@ func validateResponseProfileName(name string) error {
 
 func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdminControls bool) error {
 	targetKW, toleranceKW := float64Value(profile.TargetKW), float64Value(profile.ToleranceKW)
+	scope, err := ResponseProfileScope(profile)
+	if err != nil {
+		return err
+	}
 	if err := validatePreviewRequest(PreviewRequest{
 		OrgID:    profile.OrgID,
-		Scope:    responseProfileScope(profile),
+		Scope:    scope,
 		Mode:     profile.Mode,
 		Strategy: profile.Strategy,
 		Level:    profile.Level,
@@ -308,11 +324,82 @@ func responseProfileRequiresAdminControls(profile models.ResponseProfile) bool {
 		profile.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax
 }
 
-func responseProfileScope(profile models.ResponseProfile) Scope {
-	if profile.SiteID == nil {
-		return Scope{Type: models.ScopeTypeWholeOrg}
+func ResponseProfileScope(profile models.ResponseProfile) (Scope, error) {
+	scope, hasScope, err := ScopeFromJSON(profile.ScopeJSON)
+	if err != nil {
+		return Scope{}, err
 	}
-	return Scope{Type: models.ScopeTypeSite, SiteID: *profile.SiteID}
+	if hasScope {
+		return scope, nil
+	}
+	if profile.SiteID != nil {
+		return Scope{Type: models.ScopeTypeSite, SiteID: *profile.SiteID}, nil
+	}
+	return Scope{Type: models.ScopeTypeWholeOrg}, nil
+}
+
+func ScopeFromJSON(scopeJSON []byte) (Scope, bool, error) {
+	if len(scopeJSON) == 0 {
+		return Scope{}, false, nil
+	}
+	var payload struct {
+		WholeOrg          bool     `json:"whole_org"`
+		SiteID            int64    `json:"site_id"`
+		SiteIDs           []int64  `json:"site_ids"`
+		DeviceSetIDs      []string `json:"device_set_ids"`
+		DeviceIdentifiers []string `json:"device_identifiers"`
+	}
+	if err := json.Unmarshal(scopeJSON, &payload); err != nil {
+		return Scope{}, false, fleeterror.NewInvalidArgumentErrorf("invalid scope_json: %v", err)
+	}
+	hasScope := payload.WholeOrg ||
+		payload.SiteID != 0 ||
+		len(payload.SiteIDs) > 0 ||
+		len(payload.DeviceSetIDs) > 0 ||
+		len(payload.DeviceIdentifiers) > 0
+	if !hasScope {
+		return Scope{}, false, nil
+	}
+	if payload.SiteID < 0 || hasNonPositiveInt64(payload.SiteIDs) {
+		return Scope{}, false, fleeterror.NewInvalidArgumentError("site_ids must be positive")
+	}
+	if payload.WholeOrg {
+		return Scope{Type: models.ScopeTypeWholeOrg}, true, nil
+	}
+	return normalizeScope(Scope{
+		SiteID:            payload.SiteID,
+		SiteIDs:           payload.SiteIDs,
+		DeviceSetIDs:      payload.DeviceSetIDs,
+		DeviceIdentifiers: payload.DeviceIdentifiers,
+	}), true, nil
+}
+
+func responseProfileLegacySiteID(scope Scope) *int64 {
+	scope = normalizeScope(scope)
+	if scope.Type != models.ScopeTypeSite || len(scope.SiteIDs) != 1 {
+		return nil
+	}
+	siteID := scope.SiteIDs[0]
+	return &siteID
+}
+
+func isExplicitWholeOrgScopeJSON(scopeJSON []byte) bool {
+	if len(scopeJSON) == 0 {
+		return false
+	}
+	var payload struct {
+		WholeOrg bool `json:"whole_org"`
+	}
+	return json.Unmarshal(scopeJSON, &payload) == nil && payload.WholeOrg
+}
+
+func hasNonPositiveInt64(values []int64) bool {
+	for _, value := range values {
+		if value <= 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func float64Value(v *float64) float64 {

@@ -22,6 +22,7 @@ type ResponseProfile struct {
 	OrgID                   int64
 	ProfileName             string
 	SiteID                  *int64
+	ScopeJSON               []byte
 	Mode                    Mode
 	Strategy                Strategy
 	Level                   Level
@@ -147,6 +148,7 @@ const (
 	ScopeTypeSite       ScopeType = "site"
 	ScopeTypeDeviceSets ScopeType = "device_sets"
 	ScopeTypeDeviceList ScopeType = "device_list"
+	ScopeTypeMixed      ScopeType = "mixed"
 )
 
 // SourceActorType identifies who triggered an event, for audit attribution.

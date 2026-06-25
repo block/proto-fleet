@@ -55,6 +55,33 @@ func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
 	assert.Equal(t, int32(600), store.created.PostEventCooldownSec)
 }
 
+func TestResponseProfileService_CreatePersistsCompositeSiteAndMinerScope(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 2500.0
+	store := newResponseProfileFakeStore()
+	svc := NewResponseProfileService(store)
+
+	profile, err := svc.Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:       42,
+			ProfileName: "Combined shed",
+			Mode:        models.ModeFixedKw,
+			TargetKW:    &targetKW,
+			ScopeJSON:   []byte(`{"site_ids":[7,7],"device_identifiers":["miner-a","miner-a","miner-b"]}`),
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, profile)
+	assert.Nil(t, profile.SiteID, "mixed scopes must not masquerade as legacy single-site profiles")
+	assert.Equal(t, 1, store.siteCheckCount, "sites are validated by id without expanding site miners")
+	assert.Equal(t, int64(7), store.siteCheckSiteID)
+	assert.JSONEq(t, `{"site_ids":[7],"device_identifiers":["miner-a","miner-b"]}`, string(profile.ScopeJSON))
+	require.NotNil(t, store.created)
+	assert.JSONEq(t, `{"site_ids":[7],"device_identifiers":["miner-a","miner-b"]}`, string(store.created.ScopeJSON))
+}
+
 func TestResponseProfileService_CreateAllowsWholeOrgScope(t *testing.T) {
 	t.Parallel()
 

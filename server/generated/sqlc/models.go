@@ -546,6 +546,7 @@ type CurtailmentResponseProfile struct {
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 	PostEventCooldownSec    int32
+	ScopeJson               json.RawMessage
 }
 
 type CurtailmentTarget struct {

@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 )
 
 const deleteCurtailmentResponseProfileByOrg = `-- name: DeleteCurtailmentResponseProfileByOrg :execrows
@@ -32,7 +33,7 @@ func (q *Queries) DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg
 }
 
 const getCurtailmentResponseProfileByOrg = `-- name: GetCurtailmentResponseProfileByOrg :one
-SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec
+SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json
 FROM curtailment_response_profile
 WHERE id = $1
   AND org_id = $2
@@ -66,6 +67,7 @@ func (q *Queries) GetCurtailmentResponseProfileByOrg(ctx context.Context, arg Ge
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.PostEventCooldownSec,
+		&i.ScopeJson,
 	)
 	return i, err
 }
@@ -75,6 +77,7 @@ INSERT INTO curtailment_response_profile (
     org_id,
     profile_name,
     site_id,
+    scope_json,
     mode,
     strategy,
     level,
@@ -104,15 +107,17 @@ INSERT INTO curtailment_response_profile (
     $13,
     $14,
     $15,
-    $16
+    $16,
+    $17
 )
-RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec
+RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json
 `
 
 type InsertCurtailmentResponseProfileParams struct {
 	OrgID                   int64
 	ProfileName             string
 	SiteID                  sql.NullInt64
+	ScopeJson               json.RawMessage
 	Mode                    string
 	Strategy                string
 	Level                   string
@@ -133,6 +138,7 @@ func (q *Queries) InsertCurtailmentResponseProfile(ctx context.Context, arg Inse
 		arg.OrgID,
 		arg.ProfileName,
 		arg.SiteID,
+		arg.ScopeJson,
 		arg.Mode,
 		arg.Strategy,
 		arg.Level,
@@ -168,12 +174,13 @@ func (q *Queries) InsertCurtailmentResponseProfile(ctx context.Context, arg Inse
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.PostEventCooldownSec,
+		&i.ScopeJson,
 	)
 	return i, err
 }
 
 const listCurtailmentResponseProfilesByOrg = `-- name: ListCurtailmentResponseProfilesByOrg :many
-SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec
+SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json
 FROM curtailment_response_profile
 WHERE org_id = $1
 ORDER BY profile_name, id
@@ -208,6 +215,7 @@ func (q *Queries) ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgI
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.PostEventCooldownSec,
+			&i.ScopeJson,
 		); err != nil {
 			return nil, err
 		}
@@ -227,28 +235,30 @@ UPDATE curtailment_response_profile
 SET
     profile_name = $1,
     site_id = $2,
-    mode = $3,
-    strategy = $4,
-    level = $5,
-    priority = $6,
-    target_kw = $7,
-    tolerance_kw = $8,
-    curtail_batch_size = $9,
-    curtail_batch_interval_sec = $10,
-    restore_batch_size = $11,
-    restore_batch_interval_sec = $12,
-    include_maintenance = $13,
-    force_include_maintenance = $14,
-    post_event_cooldown_sec = $15
-WHERE id = $16
-  AND org_id = $17
-  AND site_id IS NOT DISTINCT FROM $18
-RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec
+    scope_json = $3,
+    mode = $4,
+    strategy = $5,
+    level = $6,
+    priority = $7,
+    target_kw = $8,
+    tolerance_kw = $9,
+    curtail_batch_size = $10,
+    curtail_batch_interval_sec = $11,
+    restore_batch_size = $12,
+    restore_batch_interval_sec = $13,
+    include_maintenance = $14,
+    force_include_maintenance = $15,
+    post_event_cooldown_sec = $16
+WHERE id = $17
+  AND org_id = $18
+  AND site_id IS NOT DISTINCT FROM $19
+RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json
 `
 
 type UpdateCurtailmentResponseProfileParams struct {
 	ProfileName             string
 	SiteID                  sql.NullInt64
+	ScopeJson               json.RawMessage
 	Mode                    string
 	Strategy                string
 	Level                   string
@@ -271,6 +281,7 @@ func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg Upda
 	row := q.queryRow(ctx, q.updateCurtailmentResponseProfileStmt, updateCurtailmentResponseProfile,
 		arg.ProfileName,
 		arg.SiteID,
+		arg.ScopeJson,
 		arg.Mode,
 		arg.Strategy,
 		arg.Level,
@@ -309,6 +320,7 @@ func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg Upda
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.PostEventCooldownSec,
+		&i.ScopeJson,
 	)
 	return i, err
 }

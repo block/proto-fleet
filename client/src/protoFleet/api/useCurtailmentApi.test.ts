@@ -13,6 +13,7 @@ import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
 import {
   type CurtailmentEvent,
   CurtailmentEventSchema,
+  CurtailmentScopeSchema,
   CurtailmentEventState,
   CurtailmentMode,
   CurtailmentPriority,
@@ -20,6 +21,7 @@ import {
   CurtailmentTargetSchema,
   CurtailmentTargetState,
   FixedKwParamsSchema,
+  ScopeDeviceListSchema,
   ScopeSiteSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
@@ -370,6 +372,51 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyEvents[0]).toEqual(
       expect.objectContaining({
         scopeLabel: "Austin, TX",
+      }),
+    );
+  });
+
+  it("uses combined scope labels for mixed site and miner active and history events", async () => {
+    const mixedScopedEvent = curtailmentEvent({
+      scopes: [
+        create(CurtailmentScopeSchema, {
+          scope: { case: "site", value: create(ScopeSiteSchema, { siteId: 101n }) },
+        }),
+        create(CurtailmentScopeSchema, {
+          scope: {
+            case: "deviceIdentifiers",
+            value: create(ScopeDeviceListSchema, { deviceIdentifiers: ["miner-1"] }),
+          },
+        }),
+      ],
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: mixedScopedEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [mixedScopedEvent], nextPageToken: "" });
+    const siteNameById = new Map([["101", "Calgary"]]);
+
+    const { result } = renderHook(() => useCurtailmentApi({ siteNameById }));
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent).toEqual(
+      expect.objectContaining({
+        scopeLabel: "Calgary + 1 miner",
+      }),
+    );
+    expect(result.current.activeEventFormValues).toEqual(
+      expect.objectContaining({
+        scopeType: "explicitMiners",
+        scopeId: "Calgary",
+        siteSelection: "site",
+        siteId: "101",
+        deviceIdentifiers: ["miner-1"],
+      }),
+    );
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        scopeLabel: "Calgary + 1 miner",
       }),
     );
   });

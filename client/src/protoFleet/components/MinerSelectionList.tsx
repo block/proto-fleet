@@ -54,6 +54,7 @@ export interface MinerSelectionListHandle {
 
 export interface MinerSelectionListProps {
   filterConfig?: FilterConfig;
+  initialAllSelected?: boolean;
   initialSelectedItems?: string[];
   isMembersLoading?: boolean;
   isRowDisabled?: (item: DeviceListItem) => boolean;
@@ -147,6 +148,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
   (
     {
       filterConfig,
+      initialAllSelected = false,
       initialSelectedItems,
       isMembersLoading = false,
       isRowDisabled,
@@ -161,7 +163,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     const { listGroups, listRacks } = useDeviceSets();
     const [filter, setFilter] = useState(() => create(MinerListFilterSchema, {}));
     const [selectedItems, setSelectedItems] = useState<string[]>(initialSelectedItems ?? []);
-    const [allSelected, setAllSelected] = useState(false);
+    const [allSelected, setAllSelected] = useState(initialAllSelected && !singleSelect);
     const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
     const [availableRacks, setAvailableRacks] = useState<DeviceSet[]>([]);
     const [hasInitialSynced, setHasInitialSynced] = useState(!initialSelectedItems || initialSelectedItems.length > 0);
@@ -205,6 +207,14 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         .filter((snapshot): snapshot is ProtoMinerStateSnapshot => Boolean(snapshot))
         .map(toDeviceListItem);
     }, [minerIds, miners]);
+    const currentSelectableItemIds = useMemo(
+      () =>
+        (isRowDisabled ? currentPageItems.filter((device) => !isRowDisabled(device)) : currentPageItems).map(
+          (device) => device.deviceIdentifier,
+        ),
+      [currentPageItems, isRowDisabled],
+    );
+    const displayedSelectedItems = allSelected && !singleSelect ? currentSelectableItemIds : selectedItems;
 
     const handleSort = useCallback((field: ModalColumn, direction: SortDirection) => {
       setCurrentSort({ field, direction });
@@ -367,7 +377,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             sortableColumns={ALL_SORTABLE_COLUMNS}
             currentSort={currentSort}
             onSort={handleSort}
-            customSelectedItems={selectedItems}
+            customSelectedItems={displayedSelectedItems}
             customSetSelectedItems={handleSetSelectedItems}
             preserveOffPageSelection
             isRowDisabled={isRowDisabled}

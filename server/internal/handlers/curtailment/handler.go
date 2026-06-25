@@ -329,6 +329,9 @@ func errCurtailmentNotImplemented(rpc string) error {
 }
 
 func previewResourceContext(msg *pb.PreviewCurtailmentPlanRequest) authz.ResourceContext {
+	if scopes := msg.GetScopes(); len(scopes) > 0 {
+		return scopeResourceContext(scopes)
+	}
 	if s, ok := msg.GetScope().(*pb.PreviewCurtailmentPlanRequest_Site); ok {
 		siteID := s.Site.GetSiteId()
 		return authz.ResourceContext{SiteID: &siteID}
@@ -337,11 +340,22 @@ func previewResourceContext(msg *pb.PreviewCurtailmentPlanRequest) authz.Resourc
 }
 
 func startResourceContext(msg *pb.StartCurtailmentRequest) authz.ResourceContext {
+	if scopes := msg.GetScopes(); len(scopes) > 0 {
+		return scopeResourceContext(scopes)
+	}
 	if s, ok := msg.GetScope().(*pb.StartCurtailmentRequest_Site); ok {
 		siteID := s.Site.GetSiteId()
 		return authz.ResourceContext{SiteID: &siteID}
 	}
 	return authz.ResourceContext{}
+}
+
+func scopeResourceContext(scopes []*pb.CurtailmentScope) authz.ResourceContext {
+	scope, err := toCompositeScope(scopes)
+	if err != nil || scope.Type != models.ScopeTypeSite || len(scope.SiteIDs) != 1 {
+		return authz.ResourceContext{}
+	}
+	return authz.ResourceContext{SiteID: &scope.SiteIDs[0]}
 }
 
 func parseEventUUID(raw string) (uuid.UUID, error) {

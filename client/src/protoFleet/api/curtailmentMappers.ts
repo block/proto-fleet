@@ -75,14 +75,80 @@ function mapCurtailmentModeToFormValue(event: ProtoCurtailmentEvent): Curtailmen
 function mapCurtailmentEventScopeToFormValues(
   event: ProtoCurtailmentEvent,
   options: CurtailmentMapperOptions = {},
-): Pick<CurtailmentSubmitValues, "scopeType" | "scopeId" | "siteId" | "deviceSetIds" | "deviceIdentifiers"> {
+): Pick<
+  CurtailmentSubmitValues,
+  | "scopeType"
+  | "scopeId"
+  | "siteSelection"
+  | "siteId"
+  | "siteIds"
+  | "siteNamesById"
+  | "deviceSetIds"
+  | "deviceIdentifiers"
+> {
+  if (event.scopes.length > 0) {
+    const siteIds: string[] = [];
+    const siteNamesById: Record<string, string> = {};
+    const deviceIdentifiers: string[] = [];
+    for (const scope of event.scopes) {
+      switch (scope.scope.case) {
+        case "wholeOrg":
+          return {
+            scopeType: "wholeOrg",
+            scopeId: "whole-org",
+            siteSelection: "allSites",
+            siteId: "",
+            siteIds: [],
+            siteNamesById: {},
+            deviceSetIds: [],
+            deviceIdentifiers: [],
+          };
+        case "site":
+          {
+            const siteId = scope.scope.value.siteId.toString();
+            siteIds.push(siteId);
+            siteNamesById[siteId] = getSiteDisplayName(siteId, options.siteNameById);
+          }
+          break;
+        case "deviceIdentifiers":
+          deviceIdentifiers.push(...scope.scope.value.deviceIdentifiers);
+          break;
+        case "deviceSetIds":
+        case undefined:
+          break;
+      }
+    }
+    const uniqueSiteIds = [...new Set(siteIds)];
+    const siteId = uniqueSiteIds[0] ?? "";
+    return {
+      scopeType: deviceIdentifiers.length > 0 ? "explicitMiners" : uniqueSiteIds.length > 0 ? "site" : "wholeOrg",
+      scopeId:
+        uniqueSiteIds.length === 1
+          ? siteNamesById[siteId]
+          : uniqueSiteIds.length > 1
+            ? `${uniqueSiteIds.length} sites`
+            : deviceIdentifiers.length > 0
+              ? undefined
+              : "whole-org",
+      siteSelection: siteId ? "site" : "none",
+      siteId,
+      siteIds: uniqueSiteIds,
+      siteNamesById,
+      deviceSetIds: [],
+      deviceIdentifiers: [...new Set(deviceIdentifiers)],
+    };
+  }
+
   switch (event.scope.case) {
     case "site": {
       const siteId = event.scope.value.siteId.toString();
       return {
         scopeType: "site",
         scopeId: getSiteDisplayName(siteId, options.siteNameById),
+        siteSelection: "site",
         siteId,
+        siteIds: [siteId],
+        siteNamesById: { [siteId]: getSiteDisplayName(siteId, options.siteNameById) },
         deviceSetIds: [],
         deviceIdentifiers: [],
       };
@@ -91,7 +157,10 @@ function mapCurtailmentEventScopeToFormValues(
       return {
         scopeType: "explicitMiners",
         scopeId: "explicit-miners",
+        siteSelection: "none",
         siteId: "",
+        siteIds: [],
+        siteNamesById: {},
         deviceSetIds: [],
         deviceIdentifiers: [...event.scope.value.deviceIdentifiers],
       };
@@ -99,7 +168,10 @@ function mapCurtailmentEventScopeToFormValues(
       return {
         scopeType: "deviceSet",
         scopeId: "device-sets",
+        siteSelection: "none",
         siteId: "",
+        siteIds: [],
+        siteNamesById: {},
         deviceSetIds: [...event.scope.value.deviceSetIds],
         deviceIdentifiers: [],
       };
@@ -108,7 +180,10 @@ function mapCurtailmentEventScopeToFormValues(
       return {
         scopeType: "wholeOrg",
         scopeId: "whole-org",
+        siteSelection: "allSites",
         siteId: "",
+        siteIds: [],
+        siteNamesById: {},
         deviceSetIds: [],
         deviceIdentifiers: [],
       };

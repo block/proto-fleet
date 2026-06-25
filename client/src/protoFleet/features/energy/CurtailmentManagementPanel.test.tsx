@@ -9,6 +9,7 @@ import CurtailmentManagementPanel from "@/protoFleet/features/energy/Curtailment
 import type {
   CurtailmentPlanPreview,
   CurtailmentResponseProfileOption,
+  CurtailmentSiteOption,
   CurtailmentSubmitValues,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
@@ -195,6 +196,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     onSubmit,
     preview,
     responseProfiles,
+    siteOptions,
   }: {
     initialValues?: Partial<CurtailmentSubmitValues>;
     mode?: string;
@@ -202,11 +204,13 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     onSubmit: (values: CurtailmentSubmitValues) => void;
     preview?: CurtailmentPlanPreview;
     responseProfiles?: CurtailmentResponseProfileOption[];
+    siteOptions?: CurtailmentSiteOption[];
   }) => (
     <div role="dialog" aria-label={mode === "edit" ? "Manage curtailment" : "New curtailment"}>
       <div data-testid="modal-initial-reason">{initialValues?.reason ?? ""}</div>
       <div data-testid="modal-response-profiles">{responseProfiles?.map((profile) => profile.label).join(",")}</div>
       <div data-testid="modal-response-profile-values">{JSON.stringify(responseProfiles?.[0]?.values ?? {})}</div>
+      <div data-testid="modal-site-options">{siteOptions?.map((siteOption) => siteOption.name).join(",")}</div>
       <div data-testid="modal-preview">
         {preview
           ? `${preview.selectedMinerCount} miners, ${preview.targetKw} kW target, ${preview.estimatedReductionKw} kW estimated`
@@ -348,6 +352,7 @@ describe("CurtailmentManagementPanel", () => {
   });
 
   it("loads site names and passes them to curtailment hooks when the operator can read sites", async () => {
+    const user = userEvent.setup();
     mocks.useHasPermission.mockImplementation((key: string) => key === "site:read");
 
     render(<CurtailmentManagementPanel />);
@@ -365,6 +370,10 @@ describe("CurtailmentManagementPanel", () => {
       expect(apiOptions?.siteNameById?.get("101")).toBe("Austin, TX");
       expect(responseProfileOptions?.siteNameById?.get("101")).toBe("Austin, TX");
     });
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+
+    expect(screen.getByTestId("modal-site-options")).toHaveTextContent("Austin, TX");
   });
 
   it("submits planned curtailments, closes the modal, and passes refreshed history props through", async () => {
@@ -460,11 +469,69 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
     expect(screen.getByTestId("modal-response-profiles")).toHaveTextContent("Standard shed");
-    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeType":"site"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeType":"explicitMiners"');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeId":"Austin, TX"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"siteSelection":"site"');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"siteId":"101"');
-    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"deviceIdentifiers":[]');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent(
+      '"deviceIdentifiers":["miner-1","miner-2","miner-3"]',
+    );
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"targetKw":"50"');
+  });
+
+  it("passes miner-scoped response profiles to the plan modal", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentResponseProfiles.mockReturnValue({
+      responseProfiles: [
+        {
+          id: "profile-1",
+          name: "Targeted shed",
+          targetSummary: "50 kW target",
+          scope: "3 miners",
+          selectionStrategy: "Least efficient first",
+          restoreBehavior: "Restore in batches",
+          deadlineSummary: "Within 15 min",
+          formValues: {
+            name: "Targeted shed",
+            actionType: "fixedKwReduction",
+            targetKw: "50",
+            deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
+            siteId: "",
+            siteName: "",
+            selectionStrategy: "leastEfficientFirst",
+            restoreBehavior: "automaticBatchRestore",
+            minDurationSec: "300",
+            maxDurationSec: "900",
+            curtailBatchSize: "20",
+            curtailBatchIntervalSec: "60",
+            restoreBatchSize: "10",
+            restoreIntervalSec: "120",
+            responseDeadlineMinutes: "15",
+            includeMaintenance: true,
+          },
+        },
+      ],
+      isLoading: false,
+      isCreating: false,
+      updatingProfileIds: new Set(),
+      loadError: null,
+      createError: null,
+      listResponseProfiles: vi.fn(),
+      createResponseProfile: vi.fn(),
+      updateResponseProfile: vi.fn(),
+      deleteResponseProfile: vi.fn(),
+    });
+
+    render(<CurtailmentManagementPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+
+    expect(screen.getByTestId("modal-response-profiles")).toHaveTextContent("Targeted shed");
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeType":"explicitMiners"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent(
+      '"deviceIdentifiers":["miner-1","miner-2","miner-3"]',
+    );
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"siteId":""');
   });
 
   it("opens a new plan while a curtailment is already active", async () => {

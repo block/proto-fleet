@@ -3,20 +3,50 @@ import { useRef, useState } from "react";
 import MinerSelectionList, { type MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
 import Modal from "@/shared/components/Modal";
 
-interface MinerSelectionModalProps {
-  open: boolean;
+export interface MinerSelectionValue {
   selectedMinerIds: string[];
-  onDismiss: () => void;
-  onSave: (minerIds: string[]) => void;
+  allSelected: boolean;
+  totalMiners: number | undefined;
 }
 
-const MinerSelectionModal = ({ open, selectedMinerIds, onDismiss, onSave }: MinerSelectionModalProps) => {
+interface MinerSelectionModalProps {
+  open: boolean;
+  allMinersSelected?: boolean;
+  selectedMinerIds: string[];
+  onDismiss: () => void;
+  onSave: (selection: MinerSelectionValue) => void;
+}
+
+const MinerSelectionModal = ({
+  open,
+  allMinersSelected = false,
+  selectedMinerIds,
+  onDismiss,
+  onSave,
+}: MinerSelectionModalProps) => {
   const selectionRef = useRef<MinerSelectionListHandle>(null);
-  const [draftSelection, setDraftSelection] = useState<string[]>(selectedMinerIds);
+  const [draftSelection, setDraftSelection] = useState<MinerSelectionValue>({
+    selectedMinerIds,
+    allSelected: allMinersSelected,
+    totalMiners: undefined,
+  });
 
   if (!open) {
     return null;
   }
+
+  const getSelectionValue = (): MinerSelectionValue => {
+    const selection = selectionRef.current?.getSelection();
+    if (!selection) {
+      return draftSelection;
+    }
+
+    return {
+      selectedMinerIds: selection.selectedItems,
+      allSelected: selection.allSelected,
+      totalMiners: selection.totalMiners,
+    };
+  };
 
   return (
     <Modal
@@ -31,7 +61,7 @@ const MinerSelectionModal = ({ open, selectedMinerIds, onDismiss, onSave }: Mine
         {
           text: "Done",
           variant: "primary",
-          onClick: () => onSave(selectionRef.current?.getSelection().selectedItems ?? draftSelection),
+          onClick: () => onSave(getSelectionValue()),
           dismissModalOnClick: false,
         },
       ]}
@@ -39,9 +69,12 @@ const MinerSelectionModal = ({ open, selectedMinerIds, onDismiss, onSave }: Mine
       <div className="flex h-full min-h-0 flex-col gap-4">
         <MinerSelectionList
           ref={selectionRef}
-          key={selectedMinerIds.join(",")}
+          key={`${allMinersSelected ? "all" : "subset"}:${selectedMinerIds.join(",")}`}
+          initialAllSelected={allMinersSelected}
           initialSelectedItems={selectedMinerIds}
-          onSelectionChange={({ selectedItems }) => setDraftSelection(selectedItems)}
+          onSelectionChange={({ selectedItems, allSelected, totalMiners }) =>
+            setDraftSelection({ selectedMinerIds: selectedItems, allSelected, totalMiners })
+          }
         />
       </div>
     </Modal>

@@ -9,12 +9,9 @@ import {
   type PreviewCurtailmentPlanRequest,
   PreviewCurtailmentPlanRequestSchema,
   type PreviewCurtailmentPlanResponse,
-  ScopeDeviceListSchema,
-  ScopeSiteSchema,
-  ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { parseCurtailmentSiteId } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import { buildCurtailmentScopes } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -30,9 +27,12 @@ type CurtailmentPlanPreviewRequestValues = Pick<
   CurtailmentFormValues,
   | "scopeType"
   | "scopeId"
+  | "siteSelection"
   | "siteId"
+  | "siteIds"
   | "deviceSetIds"
   | "deviceIdentifiers"
+  | "minerSelectionMode"
   | "curtailmentMode"
   | "targetKw"
   | "toleranceKw"
@@ -111,54 +111,23 @@ function toApiPriority(priority: CurtailmentFormValues["priority"]): Curtailment
 function cloneRequestValues(values: CurtailmentPlanPreviewRequestValues): CurtailmentPlanPreviewRequestValues {
   return {
     ...values,
+    siteIds: values.siteIds ? [...values.siteIds] : undefined,
     deviceSetIds: [...values.deviceSetIds],
     deviceIdentifiers: [...values.deviceIdentifiers],
   };
 }
 
-function buildScope(values: CurtailmentPlanPreviewRequestValues): PreviewCurtailmentPlanRequest["scope"] | undefined {
-  switch (values.scopeType) {
-    case "wholeOrg":
-      return {
-        case: "wholeOrg",
-        value: create(ScopeWholeOrgSchema, {}),
-      };
-    case "site": {
-      const siteId = parseCurtailmentSiteId(values.siteId);
-      if (siteId === undefined) {
-        return undefined;
-      }
-      return {
-        case: "site",
-        value: create(ScopeSiteSchema, { siteId }),
-      };
-    }
-    case "deviceSet":
-      return undefined;
-    case "explicitMiners":
-      if (values.deviceIdentifiers.length === 0) {
-        return undefined;
-      }
-      return {
-        case: "deviceIdentifiers",
-        value: create(ScopeDeviceListSchema, {
-          deviceIdentifiers: values.deviceIdentifiers,
-        }),
-      };
-  }
-}
-
 export function buildPreviewCurtailmentPlanRequest(
   values: CurtailmentPlanPreviewRequestValues,
 ): PreviewCurtailmentPlanRequest | undefined {
-  const scope = buildScope(values);
+  const scopes = buildCurtailmentScopes(values);
 
-  if (scope === undefined) {
+  if (scopes === undefined) {
     return undefined;
   }
   if (values.curtailmentMode === "fullFleet") {
     return create(PreviewCurtailmentPlanRequestSchema, {
-      scope,
+      scopes,
       mode: CurtailmentMode.FULL_FLEET,
       priority: toApiPriority(values.priority),
       includeMaintenance: values.includeMaintenance,
@@ -173,7 +142,7 @@ export function buildPreviewCurtailmentPlanRequest(
   }
 
   return create(PreviewCurtailmentPlanRequestSchema, {
-    scope,
+    scopes,
     mode: CurtailmentMode.FIXED_KW,
     priority: toApiPriority(values.priority),
     modeParams: {
@@ -204,10 +173,40 @@ function formatSelectedScopeLabel(count: number, singular: string): string {
   return count === 1 ? `from 1 selected ${singular}` : `from ${count} selected ${singular}s`;
 }
 
+function formatSelectedMinerScopeLabel(count: number): string {
+  return count === 1 ? "from the selected miner" : "from selected miners";
+}
+
 function formatScopeLabel(values: CurtailmentFormValues): string {
+  if (values.minerSelectionMode === "all" || values.siteSelection === "allSites") {
+    return "across the fleet";
+  }
+
+  const selectedMinerCount = values.deviceIdentifiers?.length ?? 0;
+  const selectedSiteIds =
+    values.siteSelection === "site"
+      ? values.siteIds?.length
+        ? values.siteIds
+        : values.siteId
+          ? [values.siteId]
+          : []
+      : [];
+  const selectedSiteLabel =
+    selectedSiteIds.length === 1
+      ? values.scopeId?.trim() || `site ${selectedSiteIds[0]}`
+      : `${selectedSiteIds.length} selected sites`;
+  const siteLabel = `from ${selectedSiteLabel}`;
+  if (selectedSiteIds.length > 0 && selectedMinerCount > 0) {
+    return `${siteLabel} and selected miners`;
+  }
+  if (selectedSiteIds.length > 0) {
+    return siteLabel;
+  }
+  if (selectedMinerCount > 0) {
+    return formatSelectedMinerScopeLabel(selectedMinerCount);
+  }
+
   switch (values.scopeType) {
-    case "site":
-      return values.siteId ? `at site ${values.siteId}` : "at one site";
     case "deviceSet":
       if (values.scopeId === "racks") {
         return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "rack");
@@ -216,10 +215,9 @@ function formatScopeLabel(values: CurtailmentFormValues): string {
       if (values.scopeId === "groups") {
         return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "group");
       }
-
       return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "set");
+    case "site":
     case "explicitMiners":
-      return formatSelectedScopeLabel(values.deviceIdentifiers?.length ?? 0, "miner");
     case "wholeOrg":
     default:
       return "across the fleet";
@@ -327,9 +325,12 @@ export function useCurtailmentPlanPreview({
     () => ({
       scopeType: values.scopeType,
       scopeId: values.scopeId,
+      siteSelection: values.siteSelection,
       siteId: values.siteId,
+      siteIds: values.siteIds,
       deviceSetIds: values.deviceSetIds,
       deviceIdentifiers: values.deviceIdentifiers,
+      minerSelectionMode: values.minerSelectionMode,
       curtailmentMode: values.curtailmentMode,
       targetKw: values.targetKw,
       toleranceKw: values.toleranceKw,
@@ -339,11 +340,14 @@ export function useCurtailmentPlanPreview({
     [
       values.deviceSetIds,
       values.deviceIdentifiers,
+      values.minerSelectionMode,
       values.curtailmentMode,
       values.includeMaintenance,
       values.priority,
       values.scopeId,
+      values.siteSelection,
       values.siteId,
+      values.siteIds,
       values.scopeType,
       values.targetKw,
       values.toleranceKw,

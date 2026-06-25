@@ -166,6 +166,18 @@ function getMinerCountLabel(minerCount: number): string {
   return minerCount === 1 ? "miner" : "miners";
 }
 
+function getSiteCountLabel(siteCount: number): string {
+  return siteCount === 1 ? "site" : "sites";
+}
+
+function getDeviceSetCountLabel(deviceSetCount: number): string {
+  return deviceSetCount === 1 ? "device set" : "device sets";
+}
+
+function formatCurtailmentScopeParts(parts: string[]): string {
+  return parts.length > 0 ? parts.join(" + ") : "Unknown scope";
+}
+
 export function isActiveCurtailmentEventState(state: CurtailmentEventState): state is ActiveCurtailmentEventState {
   return activeCurtailmentEventStateSet.has(state);
 }
@@ -295,6 +307,49 @@ export function getCurtailmentEventObservedReductionKw(
 }
 
 export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent, siteNameById?: SiteNameById): string {
+  if (event.scopes.length > 0) {
+    const siteLabelsById = new Map<string, string>();
+    const deviceSetIds = new Set<string>();
+    const deviceIdentifiers = new Set<string>();
+
+    for (const scope of event.scopes) {
+      switch (scope.scope.case) {
+        case "wholeOrg":
+          return "Whole fleet";
+        case "site": {
+          const siteId = scope.scope.value.siteId.toString();
+          siteLabelsById.set(siteId, getSiteDisplayName(siteId, siteNameById));
+          break;
+        }
+        case "deviceSetIds":
+          scope.scope.value.deviceSetIds.forEach((deviceSetId) => deviceSetIds.add(deviceSetId));
+          break;
+        case "deviceIdentifiers":
+          scope.scope.value.deviceIdentifiers.forEach((deviceIdentifier) => deviceIdentifiers.add(deviceIdentifier));
+          break;
+        case undefined:
+          break;
+      }
+    }
+
+    const parts: string[] = [];
+    if (siteLabelsById.size === 1) {
+      parts.push([...siteLabelsById.values()][0]);
+    } else if (siteLabelsById.size > 1) {
+      parts.push(`${siteLabelsById.size.toLocaleString()} ${getSiteCountLabel(siteLabelsById.size)}`);
+    }
+
+    if (deviceSetIds.size > 0) {
+      parts.push(`${deviceSetIds.size.toLocaleString()} ${getDeviceSetCountLabel(deviceSetIds.size)}`);
+    }
+
+    if (deviceIdentifiers.size > 0) {
+      parts.push(`${deviceIdentifiers.size.toLocaleString()} ${getMinerCountLabel(deviceIdentifiers.size)}`);
+    }
+
+    return formatCurtailmentScopeParts(parts);
+  }
+
   switch (event.scope.case) {
     case "wholeOrg":
       return "Whole fleet";

@@ -93,14 +93,18 @@ func TestNormalizeListCandidatesParams(t *testing.T) {
 	empty := normalizeListCandidatesParams(interfaces.ListCandidatesParams{
 		OrgID:             7,
 		DeviceIdentifiers: []string{},
+		SiteIDs:           []int64{},
 	})
 	assert.Nil(t, empty.DeviceIdentifiers, "empty slices must bind as SQL NULL so they match whole-org")
+	assert.Nil(t, empty.SiteIDs, "empty site slices must bind as SQL NULL so they match whole-org")
 
 	nonEmpty := normalizeListCandidatesParams(interfaces.ListCandidatesParams{
 		OrgID:             7,
 		DeviceIdentifiers: []string{"miner-1"},
+		SiteIDs:           []int64{3},
 	})
 	assert.Equal(t, []string{"miner-1"}, nonEmpty.DeviceIdentifiers)
+	assert.Equal(t, []int64{3}, nonEmpty.SiteIDs)
 }
 
 func TestResponseProfileSiteIDsForLock(t *testing.T) {

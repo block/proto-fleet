@@ -88,11 +88,28 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/GroupSelectionModal
 }));
 
 vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal", () => ({
-  default: ({ open, onSave }: { open: boolean; onSave: (minerIds: string[]) => void }) =>
+  default: ({
+    open,
+    onSave,
+  }: {
+    open: boolean;
+    onSave: (selection: { selectedMinerIds: string[]; allSelected: boolean; totalMiners?: number }) => void;
+  }) =>
     open ? (
       <div role="dialog" aria-label="Miner selection">
-        <button type="button" onClick={() => onSave(["miner-1", "miner-2", "miner-3"])}>
+        <button
+          type="button"
+          onClick={() =>
+            onSave({ selectedMinerIds: ["miner-1", "miner-2", "miner-3"], allSelected: false, totalMiners: 3 })
+          }
+        >
           Save miners
+        </button>
+        <button
+          type="button"
+          onClick={() => onSave({ selectedMinerIds: ["miner-1", "miner-2"], allSelected: true, totalMiners: 5000 })}
+        >
+          Save all miners
         </button>
       </div>
     ) : null,
@@ -266,6 +283,7 @@ describe("CurtailmentStartModal", () => {
       screen.getByText("Applies to all miners by default. Use the options below to narrow the scope."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeEnabled();
   });
 
   it("shows curtailment mode help without opening the mode dropdown", async () => {
@@ -434,13 +452,13 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByText("Austin site shed"));
 
     expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Austin site shed");
-    expect(screen.getByRole("button", { name: /Site\s+Austin, TX/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sites\s+Austin, TX/ })).toBeInTheDocument();
 
     await user.clear(screen.getByLabelText("Fixed target reduction (kW)"));
     await user.type(screen.getByLabelText("Fixed target reduction (kW)"), "75");
 
     expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Custom plan");
-    expect(screen.getByRole("button", { name: /Site\s+Austin, TX/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sites\s+Austin, TX/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
@@ -619,8 +637,8 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByLabelText("Reason")).not.toBeInTheDocument();
     expect(screen.queryByText("No miners match this curtailment.")).not.toBeInTheDocument();
     expect(screen.getByText("Apply to")).toBeInTheDocument();
-    expect(screen.getByTestId("response-profile-scope-site-101")).toHaveTextContent("Austin, TX");
-    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sites\s+Austin, TX/ })).toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
     expect(screen.getAllByLabelText("Batch size (miners)")).toHaveLength(2);
@@ -691,17 +709,21 @@ describe("CurtailmentStartModal", () => {
         ...configuredValues,
         includeMaintenance: false,
       },
-      siteOptions,
+      siteOptions: [...siteOptions, { id: "103", name: "Calgary" }],
     });
 
-    expect(screen.getByTestId("response-profile-scope-whole-fleet")).toHaveTextContent("Whole fleet");
+    await user.click(screen.getByRole("button", { name: /Sites\s+Select/ }));
+    expect(screen.getByText("Select sites")).toBeInTheDocument();
+    expect(screen.queryByText("All miners in the fleet")).not.toBeInTheDocument();
     await user.click(screen.getByTestId("response-profile-scope-site-102"));
+    await user.click(screen.getByRole("button", { name: "Done" }));
 
     await user.click(screen.getByRole("button", { name: "Save profile" }));
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         siteId: "102",
+        siteIds: ["102"],
         scopeType: "site",
         scopeId: "Denver, CO",
         deviceSetIds: [],
@@ -710,7 +732,40 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("disables site scope when it is unavailable for the current user", () => {
+  it("selects multiple site scopes before saving a response profile", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+      siteOptions: [...siteOptions, { id: "103", name: "Calgary" }],
+    });
+
+    await user.click(screen.getByRole("button", { name: /Sites\s+Select/ }));
+    await user.click(screen.getByTestId("response-profile-scope-site-101"));
+    await user.click(screen.getByTestId("response-profile-scope-site-102"));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(screen.getByRole("button", { name: /Sites\s+2 sites/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        siteId: "101",
+        siteIds: ["101", "102"],
+        siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
+        scopeType: "site",
+        scopeId: "2 sites",
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+      }),
+    );
+  });
+
+  it("disables site scope when it is unavailable for the current user", async () => {
     renderModal({
       variant: "responseProfile",
       initialValues: configuredValues,
@@ -718,7 +773,11 @@ describe("CurtailmentStartModal", () => {
       siteScopeDisabledReason: "Site scope is not available for the current user.",
     });
 
-    expect(screen.getByTestId("response-profile-scope-site-unavailable")).toBeDisabled();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /Sites\s+Select/ }));
+
+    expect(within(screen.getByTestId("response-profile-scope-site-unavailable")).getByRole("checkbox")).toBeDisabled();
     expect(screen.getByTestId("response-profile-scope-site-unavailable")).toHaveTextContent(
       "Site scope is not available for the current user.",
     );
@@ -738,16 +797,61 @@ describe("CurtailmentStartModal", () => {
       },
     });
 
-    expect(screen.getByTestId("response-profile-scope-site-101")).toBeDisabled();
-    expect(screen.getByTestId("response-profile-scope-whole-fleet")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sites\s+Austin, TX/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Sites\s+Austin, TX/ }));
+
+    expect(within(screen.getByTestId("response-profile-scope-site-101")).getByRole("checkbox")).toBeDisabled();
+    expect(within(screen.getByTestId("response-profile-scope-site-101")).getByRole("checkbox")).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Done" }));
 
     await user.click(screen.getByRole("button", { name: "Save profile" }));
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         siteId: "101",
+        siteIds: ["101"],
         scopeType: "site",
         scopeId: "Austin, TX",
+      }),
+    );
+  });
+
+  it("clears site selection without clearing selected miners", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      siteOptions,
+      initialValues: {
+        ...configuredValues,
+        scopeType: "explicitMiners",
+        scopeId: "Austin, TX",
+        siteSelection: "site",
+        siteId: "101",
+        deviceIdentifiers: ["miner-1", "miner-2"],
+        includeMaintenance: false,
+      },
+    });
+
+    expect(screen.getByRole("button", { name: /Miners\s+2 miners/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Sites\s+Austin, TX/ }));
+    await user.click(screen.getByRole("button", { name: "Select none" }));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+2 miners/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeType: "explicitMiners",
+        scopeId: undefined,
+        siteSelection: "none",
+        siteId: "",
+        siteIds: [],
+        deviceIdentifiers: ["miner-1", "miner-2"],
       }),
     );
   });
@@ -766,17 +870,22 @@ describe("CurtailmentStartModal", () => {
       },
     });
 
-    const savedSiteRow = screen.getByTestId("response-profile-scope-site-101");
-    expect(savedSiteRow).toBeDisabled();
-    expect(savedSiteRow).toHaveTextContent("Saved site");
-    expect(within(savedSiteRow).getByRole("radio")).toBeChecked();
-    expect(screen.getByTestId("response-profile-scope-site-102")).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: /Sites\s+Austin, TX/ }));
 
+    const savedSiteRow = screen.getByTestId("response-profile-scope-site-101");
+    expect(within(savedSiteRow).getByRole("checkbox")).toBeDisabled();
+    expect(savedSiteRow).toHaveTextContent("Austin, TX");
+    expect(savedSiteRow).not.toHaveTextContent("Saved site");
+    expect(within(savedSiteRow).getByRole("checkbox")).toBeChecked();
+    expect(within(screen.getByTestId("response-profile-scope-site-102")).getByRole("checkbox")).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Done" }));
     await user.click(screen.getByRole("button", { name: "Save profile" }));
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         siteId: "101",
+        siteIds: ["101"],
         scopeType: "site",
         scopeId: "Austin, TX",
       }),
@@ -796,7 +905,10 @@ describe("CurtailmentStartModal", () => {
       },
     });
 
-    expect(screen.getByTestId("response-profile-scope-whole-fleet")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Sites\s+Select/ }));
+
     expect(screen.queryByTestId("response-profile-scope-site-austin-tx")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Save profile" }));
@@ -804,6 +916,7 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         siteId: "",
+        siteIds: [],
         scopeType: "wholeOrg",
         scopeId: "whole-org",
       }),
@@ -952,8 +1065,8 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
     expect(screen.queryByTestId("response-profile-post-event-cooldown")).not.toBeInTheDocument();
     expect(screen.getByText("Apply to")).toBeInTheDocument();
-    expect(screen.getByTestId("response-profile-scope-site-102")).toHaveTextContent("Denver, CO");
-    expect(screen.queryByRole("button", { name: /Miners\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sites\s+Denver, CO/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
 
@@ -1021,12 +1134,16 @@ describe("CurtailmentStartModal", () => {
       },
     });
 
-    await user.click(screen.getByTestId("response-profile-scope-whole-fleet"));
+    await user.click(screen.getByRole("button", { name: /Sites\s+Austin, TX/ }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Done" }));
     await user.click(screen.getByRole("button", { name: "Save profile" }));
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         siteId: "",
+        siteIds: [],
+        siteSelection: "allSites",
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         deviceSetIds: [],
@@ -1213,6 +1330,22 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
     expect(screen.getAllByText("45.0 kW of 40.0 kW")).toHaveLength(2);
     expect(screen.getAllByText("~1 minute to curtail, ~2 minutes to restore")).toHaveLength(2);
+  });
+
+  it("renders singular mixed-scope preview copy without double-counting selected miners", () => {
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview: {
+        ...preview,
+        selectedMinerCount: 1,
+        scopeLabel: "from Calgary and selected miners",
+      },
+      previewError: undefined,
+      isPreviewLoading: false,
+    });
+
+    renderModal({ initialValues: configuredValues });
+
+    expect(screen.getAllByText("Curtail 1 miner from Calgary and selected miners immediately")).toHaveLength(2);
   });
 
   it("blocks submission while the API preview reports a blocking error", async () => {
@@ -1505,6 +1638,40 @@ describe("CurtailmentStartModal", () => {
         scopeId: undefined,
         deviceSetIds: [],
         deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
+      }),
+    );
+  });
+
+  it("treats all-miner selection as whole fleet without submitting page-loaded miner ids", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      siteOptions,
+    });
+
+    await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
+    await user.click(screen.getByRole("button", { name: "Save all miners" }));
+
+    expect(screen.getByRole("button", { name: /Miners\s+All miners/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sites\s+All sites/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(
+      screen.getByText(
+        "This will curtail the whole fleet immediately. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeType: "wholeOrg",
+        scopeId: "whole-org",
+        siteSelection: "allSites",
+        siteId: "",
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+        minerSelectionMode: "all",
       }),
     );
   });

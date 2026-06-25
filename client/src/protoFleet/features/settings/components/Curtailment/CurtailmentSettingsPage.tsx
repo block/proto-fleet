@@ -156,8 +156,12 @@ const emptyResponseProfileFormValues: ResponseProfileFormValues = {
   actionType: "fullFleet",
   targetKw: "",
   deviceIdentifiers: [],
+  minerSelectionMode: "subset",
+  siteSelection: "none",
   siteId: "",
   siteName: "",
+  siteIds: [],
+  siteNamesById: {},
   selectionStrategy: "leastEfficientFirst",
   restoreBehavior: "automaticBatchRestore",
   minDurationSec: "",
@@ -222,9 +226,60 @@ function getResponseProfileDeadlineSummary(values: ResponseProfileFormValues): s
 }
 
 function getResponseProfileScopeSummary(values: ResponseProfileFormValues): string {
-  return values.siteId
-    ? values.siteName || `Site ${values.siteId}`
-    : getResponseProfileScopeLabelForActionType(values.actionType);
+  if (values.minerSelectionMode === "all") {
+    return getResponseProfileScopeLabelForActionType(values.actionType);
+  }
+
+  const siteIds = getSelectedResponseProfileSiteIds(values);
+  if (values.siteSelection === "allSites") {
+    return "All sites";
+  }
+
+  const minerCount = values.deviceIdentifiers.length;
+  const siteSummary =
+    siteIds.length === 1
+      ? getResponseProfileSiteNameForId(values, siteIds[0]) || `Site ${siteIds[0]}`
+      : `${siteIds.length} sites`;
+  if (values.siteSelection === "site" && siteIds.length > 0 && minerCount > 0) {
+    return `${siteSummary} + ${minerCount} ${minerCount === 1 ? "miner" : "miners"}`;
+  }
+
+  if (values.siteSelection === "site" && siteIds.length > 0) {
+    return siteSummary;
+  }
+
+  if (minerCount > 0) {
+    return `${minerCount} ${minerCount === 1 ? "miner" : "miners"}`;
+  }
+
+  return getResponseProfileScopeLabelForActionType(values.actionType);
+}
+
+function uniqueNonEmptyStrings(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function getSelectedResponseProfileSiteIds(
+  values: Pick<ResponseProfileFormValues, "siteSelection" | "siteId" | "siteIds">,
+): string[] {
+  const siteIds = uniqueNonEmptyStrings(
+    values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
+  );
+
+  return values.siteSelection === "site" || (values.siteSelection === undefined && siteIds.length > 0) ? siteIds : [];
+}
+
+function getResponseProfileSiteNameForId(values: Partial<ResponseProfileFormValues>, siteId: string): string {
+  return values.siteNamesById?.[siteId]?.trim() || (values.siteId === siteId ? values.siteName?.trim() : "") || "";
+}
+
+function getResponseProfileSiteNamesById(
+  values: ResponseProfileFormValues,
+  siteIds: readonly string[],
+): Record<string, string> {
+  return Object.fromEntries(
+    siteIds.map((siteId) => [siteId, getResponseProfileSiteNameForId(values, siteId) || `Site ${siteId}`]),
+  );
 }
 
 function createSiteOptions(sites: SiteWithCounts[]): CurtailmentSiteOption[] {
@@ -282,13 +337,26 @@ function createResponseProfileFromFormValues(
   existingProfiles: ResponseProfile[],
   existingProfile?: ResponseProfile,
 ): ResponseProfile {
+  const hasAllMinersSelected = values.minerSelectionMode === "all";
+  const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
+  const siteId = siteIds[0] ?? "";
   const normalizedValues: ResponseProfileFormValues = {
     ...values,
     name: values.name.trim(),
     targetKw: values.targetKw.trim(),
-    deviceIdentifiers: [],
-    siteId: values.siteId.trim(),
-    siteName: values.siteId.trim() ? values.siteName.trim() : "",
+    deviceIdentifiers: hasAllMinersSelected ? [] : [...values.deviceIdentifiers],
+    minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
+    siteSelection: hasAllMinersSelected
+      ? "allSites"
+      : siteIds.length > 0
+        ? "site"
+        : values.siteSelection === "allSites"
+          ? "allSites"
+          : "none",
+    siteId,
+    siteName: siteId ? getResponseProfileSiteNameForId(values, siteId) : "",
+    siteIds,
+    siteNamesById: getResponseProfileSiteNamesById(values, siteIds),
     minDurationSec: values.minDurationSec.trim(),
     maxDurationSec: values.maxDurationSec.trim(),
     curtailBatchSize: values.curtailBatchSize.trim(),
@@ -311,13 +379,25 @@ function createResponseProfileFromFormValues(
 }
 
 function removeResponseProfileScope(values: ResponseProfileFormValues): ResponseProfileFormValues {
-  const siteId = values.siteId.trim();
+  const hasAllMinersSelected = values.minerSelectionMode === "all";
+  const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
+  const siteId = siteIds[0] ?? "";
 
   return {
     ...values,
-    deviceIdentifiers: [],
+    deviceIdentifiers: hasAllMinersSelected ? [] : [...values.deviceIdentifiers],
+    minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
+    siteSelection: hasAllMinersSelected
+      ? "allSites"
+      : siteIds.length > 0
+        ? "site"
+        : values.siteSelection === "allSites"
+          ? "allSites"
+          : "none",
     siteId,
-    siteName: siteId ? values.siteName.trim() : "",
+    siteName: siteId ? getResponseProfileSiteNameForId(values, siteId) : "",
+    siteIds,
+    siteNamesById: getResponseProfileSiteNamesById(values, siteIds),
   };
 }
 
@@ -334,8 +414,12 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     actionType,
     targetKw: targetKwMatch?.[1] ?? "",
     deviceIdentifiers: [],
+    minerSelectionMode: "subset",
+    siteSelection: "none",
     siteId: "",
     siteName: "",
+    siteIds: [],
+    siteNamesById: {},
     selectionStrategy: getOptionValueByLabel(
       responseProfileSelectionStrategyOptions,
       profile.selectionStrategy,
@@ -369,15 +453,44 @@ function createCurtailmentFormValuesFromResponseProfile(
   const restoreBatchSize =
     values.restoreBatchSize ||
     (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
-  const siteId = values.siteId.trim();
-  const siteName = siteId ? values.siteName || `Site ${siteId}` : "";
+  const hasAllMinersSelected = values.minerSelectionMode === "all";
+  const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
+  const siteId = siteIds[0] ?? "";
+  const siteNamesById = getResponseProfileSiteNamesById(values, siteIds);
+  const siteName = siteId ? siteNamesById[siteId] || `Site ${siteId}` : "";
+  const deviceIdentifiers = hasAllMinersSelected ? [] : [...values.deviceIdentifiers];
+  const siteSelection = hasAllMinersSelected
+    ? "allSites"
+    : siteIds.length > 0
+      ? "site"
+      : values.siteSelection === "allSites"
+        ? "allSites"
+        : "none";
 
   return {
-    scopeType: siteId ? "site" : "wholeOrg",
-    scopeId: siteId ? siteName : "whole-org",
+    scopeType: hasAllMinersSelected
+      ? "wholeOrg"
+      : deviceIdentifiers.length > 0
+        ? "explicitMiners"
+        : siteIds.length > 0
+          ? "site"
+          : "wholeOrg",
+    scopeId: hasAllMinersSelected
+      ? "whole-org"
+      : siteIds.length > 0
+        ? siteIds.length === 1
+          ? siteName
+          : `${siteIds.length} sites`
+        : deviceIdentifiers.length > 0
+          ? undefined
+          : "whole-org",
+    siteSelection,
     siteId,
+    siteIds,
+    siteNamesById,
     deviceSetIds: [],
-    deviceIdentifiers: [],
+    deviceIdentifiers,
+    minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     responseProfileId: "customPlan",
     curtailmentMode: values.actionType,
     minerSelectionStrategy: values.selectionStrategy,
@@ -410,16 +523,34 @@ function getResponseProfileRestoreBehavior(
 function createResponseProfileFormValuesFromCurtailmentValues(
   values: CurtailmentSubmitValues,
 ): ResponseProfileFormValues {
-  const siteId = values.scopeType === "site" ? (values.siteId ?? "") : "";
-  const siteName = siteId ? (values.scopeId ?? "") : "";
+  const hasAllMinersSelected = values.minerSelectionMode === "all";
+  const siteIds =
+    hasAllMinersSelected || values.siteSelection !== "site"
+      ? []
+      : uniqueNonEmptyStrings(values.siteIds ?? (values.siteId ? [values.siteId] : []));
+  const siteId = siteIds[0] ?? "";
+  const siteNamesById = Object.fromEntries(
+    siteIds.map((currentSiteId) => [
+      currentSiteId,
+      values.siteNamesById?.[currentSiteId] ??
+        (values.siteId === currentSiteId ? values.scopeId : undefined) ??
+        `Site ${currentSiteId}`,
+    ]),
+  );
+  const siteName = siteId ? siteNamesById[siteId] : "";
+  const deviceIdentifiers = hasAllMinersSelected ? [] : [...values.deviceIdentifiers];
 
   return {
     name: values.reason,
     actionType: values.curtailmentMode,
     targetKw: values.targetKw,
-    deviceIdentifiers: [],
-    siteId,
-    siteName,
+    deviceIdentifiers,
+    minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
+    siteSelection: hasAllMinersSelected ? "allSites" : values.siteSelection,
+    siteId: hasAllMinersSelected ? "" : siteId,
+    siteName: hasAllMinersSelected ? "" : siteName,
+    siteIds: hasAllMinersSelected ? [] : siteIds,
+    siteNamesById: hasAllMinersSelected ? {} : siteNamesById,
     selectionStrategy: values.minerSelectionStrategy,
     restoreBehavior: getResponseProfileRestoreBehavior(values),
     minDurationSec: values.minDurationSec,
@@ -1687,7 +1818,10 @@ function CurtailmentSettingsPage(): ReactElement {
   }, []);
 
   const hasSiteScopedResponseProfiles = useMemo(
-    () => responseProfiles.some((profile) => Boolean(profile.formValues?.siteId.trim())),
+    () =>
+      responseProfiles.some(
+        (profile) => getSelectedResponseProfileSiteIds(profile.formValues ?? emptyResponseProfileFormValues).length > 0,
+      ),
     [responseProfiles],
   );
 

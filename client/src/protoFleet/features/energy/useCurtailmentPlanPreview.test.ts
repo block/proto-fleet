@@ -107,7 +107,7 @@ describe("useCurtailmentPlanPreview", () => {
 
   it("builds supported fixed-kW preview requests", () => {
     const wholeFleetRequest = buildPreviewCurtailmentPlanRequest(baseValues);
-    expect(wholeFleetRequest?.scope.case).toBe("wholeOrg");
+    expect(wholeFleetRequest?.scopes[0]?.scope.case).toBe("wholeOrg");
     expect(wholeFleetRequest?.mode).toBe(CurtailmentMode.FIXED_KW);
     expect(wholeFleetRequest?.modeParams.case).toBe("fixedKw");
     if (wholeFleetRequest?.modeParams.case !== "fixedKw") {
@@ -125,13 +125,24 @@ describe("useCurtailmentPlanPreview", () => {
       includeMaintenance: false,
     });
 
-    expect(minerRequest?.scope.case).toBe("deviceIdentifiers");
-    if (minerRequest?.scope.case !== "deviceIdentifiers") {
+    expect(minerRequest?.scopes[0]?.scope.case).toBe("deviceIdentifiers");
+    if (minerRequest?.scopes[0]?.scope.case !== "deviceIdentifiers") {
       throw new Error("Expected deviceIdentifiers scope");
     }
-    expect(minerRequest.scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
+    expect(minerRequest.scopes[0].scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
     expect(minerRequest.includeMaintenance).toBe(false);
     expect(minerRequest.forceIncludeMaintenance).toBe(false);
+
+    const allMinerRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      scopeType: "wholeOrg",
+      siteSelection: "site",
+      siteId: "42",
+      minerSelectionMode: "all",
+      deviceIdentifiers: ["miner-1", "miner-2"],
+    });
+
+    expect(allMinerRequest?.scopes[0]?.scope.case).toBe("wholeOrg");
 
     const siteRequest = buildPreviewCurtailmentPlanRequest({
       ...baseValues,
@@ -140,11 +151,23 @@ describe("useCurtailmentPlanPreview", () => {
       siteId: " 42 ",
     });
 
-    expect(siteRequest?.scope.case).toBe("site");
-    if (siteRequest?.scope.case !== "site") {
+    expect(siteRequest?.scopes[0]?.scope.case).toBe("site");
+    if (siteRequest?.scopes[0]?.scope.case !== "site") {
       throw new Error("Expected site scope");
     }
-    expect(siteRequest.scope.value.siteId).toBe(42n);
+    expect(siteRequest.scopes[0].scope.value.siteId).toBe(42n);
+
+    const multiSiteRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      scopeType: "explicitMiners",
+      siteSelection: "site",
+      scopeId: "2 sites",
+      siteId: "42",
+      siteIds: ["42", "43"],
+      deviceIdentifiers: ["miner-1"],
+    });
+
+    expect(multiSiteRequest?.scopes.map((scope) => scope.scope.case)).toEqual(["site", "site", "deviceIdentifiers"]);
   });
 
   it("builds full-fleet preview requests without requiring fixed-kW params", () => {
@@ -155,7 +178,7 @@ describe("useCurtailmentPlanPreview", () => {
       toleranceKw: "",
     });
 
-    expect(request?.scope.case).toBe("wholeOrg");
+    expect(request?.scopes[0]?.scope.case).toBe("wholeOrg");
     expect(request?.mode).toBe(CurtailmentMode.FULL_FLEET);
     expect(request?.modeParams.case).toBeUndefined();
     expect(request?.includeMaintenance).toBe(true);
@@ -259,10 +282,11 @@ describe("useCurtailmentPlanPreview", () => {
   it("fetches site-scoped previews with the selected site id", async () => {
     mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
 
-    renderPreviewHook({
+    const { result } = renderPreviewHook({
       ...baseValues,
       scopeType: "site",
-      scopeId: "site-42",
+      siteSelection: "site",
+      scopeId: "Austin, TX",
       siteId: "42",
     });
 
@@ -271,11 +295,44 @@ describe("useCurtailmentPlanPreview", () => {
     });
 
     const request = mockPreviewCurtailmentPlan.mock.calls[0][0];
-    expect(request.scope.case).toBe("site");
-    if (request.scope.case !== "site") {
+    expect(request.scopes[0]?.scope.case).toBe("site");
+    if (request.scopes[0]?.scope.case !== "site") {
       throw new Error("Expected site scope");
     }
-    expect(request.scope.value.siteId).toBe(42n);
+    expect(request.scopes[0].scope.value.siteId).toBe(42n);
+    expect(result.current.preview).toEqual(expect.objectContaining({ scopeLabel: "from Austin, TX" }));
+  });
+
+  it("uses the site label in mixed site and miner preview labels", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
+
+    const { result } = renderPreviewHook({
+      ...baseValues,
+      scopeType: "explicitMiners",
+      siteSelection: "site",
+      scopeId: "Austin, TX",
+      siteId: "42",
+      deviceIdentifiers: ["miner-1", "miner-2"],
+    });
+
+    await waitFor(() => {
+      expect(result.current.preview?.scopeLabel).toBe("from Austin, TX and selected miners");
+    });
+  });
+
+  it("uses selected-miner preview labels without repeating the selected count", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse(1));
+
+    const { result } = renderPreviewHook({
+      ...baseValues,
+      scopeType: "explicitMiners",
+      scopeId: undefined,
+      deviceIdentifiers: ["miner-1"],
+    });
+
+    await waitFor(() => {
+      expect(result.current.preview?.scopeLabel).toBe("from the selected miner");
+    });
   });
 
   it("maps full-fleet previews against the estimated fleet reduction", async () => {

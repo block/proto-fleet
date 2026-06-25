@@ -2,6 +2,7 @@ import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } 
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
+import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildSiteNameById } from "@/protoFleet/api/siteNames";
 import { useSites } from "@/protoFleet/api/sites";
 import {
@@ -19,6 +20,7 @@ import CurtailmentHistory, { type CurtailmentHistoryEvent } from "@/protoFleet/f
 import CurtailmentStartModal, {
   type CurtailmentPlanPreview,
   type CurtailmentResponseProfileOption,
+  type CurtailmentSiteOption,
   type CurtailmentStartModalMode,
   type CurtailmentSubmitValues,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
@@ -91,15 +93,65 @@ function minutesToSeconds(value: string): string {
   return String(minutes * 60);
 }
 
+function createSiteOptions(sites: SiteWithCounts[]): CurtailmentSiteOption[] {
+  return sites
+    .flatMap((siteWithCounts) => {
+      const site = siteWithCounts.site;
+      const id = site?.id ? site.id.toString() : "";
+
+      return id ? [{ id, name: site?.name || `Site ${id}` }] : [];
+    })
+    .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+}
+
+function uniqueNonEmptyStrings(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function getSelectedResponseProfileSiteIds(
+  values: Pick<ResponseProfileFormValues, "siteSelection" | "siteId" | "siteIds">,
+): string[] {
+  const siteIds = uniqueNonEmptyStrings(
+    values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
+  );
+
+  return values.siteSelection === "site" || (values.siteSelection === undefined && siteIds.length > 0) ? siteIds : [];
+}
+
+function getResponseProfileSiteNameForId(values: Partial<ResponseProfileFormValues>, siteId: string): string {
+  return values.siteNamesById?.[siteId]?.trim() || (values.siteId === siteId ? values.siteName?.trim() : "") || "";
+}
+
+function getResponseProfileSiteNamesById(
+  values: ResponseProfileFormValues,
+  siteIds: readonly string[],
+): Record<string, string> {
+  return Object.fromEntries(
+    siteIds.map((siteId) => [siteId, getResponseProfileSiteNameForId(values, siteId) || `Site ${siteId}`]),
+  );
+}
+
 function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): ResponseProfileFormValues {
   if (profile.formValues) {
-    const siteId = profile.formValues.siteId.trim();
+    const hasAllMinersSelected = profile.formValues.minerSelectionMode === "all";
+    const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(profile.formValues);
+    const siteId = siteIds[0] ?? "";
 
     return {
       ...profile.formValues,
-      deviceIdentifiers: [],
+      deviceIdentifiers: hasAllMinersSelected ? [] : [...profile.formValues.deviceIdentifiers],
+      minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
+      siteSelection: hasAllMinersSelected
+        ? "allSites"
+        : siteIds.length > 0
+          ? "site"
+          : profile.formValues.siteSelection === "allSites"
+            ? "allSites"
+            : "none",
       siteId,
-      siteName: siteId ? profile.formValues.siteName.trim() : "",
+      siteName: siteId ? getResponseProfileSiteNameForId(profile.formValues, siteId) : "",
+      siteIds,
+      siteNamesById: getResponseProfileSiteNamesById(profile.formValues, siteIds),
     };
   }
 
@@ -112,8 +164,12 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     actionType,
     targetKw: targetKwMatch?.[1] ?? "",
     deviceIdentifiers: [],
+    minerSelectionMode: "subset",
+    siteSelection: "none",
     siteId: "",
     siteName: "",
+    siteIds: [],
+    siteNamesById: {},
     selectionStrategy: "leastEfficientFirst",
     restoreBehavior: profile.restoreBehavior.toLowerCase().includes("immediate")
       ? "automaticImmediateRestore"
@@ -134,18 +190,47 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
   const restoreBatchSize =
     values.restoreBatchSize ||
     (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
-  const siteId = values.siteId.trim();
-  const siteName = siteId ? values.siteName || `Site ${siteId}` : "";
+  const hasAllMinersSelected = values.minerSelectionMode === "all";
+  const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
+  const siteId = siteIds[0] ?? "";
+  const siteNamesById = getResponseProfileSiteNamesById(values, siteIds);
+  const siteName = siteId ? siteNamesById[siteId] || `Site ${siteId}` : "";
+  const deviceIdentifiers = hasAllMinersSelected ? [] : [...values.deviceIdentifiers];
+  const siteSelection = hasAllMinersSelected
+    ? "allSites"
+    : siteIds.length > 0
+      ? "site"
+      : values.siteSelection === "allSites"
+        ? "allSites"
+        : "none";
 
   return {
     id: profile.id,
     label: profile.name,
     values: {
-      scopeType: siteId ? "site" : "wholeOrg",
-      scopeId: siteId ? siteName : "whole-org",
+      scopeType: hasAllMinersSelected
+        ? "wholeOrg"
+        : deviceIdentifiers.length > 0
+          ? "explicitMiners"
+          : siteIds.length > 0
+            ? "site"
+            : "wholeOrg",
+      scopeId: hasAllMinersSelected
+        ? "whole-org"
+        : siteIds.length > 0
+          ? siteIds.length === 1
+            ? siteName
+            : `${siteIds.length} sites`
+          : deviceIdentifiers.length > 0
+            ? undefined
+            : "whole-org",
+      siteSelection,
       siteId,
+      siteIds,
+      siteNamesById,
       deviceSetIds: [],
-      deviceIdentifiers: [],
+      deviceIdentifiers,
+      minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
       curtailmentMode: values.actionType,
       minerSelectionStrategy: values.selectionStrategy,
       targetKw: values.targetKw,
@@ -289,23 +374,47 @@ function CurtailmentManagementPanel({
   const canReadSiteCatalog = useHasPermission("site:read");
   const { listSites } = useSites();
   const [loadedSiteNameById, setLoadedSiteNameById] = useState(() => new Map<string, string>());
+  const [siteOptions, setSiteOptions] = useState<CurtailmentSiteOption[]>([]);
+  const [isLoadingSiteOptions, setIsLoadingSiteOptions] = useState(false);
+  const [siteOptionsLoadError, setSiteOptionsLoadError] = useState<string | null>(null);
+  /* eslint-disable react-hooks/set-state-in-effect -- site catalog fetch mirrors external permission/load state into modal options */
   useEffect(() => {
     if (!canReadSiteCatalog) {
+      setLoadedSiteNameById(new Map());
+      setSiteOptions([]);
+      setIsLoadingSiteOptions(false);
+      setSiteOptionsLoadError(null);
       return undefined;
     }
 
     const abortController = new AbortController();
+    setIsLoadingSiteOptions(true);
+    setSiteOptionsLoadError(null);
     void listSites({
       signal: abortController.signal,
       onSuccess: (sites) => {
         if (!abortController.signal.aborted) {
           setLoadedSiteNameById(buildSiteNameById(sites));
+          setSiteOptions(createSiteOptions(sites));
+        }
+      },
+      onError: (message) => {
+        if (!abortController.signal.aborted) {
+          setSiteOptionsLoadError(message || "Couldn't load sites.");
+        }
+      },
+      onFinally: () => {
+        if (!abortController.signal.aborted) {
+          setIsLoadingSiteOptions(false);
         }
       },
     });
 
-    return () => abortController.abort();
+    return () => {
+      abortController.abort();
+    };
   }, [canReadSiteCatalog, listSites]);
+  /* eslint-enable react-hooks/set-state-in-effect */
   const siteNameById = canReadSiteCatalog ? loadedSiteNameById : undefined;
   const {
     activeEvent,
@@ -779,6 +888,14 @@ function CurtailmentManagementPanel({
           mode={modalMode}
           initialValues={isEditingCurtailment ? (editSession?.initialValues ?? undefined) : undefined}
           responseProfiles={isEditingCurtailment ? [] : responseProfileOptions}
+          siteOptions={siteOptions}
+          siteScopeEnabled={siteOptions.length > 0 || isLoadingSiteOptions}
+          isSiteScopeLoading={isLoadingSiteOptions}
+          siteScopeDisabledReason={
+            canReadSiteCatalog
+              ? (siteOptionsLoadError ?? undefined)
+              : "Site scope is not available for the current user."
+          }
           preview={isEditingCurtailment ? editSession?.preview : undefined}
           onDismiss={closeModal}
           onSubmit={handleModalSubmit}

@@ -100,6 +100,9 @@ func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curta
 }
 
 func toScope(msg *pb.PreviewCurtailmentPlanRequest) (curtailment.Scope, error) {
+	if scopes := msg.GetScopes(); len(scopes) > 0 {
+		return toCompositeScope(scopes)
+	}
 	switch s := msg.GetScope().(type) {
 	case *pb.PreviewCurtailmentPlanRequest_WholeOrg:
 		return curtailment.Scope{Type: models.ScopeTypeWholeOrg}, nil
@@ -239,6 +242,9 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 // toStartScope mirrors toScope. The two oneofs are structurally identical
 // but typed separately by protoc-gen-go, so the switches can't merge.
 func toStartScope(msg *pb.StartCurtailmentRequest) (curtailment.Scope, error) {
+	if scopes := msg.GetScopes(); len(scopes) > 0 {
+		return toCompositeScope(scopes)
+	}
 	switch s := msg.GetScope().(type) {
 	case *pb.StartCurtailmentRequest_WholeOrg:
 		return curtailment.Scope{Type: models.ScopeTypeWholeOrg}, nil
@@ -264,6 +270,59 @@ func toStartScope(msg *pb.StartCurtailmentRequest) (curtailment.Scope, error) {
 	}
 }
 
+func toCompositeScope(scopes []*pb.CurtailmentScope) (curtailment.Scope, error) {
+	if len(scopes) == 0 {
+		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
+			"scope is required: set whole_org, site, device_set_ids, or device_identifiers",
+		)
+	}
+	var siteIDs []int64
+	var deviceSetIDs []string
+	var deviceIdentifiers []string
+	for _, scope := range scopes {
+		if scope == nil {
+			return curtailment.Scope{}, fleeterror.NewInvalidArgumentError("scope entries must be set")
+		}
+		switch s := scope.GetScope().(type) {
+		case *pb.CurtailmentScope_WholeOrg:
+			return curtailment.Scope{Type: models.ScopeTypeWholeOrg}, nil
+		case *pb.CurtailmentScope_DeviceSetIds:
+			deviceSetIDs = append(deviceSetIDs, s.DeviceSetIds.GetDeviceSetIds()...)
+		case *pb.CurtailmentScope_DeviceIdentifiers:
+			deviceIdentifiers = append(deviceIdentifiers, s.DeviceIdentifiers.GetDeviceIdentifiers()...)
+		case *pb.CurtailmentScope_Site:
+			siteIDs = append(siteIDs, s.Site.GetSiteId())
+		default:
+			return curtailment.Scope{}, fleeterror.NewInvalidArgumentError("scope entries must set a selector")
+		}
+	}
+	switch {
+	case len(deviceSetIDs) > 0:
+		return curtailment.Scope{
+			Type:              models.ScopeTypeDeviceSets,
+			SiteIDs:           siteIDs,
+			DeviceSetIDs:      deviceSetIDs,
+			DeviceIdentifiers: deviceIdentifiers,
+		}, nil
+	case len(siteIDs) > 0 && len(deviceIdentifiers) > 0:
+		return curtailment.Scope{
+			Type:              models.ScopeTypeMixed,
+			SiteIDs:           siteIDs,
+			DeviceIdentifiers: deviceIdentifiers,
+		}, nil
+	case len(siteIDs) > 1:
+		return curtailment.Scope{Type: models.ScopeTypeMixed, SiteIDs: siteIDs}, nil
+	case len(siteIDs) == 1:
+		return curtailment.Scope{Type: models.ScopeTypeSite, SiteID: siteIDs[0], SiteIDs: siteIDs}, nil
+	case len(deviceIdentifiers) > 0:
+		return curtailment.Scope{Type: models.ScopeTypeDeviceList, DeviceIdentifiers: deviceIdentifiers}, nil
+	default:
+		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
+			"scope is required: set whole_org, site, device_set_ids, or device_identifiers",
+		)
+	}
+}
+
 // startResponseState mirrors the persisted state for the synchronous Start response.
 func startResponseState(req *pb.StartCurtailmentRequest, selected int) pb.CurtailmentEventState {
 	if isClosedLoopFullFleetStartResponse(req) {
@@ -278,6 +337,18 @@ func startResponseState(req *pb.StartCurtailmentRequest, selected int) pb.Curtai
 func isClosedLoopFullFleetStartResponse(req *pb.StartCurtailmentRequest) bool {
 	if req.GetMode() != pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET {
 		return false
+	}
+	if scopes := req.GetScopes(); len(scopes) > 0 {
+		scope, err := toCompositeScope(scopes)
+		if err != nil {
+			return false
+		}
+		switch scope.Type {
+		case models.ScopeTypeWholeOrg, models.ScopeTypeSite:
+			return true
+		default:
+			return false
+		}
 	}
 	switch req.GetScope().(type) {
 	case *pb.StartCurtailmentRequest_WholeOrg, *pb.StartCurtailmentRequest_Site:
@@ -319,15 +390,22 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	if plan.EndedAt != nil {
 		event.EndedAt = timestamppb.New(*plan.EndedAt)
 	}
-	switch s := req.GetScope().(type) {
-	case *pb.StartCurtailmentRequest_WholeOrg:
-		event.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: s.WholeOrg}
-	case *pb.StartCurtailmentRequest_DeviceSetIds:
-		event.Scope = &pb.CurtailmentEvent_DeviceSetIds{DeviceSetIds: s.DeviceSetIds}
-	case *pb.StartCurtailmentRequest_DeviceIdentifiers:
-		event.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{DeviceIdentifiers: s.DeviceIdentifiers}
-	case *pb.StartCurtailmentRequest_Site:
-		event.Scope = &pb.CurtailmentEvent_Site{Site: s.Site}
+	if scopes := req.GetScopes(); len(scopes) > 0 {
+		event.Scopes = scopes
+		if len(scopes) == 1 {
+			populateLegacyEventScopeFromComposite(event, scopes[0])
+		}
+	} else {
+		switch s := req.GetScope().(type) {
+		case *pb.StartCurtailmentRequest_WholeOrg:
+			event.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: s.WholeOrg}
+		case *pb.StartCurtailmentRequest_DeviceSetIds:
+			event.Scope = &pb.CurtailmentEvent_DeviceSetIds{DeviceSetIds: s.DeviceSetIds}
+		case *pb.StartCurtailmentRequest_DeviceIdentifiers:
+			event.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{DeviceIdentifiers: s.DeviceIdentifiers}
+		case *pb.StartCurtailmentRequest_Site:
+			event.Scope = &pb.CurtailmentEvent_Site{Site: s.Site}
+		}
 	}
 	if req.GetMode() == pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET {
 		event.ModeParams = &pb.CurtailmentEvent_FullFleet{FullFleet: &pb.FullFleetParams{}}
@@ -361,6 +439,22 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	}
 
 	return &pb.StartCurtailmentResponse{Event: event}
+}
+
+func populateLegacyEventScopeFromComposite(event *pb.CurtailmentEvent, scope *pb.CurtailmentScope) {
+	if event == nil || scope == nil {
+		return
+	}
+	switch s := scope.GetScope().(type) {
+	case *pb.CurtailmentScope_WholeOrg:
+		event.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: s.WholeOrg}
+	case *pb.CurtailmentScope_DeviceSetIds:
+		event.Scope = &pb.CurtailmentEvent_DeviceSetIds{DeviceSetIds: s.DeviceSetIds}
+	case *pb.CurtailmentScope_DeviceIdentifiers:
+		event.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{DeviceIdentifiers: s.DeviceIdentifiers}
+	case *pb.CurtailmentScope_Site:
+		event.Scope = &pb.CurtailmentEvent_Site{Site: s.Site}
+	}
 }
 
 func effectiveRestoreBatchIntervalSec(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) uint32 {
@@ -790,34 +884,72 @@ func toEventProtoWithTargets(event *models.Event, targets []*models.Target) *pb.
 func populateEventScope(out *pb.CurtailmentEvent, event *models.Event) {
 	switch event.ScopeType {
 	case models.ScopeTypeWholeOrg, "":
-		out.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}}
+		wholeOrg := &pb.ScopeWholeOrg{}
+		out.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: wholeOrg}
+		out.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: wholeOrg}}}
 	case models.ScopeTypeSite:
 		var payload struct {
 			SiteID int64 `json:"site_id"`
 		}
 		if err := json.Unmarshal(event.ScopeJSON, &payload); err == nil {
-			out.Scope = &pb.CurtailmentEvent_Site{
-				Site: &pb.ScopeSite{SiteId: payload.SiteID},
-			}
+			site := &pb.ScopeSite{SiteId: payload.SiteID}
+			out.Scope = &pb.CurtailmentEvent_Site{Site: site}
+			out.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Site{Site: site}}}
 		}
 	case models.ScopeTypeDeviceList:
 		var payload struct {
 			DeviceIdentifiers []string `json:"device_identifiers"`
 		}
 		if err := json.Unmarshal(event.ScopeJSON, &payload); err == nil {
-			out.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{
-				DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: payload.DeviceIdentifiers},
-			}
+			devices := &pb.ScopeDeviceList{DeviceIdentifiers: payload.DeviceIdentifiers}
+			out.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{DeviceIdentifiers: devices}
+			out.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_DeviceIdentifiers{DeviceIdentifiers: devices}}}
 		}
 	case models.ScopeTypeDeviceSets:
 		var payload struct {
 			DeviceSetIDs []string `json:"device_set_ids"`
 		}
 		if err := json.Unmarshal(event.ScopeJSON, &payload); err == nil {
-			out.Scope = &pb.CurtailmentEvent_DeviceSetIds{
-				DeviceSetIds: &pb.ScopeDeviceSets{DeviceSetIds: payload.DeviceSetIDs},
-			}
+			sets := &pb.ScopeDeviceSets{DeviceSetIds: payload.DeviceSetIDs}
+			out.Scope = &pb.CurtailmentEvent_DeviceSetIds{DeviceSetIds: sets}
+			out.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_DeviceSetIds{DeviceSetIds: sets}}}
 		}
+	case models.ScopeTypeMixed:
+		if scope, hasScope, err := curtailment.ScopeFromJSON(event.ScopeJSON); err == nil && hasScope {
+			out.Scopes = protoScopesFromDomainScope(scope)
+		}
+	}
+}
+
+func protoScopesFromDomainScope(scope curtailment.Scope) []*pb.CurtailmentScope {
+	switch scope.Type {
+	case models.ScopeTypeWholeOrg, "":
+		return []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}}}}
+	case models.ScopeTypeSite:
+		return []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: scope.SiteID}}}}
+	case models.ScopeTypeDeviceList:
+		return []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+			DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: scope.DeviceIdentifiers},
+		}}}
+	case models.ScopeTypeDeviceSets:
+		return []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_DeviceSetIds{
+			DeviceSetIds: &pb.ScopeDeviceSets{DeviceSetIds: scope.DeviceSetIDs},
+		}}}
+	case models.ScopeTypeMixed:
+		out := make([]*pb.CurtailmentScope, 0, len(scope.SiteIDs)+1)
+		for _, siteID := range scope.SiteIDs {
+			out = append(out, &pb.CurtailmentScope{Scope: &pb.CurtailmentScope_Site{
+				Site: &pb.ScopeSite{SiteId: siteID},
+			}})
+		}
+		if len(scope.DeviceIdentifiers) > 0 {
+			out = append(out, &pb.CurtailmentScope{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+				DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: scope.DeviceIdentifiers},
+			}})
+		}
+		return out
+	default:
+		return nil
 	}
 }
 

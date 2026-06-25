@@ -463,8 +463,7 @@ func TestService_Start_PersistsSiteScope(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 	require.Len(t, plan.Selected, 1)
-	require.NotNil(t, store.lastListCandidatesSiteID)
-	assert.Equal(t, siteID, *store.lastListCandidatesSiteID)
+	assert.Equal(t, []int64{siteID}, store.lastListCandidatesSiteIDs)
 	assert.Equal(t, models.ScopeTypeSite, store.lastInsertEvent.ScopeType)
 	assert.JSONEq(t, `{"site_id":99}`, string(store.lastInsertEvent.ScopeJSON))
 }

@@ -37,15 +37,21 @@ export type CurtailmentSourceFormValues = {
 
 export type ResponseProfileActionType = "fullFleet" | "fixedKwReduction";
 export type ResponseProfileSelectionStrategy = "leastEfficientFirst";
+export type ResponseProfileMinerSelectionMode = "subset" | "all";
 export type ResponseProfileRestoreBehavior = "automaticBatchRestore" | "automaticImmediateRestore";
+export type ResponseProfileSiteSelection = "none" | "allSites" | "site";
 
 export type ResponseProfileFormValues = {
   name: string;
   actionType: ResponseProfileActionType;
   targetKw: string;
   deviceIdentifiers: string[];
+  minerSelectionMode?: ResponseProfileMinerSelectionMode;
+  siteSelection?: ResponseProfileSiteSelection;
   siteId: string;
   siteName: string;
+  siteIds?: string[];
+  siteNamesById?: Record<string, string>;
   selectionStrategy: ResponseProfileSelectionStrategy;
   restoreBehavior: ResponseProfileRestoreBehavior;
   minDurationSec: string;

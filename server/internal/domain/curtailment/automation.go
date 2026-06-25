@@ -483,9 +483,9 @@ func automationSignalFromMQTTTarget(target mqttingest.Target) (models.Automation
 }
 
 func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *models.ResponseProfile, signal mqttingest.SignalEdge) StartRequest {
-	scope := Scope{Type: models.ScopeTypeWholeOrg}
-	if profile.SiteID != nil {
-		scope = Scope{Type: models.ScopeTypeSite, SiteID: *profile.SiteID}
+	scope, err := ResponseProfileScope(*profile)
+	if err != nil {
+		scope = Scope{Type: models.ScopeTypeDeviceList}
 	}
 	targetKW := float64Value(profile.TargetKW)
 	toleranceKW := float64Value(profile.ToleranceKW)

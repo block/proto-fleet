@@ -61,12 +61,12 @@ type fakeStore struct {
 	lastCooldownOrgID       int64
 	lastCooldownSec         int32
 	lastCooldownFilter      []string
-	lastCooldownSiteID      *int64
+	lastCooldownSiteIDs     []int64
 
-	heartbeatCalls           int
-	lastHeartbeatActive      int32
-	lastHeartbeatTickUUID    uuid.UUID
-	lastListCandidatesSiteID *int64
+	heartbeatCalls            int
+	lastHeartbeatActive       int32
+	lastHeartbeatTickUUID     uuid.UUID
+	lastListCandidatesSiteIDs []int64
 
 	// BeginRestoreTransition captures, exercised by max_duration tests.
 	beginRestoreCalls       int
@@ -111,7 +111,7 @@ func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(
 	f.lastCooldownOrgID = params.OrgID
 	f.lastCooldownSec = params.CooldownSec
 	f.lastCooldownFilter = append([]string(nil), params.DeviceIdentifiers...)
-	f.lastCooldownSiteID = params.SiteID
+	f.lastCooldownSiteIDs = append([]int64(nil), params.SiteIDs...)
 	return append([]string(nil), f.cooldownDevices...), nil
 }
 func (f *fakeStore) SiteBelongsToOrg(context.Context, int64, int64) (bool, error) {
@@ -201,10 +201,7 @@ func (f *fakeStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*
 }
 
 func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
-	if params.SiteID != nil {
-		siteID := *params.SiteID
-		f.lastListCandidatesSiteID = &siteID
-	}
+	f.lastListCandidatesSiteIDs = append([]int64(nil), params.SiteIDs...)
 	if len(params.DeviceIdentifiers) == 0 {
 		return f.candidates, nil
 	}
@@ -989,11 +986,9 @@ func TestReconciler_ActiveClosedLoopFullFleetUsesPersistedSiteScope(t *testing.T
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
 
-	require.NotNil(t, store.lastListCandidatesSiteID)
-	assert.Equal(t, siteID, *store.lastListCandidatesSiteID)
+	assert.Equal(t, []int64{siteID}, store.lastListCandidatesSiteIDs)
 	assert.Equal(t, 1, store.cooldownCalls)
-	require.NotNil(t, store.lastCooldownSiteID)
-	assert.Equal(t, siteID, *store.lastCooldownSiteID)
+	assert.Equal(t, []int64{siteID}, store.lastCooldownSiteIDs)
 	assert.ElementsMatch(t, []string{"site-miner"}, disp.curtailLastIDs)
 }
 

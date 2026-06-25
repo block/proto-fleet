@@ -3,6 +3,8 @@ import { create } from "@bufbuild/protobuf";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
+  type CurtailmentScope,
+  CurtailmentScopeSchema,
   type CurtailmentResponseProfile as ApiCurtailmentResponseProfile,
   CreateCurtailmentResponseProfileRequestSchema,
   CurtailmentLevel,
@@ -12,7 +14,9 @@ import {
   DeleteCurtailmentResponseProfileRequestSchema,
   FixedKwParamsSchema,
   ListCurtailmentResponseProfilesRequestSchema,
+  ScopeDeviceListSchema,
   ScopeSiteSchema,
+  ScopeWholeOrgSchema,
   type UpdateCurtailmentResponseProfileRequest,
   UpdateCurtailmentResponseProfileRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
@@ -75,14 +79,55 @@ export function getResponseProfileScopeLabelForActionType(actionType: ResponsePr
   );
 }
 
+function uniqueNonEmptyStrings(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function getSelectedResponseProfileSiteIds(
+  values: Pick<ResponseProfileFormValues, "siteSelection" | "siteId" | "siteIds">,
+): string[] {
+  const siteIds = uniqueNonEmptyStrings(
+    values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
+  );
+
+  return values.siteSelection === "site" || (values.siteSelection === undefined && siteIds.length > 0) ? siteIds : [];
+}
+
+function getResponseProfileSiteNameForId(values: Partial<ResponseProfileFormValues>, siteId: string): string {
+  return values.siteNamesById?.[siteId]?.trim() || (values.siteId === siteId ? values.siteName?.trim() : "") || "";
+}
+
+function getResponseProfileSiteNamesById(
+  values: ResponseProfileFormValues,
+  siteIds: readonly string[],
+): Record<string, string> {
+  return Object.fromEntries(
+    siteIds.map((siteId) => [siteId, getResponseProfileSiteNameForId(values, siteId) || getSiteDisplayName(siteId)]),
+  );
+}
+
 function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues): ResponseProfileFormValues {
-  const siteId = values.siteId.trim();
+  const hasAllMinersSelected = values.minerSelectionMode === "all";
+  const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
+  const siteId = siteIds[0] ?? "";
+  const siteSelection = hasAllMinersSelected
+    ? "allSites"
+    : siteIds.length > 0
+      ? "site"
+      : values.siteSelection === "allSites"
+        ? "allSites"
+        : "none";
 
   return {
     ...values,
-    deviceIdentifiers: [],
+    deviceIdentifiers: hasAllMinersSelected
+      ? []
+      : [...new Set(values.deviceIdentifiers.map((identifier) => identifier.trim()).filter(Boolean))],
+    siteSelection,
     siteId,
-    siteName: siteId ? values.siteName.trim() : "",
+    siteIds,
+    siteName: siteId ? getResponseProfileSiteNameForId(values, siteId) : "",
+    siteNamesById: getResponseProfileSiteNamesById(values, siteIds),
   };
 }
 
@@ -92,14 +137,16 @@ function getResponseProfileSiteName(
   siteNameById?: SiteNameById,
 ): string {
   const loadedSiteName = siteNameById?.get(siteId)?.trim();
-  const cachedSiteName = cachedFormValues?.siteName.trim();
+  const cachedSiteName =
+    cachedFormValues?.siteNamesById?.[siteId]?.trim() ||
+    (cachedFormValues?.siteId === siteId ? cachedFormValues.siteName.trim() : "");
   return loadedSiteName || cachedSiteName || getSiteDisplayName(siteId);
 }
 
 function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameById?: SiteNameById): ResponseProfile {
   const cachedFormValues = sessionFormValuesByProfileId.get(profile.profileId.toString());
-  const siteId = profile.site?.siteId ? profile.site.siteId.toString() : "";
-  const siteName = siteId ? getResponseProfileSiteName(siteId, cachedFormValues, siteNameById) : "";
+  const scopeValues = getApiResponseProfileScopeValues(profile, cachedFormValues, siteNameById);
+  const { siteId, siteName, siteIds, siteNamesById } = scopeValues;
   const fixedKw = profile.modeParams.case === "fixedKw" ? profile.modeParams.value.targetKw : undefined;
   const actionType: ResponseProfileFormValues["actionType"] =
     profile.mode === CurtailmentMode.FIXED_KW ? "fixedKwReduction" : "fullFleet";
@@ -116,9 +163,12 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     name: profile.profileName,
     actionType,
     targetKw,
-    deviceIdentifiers: [],
+    deviceIdentifiers: scopeValues.deviceIdentifiers,
+    siteSelection: scopeValues.siteSelection,
     siteId,
     siteName,
+    siteIds,
+    siteNamesById,
     selectionStrategy: "leastEfficientFirst",
     restoreBehavior,
     minDurationSec: "",
@@ -135,12 +185,15 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
         ...formValues,
         ...cachedFormValues,
         name: profile.profileName,
+        siteSelection: scopeValues.siteSelection,
         siteId,
         siteName,
-        deviceIdentifiers: [],
+        siteIds,
+        siteNamesById,
+        deviceIdentifiers: scopeValues.deviceIdentifiers,
       }
     : formValues;
-  const scope = siteId ? siteName || `Site ${siteId}` : getResponseProfileScopeLabel(profile.mode);
+  const scope = getResponseProfileScopeSummary(mergedFormValues, profile.mode);
 
   return {
     id: profile.profileId.toString(),
@@ -152,6 +205,94 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     deadlineSummary: responseDeadlineMinutes === "1" ? "Within 1 min" : `Within ${responseDeadlineMinutes} min`,
     formValues: mergedFormValues,
   };
+}
+
+function getApiResponseProfileScopeValues(
+  profile: ApiCurtailmentResponseProfile,
+  cachedFormValues?: ResponseProfileFormValues,
+  siteNameById?: SiteNameById,
+): Pick<
+  ResponseProfileFormValues,
+  "siteSelection" | "siteId" | "siteName" | "siteIds" | "siteNamesById" | "deviceIdentifiers"
+> {
+  let siteSelection: ResponseProfileFormValues["siteSelection"] = "none";
+  const siteIds: string[] = [];
+  const deviceIdentifiers: string[] = [];
+
+  for (const scope of profile.scopes) {
+    switch (scope.scope.case) {
+      case "wholeOrg":
+        return {
+          siteSelection: "allSites",
+          siteId: "",
+          siteName: "",
+          siteIds: [],
+          siteNamesById: {},
+          deviceIdentifiers: [],
+        };
+      case "site":
+        siteSelection = "site";
+        siteIds.push(scope.scope.value.siteId.toString());
+        break;
+      case "deviceIdentifiers":
+        deviceIdentifiers.push(...scope.scope.value.deviceIdentifiers);
+        break;
+      case "deviceSetIds":
+      case undefined:
+        break;
+    }
+  }
+
+  if (profile.scopes.length === 0 && profile.site?.siteId) {
+    siteSelection = "site";
+    siteIds.push(profile.site.siteId.toString());
+  }
+  const uniqueSiteIds = [...new Set(siteIds)];
+  const siteId = uniqueSiteIds[0] ?? "";
+  const siteNamesById = Object.fromEntries(
+    uniqueSiteIds.map((currentSiteId) => [
+      currentSiteId,
+      getResponseProfileSiteName(currentSiteId, cachedFormValues, siteNameById),
+    ]),
+  );
+
+  return {
+    siteSelection,
+    siteId,
+    siteName: siteId ? siteNamesById[siteId] : "",
+    siteIds: uniqueSiteIds,
+    siteNamesById,
+    deviceIdentifiers: [...new Set(deviceIdentifiers)],
+  };
+}
+
+function getResponseProfileScopeSummary(values: ResponseProfileFormValues, mode: CurtailmentMode): string {
+  if (values.minerSelectionMode === "all") {
+    return getResponseProfileScopeLabel(mode);
+  }
+
+  const siteIds = getSelectedResponseProfileSiteIds(values);
+  const siteSelection = values.siteSelection ?? (siteIds.length > 0 ? "site" : "none");
+  if (siteSelection === "allSites") {
+    return "All sites";
+  }
+
+  const minerCount = values.deviceIdentifiers.length;
+  const minerSummary = minerCount === 1 ? "1 miner" : `${minerCount} miners`;
+  const siteSummary =
+    siteIds.length === 1
+      ? getResponseProfileSiteNameForId(values, siteIds[0]) || `Site ${siteIds[0]}`
+      : `${siteIds.length} sites`;
+  if (siteSelection === "site" && siteIds.length > 0 && minerCount > 0) {
+    return `${siteSummary} + ${minerSummary}`;
+  }
+  if (siteSelection === "site" && siteIds.length > 0) {
+    return siteSummary;
+  }
+  if (minerCount > 0) {
+    return minerSummary;
+  }
+  return getResponseProfileScopeLabel(mode);
 }
 
 export function clearCurtailmentResponseProfileSessionCacheForTest(): void {
@@ -204,19 +345,45 @@ function getOptionalNonNegativeNumber(value: string): number | undefined {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
-function getResponseProfileSite(values: ResponseProfileFormValues) {
-  const siteId = values.siteId.trim();
-  if (!/^[1-9]\d*$/.test(siteId)) {
-    return undefined;
+function getResponseProfileScopes(values: ResponseProfileFormValues): CurtailmentScope[] | undefined {
+  const siteIds = getSelectedResponseProfileSiteIds(values);
+  const siteSelection = values.siteSelection ?? (siteIds.length > 0 ? "site" : "none");
+  if (values.minerSelectionMode === "all" || siteSelection === "allSites") {
+    return [create(CurtailmentScopeSchema, { scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) } })];
   }
 
-  return create(ScopeSiteSchema, { siteId: BigInt(siteId) });
+  const scopes: CurtailmentScope[] = [];
+  if (siteSelection === "site") {
+    for (const siteId of siteIds) {
+      if (!/^[1-9]\d*$/.test(siteId)) {
+        return undefined;
+      }
+      scopes.push(
+        create(CurtailmentScopeSchema, {
+          scope: { case: "site", value: create(ScopeSiteSchema, { siteId: BigInt(siteId) }) },
+        }),
+      );
+    }
+  }
+
+  const deviceIdentifiers = [
+    ...new Set(values.deviceIdentifiers.map((identifier) => identifier.trim()).filter(Boolean)),
+  ];
+  if (deviceIdentifiers.length > 0) {
+    scopes.push(
+      create(CurtailmentScopeSchema, {
+        scope: { case: "deviceIdentifiers", value: create(ScopeDeviceListSchema, { deviceIdentifiers }) },
+      }),
+    );
+  }
+
+  return scopes.length > 0 ? scopes : undefined;
 }
 
 function buildResponseProfilePayload(values: ResponseProfileFormValues) {
   return {
     profileName: values.name.trim(),
-    site: getResponseProfileSite(values),
+    scopes: getResponseProfileScopes(values),
     mode: values.actionType === "fixedKwReduction" ? CurtailmentMode.FIXED_KW : CurtailmentMode.FULL_FLEET,
     strategy: CurtailmentStrategy.LEAST_EFFICIENT_FIRST,
     level: CurtailmentLevel.FULL,

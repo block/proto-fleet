@@ -102,10 +102,16 @@ func (s *SQLCurtailmentStore) ListRecentlyResolvedCurtailedDevices(
 	ctx context.Context,
 	params interfaces.ListRecentlyResolvedCurtailedDevicesParams,
 ) ([]string, error) {
-	if params.SiteID != nil || len(params.DeviceIdentifiers) > 0 {
+	if len(params.SiteIDs) > 0 || len(params.DeviceIdentifiers) > 0 {
+		if len(params.SiteIDs) == 0 {
+			params.SiteIDs = nil
+		}
+		if len(params.DeviceIdentifiers) == 0 {
+			params.DeviceIdentifiers = nil
+		}
 		devices, err := s.GetQueries(ctx).ListRecentlyResolvedCurtailedDevicesByScope(ctx, sqlc.ListRecentlyResolvedCurtailedDevicesByScopeParams{
 			OrgID:             params.OrgID,
-			SiteID:            ptrToNullInt64(params.SiteID),
+			SiteIds:           params.SiteIDs,
 			DeviceIdentifiers: params.DeviceIdentifiers,
 			CooldownSec:       params.CooldownSec,
 		})
@@ -160,7 +166,7 @@ func (s *SQLCurtailmentStore) GetResponseProfile(ctx context.Context, orgID, pro
 
 func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
-		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, profile.SiteID); err != nil {
+		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, profile.ScopeJSON, profile.SiteID); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
 		return q.InsertCurtailmentResponseProfile(ctx, insertResponseProfileParams(profile))
@@ -173,7 +179,7 @@ func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile
 
 func (s *SQLCurtailmentStore) UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedSiteID *int64) (*models.ResponseProfile, error) {
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
-		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, expectedSiteID, profile.SiteID); err != nil {
+		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, profile.ScopeJSON, expectedSiteID, profile.SiteID); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
 		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(profile, expectedSiteID))
@@ -592,8 +598,13 @@ func mapAutomationRuleWriteError(action string, err error) error {
 	return fleeterror.NewInternalErrorf("failed to %s curtailment automation rule: %v", action, err)
 }
 
-func lockResponseProfileSitesForWrite(ctx context.Context, q *sqlc.Queries, orgID int64, siteIDs ...*int64) error {
-	for _, siteID := range responseProfileSiteIDsForLock(siteIDs...) {
+func lockResponseProfileSitesForWrite(ctx context.Context, q *sqlc.Queries, orgID int64, scopeJSON []byte, siteIDs ...*int64) error {
+	ids, err := responseProfileScopeSiteIDsForLock(scopeJSON)
+	if err != nil {
+		return err
+	}
+	ids = append(ids, responseProfileSiteIDsForLock(siteIDs...)...)
+	for _, siteID := range uniqueSortedInt64s(ids) {
 		if _, err := q.LockSiteForWrite(ctx, sqlc.LockSiteForWriteParams{ID: siteID, OrgID: orgID}); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fleeterror.NewNotFoundErrorf("site not found: %d", siteID)
@@ -602,6 +613,24 @@ func lockResponseProfileSitesForWrite(ctx context.Context, q *sqlc.Queries, orgI
 		}
 	}
 	return nil
+}
+
+func responseProfileScopeSiteIDsForLock(scopeJSON []byte) ([]int64, error) {
+	if len(scopeJSON) == 0 {
+		return nil, nil
+	}
+	var payload struct {
+		SiteID  int64   `json:"site_id"`
+		SiteIDs []int64 `json:"site_ids"`
+	}
+	if err := json.Unmarshal(scopeJSON, &payload); err != nil {
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid curtailment response profile scope_json: %v", err)
+	}
+	siteIDs := append([]int64(nil), payload.SiteIDs...)
+	if payload.SiteID > 0 {
+		siteIDs = append(siteIDs, payload.SiteID)
+	}
+	return siteIDs, nil
 }
 
 func responseProfileSiteIDsForLock(siteIDs ...*int64) []int64 {
@@ -616,6 +645,26 @@ func responseProfileSiteIDsForLock(siteIDs ...*int64) []int64 {
 		}
 		seen[*siteID] = struct{}{}
 		out = append(out, *siteID)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+func uniqueSortedInt64s(values []int64) []int64 {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[int64]struct{}, len(values))
+	out := make([]int64, 0, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
@@ -796,7 +845,7 @@ func usesHierarchicalCurtailmentScope(event models.InsertEventParams) bool {
 	switch event.ScopeType {
 	case models.ScopeTypeWholeOrg, models.ScopeTypeSite:
 		return true
-	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
+	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList, models.ScopeTypeMixed:
 		return false
 	default:
 		return false
@@ -1229,7 +1278,7 @@ func (s *SQLCurtailmentStore) ListCandidates(ctx context.Context, params interfa
 	params = normalizeListCandidatesParams(params)
 	rows, err := s.GetQueries(ctx).ListCurtailmentCandidatesByOrg(ctx, sqlc.ListCurtailmentCandidatesByOrgParams{
 		OrgID:             params.OrgID,
-		SiteID:            ptrToNullInt64(params.SiteID),
+		SiteIds:           params.SiteIDs,
 		DeviceIdentifiers: params.DeviceIdentifiers,
 	})
 	if err != nil {
@@ -1255,6 +1304,9 @@ func (s *SQLCurtailmentStore) ListCandidates(ctx context.Context, params interfa
 func normalizeListCandidatesParams(params interfaces.ListCandidatesParams) interfaces.ListCandidatesParams {
 	if len(params.DeviceIdentifiers) == 0 {
 		params.DeviceIdentifiers = nil
+	}
+	if len(params.SiteIDs) == 0 {
+		params.SiteIDs = nil
 	}
 	return params
 }
@@ -2002,6 +2054,7 @@ func responseProfileFromRow(row sqlc.CurtailmentResponseProfile) *models.Respons
 		OrgID:                   row.OrgID,
 		ProfileName:             row.ProfileName,
 		SiteID:                  nullInt64ToPtr(row.SiteID),
+		ScopeJSON:               row.ScopeJson,
 		Mode:                    models.Mode(row.Mode),
 		Strategy:                models.Strategy(row.Strategy),
 		Level:                   models.Level(row.Level),
@@ -2025,6 +2078,7 @@ func insertResponseProfileParams(profile models.ResponseProfile) sqlc.InsertCurt
 		OrgID:                   profile.OrgID,
 		ProfileName:             profile.ProfileName,
 		SiteID:                  ptrToNullInt64(profile.SiteID),
+		ScopeJson:               responseProfileScopeJSON(profile),
 		Mode:                    string(profile.Mode),
 		Strategy:                string(profile.Strategy),
 		Level:                   string(profile.Level),
@@ -2048,6 +2102,7 @@ func updateResponseProfileParams(profile models.ResponseProfile, expectedSiteID 
 		ExpectedSiteID:          ptrToNullInt64(expectedSiteID),
 		ProfileName:             profile.ProfileName,
 		SiteID:                  ptrToNullInt64(profile.SiteID),
+		ScopeJson:               responseProfileScopeJSON(profile),
 		Mode:                    string(profile.Mode),
 		Strategy:                string(profile.Strategy),
 		Level:                   string(profile.Level),
@@ -2062,6 +2117,13 @@ func updateResponseProfileParams(profile models.ResponseProfile, expectedSiteID 
 		ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
 		PostEventCooldownSec:    profile.PostEventCooldownSec,
 	}
+}
+
+func responseProfileScopeJSON(profile models.ResponseProfile) []byte {
+	if len(profile.ScopeJSON) == 0 {
+		return []byte("{}")
+	}
+	return profile.ScopeJSON
 }
 
 func mapResponseProfileWriteError(action string, err error) error {
