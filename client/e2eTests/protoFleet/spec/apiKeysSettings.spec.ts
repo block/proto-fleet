@@ -8,7 +8,7 @@ import { SettingsApiKeysPage } from "../pages/settingsApiKeys";
 
 const API_KEY_PREFIX = "e2e_api_key";
 
-test.describe("Proto Fleet - API Keys", () => {
+test.describe("Proto Fleet - Integrations", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });
@@ -42,7 +42,7 @@ test.describe("Proto Fleet - API Keys", () => {
       await commonSteps.loginAsAdmin();
     });
 
-    await test.step("Navigate to API Keys settings", async () => {
+    await test.step("Navigate to Integrations settings", async () => {
       await settingsApiKeysPage.navigateToApiKeysSettings();
       await settingsApiKeysPage.validateApiKeysPageOpened();
     });
@@ -77,7 +77,7 @@ test.describe("Proto Fleet - API Keys", () => {
       await commonSteps.loginAsAdmin();
     });
 
-    await test.step("Navigate to API Keys settings", async () => {
+    await test.step("Navigate to Integrations settings", async () => {
       await settingsApiKeysPage.navigateToApiKeysSettings();
       await settingsApiKeysPage.validateApiKeysPageOpened();
     });

@@ -36,8 +36,8 @@ export class SettingsApiKeysPage extends BasePage {
   }
 
   async validateApiKeysPageOpened() {
-    await expect(this.page).toHaveURL(/.*\/settings\/api-keys/);
-    await this.validateTitle("API Keys");
+    await expect(this.page).toHaveURL(/.*\/settings\/integrations/);
+    await this.validateTitle("Integrations");
     await this.validateButtonIsVisible("Create API key");
   }
 
