@@ -127,6 +127,7 @@ func TestHandler_ListCurtailmentResponseProfilesFiltersSiteNarrowing(t *testing.
 		{ID: 201, OrgID: 42, ProfileName: "Whole org", Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 		{ID: 202, OrgID: 42, ProfileName: "Hidden site", SiteID: &shadowedSiteID, Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 		{ID: 203, OrgID: 42, ProfileName: "Visible site", SiteID: &fallbackSiteID, Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
+		{ID: 204, OrgID: 42, ProfileName: "Hidden multi-site", ScopeJSON: []byte(`{"site_ids":[7,8]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 	}
 	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
@@ -147,6 +148,47 @@ func TestHandler_ListCurtailmentResponseProfilesFiltersSiteNarrowing(t *testing.
 	assert.Equal(t, []int64{201, 203}, profileIDs)
 }
 
+func TestHandler_CreateCurtailmentResponseProfileChecksCompositeSites(t *testing.T) {
+	t.Parallel()
+
+	const (
+		allowedSite = int64(7)
+		deniedSite  = int64(8)
+	)
+	store := newHandlerResponseProfileStore()
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.CreateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-create-composite",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(allowedSite, authz.PermCurtailmentManage),
+			testSiteAssignment(deniedSite),
+		),
+		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+			ProfileName: "Composite shed",
+			Scopes: []*pb.CurtailmentScope{
+				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: allowedSite}}},
+				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: deniedSite}}},
+			},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
+			},
+		}),
+	)
+
+	require.Error(t, err)
+	assert.Nil(t, store.created)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
 func TestHandler_GetCurtailmentResponseProfileChecksStoredSite(t *testing.T) {
 	t.Parallel()
 
@@ -164,6 +206,39 @@ func TestHandler_GetCurtailmentResponseProfileChecksStoredSite(t *testing.T) {
 			Role:           "OPERATOR",
 			SessionID:      "sess-response-profile-get",
 		}, testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(siteID)),
+		connect.NewRequest(&pb.GetCurtailmentResponseProfileRequest{ProfileId: 201}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestHandler_GetCurtailmentResponseProfileChecksStoredCompositeSites(t *testing.T) {
+	t.Parallel()
+
+	const (
+		allowedSite = int64(7)
+		deniedSite  = int64(8)
+	)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Hidden multi-site", ScopeJSON: []byte(`{"site_ids":[7,8]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
+	}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.GetCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-get-composite",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(allowedSite, authz.PermCurtailmentManage),
+			testSiteAssignment(deniedSite),
+		),
 		connect.NewRequest(&pb.GetCurtailmentResponseProfileRequest{ProfileId: 201}),
 	)
 

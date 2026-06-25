@@ -1676,6 +1676,41 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
+  it("clears all-sites selection when saving a miner subset", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      siteOptions,
+    });
+
+    await user.click(screen.getByRole("button", { name: /Sites\s+Select/ }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.getByRole("button", { name: /Sites\s+All sites/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
+    await user.click(screen.getByRole("button", { name: "Save miners" }));
+
+    expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeType: "explicitMiners",
+        scopeId: undefined,
+        siteSelection: "none",
+        siteId: "",
+        siteIds: [],
+        deviceSetIds: [],
+        deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
+        minerSelectionMode: "subset",
+      }),
+    );
+  });
+
   it("blocks invalid uint32-backed numeric settings", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({

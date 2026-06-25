@@ -1323,16 +1323,18 @@ function CurtailmentStartModalContent({
 
     updateValues(
       (current) => {
-        const hasSelectedSite = getSelectedSiteIds(current).length > 0;
+        const scopedCurrent =
+          hasSelectedMiners && current.siteSelection === "allSites" ? withNoSiteScope(current) : current;
+        const hasSelectedSite = getSelectedSiteIds(scopedCurrent).length > 0;
         return {
-          ...current,
+          ...scopedCurrent,
           scopeType: hasSelectedMiners ? "explicitMiners" : hasSelectedSite ? "site" : "wholeOrg",
           scopeId: hasSelectedMiners
             ? hasSelectedSite
-              ? current.scopeId
+              ? scopedCurrent.scopeId
               : undefined
             : hasSelectedSite
-              ? current.scopeId
+              ? scopedCurrent.scopeId
               : "whole-org",
           deviceSetIds: [],
           deviceIdentifiers,

@@ -305,7 +305,10 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 	if err != nil {
 		return err
 	}
-	startReq := startRequestFromAutomationProfile(rule, profile, signal)
+	startReq, err := startRequestFromAutomationProfile(rule, profile, signal)
+	if err != nil {
+		return err
+	}
 	if startReq.Mode == models.ModeFullFleet {
 		startReq.AllowUnbounded = true
 		startReq.MaxDurationSeconds = nil
@@ -482,10 +485,10 @@ func automationSignalFromMQTTTarget(target mqttingest.Target) (models.Automation
 	}
 }
 
-func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *models.ResponseProfile, signal mqttingest.SignalEdge) StartRequest {
+func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *models.ResponseProfile, signal mqttingest.SignalEdge) (StartRequest, error) {
 	scope, err := ResponseProfileScope(*profile)
 	if err != nil {
-		scope = Scope{Type: models.ScopeTypeDeviceList}
+		return StartRequest{}, fleeterror.NewInvalidArgumentErrorf("invalid response profile scope for automation rule %d: %v", rule.ID, err)
 	}
 	targetKW := float64Value(profile.TargetKW)
 	toleranceKW := float64Value(profile.ToleranceKW)
@@ -523,7 +526,7 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 		// Automation rule create/update/enable validates that profiles using
 		// admin-only controls are admin-authorized before MQTT can execute them.
 		CanUseAdminControls: true,
-	}
+	}, nil
 }
 
 func automationRuleEventReference(ruleID int64) (externalReference, idempotencyKey string) {

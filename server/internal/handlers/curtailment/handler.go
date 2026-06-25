@@ -70,7 +70,11 @@ func NewHandlerWithAutomation(
 }
 
 func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
-	info, err := requireOrgPermissionWithOptionalSiteContext(ctx, authz.PermCurtailmentManage, previewResourceContext(req.Msg))
+	siteContexts, err := previewResourceContexts(req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	info, err := requireOrgPermissionWithOptionalSiteContexts(ctx, authz.PermCurtailmentManage, siteContexts)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +105,11 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 }
 
 func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.StartCurtailmentRequest]) (*connect.Response[pb.StartCurtailmentResponse], error) {
-	info, err := requireOrgPermissionWithOptionalSiteContext(ctx, authz.PermCurtailmentManage, startResourceContext(req.Msg))
+	siteContexts, err := startResourceContexts(req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	info, err := requireOrgPermissionWithOptionalSiteContexts(ctx, authz.PermCurtailmentManage, siteContexts)
 	if err != nil {
 		return nil, err
 	}
@@ -328,34 +336,75 @@ func errCurtailmentNotImplemented(rpc string) error {
 	return fleeterror.NewUnimplementedErrorf("curtailment.%s is not implemented yet", rpc)
 }
 
-func previewResourceContext(msg *pb.PreviewCurtailmentPlanRequest) authz.ResourceContext {
+func previewResourceContexts(msg *pb.PreviewCurtailmentPlanRequest) ([]authz.ResourceContext, error) {
 	if scopes := msg.GetScopes(); len(scopes) > 0 {
-		return scopeResourceContext(scopes)
+		return scopeResourceContexts(scopes)
 	}
 	if s, ok := msg.GetScope().(*pb.PreviewCurtailmentPlanRequest_Site); ok {
 		siteID := s.Site.GetSiteId()
-		return authz.ResourceContext{SiteID: &siteID}
+		return []authz.ResourceContext{{SiteID: &siteID}}, nil
 	}
-	return authz.ResourceContext{}
+	return nil, nil
 }
 
-func startResourceContext(msg *pb.StartCurtailmentRequest) authz.ResourceContext {
+func startResourceContexts(msg *pb.StartCurtailmentRequest) ([]authz.ResourceContext, error) {
 	if scopes := msg.GetScopes(); len(scopes) > 0 {
-		return scopeResourceContext(scopes)
+		return scopeResourceContexts(scopes)
 	}
 	if s, ok := msg.GetScope().(*pb.StartCurtailmentRequest_Site); ok {
 		siteID := s.Site.GetSiteId()
-		return authz.ResourceContext{SiteID: &siteID}
+		return []authz.ResourceContext{{SiteID: &siteID}}, nil
 	}
-	return authz.ResourceContext{}
+	return nil, nil
 }
 
-func scopeResourceContext(scopes []*pb.CurtailmentScope) authz.ResourceContext {
+func scopeResourceContexts(scopes []*pb.CurtailmentScope) ([]authz.ResourceContext, error) {
 	scope, err := toCompositeScope(scopes)
-	if err != nil || scope.Type != models.ScopeTypeSite || len(scope.SiteIDs) != 1 {
-		return authz.ResourceContext{}
+	if err != nil {
+		return nil, err
 	}
-	return authz.ResourceContext{SiteID: &scope.SiteIDs[0]}
+	return siteResourceContextsForScope(scope), nil
+}
+
+func siteResourceContextsForScope(scope curtailment.Scope) []authz.ResourceContext {
+	siteIDs := append([]int64(nil), scope.SiteIDs...)
+	if scope.SiteID != 0 {
+		siteIDs = append(siteIDs, scope.SiteID)
+	}
+	if len(siteIDs) == 0 {
+		return nil
+	}
+	seen := make(map[int64]struct{}, len(siteIDs))
+	out := make([]authz.ResourceContext, 0, len(siteIDs))
+	for _, siteID := range siteIDs {
+		if siteID == 0 {
+			continue
+		}
+		if _, ok := seen[siteID]; ok {
+			continue
+		}
+		seen[siteID] = struct{}{}
+		out = append(out, authz.ResourceContext{SiteID: &siteID})
+	}
+	return out
+}
+
+func requireOrgPermissionWithOptionalSiteContexts(ctx context.Context, permission string, siteContexts []authz.ResourceContext) (*session.Info, error) {
+	info, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	for _, rc := range siteContexts {
+		if rc.SiteID == nil {
+			continue
+		}
+		checkedInfo, err := middleware.RequirePermission(ctx, permission, rc)
+		if err != nil {
+			return nil, err
+		}
+		info = checkedInfo
+	}
+	return info, nil
 }
 
 func parseEventUUID(raw string) (uuid.UUID, error) {
@@ -473,14 +522,7 @@ func remainingListCurtailmentEventsPageSize(pageSize int32, filteredCount int) i
 }
 
 func requireOrgPermissionWithOptionalSiteContext(ctx context.Context, permission string, rc authz.ResourceContext) (*session.Info, error) {
-	info, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
-	if err != nil {
-		return nil, err
-	}
-	if rc.SiteID == nil {
-		return info, nil
-	}
-	return middleware.RequirePermission(ctx, permission, rc)
+	return requireOrgPermissionWithOptionalSiteContexts(ctx, permission, []authz.ResourceContext{rc})
 }
 
 func eventResourceContext(event *models.Event) (authz.ResourceContext, error) {

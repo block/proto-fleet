@@ -468,6 +468,36 @@ func TestService_Start_PersistsSiteScope(t *testing.T) {
 	assert.JSONEq(t, `{"site_id":99}`, string(store.lastInsertEvent.ScopeJSON))
 }
 
+func TestService_Start_PersistsMultiSiteFullFleetAsClosedLoop(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID     = int64(1)
+		siteID    = int64(99)
+		otherSite = int64(100)
+	)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.sitesByOrg[orgID] = map[int64]bool{siteID: true, otherSite: true}
+	store.candidatesBySite[orgID] = map[int64][]*models.Candidate{
+		siteID:    {minerWithEff("site-miner", 4000, 100, 40)},
+		otherSite: {minerWithEff("other-site-miner", 4000, 100, 40)},
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeMixed, SiteIDs: []int64{siteID, otherSite}}
+	req.Mode = models.ModeFullFleet
+
+	plan, err := svc.Start(t.Context(), req)
+
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	assert.Equal(t, models.ScopeTypeMixed, store.lastInsertEvent.ScopeType)
+	assert.JSONEq(t, `{"site_ids":[99,100],"device_identifiers":null}`, string(store.lastInsertEvent.ScopeJSON))
+	assert.Empty(t, store.lastInsertTargets)
+}
+
 // --- insufficient-load path ---
 
 func TestService_Start_InsufficientLoadReturnsDetailWithoutPersisting(t *testing.T) {

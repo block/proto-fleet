@@ -140,6 +140,34 @@ func TestToStartResponse_ClosedLoopFullFleetReturnsActiveTargetlessEvent(t *test
 	assert.Nil(t, event.GetEndedAt())
 }
 
+func TestToStartResponse_MultiSiteFullFleetReturnsActiveTargetlessEvent(t *testing.T) {
+	t.Parallel()
+
+	startedAt := time.Date(2026, 6, 4, 11, 0, 0, 0, time.UTC)
+	plan := &curtailment.Plan{
+		StartedAt: &startedAt,
+		Selected: []curtailment.SelectedDevice{
+			{DeviceIdentifier: "miner-a", PowerW: 3000},
+		},
+	}
+	req := &pb.StartCurtailmentRequest{
+		Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+		Scopes: []*pb.CurtailmentScope{
+			{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: 99}}},
+			{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: 100}}},
+		},
+	}
+
+	event := toStartResponse(plan, req).GetEvent()
+	require.NotNil(t, event)
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, event.GetState())
+	assert.Empty(t, event.GetTargets())
+	assert.Equal(t, int32(0), event.GetTargetRollup().GetTotal())
+	require.NotNil(t, event.GetStartedAt())
+	assert.Equal(t, plan.StartedAt.Unix(), event.GetStartedAt().AsTime().Unix())
+	assert.Nil(t, event.GetEndedAt())
+}
+
 // Device-list FULL_FLEET remains an open-loop snapshot. Empty snapshots complete
 // on arrival and the synchronous Start response must carry the completion time.
 func TestToStartResponse_DeviceListFullFleetEmptyCarriesEndedAt(t *testing.T) {

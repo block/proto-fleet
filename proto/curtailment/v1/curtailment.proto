@@ -246,6 +246,8 @@ message ScopeDeviceList {
 // the backend and deduplicated before command dispatch.
 message CurtailmentScope {
     oneof scope {
+        option (buf.validate.oneof).required = true;
+
         ScopeWholeOrg   whole_org          = 1;
         ScopeDeviceSets device_set_ids     = 2;
         ScopeDeviceList device_identifiers = 3;
