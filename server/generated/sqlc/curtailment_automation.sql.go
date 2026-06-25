@@ -120,7 +120,8 @@ WHERE st.rule_id = r.id
   AND (
       st.active_event_uuid = $2
       OR (
-          $3::text IS NOT NULL
+          st.active_event_uuid IS NULL
+          AND $3::text IS NOT NULL
           AND r.id::text = $3::text
       )
   )
@@ -546,7 +547,7 @@ func (q *Queries) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.
 	return items, nil
 }
 
-const setCurtailmentAutomationActiveEvent = `-- name: SetCurtailmentAutomationActiveEvent :exec
+const setCurtailmentAutomationActiveEvent = `-- name: SetCurtailmentAutomationActiveEvent :execrows
 WITH enabled_rule AS (
     SELECT id
     FROM curtailment_automation_rule
@@ -581,9 +582,12 @@ type SetCurtailmentAutomationActiveEventParams struct {
 	RuleID          int64
 }
 
-func (q *Queries) SetCurtailmentAutomationActiveEvent(ctx context.Context, arg SetCurtailmentAutomationActiveEventParams) error {
-	_, err := q.exec(ctx, q.setCurtailmentAutomationActiveEventStmt, setCurtailmentAutomationActiveEvent, arg.ActiveEventUuid, arg.LastStartedAt, arg.RuleID)
-	return err
+func (q *Queries) SetCurtailmentAutomationActiveEvent(ctx context.Context, arg SetCurtailmentAutomationActiveEventParams) (int64, error) {
+	result, err := q.exec(ctx, q.setCurtailmentAutomationActiveEventStmt, setCurtailmentAutomationActiveEvent, arg.ActiveEventUuid, arg.LastStartedAt, arg.RuleID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setCurtailmentAutomationExecutionError = `-- name: SetCurtailmentAutomationExecutionError :exec

@@ -355,15 +355,16 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
 
 -- name: ForceReleaseCurtailmentEvent :one
 -- Last-resort recovery: persistently releases curtailment ownership for any
--- existing event row. Unlike AdminTerminateCurtailmentEvent, this intentionally
--- has no state precondition or in-flight command gate because the operator
--- intent is to clear policy ownership, not report graceful restore.
+-- non-terminal event row. Unlike AdminTerminateCurtailmentEvent, this
+-- intentionally supports ACTIVE events and has no in-flight command gate because
+-- the operator intent is to clear policy ownership, not report graceful restore.
 UPDATE curtailment_event
 SET state      = 'cancelled',
     ended_at   = COALESCE(ended_at, NOW()),
     updated_at = NOW()
 WHERE event_uuid = sqlc.arg('event_uuid')
   AND org_id = sqlc.arg('org_id')
+  AND state IN ('pending', 'active', 'restoring')
 RETURNING *;
 
 -- name: SweepCurtailmentTargetsToReleased :execrows

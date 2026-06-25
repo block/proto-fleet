@@ -151,6 +151,7 @@ type UpdateOperatorFieldsParams struct {
 type ForceReleaseEventResult struct {
 	Event              *models.Event
 	SweptTargets       int64
+	OwnershipReleased  bool
 	AutomationDisabled bool
 }
 

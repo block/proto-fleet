@@ -292,6 +292,7 @@ func (f *fakeStore) ForceReleaseEvent(_ context.Context, _ int64, eventUUID uuid
 	return interfaces.ForceReleaseEventResult{
 		Event:              f.forceReleaseResult,
 		SweptTargets:       f.forceReleaseSweptTargets,
+		OwnershipReleased:  true,
 		AutomationDisabled: f.forceReleaseAutomationDisabled,
 	}, nil
 }

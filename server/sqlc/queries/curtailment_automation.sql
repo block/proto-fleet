@@ -173,7 +173,8 @@ WHERE st.rule_id = r.id
   AND (
       st.active_event_uuid = sqlc.arg('event_uuid')
       OR (
-          sqlc.narg('external_reference')::text IS NOT NULL
+          st.active_event_uuid IS NULL
+          AND sqlc.narg('external_reference')::text IS NOT NULL
           AND r.id::text = sqlc.narg('external_reference')::text
       )
   );
@@ -224,7 +225,7 @@ SET
     last_error = NULL,
     last_error_at = NULL;
 
--- name: SetCurtailmentAutomationActiveEvent :exec
+-- name: SetCurtailmentAutomationActiveEvent :execrows
 WITH enabled_rule AS (
     SELECT id
     FROM curtailment_automation_rule

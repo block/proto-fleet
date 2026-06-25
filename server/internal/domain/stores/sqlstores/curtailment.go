@@ -399,12 +399,16 @@ func (s *SQLCurtailmentStore) RecordAutomationSignal(ctx context.Context, ruleID
 }
 
 func (s *SQLCurtailmentStore) SetAutomationActiveEvent(ctx context.Context, ruleID int64, eventUUID uuid.UUID, at time.Time) error {
-	if err := s.GetQueries(ctx).SetCurtailmentAutomationActiveEvent(ctx, sqlc.SetCurtailmentAutomationActiveEventParams{
+	rows, err := s.GetQueries(ctx).SetCurtailmentAutomationActiveEvent(ctx, sqlc.SetCurtailmentAutomationActiveEventParams{
 		RuleID:          ruleID,
 		ActiveEventUuid: uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
 		LastStartedAt:   sql.NullTime{Time: at, Valid: !at.IsZero()},
-	}); err != nil {
+	})
+	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to set curtailment automation active event: %v", err)
+	}
+	if rows == 0 {
+		return fleeterror.NewFailedPreconditionErrorf("curtailment automation rule %d is disabled", ruleID)
 	}
 	return nil
 }
@@ -1166,6 +1170,7 @@ func (s *SQLCurtailmentStore) ForceReleaseEvent(
 		return interfaces.ForceReleaseEventResult{
 			Event:              event,
 			SweptTargets:       swept,
+			OwnershipReleased:  true,
 			AutomationDisabled: disabledAutomationRows > 0,
 		}, nil
 	})

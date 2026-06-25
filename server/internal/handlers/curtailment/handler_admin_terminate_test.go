@@ -79,6 +79,7 @@ func (s *adminTerminateStubStore) ForceReleaseEvent(_ context.Context, orgID int
 	return interfaces.ForceReleaseEventResult{
 		Event:              event,
 		SweptTargets:       int64(len(s.targets)),
+		OwnershipReleased:  true,
 		AutomationDisabled: s.forceReleaseAutomationDisabled,
 	}, nil
 }

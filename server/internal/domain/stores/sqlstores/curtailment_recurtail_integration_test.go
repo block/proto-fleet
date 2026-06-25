@@ -120,6 +120,7 @@ func TestSQLCurtailmentStore_ForceReleaseEvent_CancelsEventAndReleasesTargets(t 
 	require.NotNil(t, event)
 	assert.Equal(t, models.EventStateCancelled, event.State)
 	assert.Equal(t, int64(3), released.SweptTargets)
+	assert.True(t, released.OwnershipReleased)
 	assert.False(t, released.AutomationDisabled)
 
 	targets, err := store.ListTargetsByEvent(ctx, user.OrganizationID, eventUUID)
@@ -183,6 +184,7 @@ func TestSQLCurtailmentStore_ForceReleaseEvent_UnblocksClosedLoopFullFleetPrefli
 	require.NotNil(t, event)
 	assert.Equal(t, models.EventStateCancelled, event.State)
 	assert.Zero(t, released.SweptTargets)
+	assert.True(t, released.OwnershipReleased)
 	assert.False(t, released.AutomationDisabled)
 
 	activeAfter, err := store.ListActiveCurtailedDevices(ctx, user.OrganizationID)
@@ -190,7 +192,7 @@ func TestSQLCurtailmentStore_ForceReleaseEvent_UnblocksClosedLoopFullFleetPrefli
 	assert.NotContains(t, activeAfter, device.ID)
 }
 
-func TestSQLCurtailmentStore_ForceReleaseEvent_UpdatesTerminalEvents(t *testing.T) {
+func TestSQLCurtailmentStore_ForceReleaseEvent_NoopsTerminalEvents(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
 	}
@@ -214,9 +216,15 @@ func TestSQLCurtailmentStore_ForceReleaseEvent_UpdatesTerminalEvents(t *testing.
 	require.NoError(t, err)
 	event := released.Event
 	require.NotNil(t, event)
-	assert.Equal(t, models.EventStateCancelled, event.State)
+	assert.Equal(t, models.EventStateFailed, event.State)
 	assert.Zero(t, released.SweptTargets)
 	assert.False(t, released.AutomationDisabled)
+	assert.False(t, released.OwnershipReleased)
+
+	current, err := store.GetEventByUUID(ctx, user.OrganizationID, eventUUID)
+	require.NoError(t, err)
+	require.NotNil(t, current)
+	assert.Equal(t, models.EventStateFailed, current.State)
 }
 
 func TestSQLCurtailmentStore_BeginRecurtailTransition_ReopensResolvedTarget(t *testing.T) {

@@ -539,11 +539,13 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 	if err != nil {
 		return nil, err
 	}
-	s.emitForceReleaseAuditTrail(ctx, req, released.Event, released.SweptTargets)
+	if released.OwnershipReleased {
+		s.emitForceReleaseAuditTrail(ctx, req, released.Event, released.SweptTargets)
+	}
 	return &ForceReleaseResult{
 		Event:               released.Event,
 		ReleasedTargetCount: released.SweptTargets,
-		OwnershipReleased:   true,
+		OwnershipReleased:   released.OwnershipReleased,
 		RestoreAttempted:    false,
 		AutomationDisabled:  released.AutomationDisabled,
 	}, nil

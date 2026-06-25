@@ -523,6 +523,7 @@ SET state      = 'cancelled',
     updated_at = NOW()
 WHERE event_uuid = $1
   AND org_id = $2
+  AND state IN ('pending', 'active', 'restoring')
 RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
 `
 
@@ -532,9 +533,9 @@ type ForceReleaseCurtailmentEventParams struct {
 }
 
 // Last-resort recovery: persistently releases curtailment ownership for any
-// existing event row. Unlike AdminTerminateCurtailmentEvent, this intentionally
-// has no state precondition or in-flight command gate because the operator
-// intent is to clear policy ownership, not report graceful restore.
+// non-terminal event row. Unlike AdminTerminateCurtailmentEvent, this
+// intentionally supports ACTIVE events and has no in-flight command gate because
+// the operator intent is to clear policy ownership, not report graceful restore.
 func (q *Queries) ForceReleaseCurtailmentEvent(ctx context.Context, arg ForceReleaseCurtailmentEventParams) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.forceReleaseCurtailmentEventStmt, forceReleaseCurtailmentEvent, arg.EventUuid, arg.OrgID)
 	var i CurtailmentEvent

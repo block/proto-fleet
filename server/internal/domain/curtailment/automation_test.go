@@ -420,6 +420,8 @@ func TestAutomationService_HandleMQTTSignal_OffDoesNotRecordActiveEventAfterRule
 	assert.Equal(t, []models.AutomationSignal{models.AutomationSignalOff}, h.rules.recordedSignals)
 	assert.Equal(t, 1, h.curtailments.insertEventCalls)
 	assert.Equal(t, 1, h.rules.setActiveCalls)
+	assert.Equal(t, 1, h.curtailments.forceReleaseCalls)
+	assert.Equal(t, h.curtailments.lastInsertEvent.EventUUID, h.curtailments.lastForceReleaseUUID)
 	require.NotNil(t, h.rule.ActiveEventUUID)
 	assert.Equal(t, activeEventUUID, *h.rule.ActiveEventUUID)
 }
