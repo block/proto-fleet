@@ -31,7 +31,7 @@ import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
-import Breadcrumb, { type BreadcrumbSegment } from "@/shared/components/Breadcrumb";
+import Breadcrumb, { type BreadcrumbSegment, type BreadcrumbSibling } from "@/shared/components/Breadcrumb";
 import Button, { variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
@@ -60,6 +60,7 @@ const RackOverviewPage = () => {
   const [memberDeviceIds, setMemberDeviceIds] = useState<string[] | null>(null);
   const [sites, setSites] = useState<SiteWithCounts[]>([]);
   const [allBuildings, setAllBuildings] = useState<BuildingWithCounts[]>([]);
+  const [rackSiblingState, setRackSiblingState] = useState<{ key: string; siblings: BreadcrumbSibling[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
@@ -68,7 +69,8 @@ const RackOverviewPage = () => {
   const sleepActionRef = useRef<(() => void) | null>(null);
   const actionActiveRef = useRef(false);
 
-  const { getDeviceSet, listGroupMembers, assignDevicesToRack, setRackSlotPosition, deleteGroup } = useDeviceSets();
+  const { getDeviceSet, listGroupMembers, assignDevicesToRack, setRackSlotPosition, deleteGroup, listRacks } =
+    useDeviceSets();
   const { listAllBuildings } = useBuildings();
   const { listSites } = useSites();
 
@@ -213,6 +215,39 @@ const RackOverviewPage = () => {
       ),
     [allBuildings],
   );
+  const rackBuildingId = rackInfo?.buildingId?.toString();
+  const rackBuilding = rackBuildingId ? buildingById.get(rackBuildingId) : undefined;
+  const rackSiteId = rackInfo?.siteId?.toString() ?? rackBuilding?.siteId?.toString();
+  const rackSiblingKey = rack?.id.toString() ?? "";
+  const currentRackSiblings = rackSiblingState?.key === rackSiblingKey ? rackSiblingState.siblings : [];
+
+  useEffect(() => {
+    if (!rack || !rackInfo) return;
+
+    let cancelled = false;
+    const currentSiblingKey = rackSiblingKey;
+    const applySiblings = (siblings: BreadcrumbSibling[]) => {
+      if (!cancelled) setRackSiblingState({ key: currentSiblingKey, siblings });
+    };
+    const currentRackId = rack.id;
+    void listRacks({
+      onSuccess: (racks) =>
+        applySiblings(
+          racks
+            .filter((candidate) => candidate.typeDetails.case === "rackInfo")
+            .map((candidate) => ({
+              label: candidate.label || "Rack",
+              to: `/racks/${candidate.id.toString()}`,
+              isActive: candidate.id === currentRackId,
+            })),
+        ),
+      onError: () => applySiblings([]),
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [listRacks, rack, rackInfo, rackSiblingKey]);
 
   const duration = useDuration();
   const setDuration = useSetDuration();
@@ -307,9 +342,6 @@ const RackOverviewPage = () => {
     );
   }
 
-  const rackBuildingId = rackInfo?.buildingId?.toString();
-  const rackBuilding = rackBuildingId ? buildingById.get(rackBuildingId) : undefined;
-  const rackSiteId = rackInfo?.siteId?.toString() ?? rackBuilding?.siteId?.toString();
   const rackBreadcrumbSegments: BreadcrumbSegment[] = [];
   if (rackSiteId) {
     rackBreadcrumbSegments.push({ label: "Sites", to: "/fleet/sites" });
@@ -326,7 +358,10 @@ const RackOverviewPage = () => {
       to: rackSiteId ? `/racks?site=${rackSiteId}` : "/fleet/racks",
     });
   }
-  rackBreadcrumbSegments.push({ label: rack?.label ?? "Rack" });
+  rackBreadcrumbSegments.push({
+    label: rack?.label ?? "Rack",
+    siblings: currentRackSiblings.length > 1 ? currentRackSiblings : undefined,
+  });
 
   return (
     <div className="h-full">

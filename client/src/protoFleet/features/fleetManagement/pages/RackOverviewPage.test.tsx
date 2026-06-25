@@ -2,6 +2,7 @@ import { MemoryRouter } from "react-router-dom";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import userEvent from "@testing-library/user-event";
 
 import RackOverviewPage from "./RackOverviewPage";
 import { DeviceSetSchema } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
@@ -125,20 +126,29 @@ const rack = create(DeviceSetSchema, {
   },
 });
 
-function mockResolvedRackPageData(deviceSet = rack): void {
+function mockResolvedRackPageData(
+  deviceSet = rack,
+  options: {
+    allBuildings?: unknown[];
+    sites?: unknown[];
+    allRacks?: unknown[];
+  } = {},
+): void {
   mockUseParams.mockReturnValue({ rackId: "7" });
   mockUseBuildings.mockReturnValue({
-    listAllBuildings: ({ onSuccess }: { onSuccess: (buildings: unknown[]) => void }) => onSuccess([]),
+    listAllBuildings: ({ onSuccess }: { onSuccess: (buildings: unknown[]) => void }) =>
+      onSuccess(options.allBuildings ?? []),
   });
   mockUseDeviceSets.mockReturnValue({
     getDeviceSet: ({ onSuccess }: { onSuccess: (resolvedDeviceSet: typeof rack) => void }) => onSuccess(deviceSet),
     listGroupMembers: ({ onSuccess }: { onSuccess: (deviceIds: string[]) => void }) => onSuccess([]),
     assignDevicesToRack: vi.fn(),
+    listRacks: ({ onSuccess }: { onSuccess: (racks: unknown[]) => void }) => onSuccess(options.allRacks ?? [deviceSet]),
     setRackSlotPosition: vi.fn(),
     deleteGroup: vi.fn(),
   });
   mockUseSites.mockReturnValue({
-    listSites: ({ onSuccess }: { onSuccess: (sites: unknown[]) => void }) => onSuccess([]),
+    listSites: ({ onSuccess }: { onSuccess: (sites: unknown[]) => void }) => onSuccess(options.sites ?? []),
   });
   mockUseDeviceSetStateCounts.mockReturnValue({
     stateCounts: {
@@ -213,5 +223,65 @@ describe("RackOverviewPage", () => {
     await waitFor(() => expect(screen.getAllByText(rackName).length).toBeGreaterThan(0));
 
     expect(screen.queryByText(rackZone)).not.toBeInTheDocument();
+  });
+
+  it("renders a switcher on the current rack breadcrumb item when other racks exist", async () => {
+    const rackInBuilding = create(DeviceSetSchema, {
+      id: 7n,
+      label: rackName,
+      typeDetails: {
+        case: "rackInfo",
+        value: {
+          rows: 6,
+          columns: 5,
+          zone: rackZone,
+          buildingId: 11n,
+        },
+      },
+    });
+    const siblingRackName = "Rack BA-Z01-R02";
+    const siblingRack = create(DeviceSetSchema, {
+      id: 8n,
+      label: siblingRackName,
+      typeDetails: {
+        case: "rackInfo",
+        value: {
+          rows: 6,
+          columns: 5,
+          zone: rackZone,
+        },
+      },
+    });
+
+    mockResolvedRackPageData(rackInBuilding, {
+      allBuildings: [
+        {
+          building: {
+            id: 11n,
+            siteId: 22n,
+            name: "Building A",
+          },
+        },
+      ],
+      sites: [
+        {
+          site: {
+            id: 22n,
+            name: "Denver",
+          },
+        },
+      ],
+      allRacks: [rackInBuilding, siblingRack],
+    });
+
+    const user = userEvent.setup();
+    renderRackOverviewPage();
+
+    const switcher = await screen.findByTestId("rack-page-breadcrumb-switcher");
+    expect(switcher).toHaveTextContent(rackName);
+
+    await user.click(switcher);
+
+    expect(screen.getByTestId(`rack-page-breadcrumb-menu-item-${siblingRackName}`)).toBeVisible();
   });
 });
