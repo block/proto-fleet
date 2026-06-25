@@ -201,6 +201,9 @@ type CurtailmentStore interface {
 
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 	ListTargetsByEventPage(ctx context.Context, params ListTargetsByEventPageParams) ([]*models.Target, string, error)
+	// ListTargetSiteIDsByEvent returns distinct mapped target sites and whether
+	// site coverage is complete. Events with zero target rows are complete; callers
+	// can then derive any required site context from the persisted event scope.
 	ListTargetSiteIDsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]int64, bool, error)
 	GetTargetRollupByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.TargetRollup, error)
 

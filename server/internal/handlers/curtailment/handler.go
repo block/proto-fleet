@@ -570,6 +570,11 @@ func (h *Handler) eventSiteResourceContexts(
 	if !complete {
 		return nil, fleeterror.NewForbiddenError("curtailment target site context is incomplete")
 	}
+	if len(siteIDs) == 0 {
+		if contexts, handled, err := scopeJSONSiteResourceContexts(event); handled || err != nil {
+			return contexts, err
+		}
+	}
 	contexts := make([]authz.ResourceContext, 0, len(siteIDs))
 	for _, siteID := range siteIDs {
 		contexts = append(contexts, authz.ResourceContext{SiteID: &siteID})
@@ -595,6 +600,22 @@ func mixedSiteOnlyEventResourceContexts(event *models.Event) ([]authz.ResourceCo
 		return nil, true, fleeterror.NewInternalError("mixed site-only curtailment event has no site_ids")
 	}
 	return contexts, true, nil
+}
+
+func scopeJSONSiteResourceContexts(event *models.Event) ([]authz.ResourceContext, bool, error) {
+	if event == nil || len(event.ScopeJSON) == 0 {
+		return nil, false, nil
+	}
+	scope, hasScope, err := curtailment.ScopeFromJSON(event.ScopeJSON)
+	if err != nil {
+		return nil, true, fleeterror.NewInternalErrorf(
+			"failed to decode curtailment event scope: %v", err,
+		)
+	}
+	if !hasScope {
+		return nil, false, nil
+	}
+	return siteResourceContextsForScope(scope), true, nil
 }
 
 // requireAdminFromContext returns Forbidden unless the caller has Admin

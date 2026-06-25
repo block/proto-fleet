@@ -1302,7 +1302,7 @@ func (s *SQLCurtailmentStore) ListTargetSiteIDsByEvent(ctx context.Context, orgI
 		return nil, false, fleeterror.NewInternalErrorf("failed to list curtailment target site coverage: %v", err)
 	}
 	if len(rows) == 0 {
-		return nil, false, nil
+		return nil, true, nil
 	}
 	siteIDs := make([]int64, 0, len(rows))
 	complete := rows[0].TargetCount > 0 && rows[0].TargetCount == rows[0].MappedTargetCount

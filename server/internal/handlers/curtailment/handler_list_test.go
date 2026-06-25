@@ -617,6 +617,84 @@ func TestHandler_ListActiveCurtailments_UsesMixedSiteOnlyScopeJSON(t *testing.T)
 	assert.Empty(t, resp.Msg.Events)
 }
 
+func TestHandler_ListCurtailmentEvents_UsesTargetlessMixedScopeJSON(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+		deniedSite  = int64(8)
+	)
+	allowedUUID := uuid.New()
+	deniedUUID := uuid.New()
+	store := &listStubStore{
+		events: []*models.Event{
+			{
+				ID:        1,
+				EventUUID: allowedUUID,
+				OrgID:     orgID,
+				State:     models.EventStateCompleted,
+				ScopeType: models.ScopeTypeMixed,
+				ScopeJSON: []byte(`{"site_ids":[7],"device_identifiers":["skipped-miner"]}`),
+				Reason:    "targetless allowed mixed scope",
+			},
+			{
+				ID:        2,
+				EventUUID: deniedUUID,
+				OrgID:     orgID,
+				State:     models.EventStateCompleted,
+				ScopeType: models.ScopeTypeMixed,
+				ScopeJSON: []byte(`{"site_ids":[8],"device_identifiers":["skipped-miner"]}`),
+				Reason:    "targetless denied mixed scope",
+			},
+		},
+		targetSiteIDsByUUID: map[uuid.UUID][]int64{},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+	}, testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(allowedSite, authz.PermCurtailmentRead), testSiteAssignment(deniedSite))
+
+	resp, err := h.ListCurtailmentEvents(ctx, connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
+	require.NoError(t, err)
+
+	require.Len(t, resp.Msg.Events, 1)
+	assert.Equal(t, allowedUUID.String(), resp.Msg.Events[0].EventUuid)
+}
+
+func TestHandler_GetCurtailmentEvent_AllowsTargetlessDeviceListScope(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	eventUUID := uuid.New()
+	store := &listStubStore{
+		eventByUUID: map[uuid.UUID]*models.Event{
+			eventUUID: {
+				ID:        1,
+				EventUUID: eventUUID,
+				OrgID:     orgID,
+				State:     models.EventStateCompleted,
+				ScopeType: models.ScopeTypeDeviceList,
+				ScopeJSON: []byte(`{"device_identifiers":["skipped-miner"]}`),
+				Reason:    "targetless device-list",
+			},
+		},
+		targetsByUUID:        map[uuid.UUID][]*models.Target{eventUUID: {}},
+		targetSiteIDsByUUID:  map[uuid.UUID][]int64{},
+		targetRollupByUUID:   map[uuid.UUID]*models.TargetRollup{eventUUID: {}},
+		incompleteTargetSite: map[uuid.UUID]bool{},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.GetCurtailmentEvent(sessionCtx(orgID), connect.NewRequest(&pb.GetCurtailmentEventRequest{
+		EventUuid: eventUUID.String(),
+	}))
+
+	require.NoError(t, err)
+	assert.Equal(t, eventUUID, store.lastTargetPageParams.EventUUID)
+}
+
 func TestHandler_GetCurtailmentEvent_UsesTargetSitesForDeviceListEvents(t *testing.T) {
 	t.Parallel()
 	const (
