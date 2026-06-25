@@ -272,13 +272,23 @@ const FleetBuildingsPage = () => {
   );
 
   const buildingModals = useBuildingModals({ refetchBuildings: fetchBuildings });
+  const createFlow = useFleetCreateFlow();
 
   // Buildings-tab CTA opens the modal with no pre-filled site — the
   // Site dropdown inside BuildingSettingsModal collects the parent.
   // Site-context auto-fill belongs to /sites/:id, not this global tab.
+  //
+  // Route through the create flow (empty seed) so a freshly created building
+  // advances to ManageBuildingModal for rack/miner positioning. The plain
+  // openDetailsCreate path closes to "none" on save with no manage step, so
+  // it's only the fallback for standalone mounts without the flow provider.
   const handleAddBuilding = useCallback(() => {
+    if (createFlow) {
+      createFlow.launchCreateBuilding({ rackIds: [], minerIds: [], conflictCount: 0 });
+      return;
+    }
     buildingModals.openDetailsCreate();
-  }, [buildingModals]);
+  }, [createFlow, buildingModals]);
 
   const hasSites = (sites?.filter((s) => s.site !== undefined).length ?? 0) > 0;
   // CreateBuilding requires site:manage server-side.
@@ -308,7 +318,6 @@ const FleetBuildingsPage = () => {
   const handleAddBuildingToSite = useCallback((row: BuildingWithCounts) => setReparentTarget(row), []);
 
   // Open the hoisted create flow in place when it commits a new entity.
-  const createFlow = useFleetCreateFlow();
   const entitiesChangedAt = createFlow?.entitiesChangedAt ?? 0;
   useEffect(() => {
     if (entitiesChangedAt === 0) return;
