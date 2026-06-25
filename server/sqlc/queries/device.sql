@@ -616,7 +616,8 @@ SELECT
     d.site_id,
     COALESCE(s.name, '') as site_label,
     d.building_id,
-    COALESCE(b.name, '') as building_label
+    COALESCE(b.name, '') as building_label,
+    FALSE as embedded_web_view_available
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id

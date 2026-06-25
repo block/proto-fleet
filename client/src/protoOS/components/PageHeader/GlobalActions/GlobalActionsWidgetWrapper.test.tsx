@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, type Mock, test, vi } from "vitest";
 import GlobalActionsWidgetWrapper from "./GlobalActionsWidgetWrapper";
 import { useDownloadLogs } from "@/protoOS/api/hooks/useDownloadLogs";
 import { useLocateSystem } from "@/protoOS/api/hooks/useLocateSystem";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { AUTH_ACTIONS } from "@/protoOS/store/types";
 
 const { mockCheckAccess, mockSetPausedAuthAction, mockSetDismissedLoginModal, mockState } = vi.hoisted(() => ({
@@ -22,6 +23,10 @@ vi.mock("@/protoOS/api/hooks/useLocateSystem", () => ({
 
 vi.mock("@/protoOS/api/hooks/useDownloadLogs", () => ({
   useDownloadLogs: vi.fn(),
+}));
+
+vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
+  useMinerHosting: vi.fn(),
 }));
 
 vi.mock("@/protoOS/store", async () => {
@@ -48,6 +53,8 @@ describe("GlobalActionsWidgetWrapper", () => {
     mockState.hasAccess = undefined;
     mockState.pausedAuthAction = null;
     mockState.dismissedLoginModal = false;
+
+    (useMinerHosting as Mock).mockReturnValue({ mode: "direct" });
 
     (useLocateSystem as Mock).mockReturnValue({
       locateSystem: mockLocateSystem,
@@ -79,6 +86,25 @@ describe("GlobalActionsWidgetWrapper", () => {
     expect(mockCheckAccess).toHaveBeenCalledTimes(1);
     // locateSystem should NOT be called directly
     expect(mockLocateSystem).not.toHaveBeenCalled();
+  });
+
+  test("calls locateSystem directly when Blink LEDs is clicked in fleet-hosted mode", () => {
+    (useMinerHosting as Mock).mockReturnValue({ mode: "fleet" });
+
+    const { container, getByText } = render(<GlobalActionsWidgetWrapper />);
+
+    const ellipsisButton = container.querySelector("button");
+    fireEvent.click(ellipsisButton!);
+
+    const blinkButton = getByText("Blink LEDs").closest("button");
+    fireEvent.click(blinkButton!);
+
+    expect(mockSetPausedAuthAction).not.toHaveBeenCalledWith(AUTH_ACTIONS.locate);
+    expect(mockCheckAccess).not.toHaveBeenCalled();
+    expect(mockLocateSystem).toHaveBeenCalledWith({
+      ledOnTime: 30,
+      onError: expect.any(Function),
+    });
   });
 
   test("calls locateSystem after auth succeeds", () => {

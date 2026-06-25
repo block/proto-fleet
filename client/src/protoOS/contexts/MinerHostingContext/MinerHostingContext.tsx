@@ -2,6 +2,19 @@ import { createContext, ReactNode, useMemo } from "react";
 import { Api, RequestParams } from "@/protoOS/api/generatedApi";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
+export type MinerHostingMode = "direct" | "fleet";
+
+export type MinerHostingMetadata = {
+  minerName?: string;
+  ipAddress?: string;
+  macAddress?: string;
+  firmwareVersion?: string;
+};
+
+// Stable identity for the absent-metadata case so consumers' memoization
+// (useMinerHosting) isn't busted by a fresh `{}` on every provider render.
+const EMPTY_METADATA: MinerHostingMetadata = {};
+
 // Read the access token at request time so every call picks up the latest
 // value from the store. Using setSecurityData from a useEffect races against
 // child useEffects (which fire first on initial mount), so the first fetch
@@ -16,19 +29,16 @@ const securityWorker = (): RequestParams | void => {
   };
 };
 
-const CreateApi = (baseUrl: string) => {
-  const url = (baseUrl.length ? "/" : "") + baseUrl;
+const CreateApi = (baseUrl: string, mode: MinerHostingMode) => {
+  const url = baseUrl.length ? (baseUrl.startsWith("/") ? baseUrl : `/${baseUrl}`) : "";
   const instance = new Api({
     baseUrl: url,
-    securityWorker,
+    securityWorker: mode === "direct" ? securityWorker : undefined,
     // Require auth on all requests by default; firmware now gates nearly every
     // endpoint. Callers of truly public endpoints (system/status, pairing/info)
     // must pass { secure: false } to opt out.
     baseApiParams: { secure: true },
   });
-
-  // TODO: remove this when done with development
-  (window as any).api = instance.api;
 
   return instance;
 };
@@ -39,12 +49,16 @@ type MinerHostingContextType = {
   api: ApiT | null;
   minerRoot: string;
   closeButton: ReactNode | null;
+  mode: MinerHostingMode;
+  metadata: MinerHostingMetadata;
 };
 
 const MinerHostingContext = createContext<MinerHostingContextType>({
   api: null,
   minerRoot: "",
   closeButton: null,
+  mode: "direct",
+  metadata: EMPTY_METADATA,
 });
 
 type MinerHostingProviderProps = {
@@ -52,6 +66,8 @@ type MinerHostingProviderProps = {
   baseUrl?: string;
   minerRoot?: string;
   closeButton?: ReactNode | null;
+  mode?: MinerHostingMode;
+  metadata?: MinerHostingMetadata;
 };
 
 export const MinerHostingProvider = ({
@@ -59,12 +75,16 @@ export const MinerHostingProvider = ({
   baseUrl = "",
   minerRoot = "",
   closeButton = null,
+  mode = "direct",
+  metadata = EMPTY_METADATA,
 }: MinerHostingProviderProps) => {
-  const instance = useMemo(() => CreateApi(baseUrl), [baseUrl]);
+  const instance = useMemo(() => CreateApi(baseUrl, mode), [baseUrl, mode]);
   const api = instance.api;
 
   return (
-    <MinerHostingContext.Provider value={{ api, minerRoot, closeButton }}>{children}</MinerHostingContext.Provider>
+    <MinerHostingContext.Provider value={{ api, minerRoot, closeButton, mode, metadata }}>
+      {children}
+    </MinerHostingContext.Provider>
   );
 };
 

@@ -52,20 +52,20 @@ const Hashrate = () => {
   const aggregates = miner?.hashrate?.timeSeries?.aggregates;
 
   const lowestPerformer = useMemo(() => {
-    if (!hashboards) return undefined;
+    if (hashboards.length === 0) return undefined;
 
     let lowestSlot: number | undefined;
     let lowestAvg = Infinity;
 
     hashboards.forEach((hashboard) => {
       const hashboardAvg = hashboard.hashrate?.timeSeries?.aggregates?.avg?.value;
-      if (!!hashboardAvg && hashboardAvg < lowestAvg) {
+      if (typeof hashboardAvg === "number" && hashboardAvg < lowestAvg) {
         lowestAvg = hashboardAvg;
         lowestSlot = useMinerStore.getState().hardware.getSlotByHbSn(hashboard.serial);
       }
     });
 
-    return lowestSlot ? "Hashboard " + lowestSlot : undefined;
+    return lowestSlot === undefined ? undefined : "Hashboard " + lowestSlot;
   }, [hashboards]);
 
   return (

@@ -3,6 +3,7 @@ import { GlobalActionsWidget } from "./GlobalActionsWidget";
 import type { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { useDownloadLogs } from "@/protoOS/api/hooks/useDownloadLogs";
 import { useLocateSystem } from "@/protoOS/api/hooks/useLocateSystem";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
   AUTH_ACTIONS,
   useAccessToken,
@@ -20,13 +21,17 @@ const GlobalActionsWidgetWrapper = () => {
   const { locateSystem } = useLocateSystem();
   const { downloadLogs } = useDownloadLogs();
   const [error, setError] = useState<ErrorProps | null>(null);
+  const { mode } = useMinerHosting();
+  const isFleetHosted = mode === "fleet";
 
   const dismissedLoginModal = useDismissedLoginModal();
   const setDismissedLoginModal = useSetDismissedLoginModal();
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
 
-  const { checkAccess, hasAccess } = useAccessToken(pausedAuthAction === AUTH_ACTIONS.locate && !dismissedLoginModal);
+  const { checkAccess, hasAccess } = useAccessToken(
+    !isFleetHosted && pausedAuthAction === AUTH_ACTIONS.locate && !dismissedLoginModal,
+  );
 
   // After successful login, retry the locate request
   useEffect(() => {
@@ -48,6 +53,14 @@ const GlobalActionsWidgetWrapper = () => {
   }, [dismissedLoginModal, setDismissedLoginModal, setPausedAuthAction]);
 
   const handleBlinkLEDs = () => {
+    if (isFleetHosted) {
+      locateSystem({
+        ledOnTime: 30,
+        onError: (err) => setError(err),
+      });
+      return;
+    }
+
     setPausedAuthAction(AUTH_ACTIONS.locate);
     checkAccess();
   };

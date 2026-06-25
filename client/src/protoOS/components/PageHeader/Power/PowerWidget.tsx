@@ -4,6 +4,7 @@ import WidgetWrapper from "../WidgetWrapper";
 import PowerPopover from "./PowerPopover";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { EnteringSleepDialog, RebootingDialog, WarnRebootDialog, WarnSleepDialog } from "@/protoOS/components/Power";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAccessToken } from "@/protoOS/store";
 import {
   AUTH_ACTIONS,
@@ -46,6 +47,8 @@ const PowerWidget = ({
   const { triggerRef: WidgetRef } = useResponsivePopover();
   const isAwake = useIsAwake();
   const isSleeping = useIsSleeping();
+  const { mode } = useMinerHosting();
+  const isFleetHosted = mode === "fleet";
 
   const [isOpen, setIsOpen] = useState(shouldShowPopover);
   const [warnReboot, setWarnReboot] = useState(false);
@@ -57,7 +60,9 @@ const PowerWidget = ({
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
 
-  const { checkAccess, hasAccess, setHasAccess } = useAccessToken(!!pausedAuthAction && !dismissedLoginModal);
+  const { checkAccess, hasAccess, setHasAccess } = useAccessToken(
+    !isFleetHosted && !!pausedAuthAction && !dismissedLoginModal,
+  );
 
   const onClickOutside = useCallback(() => {
     setIsOpen(false);
@@ -101,6 +106,10 @@ const PowerWidget = ({
 
   const handleRebootButton = () => {
     setIsOpen(false);
+    if (isFleetHosted) {
+      setWarnReboot(true);
+      return;
+    }
     setPausedAuthAction(AUTH_ACTIONS.reboot);
     checkAccess();
   };
@@ -113,6 +122,10 @@ const PowerWidget = ({
 
   const handleSleepButton = () => {
     setIsOpen(false);
+    if (isFleetHosted) {
+      setWarnSleep(true);
+      return;
+    }
     setPausedAuthAction(AUTH_ACTIONS.sleep);
     checkAccess();
   };
@@ -166,11 +179,14 @@ const PowerWidget = ({
     <div className="relative" ref={WidgetRef} data-testid="power-widget">
       <WidgetWrapper
         onClick={() => setIsOpen((prev) => !prev)}
-        className="w-[28px] p-0 text-text-primary"
+        className="!h-8 !w-8 !p-0 text-text-primary"
         isOpen={isOpen}
         testId="power-button"
+        ariaLabel="Power actions"
+        ariaHasPopup="menu"
+        ariaExpanded={isOpen}
       >
-        <Power width={iconSizes.small} className="m-1 -translate-y-0.25" />
+        <Power width={iconSizes.small} className="h-4 shrink-0" />
       </WidgetWrapper>
       {isOpen ? (
         <PowerPopover onReboot={handleRebootButton} onSleep={handleSleepButton} onWake={handleWakeButton} />

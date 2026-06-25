@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMiningStart, useMiningStatus } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAccessToken } from "@/protoOS/store";
 import {
   AUTH_ACTIONS,
@@ -34,7 +35,9 @@ export const useWakeMiner = ({ afterWake, onSuccess, onError }: UseWakeMinerProp
   const setDismissedLoginModal = useSetDismissedLoginModal();
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
-  const { checkAccess, hasAccess } = useAccessToken(!!pausedAuthAction && !dismissedLoginModal);
+  const { mode } = useMinerHosting();
+  const isFleetHosted = mode === "fleet";
+  const { checkAccess, hasAccess } = useAccessToken(!isFleetHosted && !!pausedAuthAction && !dismissedLoginModal);
   const afterWakeRef = useRef(afterWake);
   const onSuccessRef = useRef(onSuccess);
   const onErrorRef = useRef(onError);
@@ -146,9 +149,14 @@ export const useWakeMiner = ({ afterWake, onSuccess, onError }: UseWakeMinerProp
   }, [hasAccess, pausedAuthAction, setPausedAuthAction, showWakeDialog, hideWakeDialog, handleWakeConfirm]);
 
   const wakeMiner = useCallback(() => {
+    if (isFleetHosted) {
+      showWakeDialog(handleWakeConfirm, () => hideWakeDialog());
+      return;
+    }
+
     setPausedAuthAction(AUTH_ACTIONS.wake);
     checkAccess();
-  }, [checkAccess, setPausedAuthAction]);
+  }, [checkAccess, handleWakeConfirm, hideWakeDialog, isFleetHosted, setPausedAuthAction, showWakeDialog]);
 
   return {
     wakeMiner,

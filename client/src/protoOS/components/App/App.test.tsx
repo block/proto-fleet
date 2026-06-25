@@ -6,6 +6,7 @@ import App from "./App";
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   useLocation: vi.fn(),
+  useMinerHosting: vi.fn(),
   AuthenticatedShell: vi.fn(),
   LoginModal: vi.fn(),
   useMiningStart: vi.fn(),
@@ -104,6 +105,10 @@ vi.mock("@/protoOS/components/Power", () => ({
   WarnWakeDialog: () => null,
 }));
 
+vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
+  useMinerHosting: () => mocks.useMinerHosting(),
+}));
+
 vi.mock("@/protoOS/features/auth/components/LoginModal", () => ({
   default: (props: { onDismiss: () => void; onSuccess: () => void }) => {
     mocks.LoginModal(props);
@@ -173,6 +178,7 @@ describe("App auth gating", () => {
     vi.clearAllMocks();
 
     mocks.useLocation.mockReturnValue({ pathname: "/", state: null });
+    mocks.useMinerHosting.mockReturnValue({ mode: "direct" });
     mocks.useMiningStart.mockReturnValue({ startMining: mocks.startMining });
     mocks.useMiningStatus.mockReturnValue({ data: {}, fetchData: mocks.fetchMiningStatus });
     mocks.useSystemInfo.mockReturnValue({ reload: mocks.reloadSystemInfo });
@@ -306,6 +312,18 @@ describe("App auth gating", () => {
     onDismiss();
 
     expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("does not render a direct ProtoOS login modal while fleet-hosted", () => {
+    const setShowLoginModal = vi.fn();
+    mocks.useMinerHosting.mockReturnValue({ mode: "fleet" });
+    mocks.useShowLoginModal.mockReturnValue(true);
+    mocks.useSetShowLoginModal.mockReturnValue(setShowLoginModal);
+
+    render(<App title="App" />);
+
+    expect(mocks.LoginModal).not.toHaveBeenCalled();
+    expect(setShowLoginModal).toHaveBeenCalledWith(false);
   });
 
   it("hides the no-pools callout on the mining pools null state page", () => {

@@ -6,11 +6,16 @@ const mockRefresh = vi.fn();
 const mockLogout = vi.fn();
 const mockSetShowLoginModal = vi.fn();
 const mockUseLocation = vi.hoisted(() => vi.fn());
+const mockUseMinerHosting = vi.hoisted(() => vi.fn());
 const mockSetDefaultPasswordActive = vi.fn();
 const mockGetState = vi.fn();
 
 vi.mock("@/protoOS/api/hooks/useRefresh", () => ({
   useRefresh: () => mockRefresh,
+}));
+
+vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
+  useMinerHosting: mockUseMinerHosting,
 }));
 
 vi.mock("../useMinerStore", () => ({
@@ -55,6 +60,7 @@ describe("useAuthErrors", () => {
     vi.clearAllMocks();
     __resetRefreshInFlightForTest();
     mockUseLocation.mockReturnValue({ pathname: "/" });
+    mockUseMinerHosting.mockReturnValue({ mode: "direct" });
     mockGetState.mockReturnValue({
       auth: {
         authTokens: {
@@ -90,6 +96,25 @@ describe("useAuthErrors", () => {
         }),
       );
       expect(onSuccess).toHaveBeenCalledWith("new-token");
+    });
+
+    test("does not run direct miner refresh or show the login modal for fleet-hosted 401s", () => {
+      mockUseMinerHosting.mockReturnValue({ mode: "fleet" });
+      const onError = vi.fn();
+
+      const { result } = renderHook(() => useAuthErrors());
+
+      const error = { status: 401, error: { message: "Unauthorized" } };
+      const returnValue = result.current.handleAuthErrors({
+        error,
+        onError,
+      });
+
+      expect(returnValue).toBeUndefined();
+      expect(mockRefresh).not.toHaveBeenCalled();
+      expect(mockLogout).not.toHaveBeenCalled();
+      expect(mockSetShowLoginModal).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledWith(error);
     });
 
     test("uses the latest refresh token from store when handling 401s", () => {

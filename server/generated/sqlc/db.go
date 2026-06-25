@@ -486,6 +486,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceWithCredentialsAndIPByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceWithCredentialsAndIPByDeviceIdentifier: %w", err)
 	}
+	if q.getDirectProtoMinerProxyTargetStmt, err = db.PrepareContext(ctx, getDirectProtoMinerProxyTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDirectProtoMinerProxyTarget: %w", err)
+	}
 	if q.getDiscoveredDeviceByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDiscoveredDeviceByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDiscoveredDeviceByDeviceIdentifier: %w", err)
 	}
@@ -2122,6 +2125,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDeviceWithCredentialsAndIPByDeviceIdentifierStmt: %w", cerr)
 		}
 	}
+	if q.getDirectProtoMinerProxyTargetStmt != nil {
+		if cerr := q.getDirectProtoMinerProxyTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDirectProtoMinerProxyTargetStmt: %w", cerr)
+		}
+	}
 	if q.getDiscoveredDeviceByDeviceIdentifierStmt != nil {
 		if cerr := q.getDiscoveredDeviceByDeviceIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDiscoveredDeviceByDeviceIdentifierStmt: %w", cerr)
@@ -3750,6 +3758,7 @@ type Queries struct {
 	getDeviceStatusForDeviceIdentifiersStmt                    *sql.Stmt
 	getDeviceStatusHourlyAggregatesStmt                        *sql.Stmt
 	getDeviceWithCredentialsAndIPByDeviceIdentifierStmt        *sql.Stmt
+	getDirectProtoMinerProxyTargetStmt                         *sql.Stmt
 	getDiscoveredDeviceByDeviceIdentifierStmt                  *sql.Stmt
 	getDiscoveredDeviceByIDStmt                                *sql.Stmt
 	getDiscoveredDeviceByIPAndPortStmt                         *sql.Stmt
@@ -4197,6 +4206,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceStatusForDeviceIdentifiersStmt:                    q.getDeviceStatusForDeviceIdentifiersStmt,
 		getDeviceStatusHourlyAggregatesStmt:                        q.getDeviceStatusHourlyAggregatesStmt,
 		getDeviceWithCredentialsAndIPByDeviceIdentifierStmt:        q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt,
+		getDirectProtoMinerProxyTargetStmt:                         q.getDirectProtoMinerProxyTargetStmt,
 		getDiscoveredDeviceByDeviceIdentifierStmt:                  q.getDiscoveredDeviceByDeviceIdentifierStmt,
 		getDiscoveredDeviceByIDStmt:                                q.getDiscoveredDeviceByIDStmt,
 		getDiscoveredDeviceByIPAndPortStmt:                         q.getDiscoveredDeviceByIPAndPortStmt,

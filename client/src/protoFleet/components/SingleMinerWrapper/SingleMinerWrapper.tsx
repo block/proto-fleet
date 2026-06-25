@@ -1,5 +1,6 @@
-import { ReactNode, useEffect } from "react";
-import { Link, useParams } from "react-router-dom";
+import { ReactNode, useEffect, useRef } from "react";
+import { Link, useLocation, useParams } from "react-router-dom";
+import type { SingleMinerMetadata, SingleMinerRouteState } from "./routeState";
 import { singleMinerRoutePrefetch } from "@/protoFleet/routePrefetch";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
@@ -27,10 +28,32 @@ const CloseButton = ({ id }: { id: string }) => {
 // eslint-disable-next-line no-control-regex
 const safePathSegment = (raw: string): string => encodeURIComponent(raw.replace(/[\x00-\x1f\x7f]/g, ""));
 
+const routeMetadata = (state: unknown): SingleMinerMetadata | undefined =>
+  (state as SingleMinerRouteState | null)?.singleMinerMetadata;
+
 const SingleMinerWrapper = ({ children }: { children: ReactNode }) => {
   const { id: rawId } = useParams();
+  const location = useLocation();
   const safeId = safePathSegment(rawId || "");
   const displayId = rawId || "";
+  const currentRouteMetadata = routeMetadata(location.state);
+  const metadataCacheRef = useRef<{ id: string; metadata?: SingleMinerMetadata }>({
+    id: displayId,
+    metadata: currentRouteMetadata,
+  });
+
+  if (metadataCacheRef.current.id !== displayId) {
+    metadataCacheRef.current = { id: displayId, metadata: currentRouteMetadata };
+  } else if (currentRouteMetadata) {
+    metadataCacheRef.current.metadata = currentRouteMetadata;
+  }
+
+  const metadata = {
+    minerName: metadataCacheRef.current.metadata?.minerName ?? displayId,
+    ipAddress: metadataCacheRef.current.metadata?.ipAddress,
+    macAddress: metadataCacheRef.current.metadata?.macAddress,
+    firmwareVersion: metadataCacheRef.current.metadata?.firmwareVersion,
+  };
 
   // Once the user is in /miners/:id/*, sibling protoOS chunks (KPI
   // tabs, Logs, Diagnostics, per-miner Settings) are one click away;
@@ -39,15 +62,13 @@ const SingleMinerWrapper = ({ children }: { children: ReactNode }) => {
     return prefetchRoutes(singleMinerRoutePrefetch);
   }, []);
 
-  // Here we are just setting the base url to <vite_server>/:id,
-  // which vite proxies to the actual miner api server.
-  // If we wanted to make this request to ProtoFleet backend we
-  // could pass <protofleet_host>/miners/:id instead
   return (
     <MinerHostingProvider
-      baseUrl={safeId}
+      baseUrl={`/api-proxy/miners/${safeId}`}
       minerRoot={`/miners/${safeId}`}
       closeButton={(<CloseButton id={displayId} />) as ReactNode}
+      mode="fleet"
+      metadata={metadata}
     >
       {children}
     </MinerHostingProvider>

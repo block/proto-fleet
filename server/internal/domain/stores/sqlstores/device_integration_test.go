@@ -734,6 +734,94 @@ func TestCountMinersByState_FilterConsistency(t *testing.T) {
 	require.False(t, identifiers["device-002"], "should NOT include INACTIVE device with error")
 }
 
+func TestListMinerStateSnapshots_EmbeddedWebViewAvailable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org')
+	`)
+	require.NoError(t, err)
+
+	fixtures := []struct {
+		id             int64
+		identifier     string
+		driverName     string
+		pairingStatus  string
+		fleetNodeOwned bool
+		wantAvailable  bool
+	}{
+		{id: 9101, identifier: "direct-paired-proto", driverName: "proto", pairingStatus: "PAIRED", wantAvailable: true},
+		{id: 9102, identifier: "direct-default-proto", driverName: "proto", pairingStatus: "DEFAULT_PASSWORD", wantAvailable: true},
+		{id: 9103, identifier: "direct-auth-proto", driverName: "proto", pairingStatus: "AUTHENTICATION_NEEDED"},
+		{id: 9104, identifier: "direct-paired-ant", driverName: "antminer", pairingStatus: "PAIRED"},
+		{id: 9105, identifier: "discovered-only-proto", driverName: "proto"},
+		{id: 9106, identifier: "fleet-node-proto", driverName: "proto", pairingStatus: "PAIRED", fleetNodeOwned: true},
+	}
+
+	var fleetNodeID int64
+	require.NoError(t, conn.QueryRow(`
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
+		VALUES (1, $1, $2, 'CONFIRMED')
+		RETURNING id
+	`, "web-view-node", []byte("web-view-node-key")).Scan(&fleetNodeID))
+
+	identifiers := make([]string, 0, len(fixtures))
+	for i, fixture := range fixtures {
+		identifiers = append(identifiers, fixture.identifier)
+		_, err := conn.Exec(`
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, is_active)
+			VALUES ($1, 1, $2, 'test-model', 'test-manufacturer', $3, $4, '50051', 'http', TRUE)
+		`, fixture.id, fixture.identifier, fixture.driverName, fmt.Sprintf("10.42.0.%d", i+1))
+		require.NoError(t, err)
+
+		if fixture.pairingStatus == "" {
+			continue
+		}
+
+		_, err = conn.Exec(`
+			INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+			VALUES ($1, 1, $1, $2, $3)
+		`, fixture.id, fixture.identifier, fmt.Sprintf("AA:BB:CC:DD:EE:%02d", i+1))
+		require.NoError(t, err)
+
+		_, err = conn.Exec(`
+			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+			VALUES ($1, $2, NOW())
+		`, fixture.id, fixture.pairingStatus)
+		require.NoError(t, err)
+
+		if fixture.fleetNodeOwned {
+			_, err = conn.Exec(`
+				INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
+				VALUES ($1, $2, 1)
+			`, fleetNodeID, fixture.id)
+			require.NoError(t, err)
+		}
+	}
+
+	rows, _, total, err := store.ListMinerStateSnapshots(ctx, 1, "", 100, &interfaces.MinerFilter{
+		DeviceIdentifiers: identifiers,
+	}, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(len(fixtures)), total)
+
+	byIdentifier := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		byIdentifier[row.DeviceIdentifier] = row.EmbeddedWebViewAvailable
+	}
+
+	for _, fixture := range fixtures {
+		require.Equal(t, fixture.wantAvailable, byIdentifier[fixture.identifier], fixture.identifier)
+	}
+}
+
 // TestCountMinersByState_AuthNeededNullStatus verifies auth-needed miners with
 // NULL device_status go to broken_count, not offline_count.
 func TestCountMinersByState_AuthNeededNullStatus(t *testing.T) {

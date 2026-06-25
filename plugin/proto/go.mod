@@ -4,7 +4,6 @@ go 1.25.4
 
 require (
 	github.com/block/proto-fleet/server v0.0.0-20260612045813-75933fce45c2
-	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/hashicorp/go-plugin v1.8.0
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1

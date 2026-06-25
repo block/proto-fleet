@@ -26,6 +26,7 @@ import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/use
 import { ArrowRight, Edit, MiningPools, Plus, Reboot } from "@/shared/assets/icons";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
+import { useNavigate } from "@/shared/hooks/useNavigate";
 
 type SingleMinerAction = SupportedAction | "viewMiner" | "refreshStatus";
 
@@ -51,7 +52,6 @@ interface SingleMinerActionsMenuProps {
 
 const SingleMinerActionsMenu = ({
   deviceIdentifier,
-  minerUrl,
   deviceStatus,
   minerName,
   workerName,
@@ -77,6 +77,7 @@ const SingleMinerActionsMenu = ({
   const [reparentKind, setReparentKind] = useState<"rack" | "site" | "building" | null>(null);
   const [showWarnDialog, setShowWarnDialog] = useState(false);
   const isRefreshingStatus = refreshing.has(deviceIdentifier);
+  const navigate = useNavigate();
 
   const minerActionsResult = useMinerActions({
     selectedMiners,
@@ -110,10 +111,8 @@ const SingleMinerActionsMenu = ({
   } = minerActionsResult;
 
   const handleViewMiner = useCallback(() => {
-    if (minerUrl) {
-      window.open(minerUrl, "_blank", "noopener,noreferrer");
-    }
-  }, [minerUrl]);
+    navigate(`/miners/${encodeURIComponent(deviceIdentifier)}`);
+  }, [deviceIdentifier, navigate]);
 
   const handleRefreshStatus = useCallback(async () => {
     if (isRefreshingStatus) {
@@ -324,16 +323,14 @@ const SingleMinerActionsMenu = ({
   );
 
   const actionsWithSingleNameFlows = useMemo(() => {
-    const viewMinerAction: BulkAction<SingleMinerAction> | null = minerUrl
-      ? {
-          action: "viewMiner",
-          title: "View miner",
-          icon: <ArrowRight className="text-text-primary" />,
-          actionHandler: handleViewMiner,
-          requiresConfirmation: false,
-          showGroupDivider: true,
-        }
-      : null;
+    const viewMinerAction: BulkAction<SingleMinerAction> = {
+      action: "viewMiner",
+      title: "View miner",
+      icon: <ArrowRight className="text-text-primary" />,
+      actionHandler: handleViewMiner,
+      requiresConfirmation: false,
+      showGroupDivider: true,
+    };
 
     const renameAction: BulkAction<SupportedAction> = {
       action: settingsActions.rename,
@@ -358,11 +355,9 @@ const SingleMinerActionsMenu = ({
       actionHandler: handleRefreshStatus,
       requiresConfirmation: false,
       disabled: isRefreshingStatus,
-      showGroupDivider: viewMinerAction?.showGroupDivider,
+      showGroupDivider: viewMinerAction.showGroupDivider,
     };
-    if (viewMinerAction) {
-      viewMinerAction.showGroupDivider = false;
-    }
+    viewMinerAction.showGroupDivider = false;
 
     // Inserted before addToGroup so the cluster reads site → building → rack → group.
     const addToRackAction: BulkAction<SupportedAction> = {
@@ -395,9 +390,7 @@ const SingleMinerActionsMenu = ({
     const withAddToSite = insertActionBefore(withAddToBuilding, groupActions.addToBuilding, addToSiteAction);
 
     if (actionsWithRenameBeforeGroup !== actions) {
-      return viewMinerAction
-        ? [viewMinerAction, refreshStatusAction, ...withAddToSite]
-        : [refreshStatusAction, ...withAddToSite];
+      return [viewMinerAction, refreshStatusAction, ...withAddToSite];
     }
 
     const actionsWithRenameBeforeSecurity = insertActionBefore(withAddToSite, settingsActions.security, {
@@ -406,21 +399,16 @@ const SingleMinerActionsMenu = ({
     });
 
     if (actionsWithRenameBeforeSecurity !== withAddToSite) {
-      return viewMinerAction
-        ? [viewMinerAction, refreshStatusAction, ...actionsWithRenameBeforeSecurity]
-        : [refreshStatusAction, ...actionsWithRenameBeforeSecurity];
+      return [viewMinerAction, refreshStatusAction, ...actionsWithRenameBeforeSecurity];
     }
 
-    return viewMinerAction
-      ? [viewMinerAction, refreshStatusAction, ...withAddToSite, renameAction]
-      : [refreshStatusAction, ...withAddToSite, renameAction];
+    return [viewMinerAction, refreshStatusAction, ...withAddToSite, renameAction];
   }, [
     handleRefreshStatus,
     handleRenameOpen,
     handleUpdateWorkerNameAction,
     handleViewMiner,
     isRefreshingStatus,
-    minerUrl,
     popoverActions,
   ]);
 

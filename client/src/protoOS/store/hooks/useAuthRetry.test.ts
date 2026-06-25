@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { useAuthRetry } from "./useAuthRetry";
 
 const mockHandleAuthErrors = vi.fn();
+const mockUseMinerHosting = vi.hoisted(() => vi.fn());
 const mockGetState = vi.fn();
 let currentAccessToken = "test-token";
 
@@ -21,9 +22,14 @@ vi.mock("./useAuth", () => ({
   useAuthErrors: vi.fn(() => ({ handleAuthErrors: mockHandleAuthErrors })),
 }));
 
+vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
+  useMinerHosting: mockUseMinerHosting,
+}));
+
 describe("useAuthRetry", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseMinerHosting.mockReturnValue({ mode: "direct" });
     currentAccessToken = "test-token";
     mockGetState.mockImplementation(() => ({
       auth: {
@@ -67,6 +73,21 @@ describe("useAuthRetry", () => {
       onError,
       onSuccess: expect.any(Function),
     });
+  });
+
+  test("does not use direct miner bearer auth or refresh retry in fleet-hosted mode", async () => {
+    mockUseMinerHosting.mockReturnValue({ mode: "fleet" });
+    const error = { status: 401, error: { message: "Unauthorized" } };
+    const request = vi.fn().mockRejectedValue(error);
+    const onError = vi.fn();
+
+    const { result } = renderHook(() => useAuthRetry());
+
+    await result.current({ request, onError });
+
+    expect(request).toHaveBeenCalledWith({ secure: false });
+    expect(onError).toHaveBeenCalledWith(error);
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
   });
 
   test("retries with fresh token on successful refresh", async () => {
