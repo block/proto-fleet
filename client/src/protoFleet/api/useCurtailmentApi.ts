@@ -25,6 +25,7 @@ import {
 import {
   AdminTerminateEventRequestSchema,
   CurtailmentEventSchema,
+  ForceReleaseCurtailmentOwnershipRequestSchema,
   GetCurtailmentEventRequestSchema,
   ListCurtailmentEventsRequestSchema,
   type CurtailmentEvent as ProtoCurtailmentEvent,
@@ -89,6 +90,10 @@ export interface AdminTerminateCurtailmentOptions {
   targetState: AdminTerminateCurtailmentState;
 }
 
+export interface ForceReleaseCurtailmentOptions {
+  reason: string;
+}
+
 export interface StopCurtailmentOptions {
   force?: boolean;
 }
@@ -140,6 +145,10 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
   adminTerminateCurtailment: (
     eventUuid: string,
     options: AdminTerminateCurtailmentOptions,
+  ) => Promise<ProtoCurtailmentEvent>;
+  forceReleaseCurtailment: (
+    eventUuid: string,
+    options: ForceReleaseCurtailmentOptions,
   ) => Promise<ProtoCurtailmentEvent>;
 }
 
@@ -1242,6 +1251,43 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
     [applyEvent, handleFailure, refreshAfterMutation],
   );
 
+  const forceReleaseCurtailment = useCallback(
+    async (eventUuid: string, { reason }: ForceReleaseCurtailmentOptions) => {
+      const trimmedReason = reason.trim();
+      if (!trimmedReason) {
+        const validationError = new Error(adminTerminateReasonRequiredMessage);
+        setAdminTerminateError(validationError.message);
+        throw validationError;
+      }
+
+      setAdminTerminatingEventId(eventUuid);
+      setAdminTerminateError(null);
+
+      try {
+        const response = await curtailmentClient.forceReleaseCurtailmentOwnership(
+          create(ForceReleaseCurtailmentOwnershipRequestSchema, {
+            eventUuid,
+            reason: trimmedReason,
+          }),
+        );
+        if (!response.event) {
+          throw new Error("Force release response was missing an event.");
+        }
+
+        applyEvent(response.event);
+        await refreshAfterMutation();
+        return response.event;
+      } catch (error) {
+        const resolvedError = handleFailure(error, "Failed to force release curtailment ownership.");
+        setAdminTerminateError(resolvedError.message);
+        throw resolvedError;
+      } finally {
+        setAdminTerminatingEventId((currentEventId) => (currentEventId === eventUuid ? null : currentEventId));
+      }
+    },
+    [applyEvent, handleFailure, refreshAfterMutation],
+  );
+
   const dismissTerminalCurtailment = useCallback(() => {
     activeReconciliationSnapshotRef.current = dismissActiveCurtailmentEvent(activeCurtailmentEvent?.eventUuid);
   }, [activeCurtailmentEvent]);
@@ -1308,6 +1354,7 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
       updateCurtailment,
       stopCurtailment,
       adminTerminateCurtailment,
+      forceReleaseCurtailment,
     }),
     [
       activeSnapshotFields,
@@ -1315,6 +1362,7 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
       adminTerminateCurtailment,
       adminTerminateError,
       adminTerminatingEventId,
+      forceReleaseCurtailment,
       goToHistoryPage,
       historyEvents,
       historyPagination.currentPage,

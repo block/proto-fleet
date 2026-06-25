@@ -84,6 +84,65 @@ func TestSQLCurtailmentStore_BeginRecurtailTransition_OverlapRollsBack(t *testin
 	assert.Equal(t, string(models.TargetStateResolved), targetState, "partial re-curtail must not reopen skipped targets")
 }
 
+func TestSQLCurtailmentStore_ForceReleaseEvent_CancelsEventAndReleasesTargets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	db := testContext.DatabaseService.DB
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(db)
+
+	eventUUID := uuid.New()
+	inserted, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateActive, "force-release"),
+		[]models.InsertTargetParams{
+			curtailmentStoreTestTarget("force-release-confirmed", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget("force-release-dispatched", models.TargetStateDispatched, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget("force-release-resolved", models.TargetStateResolved, models.DesiredStateActive),
+		},
+	)
+	require.NoError(t, err)
+
+	event, swept, err := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "operator needs manual control")
+	require.NoError(t, err)
+	require.NotNil(t, event)
+	assert.Equal(t, models.EventStateCancelled, event.State)
+	assert.Equal(t, int64(2), swept)
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT device_identifier, state, last_error
+		FROM curtailment_target
+		WHERE curtailment_event_id = $1
+		ORDER BY device_identifier
+	`, inserted.ID)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	got := map[string]struct {
+		state     string
+		lastError sql.NullString
+	}{}
+	for rows.Next() {
+		var id, state string
+		var lastError sql.NullString
+		require.NoError(t, rows.Scan(&id, &state, &lastError))
+		got[id] = struct {
+			state     string
+			lastError sql.NullString
+		}{state: state, lastError: lastError}
+	}
+	require.NoError(t, rows.Err())
+
+	assert.Equal(t, string(models.TargetStateReleased), got["force-release-confirmed"].state)
+	assert.Equal(t, "operator needs manual control", got["force-release-confirmed"].lastError.String)
+	assert.Equal(t, string(models.TargetStateReleased), got["force-release-dispatched"].state)
+	assert.Equal(t, string(models.TargetStateResolved), got["force-release-resolved"].state)
+}
+
 func TestSQLCurtailmentStore_BeginRecurtailTransition_ReopensResolvedTarget(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")

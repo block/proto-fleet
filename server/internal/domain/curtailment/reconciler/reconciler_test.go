@@ -233,6 +233,10 @@ func (f *fakeStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, model
 	panic("AdminTerminateEvent not exercised by reconciler tests")
 }
 
+func (f *fakeStore) ForceReleaseEvent(context.Context, int64, uuid.UUID, string) (*models.Event, int64, error) {
+	panic("ForceReleaseEvent not exercised by reconciler tests")
+}
+
 func (f *fakeStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
 	panic("GetEventByIdempotencyKey not exercised by reconciler tests")
 }

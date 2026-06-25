@@ -1112,6 +1112,55 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 	return result.event, result.transitioned, nil
 }
 
+type forceReleaseResult struct {
+	event        *models.Event
+	sweptTargets int64
+}
+
+func (s *SQLCurtailmentStore) ForceReleaseEvent(
+	ctx context.Context,
+	orgID int64,
+	eventUUID uuid.UUID,
+	reason string,
+) (*models.Event, int64, error) {
+	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (forceReleaseResult, error) {
+		updated, err := q.ForceReleaseCurtailmentEvent(ctx, sqlc.ForceReleaseCurtailmentEventParams{
+			EventUuid: eventUUID,
+			OrgID:     orgID,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			current, getErr := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
+				EventUuid: eventUUID,
+				OrgID:     orgID,
+			})
+			if errors.Is(getErr, sql.ErrNoRows) {
+				return forceReleaseResult{}, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+			}
+			if getErr != nil {
+				return forceReleaseResult{}, fleeterror.NewInternalErrorf("failed to re-read curtailment event after force-release race: %v", getErr)
+			}
+			return forceReleaseResult{event: convertEventRow(current), sweptTargets: 0}, nil
+		}
+		if err != nil {
+			return forceReleaseResult{}, fleeterror.NewInternalErrorf("failed to force-release curtailment event: %v", err)
+		}
+
+		swept, err := q.SweepCurtailmentTargetsToReleased(ctx, sqlc.SweepCurtailmentTargetsToReleasedParams{
+			CurtailmentEventID: updated.ID,
+			LastError:          reason,
+		})
+		if err != nil {
+			return forceReleaseResult{}, fleeterror.NewInternalErrorf("failed to sweep curtailment targets for force release: %v", err)
+		}
+
+		return forceReleaseResult{event: convertEventRow(updated), sweptTargets: swept}, nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return result.event, result.sweptTargets, nil
+}
+
 func (s *SQLCurtailmentStore) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {
 	rows, err := s.GetQueries(ctx).ListCurtailmentTargetsByEvent(ctx, sqlc.ListCurtailmentTargetsByEventParams{
 		OrgID:     orgID,

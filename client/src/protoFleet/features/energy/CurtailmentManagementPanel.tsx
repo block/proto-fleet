@@ -6,6 +6,7 @@ import { buildSiteNameById } from "@/protoFleet/api/siteNames";
 import { useSites } from "@/protoFleet/api/sites";
 import {
   adminTerminateReasonRequiredMessage,
+  type ForceReleaseCurtailmentOptions,
   type AdminTerminateCurtailmentOptions as TerminateRecoveryOptions,
   type AdminTerminateCurtailmentState as TerminateRecoveryState,
   useCurtailmentApi,
@@ -65,6 +66,14 @@ interface TerminateRecoveryDialogProps {
   isSubmitting?: boolean;
   onCancel: () => void;
   onConfirm: (options: TerminateRecoveryOptions) => void;
+  open: boolean;
+}
+
+interface ForceReleaseDialogProps {
+  error?: string | null;
+  isSubmitting?: boolean;
+  onCancel: () => void;
+  onConfirm: (options: ForceReleaseCurtailmentOptions) => void;
   open: boolean;
 }
 
@@ -257,6 +266,78 @@ function CurtailmentRecoveryTerminateDialog({
   );
 }
 
+function CurtailmentForceReleaseDialog({
+  error,
+  isSubmitting = false,
+  onCancel,
+  onConfirm,
+  open,
+}: ForceReleaseDialogProps): ReactElement {
+  const [reason, setReason] = useState("");
+  const [reasonError, setReasonError] = useState<string | null>(null);
+  const validationError = reasonError ?? error ?? null;
+
+  const confirmRelease = useCallback(() => {
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      setReasonError(adminTerminateReasonRequiredMessage);
+      return;
+    }
+    setReasonError(null);
+    onConfirm({ reason: trimmedReason });
+  }, [onConfirm, reason]);
+  const dismissDialog = isSubmitting ? undefined : onCancel;
+
+  return (
+    <Dialog
+      open={open}
+      title="Force release curtailment ownership?"
+      onDismiss={dismissDialog}
+      icon={
+        <DialogIcon intent="critical">
+          <Alert />
+        </DialogIcon>
+      }
+      buttons={[
+        {
+          text: "Cancel",
+          variant: variants.secondary,
+          onClick: onCancel,
+          disabled: isSubmitting,
+        },
+        {
+          text: "Force release",
+          variant: variants.danger,
+          onClick: confirmRelease,
+          loading: isSubmitting,
+        },
+      ]}
+    >
+      <div className="grid gap-4 text-300 text-text-primary">
+        <p className="text-text-primary-70">
+          This immediately releases curtailment ownership so manual miner actions can proceed. It does not wake miners
+          or confirm that restore completed.
+        </p>
+        <Textarea
+          id="force-release-reason"
+          label="Reason"
+          initValue={reason}
+          rows={3}
+          maxLength={256}
+          required
+          error={validationError ?? false}
+          onChange={(value) => {
+            setReason(value);
+            if (value.trim()) {
+              setReasonError(null);
+            }
+          }}
+        />
+      </div>
+    </Dialog>
+  );
+}
+
 function createActiveCurtailmentPreview(
   event: ActiveCurtailmentEvent,
   values: CurtailmentSubmitValues,
@@ -337,6 +418,7 @@ function CurtailmentManagementPanel({
     updateCurtailment,
     stopCurtailment,
     adminTerminateCurtailment,
+    forceReleaseCurtailment,
   } = useCurtailmentApi({ siteNameById });
   const { responseProfiles } = useCurtailmentResponseProfiles(enableManage, { siteNameById });
   const responseProfileOptions = useMemo(
@@ -348,6 +430,7 @@ function CurtailmentManagementPanel({
   const [editSession, setEditSession] = useState<EditCurtailmentSession | null>(null);
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
   const [pendingTerminateRecoveryEventId, setPendingTerminateRecoveryEventId] = useState<string | null>(null);
+  const [pendingForceReleaseEventId, setPendingForceReleaseEventId] = useState<string | null>(null);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const activeRefreshAbortControllerRef = useRef<AbortController | null>(null);
   const manageSelectionAbortControllerRef = useRef<AbortController | null>(null);
@@ -368,6 +451,8 @@ function CurtailmentManagementPanel({
     pendingStopConfirmation !== null && stoppingEventId === pendingStopConfirmation.eventId;
   const isTerminateRecoverySubmitting =
     pendingTerminateRecoveryEventId !== null && adminTerminatingEventId === pendingTerminateRecoveryEventId;
+  const isForceReleaseSubmitting =
+    pendingForceReleaseEventId !== null && adminTerminatingEventId === pendingForceReleaseEventId;
   const isEditingCurtailment = modalMode === "edit";
   const isModalSubmitting = isEditingCurtailment ? isUpdating : isStarting;
   const hasOngoingCurtailment = activeEvents.some((event) => nonTerminalActiveEventStates.has(event.state));
@@ -691,6 +776,19 @@ function CurtailmentManagementPanel({
     [activeEvent, activeEventId, adminTerminateCurtailment, canUseRecovery, pendingTerminateRecoveryEventId],
   );
 
+  const handleConfirmForceRelease = useCallback(
+    (options: ForceReleaseCurtailmentOptions) => {
+      if (!canUseRecovery || !pendingForceReleaseEventId) {
+        return;
+      }
+
+      void forceReleaseCurtailment(pendingForceReleaseEventId, options)
+        .then(() => setPendingForceReleaseEventId(null))
+        .catch(() => {});
+    },
+    [canUseRecovery, forceReleaseCurtailment, pendingForceReleaseEventId],
+  );
+
   const handleEditStopCurtailment = useCallback(() => {
     const editEventId = editSession?.eventId ?? activeEventId;
 
@@ -741,6 +839,11 @@ function CurtailmentManagementPanel({
               onRequestTerminateRecovery={
                 canUseRecovery && canTerminateRecoveryCurtailmentEvent(activeEvent)
                   ? openTerminateRecoveryConfirmation
+                  : undefined
+              }
+              onRequestForceRelease={
+                canUseRecovery && activeEventId && nonTerminalActiveEventStates.has(activeEvent.state)
+                  ? () => setPendingForceReleaseEventId(activeEventId)
                   : undefined
               }
               onRequestEdit={enableManage ? openEditModal : undefined}
@@ -804,6 +907,16 @@ function CurtailmentManagementPanel({
           isSubmitting={isTerminateRecoverySubmitting}
           onCancel={() => setPendingTerminateRecoveryEventId(null)}
           onConfirm={handleConfirmTerminateRecovery}
+        />
+      ) : null}
+
+      {pendingForceReleaseEventId ? (
+        <CurtailmentForceReleaseDialog
+          open
+          error={adminTerminateError}
+          isSubmitting={isForceReleaseSubmitting}
+          onCancel={() => setPendingForceReleaseEventId(null)}
+          onConfirm={handleConfirmForceRelease}
         />
       ) : null}
     </section>

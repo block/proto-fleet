@@ -479,15 +479,8 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 			"target_state must be CANCELLED or FAILED, got %q", req.TargetState,
 		)
 	}
-	if strings.TrimSpace(req.Reason) == "" {
-		return nil, fleeterror.NewInvalidArgumentError("reason must be set")
-	}
-	// Reason is fanned out into every swept target's last_error column;
-	// cap at proto's rune-based max_len so multi-byte input matches.
-	if n := utf8.RuneCountInString(req.Reason); n > startTextFieldMaxLen {
-		return nil, fleeterror.NewInvalidArgumentErrorf(
-			"reason must be at most %d characters, got %d", startTextFieldMaxLen, n,
-		)
+	if err := validateAdminRecoveryReason(req.Reason); err != nil {
+		return nil, err
 	}
 
 	updated, transitioned, err := s.store.AdminTerminateEvent(ctx, req.OrgID, req.EventUUID, req.TargetState, req.Reason)
@@ -512,6 +505,48 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 	// reason that would otherwise be dropped from the audit feed.
 	s.emitAdminTerminateAuditTrail(ctx, req, updated, transitioned)
 	return updated, nil
+}
+
+// ForceReleaseRequest is the service-level shape for operator recovery that
+// releases curtailment ownership immediately. It does not issue restore
+// commands and must not be reported as graceful completion.
+type ForceReleaseRequest struct {
+	OrgID     int64
+	EventUUID uuid.UUID
+	Reason    string
+}
+
+func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*models.Event, error) {
+	if req.OrgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if req.EventUUID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
+	}
+	if err := validateAdminRecoveryReason(req.Reason); err != nil {
+		return nil, err
+	}
+
+	event, sweptTargets, err := s.store.ForceReleaseEvent(ctx, req.OrgID, req.EventUUID, req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	s.emitForceReleaseAuditTrail(ctx, req, event, sweptTargets)
+	return event, nil
+}
+
+func validateAdminRecoveryReason(reason string) error {
+	if strings.TrimSpace(reason) == "" {
+		return fleeterror.NewInvalidArgumentError("reason must be set")
+	}
+	// Recovery reasons can be fanned out into target last_error columns; cap at
+	// proto's rune-based max_len so multi-byte input matches validator behavior.
+	if n := utf8.RuneCountInString(reason); n > startTextFieldMaxLen {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"reason must be at most %d characters, got %d", startTextFieldMaxLen, n,
+		)
+	}
+	return nil
 }
 
 // emitStartAuditTrail emits one curtailment_started row. Override flags ride
@@ -624,6 +659,34 @@ func (s *Service) emitAdminTerminateAuditTrail(ctx context.Context, req AdminTer
 		slog.Error("curtailment audit log failed",
 			"activity_type", eventType, "event_uuid", event.EventUUID, "error", err)
 		s.metrics.IncAuditWriteFailure(eventType)
+	}
+}
+
+func (s *Service) emitForceReleaseAuditTrail(ctx context.Context, req ForceReleaseRequest, event *models.Event, sweptTargets int64) {
+	if event == nil {
+		return
+	}
+	metadata := map[string]any{
+		"event_uuid":         event.EventUUID.String(),
+		"target_state":       string(models.TargetStateReleased),
+		"event_state":        string(event.State),
+		"reason":             req.Reason,
+		"swept_target_count": sweptTargets,
+	}
+	row := activitymodels.Event{
+		Category:    activitymodels.CategoryCurtailment,
+		Type:        ActivityTypeForceReleased,
+		Description: "Curtailment ownership force-released by admin",
+		Result:      activitymodels.ResultSuccess,
+		Metadata:    metadata,
+		ActorType:   activitymodels.ActorUser,
+	}
+	activity.StampActor(ctx, &row)
+	stampCurtailmentSite(&row, event)
+	if err := s.audit.LogStrict(ctx, row); err != nil {
+		slog.Error("curtailment audit log failed",
+			"activity_type", ActivityTypeForceReleased, "event_uuid", event.EventUUID, "error", err)
+		s.metrics.IncAuditWriteFailure(ActivityTypeForceReleased)
 	}
 }
 

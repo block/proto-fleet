@@ -44,6 +44,47 @@ func TestService_AdminTerminate_HappyPathForwardsToStore(t *testing.T) {
 	assert.Equal(t, "operator escalation", store.lastAdminTerminateReason)
 }
 
+func TestService_ForceRelease_HappyPathForwardsToStore(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	store := newFakeStore()
+	store.forceReleaseResult = &models.Event{
+		ID:        99,
+		EventUUID: eventUUID,
+		OrgID:     orgID,
+		State:     models.EventStateCancelled,
+	}
+	store.forceReleaseSweptTargets = 52
+	svc := NewService(store)
+
+	got, err := svc.ForceRelease(t.Context(), ForceReleaseRequest{
+		OrgID:     orgID,
+		EventUUID: eventUUID,
+		Reason:    "operator release",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, models.EventStateCancelled, got.State)
+	assert.Equal(t, 1, store.forceReleaseCalls)
+	assert.Equal(t, eventUUID, store.lastForceReleaseUUID)
+	assert.Equal(t, "operator release", store.lastForceReleaseReason)
+}
+
+func TestService_ForceRelease_RejectsMissingReason(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+
+	_, err := svc.ForceRelease(t.Context(), ForceReleaseRequest{
+		OrgID:     1,
+		EventUUID: uuid.New(),
+		Reason:    "   ",
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "reason")
+}
+
 // TestService_AdminTerminate_RejectsNonAllowedTargetStates: only
 // CANCELLED and FAILED are valid; COMPLETED, RESTORING, etc. are
 // rejected. The proto validator already restricts; the service repeats

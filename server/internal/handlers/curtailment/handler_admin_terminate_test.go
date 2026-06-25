@@ -22,20 +22,26 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
-// adminTerminateStubStore is a focused fake for AdminTerminate handler
-// tests. Only AdminTerminateEvent is wired; the rest panic so an
+// adminTerminateStubStore is a focused fake for admin recovery handler
+// tests. Only recovery methods are wired; the rest panic so an
 // unintended path is loud rather than silently zero-valuing.
 type adminTerminateStubStore struct {
-	authEvent        *models.Event
-	result           *models.Event
-	transitioned     bool
-	idempotentReplay bool
-	err              error
-	calls            int
-	lastOrgID        int64
-	lastEventUUID    uuid.UUID
-	lastTargetState  models.EventState
-	lastReason       string
+	authEvent              *models.Event
+	result                 *models.Event
+	transitioned           bool
+	idempotentReplay       bool
+	err                    error
+	calls                  int
+	lastOrgID              int64
+	lastEventUUID          uuid.UUID
+	lastTargetState        models.EventState
+	lastReason             string
+	forceReleaseCalls      int
+	lastForceReleaseOrgID  int64
+	lastForceReleaseUUID   uuid.UUID
+	lastForceReleaseReason string
+	forceReleaseResult     *models.Event
+	forceReleaseErr        error
 	// Targets returned by ListTargetsByEvent; the handler fetches them
 	// post-terminate so the response shape mirrors the read endpoints.
 	targets    []*models.Target
@@ -54,6 +60,20 @@ func (s *adminTerminateStubStore) AdminTerminateEvent(_ context.Context, orgID i
 	transitioned := !s.idempotentReplay
 	s.transitioned = transitioned
 	return s.result, transitioned, nil
+}
+
+func (s *adminTerminateStubStore) ForceReleaseEvent(_ context.Context, orgID int64, eventUUID uuid.UUID, reason string) (*models.Event, int64, error) {
+	s.forceReleaseCalls++
+	s.lastForceReleaseOrgID = orgID
+	s.lastForceReleaseUUID = eventUUID
+	s.lastForceReleaseReason = reason
+	if s.forceReleaseErr != nil {
+		return nil, 0, s.forceReleaseErr
+	}
+	if s.forceReleaseResult != nil {
+		return s.forceReleaseResult, int64(len(s.targets)), nil
+	}
+	return s.result, int64(len(s.targets)), nil
 }
 
 func (s *adminTerminateStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
@@ -208,6 +228,96 @@ func TestHandler_AdminTerminateEvent_HappyPath(t *testing.T) {
 	assert.Equal(t, eventUUID, store.lastEventUUID)
 	assert.Equal(t, models.EventStateCancelled, store.lastTargetState)
 	assert.Equal(t, "operator escalation", store.lastReason)
+}
+
+func TestHandler_ForceReleaseCurtailmentOwnership_HappyPath(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateCancelled,
+		},
+		targets: []*models.Target{
+			{DeviceIdentifier: "miner-1", State: models.TargetStateReleased},
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	resp, err := h.ForceReleaseCurtailmentOwnership(
+		adminTerminateSessionCtx(42, "ADMIN"),
+		connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+			EventUuid: eventUUID.String(),
+			Reason:    "operator release",
+		}),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+	assert.Equal(t, eventUUID.String(), resp.Msg.Event.EventUuid)
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED, resp.Msg.Event.State)
+	require.Len(t, resp.Msg.Event.Targets, 1)
+	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RELEASED, resp.Msg.Event.Targets[0].State)
+	assert.Equal(t, 1, store.forceReleaseCalls)
+	assert.Equal(t, int64(42), store.lastForceReleaseOrgID)
+	assert.Equal(t, eventUUID, store.lastForceReleaseUUID)
+	assert.Equal(t, "operator release", store.lastForceReleaseReason)
+}
+
+func TestHandler_ForceReleaseCurtailmentOwnership_BypassesIncompleteTargetSiteCoverage(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		authEvent: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateActive,
+			ScopeType: models.ScopeTypeDeviceList,
+		},
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateCancelled,
+			ScopeType: models.ScopeTypeDeviceList,
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.ForceReleaseCurtailmentOwnership(
+		adminTerminateSessionCtx(42, "ADMIN"),
+		connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+			EventUuid: eventUUID.String(),
+			Reason:    "operator release",
+		}),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.forceReleaseCalls)
+}
+
+func TestHandler_ForceReleaseCurtailmentOwnership_RejectsNonAdmin(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.ForceReleaseCurtailmentOwnership(
+		adminTerminateSessionCtx(42, "OPERATOR"),
+		connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+			EventUuid: eventUUID.String(),
+			Reason:    "operator release",
+		}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Equal(t, 0, store.forceReleaseCalls)
 }
 
 // TestHandler_AdminTerminateEvent_RejectsCallerWithoutCurtailmentManage:

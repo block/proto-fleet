@@ -197,6 +197,11 @@ type CurtailmentStore interface {
 	// ErrCurtailmentAdminTerminateStateConflict.
 	AdminTerminateEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (event *models.Event, transitioned bool, err error)
 
+	// ForceReleaseEvent immediately moves any non-terminal event to CANCELLED
+	// and sweeps non-terminal targets to RELEASED in one transaction. It is an
+	// operator recovery path, not graceful restore.
+	ForceReleaseEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID, reason string) (event *models.Event, sweptTargets int64, err error)
+
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 	ListTargetsByEventPage(ctx context.Context, params ListTargetsByEventPageParams) ([]*models.Target, string, error)
 	ListTargetSiteIDsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]int64, bool, error)

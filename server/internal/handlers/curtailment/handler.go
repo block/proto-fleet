@@ -314,6 +314,38 @@ func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[
 	}), nil
 }
 
+// ForceReleaseCurtailmentOwnership is an admin recovery path that releases
+// curtailment ownership immediately. It intentionally checks org-level manage
+// permission before loading event site contexts so incomplete target-site
+// coverage cannot block recovery.
+func (h *Handler) ForceReleaseCurtailmentOwnership(ctx context.Context, req *connect.Request[pb.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[pb.ForceReleaseCurtailmentOwnershipResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	if err := requireAdminFromContext(ctx, actionAdminTerminateEvents); err != nil {
+		return nil, err
+	}
+	if h.service == nil {
+		return nil, errCurtailmentNotImplemented("ForceReleaseCurtailmentOwnership")
+	}
+	forceReq, err := toForceReleaseRequest(req.Msg, info)
+	if err != nil {
+		return nil, err
+	}
+	event, err := h.service.ForceRelease(ctx, forceReq)
+	if err != nil {
+		return nil, err
+	}
+	targets, err := h.service.ListTargetsByEvent(ctx, info.OrganizationID, event.EventUUID)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.ForceReleaseCurtailmentOwnershipResponse{
+		Event: toEventProtoWithTargets(event, targets),
+	}), nil
+}
+
 // IngestCurtailmentSignal starts a curtailment event from an external
 // dispatch signal. Permission gate runs before the body so denial
 // surfaces regardless of whether the body has shipped.

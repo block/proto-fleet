@@ -50,6 +50,7 @@ interface ActiveCurtailmentStatusProps {
   className?: string;
   onDismissRestored?: () => void;
   onRequestEdit?: () => void;
+  onRequestForceRelease?: () => void;
   onRequestForceRestore?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
@@ -60,6 +61,7 @@ interface ActiveCurtailmentActionButtonsProps {
   displayState: ActiveCurtailmentDisplayState;
   onDismissRestored?: () => void;
   onRequestEdit?: () => void;
+  onRequestForceRelease?: () => void;
   onRequestForceRestore?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
@@ -370,6 +372,12 @@ function getForceRestoreButton(onRequestForceRestore?: () => void): ReactElement
   ) : null;
 }
 
+function getForceReleaseButton(onRequestForceRelease?: () => void): ReactElement | null {
+  return onRequestForceRelease ? (
+    <Button variant={variants.danger} size={sizes.compact} text="Force release" onClick={onRequestForceRelease} />
+  ) : null;
+}
+
 function getActiveCurtailmentActionButton({
   displayState,
   onDismissRestored,
@@ -411,6 +419,7 @@ function ActiveCurtailmentActionButtons({
   displayState,
   onDismissRestored,
   onRequestEdit,
+  onRequestForceRelease,
   onRequestForceRestore,
   onRequestRestore,
   onRequestStop,
@@ -427,8 +436,9 @@ function ActiveCurtailmentActionButtons({
     ? getForceRestoreButton(onRequestForceRestore)
     : null;
   const showManageButton = Boolean(onRequestEdit && manageableDisplayStates.has(displayState));
+  const forceReleaseButton = getForceReleaseButton(onRequestForceRelease);
 
-  if (!actionButton && !forceRestoreButton && !showManageButton) {
+  if (!actionButton && !forceRestoreButton && !forceReleaseButton && !showManageButton) {
     return null;
   }
 
@@ -439,6 +449,7 @@ function ActiveCurtailmentActionButtons({
       ) : null}
       {actionButton}
       {forceRestoreButton}
+      {forceReleaseButton}
     </div>
   );
 }
@@ -469,6 +480,7 @@ export default function ActiveCurtailmentStatus({
   className,
   onDismissRestored,
   onRequestEdit,
+  onRequestForceRelease,
   onRequestForceRestore,
   onRequestRestore,
   onRequestStop,
@@ -532,6 +544,7 @@ export default function ActiveCurtailmentStatus({
           displayState={displayState}
           onDismissRestored={onDismissRestored}
           onRequestEdit={onRequestEdit}
+          onRequestForceRelease={onRequestForceRelease}
           onRequestForceRestore={onRequestForceRestore}
           onRequestRestore={onRequestRestore}
           onRequestStop={onRequestStop}

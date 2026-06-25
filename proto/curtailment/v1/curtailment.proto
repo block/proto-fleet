@@ -59,6 +59,13 @@ service CurtailmentService {
     rpc AdminTerminateEvent(AdminTerminateEventRequest)
         returns (AdminTerminateEventResponse);
 
+    // Admin recovery RPC: immediately release curtailment ownership without
+    // issuing restore commands. This is distinct from StopCurtailment
+    // (graceful restore) and AdminTerminateEvent (Stop-first terminal
+    // recovery). Session-only, Admin role; reason required.
+    rpc ForceReleaseCurtailmentOwnership(ForceReleaseCurtailmentOwnershipRequest)
+        returns (ForceReleaseCurtailmentOwnershipResponse);
+
     // IngestCurtailmentSignal starts a curtailment event from an
     // external dispatch signal. signal_payload is provider-opaque;
     // per-provider adapters decode it. Idempotent on
@@ -723,6 +730,17 @@ message AdminTerminateEventRequest {
 }
 
 message AdminTerminateEventResponse {
+    CurtailmentEvent event = 1;
+}
+
+message ForceReleaseCurtailmentOwnershipRequest {
+    string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
+
+    // Operator-supplied reason recorded on the audit row and swept targets.
+    string reason = 2 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message ForceReleaseCurtailmentOwnershipResponse {
     CurtailmentEvent event = 1;
 }
 

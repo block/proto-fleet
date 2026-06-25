@@ -28,6 +28,7 @@ import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/Curta
 
 const {
   mockAdminTerminateEvent,
+  mockForceReleaseCurtailmentOwnership,
   mockListActiveCurtailments,
   mockGetCurtailmentEvent,
   mockHandleAuthErrors,
@@ -37,6 +38,7 @@ const {
   mockUpdateCurtailment,
 } = vi.hoisted(() => ({
   mockAdminTerminateEvent: vi.fn(),
+  mockForceReleaseCurtailmentOwnership: vi.fn(),
   mockListActiveCurtailments: vi.fn(),
   mockGetCurtailmentEvent: vi.fn(),
   mockHandleAuthErrors: vi.fn(),
@@ -67,6 +69,7 @@ vi.mock("@/protoFleet/api/clients", () => ({
       startCurtailment: mockStartCurtailment,
       stopCurtailment: mockStopCurtailment,
       adminTerminateEvent: mockAdminTerminateEvent,
+      forceReleaseCurtailmentOwnership: mockForceReleaseCurtailmentOwnership,
       updateCurtailmentEvent: mockUpdateCurtailment,
     };
   })(),
@@ -2147,6 +2150,46 @@ describe("useCurtailmentApi", () => {
         eventUuid: "curt-1",
         reason: "Operator marked restore failed",
         targetState: CurtailmentEventState.FAILED,
+      }),
+    );
+  });
+
+  it("force releases curtailment ownership with a required reason", async () => {
+    const releasedEvent = curtailmentEvent({
+      state: CurtailmentEventState.CANCELLED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+    });
+    mockForceReleaseCurtailmentOwnership.mockResolvedValueOnce({ event: releasedEvent });
+    mockListCurtailmentEvents.mockResolvedValue({ events: [releasedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await expect(
+        result.current.forceReleaseCurtailment("curt-1", {
+          reason: "   ",
+        }),
+      ).rejects.toThrow("Enter a reason before terminating the event.");
+    });
+
+    expect(mockForceReleaseCurtailmentOwnership).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.forceReleaseCurtailment("curt-1", {
+        reason: " Release for manual control ",
+      });
+    });
+
+    expect(mockForceReleaseCurtailmentOwnership).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventUuid: "curt-1",
+        reason: "Release for manual control",
+      }),
+    );
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-1",
+        state: "cancelled",
       }),
     );
   });

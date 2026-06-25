@@ -15,6 +15,7 @@ import type {
 const mocks = vi.hoisted(() => ({
   adminTerminateCurtailment: vi.fn(),
   dismissTerminalCurtailment: vi.fn(),
+  forceReleaseCurtailment: vi.fn(),
   goToHistoryPage: vi.fn(),
   listSites: vi.fn(),
   navigate: vi.fn(),
@@ -58,6 +59,7 @@ vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
   default: ({
     onDismissRestored,
     onRequestEdit,
+    onRequestForceRelease,
     onRequestForceRestore,
     onRequestRestore,
     onRequestStop,
@@ -65,6 +67,7 @@ vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
   }: {
     onDismissRestored?: () => void;
     onRequestEdit?: () => void;
+    onRequestForceRelease?: () => void;
     onRequestForceRestore?: () => void;
     onRequestRestore?: () => void;
     onRequestStop?: () => void;
@@ -82,6 +85,11 @@ vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
       {onRequestForceRestore ? (
         <button type="button" onClick={onRequestForceRestore}>
           Request force restore
+        </button>
+      ) : null}
+      {onRequestForceRelease ? (
+        <button type="button" onClick={onRequestForceRelease}>
+          Request force release
         </button>
       ) : null}
       {onRequestRestore ? (
@@ -307,6 +315,7 @@ function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseC
     updateCurtailment: mocks.updateCurtailment as UseCurtailmentApiResult["updateCurtailment"],
     stopCurtailment: mocks.stopCurtailment as UseCurtailmentApiResult["stopCurtailment"],
     adminTerminateCurtailment: mocks.adminTerminateCurtailment as UseCurtailmentApiResult["adminTerminateCurtailment"],
+    forceReleaseCurtailment: mocks.forceReleaseCurtailment as UseCurtailmentApiResult["forceReleaseCurtailment"],
     ...overrides,
   };
 }
@@ -330,6 +339,7 @@ describe("CurtailmentManagementPanel", () => {
     mocks.startCurtailment.mockResolvedValue({});
     mocks.stopCurtailment.mockResolvedValue({});
     mocks.adminTerminateCurtailment.mockResolvedValue({});
+    mocks.forceReleaseCurtailment.mockResolvedValue({});
     mocks.updateCurtailment.mockResolvedValue({});
     mocks.useHasPermission.mockReturnValue(false);
     mocks.useCurtailmentApi.mockReturnValue(createApiResult());
@@ -538,6 +548,39 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Confirm confirmation" }));
 
     await waitFor(() => expect(mocks.stopCurtailment).toHaveBeenCalledWith("curt-1", { force: true }));
+  });
+
+  it("force releases curtailment ownership for admin recovery users", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEvents: [{ ...historyEvent, state: "active" }],
+        activeEventId: "curt-1",
+      }),
+    );
+    mocks.useHasPermission.mockImplementation((permission: string) =>
+      ["curtailment:manage", "curtailment:read", "site:read", "admin:recovery"].includes(permission),
+    );
+
+    render(<CurtailmentManagementPanel enableManage enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request force release" }));
+    expect(screen.getByText("Force release curtailment ownership?")).toBeInTheDocument();
+
+    const releaseButtons = screen.getAllByRole("button", { name: "Force release" });
+    await user.click(releaseButtons[releaseButtons.length - 1]);
+    expect(screen.getByText("Enter a reason before terminating the event.")).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Operator needs manual control");
+    const updatedReleaseButtons = screen.getAllByRole("button", { name: "Force release" });
+    await user.click(updatedReleaseButtons[updatedReleaseButtons.length - 1]);
+
+    await waitFor(() =>
+      expect(mocks.forceReleaseCurtailment).toHaveBeenCalledWith("curt-1", {
+        reason: "Operator needs manual control",
+      }),
+    );
   });
 
   it("hides force recovery controls from non-admin curtailment managers", () => {

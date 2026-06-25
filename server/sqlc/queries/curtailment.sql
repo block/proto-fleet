@@ -353,6 +353,45 @@ SET state      = 'restore_failed',
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
     AND state NOT IN ('resolved', 'restore_failed', 'released');
 
+-- name: ForceReleaseCurtailmentEvent :one
+-- Immediately releases curtailment ownership for any non-terminal event.
+-- Unlike AdminTerminateCurtailmentEvent, this intentionally supports ACTIVE
+-- events and does not gate on in-flight Curtail commands because the operator
+-- intent is to release policy ownership, not to report a graceful restore.
+UPDATE curtailment_event
+SET state      = 'cancelled',
+    ended_at   = NOW(),
+    updated_at = NOW()
+WHERE event_uuid = sqlc.arg('event_uuid')
+  AND org_id = sqlc.arg('org_id')
+  AND state IN ('pending', 'active', 'restoring')
+RETURNING *;
+
+-- name: SweepCurtailmentTargetsToReleased :execrows
+-- Force every non-terminal target → RELEASED with the operator reason. This
+-- releases ownership without claiming that restore was attempted or failed.
+UPDATE curtailment_target
+SET state      = 'released',
+    last_error = sqlc.arg('last_error')::TEXT,
+    curtail_state = CASE
+        WHEN desired_state = 'curtailed' THEN 'released'
+        ELSE curtail_state
+    END,
+    curtail_completed_at = CASE
+        WHEN desired_state = 'curtailed' THEN COALESCE(curtail_completed_at, CURRENT_TIMESTAMP)
+        ELSE curtail_completed_at
+    END,
+    restore_state = CASE
+        WHEN desired_state = 'active' THEN 'released'
+        ELSE restore_state
+    END,
+    restore_completed_at = CASE
+        WHEN desired_state = 'active' THEN COALESCE(restore_completed_at, CURRENT_TIMESTAMP)
+        ELSE restore_completed_at
+    END
+WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
+    AND state NOT IN ('resolved', 'restore_failed', 'released');
+
 -- name: UpdateCurtailmentEventOperatorFields :one
 -- Partial update; nil params COALESCE-preserve. State filter is the
 -- race-loss guard — zero rows means the event advanced between the
