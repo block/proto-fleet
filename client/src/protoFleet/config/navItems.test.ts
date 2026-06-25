@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  getFirstAllowedSecondaryNavPath,
-  isNavItemAllowedByPermissions,
-  primaryNavItems,
-  secondaryNavItems,
-} from "./navItems";
+import { getSettingsLandingPath, isNavItemAllowedByPermissions, primaryNavItems, secondaryNavItems } from "./navItems";
 import { LightningAlt } from "@/shared/assets/icons";
 
 describe("primaryNavItems", () => {
@@ -41,6 +36,15 @@ describe("secondaryNavItems", () => {
         label: "Preferences",
         parent: "/settings",
         section: "Account",
+      }),
+    );
+    expect(secondaryNavItems).toContainEqual(
+      expect.objectContaining({
+        path: "/settings/firmware",
+        label: "Firmware",
+        parent: "/settings",
+        section: "Fleet",
+        requiredPermission: "miner:firmware_update",
       }),
     );
     expect(labels.indexOf("Network")).toBeLessThan(labels.indexOf("Schedules"));
@@ -89,9 +93,10 @@ describe("isNavItemAllowedByPermissions", () => {
   });
 });
 
-describe("getFirstAllowedSecondaryNavPath", () => {
-  it("uses Network for fleet readers and skips it otherwise", () => {
-    expect(getFirstAllowedSecondaryNavPath(["fleet:read"])).toBe("/settings/network");
-    expect(getFirstAllowedSecondaryNavPath(["role:manage"])).not.toBe("/settings/network");
+describe("getSettingsLandingPath", () => {
+  it("uses Network for fleet readers and Preferences as the safe fallback", () => {
+    expect(getSettingsLandingPath(["fleet:read"])).toBe("/settings/network");
+    expect(getSettingsLandingPath(["role:manage"])).toBe("/settings/preferences");
+    expect(getSettingsLandingPath([])).toBe("/settings/preferences");
   });
 });

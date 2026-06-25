@@ -41,7 +41,7 @@ import {
   importWelcomePage,
 } from "./routePrefetch";
 import { onboardingClient, sitesClient } from "@/protoFleet/api/clients";
-import { getFirstAllowedSecondaryNavPath } from "@/protoFleet/config/navItems";
+import { getSettingsLandingPath } from "@/protoFleet/config/navItems";
 import {
   minersRedirectLoader,
   racksRedirectLoader,
@@ -130,8 +130,7 @@ const welcomeLoader = async () => {
 
 const appEntryLoader = () => redirect(appEntryPath(sanitizeActiveSite(useFleetStore.getState().ui.activeSite)));
 
-const settingsRedirectLoader = () =>
-  redirect(getFirstAllowedSecondaryNavPath(useFleetStore.getState().auth.permissions));
+const settingsRedirectLoader = () => redirect(getSettingsLandingPath(useFleetStore.getState().auth.permissions));
 
 // Group detail is canonical/unscoped, so a scoped URL like
 // /north/groups/team-a redirects to /groups/team-a while preserving the

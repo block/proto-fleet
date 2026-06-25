@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import SettingsLayout from "./SettingsLayout";
-import { getFirstAllowedSecondaryNavPath } from "@/protoFleet/config/navItems";
+import { getSettingsLandingPath } from "@/protoFleet/config/navItems";
 
 const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
 const activeSiteMock = vi.hoisted(() => ({ current: { kind: "all" } as { kind: string; id?: string } }));
@@ -87,11 +87,10 @@ describe("SettingsLayout permission guard", () => {
   test("redirects protected settings routes before rendering their children", async () => {
     renderSettingsRoute("/settings/team");
 
-    await waitFor(() =>
-      expect(screen.getByTestId("location-probe").textContent).toBe(getFirstAllowedSecondaryNavPath([])),
-    );
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe(getSettingsLandingPath([])));
     expect(screen.queryByTestId("team-page")).not.toBeInTheDocument();
-    expect(screen.getByTestId("firmware-page")).toBeInTheDocument();
+    expect(screen.getByTestId("preferences-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("firmware-page")).not.toBeInTheDocument();
   });
 
   test("redirects Network when fleet read permission is missing", async () => {
@@ -100,9 +99,18 @@ describe("SettingsLayout permission guard", () => {
     renderSettingsRoute("/settings/network");
 
     await waitFor(() =>
-      expect(screen.getByTestId("location-probe").textContent).toBe(getFirstAllowedSecondaryNavPath(["role:manage"])),
+      expect(screen.getByTestId("location-probe").textContent).toBe(getSettingsLandingPath(["role:manage"])),
     );
     expect(screen.queryByTestId("network-page")).not.toBeInTheDocument();
+    expect(screen.getByTestId("preferences-page")).toBeInTheDocument();
+  });
+
+  test("redirects Firmware when firmware update permission is missing", async () => {
+    renderSettingsRoute("/settings/firmware");
+
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe(getSettingsLandingPath([])));
+    expect(screen.queryByTestId("firmware-page")).not.toBeInTheDocument();
+    expect(screen.getByTestId("preferences-page")).toBeInTheDocument();
   });
 
   test("renders Network when fleet read permission is present", () => {
@@ -112,6 +120,15 @@ describe("SettingsLayout permission guard", () => {
 
     expect(screen.getByTestId("location-probe").textContent).toBe("/settings/network");
     expect(screen.getByTestId("network-page")).toBeInTheDocument();
+  });
+
+  test("renders Firmware when firmware update permission is present", () => {
+    permissionsMock.current = ["miner:firmware_update"];
+
+    renderSettingsRoute("/settings/firmware");
+
+    expect(screen.getByTestId("location-probe").textContent).toBe("/settings/firmware");
+    expect(screen.getByTestId("firmware-page")).toBeInTheDocument();
   });
 
   test("renders protected settings routes when the org permission is present", () => {

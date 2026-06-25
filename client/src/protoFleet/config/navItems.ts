@@ -115,6 +115,7 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     label: "Firmware",
     parent: "/settings",
     section: "Fleet",
+    requiredPermission: "miner:firmware_update",
   },
   {
     path: "/settings/schedules",
@@ -183,5 +184,13 @@ export const secondaryNavItems: SecondaryNavItem[] = [
   },
 ];
 
-export const getFirstAllowedSecondaryNavPath = (permissions: readonly string[]) =>
-  secondaryNavItems.find((item) => isNavItemAllowedByPermissions(item, permissions))?.path ?? "/settings/preferences";
+const defaultSettingsPath = "/settings/preferences";
+const preferredSettingsPath = "/settings/network";
+
+export const getSettingsLandingPath = (permissions: readonly string[]) => {
+  const preferredItem = secondaryNavItems.find((item) => item.path === preferredSettingsPath);
+
+  return preferredItem && isNavItemAllowedByPermissions(preferredItem, permissions)
+    ? preferredItem.path
+    : defaultSettingsPath;
+};
