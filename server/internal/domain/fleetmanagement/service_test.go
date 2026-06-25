@@ -1612,6 +1612,32 @@ func requireNoFleetNodeDevicePairing(t *testing.T, db *sql.DB, deviceID int64) {
 	assert.Equal(t, 0, count)
 }
 
+func insertMinerCredentials(t *testing.T, db *sql.DB, deviceID int64) {
+	t.Helper()
+
+	_, err := db.ExecContext(t.Context(), `
+		INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		VALUES ($1, $2, $3)`,
+		deviceID,
+		"node-owned-username",
+		"node-owned-password",
+	)
+	require.NoError(t, err)
+}
+
+func requireNoMinerCredentials(t *testing.T, db *sql.DB, deviceID int64) {
+	t.Helper()
+
+	var count int
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM miner_credentials
+		WHERE device_id = $1`,
+		deviceID,
+	).Scan(&count))
+	assert.Equal(t, 0, count)
+}
+
 func requireDeviceSoftDeleted(t *testing.T, db *sql.DB, orgID int64, deviceIdentifier string) {
 	t.Helper()
 
@@ -1673,6 +1699,7 @@ func TestService_DeleteMiners_ShouldCleanFleetNodePairingRows(t *testing.T) {
 
 	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
 	deviceID := pairMinerToFleetNode(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+	insertMinerCredentials(t, testContext.ServiceProvider.DB, deviceID)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -1693,6 +1720,7 @@ func TestService_DeleteMiners_ShouldCleanFleetNodePairingRows(t *testing.T) {
 	assert.Equal(t, int32(1), resp.DeletedCount)
 	requireDeviceSoftDeleted(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
 	requireNoFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, deviceID)
+	requireNoMinerCredentials(t, testContext.ServiceProvider.DB, deviceID)
 
 	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
 	require.NoError(t, err)
@@ -1710,6 +1738,8 @@ func TestService_DeleteMiners_ShouldCleanStaleFleetNodePairingRowsForRediscovere
 	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
 	liveDeviceID := pairMinerToFleetNode(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
 	staleDeviceID := createStaleFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+	insertMinerCredentials(t, testContext.ServiceProvider.DB, liveDeviceID)
+	insertMinerCredentials(t, testContext.ServiceProvider.DB, staleDeviceID)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
 	service := testContext.ServiceProvider.FleetManagementService
@@ -1730,6 +1760,8 @@ func TestService_DeleteMiners_ShouldCleanStaleFleetNodePairingRowsForRediscovere
 	assert.Equal(t, int32(1), resp.DeletedCount)
 	requireNoFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, liveDeviceID)
 	requireNoFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, staleDeviceID)
+	requireNoMinerCredentials(t, testContext.ServiceProvider.DB, liveDeviceID)
+	requireNoMinerCredentials(t, testContext.ServiceProvider.DB, staleDeviceID)
 }
 
 func TestService_DeleteMiners_ShouldRejectEmptyRequestWithoutFilter(t *testing.T) {

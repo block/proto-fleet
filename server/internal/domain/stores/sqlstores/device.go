@@ -1318,6 +1318,13 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 			return 0, fleeterror.NewForbiddenError("access denied to one or more requested devices")
 		}
 
+		if _, err := q.DeleteMinerCredentialsForDeviceIdentifiers(ctx, sqlc.DeleteMinerCredentialsForDeviceIdentifiersParams{
+			DeviceIdentifiers: deviceIdentifiers,
+			OrgID:             orgID,
+		}); err != nil {
+			return 0, fleeterror.NewInternalErrorf("failed to delete miner credentials: %w", err)
+		}
+
 		if _, err := q.DeleteFleetNodeDevicePairings(ctx, sqlc.DeleteFleetNodeDevicePairingsParams{
 			DeviceIdentifiers: deviceIdentifiers,
 			OrgID:             orgID,

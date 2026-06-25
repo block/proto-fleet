@@ -250,6 +250,28 @@ func (q *Queries) DeleteFleetNodeDevicePairings(ctx context.Context, arg DeleteF
 	return result.RowsAffected()
 }
 
+const deleteMinerCredentialsForDeviceIdentifiers = `-- name: DeleteMinerCredentialsForDeviceIdentifiers :execrows
+DELETE FROM miner_credentials mc
+USING device d
+WHERE mc.device_id = d.id
+  AND d.device_identifier = ANY($1::text[])
+  AND d.org_id = $2
+`
+
+type DeleteMinerCredentialsForDeviceIdentifiersParams struct {
+	DeviceIdentifiers []string
+	OrgID             int64
+}
+
+// Deletes miner credentials for devices that are being removed from the fleet.
+func (q *Queries) DeleteMinerCredentialsForDeviceIdentifiers(ctx context.Context, arg DeleteMinerCredentialsForDeviceIdentifiersParams) (int64, error) {
+	result, err := q.exec(ctx, q.deleteMinerCredentialsForDeviceIdentifiersStmt, deleteMinerCredentialsForDeviceIdentifiers, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getAllDeviceInfoForCapabilityCheck = `-- name: GetAllDeviceInfoForCapabilityCheck :many
 SELECT
     d.id,
