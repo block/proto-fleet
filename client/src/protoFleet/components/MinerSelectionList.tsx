@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { create } from "@bufbuild/protobuf";
+import { clone, create } from "@bufbuild/protobuf";
 
 import {
   SortConfigSchema,
@@ -15,6 +15,7 @@ import {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
+import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import { INACTIVE_PLACEHOLDER } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
 import { getMinerGroupLabels, getMinerRackLabel } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 
@@ -60,6 +61,12 @@ export interface MinerSelectionListProps {
   /** When true, renders radio buttons for single-item selection instead of checkboxes. */
   singleSelect?: boolean;
   showSelectAllFooter?: boolean;
+  // Soft default from the topbar SitePicker. A single selected site limits the
+  // miner list and its rack facet options to that site; "all sites" passes the
+  // empty filter and shows everything (no regression). Folded into the
+  // MinerListFilter (AND with the user's model/rack/group facets) so applying a
+  // facet never drops the site scope.
+  scope?: SiteFilterFields;
   onSelectionChange?: (state: {
     selectedItems: string[];
     allSelected: boolean;
@@ -152,14 +159,23 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       isRowDisabled,
       singleSelect = false,
       showSelectAllFooter = true,
+      scope,
       onSelectionChange,
     },
     ref,
   ) => {
     const { showTypeFilter = true, showRackFilter = true, showGroupFilter = true } = filterConfig ?? {};
 
+    const scopeSiteIds = useMemo(() => scope?.siteIds ?? [], [scope]);
+    const scopeIncludeUnassigned = scope?.includeUnassigned ?? false;
+    // Serialized key so effects/callbacks only re-fire when the selection
+    // actually changes (siteIds is a fresh bigint[] each render otherwise).
+    const scopeKey = `${scopeSiteIds.map(String).join(",")}|${scopeIncludeUnassigned}`;
+
     const { listGroups, listRacks } = useDeviceSets();
-    const [filter, setFilter] = useState(() => create(MinerListFilterSchema, {}));
+    const [filter, setFilter] = useState(() =>
+      create(MinerListFilterSchema, { siteIds: scopeSiteIds, includeUnassigned: scopeIncludeUnassigned }),
+    );
     const [selectedItems, setSelectedItems] = useState<string[]>(initialSelectedItems ?? []);
     const [allSelected, setAllSelected] = useState(false);
     const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
@@ -273,11 +289,36 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       goToPrevPage();
     }, [scrollToTop, goToPrevPage]);
 
-    // Fetch filter options only for enabled filters
+    // Keep the active site scope folded into the filter when the selection
+    // changes mid-modal. Preserves the user's model/rack/group facets and only
+    // swaps the site fields.
+    useEffect(() => {
+      setFilter((current) => {
+        if (
+          current.siteIds.map(String).join(",") === scopeSiteIds.map(String).join(",") &&
+          current.includeUnassigned === scopeIncludeUnassigned
+        ) {
+          return current;
+        }
+        // Clone to preserve the user's model/rack/group facets, swapping only
+        // the site fields.
+        const next = clone(MinerListFilterSchema, current);
+        next.siteIds = scopeSiteIds;
+        next.includeUnassigned = scopeIncludeUnassigned;
+        return next;
+      });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [scopeKey]);
+
+    // Fetch filter options only for enabled filters. Rack facet options scope
+    // to the active site so the dropdown lists only the site's racks; group
+    // options stay org-wide until ListGroups gains site filtering (issue #520).
     useEffect(() => {
       if (showGroupFilter) listGroups({ onSuccess: setAvailableGroups });
-      if (showRackFilter) listRacks({ onSuccess: setAvailableRacks });
-    }, [showGroupFilter, showRackFilter, listGroups, listRacks]);
+      if (showRackFilter)
+        listRacks({ siteIds: scopeSiteIds, includeUnassigned: scopeIncludeUnassigned, onSuccess: setAvailableRacks });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showGroupFilter, showRackFilter, listGroups, listRacks, scopeKey]);
 
     const filters = useMemo((): FilterItem[] => {
       const items: FilterItem[] = [];
@@ -315,6 +356,8 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       async (activeFilters: ActiveFilters) => {
         const minerFilter = create(MinerListFilterSchema, {
           errorComponentTypes: [],
+          siteIds: scopeSiteIds,
+          includeUnassigned: scopeIncludeUnassigned,
         });
 
         const typeFilters = activeFilters.dropdownFilters.type;
@@ -338,7 +381,8 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
 
         setFilter(minerFilter);
       },
-      [showRackFilter, showGroupFilter],
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [showRackFilter, showGroupFilter, scopeSiteIds, scopeIncludeUnassigned],
     );
 
     const showSpinner = (isLoading || isMembersLoading) && currentPageItems.length === 0;

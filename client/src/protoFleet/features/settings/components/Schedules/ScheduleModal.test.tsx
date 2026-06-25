@@ -35,12 +35,36 @@ vi.mock("@/protoFleet/api/useFleet", () => ({
   }),
 }));
 
+// The schedule modal reads the topbar SitePicker selection for soft scoping.
+// Mutable so tests can switch between all-sites and a single selected site
+// (which controls Site-target visibility). Stand-in avoids the router that
+// useActiveSite depends on.
+const activeSiteMock = vi.hoisted(() => ({ current: { kind: "all" } as { kind: string; id?: string } }));
+
+vi.mock("@/protoFleet/components/PageHeader/SitePicker", () => ({
+  useActiveSite: () => ({ activeSite: activeSiteMock.current, setActiveSite: vi.fn() }),
+  siteFilterFromActive: (active: { kind: string; id?: string }) =>
+    active.kind === "site"
+      ? { siteIds: [BigInt(active.id ?? "0")], includeUnassigned: false }
+      : { siteIds: [], includeUnassigned: false },
+}));
+
 vi.mock("@/protoFleet/features/settings/components/Schedules/SchedulePreview", () => ({
   __esModule: true,
   default: () => null,
 }));
 
 vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+
+vi.mock("@/protoFleet/features/settings/components/Schedules/SiteSelectionModal", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+
+vi.mock("@/protoFleet/features/settings/components/Schedules/BuildingSelectionModal", () => ({
   __esModule: true,
   default: () => null,
 }));
@@ -139,6 +163,7 @@ describe("ScheduleModal", () => {
     listGroupsMock.mockReset();
     listGroupsMock.mockImplementation(() => undefined);
     pushToastMock.mockReset();
+    activeSiteMock.current = { kind: "all" };
   });
 
   afterEach(() => {
@@ -308,5 +333,52 @@ describe("ScheduleModal", () => {
     await waitFor(() => {
       expect(screen.getByText("Select an end date")).toBeVisible();
     });
+  });
+});
+
+describe("ScheduleModal Apply-to targets", () => {
+  beforeEach(() => {
+    listRacksMock.mockReset();
+    listRacksMock.mockImplementation(() => undefined);
+    listGroupsMock.mockReset();
+    listGroupsMock.mockImplementation(() => undefined);
+    pushToastMock.mockReset();
+    activeSiteMock.current = { kind: "all" };
+  });
+
+  const renderCreateModal = () =>
+    render(
+      <ScheduleModal
+        open
+        onDismiss={vi.fn()}
+        onCreateSchedule={vi.fn().mockResolvedValue(undefined)}
+        onUpdateSchedule={vi.fn().mockResolvedValue(undefined)}
+        onDeleteSchedule={vi.fn().mockResolvedValue(undefined)}
+        onPauseSchedule={vi.fn().mockResolvedValue(undefined)}
+        onResumeSchedule={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+  it("offers all target types in all-sites mode", () => {
+    renderCreateModal();
+
+    expect(screen.getByText("Sites")).toBeInTheDocument();
+    expect(screen.getByText("Buildings")).toBeInTheDocument();
+    expect(screen.getByText("Racks")).toBeInTheDocument();
+    expect(screen.getByText("Groups")).toBeInTheDocument();
+    expect(screen.getByText("Miners")).toBeInTheDocument();
+  });
+
+  it("keeps every target type (including Sites) when a single site is selected", () => {
+    activeSiteMock.current = { kind: "site", id: "7" };
+    renderCreateModal();
+
+    // Site is shown like the others — its picker just narrows to the one site
+    // (filtered, not hidden). Groups stay cross-site.
+    expect(screen.getByText("Sites")).toBeInTheDocument();
+    expect(screen.getByText("Buildings")).toBeInTheDocument();
+    expect(screen.getByText("Racks")).toBeInTheDocument();
+    expect(screen.getByText("Groups")).toBeInTheDocument();
+    expect(screen.getByText("Miners")).toBeInTheDocument();
   });
 });

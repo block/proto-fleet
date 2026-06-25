@@ -1,16 +1,19 @@
 import { useRef, useState } from "react";
 
 import MinerSelectionList, { type MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
+import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import Modal from "@/shared/components/Modal";
 
 interface MinerSelectionModalProps {
   open: boolean;
   selectedMinerIds: string[];
+  // Soft default from the topbar SitePicker; forwarded to MinerSelectionList.
+  scope?: SiteFilterFields;
   onDismiss: () => void;
   onSave: (minerIds: string[]) => void;
 }
 
-const MinerSelectionModal = ({ open, selectedMinerIds, onDismiss, onSave }: MinerSelectionModalProps) => {
+const MinerSelectionModal = ({ open, selectedMinerIds, scope, onDismiss, onSave }: MinerSelectionModalProps) => {
   const selectionRef = useRef<MinerSelectionListHandle>(null);
   const [draftSelection, setDraftSelection] = useState<string[]>(selectedMinerIds);
 
@@ -41,6 +44,7 @@ const MinerSelectionModal = ({ open, selectedMinerIds, onDismiss, onSave }: Mine
           ref={selectionRef}
           key={selectedMinerIds.join(",")}
           initialSelectedItems={selectedMinerIds}
+          scope={scope}
           onSelectionChange={({ selectedItems }) => setDraftSelection(selectedItems)}
         />
       </div>
