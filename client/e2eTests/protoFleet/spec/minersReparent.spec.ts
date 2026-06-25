@@ -6,7 +6,7 @@ import { type MinersPage } from "../pages/miners";
 import { type RacksPage } from "../pages/racks";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
-type SiteManagementMode = "fleet" | "legacy";
+type SiteManagementMode = "fleet";
 
 type VisibleMinerSnapshot = {
   deviceIdentifier: string;
@@ -33,20 +33,6 @@ function getListRowByName(page: Page, name: string) {
     .first();
 }
 
-function getLegacySiteRowByName(page: Page, name: string) {
-  return page
-    .locator('button[data-testid^="sites-all-table-row-"]')
-    .filter({ has: page.getByText(name, { exact: true }) })
-    .first();
-}
-
-function getLegacyBuildingRowByName(page: Page, name: string) {
-  return page
-    .locator('[data-testid^="site-settings-building-row-"]')
-    .filter({ has: page.getByText(name, { exact: true }) })
-    .first();
-}
-
 async function resetActiveSiteSelection(page: Page) {
   await page.evaluate(
     ({ storageKey }) => {
@@ -66,63 +52,87 @@ async function resetActiveSiteSelection(page: Page) {
   );
 }
 
-async function detectSiteManagementMode(page: Page): Promise<SiteManagementMode> {
-  await resetActiveSiteSelection(page);
-  await page.goto("/fleet/racks");
-  await test.expect(page).toHaveURL(/\/fleet\/racks(?:[?#].*)?$/);
-
-  const sitesTab = page.getByRole("tab", { name: "Sites", exact: true });
-  return (await sitesTab.isVisible().catch(() => false)) ? "fleet" : "legacy";
-}
-
-async function openSitesManagementPage(page: Page, mode: SiteManagementMode) {
-  await resetActiveSiteSelection(page);
-
-  if (mode === "fleet") {
-    await page.goto("/fleet/sites");
-    await test.expect(page).toHaveURL(/\/fleet\/sites(?:[?#].*)?$/);
-    await test.expect(page.getByTestId("fleet-sites-page")).toBeVisible();
+async function selectAllSitesIfNeeded(page: Page) {
+  const sitePickerTrigger = page.getByTestId("site-picker-trigger");
+  if (!(await sitePickerTrigger.isVisible().catch(() => false))) {
     return;
   }
 
-  await page.goto("/settings/sites");
-  await test.expect(page).toHaveURL(/\/settings\/sites(?:[?#].*)?$/);
-  await test.expect(page.getByTestId("settings-sites-page")).toBeVisible();
+  const currentLabel = (await sitePickerTrigger.textContent())?.trim();
+  if (currentLabel === "All sites") {
+    return;
+  }
+
+  await sitePickerTrigger.click();
+  const allSitesOption = page.getByTestId("site-picker-option-all");
+  await test.expect(allSitesOption).toBeVisible();
+  await allSitesOption.click();
+  await test.expect(sitePickerTrigger).toContainText("All sites");
+}
+
+async function detectSiteManagementMode(page: Page): Promise<SiteManagementMode> {
+  await resetActiveSiteSelection(page);
+  await openSitesManagementPage(page, "fleet");
+  return "fleet";
+}
+
+async function openSitesManagementPage(page: Page, mode: SiteManagementMode) {
+  void mode;
+  await page.goto("/fleet/sites");
+  await selectAllSitesIfNeeded(page);
+  await page.goto("/fleet/sites");
+  await test.expect(page).toHaveURL(/\/fleet\/sites(?:[?#].*)?$/);
+  await test.expect(page.getByTestId("fleet-sites-page")).toBeVisible();
 }
 
 async function openBuildingsManagementPage(page: Page, mode: SiteManagementMode) {
-  if (mode !== "fleet") {
-    throw new Error("Legacy ProtoFleet does not expose a standalone buildings management page");
-  }
-
-  await resetActiveSiteSelection(page);
+  await openSitesManagementPage(page, mode);
   await page.goto("/fleet/buildings");
   await test.expect(page).toHaveURL(/\/fleet\/buildings(?:[?#].*)?$/);
   await test.expect(page.getByTestId("fleet-buildings-page")).toBeVisible();
 }
 
-async function openLegacySiteSettings(page: Page, siteName: string) {
-  await openSitesManagementPage(page, "legacy");
-
-  const row = getLegacySiteRowByName(page, siteName);
-  await test.expect(row).toBeVisible();
-  await row.click();
-
-  await test.expect(page.getByTestId("site-settings-single-view")).toBeVisible();
-  await test.expect(page.getByText(siteName, { exact: true })).toBeVisible();
-}
-
-async function clickManageSiteEditDetails(page: Page) {
-  const editDetailsButton = page.locator('[data-testid="manage-site-modal-edit-details"]:visible');
-  if (await editDetailsButton.isVisible().catch(() => false)) {
-    await editDetailsButton.click();
-    return;
-  }
-
+async function openFullScreenOverflowMenu(page: Page) {
   const overflowTrigger = page.getByTestId("full-screen-two-pane-modal").getByTestId("overflow-menu-trigger");
   await test.expect(overflowTrigger).toBeVisible();
   await overflowTrigger.click();
-  await page.locator("div.fixed.inset-0.z-60").getByText("Edit details", { exact: true }).click();
+  return page.locator("div.fixed.inset-0.z-60");
+}
+
+async function clickManageSiteDelete(page: Page) {
+  const manageSiteDeleteButton = page.locator('[data-testid="manage-site-modal-delete"]:visible');
+  if (await manageSiteDeleteButton.isVisible().catch(() => false)) {
+    await manageSiteDeleteButton.click();
+    return;
+  }
+
+  const siteSettingsDeleteButton = page.locator('[data-testid="site-settings-modal-delete"]:visible');
+  if (await siteSettingsDeleteButton.isVisible().catch(() => false)) {
+    await siteSettingsDeleteButton.click();
+    return;
+  }
+
+  const overflowMenu = await openFullScreenOverflowMenu(page);
+  const deleteSiteAction = overflowMenu.getByText("Delete site", { exact: true });
+  if (await deleteSiteAction.isVisible().catch(() => false)) {
+    await deleteSiteAction.click();
+    return;
+  }
+
+  await overflowMenu.getByText("Site settings", { exact: true }).click();
+  await test.expect(siteSettingsDeleteButton).toBeVisible();
+  await siteSettingsDeleteButton.click();
+}
+
+async function clickManageBuildingDelete(page: Page) {
+  const deleteButton = page.locator('[data-testid="manage-building-delete"]:visible');
+  if (await deleteButton.isVisible().catch(() => false)) {
+    await deleteButton.click();
+    return;
+  }
+
+  const overflowMenu = await openFullScreenOverflowMenu(page);
+  await overflowMenu.getByText("Delete building", { exact: true }).click();
 }
 
 async function getScopeIdFromRowName(page: Page, name: string, scope: "site" | "building" | "rack"): Promise<bigint> {
@@ -140,32 +150,6 @@ async function getScopeIdFromRowName(page: Page, name: string, scope: "site" | "
   const capturedId = testId?.match(pattern)?.[1];
   if (!capturedId) {
     throw new Error(`Could not parse ${scope} id from row action trigger: ${testId ?? "missing test id"}`);
-  }
-
-  return BigInt(capturedId);
-}
-
-async function getLegacySiteIdFromName(page: Page, name: string): Promise<bigint> {
-  const row = getLegacySiteRowByName(page, name);
-  await test.expect(row).toBeVisible();
-
-  const testId = await row.getAttribute("data-testid");
-  const capturedId = testId?.match(/^sites-all-table-row-(\d+)$/)?.[1];
-  if (!capturedId) {
-    throw new Error(`Could not parse site id from settings sites row: ${testId ?? "missing test id"}`);
-  }
-
-  return BigInt(capturedId);
-}
-
-async function getLegacyBuildingIdFromName(page: Page, name: string): Promise<bigint> {
-  const row = getLegacyBuildingRowByName(page, name);
-  await test.expect(row).toBeVisible();
-
-  const testId = await row.getAttribute("data-testid");
-  const capturedId = testId?.match(/^site-settings-building-row-(\d+)$/)?.[1];
-  if (!capturedId) {
-    throw new Error(`Could not parse building id from site settings row: ${testId ?? "missing test id"}`);
   }
 
   return BigInt(capturedId);
@@ -255,56 +239,28 @@ function pickUnrackedPairedMiner(miners: VisibleMinerSnapshot[]): VisibleMinerSn
 
 async function createSite(page: Page, name: string, mode: SiteManagementMode): Promise<bigint> {
   await openSitesManagementPage(page, mode);
-
-  if (mode === "fleet") {
-    const addSiteButton = page.getByTestId("fleet-sites-add");
-    await test.expect(addSiteButton).toBeVisible();
-    await addSiteButton.click();
-    await page.getByTestId("site-settings-name-input").fill(name);
-    await page.getByTestId("site-settings-modal-continue").click();
-    const saveSiteButton = page.locator('[data-testid="manage-site-modal-save"]:visible');
-    await test.expect(saveSiteButton).toBeVisible();
-    await saveSiteButton.click();
-
-    await test.expect(page.getByTestId("toaster-container").getByText(`Site "${name}" created`)).toBeVisible();
-    return await getScopeIdFromRowName(page, name, "site");
-  }
-
-  await page.getByTestId("sites-page-header-add").click();
+  const addSiteButton = page.getByTestId("fleet-sites-add");
+  await test.expect(addSiteButton).toBeVisible();
+  await addSiteButton.click();
   await page.getByTestId("site-settings-name-input").fill(name);
   await page.getByTestId("site-settings-modal-continue").click();
   const saveSiteButton = page.locator('[data-testid="manage-site-modal-save"]:visible');
   await test.expect(saveSiteButton).toBeVisible();
   await saveSiteButton.click();
 
-  return await getLegacySiteIdFromName(page, name);
+  const row = getListRowByName(page, name);
+  await test.expect(row).toBeVisible();
+  return await getScopeIdFromRowName(page, name, "site");
 }
 
 async function deleteSite(page: Page, name: string, mode: SiteManagementMode) {
-  if (mode === "fleet") {
-    await openSitesManagementPage(page, mode);
-    await openRowActions(page, name);
-    await clickRowAction(page, "Edit site");
-    await clickManageSiteEditDetails(page);
-    await page.locator('[data-testid="site-settings-modal-delete"]:visible').click();
-    await page.getByTestId("site-delete-dialog-confirm").click();
-    await test.expect(page.getByTestId("toaster-container").getByText(`Site "${name}" deleted`)).toBeVisible();
-    return;
-  }
-
-  await openLegacySiteSettings(page, name);
-  await page.getByTestId("site-settings-manage").click();
-  await clickManageSiteEditDetails(page);
-  await page.locator('[data-testid="site-settings-modal-delete"]:visible').click();
+  void mode;
+  await openSitesManagementPage(page, "fleet");
+  await openRowActions(page, name);
+  await clickRowAction(page, "Edit site");
+  await clickManageSiteDelete(page);
   await page.getByTestId("site-delete-dialog-confirm").click();
-  await openSitesManagementPage(page, "legacy");
-  await test
-    .expect(
-      page
-        .locator('button[data-testid^="sites-all-table-row-"]')
-        .filter({ has: page.getByText(name, { exact: true }) }),
-    )
-    .toHaveCount(0);
+  await test.expect(getListRowByName(page, name)).toHaveCount(0);
 }
 
 async function createBuilding(
@@ -313,56 +269,31 @@ async function createBuilding(
   buildingName: string,
   mode: SiteManagementMode,
 ): Promise<bigint> {
-  if (mode === "fleet") {
-    await openBuildingsManagementPage(page, mode);
+  void mode;
+  await openBuildingsManagementPage(page, "fleet");
 
-    const addBuildingButton = page.getByTestId("fleet-buildings-add");
-    await test.expect(addBuildingButton).toBeVisible();
-    await addBuildingButton.click();
-    await page.getByTestId("building-settings-site-select").click();
-    await page.getByRole("option", { name: siteName, exact: true }).click();
-    await page.getByTestId("building-settings-name-input").fill(buildingName);
-    await page.getByTestId("building-settings-modal-save").click();
-
-    await test
-      .expect(page.getByTestId("toaster-container").getByText(`Building "${buildingName}" created`))
-      .toBeVisible();
-    return await getScopeIdFromRowName(page, buildingName, "building");
-  }
-
-  await openLegacySiteSettings(page, siteName);
-  await page.getByTestId("site-settings-add-building").click();
-  await test.expect(page.getByTestId("building-settings-modal")).toBeVisible();
+  const addBuildingButton = page.getByTestId("fleet-buildings-add");
+  await test.expect(addBuildingButton).toBeVisible();
+  await addBuildingButton.click();
+  await page.getByTestId("building-settings-site-select").click();
+  await page.getByRole("option", { name: siteName, exact: true }).click();
   await page.getByTestId("building-settings-name-input").fill(buildingName);
   await page.getByTestId("building-settings-modal-save").click();
 
-  return await getLegacyBuildingIdFromName(page, buildingName);
+  const row = getListRowByName(page, buildingName);
+  await test.expect(row).toBeVisible();
+  return await getScopeIdFromRowName(page, buildingName, "building");
 }
 
 async function deleteBuilding(page: Page, siteName: string, name: string, mode: SiteManagementMode) {
-  if (mode === "fleet") {
-    await openBuildingsManagementPage(page, mode);
-    await openRowActions(page, name);
-    await clickRowAction(page, "Edit building");
-    await page.getByTestId("manage-building-delete").click();
-    await page.getByTestId("building-delete-dialog-confirm").click();
-    await test.expect(page.getByTestId("toaster-container").getByText(`Building "${name}" deleted`)).toBeVisible();
-    return;
-  }
-
-  await openLegacySiteSettings(page, siteName);
-  const row = getLegacyBuildingRowByName(page, name);
-  await test.expect(row).toBeVisible();
-  await row.click();
-  await page.getByTestId("building-settings-modal-delete").click();
+  void siteName;
+  void mode;
+  await openBuildingsManagementPage(page, "fleet");
+  await openRowActions(page, name);
+  await clickRowAction(page, "Edit building");
+  await clickManageBuildingDelete(page);
   await page.getByTestId("building-delete-dialog-confirm").click();
-  await test
-    .expect(
-      page.locator('[data-testid^="site-settings-building-row-"]').filter({
-        has: page.getByText(name, { exact: true }),
-      }),
-    )
-    .toHaveCount(0);
+  await test.expect(getListRowByName(page, name)).toHaveCount(0);
 }
 
 async function createRack({
@@ -453,15 +384,8 @@ async function assertSiteMinerCount({
   expectedCount: number;
 }) {
   await openSitesManagementPage(page, mode);
-
-  if (mode === "fleet") {
-    const row = getListRowByName(page, siteName);
-    await test.expect(row.getByTestId("miners")).toHaveText(String(expectedCount));
-    return;
-  }
-
-  const row = getLegacySiteRowByName(page, siteName);
-  await test.expect(row).toContainText(`${expectedCount} miners`);
+  const row = getListRowByName(page, siteName);
+  await test.expect(row.getByTestId("miners")).toHaveText(String(expectedCount));
 }
 
 async function assertRackPlacementForMode({
@@ -476,11 +400,7 @@ async function assertRackPlacementForMode({
   buildingName: string;
 }) {
   await test.expect(row).toBeVisible();
-
-  if (mode !== "fleet") {
-    return;
-  }
-
+  void mode;
   await test.expect(row.getByTestId("site")).toHaveText(siteName);
   await test.expect(row.getByTestId("building")).toHaveText(buildingName);
 }
@@ -496,11 +416,7 @@ async function assertRackMembershipForMode({
 }) {
   await test.expect(row).toBeVisible();
   await test.expect(row.getByTestId("miners")).toHaveText("1");
-
-  if (mode !== "fleet") {
-    return;
-  }
-
+  void mode;
   await test.expect(row.getByTestId("site")).toHaveText(targetSiteName);
 }
 
