@@ -1,7 +1,11 @@
 import { type Page, type Response as PlaywrightResponse } from "@playwright/test";
+import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { type CommonSteps } from "../helpers/commonSteps";
 import { generateRandomText } from "../helpers/testDataHelper";
+import { type AddMinersPage } from "../pages/addMiners";
+import { type AuthPage } from "../pages/auth";
+import { type HomePage } from "../pages/home";
 import { type MinersPage } from "../pages/miners";
 import { type RacksPage } from "../pages/racks";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -39,6 +43,7 @@ const ASSIGN_RACKS_TO_BUILDING = "AssignRacksToBuilding";
 const ASSIGN_RACKS_TO_SITE = "AssignRacksToSite";
 const TEMP_ZONE = "ReparentAutomationZone";
 const ACTIVE_SITE_STORAGE_KEY = "proto-fleet-multi-site";
+const EXPECTED_FAKE_NETWORK_MINER_COUNT = 14;
 
 function getListRowByName(page: Page, name: string) {
   return page
@@ -71,6 +76,112 @@ async function resetActiveSiteSelection(page: Page) {
     },
     { storageKey: ACTIVE_SITE_STORAGE_KEY },
   );
+}
+
+async function ensureAdminSession({
+  page,
+  authPage,
+  commonSteps,
+}: {
+  page: Page;
+  authPage: AuthPage;
+  commonSteps: CommonSteps;
+}) {
+  await page.goto("/");
+
+  if (await authPage.isAlreadyLoggedIn()) {
+    return;
+  }
+
+  const createCredentialsPrompt = page.getByText("Create your username and password", { exact: true });
+  if (await createCredentialsPrompt.isVisible().catch(() => false)) {
+    await authPage.inputUsername(testConfig.users.admin.username);
+    await authPage.inputPassword(testConfig.users.admin.password);
+    await authPage.clickContinue();
+    await authPage.validateLoggedIn();
+    return;
+  }
+
+  await commonSteps.loginAsAdmin();
+}
+
+async function ensureFleetInventory({
+  authPage,
+  addMinersPage,
+  minersPage,
+}: {
+  authPage: AuthPage;
+  addMinersPage: AddMinersPage;
+  minersPage: MinersPage;
+}) {
+  await minersPage.navigateToMinersPage();
+  if (await minersPage.tryAction(() => minersPage.waitForMinersListToLoad(), 3000)) {
+    return;
+  }
+
+  await authPage.clickGetStarted();
+  await addMinersPage.clickFindMinersInNetwork();
+  await addMinersPage.waitForExpectedNetworkMinerCount(EXPECTED_FAKE_NETWORK_MINER_COUNT);
+  await addMinersPage.clickContinueWithXMiners(EXPECTED_FAKE_NETWORK_MINER_COUNT);
+  await minersPage.waitForMinersListToLoad();
+}
+
+async function ensureAuthenticatedMovableMiners({
+  page,
+  homePage,
+  minersPage,
+}: {
+  page: Page;
+  homePage: HomePage;
+  minersPage: MinersPage;
+}) {
+  const authenticatedMinerCheckboxes = page.locator(
+    '[data-testid="list-body"] tr input[type="checkbox"]:not([disabled])',
+  );
+  if ((await authenticatedMinerCheckboxes.count().catch(() => 0)) > 0) {
+    return;
+  }
+
+  await page.goto("/dashboard");
+
+  const authenticateButton = page.getByRole("button", { name: "Authenticate", exact: true });
+  if (!(await authenticateButton.isVisible().catch(() => false))) {
+    throw new Error("Expected at least one authenticated miner or an authentication prompt on the dashboard");
+  }
+
+  await homePage.clickAuthenticateMinersButton();
+  await homePage.validateAuthenticateMinersModalTitle();
+  await homePage.clickShowMinersButton();
+
+  const miners = await homePage.getListOfMinersToAuthenticate();
+
+  if (miners.some((miner) => miner.includes("S19 XP"))) {
+    await homePage.inputMinerAuthUsername("root19");
+    await homePage.inputMinerAuthPassword("root19");
+    await homePage.clickAuthenticateMinersConfirmButton();
+    await homePage.tryAction(() => homePage.clickCalloutButton());
+  }
+
+  if (miners.some((miner) => miner.includes("S21 XP"))) {
+    await homePage.inputMinerAuthUsername("root21");
+    await homePage.inputMinerAuthPassword("root21");
+    await homePage.clickAuthenticateMinersConfirmButton();
+    await homePage.tryAction(() => homePage.clickCalloutButton());
+  }
+
+  if (miners.some((miner) => miner.includes("S17 XP"))) {
+    await homePage.inputMinerAuthUsername("root17");
+    await homePage.inputMinerAuthPassword("root17");
+    await homePage.clickAuthenticateMinersConfirmButton();
+    await homePage.tryAction(() => homePage.clickCalloutButton());
+  }
+
+  await page.goto("/fleet/miners");
+  await minersPage.waitForMinersListToLoad();
+
+  if ((await authenticatedMinerCheckboxes.count().catch(() => 0)) === 0) {
+    throw new Error("Expected at least one authenticated miner after standalone reparent setup");
+  }
 }
 
 async function selectAllSitesIfNeeded(page: Page) {
@@ -712,7 +823,9 @@ async function deleteSiteIfCreated({
 }
 
 test.describe("Miners reparent", () => {
-  test.beforeEach(async ({ page }) => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test.beforeEach(async ({ page, authPage, addMinersPage, commonSteps, homePage, minersPage }) => {
     await page.addInitScript(
       ({ storageKey }) => {
         localStorage.setItem(
@@ -729,7 +842,10 @@ test.describe("Miners reparent", () => {
       },
       { storageKey: ACTIVE_SITE_STORAGE_KEY },
     );
-    await page.goto("/");
+
+    await ensureAdminSession({ page, authPage, commonSteps });
+    await ensureFleetInventory({ authPage, addMinersPage, minersPage });
+    await ensureAuthenticatedMovableMiners({ page, homePage, minersPage });
   });
 
   test("Move a rack to a building from the Racks tab", async ({ page, commonSteps, racksPage }) => {
