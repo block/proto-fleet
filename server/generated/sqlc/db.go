@@ -255,8 +255,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
 	}
+	if q.deleteFleetNodeDevicePairingsStmt, err = db.PrepareContext(ctx, deleteFleetNodeDevicePairings); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteFleetNodeDevicePairings: %w", err)
+	}
 	if q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt, err = db.PrepareContext(ctx, deleteMinerCredentialsByDeviceIDAndOrgID); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteMinerCredentialsByDeviceIDAndOrgID: %w", err)
+	}
+	if q.deleteMinerCredentialsForDeviceIdentifiersStmt, err = db.PrepareContext(ctx, deleteMinerCredentialsForDeviceIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteMinerCredentialsForDeviceIdentifiers: %w", err)
 	}
 	if q.deleteMinerCredentialsForFleetNodeStmt, err = db.PrepareContext(ctx, deleteMinerCredentialsForFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteMinerCredentialsForFleetNode: %w", err)
@@ -1725,9 +1731,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing deleteExpiredSessionsStmt: %w", cerr)
 		}
 	}
+	if q.deleteFleetNodeDevicePairingsStmt != nil {
+		if cerr := q.deleteFleetNodeDevicePairingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteFleetNodeDevicePairingsStmt: %w", cerr)
+		}
+	}
 	if q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt != nil {
 		if cerr := q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteMinerCredentialsByDeviceIDAndOrgIDStmt: %w", cerr)
+		}
+	}
+	if q.deleteMinerCredentialsForDeviceIdentifiersStmt != nil {
+		if cerr := q.deleteMinerCredentialsForDeviceIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteMinerCredentialsForDeviceIdentifiersStmt: %w", cerr)
 		}
 	}
 	if q.deleteMinerCredentialsForFleetNodeStmt != nil {
@@ -3641,7 +3657,9 @@ type Queries struct {
 	deleteCurtailmentResponseProfilesBySiteStmt                *sql.Stmt
 	deleteDisabledMQTTSourceConfigByOrgStmt                    *sql.Stmt
 	deleteExpiredSessionsStmt                                  *sql.Stmt
+	deleteFleetNodeDevicePairingsStmt                          *sql.Stmt
 	deleteMinerCredentialsByDeviceIDAndOrgIDStmt               *sql.Stmt
+	deleteMinerCredentialsForDeviceIdentifiersStmt             *sql.Stmt
 	deleteMinerCredentialsForFleetNodeStmt                     *sql.Stmt
 	deleteOrganizationStmt                                     *sql.Stmt
 	deletePairingsForFleetNodeStmt                             *sql.Stmt
@@ -4084,7 +4102,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteCurtailmentResponseProfilesBySiteStmt:                q.deleteCurtailmentResponseProfilesBySiteStmt,
 		deleteDisabledMQTTSourceConfigByOrgStmt:                    q.deleteDisabledMQTTSourceConfigByOrgStmt,
 		deleteExpiredSessionsStmt:                                  q.deleteExpiredSessionsStmt,
+		deleteFleetNodeDevicePairingsStmt:                          q.deleteFleetNodeDevicePairingsStmt,
 		deleteMinerCredentialsByDeviceIDAndOrgIDStmt:               q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt,
+		deleteMinerCredentialsForDeviceIdentifiersStmt:             q.deleteMinerCredentialsForDeviceIdentifiersStmt,
 		deleteMinerCredentialsForFleetNodeStmt:                     q.deleteMinerCredentialsForFleetNodeStmt,
 		deleteOrganizationStmt:                                     q.deleteOrganizationStmt,
 		deletePairingsForFleetNodeStmt:                             q.deletePairingsForFleetNodeStmt,
