@@ -295,8 +295,7 @@ export function getStartCurtailmentRequestBody(request: Request) {
     modeParams?: { fixedKw?: { targetKw?: number; toleranceKw?: number } };
     reason?: string;
     restoreBatchIntervalSec?: number;
-    wholeOrg?: Record<string, never>;
-    scope?: { wholeOrg?: Record<string, never> };
+    scopes?: Array<{ wholeOrg?: Record<string, never> }>;
   };
 }
 
