@@ -519,11 +519,10 @@ func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (
 const forceReleaseCurtailmentEvent = `-- name: ForceReleaseCurtailmentEvent :one
 UPDATE curtailment_event
 SET state      = 'cancelled',
-    ended_at   = NOW(),
+    ended_at   = COALESCE(ended_at, NOW()),
     updated_at = NOW()
 WHERE event_uuid = $1
   AND org_id = $2
-  AND state IN ('pending', 'active', 'restoring')
 RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
 `
 
@@ -532,10 +531,10 @@ type ForceReleaseCurtailmentEventParams struct {
 	OrgID     int64
 }
 
-// Immediately releases curtailment ownership for any non-terminal event.
-// Unlike AdminTerminateCurtailmentEvent, this intentionally supports ACTIVE
-// events and does not gate on in-flight Curtail commands because the operator
-// intent is to release policy ownership, not to report a graceful restore.
+// Last-resort recovery: persistently releases curtailment ownership for any
+// existing event row. Unlike AdminTerminateCurtailmentEvent, this intentionally
+// has no state precondition or in-flight command gate because the operator
+// intent is to clear policy ownership, not report graceful restore.
 func (q *Queries) ForceReleaseCurtailmentEvent(ctx context.Context, arg ForceReleaseCurtailmentEventParams) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.forceReleaseCurtailmentEventStmt, forceReleaseCurtailmentEvent, arg.EventUuid, arg.OrgID)
 	var i CurtailmentEvent

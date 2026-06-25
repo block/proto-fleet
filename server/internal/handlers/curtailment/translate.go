@@ -802,6 +802,14 @@ func toEventProtoWithTargets(event *models.Event, targets []*models.Target) *pb.
 	return out
 }
 
+func toForceReleaseEventProto(event *models.Event) *pb.CurtailmentEvent {
+	out := toEventProto(event)
+	populateEventScope(out, event)
+	populateEventModeParams(out, event)
+	populateEventTargetRollup(out, event)
+	return out
+}
+
 func populateEventScope(out *pb.CurtailmentEvent, event *models.Event) {
 	switch event.ScopeType {
 	case models.ScopeTypeWholeOrg, "":
@@ -998,6 +1006,16 @@ func toTargetPhaseSummaryProto(summary models.TargetPhaseSummary) *pb.Curtailmen
 func uint32Saturating(v int32) uint32 {
 	if v < 0 {
 		return 0
+	}
+	return uint32(v) // #nosec G115 -- bounds-checked above
+}
+
+func uint32SaturatingInt64(v int64) uint32 {
+	if v < 0 {
+		return 0
+	}
+	if v > math.MaxUint32 {
+		return math.MaxUint32
 	}
 	return uint32(v) // #nosec G115 -- bounds-checked above
 }

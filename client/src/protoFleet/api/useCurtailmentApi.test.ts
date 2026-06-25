@@ -2159,7 +2159,12 @@ describe("useCurtailmentApi", () => {
       state: CurtailmentEventState.CANCELLED,
       endedAt: timestamp("2026-05-01T13:00:00Z"),
     });
-    mockForceReleaseCurtailmentOwnership.mockResolvedValueOnce({ event: releasedEvent });
+    mockForceReleaseCurtailmentOwnership.mockResolvedValueOnce({
+      event: releasedEvent,
+      releasedTargetCount: 17,
+      ownershipReleased: true,
+      restoreAttempted: false,
+    });
     mockListCurtailmentEvents.mockResolvedValue({ events: [releasedEvent], nextPageToken: "" });
 
     const { result } = renderHook(() => useCurtailmentApi());
@@ -2174,8 +2179,9 @@ describe("useCurtailmentApi", () => {
 
     expect(mockForceReleaseCurtailmentOwnership).not.toHaveBeenCalled();
 
+    let releaseResult: Awaited<ReturnType<typeof result.current.forceReleaseCurtailment>> | undefined;
     await act(async () => {
-      await result.current.forceReleaseCurtailment("curt-1", {
+      releaseResult = await result.current.forceReleaseCurtailment("curt-1", {
         reason: " Release for manual control ",
       });
     });
@@ -2192,6 +2198,12 @@ describe("useCurtailmentApi", () => {
         state: "cancelled",
       }),
     );
+    expect(releaseResult).toEqual({
+      event: releasedEvent,
+      releasedTargetCount: 17,
+      ownershipReleased: true,
+      restoreAttempted: false,
+    });
   });
 
   it("starts full-fleet curtailment without fixed-kW mode params", async () => {

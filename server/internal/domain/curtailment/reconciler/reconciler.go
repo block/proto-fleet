@@ -468,6 +468,9 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	if len(dispatchSet) == 0 {
 		return true
 	}
+	if !r.eventStillDispatchable(ctx, ev) {
+		return false
+	}
 
 	deviceIDs := make([]string, 0, len(dispatchSet))
 	for _, t := range dispatchSet {
@@ -1500,6 +1503,9 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		dispatchSet = append(dispatchSet, t)
 	}
 	if len(dispatchSet) == 0 {
+		return
+	}
+	if !r.eventStillDispatchable(ctx, ev) {
 		return
 	}
 

@@ -333,16 +333,15 @@ func (h *Handler) ForceReleaseCurtailmentOwnership(ctx context.Context, req *con
 	if err != nil {
 		return nil, err
 	}
-	event, err := h.service.ForceRelease(ctx, forceReq)
-	if err != nil {
-		return nil, err
-	}
-	targets, err := h.service.ListTargetsByEvent(ctx, info.OrganizationID, event.EventUUID)
+	result, err := h.service.ForceRelease(ctx, forceReq)
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.ForceReleaseCurtailmentOwnershipResponse{
-		Event: toEventProtoWithTargets(event, targets),
+		Event:               toForceReleaseEventProto(result.Event),
+		ReleasedTargetCount: uint32SaturatingInt64(result.ReleasedTargetCount),
+		OwnershipReleased:   result.OwnershipReleased,
+		RestoreAttempted:    result.RestoreAttempted,
 	}), nil
 }
 

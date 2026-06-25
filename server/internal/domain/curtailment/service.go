@@ -516,7 +516,14 @@ type ForceReleaseRequest struct {
 	Reason    string
 }
 
-func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*models.Event, error) {
+type ForceReleaseResult struct {
+	Event               *models.Event
+	ReleasedTargetCount int64
+	OwnershipReleased   bool
+	RestoreAttempted    bool
+}
+
+func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*ForceReleaseResult, error) {
 	if req.OrgID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
 	}
@@ -532,7 +539,12 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*m
 		return nil, err
 	}
 	s.emitForceReleaseAuditTrail(ctx, req, event, sweptTargets)
-	return event, nil
+	return &ForceReleaseResult{
+		Event:               event,
+		ReleasedTargetCount: sweptTargets,
+		OwnershipReleased:   true,
+		RestoreAttempted:    false,
+	}, nil
 }
 
 func validateAdminRecoveryReason(reason string) error {

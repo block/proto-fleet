@@ -94,6 +94,13 @@ export interface ForceReleaseCurtailmentOptions {
   reason: string;
 }
 
+export interface ForceReleaseCurtailmentResult {
+  event: ProtoCurtailmentEvent;
+  releasedTargetCount: number;
+  ownershipReleased: boolean;
+  restoreAttempted: boolean;
+}
+
 export interface StopCurtailmentOptions {
   force?: boolean;
 }
@@ -149,7 +156,7 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
   forceReleaseCurtailment: (
     eventUuid: string,
     options: ForceReleaseCurtailmentOptions,
-  ) => Promise<ProtoCurtailmentEvent>;
+  ) => Promise<ForceReleaseCurtailmentResult>;
 }
 
 const curtailmentHistoryPageSize = 50;
@@ -1275,8 +1282,17 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
         }
 
         applyEvent(response.event);
-        await refreshAfterMutation();
-        return response.event;
+        try {
+          await refreshAfterMutation();
+        } catch (refreshError) {
+          handleFailure(refreshError, "Failed to refresh curtailment state after force release.");
+        }
+        return {
+          event: response.event,
+          releasedTargetCount: response.releasedTargetCount,
+          ownershipReleased: response.ownershipReleased,
+          restoreAttempted: response.restoreAttempted,
+        };
       } catch (error) {
         const resolvedError = handleFailure(error, "Failed to force release curtailment ownership.");
         setAdminTerminateError(resolvedError.message);

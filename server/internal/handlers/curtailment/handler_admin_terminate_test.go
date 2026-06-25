@@ -42,10 +42,11 @@ type adminTerminateStubStore struct {
 	lastForceReleaseReason string
 	forceReleaseResult     *models.Event
 	forceReleaseErr        error
-	// Targets returned by ListTargetsByEvent; the handler fetches them
+	// Targets returned by ListTargetsByEvent; admin-terminate fetches them
 	// post-terminate so the response shape mirrors the read endpoints.
-	targets    []*models.Target
-	targetsErr error
+	targets          []*models.Target
+	targetsErr       error
+	listTargetsCalls int
 }
 
 func (s *adminTerminateStubStore) AdminTerminateEvent(_ context.Context, orgID int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, bool, error) {
@@ -125,6 +126,7 @@ func (s *adminTerminateStubStore) ListActiveEvents(context.Context, int64) ([]*m
 	panic("ListActiveEvents not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
+	s.listTargetsCalls++
 	return s.targets, s.targetsErr
 }
 func (s *adminTerminateStubStore) ListTargetsByEventPage(context.Context, interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
@@ -235,10 +237,11 @@ func TestHandler_ForceReleaseCurtailmentOwnership_HappyPath(t *testing.T) {
 	eventUUID := uuid.New()
 	store := &adminTerminateStubStore{
 		result: &models.Event{
-			ID:        99,
-			EventUUID: eventUUID,
-			OrgID:     42,
-			State:     models.EventStateCancelled,
+			ID:                   99,
+			EventUUID:            eventUUID,
+			OrgID:                42,
+			State:                models.EventStateCancelled,
+			DecisionSnapshotJSON: []byte(`{"skipped":[{"device_identifier":"miner-heavy"}]}`),
 		},
 		targets: []*models.Target{
 			{DeviceIdentifier: "miner-1", State: models.TargetStateReleased},
@@ -258,12 +261,45 @@ func TestHandler_ForceReleaseCurtailmentOwnership_HappyPath(t *testing.T) {
 	require.NotNil(t, resp.Msg.Event)
 	assert.Equal(t, eventUUID.String(), resp.Msg.Event.EventUuid)
 	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED, resp.Msg.Event.State)
-	require.Len(t, resp.Msg.Event.Targets, 1)
-	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RELEASED, resp.Msg.Event.Targets[0].State)
+	assert.Empty(t, resp.Msg.Event.Targets, "force release response must not depend on post-write target hydration")
+	assert.Nil(t, resp.Msg.Event.DecisionSnapshot, "force release response must stay bounded")
+	assert.Equal(t, uint32(1), resp.Msg.ReleasedTargetCount)
+	assert.True(t, resp.Msg.OwnershipReleased)
+	assert.False(t, resp.Msg.RestoreAttempted)
 	assert.Equal(t, 1, store.forceReleaseCalls)
+	assert.Equal(t, 0, store.listTargetsCalls)
 	assert.Equal(t, int64(42), store.lastForceReleaseOrgID)
 	assert.Equal(t, eventUUID, store.lastForceReleaseUUID)
 	assert.Equal(t, "operator release", store.lastForceReleaseReason)
+}
+
+func TestHandler_ForceReleaseCurtailmentOwnership_TargetReadFailureDoesNotMaskRelease(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateCancelled,
+		},
+		targetsErr: assert.AnError,
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	resp, err := h.ForceReleaseCurtailmentOwnership(
+		adminTerminateSessionCtx(42, "ADMIN"),
+		connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+			EventUuid: eventUUID.String(),
+			Reason:    "operator release",
+		}),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+	assert.Equal(t, eventUUID.String(), resp.Msg.Event.EventUuid)
+	assert.Equal(t, 1, store.forceReleaseCalls)
+	assert.Equal(t, 0, store.listTargetsCalls)
 }
 
 func TestHandler_ForceReleaseCurtailmentOwnership_BypassesIncompleteTargetSiteCoverage(t *testing.T) {
@@ -297,6 +333,68 @@ func TestHandler_ForceReleaseCurtailmentOwnership_BypassesIncompleteTargetSiteCo
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, store.forceReleaseCalls)
+}
+
+func TestHandler_ForceReleaseCurtailmentOwnership_BypassesSiteNarrowingForOrgAdmin(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID        = int64(42)
+		narrowedSite = int64(7)
+	)
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     orgID,
+			State:     models.EventStateCancelled,
+			ScopeType: models.ScopeTypeSite,
+			ScopeJSON: siteScopeJSON(t, narrowedSite),
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           domainAuth.AdminRoleName,
+	}, testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(narrowedSite))
+
+	_, err := h.ForceReleaseCurtailmentOwnership(ctx, connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+		EventUuid: eventUUID.String(),
+		Reason:    "operator release",
+	}))
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.forceReleaseCalls)
+}
+
+func TestHandler_ForceReleaseCurtailmentOwnership_RejectsSiteOnlyManage(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID  = int64(42)
+		siteID = int64(7)
+	)
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{}
+	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           domainAuth.AdminRoleName,
+	}, testSiteAssignment(siteID, authz.PermCurtailmentManage))
+
+	_, err := h.ForceReleaseCurtailmentOwnership(ctx, connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+		EventUuid: eventUUID.String(),
+		Reason:    "operator release",
+	}))
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Equal(t, 0, store.forceReleaseCalls)
 }
 
 func TestHandler_ForceReleaseCurtailmentOwnership_RejectsNonAdmin(t *testing.T) {

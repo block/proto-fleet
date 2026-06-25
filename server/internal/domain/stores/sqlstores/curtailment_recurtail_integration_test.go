@@ -102,7 +102,106 @@ func TestSQLCurtailmentStore_ForceReleaseEvent_CancelsEventAndReleasesTargets(t 
 		[]models.InsertTargetParams{
 			curtailmentStoreTestTarget("force-release-confirmed", models.TargetStateConfirmed, models.DesiredStateCurtailed),
 			curtailmentStoreTestTarget("force-release-dispatched", models.TargetStateDispatched, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget("force-release-restoring", models.TargetStateDispatched, models.DesiredStateActive),
 			curtailmentStoreTestTarget("force-release-resolved", models.TargetStateResolved, models.DesiredStateActive),
+		},
+	)
+	require.NoError(t, err)
+
+	activeBefore, err := store.ListActiveCurtailedDevices(ctx, user.OrganizationID)
+	require.NoError(t, err)
+	assert.Contains(t, activeBefore, "force-release-confirmed")
+	assert.Contains(t, activeBefore, "force-release-dispatched")
+	assert.Contains(t, activeBefore, "force-release-restoring")
+
+	event, swept, err := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "operator needs manual control")
+	require.NoError(t, err)
+	require.NotNil(t, event)
+	assert.Equal(t, models.EventStateCancelled, event.State)
+	assert.Equal(t, int64(3), swept)
+
+	targets, err := store.ListTargetsByEvent(ctx, user.OrganizationID, eventUUID)
+	require.NoError(t, err)
+	got := map[string]*models.Target{}
+	for _, target := range targets {
+		got[target.DeviceIdentifier] = target
+	}
+	require.Contains(t, got, "force-release-confirmed")
+	require.Contains(t, got, "force-release-dispatched")
+	require.Contains(t, got, "force-release-restoring")
+	require.Contains(t, got, "force-release-resolved")
+	assert.Equal(t, models.TargetStateReleased, got["force-release-confirmed"].State)
+	require.NotNil(t, got["force-release-confirmed"].LastError)
+	assert.Equal(t, "operator needs manual control", *got["force-release-confirmed"].LastError)
+	assert.Equal(t, models.TargetStateReleased, got["force-release-confirmed"].CurtailPhase.State)
+	assert.NotNil(t, got["force-release-confirmed"].CurtailPhase.CompletedAt)
+	assert.Equal(t, models.TargetStateReleased, got["force-release-dispatched"].State)
+	assert.Equal(t, models.TargetStateReleased, got["force-release-restoring"].State)
+	require.NotNil(t, got["force-release-restoring"].RestorePhase)
+	assert.Equal(t, models.TargetStateReleased, got["force-release-restoring"].RestorePhase.State)
+	assert.NotNil(t, got["force-release-restoring"].RestorePhase.CompletedAt)
+	assert.Equal(t, models.TargetStateResolved, got["force-release-resolved"].State)
+
+	activeAfter, err := store.ListActiveCurtailedDevices(ctx, user.OrganizationID)
+	require.NoError(t, err)
+	assert.NotContains(t, activeAfter, "force-release-confirmed")
+	assert.NotContains(t, activeAfter, "force-release-dispatched")
+	assert.NotContains(t, activeAfter, "force-release-restoring")
+
+	// The return value should continue identifying the row the store updated.
+	assert.Equal(t, inserted.ID, event.ID)
+}
+
+func TestSQLCurtailmentStore_ForceReleaseEvent_UnblocksClosedLoopFullFleetPreflight(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	device := testContext.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+
+	eventUUID := uuid.New()
+	_, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreClosedLoopFullFleetEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.ScopeTypeWholeOrg, 0, "force-release-full-fleet"),
+		nil,
+	)
+	require.NoError(t, err)
+
+	activeBefore, err := store.ListActiveCurtailedDevices(ctx, user.OrganizationID)
+	require.NoError(t, err)
+	assert.Contains(t, activeBefore, device.ID)
+
+	event, swept, err := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "operator needs manual control")
+	require.NoError(t, err)
+	require.NotNil(t, event)
+	assert.Equal(t, models.EventStateCancelled, event.State)
+	assert.Zero(t, swept)
+
+	activeAfter, err := store.ListActiveCurtailedDevices(ctx, user.OrganizationID)
+	require.NoError(t, err)
+	assert.NotContains(t, activeAfter, device.ID)
+}
+
+func TestSQLCurtailmentStore_ForceReleaseEvent_UpdatesTerminalEvents(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+
+	eventUUID := uuid.New()
+	_, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateFailed, "force-release-terminal"),
+		[]models.InsertTargetParams{
+			curtailmentStoreTestTarget("force-release-terminal", models.TargetStateRestoreFailed, models.DesiredStateActive),
 		},
 	)
 	require.NoError(t, err)
@@ -111,36 +210,7 @@ func TestSQLCurtailmentStore_ForceReleaseEvent_CancelsEventAndReleasesTargets(t 
 	require.NoError(t, err)
 	require.NotNil(t, event)
 	assert.Equal(t, models.EventStateCancelled, event.State)
-	assert.Equal(t, int64(2), swept)
-
-	rows, err := db.QueryContext(ctx, `
-		SELECT device_identifier, state, last_error
-		FROM curtailment_target
-		WHERE curtailment_event_id = $1
-		ORDER BY device_identifier
-	`, inserted.ID)
-	require.NoError(t, err)
-	defer rows.Close()
-
-	got := map[string]struct {
-		state     string
-		lastError sql.NullString
-	}{}
-	for rows.Next() {
-		var id, state string
-		var lastError sql.NullString
-		require.NoError(t, rows.Scan(&id, &state, &lastError))
-		got[id] = struct {
-			state     string
-			lastError sql.NullString
-		}{state: state, lastError: lastError}
-	}
-	require.NoError(t, rows.Err())
-
-	assert.Equal(t, string(models.TargetStateReleased), got["force-release-confirmed"].state)
-	assert.Equal(t, "operator needs manual control", got["force-release-confirmed"].lastError.String)
-	assert.Equal(t, string(models.TargetStateReleased), got["force-release-dispatched"].state)
-	assert.Equal(t, string(models.TargetStateResolved), got["force-release-resolved"].state)
+	assert.Zero(t, swept)
 }
 
 func TestSQLCurtailmentStore_BeginRecurtailTransition_ReopensResolvedTarget(t *testing.T) {

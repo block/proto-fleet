@@ -742,6 +742,18 @@ message ForceReleaseCurtailmentOwnershipRequest {
 
 message ForceReleaseCurtailmentOwnershipResponse {
     CurtailmentEvent event = 1;
+
+    // Number of non-terminal target rows released by this recovery action.
+    uint32 released_target_count = 2;
+
+    // True when curtailment ownership was released by the persisted recovery
+    // transaction. This is separate from event.state so clients do not infer
+    // force-release semantics from a generic CANCELLED event.
+    bool ownership_released = 3;
+
+    // Always false for force-release: this path does not issue restore
+    // commands or claim miners were gracefully restored.
+    bool restore_attempted = 4;
 }
 
 message IngestCurtailmentSignalRequest {
