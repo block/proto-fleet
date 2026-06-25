@@ -853,8 +853,7 @@ USING device d
 WHERE fnd.device_id = d.id
   AND fnd.org_id = d.org_id
   AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
-  AND d.org_id = sqlc.arg('org_id')
-  AND d.deleted_at IS NULL;
+  AND d.org_id = sqlc.arg('org_id');
 
 -- name: SoftDeleteDiscoveredDevicesForDeletedDevices :exec
 -- Soft-deletes discovered_device records linked to the specified devices.

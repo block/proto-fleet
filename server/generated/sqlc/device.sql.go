@@ -234,7 +234,6 @@ WHERE fnd.device_id = d.id
   AND fnd.org_id = d.org_id
   AND d.device_identifier = ANY($1::text[])
   AND d.org_id = $2
-  AND d.deleted_at IS NULL
 `
 
 type DeleteFleetNodeDevicePairingsParams struct {

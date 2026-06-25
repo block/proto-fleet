@@ -1529,13 +1529,12 @@ func pairMinerToFleetNode(t *testing.T, db *sql.DB, orgID int64, deviceIdentifie
 
 	var fleetNodeID int64
 	require.NoError(t, db.QueryRowContext(t.Context(), `
-		INSERT INTO fleet_node (org_id, name, identity_pubkey, miner_signing_pubkey, enrollment_status)
-		VALUES ($1, $2, $3, $4, 'CONFIRMED')
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
+		VALUES ($1, $2, $3, 'CONFIRMED')
 		RETURNING id`,
 		orgID,
 		"delete-miners-node-"+deviceIdentifier,
 		[]byte("identity-"+deviceIdentifier),
-		[]byte("miner-signing-"+deviceIdentifier),
 	).Scan(&fleetNodeID))
 
 	rows, err := sqlstores.NewSQLFleetNodePairingStore(db).PairDeviceToFleetNode(t.Context(), fleetNodeID, deviceID, orgID, nil)
@@ -1543,6 +1542,61 @@ func pairMinerToFleetNode(t *testing.T, db *sql.DB, orgID int64, deviceIdentifie
 	require.Equal(t, int64(1), rows)
 
 	return deviceID
+}
+
+func createStaleFleetNodeDevicePairing(t *testing.T, db *sql.DB, orgID int64, deviceIdentifier string) int64 {
+	t.Helper()
+
+	var fleetNodeID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
+		VALUES ($1, $2, $3, 'CONFIRMED')
+		RETURNING id`,
+		orgID,
+		"stale-delete-miners-node-"+deviceIdentifier,
+		[]byte("stale-identity-"+deviceIdentifier),
+	).Scan(&fleetNodeID))
+
+	var discoveredDeviceID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO discovered_device (
+			org_id,
+			device_identifier,
+			driver_name,
+			ip_address,
+			port,
+			url_scheme,
+			is_active,
+			deleted_at
+		)
+		VALUES ($1, $2, 'proto', '172.17.99.1', '80', 'https', false, NOW())
+		RETURNING id`,
+		orgID,
+		deviceIdentifier,
+	).Scan(&discoveredDeviceID))
+
+	var staleDeviceID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO device (
+			org_id,
+			discovered_device_id,
+			device_identifier,
+			mac_address,
+			deleted_at
+		)
+		VALUES ($1, $2, $3, $4, NOW())
+		RETURNING id`,
+		orgID,
+		discoveredDeviceID,
+		deviceIdentifier,
+		"02:00:00:99:99:99",
+	).Scan(&staleDeviceID))
+
+	rows, err := sqlstores.NewSQLFleetNodePairingStore(db).PairDeviceToFleetNode(t.Context(), fleetNodeID, staleDeviceID, orgID, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rows)
+
+	return staleDeviceID
 }
 
 func requireNoFleetNodeDevicePairing(t *testing.T, db *sql.DB, deviceID int64) {
@@ -1643,6 +1697,39 @@ func TestService_DeleteMiners_ShouldCleanFleetNodePairingRows(t *testing.T) {
 	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
 	require.NoError(t, err)
 	assert.Empty(t, listResp.Miners, "node-owned miner should be removed from the fleet list")
+}
+
+func TestService_DeleteMiners_ShouldCleanStaleFleetNodePairingRowsForRediscoveredDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
+	liveDeviceID := pairMinerToFleetNode(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+	staleDeviceID := createStaleFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+	}
+	resp, err := service.DeleteMiners(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(1), resp.DeletedCount)
+	requireNoFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, liveDeviceID)
+	requireNoFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, staleDeviceID)
 }
 
 func TestService_DeleteMiners_ShouldRejectEmptyRequestWithoutFilter(t *testing.T) {
