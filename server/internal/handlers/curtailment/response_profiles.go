@@ -129,6 +129,7 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 		Profile:             profile,
 		CanUseAdminControls: canUseAdminControls(info),
 		ExpectedSiteID:      cloneInt64Ptr(existing.SiteID),
+		ExpectedScopeJSON:   cloneBytes(existing.ScopeJSON),
 	})
 	if err != nil {
 		return nil, err
@@ -148,7 +149,7 @@ func (h *Handler) DeleteCurtailmentResponseProfile(ctx context.Context, req *con
 	if err != nil {
 		return nil, err
 	}
-	if err := h.responseProfiles.Delete(ctx, info.OrganizationID, req.Msg.GetProfileId(), cloneInt64Ptr(profile.SiteID)); err != nil {
+	if err := h.responseProfiles.Delete(ctx, info.OrganizationID, req.Msg.GetProfileId(), cloneInt64Ptr(profile.SiteID), cloneBytes(profile.ScopeJSON)); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteCurtailmentResponseProfileResponse{}), nil
@@ -209,6 +210,13 @@ func cloneInt64Ptr(v *int64) *int64 {
 	}
 	out := *v
 	return &out
+}
+
+func cloneBytes(v []byte) []byte {
+	if len(v) == 0 {
+		return nil
+	}
+	return append([]byte(nil), v...)
 }
 
 func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResponseProfileRequest) (models.ResponseProfile, error) {

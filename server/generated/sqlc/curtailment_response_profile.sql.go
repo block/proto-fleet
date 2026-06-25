@@ -16,16 +16,23 @@ DELETE FROM curtailment_response_profile
 WHERE id = $1
   AND org_id = $2
   AND site_id IS NOT DISTINCT FROM $3
+  AND scope_json = $4::jsonb
 `
 
 type DeleteCurtailmentResponseProfileByOrgParams struct {
-	ID             int64
-	OrgID          int64
-	ExpectedSiteID sql.NullInt64
+	ID                int64
+	OrgID             int64
+	ExpectedSiteID    sql.NullInt64
+	ExpectedScopeJson json.RawMessage
 }
 
 func (q *Queries) DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg DeleteCurtailmentResponseProfileByOrgParams) (int64, error) {
-	result, err := q.exec(ctx, q.deleteCurtailmentResponseProfileByOrgStmt, deleteCurtailmentResponseProfileByOrg, arg.ID, arg.OrgID, arg.ExpectedSiteID)
+	result, err := q.exec(ctx, q.deleteCurtailmentResponseProfileByOrgStmt, deleteCurtailmentResponseProfileByOrg,
+		arg.ID,
+		arg.OrgID,
+		arg.ExpectedSiteID,
+		arg.ExpectedScopeJson,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -252,6 +259,7 @@ SET
 WHERE id = $17
   AND org_id = $18
   AND site_id IS NOT DISTINCT FROM $19
+  AND scope_json = $20::jsonb
 RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json
 `
 
@@ -275,6 +283,7 @@ type UpdateCurtailmentResponseProfileParams struct {
 	ID                      int64
 	OrgID                   int64
 	ExpectedSiteID          sql.NullInt64
+	ExpectedScopeJson       json.RawMessage
 }
 
 func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg UpdateCurtailmentResponseProfileParams) (CurtailmentResponseProfile, error) {
@@ -298,6 +307,7 @@ func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg Upda
 		arg.ID,
 		arg.OrgID,
 		arg.ExpectedSiteID,
+		arg.ExpectedScopeJson,
 	)
 	var i CurtailmentResponseProfile
 	err := row.Scan(

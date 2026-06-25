@@ -166,7 +166,7 @@ func (s *SQLCurtailmentStore) GetResponseProfile(ctx context.Context, orgID, pro
 
 func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
-		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, profile.ScopeJSON, profile.SiteID); err != nil {
+		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, [][]byte{profile.ScopeJSON}, profile.SiteID); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
 		return q.InsertCurtailmentResponseProfile(ctx, insertResponseProfileParams(profile))
@@ -177,12 +177,25 @@ func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile
 	return responseProfileFromRow(row), nil
 }
 
-func (s *SQLCurtailmentStore) UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedSiteID *int64) (*models.ResponseProfile, error) {
+func (s *SQLCurtailmentStore) UpdateResponseProfile(
+	ctx context.Context,
+	profile models.ResponseProfile,
+	expectedSiteID *int64,
+	expectedScopeJSON []byte,
+) (*models.ResponseProfile, error) {
+	normalizedExpectedScopeJSON := normalizedResponseProfileScopeJSON(expectedScopeJSON)
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
-		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, profile.ScopeJSON, expectedSiteID, profile.SiteID); err != nil {
+		if err := lockResponseProfileSitesForWrite(
+			ctx,
+			q,
+			profile.OrgID,
+			[][]byte{profile.ScopeJSON, normalizedExpectedScopeJSON},
+			expectedSiteID,
+			profile.SiteID,
+		); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
-		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(profile, expectedSiteID))
+		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(profile, expectedSiteID, normalizedExpectedScopeJSON))
 		if errors.Is(err, sql.ErrNoRows) {
 			if _, getErr := q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
 				ID:    profile.ID,
@@ -202,7 +215,13 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(ctx context.Context, profile
 	return responseProfileFromRow(row), nil
 }
 
-func (s *SQLCurtailmentStore) DeleteResponseProfile(ctx context.Context, orgID, profileID int64, expectedSiteID *int64) error {
+func (s *SQLCurtailmentStore) DeleteResponseProfile(
+	ctx context.Context,
+	orgID,
+	profileID int64,
+	expectedSiteID *int64,
+	expectedScopeJSON []byte,
+) error {
 	count, err := s.CountAutomationRulesByResponseProfile(ctx, orgID, profileID)
 	if err != nil {
 		return err
@@ -211,9 +230,10 @@ func (s *SQLCurtailmentStore) DeleteResponseProfile(ctx context.Context, orgID, 
 		return fleeterror.NewFailedPreconditionError("curtailment response profile is referenced by an automation rule")
 	}
 	rows, err := s.GetQueries(ctx).DeleteCurtailmentResponseProfileByOrg(ctx, sqlc.DeleteCurtailmentResponseProfileByOrgParams{
-		ID:             profileID,
-		OrgID:          orgID,
-		ExpectedSiteID: ptrToNullInt64(expectedSiteID),
+		ID:                profileID,
+		OrgID:             orgID,
+		ExpectedSiteID:    ptrToNullInt64(expectedSiteID),
+		ExpectedScopeJson: normalizedResponseProfileScopeJSON(expectedScopeJSON),
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to delete curtailment response profile: %v", err)
@@ -603,10 +623,14 @@ func mapAutomationRuleWriteError(action string, err error) error {
 	return fleeterror.NewInternalErrorf("failed to %s curtailment automation rule: %v", action, err)
 }
 
-func lockResponseProfileSitesForWrite(ctx context.Context, q *sqlc.Queries, orgID int64, scopeJSON []byte, siteIDs ...*int64) error {
-	ids, err := responseProfileScopeSiteIDsForLock(scopeJSON)
-	if err != nil {
-		return err
+func lockResponseProfileSitesForWrite(ctx context.Context, q *sqlc.Queries, orgID int64, scopeJSONs [][]byte, siteIDs ...*int64) error {
+	var ids []int64
+	for _, scopeJSON := range scopeJSONs {
+		scopeSiteIDs, err := responseProfileScopeSiteIDsForLock(scopeJSON)
+		if err != nil {
+			return err
+		}
+		ids = append(ids, scopeSiteIDs...)
 	}
 	ids = append(ids, responseProfileSiteIDsForLock(siteIDs...)...)
 	for _, siteID := range uniqueSortedInt64s(ids) {
@@ -2121,11 +2145,16 @@ func insertResponseProfileParams(profile models.ResponseProfile) sqlc.InsertCurt
 	}
 }
 
-func updateResponseProfileParams(profile models.ResponseProfile, expectedSiteID *int64) sqlc.UpdateCurtailmentResponseProfileParams {
+func updateResponseProfileParams(
+	profile models.ResponseProfile,
+	expectedSiteID *int64,
+	expectedScopeJSON []byte,
+) sqlc.UpdateCurtailmentResponseProfileParams {
 	return sqlc.UpdateCurtailmentResponseProfileParams{
 		ID:                      profile.ID,
 		OrgID:                   profile.OrgID,
 		ExpectedSiteID:          ptrToNullInt64(expectedSiteID),
+		ExpectedScopeJson:       normalizedResponseProfileScopeJSON(expectedScopeJSON),
 		ProfileName:             profile.ProfileName,
 		SiteID:                  ptrToNullInt64(profile.SiteID),
 		ScopeJson:               responseProfileScopeJSON(profile),
@@ -2146,10 +2175,14 @@ func updateResponseProfileParams(profile models.ResponseProfile, expectedSiteID 
 }
 
 func responseProfileScopeJSON(profile models.ResponseProfile) []byte {
-	if len(profile.ScopeJSON) == 0 {
+	return normalizedResponseProfileScopeJSON(profile.ScopeJSON)
+}
+
+func normalizedResponseProfileScopeJSON(scopeJSON []byte) []byte {
+	if len(scopeJSON) == 0 {
 		return []byte("{}")
 	}
-	return profile.ScopeJSON
+	return scopeJSON
 }
 
 func mapResponseProfileWriteError(action string, err error) error {

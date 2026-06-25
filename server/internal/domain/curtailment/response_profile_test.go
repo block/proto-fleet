@@ -365,7 +365,7 @@ func TestResponseProfileService_DeleteRejectsReferencedProfile(t *testing.T) {
 	store.automationRuleCount = 1
 	svc := NewResponseProfileService(store)
 
-	err := svc.Delete(t.Context(), 42, 101, nil)
+	err := svc.Delete(t.Context(), 42, 101, nil, nil)
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
@@ -410,12 +410,12 @@ func (s *responseProfileFakeStore) CreateResponseProfile(_ context.Context, prof
 	return &profile, nil
 }
 
-func (s *responseProfileFakeStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ *int64) (*models.ResponseProfile, error) {
+func (s *responseProfileFakeStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ *int64, _ []byte) (*models.ResponseProfile, error) {
 	s.updated = &profile
 	return &profile, nil
 }
 
-func (s *responseProfileFakeStore) DeleteResponseProfile(context.Context, int64, int64, *int64) error {
+func (s *responseProfileFakeStore) DeleteResponseProfile(context.Context, int64, int64, *int64, []byte) error {
 	s.deleteCalls++
 	return nil
 }

@@ -254,7 +254,7 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 	siteID := int64(7)
 	store := newHandlerResponseProfileStore()
 	store.profiles = []*models.ResponseProfile{
-		{ID: 201, OrgID: 42, ProfileName: "Old", SiteID: &siteID, Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
+		{ID: 201, OrgID: 42, ProfileName: "Old", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
 	}
 	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
@@ -288,6 +288,51 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 	assert.Equal(t, int32(900), store.updated.PostEventCooldownSec)
 	require.NotNil(t, store.updateExpectedSiteID)
 	assert.Equal(t, siteID, *store.updateExpectedSiteID)
+	assert.JSONEq(t, `{"site_id":7}`, string(store.updateExpectedScopeJSON))
+}
+
+func TestHandler_UpdateCurtailmentResponseProfileGuardsStoredCompositeScope(t *testing.T) {
+	t.Parallel()
+
+	const (
+		siteA = int64(7)
+		siteB = int64(8)
+	)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Old composite", ScopeJSON: []byte(`{"site_ids":[7,8]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
+	}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.UpdateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-update-composite",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(siteA, authz.PermCurtailmentManage),
+			testSiteAssignment(siteB, authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ProfileId:   201,
+			ProfileName: "Updated composite",
+			Scopes: []*pb.CurtailmentScope{
+				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: siteA}}},
+				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: siteB}}},
+			},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 3000},
+			},
+		}),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, store.updated)
+	assert.Nil(t, store.updateExpectedSiteID)
+	assert.JSONEq(t, `{"site_ids":[7,8]}`, string(store.updateExpectedScopeJSON))
 }
 
 func TestHandler_UpdateCurtailmentResponseProfileChecksExistingSite(t *testing.T) {
@@ -331,7 +376,7 @@ func TestHandler_DeleteCurtailmentResponseProfile(t *testing.T) {
 	siteID := int64(7)
 	store := newHandlerResponseProfileStore()
 	store.profiles = []*models.ResponseProfile{
-		{ID: 201, OrgID: 42, ProfileName: "Standard shed", SiteID: &siteID, Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
+		{ID: 201, OrgID: 42, ProfileName: "Standard shed", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 	}
 	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
@@ -344,6 +389,7 @@ func TestHandler_DeleteCurtailmentResponseProfile(t *testing.T) {
 	assert.Equal(t, int64(201), store.deletedProfileID)
 	require.NotNil(t, store.deleteExpectedSiteID)
 	assert.Equal(t, siteID, *store.deleteExpectedSiteID)
+	assert.JSONEq(t, `{"site_id":7}`, string(store.deleteExpectedScopeJSON))
 }
 
 func TestHandler_DeleteCurtailmentResponseProfileChecksStoredSite(t *testing.T) {
@@ -443,14 +489,16 @@ func TestHandler_ResponseProfileAdminCanUseAdminControls(t *testing.T) {
 }
 
 type handlerResponseProfileStore struct {
-	siteBelongs          bool
-	siteCheckCount       int
-	created              *models.ResponseProfile
-	updated              *models.ResponseProfile
-	updateExpectedSiteID *int64
-	deletedProfileID     int64
-	deleteExpectedSiteID *int64
-	profiles             []*models.ResponseProfile
+	siteBelongs             bool
+	siteCheckCount          int
+	created                 *models.ResponseProfile
+	updated                 *models.ResponseProfile
+	updateExpectedSiteID    *int64
+	updateExpectedScopeJSON []byte
+	deletedProfileID        int64
+	deleteExpectedSiteID    *int64
+	deleteExpectedScopeJSON []byte
+	profiles                []*models.ResponseProfile
 }
 
 func newHandlerResponseProfileStore() *handlerResponseProfileStore {
@@ -478,15 +526,17 @@ func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, p
 	return &profile, nil
 }
 
-func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, expectedSiteID *int64) (*models.ResponseProfile, error) {
+func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, expectedSiteID *int64, expectedScopeJSON []byte) (*models.ResponseProfile, error) {
 	s.updated = &profile
 	s.updateExpectedSiteID = cloneInt64Ptr(expectedSiteID)
+	s.updateExpectedScopeJSON = cloneBytes(expectedScopeJSON)
 	return &profile, nil
 }
 
-func (s *handlerResponseProfileStore) DeleteResponseProfile(_ context.Context, _ int64, profileID int64, expectedSiteID *int64) error {
+func (s *handlerResponseProfileStore) DeleteResponseProfile(_ context.Context, _ int64, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte) error {
 	s.deletedProfileID = profileID
 	s.deleteExpectedSiteID = cloneInt64Ptr(expectedSiteID)
+	s.deleteExpectedScopeJSON = cloneBytes(expectedScopeJSON)
 	return nil
 }
 

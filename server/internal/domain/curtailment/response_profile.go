@@ -40,6 +40,7 @@ type SaveResponseProfileRequest struct {
 	Profile             models.ResponseProfile
 	CanUseAdminControls bool
 	ExpectedSiteID      *int64
+	ExpectedScopeJSON   []byte
 }
 
 func (s *ResponseProfileService) List(ctx context.Context, orgID int64) ([]*models.ResponseProfile, error) {
@@ -87,10 +88,10 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	if err != nil {
 		return nil, err
 	}
-	return s.store.UpdateResponseProfile(ctx, profile, req.ExpectedSiteID)
+	return s.store.UpdateResponseProfile(ctx, profile, req.ExpectedSiteID, req.ExpectedScopeJSON)
 }
 
-func (s *ResponseProfileService) Delete(ctx context.Context, orgID, profileID int64, expectedSiteID *int64) error {
+func (s *ResponseProfileService) Delete(ctx context.Context, orgID, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte) error {
 	if s == nil || s.store == nil {
 		return fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
 	}
@@ -109,7 +110,7 @@ func (s *ResponseProfileService) Delete(ctx context.Context, orgID, profileID in
 			"curtailment response profile is referenced by automation rules; delete or update those rules first",
 		)
 	}
-	return s.store.DeleteResponseProfile(ctx, orgID, profileID, expectedSiteID)
+	return s.store.DeleteResponseProfile(ctx, orgID, profileID, expectedSiteID, expectedScopeJSON)
 }
 
 func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req SaveResponseProfileRequest) (models.ResponseProfile, error) {
