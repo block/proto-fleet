@@ -25,10 +25,12 @@ type VisibleMinerSnapshot = {
   };
 };
 
-type VisibleMinerCandidate = Pick<
-  VisibleMinerSnapshot,
-  "ipAddress" | "deviceIdentifier" | "rackPosition" | "placement"
->;
+type VisibleMinerCandidate = {
+  ipAddress: string;
+  deviceIdentifier?: string;
+  rackPosition?: string;
+  placement?: VisibleMinerSnapshot["placement"];
+};
 
 const LIST_MINERS_RESPONSE = "ListMinerStateSnapshots";
 const ASSIGN_DEVICES_TO_SITE = "AssignDevicesToSite";
