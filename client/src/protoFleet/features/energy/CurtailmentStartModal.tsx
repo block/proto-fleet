@@ -1317,7 +1317,7 @@ function CurtailmentStartModalContent({
   const handleSaveSiteScope = () => {
     const selectedSiteIdsForSave = getValidSiteScopeIds(draftSelectedSiteIds);
     const allSelectableSitesSelected =
-      selectableSiteIds.length > 1 &&
+      selectableSiteIds.length > 0 &&
       selectedSiteIdsForSave.length === selectableSiteIds.length &&
       selectedSiteIdsForSave.every((siteId) => siteScopeOptionById.has(siteId));
 
@@ -1863,8 +1863,8 @@ function CurtailmentStartModalContent({
             {siteScopeRows.some((siteScopeRow) => !siteScopeRow.disabled) ? (
               <ModalSelectAllFooter
                 label={
-                  selectableSiteIds.length > 1 && draftSelectedSiteIds.length === selectableSiteIds.length
-                    ? `All ${selectableSiteIds.length} sites selected`
+                  selectableSiteIds.length > 0 && draftSelectedSiteIds.length === selectableSiteIds.length
+                    ? `All ${selectableSiteIds.length} ${selectableSiteIds.length === 1 ? "site" : "sites"} selected`
                     : `${draftSelectedSiteIds.length} ${draftSelectedSiteIds.length === 1 ? "site" : "sites"} selected`
                 }
                 onSelectAll={() => setDraftSelectedSiteIds(selectableSiteIds)}
