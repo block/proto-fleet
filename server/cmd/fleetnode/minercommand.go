@@ -7,11 +7,15 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"time"
 
 	"buf.build/go/protovalidate"
+	"connectrpc.com/connect"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -32,10 +36,17 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
-// minerCommandTimeout bounds a single miner command. It must stay below the server's
-// WorkerExecutionTimeout (default 30s) minus ack slack, or a slow command can be
-// retried while the node still runs it (duplicate reboot/curtail). var so tests shrink it.
-var minerCommandTimeout = 25 * time.Second
+var (
+	// minerCommandTimeout bounds a short miner command. It must stay below the server's
+	// WorkerExecutionTimeout (default 30s) minus ack slack, or a slow command can be
+	// retried while the node still runs it (duplicate reboot/curtail). var so tests shrink it.
+	minerCommandTimeout = 25 * time.Second
+	// firmwareMinerCommandTimeout stays below the server-side firmware execution
+	// budget (default 15m) so the node has time to ack before the worker expires.
+	// Firmware updates include an artifact download and device install, so they should
+	// not inherit the short command timeout used for reboot/curtailment commands.
+	firmwareMinerCommandTimeout = 14 * time.Minute
+)
 
 const (
 	supportedMiningPoolSlots       = 3
@@ -108,7 +119,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	}
 	bundle = passwordUpdate.secretBundle(target, bundle)
 
-	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandTimeout)
+	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandActionTimeout(mc))
 	defer cancel()
 
 	result, err := driver.NewDevice(cmdCtx, target.GetDeviceIdentifier(), sdk.DeviceInfo{
@@ -212,6 +223,13 @@ func (u *passwordUpdateCommand) run(ctx context.Context, dev sdk.Device, bundle 
 	return payload, nil
 }
 
+func minerCommandActionTimeout(mc *pb.MinerCommand) time.Duration {
+	if mc.GetFirmwareUpdate() != nil {
+		return firmwareMinerCommandTimeout
+	}
+	return minerCommandTimeout
+}
+
 // validateDialTarget rejects descriptors the node should never dial: a non-IP, public,
 // or link-local address, or a scheme the drivers can't dial. Loopback is allowed for the
 // dev virtual driver; mirrors the discovery path's private-address policy.
@@ -310,6 +328,8 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID string,
 			return nil, cmdErr(pb.AckCode_ACK_CODE_PARTIAL, "uploaded partial miner log data; retry after partial log pagination is supported")
 		}
 		return nil, nil
+	case *pb.MinerCommand_FirmwareUpdate:
+		return nil, runFirmwareUpdateAction(ctx, client, commandID, mc.GetTarget().GetDeviceIdentifier(), dev, a.FirmwareUpdate.GetArtifact())
 	default:
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unrecognized miner command action")
 	}
@@ -442,6 +462,136 @@ func updateMinerPasswordResultPayload(bundle sdk.SecretBundle, newPassword strin
 		return nil, fmt.Errorf("marshal update miner password result: %w", err)
 	}
 	return payload, nil
+}
+
+func runFirmwareUpdateAction(ctx context.Context, client gatewayClient, commandID, deviceIdentifier string, dev sdk.Device, ref *pb.CommandArtifactRef) error {
+	if client == nil {
+		return cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node gateway client is unavailable")
+	}
+	if ref == nil {
+		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact is required")
+	}
+	if ref.GetPurpose() != pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD {
+		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact has wrong purpose: %s", ref.GetPurpose())
+	}
+
+	tmpPath, cleanup, err := downloadFirmwareArtifact(ctx, client, commandID, deviceIdentifier, ref)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	file, err := os.Open(tmpPath)
+	if err != nil {
+		return fmt.Errorf("open downloaded firmware: %w", err)
+	}
+	defer file.Close()
+
+	return dev.FirmwareUpdate(ctx, sdk.FirmwareFile{
+		Reader:   file,
+		ID:       ref.GetArtifactId(),
+		Filename: ref.GetFilename(),
+		Size:     ref.GetSizeBytes(),
+		SHA256:   ref.GetSha256(),
+		FilePath: tmpPath,
+	})
+}
+
+func downloadFirmwareArtifact(ctx context.Context, client gatewayClient, commandID, deviceIdentifier string, ref *pb.CommandArtifactRef) (string, func(), error) {
+	stream, err := client.DownloadCommandArtifact(ctx, connect.NewRequest(&pb.DownloadCommandArtifactRequest{
+		CommandId:        commandID,
+		Artifact:         ref,
+		DeviceIdentifier: deviceIdentifier,
+	}))
+	if err != nil {
+		return "", nil, fmt.Errorf("download firmware artifact: %w", err)
+	}
+	defer stream.Close()
+	if !stream.Receive() {
+		return "", nil, commandArtifactStreamErr(stream, "receive firmware artifact header")
+	}
+	if got := stream.Msg().GetHeader(); got == nil || !commandArtifactRefsEqual(got.GetArtifact(), ref) {
+		return "", nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact header does not match command")
+	}
+
+	tmpDir, err := os.MkdirTemp("", "proto-fleet-firmware-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("create firmware temp dir: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(tmpDir) }
+	filename := filepath.Base(ref.GetFilename())
+	if filename == "" || filename == "." || filename == string(filepath.Separator) {
+		filename = "firmware.bin"
+	}
+	tmpPath := filepath.Join(tmpDir, filename)
+	file, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("create firmware temp file: %w", err)
+	}
+	fail := func(err error) (string, func(), error) {
+		_ = file.Close()
+		cleanup()
+		return "", nil, err
+	}
+
+	hasher := sha256.New()
+	var written int64
+	for stream.Receive() {
+		chunk := stream.Msg().GetChunk()
+		if chunk == nil {
+			return fail(cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact stream contained non-chunk message after header"))
+		}
+		data := chunk.GetData()
+		if len(data) == 0 {
+			return fail(cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact chunk is empty"))
+		}
+		n, err := file.Write(data)
+		if err != nil {
+			return fail(fmt.Errorf("write firmware temp file: %w", err))
+		}
+		if n != len(data) {
+			return fail(io.ErrShortWrite)
+		}
+		if _, err := hasher.Write(data); err != nil {
+			return fail(fmt.Errorf("hash firmware chunk: %w", err))
+		}
+		written += int64(len(data))
+		if written > ref.GetSizeBytes() {
+			return fail(cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact is larger than declared"))
+		}
+	}
+	if err := commandArtifactStreamErr(stream, "receive firmware artifact chunk"); err != nil && !errors.Is(err, io.EOF) {
+		return fail(err)
+	}
+	if err := file.Close(); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("close firmware temp file: %w", err)
+	}
+	if written != ref.GetSizeBytes() {
+		cleanup()
+		return "", nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact size mismatch: declared %d bytes, received %d bytes", ref.GetSizeBytes(), written)
+	}
+	if actual := hex.EncodeToString(hasher.Sum(nil)); actual != ref.GetSha256() {
+		cleanup()
+		return "", nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact sha256 mismatch")
+	}
+	return tmpPath, cleanup, nil
+}
+
+func commandArtifactStreamErr(stream *connect.ServerStreamForClient[pb.DownloadCommandArtifactResponse], stage string) error {
+	if err := stream.Err(); err != nil {
+		return fmt.Errorf("%s: %w", stage, err)
+	}
+	return io.EOF
+}
+
+func commandArtifactRefsEqual(a, b *pb.CommandArtifactRef) bool {
+	return a.GetArtifactId() == b.GetArtifactId() &&
+		a.GetPurpose() == b.GetPurpose() &&
+		a.GetFilename() == b.GetFilename() &&
+		a.GetSizeBytes() == b.GetSizeBytes() &&
+		a.GetSha256() == b.GetSha256()
 }
 
 func toSDKMiningPoolConfigs(pools []*pb.MiningPoolConfig) []sdk.MiningPoolConfig {

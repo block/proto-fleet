@@ -392,6 +392,33 @@ func TestMiner_GetMiningPools_DecodesPayload(t *testing.T) {
 	assert.NotNil(t, decodeSent(t, s).GetGetMiningPools())
 }
 
+func TestMiner_FirmwareUpdate_SendsArtifactCommand(t *testing.T) {
+	s := &fakeSender{ack: &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}}
+	m := newTestMiner(t, s)
+
+	err := m.FirmwareUpdate(context.Background(), sdk.FirmwareFile{
+		ID:       "11111111-1111-1111-1111-111111111111",
+		Filename: "update.swu",
+		Size:     42,
+		SHA256:   strings.Repeat("a", 64),
+	})
+
+	require.NoError(t, err)
+	mc := decodeSent(t, s)
+	ref := mc.GetFirmwareUpdate().GetArtifact()
+	require.NotNil(t, ref)
+	assert.Equal(t, "11111111-1111-1111-1111-111111111111", ref.GetArtifactId())
+	assert.Equal(t, gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD, ref.GetPurpose())
+	assert.Equal(t, "update.swu", ref.GetFilename())
+	assert.Equal(t, int64(42), ref.GetSizeBytes())
+	assert.Equal(t, strings.Repeat("a", 64), ref.GetSha256())
+	require.Len(t, s.artifacts, 1)
+	assert.Equal(t, control.ArtifactDirectionDownload, s.artifacts[0].Direction)
+	assert.Equal(t, ref.GetPurpose(), s.artifacts[0].Purpose)
+	assert.Equal(t, ref.GetArtifactId(), s.artifacts[0].ArtifactID)
+	assert.Equal(t, "dev-1", s.artifacts[0].DeviceIdentifier)
+}
+
 func TestMiner_GetErrors_DecodesPayload(t *testing.T) {
 	// Arrange
 	now := time.Now().UTC().Truncate(time.Millisecond)

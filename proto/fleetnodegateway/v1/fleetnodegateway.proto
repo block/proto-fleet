@@ -330,6 +330,7 @@ message MinerCommand {
         GetErrorsAction get_errors = 12;
         UpdateMinerPasswordAction update_miner_password = 13;
         DownloadLogsAction download_logs = 14;
+        FirmwareUpdateAction firmware_update = 15;
     }
 }
 
@@ -365,6 +366,10 @@ message UpdateMinerPasswordAction {
 
 message UpdateMinerPasswordResult {
     EncryptedCredentials encrypted_credentials = 1 [(buf.validate.field).required = true];
+}
+
+message FirmwareUpdateAction {
+    CommandArtifactRef artifact = 1 [(buf.validate.field).required = true];
 }
 
 message CurtailAction {

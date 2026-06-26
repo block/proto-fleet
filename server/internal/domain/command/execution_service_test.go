@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue/mocks"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -664,6 +667,62 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, installVerified)
 	})
+}
+
+func TestExecuteCommandOnDevice_FirmwareUpdatePassesFileMetadata(t *testing.T) {
+	t.Chdir(t.TempDir())
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	filesService, err := files.NewService(files.Config{})
+	require.NoError(t, err)
+	content := "firmware image"
+	fileID, err := filesService.SaveFirmwareFile("update.swu", strings.NewReader(content))
+	require.NoError(t, err)
+
+	mockQueue := mocks.NewMockMessageQueue(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+
+	payloadBytes, err := json.Marshal(dto.FirmwareUpdatePayload{FirmwareFileID: fileID})
+	require.NoError(t, err)
+	message := queue.Message{
+		ID:          9,
+		CommandType: commandtype.FirmwareUpdate,
+		DeviceID:    42,
+		Payload:     payloadBytes,
+	}
+
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
+	mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(42)).Return(mockMiner, nil)
+	mockMiner.EXPECT().FirmwareUpdate(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, firmware sdk.FirmwareFile) error {
+			assert.Equal(t, fileID, firmware.ID)
+			assert.Equal(t, "update.swu", firmware.Filename)
+			assert.Equal(t, int64(len(content)), firmware.Size)
+			assert.NotEmpty(t, firmware.SHA256)
+			assert.NotEmpty(t, firmware.FilePath)
+			data, err := io.ReadAll(firmware.Reader)
+			require.NoError(t, err)
+			assert.Equal(t, content, string(data))
+			return nil
+		})
+	mockMiner.EXPECT().Reboot(gomock.Any()).Return(nil)
+	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-123"))
+	mockDeviceStore.EXPECT().
+		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), []tmodels.DeviceIdentifier{"device-123"}).
+		Return(map[tmodels.DeviceIdentifier]models.MinerStatus{}, nil)
+
+	svc := NewExecutionService(t.Context(), &Config{
+		MaxWorkers:             5,
+		MasterPollingInterval:  10 * time.Millisecond,
+		WorkerExecutionTimeout: 5 * time.Second,
+	}, nil, mockQueue, nil, nil, mockMinerGetter, mockDeviceStore, nil, filesService)
+
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.FirmwareUpdate, message)
+	require.NoError(t, err)
 }
 
 func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerName(t *testing.T) {

@@ -228,7 +228,7 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 	}
 	defer h.registry.ReinstateCommandArtifactTransfer(subject.FleetNodeID, req.Msg.GetCommandId(), expectation)
 
-	reader, info, err := h.files.OpenCommandArtifact(ref.GetArtifactId())
+	reader, info, err := h.openCommandArtifactPayload(ref)
 	if err != nil {
 		return err
 	}
@@ -265,6 +265,22 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 			return fleeterror.NewInternalErrorf("read command artifact: %v", readErr)
 		}
 	}
+}
+
+func (h *Handler) openCommandArtifactPayload(ref *pb.CommandArtifactRef) (io.ReadCloser, files.CommandArtifactInfo, error) {
+	if ref.GetPurpose() != pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD {
+		return h.files.OpenCommandArtifact(ref.GetArtifactId())
+	}
+	reader, info, err := h.files.OpenFirmwareFileWithInfo(ref.GetArtifactId())
+	if err != nil {
+		return nil, files.CommandArtifactInfo{}, err
+	}
+	return reader, files.CommandArtifactInfo{
+		ID:       info.ID,
+		Filename: info.Filename,
+		Size:     info.Size,
+		SHA256:   info.SHA256,
+	}, nil
 }
 
 func sendCommandArtifactDownloadResponse(ctx context.Context, stream *connect.ServerStream[pb.DownloadCommandArtifactResponse], msg *pb.DownloadCommandArtifactResponse) error {

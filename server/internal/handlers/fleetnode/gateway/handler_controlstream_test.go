@@ -37,6 +37,7 @@ import (
 type controlHarness struct {
 	handler     *gateway.Handler
 	registry    *control.Registry
+	files       *files.Service
 	fleetNodeID int64
 	db          *sql.DB
 }
@@ -81,6 +82,7 @@ func newControlHarness(t *testing.T) *controlHarness {
 	return &controlHarness{
 		handler:     gateway.NewHandler(enrollmentSvc, authSvc, pairingSvc, registry, filesService),
 		registry:    registry,
+		files:       filesService,
 		fleetNodeID: agent.ID,
 		db:          db,
 	}
