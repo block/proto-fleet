@@ -984,6 +984,29 @@ func TestMiner_DownloadLogsPartialAckWithoutArtifactFailsTerminally(t *testing.T
 	assert.Empty(t, saver.artifactID)
 }
 
+func TestMiner_DownloadLogsBadRequestFailsTerminally(t *testing.T) {
+	// Arrange: the fleet node returns BAD_REQUEST for no-artifact log failures such
+	// as raw logs or formatted CSV exceeding the miner-log artifact cap.
+	s := &fakeSender{
+		ack: &gatewaypb.ControlAck{
+			Succeeded:    false,
+			Code:         gatewaypb.AckCode_ACK_CODE_BAD_REQUEST,
+			ErrorMessage: "miner log data exceeds 4194304 byte download limit",
+		},
+	}
+	saver := &fakeLogArtifactSaver{}
+	m := newTestMinerWithLogSaver(t, s, saver)
+
+	// Act
+	err := m.DownloadLogs(context.Background(), "batch-1")
+
+	// Assert
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "miner log data exceeds")
+	assert.Empty(t, saver.artifactID)
+}
+
 func TestMiner_DownloadLogsUsesLogDownloadGate(t *testing.T) {
 	// Arrange
 	sender := &blockingArtifactSender{

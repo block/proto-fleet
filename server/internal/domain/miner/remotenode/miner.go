@@ -417,6 +417,9 @@ func (m *Miner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 	}
 	ackErr := ackToError(ack)
 	code := ack.GetCode()
+	if code == gatewaypb.AckCode_ACK_CODE_BAD_REQUEST {
+		return logDownloadRejectedError(ack)
+	}
 	if code != gatewaypb.AckCode_ACK_CODE_OK && code != gatewaypb.AckCode_ACK_CODE_PARTIAL {
 		return ackErr
 	}
@@ -446,6 +449,14 @@ func partialLogDownloadError(ack *gatewaypb.ControlAck) error {
 		reason = "fleet node reported partial miner log data"
 	}
 	return fleeterror.NewFailedPreconditionErrorf("fleet node uploaded incomplete miner logs: %s", reason)
+}
+
+func logDownloadRejectedError(ack *gatewaypb.ControlAck) error {
+	reason := clampAckReason(ack.GetErrorMessage())
+	if reason == "" {
+		reason = "fleet node rejected miner log download"
+	}
+	return fleeterror.NewFailedPreconditionErrorf("fleet node rejected miner log download: %s", reason)
 }
 
 func (m *Miner) FirmwareUpdate(_ context.Context, _ sdk.FirmwareFile) error {
