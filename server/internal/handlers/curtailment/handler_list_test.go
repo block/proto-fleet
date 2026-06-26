@@ -543,7 +543,7 @@ func TestHandler_ListActiveCurtailments_FiltersDeviceListEventsByTargetSite(t *t
 	assert.Equal(t, allowedUUID.String(), resp.Msg.Events[0].EventUuid)
 }
 
-func TestHandler_ListActiveCurtailments_FiltersDeviceListEventsWithIncompleteTargetSites(t *testing.T) {
+func TestHandler_ListActiveCurtailments_AllowsDeviceListEventsWithIncompleteTargetSitesForOrgWideRead(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(42)
 	eventUUID := uuid.New()
@@ -565,6 +565,43 @@ func TestHandler_ListActiveCurtailments_FiltersDeviceListEventsWithIncompleteTar
 	}
 	h := NewHandler(domainCurtailment.NewService(store))
 	ctx := sessionCtx(orgID)
+
+	resp, err := h.ListActiveCurtailments(ctx, connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Events, 1)
+	assert.Equal(t, eventUUID.String(), resp.Msg.Events[0].EventUuid)
+}
+
+func TestHandler_ListActiveCurtailments_FiltersDeviceListEventsWithIncompleteTargetSitesWhenOrgReadIsNarrowed(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID        = int64(42)
+		narrowedSite = int64(7)
+	)
+	eventUUID := uuid.New()
+	store := &listStubStore{
+		activeEvents: []*models.Event{
+			{
+				ID:        1,
+				EventUUID: eventUUID,
+				OrgID:     orgID,
+				State:     models.EventStateActive,
+				ScopeType: models.ScopeTypeDeviceList,
+				Reason:    "unmapped-device",
+			},
+		},
+		targetSiteIDsByUUID: map[uuid.UUID][]int64{eventUUID: {}},
+		incompleteTargetSite: map[uuid.UUID]bool{
+			eventUUID: true,
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+	}, testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(narrowedSite))
 
 	resp, err := h.ListActiveCurtailments(ctx, connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
 	require.NoError(t, err)
@@ -737,9 +774,12 @@ func TestHandler_GetCurtailmentEvent_UsesTargetSitesForDeviceListEvents(t *testi
 	assert.Equal(t, uuid.Nil, store.lastTargetPageParams.EventUUID)
 }
 
-func TestHandler_GetCurtailmentEvent_DeniesIncompleteTargetSiteCoverage(t *testing.T) {
+func TestHandler_GetCurtailmentEvent_DeniesIncompleteTargetSiteCoverageWhenOrgReadIsNarrowed(t *testing.T) {
 	t.Parallel()
-	const orgID = int64(42)
+	const (
+		orgID        = int64(42)
+		narrowedSite = int64(7)
+	)
 	eventUUID := uuid.New()
 	store := &listStubStore{
 		eventByUUID: map[uuid.UUID]*models.Event{
@@ -757,8 +797,14 @@ func TestHandler_GetCurtailmentEvent_DeniesIncompleteTargetSiteCoverage(t *testi
 		incompleteTargetSite: map[uuid.UUID]bool{eventUUID: true},
 	}
 	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+	}, testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(narrowedSite))
 
-	_, err := h.GetCurtailmentEvent(sessionCtx(orgID), connect.NewRequest(&pb.GetCurtailmentEventRequest{
+	_, err := h.GetCurtailmentEvent(ctx, connect.NewRequest(&pb.GetCurtailmentEventRequest{
 		EventUuid: eventUUID.String(),
 	}))
 	require.Error(t, err)
@@ -917,6 +963,36 @@ func TestHandler_GetCurtailmentEvent_UsesSiteScopedEventPermission(t *testing.T)
 			}
 		})
 	}
+}
+
+func TestHandler_GetCurtailmentEvent_AllowsIncompleteTargetSitesForOrgWideRead(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	eventUUID := uuid.New()
+	store := &listStubStore{
+		eventByUUID: map[uuid.UUID]*models.Event{
+			eventUUID: {
+				ID:        1,
+				EventUUID: eventUUID,
+				OrgID:     orgID,
+				State:     models.EventStateActive,
+				ScopeType: models.ScopeTypeDeviceList,
+			},
+		},
+		targetsByUUID:       map[uuid.UUID][]*models.Target{eventUUID: {}},
+		targetSiteIDsByUUID: map[uuid.UUID][]int64{eventUUID: {}},
+		incompleteTargetSite: map[uuid.UUID]bool{
+			eventUUID: true,
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.GetCurtailmentEvent(sessionCtx(orgID), connect.NewRequest(&pb.GetCurtailmentEventRequest{
+		EventUuid: eventUUID.String(),
+	}))
+
+	require.NoError(t, err)
+	assert.Equal(t, eventUUID, store.lastTargetPageParams.EventUUID)
 }
 
 func TestHandler_GetCurtailmentEvent_UsesBoundedSnapshotAndFullTargetRollup(t *testing.T) {

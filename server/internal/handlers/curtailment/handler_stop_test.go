@@ -29,10 +29,12 @@ type stopStubStore struct {
 	event   *models.Event
 	targets []*models.Target
 
-	getEventErr       error
-	listTargetsErr    error
-	beginRestoreErr   error
-	beginRestoreCalls int
+	getEventErr           error
+	listTargetsErr        error
+	beginRestoreErr       error
+	beginRestoreCalls     int
+	targetSiteIDs         []int64
+	targetSiteIDsComplete bool
 }
 
 func (s *stopStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
@@ -90,7 +92,7 @@ func (s *stopStubStore) ListTargetsByEventPage(context.Context, interfaces.ListT
 	panic("ListTargetsByEventPage not exercised by Stop handler tests")
 }
 func (s *stopStubStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, bool, error) {
-	panic("ListTargetSiteIDsByEvent not exercised by Stop handler tests")
+	return s.targetSiteIDs, s.targetSiteIDsComplete, nil
 }
 func (s *stopStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by Stop handler tests")
@@ -171,6 +173,7 @@ func newStopStubStore() *stopStubStore {
 			{DeviceIdentifier: "m1", State: models.TargetStateConfirmed, DesiredState: models.DesiredStateCurtailed},
 			{DeviceIdentifier: "m2", State: models.TargetStateConfirmed, DesiredState: models.DesiredStateCurtailed},
 		},
+		targetSiteIDsComplete: true,
 	}
 }
 
@@ -264,6 +267,54 @@ func TestHandler_StopCurtailment_UsesSiteScopedEventPermission(t *testing.T) {
 			store := newStopStubStore()
 			store.event.ScopeType = models.ScopeTypeSite
 			store.event.ScopeJSON = siteScopeJSON(t, allowedSite)
+			h := NewHandler(curtailment.NewService(store))
+
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			}, tc.assignments...)
+
+			_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
+				EventUuid: store.event.EventUUID.String(),
+			}))
+
+			if tc.wantCode == 0 {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, tc.wantCode, fleetErr.GRPCCode)
+			}
+			assert.Equal(t, tc.wantCalls, store.beginRestoreCalls)
+		})
+	}
+}
+
+func TestHandler_StopCurtailment_AllowsIncompleteTargetSitesForOrgWideManage(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID        = int64(42)
+		narrowedSite = int64(7)
+	)
+
+	for _, tc := range []struct {
+		name        string
+		assignments []authz.Assignment
+		wantCode    connect.Code
+		wantCalls   int
+	}{
+		{"org permission without site narrowing allows stop", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, 0, 1},
+		{"site narrowing without manage denies stop", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(narrowedSite)}, connect.CodePermissionDenied, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := newStopStubStore()
+			store.event.ScopeType = models.ScopeTypeDeviceList
+			store.targetSiteIDs = nil
+			store.targetSiteIDsComplete = false
 			h := NewHandler(curtailment.NewService(store))
 
 			ctx := testSessionCtxWithAssignments(t, &session.Info{

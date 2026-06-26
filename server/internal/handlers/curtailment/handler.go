@@ -472,6 +472,13 @@ func (h *Handler) requireEventPermission(ctx context.Context, permission string,
 	}
 	siteContexts, err := h.eventSiteResourceContexts(ctx, info.OrganizationID, event)
 	if err != nil {
+		if isIncompleteTargetSiteContextError(err) {
+			info, err = middleware.RequireOrgWidePermission(ctx, permission)
+			if err != nil {
+				return nil, nil, err
+			}
+			return info, event, nil
+		}
 		return nil, nil, err
 	}
 	for _, rc := range siteContexts {
@@ -515,6 +522,16 @@ func (h *Handler) filterEventsByPermission(
 	for _, event := range events {
 		siteContexts, err := h.eventSiteResourceContexts(ctx, orgID, event)
 		if err != nil {
+			if isIncompleteTargetSiteContextError(err) {
+				if _, orgWideErr := middleware.RequireOrgWidePermission(ctx, permission); orgWideErr != nil {
+					if fleeterror.IsForbiddenError(orgWideErr) {
+						continue
+					}
+					return nil, orgWideErr
+				}
+				filtered = append(filtered, event)
+				continue
+			}
 			if fleeterror.IsForbiddenError(err) {
 				continue
 			}

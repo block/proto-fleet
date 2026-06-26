@@ -750,6 +750,41 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
+  it("keeps a single selectable site as site scope instead of all sites", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+      siteOptions: [{ id: "101", name: "Toronto" }],
+    });
+
+    await user.click(screen.getByRole("button", { name: /Sites\s+Select/ }));
+    await user.click(screen.getByTestId("response-profile-scope-site-101"));
+    expect(screen.getByText("1 site selected")).toBeInTheDocument();
+    expect(screen.queryByText("All 1 sites selected")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(screen.getByRole("button", { name: /Sites\s+Toronto/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        siteSelection: "site",
+        siteId: "101",
+        siteIds: ["101"],
+        siteNamesById: { "101": "Toronto" },
+        scopeType: "site",
+        scopeId: "Toronto",
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+      }),
+    );
+  });
+
   it("selects multiple site scopes before saving a response profile", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
