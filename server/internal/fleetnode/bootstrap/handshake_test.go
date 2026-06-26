@@ -35,6 +35,7 @@ type fakeAgentGateway struct {
 
 	registered        bool
 	signatureVerified bool
+	encryptionPub     []byte
 }
 
 func (f *fakeAgentGateway) Register(_ context.Context, req *connect.Request[pb.RegisterRequest]) (*connect.Response[pb.RegisterResponse], error) {
@@ -45,6 +46,7 @@ func (f *fakeAgentGateway) Register(_ context.Context, req *connect.Request[pb.R
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid enrollment code"))
 	}
 	f.identityPub = ed25519.PublicKey(req.Msg.GetIdentityPubkey())
+	f.encryptionPub = append([]byte(nil), req.Msg.GetEncryptionPubkey()...)
 	f.registered = true
 	return connect.NewResponse(&pb.RegisterResponse{
 		FleetNodeId:         f.agentID,
