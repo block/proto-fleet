@@ -1653,7 +1653,9 @@ func TestService_SaveRack_locksBuildingBeforeRacks(t *testing.T) {
 	// Unordered scaffolding around the lock sequence.
 	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
 	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
-	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, newBuilding).Return(&newSiteID, nil).Times(2)
+	// Call count left loose: this test pins the lock ordering, not how many
+	// times placement resolution reads building->site.
+	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, newBuilding).Return(&newSiteID, nil).AnyTimes()
 	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), (*string)(nil)).Return(nil)
 	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, gomock.Any(), int32(4), int32(8), gomock.Any(), gomock.Any(), testOrgID).Return(nil)
 	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newSiteID), gomock.Eq(&newBuilding), gomock.Any()).Return(nil)

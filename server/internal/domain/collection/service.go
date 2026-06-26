@@ -1743,10 +1743,12 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 		)
 
 		// The rack-locking pre-pass (LockRacksForReparent) lives INSIDE the
-		// path helpers below, AFTER each resolves and locks the target
-		// site/building. That keeps the canonical site/building -> rack order
-		// (see resolveAndLockRackPlacement and AssignRacksToBuilding) while
-		// still acquiring every source + target rack in one ascending
+		// path helpers below rather than at the top of the tx. On a placement
+		// path it runs AFTER the target site/building lock, preserving the
+		// canonical site/building -> rack order (see resolveAndLockRackPlacement
+		// and AssignRacksToBuilding); on the omitted-placement update path there
+		// is no site/building lock and it is simply the first lock taken. Either
+		// way it acquires every source + target rack in one ascending
 		// device_set.id set ahead of the per-target LockRackPlacementForWrite
 		// and the replaceRackMembershipAndSlots deletes — which is what keeps
 		// the RemoveDevicesFromAnyRack delete from deadlocking against a
@@ -1926,18 +1928,18 @@ type saveRackCreatePathResult struct {
 	finalZone       string
 }
 
-// saveRackCreate runs the SaveRack create branch in-tx: resolve placement,
-// then insert device_set + device_set_rack rows.
 // lockSourceRacksForReparent locks every source rack the members currently
-// sit in, plus the target rack, in one ascending device_set.id FOR UPDATE
-// acquisition. Callers MUST invoke it AFTER the site/building lock (canonical
-// site/building -> rack order) but BEFORE the per-target
-// LockRackPlacementForWrite and the membership deletes — that ordering is
-// what keeps the RemoveDevicesFromAnyRack delete from deadlocking against a
-// concurrent rack save moving devices the opposite way. Pass targetRackID 0
-// on the create path: the rack doesn't exist yet, so it contributes no row
-// and sorts last. No-ops on an empty member set, which touches no source
-// racks.
+// sit in -- and, when targetRackID > 0, the target rack too -- in one
+// ascending device_set.id FOR UPDATE acquisition. It must run BEFORE the
+// per-target LockRackPlacementForWrite and the membership deletes; that
+// ordering is what keeps the RemoveDevicesFromAnyRack delete from deadlocking
+// against a concurrent rack save moving devices the opposite way. On a
+// placement path the caller takes the site/building lock first and calls this
+// after it, preserving the canonical site/building -> rack order; the
+// omitted-placement path takes no site/building lock, so this is simply its
+// first lock. targetRackID 0 (the create path, where the rack doesn't exist
+// yet) contributes no target row. No-ops on an empty member set, which
+// touches no source racks.
 func (s *Service) lockSourceRacksForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) error {
 	if len(deviceIdentifiers) == 0 {
 		return nil
@@ -1946,6 +1948,8 @@ func (s *Service) lockSourceRacksForReparent(ctx context.Context, orgID int64, d
 	return err
 }
 
+// saveRackCreate runs the SaveRack create branch in-tx: resolve placement,
+// then insert device_set + device_set_rack rows.
 func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo, deviceIdentifiers []string) (*saveRackCreatePathResult, error) {
 	newSiteID, newBuildingID, err := s.resolveAndLockRackPlacement(ctx, info.OrganizationID, rackInfo)
 	if err != nil {
@@ -1953,8 +1957,8 @@ func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *p
 	}
 
 	// targetRackID 0: the rack doesn't exist yet, so the pre-pass locks only
-	// the source racks the members currently sit in (after the site/building
-	// lock above, before the membership writes below).
+	// the source racks the members currently sit in. Runs after placement
+	// resolution above and before the membership writes below.
 	if err := s.lockSourceRacksForReparent(ctx, info.OrganizationID, deviceIdentifiers, 0); err != nil {
 		return nil, err
 	}
