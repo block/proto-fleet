@@ -211,13 +211,8 @@ jobs:
         env:
           PLAYWRIGHT_CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
         run: |
-          # On an exact cache hit the browser binaries are already present, so
-          # skip the slow `--with-deps` apt step and just (re)link them.
-          if [ "$PLAYWRIGHT_CACHE_HIT" = "true" ]; then
-            npx playwright install chromium
-          else
-            npx playwright install --with-deps chromium
-          fi
+          # Runners are fresh each job; keep OS deps installation deterministic.
+          npx playwright install --with-deps chromium
 
       - name: Download prebuilt client
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
