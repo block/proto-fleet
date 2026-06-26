@@ -140,7 +140,12 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 	if err != nil {
 		if errors.Is(err, control.ErrArtifactAlreadyTransferred) {
 			if ref, ok := h.registry.CompletedCommandArtifactUpload(subject.FleetNodeID, header.GetCommandId(), expectation); ok && commandArtifactUploadHeaderMatchesRef(header, ref) {
-				uploadCtx, cancel := context.WithTimeout(ctx, CommandArtifactUploadTotalTimeout)
+				commandDone, err := h.registry.AdmitCompletedCommandArtifactUploadRetry(subject.FleetNodeID, header.GetCommandId(), expectation)
+				if err != nil {
+					return nil, mapArtifactAdmissionError(err)
+				}
+				defer h.registry.FinishCompletedCommandArtifactUploadRetry(subject.FleetNodeID, header.GetCommandId(), expectation)
+				uploadCtx, cancel := commandArtifactTransferContext(ctx, commandDone, CommandArtifactUploadTotalTimeout)
 				defer cancel()
 				if err := drainCommandArtifactUploadRetry(uploadCtx, uploadReceiver, ref); err != nil {
 					return nil, err
@@ -250,9 +255,6 @@ func sendCommandArtifactDownloadResponse(ctx context.Context, stream *connect.Se
 	if err := ctx.Err(); err != nil {
 		return contextConnectError(ctx.Err(), "command artifact download deadline exceeded")
 	}
-	// Connect does not expose a cancellable ServerStream.Send. Keep the send
-	// synchronous so a blocked transport keeps holding the per-node download slot
-	// instead of leaking a goroutine after the handler returns.
 	if err := stream.Send(msg); err != nil {
 		return fmt.Errorf("send command artifact download response: %w", err)
 	}

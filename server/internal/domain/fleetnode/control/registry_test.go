@@ -844,6 +844,65 @@ func TestCompletedCommandArtifactUploadReturnsStoredRef(t *testing.T) {
 	require.ErrorIs(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation), ErrArtifactAlreadyTransferred)
 }
 
+func TestCompletedCommandArtifactUploadRetryConsumesAttempts(t *testing.T) {
+	r := NewRegistry()
+	fleetNodeID := int64(12)
+	commandID := "artifact-upload-command"
+	expectation := ArtifactExpectation{
+		Direction:        ArtifactDirectionUpload,
+		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		DeviceIdentifier: "miner-1",
+	}
+	registerInFlightCommandWithArtifacts(t, r, fleetNodeID, commandID, []ArtifactExpectation{expectation})
+	require.NoError(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation))
+	require.True(t, r.CompleteCommandArtifactUpload(fleetNodeID, commandID, expectation, &gatewaypb.CommandArtifactRef{
+		ArtifactId: "artifact-1",
+		Purpose:    expectation.Purpose,
+		Filename:   "logs.zip",
+		SizeBytes:  123,
+		Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+	}))
+
+	for range maxCommandArtifactTransferAttempts - 1 {
+		commandDone, err := r.AdmitCompletedCommandArtifactUploadRetry(fleetNodeID, commandID, expectation)
+		require.NoError(t, err)
+		require.NotNil(t, commandDone)
+		r.FinishCompletedCommandArtifactUploadRetry(fleetNodeID, commandID, expectation)
+	}
+
+	_, err := r.AdmitCompletedCommandArtifactUploadRetry(fleetNodeID, commandID, expectation)
+	require.ErrorIs(t, err, ErrArtifactTransferAttemptsExceeded)
+}
+
+func TestCompletedCommandArtifactUploadRetryRejectsConcurrentRetry(t *testing.T) {
+	r := NewRegistry()
+	fleetNodeID := int64(12)
+	commandID := "artifact-upload-command"
+	expectation := ArtifactExpectation{
+		Direction:        ArtifactDirectionUpload,
+		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		DeviceIdentifier: "miner-1",
+	}
+	registerInFlightCommandWithArtifacts(t, r, fleetNodeID, commandID, []ArtifactExpectation{expectation})
+	require.NoError(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation))
+	require.True(t, r.CompleteCommandArtifactUpload(fleetNodeID, commandID, expectation, &gatewaypb.CommandArtifactRef{
+		ArtifactId: "artifact-1",
+		Purpose:    expectation.Purpose,
+		Filename:   "logs.zip",
+		SizeBytes:  123,
+		Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+	}))
+
+	_, err := r.AdmitCompletedCommandArtifactUploadRetry(fleetNodeID, commandID, expectation)
+	require.NoError(t, err)
+	_, err = r.AdmitCompletedCommandArtifactUploadRetry(fleetNodeID, commandID, expectation)
+	require.ErrorIs(t, err, ErrArtifactAlreadyTransferred)
+
+	r.FinishCompletedCommandArtifactUploadRetry(fleetNodeID, commandID, expectation)
+	_, err = r.AdmitCompletedCommandArtifactUploadRetry(fleetNodeID, commandID, expectation)
+	require.NoError(t, err)
+}
+
 func TestCompleteCommandArtifactUploadReportsMissingCommand(t *testing.T) {
 	r := NewRegistry()
 	fleetNodeID := int64(12)

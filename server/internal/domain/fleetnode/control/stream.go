@@ -225,6 +225,54 @@ func (r *Registry) CompletedCommandArtifactUpload(fleetNodeID int64, commandID s
 	return cloneCommandArtifactRef(exp.uploadRef), true
 }
 
+// AdmitCompletedCommandArtifactUploadRetry reserves a retry for an upload that
+// already completed while its command is still in flight. The retry is charged
+// against the same attempt cap as fresh uploads and returns the command's done
+// signal so the gateway can abort replay drain work if the command disappears.
+func (r *Registry) AdmitCompletedCommandArtifactUploadRetry(fleetNodeID int64, commandID string, want ArtifactExpectation) (<-chan struct{}, error) {
+	if want.Direction != ArtifactDirectionUpload {
+		return nil, ErrArtifactNotExpected
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cmd := r.inflightFor(fleetNodeID, commandID)
+	if cmd == nil {
+		return nil, errNoInFlightCommand
+	}
+	exp := cmd.artifactExpectationFor(want)
+	if exp == nil || !exp.completed || exp.uploadRef == nil {
+		return nil, ErrArtifactAlreadyTransferred
+	}
+	if exp.inProgress {
+		return nil, ErrArtifactAlreadyTransferred
+	}
+	if exp.attempts >= maxCommandArtifactTransferAttempts {
+		return nil, ErrArtifactTransferAttemptsExceeded
+	}
+	exp.attempts++
+	exp.inProgress = true
+	return cmd.done, nil
+}
+
+// FinishCompletedCommandArtifactUploadRetry releases the in-progress marker for
+// a completed-upload retry. No-op if the command disappeared.
+func (r *Registry) FinishCompletedCommandArtifactUploadRetry(fleetNodeID int64, commandID string, want ArtifactExpectation) {
+	if want.Direction != ArtifactDirectionUpload {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cmd := r.inflightFor(fleetNodeID, commandID)
+	if cmd == nil {
+		return
+	}
+	exp := cmd.artifactExpectationFor(want)
+	if exp == nil || !exp.completed {
+		return
+	}
+	exp.inProgress = false
+}
+
 func cloneCommandArtifactRef(ref *gatewaypb.CommandArtifactRef) *gatewaypb.CommandArtifactRef {
 	if ref == nil {
 		return nil

@@ -689,7 +689,7 @@ func start(config *Config) error {
 		handler = m.Wrap(handler)
 	}
 
-	handler = h2c.NewHandler(handler, &http2.Server{})
+	handler = h2c.NewHandler(handler, newHTTP2Server(config.HTTP))
 	httpServer := http.Server{
 		Addr:              config.HTTP.Address,
 		Handler:           handler,
@@ -700,4 +700,10 @@ func start(config *Config) error {
 		return fmt.Errorf("server shutting down: %+v", err)
 	}
 	return nil
+}
+
+func newHTTP2Server(config HTTPConfig) *http2.Server {
+	return &http2.Server{
+		WriteByteTimeout: config.WriteByteTimeout,
+	}
 }
