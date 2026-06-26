@@ -83,8 +83,15 @@ const Dashboard = () => {
 
   // Active site comes from the route path (`/`, `/:site`, `/unassigned`),
   // validated against knownSiteIds. All-sites yields an empty filter, so
-  // `/dashboard` stays org-wide.
-  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
+  // `/dashboard` stays org-wide. On a ListSites error we keep the set
+  // *unknown* (not an empty loaded set) — mirroring the picker — so a
+  // transient failure on `/:site/dashboard` doesn't make useActiveSite treat
+  // the route site as stale and silently fall back to all-sites.
+  const knownSiteIds = useMemo(() => {
+    if (sites === undefined) return undefined;
+    if (sites.length === 0 && sitesError != null) return undefined;
+    return buildKnownSiteIds(sites);
+  }, [sites, sitesError]);
   const { activeSite } = useActiveSite({ knownSiteIds });
   const siteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
   const routeScope = useRouteSiteScope();
@@ -195,7 +202,7 @@ const Dashboard = () => {
           </section>
 
           {/* Sites Section — All Sites mode only */}
-          {activeSite.kind === "site" ? null : <SitesSection sites={sites} />}
+          {activeSite.kind === "all" ? <SitesSection sites={sites} /> : null}
 
           {/* Performance Section */}
           <section className="pb-6">
