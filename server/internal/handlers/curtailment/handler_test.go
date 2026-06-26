@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
@@ -735,6 +736,70 @@ func TestHandler_PreviewAndStartRequireCompositeSiteContexts(t *testing.T) {
 	}{
 		{"preview", previewForCompositeSites},
 		{"start", startForCompositeSites},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			},
+				testOrgAssignment(authz.PermCurtailmentManage),
+				testSiteAssignment(allowedSite, authz.PermCurtailmentManage),
+				testSiteAssignment(deniedSite),
+			)
+
+			err := tc.call(ctx)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+		})
+	}
+}
+
+func TestHandler_PreviewAndStartRequireExplicitDeviceSiteContexts(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+		deniedSite  = int64(8)
+	)
+	store := newHandlerResponseProfileStore()
+	store.deviceSites = map[string]*int64{"hidden-miner": ptrHandlerInt64(deniedSite)}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	mixedScope := []*pb.CurtailmentScope{
+		{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: allowedSite}}},
+		{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+			DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"hidden-miner"}},
+		}},
+	}
+
+	previewForMixedScope := func(ctx context.Context) error {
+		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
+			Scopes: mixedScope,
+			Mode:   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 50},
+			},
+		}))
+		return err
+	}
+	startForMixedScope := func(ctx context.Context) error {
+		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.Scopes = mixedScope
+		_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+		return err
+	}
+
+	for _, tc := range []struct {
+		name string
+		call func(context.Context) error
+	}{
+		{"preview", previewForMixedScope},
+		{"start", startForMixedScope},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

@@ -72,11 +72,15 @@ func NewHandlerWithAutomation(
 }
 
 func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
-	siteContexts, err := previewResourceContexts(req.Msg)
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	info, err := requireOrgPermissionWithOptionalSiteContexts(ctx, authz.PermCurtailmentManage, siteContexts)
+	requirements, err := h.previewResourceContextRequirements(ctx, info.OrganizationID, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	info, err = requireScopeResourceContextPermissions(ctx, authz.PermCurtailmentManage, requirements, info)
 	if err != nil {
 		return nil, err
 	}
@@ -107,11 +111,15 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 }
 
 func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.StartCurtailmentRequest]) (*connect.Response[pb.StartCurtailmentResponse], error) {
-	siteContexts, err := startResourceContexts(req.Msg)
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	info, err := requireOrgPermissionWithOptionalSiteContexts(ctx, authz.PermCurtailmentManage, siteContexts)
+	requirements, err := h.startResourceContextRequirements(ctx, info.OrganizationID, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	info, err = requireScopeResourceContextPermissions(ctx, authz.PermCurtailmentManage, requirements, info)
 	if err != nil {
 		return nil, err
 	}
@@ -380,34 +388,106 @@ func errCurtailmentNotImplemented(rpc string) error {
 	return fleeterror.NewUnimplementedErrorf("curtailment.%s is not implemented yet", rpc)
 }
 
-func previewResourceContexts(msg *pb.PreviewCurtailmentPlanRequest) ([]authz.ResourceContext, error) {
-	if scopes := msg.GetScopes(); len(scopes) > 0 {
-		return scopeResourceContexts(scopes)
-	}
-	if s, ok := msg.GetScope().(*pb.PreviewCurtailmentPlanRequest_Site); ok {
-		siteID := s.Site.GetSiteId()
-		return []authz.ResourceContext{{SiteID: &siteID}}, nil
-	}
-	return nil, nil
+type scopeResourceContextRequirements struct {
+	siteContexts   []authz.ResourceContext
+	requireOrgWide bool
 }
 
-func startResourceContexts(msg *pb.StartCurtailmentRequest) ([]authz.ResourceContext, error) {
+func (h *Handler) previewResourceContextRequirements(
+	ctx context.Context,
+	orgID int64,
+	msg *pb.PreviewCurtailmentPlanRequest,
+) (scopeResourceContextRequirements, error) {
 	if scopes := msg.GetScopes(); len(scopes) > 0 {
-		return scopeResourceContexts(scopes)
+		return h.scopeResourceContextRequirementsFromProto(ctx, orgID, scopes, nil, false)
 	}
-	if s, ok := msg.GetScope().(*pb.StartCurtailmentRequest_Site); ok {
+	switch s := msg.GetScope().(type) {
+	case *pb.PreviewCurtailmentPlanRequest_Site:
 		siteID := s.Site.GetSiteId()
-		return []authz.ResourceContext{{SiteID: &siteID}}, nil
+		return scopeResourceContextRequirements{siteContexts: []authz.ResourceContext{{SiteID: &siteID}}}, nil
+	case *pb.PreviewCurtailmentPlanRequest_DeviceIdentifiers:
+		scope := curtailment.Scope{DeviceIdentifiers: s.DeviceIdentifiers.GetDeviceIdentifiers()}
+		return h.scopeResourceContextRequirements(ctx, orgID, scope, nil, false)
 	}
-	return nil, nil
+	return scopeResourceContextRequirements{}, nil
 }
 
-func scopeResourceContexts(scopes []*pb.CurtailmentScope) ([]authz.ResourceContext, error) {
+func (h *Handler) startResourceContextRequirements(
+	ctx context.Context,
+	orgID int64,
+	msg *pb.StartCurtailmentRequest,
+) (scopeResourceContextRequirements, error) {
+	if scopes := msg.GetScopes(); len(scopes) > 0 {
+		return h.scopeResourceContextRequirementsFromProto(ctx, orgID, scopes, nil, false)
+	}
+	switch s := msg.GetScope().(type) {
+	case *pb.StartCurtailmentRequest_Site:
+		siteID := s.Site.GetSiteId()
+		return scopeResourceContextRequirements{siteContexts: []authz.ResourceContext{{SiteID: &siteID}}}, nil
+	case *pb.StartCurtailmentRequest_DeviceIdentifiers:
+		scope := curtailment.Scope{DeviceIdentifiers: s.DeviceIdentifiers.GetDeviceIdentifiers()}
+		return h.scopeResourceContextRequirements(ctx, orgID, scope, nil, false)
+	}
+	return scopeResourceContextRequirements{}, nil
+}
+
+func (h *Handler) scopeResourceContextRequirementsFromProto(
+	ctx context.Context,
+	orgID int64,
+	scopes []*pb.CurtailmentScope,
+	deviceSites map[string]*int64,
+	requireKnownDevices bool,
+) (scopeResourceContextRequirements, error) {
 	scope, err := toCompositeScope(scopes)
 	if err != nil {
-		return nil, err
+		return scopeResourceContextRequirements{}, err
 	}
-	return siteResourceContextsForScope(scope), nil
+	return h.scopeResourceContextRequirements(ctx, orgID, scope, deviceSites, requireKnownDevices)
+}
+
+func (h *Handler) scopeResourceContextRequirements(
+	ctx context.Context,
+	orgID int64,
+	scope curtailment.Scope,
+	deviceSites map[string]*int64,
+	requireKnownDevices bool,
+) (scopeResourceContextRequirements, error) {
+	out := scopeResourceContextRequirements{
+		siteContexts: siteResourceContextsForScope(scope),
+	}
+	deviceIdentifiers := uniqueResponseProfileDeviceIdentifiers(scope.DeviceIdentifiers)
+	if len(deviceIdentifiers) == 0 {
+		return out, nil
+	}
+	if deviceSites == nil {
+		if h.responseProfiles == nil {
+			out.requireOrgWide = true
+			return out, nil
+		}
+		var err error
+		deviceSites, err = h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
+		if err != nil {
+			return scopeResourceContextRequirements{}, err
+		}
+	}
+	siteIDs := siteIDsFromResourceContexts(out.siteContexts)
+	for _, deviceIdentifier := range deviceIdentifiers {
+		siteID, ok := deviceSites[deviceIdentifier]
+		if !ok {
+			if requireKnownDevices {
+				return scopeResourceContextRequirements{}, fleeterror.NewNotFoundError("one or more device identifiers were not found")
+			}
+			out.requireOrgWide = true
+			continue
+		}
+		if siteID == nil {
+			out.requireOrgWide = true
+			continue
+		}
+		siteIDs = append(siteIDs, *siteID)
+	}
+	out.siteContexts = siteResourceContextsForScope(curtailment.Scope{SiteIDs: siteIDs})
+	return out, nil
 }
 
 func siteResourceContextsForScope(scope curtailment.Scope) []authz.ResourceContext {
@@ -449,6 +529,37 @@ func requireOrgPermissionWithOptionalSiteContexts(ctx context.Context, permissio
 		info = checkedInfo
 	}
 	return info, nil
+}
+
+func requireScopeResourceContextPermissions(
+	ctx context.Context,
+	permission string,
+	requirements scopeResourceContextRequirements,
+	info *session.Info,
+) (*session.Info, error) {
+	if requirements.requireOrgWide {
+		checkedInfo, err := middleware.RequireOrgWidePermission(ctx, permission)
+		if err != nil {
+			return nil, err
+		}
+		info = checkedInfo
+	}
+	for _, rc := range requirements.siteContexts {
+		if rc.SiteID == nil {
+			continue
+		}
+		checkedInfo, err := middleware.RequirePermission(ctx, permission, rc)
+		if err != nil {
+			return nil, err
+		}
+		info = checkedInfo
+	}
+	return info, nil
+}
+
+func requireResourceContextPermissions(ctx context.Context, permission string, requirements scopeResourceContextRequirements) error {
+	_, err := requireScopeResourceContextPermissions(ctx, permission, requirements, nil)
+	return err
 }
 
 func parseEventUUID(raw string) (uuid.UUID, error) {

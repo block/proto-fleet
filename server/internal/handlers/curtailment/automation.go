@@ -10,7 +10,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
-	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -32,33 +31,23 @@ func (h *Handler) ListCurtailmentAutomationRules(ctx context.Context, _ *connect
 		return nil, err
 	}
 	siteAllowed := make(map[int64]bool)
+	orgWideAllowed := false
+	orgWideChecked := false
 	for _, rule := range rules {
-		siteContexts, err := h.automationRuleProfileSiteResourceContexts(ctx, info.OrganizationID, rule, deviceSites)
+		requirements, err := h.automationRuleProfileResourceContextRequirements(ctx, info.OrganizationID, rule, deviceSites)
 		if err != nil {
 			return nil, err
 		}
-		allowed := true
-		for _, siteContext := range siteContexts {
-			if siteContext.SiteID == nil {
-				continue
-			}
-			siteAllowedValue, ok := siteAllowed[*siteContext.SiteID]
-			if !ok {
-				if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, siteContext); err != nil {
-					if fleeterror.IsForbiddenError(err) {
-						siteAllowed[*siteContext.SiteID] = false
-						allowed = false
-						break
-					}
-					return nil, err
-				}
-				siteAllowedValue = true
-				siteAllowed[*siteContext.SiteID] = true
-			}
-			if !siteAllowedValue {
-				allowed = false
-				break
-			}
+		allowed, err := resourceContextRequirementsAllowed(
+			ctx,
+			authz.PermCurtailmentManage,
+			requirements,
+			siteAllowed,
+			&orgWideAllowed,
+			&orgWideChecked,
+		)
+		if err != nil {
+			return nil, err
 		}
 		if !allowed {
 			continue
@@ -189,11 +178,11 @@ func (h *Handler) requireAutomationRuleProfilePermission(ctx context.Context, ru
 	if rule == nil {
 		return nil
 	}
-	siteContexts, err := h.automationRuleProfileSiteResourceContexts(ctx, rule.OrgID, rule, nil)
+	requirements, err := h.automationRuleProfileResourceContextRequirements(ctx, rule.OrgID, rule, nil)
 	if err != nil {
 		return err
 	}
-	return requireSiteContextPermissions(ctx, authz.PermCurtailmentManage, siteContexts)
+	return requireResourceContextPermissions(ctx, authz.PermCurtailmentManage, requirements)
 }
 
 func (h *Handler) responseProfileDeviceSitesForAutomationRules(
@@ -219,19 +208,22 @@ func (h *Handler) responseProfileDeviceSitesForAutomationRules(
 	if len(deviceIdentifiers) == 0 {
 		return map[string]*int64{}, nil
 	}
+	if h.responseProfiles == nil {
+		return nil, nil
+	}
 	return h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
 }
 
-func (h *Handler) automationRuleProfileSiteResourceContexts(
+func (h *Handler) automationRuleProfileResourceContextRequirements(
 	ctx context.Context,
 	orgID int64,
 	rule *models.AutomationRule,
 	deviceSites map[string]*int64,
-) ([]authz.ResourceContext, error) {
+) (scopeResourceContextRequirements, error) {
 	if rule == nil {
-		return nil, nil
+		return scopeResourceContextRequirements{}, nil
 	}
-	return h.responseProfileSiteResourceContexts(ctx, orgID, &models.ResponseProfile{
+	return h.responseProfileResourceContextRequirements(ctx, orgID, &models.ResponseProfile{
 		SiteID:    rule.ResponseProfileSiteID,
 		ScopeJSON: rule.ResponseProfileScopeJSON,
 	}, deviceSites, false)

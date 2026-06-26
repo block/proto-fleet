@@ -433,6 +433,32 @@ describe("useCurtailmentResponseProfiles", () => {
     });
   });
 
+  it("maps explicit whole-org API scopes as all-miner form state", async () => {
+    const wholeOrgScope = create(CurtailmentScopeSchema, {
+      scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) },
+    });
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
+      profiles: [apiProfile({ site: undefined, scopes: [wholeOrgScope] })],
+    });
+
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles[0]).toMatchObject({
+      scope: "Whole fleet",
+      formValues: expect.objectContaining({
+        minerSelectionMode: "all",
+        siteSelection: "allSites",
+        siteId: "",
+        siteIds: [],
+        deviceIdentifiers: [],
+      }),
+    });
+  });
+
   it("maps full-fleet API mode to the whole-fleet card scope", async () => {
     mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
       profiles: [

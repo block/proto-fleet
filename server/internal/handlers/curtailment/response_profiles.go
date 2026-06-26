@@ -33,33 +33,23 @@ func (h *Handler) ListCurtailmentResponseProfiles(ctx context.Context, _ *connec
 		return nil, err
 	}
 	siteAllowed := make(map[int64]bool)
+	orgWideAllowed := false
+	orgWideChecked := false
 	for _, profile := range profiles {
-		siteContexts, err := h.responseProfileSiteResourceContexts(ctx, info.OrganizationID, profile, deviceSites, false)
+		requirements, err := h.responseProfileResourceContextRequirements(ctx, info.OrganizationID, profile, deviceSites, false)
 		if err != nil {
 			return nil, err
 		}
-		allowed := true
-		for _, siteContext := range siteContexts {
-			if siteContext.SiteID == nil {
-				continue
-			}
-			siteAllowedValue, ok := siteAllowed[*siteContext.SiteID]
-			if !ok {
-				if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, siteContext); err != nil {
-					if fleeterror.IsForbiddenError(err) {
-						siteAllowed[*siteContext.SiteID] = false
-						allowed = false
-						break
-					}
-					return nil, err
-				}
-				siteAllowedValue = true
-				siteAllowed[*siteContext.SiteID] = true
-			}
-			if !siteAllowedValue {
-				allowed = false
-				break
-			}
+		allowed, err := resourceContextRequirementsAllowed(
+			ctx,
+			authz.PermCurtailmentManage,
+			requirements,
+			siteAllowed,
+			&orgWideAllowed,
+			&orgWideChecked,
+		)
+		if err != nil {
+			return nil, err
 		}
 		if !allowed {
 			continue
@@ -92,11 +82,11 @@ func (h *Handler) CreateCurtailmentResponseProfile(ctx context.Context, req *con
 	if h.responseProfiles == nil {
 		return nil, errCurtailmentNotImplemented("CreateCurtailmentResponseProfile")
 	}
-	siteContexts, err := h.responseProfileResourceContexts(ctx, info.OrganizationID, req.Msg.GetScopes(), req.Msg.GetSite(), true)
+	requirements, err := h.responseProfileResourceContexts(ctx, info.OrganizationID, req.Msg.GetScopes(), req.Msg.GetSite(), true)
 	if err != nil {
 		return nil, err
 	}
-	if err := requireSiteContextPermissions(ctx, authz.PermCurtailmentManage, siteContexts); err != nil {
+	if err := requireResourceContextPermissions(ctx, authz.PermCurtailmentManage, requirements); err != nil {
 		return nil, err
 	}
 	profile, err := responseProfileFromCreateRequest(info.OrganizationID, req.Msg)
@@ -128,6 +118,10 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 	profile, err := responseProfileFromUpdateRequest(info.OrganizationID, req.Msg)
 	if err != nil {
 		return nil, err
+	}
+	if responseProfileUpdateOmitsScope(req.Msg) {
+		profile.SiteID = cloneInt64Ptr(existing.SiteID)
+		profile.ScopeJSON = cloneBytes(existing.ScopeJSON)
 	}
 	if err := h.requireResponseProfileSitePermission(ctx, info.OrganizationID, authz.PermCurtailmentManage, &profile, true); err != nil {
 		return nil, err
@@ -179,19 +173,15 @@ func (h *Handler) responseProfileResourceContexts(
 	scopes []*pb.CurtailmentScope,
 	site *pb.ScopeSite,
 	requireKnownDevices bool,
-) ([]authz.ResourceContext, error) {
+) (scopeResourceContextRequirements, error) {
 	if len(scopes) > 0 {
-		scope, err := toCompositeScope(scopes)
-		if err != nil {
-			return nil, err
-		}
-		return h.responseProfileScopeResourceContexts(ctx, orgID, scope, nil, requireKnownDevices)
+		return h.scopeResourceContextRequirementsFromProto(ctx, orgID, scopes, nil, requireKnownDevices)
 	}
 	if site == nil {
-		return nil, nil
+		return scopeResourceContextRequirements{}, nil
 	}
 	siteID := site.GetSiteId()
-	return []authz.ResourceContext{{SiteID: &siteID}}, nil
+	return scopeResourceContextRequirements{siteContexts: []authz.ResourceContext{{SiteID: &siteID}}}, nil
 }
 
 func (h *Handler) requireResponseProfileSitePermission(
@@ -201,23 +191,11 @@ func (h *Handler) requireResponseProfileSitePermission(
 	profile *models.ResponseProfile,
 	requireKnownDevices bool,
 ) error {
-	siteContexts, err := h.responseProfileSiteResourceContexts(ctx, orgID, profile, nil, requireKnownDevices)
+	requirements, err := h.responseProfileResourceContextRequirements(ctx, orgID, profile, nil, requireKnownDevices)
 	if err != nil {
 		return err
 	}
-	return requireSiteContextPermissions(ctx, permission, siteContexts)
-}
-
-func requireSiteContextPermissions(ctx context.Context, permission string, siteContexts []authz.ResourceContext) error {
-	for _, siteContext := range siteContexts {
-		if siteContext.SiteID == nil {
-			continue
-		}
-		if _, err := middleware.RequirePermission(ctx, permission, siteContext); err != nil {
-			return err
-		}
-	}
-	return nil
+	return requireResourceContextPermissions(ctx, permission, requirements)
 }
 
 func (h *Handler) responseProfileDeviceSitesForProfiles(
@@ -240,58 +218,75 @@ func (h *Handler) responseProfileDeviceSitesForProfiles(
 	if len(deviceIdentifiers) == 0 {
 		return map[string]*int64{}, nil
 	}
+	if h.responseProfiles == nil {
+		return nil, nil
+	}
 	return h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
 }
 
-func (h *Handler) responseProfileSiteResourceContexts(
+func (h *Handler) responseProfileResourceContextRequirements(
 	ctx context.Context,
 	orgID int64,
 	profile *models.ResponseProfile,
 	deviceSites map[string]*int64,
 	requireKnownDevices bool,
-) ([]authz.ResourceContext, error) {
+) (scopeResourceContextRequirements, error) {
 	if profile == nil {
-		return nil, nil
+		return scopeResourceContextRequirements{}, nil
 	}
 	scope, err := domainCurtailment.ResponseProfileScope(*profile)
 	if err != nil {
-		return nil, err
+		return scopeResourceContextRequirements{}, err
 	}
-	return h.responseProfileScopeResourceContexts(ctx, orgID, scope, deviceSites, requireKnownDevices)
+	return h.scopeResourceContextRequirements(ctx, orgID, scope, deviceSites, requireKnownDevices)
 }
 
-func (h *Handler) responseProfileScopeResourceContexts(
+func resourceContextRequirementsAllowed(
 	ctx context.Context,
-	orgID int64,
-	scope domainCurtailment.Scope,
-	deviceSites map[string]*int64,
-	requireKnownDevices bool,
-) ([]authz.ResourceContext, error) {
-	siteIDs := siteIDsFromResourceContexts(siteResourceContextsForScope(scope))
-	deviceIdentifiers := uniqueResponseProfileDeviceIdentifiers(scope.DeviceIdentifiers)
-	if len(deviceIdentifiers) == 0 {
-		return siteResourceContextsForScope(domainCurtailment.Scope{SiteIDs: siteIDs}), nil
-	}
-	if deviceSites == nil {
-		var err error
-		deviceSites, err = h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
-		if err != nil {
-			return nil, err
+	permission string,
+	requirements scopeResourceContextRequirements,
+	siteAllowed map[int64]bool,
+	orgWideAllowed *bool,
+	orgWideChecked *bool,
+) (bool, error) {
+	if requirements.requireOrgWide {
+		if !*orgWideChecked {
+			*orgWideChecked = true
+			if _, err := middleware.RequireOrgWidePermission(ctx, permission); err != nil {
+				if fleeterror.IsForbiddenError(err) {
+					*orgWideAllowed = false
+				} else {
+					return false, err
+				}
+			} else {
+				*orgWideAllowed = true
+			}
+		}
+		if !*orgWideAllowed {
+			return false, nil
 		}
 	}
-	for _, deviceIdentifier := range deviceIdentifiers {
-		siteID, ok := deviceSites[deviceIdentifier]
-		if !ok {
-			if requireKnownDevices {
-				return nil, fleeterror.NewNotFoundError("one or more device identifiers were not found")
-			}
+	for _, siteContext := range requirements.siteContexts {
+		if siteContext.SiteID == nil {
 			continue
 		}
-		if siteID != nil {
-			siteIDs = append(siteIDs, *siteID)
+		siteAllowedValue, ok := siteAllowed[*siteContext.SiteID]
+		if !ok {
+			if _, err := middleware.RequirePermission(ctx, permission, siteContext); err != nil {
+				if fleeterror.IsForbiddenError(err) {
+					siteAllowed[*siteContext.SiteID] = false
+					return false, nil
+				}
+				return false, err
+			}
+			siteAllowedValue = true
+			siteAllowed[*siteContext.SiteID] = true
+		}
+		if !siteAllowedValue {
+			return false, nil
 		}
 	}
-	return siteResourceContextsForScope(domainCurtailment.Scope{SiteIDs: siteIDs}), nil
+	return true, nil
 }
 
 func siteIDsFromResourceContexts(contexts []authz.ResourceContext) []int64 {
@@ -336,6 +331,10 @@ func cloneBytes(v []byte) []byte {
 		return nil
 	}
 	return append([]byte(nil), v...)
+}
+
+func responseProfileUpdateOmitsScope(msg *pb.UpdateCurtailmentResponseProfileRequest) bool {
+	return msg.GetSite() == nil && len(msg.GetScopes()) == 0
 }
 
 func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResponseProfileRequest) (models.ResponseProfile, error) {

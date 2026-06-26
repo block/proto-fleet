@@ -123,13 +123,14 @@ func TestHandler_ListCurtailmentResponseProfilesFiltersSiteNarrowing(t *testing.
 	shadowedSiteID := int64(7)
 	fallbackSiteID := int64(8)
 	store := newHandlerResponseProfileStore()
-	store.deviceSites = map[string]*int64{"hidden-miner": &shadowedSiteID}
+	store.deviceSites = map[string]*int64{"hidden-miner": &shadowedSiteID, "unassigned-miner": nil}
 	store.profiles = []*models.ResponseProfile{
 		{ID: 201, OrgID: 42, ProfileName: "Whole org", Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 		{ID: 202, OrgID: 42, ProfileName: "Hidden site", SiteID: &shadowedSiteID, Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 		{ID: 203, OrgID: 42, ProfileName: "Visible site", SiteID: &fallbackSiteID, Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 		{ID: 204, OrgID: 42, ProfileName: "Hidden multi-site", ScopeJSON: []byte(`{"site_ids":[7,8]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 		{ID: 205, OrgID: 42, ProfileName: "Hidden device", ScopeJSON: []byte(`{"device_identifiers":["hidden-miner"]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
+		{ID: 206, OrgID: 42, ProfileName: "Unassigned device", ScopeJSON: []byte(`{"device_identifiers":["unassigned-miner"]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
 	}
 	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
@@ -178,6 +179,45 @@ func TestHandler_CreateCurtailmentResponseProfileChecksExplicitDeviceSites(t *te
 				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: allowedSite}}},
 				{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
 					DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"hidden-miner"}},
+				}},
+			},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
+			},
+		}),
+	)
+
+	require.Error(t, err)
+	assert.Nil(t, store.created)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestHandler_CreateCurtailmentResponseProfileRequiresOrgWideForUnassignedDevices(t *testing.T) {
+	t.Parallel()
+
+	const narrowedSite = int64(7)
+	store := newHandlerResponseProfileStore()
+	store.deviceSites = map[string]*int64{"unassigned-miner": nil}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.CreateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-create-unassigned-device",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(narrowedSite),
+		),
+		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+			ProfileName: "Unassigned miner shed",
+			Scopes: []*pb.CurtailmentScope{
+				{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+					DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"unassigned-miner"}},
 				}},
 			},
 			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
@@ -377,6 +417,48 @@ func TestHandler_UpdateCurtailmentResponseProfileGuardsStoredCompositeScope(t *t
 
 	require.NoError(t, err)
 	require.NotNil(t, store.updated)
+	assert.Nil(t, store.updateExpectedSiteID)
+	assert.JSONEq(t, `{"site_ids":[7,8]}`, string(store.updateExpectedScopeJSON))
+}
+
+func TestHandler_UpdateCurtailmentResponseProfilePreservesOmittedScope(t *testing.T) {
+	t.Parallel()
+
+	const (
+		siteA = int64(7)
+		siteB = int64(8)
+	)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Old composite", ScopeJSON: []byte(`{"site_ids":[7,8]}`), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
+	}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.UpdateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-update-omitted-scope",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(siteA, authz.PermCurtailmentManage),
+			testSiteAssignment(siteB, authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ProfileId:   201,
+			ProfileName: "Updated composite",
+			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 3000},
+			},
+		}),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, store.updated)
+	assert.Nil(t, store.updated.SiteID)
+	assert.JSONEq(t, `{"site_ids":[7,8],"device_identifiers":null}`, string(store.updated.ScopeJSON))
 	assert.Nil(t, store.updateExpectedSiteID)
 	assert.JSONEq(t, `{"site_ids":[7,8]}`, string(store.updateExpectedScopeJSON))
 }

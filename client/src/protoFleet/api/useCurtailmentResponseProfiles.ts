@@ -172,6 +172,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     actionType,
     targetKw,
     deviceIdentifiers: scopeValues.deviceIdentifiers,
+    minerSelectionMode: scopeValues.minerSelectionMode,
     siteSelection: scopeValues.siteSelection,
     siteId,
     siteName,
@@ -199,6 +200,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
         siteIds,
         siteNamesById,
         deviceIdentifiers: scopeValues.deviceIdentifiers,
+        minerSelectionMode: scopeValues.minerSelectionMode,
       }
     : formValues;
   const scope = getResponseProfileScopeSummary(mergedFormValues, profile.mode);
@@ -221,7 +223,7 @@ function getApiResponseProfileScopeValues(
   siteNameById?: SiteNameById,
 ): Pick<
   ResponseProfileFormValues,
-  "siteSelection" | "siteId" | "siteName" | "siteIds" | "siteNamesById" | "deviceIdentifiers"
+  "siteSelection" | "siteId" | "siteName" | "siteIds" | "siteNamesById" | "deviceIdentifiers" | "minerSelectionMode"
 > {
   let siteSelection: ResponseProfileFormValues["siteSelection"] = "none";
   const siteIds: string[] = [];
@@ -237,6 +239,7 @@ function getApiResponseProfileScopeValues(
           siteIds: [],
           siteNamesById: {},
           deviceIdentifiers: [],
+          minerSelectionMode: "all",
         };
       case "site":
         siteSelection = "site";
@@ -278,6 +281,7 @@ function getApiResponseProfileScopeValues(
     siteIds: uniqueSiteIds,
     siteNamesById,
     deviceIdentifiers: [...new Set(deviceIdentifiers)],
+    minerSelectionMode: "subset",
   };
 }
 
