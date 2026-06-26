@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,9 +96,20 @@ func writeHeartbeat(t *testing.T, db *sql.DB, orgID int64, age time.Duration) {
 		VALUES ($1, 'fleet_telemetry_poll_total', $2, 1)`,
 		time.Now().Add(-age), fmt.Sprintf("%d", orgID))
 	require.NoError(t, err)
+
 	// NULL bounds refresh the whole eligible range; CALL must not run in a tx.
-	_, err = db.ExecContext(ctx,
-		`CALL refresh_continuous_aggregate('fleet_telemetry_poll_heartbeat', NULL, NULL)`)
+	// The cagg has a 30s background refresh policy (migration 000082); this
+	// manual refresh can collide with the scheduled one and fail with SQLSTATE
+	// 55P03 ("concurrent refresh"). That conflict is transient, so retry it.
+	const maxAttempts = 10
+	for attempt := 1; ; attempt++ {
+		_, err = db.ExecContext(ctx,
+			`CALL refresh_continuous_aggregate('fleet_telemetry_poll_heartbeat', NULL, NULL)`)
+		if err == nil || attempt == maxAttempts || !strings.Contains(err.Error(), "55P03") {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	require.NoError(t, err)
 }
 
