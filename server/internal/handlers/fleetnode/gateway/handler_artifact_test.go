@@ -110,6 +110,9 @@ func TestCommandArtifactUploadAndDownloadRequireInFlightExpectation(t *testing.T
 			DeviceIdentifier: "miner-a",
 		},
 	}}))
+	require.NoError(t, completedRetry.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Chunk{
+		Chunk: &pb.CommandArtifactChunk{Data: payload},
+	}}))
 	completedRetryResp, err := completedRetry.CloseAndReceive()
 	require.NoError(t, err)
 	assert.Equal(t, artifact.GetArtifactId(), completedRetryResp.Msg.GetArtifact().GetArtifactId())

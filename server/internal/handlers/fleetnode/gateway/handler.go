@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -138,6 +140,11 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 	if err := h.registry.AdmitCommandArtifact(subject.FleetNodeID, header.GetCommandId(), expectation); err != nil {
 		if errors.Is(err, control.ErrArtifactAlreadyTransferred) {
 			if ref, ok := h.registry.CompletedCommandArtifactUpload(subject.FleetNodeID, header.GetCommandId(), expectation); ok && commandArtifactUploadHeaderMatchesRef(header, ref) {
+				uploadCtx, cancel := context.WithTimeout(ctx, CommandArtifactUploadTotalTimeout)
+				defer cancel()
+				if err := drainCommandArtifactUploadRetry(uploadCtx, uploadReceiver, ref); err != nil {
+					return nil, err
+				}
 				return connect.NewResponse(&pb.UploadCommandArtifactResponse{Artifact: ref}), nil
 			}
 		}
@@ -269,6 +276,35 @@ func commandArtifactUploadHeaderMatchesRef(header *pb.CommandArtifactUploadHeade
 	return header.GetPurpose() == ref.GetPurpose() &&
 		header.GetSizeBytes() == ref.GetSizeBytes() &&
 		header.GetSha256() == ref.GetSha256()
+}
+
+func drainCommandArtifactUploadRetry(ctx context.Context, uploadReceiver *commandArtifactUploadReceiver, ref *pb.CommandArtifactRef) error {
+	hasher := sha256.New()
+	reader := &commandArtifactUploadReader{receive: func() (*pb.UploadCommandArtifactRequest, error) {
+		return uploadReceiver.Receive(ctx, CommandArtifactUploadChunkTimeout, "command artifact upload retry chunk")
+	}}
+	written, err := io.Copy(io.Discard, io.TeeReader(io.LimitReader(reader, ref.GetSizeBytes()+1), hasher))
+	if err != nil {
+		var fleetErr fleeterror.FleetError
+		if errors.As(err, &fleetErr) {
+			return fleetErr
+		}
+		var connectErr *connect.Error
+		if errors.As(err, &connectErr) {
+			return connectErr
+		}
+		return fmt.Errorf("drain command artifact retry: %w", err)
+	}
+	if written > ref.GetSizeBytes() {
+		return fleeterror.NewInvalidArgumentErrorf("command artifact retry size mismatch: stored %d bytes, received more", ref.GetSizeBytes())
+	}
+	if written != ref.GetSizeBytes() {
+		return fleeterror.NewInvalidArgumentErrorf("command artifact retry size mismatch: stored %d bytes, received %d bytes", ref.GetSizeBytes(), written)
+	}
+	if hex.EncodeToString(hasher.Sum(nil)) != ref.GetSha256() {
+		return fleeterror.NewInvalidArgumentError("command artifact retry sha256 mismatch")
+	}
+	return nil
 }
 
 type commandArtifactUploadReader struct {
