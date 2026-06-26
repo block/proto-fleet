@@ -569,9 +569,12 @@ func (l *firmwareDownloadLimiter) acquire(size int64) (func(), bool) {
 
 func prepareFirmwareArtifactTempRoot(root string) error {
 	if err := os.RemoveAll(root); err != nil {
-		return err
+		return fmt.Errorf("remove firmware temp dir: %w", err)
 	}
-	return os.MkdirAll(root, 0700)
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return fmt.Errorf("create firmware temp dir: %w", err)
+	}
+	return nil
 }
 
 func ensureFirmwareTempSpace(root string, artifactSize int64) error {
@@ -589,18 +592,18 @@ func ensureFirmwareTempSpace(root string, artifactSize int64) error {
 func firmwareTempFreeBytes(root string) (int64, error) {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(root, &stat); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("statfs firmware temp dir: %w", err)
 	}
-	blockSize := uint64(stat.Bsize)
-	if blockSize == 0 {
+	if stat.Bsize <= 0 {
 		return 0, nil
 	}
-	availableBlocks := uint64(stat.Bavail)
+	blockSize := uint64(stat.Bsize) //nolint:gosec // Bsize is guarded above; Statfs reports a non-negative block size in practice.
+	availableBlocks := stat.Bavail
+	const maxInt64 = ^uint64(0) >> 1
 	if availableBlocks > ^uint64(0)/blockSize {
-		return int64(^uint64(0) >> 1), nil
+		return int64(maxInt64), nil
 	}
 	free := availableBlocks * blockSize
-	maxInt64 := uint64(^uint64(0) >> 1)
 	if free > maxInt64 {
 		return int64(maxInt64), nil
 	}
