@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -543,6 +544,7 @@ func TestHandleMinerCommand_FirmwareUpdateDownloadsArtifactAndCallsDevice(t *tes
 	ref := firmwareRef("firmware-1", "update.swu", payload)
 	gateway := &firmwareDownloadGateway{ref: ref, payload: payload}
 	client := newFirmwareDownloadClient(t, gateway)
+	firmwareTempRoot := t.TempDir()
 	dev := mocks.NewMockDevice(ctrl)
 	dev.EXPECT().FirmwareUpdate(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, firmware sdk.FirmwareFile) error {
@@ -551,6 +553,7 @@ func TestHandleMinerCommand_FirmwareUpdateDownloadsArtifactAndCallsDevice(t *tes
 			assert.Equal(t, ref.GetSizeBytes(), firmware.Size)
 			assert.Equal(t, ref.GetSha256(), firmware.SHA256)
 			assert.NotEmpty(t, firmware.FilePath)
+			assert.True(t, strings.HasPrefix(firmware.FilePath, firmwareTempRoot+string(os.PathSeparator)))
 			data, err := os.ReadFile(firmware.FilePath)
 			require.NoError(t, err)
 			assert.Equal(t, payload, data)
@@ -562,7 +565,7 @@ func TestHandleMinerCommand_FirmwareUpdateDownloadsArtifactAndCallsDevice(t *tes
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
 	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
-	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}, firmwareTempRoot: firmwareTempRoot}
 	ack := &captureAcker{}
 
 	r.handleMinerCommand(context.Background(), client, ack, "cmd-1",
@@ -575,6 +578,9 @@ func TestHandleMinerCommand_FirmwareUpdateDownloadsArtifactAndCallsDevice(t *tes
 	assert.Equal(t, "cmd-1", gateway.request.GetCommandId())
 	assert.Equal(t, "dev-1", gateway.request.GetDeviceIdentifier())
 	assert.Equal(t, ref.GetArtifactId(), gateway.request.GetArtifact().GetArtifactId())
+	entries, err := os.ReadDir(firmwareTempRoot)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
 }
 
 func TestHandleMinerCommand_FirmwareUpdateRejectsChecksumMismatch(t *testing.T) {
@@ -597,6 +603,56 @@ func TestHandleMinerCommand_FirmwareUpdateRejectsChecksumMismatch(t *testing.T) 
 	assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, got.GetCode())
 	assert.False(t, got.GetSucceeded())
 	assert.Contains(t, got.GetErrorMessage(), "firmware artifact")
+}
+
+func TestHandleMinerCommand_FirmwareUpdateRejectsOversizedArtifact(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ref := firmwareRef("firmware-1", "update.swu", []byte("firmware image"))
+	ref.SizeBytes = maxFleetNodeFirmwareArtifactSizeBytes + 1
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}, firmwareTempRoot: t.TempDir()}
+	ack := &captureAcker{}
+
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_FirmwareUpdate{FirmwareUpdate: &pb.FirmwareUpdateAction{Artifact: ref}}}), discardLogger(t))
+
+	got := ack.only(t)
+	assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, got.GetCode())
+	assert.False(t, got.GetSucceeded())
+	assert.Contains(t, got.GetErrorMessage(), "exceeds fleet node limit")
+}
+
+func TestFirmwareDownloadLimiterRejectsConcurrentAndOverQuota(t *testing.T) {
+	limiter := newFirmwareDownloadLimiter(1, 100)
+	release, ok := limiter.acquire(60)
+	require.True(t, ok)
+
+	_, ok = limiter.acquire(1)
+	assert.False(t, ok)
+
+	release()
+	releaseAgain, ok := limiter.acquire(100)
+	require.True(t, ok)
+	releaseAgain()
+
+	_, ok = limiter.acquire(101)
+	assert.False(t, ok)
+}
+
+func TestPrepareFirmwareArtifactTempRootRemovesOrphans(t *testing.T) {
+	root := t.TempDir()
+	orphan := filepath.Join(root, firmwareArtifactTempDirPrefix+"old")
+	require.NoError(t, os.MkdirAll(orphan, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(orphan, "firmware.bin"), []byte("left behind"), 0600))
+
+	require.NoError(t, prepareFirmwareArtifactTempRoot(root))
+
+	entries, err := os.ReadDir(root)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
 }
 
 func TestHandleMinerCommand_GetMiningPoolsReturnsPayload(t *testing.T) {
