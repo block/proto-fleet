@@ -57,7 +57,7 @@ const FleetHealthMetrics = ({
       <Stats
         stats={[
           fleetStat,
-          statusStat("Health", healthyMiners),
+          statusStat("Healthy", healthyMiners),
           statusStat("Needs attention", needsAttentionMiners),
           statusStat("Offline", offlineMiners),
           statusStat("Sleeping", sleepingMiners),

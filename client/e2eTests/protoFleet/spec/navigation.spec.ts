@@ -5,53 +5,11 @@ test.describe("Navigation", () => {
     await page.goto("/");
   });
 
-  test("Overview navigation", async ({ homePage, minersPage, commonSteps }) => {
-    await commonSteps.loginAsAdmin();
-
-    await test.step("Navigate to control board issues", async () => {
-      await homePage.clickControlBoardsLink();
-      await minersPage.validateMinersPageOpened();
-      await minersPage.validateActiveFilter("Control board issue");
-    });
-
-    await test.step("Navigate back to overview", async () => {
-      await homePage.navigateToHomePage();
-      await homePage.validateHomePageOpened();
-    });
-
-    await test.step("Navigate to fan issues", async () => {
-      await homePage.clickFansLink();
-      await minersPage.validateMinersPageOpened();
-      await minersPage.validateActiveFilter("Fan issue");
-    });
-
-    await test.step("Navigate back to overview", async () => {
-      await homePage.navigateToHomePage();
-      await homePage.validateHomePageOpened();
-    });
-
-    await test.step("Navigate to hashboard issues", async () => {
-      await homePage.clickHashboardsLink();
-      await minersPage.validateMinersPageOpened();
-      await minersPage.validateActiveFilter("Hash board issue");
-    });
-
-    await test.step("Navigate back to overview", async () => {
-      await homePage.navigateToHomePage();
-      await homePage.validateHomePageOpened();
-    });
-
-    await test.step("Navigate to power supply issues", async () => {
-      await homePage.clickPowerSuppliesLink();
-      await minersPage.validateMinersPageOpened();
-      await minersPage.validateActiveFilter("PSU issue");
-    });
-
-    await test.step("Navigate back to overview", async () => {
-      await homePage.navigateToHomePage();
-      await homePage.validateHomePageOpened();
-    });
-  });
+  // NOTE: the former "Overview navigation" test exercised the component-issue
+  // cards (Control Boards / Fans / Hashboards / Power supplies) on the all-sites
+  // dashboard. The dashboard redesign moved that breakdown to the single-site
+  // Fleet health "Components" tab, so the all-sites affordance no longer exists.
+  // Fresh coverage for the Components-tab navigation is tracked as follow-up.
 
   test("Navigate between main pages and settings sub-pages", async ({ authPage, commonSteps, settingsPage }) => {
     await commonSteps.loginAsAdmin();

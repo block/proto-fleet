@@ -133,7 +133,10 @@ const FleetHealthSection = ({
           <LegendDot colorClass="bg-core-primary-20" label="Sleeping" />
         </div>
 
-        <SiteResourcePanel siteId={siteId} activeSite={activeSite} />
+        {/* Key by site so switching sites remounts the panel — resets the tab
+            and clears the previous site's building/rack cards rather than
+            showing them until the new fetch resolves. */}
+        <SiteResourcePanel key={siteId.toString()} siteId={siteId} activeSite={activeSite} />
       </div>
     </section>
   );

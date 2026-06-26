@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
@@ -15,6 +15,7 @@ import { Alert, ArrowRight } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Metric from "@/shared/components/Metric";
 import SkeletonBar from "@/shared/components/SkeletonBar";
+import { useInViewport } from "@/shared/hooks/useInViewport";
 import { convertCtoF, formatHashrate, formatPowerMwOrDash } from "@/shared/utils/telemetryFormat";
 
 // Miner statuses that count as "needs attention" — mirrors the FleetHealth
@@ -50,7 +51,14 @@ const SiteCard = ({ site, className }: SiteCardProps) => {
   const label = site.site?.name ?? "(unnamed site)";
   const temperatureUnit = useTemperatureUnit();
 
-  const { stats } = useSiteStats({ siteId: id, enabled: id !== 0n, pollIntervalMs: POLL_INTERVAL_MS });
+  // Viewport-gate the poll: the carousel keeps every site card mounted, so
+  // without this an org with N sites fires N GetSiteStats polls every tick.
+  // Off-screen cards suspend; useSiteStats keeps their last-good stats so
+  // re-scrolling doesn't flash a skeleton.
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const isVisible = useInViewport(cardRef);
+
+  const { stats } = useSiteStats({ siteId: id, enabled: id !== 0n && isVisible, pollIntervalMs: POLL_INTERVAL_MS });
 
   const total = stats ? stats.hashingCount + stats.brokenCount + stats.offlineCount + stats.sleepingCount : 0;
   const needsAttentionPct = total > 0 && stats ? Math.round((stats.brokenCount / total) * 100) : 0;
@@ -78,6 +86,7 @@ const SiteCard = ({ site, className }: SiteCardProps) => {
 
   return (
     <div
+      ref={cardRef}
       className={clsx("flex h-full flex-col gap-5 rounded-xl bg-surface-base p-10 dark:bg-core-primary-5", className)}
       data-testid={`dashboard-site-card-${idText}`}
     >

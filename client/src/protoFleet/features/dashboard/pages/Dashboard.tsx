@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { MeasurementType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
@@ -53,12 +53,24 @@ const Dashboard = () => {
   // all-sites instead of resolving zero devices into an empty dashboard.
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
+  const [sitesError, setSitesError] = useState<string | null>(null);
   const [siteValidationSettled, setSiteValidationSettled] = useState(false);
-  useEffect(() => {
+  // Track the error and surface it through the heading SitePicker's retry
+  // affordance — the dashboard is the only selector now that the topbar
+  // picker is hidden here, so a transient ListSites failure must be
+  // recoverable rather than stranding the picker in a loading skeleton.
+  const fetchSites = useCallback(() => {
     const controller = new AbortController();
     void listSites({
       signal: controller.signal,
-      onSuccess: setSites,
+      onSuccess: (rows) => {
+        setSites(rows);
+        setSitesError(null);
+      },
+      onError: (msg) => {
+        setSitesError(msg);
+        setSites([]);
+      },
       onFinally: () => {
         if (!controller.signal.aborted) {
           setSiteValidationSettled(true);
@@ -67,6 +79,7 @@ const Dashboard = () => {
     });
     return () => controller.abort();
   }, [listSites]);
+  useEffect(() => fetchSites(), [fetchSites]);
 
   // Active site comes from the route path (`/`, `/:site`, `/unassigned`),
   // validated against knownSiteIds. All-sites yields an empty filter, so
@@ -160,7 +173,7 @@ const Dashboard = () => {
             {/* Heading-style site selector — stands in for the (hidden) global
                 topbar picker and replaces the former "Overview" title. */}
             <div className="-ml-2">
-              <SitePicker sites={sites} triggerClassName="text-heading-300" />
+              <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} triggerClassName="text-heading-300" />
             </div>
             <div className="mt-6">
               {activeSite.kind === "site" ? (
