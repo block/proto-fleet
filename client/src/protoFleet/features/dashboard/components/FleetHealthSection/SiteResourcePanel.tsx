@@ -62,17 +62,29 @@ const SiteResourcePanel = ({ siteId, activeSite }: SiteResourcePanelProps) => {
   // Buildings — fetched only while the Buildings tab is active.
   const { listBuildingsBySite } = useBuildings();
   const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
+  const [buildingsError, setBuildingsError] = useState<string | null>(null);
+  const fetchBuildings = useCallback(
+    (signal?: AbortSignal) =>
+      listBuildingsBySite({
+        siteId,
+        signal,
+        onSuccess: (rows) => {
+          setBuildings(rows);
+          setBuildingsError(null);
+        },
+        // Record the error but keep any last-good rows, and don't collapse to
+        // an empty "no buildings" state — distinguish a fetch failure from a
+        // genuinely empty site so the gallery can offer a retry.
+        onError: (msg) => setBuildingsError(msg),
+      }),
+    [siteId, listBuildingsBySite],
+  );
   useEffect(() => {
     if (tab !== "Buildings" || siteId === 0n) return;
     const controller = new AbortController();
-    void listBuildingsBySite({
-      siteId,
-      signal: controller.signal,
-      onSuccess: setBuildings,
-      onError: () => setBuildings([]),
-    });
+    void fetchBuildings(controller.signal);
     return () => controller.abort();
-  }, [tab, siteId, listBuildingsBySite]);
+  }, [tab, siteId, fetchBuildings]);
 
   // Racks — gated via the site filter: an inactive tab resolves to matchNone,
   // which short-circuits the fetch inside useDeviceSetListState.
@@ -84,8 +96,24 @@ const SiteResourcePanel = ({ siteId, activeSite }: SiteResourcePanelProps) => {
   const {
     deviceSets: racks,
     statsMap,
-    hasCompletedInitialFetch: racksLoaded,
+    isLoading: racksFetching,
+    error: racksError,
+    resetAndFetch: refetchRacks,
   } = useDeviceSetListState(listRacks, RACKS_PAGE_SIZE, undefined, undefined, undefined, getSiteFilter);
+
+  // useDeviceSetListState keeps its matchNone "completed/empty" state for the
+  // first render after we switch to Racks (its refetch fires in an effect), so
+  // gate on the real fetch having actually started — otherwise a site that has
+  // racks briefly flashes "No racks in this site yet." `racksFetchStarted`
+  // flips true once the hook reports loading and resets when we leave the tab.
+  const racksActive = tab === "Racks";
+  const [racksFetchStarted, setRacksFetchStarted] = useState(false);
+  if (!racksActive && racksFetchStarted) setRacksFetchStarted(false);
+  else if (racksActive && racksFetching && !racksFetchStarted) setRacksFetchStarted(true);
+  // Loading while the real fetch is running, or while the list is empty and the
+  // real fetch hasn't started yet (the stale matchNone frame). An empty list
+  // only reads as "no racks" once a real fetch has actually started.
+  const racksLoading = racksActive && (racksFetching || (racks.length === 0 && !racksFetchStarted));
 
   // Component errors — fetched only while the Components tab is active.
   const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors({
@@ -98,7 +126,7 @@ const SiteResourcePanel = ({ siteId, activeSite }: SiteResourcePanelProps) => {
   // Re-key the carousel whenever the visible row changes so it re-measures and
   // resets to the start.
   const galleryKey =
-    tab === "Buildings" ? `buildings:${buildings?.length ?? "loading"}` : `racks:${racks.length}:${racksLoaded}`;
+    tab === "Buildings" ? `buildings:${buildings?.length ?? "loading"}` : `racks:${racks.length}:${racksLoading}`;
   const carousel = useCardCarousel(galleryKey);
 
   // "View all" target per tab — the fleet page for buildings/racks, and the
@@ -112,7 +140,13 @@ const SiteResourcePanel = ({ siteId, activeSite }: SiteResourcePanelProps) => {
 
   const renderGallery = () => {
     if (tab === "Buildings") {
-      if (buildings === undefined) return <GallerySkeleton itemClassName="h-44 w-[300px]" />;
+      if (buildings === undefined) {
+        return buildingsError ? (
+          <GalleryError label="Couldn't load buildings." onRetry={() => fetchBuildings()} />
+        ) : (
+          <GallerySkeleton itemClassName="h-44 w-[300px]" />
+        );
+      }
       if (buildings.length === 0) return <GalleryEmpty label="No buildings in this site yet." />;
       return buildings.map((building) => (
         <div key={(building.building?.id ?? 0n).toString()} className="w-[300px] shrink-0">
@@ -120,8 +154,10 @@ const SiteResourcePanel = ({ siteId, activeSite }: SiteResourcePanelProps) => {
         </div>
       ));
     }
-    // Racks
-    if (!racksLoaded) return <GallerySkeleton itemClassName="h-44 w-[300px]" />;
+    // Racks. Error takes precedence over the (error-induced) loading state so a
+    // failed fetch surfaces a retry instead of a permanent skeleton.
+    if (racksError && racks.length === 0) return <GalleryError label="Couldn't load racks." onRetry={refetchRacks} />;
+    if (racksLoading) return <GallerySkeleton itemClassName="h-44 w-[300px]" />;
     if (racks.length === 0) return <GalleryEmpty label="No racks in this site yet." />;
     return racks.map((rack) => (
       <div key={rack.id.toString()} className="w-[300px] shrink-0">
@@ -214,6 +250,16 @@ const GallerySkeleton = ({ itemClassName }: { itemClassName: string }) => (
 const GalleryEmpty = ({ label }: { label: string }) => (
   <div className="w-full rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70">
     {label}
+  </div>
+);
+
+const GalleryError = ({ label, onRetry }: { label: string; onRetry: () => void }) => (
+  <div
+    className="flex w-full flex-col items-center gap-3 rounded-xl border border-dashed border-border-5 p-6 text-center"
+    data-testid="site-resource-error"
+  >
+    <span className="text-300 text-text-primary-70">{label}</span>
+    <Button variant={variants.secondary} size={sizes.compact} text="Retry" onClick={onRetry} />
   </div>
 );
 

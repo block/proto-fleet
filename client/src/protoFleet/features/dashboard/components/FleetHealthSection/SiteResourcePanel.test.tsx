@@ -8,13 +8,23 @@ import { type ActiveSite } from "@/protoFleet/store/types/activeSite";
 // Controllable fixtures shared by the mocked data hooks.
 const data = vi.hoisted(() => ({
   buildings: [] as { building?: { id: bigint; name: string } }[],
+  buildingsError: null as string | null,
   racks: [] as { id: bigint; label: string }[],
+  racksError: null as string | null,
 }));
+const refetchRacks = vi.hoisted(() => vi.fn());
 
 vi.mock("@/protoFleet/api/buildings", () => ({
   useBuildings: () => ({
-    listBuildingsBySite: ({ onSuccess }: { onSuccess?: (rows: BuildingWithCounts[]) => void }) => {
-      onSuccess?.(data.buildings as unknown as BuildingWithCounts[]);
+    listBuildingsBySite: ({
+      onSuccess,
+      onError,
+    }: {
+      onSuccess?: (rows: BuildingWithCounts[]) => void;
+      onError?: (msg: string) => void;
+    }) => {
+      if (data.buildingsError) onError?.(data.buildingsError);
+      else onSuccess?.(data.buildings as unknown as BuildingWithCounts[]);
       return Promise.resolve();
     },
   }),
@@ -23,7 +33,13 @@ vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: () => ({ listRacks: () => Promise.resolve() }),
 }));
 vi.mock("@/protoFleet/hooks/useDeviceSetListState", () => ({
-  useDeviceSetListState: () => ({ deviceSets: data.racks, statsMap: new Map(), hasCompletedInitialFetch: true }),
+  useDeviceSetListState: () => ({
+    deviceSets: data.racks,
+    statsMap: new Map(),
+    isLoading: false,
+    error: data.racksError,
+    resetAndFetch: refetchRacks,
+  }),
 }));
 vi.mock("@/protoFleet/api/useComponentErrors", () => ({
   useComponentErrors: () => ({ controlBoardErrors: 2, fanErrors: 0, hashboardErrors: 1, psuErrors: 0 }),
@@ -58,7 +74,10 @@ const renderPanel = () =>
 describe("SiteResourcePanel", () => {
   beforeEach(() => {
     data.buildings = [{ building: { id: 1n, name: "North Hall" } }];
+    data.buildingsError = null;
     data.racks = [{ id: 10n, label: "Rack A" }];
+    data.racksError = null;
+    refetchRacks.mockClear();
   });
 
   it("defaults to the Buildings gallery", () => {
@@ -86,6 +105,25 @@ describe("SiteResourcePanel", () => {
     data.buildings = [];
     renderPanel();
     expect(screen.getByText("No buildings in this site yet.")).toBeInTheDocument();
+  });
+
+  it("surfaces a building-list error with retry instead of an empty state", () => {
+    data.buildings = [];
+    data.buildingsError = "boom";
+    renderPanel();
+    expect(screen.getByTestId("site-resource-error")).toHaveTextContent("Couldn't load buildings.");
+    expect(screen.queryByText("No buildings in this site yet.")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("building-card")).not.toBeInTheDocument();
+  });
+
+  it("surfaces a rack-list error with a working retry", () => {
+    data.racks = [];
+    data.racksError = "boom";
+    renderPanel();
+    fireEvent.click(screen.getByText("Racks"));
+    expect(screen.getByTestId("site-resource-error")).toHaveTextContent("Couldn't load racks.");
+    fireEvent.click(screen.getByText("Retry"));
+    expect(refetchRacks).toHaveBeenCalled();
   });
 
   it("points View all at the matching site-scoped fleet page per tab", () => {
