@@ -246,6 +246,12 @@ function getSelectedSiteIds(values: Pick<CurtailmentFormValues, "siteSelection" 
   return values.siteSelection === "site" ? getValidSiteScopeIds(values.siteIds, values.siteId) : [];
 }
 
+function getSiteScopeIds(values: Pick<CurtailmentFormValues, "siteSelection" | "siteId" | "siteIds">): string[] {
+  return values.siteSelection === "site" || values.siteSelection === "allSites"
+    ? getValidSiteScopeIds(values.siteIds, values.siteId)
+    : [];
+}
+
 function getSiteNameForId(values: Partial<CurtailmentFormValues>, siteId: string): string {
   return (
     values.siteNamesById?.[siteId]?.trim() ||
@@ -306,17 +312,34 @@ function withAllMinerScope(values: CurtailmentFormValues): CurtailmentFormValues
   };
 }
 
-function withAllSitesScope(values: CurtailmentFormValues): CurtailmentFormValues {
+function withAllSitesScope(
+  values: CurtailmentFormValues,
+  sites: readonly CurtailmentSiteOption[] = getSiteScopeIds(values).map((siteId) => ({
+    id: siteId,
+    name: getSiteNameForId(values, siteId),
+  })),
+): CurtailmentFormValues {
+  const selectedSites = uniqueNonEmptyStrings(sites.map((site) => site.id)).map((siteId) => {
+    const site = sites.find((candidate) => candidate.id === siteId);
+    return {
+      id: siteId,
+      name: site?.name?.trim() || `Site ${siteId}`,
+    };
+  });
+  const firstSite = selectedSites[0];
+  const hadAllMinersSelected = hasAllMinersSelected(values);
+  const hasSelectedMiners = !hadAllMinersSelected && getExplicitMinerCount(values) > 0;
+
   return {
     ...values,
-    scopeType: "wholeOrg",
-    scopeId: "whole-org",
+    scopeType: hasSelectedMiners ? "explicitMiners" : selectedSites.length > 0 ? "site" : "wholeOrg",
+    scopeId: selectedSites.length > 0 ? "All sites" : "whole-org",
     siteSelection: "allSites",
-    siteId: "",
-    siteIds: [],
-    siteNamesById: {},
+    siteId: firstSite?.id ?? "",
+    siteIds: selectedSites.map((site) => site.id),
+    siteNamesById: createSiteNamesById(selectedSites),
     deviceSetIds: [],
-    deviceIdentifiers: [],
+    deviceIdentifiers: hadAllMinersSelected ? [] : values.deviceIdentifiers,
     minerSelectionMode: "subset",
   };
 }
@@ -857,15 +880,19 @@ function formatScopeLabelForSentence(scopeLabel: string): string {
 }
 
 function formatCurtailmentConfirmationTarget(values: CurtailmentFormValues, selectedMinerCount?: number): string {
-  if (hasAllMinersSelected(values) || values.siteSelection === "allSites") {
+  const selectedSiteIds = getSiteScopeIds(values);
+  if (hasAllMinersSelected(values) || (values.siteSelection === "allSites" && selectedSiteIds.length === 0)) {
     return "the whole fleet";
   }
 
   const selectedMiners =
     getExplicitMinerCount(values) > 0 ? formatCountLabel(values.deviceIdentifiers.length, "miner").toLowerCase() : "";
-  const selectedSiteIds = getSelectedSiteIds(values);
   const selectedSiteLabel =
-    selectedSiteIds.length === 1 ? values.scopeId : formatCountLabel(selectedSiteIds.length, "site").toLowerCase();
+    values.siteSelection === "allSites"
+      ? "all sites"
+      : selectedSiteIds.length === 1
+        ? values.scopeId
+        : formatCountLabel(selectedSiteIds.length, "site").toLowerCase();
   const selectedSite =
     selectedSiteIds.length > 0
       ? `miners in ${selectedSiteLabel ? formatScopeLabelForSentence(selectedSiteLabel) : "the selected sites"}`
@@ -1301,7 +1328,13 @@ function CurtailmentStartModalContent({
         }
 
         if (allSelectableSitesSelected) {
-          return withAllSitesScope(current);
+          return withAllSitesScope(
+            current,
+            selectedSiteIdsForSave.map((siteId) => ({
+              id: siteId,
+              name: siteScopeOptionById.get(siteId)?.name ?? getSiteNameForId(current, siteId),
+            })),
+          );
         }
 
         return withSiteScopes(
@@ -1328,9 +1361,8 @@ function CurtailmentStartModalContent({
 
     updateValues(
       (current) => {
-        const scopedCurrent =
-          hasSelectedMiners && current.siteSelection === "allSites" ? withNoSiteScope(current) : current;
-        const hasSelectedSite = getSelectedSiteIds(scopedCurrent).length > 0;
+        const scopedCurrent = current;
+        const hasSelectedSite = getSiteScopeIds(scopedCurrent).length > 0;
         return {
           ...scopedCurrent,
           scopeType: hasSelectedMiners ? "explicitMiners" : hasSelectedSite ? "site" : "wholeOrg",

@@ -1171,7 +1171,7 @@ describe("CurtailmentStartModal", () => {
     expect(onDeleteResponseProfile).toHaveBeenCalledOnce();
   });
 
-  it("can switch a site-scoped response profile back to whole fleet", async () => {
+  it("keeps all selectable sites as an all-sites site scope", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       variant: "responseProfile",
@@ -1194,11 +1194,12 @@ describe("CurtailmentStartModal", () => {
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        siteId: "",
-        siteIds: [],
+        siteId: "101",
+        siteIds: ["101", "102"],
+        siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
         siteSelection: "allSites",
-        scopeType: "wholeOrg",
-        scopeId: "whole-org",
+        scopeType: "site",
+        scopeId: "All sites",
         deviceSetIds: [],
         deviceIdentifiers: [],
       }),
@@ -1758,7 +1759,7 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("clears all-sites selection when saving a miner subset", async () => {
+  it("preserves all-sites selection when saving a miner subset", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       initialValues: { ...configuredValues, includeMaintenance: false },
@@ -1773,7 +1774,7 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
     await user.click(screen.getByRole("button", { name: "Save miners" }));
 
-    expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sites\s+All sites/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
@@ -1782,10 +1783,11 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         scopeType: "explicitMiners",
-        scopeId: undefined,
-        siteSelection: "none",
-        siteId: "",
-        siteIds: [],
+        scopeId: "All sites",
+        siteSelection: "allSites",
+        siteId: "101",
+        siteIds: ["101", "102"],
+        siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
         deviceSetIds: [],
         deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
         minerSelectionMode: "subset",
@@ -1793,7 +1795,7 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("clears a miner subset when saving all sites", async () => {
+  it("preserves a miner subset when saving all sites", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       initialValues: {
@@ -1813,20 +1815,21 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByRole("button", { name: "Done" }));
 
     expect(screen.getByRole("button", { name: /Sites\s+All sites/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+2 miners/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     await confirmCurtailment(user);
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        scopeType: "wholeOrg",
-        scopeId: "whole-org",
+        scopeType: "explicitMiners",
+        scopeId: "All sites",
         siteSelection: "allSites",
-        siteId: "",
-        siteIds: [],
+        siteId: "101",
+        siteIds: ["101", "102"],
+        siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
         deviceSetIds: [],
-        deviceIdentifiers: [],
+        deviceIdentifiers: ["miner-1", "miner-2"],
         minerSelectionMode: "subset",
       }),
     );

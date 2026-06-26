@@ -158,7 +158,7 @@ function getSelectedSiteIds(
   values: CurtailmentScopeValues,
   siteSelection: CurtailmentScopeValues["siteSelection"],
 ): string[] {
-  if (siteSelection !== "site") {
+  if (siteSelection !== "site" && siteSelection !== "allSites") {
     return [];
   }
 
@@ -169,12 +169,12 @@ function getSelectedSiteIds(
 
 export function buildCurtailmentScopes(values: CurtailmentScopeValues): CurtailmentScope[] | undefined {
   const siteSelection = values.siteSelection ?? (values.scopeType === "site" ? "site" : "none");
-  if (values.minerSelectionMode === "all" || siteSelection === "allSites") {
+  if (values.minerSelectionMode === "all") {
     return [create(CurtailmentScopeSchema, { scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) } })];
   }
 
   const scopes: CurtailmentScope[] = [];
-  if (siteSelection === "site") {
+  if (siteSelection === "site" || siteSelection === "allSites") {
     const siteIds: bigint[] = [];
     for (const siteIdValue of getSelectedSiteIds(values, siteSelection)) {
       const siteId = parseCurtailmentSiteId(siteIdValue);

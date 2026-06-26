@@ -168,6 +168,17 @@ describe("useCurtailmentPlanPreview", () => {
     });
 
     expect(multiSiteRequest?.scopes.map((scope) => scope.scope.case)).toEqual(["site", "site", "deviceIdentifiers"]);
+
+    const allSitesRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      scopeType: "site",
+      siteSelection: "allSites",
+      scopeId: "All sites",
+      siteId: "42",
+      siteIds: ["42", "43"],
+    });
+
+    expect(allSitesRequest?.scopes.map((scope) => scope.scope.case)).toEqual(["site", "site"]);
   });
 
   it("builds full-fleet preview requests without requiring fixed-kW params", () => {
@@ -317,6 +328,23 @@ describe("useCurtailmentPlanPreview", () => {
 
     await waitFor(() => {
       expect(result.current.preview?.scopeLabel).toBe("from Austin, TX and selected miners");
+    });
+  });
+
+  it("labels all-sites previews without treating them as whole fleet", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
+
+    const { result } = renderPreviewHook({
+      ...baseValues,
+      scopeType: "site",
+      siteSelection: "allSites",
+      scopeId: "All sites",
+      siteId: "42",
+      siteIds: ["42", "43"],
+    });
+
+    await waitFor(() => {
+      expect(result.current.preview?.scopeLabel).toBe("from all sites");
     });
   });
 

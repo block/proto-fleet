@@ -83,6 +83,10 @@ function uniqueNonEmptyStrings(values: readonly string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
+function hasSameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value) => right.includes(value));
+}
+
 function getSelectedResponseProfileSiteIds(
   values: Pick<ResponseProfileFormValues, "siteSelection" | "siteId" | "siteIds">,
 ): string[] {
@@ -90,7 +94,11 @@ function getSelectedResponseProfileSiteIds(
     values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
   );
 
-  return values.siteSelection === "site" || (values.siteSelection === undefined && siteIds.length > 0) ? siteIds : [];
+  return values.siteSelection === "site" ||
+    values.siteSelection === "allSites" ||
+    (values.siteSelection === undefined && siteIds.length > 0)
+    ? siteIds
+    : [];
 }
 
 function getResponseProfileSiteNameForId(values: Partial<ResponseProfileFormValues>, siteId: string): string {
@@ -112,10 +120,10 @@ function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues
   const siteId = siteIds[0] ?? "";
   const siteSelection = hasAllMinersSelected
     ? "allSites"
-    : siteIds.length > 0
-      ? "site"
-      : values.siteSelection === "allSites"
-        ? "allSites"
+    : values.siteSelection === "allSites"
+      ? "allSites"
+      : siteIds.length > 0
+        ? "site"
         : "none";
 
   return {
@@ -248,6 +256,13 @@ function getApiResponseProfileScopeValues(
     siteIds.push(profile.site.siteId.toString());
   }
   const uniqueSiteIds = [...new Set(siteIds)];
+  if (
+    cachedFormValues?.siteSelection === "allSites" &&
+    siteSelection === "site" &&
+    hasSameStringSet(uniqueSiteIds, getSelectedResponseProfileSiteIds(cachedFormValues))
+  ) {
+    siteSelection = "allSites";
+  }
   const siteId = uniqueSiteIds[0] ?? "";
   const siteNamesById = Object.fromEntries(
     uniqueSiteIds.map((currentSiteId) => [
@@ -348,12 +363,12 @@ function getOptionalNonNegativeNumber(value: string): number | undefined {
 function getResponseProfileScopes(values: ResponseProfileFormValues): CurtailmentScope[] | undefined {
   const siteIds = getSelectedResponseProfileSiteIds(values);
   const siteSelection = values.siteSelection ?? (siteIds.length > 0 ? "site" : "none");
-  if (values.minerSelectionMode === "all" || siteSelection === "allSites") {
+  if (values.minerSelectionMode === "all") {
     return [create(CurtailmentScopeSchema, { scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) } })];
   }
 
   const scopes: CurtailmentScope[] = [];
-  if (siteSelection === "site") {
+  if (siteSelection === "site" || siteSelection === "allSites") {
     for (const siteId of siteIds) {
       if (!/^[1-9]\d*$/.test(siteId)) {
         return undefined;

@@ -178,13 +178,13 @@ function formatSelectedMinerScopeLabel(count: number): string {
 }
 
 function formatScopeLabel(values: CurtailmentFormValues): string {
-  if (values.minerSelectionMode === "all" || values.siteSelection === "allSites") {
+  if (values.minerSelectionMode === "all") {
     return "across the fleet";
   }
 
   const selectedMinerCount = values.deviceIdentifiers?.length ?? 0;
   const selectedSiteIds =
-    values.siteSelection === "site"
+    values.siteSelection === "site" || values.siteSelection === "allSites"
       ? values.siteIds?.length
         ? values.siteIds
         : values.siteId
@@ -192,9 +192,11 @@ function formatScopeLabel(values: CurtailmentFormValues): string {
           : []
       : [];
   const selectedSiteLabel =
-    selectedSiteIds.length === 1
-      ? values.scopeId?.trim() || `site ${selectedSiteIds[0]}`
-      : `${selectedSiteIds.length} selected sites`;
+    values.siteSelection === "allSites"
+      ? "all sites"
+      : selectedSiteIds.length === 1
+        ? values.scopeId?.trim() || `site ${selectedSiteIds[0]}`
+        : `${selectedSiteIds.length} selected sites`;
   const siteLabel = `from ${selectedSiteLabel}`;
   if (selectedSiteIds.length > 0 && selectedMinerCount > 0) {
     return `${siteLabel} and selected miners`;

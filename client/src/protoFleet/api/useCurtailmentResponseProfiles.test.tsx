@@ -263,6 +263,48 @@ describe("useCurtailmentResponseProfiles", () => {
     });
   });
 
+  it("preserves all-sites profile selections as site scopes", async () => {
+    const site101Scope = create(CurtailmentScopeSchema, {
+      scope: { case: "site", value: create(ScopeSiteSchema, { siteId: 101n }) },
+    });
+    const site102Scope = create(CurtailmentScopeSchema, {
+      scope: { case: "site", value: create(ScopeSiteSchema, { siteId: 102n }) },
+    });
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: apiProfile({ site: undefined, scopes: [site101Scope, site102Scope] }),
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        siteSelection: "allSites",
+        siteId: "101",
+        siteName: "Austin, TX",
+        siteIds: ["101", "102"],
+        siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
+      });
+    });
+
+    const createRequest = mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0];
+    expect(createRequest?.scopes).toHaveLength(2);
+    expect([createRequest?.scopes?.[0]?.scope.case, createRequest?.scopes?.[1]?.scope.case]).toEqual(["site", "site"]);
+    if (createRequest?.scopes?.[0]?.scope.case !== "site" || createRequest.scopes[1]?.scope.case !== "site") {
+      throw new Error("Expected all-sites profile scope to preserve selected sites");
+    }
+    expect(createRequest.scopes[0].scope.value.siteId).toBe(101n);
+    expect(createRequest.scopes[1].scope.value.siteId).toBe(102n);
+    expect(result.current.responseProfiles[0]).toMatchObject({
+      scope: "All sites",
+      formValues: expect.objectContaining({
+        siteSelection: "allSites",
+        siteId: "101",
+        siteIds: ["101", "102"],
+        siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
+      }),
+    });
+  });
+
   it("collapses all-miner response profile selections to whole org", async () => {
     const wholeOrgScope = create(CurtailmentScopeSchema, {
       scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) },

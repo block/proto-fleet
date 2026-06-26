@@ -266,7 +266,11 @@ function getSelectedResponseProfileSiteIds(
     values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
   );
 
-  return values.siteSelection === "site" || (values.siteSelection === undefined && siteIds.length > 0) ? siteIds : [];
+  return values.siteSelection === "site" ||
+    values.siteSelection === "allSites" ||
+    (values.siteSelection === undefined && siteIds.length > 0)
+    ? siteIds
+    : [];
 }
 
 function getResponseProfileSiteNameForId(values: Partial<ResponseProfileFormValues>, siteId: string): string {
@@ -348,10 +352,10 @@ function createResponseProfileFromFormValues(
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     siteSelection: hasAllMinersSelected
       ? "allSites"
-      : siteIds.length > 0
-        ? "site"
-        : values.siteSelection === "allSites"
-          ? "allSites"
+      : values.siteSelection === "allSites"
+        ? "allSites"
+        : siteIds.length > 0
+          ? "site"
           : "none",
     siteId,
     siteName: siteId ? getResponseProfileSiteNameForId(values, siteId) : "",
@@ -389,10 +393,10 @@ function removeResponseProfileScope(values: ResponseProfileFormValues): Response
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     siteSelection: hasAllMinersSelected
       ? "allSites"
-      : siteIds.length > 0
-        ? "site"
-        : values.siteSelection === "allSites"
-          ? "allSites"
+      : values.siteSelection === "allSites"
+        ? "allSites"
+        : siteIds.length > 0
+          ? "site"
           : "none",
     siteId,
     siteName: siteId ? getResponseProfileSiteNameForId(values, siteId) : "",
@@ -461,10 +465,10 @@ function createCurtailmentFormValuesFromResponseProfile(
   const deviceIdentifiers = hasAllMinersSelected ? [] : [...values.deviceIdentifiers];
   const siteSelection = hasAllMinersSelected
     ? "allSites"
-    : siteIds.length > 0
-      ? "site"
-      : values.siteSelection === "allSites"
-        ? "allSites"
+    : values.siteSelection === "allSites"
+      ? "allSites"
+      : siteIds.length > 0
+        ? "site"
         : "none";
 
   return {
@@ -525,7 +529,7 @@ function createResponseProfileFormValuesFromCurtailmentValues(
 ): ResponseProfileFormValues {
   const hasAllMinersSelected = values.minerSelectionMode === "all";
   const siteIds =
-    hasAllMinersSelected || values.siteSelection !== "site"
+    hasAllMinersSelected || (values.siteSelection !== "site" && values.siteSelection !== "allSites")
       ? []
       : uniqueNonEmptyStrings(values.siteIds ?? (values.siteId ? [values.siteId] : []));
   const siteId = siteIds[0] ?? "";

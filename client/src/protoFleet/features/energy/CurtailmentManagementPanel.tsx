@@ -145,7 +145,11 @@ function getSelectedResponseProfileSiteIds(
     values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
   );
 
-  return values.siteSelection === "site" || (values.siteSelection === undefined && siteIds.length > 0) ? siteIds : [];
+  return values.siteSelection === "site" ||
+    values.siteSelection === "allSites" ||
+    (values.siteSelection === undefined && siteIds.length > 0)
+    ? siteIds
+    : [];
 }
 
 function getResponseProfileSiteNameForId(values: Partial<ResponseProfileFormValues>, siteId: string): string {
@@ -173,10 +177,10 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
       minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
       siteSelection: hasAllMinersSelected
         ? "allSites"
-        : siteIds.length > 0
-          ? "site"
-          : profile.formValues.siteSelection === "allSites"
-            ? "allSites"
+        : profile.formValues.siteSelection === "allSites"
+          ? "allSites"
+          : siteIds.length > 0
+            ? "site"
             : "none",
       siteId,
       siteName: siteId ? getResponseProfileSiteNameForId(profile.formValues, siteId) : "",
@@ -228,10 +232,10 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
   const deviceIdentifiers = hasAllMinersSelected ? [] : [...values.deviceIdentifiers];
   const siteSelection = hasAllMinersSelected
     ? "allSites"
-    : siteIds.length > 0
-      ? "site"
-      : values.siteSelection === "allSites"
-        ? "allSites"
+    : values.siteSelection === "allSites"
+      ? "allSites"
+      : siteIds.length > 0
+        ? "site"
         : "none";
 
   return {
