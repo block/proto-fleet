@@ -98,7 +98,29 @@ const (
 
 	pgInternalError                   = "XX000"
 	timescaleTupleConcurrentlyDeleted = "tuple concurrently deleted"
+
+	// serverReadyTimeout bounds how long we wait for the database server to
+	// start accepting connections again after a transient restart before a
+	// migration retry.
+	serverReadyTimeout  = 30 * time.Second
+	serverReadyInterval = 250 * time.Millisecond
 )
+
+// transientServerErrors are substrings of errors emitted while the database
+// server itself is restarting/recovering — e.g. a crash under heavy concurrent
+// migration load that `restart: always` brings back within a second or two.
+// Under the per-test-database model one such restart otherwise cascades into
+// dozens of unrelated failures; retrying once the server is back lets each test
+// survive the blip instead.
+var transientServerErrors = []string{
+	"57P03", // cannot_connect_now: "the database system is not yet accepting connections"
+	"the database system is starting up",
+	"the database system is shutting down",
+	"the database system is in recovery mode",
+	"bad connection",
+	"connection is already closed",
+	"connection reset by peer",
+}
 
 // connectAndMigrateWithRetry wraps db.ConnectAndMigrate with retry logic for
 // deadlocks caused by concurrent TimescaleDB catalog operations across test
@@ -124,7 +146,10 @@ func connectAndMigrateWithRetry(
 			return nil, lastErr
 		}
 
-		t.Logf("migration deadlock (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
+		t.Logf("retryable migration error (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
+		// A transient server restart leaves the server briefly unavailable;
+		// wait for it before recreating so the admin DDL below does not fail.
+		waitForServerReady(t, adminConfig)
 		recreateTestDatabase(t, adminConfig, dbName)
 
 		delay := time.Duration(attempt) * migrationRetryBaseDelay
@@ -145,9 +170,49 @@ func isRetryableMigrationError(err error) bool {
 		return true
 	}
 	msg := err.Error()
-	return strings.Contains(msg, db.PGDeadlockDetected) ||
+	if strings.Contains(msg, db.PGDeadlockDetected) ||
 		strings.Contains(msg, db.PGSerializationFailure) ||
-		(strings.Contains(msg, pgInternalError) && strings.Contains(msg, timescaleTupleConcurrentlyDeleted))
+		(strings.Contains(msg, pgInternalError) && strings.Contains(msg, timescaleTupleConcurrentlyDeleted)) {
+		return true
+	}
+	return isTransientServerError(msg)
+}
+
+// isTransientServerError reports whether the error came from the database server
+// being temporarily unavailable (restarting/recovering) rather than from the
+// migration itself.
+func isTransientServerError(msg string) bool {
+	for _, s := range transientServerErrors {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// waitForServerReady blocks until the database server accepts a query on the
+// admin database, or serverReadyTimeout elapses. This bridges the brief window
+// after a transient server restart so the admin DDL used to recreate a test
+// database before a migration retry runs against a live server.
+func waitForServerReady(t *testing.T, adminConfig *db.Config) {
+	t.Helper()
+
+	conn, err := db.ConnectToDatabase(adminConfig)
+	if err != nil {
+		return // best effort; the subsequent admin op surfaces a real failure
+	}
+	defer conn.Close()
+
+	deadline := time.Now().Add(serverReadyTimeout)
+	for {
+		ctx, cancel := context.WithTimeout(t.Context(), serverReadyInterval)
+		_, pingErr := conn.ExecContext(ctx, "SELECT 1")
+		cancel()
+		if pingErr == nil || time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(serverReadyInterval)
+	}
 }
 
 // recreateTestDatabase drops and recreates a test database via the admin connection.

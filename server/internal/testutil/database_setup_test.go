@@ -41,6 +41,34 @@ func TestIsRetryableMigrationError(t *testing.T) {
 			err:  errors.New("migration failed: ERROR: syntax error (SQLSTATE 42601)"),
 			want: false,
 		},
+		{
+			name: "unique violation is not retried",
+			err:  errors.New("migration failed: ERROR: duplicate key value (SQLSTATE 23505)"),
+			want: false,
+		},
+		// Transient server restart/recovery: a TimescaleDB crash under
+		// concurrent-migration load comes back within a second or two, so these
+		// retry rather than cascade into a job-wide failure.
+		{
+			name: "server not yet accepting connections (57P03)",
+			err:  errors.New("failed to connect: FATAL: the database system is not yet accepting connections (SQLSTATE 57P03)"),
+			want: true,
+		},
+		{
+			name: "bad connection mid-migration",
+			err:  errors.New("failed to run migrations: CREATE INDEX CONCURRENTLY foo (details: driver: bad connection)"),
+			want: true,
+		},
+		{
+			name: "connection already closed",
+			err:  errors.New("sql: connection is already closed in line 0: SELECT pg_advisory_unlock($1)"),
+			want: true,
+		},
+		{
+			name: "server starting up",
+			err:  errors.New("FATAL: the database system is starting up"),
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
