@@ -1,4 +1,5 @@
 import { MouseEvent, ReactNode } from "react";
+import { Link } from "react-router-dom";
 import clsx from "clsx";
 
 import { sizes, variants } from "./constants";
@@ -23,6 +24,10 @@ export interface ButtonProps {
   text?: string;
   textColor?: string;
   textOnlyUnderlineOnHover?: boolean;
+  // When set, the button renders as a react-router `Link` (an `<a>`) with the
+  // exact same styling — for navigation CTAs, so callers don't nest a
+  // `<button>` inside a `<Link>` or hand-restyle a bare link.
+  to?: string;
   variant: ButtonVariant;
 }
 
@@ -43,6 +48,7 @@ const Button = ({
   text,
   textColor = "text-text-emphasis",
   textOnlyUnderlineOnHover = true,
+  to,
   variant,
 }: ButtonProps) => {
   const size = sizeProp ?? (variant === "textOnly" ? "textOnly" : "base");
@@ -59,75 +65,68 @@ const Button = ({
   const prefix = loading ? <ProgressCircular size={12} indeterminate /> : prefixIcon;
   const disabledState = disabled || loading;
 
-  return (
-    <button
-      type="button"
-      aria-label={ariaLabel}
-      aria-haspopup={ariaHasPopup}
-      aria-expanded={ariaExpanded}
-      className={clsx(
-        "group flex h-fit items-center justify-center rounded-3xl whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base",
-        {
-          "cursor-pointer": !disabledState,
-          "cursor-not-allowed": disabledState,
-        },
-        // font size
-        {
-          "text-emphasis-300": base || compact || textOnly,
-        },
-        // padding
-        {
-          "px-3 py-2": base && (text || children),
-          "px-2.5 py-2.5": base && !text && !children,
-          "px-3 py-1": compact && (text || children),
-          "px-2 py-2": compact && !text && !children,
-        },
-        // color and bg - primary
-        {
-          "bg-core-primary-fill text-text-contrast hover:opacity-80": primary && !disabledState,
-          "bg-core-primary-fill text-text-contrast opacity-40": primary && disabledState,
-        },
-        // color and bg - accent
-        {
-          "bg-core-accent-fill text-text-base-contrast-static hover:opacity-80": accent && !disabledState,
-          "bg-core-accent-fill text-text-base-contrast-static opacity-40": accent && disabledState,
-        },
-        // color and bg - secondary
-        {
-          "bg-core-primary-5 text-text-primary hover:opacity-80": secondary && !disabledState,
-          "bg-core-primary-5 text-text-primary-50": secondary && disabledState,
-        },
-        // color and bg - danger
-        {
-          "bg-intent-critical-fill text-text-base-contrast-static hover:bg-intent-critical-text hover:opacity-80":
-            danger && !disabledState,
-          "bg-intent-critical-fill text-text-base-contrast-static opacity-40": danger && disabledState,
-        },
-        // color and bg - ghost
-        {
-          "shadow-50": ghost,
-          "bg-surface-default text-text-primary hover:bg-core-primary-5 hover:opacity-80 hover:shadow-none":
-            ghost && !disabledState,
-          "bg-surface-default text-text-primary-50": ghost && disabledState,
-        },
-        // color and bg - secondary danger
-        {
-          "bg-intent-critical-10 text-text-critical hover:bg-intent-critical-20 hover:opacity-80":
-            secondaryDanger && !disabledState,
-          "bg-intent-critical-10 text-intent-critical-80": secondaryDanger && disabledState,
-        },
-        // color and bg - text only
-        {
-          [textColor]: textOnly && !disabledState,
-          [`${textColor}/40`]: textOnly && disabledState,
-          "hover:opacity-70": textOnly && !textOnlyUnderlineOnHover && !disabledState,
-        },
-        className,
-      )}
-      disabled={disabledState}
-      onClick={onClick}
-      data-testid={testId}
-    >
+  const containerClassName = clsx(
+    "group flex h-fit items-center justify-center rounded-3xl whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base",
+    {
+      "cursor-pointer": !disabledState,
+      "cursor-not-allowed": disabledState,
+    },
+    // font size
+    {
+      "text-emphasis-300": base || compact || textOnly,
+    },
+    // padding
+    {
+      "px-3 py-2": base && (text || children),
+      "px-2.5 py-2.5": base && !text && !children,
+      "px-3 py-1": compact && (text || children),
+      "px-2 py-2": compact && !text && !children,
+    },
+    // color and bg - primary
+    {
+      "bg-core-primary-fill text-text-contrast hover:opacity-80": primary && !disabledState,
+      "bg-core-primary-fill text-text-contrast opacity-40": primary && disabledState,
+    },
+    // color and bg - accent
+    {
+      "bg-core-accent-fill text-text-base-contrast-static hover:opacity-80": accent && !disabledState,
+      "bg-core-accent-fill text-text-base-contrast-static opacity-40": accent && disabledState,
+    },
+    // color and bg - secondary
+    {
+      "bg-core-primary-5 text-text-primary hover:opacity-80": secondary && !disabledState,
+      "bg-core-primary-5 text-text-primary-50": secondary && disabledState,
+    },
+    // color and bg - danger
+    {
+      "bg-intent-critical-fill text-text-base-contrast-static hover:bg-intent-critical-text hover:opacity-80":
+        danger && !disabledState,
+      "bg-intent-critical-fill text-text-base-contrast-static opacity-40": danger && disabledState,
+    },
+    // color and bg - ghost
+    {
+      "shadow-50": ghost,
+      "bg-surface-default text-text-primary hover:bg-core-primary-5 hover:opacity-80 hover:shadow-none":
+        ghost && !disabledState,
+      "bg-surface-default text-text-primary-50": ghost && disabledState,
+    },
+    // color and bg - secondary danger
+    {
+      "bg-intent-critical-10 text-text-critical hover:bg-intent-critical-20 hover:opacity-80":
+        secondaryDanger && !disabledState,
+      "bg-intent-critical-10 text-intent-critical-80": secondaryDanger && disabledState,
+    },
+    // color and bg - text only
+    {
+      [textColor]: textOnly && !disabledState,
+      [`${textColor}/40`]: textOnly && disabledState,
+      "hover:opacity-70": textOnly && !textOnlyUnderlineOnHover && !disabledState,
+    },
+    className,
+  );
+
+  const body = (
+    <>
       {prefix}
       {(text || children) && prefix ? <div className={gap} /> : null}
       <div className="flex min-w-0 flex-col">
@@ -141,6 +140,36 @@ const Button = ({
       </div>
       {(text || children) && suffixIcon ? <div className={gap} /> : null}
       {suffixIcon}
+    </>
+  );
+
+  // Link CTA: same styling, anchor semantics, no nested interactive controls.
+  // A disabled link has no navigation target, so render an inert span styled
+  // identically rather than an anchor.
+  if (to !== undefined) {
+    return disabledState ? (
+      <span role="link" aria-disabled aria-label={ariaLabel} className={containerClassName} data-testid={testId}>
+        {body}
+      </span>
+    ) : (
+      <Link to={to} aria-label={ariaLabel} className={containerClassName} data-testid={testId}>
+        {body}
+      </Link>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      aria-haspopup={ariaHasPopup}
+      aria-expanded={ariaExpanded}
+      className={containerClassName}
+      disabled={disabledState}
+      onClick={onClick}
+      data-testid={testId}
+    >
+      {body}
     </button>
   );
 };

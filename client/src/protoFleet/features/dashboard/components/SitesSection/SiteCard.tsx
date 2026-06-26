@@ -1,5 +1,4 @@
 import { useMemo, useRef } from "react";
-import { Link } from "react-router-dom";
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -99,23 +98,23 @@ const SiteCard = ({ site, className }: SiteCardProps) => {
         </span>
         <div className="flex shrink-0 items-center gap-2">
           {stats && stats.brokenCount > 0 ? (
-            <Link to={needsAttentionHref} data-testid={`dashboard-site-card-${idText}-needs-attention`}>
-              <Button
-                variant={variants.secondaryDanger}
-                size={sizes.compact}
-                prefixIcon={<Alert width="w-4" />}
-                text={`${needsAttentionPct}% need attention`}
-              />
-            </Link>
-          ) : null}
-          <Link to={`/sites/${idText}`} data-testid={`dashboard-site-card-${idText}-detail`}>
             <Button
-              variant={variants.secondary}
+              to={needsAttentionHref}
+              variant={variants.secondaryDanger}
               size={sizes.compact}
-              ariaLabel={`View ${label} details`}
-              prefixIcon={<ArrowRight width="w-4" />}
+              prefixIcon={<Alert width="w-4" />}
+              text={`${needsAttentionPct}% need attention`}
+              testId={`dashboard-site-card-${idText}-needs-attention`}
             />
-          </Link>
+          ) : null}
+          <Button
+            to={`/sites/${idText}`}
+            variant={variants.secondary}
+            size={sizes.compact}
+            ariaLabel={`View ${label} details`}
+            prefixIcon={<ArrowRight width="w-4" />}
+            testId={`dashboard-site-card-${idText}-detail`}
+          />
         </div>
       </div>
 

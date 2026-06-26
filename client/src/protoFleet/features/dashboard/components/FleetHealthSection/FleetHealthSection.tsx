@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import SiteResourcePanel from "./SiteResourcePanel";
 import { useSiteStats } from "@/protoFleet/api/useSiteStats";
 import { HealthBar } from "@/protoFleet/components/HealthBar";
@@ -86,12 +85,20 @@ const FleetHealthSection = ({
     <section data-testid="dashboard-fleet-health-section">
       <SectionHeading heading="Fleet health">
         <div className="flex items-center gap-2">
-          <Link to={scopedPath("/fleet/sites", activeSite)} data-testid="dashboard-fleet-health-view-sites">
-            <Button variant={variants.secondary} size={sizes.compact} text="View sites" />
-          </Link>
-          <Link to={scopedPath("/fleet/miners", activeSite)} data-testid="dashboard-fleet-health-view-miners">
-            <Button variant={variants.secondary} size={sizes.compact} text="View miners" />
-          </Link>
+          <Button
+            to={scopedPath("/fleet/sites", activeSite)}
+            variant={variants.secondary}
+            size={sizes.compact}
+            text="View sites"
+            testId="dashboard-fleet-health-view-sites"
+          />
+          <Button
+            to={scopedPath("/fleet/miners", activeSite)}
+            variant={variants.secondary}
+            size={sizes.compact}
+            text="View miners"
+            testId="dashboard-fleet-health-view-miners"
+          />
         </div>
       </SectionHeading>
 

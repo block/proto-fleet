@@ -1,5 +1,4 @@
 import { type CSSProperties, useState } from "react";
-import { Link } from "react-router-dom";
 import SiteCard from "./SiteCard";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHeading";
@@ -72,9 +71,13 @@ const SitesSection = ({ sites }: SitesSectionProps) => {
                 />
               </div>
             ) : null}
-            <Link to="/fleet/sites" data-testid="dashboard-sites-view-all">
-              <Button variant={variants.secondary} size={sizes.compact} text="View sites" />
-            </Link>
+            <Button
+              to="/fleet/sites"
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="View sites"
+              testId="dashboard-sites-view-all"
+            />
           </div>
         </SectionHeading>
       </div>

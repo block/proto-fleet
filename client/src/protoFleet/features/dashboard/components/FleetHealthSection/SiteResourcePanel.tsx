@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { useCardCarousel } from "./useCardCarousel";
 import { useBuildings } from "@/protoFleet/api/buildings";
@@ -201,9 +201,13 @@ const SiteResourcePanel = ({ siteId, activeSite }: SiteResourcePanelProps) => {
               />
             </div>
           ) : null}
-          <Link to={viewAllHref} data-testid="site-resource-view-all">
-            <Button variant={variants.secondary} size={sizes.compact} text="View all" />
-          </Link>
+          <Button
+            to={viewAllHref}
+            variant={variants.secondary}
+            size={sizes.compact}
+            text="View all"
+            testId="site-resource-view-all"
+          />
         </div>
       </div>
 

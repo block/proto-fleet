@@ -1,3 +1,4 @@
+import { MemoryRouter } from "react-router-dom";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
@@ -6,6 +7,32 @@ import Button, { sizes, variants } from ".";
 const buttonText = "Click me";
 
 describe("Button", () => {
+  test("renders as a link (anchor) when `to` is set — no nested button", () => {
+    render(
+      <MemoryRouter>
+        <Button to="/fleet/sites" text="View sites" variant={variants.secondary} testId="cta" />
+      </MemoryRouter>,
+    );
+    const cta = screen.getByTestId("cta");
+    expect(cta.tagName).toBe("A");
+    expect(cta).toHaveAttribute("href", "/fleet/sites");
+    // The styled element must not wrap or contain a nested <button>.
+    expect(cta.querySelector("button")).toBeNull();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  test("renders an inert span (not a link) when `to` is set but disabled", () => {
+    render(
+      <MemoryRouter>
+        <Button to="/fleet/sites" text="View sites" disabled variant={variants.secondary} testId="cta" />
+      </MemoryRouter>,
+    );
+    const cta = screen.getByTestId("cta");
+    expect(cta.tagName).toBe("SPAN");
+    expect(cta).not.toHaveAttribute("href");
+    expect(cta).toHaveAttribute("aria-disabled", "true");
+  });
+
   test("renders the button with the correct text", () => {
     const { getByText } = render(
       <Button text={buttonText} onClick={() => {}} size={sizes.base} variant={variants.secondary} />,
