@@ -11,8 +11,10 @@ const data = vi.hoisted(() => ({
   buildingsError: null as string | null,
   racks: [] as { id: bigint; label: string }[],
   racksError: null as string | null,
+  componentsError: null as Error | null,
 }));
 const refetchRacks = vi.hoisted(() => vi.fn());
+const refetchComponents = vi.hoisted(() => vi.fn());
 
 vi.mock("@/protoFleet/api/buildings", () => ({
   useBuildings: () => ({
@@ -42,7 +44,26 @@ vi.mock("@/protoFleet/hooks/useDeviceSetListState", () => ({
   }),
 }));
 vi.mock("@/protoFleet/api/useComponentErrors", () => ({
-  useComponentErrors: () => ({ controlBoardErrors: 2, fanErrors: 0, hashboardErrors: 1, psuErrors: 0 }),
+  useComponentErrors: () =>
+    data.componentsError
+      ? {
+          controlBoardErrors: undefined,
+          fanErrors: undefined,
+          hashboardErrors: undefined,
+          psuErrors: undefined,
+          hasLoaded: false,
+          error: data.componentsError,
+          refetch: refetchComponents,
+        }
+      : {
+          controlBoardErrors: 2,
+          fanErrors: 0,
+          hashboardErrors: 1,
+          psuErrors: 0,
+          hasLoaded: true,
+          error: null,
+          refetch: refetchComponents,
+        },
 }));
 vi.mock("@/protoFleet/store", async (importActual) => ({
   ...(await importActual<typeof import("@/protoFleet/store")>()),
@@ -77,7 +98,9 @@ describe("SiteResourcePanel", () => {
     data.buildingsError = null;
     data.racks = [{ id: 10n, label: "Rack A" }];
     data.racksError = null;
+    data.componentsError = null;
     refetchRacks.mockClear();
+    refetchComponents.mockClear();
   });
 
   it("defaults to the Buildings gallery", () => {
@@ -114,6 +137,16 @@ describe("SiteResourcePanel", () => {
     expect(screen.getByTestId("site-resource-error")).toHaveTextContent("Couldn't load buildings.");
     expect(screen.queryByText("No buildings in this site yet.")).not.toBeInTheDocument();
     expect(screen.queryByTestId("building-card")).not.toBeInTheDocument();
+  });
+
+  it("surfaces a component-errors failure with retry in the Components tab", () => {
+    data.componentsError = new Error("boom");
+    renderPanel();
+    fireEvent.click(screen.getByText("Components"));
+    expect(screen.getByTestId("site-resource-error")).toHaveTextContent("Couldn't load component errors.");
+    expect(screen.queryByText("Control Boards")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Retry"));
+    expect(refetchComponents).toHaveBeenCalled();
   });
 
   it("surfaces a rack-list error with a working retry", () => {

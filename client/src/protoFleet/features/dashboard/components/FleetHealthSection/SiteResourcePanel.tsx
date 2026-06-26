@@ -116,7 +116,15 @@ const SiteResourcePanel = ({ siteId, activeSite }: SiteResourcePanelProps) => {
   const racksLoading = racksActive && (racksFetching || (racks.length === 0 && !racksFetchStarted));
 
   // Component errors — fetched only while the Components tab is active.
-  const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors({
+  const {
+    controlBoardErrors,
+    fanErrors,
+    hashboardErrors,
+    psuErrors,
+    hasLoaded: componentsLoaded,
+    error: componentsError,
+    refetch: refetchComponents,
+  } = useComponentErrors({
     siteIds: [siteId],
     includeUnassigned: false,
     enabled: tab === "Components",
@@ -213,13 +221,19 @@ const SiteResourcePanel = ({ siteId, activeSite }: SiteResourcePanelProps) => {
 
       <div className="mt-6">
         {tab === "Components" ? (
-          <FleetErrors
-            controlBoardErrors={controlBoardErrors}
-            fanErrors={fanErrors}
-            hashboardErrors={hashboardErrors}
-            psuErrors={psuErrors}
-            activeSite={activeSite}
-          />
+          // Surface a first-load failure (counts stay undefined → permanent
+          // skeletons) with a retry instead of the FleetErrors grid.
+          componentsError && !componentsLoaded ? (
+            <GalleryError label="Couldn't load component errors." onRetry={refetchComponents} />
+          ) : (
+            <FleetErrors
+              controlBoardErrors={controlBoardErrors}
+              fanErrors={fanErrors}
+              hashboardErrors={hashboardErrors}
+              psuErrors={psuErrors}
+              activeSite={activeSite}
+            />
+          )
         ) : (
           // Outer clip breaks out to the card's edges so cards stay visible
           // through the padding as they slide (cut off only at the card edge).
