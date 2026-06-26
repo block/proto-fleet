@@ -100,7 +100,6 @@ export function useRacksHooks() {
       const commonSteps = new CommonSteps(authPage, minersPage);
 
       await commonSteps.loginAsAdmin();
-      await racksPage.navigateToRacksPage();
       await cleanupAllRacks(racksPage);
     } finally {
       await context.close();
