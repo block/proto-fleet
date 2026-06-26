@@ -397,18 +397,23 @@ func (m *Miner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 	if err != nil {
 		return err
 	}
-	if err := ackToError(ack); err != nil {
-		return err
+	ackErr := ackToError(ack)
+	code := ack.GetCode()
+	if code != gatewaypb.AckCode_ACK_CODE_OK && code != gatewaypb.AckCode_ACK_CODE_PARTIAL {
+		return ackErr
 	}
 
 	ref, ok := minerLogsArtifactRef(refs)
 	if !ok {
+		if ackErr != nil {
+			return ackErr
+		}
 		return fleeterror.NewInternalError("fleet node reported log download success without uploaded log artifact")
 	}
 	if _, err := m.logArtifacts.SaveCommandArtifactLog(batchLogUUID, m.desc.GetMacAddress(), ref.GetArtifactId()); err != nil {
 		return fleeterror.NewInternalErrorf("failed to save fleet node miner logs: %v", err)
 	}
-	return nil
+	return ackErr
 }
 
 func (m *Miner) FirmwareUpdate(_ context.Context, _ sdk.FirmwareFile) error {

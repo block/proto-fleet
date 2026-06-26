@@ -889,6 +889,36 @@ func TestMiner_DownloadLogsRequiresUploadedArtifactRef(t *testing.T) {
 	assert.Empty(t, saver.artifactID)
 }
 
+func TestMiner_DownloadLogsMaterializesPartialArtifactBeforeReturningError(t *testing.T) {
+	// Arrange
+	s := &fakeSender{
+		ack: &gatewaypb.ControlAck{
+			Succeeded:    false,
+			Code:         gatewaypb.AckCode_ACK_CODE_PARTIAL,
+			ErrorMessage: "uploaded partial miner log data",
+		},
+		refs: []*gatewaypb.CommandArtifactRef{{
+			ArtifactId: "artifact-1",
+			Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+			Filename:   "logs.csv",
+			SizeBytes:  123,
+			Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+		}},
+	}
+	saver := &fakeLogArtifactSaver{}
+	m := newTestMinerWithLogSaver(t, s, saver)
+
+	// Act
+	err := m.DownloadLogs(context.Background(), "batch-1")
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "uploaded partial miner log data")
+	assert.Equal(t, "batch-1", saver.batchLogUUID)
+	assert.Equal(t, "AA:BB:CC:DD:EE:FF", saver.macAddress)
+	assert.Equal(t, "artifact-1", saver.artifactID)
+}
+
 func TestMiner_DownloadLogsNoActiveStreamIsRetryable(t *testing.T) {
 	// Arrange
 	m := newTestMinerWithLogSaver(t, &fakeSender{err: control.ErrNoActiveStream}, &fakeLogArtifactSaver{})

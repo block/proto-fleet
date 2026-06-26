@@ -299,15 +299,15 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID string,
 		if err != nil {
 			return nil, err
 		}
-		if moreData {
-			return nil, cmdErr(pb.AckCode_ACK_CODE_PARTIAL, "miner log download returned partial data; retry after partial log pagination is supported")
-		}
 		payload, err := minerLogsArtifactPayload(logData, caps[sdk.CapabilityLogLevels])
 		if err != nil {
 			return nil, err
 		}
 		if _, err := uploadMinerLogsArtifact(ctx, client, commandID, mc.GetTarget().GetDeviceIdentifier(), payload); err != nil {
 			return nil, err
+		}
+		if moreData {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_PARTIAL, "uploaded partial miner log data; retry after partial log pagination is supported")
 		}
 		return nil, nil
 	default:

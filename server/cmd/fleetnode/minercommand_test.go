@@ -658,15 +658,25 @@ func TestHandleMinerCommand_DownloadLogsAcksFailureWhenUploadFails(t *testing.T)
 	assert.NotEmpty(t, fake.artifactUploads())
 }
 
-func TestHandleMinerCommand_DownloadLogsRejectsPartialData(t *testing.T) {
+func TestHandleMinerCommand_DownloadLogsUploadsPartialDataThenAcksPartial(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	dev := mocks.NewMockDevice(ctrl)
-	dev.EXPECT().DownloadLogs(gomock.Any(), nil, "batch-1").Return("2026-02-24 07:52:12 partial log line\n", true, nil)
+	logData := "2026-02-24 07:52:12 partial log line\n"
+	wantBody := "Time,Message\n\"2026-02-24 07:52:12\",\"partial log line\"\n"
+	dev.EXPECT().DownloadLogs(gomock.Any(), nil, "batch-1").Return(logData, true, nil)
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
 	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	drv.EXPECT().DescribeDriver(gomock.Any()).Return(sdk.DriverIdentifier{}, sdk.Capabilities{}, nil)
-	fake := &fakeFleetNodeGateway{}
+	sum := sha256.Sum256([]byte(wantBody))
+	sha := hex.EncodeToString(sum[:])
+	fake := &fakeFleetNodeGateway{commandArtifactRef: &pb.CommandArtifactRef{
+		ArtifactId: "artifact-1",
+		Purpose:    pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		Filename:   minerLogsArtifactFilename,
+		SizeBytes:  int64(len(wantBody)),
+		Sha256:     sha,
+	}}
 	server := newFakeServer(t, fake)
 	client := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(server.Client(), server.URL)
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
@@ -678,8 +688,10 @@ func TestHandleMinerCommand_DownloadLogsRejectsPartialData(t *testing.T) {
 	got := ack.only(t)
 	assert.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, got.GetCode())
 	assert.False(t, got.GetSucceeded())
-	assert.Contains(t, got.GetErrorMessage(), "partial data")
-	assert.Empty(t, fake.artifactUploads())
+	assert.Contains(t, got.GetErrorMessage(), "uploaded partial")
+	uploads := fake.artifactUploads()
+	require.Len(t, uploads, 2)
+	assert.Equal(t, wantBody, string(uploads[1].GetChunk().GetData()))
 }
 
 func TestHandleMinerCommand_DownloadLogsRejectsOversizedLogs(t *testing.T) {
