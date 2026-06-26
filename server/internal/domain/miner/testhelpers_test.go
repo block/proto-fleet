@@ -15,6 +15,8 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+
+	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" driver for the unconnected test handle
 )
 
 // Global counter for generating unique test IPs
@@ -28,6 +30,31 @@ func setupTestDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service) {
 	require.NoError(t, err, "Failed to get test config")
 
 	db := testutil.GetTestDB(t)
+
+	encryptService, err := encrypt.NewService(&encrypt.Config{
+		ServiceMasterKey: testConfig.ServiceMasterKey,
+	})
+	require.NoError(t, err, "Failed to create encrypt service")
+
+	filesService, err := files.NewService(files.Config{})
+	require.NoError(t, err, "Failed to create files service")
+
+	return db, encryptService, filesService
+}
+
+// newServiceDepsNoDB builds NewMinerService dependencies WITHOUT provisioning a
+// database. The returned *sql.DB is a valid but unconnected handle, for tests
+// that never query it (constructor guards and the empty-identifier
+// short-circuit) — this avoids the per-test migrated-DB cost.
+func newServiceDepsNoDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service) {
+	t.Helper()
+
+	testConfig, err := testutil.GetTestConfig()
+	require.NoError(t, err, "Failed to get test config")
+
+	db, err := sql.Open("pgx", "")
+	require.NoError(t, err, "Failed to open unconnected db handle")
+	t.Cleanup(func() { _ = db.Close() })
 
 	encryptService, err := encrypt.NewService(&encrypt.Config{
 		ServiceMasterKey: testConfig.ServiceMasterKey,
