@@ -153,6 +153,8 @@ var FleetNodeAuthenticatedProcedures = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadHeartbeatProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadCommandArtifactProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceDownloadCommandArtifactProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportDiscoveredDevicesProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportPairedDevicesProcedure,
 }
@@ -170,6 +172,8 @@ var SensitiveBodyProcedures = map[string]bool{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure:           true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure:         true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure:            true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadCommandArtifactProcedure:   true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceDownloadCommandArtifactProcedure: true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportDiscoveredDevicesProcedure: true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportPairedDevicesProcedure:     true,
 	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:         true,

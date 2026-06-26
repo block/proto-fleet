@@ -332,6 +332,32 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
+	commandArtifactCleanupCtx, commandArtifactCleanupCancel := context.WithCancel(context.Background())
+	runCommandArtifactSweep := func() {
+		deleted, sweepErr := filesService.SweepExpiredCommandArtifacts(time.Now().UTC(), filesService.CommandArtifactRetentionTTL())
+		if sweepErr != nil {
+			slog.Error("failed to sweep expired command artifacts", "error", sweepErr)
+			return
+		}
+		if deleted > 0 {
+			slog.Debug("swept expired command artifacts", "count", deleted)
+		}
+	}
+	go func() {
+		ticker := time.NewTicker(filesService.CommandArtifactCleanupInterval())
+		defer ticker.Stop()
+		runCommandArtifactSweep()
+
+		for {
+			select {
+			case <-ticker.C:
+				runCommandArtifactSweep()
+			case <-commandArtifactCleanupCtx.Done():
+				return
+			}
+		}
+	}()
+	defer commandArtifactCleanupCancel()
 	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, pluginManager).
 		WithCommandSender(fleetNodeControlRegistry)
 
@@ -613,7 +639,11 @@ func start(config *Config) error {
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
-	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry), li))
+	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(
+		gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry, filesService),
+		li,
+		gateway.CommandArtifactUploadReadLimitOption(),
+	))
 	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(admin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc, fleetNodeDiscoverySvc), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
@@ -663,7 +693,7 @@ func start(config *Config) error {
 		handler = m.Wrap(handler)
 	}
 
-	handler = h2c.NewHandler(handler, &http2.Server{})
+	handler = h2c.NewHandler(handler, newHTTP2Server(config.HTTP))
 	httpServer := http.Server{
 		Addr:              config.HTTP.Address,
 		Handler:           handler,
@@ -674,4 +704,10 @@ func start(config *Config) error {
 		return fmt.Errorf("server shutting down: %+v", err)
 	}
 	return nil
+}
+
+func newHTTP2Server(config HTTPConfig) *http2.Server {
+	return &http2.Server{
+		WriteByteTimeout: config.WriteByteTimeout,
+	}
 }

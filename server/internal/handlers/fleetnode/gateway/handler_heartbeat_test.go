@@ -21,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -30,6 +31,7 @@ func newHeartbeatHandler(t *testing.T) (*gateway.Handler, *sql.DB, int64) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
+	t.Chdir(t.TempDir())
 
 	db := testutil.GetTestDB(t)
 	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org', 'Test Org') ON CONFLICT DO NOTHING`)
@@ -53,8 +55,10 @@ func newHeartbeatHandler(t *testing.T) (*gateway.Handler, *sql.DB, int64) {
 
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
 	pairingSvc := pairing.NewService(pairingStore, enrollmentStore, transactor)
+	filesService, err := files.NewService(files.Config{})
+	require.NoError(t, err)
 
-	return gateway.NewHandler(enrollmentSvc, authSvc, pairingSvc, control.NewRegistry()), db, agent.ID
+	return gateway.NewHandler(enrollmentSvc, authSvc, pairingSvc, control.NewRegistry(), filesService), db, agent.ID
 }
 
 func TestUploadHeartbeat_AdvancesLastSeen(t *testing.T) {

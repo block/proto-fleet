@@ -1,10 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"errors"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
@@ -26,6 +33,7 @@ encrypt:
   service-master-key: "test-master-key"
 http:
   address: "0.0.0.0:9090"
+  write-byte-timeout: "45s"
   suppress-cors: true
 logging:
   json: true
@@ -42,6 +50,7 @@ logging:
 	_, err = parser.Parse(nil)
 	require.NoError(t, err)
 	require.Equal(t, "0.0.0.0:9090", config.HTTP.Address)
+	require.Equal(t, 45*time.Second, config.HTTP.WriteByteTimeout)
 	require.True(t, config.HTTP.SuppressCors)
 	require.Equal(t, "db.internal:5432", config.DB.Address)
 	require.True(t, config.Log.JSON)
@@ -77,11 +86,72 @@ logging:
 
 	_, err = parser.Parse([]string{
 		"--http-address=127.0.0.1:8081",
+		"--http-write-byte-timeout=1m",
 		"--logging-json=false",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "127.0.0.1:8081", config.HTTP.Address)
+	require.Equal(t, time.Minute, config.HTTP.WriteByteTimeout)
 	require.False(t, config.Log.JSON)
+}
+
+func TestHTTP2WriteByteTimeoutStopsNonReadingClient(t *testing.T) {
+	t.Parallel()
+
+	errMissingFlusher := errors.New("response writer does not implement http.Flusher")
+	handlerDone := make(chan error, 1)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		chunk := bytes.Repeat([]byte("x"), 1024)
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			handlerDone <- errMissingFlusher
+			return
+		}
+		for {
+			if _, err := w.Write(chunk); err != nil {
+				handlerDone <- err
+				return
+			}
+			flusher.Flush()
+			if err := r.Context().Err(); err != nil {
+				handlerDone <- err
+				return
+			}
+		}
+	})
+
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	go newHTTP2Server(HTTPConfig{WriteByteTimeout: 50 * time.Millisecond}).ServeConn(serverConn, &http2.ServeConnOpts{
+		Handler: handler,
+	})
+
+	framer := http2.NewFramer(clientConn, clientConn)
+	_, err := clientConn.Write([]byte(http2.ClientPreface))
+	require.NoError(t, err)
+	require.NoError(t, framer.WriteSettings())
+	var headers bytes.Buffer
+	encoder := hpack.NewEncoder(&headers)
+	require.NoError(t, encoder.WriteField(hpack.HeaderField{Name: ":method", Value: http.MethodGet}))
+	require.NoError(t, encoder.WriteField(hpack.HeaderField{Name: ":scheme", Value: "http"}))
+	require.NoError(t, encoder.WriteField(hpack.HeaderField{Name: ":authority", Value: "fleetd.test"}))
+	require.NoError(t, encoder.WriteField(hpack.HeaderField{Name: ":path", Value: "/"}))
+	require.NoError(t, framer.WriteHeaders(http2.HeadersFrameParam{
+		StreamID:      1,
+		BlockFragment: headers.Bytes(),
+		EndHeaders:    true,
+		EndStream:     true,
+	}))
+	_, err = framer.ReadFrame()
+	require.NoError(t, err)
+
+	select {
+	case err := <-handlerDone:
+		require.Error(t, err)
+		require.NotErrorIs(t, err, errMissingFlusher)
+	case <-time.After(3 * time.Second):
+		t.Fatal("handler did not unblock after client stopped reading response body")
+	}
 }
 
 func writeFleetdConfigFile(t *testing.T, contents string) string {

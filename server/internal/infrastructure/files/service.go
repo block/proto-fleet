@@ -69,7 +69,10 @@ func getBatchLogsDirPath(batchLogUUID string) string {
 }
 
 type Service struct {
-	maxFirmwareFileSize int64
+	maxFirmwareFileSize            int64
+	maxCommandArtifactSize         int64
+	commandArtifactRetentionTTL    time.Duration
+	commandArtifactCleanupInterval time.Duration
 
 	mu            sync.Mutex
 	checksumIndex map[string][]string // SHA-256 hex -> fileIDs
@@ -83,6 +86,30 @@ func (s *Service) MaxFirmwareFileSize() int64 {
 	return s.maxFirmwareFileSize
 }
 
+// MaxCommandArtifactSize returns the configured maximum command artifact size in bytes.
+func (s *Service) MaxCommandArtifactSize() int64 {
+	if s.maxCommandArtifactSize <= 0 {
+		return defaultMaxCommandArtifactSize
+	}
+	return s.maxCommandArtifactSize
+}
+
+// CommandArtifactRetentionTTL returns how long finalized command artifacts are retained.
+func (s *Service) CommandArtifactRetentionTTL() time.Duration {
+	if s.commandArtifactRetentionTTL <= 0 {
+		return defaultCommandArtifactRetentionTTL
+	}
+	return s.commandArtifactRetentionTTL
+}
+
+// CommandArtifactCleanupInterval returns how often finalized command artifacts are swept.
+func (s *Service) CommandArtifactCleanupInterval() time.Duration {
+	if s.commandArtifactCleanupInterval <= 0 {
+		return defaultCommandArtifactCleanupInterval
+	}
+	return s.commandArtifactCleanupInterval
+}
+
 func NewService(cfg Config) (*Service, error) {
 	if err := os.MkdirAll(logsDir, 0750); err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to create logs dir: %v", err)
@@ -93,15 +120,33 @@ func NewService(cfg Config) (*Service, error) {
 	if err := initFirmwareDir(); err != nil {
 		return nil, err
 	}
+	if err := initCommandArtifactDir(); err != nil {
+		return nil, err
+	}
 
 	maxSize := cfg.MaxFirmwareFileSize
 	if maxSize <= 0 {
 		maxSize = defaultMaxFirmwareFileSize
 	}
+	maxArtifactSize := cfg.MaxCommandArtifactSize
+	if maxArtifactSize <= 0 {
+		maxArtifactSize = defaultMaxCommandArtifactSize
+	}
+	retentionTTL := cfg.CommandArtifactRetentionTTL
+	if retentionTTL <= 0 {
+		retentionTTL = defaultCommandArtifactRetentionTTL
+	}
+	cleanupInterval := cfg.CommandArtifactCleanupInterval
+	if cleanupInterval <= 0 {
+		cleanupInterval = defaultCommandArtifactCleanupInterval
+	}
 
 	svc := &Service{
-		maxFirmwareFileSize: maxSize,
-		checksumIndex:       make(map[string][]string),
+		maxFirmwareFileSize:            maxSize,
+		maxCommandArtifactSize:         maxArtifactSize,
+		commandArtifactRetentionTTL:    retentionTTL,
+		commandArtifactCleanupInterval: cleanupInterval,
+		checksumIndex:                  make(map[string][]string),
 	}
 
 	if err := svc.initChecksumIndex(); err != nil {

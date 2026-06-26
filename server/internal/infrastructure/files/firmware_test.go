@@ -19,17 +19,27 @@ func checksumOf(content string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func firmwareFileEntries(t *testing.T) []os.DirEntry {
+func storageDirEntries(t *testing.T, dir string) []os.DirEntry {
 	t.Helper()
-	entries, err := os.ReadDir(firmwareDir)
+	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
+	return entries
+}
+
+func storageDirEntriesExcept(t *testing.T, dir, ignoredName string) []os.DirEntry {
+	t.Helper()
+	entries := storageDirEntries(t, dir)
 	var filtered []os.DirEntry
 	for _, e := range entries {
-		if e.Name() != "staging" {
+		if e.Name() != ignoredName {
 			filtered = append(filtered, e)
 		}
 	}
 	return filtered
+}
+
+func firmwareFileEntries(t *testing.T) []os.DirEntry {
+	return storageDirEntriesExcept(t, firmwareDir, "staging")
 }
 
 func TestValidateFirmwareFile_AcceptsAllowedExtensions(t *testing.T) {
