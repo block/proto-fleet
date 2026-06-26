@@ -90,6 +90,11 @@ function apiProfile(overrides: Partial<CurtailmentResponseProfile> = {}): Curtai
   return Object.assign(profile, overrides);
 }
 
+function expectWholeOrgScope(scopes: CurtailmentResponseProfile["scopes"] | undefined): void {
+  expect(scopes).toHaveLength(1);
+  expect(scopes?.[0]?.scope.case).toBe("wholeOrg");
+}
+
 describe("useCurtailmentResponseProfiles", () => {
   beforeEach(() => {
     mockCreateCurtailmentResponseProfile.mockReset();
@@ -153,7 +158,7 @@ describe("useCurtailmentResponseProfiles", () => {
         restoreBatchIntervalSec: 0,
       }),
     );
-    expect(mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0]?.scopes).toEqual([]);
+    expectWholeOrgScope(mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0]?.scopes);
 
     await act(async () => {
       await result.current.updateResponseProfile("7", { ...fixedKwFormValues, name: "Updated" });
@@ -165,7 +170,7 @@ describe("useCurtailmentResponseProfiles", () => {
         profileName: "Updated",
       }),
     );
-    expect(mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0]?.scopes).toEqual([]);
+    expectWholeOrgScope(mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0]?.scopes);
   });
 
   it("preserves site in the CRUD payload when site values are present", async () => {

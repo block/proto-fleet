@@ -364,11 +364,15 @@ function getOptionalNonNegativeNumber(value: string): number | undefined {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
+function createWholeOrgScope(): CurtailmentScope {
+  return create(CurtailmentScopeSchema, { scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) } });
+}
+
 function getResponseProfileScopes(values: ResponseProfileFormValues): CurtailmentScope[] | undefined {
   const siteIds = getSelectedResponseProfileSiteIds(values);
   const siteSelection = values.siteSelection ?? (siteIds.length > 0 ? "site" : "none");
   if (values.minerSelectionMode === "all") {
-    return [create(CurtailmentScopeSchema, { scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) } })];
+    return [createWholeOrgScope()];
   }
 
   const scopes: CurtailmentScope[] = [];
@@ -396,7 +400,7 @@ function getResponseProfileScopes(values: ResponseProfileFormValues): Curtailmen
     );
   }
 
-  return scopes.length > 0 ? scopes : undefined;
+  return scopes.length > 0 ? scopes : [createWholeOrgScope()];
 }
 
 function buildResponseProfilePayload(values: ResponseProfileFormValues) {
