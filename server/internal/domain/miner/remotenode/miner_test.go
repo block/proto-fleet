@@ -931,7 +931,7 @@ func TestMiner_DownloadLogsRequiresUploadedArtifactRef(t *testing.T) {
 	assert.Empty(t, saver.artifactID)
 }
 
-func TestMiner_DownloadLogsTreatsMaterializedPartialArtifactAsTerminal(t *testing.T) {
+func TestMiner_DownloadLogsMaterializesPartialArtifactAndFailsTerminally(t *testing.T) {
 	// Arrange
 	s := &fakeSender{
 		ack: &gatewaypb.ControlAck{
@@ -954,10 +954,34 @@ func TestMiner_DownloadLogsTreatsMaterializedPartialArtifactAsTerminal(t *testin
 	err := m.DownloadLogs(context.Background(), "batch-1")
 
 	// Assert
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "uploaded partial miner log data")
 	assert.Equal(t, "batch-1", saver.batchLogUUID)
 	assert.Equal(t, "AA:BB:CC:DD:EE:FF", saver.macAddress)
 	assert.Equal(t, "artifact-1", saver.artifactID)
+}
+
+func TestMiner_DownloadLogsPartialAckWithoutArtifactFailsTerminally(t *testing.T) {
+	// Arrange
+	s := &fakeSender{
+		ack: &gatewaypb.ControlAck{
+			Succeeded:    false,
+			Code:         gatewaypb.AckCode_ACK_CODE_PARTIAL,
+			ErrorMessage: "miner log data incomplete",
+		},
+	}
+	saver := &fakeLogArtifactSaver{}
+	m := newTestMinerWithLogSaver(t, s, saver)
+
+	// Act
+	err := m.DownloadLogs(context.Background(), "batch-1")
+
+	// Assert
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "miner log data incomplete")
+	assert.Empty(t, saver.artifactID)
 }
 
 func TestMiner_DownloadLogsUsesLogDownloadGate(t *testing.T) {
