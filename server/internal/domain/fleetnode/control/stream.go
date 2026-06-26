@@ -135,25 +135,33 @@ func (r *Registry) releaseCommandArtifactSlot(fleetNodeID int64, slots map[int64
 // matches the in-flight server-issued command. Admission marks the expectation
 // in-progress so concurrent transfers for the same expectation are rejected.
 func (r *Registry) AdmitCommandArtifact(fleetNodeID int64, commandID string, want ArtifactExpectation) error {
+	_, err := r.AdmitCommandArtifactTransfer(fleetNodeID, commandID, want)
+	return err
+}
+
+// AdmitCommandArtifactTransfer admits an artifact transfer and returns the
+// command's done signal so handlers can abort byte movement if the command is
+// removed by completion, timeout, or ControlStream replacement.
+func (r *Registry) AdmitCommandArtifactTransfer(fleetNodeID int64, commandID string, want ArtifactExpectation) (<-chan struct{}, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cmd := r.inflightFor(fleetNodeID, commandID)
 	if cmd == nil {
-		return errNoInFlightCommand
+		return nil, errNoInFlightCommand
 	}
 	exp := cmd.artifactExpectationFor(want)
 	if exp == nil {
-		return ErrArtifactNotExpected
+		return nil, ErrArtifactNotExpected
 	}
 	if exp.inProgress || exp.completed {
-		return ErrArtifactAlreadyTransferred
+		return nil, ErrArtifactAlreadyTransferred
 	}
 	if exp.attempts >= maxCommandArtifactTransferAttempts {
-		return ErrArtifactTransferAttemptsExceeded
+		return nil, ErrArtifactTransferAttemptsExceeded
 	}
 	exp.attempts++
 	exp.inProgress = true
-	return nil
+	return cmd.done, nil
 }
 
 // CompleteCommandArtifactTransfer marks an admitted transfer as completed.
@@ -175,24 +183,26 @@ func (r *Registry) CompleteCommandArtifactTransfer(fleetNodeID int64, commandID 
 
 // CompleteCommandArtifactUpload marks an upload as completed and stores the
 // artifact reference so a retry can idempotently recover the response while the
-// command remains in flight.
-func (r *Registry) CompleteCommandArtifactUpload(fleetNodeID int64, commandID string, want ArtifactExpectation, ref *gatewaypb.CommandArtifactRef) {
+// command remains in flight. It returns false if the command or expectation
+// disappeared before completion.
+func (r *Registry) CompleteCommandArtifactUpload(fleetNodeID int64, commandID string, want ArtifactExpectation, ref *gatewaypb.CommandArtifactRef) bool {
 	if want.Direction != ArtifactDirectionUpload || ref == nil {
-		return
+		return false
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cmd := r.inflightFor(fleetNodeID, commandID)
 	if cmd == nil {
-		return
+		return false
 	}
 	exp := cmd.artifactExpectationFor(want)
 	if exp == nil {
-		return
+		return false
 	}
 	exp.inProgress = false
 	exp.completed = true
 	exp.uploadRef = cloneCommandArtifactRef(ref)
+	return true
 }
 
 // CompletedCommandArtifactUpload returns the stored artifact ref for a completed

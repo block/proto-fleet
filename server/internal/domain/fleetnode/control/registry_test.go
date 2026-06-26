@@ -754,6 +754,44 @@ func TestAdmitCommandArtifactConsumesUploadExpectation(t *testing.T) {
 	require.ErrorIs(t, err, ErrArtifactAlreadyTransferred)
 }
 
+func TestAdmitCommandArtifactTransferReturnsCommandDone(t *testing.T) {
+	r := NewRegistry()
+	fleetNodeID := int64(12)
+	commandID := "artifact-upload-command"
+	expectation := ArtifactExpectation{
+		Direction:        ArtifactDirectionUpload,
+		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		DeviceIdentifier: "miner-1",
+	}
+	stream := r.Register(fleetNodeID)
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.SendCommandWithArtifacts(context.Background(), fleetNodeID, &gatewaypb.ControlCommand{CommandId: commandID}, []ArtifactExpectation{expectation})
+		done <- err
+	}()
+	select {
+	case <-stream.Outgoing:
+	case <-time.After(time.Second):
+		t.Fatal("command did not enqueue")
+	}
+
+	commandDone, err := r.AdmitCommandArtifactTransfer(fleetNodeID, commandID, expectation)
+	require.NoError(t, err)
+
+	stream.Unregister()
+	select {
+	case <-commandDone:
+	case <-time.After(time.Second):
+		t.Fatal("command done did not close after unregister")
+	}
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrNoActiveStream)
+	case <-time.After(time.Second):
+		t.Fatal("command waiter did not return after unregister")
+	}
+}
+
 func TestReinstateCommandArtifactUploadAllowsRetry(t *testing.T) {
 	r := NewRegistry()
 	fleetNodeID := int64(12)
@@ -792,7 +830,7 @@ func TestCompletedCommandArtifactUploadReturnsStoredRef(t *testing.T) {
 		SizeBytes:  123,
 		Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
 	}
-	r.CompleteCommandArtifactUpload(fleetNodeID, commandID, expectation, ref)
+	require.True(t, r.CompleteCommandArtifactUpload(fleetNodeID, commandID, expectation, ref))
 
 	got, ok := r.CompletedCommandArtifactUpload(fleetNodeID, commandID, expectation)
 	require.True(t, ok)
@@ -804,6 +842,46 @@ func TestCompletedCommandArtifactUploadReturnsStoredRef(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "artifact-1", got.GetArtifactId())
 	require.ErrorIs(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation), ErrArtifactAlreadyTransferred)
+}
+
+func TestCompleteCommandArtifactUploadReportsMissingCommand(t *testing.T) {
+	r := NewRegistry()
+	fleetNodeID := int64(12)
+	commandID := "artifact-upload-command"
+	expectation := ArtifactExpectation{
+		Direction:        ArtifactDirectionUpload,
+		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		DeviceIdentifier: "miner-1",
+	}
+	stream := r.Register(fleetNodeID)
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.SendCommandWithArtifacts(context.Background(), fleetNodeID, &gatewaypb.ControlCommand{CommandId: commandID}, []ArtifactExpectation{expectation})
+		done <- err
+	}()
+	select {
+	case <-stream.Outgoing:
+	case <-time.After(time.Second):
+		t.Fatal("command did not enqueue")
+	}
+	require.NoError(t, r.AdmitCommandArtifact(fleetNodeID, commandID, expectation))
+	stream.Unregister()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrNoActiveStream)
+	case <-time.After(time.Second):
+		t.Fatal("command waiter did not return after unregister")
+	}
+
+	ok := r.CompleteCommandArtifactUpload(fleetNodeID, commandID, expectation, &gatewaypb.CommandArtifactRef{
+		ArtifactId: "artifact-1",
+		Purpose:    expectation.Purpose,
+		Filename:   "logs.zip",
+		SizeBytes:  123,
+		Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+	})
+
+	require.False(t, ok)
 }
 
 func TestCommandArtifactTransferAttemptsAreCapped(t *testing.T) {

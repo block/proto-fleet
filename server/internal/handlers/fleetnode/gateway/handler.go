@@ -36,7 +36,6 @@ var (
 	CommandArtifactUploadChunkTimeout  = 30 * time.Second
 	CommandArtifactUploadTotalTimeout  = 10 * time.Minute
 
-	CommandArtifactDownloadSendTimeout  = 30 * time.Second
 	CommandArtifactDownloadTotalTimeout = 10 * time.Minute
 )
 
@@ -137,7 +136,8 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 		Purpose:          header.GetPurpose(),
 		DeviceIdentifier: header.GetDeviceIdentifier(),
 	}
-	if err := h.registry.AdmitCommandArtifact(subject.FleetNodeID, header.GetCommandId(), expectation); err != nil {
+	commandDone, err := h.registry.AdmitCommandArtifactTransfer(subject.FleetNodeID, header.GetCommandId(), expectation)
+	if err != nil {
 		if errors.Is(err, control.ErrArtifactAlreadyTransferred) {
 			if ref, ok := h.registry.CompletedCommandArtifactUpload(subject.FleetNodeID, header.GetCommandId(), expectation); ok && commandArtifactUploadHeaderMatchesRef(header, ref) {
 				uploadCtx, cancel := context.WithTimeout(ctx, CommandArtifactUploadTotalTimeout)
@@ -151,7 +151,7 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 		return nil, mapArtifactAdmissionError(err)
 	}
 
-	uploadCtx, cancel := context.WithTimeout(ctx, CommandArtifactUploadTotalTimeout)
+	uploadCtx, cancel := commandArtifactTransferContext(ctx, commandDone, CommandArtifactUploadTotalTimeout)
 	defer cancel()
 	artifact, err := h.files.SaveCommandArtifact(
 		header.GetFilename(),
@@ -166,7 +166,12 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 		return nil, err
 	}
 	ref := commandArtifactRef(artifact, header.GetPurpose())
-	h.registry.CompleteCommandArtifactUpload(subject.FleetNodeID, header.GetCommandId(), expectation, ref)
+	if !h.registry.CompleteCommandArtifactUpload(subject.FleetNodeID, header.GetCommandId(), expectation, ref) {
+		if err := h.files.DeleteCommandArtifact(ref.GetArtifactId()); err != nil {
+			slog.Warn("failed to delete command artifact after command ended before upload completion", "artifact_id", ref.GetArtifactId(), "error", err)
+		}
+		return nil, fleeterror.NewFailedPreconditionError("command no longer in flight for artifact upload")
+	}
 	return connect.NewResponse(&pb.UploadCommandArtifactResponse{
 		Artifact: ref,
 	}), nil
@@ -196,7 +201,8 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 		ArtifactID:       ref.GetArtifactId(),
 		DeviceIdentifier: req.Msg.GetDeviceIdentifier(),
 	}
-	if err := h.registry.AdmitCommandArtifact(subject.FleetNodeID, req.Msg.GetCommandId(), expectation); err != nil {
+	commandDone, err := h.registry.AdmitCommandArtifactTransfer(subject.FleetNodeID, req.Msg.GetCommandId(), expectation)
+	if err != nil {
 		return mapArtifactAdmissionError(err)
 	}
 	defer h.registry.ReinstateCommandArtifactTransfer(subject.FleetNodeID, req.Msg.GetCommandId(), expectation)
@@ -210,7 +216,7 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 		return fleeterror.NewFailedPreconditionError("command artifact metadata no longer matches the issued reference")
 	}
 
-	downloadCtx, cancel := context.WithTimeout(ctx, CommandArtifactDownloadTotalTimeout)
+	downloadCtx, cancel := commandArtifactTransferContext(ctx, commandDone, CommandArtifactDownloadTotalTimeout)
 	defer cancel()
 
 	if err := sendCommandArtifactDownloadResponse(downloadCtx, stream, &pb.DownloadCommandArtifactResponse{Part: &pb.DownloadCommandArtifactResponse_Header{
@@ -241,27 +247,28 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 }
 
 func sendCommandArtifactDownloadResponse(ctx context.Context, stream *connect.ServerStream[pb.DownloadCommandArtifactResponse], msg *pb.DownloadCommandArtifactResponse) error {
-	return runCommandArtifactDownloadSend(ctx, CommandArtifactDownloadSendTimeout, func() error {
-		return stream.Send(msg)
-	})
+	if err := ctx.Err(); err != nil {
+		return contextConnectError(ctx.Err(), "command artifact download deadline exceeded")
+	}
+	// Connect does not expose a cancellable ServerStream.Send. Keep the send
+	// synchronous so a blocked transport keeps holding the per-node download slot
+	// instead of leaking a goroutine after the handler returns.
+	if err := stream.Send(msg); err != nil {
+		return fmt.Errorf("send command artifact download response: %w", err)
+	}
+	return nil
 }
 
-func runCommandArtifactDownloadSend(ctx context.Context, timeout time.Duration, send func() error) error {
-	done := make(chan error, 1)
+func commandArtifactTransferContext(parent context.Context, commandDone <-chan struct{}, timeout time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	go func() {
-		done <- send()
+		select {
+		case <-commandDone:
+			cancel()
+		case <-ctx.Done():
+		}
 	}()
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return contextConnectError(ctx.Err(), "command artifact download deadline exceeded")
-	case <-timer.C:
-		return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("command artifact download send blocked for %s", timeout))
-	case err := <-done:
-		return err
-	}
+	return ctx, cancel
 }
 
 func commandArtifactDownloadSendError(label string, err error) error {

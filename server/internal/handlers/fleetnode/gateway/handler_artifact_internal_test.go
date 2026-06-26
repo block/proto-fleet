@@ -14,37 +14,24 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 )
 
-func TestRunCommandArtifactDownloadSendTimesOutBlockedSend(t *testing.T) {
-	started := make(chan struct{})
-	release := make(chan struct{})
-	done := make(chan struct{})
-
-	err := runCommandArtifactDownloadSend(context.Background(), 10*time.Millisecond, func() error {
-		close(started)
-		defer close(done)
-		<-release
-		return nil
-	})
-
-	require.Error(t, err)
-	assert.Equal(t, connect.CodeDeadlineExceeded, connect.CodeOf(err))
-	close(release)
-
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("send function did not start")
-	}
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("send function did not exit")
-	}
-}
-
 func TestContextConnectErrorMapsCanceledSeparatelyFromDeadline(t *testing.T) {
 	assert.Equal(t, connect.CodeCanceled, connect.CodeOf(contextConnectError(context.Canceled, "upload closed")))
 	assert.Equal(t, connect.CodeDeadlineExceeded, connect.CodeOf(contextConnectError(context.DeadlineExceeded, "upload closed")))
+}
+
+func TestCommandArtifactTransferContextCancelsWhenCommandEnds(t *testing.T) {
+	commandDone := make(chan struct{})
+	ctx, cancel := commandArtifactTransferContext(context.Background(), commandDone, time.Hour)
+	defer cancel()
+
+	close(commandDone)
+
+	select {
+	case <-ctx.Done():
+		assert.ErrorIs(t, ctx.Err(), context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("transfer context did not cancel after command ended")
+	}
 }
 
 func TestMapArtifactAdmissionErrorHandlesNoActiveStream(t *testing.T) {
