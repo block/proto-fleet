@@ -96,7 +96,7 @@ describe("MinerSelectionList site scope", () => {
   });
 
   it("does not offer select-all for filtered results the curtailment backend cannot represent", async () => {
-    render(<MinerSelectionList />);
+    render(<MinerSelectionList disableFilteredSelectAll />);
     expect(screen.getByText("Select all")).toBeInTheDocument();
 
     const listProps = listPropsSpy.mock.calls[listPropsSpy.mock.calls.length - 1]?.[0] as {
@@ -118,5 +118,29 @@ describe("MinerSelectionList site scope", () => {
     });
 
     await waitFor(() => expect(screen.queryByText("Select all")).not.toBeInTheDocument());
+  });
+
+  it("keeps filtered select-all available by default for callers that expand filters", async () => {
+    render(<MinerSelectionList />);
+
+    const listProps = listPropsSpy.mock.calls[listPropsSpy.mock.calls.length - 1]?.[0] as {
+      onServerFilter: (filters: {
+        buttonFilters: string[];
+        dropdownFilters: Record<string, string[]>;
+        numericFilters: Record<string, unknown>;
+        textareaListFilters: Record<string, string[]>;
+      }) => Promise<void>;
+    };
+
+    await act(async () => {
+      await listProps.onServerFilter({
+        buttonFilters: [],
+        dropdownFilters: { type: ["S21"] },
+        numericFilters: {},
+        textareaListFilters: {},
+      });
+    });
+
+    expect(screen.getByText("Select all")).toBeInTheDocument();
   });
 });

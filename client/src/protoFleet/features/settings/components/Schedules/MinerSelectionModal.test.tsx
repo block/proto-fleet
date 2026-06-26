@@ -24,12 +24,12 @@ describe("MinerSelectionModal", () => {
     mockMinerSelectionList.mockReset();
   });
 
-  it("keeps the global select-all footer enabled for schedule targeting", () => {
+  it("disables filtered select-all for schedule targeting", () => {
     render(<MinerSelectionModal open selectedMinerIds={["miner-1"]} onDismiss={vi.fn()} onSave={vi.fn()} />);
 
     expect(mockMinerSelectionList).toHaveBeenCalledWith(
-      expect.not.objectContaining({
-        showSelectAllFooter: false,
+      expect.objectContaining({
+        disableFilteredSelectAll: true,
       }),
     );
   });

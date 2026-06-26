@@ -61,6 +61,7 @@ export interface MinerSelectionListProps {
   isRowDisabled?: (item: DeviceListItem) => boolean;
   /** When true, renders radio buttons for single-item selection instead of checkboxes. */
   singleSelect?: boolean;
+  disableFilteredSelectAll?: boolean;
   showSelectAllFooter?: boolean;
   // Soft default from the topbar SitePicker. A single selected site limits the
   // miner list and its rack facet options to that site; "all sites" passes the
@@ -167,6 +168,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       isMembersLoading = false,
       isRowDisabled,
       singleSelect = false,
+      disableFilteredSelectAll = false,
       showSelectAllFooter = true,
       scope,
       onSelectionChange,
@@ -238,7 +240,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       [currentPageItems, isRowDisabled],
     );
     const displayedSelectedItems = allSelected && !singleSelect ? currentSelectableItemIds : selectedItems;
-    const canSelectAll = !singleSelect && !hasUnsupportedAllSelectionFilter(filter);
+    const canSelectAll = !singleSelect && (!disableFilteredSelectAll || !hasUnsupportedAllSelectionFilter(filter));
     const shouldShowSelectionFooter =
       showSelectAllFooter &&
       totalMiners !== undefined &&

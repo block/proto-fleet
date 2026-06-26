@@ -79,6 +79,7 @@ const MinerSelectionModal = ({
           key={`${allMinersSelected ? "all" : "subset"}:${selectedMinerIds.join(",")}`}
           initialAllSelected={allMinersSelected}
           initialSelectedItems={selectedMinerIds}
+          disableFilteredSelectAll
           scope={scope}
           onSelectionChange={({ selectedItems, allSelected, totalMiners }) =>
             setDraftSelection({ selectedMinerIds: selectedItems, allSelected, totalMiners })
