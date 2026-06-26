@@ -43,6 +43,7 @@ const (
 	maxGetErrorsReports            = 512
 	minerLogsArtifactFilename      = "miner-logs.csv"
 	commandArtifactChunkSize       = 1 << 20
+	maxMinerLogsArtifactBytes      = 4 * 1024 * 1024
 )
 
 // driverGetter is the plugin-manager seam the executor needs; *plugins.Manager satisfies it.

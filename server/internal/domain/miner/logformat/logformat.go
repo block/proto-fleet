@@ -2,6 +2,7 @@ package logformat
 
 import (
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -42,6 +43,32 @@ func FormatLinesToCSV(logLines []string, includeType bool) []string {
 		rows = append(rows, FormatLineToCSVRow(line, includeType))
 	}
 	return rows
+}
+
+// WriteTextToCSV converts raw newline-delimited miner logs into CSV rows without
+// materializing every formatted row.
+func WriteTextToCSV(w io.Writer, logData string, includeType bool) error {
+	header := csvLogHeaderWithType
+	if !includeType {
+		header = csvLogHeaderNoType
+	}
+	if _, err := fmt.Fprintln(w, header); err != nil {
+		return fmt.Errorf("write csv header: %w", err)
+	}
+
+	remaining := strings.TrimRight(logData, "\n")
+	for {
+		line, rest, found := strings.Cut(remaining, "\n")
+		if strings.TrimSpace(line) != "" {
+			if _, err := fmt.Fprintln(w, FormatLineToCSVRow(line, includeType)); err != nil {
+				return fmt.Errorf("write csv row: %w", err)
+			}
+		}
+		if !found {
+			return nil
+		}
+		remaining = rest
+	}
 }
 
 // FormatLineToCSVRow parses a single log line into a CSV row.
