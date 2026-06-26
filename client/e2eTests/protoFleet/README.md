@@ -50,11 +50,13 @@ npm run test:e2e:headed    # Run with visible browser
 
 ### Test Execution Strategy
 
-- **Pull Requests**: Run the full Fleet suite through parallel spec workers
+- **Pull Requests**: Run the full Fleet suite across parallel shards
 - **Nightly Builds**: Run the full Fleet suite
 - **Manual Runs**: Run the full Fleet suite by default
 
-In CI, spec files whose names start with two digits, such as `00-onboarding.spec.ts` and `01-miningPools.spec.ts`, are treated as setup specs. They are replayed first, in filename order, before each non-setup spec worker runs its assigned spec file.
+In CI, non-setup spec files are distributed across a fixed number of shards (`SHARD_TOTAL`) per project (desktop and mobile). Files are assigned round-robin by index (`index % SHARD_TOTAL`) rather than in contiguous alphabetical blocks, so heavy suites that sort next to each other are spread across different shards instead of clustering on one.
+
+Spec files whose names start with two digits, such as `00-onboarding.spec.ts` and `01-miningPools.spec.ts`, are treated as setup specs. They are not sharded; instead they run first, in filename order, as Playwright project dependencies in every shard.
 
 **Using Playwright directly:**
 

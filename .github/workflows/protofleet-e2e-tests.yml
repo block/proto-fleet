@@ -11,35 +11,27 @@ jobs:
   detect-specs:
     runs-on: ubuntu-latest
     outputs:
-      setup_specs: ${{ steps.detect.outputs.setup_specs }}
       specs: ${{ steps.detect.outputs.specs }}
-      projects: ${{ steps.detect.outputs.projects }}
     steps:
       - name: Checkout code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
-      - name: Detect spec files and projects
+      - name: Detect spec files
         id: detect
         run: |
           cd client/e2eTests/protoFleet/spec
 
-          SETUP_SPEC_FILES=$( (find . -name "*.spec.ts" | sed 's|^\./||' | sort | grep -E '^[0-9]{2}-.*\.spec\.ts$' || true) | jq -R . | jq -cs .)
+          # Setup specs (NN-*.spec.ts) run automatically as Playwright project
+          # dependencies in every shard, so only the target specs are sharded.
           SPEC_FILES=$( (find . -name "*.spec.ts" | sed 's|^\./||' | sort | grep -Ev '^[0-9]{2}-.*\.spec\.ts$' || true) | jq -R . | jq -cs .)
-          PROJECTS='["desktop", "mobile"]'
 
-          echo "setup_specs=${SETUP_SPEC_FILES}" >> $GITHUB_OUTPUT
-          echo "specs=${SPEC_FILES}" >> $GITHUB_OUTPUT
-          echo "projects=${PROJECTS}" >> $GITHUB_OUTPUT
-
-          echo "Detected setup specs: ${SETUP_SPEC_FILES}"
+          echo "specs=${SPEC_FILES}" >> "$GITHUB_OUTPUT"
           echo "Detected specs: ${SPEC_FILES}"
-          echo "Projects to run: ${PROJECTS}"
 
   build:
     name: Build client and plugins
-    needs: detect-specs
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -55,27 +47,21 @@ jobs:
       - name: Configure Go cache
         uses: ./.github/actions/go-cache-setup
 
-      # Restore-only: the E2E shard job saves this key with an additional
-      # `~/.cache/ms-playwright` path. Cache keys are immutable, so if this job
-      # saved first it would permanently lock the shards out of caching their
-      # Playwright browsers. Restore here, save there.
-      - name: Restore Node modules cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Cache the npm download cache (~/.npm), not a built node_modules:
+      # restoring node_modules from cache corrupts native optional deps (e.g.
+      # Rolldown's Linux binding), so we always run a clean `npm ci` and just
+      # keep its downloads warm. This is also the pattern Client Checks uses.
+      - name: Cache npm dependencies
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: |
-            client/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('client/package-lock.json') }}
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-node-
+            ${{ runner.os }}-npm-
 
       - name: Install client dependencies
         working-directory: client
-        run: |
-          # Avoid npm optional-dependency restore bugs with native packages
-          # (for example Rolldown's Linux binding) when node_modules came
-          # from an Actions cache.
-          rm -rf node_modules
-          npm ci --include=optional
+        run: npm ci --include=optional
 
       - name: Build ProtoFleet
         working-directory: client
@@ -176,11 +162,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      # Total shard count. Keep in sync with the length of matrix.shard below.
+      SHARD_TOTAL: "8"
     strategy:
       fail-fast: false
       matrix:
-        spec: ${{ fromJson(needs.detect-specs.outputs.specs) }}
-        project: ${{ fromJson(needs.detect-specs.outputs.projects) }}
+        # 0-indexed to match the round-robin modulo in the run step below.
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        project: [desktop, mobile]
 
     steps:
       - name: Checkout code
@@ -188,42 +178,46 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set artifact name
-        id: artifact
-        env:
-          MATRIX_SPEC: ${{ matrix.spec }}
-        run: |
-          # Sanitize spec name for use in artifact names
-          SPEC_NAME=$(printf '%s' "$MATRIX_SPEC" | sed 's/\.spec\.ts$//' | sed 's/[^a-zA-Z0-9]/-/g')
-          echo "spec_name=${SPEC_NAME}" >> "$GITHUB_OUTPUT"
-
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
         with:
           preinstall: "false"
 
-      - name: Cache Node modules
+      # See the build job: cache ~/.npm and run a clean `npm ci` rather than
+      # caching a built node_modules.
+      - name: Cache npm dependencies
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: |
-            client/node_modules
-            ~/.cache/ms-playwright
-          key: ${{ runner.os }}-node-${{ hashFiles('client/package-lock.json') }}
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-node-
+            ${{ runner.os }}-npm-
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install client dependencies
         working-directory: client
-        run: |
-          # Avoid npm optional-dependency restore bugs with native packages
-          # (for example Rolldown's Linux binding) when node_modules came
-          # from an Actions cache.
-          rm -rf node_modules
-          npm ci --include=optional
+        run: npm ci --include=optional
 
       - name: Install Playwright browsers
         working-directory: client/e2eTests/protoFleet
-        run: npx playwright install --with-deps chromium
+        env:
+          PLAYWRIGHT_CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
+        run: |
+          # On an exact cache hit the browser binaries are already present, so
+          # skip the slow `--with-deps` apt step and just (re)link them.
+          if [ "$PLAYWRIGHT_CACHE_HIT" = "true" ]; then
+            npx playwright install chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
 
       - name: Download prebuilt client
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -273,23 +267,43 @@ jobs:
           timeout 60 bash -c 'until curl -f http://localhost:5173 2>/dev/null; do sleep 2; done'
           echo "Frontend is ready!"
 
-      - name: Run Playwright tests (${{ matrix.project }} - ${{ matrix.spec }})
+      - name: Run Playwright tests (${{ matrix.project }} - shard ${{ matrix.shard }})
         working-directory: client/e2eTests/protoFleet
         env:
           CI: true
           MATRIX_PROJECT: ${{ matrix.project }}
-          MATRIX_SPEC: ${{ matrix.spec }}
-          SPEC_NAME: ${{ steps.artifact.outputs.spec_name }}
+          MATRIX_SHARD: ${{ matrix.shard }}
+          SPECS_JSON: ${{ needs.detect-specs.outputs.specs }}
         run: |
           rm -rf blob-report playwright-report test-results
           mkdir -p blob-report
 
-          # The viewport-matched setup project (setup-$MATRIX_PROJECT):
-          # onboarding + pools + auth storageState runs automatically before
-          # the target via project `dependencies`.
-          PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${MATRIX_PROJECT}-${SPEC_NAME}.zip" \
+          # Assign specs round-robin by index. Playwright's own --shard splits
+          # the alphabetically-sorted file list into contiguous blocks, which
+          # clusters adjacent heavy suites (e.g. the racks*.spec.ts files) into
+          # one shard. Round-robin breaks that adjacency so heavy suites spread
+          # across shards. Setup specs are excluded here but still run as
+          # project `dependencies` (onboarding + pools + auth storageState) in
+          # every shard.
+          mapfile -t ALL_SPECS < <(printf '%s' "$SPECS_JSON" | jq -r '.[]')
+          SHARD_SPECS=()
+          for i in "${!ALL_SPECS[@]}"; do
+            if [ "$((i % SHARD_TOTAL))" -eq "$MATRIX_SHARD" ]; then
+              SHARD_SPECS+=("spec/${ALL_SPECS[$i]}")
+            fi
+          done
+
+          if [ "${#SHARD_SPECS[@]}" -eq 0 ]; then
+            echo "No specs assigned to shard ${MATRIX_SHARD}; nothing to run."
+            exit 0
+          fi
+
+          echo "Specs for shard ${MATRIX_SHARD}:"
+          printf '  - %s\n' "${SHARD_SPECS[@]}"
+
+          PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${MATRIX_PROJECT}-shard-${MATRIX_SHARD}.zip" \
           PWTEST_BLOB_DO_NOT_REMOVE=1 \
-          npx playwright test --project="$MATRIX_PROJECT" --reporter=blob "spec/$MATRIX_SPEC"
+          npx playwright test --project="$MATRIX_PROJECT" --reporter=blob "${SHARD_SPECS[@]}"
 
           echo "Blob reports created:"
           find blob-report -maxdepth 2 -type f -print | sort || true
@@ -298,7 +312,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ always() && !cancelled() }}
         with:
-          name: blob-report-${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}
+          name: blob-report-${{ matrix.project }}-shard-${{ matrix.shard }}
           path: client/e2eTests/protoFleet/blob-report/
           if-no-files-found: warn
           retention-days: 30
@@ -307,7 +321,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ failure() && !cancelled() }}
         with:
-          name: screenshots-${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}
+          name: screenshots-${{ matrix.project }}-shard-${{ matrix.shard }}
           path: client/e2eTests/protoFleet/test-results/
           if-no-files-found: ignore
           retention-days: 7
@@ -348,25 +362,18 @@ jobs:
         with:
           preinstall: "false"
 
-      # Restore-only: see the build job for rationale — the E2E shard owns the
-      # shared node cache key so it can include the Playwright browser cache.
-      - name: Restore Node modules cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # See the build job: cache ~/.npm and run a clean `npm ci`.
+      - name: Cache npm dependencies
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: |
-            client/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('client/package-lock.json') }}
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-node-
+            ${{ runner.os }}-npm-
 
       - name: Install client dependencies
         working-directory: client
-        run: |
-          # Avoid npm optional-dependency restore bugs with native packages
-          # (for example Rolldown's Linux binding) when node_modules came
-          # from an Actions cache.
-          rm -rf node_modules
-          npm ci --include=optional
+        run: npm ci --include=optional
 
       - name: Download all blob reports
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

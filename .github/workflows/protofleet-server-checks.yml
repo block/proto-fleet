@@ -21,8 +21,10 @@ permissions:
   contents: read
 
 jobs:
-  server:
-    name: Server
+  # Lint and build+test run as separate jobs so they execute in parallel on
+  # two runners instead of serially on one. They share the Go build cache.
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,6 +44,22 @@ jobs:
 
       - name: Lint
         run: just lint
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
 
       - name: Build
         run: just build
