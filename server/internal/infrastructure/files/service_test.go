@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 )
 
@@ -330,6 +331,7 @@ func TestSaveCommandArtifactLog_RejectsMissingAndCorruptArtifacts(t *testing.T) 
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "sha256 mismatch")
+		assert.True(t, fleeterror.IsFailedPreconditionError(err))
 		assert.Empty(t, filePath)
 		entries, readErr := os.ReadDir(getBatchLogsDirPath("batch-corrupt-artifact"))
 		if !os.IsNotExist(readErr) {
@@ -367,6 +369,7 @@ func TestSaveCommandArtifactLog_RejectsMalformedCSV(t *testing.T) {
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErr)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err))
 			assert.Empty(t, filePath)
 			entries, readErr := os.ReadDir(getBatchLogsDirPath("batch-malformed-artifact"))
 			if !os.IsNotExist(readErr) {
@@ -388,6 +391,7 @@ func TestSaveCommandArtifactLog_RejectsOversizedMinerLogs(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "miner log artifact too large")
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Empty(t, filePath)
 	assert.NoDirExists(t, getBatchLogsDirPath("batch-oversized-artifact"))
 }

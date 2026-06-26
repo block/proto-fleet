@@ -48,10 +48,12 @@ func (f *fakeSender) SendCommandWithArtifactResults(_ context.Context, _ int64, 
 }
 
 type fakeLogArtifactSaver struct {
-	batchLogUUID string
-	macAddress   string
-	artifactID   string
-	err          error
+	batchLogUUID      string
+	macAddress        string
+	artifactID        string
+	deletedArtifactID string
+	err               error
+	deleteErr         error
 }
 
 func (f *fakeLogArtifactSaver) SaveCommandArtifactLog(batchLogUUID string, macAddress string, artifactID string) (string, error) {
@@ -62,6 +64,11 @@ func (f *fakeLogArtifactSaver) SaveCommandArtifactLog(batchLogUUID string, macAd
 		return "", f.err
 	}
 	return "logs/" + batchLogUUID + "/miner-logs.csv", nil
+}
+
+func (f *fakeLogArtifactSaver) DeleteCommandArtifact(artifactID string) error {
+	f.deletedArtifactID = artifactID
+	return f.deleteErr
 }
 
 type blockingSender struct {
@@ -1007,6 +1014,56 @@ func TestMiner_DownloadLogsBadRequestFailsTerminally(t *testing.T) {
 	assert.Empty(t, saver.artifactID)
 }
 
+func TestMiner_DownloadLogsDeletesRejectedArtifactAndFailsTerminally(t *testing.T) {
+	// Arrange
+	s := &fakeSender{
+		ack: &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK},
+		refs: []*gatewaypb.CommandArtifactRef{{
+			ArtifactId: "artifact-1",
+			Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+			Filename:   "logs.csv",
+			SizeBytes:  123,
+			Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+		}},
+	}
+	saver := &fakeLogArtifactSaver{err: fleeterror.NewFailedPreconditionError("malformed miner log artifact")}
+	m := newTestMinerWithLogSaver(t, s, saver)
+
+	// Act
+	err := m.DownloadLogs(context.Background(), "batch-1")
+
+	// Assert
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Equal(t, "artifact-1", saver.artifactID)
+	assert.Equal(t, "artifact-1", saver.deletedArtifactID)
+}
+
+func TestMiner_DownloadLogsKeepsArtifactForRetryableMaterializationError(t *testing.T) {
+	// Arrange
+	s := &fakeSender{
+		ack: &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK},
+		refs: []*gatewaypb.CommandArtifactRef{{
+			ArtifactId: "artifact-1",
+			Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+			Filename:   "logs.csv",
+			SizeBytes:  123,
+			Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+		}},
+	}
+	saver := &fakeLogArtifactSaver{err: fleeterror.NewInternalError("disk unavailable")}
+	m := newTestMinerWithLogSaver(t, s, saver)
+
+	// Act
+	err := m.DownloadLogs(context.Background(), "batch-1")
+
+	// Assert
+	require.Error(t, err)
+	assert.False(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Equal(t, "artifact-1", saver.artifactID)
+	assert.Empty(t, saver.deletedArtifactID)
+}
+
 func TestMiner_DownloadLogsUsesLogDownloadGate(t *testing.T) {
 	// Arrange
 	sender := &blockingArtifactSender{
@@ -1041,6 +1098,48 @@ func TestMiner_DownloadLogsUsesLogDownloadGate(t *testing.T) {
 		t.Fatal("second log download should start after the first releases the log gate")
 	}
 	require.NoError(t, <-errCh)
+	require.NoError(t, <-errCh)
+}
+
+func TestMiner_DownloadLogsWaitsForLogGateBeforeCommandGate(t *testing.T) {
+	// Arrange
+	logGate := NewPerNodeLimiter(1)
+	releaseHeldLogDownload, err := logGate.Acquire(context.Background(), 7)
+	require.NoError(t, err)
+	gate := &releasableGate{
+		acquired: make(chan int64, 1),
+		release:  make(chan struct{}),
+	}
+	s := &fakeSender{
+		ack: &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK},
+		refs: []*gatewaypb.CommandArtifactRef{{
+			ArtifactId: "artifact-1",
+			Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+			Filename:   "logs.csv",
+			SizeBytes:  123,
+			Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+		}},
+	}
+	m := newTestMinerWithLogDownloadGate(t, s, gate, logGate, &fakeLogArtifactSaver{})
+	errCh := make(chan error, 1)
+
+	// Act
+	go func() { errCh <- m.DownloadLogs(context.Background(), "batch-1") }()
+
+	// Assert: waiting for log artifact capacity must not occupy a general command slot.
+	select {
+	case <-gate.acquired:
+		t.Fatal("general command gate should wait until log download gate is available")
+	case <-time.After(50 * time.Millisecond):
+	}
+	releaseHeldLogDownload()
+	select {
+	case fleetNodeID := <-gate.acquired:
+		assert.Equal(t, int64(7), fleetNodeID)
+	case <-time.After(time.Second):
+		t.Fatal("general command gate should be acquired after log download gate is available")
+	}
+	close(gate.release)
 	require.NoError(t, <-errCh)
 }
 

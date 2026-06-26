@@ -49,6 +49,7 @@ type ArtifactCommandSender interface {
 
 type LogArtifactSaver interface {
 	SaveCommandArtifactLog(batchLogUUID string, macAddress string, artifactID string) (string, error)
+	DeleteCommandArtifact(artifactID string) error
 }
 
 // Config carries everything the adapter needs to address a fleet-node-paired miner.
@@ -393,16 +394,16 @@ func (m *Miner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 	if m.logArtifacts == nil {
 		return fleeterror.NewInternalError("remote-node miner log artifact saver is not configured")
 	}
-	release, err := m.acquireGate(ctx)
-	if err != nil {
-		return err
-	}
-	defer release()
 	releaseLogDownload, err := m.acquireLogDownloadGate(ctx)
 	if err != nil {
 		return err
 	}
 	defer releaseLogDownload()
+	release, err := m.acquireGate(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	ack, refs, err := m.sendWithoutGateWithArtifactResults(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_DownloadLogs{
 		DownloadLogs: &gatewaypb.DownloadLogsAction{BatchLogUuid: batchLogUUID},
@@ -435,12 +436,22 @@ func (m *Miner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 		return fleeterror.NewInternalError("fleet node reported log download success without uploaded log artifact")
 	}
 	if _, err := m.logArtifacts.SaveCommandArtifactLog(batchLogUUID, m.desc.GetMacAddress(), ref.GetArtifactId()); err != nil {
+		if fleeterror.IsFailedPreconditionError(err) {
+			m.deleteRejectedLogArtifact(ref.GetArtifactId())
+			return fleeterror.NewFailedPreconditionErrorf("failed to save fleet node miner logs: %v", err)
+		}
 		return fleeterror.NewInternalErrorf("failed to save fleet node miner logs: %v", err)
 	}
 	if code == gatewaypb.AckCode_ACK_CODE_PARTIAL {
 		return partialLogDownloadError(ack)
 	}
 	return ackErr
+}
+
+func (m *Miner) deleteRejectedLogArtifact(artifactID string) {
+	if err := m.logArtifacts.DeleteCommandArtifact(artifactID); err != nil {
+		slog.Warn("failed to delete rejected fleet node miner log artifact", "artifact_id", artifactID, "error", err)
+	}
 }
 
 func partialLogDownloadError(ack *gatewaypb.ControlAck) error {

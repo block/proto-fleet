@@ -17,8 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
-
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 )
@@ -239,10 +237,7 @@ func (s *Service) SaveCommandArtifactLog(batchLogUUID string, macAddress string,
 	}
 	defer reader.Close()
 	if info.Size > logformat.MaxArtifactBytes {
-		return "", fleeterror.NewPlainError(
-			fmt.Sprintf("miner log artifact too large: %d bytes (max: %d bytes)", info.Size, logformat.MaxArtifactBytes),
-			connect.CodeResourceExhausted,
-		)
+		return "", fleeterror.NewFailedPreconditionErrorf("miner log artifact too large: %d bytes (max: %d bytes)", info.Size, logformat.MaxArtifactBytes)
 	}
 
 	filePath, file, err := s.openBatchLogFile(batchLogUUID, macAddress)
@@ -268,21 +263,18 @@ func (s *Service) SaveCommandArtifactLog(batchLogUUID string, macAddress string,
 		return "", fleeterror.NewInternalErrorf("failed to read command artifact log: %v", err)
 	}
 	if int64(len(data)) != info.Size {
-		return "", fleeterror.NewInternalErrorf("corrupt command artifact %s: metadata size %d does not match copied size %d", info.ID, info.Size, len(data))
+		return "", fleeterror.NewFailedPreconditionErrorf("corrupt command artifact %s: metadata size %d does not match copied size %d", info.ID, info.Size, len(data))
 	}
 	if actualSHA := sha256.Sum256(data); hex.EncodeToString(actualSHA[:]) != info.SHA256 {
-		return "", fleeterror.NewInternalErrorf("corrupt command artifact %s: sha256 mismatch", info.ID)
+		return "", fleeterror.NewFailedPreconditionErrorf("corrupt command artifact %s: sha256 mismatch", info.ID)
 	}
 
 	var sanitized bytes.Buffer
 	if err := logformat.WriteSanitizedCSV(&sanitized, bytes.NewReader(data)); err != nil {
-		return "", fleeterror.NewInternalErrorf("failed to sanitize command artifact log csv: %v", err)
+		return "", fleeterror.NewFailedPreconditionErrorf("failed to sanitize command artifact log csv: %v", err)
 	}
 	if int64(sanitized.Len()) > logformat.MaxArtifactBytes {
-		return "", fleeterror.NewPlainError(
-			fmt.Sprintf("sanitized miner log artifact too large: %d bytes (max: %d bytes)", sanitized.Len(), logformat.MaxArtifactBytes),
-			connect.CodeResourceExhausted,
-		)
+		return "", fleeterror.NewFailedPreconditionErrorf("sanitized miner log artifact too large: %d bytes (max: %d bytes)", sanitized.Len(), logformat.MaxArtifactBytes)
 	}
 	if _, err := file.Write(sanitized.Bytes()); err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to write sanitized command artifact log: %v", err)
