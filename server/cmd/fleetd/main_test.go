@@ -95,14 +95,6 @@ logging:
 	require.False(t, config.Log.JSON)
 }
 
-func TestNewHTTP2ServerSetsWriteByteTimeout(t *testing.T) {
-	t.Parallel()
-
-	srv := newHTTP2Server(HTTPConfig{WriteByteTimeout: 25 * time.Second})
-
-	require.Equal(t, 25*time.Second, srv.WriteByteTimeout)
-}
-
 func TestHTTP2WriteByteTimeoutStopsNonReadingClient(t *testing.T) {
 	t.Parallel()
 
@@ -130,7 +122,7 @@ func TestHTTP2WriteByteTimeoutStopsNonReadingClient(t *testing.T) {
 
 	serverConn, clientConn := net.Pipe()
 	defer clientConn.Close()
-	go (&http2.Server{WriteByteTimeout: 50 * time.Millisecond}).ServeConn(serverConn, &http2.ServeConnOpts{
+	go newHTTP2Server(HTTPConfig{WriteByteTimeout: 50 * time.Millisecond}).ServeConn(serverConn, &http2.ServeConnOpts{
 		Handler: handler,
 	})
 

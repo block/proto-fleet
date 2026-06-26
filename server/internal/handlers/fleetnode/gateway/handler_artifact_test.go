@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
@@ -21,6 +22,56 @@ import (
 func sha256Hex(content []byte) string {
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:])
+}
+
+func newArtifactTestClient(t *testing.T, opts ...connect.HandlerOption) (*controlHarness, fleetnodegatewayv1connect.FleetNodeGatewayServiceClient) {
+	t.Helper()
+	t.Chdir(t.TempDir())
+	registry := control.NewRegistry()
+	filesService, err := files.NewService(files.Config{})
+	require.NoError(t, err)
+	h := &controlHarness{
+		handler:     gateway.NewHandler(nil, nil, nil, registry, filesService),
+		registry:    registry,
+		fleetNodeID: 44,
+	}
+	return h, startControlServer(t, h, opts...)
+}
+
+func uploadExpectation() control.ArtifactExpectation {
+	return control.ArtifactExpectation{
+		Direction:        control.ArtifactDirectionUpload,
+		Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		DeviceIdentifier: "miner-a",
+	}
+}
+
+func downloadExpectation(artifact *pb.CommandArtifactRef) control.ArtifactExpectation {
+	return control.ArtifactExpectation{
+		Direction:        control.ArtifactDirectionDownload,
+		Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		ArtifactID:       artifact.GetArtifactId(),
+		DeviceIdentifier: "miner-a",
+	}
+}
+
+func uploadHeaderRequest(commandID string, payload []byte) *pb.UploadCommandArtifactRequest {
+	return &pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Header{
+		Header: &pb.CommandArtifactUploadHeader{
+			CommandId:        commandID,
+			Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+			Filename:         "miner-a.zip",
+			SizeBytes:        int64(len(payload)),
+			Sha256:           sha256Hex(payload),
+			DeviceIdentifier: "miner-a",
+		},
+	}}
+}
+
+func uploadChunkRequest(payload []byte) *pb.UploadCommandArtifactRequest {
+	return &pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Chunk{
+		Chunk: &pb.CommandArtifactChunk{Data: payload},
+	}}
 }
 
 func startAckOnlyCommandWithArtifacts(t *testing.T, h *controlHarness, commandID string, artifacts []control.ArtifactExpectation) (*control.Stream, chan error) {
@@ -57,39 +108,15 @@ func finishAckOnlyCommand(t *testing.T, stream *control.Stream, commandID string
 }
 
 func TestCommandArtifactUploadAndDownloadRequireInFlightExpectation(t *testing.T) {
-	t.Chdir(t.TempDir())
-	registry := control.NewRegistry()
-	filesService, err := files.NewService(files.Config{})
-	require.NoError(t, err)
-	h := &controlHarness{
-		handler:     gateway.NewHandler(nil, nil, nil, registry, filesService),
-		registry:    registry,
-		fleetNodeID: 44,
-	}
-	client := startControlServer(t, h)
+	h, client := newArtifactTestClient(t)
 	payload := []byte("zipped miner logs")
 	uploadCommandID := "upload-artifact-command"
 
-	uploadStream, uploadDone := startAckOnlyCommandWithArtifacts(t, h, uploadCommandID, []control.ArtifactExpectation{{
-		Direction:        control.ArtifactDirectionUpload,
-		Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
-		DeviceIdentifier: "miner-a",
-	}})
+	uploadStream, uploadDone := startAckOnlyCommandWithArtifacts(t, h, uploadCommandID, []control.ArtifactExpectation{uploadExpectation()})
 
 	up := client.UploadCommandArtifact(context.Background())
-	require.NoError(t, up.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Header{
-		Header: &pb.CommandArtifactUploadHeader{
-			CommandId:        uploadCommandID,
-			Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
-			Filename:         "miner-a.zip",
-			SizeBytes:        int64(len(payload)),
-			Sha256:           sha256Hex(payload),
-			DeviceIdentifier: "miner-a",
-		},
-	}}))
-	require.NoError(t, up.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Chunk{
-		Chunk: &pb.CommandArtifactChunk{Data: payload},
-	}}))
+	require.NoError(t, up.Send(uploadHeaderRequest(uploadCommandID, payload)))
+	require.NoError(t, up.Send(uploadChunkRequest(payload)))
 	uploadResp, err := up.CloseAndReceive()
 	require.NoError(t, err)
 	artifact := uploadResp.Msg.GetArtifact()
@@ -100,19 +127,8 @@ func TestCommandArtifactUploadAndDownloadRequireInFlightExpectation(t *testing.T
 	assert.Equal(t, sha256Hex(payload), artifact.GetSha256())
 
 	completedRetry := client.UploadCommandArtifact(context.Background())
-	require.NoError(t, completedRetry.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Header{
-		Header: &pb.CommandArtifactUploadHeader{
-			CommandId:        uploadCommandID,
-			Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
-			Filename:         "miner-a.zip",
-			SizeBytes:        int64(len(payload)),
-			Sha256:           sha256Hex(payload),
-			DeviceIdentifier: "miner-a",
-		},
-	}}))
-	require.NoError(t, completedRetry.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Chunk{
-		Chunk: &pb.CommandArtifactChunk{Data: payload},
-	}}))
+	require.NoError(t, completedRetry.Send(uploadHeaderRequest(uploadCommandID, payload)))
+	require.NoError(t, completedRetry.Send(uploadChunkRequest(payload)))
 	completedRetryResp, err := completedRetry.CloseAndReceive()
 	require.NoError(t, err)
 	assert.Equal(t, artifact.GetArtifactId(), completedRetryResp.Msg.GetArtifact().GetArtifactId())
@@ -120,16 +136,7 @@ func TestCommandArtifactUploadAndDownloadRequireInFlightExpectation(t *testing.T
 	finishAckOnlyCommand(t, uploadStream, uploadCommandID, uploadDone)
 
 	duplicate := client.UploadCommandArtifact(context.Background())
-	duplicateSendErr := duplicate.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Header{
-		Header: &pb.CommandArtifactUploadHeader{
-			CommandId:        uploadCommandID,
-			Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
-			Filename:         "miner-a.zip",
-			SizeBytes:        int64(len(payload)),
-			Sha256:           sha256Hex(payload),
-			DeviceIdentifier: "miner-a",
-		},
-	}})
+	duplicateSendErr := duplicate.Send(uploadHeaderRequest(uploadCommandID, payload))
 	if duplicateSendErr != nil {
 		require.ErrorContains(t, duplicateSendErr, "EOF")
 	} else {
@@ -139,12 +146,7 @@ func TestCommandArtifactUploadAndDownloadRequireInFlightExpectation(t *testing.T
 	}
 
 	downloadCommandID := "download-artifact-command"
-	downloadStream, downloadDone := startAckOnlyCommandWithArtifacts(t, h, downloadCommandID, []control.ArtifactExpectation{{
-		Direction:        control.ArtifactDirectionDownload,
-		Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
-		ArtifactID:       artifact.GetArtifactId(),
-		DeviceIdentifier: "miner-a",
-	}})
+	downloadStream, downloadDone := startAckOnlyCommandWithArtifacts(t, h, downloadCommandID, []control.ArtifactExpectation{downloadExpectation(artifact)})
 	staleRef := &pb.CommandArtifactRef{
 		ArtifactId: artifact.GetArtifactId(),
 		Purpose:    artifact.GetPurpose(),
@@ -218,7 +220,6 @@ func TestCommandArtifactUploadAndDownloadRequireInFlightExpectation(t *testing.T
 }
 
 func TestCommandArtifactUploadTimeoutReleasesSlotAndAllowsRetry(t *testing.T) {
-	t.Chdir(t.TempDir())
 	oldHeaderTimeout := gateway.CommandArtifactUploadHeaderTimeout
 	oldChunkTimeout := gateway.CommandArtifactUploadChunkTimeout
 	oldTotalTimeout := gateway.CommandArtifactUploadTotalTimeout
@@ -231,54 +232,22 @@ func TestCommandArtifactUploadTimeoutReleasesSlotAndAllowsRetry(t *testing.T) {
 		gateway.CommandArtifactUploadTotalTimeout = oldTotalTimeout
 	})
 
-	registry := control.NewRegistry()
-	filesService, err := files.NewService(files.Config{})
-	require.NoError(t, err)
-	h := &controlHarness{
-		handler:     gateway.NewHandler(nil, nil, nil, registry, filesService),
-		registry:    registry,
-		fleetNodeID: 44,
-	}
-	client := startControlServer(t, h)
+	h, client := newArtifactTestClient(t)
 	payload := []byte("zipped miner logs")
 	commandID := "stalled-upload-command"
-	uploadStream, uploadDone := startAckOnlyCommandWithArtifacts(t, h, commandID, []control.ArtifactExpectation{{
-		Direction:        control.ArtifactDirectionUpload,
-		Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
-		DeviceIdentifier: "miner-a",
-	}})
+	uploadStream, uploadDone := startAckOnlyCommandWithArtifacts(t, h, commandID, []control.ArtifactExpectation{uploadExpectation()})
 
 	stalled := client.UploadCommandArtifact(context.Background())
-	require.NoError(t, stalled.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Header{
-		Header: &pb.CommandArtifactUploadHeader{
-			CommandId:        commandID,
-			Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
-			Filename:         "miner-a.zip",
-			SizeBytes:        int64(len(payload)),
-			Sha256:           sha256Hex(payload),
-			DeviceIdentifier: "miner-a",
-		},
-	}}))
+	require.NoError(t, stalled.Send(uploadHeaderRequest(commandID, payload)))
 
 	time.Sleep(5 * gateway.CommandArtifactUploadChunkTimeout)
-	_, err = stalled.CloseAndReceive()
+	_, err := stalled.CloseAndReceive()
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeDeadlineExceeded, connect.CodeOf(err))
 
 	retry := client.UploadCommandArtifact(context.Background())
-	require.NoError(t, retry.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Header{
-		Header: &pb.CommandArtifactUploadHeader{
-			CommandId:        commandID,
-			Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
-			Filename:         "miner-a.zip",
-			SizeBytes:        int64(len(payload)),
-			Sha256:           sha256Hex(payload),
-			DeviceIdentifier: "miner-a",
-		},
-	}}))
-	require.NoError(t, retry.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Chunk{
-		Chunk: &pb.CommandArtifactChunk{Data: payload},
-	}}))
+	require.NoError(t, retry.Send(uploadHeaderRequest(commandID, payload)))
+	require.NoError(t, retry.Send(uploadChunkRequest(payload)))
 	uploadResp, err := retry.CloseAndReceive()
 	require.NoError(t, err)
 	require.NotNil(t, uploadResp.Msg.GetArtifact())
@@ -287,38 +256,14 @@ func TestCommandArtifactUploadTimeoutReleasesSlotAndAllowsRetry(t *testing.T) {
 }
 
 func TestCommandArtifactUploadReadLimitRejectsOversizedMessageBeforeChunkReader(t *testing.T) {
-	t.Chdir(t.TempDir())
-	registry := control.NewRegistry()
-	filesService, err := files.NewService(files.Config{})
-	require.NoError(t, err)
-	h := &controlHarness{
-		handler:     gateway.NewHandler(nil, nil, nil, registry, filesService),
-		registry:    registry,
-		fleetNodeID: 44,
-	}
-	client := startControlServer(t, h, gateway.CommandArtifactUploadReadLimitOption())
+	h, client := newArtifactTestClient(t, gateway.CommandArtifactUploadReadLimitOption())
 	payload := []byte("zipped miner logs")
 	commandID := "oversized-upload-message-command"
-	uploadStream, uploadDone := startAckOnlyCommandWithArtifacts(t, h, commandID, []control.ArtifactExpectation{{
-		Direction:        control.ArtifactDirectionUpload,
-		Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
-		DeviceIdentifier: "miner-a",
-	}})
+	uploadStream, uploadDone := startAckOnlyCommandWithArtifacts(t, h, commandID, []control.ArtifactExpectation{uploadExpectation()})
 
 	oversized := client.UploadCommandArtifact(context.Background())
-	require.NoError(t, oversized.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Header{
-		Header: &pb.CommandArtifactUploadHeader{
-			CommandId:        commandID,
-			Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
-			Filename:         "miner-a.zip",
-			SizeBytes:        int64(len(payload)),
-			Sha256:           sha256Hex(payload),
-			DeviceIdentifier: "miner-a",
-		},
-	}}))
-	err = oversized.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Chunk{
-		Chunk: &pb.CommandArtifactChunk{Data: bytes.Repeat([]byte("x"), gateway.CommandArtifactUploadReadMaxBytes)},
-	}})
+	require.NoError(t, oversized.Send(uploadHeaderRequest(commandID, payload)))
+	err := oversized.Send(uploadChunkRequest(bytes.Repeat([]byte("x"), gateway.CommandArtifactUploadReadMaxBytes)))
 	if err == nil {
 		_, err = oversized.CloseAndReceive()
 	}
@@ -326,19 +271,8 @@ func TestCommandArtifactUploadReadLimitRejectsOversizedMessageBeforeChunkReader(
 	assert.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(err))
 
 	retry := client.UploadCommandArtifact(context.Background())
-	require.NoError(t, retry.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Header{
-		Header: &pb.CommandArtifactUploadHeader{
-			CommandId:        commandID,
-			Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
-			Filename:         "miner-a.zip",
-			SizeBytes:        int64(len(payload)),
-			Sha256:           sha256Hex(payload),
-			DeviceIdentifier: "miner-a",
-		},
-	}}))
-	require.NoError(t, retry.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Chunk{
-		Chunk: &pb.CommandArtifactChunk{Data: payload},
-	}}))
+	require.NoError(t, retry.Send(uploadHeaderRequest(commandID, payload)))
+	require.NoError(t, retry.Send(uploadChunkRequest(payload)))
 	uploadResp, err := retry.CloseAndReceive()
 	require.NoError(t, err)
 	require.NotNil(t, uploadResp.Msg.GetArtifact())
