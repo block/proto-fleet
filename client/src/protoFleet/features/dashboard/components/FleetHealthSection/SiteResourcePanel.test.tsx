@@ -34,7 +34,7 @@ vi.mock("@/protoFleet/store", async (importActual) => ({
 }));
 // Card internals (their own stats hooks) aren't under test here — stub to a
 // label so we can assert which gallery is rendered.
-vi.mock("@/protoFleet/features/buildings/components/BuildingSummaryCard", () => ({
+vi.mock("@/protoFleet/features/buildings/components/BuildingCard", () => ({
   default: ({ building }: { building: BuildingWithCounts }) => (
     <div data-testid="building-card">{building.building?.name}</div>
   ),

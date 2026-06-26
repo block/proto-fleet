@@ -9,7 +9,7 @@ import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
-import BuildingSummaryCard from "@/protoFleet/features/buildings/components/BuildingSummaryCard";
+import BuildingCard from "@/protoFleet/features/buildings/components/BuildingCard";
 import { RackCard } from "@/protoFleet/features/fleetManagement/components/RackCard";
 import { encodeFilterToURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { mapRackToCardProps } from "@/protoFleet/features/fleetManagement/utils/rackCardMapper";
@@ -112,11 +112,11 @@ const SiteResourcePanel = ({ siteId, activeSite }: SiteResourcePanelProps) => {
 
   const renderGallery = () => {
     if (tab === "Buildings") {
-      if (buildings === undefined) return <GallerySkeleton itemClassName="h-32 w-48" />;
+      if (buildings === undefined) return <GallerySkeleton itemClassName="h-44 w-[300px]" />;
       if (buildings.length === 0) return <GalleryEmpty label="No buildings in this site yet." />;
       return buildings.map((building) => (
-        <div key={(building.building?.id ?? 0n).toString()} className="w-48 shrink-0">
-          <BuildingSummaryCard building={building} />
+        <div key={(building.building?.id ?? 0n).toString()} className="w-[300px] shrink-0">
+          <BuildingCard building={building} showMetrics={false} />
         </div>
       ));
     }

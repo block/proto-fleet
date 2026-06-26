@@ -13,6 +13,12 @@ import { formatEfficiencyOrDash, formatHashrateOrDash, formatPowerMwOrDash } fro
 
 interface BuildingCardProps {
   building: BuildingWithCounts;
+  /**
+   * Show the telemetry footer (hashrate / efficiency / power). Defaults to
+   * true for the full fleet card; the dashboard renders a simplified card
+   * without it.
+   */
+  showMetrics?: boolean;
 }
 
 type HeatBand = 0 | 1 | 2 | 3 | 4 | 5;
@@ -136,7 +142,7 @@ const Stat = ({ value, testId }: StatProps) => (
   </div>
 );
 
-const BuildingCard = ({ building }: BuildingCardProps) => {
+const BuildingCard = ({ building, showMetrics = true }: BuildingCardProps) => {
   const id = building.building?.id ?? 0n;
   const idText = id.toString();
   const label = building.building?.name ?? "(unnamed building)";
@@ -281,38 +287,40 @@ const BuildingCard = ({ building }: BuildingCardProps) => {
           ) : null}
         </div>
       </div>
-      <div className="grid grid-cols-3 divide-x divide-border-5 border-t border-border-5">
-        <Stat
-          testId={`building-card-${idText}-stat-hashrate`}
-          value={
-            stats === undefined ? (
-              <SkeletonBar className="w-14" />
-            ) : (
-              formatHashrateOrDash(stats.hashrateReportingCount > 0 ? stats.totalHashrateThs : null)
-            )
-          }
-        />
-        <Stat
-          testId={`building-card-${idText}-stat-efficiency`}
-          value={
-            stats === undefined ? (
-              <SkeletonBar className="w-14" />
-            ) : (
-              formatEfficiencyOrDash(stats.efficiencyReportingCount > 0 ? stats.avgEfficiencyJth : null)
-            )
-          }
-        />
-        <Stat
-          testId={`building-card-${idText}-stat-power`}
-          value={
-            stats === undefined ? (
-              <SkeletonBar className="w-14" />
-            ) : (
-              formatPowerMwOrDash(stats.powerReportingCount > 0 ? stats.totalPowerKw : null)
-            )
-          }
-        />
-      </div>
+      {showMetrics ? (
+        <div className="grid grid-cols-3 divide-x divide-border-5 border-t border-border-5">
+          <Stat
+            testId={`building-card-${idText}-stat-hashrate`}
+            value={
+              stats === undefined ? (
+                <SkeletonBar className="w-14" />
+              ) : (
+                formatHashrateOrDash(stats.hashrateReportingCount > 0 ? stats.totalHashrateThs : null)
+              )
+            }
+          />
+          <Stat
+            testId={`building-card-${idText}-stat-efficiency`}
+            value={
+              stats === undefined ? (
+                <SkeletonBar className="w-14" />
+              ) : (
+                formatEfficiencyOrDash(stats.efficiencyReportingCount > 0 ? stats.avgEfficiencyJth : null)
+              )
+            }
+          />
+          <Stat
+            testId={`building-card-${idText}-stat-power`}
+            value={
+              stats === undefined ? (
+                <SkeletonBar className="w-14" />
+              ) : (
+                formatPowerMwOrDash(stats.powerReportingCount > 0 ? stats.totalPowerKw : null)
+              )
+            }
+          />
+        </div>
+      ) : null}
     </div>
   );
 };

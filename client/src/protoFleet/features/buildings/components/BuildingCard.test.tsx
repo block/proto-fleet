@@ -84,9 +84,10 @@ interface RenderOptions {
   rackCount?: bigint;
   aisles?: number;
   racksPerAisle?: number;
+  showMetrics?: boolean;
 }
 
-const renderCard = ({ rackCount = 24n, aisles = 2, racksPerAisle = 12 }: RenderOptions = {}) => {
+const renderCard = ({ rackCount = 24n, aisles = 2, racksPerAisle = 12, showMetrics }: RenderOptions = {}) => {
   const building = create(BuildingWithCountsSchema, {
     building: create(BuildingSchema, {
       id: 7n,
@@ -104,7 +105,7 @@ const renderCard = ({ rackCount = 24n, aisles = 2, racksPerAisle = 12 }: RenderO
           path="*"
           element={
             <>
-              <BuildingCard building={building} />
+              <BuildingCard building={building} showMetrics={showMetrics} />
               <LocationProbe />
             </>
           }
@@ -225,6 +226,21 @@ describe("BuildingCard", () => {
     expect(screen.getByTestId("building-card-7-stat-hashrate")).toHaveTextContent("—");
     expect(screen.getByTestId("building-card-7-stat-power")).toHaveTextContent("—");
     expect(screen.getByTestId("building-card-7-stat-efficiency")).toHaveTextContent("—");
+  });
+
+  it("hides the telemetry footer when showMetrics is false (dashboard card)", () => {
+    statsMock.mockReturnValue({
+      stats: buildStats({ totalHashrateThs: 275_900, reportingCount: 1000 }),
+      isLoading: false,
+      hasLoaded: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderCard({ rackCount: 20n, showMetrics: false });
+    expect(screen.getByTestId("building-card-7-name")).toHaveTextContent("Building A");
+    expect(screen.queryByTestId("building-card-7-stat-hashrate")).toBeNull();
+    expect(screen.queryByTestId("building-card-7-stat-efficiency")).toBeNull();
+    expect(screen.queryByTestId("building-card-7-stat-power")).toBeNull();
   });
 
   it("assigns heat bands based on issue ratio and marks empty positions as unassigned", () => {
