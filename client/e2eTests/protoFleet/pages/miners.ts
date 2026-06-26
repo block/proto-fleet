@@ -207,6 +207,52 @@ export class MinersPage extends BasePage {
     await expect(columnLocator.getByTestId(iconId)).toBeVisible();
   }
 
+  async getMinerColumnText(ipAddress: string, columnTestId: string): Promise<string | undefined> {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    const text = await minerRow
+      .getByTestId(columnTestId)
+      .textContent()
+      .catch(() => null);
+    return text?.trim() || undefined;
+  }
+
+  async getVisibleMinerIpAddresses(): Promise<string[]> {
+    const rows = this.page.getByTestId("list-body").locator("tr");
+    const rowCount = await rows.count();
+    const ipAddresses: string[] = [];
+
+    for (let i = 0; i < rowCount; i++) {
+      const ipAddress = (
+        await rows
+          .nth(i)
+          .getByTestId("ipAddress")
+          .textContent()
+          .catch(() => null)
+      )?.trim();
+      if (ipAddress) {
+        ipAddresses.push(ipAddress);
+      }
+    }
+
+    return ipAddresses;
+  }
+
+  async hasBlankBuildingAndRack(ipAddress: string): Promise<boolean> {
+    const building = await this.getMinerColumnText(ipAddress, "building");
+    const rack = await this.getMinerColumnText(ipAddress, "rack");
+    return this.isBlankListCell(building) && this.isBlankListCell(rack);
+  }
+
+  async hasAuthenticationRequiredIssue(ipAddress: string): Promise<boolean> {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    return (
+      (await minerRow
+        .getByRole("button", { name: "Authentication required", exact: true })
+        .count()
+        .catch(() => 0)) > 0
+    );
+  }
+
   async clickMinerThreeDotsButton(ipAddress: string) {
     const minerRow = await this.getMinerRowByIp(ipAddress);
     await minerRow.getByTestId(`single-miner-actions-menu-button`).click();
@@ -241,6 +287,23 @@ export class MinersPage extends BasePage {
 
   async clickActionsMenuButton() {
     await this.page.getByTestId("actions-menu-button").click();
+  }
+
+  async assignSelectedMinersToSite(siteName: string) {
+    await this.clickActionsMenuButton();
+    await this.page.getByTestId("add-to-site-popover-button").click();
+    await this.selectParentPickerTarget(siteName);
+
+    const continueButton = this.page.getByRole("button", { name: "Continue", exact: true });
+    if (await continueButton.isVisible().catch(() => false)) {
+      await continueButton.click();
+    }
+  }
+
+  async assignSelectedMinersToRack(rackLabel: string) {
+    await this.clickActionsMenuButton();
+    await this.page.getByTestId("add-to-rack-popover-button").click();
+    await this.selectParentPickerTarget(rackLabel);
   }
 
   async clickBlinkLEDsButton() {
@@ -1428,5 +1491,15 @@ export class MinersPage extends BasePage {
 
   async clickCloseStatusModal() {
     await this.clickIn("Done", "modal");
+  }
+
+  private isBlankListCell(value: string | undefined): boolean {
+    return value === undefined || value === "" || value === "—";
+  }
+
+  private async selectParentPickerTarget(label: string) {
+    const modal = this.page.getByTestId("modal");
+    await modal.getByText(label, { exact: true }).click();
+    await modal.getByRole("button", { name: "Save", exact: true }).click();
   }
 }

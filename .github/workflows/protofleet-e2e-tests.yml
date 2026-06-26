@@ -284,19 +284,12 @@ jobs:
           rm -rf blob-report playwright-report test-results
           mkdir -p blob-report
 
-          if [ "$MATRIX_SPEC" = "minersReparent.spec.ts" ]; then
-            PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${MATRIX_PROJECT}-${SPEC_NAME}.zip" \
-            PWTEST_BLOB_DO_NOT_REMOVE=1 \
-            PW_UI_NO_DEPS=1 \
-            npx playwright test --project="$MATRIX_PROJECT" --reporter=blob "spec/$MATRIX_SPEC"
-          else
-            # The viewport-matched setup project (setup-$MATRIX_PROJECT):
-            # onboarding + pools + auth storageState runs automatically before
-            # the target via project `dependencies`.
-            PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${MATRIX_PROJECT}-${SPEC_NAME}.zip" \
-            PWTEST_BLOB_DO_NOT_REMOVE=1 \
-            npx playwright test --project="$MATRIX_PROJECT" --reporter=blob "spec/$MATRIX_SPEC"
-          fi
+          # The viewport-matched setup project (setup-$MATRIX_PROJECT):
+          # onboarding + pools + auth storageState runs automatically before
+          # the target via project `dependencies`.
+          PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${MATRIX_PROJECT}-${SPEC_NAME}.zip" \
+          PWTEST_BLOB_DO_NOT_REMOVE=1 \
+          npx playwright test --project="$MATRIX_PROJECT" --reporter=blob "spec/$MATRIX_SPEC"
 
           echo "Blob reports created:"
           find blob-report -maxdepth 2 -type f -print | sort || true
