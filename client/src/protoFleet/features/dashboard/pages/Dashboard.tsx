@@ -2,22 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { MeasurementType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
-import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
-import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import SitePicker, { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { useAlertsEnabled } from "@/protoFleet/features/alerts/api/useAlertsEnabled";
 import ActiveAlertsCard from "@/protoFleet/features/alerts/components/ActiveAlertsCard";
 import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
-import FleetHealth from "@/protoFleet/features/dashboard/components/FleetHealth";
+import FleetHealthMetrics from "@/protoFleet/features/dashboard/components/FleetHealthMetrics";
+import FleetHealthSection from "@/protoFleet/features/dashboard/components/FleetHealthSection";
 import { HashratePanel } from "@/protoFleet/features/dashboard/components/HashratePanel";
 import { PowerPanel } from "@/protoFleet/features/dashboard/components/PowerPanel";
 import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHeading";
+import SitesSection from "@/protoFleet/features/dashboard/components/SitesSection";
 import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/TemperaturePanel";
 import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePanel";
-import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
 import { useRouteSiteScope } from "@/protoFleet/routing/siteScope";
@@ -89,14 +89,6 @@ const Dashboard = () => {
     includeUnassigned: siteFilter.includeUnassigned,
   });
 
-  // Component errors — polled, local state (no store), scoped to the active site
-  const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors({
-    enabled: scopedRouteReady,
-    pollIntervalMs: POLL_INTERVAL_MS,
-    siteIds: siteFilter.siteIds,
-    includeUnassigned: siteFilter.includeUnassigned,
-  });
-
   // Combined telemetry — polled, replaces data each cycle (no streaming merge)
   const telemetryOptions = useMemo(
     () => ({
@@ -130,6 +122,25 @@ const Dashboard = () => {
   const temperatureStatusCounts = telemetryData?.temperatureStatusCounts;
   const uptimeStatusCounts = telemetryData?.uptimeStatusCounts;
 
+  // Fleet-health tile counts, shared by both dashboard modes. undefined =
+  // still loading (skeleton), null = loaded but no data (em-dash).
+  const healthCounts = {
+    fleetSize: countsLoaded ? totalMiners : undefined,
+    healthyMiners: countsLoaded ? (stateCounts?.hashingCount ?? null) : undefined,
+    needsAttentionMiners: countsLoaded ? (stateCounts?.brokenCount ?? null) : undefined,
+    offlineMiners: countsLoaded ? (stateCounts?.offlineCount ?? null) : undefined,
+    sleepingMiners: countsLoaded ? (stateCounts?.sleepingCount ?? null) : undefined,
+  };
+
+  // The selected site's row carries the power capacity for the Fleet health
+  // performance subheading. undefined in All Sites mode (and until ListSites
+  // resolves), which the section tolerates.
+  const activeSiteRow = useMemo(
+    () =>
+      activeSite.kind === "site" ? sites?.find((s) => (s.site?.id ?? 0n).toString() === activeSite.id) : undefined,
+    [sites, activeSite],
+  );
+
   if (!statusLoaded) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -146,24 +157,32 @@ const Dashboard = () => {
 
           {/* Overview Section */}
           <section className="p-6 laptop:p-10">
-            <SectionHeading heading="Overview" />
-            <div className="mt-6 flex flex-col gap-1">
-              <FleetHealth
-                fleetSize={countsLoaded ? totalMiners : undefined}
-                healthyMiners={countsLoaded ? (stateCounts?.hashingCount ?? null) : undefined}
-                needsAttentionMiners={countsLoaded ? (stateCounts?.brokenCount ?? null) : undefined}
-                offlineMiners={countsLoaded ? (stateCounts?.offlineCount ?? null) : undefined}
-                sleepingMiners={countsLoaded ? (stateCounts?.sleepingCount ?? null) : undefined}
-              />
-              <FleetErrors
-                controlBoardErrors={controlBoardErrors}
-                fanErrors={fanErrors}
-                hashboardErrors={hashboardErrors}
-                psuErrors={psuErrors}
-              />
-              {canViewAlerts ? <ActiveAlertsCard /> : null}
+            {/* Heading-style site selector — stands in for the (hidden) global
+                topbar picker and replaces the former "Overview" title. */}
+            <div className="-ml-2">
+              <SitePicker sites={sites} triggerClassName="text-heading-300" />
             </div>
+            <div className="mt-6">
+              {activeSite.kind === "site" ? (
+                <FleetHealthSection
+                  activeSite={activeSite}
+                  siteId={BigInt(activeSite.id)}
+                  powerCapacityMw={activeSiteRow?.site?.powerCapacityMw ?? 0}
+                  {...healthCounts}
+                />
+              ) : (
+                <FleetHealthMetrics {...healthCounts} />
+              )}
+            </div>
+            {canViewAlerts ? (
+              <div className="mt-6 flex flex-col gap-1">
+                <ActiveAlertsCard />
+              </div>
+            ) : null}
           </section>
+
+          {/* Sites Section — All Sites mode only */}
+          {activeSite.kind === "site" ? null : <SitesSection sites={sites} />}
 
           {/* Performance Section */}
           <section className="pb-6">

@@ -28,6 +28,9 @@ interface SitePickerProps {
   // Caller-supplied retry handler — typically the same function PageHeader
   // uses to do the initial fetch.
   onRetry?: () => void;
+  // Typography for the trigger label. Defaults to the topbar's body size
+  // (`text-300`); the Dashboard heading variant passes `text-heading-300`.
+  triggerClassName?: string;
 }
 
 // Phase 1b (#202): the picker now scopes the buildings, racks, and miner
@@ -35,7 +38,7 @@ interface SitePickerProps {
 // History pages (errors, activity, telemetry,
 // dashboards) still ignore the selection — they remain org-wide until
 // Phase 2 (#194).
-const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
+const SitePicker = ({ sites, error, onRetry, triggerClassName = "text-300" }: SitePickerProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -134,7 +137,10 @@ const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
     <>
       <button
         type="button"
-        className="hover:bg-surface-base-hover flex max-w-full min-w-0 items-center gap-1 rounded-md px-2 py-1 text-300 text-text-primary focus-visible:underline"
+        className={clsx(
+          "hover:bg-surface-base-hover flex max-w-full min-w-0 items-center gap-1 rounded-md px-2 py-1 text-text-primary focus-visible:underline",
+          triggerClassName,
+        )}
         aria-haspopup="dialog"
         aria-expanded={isOpen}
         aria-label="Active site"

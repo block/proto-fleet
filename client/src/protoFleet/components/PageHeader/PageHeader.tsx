@@ -1,4 +1,5 @@
 import { type ReactElement, useCallback, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
 import CurtailmentPill from "./CurtailmentPill";
@@ -16,7 +17,7 @@ import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
-import { scopedPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
+import { scopedPath, unscopedScopablePath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { Pause } from "@/shared/assets/icons";
@@ -118,6 +119,10 @@ function PageHeader({
 }: PageHeaderProps): ReactElement {
   const { isPhone, isTablet } = useWindowDimensions();
   const { bgClass } = usePageBackground();
+  // The Dashboard renders its own heading-style site selector, so the topbar
+  // picker is hidden there to avoid two selectors competing.
+  const { pathname } = useLocation();
+  const isDashboard = unscopedScopablePath(pathname) === "/dashboard";
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
@@ -210,7 +215,7 @@ function PageHeader({
               />
             ) : null}
             <div className="min-w-0 flex-1" data-testid="page-header-selector-area">
-              <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} />
+              {isDashboard ? null : <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} />}
             </div>
           </div>
           {!isPhone && headerWidgetEnabled ? (
