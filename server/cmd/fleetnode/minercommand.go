@@ -371,7 +371,7 @@ func uploadMinerLogsArtifact(ctx context.Context, client gatewayClient, commandI
 
 func minerLogsArtifactPayload(logData string, includeType bool) ([]byte, error) {
 	if int64(len(logData)) > logformat.MaxArtifactBytes {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_PARTIAL, "miner log data exceeds %d byte download limit", logformat.MaxArtifactBytes)
+		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "miner log data exceeds %d byte download limit", logformat.MaxArtifactBytes)
 	}
 	payload := &limitedBuffer{limit: logformat.MaxArtifactBytes}
 	if err := logformat.WriteTextToCSV(payload, logData, includeType); err != nil {
@@ -387,7 +387,7 @@ type limitedBuffer struct {
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	if int64(b.Len()+len(p)) > b.limit {
-		return 0, cmdErr(pb.AckCode_ACK_CODE_PARTIAL, "miner log artifact exceeds %d byte download limit", b.limit)
+		return 0, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "miner log artifact exceeds %d byte download limit", b.limit)
 	}
 	n, _ := b.Buffer.Write(p)
 	return n, nil

@@ -731,7 +731,7 @@ func TestHandleMinerCommand_DownloadLogsRejectsOversizedLogs(t *testing.T) {
 				withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_DownloadLogs{DownloadLogs: &pb.DownloadLogsAction{BatchLogUuid: "batch-1"}}}), discardLogger(t))
 
 			got := ack.only(t)
-			assert.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, got.GetCode())
+			assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, got.GetCode())
 			assert.False(t, got.GetSucceeded())
 			assert.Contains(t, got.GetErrorMessage(), tc.wantErr)
 			assert.Empty(t, fake.artifactUploads())
