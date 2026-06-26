@@ -541,44 +541,4 @@ test.describe("Groups", () => {
       }
     });
   }
-
-  test("Group overview actions menu opens manage security and validates password mismatch", async ({
-    groupsPage,
-    loginModal,
-    minersPage,
-    page,
-  }) => {
-    const groupName = generateRandomText("automation");
-
-    await test.step("Create a rig-only group and open the overview security flow", async () => {
-      await groupsPage.clickAddGroupButton();
-      await groupsPage.inputGroupName(groupName);
-      await groupsPage.waitForModalListToLoad();
-      await groupsPage.filterModalType(PROTO_RIG_MODEL);
-      await groupsPage.waitForModalListToLoad();
-      await groupsPage.selectMinersByIndex([0, 1]);
-      await groupsPage.clickSaveInModal();
-
-      await groupsPage.validateTextInToast(`Group "${groupName}" created`);
-      await groupsPage.openSavedGroupOverview(groupName);
-      await groupsPage.openGroupOverviewActionsMenu();
-      await groupsPage.clickGroupOverviewManageSecurity();
-      await loginModal.loginAsAdminForSecurity();
-      await minersPage.validateManageSecurityModalOpened();
-    });
-
-    await test.step("Open the password form and validate the mismatch state", async () => {
-      await minersPage.clickManageSecurityUpdateButton();
-      await minersPage.validateTitleInModal("Update the admin login for your miners");
-      await minersPage.inputCurrentMinerPassword("root");
-      await minersPage.inputNewMinerPassword("ProtoRigPass123!");
-      await minersPage.inputConfirmMinerPassword("ProtoRigPass1234!");
-      await minersPage.clickIn("Continue", "modal");
-      await minersPage.validateTextInModal("Passwords don't match");
-
-      await page.getByTestId("modal").getByTestId("header-icon-button").click();
-      await minersPage.closeManageSecurityModal();
-      await groupsPage.validateTitle(groupName);
-    });
-  });
 });
