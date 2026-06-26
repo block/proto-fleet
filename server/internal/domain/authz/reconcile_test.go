@@ -114,20 +114,6 @@ func TestReconcile_PerOrgIsolation_EditingOneOrgDoesNotAffectAnother(t *testing.
 		"org B's ADMIN must NOT be affected by an org A edit")
 }
 
-func TestReconcile_OperatorEditToAdminSurvivesRestart(t *testing.T) {
-	db := testutil.GetTestDB(t)
-	ctx := t.Context()
-	orgID := insertTestOrganization(t, db)
-	require.NoError(t, authz.Reconcile(ctx, db))
-
-	revokeOrgPermission(t, db, orgID, "ADMIN", authz.PermMinerFirmwareUpdate)
-	require.NoError(t, authz.Reconcile(ctx, db))
-
-	got := orgRolePermissionKeys(t, db, orgID, "ADMIN")
-	require.NotContains(t, got, authz.PermMinerFirmwareUpdate,
-		"reconcile must NOT re-add an operator-removed permission to ADMIN")
-}
-
 // Reconcile must not silently restore a sensitive permission that an
 // operator explicitly revoked from ADMIN. Anything that re-asserts the
 // seed set on every boot would re-enable pool changes or firmware

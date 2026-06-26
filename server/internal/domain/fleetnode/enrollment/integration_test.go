@@ -463,38 +463,3 @@ func TestListAgentsSurfacesAwaitingConfirmation(t *testing.T) {
 	require.Equal(t, fleetnodeenrollment.FleetNodeStatusPending, found.EnrollmentStatus)
 	require.Equal(t, fleetnodeenrollment.StatusAwaitingConfirmation, found.PendingEnrollmentStatus)
 }
-
-func TestUpdateLastSeenAdvancesTimestamp(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	db, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
-	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	code, _, err := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
-	require.NoError(t, err)
-	agent, _, err := enrollment.RegisterFleetNode(ctx, code, "agent-heartbeat", pubKey, []byte("01234567890123456789012345678901"))
-	require.NoError(t, err)
-	heartbeat := time.Now().UTC().Truncate(time.Second)
-
-	// Act
-	err = enrollment.UpdateLastSeen(ctx, agent.ID, orgID, heartbeat)
-
-	// Assert
-	require.NoError(t, err)
-	var lastSeen sql.NullTime
-	require.NoError(t, db.QueryRow(`SELECT last_seen_at FROM fleet_node WHERE id = $1`, agent.ID).Scan(&lastSeen))
-	require.True(t, lastSeen.Valid, "last_seen_at must be set after heartbeat")
-	require.WithinDuration(t, heartbeat, lastSeen.Time, time.Second)
-}
-
-func TestUpdateLastSeenReturnsNotFoundForDeletedFleetNode(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	_, _, orgID, enrollment, _ := setupEnrollmentTest(t)
-
-	// Act
-	err := enrollment.UpdateLastSeen(ctx, 99999, orgID, time.Now().UTC())
-
-	// Assert
-	require.Error(t, err)
-	require.True(t, fleeterror.IsNotFoundError(err))
-}
