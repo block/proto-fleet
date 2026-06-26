@@ -780,7 +780,7 @@ func (h *Handler) eventSiteResourceContexts(
 		return nil, fleeterror.NewForbiddenError(incompleteTargetSiteContextMessage)
 	}
 	if len(siteIDs) == 0 {
-		if contexts, handled, err := scopeJSONSiteResourceContexts(event); handled || err != nil {
+		if contexts, handled, err := h.scopeJSONEventResourceContexts(ctx, orgID, event); handled || err != nil {
 			return contexts, err
 		}
 	}
@@ -811,7 +811,11 @@ func mixedSiteOnlyEventResourceContexts(event *models.Event) ([]authz.ResourceCo
 	return contexts, true, nil
 }
 
-func scopeJSONSiteResourceContexts(event *models.Event) ([]authz.ResourceContext, bool, error) {
+func (h *Handler) scopeJSONEventResourceContexts(
+	ctx context.Context,
+	orgID int64,
+	event *models.Event,
+) ([]authz.ResourceContext, bool, error) {
 	if event == nil || len(event.ScopeJSON) == 0 {
 		return nil, false, nil
 	}
@@ -824,7 +828,14 @@ func scopeJSONSiteResourceContexts(event *models.Event) ([]authz.ResourceContext
 	if !hasScope {
 		return nil, false, nil
 	}
-	return siteResourceContextsForScope(scope), true, nil
+	requirements, err := h.scopeResourceContextRequirements(ctx, orgID, scope, nil, false)
+	if err != nil {
+		return nil, true, err
+	}
+	if requirements.requireOrgWide {
+		return nil, true, fleeterror.NewForbiddenError(incompleteTargetSiteContextMessage)
+	}
+	return requirements.siteContexts, true, nil
 }
 
 func isIncompleteTargetSiteContextError(err error) bool {
