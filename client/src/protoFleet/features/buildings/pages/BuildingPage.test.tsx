@@ -4,19 +4,39 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import BuildingPage from "./BuildingPage";
-import { type Building, type BuildingRack, BuildingSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import {
+  type Building,
+  type BuildingRack,
+  BuildingSchema,
+  type BuildingWithCounts,
+  BuildingWithCountsSchema,
+} from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
 const getBuildingMock = vi.hoisted(() => vi.fn());
+const listAllBuildingsMock = vi.hoisted(() => vi.fn());
 const listBuildingRacksMock = vi.hoisted(() => vi.fn());
+const listSitesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/protoFleet/api/buildings", () => ({
   useBuildings: () => ({
     getBuilding: getBuildingMock,
+    listAllBuildings: listAllBuildingsMock,
     listBuildingRacks: listBuildingRacksMock,
   }),
 }));
+
+vi.mock("@/protoFleet/api/sites", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/protoFleet/api/sites")>();
+  return {
+    ...actual,
+    useSites: () => ({
+      listSites: listSitesMock,
+    }),
+  };
+});
 
 vi.mock("@/protoFleet/api/useBuildingStats", () => ({
   useBuildingStats: () => ({
@@ -135,8 +155,29 @@ describe("BuildingPage", () => {
         }),
       ),
     );
+    listAllBuildingsMock.mockImplementation(({ onSuccess }: { onSuccess: (buildings: BuildingWithCounts[]) => void }) =>
+      onSuccess([
+        create(BuildingWithCountsSchema, {
+          building: create(BuildingSchema, {
+            id: 123n,
+            name: "Building A",
+            siteId: 8n,
+          }),
+        }),
+      ]),
+    );
     listBuildingRacksMock.mockImplementation(({ onSuccess }: { onSuccess: (racks: BuildingRack[]) => void }) =>
       onSuccess([]),
+    );
+    listSitesMock.mockImplementation(({ onSuccess }: { onSuccess: (sites: SiteWithCounts[]) => void }) =>
+      onSuccess([
+        create(SiteWithCountsSchema, {
+          site: create(SiteSchema, {
+            id: 8n,
+            name: "Austin",
+          }),
+        }),
+      ]),
     );
   });
 
