@@ -139,6 +139,7 @@ test.describe("Miners reparent", () => {
 
     try {
       miner = await captureMovableMiner({ page, commonSteps, minersPage });
+      const selectedMiner = miner;
       const targetSiteId = await fleetLocationsPage.createSite(targetSiteName);
       createdSite = true;
 
@@ -149,7 +150,7 @@ test.describe("Miners reparent", () => {
       await minersPage.waitForMinersListToLoad();
 
       await test.step("Move one miner into the target site", async () => {
-        await minersPage.clickMinerCheckbox(miner.ipAddress);
+        await minersPage.clickMinerCheckbox(selectedMiner.ipAddress);
         await minersPage.validateActionBarMinerCount(1);
         await minersPage.assignSelectedMinersToSite(targetSiteName);
       });
@@ -163,7 +164,7 @@ test.describe("Miners reparent", () => {
         };
 
         test.expect(String(body.targetSiteId)).toBe(targetSiteId.toString());
-        expectSingleDeviceIdentifier(body.deviceIdentifiers, miner.deviceIdentifier);
+        expectSingleDeviceIdentifier(body.deviceIdentifiers, selectedMiner.deviceIdentifier);
         test.expect(response.status()).toBe(200);
 
         await fleetLocationsPage.validateSiteMinerCount(targetSiteName, 1);
@@ -190,6 +191,7 @@ test.describe("Miners reparent", () => {
 
     try {
       miner = await captureMovableMiner({ page, commonSteps, minersPage });
+      const selectedMiner = miner;
       const targetSiteId = await fleetLocationsPage.createSite(targetSiteName);
       createdSite = true;
       const rackId = await racksPage.createRack({
@@ -227,7 +229,7 @@ test.describe("Miners reparent", () => {
       await minersPage.waitForMinersListToLoad();
 
       await test.step("Move one miner into the target rack", async () => {
-        await minersPage.clickMinerCheckbox(miner.ipAddress);
+        await minersPage.clickMinerCheckbox(selectedMiner.ipAddress);
         await minersPage.validateActionBarMinerCount(1);
         await minersPage.assignSelectedMinersToRack(rackLabel);
       });
@@ -245,7 +247,10 @@ test.describe("Miners reparent", () => {
         };
 
         test.expect(String(body.targetRackId)).toBe(rackId.toString());
-        expectSingleDeviceIdentifier(body.deviceSelector?.deviceList?.deviceIdentifiers, miner.deviceIdentifier);
+        expectSingleDeviceIdentifier(
+          body.deviceSelector?.deviceList?.deviceIdentifiers,
+          selectedMiner.deviceIdentifier,
+        );
         test.expect(response.status()).toBe(200);
 
         await racksPage.navigateToRacksPage();
