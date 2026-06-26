@@ -294,10 +294,13 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("add-to-site-popover-button").click();
     await this.selectParentPickerTarget(siteName);
 
+    const parentPickerModal = this.page.getByTestId("modal");
     const continueButton = this.page.getByRole("button", { name: "Continue", exact: true });
-    if (await continueButton.isVisible().catch(() => false)) {
+    if (await continueButton.isVisible({ timeout: 3000 }).catch(() => false)) {
       await continueButton.click();
     }
+
+    await expect(parentPickerModal).toBeHidden();
   }
 
   async assignSelectedMinersToRack(rackLabel: string) {

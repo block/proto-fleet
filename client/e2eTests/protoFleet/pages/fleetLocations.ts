@@ -37,6 +37,7 @@ export class FleetLocationsPage extends BasePage {
     const saveSiteButton = this.page.locator('[data-testid="manage-site-modal-save"]:visible');
     await expect(saveSiteButton).toBeVisible();
     await saveSiteButton.click();
+    await this.waitForFullScreenModalToClose();
 
     const row = this.getListRowByName(name);
     await expect(row).toBeVisible();
@@ -63,6 +64,7 @@ export class FleetLocationsPage extends BasePage {
     await this.page.getByRole("option", { name: siteName, exact: true }).click();
     await this.page.getByTestId("building-settings-name-input").fill(buildingName);
     await this.page.getByTestId("building-settings-modal-save").click();
+    await this.waitForFullScreenModalToClose();
 
     const row = this.getListRowByName(buildingName);
     await expect(row).toBeVisible();
@@ -178,6 +180,10 @@ export class FleetLocationsPage extends BasePage {
     await expect(overflowTrigger).toBeVisible();
     await overflowTrigger.click();
     return this.page.locator("div.fixed.inset-0.z-60");
+  }
+
+  private async waitForFullScreenModalToClose() {
+    await expect(this.page.getByTestId("full-screen-two-pane-modal")).toBeHidden();
   }
 
   private async openRowActions(name: string) {

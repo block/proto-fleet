@@ -11,7 +11,7 @@ type PlacementRefSnapshot = {
 };
 
 type VisibleMinerSnapshot = {
-  deviceIdentifier?: string;
+  deviceIdentifier: string;
   ipAddress: string;
   rackPosition?: string;
   placement?: {
@@ -21,7 +21,7 @@ type VisibleMinerSnapshot = {
 };
 
 export type ReparentMiner = {
-  deviceIdentifier?: string;
+  deviceIdentifier: string;
   ipAddress: string;
   originalRackLabel?: string;
   originalRackPosition?: string;
@@ -69,25 +69,24 @@ export async function captureMovableMiner({
     }
 
     const snapshot = snapshots.find((candidate) => candidate.ipAddress === ipAddress);
+    if (!snapshot) {
+      continue;
+    }
+
     return {
-      deviceIdentifier: snapshot?.deviceIdentifier,
+      deviceIdentifier: snapshot.deviceIdentifier,
       ipAddress,
       originalSiteLabel: normalizePlacementLabel(await minersPage.getMinerColumnText(ipAddress, "site")),
-      originalRackLabel: snapshot?.placement?.rack?.label,
-      originalRackPosition: snapshot?.rackPosition,
+      originalRackLabel: snapshot.placement?.rack?.label,
+      originalRackPosition: snapshot.rackPosition,
     };
   }
 
   throw new Error("Expected at least one visible miner without building or rack placement for reparent coverage");
 }
 
-export function expectSingleDeviceIdentifier(actual: string[] | undefined, expected?: string) {
-  if (expected) {
-    expect(actual).toEqual([expected]);
-    return;
-  }
-
-  expect(actual).toHaveLength(1);
+export function expectSingleDeviceIdentifier(actual: string[] | undefined, expected: string) {
+  expect(actual).toEqual([expected]);
 }
 
 export async function restoreMinerPlacementIfNeeded({
@@ -130,7 +129,7 @@ async function loadVisibleMiners({
   const responsePromise = new Promise<VisibleMinerSnapshot[]>((resolve, reject) => {
     const timeoutId = setTimeout(() => {
       page.off("response", handleResponse);
-      resolve([]);
+      reject(new Error(`Timed out waiting for ${LIST_MINERS_RESPONSE}`));
     }, 10000);
 
     const handleResponse = async (response: PlaywrightResponse) => {
