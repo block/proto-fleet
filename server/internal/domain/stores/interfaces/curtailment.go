@@ -150,6 +150,13 @@ type UpdateOperatorFieldsParams struct {
 	MaxDurationSeconds      *int32
 }
 
+type ForceReleaseEventResult struct {
+	Event              *models.Event
+	SweptTargets       int64
+	OwnershipReleased  bool
+	AutomationDisabled bool
+}
+
 // CurtailmentStore is the persistence boundary for the curtailment domain.
 // All methods are org-scoped except where noted.
 //
@@ -198,6 +205,11 @@ type CurtailmentStore interface {
 	// effects); a different terminal state surfaces
 	// ErrCurtailmentAdminTerminateStateConflict.
 	AdminTerminateEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (event *models.Event, transitioned bool, err error)
+
+	// ForceReleaseEvent immediately moves any existing event to CANCELLED and
+	// sweeps non-terminal targets to RELEASED in one transaction. It is a
+	// last-resort ownership release path, not graceful restore.
+	ForceReleaseEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID, reason string) (ForceReleaseEventResult, error)
 
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 	ListTargetsByEventPage(ctx context.Context, params ListTargetsByEventPageParams) ([]*models.Target, string, error)

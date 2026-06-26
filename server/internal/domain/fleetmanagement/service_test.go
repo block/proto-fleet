@@ -1513,6 +1513,146 @@ func TestService_GetMinerCoolingMode_ShouldDenyAccessToOtherOrgMiner(t *testing.
 
 // --- DeleteMiners tests ---
 
+func pairMinerToFleetNode(t *testing.T, db *sql.DB, orgID int64, deviceIdentifier string) int64 {
+	t.Helper()
+
+	var deviceID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT id
+		FROM device
+		WHERE org_id = $1
+		  AND device_identifier = $2
+		  AND deleted_at IS NULL`,
+		orgID,
+		deviceIdentifier,
+	).Scan(&deviceID))
+
+	var fleetNodeID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
+		VALUES ($1, $2, $3, 'CONFIRMED')
+		RETURNING id`,
+		orgID,
+		"delete-miners-node-"+deviceIdentifier,
+		[]byte("identity-"+deviceIdentifier),
+	).Scan(&fleetNodeID))
+
+	rows, err := sqlstores.NewSQLFleetNodePairingStore(db).PairDeviceToFleetNode(t.Context(), fleetNodeID, deviceID, orgID, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rows)
+
+	return deviceID
+}
+
+func createStaleFleetNodeDevicePairing(t *testing.T, db *sql.DB, orgID int64, deviceIdentifier string) int64 {
+	t.Helper()
+
+	var fleetNodeID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
+		VALUES ($1, $2, $3, 'CONFIRMED')
+		RETURNING id`,
+		orgID,
+		"stale-delete-miners-node-"+deviceIdentifier,
+		[]byte("stale-identity-"+deviceIdentifier),
+	).Scan(&fleetNodeID))
+
+	var discoveredDeviceID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO discovered_device (
+			org_id,
+			device_identifier,
+			driver_name,
+			ip_address,
+			port,
+			url_scheme,
+			is_active,
+			deleted_at
+		)
+		VALUES ($1, $2, 'proto', '172.17.99.1', '80', 'https', false, NOW())
+		RETURNING id`,
+		orgID,
+		deviceIdentifier,
+	).Scan(&discoveredDeviceID))
+
+	var staleDeviceID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO device (
+			org_id,
+			discovered_device_id,
+			device_identifier,
+			mac_address,
+			deleted_at
+		)
+		VALUES ($1, $2, $3, $4, NOW())
+		RETURNING id`,
+		orgID,
+		discoveredDeviceID,
+		deviceIdentifier,
+		"02:00:00:99:99:99",
+	).Scan(&staleDeviceID))
+
+	rows, err := sqlstores.NewSQLFleetNodePairingStore(db).PairDeviceToFleetNode(t.Context(), fleetNodeID, staleDeviceID, orgID, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rows)
+
+	return staleDeviceID
+}
+
+func requireNoFleetNodeDevicePairing(t *testing.T, db *sql.DB, deviceID int64) {
+	t.Helper()
+
+	var count int
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM fleet_node_device
+		WHERE device_id = $1`,
+		deviceID,
+	).Scan(&count))
+	assert.Equal(t, 0, count)
+}
+
+func insertMinerCredentials(t *testing.T, db *sql.DB, deviceID int64) {
+	t.Helper()
+
+	_, err := db.ExecContext(t.Context(), `
+		INSERT INTO miner_credentials (device_id, username_enc, password_enc)
+		VALUES ($1, $2, $3)`,
+		deviceID,
+		"node-owned-username",
+		"node-owned-password",
+	)
+	require.NoError(t, err)
+}
+
+func requireNoMinerCredentials(t *testing.T, db *sql.DB, deviceID int64) {
+	t.Helper()
+
+	var count int
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM miner_credentials
+		WHERE device_id = $1`,
+		deviceID,
+	).Scan(&count))
+	assert.Equal(t, 0, count)
+}
+
+func requireDeviceSoftDeleted(t *testing.T, db *sql.DB, orgID int64, deviceIdentifier string) {
+	t.Helper()
+
+	var deletedAt sql.NullTime
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT deleted_at
+		FROM device
+		WHERE org_id = $1
+		  AND device_identifier = $2`,
+		orgID,
+		deviceIdentifier,
+	).Scan(&deletedAt))
+	require.True(t, deletedAt.Valid, "device should be soft-deleted")
+}
+
 func TestService_DeleteMiners_ShouldSoftDeleteSpecificDevices(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
@@ -1547,6 +1687,81 @@ func TestService_DeleteMiners_ShouldSoftDeleteSpecificDevices(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, listResp.Miners, 1, "only 1 miner should remain after deleting 2")
 	assert.Equal(t, deviceIDs[2], listResp.Miners[0].DeviceIdentifier)
+}
+
+func TestService_DeleteMiners_ShouldCleanFleetNodePairingRows(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
+	deviceID := pairMinerToFleetNode(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+	insertMinerCredentials(t, testContext.ServiceProvider.DB, deviceID)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+	}
+	resp, err := service.DeleteMiners(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(1), resp.DeletedCount)
+	requireDeviceSoftDeleted(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+	requireNoFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, deviceID)
+	requireNoMinerCredentials(t, testContext.ServiceProvider.DB, deviceID)
+
+	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	assert.Empty(t, listResp.Miners, "node-owned miner should be removed from the fleet list")
+}
+
+func TestService_DeleteMiners_ShouldCleanStaleFleetNodePairingRowsForRediscoveredDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
+	liveDeviceID := pairMinerToFleetNode(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+	staleDeviceID := createStaleFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+	insertMinerCredentials(t, testContext.ServiceProvider.DB, liveDeviceID)
+	insertMinerCredentials(t, testContext.ServiceProvider.DB, staleDeviceID)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
+			},
+		},
+	}
+	resp, err := service.DeleteMiners(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(1), resp.DeletedCount)
+	requireNoFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, liveDeviceID)
+	requireNoFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, staleDeviceID)
+	requireNoMinerCredentials(t, testContext.ServiceProvider.DB, liveDeviceID)
+	requireNoMinerCredentials(t, testContext.ServiceProvider.DB, staleDeviceID)
 }
 
 func TestService_DeleteMiners_ShouldRejectEmptyRequestWithoutFilter(t *testing.T) {
@@ -1684,6 +1899,40 @@ func TestService_DeleteMiners_ShouldDeleteAllPairedDevicesWithEmptyFilter(t *tes
 	assert.Equal(t, int32(3), resp.DeletedCount)
 
 	// Verify all miners are gone
+	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+	require.NoError(t, err)
+	assert.Empty(t, listResp.Miners, "no miners should remain after deleting all")
+}
+
+func TestService_DeleteMiners_ShouldIncludeFleetNodePairedDevicesWithAllSelector(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
+	nodeOwnedDeviceID := pairMinerToFleetNode(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[1])
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	req := &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_AllDevices{
+				AllDevices: &pb.MinerListFilter{},
+			},
+		},
+	}
+	resp, err := service.DeleteMiners(ctx, req)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(2), resp.DeletedCount)
+	requireDeviceSoftDeleted(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[1])
+	requireNoFleetNodeDevicePairing(t, testContext.ServiceProvider.DB, nodeOwnedDeviceID)
+
 	listResp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
 	require.NoError(t, err)
 	assert.Empty(t, listResp.Miners, "no miners should remain after deleting all")

@@ -124,6 +124,7 @@ var ProcedurePermissions = map[string]string{
 	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:                     authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure:              authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure:                 authz.PermCurtailmentManage,
+	curtailmentv1connect.CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure:    authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceListMqttCurtailmentSourcesProcedure:          authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceGetMqttCurtailmentSourceProcedure:            authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceCreateMqttCurtailmentSourceProcedure:         authz.PermCurtailmentManage,

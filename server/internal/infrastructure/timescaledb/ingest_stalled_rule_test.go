@@ -15,10 +15,8 @@ import (
 // ruleFile is the provisioned Grafana rules file relative to this package.
 const ruleFile = "../../../monitoring/grafana/provisioning/alerting/proto-fleet-rules.yaml"
 
-// loadIngestStalledRuleSQL extracts the live rawSql for the "Metric Ingest
-// Stalled" rule from the provisioning file so this test exercises the exact
-// query operators run, not a copy that can drift from it.
-func loadIngestStalledRuleSQL(t *testing.T) string {
+// loadRuleSQL returns the live rawSql for the named rule from the provisioning file, asserting it contains mustContain so tests run the exact deployed query, not a copy that can drift.
+func loadRuleSQL(t *testing.T, title, mustContain string) string {
 	t.Helper()
 	raw, err := os.ReadFile(ruleFile)
 	require.NoError(t, err)
@@ -39,16 +37,21 @@ func loadIngestStalledRuleSQL(t *testing.T) string {
 
 	for _, g := range doc.Groups {
 		for _, r := range g.Rules {
-			if r.Title == "Metric Ingest Stalled" {
+			if r.Title == title {
 				require.NotEmpty(t, r.Data, "rule has no data block")
 				sql := r.Data[0].Model.RawSQL
-				require.Contains(t, sql, "fleet_pollable_device_presence")
+				require.Contains(t, sql, mustContain)
 				return sql
 			}
 		}
 	}
-	t.Fatal(`rule "Metric Ingest Stalled" not found in provisioning file`)
+	t.Fatalf("rule %q not found in provisioning file", title)
 	return ""
+}
+
+// loadIngestStalledRuleSQL extracts the live rawSql for the "Metric Ingest Stalled" rule.
+func loadIngestStalledRuleSQL(t *testing.T) string {
+	return loadRuleSQL(t, "Metric Ingest Stalled", "fleet_pollable_device_presence")
 }
 
 // seedOrg inserts organization -> discovered_device -> device -> device_pairing

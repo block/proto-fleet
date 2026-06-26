@@ -167,6 +167,29 @@ WHERE curtailment_automation_rule.id = sqlc.arg('id')
   )
 RETURNING *;
 
+-- name: DisableCurtailmentAutomationRuleByActiveEvent :execrows
+UPDATE curtailment_automation_rule r
+SET enabled = FALSE
+FROM curtailment_automation_rule_state st
+LEFT JOIN curtailment_event active_event
+    ON active_event.event_uuid = st.active_event_uuid
+    AND active_event.org_id = sqlc.arg('org_id')
+WHERE st.rule_id = r.id
+  AND r.org_id = sqlc.arg('org_id')
+  AND r.enabled = TRUE
+  AND (
+      st.active_event_uuid = sqlc.arg('event_uuid')
+      OR (
+          sqlc.narg('external_reference')::text IS NOT NULL
+          AND r.id::text = sqlc.narg('external_reference')::text
+          AND (
+              st.active_event_uuid IS NULL
+              OR active_event.state IS NULL
+              OR active_event.state NOT IN ('pending', 'active', 'restoring')
+          )
+      )
+  );
+
 -- name: DeleteCurtailmentAutomationRuleByOrg :execrows
 DELETE FROM curtailment_automation_rule
 WHERE curtailment_automation_rule.id = sqlc.arg('id')
@@ -213,20 +236,28 @@ SET
     last_error = NULL,
     last_error_at = NULL;
 
--- name: SetCurtailmentAutomationActiveEvent :exec
+-- name: SetCurtailmentAutomationActiveEvent :execrows
+WITH enabled_rule AS (
+    SELECT id
+    FROM curtailment_automation_rule
+    WHERE id = sqlc.arg('rule_id')
+      AND enabled = TRUE
+    FOR UPDATE
+)
 INSERT INTO curtailment_automation_rule_state (
     rule_id,
     active_event_uuid,
     last_started_at,
     last_error,
     last_error_at
-) VALUES (
-    sqlc.arg('rule_id'),
+)
+SELECT
+    id,
     sqlc.arg('active_event_uuid'),
     sqlc.arg('last_started_at'),
     NULL,
     NULL
-)
+FROM enabled_rule
 ON CONFLICT (rule_id) DO UPDATE
 SET
     active_event_uuid = EXCLUDED.active_event_uuid,

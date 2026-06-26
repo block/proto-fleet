@@ -32,6 +32,7 @@ const (
 	idempotencyKeyUniqueIndex    = "uq_curtailment_event_idempotency"
 	externalReferenceUniqueIndex = "uq_curtailment_event_external_ref"
 	automationRuleOrgNameUnique  = "uq_curtailment_automation_rule_org_name"
+	automationExternalSource     = "curtailment_automation"
 )
 
 func mapOrgConfigError(err error, orgID int64) error {
@@ -442,12 +443,16 @@ func (s *SQLCurtailmentStore) RecordAutomationSignal(ctx context.Context, ruleID
 }
 
 func (s *SQLCurtailmentStore) SetAutomationActiveEvent(ctx context.Context, ruleID int64, eventUUID uuid.UUID, at time.Time) error {
-	if err := s.GetQueries(ctx).SetCurtailmentAutomationActiveEvent(ctx, sqlc.SetCurtailmentAutomationActiveEventParams{
+	rows, err := s.GetQueries(ctx).SetCurtailmentAutomationActiveEvent(ctx, sqlc.SetCurtailmentAutomationActiveEventParams{
 		RuleID:          ruleID,
 		ActiveEventUuid: uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
 		LastStartedAt:   sql.NullTime{Time: at, Valid: !at.IsZero()},
-	}); err != nil {
+	})
+	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to set curtailment automation active event: %v", err)
+	}
+	if rows == 0 {
+		return fleeterror.NewFailedPreconditionErrorf("curtailment automation rule %d is disabled", ruleID)
 	}
 	return nil
 }
@@ -1227,6 +1232,76 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 		return nil, false, err
 	}
 	return result.event, result.transitioned, nil
+}
+
+func (s *SQLCurtailmentStore) ForceReleaseEvent(
+	ctx context.Context,
+	orgID int64,
+	eventUUID uuid.UUID,
+	reason string,
+) (interfaces.ForceReleaseEventResult, error) {
+	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (interfaces.ForceReleaseEventResult, error) {
+		updated, err := q.ForceReleaseCurtailmentEvent(ctx, sqlc.ForceReleaseCurtailmentEventParams{
+			EventUuid: eventUUID,
+			OrgID:     orgID,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			current, getErr := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
+				EventUuid: eventUUID,
+				OrgID:     orgID,
+			})
+			if errors.Is(getErr, sql.ErrNoRows) {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+			}
+			if getErr != nil {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to re-read curtailment event after force-release race: %v", getErr)
+			}
+			return interfaces.ForceReleaseEventResult{Event: convertEventRow(current)}, nil
+		}
+		if err != nil {
+			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to force-release curtailment event: %v", err)
+		}
+
+		swept, err := q.SweepCurtailmentTargetsToReleased(ctx, sqlc.SweepCurtailmentTargetsToReleasedParams{
+			CurtailmentEventID: updated.ID,
+			LastError:          reason,
+		})
+		if err != nil {
+			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to sweep curtailment targets for force release: %v", err)
+		}
+
+		event := convertEventRow(updated)
+		var disabledAutomationRows int64
+		if isAutomationEvent(event) {
+			disabled, err := q.DisableCurtailmentAutomationRuleByActiveEvent(ctx, sqlc.DisableCurtailmentAutomationRuleByActiveEventParams{
+				OrgID:             orgID,
+				EventUuid:         uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
+				ExternalReference: nullStringFromPtr(event.ExternalReference),
+			})
+			if err != nil {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to disable curtailment automation after force release: %v", err)
+			}
+			disabledAutomationRows = disabled
+		}
+
+		return interfaces.ForceReleaseEventResult{
+			Event:              event,
+			SweptTargets:       swept,
+			OwnershipReleased:  true,
+			AutomationDisabled: disabledAutomationRows > 0,
+		}, nil
+	})
+	if err != nil {
+		return interfaces.ForceReleaseEventResult{}, err
+	}
+	return result, nil
+}
+
+func isAutomationEvent(event *models.Event) bool {
+	return event != nil &&
+		event.SourceActorType == models.SourceActorAutomation &&
+		event.ExternalSource != nil &&
+		*event.ExternalSource == automationExternalSource
 }
 
 func (s *SQLCurtailmentStore) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {

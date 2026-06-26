@@ -111,6 +111,44 @@ func (q *Queries) DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg 
 	return result.RowsAffected()
 }
 
+const disableCurtailmentAutomationRuleByActiveEvent = `-- name: DisableCurtailmentAutomationRuleByActiveEvent :execrows
+UPDATE curtailment_automation_rule r
+SET enabled = FALSE
+FROM curtailment_automation_rule_state st
+LEFT JOIN curtailment_event active_event
+    ON active_event.event_uuid = st.active_event_uuid
+    AND active_event.org_id = $1
+WHERE st.rule_id = r.id
+  AND r.org_id = $1
+  AND r.enabled = TRUE
+  AND (
+      st.active_event_uuid = $2
+      OR (
+          $3::text IS NOT NULL
+          AND r.id::text = $3::text
+          AND (
+              st.active_event_uuid IS NULL
+              OR active_event.state IS NULL
+              OR active_event.state NOT IN ('pending', 'active', 'restoring')
+          )
+      )
+  )
+`
+
+type DisableCurtailmentAutomationRuleByActiveEventParams struct {
+	OrgID             int64
+	EventUuid         uuid.NullUUID
+	ExternalReference sql.NullString
+}
+
+func (q *Queries) DisableCurtailmentAutomationRuleByActiveEvent(ctx context.Context, arg DisableCurtailmentAutomationRuleByActiveEventParams) (int64, error) {
+	result, err := q.exec(ctx, q.disableCurtailmentAutomationRuleByActiveEventStmt, disableCurtailmentAutomationRuleByActiveEvent, arg.OrgID, arg.EventUuid, arg.ExternalReference)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getCurtailmentAutomationRuleByOrg = `-- name: GetCurtailmentAutomationRuleByOrg :one
 SELECT
     r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at,
@@ -529,20 +567,28 @@ func (q *Queries) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.
 	return items, nil
 }
 
-const setCurtailmentAutomationActiveEvent = `-- name: SetCurtailmentAutomationActiveEvent :exec
+const setCurtailmentAutomationActiveEvent = `-- name: SetCurtailmentAutomationActiveEvent :execrows
+WITH enabled_rule AS (
+    SELECT id
+    FROM curtailment_automation_rule
+    WHERE id = $3
+      AND enabled = TRUE
+    FOR UPDATE
+)
 INSERT INTO curtailment_automation_rule_state (
     rule_id,
     active_event_uuid,
     last_started_at,
     last_error,
     last_error_at
-) VALUES (
+)
+SELECT
+    id,
     $1,
     $2,
-    $3,
     NULL,
     NULL
-)
+FROM enabled_rule
 ON CONFLICT (rule_id) DO UPDATE
 SET
     active_event_uuid = EXCLUDED.active_event_uuid,
@@ -552,14 +598,17 @@ SET
 `
 
 type SetCurtailmentAutomationActiveEventParams struct {
-	RuleID          int64
 	ActiveEventUuid uuid.NullUUID
 	LastStartedAt   sql.NullTime
+	RuleID          int64
 }
 
-func (q *Queries) SetCurtailmentAutomationActiveEvent(ctx context.Context, arg SetCurtailmentAutomationActiveEventParams) error {
-	_, err := q.exec(ctx, q.setCurtailmentAutomationActiveEventStmt, setCurtailmentAutomationActiveEvent, arg.RuleID, arg.ActiveEventUuid, arg.LastStartedAt)
-	return err
+func (q *Queries) SetCurtailmentAutomationActiveEvent(ctx context.Context, arg SetCurtailmentAutomationActiveEventParams) (int64, error) {
+	result, err := q.exec(ctx, q.setCurtailmentAutomationActiveEventStmt, setCurtailmentAutomationActiveEvent, arg.ActiveEventUuid, arg.LastStartedAt, arg.RuleID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setCurtailmentAutomationExecutionError = `-- name: SetCurtailmentAutomationExecutionError :exec

@@ -144,8 +144,10 @@ type ErrorMessage struct {
 // DeviceErrors contains all plugin-reported errors for a specific device.
 // This is returned by plugin GetErrors() calls and contains DeviceError instances.
 type DeviceErrors struct {
-	DeviceID string
-	Errors   []ErrorMessage
+	DeviceID           string
+	Errors             []ErrorMessage
+	Partial            bool
+	OmittedReportCount uint32
 }
 
 // MinerErrorInfo provides default metadata for a canonical miner error code.

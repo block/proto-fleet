@@ -58,6 +58,9 @@ func TestCurtailmentAdminProcedureIsSessionOnly(t *testing.T) {
 	assert.Contains(t, SessionOnlyProcedures,
 		curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure,
 		"AdminTerminateEvent must be session-only; recovery escape hatch should not be reachable via API key")
+	assert.Contains(t, SessionOnlyProcedures,
+		curtailmentv1connect.CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure,
+		"ForceReleaseCurtailmentOwnership must be session-only; recovery escape hatch should not be reachable via API key")
 }
 
 // Public curtailment control/read RPCs must remain reachable via API-key auth

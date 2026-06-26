@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"buf.build/go/protovalidate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -15,9 +18,11 @@ import (
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	sdkerrors "github.com/block/proto-fleet/server/sdk/v1/errors"
 	"github.com/block/proto-fleet/server/sdk/v1/mocks"
 )
 
@@ -245,6 +250,208 @@ func TestHandleMinerCommand_GetMiningPoolsReturnsPayload(t *testing.T) {
 	assert.Equal(t, int32(2), result.GetPools()[1].GetPriority())
 	assert.Equal(t, "stratum+tcp://pool4.example.com:3333", result.GetPools()[1].GetUrl())
 	assert.Equal(t, "worker4", result.GetPools()[1].GetUsername())
+}
+
+func TestHandleMinerCommand_GetErrorsReturnsPayload(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	componentID := "psu-0"
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().GetErrors(gomock.Any()).Return(sdk.DeviceErrors{
+		DeviceID: "plugin-local-id",
+		Errors: []sdk.DeviceError{{
+			MinerError:        1003,
+			CauseSummary:      "PSU fault",
+			RecommendedAction: "Replace PSU",
+			Severity:          1,
+			FirstSeenAt:       now,
+			LastSeenAt:        now.Add(time.Minute),
+			VendorAttributes: map[string]string{
+				"vendor_code": "PSU_001",
+			},
+			DeviceID:      "plugin-report-id",
+			ComponentID:   &componentID,
+			Impact:        "Stops mining",
+			Summary:       "Power supply fault detected",
+			ComponentType: 1,
+		}},
+	}, nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}}}), discardLogger(t))
+
+	// Assert
+	got := ack.only(t)
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	assert.True(t, got.GetSucceeded())
+
+	var result pb.GetErrorsResult
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
+	assert.Equal(t, "dev-1", result.GetDeviceId())
+	require.Len(t, result.GetErrors(), 1)
+	errReport := result.GetErrors()[0]
+	assert.Equal(t, errorspb.MinerError_MINER_ERROR_PSU_FAULT_GENERIC, errReport.GetMinerError())
+	assert.Equal(t, "PSU fault", errReport.GetCauseSummary())
+	assert.Equal(t, "Replace PSU", errReport.GetRecommendedAction())
+	assert.Equal(t, errorspb.Severity_SEVERITY_CRITICAL, errReport.GetSeverity())
+	assert.Equal(t, now, errReport.GetFirstSeenAt().AsTime())
+	assert.Equal(t, now.Add(time.Minute), errReport.GetLastSeenAt().AsTime())
+	assert.Equal(t, "PSU_001", errReport.GetVendorAttributes()["vendor_code"])
+	assert.Equal(t, "dev-1", errReport.GetDeviceId())
+	assert.Equal(t, &componentID, errReport.ComponentId)
+	assert.Equal(t, "Stops mining", errReport.GetImpact())
+	assert.Equal(t, "Power supply fault detected", errReport.GetSummary())
+	assert.Equal(t, errorspb.ComponentType_COMPONENT_TYPE_PSU, errReport.GetComponentType())
+}
+
+func TestGetErrorsResultFromSDKRejectsInvalidPluginErrorData(t *testing.T) {
+	validError := func() sdk.DeviceError {
+		return sdk.DeviceError{
+			MinerError:       sdkerrors.PSUFaultGeneric,
+			Severity:         sdkerrors.SeverityCritical,
+			VendorAttributes: map[string]string{"vendor_code": "PSU_001"},
+			DeviceID:         "dev-1",
+			ComponentType:    sdkerrors.ComponentTypePSU,
+		}
+	}
+	tooManyAttributes := make(map[string]string, 33)
+	for i := range 33 {
+		tooManyAttributes[fmt.Sprintf("key-%d", i)] = "value"
+	}
+
+	cases := []struct {
+		name    string
+		mutate  func(*sdk.DeviceError)
+		wantErr string
+	}{
+		{"undefined miner error", func(err *sdk.DeviceError) {
+			err.MinerError = sdk.MinerError(123456)
+		}, "miner_error: value must be one of the defined enum values"},
+		{"undefined severity", func(err *sdk.DeviceError) {
+			err.Severity = sdk.Severity(99)
+		}, "severity: value must be one of the defined enum values"},
+		{"undefined component type", func(err *sdk.DeviceError) {
+			err.ComponentType = sdk.ComponentType(99)
+		}, "component_type: value must be one of the defined enum values"},
+		{"too many vendor attributes", func(err *sdk.DeviceError) {
+			err.VendorAttributes = tooManyAttributes
+		}, "map must be at most 32 entries"},
+		{"empty vendor attribute key", func(err *sdk.DeviceError) {
+			err.VendorAttributes = map[string]string{"": "value"}
+		}, "must be at least 1 characters"},
+		{"long vendor attribute key", func(err *sdk.DeviceError) {
+			err.VendorAttributes = map[string]string{strings.Repeat("k", 129): "value"}
+		}, "must be at most 128 characters"},
+		{"long vendor attribute value", func(err *sdk.DeviceError) {
+			err.VendorAttributes = map[string]string{"key": strings.Repeat("v", 1025)}
+		}, "must be at most 1024 characters"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			sdkErr := validError()
+			tc.mutate(&sdkErr)
+
+			// Act
+			_, err := getErrorsResultPayload("dev-1", sdk.DeviceErrors{
+				DeviceID: "dev-1",
+				Errors:   []sdk.DeviceError{sdkErr},
+			})
+
+			// Assert
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestGetErrorsResultFromSDKCapsPluginErrorCountBeforeConversion(t *testing.T) {
+	// Arrange
+	pluginErrors := make([]sdk.DeviceError, maxGetErrorsReports+88)
+	for i := range pluginErrors {
+		pluginErrors[i] = sdk.DeviceError{
+			MinerError:    sdkerrors.PSUFaultGeneric,
+			Severity:      sdkerrors.SeverityCritical,
+			DeviceID:      "dev-1",
+			ComponentType: sdkerrors.ComponentTypePSU,
+		}
+	}
+
+	// Act
+	result, err := getErrorsResultFromSDK("dev-1", sdk.DeviceErrors{
+		DeviceID: "dev-1",
+		Errors:   pluginErrors,
+	})
+
+	// Assert
+	require.NoError(t, err)
+	assert.True(t, result.GetTruncated())
+	assert.Equal(t, uint32(88), result.GetOmittedReportCount())
+	require.Len(t, result.GetErrors(), maxGetErrorsReports)
+	require.NoError(t, protovalidate.Validate(result))
+
+	payload, err := getErrorsResultPayload("dev-1", sdk.DeviceErrors{
+		DeviceID: "dev-1",
+		Errors:   pluginErrors,
+	})
+	require.NoError(t, err)
+	var payloadResult pb.GetErrorsResult
+	require.NoError(t, proto.Unmarshal(payload, &payloadResult))
+	assert.True(t, payloadResult.GetTruncated())
+	assert.Equal(t, uint32(88), payloadResult.GetOmittedReportCount())
+	require.Len(t, payloadResult.GetErrors(), maxGetErrorsReports)
+}
+
+func TestHandleMinerCommand_GetErrorsReturnsTruncatedPayloadForOversizedPayload(t *testing.T) {
+	// Arrange
+	ctrl := gomock.NewController(t)
+	pluginErrors := make([]sdk.DeviceError, 512)
+	verboseSummary := strings.Repeat("s", 4096)
+	for i := range pluginErrors {
+		pluginErrors[i] = sdk.DeviceError{
+			MinerError:    sdkerrors.PSUFaultGeneric,
+			Severity:      sdkerrors.SeverityCritical,
+			DeviceID:      "dev-1",
+			Summary:       verboseSummary,
+			ComponentType: sdkerrors.ComponentTypePSU,
+		}
+	}
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().GetErrors(gomock.Any()).Return(sdk.DeviceErrors{
+		DeviceID: "dev-1",
+		Errors:   pluginErrors,
+	}, nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+
+	// Act
+	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}}}), discardLogger(t))
+
+	// Assert
+	got := ack.only(t)
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	assert.True(t, got.GetSucceeded())
+	require.NotEmpty(t, got.GetPayload())
+	require.LessOrEqual(t, len(got.GetPayload()), maxAckPayloadBytes)
+
+	var result pb.GetErrorsResult
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
+	assert.Equal(t, "dev-1", result.GetDeviceId())
+	assert.True(t, result.GetTruncated())
+	assert.Greater(t, result.GetOmittedReportCount(), uint32(0))
+	assert.Less(t, len(result.GetErrors()), len(pluginErrors))
 }
 
 func TestHandleMinerCommand_GetMiningPoolsTrimsUnsupportedPoolSlots(t *testing.T) {

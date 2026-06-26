@@ -240,7 +240,7 @@ describe("PageHeader", () => {
     });
 
     render(
-      <MemoryRouter initialEntries={["/settings/general"]}>
+      <MemoryRouter initialEntries={["/settings/network"]}>
         <PageHeader
           schedulePillData={createSchedulePillData()}
           activeCurtailmentEvent={{

@@ -3,10 +3,11 @@ import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmw
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
 import DeleteFirmwareDialog from "@/protoFleet/features/settings/components/DeleteFirmwareDialog";
 import FirmwareUploadDialog from "@/protoFleet/features/settings/components/FirmwareUploadDialog";
+import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
+import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
-import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -43,6 +44,7 @@ const colConfig: ColConfig<FirmwareFileData, string, FirmwareColumns> = {
 };
 
 const activeCols: FirmwareColumns[] = ["filename", "uploadedAt", "size"];
+const FIRMWARE_PAGE_DESCRIPTION = "Upload and manage firmware files available to your fleet.";
 
 function toFileData(info: FirmwareFileInfo): FirmwareFileData {
   return {
@@ -157,22 +159,26 @@ const Firmware = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <Header title="Firmware" titleSize="text-heading-300" />
-        <div className="flex gap-3">
+      <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
+        <SettingsPageHeader title="Firmware" description={FIRMWARE_PAGE_DESCRIPTION} />
+        <div className="flex shrink-0 gap-3 phone:w-full phone:flex-col">
           <Button
             variant={variants.primary}
             size={sizes.compact}
             text="Upload firmware"
             onClick={() => setShowUploadDialog(true)}
+            className="phone:w-full"
           />
-          <Button
-            variant={variants.danger}
-            size={sizes.compact}
-            text="Delete all"
-            onClick={() => setShowDeleteAllDialog(true)}
-            disabled={files.length === 0 || isDeletingAll}
-          />
+          {files.length > 0 ? (
+            <Button
+              variant={variants.danger}
+              size={sizes.compact}
+              text="Delete all"
+              onClick={() => setShowDeleteAllDialog(true)}
+              disabled={isDeletingAll}
+              className="phone:w-full"
+            />
+          ) : null}
         </div>
       </div>
 
@@ -187,7 +193,12 @@ const Firmware = () => {
           colConfig={colConfig}
           total={files.length}
           itemName={{ singular: "file", plural: "files" }}
-          noDataElement={<div className="py-10 text-center text-text-primary-50">No firmware files uploaded.</div>}
+          noDataElement={
+            <SettingsEmptyState
+              title="No firmware files uploaded"
+              description="Upload firmware before deploying updates to your fleet."
+            />
+          }
           actions={availableActions}
         />
       )}

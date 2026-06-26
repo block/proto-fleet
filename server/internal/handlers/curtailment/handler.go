@@ -4,6 +4,7 @@ package curtailment
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -25,6 +26,7 @@ import (
 const actionSupplyOverrideFields = "supply curtailment override fields"
 const actionAdminTerminateEvents = "admin terminate curtailment events"
 const actionManageMqttSources = "manage MaestroOS curtailment sources"
+const incompleteTargetSiteContextMessage = "curtailment target site context is incomplete"
 const listCurtailmentEventsDefaultPageSize int32 = 50
 const listCurtailmentEventsMaxPageSize int32 = 200
 const listCurtailmentEventsMaxPermissionScanPages = 3
@@ -322,6 +324,48 @@ func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[
 	}), nil
 }
 
+// ForceReleaseCurtailmentOwnership is an admin recovery path that releases
+// curtailment ownership immediately. It intentionally checks org-level manage
+// permission before loading event site contexts so incomplete target-site
+// coverage cannot block recovery.
+func (h *Handler) ForceReleaseCurtailmentOwnership(ctx context.Context, req *connect.Request[pb.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[pb.ForceReleaseCurtailmentOwnershipResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	if err := requireAdminFromContext(ctx, actionAdminTerminateEvents); err != nil {
+		return nil, err
+	}
+	if h.service == nil {
+		return nil, errCurtailmentNotImplemented("ForceReleaseCurtailmentOwnership")
+	}
+	eventUUID, err := parseEventUUID(req.Msg.GetEventUuid())
+	if err != nil {
+		return nil, err
+	}
+	event, err := h.service.GetEvent(ctx, info.OrganizationID, eventUUID)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.requireForceReleasePermission(ctx, info.OrganizationID, event); err != nil {
+		return nil, err
+	}
+	forceReq, err := toForceReleaseRequest(req.Msg, info, eventUUID)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.service.ForceRelease(ctx, forceReq)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.ForceReleaseCurtailmentOwnershipResponse{
+		Event:               toForceReleaseEventProto(result.Event),
+		ReleasedTargetCount: uint32SaturatingInt64(result.ReleasedTargetCount),
+		OwnershipReleased:   result.OwnershipReleased,
+		AutomationDisabled:  result.AutomationDisabled,
+	}), nil
+}
+
 // IngestCurtailmentSignal starts a curtailment event from an external
 // dispatch signal. Permission gate runs before the body so denial
 // surfaces regardless of whether the body has shipped.
@@ -438,6 +482,27 @@ func (h *Handler) requireEventPermission(ctx context.Context, permission string,
 		info = checkedInfo
 	}
 	return info, event, nil
+}
+
+func (h *Handler) requireForceReleasePermission(ctx context.Context, orgID int64, event *models.Event) error {
+	siteContexts, err := h.eventSiteResourceContexts(ctx, orgID, event)
+	if err != nil {
+		if isIncompleteTargetSiteContextError(err) {
+			_, err := middleware.RequireOrgWidePermission(ctx, authz.PermCurtailmentManage)
+			return err
+		}
+		return err
+	}
+	for _, rc := range siteContexts {
+		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, rc); err != nil {
+			return err
+		}
+	}
+	if len(siteContexts) == 0 {
+		_, err := middleware.RequireOrgWidePermission(ctx, authz.PermCurtailmentManage)
+		return err
+	}
+	return nil
 }
 
 func (h *Handler) filterEventsByPermission(
@@ -568,7 +633,7 @@ func (h *Handler) eventSiteResourceContexts(
 		return nil, err
 	}
 	if !complete {
-		return nil, fleeterror.NewForbiddenError("curtailment target site context is incomplete")
+		return nil, fleeterror.NewForbiddenError(incompleteTargetSiteContextMessage)
 	}
 	if len(siteIDs) == 0 {
 		if contexts, handled, err := scopeJSONSiteResourceContexts(event); handled || err != nil {
@@ -616,6 +681,10 @@ func scopeJSONSiteResourceContexts(event *models.Event) ([]authz.ResourceContext
 		return nil, false, nil
 	}
 	return siteResourceContextsForScope(scope), true, nil
+}
+
+func isIncompleteTargetSiteContextError(err error) bool {
+	return fleeterror.IsForbiddenError(err) && strings.Contains(err.Error(), incompleteTargetSiteContextMessage)
 }
 
 // requireAdminFromContext returns Forbidden unless the caller has Admin

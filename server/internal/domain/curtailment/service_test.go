@@ -98,6 +98,14 @@ type fakeStore struct {
 	adminTerminateErr              error
 	adminTerminateIdempotentReplay bool
 
+	forceReleaseCalls              int
+	lastForceReleaseUUID           uuid.UUID
+	lastForceReleaseReason         string
+	forceReleaseResult             *models.Event
+	forceReleaseSweptTargets       int64
+	forceReleaseAutomationDisabled bool
+	forceReleaseErr                error
+
 	// Idempotent replay fakes. eventsByIdempotencyKey / eventsByExternalRef
 	// drive Service.Start's pre-insert webhook-replay lookup; nil results
 	// signal "no prior match". get*Calls / last* let tests pin the args.
@@ -288,6 +296,21 @@ func (f *fakeStore) AdminTerminateEvent(_ context.Context, _ int64, eventUUID uu
 	// idempotent-replay path set adminTerminateTransitioned=false.
 	transitioned := !f.adminTerminateIdempotentReplay
 	return f.adminTerminateResult, transitioned, nil
+}
+
+func (f *fakeStore) ForceReleaseEvent(_ context.Context, _ int64, eventUUID uuid.UUID, reason string) (interfaces.ForceReleaseEventResult, error) {
+	f.forceReleaseCalls++
+	f.lastForceReleaseUUID = eventUUID
+	f.lastForceReleaseReason = reason
+	if f.forceReleaseErr != nil {
+		return interfaces.ForceReleaseEventResult{}, f.forceReleaseErr
+	}
+	return interfaces.ForceReleaseEventResult{
+		Event:              f.forceReleaseResult,
+		SweptTargets:       f.forceReleaseSweptTargets,
+		OwnershipReleased:  true,
+		AutomationDisabled: f.forceReleaseAutomationDisabled,
+	}, nil
 }
 
 // filterNonTerminalReplayEvent mirrors the production SQL's

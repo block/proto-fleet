@@ -4,29 +4,17 @@ import clsx from "clsx";
 import {
   type ActiveCurtailmentDisplayState,
   type CurtailmentEventState,
+  type CurtailmentTargetRollup,
   formatCurtailmentKw as formatKw,
   formatCurtailmentMinerCount as formatMinerCount,
   getActiveCurtailmentDisplayState,
+  getActiveCurtailmentMinerCompliance,
   getCurtailmentTargetKw as getTargetKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-
-export type CurtailmentTargetState =
-  | "pending"
-  | "dispatched"
-  | "confirmed"
-  | "drifted"
-  | "resolved"
-  | "released"
-  | "restoreFailed";
-
-export interface CurtailmentTargetRollup {
-  state: CurtailmentTargetState;
-  count: number;
-}
 
 export interface ActiveCurtailmentEvent {
   reason: string;
@@ -50,7 +38,7 @@ interface ActiveCurtailmentStatusProps {
   className?: string;
   onDismissRestored?: () => void;
   onRequestEdit?: () => void;
-  onRequestForceRestore?: () => void;
+  onRequestForceRelease?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
   onRequestTerminateRecovery?: () => void;
@@ -60,7 +48,7 @@ interface ActiveCurtailmentActionButtonsProps {
   displayState: ActiveCurtailmentDisplayState;
   onDismissRestored?: () => void;
   onRequestEdit?: () => void;
-  onRequestForceRestore?: () => void;
+  onRequestForceRelease?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
   onRequestTerminateRecovery?: () => void;
@@ -75,13 +63,6 @@ interface StatBlockProps {
   label: string;
   value: string;
   detail?: string;
-}
-
-interface MinerCompliance {
-  curtailedCount: number;
-  restoreFailedCount: number;
-  restoredCount: number;
-  totalCount: number;
 }
 
 interface FormatActivePowerValueArgs {
@@ -127,19 +108,6 @@ const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
 const millisecondsPerSecond = 1000;
 const unavailableTimeLabel = "Time unavailable";
 
-const countedTargetStates: CurtailmentTargetState[] = [
-  "pending",
-  "dispatched",
-  "confirmed",
-  "drifted",
-  "resolved",
-  "released",
-  "restoreFailed",
-];
-const curtailedTargetStates: CurtailmentTargetState[] = ["confirmed", "resolved"];
-const restoreFailedTargetStates: CurtailmentTargetState[] = ["restoreFailed"];
-const restoredTargetStates: CurtailmentTargetState[] = ["resolved", "released"];
-
 const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
   cancelled: "Cancelled",
   curtailed: "Curtailed",
@@ -152,8 +120,6 @@ const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
 };
 
 const manageableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
-const forceRestorableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
-
 function SectionHeader({ title, children }: SectionHeaderProps): ReactElement {
   return (
     <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
@@ -215,31 +181,6 @@ function formatEstimatedCompletion(remainingSeconds: number, currentTime = new D
   return Number.isNaN(estimatedCompletionDate.getTime())
     ? unavailableTimeLabel
     : formatDateTimeValue(estimatedCompletionDate);
-}
-
-function getRollupCount(event: ActiveCurtailmentEvent, states: CurtailmentTargetState[]): number {
-  return event.rollups.reduce((total, rollup) => {
-    if (!states.includes(rollup.state)) {
-      return total;
-    }
-
-    return total + rollup.count;
-  }, 0);
-}
-
-function getMinerCompliance(event: ActiveCurtailmentEvent): MinerCompliance {
-  const curtailedCount = getRollupCount(event, curtailedTargetStates);
-  const restoreFailedCount = getRollupCount(event, restoreFailedTargetStates);
-  const restoredCount = getRollupCount(event, restoredTargetStates);
-  const countedTargetCount = getRollupCount(event, countedTargetStates);
-  const totalCount = Math.max(event.selectedMiners, countedTargetCount);
-
-  return {
-    curtailedCount,
-    restoreFailedCount,
-    restoredCount,
-    totalCount,
-  };
 }
 
 function formatActivePowerValue({ isRestored, isRestoreIncomplete, targetKw }: FormatActivePowerValueArgs): string {
@@ -359,14 +300,13 @@ function formatActiveCurtailmentHeaderDetail(event: ActiveCurtailmentEvent): str
   return `${event.reason} (Applies to ${event.scopeLabel})`;
 }
 
-function getForceRestoreButton(onRequestForceRestore?: () => void): ReactElement | null {
-  return onRequestForceRestore ? (
-    <Button
-      variant={variants.secondaryDanger}
-      size={sizes.compact}
-      text="Force restore"
-      onClick={onRequestForceRestore}
-    />
+function getForceReleaseButton(
+  displayState: ActiveCurtailmentDisplayState,
+  onRequestForceRelease?: () => void,
+): ReactElement | null {
+  const label = displayState === "restoring" ? "Abort restore" : "Abort curtailment";
+  return onRequestForceRelease ? (
+    <Button variant={variants.danger} size={sizes.compact} text={label} onClick={onRequestForceRelease} />
   ) : null;
 }
 
@@ -411,7 +351,7 @@ function ActiveCurtailmentActionButtons({
   displayState,
   onDismissRestored,
   onRequestEdit,
-  onRequestForceRestore,
+  onRequestForceRelease,
   onRequestRestore,
   onRequestStop,
   onRequestTerminateRecovery,
@@ -423,12 +363,10 @@ function ActiveCurtailmentActionButtons({
     onRequestStop,
     onRequestTerminateRecovery,
   });
-  const forceRestoreButton = forceRestorableDisplayStates.has(displayState)
-    ? getForceRestoreButton(onRequestForceRestore)
-    : null;
   const showManageButton = Boolean(onRequestEdit && manageableDisplayStates.has(displayState));
+  const forceReleaseButton = getForceReleaseButton(displayState, onRequestForceRelease);
 
-  if (!actionButton && !forceRestoreButton && !showManageButton) {
+  if (!actionButton && !forceReleaseButton && !showManageButton) {
     return null;
   }
 
@@ -438,7 +376,7 @@ function ActiveCurtailmentActionButtons({
         <Button variant={variants.secondary} size={sizes.compact} text="Manage" onClick={onRequestEdit} />
       ) : null}
       {actionButton}
-      {forceRestoreButton}
+      {forceReleaseButton}
     </div>
   );
 }
@@ -469,13 +407,13 @@ export default function ActiveCurtailmentStatus({
   className,
   onDismissRestored,
   onRequestEdit,
-  onRequestForceRestore,
+  onRequestForceRelease,
   onRequestRestore,
   onRequestStop,
   onRequestTerminateRecovery,
 }: ActiveCurtailmentStatusProps): ReactElement {
   const targetKw = getTargetKw(event);
-  const compliance = getMinerCompliance(event);
+  const compliance = getActiveCurtailmentMinerCompliance(event);
   const displayState = getActiveCurtailmentDisplayState(event, { dispatchStartedAsCurtailing: true });
   const displayFlags = getDisplayFlags(displayState);
   const remainingRestoreSeconds = getRestoreRemainingSeconds(
@@ -532,7 +470,7 @@ export default function ActiveCurtailmentStatus({
           displayState={displayState}
           onDismissRestored={onDismissRestored}
           onRequestEdit={onRequestEdit}
-          onRequestForceRestore={onRequestForceRestore}
+          onRequestForceRelease={onRequestForceRelease}
           onRequestRestore={onRequestRestore}
           onRequestStop={onRequestStop}
           onRequestTerminateRecovery={onRequestTerminateRecovery}
@@ -570,8 +508,8 @@ export default function ActiveCurtailmentStatus({
           <div className="mt-6 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">
             <div className="text-emphasis-300">Curtailment automation recovery</div>
             <div className="mt-1 text-text-primary-70">
-              {event.sourceLabel} owns this event. Normal restore can be blocked while OFF demand remains asserted or
-              the source is stale.
+              {event.sourceLabel} owns this event. Abort cancels this event and disables the owning automation rule so
+              it cannot immediately curtail miners again.
             </div>
           </div>
         ) : null}

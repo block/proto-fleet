@@ -255,8 +255,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
 	}
+	if q.deleteFleetNodeDevicePairingsStmt, err = db.PrepareContext(ctx, deleteFleetNodeDevicePairings); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteFleetNodeDevicePairings: %w", err)
+	}
 	if q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt, err = db.PrepareContext(ctx, deleteMinerCredentialsByDeviceIDAndOrgID); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteMinerCredentialsByDeviceIDAndOrgID: %w", err)
+	}
+	if q.deleteMinerCredentialsForDeviceIdentifiersStmt, err = db.PrepareContext(ctx, deleteMinerCredentialsForDeviceIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteMinerCredentialsForDeviceIdentifiers: %w", err)
 	}
 	if q.deleteMinerCredentialsForFleetNodeStmt, err = db.PrepareContext(ctx, deleteMinerCredentialsForFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteMinerCredentialsForFleetNode: %w", err)
@@ -282,6 +288,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deviceSetBelongsToOrgStmt, err = db.PrepareContext(ctx, deviceSetBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceSetBelongsToOrg: %w", err)
 	}
+	if q.disableCurtailmentAutomationRuleByActiveEventStmt, err = db.PrepareContext(ctx, disableCurtailmentAutomationRuleByActiveEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query DisableCurtailmentAutomationRuleByActiveEvent: %w", err)
+	}
 	if q.ensureCurtailmentOrgConfigStmt, err = db.PrepareContext(ctx, ensureCurtailmentOrgConfig); err != nil {
 		return nil, fmt.Errorf("error preparing query EnsureCurtailmentOrgConfig: %w", err)
 	}
@@ -299,6 +308,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.findDevicesWithSiteOrBuildingStmt, err = db.PrepareContext(ctx, findDevicesWithSiteOrBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query FindDevicesWithSiteOrBuilding: %w", err)
+	}
+	if q.forceReleaseCurtailmentEventStmt, err = db.PrepareContext(ctx, forceReleaseCurtailmentEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query ForceReleaseCurtailmentEvent: %w", err)
 	}
 	if q.getActiveSchedulesStmt, err = db.PrepareContext(ctx, getActiveSchedules); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveSchedules: %w", err)
@@ -987,6 +999,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.reconcileDefaultPasswordPairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, reconcileDefaultPasswordPairingStatusByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query ReconcileDefaultPasswordPairingStatusByIdentifier: %w", err)
 	}
+	if q.refreshOpenErrorsLastSeenByDeviceStmt, err = db.PrepareContext(ctx, refreshOpenErrorsLastSeenByDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query RefreshOpenErrorsLastSeenByDevice: %w", err)
+	}
 	if q.removeAllDevicesFromDeviceSetStmt, err = db.PrepareContext(ctx, removeAllDevicesFromDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveAllDevicesFromDeviceSet: %w", err)
 	}
@@ -1118,6 +1133,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.softDeleteUserFromOrganizationStmt, err = db.PrepareContext(ctx, softDeleteUserFromOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteUserFromOrganization: %w", err)
+	}
+	if q.sweepCurtailmentTargetsToReleasedStmt, err = db.PrepareContext(ctx, sweepCurtailmentTargetsToReleased); err != nil {
+		return nil, fmt.Errorf("error preparing query SweepCurtailmentTargetsToReleased: %w", err)
 	}
 	if q.sweepCurtailmentTargetsToRestoreFailedStmt, err = db.PrepareContext(ctx, sweepCurtailmentTargetsToRestoreFailed); err != nil {
 		return nil, fmt.Errorf("error preparing query SweepCurtailmentTargetsToRestoreFailed: %w", err)
@@ -1716,9 +1734,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing deleteExpiredSessionsStmt: %w", cerr)
 		}
 	}
+	if q.deleteFleetNodeDevicePairingsStmt != nil {
+		if cerr := q.deleteFleetNodeDevicePairingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteFleetNodeDevicePairingsStmt: %w", cerr)
+		}
+	}
 	if q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt != nil {
 		if cerr := q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteMinerCredentialsByDeviceIDAndOrgIDStmt: %w", cerr)
+		}
+	}
+	if q.deleteMinerCredentialsForDeviceIdentifiersStmt != nil {
+		if cerr := q.deleteMinerCredentialsForDeviceIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteMinerCredentialsForDeviceIdentifiersStmt: %w", cerr)
 		}
 	}
 	if q.deleteMinerCredentialsForFleetNodeStmt != nil {
@@ -1761,6 +1789,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing deviceSetBelongsToOrgStmt: %w", cerr)
 		}
 	}
+	if q.disableCurtailmentAutomationRuleByActiveEventStmt != nil {
+		if cerr := q.disableCurtailmentAutomationRuleByActiveEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing disableCurtailmentAutomationRuleByActiveEventStmt: %w", cerr)
+		}
+	}
 	if q.ensureCurtailmentOrgConfigStmt != nil {
 		if cerr := q.ensureCurtailmentOrgConfigStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing ensureCurtailmentOrgConfigStmt: %w", cerr)
@@ -1789,6 +1822,11 @@ func (q *Queries) Close() error {
 	if q.findDevicesWithSiteOrBuildingStmt != nil {
 		if cerr := q.findDevicesWithSiteOrBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing findDevicesWithSiteOrBuildingStmt: %w", cerr)
+		}
+	}
+	if q.forceReleaseCurtailmentEventStmt != nil {
+		if cerr := q.forceReleaseCurtailmentEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing forceReleaseCurtailmentEventStmt: %w", cerr)
 		}
 	}
 	if q.getActiveSchedulesStmt != nil {
@@ -2936,6 +2974,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing reconcileDefaultPasswordPairingStatusByIdentifierStmt: %w", cerr)
 		}
 	}
+	if q.refreshOpenErrorsLastSeenByDeviceStmt != nil {
+		if cerr := q.refreshOpenErrorsLastSeenByDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing refreshOpenErrorsLastSeenByDeviceStmt: %w", cerr)
+		}
+	}
 	if q.removeAllDevicesFromDeviceSetStmt != nil {
 		if cerr := q.removeAllDevicesFromDeviceSetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing removeAllDevicesFromDeviceSetStmt: %w", cerr)
@@ -3154,6 +3197,11 @@ func (q *Queries) Close() error {
 	if q.softDeleteUserFromOrganizationStmt != nil {
 		if cerr := q.softDeleteUserFromOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteUserFromOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.sweepCurtailmentTargetsToReleasedStmt != nil {
+		if cerr := q.sweepCurtailmentTargetsToReleasedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing sweepCurtailmentTargetsToReleasedStmt: %w", cerr)
 		}
 	}
 	if q.sweepCurtailmentTargetsToRestoreFailedStmt != nil {
@@ -3617,7 +3665,9 @@ type Queries struct {
 	deleteCurtailmentResponseProfilesBySiteStmt                *sql.Stmt
 	deleteDisabledMQTTSourceConfigByOrgStmt                    *sql.Stmt
 	deleteExpiredSessionsStmt                                  *sql.Stmt
+	deleteFleetNodeDevicePairingsStmt                          *sql.Stmt
 	deleteMinerCredentialsByDeviceIDAndOrgIDStmt               *sql.Stmt
+	deleteMinerCredentialsForDeviceIdentifiersStmt             *sql.Stmt
 	deleteMinerCredentialsForFleetNodeStmt                     *sql.Stmt
 	deleteOrganizationStmt                                     *sql.Stmt
 	deletePairingsForFleetNodeStmt                             *sql.Stmt
@@ -3626,12 +3676,14 @@ type Queries struct {
 	deviceHasActiveCloudPairingStmt                            *sql.Stmt
 	deviceHasActivePairingStmt                                 *sql.Stmt
 	deviceSetBelongsToOrgStmt                                  *sql.Stmt
+	disableCurtailmentAutomationRuleByActiveEventStmt          *sql.Stmt
 	ensureCurtailmentOrgConfigStmt                             *sql.Stmt
 	findDeviceBuildingConflictsStmt                            *sql.Stmt
 	findDeviceSiteConflictsStmt                                *sql.Stmt
 	findDevicesInBuildingLessPlacedRacksStmt                   *sql.Stmt
 	findDevicesInSiteLessRacksStmt                             *sql.Stmt
 	findDevicesWithSiteOrBuildingStmt                          *sql.Stmt
+	forceReleaseCurtailmentEventStmt                           *sql.Stmt
 	getActiveSchedulesStmt                                     *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt                     *sql.Stmt
 	getAddedDeviceSiteConflictsStmt                            *sql.Stmt
@@ -3861,6 +3913,7 @@ type Queries struct {
 	reassignRacksUnderBuildingsBulkStmt                        *sql.Stmt
 	reconcileAuthenticationNeededPairingStatusByIdentifierStmt *sql.Stmt
 	reconcileDefaultPasswordPairingStatusByIdentifierStmt      *sql.Stmt
+	refreshOpenErrorsLastSeenByDeviceStmt                      *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                          *sql.Stmt
 	removeDevicesFromAnyRackStmt                               *sql.Stmt
 	removeDevicesFromDeviceSetStmt                             *sql.Stmt
@@ -3905,6 +3958,7 @@ type Queries struct {
 	softDeleteSiteStmt                                         *sql.Stmt
 	softDeleteUserStmt                                         *sql.Stmt
 	softDeleteUserFromOrganizationStmt                         *sql.Stmt
+	sweepCurtailmentTargetsToReleasedStmt                      *sql.Stmt
 	sweepCurtailmentTargetsToRestoreFailedStmt                 *sql.Stmt
 	sweepExpiredEnrollmentsStmt                                *sql.Stmt
 	sweepExpiredFleetNodeAuthChallengesStmt                    *sql.Stmt
@@ -4057,7 +4111,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteCurtailmentResponseProfilesBySiteStmt:                q.deleteCurtailmentResponseProfilesBySiteStmt,
 		deleteDisabledMQTTSourceConfigByOrgStmt:                    q.deleteDisabledMQTTSourceConfigByOrgStmt,
 		deleteExpiredSessionsStmt:                                  q.deleteExpiredSessionsStmt,
+		deleteFleetNodeDevicePairingsStmt:                          q.deleteFleetNodeDevicePairingsStmt,
 		deleteMinerCredentialsByDeviceIDAndOrgIDStmt:               q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt,
+		deleteMinerCredentialsForDeviceIdentifiersStmt:             q.deleteMinerCredentialsForDeviceIdentifiersStmt,
 		deleteMinerCredentialsForFleetNodeStmt:                     q.deleteMinerCredentialsForFleetNodeStmt,
 		deleteOrganizationStmt:                                     q.deleteOrganizationStmt,
 		deletePairingsForFleetNodeStmt:                             q.deletePairingsForFleetNodeStmt,
@@ -4066,12 +4122,14 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deviceHasActiveCloudPairingStmt:                            q.deviceHasActiveCloudPairingStmt,
 		deviceHasActivePairingStmt:                                 q.deviceHasActivePairingStmt,
 		deviceSetBelongsToOrgStmt:                                  q.deviceSetBelongsToOrgStmt,
+		disableCurtailmentAutomationRuleByActiveEventStmt:          q.disableCurtailmentAutomationRuleByActiveEventStmt,
 		ensureCurtailmentOrgConfigStmt:                             q.ensureCurtailmentOrgConfigStmt,
 		findDeviceBuildingConflictsStmt:                            q.findDeviceBuildingConflictsStmt,
 		findDeviceSiteConflictsStmt:                                q.findDeviceSiteConflictsStmt,
 		findDevicesInBuildingLessPlacedRacksStmt:                   q.findDevicesInBuildingLessPlacedRacksStmt,
 		findDevicesInSiteLessRacksStmt:                             q.findDevicesInSiteLessRacksStmt,
 		findDevicesWithSiteOrBuildingStmt:                          q.findDevicesWithSiteOrBuildingStmt,
+		forceReleaseCurtailmentEventStmt:                           q.forceReleaseCurtailmentEventStmt,
 		getActiveSchedulesStmt:                                     q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:                     q.getActiveUnpairedDiscoveredDevicesStmt,
 		getAddedDeviceSiteConflictsStmt:                            q.getAddedDeviceSiteConflictsStmt,
@@ -4301,6 +4359,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reassignRacksUnderBuildingsBulkStmt:                        q.reassignRacksUnderBuildingsBulkStmt,
 		reconcileAuthenticationNeededPairingStatusByIdentifierStmt: q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt,
 		reconcileDefaultPasswordPairingStatusByIdentifierStmt:      q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
+		refreshOpenErrorsLastSeenByDeviceStmt:                      q.refreshOpenErrorsLastSeenByDeviceStmt,
 		removeAllDevicesFromDeviceSetStmt:                          q.removeAllDevicesFromDeviceSetStmt,
 		removeDevicesFromAnyRackStmt:                               q.removeDevicesFromAnyRackStmt,
 		removeDevicesFromDeviceSetStmt:                             q.removeDevicesFromDeviceSetStmt,
@@ -4345,6 +4404,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteSiteStmt:                                         q.softDeleteSiteStmt,
 		softDeleteUserStmt:                                         q.softDeleteUserStmt,
 		softDeleteUserFromOrganizationStmt:                         q.softDeleteUserFromOrganizationStmt,
+		sweepCurtailmentTargetsToReleasedStmt:                      q.sweepCurtailmentTargetsToReleasedStmt,
 		sweepCurtailmentTargetsToRestoreFailedStmt:                 q.sweepCurtailmentTargetsToRestoreFailedStmt,
 		sweepExpiredEnrollmentsStmt:                                q.sweepExpiredEnrollmentsStmt,
 		sweepExpiredFleetNodeAuthChallengesStmt:                    q.sweepExpiredFleetNodeAuthChallengesStmt,

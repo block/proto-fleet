@@ -8,11 +8,18 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
+	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	minerMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
@@ -89,6 +96,137 @@ func TestPollErrors_WithSingleMiner_ShouldUpsertErrors(t *testing.T) {
 	assert.Equal(t, 1, result.ErrorsUpserted)
 	assert.Equal(t, 0, result.UpsertsFailed)
 	assert.False(t, result.Cancelled)
+}
+
+func TestPollErrors_WithPartialResult_ShouldRefreshOpenErrorsAndUpsertIncludedReports(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	now := time.Now()
+	testDeviceID := "test-device-123"
+
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+	mockMiner.EXPECT().GetID().Return(minerModels.DeviceIdentifier(testDeviceID)).AnyTimes()
+	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
+	mockMiner.EXPECT().GetErrors(gomock.Any()).Return(models.DeviceErrors{
+		DeviceID:           testDeviceID,
+		Partial:            true,
+		OmittedReportCount: 2,
+		Errors: []models.ErrorMessage{{
+			MinerError:  models.HashboardOverTemperature,
+			Severity:    models.SeverityMajor,
+			Summary:     "included partial error",
+			FirstSeenAt: now,
+			LastSeenAt:  now,
+		}},
+	}, nil)
+
+	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
+	mockErrorStore.EXPECT().
+		RefreshOpenErrorsLastSeen(gomock.Any(), int64(1), testDeviceID, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ int64, _ string, observedAt time.Time) (int64, error) {
+			assert.False(t, observedAt.IsZero())
+			return int64(3), nil
+		})
+	mockErrorStore.EXPECT().
+		UpsertError(gomock.Any(), int64(1), testDeviceID, gomock.Any()).
+		Return(&models.ErrorMessage{}, nil)
+
+	svc := newTestService(ctrl, mockErrorStore)
+	result := svc.PollErrors(t.Context(), mockMiner)
+
+	assert.Equal(t, 1, result.MinersProcessed)
+	assert.Equal(t, 1, result.MinersPartial)
+	assert.Equal(t, 0, result.MinersFailed)
+	assert.Equal(t, 1, result.ErrorsUpserted)
+	assert.Equal(t, 0, result.UpsertsFailed)
+	assert.False(t, result.Cancelled)
+}
+
+func TestPollErrors_WithRemoteNodeMiner_ShouldDispatchAndUpsertErrors(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	registry := control.NewRegistry()
+	stream := registry.Register(42)
+	defer stream.Unregister()
+
+	remoteMiner, err := remotenode.New(remotenode.Config{
+		Sender:           registry,
+		FleetNodeID:      42,
+		OrgID:            7,
+		DeviceIdentifier: "dev-remote",
+		DriverName:       "virtual",
+		IPAddress:        "10.0.0.5",
+		Port:             "4028",
+		URLScheme:        "http",
+	})
+	require.NoError(t, err)
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
+	mockErrorStore.EXPECT().
+		UpsertError(gomock.Any(), int64(7), "dev-remote", gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ int64, _ string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error) {
+			assert.Equal(t, models.PSUFaultGeneric, errMsg.MinerError)
+			assert.Equal(t, models.SeverityCritical, errMsg.Severity)
+			assert.Equal(t, models.ComponentTypePSU, errMsg.ComponentType)
+			assert.Equal(t, "PSU fault", errMsg.CauseSummary)
+			assert.Equal(t, "Power supply fault detected", errMsg.Summary)
+			assert.Equal(t, "PSU_001", errMsg.VendorCode)
+			assert.Equal(t, now, errMsg.FirstSeenAt)
+			assert.Equal(t, now.Add(time.Minute), errMsg.LastSeenAt)
+			return errMsg, nil
+		})
+	svc := newTestService(ctrl, mockErrorStore)
+
+	resultCh := make(chan PollResult, 1)
+	go func() {
+		resultCh <- svc.PollErrors(context.Background(), remoteMiner)
+	}()
+
+	var cmd *gatewaypb.ControlCommand
+	select {
+	case cmd = <-stream.Outgoing:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for remote GetErrors command")
+	}
+	var env gatewaypb.AgentCommand
+	require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &env))
+	require.NotNil(t, env.GetMinerCommand().GetGetErrors())
+	assert.Equal(t, "dev-remote", env.GetMinerCommand().GetTarget().GetDeviceIdentifier())
+
+	payload, err := proto.Marshal(&gatewaypb.GetErrorsResult{
+		DeviceId: "dev-remote",
+		Errors: []*gatewaypb.MinerErrorReport{{
+			MinerError:   errorspb.MinerError_MINER_ERROR_PSU_FAULT_GENERIC,
+			Severity:     errorspb.Severity_SEVERITY_CRITICAL,
+			FirstSeenAt:  timestamppb.New(now),
+			LastSeenAt:   timestamppb.New(now.Add(time.Minute)),
+			DeviceId:     "dev-remote",
+			CauseSummary: "PSU fault",
+			Summary:      "Power supply fault detected",
+			VendorAttributes: map[string]string{
+				"vendor_code": "PSU_001",
+			},
+			ComponentType: errorspb.ComponentType_COMPONENT_TYPE_PSU,
+		}},
+	})
+	require.NoError(t, err)
+	stream.PublishAck(&gatewaypb.ControlAck{
+		CommandId: cmd.GetCommandId(),
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	})
+
+	select {
+	case result := <-resultCh:
+		assert.Equal(t, 1, result.MinersProcessed)
+		assert.Equal(t, 0, result.MinersFailed)
+		assert.Equal(t, 1, result.ErrorsUpserted)
+		assert.Equal(t, 0, result.UpsertsFailed)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for diagnostics poll result")
+	}
 }
 
 func TestPollErrors_WithMultipleMiners_ShouldProcessAll(t *testing.T) {

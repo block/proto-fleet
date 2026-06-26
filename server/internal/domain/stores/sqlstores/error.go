@@ -949,6 +949,27 @@ func buildComponentCountParams(opts *models.QueryOptions) sqlc.CountComponentsWi
 // Error Lifecycle Management
 // ============================================================================
 
+// RefreshOpenErrorsLastSeen updates all open errors for a device after an incomplete poll.
+func (s *SQLErrorStore) RefreshOpenErrorsLastSeen(ctx context.Context, orgID int64, deviceIdentifier string, observedAt time.Time) (int64, error) {
+	q := s.getQueries(ctx)
+
+	result, err := q.RefreshOpenErrorsLastSeenByDevice(ctx, sqlc.RefreshOpenErrorsLastSeenByDeviceParams{
+		OrgID:            orgID,
+		DeviceIdentifier: deviceIdentifier,
+		ObservedAt:       observedAt,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to refresh open errors: %v", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to get rows affected: %v", err)
+	}
+
+	return rowsAffected, nil
+}
+
 // CloseStaleErrors closes all open errors where last_seen_at is older than the threshold.
 // This is a bulk operation that operates globally across all organizations.
 func (s *SQLErrorStore) CloseStaleErrors(ctx context.Context, threshold time.Duration) (int64, error) {

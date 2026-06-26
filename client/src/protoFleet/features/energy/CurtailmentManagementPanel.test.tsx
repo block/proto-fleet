@@ -16,6 +16,7 @@ import type {
 const mocks = vi.hoisted(() => ({
   adminTerminateCurtailment: vi.fn(),
   dismissTerminalCurtailment: vi.fn(),
+  forceReleaseCurtailment: vi.fn(),
   goToHistoryPage: vi.fn(),
   listSites: vi.fn(),
   navigate: vi.fn(),
@@ -59,14 +60,14 @@ vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
   default: ({
     onDismissRestored,
     onRequestEdit,
-    onRequestForceRestore,
+    onRequestForceRelease,
     onRequestRestore,
     onRequestStop,
     onRequestTerminateRecovery,
   }: {
     onDismissRestored?: () => void;
     onRequestEdit?: () => void;
-    onRequestForceRestore?: () => void;
+    onRequestForceRelease?: () => void;
     onRequestRestore?: () => void;
     onRequestStop?: () => void;
     onRequestTerminateRecovery?: () => void;
@@ -80,9 +81,9 @@ vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
           Request edit
         </button>
       ) : null}
-      {onRequestForceRestore ? (
-        <button type="button" onClick={onRequestForceRestore}>
-          Request force restore
+      {onRequestForceRelease ? (
+        <button type="button" onClick={onRequestForceRelease}>
+          Request abort
         </button>
       ) : null}
       {onRequestRestore ? (
@@ -311,6 +312,7 @@ function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseC
     updateCurtailment: mocks.updateCurtailment as UseCurtailmentApiResult["updateCurtailment"],
     stopCurtailment: mocks.stopCurtailment as UseCurtailmentApiResult["stopCurtailment"],
     adminTerminateCurtailment: mocks.adminTerminateCurtailment as UseCurtailmentApiResult["adminTerminateCurtailment"],
+    forceReleaseCurtailment: mocks.forceReleaseCurtailment as UseCurtailmentApiResult["forceReleaseCurtailment"],
     ...overrides,
   };
 }
@@ -334,6 +336,7 @@ describe("CurtailmentManagementPanel", () => {
     mocks.startCurtailment.mockResolvedValue({});
     mocks.stopCurtailment.mockResolvedValue({});
     mocks.adminTerminateCurtailment.mockResolvedValue({});
+    mocks.forceReleaseCurtailment.mockResolvedValue({});
     mocks.updateCurtailment.mockResolvedValue({});
     mocks.useHasPermission.mockReturnValue(false);
     mocks.useCurtailmentApi.mockReturnValue(createApiResult());
@@ -582,8 +585,7 @@ describe("CurtailmentManagementPanel", () => {
     expect(mocks.stopCurtailment).toHaveBeenLastCalledWith("curt-1");
   });
 
-  it("force restores automation-owned events only for admins", async () => {
-    const user = userEvent.setup();
+  it("shows restore for automation-owned events", () => {
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         activeEvent: { ...activeEvent, isAutomationOwned: true },
@@ -594,17 +596,93 @@ describe("CurtailmentManagementPanel", () => {
 
     render(<CurtailmentManagementPanel enableRecover />);
 
-    await user.click(screen.getByRole("button", { name: "Request restore" }));
-    expect(screen.getByRole("dialog", { name: "restore confirmation" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Confirm confirmation" }));
-    await waitFor(() => expect(mocks.stopCurtailment).toHaveBeenCalledWith("curt-1"));
+    expect(screen.getByRole("button", { name: "Request restore" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole("button", { name: "Request force restore" }));
-    expect(screen.getByRole("dialog", { name: "forceRestore confirmation" })).toBeInTheDocument();
+  it("aborts restoring curtailment ownership for admin recovery users", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+    mocks.useHasPermission.mockImplementation((permission: string) =>
+      ["curtailment:manage", "curtailment:read", "site:read", "admin:recovery"].includes(permission),
+    );
 
-    await user.click(screen.getByRole("button", { name: "Confirm confirmation" }));
+    render(<CurtailmentManagementPanel enableManage enableRecover />);
 
-    await waitFor(() => expect(mocks.stopCurtailment).toHaveBeenCalledWith("curt-1", { force: true }));
+    await user.click(screen.getByRole("button", { name: "Request abort" }));
+    expect(screen.getByText("Abort restore?")).toBeInTheDocument();
+    expect(screen.getByText(/aborts the restore workflow/i)).toBeInTheDocument();
+
+    const releaseButtons = screen.getAllByRole("button", { name: "Abort restore" });
+    await user.click(releaseButtons[releaseButtons.length - 1]);
+    expect(screen.getByText("Enter a reason before terminating the event.")).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Operator needs manual control");
+    const updatedReleaseButtons = screen.getAllByRole("button", { name: "Abort restore" });
+    await user.click(updatedReleaseButtons[updatedReleaseButtons.length - 1]);
+
+    await waitFor(() =>
+      expect(mocks.forceReleaseCurtailment).toHaveBeenCalledWith("curt-1", {
+        reason: "Operator needs manual control",
+      }),
+    );
+  });
+
+  it("hides abort while non-automation curtailment is still pending or active", () => {
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent,
+        activeEvents: [{ ...historyEvent, state: "active" }],
+        activeEventId: "curt-1",
+      }),
+    );
+    mocks.useHasPermission.mockImplementation((permission: string) =>
+      ["curtailment:manage", "curtailment:read", "site:read", "admin:recovery"].includes(permission),
+    );
+
+    render(<CurtailmentManagementPanel enableManage enableRecover />);
+
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request stop" })).toBeInTheDocument();
+  });
+
+  it("shows abort for automation-owned active curtailments", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true },
+        activeEvents: [{ ...historyEvent, state: "active" }],
+        activeEventId: "curt-1",
+      }),
+    );
+    mocks.useHasPermission.mockImplementation((permission: string) =>
+      ["curtailment:manage", "curtailment:read", "site:read", "admin:recovery"].includes(permission),
+    );
+
+    render(<CurtailmentManagementPanel enableManage enableRecover />);
+
+    expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request restore" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Request abort" }));
+    expect(screen.getByText("Abort curtailment?")).toBeInTheDocument();
+    expect(screen.getByText(/disables the owning automation rule/i)).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Need to disable automation");
+    const abortButtons = screen.getAllByRole("button", { name: "Abort curtailment" });
+    await user.click(abortButtons[abortButtons.length - 1]);
+
+    await waitFor(() =>
+      expect(mocks.forceReleaseCurtailment).toHaveBeenCalledWith("curt-1", {
+        reason: "Need to disable automation",
+      }),
+    );
   });
 
   it("hides force recovery controls from non-admin curtailment managers", () => {
@@ -617,13 +695,13 @@ describe("CurtailmentManagementPanel", () => {
 
     render(<CurtailmentManagementPanel enableRecover={false} />);
 
-    expect(screen.queryByRole("button", { name: "Request force restore" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request terminate recovery" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Request restore" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
   });
 
-  it("terminates automation-owned restoring events with target state and required reason", async () => {
-    const user = userEvent.setup();
+  it("hides terminate recovery when abort restore is available", () => {
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
@@ -634,22 +712,9 @@ describe("CurtailmentManagementPanel", () => {
 
     render(<CurtailmentManagementPanel enableRecover />);
 
-    await user.click(screen.getByRole("button", { name: "Request terminate recovery" }));
-    await user.click(screen.getByRole("button", { name: "Terminate event" }));
-
-    expect(screen.getByText("Enter a reason before terminating the event.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request terminate recovery" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request abort" })).toBeInTheDocument();
     expect(mocks.adminTerminateCurtailment).not.toHaveBeenCalled();
-
-    await user.click(screen.getByLabelText("Failed"));
-    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Recovered from stale MQTT source");
-    await user.click(screen.getByRole("button", { name: "Terminate event" }));
-
-    await waitFor(() =>
-      expect(mocks.adminTerminateCurtailment).toHaveBeenCalledWith("curt-1", {
-        reason: "Recovered from stale MQTT source",
-        targetState: "failed",
-      }),
-    );
   });
 
   it("hides terminate recovery for non-automation restoring events", () => {
@@ -692,41 +757,6 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Select history event" }));
 
     expect(mocks.selectActiveCurtailment).toHaveBeenCalledWith("curt-restoring", { signal: expect.any(AbortSignal) });
-  });
-
-  it("keeps terminate recovery dialog open while submitting", async () => {
-    const user = userEvent.setup();
-    const restoringEvent = {
-      ...activeEvent,
-      isAutomationOwned: true,
-      state: "restoring",
-    } satisfies ActiveCurtailmentEvent;
-    mocks.useCurtailmentApi.mockReturnValue(
-      createApiResult({
-        activeEvent: restoringEvent,
-        activeEvents: [{ ...historyEvent, state: "restoring" }],
-        activeEventId: "curt-1",
-      }),
-    );
-
-    const { rerender } = render(<CurtailmentManagementPanel enableRecover />);
-
-    await user.click(screen.getByRole("button", { name: "Request terminate recovery" }));
-    expect(screen.getByText("Terminate recovery event?")).toBeInTheDocument();
-
-    mocks.useCurtailmentApi.mockReturnValue(
-      createApiResult({
-        activeEvent: restoringEvent,
-        activeEvents: [{ ...historyEvent, state: "restoring" }],
-        activeEventId: "curt-1",
-        adminTerminatingEventId: "curt-1",
-      }),
-    );
-    rerender(<CurtailmentManagementPanel enableRecover />);
-
-    fireEvent.keyDown(document, { key: "Escape" });
-
-    expect(screen.getByText("Terminate recovery event?")).toBeInTheDocument();
   });
 
   it("does not submit stale stop confirmations for events that are no longer active", async () => {
@@ -1379,6 +1409,25 @@ describe("CurtailmentManagementPanel", () => {
     render(<CurtailmentManagementPanel />);
 
     expect(screen.getByText("Failed to update curtailment.")).toBeInTheDocument();
+  });
+
+  it("shows operator-friendly automation restore guard errors", () => {
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true },
+        stopError:
+          'cannot restore automation-owned curtailment event curt-1 while automation rule "test" still has OFF asserted; use force=true to override',
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableManage enableRecover />);
+
+    expect(
+      screen.getByText(
+        "Automation is still requesting curtailment. Use Abort to cancel this event and disable the automation before restoring miners.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/cannot restore automation-owned curtailment event/)).not.toBeInTheDocument();
   });
 
   it("passes status filters through to the curtailment API hook", async () => {

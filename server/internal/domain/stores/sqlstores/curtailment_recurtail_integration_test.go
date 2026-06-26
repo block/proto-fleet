@@ -84,6 +84,149 @@ func TestSQLCurtailmentStore_BeginRecurtailTransition_OverlapRollsBack(t *testin
 	assert.Equal(t, string(models.TargetStateResolved), targetState, "partial re-curtail must not reopen skipped targets")
 }
 
+func TestSQLCurtailmentStore_ForceReleaseEvent_CancelsEventAndReleasesTargets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	db := testContext.DatabaseService.DB
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(db)
+
+	eventUUID := uuid.New()
+	inserted, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateActive, "force-release"),
+		[]models.InsertTargetParams{
+			curtailmentStoreTestTarget("force-release-confirmed", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget("force-release-dispatched", models.TargetStateDispatched, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget("force-release-restoring", models.TargetStateDispatched, models.DesiredStateActive),
+			curtailmentStoreTestTarget("force-release-resolved", models.TargetStateResolved, models.DesiredStateActive),
+		},
+	)
+	require.NoError(t, err)
+
+	activeBefore, err := store.ListActiveCurtailedDevices(ctx, user.OrganizationID)
+	require.NoError(t, err)
+	assert.Contains(t, activeBefore, "force-release-confirmed")
+	assert.Contains(t, activeBefore, "force-release-dispatched")
+	assert.Contains(t, activeBefore, "force-release-restoring")
+
+	released, err := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "operator needs manual control")
+	require.NoError(t, err)
+	event := released.Event
+	require.NotNil(t, event)
+	assert.Equal(t, models.EventStateCancelled, event.State)
+	assert.Equal(t, int64(3), released.SweptTargets)
+	assert.True(t, released.OwnershipReleased)
+	assert.False(t, released.AutomationDisabled)
+
+	targets, err := store.ListTargetsByEvent(ctx, user.OrganizationID, eventUUID)
+	require.NoError(t, err)
+	got := map[string]*models.Target{}
+	for _, target := range targets {
+		got[target.DeviceIdentifier] = target
+	}
+	require.Contains(t, got, "force-release-confirmed")
+	require.Contains(t, got, "force-release-dispatched")
+	require.Contains(t, got, "force-release-restoring")
+	require.Contains(t, got, "force-release-resolved")
+	assert.Equal(t, models.TargetStateReleased, got["force-release-confirmed"].State)
+	require.NotNil(t, got["force-release-confirmed"].LastError)
+	assert.Equal(t, "operator needs manual control", *got["force-release-confirmed"].LastError)
+	assert.Equal(t, models.TargetStateReleased, got["force-release-confirmed"].CurtailPhase.State)
+	assert.NotNil(t, got["force-release-confirmed"].CurtailPhase.CompletedAt)
+	assert.Equal(t, models.TargetStateReleased, got["force-release-dispatched"].State)
+	assert.Equal(t, models.TargetStateReleased, got["force-release-restoring"].State)
+	require.NotNil(t, got["force-release-restoring"].RestorePhase)
+	assert.Equal(t, models.TargetStateReleased, got["force-release-restoring"].RestorePhase.State)
+	assert.NotNil(t, got["force-release-restoring"].RestorePhase.CompletedAt)
+	assert.Equal(t, models.TargetStateResolved, got["force-release-resolved"].State)
+
+	activeAfter, err := store.ListActiveCurtailedDevices(ctx, user.OrganizationID)
+	require.NoError(t, err)
+	assert.NotContains(t, activeAfter, "force-release-confirmed")
+	assert.NotContains(t, activeAfter, "force-release-dispatched")
+	assert.NotContains(t, activeAfter, "force-release-restoring")
+
+	// The return value should continue identifying the row the store updated.
+	assert.Equal(t, inserted.ID, event.ID)
+}
+
+func TestSQLCurtailmentStore_ForceReleaseEvent_UnblocksClosedLoopFullFleetPreflight(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	device := testContext.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+
+	eventUUID := uuid.New()
+	_, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreClosedLoopFullFleetEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.ScopeTypeWholeOrg, 0, "force-release-full-fleet"),
+		nil,
+	)
+	require.NoError(t, err)
+
+	activeBefore, err := store.ListActiveCurtailedDevices(ctx, user.OrganizationID)
+	require.NoError(t, err)
+	assert.Contains(t, activeBefore, device.ID)
+
+	released, err := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "operator needs manual control")
+	require.NoError(t, err)
+	event := released.Event
+	require.NotNil(t, event)
+	assert.Equal(t, models.EventStateCancelled, event.State)
+	assert.Zero(t, released.SweptTargets)
+	assert.True(t, released.OwnershipReleased)
+	assert.False(t, released.AutomationDisabled)
+
+	activeAfter, err := store.ListActiveCurtailedDevices(ctx, user.OrganizationID)
+	require.NoError(t, err)
+	assert.NotContains(t, activeAfter, device.ID)
+}
+
+func TestSQLCurtailmentStore_ForceReleaseEvent_NoopsTerminalEvents(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+
+	eventUUID := uuid.New()
+	_, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateFailed, "force-release-terminal"),
+		[]models.InsertTargetParams{
+			curtailmentStoreTestTarget("force-release-terminal", models.TargetStateRestoreFailed, models.DesiredStateActive),
+		},
+	)
+	require.NoError(t, err)
+
+	released, err := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "operator needs manual control")
+	require.NoError(t, err)
+	event := released.Event
+	require.NotNil(t, event)
+	assert.Equal(t, models.EventStateFailed, event.State)
+	assert.Zero(t, released.SweptTargets)
+	assert.False(t, released.AutomationDisabled)
+	assert.False(t, released.OwnershipReleased)
+
+	current, err := store.GetEventByUUID(ctx, user.OrganizationID, eventUUID)
+	require.NoError(t, err)
+	require.NotNil(t, current)
+	assert.Equal(t, models.EventStateFailed, current.State)
+}
+
 func TestSQLCurtailmentStore_BeginRecurtailTransition_ReopensResolvedTarget(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")

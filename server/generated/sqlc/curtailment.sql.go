@@ -564,6 +564,70 @@ func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (
 	return i, err
 }
 
+const forceReleaseCurtailmentEvent = `-- name: ForceReleaseCurtailmentEvent :one
+UPDATE curtailment_event
+SET state      = 'cancelled',
+    ended_at   = COALESCE(ended_at, NOW()),
+    updated_at = NOW()
+WHERE event_uuid = $1
+  AND org_id = $2
+  AND state IN ('pending', 'active', 'restoring')
+RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
+`
+
+type ForceReleaseCurtailmentEventParams struct {
+	EventUuid uuid.UUID
+	OrgID     int64
+}
+
+// Last-resort recovery: persistently releases curtailment ownership for any
+// non-terminal event row. Unlike AdminTerminateCurtailmentEvent, this
+// intentionally supports ACTIVE events and has no in-flight command gate because
+// the operator intent is to clear policy ownership, not report graceful restore.
+func (q *Queries) ForceReleaseCurtailmentEvent(ctx context.Context, arg ForceReleaseCurtailmentEventParams) (CurtailmentEvent, error) {
+	row := q.queryRow(ctx, q.forceReleaseCurtailmentEventStmt, forceReleaseCurtailmentEvent, arg.EventUuid, arg.OrgID)
+	var i CurtailmentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventUuid,
+		&i.OrgID,
+		&i.State,
+		&i.Mode,
+		&i.Strategy,
+		&i.Level,
+		&i.Priority,
+		&i.LoopType,
+		&i.ScopeType,
+		&i.ScopeJsonb,
+		&i.ModeParamsJsonb,
+		&i.RestoreBatchSize,
+		&i.RestoreBatchIntervalSec,
+		&i.EffectiveBatchSize,
+		&i.MinCurtailedDurationSec,
+		&i.MaxDurationSeconds,
+		&i.AllowUnbounded,
+		&i.IncludeMaintenance,
+		&i.ForceIncludeMaintenance,
+		&i.DecisionSnapshotJsonb,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.ExternalSource,
+		&i.ExternalReference,
+		&i.IdempotencyKey,
+		&i.SupersedesEventID,
+		&i.Reason,
+		&i.ScheduledStartAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedByUserID,
+		&i.CurtailBatchSize,
+		&i.CurtailBatchIntervalSec,
+	)
+	return i, err
+}
+
 const getCurtailmentEventByExternalReference = `-- name: GetCurtailmentEventByExternalReference :one
 SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec
 FROM curtailment_event
@@ -2179,6 +2243,45 @@ func (q *Queries) ResumeCurtailmentFromRestoring(ctx context.Context, id int64) 
 		&i.CurtailBatchIntervalSec,
 	)
 	return i, err
+}
+
+const sweepCurtailmentTargetsToReleased = `-- name: SweepCurtailmentTargetsToReleased :execrows
+UPDATE curtailment_target
+SET state      = 'released',
+    last_error = $1::TEXT,
+    curtail_state = CASE
+        WHEN desired_state = 'curtailed' THEN 'released'
+        ELSE curtail_state
+    END,
+    curtail_completed_at = CASE
+        WHEN desired_state = 'curtailed' THEN COALESCE(curtail_completed_at, CURRENT_TIMESTAMP)
+        ELSE curtail_completed_at
+    END,
+    restore_state = CASE
+        WHEN desired_state = 'active' THEN 'released'
+        ELSE restore_state
+    END,
+    restore_completed_at = CASE
+        WHEN desired_state = 'active' THEN COALESCE(restore_completed_at, CURRENT_TIMESTAMP)
+        ELSE restore_completed_at
+    END
+WHERE curtailment_event_id = $2
+    AND state NOT IN ('resolved', 'restore_failed', 'released')
+`
+
+type SweepCurtailmentTargetsToReleasedParams struct {
+	LastError          string
+	CurtailmentEventID int64
+}
+
+// Force every non-terminal target → RELEASED with the operator reason. This
+// releases ownership without claiming that restore was attempted or failed.
+func (q *Queries) SweepCurtailmentTargetsToReleased(ctx context.Context, arg SweepCurtailmentTargetsToReleasedParams) (int64, error) {
+	result, err := q.exec(ctx, q.sweepCurtailmentTargetsToReleasedStmt, sweepCurtailmentTargetsToReleased, arg.LastError, arg.CurtailmentEventID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const sweepCurtailmentTargetsToRestoreFailed = `-- name: SweepCurtailmentTargetsToRestoreFailed :exec

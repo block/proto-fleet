@@ -10,6 +10,7 @@ package fleetnodegateway.v1;
 import "buf/validate/validate.proto";
 import "common/v1/cooling.proto";
 import "curtailment/v1/curtailment.proto";
+import "errors/v1/errors.proto";
 import "google/protobuf/timestamp.proto";
 import "minercommand/v1/command.proto";
 import "pairing/v1/pairing.proto";
@@ -262,6 +263,7 @@ message MinerCommand {
         SetPowerTargetAction set_power_target = 9;
         UpdateMiningPoolsAction update_mining_pools = 10;
         GetMiningPoolsAction get_mining_pools = 11;
+        GetErrorsAction get_errors = 12;
     }
 }
 
@@ -271,6 +273,7 @@ message StopMiningAction {}
 message BlinkLedAction {}
 message UncurtailAction {}
 message GetMiningPoolsAction {}
+message GetErrorsAction {}
 
 message CurtailAction {
     curtailment.v1.CurtailmentLevel level = 1;
@@ -302,6 +305,37 @@ message UpdateMiningPoolsAction {
 
 message GetMiningPoolsResult {
     repeated MiningPoolConfig pools = 1 [(buf.validate.field).repeated.max_items = 3];
+}
+
+message MinerErrorReport {
+    errors.v1.MinerError miner_error = 1 [(buf.validate.field).enum.defined_only = true];
+    string cause_summary = 2 [(buf.validate.field).string.max_len = 4096];
+    string recommended_action = 3 [(buf.validate.field).string.max_len = 4096];
+    errors.v1.Severity severity = 4 [(buf.validate.field).enum.defined_only = true];
+    google.protobuf.Timestamp first_seen_at = 5;
+    google.protobuf.Timestamp last_seen_at = 6;
+    google.protobuf.Timestamp closed_at = 7;
+    map<string, string> vendor_attributes = 8 [(buf.validate.field).map = {
+        max_pairs: 32
+        keys: {
+            string: {min_len: 1, max_len: 128}
+        }
+        values: {
+            string: {max_len: 1024}
+        }
+    }];
+    string device_id = 9 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    optional string component_id = 10 [(buf.validate.field).string.max_len = 255];
+    string impact = 11 [(buf.validate.field).string.max_len = 4096];
+    string summary = 12 [(buf.validate.field).string.max_len = 4096];
+    errors.v1.ComponentType component_type = 13 [(buf.validate.field).enum.defined_only = true];
+}
+
+message GetErrorsResult {
+    string device_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    repeated MinerErrorReport errors = 2 [(buf.validate.field).repeated.max_items = 512];
+    bool truncated = 3;
+    uint32 omitted_report_count = 4;
 }
 
 // AgentCommand is the typed envelope marshaled into ControlCommand.payload so a

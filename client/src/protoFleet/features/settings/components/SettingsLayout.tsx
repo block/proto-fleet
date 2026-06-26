@@ -2,7 +2,7 @@ import { ReactNode, useEffect } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import SecondaryNavigation from "@/protoFleet/components/SecondaryNavigation";
-import { secondaryNavItems } from "@/protoFleet/config/navItems";
+import { getSettingsLandingPath, isNavItemAllowedByPermissions, secondaryNavItems } from "@/protoFleet/config/navItems";
 import OrgWideNotice from "@/protoFleet/features/settings/components/OrgWideNotice";
 import { settingsRoutePrefetch } from "@/protoFleet/routePrefetch";
 import { usePermissions } from "@/protoFleet/store";
@@ -20,9 +20,8 @@ const SettingsLayout = ({ children }: { children?: ReactNode }) => {
   const currentNavItem = secondaryNavItems.find(
     (item) => pathname === item.path || pathname.startsWith(`${item.path}/`),
   );
-  const requiredPermission = currentNavItem?.requiredPermission;
-  if (requiredPermission && !permissions.includes(requiredPermission)) {
-    return <Navigate to="/settings/general" replace />;
+  if (currentNavItem && !isNavItemAllowedByPermissions(currentNavItem, permissions)) {
+    return <Navigate to={getSettingsLandingPath(permissions)} replace />;
   }
 
   // Org-wide pages (everything except schedules) deliberately ignore the

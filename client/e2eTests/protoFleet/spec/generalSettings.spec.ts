@@ -23,7 +23,7 @@ test.describe("General Settings", () => {
       const commonSteps = new CommonSteps(authPage, minersPage);
 
       await commonSteps.loginAsAdmin();
-      await authPage.navigateToSettingsPage();
+      await authPage.navigateToPreferencesSettings();
 
       const currentTemperature = await settingsPage.getCurrentTemperatureFormat();
 
@@ -51,8 +51,8 @@ test.describe("General Settings", () => {
     let subnet = "";
     let gateway = "";
 
-    await test.step("Navigate to general settings and capture the network info response", async () => {
-      await authPage.navigateToSettingsPage();
+    await test.step("Navigate to network settings and capture the network info response", async () => {
+      await authPage.navigateToNetworkSettings();
       const response = await networkInfoResponsePromise;
       const body = await response.json();
 
@@ -70,8 +70,8 @@ test.describe("General Settings", () => {
   test("Set temperature format", async ({ authPage, settingsPage, minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
 
-    await test.step("Navigate to general settings", async () => {
-      await authPage.navigateToSettingsPage();
+    await test.step("Navigate to preferences settings", async () => {
+      await authPage.navigateToPreferencesSettings();
     });
 
     await test.step("Set temperature to Fahrenheit", async () => {
@@ -88,7 +88,7 @@ test.describe("General Settings", () => {
     });
 
     await test.step("Navigate back to settings", async () => {
-      await authPage.navigateToSettingsPage();
+      await authPage.navigateToPreferencesSettings();
     });
 
     await test.step("Change temperature format to Celsius", async () => {
@@ -121,8 +121,8 @@ test.describe("General Settings", () => {
       Dark: "dark",
     };
 
-    await test.step("Navigate to general settings and capture the current theme", async () => {
-      await authPage.navigateToSettingsPage();
+    await test.step("Navigate to preferences settings and capture the current theme", async () => {
+      await authPage.navigateToPreferencesSettings();
       originalTheme = await settingsPage.getCurrentTheme();
       targetTheme = targetThemeByCurrentTheme[originalTheme] ?? "Dark";
     });

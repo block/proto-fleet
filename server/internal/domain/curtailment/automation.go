@@ -282,8 +282,10 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 			return err
 		}
 		switch {
-		case event == nil || event.State.IsTerminal():
+		case event == nil:
 			// Stale state; start a fresh event below.
+		case event.State.IsTerminal():
+			// Stale terminal state; start a fresh event below.
 		case event.State == models.EventStateRestoring:
 			if eventMaxDurationElapsed(event, s.clock()) {
 				return nil
@@ -323,7 +325,19 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 	if plan.EventUUID == nil {
 		return fleeterror.NewInternalError("automation response profile start did not return an event UUID")
 	}
-	return s.store.SetAutomationActiveEvent(ctx, rule.ID, *plan.EventUUID, at)
+	if err := s.store.SetAutomationActiveEvent(ctx, rule.ID, *plan.EventUUID, at); err != nil {
+		if fleeterror.IsFailedPreconditionError(err) {
+			if _, releaseErr := s.curtailment.ForceRelease(ctx, ForceReleaseRequest{
+				OrgID:     rule.OrgID,
+				EventUUID: *plan.EventUUID,
+				Reason:    "automation rule disabled before active event could be recorded",
+			}); releaseErr != nil {
+				return fmt.Errorf("%w; failed to release untracked automation event: %v", err, releaseErr)
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *AutomationService) handleRuleOn(ctx context.Context, rule *models.AutomationRule, at time.Time) error {

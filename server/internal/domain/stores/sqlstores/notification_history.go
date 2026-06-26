@@ -5,10 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
 )
+
+// > Grafana repeat_interval (1h, notification-policies.yaml) with margin for one missed re-notify; keep in sync.
+const activeAlertStaleAfter = 135 * time.Minute
 
 type SQLNotificationHistoryStore struct {
 	SQLConnectionManager
@@ -95,6 +99,7 @@ func (s *SQLNotificationHistoryStore) ListActive(ctx context.Context, organizati
 	rows, err := s.GetQueries(ctx).ListActiveNotifications(ctx, sqlc.ListActiveNotificationsParams{
 		OrganizationID: organizationID,
 		PageLimit:      limit,
+		ActiveSince:    time.Now().Add(-activeAlertStaleAfter),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list active notifications: %w", err)

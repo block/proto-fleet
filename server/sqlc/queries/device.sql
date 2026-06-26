@@ -846,6 +846,23 @@ WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
+-- name: DeleteMinerCredentialsForDeviceIdentifiers :execrows
+-- Deletes miner credentials for devices that are being removed from the fleet.
+DELETE FROM miner_credentials mc
+USING device d
+WHERE mc.device_id = d.id
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.org_id = sqlc.arg('org_id');
+
+-- name: DeleteFleetNodeDevicePairings :execrows
+-- Deletes fleet-node ownership rows for devices that are being removed from the fleet.
+DELETE FROM fleet_node_device fnd
+USING device d
+WHERE fnd.device_id = d.id
+  AND fnd.org_id = d.org_id
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.org_id = sqlc.arg('org_id');
+
 -- name: SoftDeleteDiscoveredDevicesForDeletedDevices :exec
 -- Soft-deletes discovered_device records linked to the specified devices.
 UPDATE discovered_device dd SET deleted_at = NOW()

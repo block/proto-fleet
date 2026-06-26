@@ -29,6 +29,8 @@ import {
   type ResponseProfile,
   type ResponseProfileFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
+import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
+import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
@@ -37,7 +39,6 @@ import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Card, { cardType } from "@/shared/components/Card";
-import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -113,7 +114,6 @@ const curtailmentSourceColumnsExemptFromDisabledStyling = new Set<CurtailmentSou
 const curtailmentSourcesTableClassName = [
   "mb-2 w-full",
   "phone:table-fixed",
-  "[&_thead_th]:text-text-primary-50",
   "phone:[&_thead_th:last-child]:w-14",
   "phone:[&_thead_th:last-child>div]:w-14",
   "phone:[&_tbody_td[data-testid=enabled]:last-child>div:first-child]:box-border",
@@ -728,10 +728,11 @@ function SourcesInfoToggle(): ReactElement {
 
 function SourcesEmptyState(): ReactElement {
   return (
-    <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
-      <div className="text-heading-200 text-text-primary">No sources configured</div>
-      <p className="mt-1 text-400 text-text-primary-70">Add a MaestroOS MQTT source to receive curtailment signals.</p>
-    </div>
+    <SettingsEmptyState
+      size="section"
+      title="No sources configured"
+      description="Add a MaestroOS MQTT source to receive curtailment signals."
+    />
   );
 }
 
@@ -748,22 +749,16 @@ type SourcesErrorStateProps = {
 };
 
 function SourcesErrorState({ message }: SourcesErrorStateProps): ReactElement {
-  return (
-    <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
-      <div className="text-heading-200 text-text-primary">Unable to load sources</div>
-      <p className="mt-1 text-400 text-text-primary-70">{message}</p>
-    </div>
-  );
+  return <SettingsEmptyState size="section" title="Unable to load sources" description={message} />;
 }
 
 function ResponseProfilesEmptyState(): ReactElement {
   return (
-    <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
-      <div className="text-heading-200 text-text-primary">No response profiles configured</div>
-      <p className="mt-1 text-400 text-text-primary-70">
-        Add a profile to reuse curtailment actions across automation rules.
-      </p>
-    </div>
+    <SettingsEmptyState
+      size="section"
+      title="No response profiles configured"
+      description="Add a profile to reuse curtailment actions across automation rules."
+    />
   );
 }
 
@@ -780,12 +775,7 @@ type ResponseProfilesErrorStateProps = {
 };
 
 function ResponseProfilesErrorState({ message }: ResponseProfilesErrorStateProps): ReactElement {
-  return (
-    <div className="flex min-h-[220px] w-full flex-col items-center justify-center py-14 text-center">
-      <div className="text-heading-200 text-text-primary">Unable to load response profiles</div>
-      <p className="mt-1 text-400 text-text-primary-70">{message}</p>
-    </div>
-  );
+  return <SettingsEmptyState size="section" title="Unable to load response profiles" description={message} />;
 }
 
 type ResponseProfileCardProps = {
@@ -1614,11 +1604,11 @@ export function CurtailmentSettingsContent({
     [toggleSource, updatingSourceIds],
   );
 
-  const emptyStateRow = getSourcesEmptyState(loadSourcesError, isLoadingSources);
+  const noDataElement = getSourcesEmptyState(loadSourcesError, isLoadingSources);
 
   return (
     <div className="flex flex-col gap-14" data-testid="settings-curtailment-page">
-      <Header title="Curtailment" titleSize="text-heading-300" description={CURTAILMENT_PAGE_DESCRIPTION} />
+      <SettingsPageHeader title="Curtailment" description={CURTAILMENT_PAGE_DESCRIPTION} />
 
       <section className="curtailment-settings__section">
         <SectionHeader
@@ -1656,7 +1646,7 @@ export function CurtailmentSettingsContent({
           isRowDisabled={(source) => !source.enabled}
           columnsExemptFromDisabledStyling={curtailmentSourceColumnsExemptFromDisabledStyling}
           tableClassName={curtailmentSourcesTableClassName}
-          emptyStateRow={emptyStateRow}
+          noDataElement={noDataElement}
           applyColumnWidthsToCells
           onRowClick={openEditSourceModal}
         />
@@ -2030,7 +2020,7 @@ function CurtailmentSettingsPage(): ReactElement {
   );
 
   if (!canManageCurtailment) {
-    return <Navigate to="/settings/general" replace />;
+    return <Navigate to="/settings/network" replace />;
   }
 
   const effectiveSiteOptions = canLoadSiteOptions ? siteOptions : [];

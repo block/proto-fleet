@@ -157,11 +157,7 @@ describe("ActiveCurtailmentStatus", () => {
     expect(onRequestRestore).toHaveBeenCalledOnce();
   });
 
-  it("renders automation recovery context with force restore available", async () => {
-    const user = userEvent.setup();
-    const onRequestForceRestore = vi.fn();
-    const onRequestRestore = vi.fn();
-
+  it("renders automation recovery context without normal restore", () => {
     render(
       <ActiveCurtailmentStatus
         event={{
@@ -169,19 +165,12 @@ describe("ActiveCurtailmentStatus", () => {
           isAutomationOwned: true,
           sourceLabel: "Curtailment automation",
         }}
-        onRequestForceRestore={onRequestForceRestore}
-        onRequestRestore={onRequestRestore}
       />,
     );
 
     expect(screen.getByText("Curtailment automation recovery")).toBeVisible();
-    expect(screen.getByText(/Normal restore can be blocked while OFF demand remains asserted/)).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: "Restore" }));
-    await user.click(screen.getByRole("button", { name: "Force restore" }));
-
-    expect(onRequestRestore).toHaveBeenCalledOnce();
-    expect(onRequestForceRestore).toHaveBeenCalledOnce();
+    expect(screen.getByText(/Abort cancels this event and disables the owning automation rule/)).toBeVisible();
+    expectActionButtonHidden("Restore");
   });
 
   it("renders a restoring event without stop, restore, or manage actions", () => {
@@ -220,6 +209,37 @@ describe("ActiveCurtailmentStatus", () => {
     await user.click(screen.getByRole("button", { name: "Terminate recovery" }));
 
     expect(onRequestTerminateRecovery).toHaveBeenCalledOnce();
+  });
+
+  it("labels abort action for restoring events", async () => {
+    const user = userEvent.setup();
+    const onRequestForceRelease = vi.fn();
+
+    render(<ActiveCurtailmentStatus event={restoringCurtailmentEvent} onRequestForceRelease={onRequestForceRelease} />);
+
+    await user.click(screen.getByRole("button", { name: "Abort restore" }));
+
+    expect(onRequestForceRelease).toHaveBeenCalledOnce();
+  });
+
+  it("labels abort action for automation-owned active events", async () => {
+    const user = userEvent.setup();
+    const onRequestForceRelease = vi.fn();
+
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          isAutomationOwned: true,
+          sourceLabel: "Curtailment automation",
+        }}
+        onRequestForceRelease={onRequestForceRelease}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Abort curtailment" }));
+
+    expect(onRequestForceRelease).toHaveBeenCalledOnce();
   });
 
   it("counts released targets as restored during restoration", () => {

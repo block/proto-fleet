@@ -112,6 +112,20 @@ func (e *EffectivePermissions) Has(key string, rc ResourceContext) bool {
 	return e.orgScope[key]
 }
 
+// HasOrgWide reports whether key is held at org scope and remains effective at
+// every site where this user has a narrower site-scope assignment.
+func (e *EffectivePermissions) HasOrgWide(key string) bool {
+	if e == nil || !e.orgScope[key] {
+		return false
+	}
+	for siteID := range e.bySite {
+		if !e.Has(key, ResourceContext{SiteID: &siteID}) {
+			return false
+		}
+	}
+	return true
+}
+
 // StrictlyDominates reports whether this EffectivePermissions
 // subsumes other AND holds at least one (key, scope) pair other does
 // not — i.e., a proper superset. Used as the no-role:manage branch of

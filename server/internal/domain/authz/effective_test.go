@@ -98,6 +98,48 @@ func TestEffective_NarrowingOrgScopeActionNotShadowed(t *testing.T) {
 		"org-scope action is satisfied by the org-scope assignment regardless of site-scope rows")
 }
 
+func TestEffective_HasOrgWideHonorsSiteNarrowing(t *testing.T) {
+	cases := []struct {
+		name        string
+		assignments []authz.Assignment
+		want        bool
+	}{
+		{
+			name:        "plain org grant is org-wide",
+			assignments: []authz.Assignment{orgScope(authz.PermCurtailmentManage)},
+			want:        true,
+		},
+		{
+			name: "matching narrowed site grant stays org-wide",
+			assignments: []authz.Assignment{
+				orgScope(authz.PermCurtailmentManage),
+				siteScope(1, authz.PermCurtailmentManage),
+			},
+			want: true,
+		},
+		{
+			name: "narrowed site without permission is not org-wide",
+			assignments: []authz.Assignment{
+				orgScope(authz.PermCurtailmentManage),
+				siteScope(1),
+			},
+			want: false,
+		},
+		{
+			name:        "site-only grant is not org-wide",
+			assignments: []authz.Assignment{siteScope(1, authz.PermCurtailmentManage)},
+			want:        false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			eff := authz.NewEffectivePermissions(tc.assignments)
+			require.Equal(t, tc.want, eff.HasOrgWide(authz.PermCurtailmentManage))
+		})
+	}
+}
+
 func TestEffective_MultipleSiteAssignmentsUnionAtTheirOwnSites(t *testing.T) {
 	// User has ADMIN @ Site-A and FIELD_TECH @ Site-B (no org-scope row).
 	// miner:reboot is in ADMIN's seed but not FIELD_TECH's.

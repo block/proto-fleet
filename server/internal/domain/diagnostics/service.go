@@ -16,6 +16,7 @@ import (
 // PollResult contains the outcome of a PollErrors operation.
 type PollResult struct {
 	MinersProcessed int
+	MinersPartial   int
 	MinersFailed    int
 	ErrorsUpserted  int
 	UpsertsFailed   int
@@ -92,6 +93,13 @@ func (s *Service) PollErrors(ctx context.Context, miners ...minerInterfaces.Mine
 		}
 
 		result.MinersProcessed++
+		if deviceErrors.Partial {
+			result.MinersPartial++
+			if _, err := s.errorStore.RefreshOpenErrorsLastSeen(ctx, orgID, string(deviceID), time.Now()); err != nil {
+				slog.Warn("failed to refresh open errors after partial poll", "deviceID", deviceID, "orgID", orgID, "omittedReportCount", deviceErrors.OmittedReportCount, "error", err)
+				result.UpsertsFailed++
+			}
+		}
 
 		if len(deviceErrors.Errors) == 0 {
 			continue

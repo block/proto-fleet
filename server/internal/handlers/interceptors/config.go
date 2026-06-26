@@ -108,6 +108,7 @@ var SessionOnlyProcedures = []string{
 	// is session-only. Paired with handler-side requireAdminFromContext in
 	// handlers/curtailment/handler.go; neither check alone is sufficient.
 	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure,
+	curtailmentv1connect.CurtailmentServiceForceReleaseCurtailmentOwnershipProcedure,
 	// MQTT source credential RPCs carry or exercise broker passwords and should
 	// only be reachable from interactive admin sessions, not API keys.
 	curtailmentv1connect.CurtailmentServiceCreateMqttCurtailmentSourceProcedure,

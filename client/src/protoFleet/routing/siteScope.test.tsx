@@ -82,7 +82,7 @@ describe("siteScope routing helpers", () => {
     expect(unscopedScopablePath("/north-dc/groups/team-a")).toBe("/north-dc/groups/team-a");
     expect(unscopedScopablePath("/unassigned/activity")).toBe("/activity");
     expect(unscopedScopablePath("/unassigned/fleet/buildings")).toBe("/fleet/buildings");
-    expect(unscopedScopablePath("/settings/general")).toBe("/settings/general");
+    expect(unscopedScopablePath("/settings/network")).toBe("/settings/network");
   });
 
   it("detects scopable paths", () => {
@@ -109,7 +109,7 @@ describe("siteScope routing helpers", () => {
       slug: "north-dc",
     });
     expect(activeSiteFromScopablePath("/unassigned/fleet/miners")).toEqual({ kind: "unassigned" });
-    expect(activeSiteFromScopablePath("/settings/general")).toBeNull();
+    expect(activeSiteFromScopablePath("/settings/network")).toBeNull();
   });
 
   it("prefixes scopable paths while preserving search and hash", () => {
@@ -124,8 +124,8 @@ describe("siteScope routing helpers", () => {
   });
 
   it("does not prefix non-scopable paths", () => {
-    expect(scopedPath("/settings/general?tab=team", { kind: "site", id: "7", slug: "north-dc" })).toBe(
-      "/settings/general?tab=team",
+    expect(scopedPath("/settings/team?tab=roles", { kind: "site", id: "7", slug: "north-dc" })).toBe(
+      "/settings/team?tab=roles",
     );
   });
 
@@ -151,7 +151,7 @@ describe("siteScope routing helpers", () => {
       }),
     ).toBe("/north-dc/activity?type=event#top");
     expect(
-      scopeCurrentOrDashboardPath("/settings/general", "?tab=team", "#top", {
+      scopeCurrentOrDashboardPath("/settings/team", "?tab=roles", "#top", {
         kind: "site",
         id: "7",
         slug: "north-dc",

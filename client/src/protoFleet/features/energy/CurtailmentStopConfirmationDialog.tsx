@@ -4,7 +4,7 @@ import { Power, Stop } from "@/shared/assets/icons";
 import { type ButtonVariant, variants } from "@/shared/components/Button";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 
-export type CurtailmentStopConfirmationAction = "forceRestore" | "restore" | "stopCurtailment";
+export type CurtailmentStopConfirmationAction = "restore" | "stopCurtailment";
 
 interface CurtailmentStopConfirmationDialogProps {
   open: boolean;
@@ -24,17 +24,6 @@ interface StopDialogCopy {
 }
 
 function getStopDialogCopy(action: CurtailmentStopConfirmationAction): StopDialogCopy {
-  if (action === "forceRestore") {
-    return {
-      title: "Force restore automation event?",
-      body: "Force restore bypasses restore guards for this event only. If automation demand is still asserted, stop or disable the automation first so it does not curtail miners again.",
-      confirmText: "Force restore",
-      confirmVariant: variants.secondaryDanger,
-      icon: <Power />,
-      iconIntent: "critical",
-    };
-  }
-
   if (action === "restore") {
     return {
       title: "Restore power?",

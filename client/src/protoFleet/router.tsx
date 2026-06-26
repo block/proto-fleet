@@ -26,14 +26,14 @@ import {
   importSecurityPage,
   importServerLogsPage,
   importSettingsAlerts,
-  importSettingsApiKeys,
   importSettingsAuth,
   importSettingsCurtailment,
   importSettingsFirmware,
-  importSettingsGeneral,
+  importSettingsIntegrations,
   importSettingsLayout,
   importSettingsMiningPools,
-  importSettingsRoles,
+  importSettingsNetwork,
+  importSettingsPreferences,
   importSettingsSchedules,
   importSettingsTeam,
   importSiteDetailPage,
@@ -41,6 +41,7 @@ import {
   importWelcomePage,
 } from "./routePrefetch";
 import { onboardingClient, sitesClient } from "@/protoFleet/api/clients";
+import { getSettingsLandingPath } from "@/protoFleet/config/navItems";
 import {
   minersRedirectLoader,
   racksRedirectLoader,
@@ -77,16 +78,16 @@ const MinersPage = lazy(importMinersPage);
 const SecurityPage = lazy(importSecurityPage);
 const OnboardingSettingsPage = lazy(importOnboardingSettingsPage);
 const SettingsLayout = lazy(importSettingsLayout);
-const SettingsGeneral = lazy(importSettingsGeneral);
+const SettingsNetwork = lazy(importSettingsNetwork);
+const SettingsPreferences = lazy(importSettingsPreferences);
 const SettingsAuth = lazy(importSettingsAuth);
 const SettingsMiningPools = lazy(importSettingsMiningPools);
 const SettingsTeam = lazy(importSettingsTeam);
-const SettingsRoles = lazy(importSettingsRoles);
 const SettingsFirmware = lazy(importSettingsFirmware);
 const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsCurtailment = lazy(importSettingsCurtailment);
 const SettingsAlerts = lazy(importSettingsAlerts);
-const SettingsApiKeys = lazy(importSettingsApiKeys);
+const SettingsIntegrations = lazy(importSettingsIntegrations);
 const SiteDetailPage = lazy(importSiteDetailPage);
 const BuildingPage = lazy(importBuildingPage);
 const FleetLayout = lazy(importFleetLayout);
@@ -128,6 +129,8 @@ const welcomeLoader = async () => {
 };
 
 const appEntryLoader = () => redirect(appEntryPath(sanitizeActiveSite(useFleetStore.getState().ui.activeSite)));
+
+const settingsRedirectLoader = () => redirect(getSettingsLandingPath(useFleetStore.getState().auth.permissions));
 
 // Group detail is canonical/unscoped, so a scoped URL like
 // /north/groups/team-a redirects to /groups/team-a while preserving the
@@ -268,12 +271,22 @@ const router = createBrowserRouter([
   // Settings routes
   {
     path: "/settings",
-    loader: () => redirect("/settings/general"),
+    loader: settingsRedirectLoader,
+  },
+  {
+    path: "/settings/general",
+    loader: settingsRedirectLoader,
   },
   createRoute(
-    "/settings/general",
+    "/settings/network",
     <SettingsLayout>
-      <SettingsGeneral />
+      <SettingsNetwork />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/preferences",
+    <SettingsLayout>
+      <SettingsPreferences />
     </SettingsLayout>,
   ),
   createRoute(
@@ -294,12 +307,10 @@ const router = createBrowserRouter([
       <SettingsTeam />
     </SettingsLayout>,
   ),
-  createRoute(
-    "/settings/roles",
-    <SettingsLayout>
-      <SettingsRoles />
-    </SettingsLayout>,
-  ),
+  {
+    path: "/settings/roles",
+    loader: () => redirect("/settings/team?tab=roles"),
+  },
   createRoute(
     "/settings/firmware",
     <SettingsLayout>
@@ -324,10 +335,14 @@ const router = createBrowserRouter([
       <SettingsAlerts />
     </SettingsLayout>,
   ),
+  {
+    path: "/settings/api-keys",
+    loader: () => redirect("/settings/integrations"),
+  },
   createRoute(
-    "/settings/api-keys",
+    "/settings/integrations",
     <SettingsLayout>
-      <SettingsApiKeys />
+      <SettingsIntegrations />
     </SettingsLayout>,
   ),
   createRoute(

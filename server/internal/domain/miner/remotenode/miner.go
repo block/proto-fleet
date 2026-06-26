@@ -8,8 +8,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/url"
+	"time"
 	"unicode/utf8"
 
 	"buf.build/go/protovalidate"
@@ -18,6 +20,7 @@ import (
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -76,6 +79,13 @@ type Miner struct {
 }
 
 var _ interfaces.Miner = (*Miner)(nil)
+
+// Keep the remote diagnostics wait aligned with the cloud command worker budget
+// and above the fleet node's minerCommandTimeout, while still bounding callers
+// such as telemetry error polling that use a long-lived worker context.
+var remoteGetErrorsCommandTimeout = 30 * time.Second
+
+const maxErrorColumnStringLen = 255
 
 // New builds a remote-node miner. It returns an error only if the connection
 // coordinates are malformed (bad port/scheme), matching the direct PluginMiner.
@@ -169,18 +179,31 @@ func (m *Miner) dispatch(ctx context.Context, mc *gatewaypb.MinerCommand) error 
 }
 
 func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
+	release, err := m.acquireGate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return m.sendWithoutGate(ctx, mc)
+}
+
+func (m *Miner) acquireGate(ctx context.Context) (func(), error) {
+	if m.gate == nil {
+		return func() {}, nil
+	}
 	// Pace per fleet node so a large batch can't oversubscribe the node (-> BUSY);
 	// the DB command queue holds the backlog while this worker waits for a slot.
-	if m.gate != nil {
-		release, err := m.gate.Acquire(ctx, m.fleetNodeID)
-		if err != nil {
-			return nil, fleeterror.NewPlainError(
-				fmt.Sprintf("timed out waiting for a fleet node command slot: %v", err),
-				connect.CodeResourceExhausted,
-			)
-		}
-		defer release()
+	release, err := m.gate.Acquire(ctx, m.fleetNodeID)
+	if err != nil {
+		return nil, fleeterror.NewPlainError(
+			fmt.Sprintf("timed out waiting for a fleet node command slot: %v", err),
+			connect.CodeResourceExhausted,
+		)
 	}
+	return release, nil
+}
+
+func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
 	mc.Target = m.desc
 	if err := protovalidate.Validate(mc); err != nil {
 		return nil, fleeterror.NewInvalidArgumentErrorf("invalid fleet node miner command: %v", err)
@@ -292,8 +315,46 @@ func (m *Miner) GetDeviceStatus(_ context.Context) (minermodels.MinerStatus, err
 	return minermodels.MinerStatusUnknown, errUnsupported("GetDeviceStatus")
 }
 
-func (m *Miner) GetErrors(_ context.Context) (models.DeviceErrors, error) {
-	return models.DeviceErrors{}, errUnsupported("GetErrors")
+func (m *Miner) GetErrors(ctx context.Context) (models.DeviceErrors, error) {
+	release, err := m.acquireGate(ctx)
+	if err != nil {
+		return models.DeviceErrors{}, err
+	}
+	defer release()
+
+	commandCtx, cancel := context.WithTimeout(ctx, remoteGetErrorsCommandTimeout)
+	defer cancel()
+
+	ack, err := m.sendWithoutGate(commandCtx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{
+		GetErrors: &gatewaypb.GetErrorsAction{},
+	}})
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return models.DeviceErrors{}, fleeterror.NewConnectionError(m.desc.GetDeviceIdentifier(), err)
+		}
+		return models.DeviceErrors{}, err
+	}
+	if err := ackToError(ack); err != nil {
+		return models.DeviceErrors{}, err
+	}
+
+	var result gatewaypb.GetErrorsResult
+	if err := proto.Unmarshal(ack.GetPayload(), &result); err != nil {
+		return models.DeviceErrors{}, fleeterror.NewInternalErrorf("unmarshal get errors result: %v", err)
+	}
+	if err := protovalidate.Validate(&result); err != nil {
+		return models.DeviceErrors{}, fleeterror.NewInternalErrorf("invalid get errors result: %v", err)
+	}
+	if result.GetDeviceId() != m.desc.GetDeviceIdentifier() {
+		return models.DeviceErrors{}, fleeterror.NewInternalErrorf(
+			"invalid get errors result: device_id %q does not match requested device %q",
+			result.GetDeviceId(), m.desc.GetDeviceIdentifier())
+	}
+	deviceErrors, err := deviceErrorsFromResult(&result)
+	if err != nil {
+		return models.DeviceErrors{}, err
+	}
+	return deviceErrors, nil
 }
 
 func (m *Miner) GetCoolingMode(_ context.Context) (commonpb.CoolingMode, error) {
@@ -337,6 +398,103 @@ func (m *Miner) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfigure
 
 func errUnsupported(op string) error {
 	return fleeterror.NewUnimplementedErrorf("%s is not yet supported for fleet-node-paired miners", op)
+}
+
+func deviceErrorsFromResult(result *gatewaypb.GetErrorsResult) (models.DeviceErrors, error) {
+	deviceID := result.GetDeviceId()
+	out := models.DeviceErrors{
+		DeviceID:           deviceID,
+		Errors:             make([]models.ErrorMessage, 0, len(result.GetErrors())),
+		Partial:            result.GetTruncated(),
+		OmittedReportCount: result.GetOmittedReportCount(),
+	}
+	for _, report := range result.GetErrors() {
+		if report.GetDeviceId() != deviceID {
+			return models.DeviceErrors{}, fleeterror.NewInternalErrorf(
+				"invalid get errors result: error device_id %q does not match result device_id %q",
+				report.GetDeviceId(), deviceID)
+		}
+		// #nosec G115 -- protovalidate enforces a defined non-negative enum before conversion.
+		minerError := models.MinerError(report.GetMinerError())
+		errMsg := models.ErrorMessage{
+			MinerError:        minerError,
+			CauseSummary:      report.GetCauseSummary(),
+			RecommendedAction: report.GetRecommendedAction(),
+			Severity:          severityFromResult(report.GetSeverity(), minerError, deviceID),
+			VendorAttributes:  report.GetVendorAttributes(),
+			DeviceID:          report.GetDeviceId(),
+			ComponentID:       report.ComponentId,
+			ComponentType:     componentTypeFromResult(report.GetComponentType()),
+			Impact:            report.GetImpact(),
+			Summary:           report.GetSummary(),
+			VendorCode:        clampErrorColumnValue(report.GetVendorAttributes()["vendor_code"]),
+			Firmware:          clampErrorColumnValue(report.GetVendorAttributes()["firmware"]),
+		}
+		if report.GetFirstSeenAt() != nil {
+			errMsg.FirstSeenAt = report.GetFirstSeenAt().AsTime()
+		}
+		if report.GetLastSeenAt() != nil {
+			errMsg.LastSeenAt = report.GetLastSeenAt().AsTime()
+		}
+		if report.GetClosedAt() != nil {
+			closedAt := report.GetClosedAt().AsTime()
+			errMsg.ClosedAt = &closedAt
+		}
+		out.Errors = append(out.Errors, errMsg)
+	}
+	return out, nil
+}
+
+func severityFromResult(value errorspb.Severity, minerError models.MinerError, deviceID string) models.Severity {
+	// #nosec G115 -- protovalidate enforces a defined non-negative enum before conversion.
+	severity := models.Severity(value)
+	if severity != models.SeverityUnspecified {
+		return severity
+	}
+	if info, ok := models.GetMinerErrorInfo()[minerError]; ok {
+		severity = info.DefaultSeverity
+	} else {
+		severity = models.SeverityInfo
+	}
+	slog.Warn("plugin emitted error with SeverityUnspecified; normalized to default severity",
+		"device_id", deviceID,
+		"miner_error", minerError,
+		"normalized_severity", severity,
+	)
+	return severity
+}
+
+func clampErrorColumnValue(value string) string {
+	if utf8.RuneCountInString(value) <= maxErrorColumnStringLen {
+		return value
+	}
+	count := 0
+	for i := range value {
+		if count == maxErrorColumnStringLen {
+			return value[:i]
+		}
+		count++
+	}
+	return value
+}
+
+func componentTypeFromResult(value errorspb.ComponentType) models.ComponentType {
+	switch value {
+	case errorspb.ComponentType_COMPONENT_TYPE_UNSPECIFIED:
+		return models.ComponentTypeUnspecified
+	case errorspb.ComponentType_COMPONENT_TYPE_PSU:
+		return models.ComponentTypePSU
+	case errorspb.ComponentType_COMPONENT_TYPE_HASH_BOARD:
+		return models.ComponentTypeHashBoards
+	case errorspb.ComponentType_COMPONENT_TYPE_FAN:
+		return models.ComponentTypeFans
+	case errorspb.ComponentType_COMPONENT_TYPE_CONTROL_BOARD:
+		return models.ComponentTypeControlBoard
+	case errorspb.ComponentType_COMPONENT_TYPE_EEPROM, errorspb.ComponentType_COMPONENT_TYPE_IO_MODULE:
+		return models.ComponentTypeUnspecified
+	default:
+		return models.ComponentTypeUnspecified
+	}
 }
 
 func miningPoolConfigsFromPayload(payload dto.UpdateMiningPoolsPayload) ([]*gatewaypb.MiningPoolConfig, error) {

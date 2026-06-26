@@ -717,6 +717,21 @@ func toAdminTerminateRequest(msg *pb.AdminTerminateEventRequest, info *session.I
 	}, nil
 }
 
+func toForceReleaseRequest(
+	msg *pb.ForceReleaseCurtailmentOwnershipRequest,
+	info *session.Info,
+	eventUUID uuid.UUID,
+) (curtailment.ForceReleaseRequest, error) {
+	if info == nil || info.OrganizationID <= 0 {
+		return curtailment.ForceReleaseRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	return curtailment.ForceReleaseRequest{
+		OrgID:     info.OrganizationID,
+		EventUUID: eventUUID,
+		Reason:    msg.GetReason(),
+	}, nil
+}
+
 // toUpdateRequest maps the proto request to the service-layer shape.
 // Optional proto fields preserve "set vs absent" semantics; the service
 // handles all bounds validation.
@@ -881,6 +896,14 @@ func toEventProtoWithTargets(event *models.Event, targets []*models.Target) *pb.
 	populateEventModeParams(out, event)
 	populateEventDecisionSnapshot(out, event)
 	populateEventTargets(out, targets)
+	populateEventTargetRollup(out, event)
+	return out
+}
+
+func toForceReleaseEventProto(event *models.Event) *pb.CurtailmentEvent {
+	out := toEventProto(event)
+	populateEventScope(out, event)
+	populateEventModeParams(out, event)
 	populateEventTargetRollup(out, event)
 	return out
 }
@@ -1119,6 +1142,16 @@ func toTargetPhaseSummaryProto(summary models.TargetPhaseSummary) *pb.Curtailmen
 func uint32Saturating(v int32) uint32 {
 	if v < 0 {
 		return 0
+	}
+	return uint32(v) // #nosec G115 -- bounds-checked above
+}
+
+func uint32SaturatingInt64(v int64) uint32 {
+	if v < 0 {
+		return 0
+	}
+	if v > math.MaxUint32 {
+		return math.MaxUint32
 	}
 	return uint32(v) // #nosec G115 -- bounds-checked above
 }

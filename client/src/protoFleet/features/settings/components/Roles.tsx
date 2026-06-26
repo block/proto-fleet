@@ -3,16 +3,26 @@ import { Navigate } from "react-router-dom";
 import { isImmutable, type RoleItem, useRoleManagement } from "@/protoFleet/api/useRoleManagement";
 import CreateEditRoleModal from "@/protoFleet/features/settings/components/CreateEditRoleModal";
 import DeleteRoleDialog from "@/protoFleet/features/settings/components/DeleteRoleDialog";
+import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
+import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
+import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 import { useHasPermission } from "@/protoFleet/store";
 import { Edit, Lock, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
+import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
+import { positions } from "@/shared/constants";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
+import { classNameToSelectors } from "@/shared/utils/cssUtils";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
 type RoleColumns = "name" | "permissions" | "members" | "updatedAt";
+
+type RolesProps = {
+  embedded?: boolean;
+  filtersClassName?: string;
+};
 
 const colTitles: ColTitles<RoleColumns> = {
   name: "Role",
@@ -22,8 +32,59 @@ const colTitles: ColTitles<RoleColumns> = {
 };
 
 const activeCols: RoleColumns[] = ["name", "permissions", "members", "updatedAt"];
+const systemDefaultRoleDescription = "This is a system default role. Built-in roles cannot be edited or deleted.";
+const systemDefaultRoleTriggerClassName = "system-default-role-lock-trigger";
 
-const Roles = () => {
+const SystemDefaultRoleLockContent = () => {
+  const [isOpen, setIsOpen] = useState(false);
+  const { triggerRef } = usePopover();
+  const closeIgnoreSelectors = classNameToSelectors(systemDefaultRoleTriggerClassName);
+
+  return (
+    <div
+      ref={triggerRef}
+      className={`${systemDefaultRoleTriggerClassName} relative inline-flex justify-center text-text-primary-50`}
+      data-testid="system-role-lock"
+    >
+      <button
+        type="button"
+        className="p-1 hover:cursor-pointer hover:text-text-primary"
+        aria-label="System default role"
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <Lock width="w-5" />
+      </button>
+      {isOpen ? (
+        <Popover
+          position={positions["bottom left"]}
+          size={popoverSizes.normal}
+          offset={8}
+          freezePosition
+          className="!space-y-0"
+          closePopover={() => setIsOpen(false)}
+          closeIgnoreSelectors={closeIgnoreSelectors}
+          testId="system-role-lock-popover"
+        >
+          <p className="text-300 text-text-primary-70">{systemDefaultRoleDescription}</p>
+        </Popover>
+      ) : null}
+    </div>
+  );
+};
+
+const SystemDefaultRoleLock = () => (
+  <PopoverProvider>
+    <SystemDefaultRoleLockContent />
+  </PopoverProvider>
+);
+
+const CreateRoleButton = ({ onClick, className }: { onClick: () => void; className?: string }) => (
+  <Button variant={variants.primary} size={sizes.compact} text="Create role" onClick={onClick} className={className} />
+);
+
+const Roles = ({ embedded = false, filtersClassName }: RolesProps) => {
   const canManageRoles = useHasPermission("role:manage");
   const { listRoles, deleteRole } = useRoleManagement();
   const [roles, setRoles] = useState<RoleItem[]>([]);
@@ -82,25 +143,9 @@ const Roles = () => {
     () => ({
       name: {
         component: (role) => (
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-core-primary-5 text-text-primary-70">
-              {role.builtin ? (
-                <Lock />
-              ) : (
-                <span className="text-300 font-semibold">{role.name.charAt(0).toUpperCase()}</span>
-              )}
-            </div>
-            <div className="flex min-w-0 flex-col">
-              <div className="flex items-center gap-2">
-                <span className="text-emphasis-300">{role.name}</span>
-                {role.builtin ? (
-                  <span className="rounded-full bg-core-primary-5 px-2 py-0.5 text-200 text-text-primary-50">
-                    Built-in
-                  </span>
-                ) : null}
-              </div>
-              <span className="truncate text-200 text-text-primary-50">{role.description}</span>
-            </div>
+          <div className="flex min-w-0 flex-col">
+            <span className="text-emphasis-300">{role.builtinKey ? formatRole(role.builtinKey) : role.name}</span>
+            <span className="truncate text-200 text-text-primary-50">{role.description}</span>
           </div>
         ),
         width: "w-96",
@@ -147,24 +192,20 @@ const Roles = () => {
 
   // Redirect users without role:manage — placed after hooks to satisfy rules-of-hooks.
   if (!canManageRoles) {
-    return <Navigate to="/settings/general" replace />;
+    return embedded ? null : <Navigate to="/settings/network" replace />;
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <Header
-          title="Roles"
-          titleSize="text-heading-300"
-          subtitle="Define what members can see and do. Assign roles when you add or edit a member."
-        />
-        <Button
-          variant={variants.primary}
-          size={sizes.compact}
-          text="Create role"
-          onClick={() => setShowCreateModal(true)}
-        />
-      </div>
+      {!embedded ? (
+        <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
+          <SettingsPageHeader
+            title="Roles"
+            description="Define what members can see and do. Assign roles when you add or edit a member."
+          />
+          <CreateRoleButton onClick={() => setShowCreateModal(true)} className="shrink-0 phone:w-full" />
+        </div>
+      ) : null}
 
       {isLoading ? (
         <div className="text-center text-text-primary-50">Loading roles...</div>
@@ -177,10 +218,12 @@ const Roles = () => {
           colConfig={colConfig}
           total={roles.length}
           itemName={{ singular: "role", plural: "roles" }}
+          actionPlaceholder={(role) => (isImmutable(role) ? <SystemDefaultRoleLock /> : null)}
+          filtersClassName={filtersClassName}
+          stickyFirstColumn={false}
+          headerControls={embedded ? <CreateRoleButton onClick={() => setShowCreateModal(true)} /> : undefined}
           noDataElement={
-            <div className="py-10 text-center text-text-primary-50">
-              No roles yet. Create your first role to control member access.
-            </div>
+            <SettingsEmptyState title="No roles yet" description="Create your first role to control member access." />
           }
           actions={availableActions}
         />

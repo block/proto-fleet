@@ -194,6 +194,9 @@ func (s *updateStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurt
 func (s *updateStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, bool, error) {
 	panic("AdminTerminateEvent not exercised by Update handler tests")
 }
+func (s *updateStubStore) ForceReleaseEvent(context.Context, int64, uuid.UUID, string) (interfaces.ForceReleaseEventResult, error) {
+	panic("ForceReleaseEvent not exercised by Update handler tests")
+}
 func (s *updateStubStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
 	panic("GetEventByIdempotencyKey not exercised by Update handler tests")
 }

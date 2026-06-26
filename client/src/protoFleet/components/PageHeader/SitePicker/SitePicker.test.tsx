@@ -128,7 +128,7 @@ describe("SitePicker", () => {
 
   it("navigates to scoped Dashboard when selecting from a non-scopable path", () => {
     const sites = [makeSiteWithCounts(1n, "Austin")];
-    renderPicker({ sites }, ["/settings/general"]);
+    renderPicker({ sites }, ["/settings/network"]);
     fireEvent.click(screen.getByTestId("site-picker-trigger"));
     fireEvent.click(screen.getByTestId("site-picker-option-1"));
     expect(mockNavigate).toHaveBeenCalledWith("/austin/dashboard");
