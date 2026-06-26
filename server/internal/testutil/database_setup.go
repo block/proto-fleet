@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,13 +15,75 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
+// templateOnce builds a fully-migrated template database exactly once per test
+// process. Each subsequent test then provisions its own isolated database as a
+// fast `CREATE DATABASE ... TEMPLATE` file-copy instead of replaying every
+// migration, which is the dominant per-test cost. Building the template only
+// once also means the lock-heavy TimescaleDB continuous-aggregate DDL runs once
+// per process rather than once per test, removing the concurrent-migration
+// deadlock surface the retry logic below exists to absorb.
+var (
+	templateOnce sync.Once
+	templateName string
+	templateErr  error
+)
+
 // GetTestDB creates a test database connection and returns a sql.DB ref for testing.
 // The database connection will be closed when the test completes.
 func GetTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	// Parse the DB config from environment variables the same way we would when
-	// running the server.
+	config := parseTestDBConfig(t)
+	adminConfig := config
+	adminConfig.Name = "postgres"
+
+	// When the caller pins DB_NAME to a real database we migrate it in place;
+	// otherwise we generate a unique name and clone the migrated template.
+	useGeneratedName := config.Name == "" || config.Name == "fleet"
+
+	dbName := config.Name
+	if useGeneratedName {
+		dbName = generateTestDBName(t.Name())
+	}
+
+	testDBConfig := config
+	testDBConfig.Name = dbName
+
+	var conn *sql.DB
+	if useGeneratedName {
+		// Fast path: clone a once-migrated template instead of running every
+		// migration for this test's database.
+		template, err := ensureTemplateDB(t, config, adminConfig)
+		assert.NoError(t, err)
+
+		createTestDatabaseFromTemplate(t, &adminConfig, dbName, template)
+
+		conn, err = db.ConnectToDatabase(&testDBConfig)
+		assert.NoError(t, err)
+	} else {
+		// Pinned DB_NAME: create the database and migrate it in place.
+		createEmptyTestDatabase(t, &adminConfig, dbName)
+
+		var err error
+		// Connect and run migrations with retry on deadlock.
+		// TimescaleDB continuous aggregate DDL acquires instance-level catalog
+		// locks that can deadlock when parallel tests migrate concurrently. On
+		// failure we drop and recreate the database for a clean slate (avoids
+		// golang-migrate dirty flag issues).
+		conn, err = connectAndMigrateWithRetry(t, &testDBConfig, &adminConfig, dbName)
+		assert.NoError(t, err)
+	}
+
+	registerTestDatabaseCleanup(t, conn, &adminConfig, dbName)
+
+	return conn
+}
+
+// parseTestDBConfig reads the DB config from environment variables the same way
+// the server does when it starts.
+func parseTestDBConfig(t *testing.T) db.Config {
+	t.Helper()
+
 	cli := struct {
 		DB db.Config `envprefix:"DB_" embed:""`
 	}{}
@@ -27,57 +91,90 @@ func GetTestDB(t *testing.T) *sql.DB {
 	assert.NoError(t, err)
 	_, err = parser.Parse(nil)
 	assert.NoError(t, err)
-	config := cli.DB
-	dbName := config.Name
-	if dbName == "" || dbName == "fleet" {
-		// If the DB name is not set, or is the default name, generate a unique name
-		dbName = generateTestDBName(t.Name())
-	}
+	return cli.DB
+}
 
-	// Connect to PostgreSQL without selecting a database to create our test database
-	// Connect to the default "postgres" database first
-	adminConfig := config
-	adminConfig.Name = "postgres"
-	conn, err := db.ConnectToDatabase(&adminConfig)
+// ensureTemplateDB builds (once per process) a fully-migrated template database
+// and returns its name. The migrator connection is closed before returning so
+// that CREATE DATABASE ... TEMPLATE, which requires no active sessions on the
+// source, succeeds.
+func ensureTemplateDB(t *testing.T, config db.Config, adminConfig db.Config) (string, error) {
+	t.Helper()
+
+	templateOnce.Do(func() {
+		name := generateTemplateDBName()
+
+		createEmptyTestDatabase(t, &adminConfig, name)
+
+		templateConfig := config
+		templateConfig.Name = name
+		conn, err := connectAndMigrateWithRetry(t, &templateConfig, &adminConfig, name)
+		if err != nil {
+			templateErr = err
+			return
+		}
+		// Close before cloning: CREATE DATABASE ... TEMPLATE fails if any
+		// session is connected to the template.
+		if err := conn.Close(); err != nil {
+			templateErr = fmt.Errorf("closing template connection: %w", err)
+			return
+		}
+		terminateConnections(t, &adminConfig, name)
+
+		templateName = name
+	})
+
+	return templateName, templateErr
+}
+
+// createEmptyTestDatabase drops any existing database of the given name and
+// creates a fresh empty one.
+func createEmptyTestDatabase(t *testing.T, adminConfig *db.Config, dbName string) {
+	t.Helper()
+
+	conn, err := db.ConnectToDatabase(adminConfig)
 	assert.NoError(t, err)
+	defer conn.Close()
 
-	// Drop existing connections to the test database if any
-	_, _ = conn.ExecContext(t.Context(), fmt.Sprintf(`
-		SELECT pg_terminate_backend(pg_stat_activity.pid)
-		FROM pg_stat_activity
-		WHERE pg_stat_activity.datname = '%s'
-		AND pid <> pg_backend_pid()
-	`, dbName))
-
-	// Create the test database
+	terminateConnectionsVia(t, conn, dbName)
 	_, err = conn.ExecContext(t.Context(), fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
 	assert.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), fmt.Sprintf("CREATE DATABASE %s", dbName))
 	assert.NoError(t, err)
-	conn.Close()
+}
 
-	// Connect and run migrations with retry on deadlock.
-	// TimescaleDB continuous aggregate DDL acquires instance-level catalog locks
-	// that can deadlock when parallel tests migrate concurrently. On failure we
-	// drop and recreate the database for a clean slate (avoids golang-migrate
-	// dirty flag issues).
-	testDBConfig := config
-	testDBConfig.Name = dbName
-	conn, err = connectAndMigrateWithRetry(t, &testDBConfig, &adminConfig, dbName)
+// createTestDatabaseFromTemplate drops any existing database of the given name
+// and creates a fresh one as a copy of the migrated template.
+func createTestDatabaseFromTemplate(t *testing.T, adminConfig *db.Config, dbName, template string) {
+	t.Helper()
+
+	conn, err := db.ConnectToDatabase(adminConfig)
 	assert.NoError(t, err)
+	defer conn.Close()
 
-	// Clean up the database when the test is done
+	terminateConnectionsVia(t, conn, dbName)
+	_, err = conn.ExecContext(t.Context(), fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
+	assert.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", dbName, template))
+	assert.NoError(t, err)
+}
+
+// registerTestDatabaseCleanup closes the connection and drops the database when
+// the test finishes.
+func registerTestDatabaseCleanup(t *testing.T, conn *sql.DB, adminConfig *db.Config, dbName string) {
+	t.Helper()
+
 	t.Cleanup(func() {
 		err := conn.Close()
 		assert.NoError(t, err, "error closing db connection")
-		// Reconnect to the default "postgres" database to drop the test database
-		conn, err = db.ConnectToDatabase(&adminConfig)
-		assert.NoError(t, err, "error connecting to PostgreSQL")
-		defer conn.Close()
 
-		// Terminate any remaining connections to the test database
+		adminConn, err := db.ConnectToDatabase(adminConfig)
+		assert.NoError(t, err, "error connecting to PostgreSQL")
+		defer adminConn.Close()
+
+		// Terminate any remaining connections to the test database.
 		// nolint: usetesting
-		_, _ = conn.ExecContext(context.Background(), fmt.Sprintf(`
+		_, _ = adminConn.ExecContext(context.Background(), fmt.Sprintf(`
 			SELECT pg_terminate_backend(pg_stat_activity.pid)
 			FROM pg_stat_activity
 			WHERE pg_stat_activity.datname = '%s'
@@ -85,11 +182,33 @@ func GetTestDB(t *testing.T) *sql.DB {
 		`, dbName))
 
 		// nolint: usetesting
-		_, err = conn.ExecContext(context.Background(), fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
+		_, err = adminConn.ExecContext(context.Background(), fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
 		assert.NoError(t, err, "error dropping test database")
 	})
+}
 
-	return conn
+// terminateConnections opens an admin connection and terminates all other
+// sessions connected to the given database.
+func terminateConnections(t *testing.T, adminConfig *db.Config, dbName string) {
+	t.Helper()
+
+	conn, err := db.ConnectToDatabase(adminConfig)
+	assert.NoError(t, err)
+	defer conn.Close()
+	terminateConnectionsVia(t, conn, dbName)
+}
+
+// terminateConnectionsVia terminates all other sessions connected to the given
+// database using an existing admin connection.
+func terminateConnectionsVia(t *testing.T, conn *sql.DB, dbName string) {
+	t.Helper()
+
+	_, _ = conn.ExecContext(t.Context(), fmt.Sprintf(`
+		SELECT pg_terminate_backend(pg_stat_activity.pid)
+		FROM pg_stat_activity
+		WHERE pg_stat_activity.datname = '%s'
+		AND pid <> pg_backend_pid()
+	`, dbName))
 }
 
 const (
@@ -169,6 +288,13 @@ func recreateTestDatabase(t *testing.T, adminConfig *db.Config, dbName string) {
 	assert.NoError(t, err)
 	_, err = adminConn.ExecContext(t.Context(), fmt.Sprintf("CREATE DATABASE %s", dbName))
 	assert.NoError(t, err)
+}
+
+// generateTemplateDBName creates a per-process template database name. The PID
+// keeps it unique across the test binaries that `go test` runs concurrently, so
+// each process owns its own template on the shared instance.
+func generateTemplateDBName() string {
+	return fmt.Sprintf("fleet_test_template_%d", os.Getpid())
 }
 
 // generateTestDBName creates a unique database name that includes part of the test name for readability.
