@@ -76,21 +76,7 @@ func initFirmwareDir() error {
 // sessions are in-memory only, any files in the staging directory at startup
 // are orphans from interrupted uploads.
 func cleanStagingDir() {
-	entries, err := os.ReadDir(firmwareStagingDir)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		path := filepath.Join(firmwareStagingDir, entry.Name())
-		if err := os.Remove(path); err != nil {
-			slog.Warn("failed to remove orphaned staging file", "path", path, "error", err)
-		} else {
-			slog.Info("removed orphaned staging file", "path", path)
-		}
-	}
+	cleanStorageStagingDir(firmwareStagingDir, "failed to remove orphaned staging file", "removed orphaned staging file")
 }
 
 // StagingDir returns the path to the firmware staging directory for chunked uploads.

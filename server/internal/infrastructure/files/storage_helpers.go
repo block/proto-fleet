@@ -3,6 +3,7 @@ package files
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -52,4 +53,22 @@ func findSingleFileInDir(dir string, ignoredNames ...string) (string, error) {
 		return "", fmt.Errorf("%w: %s", errStorageDirNoFile, dir)
 	}
 	return foundPath, nil
+}
+
+func cleanStorageStagingDir(dir, failureMessage, successMessage string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if err := os.Remove(path); err != nil {
+			slog.Warn(failureMessage, "path", path, "error", err)
+		} else if successMessage != "" {
+			slog.Info(successMessage, "path", path)
+		}
+	}
 }

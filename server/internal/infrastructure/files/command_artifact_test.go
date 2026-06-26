@@ -13,23 +13,11 @@ import (
 )
 
 func commandArtifactEntries(t *testing.T) []os.DirEntry {
-	t.Helper()
-	entries, err := os.ReadDir(commandArtifactsDir)
-	require.NoError(t, err)
-	var filtered []os.DirEntry
-	for _, e := range entries {
-		if e.Name() != "staging" {
-			filtered = append(filtered, e)
-		}
-	}
-	return filtered
+	return storageDirEntriesExcept(t, commandArtifactsDir, "staging")
 }
 
 func commandArtifactStagingEntries(t *testing.T) []os.DirEntry {
-	t.Helper()
-	entries, err := os.ReadDir(commandArtifactsStagingDir)
-	require.NoError(t, err)
-	return entries
+	return storageDirEntries(t, commandArtifactsStagingDir)
 }
 
 func TestSaveCommandArtifactValidatesAndOpens(t *testing.T) {

@@ -60,19 +60,7 @@ func initCommandArtifactDir() error {
 }
 
 func cleanCommandArtifactStagingDir() {
-	entries, err := os.ReadDir(commandArtifactsStagingDir)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		path := filepath.Join(commandArtifactsStagingDir, entry.Name())
-		if err := os.Remove(path); err != nil {
-			slog.Warn("failed to remove orphaned command artifact staging file", "path", path, "error", err)
-		}
-	}
+	cleanStorageStagingDir(commandArtifactsStagingDir, "failed to remove orphaned command artifact staging file", "")
 }
 
 func getCommandArtifactDirPath(artifactID string) string {
@@ -291,11 +279,18 @@ func (s *Service) DeleteCommandArtifact(artifactID string) error {
 		}
 		return fleeterror.NewInternalErrorf("failed to stat command artifact dir %s: %v", canonical, err)
 	}
-	if err := os.RemoveAll(dir); err != nil {
+	if err := removeCommandArtifactDir(canonical); err != nil {
 		return fleeterror.NewInternalErrorf("failed to remove command artifact dir %s: %v", canonical, err)
 	}
+	return nil
+}
 
-	slog.Debug("command artifact deleted", "artifact_id", canonical)
+func removeCommandArtifactDir(artifactID string) error {
+	dir := getCommandArtifactDirPath(artifactID)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("remove command artifact dir %s: %w", dir, err)
+	}
+	slog.Debug("command artifact deleted", "artifact_id", artifactID)
 	return nil
 }
 
@@ -333,7 +328,7 @@ func (s *Service) SweepExpiredCommandArtifacts(now time.Time, ttl time.Duration)
 		if now.Sub(info.ModTime()) <= ttl {
 			continue
 		}
-		if err := s.DeleteCommandArtifact(artifactID); err != nil {
+		if err := removeCommandArtifactDir(artifactID); err != nil {
 			if firstErr == nil {
 				firstErr = fleeterror.NewInternalErrorf("failed to remove command artifact dir %s: %v", artifactID, err)
 			}
