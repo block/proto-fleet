@@ -1742,27 +1742,17 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			buildingChanged bool
 		)
 
-		// Canonical lock pre-pass, mirroring AssignDevicesToRack: lock the
-		// target plus every source rack the members currently sit in, in one
-		// ascending device_set.id order, BEFORE the per-path target lock and
-		// the replaceRackMembershipAndSlots deletes. This is what keeps the
-		// new RemoveDevicesFromAnyRack delete from deadlocking against a
-		// concurrent rack save moving devices the opposite way. targetRackID
-		// is 0 on the create path (the rack doesn't exist yet; it's created +
-		// locked below and sorts last by id). Guarded on a non-empty member
-		// set — an empty save removes members and touches no source racks.
-		if len(deviceIdentifiers) > 0 {
-			var lockTargetRackID int64
-			if req.CollectionId != nil {
-				lockTargetRackID = *req.CollectionId
-			}
-			if _, err := s.collectionStore.LockRacksForReparent(ctx, info.OrganizationID, deviceIdentifiers, lockTargetRackID); err != nil {
-				return nil, err
-			}
-		}
-
+		// The rack-locking pre-pass (LockRacksForReparent) lives INSIDE the
+		// path helpers below, AFTER each resolves and locks the target
+		// site/building. That keeps the canonical site/building -> rack order
+		// (see resolveAndLockRackPlacement and AssignRacksToBuilding) while
+		// still acquiring every source + target rack in one ascending
+		// device_set.id set ahead of the per-target LockRackPlacementForWrite
+		// and the replaceRackMembershipAndSlots deletes — which is what keeps
+		// the RemoveDevicesFromAnyRack delete from deadlocking against a
+		// concurrent rack save moving devices the opposite way.
 		if isUpdate {
-			res, err := s.saveRackUpdate(ctx, info, req, rackInfo)
+			res, err := s.saveRackUpdate(ctx, info, req, rackInfo, deviceIdentifiers)
 			if err != nil {
 				return nil, err
 			}
@@ -1773,7 +1763,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			siteChanged = res.siteChanged
 			buildingChanged = res.buildingChanged
 		} else {
-			res, err := s.saveRackCreate(ctx, info, req, rackInfo)
+			res, err := s.saveRackCreate(ctx, info, req, rackInfo, deviceIdentifiers)
 			if err != nil {
 				return nil, err
 			}
@@ -1938,9 +1928,34 @@ type saveRackCreatePathResult struct {
 
 // saveRackCreate runs the SaveRack create branch in-tx: resolve placement,
 // then insert device_set + device_set_rack rows.
-func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo) (*saveRackCreatePathResult, error) {
+// lockSourceRacksForReparent locks every source rack the members currently
+// sit in, plus the target rack, in one ascending device_set.id FOR UPDATE
+// acquisition. Callers MUST invoke it AFTER the site/building lock (canonical
+// site/building -> rack order) but BEFORE the per-target
+// LockRackPlacementForWrite and the membership deletes — that ordering is
+// what keeps the RemoveDevicesFromAnyRack delete from deadlocking against a
+// concurrent rack save moving devices the opposite way. Pass targetRackID 0
+// on the create path: the rack doesn't exist yet, so it contributes no row
+// and sorts last. No-ops on an empty member set, which touches no source
+// racks.
+func (s *Service) lockSourceRacksForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) error {
+	if len(deviceIdentifiers) == 0 {
+		return nil
+	}
+	_, err := s.collectionStore.LockRacksForReparent(ctx, orgID, deviceIdentifiers, targetRackID)
+	return err
+}
+
+func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo, deviceIdentifiers []string) (*saveRackCreatePathResult, error) {
 	newSiteID, newBuildingID, err := s.resolveAndLockRackPlacement(ctx, info.OrganizationID, rackInfo)
 	if err != nil {
+		return nil, err
+	}
+
+	// targetRackID 0: the rack doesn't exist yet, so the pre-pass locks only
+	// the source racks the members currently sit in (after the site/building
+	// lock above, before the membership writes below).
+	if err := s.lockSourceRacksForReparent(ctx, info.OrganizationID, deviceIdentifiers, 0); err != nil {
 		return nil, err
 	}
 
@@ -1988,7 +2003,7 @@ type saveRackUpdatePathResult struct {
 // saveRackUpdate runs the SaveRack update branch: validate ownership,
 // lock site/building/rack in canonical order, derive the final zone,
 // persist placement, and flag siteChanged for the downstream cascade.
-func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo) (*saveRackUpdatePathResult, error) {
+func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo, deviceIdentifiers []string) (*saveRackUpdatePathResult, error) {
 	collectionID := *req.CollectionId
 
 	belongs, err := s.collectionStore.CollectionBelongsToOrg(ctx, collectionID, info.OrganizationID)
@@ -2013,7 +2028,12 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 	)
 	if rackPlacementOmitted(rackInfo) {
 		// Preserve current placement; skip site/building locks since the
-		// rack lock alone serializes the no-op cascade.
+		// rack lock alone serializes the no-op cascade. The source-rack
+		// pre-pass still runs (canonical: racks before the target placement
+		// row) so a member moved here from another rack can't deadlock.
+		if err := s.lockSourceRacksForReparent(ctx, info.OrganizationID, deviceIdentifiers, collectionID); err != nil {
+			return nil, err
+		}
 		current, err = s.collectionStore.LockRackPlacementForWrite(ctx, collectionID, info.OrganizationID)
 		if err != nil {
 			return nil, err
@@ -2021,10 +2041,14 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 		newSiteID = current.SiteID
 		newBuildingID = current.BuildingID
 	} else {
-		// Placement intent supplied; resolve and lock site/building
-		// before the rack lock (canonical order).
+		// Placement intent supplied; resolve and lock site/building first,
+		// then every source + target rack in ascending device_set.id order,
+		// then the target placement row (canonical site/building -> rack).
 		newSiteID, newBuildingID, err = s.resolveAndLockRackPlacement(ctx, info.OrganizationID, rackInfo)
 		if err != nil {
+			return nil, err
+		}
+		if err := s.lockSourceRacksForReparent(ctx, info.OrganizationID, deviceIdentifiers, collectionID); err != nil {
 			return nil, err
 		}
 		current, err = s.collectionStore.LockRackPlacementForWrite(ctx, collectionID, info.OrganizationID)

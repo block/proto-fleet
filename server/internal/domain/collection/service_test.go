@@ -1630,6 +1630,74 @@ func TestService_SaveRack_MoveBetweenBuildingsCascadesSite(t *testing.T) {
 	assert.Equal(t, int32(1), resp.SiteReassignedCount)
 }
 
+// TestService_SaveRack_locksBuildingBeforeRacks pins #555's lock-order
+// invariant: on the placement-update path SaveRack must lock the target
+// site/building FIRST, then acquire every source + target rack via
+// LockRacksForReparent, then the per-target LockRackPlacementForWrite.
+// Reversing this (locking racks before the building, as PR #551 did) risks
+// deadlock against AssignRacksToBuilding, which takes building → rack. The
+// rack pre-pass must still land BEFORE LockRackPlacementForWrite so the
+// original rack-vs-rack deadlock fix is preserved.
+func TestService_SaveRack_locksBuildingBeforeRacks(t *testing.T) {
+	deviceIDs := []string{"device-1"}
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return deviceIDs, nil
+	}
+	svc, mockStore, mockSiteStore := newTestServiceWithSites(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(42)
+	newBuilding := int64(80)
+	newSiteID := int64(8)
+
+	// Unordered scaffolding around the lock sequence.
+	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, newBuilding).Return(&newSiteID, nil).Times(2)
+	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), (*string)(nil)).Return(nil)
+	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, gomock.Any(), int32(4), int32(8), gomock.Any(), gomock.Any(), testOrgID).Return(nil)
+	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newSiteID), gomock.Eq(&newBuilding), gomock.Any()).Return(nil)
+	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(0), nil)
+	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, collectionID).Return(int64(0), nil)
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), collectionID, testOrgID).Return(map[string]*int64{"device-1": &newSiteID}, nil)
+	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Any()).Return(int64(0), nil)
+	mockStore.EXPECT().CascadeRackDeviceBuildings(gomock.Any(), collectionID, testOrgID, gomock.Any()).Return(int64(0), nil)
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK, DeviceCount: 1}, nil)
+
+	// The invariant: site/building locks precede the rack pre-pass, which
+	// precedes the target placement-row lock.
+	gomock.InOrder(
+		mockSiteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, newSiteID).Return(nil),
+		mockSiteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, newBuilding).Return(nil),
+		mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, collectionID).Return(nil, nil),
+		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+			Return(interfaces.RackPlacement{SiteID: &newSiteID, BuildingID: &newBuilding}, nil),
+	)
+
+	rackInfo := &pb.RackInfo{
+		Rows:        4,
+		Columns:     8,
+		Zone:        "Zone A",
+		OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+		CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+		BuildingId:  &newBuilding,
+	}
+	_, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		CollectionId: &collectionID,
+		Label:        "Rack A",
+		RackInfo:     rackInfo,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+	})
+	require.NoError(t, err)
+}
+
 // TestService_SaveRack_MoveToDirectUnderSite covers the variant where a
 // rack is moved out of any building and attached directly to a site.
 // Zone is still cleared (building boundary crossed) and the site lock
