@@ -44,10 +44,9 @@ var (
 	// retried while the node still runs it (duplicate reboot/curtail). var so tests shrink it.
 	minerCommandTimeout = 25 * time.Second
 	// firmwareMinerCommandTimeout stays below the server-side firmware execution
-	// budget (default 15m) so the node has time to ack before the worker expires.
-	// Firmware updates include an artifact download and device install, so they should
-	// not inherit the short command timeout used for reboot/curtailment commands.
-	firmwareMinerCommandTimeout = 14 * time.Minute
+	// budget (default 15m) so fleetd has time to poll install status and reboot
+	// after the node finishes the artifact download and device upload.
+	firmwareMinerCommandTimeout = 10 * time.Minute
 )
 
 const (

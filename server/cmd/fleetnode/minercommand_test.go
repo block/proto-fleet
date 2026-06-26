@@ -155,6 +155,7 @@ func TestMinerCommandActionTimeoutUsesFirmwareBudget(t *testing.T) {
 	assert.Equal(t, firmwareMinerCommandTimeout, minerCommandActionTimeout(withTarget(&pb.MinerCommand{
 		Action: &pb.MinerCommand_FirmwareUpdate{FirmwareUpdate: &pb.FirmwareUpdateAction{Artifact: firmwareRef("firmware-1", "update.swu", []byte("firmware"))}},
 	})))
+	assert.LessOrEqual(t, firmwareMinerCommandTimeout+5*time.Minute, 15*time.Minute)
 }
 
 func TestHandleMinerCommand_ExecutesAndAcksOK(t *testing.T) {
