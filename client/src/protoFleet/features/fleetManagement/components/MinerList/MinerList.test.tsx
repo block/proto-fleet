@@ -1141,6 +1141,7 @@ describe("MinerList", () => {
 
       const snapshot = createMinerSnapshot("m1");
       snapshot.url = "https://192.168.1.100";
+      snapshot.name = "Rig Alpha";
       snapshot.model = "Antminer S21";
       snapshot.ipAddress = "10.0.0.42";
       snapshot.macAddress = "AA:BB:CC:DD:EE:FF";
@@ -1163,7 +1164,8 @@ describe("MinerList", () => {
       await user.click(row);
 
       expect(screen.getByTestId("path-display")).toHaveTextContent("/miners/m1");
-      expect(screen.getByTestId("route-state-miner-name")).toHaveTextContent("Antminer S21");
+      // Matches the list name column (miner.name), not the model.
+      expect(screen.getByTestId("route-state-miner-name")).toHaveTextContent("Rig Alpha");
       expect(screen.getByTestId("route-state-ip-address")).toHaveTextContent("10.0.0.42");
       expect(screen.getByTestId("route-state-mac-address")).toHaveTextContent("AA:BB:CC:DD:EE:FF");
       expect(screen.getByTestId("route-state-firmware-version")).toHaveTextContent("2026.1");

@@ -3,11 +3,13 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { deviceActions, settingsActions } from "./constants";
 import SingleMinerActionsMenu from "./SingleMinerActionsMenu";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 const {
   mockAuthenticateFleetModal,
   mockBulkActionConfirmDialog,
   mockNavigate,
+  mockOpenMinerView,
   mockCompleteBatchOperation,
   mockRemoveDevicesFromBatch,
   mockStartBatchOperation,
@@ -30,6 +32,7 @@ const {
   const mockStreamCommandBatchUpdates = vi.fn();
   const mockRefreshMiners = vi.fn();
   const mockNavigate = vi.fn();
+  const mockOpenMinerView = vi.fn();
   const mockStartBatchOperation = vi.fn();
   const mockCompleteBatchOperation = vi.fn();
   const mockRemoveDevicesFromBatch = vi.fn();
@@ -38,6 +41,7 @@ const {
     mockAuthenticateFleetModal: vi.fn(() => null),
     mockBulkActionConfirmDialog: vi.fn(() => null),
     mockNavigate,
+    mockOpenMinerView,
     mockCompleteBatchOperation,
     mockRemoveDevicesFromBatch,
     mockStartBatchOperation,
@@ -221,6 +225,10 @@ vi.mock("@/shared/hooks/useNavigate", () => ({
   useNavigate: () => mockNavigate,
 }));
 
+vi.mock("@/protoFleet/components/SingleMinerWrapper/useOpenMinerView", () => ({
+  useOpenMinerView: () => mockOpenMinerView,
+}));
+
 describe("SingleMinerActionsMenu", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -312,13 +320,25 @@ describe("SingleMinerActionsMenu", () => {
     expect(screen.getByTestId("viewMiner-popover-button")).toBeInTheDocument();
   });
 
-  it("navigates to the embedded single miner route when 'View miner' is clicked", () => {
-    render(<SingleMinerActionsMenu deviceIdentifier="my-device-abc" minerUrl="http://192.168.1.42" />);
+  it("opens the row's miner via the shared opener when 'View miner' is clicked", () => {
+    const miner = {
+      deviceIdentifier: "my-device-abc",
+      url: "http://192.168.1.42",
+      embeddedWebViewAvailable: true,
+    } as MinerStateSnapshot;
+
+    render(
+      <SingleMinerActionsMenu
+        deviceIdentifier="my-device-abc"
+        minerUrl="http://192.168.1.42"
+        miners={{ "my-device-abc": miner }}
+      />,
+    );
 
     fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
     fireEvent.click(screen.getByTestId("viewMiner-popover-button"));
 
-    expect(mockNavigate).toHaveBeenCalledWith("/miners/my-device-abc");
+    expect(mockOpenMinerView).toHaveBeenCalledWith(miner);
   });
 
   it("refreshes a row without calling the full miner refetch callback", async () => {

@@ -21,12 +21,12 @@ import type { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telem
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useRefreshMiners from "@/protoFleet/api/useRefreshMiners";
 import useUpdateWorkerNames from "@/protoFleet/api/useUpdateWorkerNames";
+import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { ArrowRight, Edit, MiningPools, Plus, Reboot } from "@/shared/assets/icons";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
-import { useNavigate } from "@/shared/hooks/useNavigate";
 
 type SingleMinerAction = SupportedAction | "viewMiner" | "refreshStatus";
 
@@ -77,7 +77,7 @@ const SingleMinerActionsMenu = ({
   const [reparentKind, setReparentKind] = useState<"rack" | "site" | "building" | null>(null);
   const [showWarnDialog, setShowWarnDialog] = useState(false);
   const isRefreshingStatus = refreshing.has(deviceIdentifier);
-  const navigate = useNavigate();
+  const openMinerView = useOpenMinerView();
 
   const minerActionsResult = useMinerActions({
     selectedMiners,
@@ -111,8 +111,11 @@ const SingleMinerActionsMenu = ({
   } = minerActionsResult;
 
   const handleViewMiner = useCallback(() => {
-    navigate(`/miners/${encodeURIComponent(deviceIdentifier)}`);
-  }, [deviceIdentifier, navigate]);
+    const miner = miners?.[deviceIdentifier];
+    if (miner) {
+      openMinerView(miner);
+    }
+  }, [deviceIdentifier, miners, openMinerView]);
 
   const handleRefreshStatus = useCallback(async () => {
     if (isRefreshingStatus) {
