@@ -33,7 +33,7 @@ export class FleetLocationsPage extends BasePage {
     await this.clickAddSiteButton();
     await this.page.getByTestId("site-settings-name-input").fill(name);
     await this.page.getByTestId("site-settings-modal-continue").click();
-    await this.waitForModalToClose("site-settings-modal");
+    await this.waitForPageOverlayToClose("site-settings-modal");
 
     const saveSiteButton = this.page.locator('[data-testid="manage-site-modal-save"]:visible');
     await expect(saveSiteButton).toBeVisible();
@@ -65,7 +65,7 @@ export class FleetLocationsPage extends BasePage {
     await this.page.getByRole("option", { name: siteName, exact: true }).click();
     await this.page.getByTestId("building-settings-name-input").fill(buildingName);
     await this.page.getByTestId("building-settings-modal-save").click();
-    await this.waitForModalToClose("building-settings-modal");
+    await this.waitForPageOverlayToClose("building-settings-modal");
 
     const row = this.getListRowByName(buildingName);
     await expect(row).toBeVisible();
@@ -183,8 +183,11 @@ export class FleetLocationsPage extends BasePage {
     return this.page.locator("div.fixed.inset-0.z-60");
   }
 
-  private async waitForModalToClose(testId: string) {
+  private async waitForPageOverlayToClose(testId: string) {
     await expect(this.page.getByTestId(testId)).toHaveCount(0);
+    await expect(
+      this.page.locator("div.fixed.top-0.left-0.flex.h-screen.w-screen.justify-center.bg-grayscale-gray-5"),
+    ).toHaveCount(0);
   }
 
   private async openRowActions(name: string) {
