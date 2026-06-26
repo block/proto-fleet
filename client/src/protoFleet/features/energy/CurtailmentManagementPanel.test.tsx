@@ -14,6 +14,7 @@ import type {
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const mocks = vi.hoisted(() => ({
+  activeSite: { current: { kind: "all" } as { kind: string; id?: string; slug?: string } },
   adminTerminateCurtailment: vi.fn(),
   dismissTerminalCurtailment: vi.fn(),
   forceReleaseCurtailment: vi.fn(),
@@ -46,6 +47,10 @@ vi.mock("@/protoFleet/api/sites", () => ({
   useSites: () => ({
     listSites: mocks.listSites,
   }),
+}));
+
+vi.mock("@/protoFleet/components/PageHeader/SitePicker", () => ({
+  useActiveSite: () => ({ activeSite: mocks.activeSite.current, setActiveSite: vi.fn() }),
 }));
 
 vi.mock("@/protoFleet/store", () => ({
@@ -190,6 +195,21 @@ vi.mock("@/protoFleet/features/energy/CurtailmentHistory", () => ({
 }));
 
 vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
+  getDefaultCurtailmentSiteScope: (
+    activeSite: { kind: string; id?: string },
+    siteOptions: CurtailmentSiteOption[] = [],
+  ) => {
+    if (activeSite.kind !== "site" || !activeSite.id) {
+      return undefined;
+    }
+
+    return (
+      siteOptions.find((siteOption) => siteOption.id === activeSite.id) ?? {
+        id: activeSite.id,
+        name: `Site ${activeSite.id}`,
+      }
+    );
+  },
   default: ({
     initialValues,
     mode,
@@ -198,6 +218,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     preview,
     responseProfiles,
     siteOptions,
+    defaultSiteScope,
   }: {
     initialValues?: Partial<CurtailmentSubmitValues>;
     mode?: string;
@@ -206,12 +227,14 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     preview?: CurtailmentPlanPreview;
     responseProfiles?: CurtailmentResponseProfileOption[];
     siteOptions?: CurtailmentSiteOption[];
+    defaultSiteScope?: CurtailmentSiteOption;
   }) => (
     <div role="dialog" aria-label={mode === "edit" ? "Manage curtailment" : "New curtailment"}>
       <div data-testid="modal-initial-reason">{initialValues?.reason ?? ""}</div>
       <div data-testid="modal-response-profiles">{responseProfiles?.map((profile) => profile.label).join(",")}</div>
       <div data-testid="modal-response-profile-values">{JSON.stringify(responseProfiles?.[0]?.values ?? {})}</div>
       <div data-testid="modal-site-options">{siteOptions?.map((siteOption) => siteOption.name).join(",")}</div>
+      <div data-testid="modal-default-site-scope">{defaultSiteScope?.name ?? ""}</div>
       <div data-testid="modal-preview">
         {preview
           ? `${preview.selectedMinerCount} miners, ${preview.targetKw} kW target, ${preview.estimatedReductionKw} kW estimated`
@@ -320,6 +343,7 @@ function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseC
 describe("CurtailmentManagementPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.activeSite.current = { kind: "all" };
     mocks.listSites.mockImplementation(({ onSuccess, onFinally } = {}) => {
       onSuccess?.([{ site: { id: 101n, name: "Austin, TX" } }]);
       onFinally?.();
@@ -377,6 +401,19 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
     expect(screen.getByTestId("modal-site-options")).toHaveTextContent("Austin, TX");
+  });
+
+  it("passes the globally selected site as the default site scope for new curtailment runs", async () => {
+    const user = userEvent.setup();
+    mocks.activeSite.current = { kind: "site", id: "101", slug: "austin" };
+    mocks.useHasPermission.mockImplementation((key: string) => key === "site:read");
+
+    render(<CurtailmentManagementPanel />);
+
+    await waitFor(() => expect(mocks.listSites).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+
+    expect(screen.getByTestId("modal-default-site-scope")).toHaveTextContent("Austin, TX");
   });
 
   it("submits planned curtailments, closes the modal, and passes refreshed history props through", async () => {

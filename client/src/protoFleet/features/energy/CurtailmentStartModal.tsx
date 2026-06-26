@@ -112,6 +112,7 @@ interface CurtailmentStartModalProps {
   initialValues?: Partial<CurtailmentFormValues>;
   responseProfiles?: CurtailmentResponseProfileOption[];
   siteOptions?: CurtailmentSiteOption[];
+  defaultSiteScope?: CurtailmentSiteOption;
   siteScopeEnabled?: boolean;
   isSiteScopeLoading?: boolean;
   siteScopeDisabledReason?: string;
@@ -282,6 +283,20 @@ function getExplicitMinerCount(
   return hasAllMinersSelected(values) ? 0 : values.deviceIdentifiers.length;
 }
 
+function hasSelectedCurtailmentTarget(
+  values: Pick<
+    CurtailmentFormValues,
+    "deviceIdentifiers" | "deviceSetIds" | "minerSelectionMode" | "siteId" | "siteIds" | "siteSelection"
+  >,
+): boolean {
+  return (
+    hasAllMinersSelected(values) ||
+    getSiteScopeIds(values).length > 0 ||
+    getExplicitMinerCount(values) > 0 ||
+    values.deviceSetIds.length > 0
+  );
+}
+
 function withWholeFleetScope(values: CurtailmentFormValues): CurtailmentFormValues {
   return {
     ...values,
@@ -426,6 +441,15 @@ function withResponseProfileScope(values: CurtailmentFormValues): CurtailmentFor
   return withWholeFleetScope(values);
 }
 
+function withDefaultSiteScope(
+  values: CurtailmentFormValues,
+  defaultSiteScope?: CurtailmentSiteOption,
+): CurtailmentFormValues {
+  return defaultSiteScope && !hasSelectedCurtailmentTarget(values)
+    ? withSiteScopes(values, [defaultSiteScope])
+    : values;
+}
+
 function hasResponseProfileScopeValues(responseProfileValues: CurtailmentResponseProfileOption["values"]): boolean {
   return (
     "scopeType" in responseProfileValues ||
@@ -542,6 +566,7 @@ function isCurtailmentMode(value: string): value is CurtailmentMode {
 function getInitialValues(
   initialValues?: Partial<CurtailmentFormValues>,
   variant: CurtailmentStartModalVariant = "curtailment",
+  defaultSiteScope?: CurtailmentSiteOption,
 ): CurtailmentFormValues {
   const values = {
     ...defaultValues,
@@ -551,7 +576,11 @@ function getInitialValues(
     values.siteSelection = "site";
   }
 
-  return variant === "responseProfile" ? withResponseProfileScope(values) : values;
+  const valuesWithDefaultSiteScope = withDefaultSiteScope(values, defaultSiteScope);
+
+  return variant === "responseProfile"
+    ? withResponseProfileScope(valuesWithDefaultSiteScope)
+    : valuesWithDefaultSiteScope;
 }
 
 function parseRequiredPositiveNumberField(value: string, fieldLabel: string): ParsedNumberField {
@@ -1024,6 +1053,7 @@ function CurtailmentStartModalContent({
   initialValues,
   responseProfiles = [],
   siteOptions = [],
+  defaultSiteScope,
   siteScopeEnabled = true,
   isSiteScopeLoading = false,
   siteScopeDisabledReason,
@@ -1035,7 +1065,9 @@ function CurtailmentStartModalContent({
   isTestingCurtailment = false,
   isDeleting = false,
 }: CurtailmentStartModalProps): ReactElement {
-  const [initialFormValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues, variant));
+  const [initialFormValues] = useState<CurtailmentFormValues>(() =>
+    getInitialValues(initialValues, variant, defaultSiteScope),
+  );
   const [values, setValues] = useState<CurtailmentFormValues>(() => initialFormValues);
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
   const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);

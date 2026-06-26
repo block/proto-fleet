@@ -10,6 +10,8 @@ import useCurtailmentResponseProfiles, {
   getResponseProfileScopeLabelForActionType,
 } from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
+import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { getDefaultCurtailmentSiteScope } from "@/protoFleet/features/energy/curtailmentSiteScopeDefaults";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
   type CurtailmentSiteOption,
@@ -1275,6 +1277,7 @@ type CurtailmentSettingsContentProps = {
   updatingSourceIds?: ReadonlySet<string>;
   updatingAutomationRuleIds?: ReadonlySet<string>;
   siteOptions?: CurtailmentSiteOption[];
+  defaultResponseProfileSiteScope?: CurtailmentSiteOption;
   isLoadingSiteOptions?: boolean;
   siteScopeDisabledReason?: string;
   onResponseProfileModalOpen?: () => void;
@@ -1339,6 +1342,7 @@ export function CurtailmentSettingsContent({
   updatingSourceIds = emptyUpdatingSourceIds,
   updatingAutomationRuleIds = emptyUpdatingAutomationRuleIds,
   siteOptions = [],
+  defaultResponseProfileSiteScope,
   isLoadingSiteOptions = false,
   siteScopeDisabledReason,
   onResponseProfileModalOpen,
@@ -1686,6 +1690,7 @@ export function CurtailmentSettingsContent({
         responseProfileMode={responseProfileModalMode}
         initialValues={responseProfileCurtailmentInitialValues}
         siteOptions={siteOptions}
+        defaultSiteScope={responseProfileModalMode === "create" ? defaultResponseProfileSiteScope : undefined}
         siteScopeEnabled={siteOptions.length > 0 || isLoadingSiteOptions}
         isSiteScopeLoading={isLoadingSiteOptions}
         siteScopeDisabledReason={siteScopeDisabledReason}
@@ -1721,6 +1726,7 @@ function CurtailmentSettingsPage(): ReactElement {
   const canManageCurtailment = useHasPermission("curtailment:manage");
   const canReadSiteCatalog = useHasPermission("site:read");
   const navigate = useNavigate();
+  const { activeSite } = useActiveSite({});
   const { listSites } = useSites();
   const { startCurtailment } = useCurtailmentApi();
   const [isTestingResponseProfileCurtailment, setIsTestingResponseProfileCurtailment] = useState(false);
@@ -2028,6 +2034,9 @@ function CurtailmentSettingsPage(): ReactElement {
   }
 
   const effectiveSiteOptions = canLoadSiteOptions ? siteOptions : [];
+  const defaultResponseProfileSiteScope = canLoadSiteOptions
+    ? getDefaultCurtailmentSiteScope(activeSite, effectiveSiteOptions)
+    : undefined;
   const siteScopeDisabledReason = canReadSiteCatalog
     ? (siteOptionsLoadError ?? undefined)
     : "Site scope is not available for the current user.";
@@ -2052,6 +2061,7 @@ function CurtailmentSettingsPage(): ReactElement {
       updatingSourceIds={updatingSourceIds}
       updatingAutomationRuleIds={updatingAutomationRuleIds}
       siteOptions={effectiveSiteOptions}
+      defaultResponseProfileSiteScope={defaultResponseProfileSiteScope}
       isLoadingSiteOptions={canLoadSiteOptions ? isLoadingSiteOptions : false}
       siteScopeDisabledReason={siteScopeDisabledReason}
       onResponseProfileModalOpen={ensureSiteOptionsLoaded}

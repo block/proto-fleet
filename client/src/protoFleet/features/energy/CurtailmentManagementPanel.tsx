@@ -13,11 +13,13 @@ import {
   useCurtailmentApi,
 } from "@/protoFleet/api/useCurtailmentApi";
 import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
+import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import ActiveCurtailmentStatus, {
   type ActiveCurtailmentEvent,
 } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import type { CurtailmentEventState } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import CurtailmentHistory, { type CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
+import { getDefaultCurtailmentSiteScope } from "@/protoFleet/features/energy/curtailmentSiteScopeDefaults";
 import CurtailmentStartModal, {
   type CurtailmentPlanPreview,
   type CurtailmentResponseProfileOption,
@@ -484,6 +486,7 @@ function CurtailmentManagementPanel({
 }: CurtailmentManagementPanelProps): ReactElement {
   const navigate = useNavigate();
   const canReadSiteCatalog = useHasPermission("site:read");
+  const { activeSite } = useActiveSite({});
   const { listSites } = useSites();
   const [loadedSiteNameById, setLoadedSiteNameById] = useState(() => new Map<string, string>());
   const [siteOptions, setSiteOptions] = useState<CurtailmentSiteOption[]>([]);
@@ -564,6 +567,10 @@ function CurtailmentManagementPanel({
   const responseProfileOptions = useMemo(
     () => responseProfiles.map(createCurtailmentResponseProfileOption),
     [responseProfiles],
+  );
+  const defaultSiteScope = useMemo(
+    () => (canReadSiteCatalog ? getDefaultCurtailmentSiteScope(activeSite, siteOptions) : undefined),
+    [activeSite, canReadSiteCatalog, siteOptions],
   );
   const activeEventIds = useMemo(() => activeEvents.map((event) => event.id), [activeEvents]);
   const [modalMode, setModalMode] = useState<CurtailmentStartModalMode | null>(null);
@@ -1007,6 +1014,7 @@ function CurtailmentManagementPanel({
           initialValues={isEditingCurtailment ? (editSession?.initialValues ?? undefined) : undefined}
           responseProfiles={isEditingCurtailment ? [] : responseProfileOptions}
           siteOptions={siteOptions}
+          defaultSiteScope={isEditingCurtailment ? undefined : defaultSiteScope}
           siteScopeEnabled={siteOptions.length > 0 || isLoadingSiteOptions}
           isSiteScopeLoading={isLoadingSiteOptions}
           siteScopeDisabledReason={

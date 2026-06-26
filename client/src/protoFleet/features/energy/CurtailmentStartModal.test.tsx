@@ -304,6 +304,39 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeEnabled();
   });
 
+  it("prefills new custom curtailments with the default site scope", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      siteOptions,
+      defaultSiteScope: siteOptions[0],
+    });
+
+    expect(screen.getByRole("button", { name: /Sites\s+Austin, TX/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(
+      screen.getByText(
+        "This will curtail miners in Austin, TX immediately. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseProfileId: "customPlan",
+        scopeType: "site",
+        scopeId: "Austin, TX",
+        siteSelection: "site",
+        siteId: "101",
+        siteIds: ["101"],
+        siteNamesById: { "101": "Austin, TX" },
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+      }),
+    );
+  });
+
   it("shows curtailment mode help without opening the mode dropdown", async () => {
     const user = userEvent.setup();
     renderModal();
@@ -742,6 +775,36 @@ describe("CurtailmentStartModal", () => {
       expect.objectContaining({
         siteId: "102",
         siteIds: ["102"],
+        scopeType: "site",
+        scopeId: "Denver, CO",
+        deviceSetIds: [],
+        deviceIdentifiers: [],
+      }),
+    );
+  });
+
+  it("prefills response profile creation with the default site scope", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+      siteOptions,
+      defaultSiteScope: siteOptions[1],
+    });
+
+    expect(screen.getByRole("button", { name: /Sites\s+Denver, CO/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        siteSelection: "site",
+        siteId: "102",
+        siteIds: ["102"],
+        siteNamesById: { "102": "Denver, CO" },
         scopeType: "site",
         scopeId: "Denver, CO",
         deviceSetIds: [],
