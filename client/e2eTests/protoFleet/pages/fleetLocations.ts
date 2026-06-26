@@ -184,7 +184,7 @@ export class FleetLocationsPage extends BasePage {
   }
 
   private async waitForModalToClose(testId: string) {
-    await expect(this.page.getByTestId(testId)).toBeHidden();
+    await expect(this.page.getByTestId(testId)).toHaveCount(0);
   }
 
   private async openRowActions(name: string) {
