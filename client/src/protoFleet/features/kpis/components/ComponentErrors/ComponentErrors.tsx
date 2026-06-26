@@ -25,7 +25,17 @@ const ComponentErrors = ({ icon, heading, errorCount, href, className }: Compone
 
   const content = (
     <>
-      <div className="flex h-12 w-12 justify-center rounded-lg bg-intent-critical-fill text-text-contrast">{icon}</div>
+      <div
+        className={clsx(
+          "flex h-12 w-12 justify-center rounded-lg",
+          // Only the error state is red; "No issues" / loading stays neutral.
+          !isLoading && errorCount > 0
+            ? "bg-intent-critical-fill text-text-contrast"
+            : "bg-surface-5 text-text-primary-70 dark:bg-core-primary-5",
+        )}
+      >
+        {icon}
+      </div>
       <div className="flex flex-col">
         <div className="text-emphasis-300 text-text-primary">{heading}</div>
         {isLoading ? (
