@@ -18,6 +18,7 @@ export interface BreadcrumbSibling {
   label: string;
   to: string;
   isActive: boolean;
+  onSelect?: () => void;
 }
 
 /** Only the last segment may carry `siblings` — earlier segments are ancestor links. */
@@ -54,10 +55,11 @@ const Breadcrumb = ({ segments, testId = "breadcrumb" }: BreadcrumbProps) => {
   }, [menuOpen]);
 
   const handleSelect = useCallback(
-    (to: string) => {
+    (sibling: BreadcrumbSibling) => {
       setMenuOpen(false);
       triggerRef.current?.focus();
-      navigate(to);
+      sibling.onSelect?.();
+      navigate(sibling.to);
     },
     [navigate],
   );
@@ -147,7 +149,7 @@ const Breadcrumb = ({ segments, testId = "breadcrumb" }: BreadcrumbProps) => {
 
 interface SiblingMenuProps {
   siblings: BreadcrumbSibling[];
-  onSelect: (to: string) => void;
+  onSelect: (sibling: BreadcrumbSibling) => void;
   onDismiss: () => void;
   onKeyDown: (e: ReactKeyboardEvent) => void;
   testId: string;
@@ -170,7 +172,7 @@ const SiblingMenu = forwardRef<HTMLDivElement, SiblingMenuProps>(
             type="button"
             role="menuitem"
             tabIndex={-1}
-            onClick={() => onSelect(sib.to)}
+            onClick={() => onSelect(sib)}
             className={clsx(
               "flex w-full items-center gap-3 rounded-lg p-3 text-left text-300 hover:bg-surface-5",
               sib.isActive ? "font-medium text-text-primary" : "text-text-primary",

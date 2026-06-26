@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import SiteModals from "../components/SiteModals";
@@ -33,6 +33,7 @@ const SiteDetailPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [buildings, setBuildings] = useState<{ siteId: string; rows: BuildingWithCounts[] } | undefined>(undefined);
   const [buildingsError, setBuildingsError] = useState<{ siteId: string; message: string } | null>(null);
+  const breadcrumbSiteSelectionRef = useRef<string | null>(null);
 
   const fetchSites = useCallback(() => {
     const controller = new AbortController();
@@ -86,10 +87,14 @@ const SiteDetailPage = () => {
   // Bounce to /fleet when SitePicker switches to a different specific
   // site — "All sites" / "Unassigned" don't conflict with this view.
   const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
-  const { activeSite } = useActiveSite({ knownSiteIds });
+  const { activeSite, setActiveSite } = useActiveSite({ knownSiteIds });
   useEffect(() => {
     if (activeSite.kind !== "site") return;
-    if (activeSite.id === targetId) return;
+    if (activeSite.id === targetId) {
+      breadcrumbSiteSelectionRef.current = null;
+      return;
+    }
+    if (breadcrumbSiteSelectionRef.current === activeSite.id) return;
     navigate(scopedPath("/fleet", activeSite), { replace: true });
   }, [activeSite, navigate, targetId]);
 
@@ -162,11 +167,21 @@ const SiteDetailPage = () => {
   const address = formatSiteAddress(site.site);
   const siteSiblings = sites
     .filter((row) => row.site !== undefined)
-    .map((row) => ({
-      label: row.site!.name,
-      to: `/sites/${row.site!.id.toString()}`,
-      isActive: row.site!.id === site.site!.id,
-    }));
+    .map((row) => {
+      const siblingSite = row.site!;
+      const siblingId = siblingSite.id.toString();
+      return {
+        label: siblingSite.name,
+        to: `/sites/${siblingId}`,
+        isActive: siblingSite.id === site.site!.id,
+        onSelect: siblingSite.slug
+          ? () => {
+              breadcrumbSiteSelectionRef.current = siblingId;
+              setActiveSite({ kind: "site", id: siblingId, slug: siblingSite.slug });
+            }
+          : undefined,
+      };
+    });
 
   return (
     <>

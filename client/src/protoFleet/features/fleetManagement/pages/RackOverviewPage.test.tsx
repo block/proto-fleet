@@ -6,6 +6,8 @@ import userEvent from "@testing-library/user-event";
 
 import RackOverviewPage from "./RackOverviewPage";
 import { DeviceSetSchema } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
 const mockUseParams = vi.fn();
 const mockNavigate = vi.fn();
@@ -15,6 +17,7 @@ const mockUseDeviceSetStateCounts = vi.fn();
 const mockUseSites = vi.fn();
 const mockUseTelemetryMetrics = vi.fn();
 const mockUseComponentErrors = vi.fn();
+const listRacksMock = vi.hoisted(() => vi.fn());
 
 const rackName = "Rack BA-Z01-R01";
 const rackZone = "Building A";
@@ -135,6 +138,9 @@ function mockResolvedRackPageData(
   } = {},
 ): void {
   mockUseParams.mockReturnValue({ rackId: "7" });
+  listRacksMock.mockImplementation(({ onSuccess }: { onSuccess: (racks: unknown[]) => void }) =>
+    onSuccess(options.allRacks ?? [deviceSet]),
+  );
   mockUseBuildings.mockReturnValue({
     listAllBuildings: ({ onSuccess }: { onSuccess: (buildings: unknown[]) => void }) =>
       onSuccess(options.allBuildings ?? []),
@@ -143,7 +149,7 @@ function mockResolvedRackPageData(
     getDeviceSet: ({ onSuccess }: { onSuccess: (resolvedDeviceSet: typeof rack) => void }) => onSuccess(deviceSet),
     listGroupMembers: ({ onSuccess }: { onSuccess: (deviceIds: string[]) => void }) => onSuccess([]),
     assignDevicesToRack: vi.fn(),
-    listRacks: ({ onSuccess }: { onSuccess: (racks: unknown[]) => void }) => onSuccess(options.allRacks ?? [deviceSet]),
+    listRacks: listRacksMock,
     setRackSlotPosition: vi.fn(),
     deleteGroup: vi.fn(),
   });
@@ -187,6 +193,9 @@ function renderRackOverviewPage() {
 describe("RackOverviewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = DEFAULT_ACTIVE_SITE;
+    });
     mockResolvedRackPageData();
   });
 
@@ -279,9 +288,20 @@ describe("RackOverviewPage", () => {
 
     const switcher = await screen.findByTestId("rack-page-breadcrumb-switcher");
     expect(switcher).toHaveTextContent(rackName);
+    expect(listRacksMock).toHaveBeenCalledWith(expect.objectContaining({ buildingIds: [11n] }));
 
     await user.click(switcher);
 
     expect(screen.getByTestId(`rack-page-breadcrumb-menu-item-${siblingRackName}`)).toBeVisible();
+  });
+
+  it("preserves active fleet scope on the unparented rack list breadcrumb", async () => {
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "unassigned" };
+    });
+
+    renderRackOverviewPage();
+
+    expect(await screen.findByTestId("rack-page-breadcrumb-link-0")).toHaveAttribute("href", "/unassigned/fleet/racks");
   });
 });

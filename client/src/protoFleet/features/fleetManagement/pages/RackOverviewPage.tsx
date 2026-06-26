@@ -230,7 +230,14 @@ const RackOverviewPage = () => {
       if (!cancelled) setRackSiblingState({ key: currentSiblingKey, siblings });
     };
     const currentRackId = rack.id;
+    const siblingScope =
+      rackInfo.buildingId !== undefined
+        ? { buildingIds: [rackInfo.buildingId] }
+        : rackSiteId
+          ? { siteIds: [BigInt(rackSiteId)] }
+          : { includeUnassigned: true };
     void listRacks({
+      ...siblingScope,
       onSuccess: (racks) =>
         applySiblings(
           racks
@@ -247,7 +254,7 @@ const RackOverviewPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [listRacks, rack, rackInfo, rackSiblingKey]);
+  }, [listRacks, rack, rackInfo, rackSiblingKey, rackSiteId]);
 
   const duration = useDuration();
   const setDuration = useSetDuration();
@@ -355,7 +362,7 @@ const RackOverviewPage = () => {
   } else {
     rackBreadcrumbSegments.push({
       label: "Racks",
-      to: rackSiteId ? `/racks?site=${rackSiteId}` : "/fleet/racks",
+      to: scopedPath("/fleet/racks", activeSite),
     });
   }
   rackBreadcrumbSegments.push({
