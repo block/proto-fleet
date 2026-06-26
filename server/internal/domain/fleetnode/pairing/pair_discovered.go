@@ -2,7 +2,7 @@ package pairing
 
 import (
 	"context"
-	"encoding/base64"
+	"errors"
 	"log/slog"
 
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -10,6 +10,7 @@ import (
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -327,11 +328,13 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 }
 
 func (s *Service) saveFleetNodeEncryptedCredentials(ctx context.Context, device *pairingpb.Device, orgID int64, encrypted *gatewaypb.EncryptedCredentials) error {
-	if len(encrypted.GetUsername()) == 0 || len(encrypted.GetPassword()) == 0 {
+	encodedUsername, encodedPassword, err := credentialblob.Encode(encrypted)
+	if errors.Is(err, credentialblob.ErrMissingCredentials) {
 		return fleeterror.NewFailedPreconditionError("encrypted credentials must include username and password")
 	}
-	encodedUsername := base64.StdEncoding.EncodeToString(encrypted.GetUsername())
-	encodedPassword := base64.StdEncoding.EncodeToString(encrypted.GetPassword())
+	if err != nil {
+		return fleeterror.NewInternalErrorf("encode fleet node credentials: %v", err)
+	}
 	return s.upsertMinerCredentialStrings(ctx, device, orgID, encodedUsername, encodedPassword, "save fleet node credentials")
 }
 

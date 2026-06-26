@@ -15,6 +15,7 @@ import (
 	reflect "reflect"
 
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	fleetnodegatewayv1 "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	models "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	dto "github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	interfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
@@ -563,4 +564,43 @@ func (m *MockFirmwareUpdateStatusProvider) GetFirmwareUpdateStatus(ctx context.C
 func (mr *MockFirmwareUpdateStatusProviderMockRecorder) GetFirmwareUpdateStatus(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFirmwareUpdateStatus", reflect.TypeOf((*MockFirmwareUpdateStatusProvider)(nil).GetFirmwareUpdateStatus), ctx)
+}
+
+// MockMinerPasswordCredentialUpdater is a mock of MinerPasswordCredentialUpdater interface.
+type MockMinerPasswordCredentialUpdater struct {
+	ctrl     *gomock.Controller
+	recorder *MockMinerPasswordCredentialUpdaterMockRecorder
+	isgomock struct{}
+}
+
+// MockMinerPasswordCredentialUpdaterMockRecorder is the mock recorder for MockMinerPasswordCredentialUpdater.
+type MockMinerPasswordCredentialUpdaterMockRecorder struct {
+	mock *MockMinerPasswordCredentialUpdater
+}
+
+// NewMockMinerPasswordCredentialUpdater creates a new mock instance.
+func NewMockMinerPasswordCredentialUpdater(ctrl *gomock.Controller) *MockMinerPasswordCredentialUpdater {
+	mock := &MockMinerPasswordCredentialUpdater{ctrl: ctrl}
+	mock.recorder = &MockMinerPasswordCredentialUpdaterMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockMinerPasswordCredentialUpdater) EXPECT() *MockMinerPasswordCredentialUpdaterMockRecorder {
+	return m.recorder
+}
+
+// UpdateMinerPasswordWithCredentials mocks base method.
+func (m *MockMinerPasswordCredentialUpdater) UpdateMinerPasswordWithCredentials(ctx context.Context, payload dto.UpdateMinerPasswordPayload) (*fleetnodegatewayv1.EncryptedCredentials, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMinerPasswordWithCredentials", ctx, payload)
+	ret0, _ := ret[0].(*fleetnodegatewayv1.EncryptedCredentials)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateMinerPasswordWithCredentials indicates an expected call of UpdateMinerPasswordWithCredentials.
+func (mr *MockMinerPasswordCredentialUpdaterMockRecorder) UpdateMinerPasswordWithCredentials(ctx, payload any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMinerPasswordWithCredentials", reflect.TypeOf((*MockMinerPasswordCredentialUpdater)(nil).UpdateMinerPasswordWithCredentials), ctx, payload)
 }

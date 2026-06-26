@@ -9,15 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRegisterFleetNode_CreatesFleetNodeWithIdentityOnly(t *testing.T) {
+func TestRegisterFleetNode_CreatesFleetNodeWithIdentityAndEncryptionKeys(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
 	store := &registerFleetNodeStore{}
 	svc := NewService(store, nil, inlineTransactor{}, nil)
+	encryptionPubkey := []byte("01234567890123456789012345678901")
 
 	// Act
-	agent, _, err := svc.RegisterFleetNode(t.Context(), "enroll-code", "node-1", []byte("identity"))
+	agent, _, err := svc.RegisterFleetNode(t.Context(), "enroll-code", "node-1", []byte("identity"), encryptionPubkey)
 
 	// Assert
 	require.NoError(t, err)
@@ -26,6 +27,22 @@ func TestRegisterFleetNode_CreatesFleetNodeWithIdentityOnly(t *testing.T) {
 	assert.Equal(t, "node-1", store.gotName)
 	assert.Equal(t, []byte("identity"), store.gotIdentityPubkey)
 	assert.Equal(t, []byte("identity"), agent.IdentityPubkey)
+	assert.Equal(t, encryptionPubkey, agent.EncryptionPubkey)
+}
+
+func TestRegisterFleetNode_RequiresEncryptionPubkey(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	store := &registerFleetNodeStore{}
+	svc := NewService(store, nil, inlineTransactor{}, nil)
+
+	// Act
+	_, _, err := svc.RegisterFleetNode(t.Context(), "enroll-code", "node-1", []byte("identity"), nil)
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "encryption public key")
 }
 
 type inlineTransactor struct{}
@@ -81,7 +98,7 @@ func (s *registerFleetNodeStore) SweepExpiredEnrollments(context.Context, time.T
 	panic("unexpected SweepExpiredEnrollments")
 }
 
-func (s *registerFleetNodeStore) CreateFleetNode(_ context.Context, orgID int64, name string, identityPubkey []byte) (*FleetNode, error) {
+func (s *registerFleetNodeStore) CreateFleetNode(_ context.Context, orgID int64, name string, identityPubkey, encryptionPubkey []byte) (*FleetNode, error) {
 	s.gotOrgID = orgID
 	s.gotName = name
 	s.gotIdentityPubkey = append([]byte(nil), identityPubkey...)
@@ -90,6 +107,7 @@ func (s *registerFleetNodeStore) CreateFleetNode(_ context.Context, orgID int64,
 		OrgID:            orgID,
 		Name:             name,
 		IdentityPubkey:   identityPubkey,
+		EncryptionPubkey: encryptionPubkey,
 		EnrollmentStatus: FleetNodeStatusPending,
 	}, nil
 }

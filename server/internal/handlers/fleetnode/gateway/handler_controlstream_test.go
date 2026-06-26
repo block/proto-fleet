@@ -69,7 +69,7 @@ func newControlHarness(t *testing.T) *controlHarness {
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, _, err := enrollmentSvc.CreateCode(t.Context(), 1, 1, time.Hour)
 	require.NoError(t, err)
-	agent, _, err := enrollmentSvc.RegisterFleetNode(t.Context(), code, "agent-control", pubKey)
+	agent, _, err := enrollmentSvc.RegisterFleetNode(t.Context(), code, "agent-control", pubKey, []byte("01234567890123456789012345678901"))
 	require.NoError(t, err)
 	// Confirm the node so pairDeviceLocked (which requires CONFIRMED) can bind
 	// devices during ReportPairedDevices persistence.

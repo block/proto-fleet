@@ -42,7 +42,7 @@ message RegisterRequest {
     string enrollment_token     = 1 [(buf.validate.field).string = {min_len: 20, max_len: 512}];
     string name                 = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
     bytes  identity_pubkey      = 3 [(buf.validate.field).bytes.len = 32];
-    reserved 4;
+    bytes  encryption_pubkey    = 4 [(buf.validate.field).bytes.len = 32];
 }
 
 message RegisterResponse {
@@ -328,6 +328,7 @@ message MinerCommand {
         UpdateMiningPoolsAction update_mining_pools = 10;
         GetMiningPoolsAction get_mining_pools = 11;
         GetErrorsAction get_errors = 12;
+        UpdateMinerPasswordAction update_miner_password = 13;
     }
 }
 
@@ -338,6 +339,28 @@ message BlinkLedAction {}
 message UncurtailAction {}
 message GetMiningPoolsAction {}
 message GetErrorsAction {}
+
+message NodeEncryptedPayload {
+    string algorithm = 1 [
+        (buf.validate.field).string = {min_len: 1, max_len: 64},
+        (buf.validate.field).cel = {
+            id: "node_encrypted_payload.algorithm",
+            message: "algorithm must be x25519-hkdf-sha256-aes-256-gcm-v1",
+            expression: "this == 'x25519-hkdf-sha256-aes-256-gcm-v1'"
+        }
+    ];
+    bytes ephemeral_pubkey = 2 [(buf.validate.field).bytes.len = 32];
+    bytes nonce            = 3 [(buf.validate.field).bytes.len = 12];
+    bytes ciphertext       = 4 [(buf.validate.field).bytes = {min_len: 17, max_len: 8192}];
+}
+
+message UpdateMinerPasswordAction {
+    NodeEncryptedPayload encrypted_password_update = 1 [(buf.validate.field).required = true];
+}
+
+message UpdateMinerPasswordResult {
+    EncryptedCredentials encrypted_credentials = 1 [(buf.validate.field).required = true];
+}
 
 message CurtailAction {
     curtailment.v1.CurtailmentLevel level = 1;

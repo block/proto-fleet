@@ -2359,9 +2359,11 @@ func TestPairDevices_RefusesFleetNodeDiscoveredDevices(t *testing.T) {
 	// does), so create a fleet node and stamp the column directly.
 	var fleetNodeID int64
 	require.NoError(t, testContext.ServiceProvider.DB.QueryRowContext(ctx,
-		`INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
-		 VALUES ($1, 'pairing-guard-node', $2, 'CONFIRMED') RETURNING id`,
-		adminUser.OrganizationID, []byte("guard-pubkey")).Scan(&fleetNodeID))
+		`INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		 VALUES ($1, 'pairing-guard-node', $2, $3, 'CONFIRMED') RETURNING id`,
+		adminUser.OrganizationID,
+		[]byte("guard-pubkey"),
+		[]byte("01234567890123456789012345678901")).Scan(&fleetNodeID))
 	_, err = testContext.ServiceProvider.DB.ExecContext(ctx,
 		`UPDATE discovered_device SET discovered_by_fleet_node_id = $1 WHERE org_id = $2 AND device_identifier = $3`,
 		fleetNodeID, adminUser.OrganizationID, fleetNodeIdentifier)

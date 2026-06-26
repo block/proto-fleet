@@ -60,28 +60,28 @@ WHERE a.org_id = $1
 ORDER BY a.created_at DESC;
 
 -- name: GetFleetNodeByID :one
-SELECT id, org_id, name, identity_pubkey,
+SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
 FROM fleet_node
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL;
 
 -- name: LockFleetNodeByID :one
-SELECT id, org_id, name, identity_pubkey,
+SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
 FROM fleet_node
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL
 FOR UPDATE;
 
 -- name: GetFleetNodeByIDUnscoped :one
-SELECT id, org_id, name, identity_pubkey,
+SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
 FROM fleet_node
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: CreateFleetNode :one
-INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
-VALUES ($1, $2, $3, 'PENDING')
-RETURNING id, org_id, name, identity_pubkey,
+INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+VALUES ($1, $2, $3, $4, 'PENDING')
+RETURNING id, org_id, name, identity_pubkey, encryption_pubkey,
           enrollment_status, last_seen_at, created_at, updated_at;
 
 -- name: SetFleetNodeEnrollmentStatus :execrows

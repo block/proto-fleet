@@ -563,6 +563,13 @@ func (m *RemoteFleetNodeMiner) UpdateMinerPassword(ctx context.Context, payload 
 	return m.unsupported("update miner password")
 }
 
+func (m *RemoteFleetNodeMiner) UpdateMinerPasswordWithCredentials(ctx context.Context, payload dto.UpdateMinerPasswordPayload) (*gatewaypb.EncryptedCredentials, error) {
+	if updater, ok := m.delegate.(interfaces.MinerPasswordCredentialUpdater); ok {
+		return updater.UpdateMinerPasswordWithCredentials(ctx, payload)
+	}
+	return nil, m.unsupported("update miner password with encrypted credentials")
+}
+
 func (m *RemoteFleetNodeMiner) BlinkLED(ctx context.Context) error {
 	if m.delegate != nil {
 		return m.delegate.BlinkLED(ctx)

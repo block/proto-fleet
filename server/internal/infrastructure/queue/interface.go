@@ -21,10 +21,18 @@ type Message struct {
 	OrgID        int64
 }
 
+type EnqueueMessage struct {
+	DeviceID int64
+	Payload  interface{}
+}
+
 //go:generate go run go.uber.org/mock/mockgen -source=interface.go -destination=mocks/mock_message_queue.go -package=mocks MessageQueue
 type MessageQueue interface {
 	// Enqueue adds a command to the queue
 	Enqueue(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, deviceIDs []int64, payload interface{}) error
+
+	// EnqueueMany adds commands with per-device payloads in one atomic operation.
+	EnqueueMany(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, messages []EnqueueMessage) error
 
 	// Dequeue retrieves and locks batch of commands for processing
 	Dequeue(ctx context.Context) ([]Message, error)

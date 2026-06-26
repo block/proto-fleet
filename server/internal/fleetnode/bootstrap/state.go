@@ -11,16 +11,18 @@ import (
 )
 
 type State struct {
-	ServerURL              string    `yaml:"server_url"`
-	AllowInsecureTransport bool      `yaml:"allow_insecure_transport,omitempty"`
-	FleetNodeID            int64     `yaml:"fleet_node_id"`
-	IdentityFingerprint    string    `yaml:"identity_fingerprint"`
-	IdentityPrivateKeyHex  string    `yaml:"identity_private_key_hex"`
-	IdentityPublicKeyHex   string    `yaml:"identity_public_key_hex"`
-	CredentialKeyHex       string    `yaml:"credential_key_hex,omitempty"`
-	APIKey                 string    `yaml:"api_key,omitempty"`
-	SessionToken           string    `yaml:"session_token,omitempty"`
-	SessionExpiresAt       time.Time `yaml:"session_expires_at,omitempty"`
+	ServerURL               string    `yaml:"server_url"`
+	AllowInsecureTransport  bool      `yaml:"allow_insecure_transport,omitempty"`
+	FleetNodeID             int64     `yaml:"fleet_node_id"`
+	IdentityFingerprint     string    `yaml:"identity_fingerprint"`
+	IdentityPrivateKeyHex   string    `yaml:"identity_private_key_hex"`
+	IdentityPublicKeyHex    string    `yaml:"identity_public_key_hex"`
+	EncryptionPrivateKeyHex string    `yaml:"encryption_private_key_hex,omitempty"`
+	EncryptionPublicKeyHex  string    `yaml:"encryption_public_key_hex,omitempty"`
+	CredentialKeyHex        string    `yaml:"credential_key_hex,omitempty"`
+	APIKey                  string    `yaml:"api_key,omitempty"`
+	SessionToken            string    `yaml:"session_token,omitempty"`
+	SessionExpiresAt        time.Time `yaml:"session_expires_at,omitempty"`
 }
 
 func ResolveStateDir(override string) (string, error) {

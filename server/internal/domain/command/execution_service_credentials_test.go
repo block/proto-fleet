@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -15,11 +16,11 @@ import (
 	commandMocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	minerDomain "github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	minerIfaceMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
-	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	infraDB "github.com/block/proto-fleet/server/internal/infrastructure/db"
@@ -32,6 +33,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -69,7 +71,7 @@ func TestExecuteCommand_UpdateMinerPassword_InsertsMissingProtoCredentials(t *te
 		DoAndReturn(func(_ context.Context, _ string, _ sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
 			userPass, ok := secret.Kind.(sdk.UsernamePassword)
 			require.True(t, ok, "expected password-update resolver to synthesize username/password secret")
-			assert.Equal(t, protoDefaultUsername, userPass.Username)
+			assert.Equal(t, models.ProtoDefaultUsername, userPass.Username)
 			assert.Equal(t, "old-password", userPass.Password)
 			return sdk.NewDeviceResult{Device: mockDevice}, nil
 		})
@@ -89,7 +91,7 @@ func TestExecuteCommand_UpdateMinerPassword_InsertsMissingProtoCredentials(t *te
 
 	require.NoError(t, err)
 	username, password := storedCredentials(t, db, encryptSvc, dbDeviceID)
-	assert.Equal(t, protoDefaultUsername, username)
+	assert.Equal(t, models.ProtoDefaultUsername, username)
 	assert.Equal(t, "new-password", password)
 }
 
@@ -141,38 +143,135 @@ func TestExecuteCommand_UpdateMinerPassword_DefaultPasswordDevicePersistsAndPair
 	assert.Equal(t, sqlc.PairingStatusEnumPAIRED, pairingStatus)
 }
 
-func TestExecuteCommand_UpdateMinerPassword_FleetNodeMinerFailsBeforeDispatch(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	const dbDeviceID int64 = 123
-	const deviceIdentifier = "fleet-node-default-password"
-
-	sender := &commandTestFleetNodeSender{}
-	remoteMiner, err := remotenode.New(remotenode.Config{
-		Sender:           sender,
-		FleetNodeID:      42,
-		OrgID:            1,
-		DeviceIdentifier: deviceIdentifier,
-		DriverName:       models.DriverNameProto,
-		IPAddress:        "192.0.2.10",
-		Port:             "443",
-		URLScheme:        "https",
+func TestExecuteCommand_UpdateMinerPassword_FleetNodeMinerPersistsNodeEncryptedCredentials(t *testing.T) {
+	svc, db, encryptSvc, dbDeviceID, deviceIdentifier := setupPasswordCommandDeviceWithStatus(
+		t,
+		models.DriverNameProto,
+		false,
+		sqlc.PairingStatusEnumDEFAULTPASSWORD,
+	)
+	bindCommandTestFleetNodeDevice(t, db, dbDeviceID)
+	oldUsername := fleetNodeCredentialBlobForTest("old-user")
+	oldPassword := fleetNodeCredentialBlobForTest("old-pass")
+	storeCommandTestFleetNodeCredentials(t, db, dbDeviceID, oldUsername, oldPassword)
+	updatedUsername := fleetNodeCredentialBlobForTest("user")
+	updatedPassword := fleetNodeCredentialBlobForTest("pass")
+	resultPayload, err := proto.Marshal(&gatewaypb.UpdateMinerPasswordResult{
+		EncryptedCredentials: &gatewaypb.EncryptedCredentials{
+			Username: updatedUsername,
+			Password: updatedPassword,
+		},
 	})
 	require.NoError(t, err)
 
-	mockMinerGetter := commandMocks.NewMockCachedMinerGetter(ctrl)
-	svc := &ExecutionService{minerService: mockMinerGetter}
-	mockMinerGetter.EXPECT().
-		GetMinerForPasswordUpdate(gomock.Any(), dbDeviceID, "old-password").
-		Return(remoteMiner, nil)
+	sender := &commandTestFleetNodeSender{
+		ack: &gatewaypb.ControlAck{
+			Succeeded: true,
+			Code:      gatewaypb.AckCode_ACK_CODE_OK,
+			Payload:   resultPayload,
+		},
+	}
+	svc.deviceStore = sqlstores.NewSQLDeviceStore(db)
+	filesSvc, err := files.NewService(files.Config{})
+	require.NoError(t, err)
+	svc.minerService = minerDomain.NewMinerService(
+		db,
+		sqlstores.NewSQLUserStore(db),
+		encryptSvc,
+		filesSvc,
+		&commandTestPluginManager{driverName: models.DriverNameProto},
+	).WithCommandSender(sender)
 
-	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, encryptedPasswordUpdateMessage(t, dbDeviceID))
+
+	require.NoError(t, err)
+	assert.True(t, sender.called)
+	var env gatewaypb.AgentCommand
+	require.NoError(t, proto.Unmarshal(sender.cmd.GetPayload(), &env))
+	action := env.GetMinerCommand().GetUpdateMinerPassword()
+	require.NotNil(t, action)
+	assert.Equal(t, passwordupdate.Algorithm, action.GetEncryptedPasswordUpdate().GetAlgorithm())
+	target := env.GetMinerCommand().GetTarget()
+	require.NotNil(t, target)
+	assert.Equal(t, oldUsername, target.GetCredentialUsername())
+	assert.Equal(t, oldPassword, target.GetCredentialPassword())
+
+	username, password := storedCredentialCiphertext(t, db, dbDeviceID)
+	assert.Equal(t, base64.StdEncoding.EncodeToString(updatedUsername), username)
+	assert.Equal(t, base64.StdEncoding.EncodeToString(updatedPassword), password)
+	pairingStatus, err := sqlc.New(db).GetDevicePairingStatusByDeviceDatabaseID(t.Context(), dbDeviceID)
+	require.NoError(t, err)
+	assert.Equal(t, sqlc.PairingStatusEnumPAIRED, pairingStatus)
+
+	resolveSender := &commandTestFleetNodeSender{}
+	minerSvc := minerDomain.NewMinerService(
+		db,
+		sqlstores.NewSQLUserStore(db),
+		encryptSvc,
+		filesSvc,
+		&commandTestPluginManager{driverName: models.DriverNameProto},
+	).WithCommandSender(resolveSender)
+
+	resolved, err := minerSvc.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(deviceIdentifier))
+	require.NoError(t, err)
+	require.NoError(t, resolved.Reboot(t.Context()))
+
+	var resolvedEnv gatewaypb.AgentCommand
+	require.NoError(t, proto.Unmarshal(resolveSender.cmd.GetPayload(), &resolvedEnv))
+	resolvedTarget := resolvedEnv.GetMinerCommand().GetTarget()
+	require.NotNil(t, resolvedTarget)
+	assert.Equal(t, updatedUsername, resolvedTarget.GetCredentialUsername())
+	assert.Equal(t, updatedPassword, resolvedTarget.GetCredentialPassword())
+}
+
+func TestExecuteCommand_UpdateMinerPassword_RejectsMalformedNodeEncryptedCredentials(t *testing.T) {
+	svc, db, encryptSvc, dbDeviceID, _ := setupPasswordCommandDeviceWithStatus(
+		t,
+		models.DriverNameProto,
+		false,
+		sqlc.PairingStatusEnumDEFAULTPASSWORD,
+	)
+	bindCommandTestFleetNodeDevice(t, db, dbDeviceID)
+	oldUsername := fleetNodeCredentialBlobForTest("old-user")
+	oldPassword := fleetNodeCredentialBlobForTest("old-pass")
+	storeCommandTestFleetNodeCredentials(t, db, dbDeviceID, oldUsername, oldPassword)
+	resultPayload, err := proto.Marshal(&gatewaypb.UpdateMinerPasswordResult{
+		EncryptedCredentials: &gatewaypb.EncryptedCredentials{
+			Username: []byte("plain-user"),
+			Password: []byte("plain-pass"),
+		},
+	})
+	require.NoError(t, err)
+
+	sender := &commandTestFleetNodeSender{
+		ack: &gatewaypb.ControlAck{
+			Succeeded: true,
+			Code:      gatewaypb.AckCode_ACK_CODE_OK,
+			Payload:   resultPayload,
+		},
+	}
+	svc.deviceStore = sqlstores.NewSQLDeviceStore(db)
+	filesSvc, err := files.NewService(files.Config{})
+	require.NoError(t, err)
+	svc.minerService = minerDomain.NewMinerService(
+		db,
+		sqlstores.NewSQLUserStore(db),
+		encryptSvc,
+		filesSvc,
+		&commandTestPluginManager{driverName: models.DriverNameProto},
+	).WithCommandSender(sender)
+
+	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, encryptedPasswordUpdateMessage(t, dbDeviceID))
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "password update remediation is not supported through fleet nodes yet")
-	assert.False(t, sender.called, "password update should fail before dispatching an unsupported fleet-node command")
+	assert.Contains(t, err.Error(), "malformed encrypted credentials")
+	username, password := storedCredentialCiphertext(t, db, dbDeviceID)
+	assert.Equal(t, base64.StdEncoding.EncodeToString(oldUsername), username)
+	assert.Equal(t, base64.StdEncoding.EncodeToString(oldPassword), password)
+	pairingStatus, err := sqlc.New(db).GetDevicePairingStatusByDeviceDatabaseID(t.Context(), dbDeviceID)
+	require.NoError(t, err)
+	assert.Equal(t, sqlc.PairingStatusEnumDEFAULTPASSWORD, pairingStatus)
 }
 
 func TestExecuteCommand_UpdateMinerPassword_ResolverAuthErrorFailsPrecondition(t *testing.T) {
@@ -186,6 +285,33 @@ func TestExecuteCommand_UpdateMinerPassword_ResolverAuthErrorFailsPrecondition(t
 	mockMinerGetter.EXPECT().
 		GetMinerForPasswordUpdate(gomock.Any(), dbDeviceID, "old-password").
 		Return(nil, fleeterror.NewUnauthenticatedError("bad current password"))
+
+	_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
+	assert.Contains(t, err.Error(), "bad current password")
+}
+
+func TestExecuteCommand_UpdateMinerPassword_ActionAuthErrorFailsPrecondition(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	const dbDeviceID int64 = 125
+	const deviceIdentifier = "proto-auth-action"
+
+	mockMinerGetter := commandMocks.NewMockCachedMinerGetter(ctrl)
+	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+	svc := &ExecutionService{minerService: mockMinerGetter}
+
+	mockMinerGetter.EXPECT().GetMinerForPasswordUpdate(gomock.Any(), dbDeviceID, "old-password").Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
+	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier(deviceIdentifier)).AnyTimes()
+	mockMiner.EXPECT().UpdateMinerPassword(gomock.Any(), dto.UpdateMinerPasswordPayload{
+		CurrentPassword: "old-password",
+		NewPassword:     "new-password",
+	}).Return(fleeterror.NewUnauthenticatedError("bad current password"))
 
 	_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMinerPassword, passwordUpdateMessage(t, dbDeviceID))
 
@@ -311,10 +437,16 @@ func (m *commandTestPluginManager) GetDriverByDriverName(driverName string) (sdk
 
 type commandTestFleetNodeSender struct {
 	called bool
+	cmd    *gatewaypb.ControlCommand
+	ack    *gatewaypb.ControlAck
 }
 
-func (s *commandTestFleetNodeSender) SendCommand(_ context.Context, _ int64, _ *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+func (s *commandTestFleetNodeSender) SendCommand(_ context.Context, _ int64, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 	s.called = true
+	s.cmd = cmd
+	if s.ack != nil {
+		return s.ack, nil
+	}
 	return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}, nil
 }
 
@@ -467,6 +599,20 @@ func passwordUpdateMessage(t *testing.T, dbDeviceID int64) queue.Message {
 	return queue.Message{ID: 7, DeviceID: dbDeviceID, CommandType: commandtype.UpdateMinerPassword, Payload: payload}
 }
 
+func encryptedPasswordUpdateMessage(t *testing.T, dbDeviceID int64) queue.Message {
+	t.Helper()
+	payload, err := json.Marshal(dto.UpdateMinerPasswordPayload{
+		EncryptedPasswordUpdate: &dto.NodeEncryptedPayload{
+			Algorithm:       passwordupdate.Algorithm,
+			EphemeralPubkey: []byte("12345678901234567890123456789012"),
+			Nonce:           []byte("123456789012"),
+			Ciphertext:      []byte("12345678901234567"),
+		},
+	})
+	require.NoError(t, err)
+	return queue.Message{ID: 7, DeviceID: dbDeviceID, CommandType: commandtype.UpdateMinerPassword, Payload: payload}
+}
+
 func storedCredentials(t *testing.T, db *sql.DB, encryptSvc *encrypt.Service, dbDeviceID int64) (string, string) {
 	t.Helper()
 	creds, err := sqlc.New(db).GetMinerCredentialsByDeviceID(t.Context(), dbDeviceID)
@@ -476,4 +622,53 @@ func storedCredentials(t *testing.T, db *sql.DB, encryptSvc *encrypt.Service, db
 	password, err := encryptSvc.Decrypt(creds.PasswordEnc)
 	require.NoError(t, err)
 	return string(username), string(password)
+}
+
+func storedCredentialCiphertext(t *testing.T, db *sql.DB, dbDeviceID int64) (string, string) {
+	t.Helper()
+	creds, err := sqlc.New(db).GetMinerCredentialsByDeviceID(t.Context(), dbDeviceID)
+	require.NoError(t, err)
+	return creds.UsernameEnc, creds.PasswordEnc
+}
+
+func bindCommandTestFleetNodeDevice(t *testing.T, db *sql.DB, dbDeviceID int64) {
+	t.Helper()
+
+	var fleetNodeID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, $1, $2, $3, 'CONFIRMED')
+		RETURNING id`,
+		fmt.Sprintf("password-command-node-%d", dbDeviceID),
+		[]byte(fmt.Sprintf("identity-pubkey-%d", dbDeviceID)),
+		[]byte("01234567890123456789012345678901"),
+	).Scan(&fleetNodeID))
+	_, err := db.ExecContext(t.Context(), `
+		INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
+		VALUES ($1, $2, 1)`,
+		fleetNodeID,
+		dbDeviceID,
+	)
+	require.NoError(t, err)
+}
+
+func storeCommandTestFleetNodeCredentials(t *testing.T, db *sql.DB, dbDeviceID int64, username, password []byte) {
+	t.Helper()
+
+	err := sqlc.New(db).UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{
+		DeviceID:    dbDeviceID,
+		UsernameEnc: base64.StdEncoding.EncodeToString(username),
+		PasswordEnc: base64.StdEncoding.EncodeToString(password),
+	})
+	require.NoError(t, err)
+}
+
+func fleetNodeCredentialBlobForTest(label string) []byte {
+	blob := make([]byte, 0, 1+len("PFNC")+12+len(label)+16)
+	blob = append(blob, byte(1))
+	blob = append(blob, []byte("PFNC")...)
+	blob = append(blob, []byte("nonce-000001")...)
+	blob = append(blob, []byte(label)...)
+	blob = append(blob, []byte("test-tag-16-byte")...)
+	return blob
 }

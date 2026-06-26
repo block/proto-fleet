@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
@@ -35,14 +36,6 @@ const (
 	// minerCacheSize is the maximum number of miner handles to cache.
 	// Sized to cover very large fleets without meaningful memory overhead.
 	minerCacheSize = 10_000
-
-	protoPasswordUpdateUsername = "admin"
-
-	fleetNodeCredentialBlobVersion  = byte(1)
-	fleetNodeCredentialBlobMagic    = "PFNC"
-	fleetNodeCredentialNonceBytes   = 12
-	fleetNodeCredentialTagBytes     = 16
-	fleetNodeCredentialMaxBlobBytes = 4096
 )
 
 var _ telemetry.CachedMinerGetter = &Service{}
@@ -135,7 +128,7 @@ func (s *Service) GetMinerForPasswordUpdate(ctx context.Context, deviceID int64,
 	}
 
 	return s.getMinerFromDeviceIdentifier(ctx, models.DeviceIdentifier(identifier), &sdk.UsernamePassword{
-		Username: protoPasswordUpdateUsername,
+		Username: models.ProtoDefaultUsername,
 		Password: currentPassword,
 	}, false)
 }
@@ -288,20 +281,10 @@ func fleetNodeCredentialBytes(value sql.NullString) []byte {
 		return nil
 	}
 	decoded, err := base64.StdEncoding.DecodeString(value.String)
-	if err != nil || !isFleetNodeCredentialBlob(decoded) {
+	if err != nil || !credentialblob.IsValid(decoded) {
 		return nil
 	}
 	return decoded
-}
-
-func isFleetNodeCredentialBlob(blob []byte) bool {
-	minLen := 1 + len(fleetNodeCredentialBlobMagic) + fleetNodeCredentialNonceBytes + fleetNodeCredentialTagBytes
-	magicStart := 1
-	magicEnd := magicStart + len(fleetNodeCredentialBlobMagic)
-	return len(blob) >= minLen &&
-		len(blob) <= fleetNodeCredentialMaxBlobBytes &&
-		blob[0] == fleetNodeCredentialBlobVersion &&
-		string(blob[magicStart:magicEnd]) == fleetNodeCredentialBlobMagic
 }
 
 // InvalidateMiner removes the cached miner handle for the given device identifier

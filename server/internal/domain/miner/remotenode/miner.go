@@ -24,6 +24,7 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/commandresult"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
@@ -291,8 +292,48 @@ func (m *Miner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningP
 	}})
 }
 
-func (m *Miner) UpdateMinerPassword(_ context.Context, _ dto.UpdateMinerPasswordPayload) error {
-	return errUnsupported("UpdateMinerPassword")
+func (m *Miner) UpdateMinerPassword(ctx context.Context, payload dto.UpdateMinerPasswordPayload) error {
+	_, err := m.UpdateMinerPasswordWithCredentials(ctx, payload)
+	return err
+}
+
+func (m *Miner) UpdateMinerPasswordWithCredentials(ctx context.Context, payload dto.UpdateMinerPasswordPayload) (*gatewaypb.EncryptedCredentials, error) {
+	if payload.EncryptedPasswordUpdate == nil {
+		return nil, fleeterror.NewFailedPreconditionError("encrypted password update payload is required for fleet-node miner")
+	}
+	ack, err := m.send(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_UpdateMinerPassword{
+		UpdateMinerPassword: &gatewaypb.UpdateMinerPasswordAction{
+			EncryptedPasswordUpdate: dtoNodeEncryptedPayloadToProto(payload.EncryptedPasswordUpdate),
+		},
+	}})
+	if err != nil {
+		return nil, err
+	}
+	if err := ackToError(ack); err != nil {
+		return nil, err
+	}
+
+	var result gatewaypb.UpdateMinerPasswordResult
+	if err := proto.Unmarshal(ack.GetPayload(), &result); err != nil {
+		return nil, fleeterror.NewFailedPreconditionErrorf("unmarshal update miner password result: %v", err)
+	}
+	if err := validateUpdateMinerPasswordResult(&result); err != nil {
+		return nil, err
+	}
+
+	return cloneEncryptedCredentials(result.GetEncryptedCredentials()), nil
+}
+
+func dtoNodeEncryptedPayloadToProto(payload *dto.NodeEncryptedPayload) *gatewaypb.NodeEncryptedPayload {
+	if payload == nil {
+		return nil
+	}
+	return &gatewaypb.NodeEncryptedPayload{
+		Algorithm:       payload.Algorithm,
+		EphemeralPubkey: append([]byte(nil), payload.EphemeralPubkey...),
+		Nonce:           append([]byte(nil), payload.Nonce...),
+		Ciphertext:      append([]byte(nil), payload.Ciphertext...),
+	}
 }
 
 func (m *Miner) DownloadLogs(_ context.Context, _ string) error {
@@ -494,6 +535,23 @@ func componentTypeFromResult(value errorspb.ComponentType) models.ComponentType 
 		return models.ComponentTypeUnspecified
 	default:
 		return models.ComponentTypeUnspecified
+	}
+}
+
+func validateUpdateMinerPasswordResult(result *gatewaypb.UpdateMinerPasswordResult) error {
+	if err := commandresult.ValidateUpdateMinerPassword(result); err != nil {
+		return fleeterror.NewFailedPreconditionErrorf("%v", err)
+	}
+	return nil
+}
+
+func cloneEncryptedCredentials(creds *gatewaypb.EncryptedCredentials) *gatewaypb.EncryptedCredentials {
+	if creds == nil {
+		return nil
+	}
+	return &gatewaypb.EncryptedCredentials{
+		Username: append([]byte(nil), creds.GetUsername()...),
+		Password: append([]byte(nil), creds.GetPassword()...),
 	}
 }
 

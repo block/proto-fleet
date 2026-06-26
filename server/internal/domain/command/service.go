@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/sqlc-dev/pqtype"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/pools/preflight"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -708,6 +710,77 @@ func (s *Service) resolveIdentifiersToDevices(ctx context.Context, identifiers [
 	})
 }
 
+func (s *Service) prepareUpdateMinerPasswordDispatch(ctx context.Context, orgID int64, devices []resolvedDevice, payload dto.UpdateMinerPasswordPayload) (interface{}, []queue.EnqueueMessage, error) {
+	if len(devices) == 0 {
+		return commandPayloadRedacted("update_miner_password"), nil, nil
+	}
+	identifiers := make([]string, 0, len(devices))
+	for _, device := range devices {
+		identifiers = append(identifiers, device.identifier)
+	}
+	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceCommandRoutesRow, error) {
+		return q.GetDeviceCommandRoutes(ctx, sqlc.GetDeviceCommandRoutesParams{
+			OrgID:             orgID,
+			DeviceIdentifiers: identifiers,
+		})
+	})
+	if err != nil {
+		return nil, nil, fleeterror.NewInternalErrorf("resolve device command routes: %v", err)
+	}
+	routeByID := make(map[int64]sqlc.GetDeviceCommandRoutesRow, len(rows))
+	for _, row := range rows {
+		routeByID[row.ID] = row
+	}
+	dispatches := make([]queue.EnqueueMessage, 0, len(devices))
+	for _, device := range devices {
+		route, ok := routeByID[device.id]
+		if !ok {
+			return nil, nil, fleeterror.NewInternalErrorf("missing command route for device %d", device.id)
+		}
+		if route.FleetNodeID.Valid {
+			encrypted, err := passwordupdate.Encrypt(route.EncryptionPubkey, passwordupdate.Secret{
+				DeviceIdentifier: device.identifier,
+				CurrentPassword:  payload.CurrentPassword,
+				NewPassword:      payload.NewPassword,
+			})
+			if err != nil {
+				if errors.Is(err, passwordupdate.ErrInvalidRecipientPublicKey) {
+					return nil, nil, fleeterror.NewFailedPreconditionErrorf("fleet node %d does not have an encryption key; re-enroll the fleet node before updating miner passwords", route.FleetNodeID.Int64)
+				}
+				return nil, nil, fleeterror.NewInternalErrorf("encrypt password update for device %s: %v", device.identifier, err)
+			}
+			dispatches = append(dispatches, queue.EnqueueMessage{
+				DeviceID: device.id,
+				Payload: dto.UpdateMinerPasswordPayload{
+					EncryptedPasswordUpdate: protoNodeEncryptedPayloadToDTO(encrypted),
+				},
+			})
+			continue
+		}
+		dispatches = append(dispatches, queue.EnqueueMessage{DeviceID: device.id, Payload: payload})
+	}
+	return commandPayloadRedacted("update_miner_password"), dispatches, nil
+}
+
+func protoNodeEncryptedPayloadToDTO(payload *gatewaypb.NodeEncryptedPayload) *dto.NodeEncryptedPayload {
+	if payload == nil {
+		return nil
+	}
+	return &dto.NodeEncryptedPayload{
+		Algorithm:       payload.GetAlgorithm(),
+		EphemeralPubkey: append([]byte(nil), payload.GetEphemeralPubkey()...),
+		Nonce:           append([]byte(nil), payload.GetNonce()...),
+		Ciphertext:      append([]byte(nil), payload.GetCiphertext()...),
+	}
+}
+
+func commandPayloadRedacted(kind string) map[string]any {
+	return map[string]any{
+		"kind":     kind,
+		"redacted": true,
+	}
+}
+
 // processCommand resolves selectors, filters, writes the batch row, and
 // enqueues work. External callers fail on skips; internal callers may inspect
 // CommandResult.Skipped.
@@ -772,14 +845,28 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		return nil, fleeterror.NewInvalidArgumentError("no devices matched selector")
 	}
 
-	payloadBytes, err := json.Marshal(command.payload)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
-	}
-
 	resolvedDevices, err := s.resolveIdentifiersToDevices(ctx, kept)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error resolving identifiers to device IDs: %v", err)
+	}
+
+	logPayload := command.payload
+	queuePayloads := []queue.EnqueueMessage{}
+	if command.commandType == commandtype.UpdateMinerPassword {
+		passwordPayload, ok := command.payload.(dto.UpdateMinerPasswordPayload)
+		if !ok {
+			return nil, fleeterror.NewInternalError("invalid update miner password payload")
+		}
+		var err error
+		logPayload, queuePayloads, err = s.prepareUpdateMinerPasswordDispatch(ctx, info.OrganizationID, resolvedDevices, passwordPayload)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	payloadBytes, err := json.Marshal(logPayload)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
 	}
 	deviceIDs := make([]int64, 0, len(resolvedDevices))
 	dispatchedIdentifiers := make([]string, 0, len(resolvedDevices))
@@ -799,9 +886,16 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		return nil, fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
 
-	err = s.messageQueue.Enqueue(ctx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
+	if len(queuePayloads) == 0 {
+		err = s.messageQueue.Enqueue(ctx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
+		}
+	} else {
+		err = s.messageQueue.EnqueueMany(ctx, batchLogIdentifier, command.commandType, queuePayloads)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
+		}
 	}
 
 	return &CommandResult{

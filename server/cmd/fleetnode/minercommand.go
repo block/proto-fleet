@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,7 +20,11 @@ import (
 	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/commandresult"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
+	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/sv2"
+	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -45,6 +50,7 @@ type driverGetter interface {
 // provider for no-secret drivers.
 type secretProvider interface {
 	SecretBundle(target *pb.MinerConnectionDescriptor) (sdk.SecretBundle, error)
+	Seal(bundle sdk.SecretBundle) (*pb.EncryptedCredentials, error)
 }
 
 // nodeSecretProvider returns an empty bundle for tests and no-secret drivers.
@@ -52,6 +58,10 @@ type nodeSecretProvider struct{}
 
 func (nodeSecretProvider) SecretBundle(_ *pb.MinerConnectionDescriptor) (sdk.SecretBundle, error) {
 	return sdk.SecretBundle{}, nil
+}
+
+func (nodeSecretProvider) Seal(_ sdk.SecretBundle) (*pb.EncryptedCredentials, error) {
+	return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no credential sealer configured")
 }
 
 func (r *RunCmd) handleMinerCommand(ctx context.Context, stream acker, commandID string, mc *pb.MinerCommand, logger *slog.Logger) {
@@ -85,6 +95,13 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, stream acker, commandID
 		r.sendAck(stream, commandID, code, msg, logger)
 		return
 	}
+	passwordUpdate, err := newPasswordUpdateCommand(r.passwordUpdatePrivateKey, target, mc)
+	if err != nil {
+		code, msg := classifyMinerCommandError("decrypt password update", err)
+		r.sendAck(stream, commandID, code, msg, logger)
+		return
+	}
+	bundle = passwordUpdate.secretBundle(target, bundle)
 
 	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandTimeout)
 	defer cancel()
@@ -111,13 +128,76 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, stream acker, commandID
 		}
 	}()
 
-	payload, err := runMinerAction(cmdCtx, dev, mc)
+	var payload []byte
+	if passwordUpdate != nil {
+		payload, err = passwordUpdate.run(cmdCtx, dev, bundle, r.minerSecrets)
+	} else {
+		payload, err = runMinerAction(cmdCtx, dev, mc)
+	}
 	if err != nil {
-		code, msg := classifyMinerCommandError("execute command", err)
+		code, msg := classifyMinerActionError("execute command", mc, err)
 		r.sendAck(stream, commandID, code, msg, logger)
 		return
 	}
 	r.sendAckWithPayload(stream, commandID, pb.AckCode_ACK_CODE_OK, "", payload, logger)
+}
+
+type passwordUpdateCommand struct {
+	secret passwordupdate.Secret
+}
+
+func newPasswordUpdateCommand(privateKey []byte, target *pb.MinerConnectionDescriptor, mc *pb.MinerCommand) (*passwordUpdateCommand, error) {
+	update := mc.GetUpdateMinerPassword()
+	if update == nil {
+		return nil, nil
+	}
+	secret, err := decryptUpdateMinerPasswordSecret(privateKey, target, update)
+	if err != nil {
+		return nil, err
+	}
+	return &passwordUpdateCommand{secret: secret}, nil
+}
+
+func (u *passwordUpdateCommand) secretBundle(target *pb.MinerConnectionDescriptor, bundle sdk.SecretBundle) sdk.SecretBundle {
+	if u == nil {
+		return bundle
+	}
+	if current, ok := bundle.Kind.(sdk.UsernamePassword); ok {
+		return sdk.SecretBundle{
+			Version: bundle.Version,
+			Kind: sdk.UsernamePassword{
+				Username: current.Username,
+				Password: u.secret.CurrentPassword,
+			},
+		}
+	}
+	if bundle.Kind != nil {
+		return bundle
+	}
+	if target.GetDriverName() != minermodels.DriverNameProto {
+		return bundle
+	}
+	return sdk.SecretBundle{
+		Version: credentialPayloadVersion,
+		Kind: sdk.UsernamePassword{
+			Username: minermodels.ProtoDefaultUsername,
+			Password: u.secret.CurrentPassword,
+		},
+	}
+}
+
+func (u *passwordUpdateCommand) run(ctx context.Context, dev sdk.Device, bundle sdk.SecretBundle, sealer secretProvider) ([]byte, error) {
+	if u == nil {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "encrypted password update is required")
+	}
+	payload, err := updateMinerPasswordResultPayload(bundle, u.secret.NewPassword, sealer)
+	if err != nil {
+		return nil, err
+	}
+	if err := dev.UpdateMinerPassword(ctx, u.secret.CurrentPassword, u.secret.NewPassword); err != nil {
+		return nil, err
+	}
+	return payload, nil
 }
 
 // validateDialTarget rejects descriptors the node should never dial: a non-IP, public,
@@ -197,6 +277,57 @@ func runMinerAction(ctx context.Context, dev sdk.Device, mc *pb.MinerCommand) ([
 	default:
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unrecognized miner command action")
 	}
+}
+
+func decryptUpdateMinerPasswordSecret(privateKey []byte, target *pb.MinerConnectionDescriptor, action *pb.UpdateMinerPasswordAction) (passwordupdate.Secret, error) {
+	if len(privateKey) == 0 {
+		return passwordupdate.Secret{}, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no password update decryption key configured")
+	}
+	secret, err := passwordupdate.Decrypt(privateKey, action.GetEncryptedPasswordUpdate(), target.GetDeviceIdentifier())
+	if err != nil {
+		return passwordupdate.Secret{}, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err.Error())
+	}
+	return secret, nil
+}
+
+func decodePasswordUpdatePrivateKey(st *bootstrap.State) ([]byte, error) {
+	if st == nil || st.EncryptionPrivateKeyHex == "" {
+		return nil, fmt.Errorf("state has no password update encryption private key; re-enroll the fleet node")
+	}
+	privateKey, err := hex.DecodeString(st.EncryptionPrivateKeyHex)
+	if err != nil {
+		return nil, fmt.Errorf("decode password update encryption private key: %w", err)
+	}
+	if len(privateKey) != 32 {
+		return nil, fmt.Errorf("password update encryption private key must be 32 bytes, got %d", len(privateKey))
+	}
+	return privateKey, nil
+}
+
+func updateMinerPasswordResultPayload(bundle sdk.SecretBundle, newPassword string, sealer secretProvider) ([]byte, error) {
+	current, ok := bundle.Kind.(sdk.UsernamePassword)
+	if !ok {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_UNAUTHENTICATED, "target credentials are required to update miner password")
+	}
+	encrypted, err := sealer.Seal(sdk.SecretBundle{
+		Version: bundle.Version,
+		Kind: sdk.UsernamePassword{
+			Username: current.Username,
+			Password: newPassword,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("seal updated miner password credentials: %w", err)
+	}
+	result := &pb.UpdateMinerPasswordResult{EncryptedCredentials: encrypted}
+	if err := commandresult.ValidateUpdateMinerPassword(result); err != nil {
+		return nil, err
+	}
+	payload, err := proto.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal update miner password result: %w", err)
+	}
+	return payload, nil
 }
 
 func toSDKMiningPoolConfigs(pools []*pb.MiningPoolConfig) []sdk.MiningPoolConfig {
@@ -434,4 +565,15 @@ func classifyMinerCommandError(stage string, err error) (pb.AckCode, string) {
 		}
 	}
 	return pb.AckCode_ACK_CODE_INTERNAL, msg
+}
+
+func classifyMinerActionError(stage string, mc *pb.MinerCommand, err error) (pb.AckCode, string) {
+	code, msg := classifyMinerCommandError(stage, err)
+	if code != pb.AckCode_ACK_CODE_INTERNAL || mc.GetUpdateMinerPassword() == nil {
+		return code, msg
+	}
+	if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.FailedPrecondition {
+		return pb.AckCode_ACK_CODE_UNAUTHENTICATED, msg
+	}
+	return code, msg
 }

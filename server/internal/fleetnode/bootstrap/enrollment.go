@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 )
 
 // Wraps server AlreadyExists / FailedPrecondition / Unauthenticated. Common
@@ -50,6 +51,10 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	encPub, encPriv, err := passwordupdate.GenerateKeypair()
+	if err != nil {
+		return nil, err
+	}
 
 	client, err := NewGatewayClient(p.ServerURL)
 	if err != nil {
@@ -57,9 +62,10 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 	}
 	callCtx, cancel := withHandshakeTimeout(ctx)
 	resp, err := client.Register(callCtx, connect.NewRequest(&pb.RegisterRequest{
-		EnrollmentToken: p.Code,
-		Name:            p.Name,
-		IdentityPubkey:  idPub,
+		EnrollmentToken:  p.Code,
+		Name:             p.Name,
+		IdentityPubkey:   idPub,
+		EncryptionPubkey: encPub,
 	}))
 	cancel()
 	if err != nil {
@@ -76,12 +82,14 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 	}
 
 	state := &State{
-		ServerURL:              p.ServerURL,
-		AllowInsecureTransport: p.AllowInsecureTransport,
-		FleetNodeID:            resp.Msg.GetFleetNodeId(),
-		IdentityFingerprint:    localFP,
-		IdentityPrivateKeyHex:  hex.EncodeToString(idPriv),
-		IdentityPublicKeyHex:   hex.EncodeToString(idPub),
+		ServerURL:               p.ServerURL,
+		AllowInsecureTransport:  p.AllowInsecureTransport,
+		FleetNodeID:             resp.Msg.GetFleetNodeId(),
+		IdentityFingerprint:     localFP,
+		IdentityPrivateKeyHex:   hex.EncodeToString(idPriv),
+		IdentityPublicKeyHex:    hex.EncodeToString(idPub),
+		EncryptionPrivateKeyHex: hex.EncodeToString(encPriv),
+		EncryptionPublicKeyHex:  hex.EncodeToString(encPub),
 	}
 	return &RegisterResult{State: state}, nil
 }
