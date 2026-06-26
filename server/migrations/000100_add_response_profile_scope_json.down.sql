@@ -1,3 +1,4 @@
+-- Remove response profile scope_json after main introduced migration 000099.
 ALTER TABLE curtailment_response_profile
     DROP CONSTRAINT IF EXISTS ck_curtailment_response_profile_scope_json_object;
 

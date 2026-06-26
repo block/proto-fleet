@@ -1,3 +1,4 @@
+-- Add response profile scope_json after main introduced migration 000099.
 ALTER TABLE curtailment_response_profile
     ADD COLUMN scope_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 
