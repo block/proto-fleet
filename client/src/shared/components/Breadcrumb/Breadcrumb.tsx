@@ -18,6 +18,7 @@ export interface BreadcrumbSibling {
   label: string;
   to: string;
   isActive: boolean;
+  onSelect?: () => void;
 }
 
 /** Only the last segment may carry `siblings` — earlier segments are ancestor links. */
@@ -54,10 +55,11 @@ const Breadcrumb = ({ segments, testId = "breadcrumb" }: BreadcrumbProps) => {
   }, [menuOpen]);
 
   const handleSelect = useCallback(
-    (to: string) => {
+    (sibling: BreadcrumbSibling) => {
       setMenuOpen(false);
       triggerRef.current?.focus();
-      navigate(to);
+      sibling.onSelect?.();
+      navigate(sibling.to);
     },
     [navigate],
   );
@@ -95,7 +97,7 @@ const Breadcrumb = ({ segments, testId = "breadcrumb" }: BreadcrumbProps) => {
         const hasSiblings = isLast && seg.siblings && seg.siblings.length > 0;
 
         return (
-          <Fragment key={i}>
+          <Fragment key={`${seg.label}-${i}`}>
             {i > 0 ? <span className="text-text-primary-70">/</span> : null}
             {!isLast && seg.to ? (
               <Link
@@ -147,7 +149,7 @@ const Breadcrumb = ({ segments, testId = "breadcrumb" }: BreadcrumbProps) => {
 
 interface SiblingMenuProps {
   siblings: BreadcrumbSibling[];
-  onSelect: (to: string) => void;
+  onSelect: (sibling: BreadcrumbSibling) => void;
   onDismiss: () => void;
   onKeyDown: (e: ReactKeyboardEvent) => void;
   testId: string;
@@ -162,7 +164,7 @@ const SiblingMenu = forwardRef<HTMLDivElement, SiblingMenuProps>(
         role="menu"
         data-testid={testId}
         onKeyDown={onKeyDown}
-        className="absolute top-full left-0 z-30 mt-1.5 max-h-72 min-w-44 overflow-y-auto rounded-2xl border border-border-5 bg-surface-elevated-base p-1.5 shadow-300"
+        className="absolute top-full left-0 z-30 mt-1.5 max-h-72 min-w-44 overflow-y-auto rounded-lg border border-border-5 bg-surface-elevated-base p-1.5 shadow-300"
       >
         {siblings.map((sib) => (
           <button
@@ -170,7 +172,7 @@ const SiblingMenu = forwardRef<HTMLDivElement, SiblingMenuProps>(
             type="button"
             role="menuitem"
             tabIndex={-1}
-            onClick={() => onSelect(sib.to)}
+            onClick={() => onSelect(sib)}
             className={clsx(
               "flex w-full items-center gap-3 rounded-lg p-3 text-left text-300 hover:bg-surface-5",
               sib.isActive ? "font-medium text-text-primary" : "text-text-primary",

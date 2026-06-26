@@ -2,13 +2,21 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import userEvent from "@testing-library/user-event";
 
 import SiteDetailPage from "./SiteDetailPage";
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
+const listBuildingsBySiteMock = vi.hoisted(() => vi.fn());
 const listSitesMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/protoFleet/api/buildings", () => ({
+  useBuildings: () => ({
+    listBuildingsBySite: listBuildingsBySiteMock,
+  }),
+}));
 
 vi.mock("@/protoFleet/api/sites", async () => {
   const actual = await vi.importActual<typeof import("@/protoFleet/api/sites")>("@/protoFleet/api/sites");
@@ -48,11 +56,12 @@ const LocationProbe = () => {
   return <div data-testid="location-probe">{`${location.pathname}${location.search}`}</div>;
 };
 
-const makeSite = (id: bigint, name: string) =>
+const makeSite = (id: bigint, name: string, slug = name.toLowerCase()) =>
   create(SiteWithCountsSchema, {
     site: create(SiteSchema, {
       id,
       name,
+      slug,
       country: "US",
     }),
     deviceCount: 0n,
@@ -79,6 +88,9 @@ describe("SiteDetailPage", () => {
     listSitesMock.mockImplementation(({ onSuccess }: { onSuccess: (sites: SiteWithCounts[]) => void }) =>
       onSuccess([makeSite(7n, "Dallas"), makeSite(8n, "Austin")]),
     );
+    listBuildingsBySiteMock.mockImplementation(({ onSuccess }: { onSuccess: (buildings: []) => void }) =>
+      onSuccess([]),
+    );
   });
 
   it("preserves the selected site when a site detail mismatch redirects back to Fleet", async () => {
@@ -89,5 +101,21 @@ describe("SiteDetailPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent("/austin/fleet"));
+  });
+
+  it("updates active site before navigating to a breadcrumb sibling site", async () => {
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "7", slug: "dallas" };
+    });
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId("site-detail-breadcrumb-switcher"));
+    await user.click(screen.getByTestId("site-detail-breadcrumb-menu-item-Austin"));
+
+    await waitFor(() => expect(screen.getByTestId("site-detail-breadcrumb-switcher")).toHaveTextContent("Austin"));
+    expect(screen.queryByTestId("location-probe")).not.toBeInTheDocument();
+    expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "8", slug: "austin" });
   });
 });

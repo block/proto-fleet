@@ -8,9 +8,14 @@ import BuildingPageHeader from "../components/BuildingPageHeader";
 import { BuildingRackGrid } from "../components/BuildingRackGrid";
 import { useBuildingModals } from "../hooks/useBuildingModals";
 import { useBuildings } from "@/protoFleet/api/buildings";
-import { type Building, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import {
+  type Building,
+  type BuildingWithCounts,
+  BuildingWithCountsSchema,
+} from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { parseBigIntId } from "@/protoFleet/api/sites";
+import { parseBigIntId, useSites } from "@/protoFleet/api/sites";
 import { useBuildingStats } from "@/protoFleet/api/useBuildingStats";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
@@ -55,7 +60,8 @@ type FetchOutcome =
 const BuildingPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getBuilding, listBuildingRacks } = useBuildings();
+  const { getBuilding, listAllBuildings, listBuildingRacks } = useBuildings();
+  const { listSites } = useSites();
   const activeSite = useFleetStore((state) => state.ui.activeSite);
 
   const buildingId = useMemo(() => parseBigIntId(id), [id]);
@@ -67,6 +73,8 @@ const BuildingPage = () => {
   // Parallel-fetched rack count keyed by buildingId so it can't race a
   // navigation. Used to populate the cascade-delete dialog's count copy.
   const [rackCountResponse, setRackCountResponse] = useState<{ id: bigint; count: bigint } | undefined>(undefined);
+  const [sites, setSites] = useState<SiteWithCounts[]>([]);
+  const [allBuildings, setAllBuildings] = useState<BuildingWithCounts[]>([]);
   const inflightControllerRef = useRef<AbortController | null>(null);
   const racksInflightRef = useRef<AbortController | null>(null);
 
@@ -101,6 +109,21 @@ const BuildingPage = () => {
     },
     [getBuilding, listBuildingRacks],
   );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void listSites({
+      signal: controller.signal,
+      onSuccess: setSites,
+      onError: () => setSites([]),
+    });
+    void listAllBuildings({
+      signal: controller.signal,
+      onSuccess: setAllBuildings,
+      onError: () => setAllBuildings([]),
+    });
+    return () => controller.abort();
+  }, [listAllBuildings, listSites]);
 
   useEffect(() => {
     if (buildingId === null) return;
@@ -182,6 +205,11 @@ const BuildingPage = () => {
 
   const effectiveOutcome: FetchOutcome | "loading" | "invalid" =
     buildingId === null ? "invalid" : response && response.id === buildingId ? response.outcome : "loading";
+  const siteNameById = useMemo(
+    () =>
+      new Map(sites.filter((row) => row.site !== undefined).map((row) => [row.site!.id.toString(), row.site!.name])),
+    [sites],
+  );
 
   if (effectiveOutcome === "loading") {
     return (
@@ -227,6 +255,15 @@ const BuildingPage = () => {
   const label = effectiveBuilding.name || "(unnamed building)";
   const idForHeader = effectiveBuilding.id.toString();
   const buildingFilterParam = `building=${effectiveBuilding.id.toString()}`;
+  const siteIdForHeader = effectiveBuilding.siteId?.toString();
+  const buildingSiblings = allBuildings
+    .filter((row) => row.building !== undefined)
+    .filter((row) => (row.building!.siteId ?? 0n) === (effectiveBuilding.siteId ?? 0n))
+    .map((row) => ({
+      label: row.building!.name || "(unnamed building)",
+      to: `/buildings/${row.building!.id.toString()}`,
+      isActive: row.building!.id === effectiveBuilding.id,
+    }));
 
   // Edit/Delete require the rack count to render an accurate cascade
   // warning ("deleting this building will unassign N racks"). Prefer the
@@ -252,7 +289,14 @@ const BuildingPage = () => {
     <div className="h-full" data-testid="building-page">
       <div className="flex flex-col">
         <div className="p-6 pb-0 laptop:p-10 laptop:pb-0">
-          <BuildingPageHeader label={label} buildingId={idForHeader} onEditBuilding={handleEditBuilding} />
+          <BuildingPageHeader
+            label={label}
+            buildingId={idForHeader}
+            siteId={siteIdForHeader}
+            siteName={siteIdForHeader ? siteNameById.get(siteIdForHeader) : undefined}
+            buildingSiblings={buildingSiblings}
+            onEditBuilding={handleEditBuilding}
+          />
         </div>
 
         {/* Stats fetch failure on initial load — surface it inline so the
