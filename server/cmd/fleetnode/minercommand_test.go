@@ -657,6 +657,30 @@ func TestHandleMinerCommand_DownloadLogsAcksFailureWhenUploadFails(t *testing.T)
 	assert.NotEmpty(t, fake.artifactUploads())
 }
 
+func TestHandleMinerCommand_DownloadLogsRejectsPartialData(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().DownloadLogs(gomock.Any(), nil, "batch-1").Return("2026-02-24 07:52:12 partial log line\n", true, nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().DescribeDriver(gomock.Any()).Return(sdk.DriverIdentifier{}, sdk.Capabilities{}, nil)
+	fake := &fakeFleetNodeGateway{}
+	server := newFakeServer(t, fake)
+	client := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(server.Client(), server.URL)
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+
+	r.handleMinerCommand(context.Background(), client, ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_DownloadLogs{DownloadLogs: &pb.DownloadLogsAction{BatchLogUuid: "batch-1"}}}), discardLogger(t))
+
+	got := ack.only(t)
+	assert.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, got.GetCode())
+	assert.False(t, got.GetSucceeded())
+	assert.Contains(t, got.GetErrorMessage(), "partial data")
+	assert.Empty(t, fake.artifactUploads())
+}
+
 func TestGetErrorsResultFromSDKRejectsInvalidPluginErrorData(t *testing.T) {
 	validError := func() sdk.DeviceError {
 		return sdk.DeviceError{
