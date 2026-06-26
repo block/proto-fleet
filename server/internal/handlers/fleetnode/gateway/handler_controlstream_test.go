@@ -229,13 +229,17 @@ func waitForSend(t *testing.T, r *control.Registry, fleetNodeID int64, commandID
 	}
 }
 
-func startControlServer(t *testing.T, h *controlHarness) fleetnodegatewayv1connect.FleetNodeGatewayServiceClient {
+func startControlServer(t *testing.T, h *controlHarness, opts ...connect.HandlerOption) fleetnodegatewayv1connect.FleetNodeGatewayServiceClient {
 	t.Helper()
 	subject := &auth.Subject{FleetNodeID: h.fleetNodeID, OrgID: 1, Name: "agent-control"}
 	mux := http.NewServeMux()
+	handlerOptions := []connect.HandlerOption{
+		connect.WithInterceptors(interceptors.NewErrorMappingInterceptor(), agentSubjectInjector{subject: subject}),
+	}
+	handlerOptions = append(handlerOptions, opts...)
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(
 		h.handler,
-		connect.WithInterceptors(interceptors.NewErrorMappingInterceptor(), agentSubjectInjector{subject: subject}),
+		handlerOptions...,
 	))
 	srv := httptest.NewUnstartedServer(h2c.NewHandler(mux, &http2.Server{}))
 	srv.Start()

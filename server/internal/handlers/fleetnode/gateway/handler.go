@@ -26,7 +26,13 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
-const commandArtifactChunkSize = 1 << 20
+const (
+	commandArtifactChunkSize = 1 << 20
+	// CommandArtifactUploadReadMaxBytes caps each protobuf message before
+	// Connect unmarshals it. It is slightly larger than the logical chunk limit
+	// to allow protobuf framing and small header messages.
+	CommandArtifactUploadReadMaxBytes = commandArtifactChunkSize + 4096
+)
 
 var (
 	// CommandArtifactUploadHeaderTimeout bounds the wait for the first upload
@@ -53,6 +59,15 @@ var _ fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler = &Handler{}
 
 func NewHandler(enrollment *enrollment.Service, auth *auth.Service, pairing *pairing.Service, registry *control.Registry, filesService *files.Service) *Handler {
 	return &Handler{enrollment: enrollment, auth: auth, pairing: pairing, registry: registry, files: filesService}
+}
+
+func CommandArtifactUploadReadLimitOption() connect.HandlerOption {
+	return connect.WithConditionalHandlerOptions(func(spec connect.Spec) []connect.HandlerOption {
+		if spec.Procedure != fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadCommandArtifactProcedure {
+			return nil
+		}
+		return []connect.HandlerOption{connect.WithReadMaxBytes(CommandArtifactUploadReadMaxBytes)}
+	})
 }
 
 func (h *Handler) Register(ctx context.Context, req *connect.Request[pb.RegisterRequest]) (*connect.Response[pb.RegisterResponse], error) {
