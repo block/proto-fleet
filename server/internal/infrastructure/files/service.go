@@ -32,6 +32,10 @@ const unknownMACPlaceholder = "unknown"
 // Used to whitelist-sanitize MAC addresses for use in filenames.
 var macSafeCharsRe = regexp.MustCompile(`[^0-9a-f]`)
 
+var batchLogTimestamp = func() string {
+	return time.Now().Format("2006-01-02_15-04-05")
+}
+
 // sanitizeMACForFilename strips separators from a MAC address and retains only lowercase
 // hex characters. If the result is empty (malformed input), it falls back to a safe placeholder.
 func sanitizeMACForFilename(mac string) string {
@@ -172,28 +176,33 @@ func (s *Service) CreateBatchDirIfNotExists(batchLogUUID string) (string, error)
 	return batchDir, nil
 }
 
-func (s *Service) batchLogFilePath(batchLogUUID string, macAddress string) (string, error) {
-	batchDir, err := s.CreateBatchDirIfNotExists(batchLogUUID)
-	if err != nil {
-		return "", err
-	}
-
+func (s *Service) batchLogFileName(macAddress string, attempt int) string {
 	normalizedMAC := sanitizeMACForFilename(macAddress)
-	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	filename := fmt.Sprintf("miner-logs-%s-%s.csv", normalizedMAC, timestamp)
-	return filepath.Join(batchDir, filename), nil
+	timestamp := batchLogTimestamp()
+	if attempt == 0 {
+		return fmt.Sprintf("miner-logs-%s-%s.csv", normalizedMAC, timestamp)
+	}
+	return fmt.Sprintf("miner-logs-%s-%s-%d.csv", normalizedMAC, timestamp, attempt)
 }
 
 func (s *Service) openBatchLogFile(batchLogUUID string, macAddress string) (string, *os.File, error) {
-	filePath, err := s.batchLogFilePath(batchLogUUID, macAddress)
+	batchDir, err := s.CreateBatchDirIfNotExists(batchLogUUID)
 	if err != nil {
 		return "", nil, err
 	}
-	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
+
+	for attempt := range 1000 {
+		filePath := filepath.Join(batchDir, s.batchLogFileName(macAddress, attempt))
+		file, err := os.OpenFile(filePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err == nil {
+			return filePath, file, nil
+		}
+		if os.IsExist(err) {
+			continue
+		}
 		return "", nil, fleeterror.NewInternalErrorf("failed to create log file: %v", err)
 	}
-	return filePath, file, nil
+	return "", nil, fleeterror.NewInternalErrorf("failed to create unique log file for batch %s", batchLogUUID)
 }
 
 func (s *Service) SaveLogs(batchLogUUID string, macAddress string, logLines []string) (string, error) {

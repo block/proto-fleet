@@ -122,6 +122,40 @@ func TestSaveCommandArtifactLog_SanitizesUploadedCSV(t *testing.T) {
 	assert.NoDirExists(t, getCommandArtifactDirPath(info.ID))
 }
 
+func TestSaveCommandArtifactLog_DoesNotOverwriteCollidingBatchLogNames(t *testing.T) {
+	svc := setupService(t)
+	originalTimestamp := batchLogTimestamp
+	batchLogTimestamp = func() string { return "2026-01-01_00-00-00" }
+	t.Cleanup(func() { batchLogTimestamp = originalTimestamp })
+	contentA := "Time,Message\n2026-01-01T00:00:00Z,first\n"
+	contentB := "Time,Message\n2026-01-01T00:00:01Z,second\n"
+	infoA, err := svc.SaveCommandArtifact("remote-a.csv", int64(len(contentA)), checksumOf(contentA), strings.NewReader(contentA))
+	require.NoError(t, err)
+	infoB, err := svc.SaveCommandArtifact("remote-b.csv", int64(len(contentB)), checksumOf(contentB), strings.NewReader(contentB))
+	require.NoError(t, err)
+
+	pathA, err := svc.SaveCommandArtifactLog("batch-colliding-artifacts", "", infoA.ID)
+	require.NoError(t, err)
+	pathB, err := svc.SaveCommandArtifactLog("batch-colliding-artifacts", "", infoB.ID)
+	require.NoError(t, err)
+
+	require.NotEqual(t, pathA, pathB)
+	assert.Equal(t, "miner-logs-unknown-2026-01-01_00-00-00.csv", filepath.Base(pathA))
+	assert.Equal(t, "miner-logs-unknown-2026-01-01_00-00-00-1.csv", filepath.Base(pathB))
+	dataA, err := os.ReadFile(pathA)
+	require.NoError(t, err)
+	dataB, err := os.ReadFile(pathB)
+	require.NoError(t, err)
+	assert.Equal(t, "Time,Message\n\"2026-01-01T00:00:00Z\",\"first\"\n", string(dataA))
+	assert.Equal(t, "Time,Message\n\"2026-01-01T00:00:01Z\",\"second\"\n", string(dataB))
+
+	bundlePath, err := svc.bundleLogs("batch-colliding-artifacts")
+	require.NoError(t, err)
+	contents := readZipFileContents(t, bundlePath)
+	assert.Equal(t, string(dataA), contents[filepath.Base(pathA)])
+	assert.Equal(t, string(dataB), contents[filepath.Base(pathB)])
+}
+
 // TestBundleLogs_MultipleFiles_CreatesZIPWithNameSidecar verifies that when logs from
 // multiple devices are present they are bundled into a ZIP, and a .name sidecar is
 // written with a human-readable filename matching the miner-logs-{timestamp}.zip pattern.
