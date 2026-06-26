@@ -71,12 +71,20 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
+      # Rotate the cache weekly (ISO year-week) so a cache hit still rebuilds
+      # against fresh upstream base images and packages (ubuntu, PostgreSQL,
+      # TimescaleDB, pgvector) within a week, not only when a file under
+      # server/timescaledb/ changes.
+      - name: Compute image cache week
+        id: cache-week
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
       - name: Restore TimescaleDB image cache
         id: tsdb-image-cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: /tmp/docker-images
-          key: ${{ runner.os }}-server-timescaledb-${{ hashFiles('server/timescaledb/**') }}
+          key: ${{ runner.os }}-server-timescaledb-${{ steps.cache-week.outputs.week }}-${{ hashFiles('server/timescaledb/**') }}
 
       - name: Build TimescaleDB image
         if: steps.tsdb-image-cache.outputs.cache-hit != 'true'
@@ -92,7 +100,7 @@ jobs:
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: /tmp/docker-images
-          key: ${{ runner.os }}-server-timescaledb-${{ hashFiles('server/timescaledb/**') }}
+          key: ${{ runner.os }}-server-timescaledb-${{ steps.cache-week.outputs.week }}-${{ hashFiles('server/timescaledb/**') }}
 
       - name: Load TimescaleDB image
         if: steps.tsdb-image-cache.outputs.cache-hit == 'true'
