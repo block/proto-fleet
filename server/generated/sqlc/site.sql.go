@@ -167,26 +167,46 @@ func (q *Queries) CreateSite(ctx context.Context, arg CreateSiteParams) (Site, e
 	return i, err
 }
 
-const deleteCurtailmentResponseProfilesBySite = `-- name: DeleteCurtailmentResponseProfilesBySite :execrows
-DELETE FROM curtailment_response_profile
-WHERE org_id = $1
-  AND (
-    site_id = $2
-    OR (
-      scope_json ? 'site_id'
-      AND (scope_json->>'site_id')::BIGINT = $2
+const deleteCurtailmentResponseProfilesBySite = `-- name: DeleteCurtailmentResponseProfilesBySite :one
+WITH scoped_profiles AS (
+  SELECT profile.id
+  FROM curtailment_response_profile profile
+  WHERE profile.org_id = $1
+    AND (
+      profile.site_id = $2
+      OR (
+        profile.scope_json ? 'site_id'
+        AND (profile.scope_json->>'site_id')::BIGINT = $2
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements_text(
+          CASE
+            WHEN jsonb_typeof(profile.scope_json->'site_ids') = 'array' THEN profile.scope_json->'site_ids'
+            ELSE '[]'::jsonb
+          END
+        ) AS scope_site(site_id)
+        WHERE scope_site.site_id::BIGINT = $2
+      )
     )
-    OR EXISTS (
-      SELECT 1
-      FROM jsonb_array_elements_text(
-        CASE
-          WHEN jsonb_typeof(scope_json->'site_ids') = 'array' THEN scope_json->'site_ids'
-          ELSE '[]'::jsonb
-        END
-      ) AS scope_site(site_id)
-      WHERE scope_site.site_id::BIGINT = $2
-    )
-  )
+),
+blocking_rules AS (
+  SELECT rule.id
+  FROM curtailment_automation_rule rule
+  JOIN scoped_profiles profile
+    ON profile.id = rule.response_profile_id
+  WHERE rule.org_id = $1
+),
+deleted_profiles AS (
+  DELETE FROM curtailment_response_profile profile
+  WHERE profile.org_id = $1
+    AND profile.id IN (SELECT id FROM scoped_profiles)
+    AND NOT EXISTS (SELECT 1 FROM blocking_rules)
+  RETURNING 1
+)
+SELECT
+  (SELECT COUNT(*) FROM deleted_profiles)::BIGINT AS deleted_count,
+  (SELECT COUNT(*) FROM blocking_rules)::BIGINT AS blocking_rule_count
 `
 
 type DeleteCurtailmentResponseProfilesBySiteParams struct {
@@ -194,14 +214,18 @@ type DeleteCurtailmentResponseProfilesBySiteParams struct {
 	SiteID sql.NullInt64
 }
 
+type DeleteCurtailmentResponseProfilesBySiteRow struct {
+	DeletedCount      int64
+	BlockingRuleCount int64
+}
+
 // Deletes reusable response profiles tied to a site as part of the
 // site delete cascade so they cannot outlive a soft-deleted site.
-func (q *Queries) DeleteCurtailmentResponseProfilesBySite(ctx context.Context, arg DeleteCurtailmentResponseProfilesBySiteParams) (int64, error) {
-	result, err := q.exec(ctx, q.deleteCurtailmentResponseProfilesBySiteStmt, deleteCurtailmentResponseProfilesBySite, arg.OrgID, arg.SiteID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+func (q *Queries) DeleteCurtailmentResponseProfilesBySite(ctx context.Context, arg DeleteCurtailmentResponseProfilesBySiteParams) (DeleteCurtailmentResponseProfilesBySiteRow, error) {
+	row := q.queryRow(ctx, q.deleteCurtailmentResponseProfilesBySiteStmt, deleteCurtailmentResponseProfilesBySite, arg.OrgID, arg.SiteID)
+	var i DeleteCurtailmentResponseProfilesBySiteRow
+	err := row.Scan(&i.DeletedCount, &i.BlockingRuleCount)
+	return i, err
 }
 
 const findDeviceSiteConflicts = `-- name: FindDeviceSiteConflicts :many

@@ -195,14 +195,20 @@ func (s *SQLSiteStore) UnassignDevicesFromSite(ctx context.Context, orgID, siteI
 }
 
 func (s *SQLSiteStore) DeleteCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
-	rowsAffected, err := s.GetQueries(ctx).DeleteCurtailmentResponseProfilesBySite(ctx, sqlc.DeleteCurtailmentResponseProfilesBySiteParams{
+	row, err := s.GetQueries(ctx).DeleteCurtailmentResponseProfilesBySite(ctx, sqlc.DeleteCurtailmentResponseProfilesBySiteParams{
 		OrgID:  orgID,
 		SiteID: zeroToNullInt64(siteID),
 	})
 	if err != nil {
+		if isForeignKeyViolationOn(err, "fk_curtailment_automation_rule_response_profile") {
+			return 0, fleeterror.NewFailedPreconditionError("site has curtailment response profiles referenced by automation rules")
+		}
 		return 0, fleeterror.NewInternalErrorf("failed to delete curtailment response profiles by site: %v", err)
 	}
-	return rowsAffected, nil
+	if row.BlockingRuleCount > 0 {
+		return 0, fleeterror.NewFailedPreconditionError("site has curtailment response profiles referenced by automation rules")
+	}
+	return row.DeletedCount, nil
 }
 
 func (s *SQLSiteStore) SoftDeleteBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {

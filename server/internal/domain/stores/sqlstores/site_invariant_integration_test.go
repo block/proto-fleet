@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -154,4 +155,114 @@ func TestDeleteCurtailmentResponseProfilesBySite_RemovesScopedProfiles(t *testin
 	}
 	require.NoError(t, rows.Err())
 	assert.Equal(t, []string{"Other site"}, names)
+}
+
+func TestDeleteCurtailmentResponseProfilesBySite_BlocksAutomationBoundScopedProfiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	ctx := t.Context()
+	db := testContext.ServiceProvider.DB
+	siteStore := sqlstores.NewSQLSiteStore(db)
+
+	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Toronto"})
+	require.NoError(t, err)
+
+	var profileID int64
+	err = db.QueryRowContext(ctx, `
+		INSERT INTO curtailment_response_profile (
+			org_id,
+			profile_name,
+			site_id,
+			scope_json,
+			mode,
+			target_kw
+		) VALUES (
+			$1,
+			'Automation profile',
+			NULL,
+			jsonb_build_object('site_ids', jsonb_build_array($2::bigint)),
+			'FIXED_KW',
+			100
+		)
+		RETURNING id
+	`, orgID, site.ID).Scan(&profileID)
+	require.NoError(t, err)
+
+	var sourceID int64
+	err = db.QueryRowContext(ctx, `
+		INSERT INTO curtailment_mqtt_source_config (
+			organization_id,
+			service_user_id,
+			source_name,
+			topic,
+			broker_primary_host,
+			broker_secondary_host,
+			broker_transport,
+			mqtt_username,
+			mqtt_password_enc,
+			payload_format
+		) VALUES (
+			$1,
+			$2,
+			'Automation source',
+			'maestro/target',
+			'broker-primary.local',
+			'broker-secondary.local',
+			'tcp',
+			'mqtt-user',
+			'encrypted-password',
+			'target_timestamp'
+		)
+		RETURNING id
+	`, orgID, user.DatabaseID).Scan(&sourceID)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO curtailment_automation_rule (
+			org_id,
+			rule_name,
+			trigger_type,
+			mqtt_source_id,
+			response_profile_id,
+			enabled
+		) VALUES (
+			$1,
+			'Automation rule',
+			'MQTT',
+			$2,
+			$3,
+			TRUE
+		)
+	`, orgID, sourceID, profileID)
+	require.NoError(t, err)
+
+	deleted, err := siteStore.DeleteCurtailmentResponseProfilesBySite(ctx, orgID, site.ID)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
+	assert.Equal(t, int64(0), deleted)
+
+	row := db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM curtailment_response_profile
+		WHERE org_id = $1
+		  AND id = $2
+	`, orgID, profileID)
+	var profileCount int
+	require.NoError(t, row.Scan(&profileCount))
+	assert.Equal(t, 1, profileCount)
+
+	row = db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM curtailment_automation_rule
+		WHERE org_id = $1
+		  AND response_profile_id = $2
+	`, orgID, profileID)
+	var ruleCount int
+	require.NoError(t, row.Scan(&ruleCount))
+	assert.Equal(t, 1, ruleCount)
 }

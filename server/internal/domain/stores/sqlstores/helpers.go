@@ -123,3 +123,10 @@ func isUniqueViolationOn(err error, constraintName string) bool {
 		pgErr.Code == db.PGUniqueViolation &&
 		pgErr.ConstraintName == constraintName
 }
+
+func isForeignKeyViolationOn(err error, constraintName string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == pgErrCodeForeignKeyViolation &&
+		pgErr.ConstraintName == constraintName
+}
