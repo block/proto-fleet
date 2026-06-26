@@ -33,11 +33,12 @@ export class FleetLocationsPage extends BasePage {
     await this.clickAddSiteButton();
     await this.page.getByTestId("site-settings-name-input").fill(name);
     await this.page.getByTestId("site-settings-modal-continue").click();
+    await this.waitForModalToClose("site-settings-modal");
 
     const saveSiteButton = this.page.locator('[data-testid="manage-site-modal-save"]:visible');
     await expect(saveSiteButton).toBeVisible();
     await saveSiteButton.click();
-    await this.waitForFullScreenModalToClose();
+    await this.waitForModalToClose("full-screen-two-pane-modal");
 
     const row = this.getListRowByName(name);
     await expect(row).toBeVisible();
@@ -64,7 +65,7 @@ export class FleetLocationsPage extends BasePage {
     await this.page.getByRole("option", { name: siteName, exact: true }).click();
     await this.page.getByTestId("building-settings-name-input").fill(buildingName);
     await this.page.getByTestId("building-settings-modal-save").click();
-    await this.waitForFullScreenModalToClose();
+    await this.waitForModalToClose("building-settings-modal");
 
     const row = this.getListRowByName(buildingName);
     await expect(row).toBeVisible();
@@ -182,8 +183,8 @@ export class FleetLocationsPage extends BasePage {
     return this.page.locator("div.fixed.inset-0.z-60");
   }
 
-  private async waitForFullScreenModalToClose() {
-    await expect(this.page.getByTestId("full-screen-two-pane-modal")).toBeHidden();
+  private async waitForModalToClose(testId: string) {
+    await expect(this.page.getByTestId(testId)).toBeHidden();
   }
 
   private async openRowActions(name: string) {
