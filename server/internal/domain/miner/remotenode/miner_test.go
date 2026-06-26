@@ -419,6 +419,45 @@ func TestMiner_FirmwareUpdate_SendsArtifactCommand(t *testing.T) {
 	assert.Equal(t, "dev-1", s.artifacts[0].DeviceIdentifier)
 }
 
+func TestMiner_GetFirmwareUpdateStatus_DecodesPayload(t *testing.T) {
+	progress := int32(72)
+	errMsg := "installing"
+	payload, err := proto.Marshal(&gatewaypb.FirmwareUpdateStatusResult{
+		State:    "installing",
+		Progress: &progress,
+		Error:    &errMsg,
+	})
+	require.NoError(t, err)
+	s := &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}}
+	m := newTestMiner(t, s)
+
+	status, err := m.GetFirmwareUpdateStatus(context.Background())
+
+	require.NoError(t, err)
+	require.NotNil(t, status)
+	assert.Equal(t, "installing", status.State)
+	require.NotNil(t, status.Progress)
+	assert.Equal(t, 72, *status.Progress)
+	require.NotNil(t, status.Error)
+	assert.Equal(t, errMsg, *status.Error)
+	assert.NotNil(t, decodeSent(t, s).GetGetFirmwareUpdateStatus())
+}
+
+func TestMiner_GetFirmwareUpdateStatus_EmptyPayloadReturnsNilStatus(t *testing.T) {
+	s := okSender()
+	m := newTestMiner(t, s)
+
+	status, err := m.GetFirmwareUpdateStatus(context.Background())
+
+	require.NoError(t, err)
+	assert.Nil(t, status)
+	assert.NotNil(t, decodeSent(t, s).GetGetFirmwareUpdateStatus())
+}
+
 func TestMiner_GetErrors_DecodesPayload(t *testing.T) {
 	// Arrange
 	now := time.Now().UTC().Truncate(time.Millisecond)

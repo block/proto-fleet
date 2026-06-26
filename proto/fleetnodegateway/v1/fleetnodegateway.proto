@@ -331,6 +331,7 @@ message MinerCommand {
         UpdateMinerPasswordAction update_miner_password = 13;
         DownloadLogsAction download_logs = 14;
         FirmwareUpdateAction firmware_update = 15;
+        GetFirmwareUpdateStatusAction get_firmware_update_status = 16;
     }
 }
 
@@ -341,6 +342,7 @@ message BlinkLedAction {}
 message UncurtailAction {}
 message GetMiningPoolsAction {}
 message GetErrorsAction {}
+message GetFirmwareUpdateStatusAction {}
 
 message DownloadLogsAction {
     string batch_log_uuid = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
@@ -402,6 +404,12 @@ message UpdateMiningPoolsAction {
 
 message GetMiningPoolsResult {
     repeated MiningPoolConfig pools = 1 [(buf.validate.field).repeated.max_items = 3];
+}
+
+message FirmwareUpdateStatusResult {
+    string state = 1 [(buf.validate.field).string.max_len = 64];
+    optional int32 progress = 2;
+    optional string error = 3 [(buf.validate.field).string.max_len = 4096];
 }
 
 message MinerErrorReport {

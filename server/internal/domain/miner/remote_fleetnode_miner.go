@@ -40,6 +40,7 @@ const (
 var remoteTelemetryDefaultCommandTimeout = 5 * time.Second
 
 var _ interfaces.Miner = (*RemoteFleetNodeMiner)(nil)
+var _ interfaces.FirmwareUpdateStatusProvider = (*RemoteFleetNodeMiner)(nil)
 
 type remoteTelemetryRoute struct {
 	fleetNodeID        int64
@@ -589,6 +590,14 @@ func (m *RemoteFleetNodeMiner) FirmwareUpdate(ctx context.Context, firmware sdk.
 		return m.delegate.FirmwareUpdate(ctx, firmware)
 	}
 	return m.unsupported("firmware update")
+}
+
+func (m *RemoteFleetNodeMiner) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpdateStatus, error) {
+	provider, ok := m.delegate.(interfaces.FirmwareUpdateStatusProvider)
+	if ok {
+		return provider.GetFirmwareUpdateStatus(ctx)
+	}
+	return nil, m.unsupported("get firmware update status")
 }
 
 func (m *RemoteFleetNodeMiner) Unpair(ctx context.Context) error {

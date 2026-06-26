@@ -348,6 +348,8 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 		return nil, nil
 	case *pb.MinerCommand_FirmwareUpdate:
 		return nil, runFirmwareUpdateAction(ctx, client, commandID, mc.GetTarget().GetDeviceIdentifier(), firmwareTempRoot, dev, a.FirmwareUpdate.GetArtifact())
+	case *pb.MinerCommand_GetFirmwareUpdateStatus:
+		return getFirmwareUpdateStatusResultPayload(ctx, dev)
 	default:
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unrecognized miner command action")
 	}
@@ -751,6 +753,51 @@ func validateGetMiningPoolsResult(result *pb.GetMiningPoolsResult) error {
 		}
 	}
 	return nil
+}
+
+func getFirmwareUpdateStatusResultPayload(ctx context.Context, dev sdk.Device) ([]byte, error) {
+	provider, ok := dev.(sdk.FirmwareUpdateStatusProvider)
+	if !ok {
+		return nil, nil
+	}
+	status, err := provider.GetFirmwareUpdateStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if status == nil {
+		return nil, nil
+	}
+	result, err := firmwareUpdateStatusResultFromSDK(status)
+	if err != nil {
+		return nil, err
+	}
+	if err := protovalidate.Validate(result); err != nil {
+		return nil, fmt.Errorf("invalid firmware update status result: %w", err)
+	}
+	payload, err := proto.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal firmware update status result: %w", err)
+	}
+	return payload, nil
+}
+
+func firmwareUpdateStatusResultFromSDK(status *sdk.FirmwareUpdateStatus) (*pb.FirmwareUpdateStatusResult, error) {
+	result := &pb.FirmwareUpdateStatusResult{
+		State: status.State,
+		Error: status.Error,
+	}
+	if status.Progress != nil {
+		const (
+			minInt32 = -1 << 31
+			maxInt32 = 1<<31 - 1
+		)
+		if *status.Progress < minInt32 || *status.Progress > maxInt32 {
+			return nil, fmt.Errorf("firmware update progress %d is outside int32 range", *status.Progress)
+		}
+		progress := int32(*status.Progress)
+		result.Progress = &progress
+	}
+	return result, nil
 }
 
 func miningPoolConfigsFromSDK(pools []sdk.ConfiguredPool) []*pb.MiningPoolConfig {

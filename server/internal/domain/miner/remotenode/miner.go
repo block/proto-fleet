@@ -96,6 +96,7 @@ type Miner struct {
 }
 
 var _ interfaces.Miner = (*Miner)(nil)
+var _ interfaces.FirmwareUpdateStatusProvider = (*Miner)(nil)
 
 // Keep the remote diagnostics wait aligned with the cloud command worker budget
 // and above the fleet node's minerCommandTimeout, while still bounding callers
@@ -512,6 +513,41 @@ func (m *Miner) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) e
 	return m.dispatchWithArtifacts(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_FirmwareUpdate{
 		FirmwareUpdate: &gatewaypb.FirmwareUpdateAction{Artifact: ref},
 	}}, []control.ArtifactExpectation{expectation})
+}
+
+func (m *Miner) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpdateStatus, error) {
+	ack, err := m.send(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetFirmwareUpdateStatus{
+		GetFirmwareUpdateStatus: &gatewaypb.GetFirmwareUpdateStatusAction{},
+	}})
+	if err != nil {
+		return nil, err
+	}
+	if err := ackToError(ack); err != nil {
+		return nil, err
+	}
+	if len(ack.GetPayload()) == 0 {
+		return nil, nil
+	}
+
+	var result gatewaypb.FirmwareUpdateStatusResult
+	if err := proto.Unmarshal(ack.GetPayload(), &result); err != nil {
+		return nil, fleeterror.NewInternalErrorf("unmarshal firmware update status result: %v", err)
+	}
+	if err := protovalidate.Validate(&result); err != nil {
+		return nil, fleeterror.NewInternalErrorf("invalid firmware update status result: %v", err)
+	}
+	if result.GetState() == "" {
+		return nil, nil
+	}
+	status := &sdk.FirmwareUpdateStatus{
+		State: result.GetState(),
+		Error: result.Error,
+	}
+	if result.Progress != nil {
+		progress := int(result.GetProgress())
+		status.Progress = &progress
+	}
+	return status, nil
 }
 
 func (m *Miner) Unpair(_ context.Context) error {

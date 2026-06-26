@@ -81,6 +81,16 @@ func (f failingSealProvider) Seal(sdk.SecretBundle) (*pb.EncryptedCredentials, e
 	return nil, errors.New("seal failed")
 }
 
+type firmwareStatusDevice struct {
+	sdk.Device
+	status *sdk.FirmwareUpdateStatus
+	err    error
+}
+
+func (d firmwareStatusDevice) GetFirmwareUpdateStatus(context.Context) (*sdk.FirmwareUpdateStatus, error) {
+	return d.status, d.err
+}
+
 // withTarget stamps a standard descriptor onto a command built with just an action.
 func withTarget(mc *pb.MinerCommand) *pb.MinerCommand {
 	mc.Target = &pb.MinerConnectionDescriptor{
@@ -623,6 +633,59 @@ func TestHandleMinerCommand_FirmwareUpdateRejectsOversizedArtifact(t *testing.T)
 	assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, got.GetCode())
 	assert.False(t, got.GetSucceeded())
 	assert.Contains(t, got.GetErrorMessage(), "exceeds fleet node limit")
+}
+
+func TestHandleMinerCommand_GetFirmwareUpdateStatusReturnsPayload(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	progress := 42
+	errMsg := "still installing"
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{
+		Device: firmwareStatusDevice{
+			Device: dev,
+			status: &sdk.FirmwareUpdateStatus{
+				State:    "installing",
+				Progress: &progress,
+				Error:    &errMsg,
+			},
+		},
+	}, nil)
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetFirmwareUpdateStatus{GetFirmwareUpdateStatus: &pb.GetFirmwareUpdateStatusAction{}}}), discardLogger(t))
+
+	got := ack.only(t)
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	assert.True(t, got.GetSucceeded())
+	var result pb.FirmwareUpdateStatusResult
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
+	assert.Equal(t, "installing", result.GetState())
+	require.NotNil(t, result.Progress)
+	assert.Equal(t, int32(42), result.GetProgress())
+	require.NotNil(t, result.Error)
+	assert.Equal(t, errMsg, result.GetError())
+}
+
+func TestHandleMinerCommand_GetFirmwareUpdateStatusWithoutProviderReturnsEmptyPayload(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetFirmwareUpdateStatus{GetFirmwareUpdateStatus: &pb.GetFirmwareUpdateStatusAction{}}}), discardLogger(t))
+
+	got := ack.only(t)
+	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	assert.True(t, got.GetSucceeded())
+	assert.Empty(t, got.GetPayload())
 }
 
 func TestFirmwareDownloadLimiterRejectsConcurrentAndOverQuota(t *testing.T) {
