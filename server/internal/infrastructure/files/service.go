@@ -16,7 +16,10 @@ import (
 	"sync"
 	"time"
 
+	"connectrpc.com/connect"
+
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 )
 
 const logsDir = "logs"
@@ -225,6 +228,12 @@ func (s *Service) SaveCommandArtifactLog(batchLogUUID string, macAddress string,
 		return "", err
 	}
 	defer reader.Close()
+	if info.Size > logformat.MaxArtifactBytes {
+		return "", fleeterror.NewPlainError(
+			fmt.Sprintf("miner log artifact too large: %d bytes (max: %d bytes)", info.Size, logformat.MaxArtifactBytes),
+			connect.CodeResourceExhausted,
+		)
+	}
 
 	filePath, file, err := s.openBatchLogFile(batchLogUUID, macAddress)
 	if err != nil {

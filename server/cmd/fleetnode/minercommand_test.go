@@ -28,6 +28,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
+	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	sdkerrors "github.com/block/proto-fleet/server/sdk/v1/errors"
@@ -689,12 +690,12 @@ func TestHandleMinerCommand_DownloadLogsRejectsOversizedLogs(t *testing.T) {
 	}{
 		{
 			name:    "raw log exceeds limit",
-			logData: strings.Repeat("x", maxMinerLogsArtifactBytes+1),
+			logData: strings.Repeat("x", int(logformat.MaxArtifactBytes)+1),
 			wantErr: "log data exceeds",
 		},
 		{
 			name:    "formatted artifact exceeds limit",
-			logData: strings.Repeat(`"`, maxMinerLogsArtifactBytes/2+1),
+			logData: strings.Repeat(`"`, int(logformat.MaxArtifactBytes)/2+1),
 			wantErr: "log artifact exceeds",
 		},
 	}

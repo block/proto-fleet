@@ -37,3 +37,39 @@ func TestWriteTextToCSVMatchesRowFormatter(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatLineToCSVRowNeutralizesFormulaCells(t *testing.T) {
+	tests := []struct {
+		name        string
+		line        string
+		includeType bool
+		want        string
+	}{
+		{
+			name:        "message formula without timestamp",
+			line:        `=HYPERLINK("https://example.invalid","open")`,
+			includeType: false,
+			want:        `"","'=HYPERLINK(""https://example.invalid"",""open"")"`,
+		},
+		{
+			name:        "typed message formula",
+			line:        "2024-06-14 16:01:58.470952 | INFO  | +cmd",
+			includeType: true,
+			want:        `"2024-06-14 16:01:58","INFO","'+cmd"`,
+		},
+		{
+			name:        "timestamp formula",
+			line:        "-2026-01-01T00:00:00Z message",
+			includeType: false,
+			want:        `"","'-2026-01-01T00:00:00Z message"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := FormatLineToCSVRow(tt.line, tt.includeType); got != tt.want {
+				t.Fatalf("FormatLineToCSVRow() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

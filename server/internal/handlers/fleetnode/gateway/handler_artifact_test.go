@@ -15,6 +15,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
@@ -43,6 +44,7 @@ func uploadExpectation() control.ArtifactExpectation {
 		Direction:        control.ArtifactDirectionUpload,
 		Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
 		DeviceIdentifier: "miner-a",
+		MaxSizeBytes:     logformat.MaxArtifactBytes,
 	}
 }
 
@@ -66,6 +68,12 @@ func uploadHeaderRequest(commandID string, payload []byte) *pb.UploadCommandArti
 			DeviceIdentifier: "miner-a",
 		},
 	}}
+}
+
+func oversizedUploadHeaderRequest(commandID string) *pb.UploadCommandArtifactRequest {
+	req := uploadHeaderRequest(commandID, []byte("x"))
+	req.GetHeader().SizeBytes = logformat.MaxArtifactBytes + 1
+	return req
 }
 
 func uploadChunkRequest(payload []byte) *pb.UploadCommandArtifactRequest {
@@ -270,6 +278,30 @@ func TestCommandArtifactUploadReadLimitRejectsOversizedMessageBeforeChunkReader(
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(err))
 
+	retry := client.UploadCommandArtifact(context.Background())
+	require.NoError(t, retry.Send(uploadHeaderRequest(commandID, payload)))
+	require.NoError(t, retry.Send(uploadChunkRequest(payload)))
+	uploadResp, err := retry.CloseAndReceive()
+	require.NoError(t, err)
+	require.NotNil(t, uploadResp.Msg.GetArtifact())
+
+	finishAckOnlyCommand(t, uploadStream, commandID, uploadDone)
+}
+
+func TestCommandArtifactUploadRejectsMinerLogsOverExpectedSize(t *testing.T) {
+	h, client := newArtifactTestClient(t)
+	commandID := "oversized-miner-log-artifact-command"
+	uploadStream, uploadDone := startAckOnlyCommandWithArtifacts(t, h, commandID, []control.ArtifactExpectation{uploadExpectation()})
+
+	oversized := client.UploadCommandArtifact(context.Background())
+	err := oversized.Send(oversizedUploadHeaderRequest(commandID))
+	if err == nil {
+		_, err = oversized.CloseAndReceive()
+	}
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(err))
+
+	payload := []byte("bounded miner logs")
 	retry := client.UploadCommandArtifact(context.Background())
 	require.NoError(t, retry.Send(uploadHeaderRequest(commandID, payload)))
 	require.NoError(t, retry.Send(uploadChunkRequest(payload)))

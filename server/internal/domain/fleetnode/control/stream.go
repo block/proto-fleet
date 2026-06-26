@@ -153,6 +153,9 @@ func (r *Registry) AdmitCommandArtifactTransfer(fleetNodeID int64, commandID str
 	if exp == nil {
 		return nil, ErrArtifactNotExpected
 	}
+	if exp.MaxSizeBytes > 0 && want.SizeBytes > exp.MaxSizeBytes {
+		return nil, ErrArtifactTooLarge
+	}
 	if exp.inProgress || exp.completed {
 		return nil, ErrArtifactAlreadyTransferred
 	}

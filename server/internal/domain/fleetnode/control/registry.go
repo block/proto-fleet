@@ -93,6 +93,10 @@ var (
 	// retry attempts for one artifact expectation.
 	ErrArtifactTransferAttemptsExceeded = errors.New("artifact transfer attempts exceeded for command")
 
+	// ErrArtifactTooLarge: an artifact transfer exceeds the in-flight command's
+	// purpose-specific size expectation.
+	ErrArtifactTooLarge = errors.New("artifact transfer exceeds command size expectation")
+
 	// errDuplicateCommandID: a command_id is already in flight for the fleet_node.
 	// id.GenerateID() makes this practically impossible; callers map it to Internal.
 	errDuplicateCommandID = errors.New("duplicate command_id in flight for fleet_node")
@@ -146,6 +150,8 @@ type ArtifactExpectation struct {
 	Purpose          gatewaypb.CommandArtifactPurpose
 	ArtifactID       string
 	DeviceIdentifier string
+	SizeBytes        int64
+	MaxSizeBytes     int64
 }
 
 type artifactExpectation struct {

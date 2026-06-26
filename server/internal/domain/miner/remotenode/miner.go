@@ -28,6 +28,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -391,6 +392,7 @@ func (m *Miner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 		Direction:        control.ArtifactDirectionUpload,
 		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
 		DeviceIdentifier: m.desc.GetDeviceIdentifier(),
+		MaxSizeBytes:     logformat.MaxArtifactBytes,
 	}})
 	if err != nil {
 		return err

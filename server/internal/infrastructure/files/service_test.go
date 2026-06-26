@@ -2,6 +2,7 @@ package files
 
 import (
 	"archive/zip"
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 )
 
 // setupService creates a Service backed by a temporary directory and restores the
@@ -282,6 +285,20 @@ func TestSaveCommandArtifactLog_RejectsMissingAndCorruptArtifacts(t *testing.T) 
 			assert.Empty(t, entries)
 		}
 	})
+}
+
+func TestSaveCommandArtifactLog_RejectsOversizedMinerLogs(t *testing.T) {
+	svc := setupService(t)
+	content := bytes.Repeat([]byte("x"), int(logformat.MaxArtifactBytes)+1)
+	info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(content)), checksumOf(string(content)), bytes.NewReader(content))
+	require.NoError(t, err)
+
+	filePath, err := svc.SaveCommandArtifactLog("batch-oversized-artifact", "aa:bb:cc:dd:ee:ff", info.ID)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "miner log artifact too large")
+	assert.Empty(t, filePath)
+	assert.NoDirExists(t, getBatchLogsDirPath("batch-oversized-artifact"))
 }
 
 func readZipFileContents(t *testing.T, zipPath string) map[string]string {

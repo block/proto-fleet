@@ -24,6 +24,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -867,6 +868,7 @@ func TestMiner_DownloadLogsSendsActionAndMaterializesArtifact(t *testing.T) {
 	assert.Equal(t, control.ArtifactDirectionUpload, s.artifacts[0].Direction)
 	assert.Equal(t, gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS, s.artifacts[0].Purpose)
 	assert.Equal(t, "dev-1", s.artifacts[0].DeviceIdentifier)
+	assert.Equal(t, logformat.MaxArtifactBytes, s.artifacts[0].MaxSizeBytes)
 	assert.Equal(t, "batch-1", saver.batchLogUUID)
 	assert.Equal(t, "AA:BB:CC:DD:EE:FF", saver.macAddress)
 	assert.Equal(t, "artifact-1", saver.artifactID)

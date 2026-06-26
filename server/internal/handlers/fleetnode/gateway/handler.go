@@ -150,6 +150,7 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 		Direction:        control.ArtifactDirectionUpload,
 		Purpose:          header.GetPurpose(),
 		DeviceIdentifier: header.GetDeviceIdentifier(),
+		SizeBytes:        header.GetSizeBytes(),
 	}
 	commandDone, err := h.registry.AdmitCommandArtifactTransfer(subject.FleetNodeID, header.GetCommandId(), expectation)
 	if err != nil {
@@ -447,6 +448,8 @@ func mapArtifactAdmissionError(err error) error {
 	case errors.Is(err, control.ErrArtifactAlreadyTransferred):
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.Is(err, control.ErrArtifactTransferLimitExceeded):
+		return connect.NewError(connect.CodeResourceExhausted, err)
+	case errors.Is(err, control.ErrArtifactTooLarge):
 		return connect.NewError(connect.CodeResourceExhausted, err)
 	case errors.Is(err, control.ErrArtifactTransferAttemptsExceeded):
 		return connect.NewError(connect.CodeResourceExhausted, err)

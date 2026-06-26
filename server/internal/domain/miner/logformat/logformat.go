@@ -8,6 +8,7 @@ import (
 
 const csvLogHeaderWithType = "Time,Type,Message"
 const csvLogHeaderNoType = "Time,Message"
+const MaxArtifactBytes int64 = 4 * 1024 * 1024
 
 // logLevelSeparators maps Proto miner log-level separators to their display labels.
 // Format: "{prefix}: {timestamp} | LEVEL | {message}"
@@ -74,7 +75,9 @@ func WriteTextToCSV(w io.Writer, logData string, includeType bool) error {
 // FormatLineToCSVRow parses a single log line into a CSV row.
 func FormatLineToCSVRow(line string, includeType bool) string {
 	csvRow := func(ts, logType, message string) string {
-		esc := func(s string) string { return strings.ReplaceAll(s, `"`, `""`) }
+		esc := func(s string) string {
+			return strings.ReplaceAll(neutralizeCSVFormula(s), `"`, `""`)
+		}
 		if includeType {
 			return fmt.Sprintf(`"%s","%s","%s"`, esc(ts), esc(logType), esc(message))
 		}
@@ -122,4 +125,16 @@ func FormatLineToCSVRow(line string, includeType bool) string {
 	}
 
 	return csvRow("", "", line)
+}
+
+func neutralizeCSVFormula(s string) string {
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@':
+		return "'" + s
+	default:
+		return s
+	}
 }
