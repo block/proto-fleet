@@ -35,8 +35,14 @@ export function useCardCarousel(contentKey: unknown): CardCarousel {
     setStep(firstCard ? firstCard.getBoundingClientRect().width + gap : 0);
   }, []);
 
-  // Reset to the start when the content changes — the render-time
-  // adjust-state-on-change pattern (no effect), so it lands before paint.
+  // Reset to the start when the content changes. This is React's documented
+  // "adjust state when a prop changes during render" pattern: the conditional
+  // setState converges (it only fires when contentKey actually changes) and
+  // React re-renders synchronously before paint — no flash, and cheaper than
+  // an extra effect pass. We deliberately avoid the useLayoutEffect form the
+  // reviewer suggested because the repo's react-hooks/set-state-in-effect rule
+  // forbids setState inside effects.
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
   const [prevKey, setPrevKey] = useState(contentKey);
   if (contentKey !== prevKey) {
     setPrevKey(contentKey);
