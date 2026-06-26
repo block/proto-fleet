@@ -190,6 +190,10 @@ export class FleetLocationsPage extends BasePage {
     ).toHaveCount(0);
   }
 
+  private async waitForModalToClose(testId: string) {
+    await expect(this.page.getByTestId(testId)).toHaveCount(0);
+  }
+
   private async openRowActions(name: string) {
     const row = this.getListRowByName(name);
     await expect(row).toBeVisible();
