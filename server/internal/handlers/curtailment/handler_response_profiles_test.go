@@ -146,9 +146,8 @@ func TestHandler_ListCurtailmentResponseProfilesFiltersSiteNarrowing(t *testing.
 
 	require.NoError(t, err)
 	profiles := resp.Msg.GetProfiles()
-	require.Len(t, profiles, 2)
-	profileIDs := []int64{profiles[0].GetProfileId(), profiles[1].GetProfileId()}
-	assert.Equal(t, []int64{201, 203}, profileIDs)
+	require.Len(t, profiles, 1)
+	assert.Equal(t, int64(203), profiles[0].GetProfileId())
 }
 
 func TestHandler_CreateCurtailmentResponseProfileChecksExplicitDeviceSites(t *testing.T) {
@@ -461,6 +460,75 @@ func TestHandler_UpdateCurtailmentResponseProfilePreservesOmittedScope(t *testin
 	assert.JSONEq(t, `{"site_ids":[7,8],"device_identifiers":null}`, string(store.updated.ScopeJSON))
 	assert.Nil(t, store.updateExpectedSiteID)
 	assert.JSONEq(t, `{"site_ids":[7,8]}`, string(store.updateExpectedScopeJSON))
+}
+
+func TestHandler_UpdateCurtailmentResponseProfileAllowsLegacySiteClear(t *testing.T) {
+	t.Parallel()
+
+	siteID := int64(7)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Old site", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
+	}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.UpdateCurtailmentResponseProfile(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ProfileId:   201,
+			ProfileName: "Updated whole org",
+			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 3000},
+			},
+		}),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, store.updated)
+	assert.Nil(t, store.updated.SiteID)
+	assert.JSONEq(t, `{}`, string(store.updated.ScopeJSON))
+	require.NotNil(t, store.updateExpectedSiteID)
+	assert.Equal(t, siteID, *store.updateExpectedSiteID)
+	assert.JSONEq(t, `{"site_id":7}`, string(store.updateExpectedScopeJSON))
+}
+
+func TestHandler_UpdateCurtailmentResponseProfileRequiresOrgWideToClearSite(t *testing.T) {
+	t.Parallel()
+
+	const narrowedSite = int64(8)
+	siteID := int64(7)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Old site", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
+	}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.UpdateCurtailmentResponseProfile(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-response-profile-update-clear-site",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(narrowedSite),
+		),
+		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ProfileId:   201,
+			ProfileName: "Updated whole org",
+			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 3000},
+			},
+		}),
+	)
+
+	require.Error(t, err)
+	assert.Nil(t, store.updated)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
 func TestHandler_UpdateCurtailmentResponseProfileChecksExistingSite(t *testing.T) {

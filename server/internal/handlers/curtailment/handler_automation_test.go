@@ -40,9 +40,8 @@ func TestHandler_ListCurtailmentAutomationRulesFiltersCompositeProfileSites(t *t
 
 	require.NoError(t, err)
 	rules := resp.Msg.GetRules()
-	require.Len(t, rules, 2)
-	ruleIDs := []int64{rules[0].GetRuleId(), rules[1].GetRuleId()}
-	assert.Equal(t, []int64{101, 102}, ruleIDs)
+	require.Len(t, rules, 1)
+	assert.Equal(t, int64(102), rules[0].GetRuleId())
 }
 
 func TestHandler_GetCurtailmentAutomationRuleChecksCompositeProfileSites(t *testing.T) {

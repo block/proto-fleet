@@ -823,6 +823,60 @@ func TestHandler_PreviewAndStartRequireExplicitDeviceSiteContexts(t *testing.T) 
 	}
 }
 
+func TestHandler_PreviewAndStartRequireOrgWideForWholeOrg(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	const (
+		orgID        = int64(42)
+		narrowedSite = int64(7)
+	)
+
+	previewWholeOrg := func(ctx context.Context) error {
+		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
+			Scope: &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			Mode:  pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 50},
+			},
+		}))
+		return err
+	}
+	startWholeOrg := func(ctx context.Context) error {
+		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.Scope = &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}}
+		_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+		return err
+	}
+
+	for _, tc := range []struct {
+		name string
+		call func(context.Context) error
+	}{
+		{"preview", previewWholeOrg},
+		{"start", startWholeOrg},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			},
+				testOrgAssignment(authz.PermCurtailmentManage),
+				testSiteAssignment(narrowedSite),
+			)
+
+			err := tc.call(ctx)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+		})
+	}
+}
+
 // AdminTerminateEvent rejects a request with no session info in context.
 func TestHandler_AdminTerminateEventRejectsMissingSession(t *testing.T) {
 	t.Parallel()

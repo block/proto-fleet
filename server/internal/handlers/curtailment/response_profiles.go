@@ -120,8 +120,14 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 		return nil, err
 	}
 	if responseProfileUpdateOmitsScope(req.Msg) {
-		profile.SiteID = cloneInt64Ptr(existing.SiteID)
-		profile.ScopeJSON = cloneBytes(existing.ScopeJSON)
+		preserveScope, err := responseProfileUpdateShouldPreserveOmittedScope(existing)
+		if err != nil {
+			return nil, err
+		}
+		if preserveScope {
+			profile.SiteID = cloneInt64Ptr(existing.SiteID)
+			profile.ScopeJSON = cloneBytes(existing.ScopeJSON)
+		}
 	}
 	if err := h.requireResponseProfileSitePermission(ctx, info.OrganizationID, authz.PermCurtailmentManage, &profile, true); err != nil {
 		return nil, err
@@ -335,6 +341,24 @@ func cloneBytes(v []byte) []byte {
 
 func responseProfileUpdateOmitsScope(msg *pb.UpdateCurtailmentResponseProfileRequest) bool {
 	return msg.GetSite() == nil && len(msg.GetScopes()) == 0
+}
+
+func responseProfileUpdateShouldPreserveOmittedScope(profile *models.ResponseProfile) (bool, error) {
+	if profile == nil {
+		return false, nil
+	}
+	scope, err := domainCurtailment.ResponseProfileScope(*profile)
+	if err != nil {
+		return false, err
+	}
+	switch scope.Type {
+	case models.ScopeTypeMixed, models.ScopeTypeDeviceList, models.ScopeTypeDeviceSets:
+		return true, nil
+	case models.ScopeTypeWholeOrg, models.ScopeTypeSite, "":
+		return false, nil
+	default:
+		return false, nil
+	}
 }
 
 func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResponseProfileRequest) (models.ResponseProfile, error) {

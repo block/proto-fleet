@@ -402,6 +402,8 @@ func (h *Handler) previewResourceContextRequirements(
 		return h.scopeResourceContextRequirementsFromProto(ctx, orgID, scopes, nil, false)
 	}
 	switch s := msg.GetScope().(type) {
+	case *pb.PreviewCurtailmentPlanRequest_WholeOrg:
+		return scopeResourceContextRequirements{requireOrgWide: true}, nil
 	case *pb.PreviewCurtailmentPlanRequest_Site:
 		siteID := s.Site.GetSiteId()
 		return scopeResourceContextRequirements{siteContexts: []authz.ResourceContext{{SiteID: &siteID}}}, nil
@@ -421,6 +423,8 @@ func (h *Handler) startResourceContextRequirements(
 		return h.scopeResourceContextRequirementsFromProto(ctx, orgID, scopes, nil, false)
 	}
 	switch s := msg.GetScope().(type) {
+	case *pb.StartCurtailmentRequest_WholeOrg:
+		return scopeResourceContextRequirements{requireOrgWide: true}, nil
 	case *pb.StartCurtailmentRequest_Site:
 		siteID := s.Site.GetSiteId()
 		return scopeResourceContextRequirements{siteContexts: []authz.ResourceContext{{SiteID: &siteID}}}, nil
@@ -455,6 +459,10 @@ func (h *Handler) scopeResourceContextRequirements(
 	out := scopeResourceContextRequirements{
 		siteContexts: siteResourceContextsForScope(scope),
 	}
+	if scope.Type == models.ScopeTypeWholeOrg || scopeHasNoSelectors(scope) {
+		out.requireOrgWide = true
+		return out, nil
+	}
 	deviceIdentifiers := uniqueResponseProfileDeviceIdentifiers(scope.DeviceIdentifiers)
 	if len(deviceIdentifiers) == 0 {
 		return out, nil
@@ -488,6 +496,14 @@ func (h *Handler) scopeResourceContextRequirements(
 	}
 	out.siteContexts = siteResourceContextsForScope(curtailment.Scope{SiteIDs: siteIDs})
 	return out, nil
+}
+
+func scopeHasNoSelectors(scope curtailment.Scope) bool {
+	return scope.Type == "" &&
+		scope.SiteID == 0 &&
+		len(scope.SiteIDs) == 0 &&
+		len(scope.DeviceSetIDs) == 0 &&
+		len(scope.DeviceIdentifiers) == 0
 }
 
 func siteResourceContextsForScope(scope curtailment.Scope) []authz.ResourceContext {
