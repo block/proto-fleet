@@ -82,6 +82,7 @@ func TestBundleLogs_SingleFile_MovesToTempWithNameSidecar(t *testing.T) {
 func TestSaveCommandArtifactLog_MaterializesAndBundlesSingleCSV(t *testing.T) {
 	svc := setupService(t)
 	content := "Time,Message\n2026-01-01T00:00:00Z,\"hello\"\n"
+	wantContent := "Time,Message\n\"2026-01-01T00:00:00Z\",\"hello\"\n"
 	info, err := svc.SaveCommandArtifact("../../remote-miner-logs.csv", int64(len(content)), checksumOf(content), strings.NewReader(content))
 	require.NoError(t, err)
 
@@ -93,7 +94,7 @@ func TestSaveCommandArtifactLog_MaterializesAndBundlesSingleCSV(t *testing.T) {
 	assert.True(t, strings.HasSuffix(filepath.Base(filePath), ".csv"))
 	data, err := os.ReadFile(filePath)
 	require.NoError(t, err)
-	assert.Equal(t, content, string(data))
+	assert.Equal(t, wantContent, string(data))
 	assert.NoDirExists(t, getCommandArtifactDirPath(info.ID))
 
 	bundlePath, err := svc.bundleLogs("batch-artifact-single")
@@ -103,7 +104,22 @@ func TestSaveCommandArtifactLog_MaterializesAndBundlesSingleCSV(t *testing.T) {
 	fsFile, err := svc.GetBatchLogBundleFile("batch-artifact-single")
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Base(filePath), fsFile.Filename)
-	assert.Equal(t, content, string(fsFile.Data))
+	assert.Equal(t, wantContent, string(fsFile.Data))
+}
+
+func TestSaveCommandArtifactLog_SanitizesUploadedCSV(t *testing.T) {
+	svc := setupService(t)
+	content := "Time,Type,Message\n=cmd,INFO,+message\n2026-01-01T00:00:00Z,WARN,\" \t@nested\"\n"
+	info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(content)), checksumOf(content), strings.NewReader(content))
+	require.NoError(t, err)
+
+	filePath, err := svc.SaveCommandArtifactLog("batch-sanitize-artifact", "aa:bb:cc:dd:ee:ff", info.ID)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "Time,Type,Message\n\"'=cmd\",\"INFO\",\"'+message\"\n\"2026-01-01T00:00:00Z\",\"WARN\",\"' \t@nested\"\n", string(data))
+	assert.NoDirExists(t, getCommandArtifactDirPath(info.ID))
 }
 
 // TestBundleLogs_MultipleFiles_CreatesZIPWithNameSidecar verifies that when logs from
@@ -161,7 +177,8 @@ func TestSaveCommandArtifactLog_BundlesMixedDirectAndRemoteLogsAsZIP(t *testing.
 	svc := setupService(t)
 	directPath, err := svc.SaveLogs("batch-mixed", "aa:bb:cc:dd:ee:01", []string{"direct-line"})
 	require.NoError(t, err)
-	remoteContent := "remote-line\n"
+	remoteContent := "Time,Message\n2026-01-01T00:00:00Z,remote-line\n"
+	wantRemoteContent := "Time,Message\n\"2026-01-01T00:00:00Z\",\"remote-line\"\n"
 	info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(remoteContent)), checksumOf(remoteContent), strings.NewReader(remoteContent))
 	require.NoError(t, err)
 	remotePath, err := svc.SaveCommandArtifactLog("batch-mixed", "aa:bb:cc:dd:ee:02", info.ID)
@@ -173,7 +190,7 @@ func TestSaveCommandArtifactLog_BundlesMixedDirectAndRemoteLogsAsZIP(t *testing.
 
 	contents := readZipFileContents(t, bundlePath)
 	assert.Equal(t, "direct-line\n", contents[filepath.Base(directPath)])
-	assert.Equal(t, remoteContent, contents[filepath.Base(remotePath)])
+	assert.Equal(t, wantRemoteContent, contents[filepath.Base(remotePath)])
 }
 
 // TestBundleLogs_NoFiles_ReturnsEmpty verifies that bundling a batch with no log files
@@ -270,10 +287,10 @@ func TestSaveCommandArtifactLog_RejectsMissingAndCorruptArtifacts(t *testing.T) 
 
 	t.Run("corrupt", func(t *testing.T) {
 		svc := setupService(t)
-		content := "aaaa"
+		content := "Time,Message\n,aaaa\n"
 		info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(content)), checksumOf(content), strings.NewReader(content))
 		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(filepath.Join(getCommandArtifactDirPath(info.ID), info.Filename), []byte("bbbb"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(getCommandArtifactDirPath(info.ID), info.Filename), []byte("Time,Message\n,bbbb\n"), 0600))
 
 		filePath, err := svc.SaveCommandArtifactLog("batch-corrupt-artifact", "aa:bb:cc:dd:ee:ff", info.ID)
 
@@ -286,6 +303,45 @@ func TestSaveCommandArtifactLog_RejectsMissingAndCorruptArtifacts(t *testing.T) 
 			assert.Empty(t, entries)
 		}
 	})
+}
+
+func TestSaveCommandArtifactLog_RejectsMalformedCSV(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		wantErr string
+	}{
+		{
+			name:    "unexpected header",
+			content: "Timestamp,Message\n2026-01-01T00:00:00Z,hello\n",
+			wantErr: "unexpected miner log csv header",
+		},
+		{
+			name:    "malformed row",
+			content: "Time,Message\n\"unterminated\n",
+			wantErr: "read csv row",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := setupService(t)
+			info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(tc.content)), checksumOf(tc.content), strings.NewReader(tc.content))
+			require.NoError(t, err)
+
+			filePath, err := svc.SaveCommandArtifactLog("batch-malformed-artifact", "aa:bb:cc:dd:ee:ff", info.ID)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+			assert.Empty(t, filePath)
+			entries, readErr := os.ReadDir(getBatchLogsDirPath("batch-malformed-artifact"))
+			if !os.IsNotExist(readErr) {
+				require.NoError(t, readErr)
+				assert.Empty(t, entries)
+			}
+			assert.DirExists(t, getCommandArtifactDirPath(info.ID))
+		})
+	}
 }
 
 func TestSaveCommandArtifactLog_RejectsOversizedMinerLogs(t *testing.T) {

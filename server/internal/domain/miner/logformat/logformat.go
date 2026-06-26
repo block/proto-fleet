@@ -1,6 +1,8 @@
 package logformat
 
 import (
+	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -73,16 +75,49 @@ func WriteTextToCSV(w io.Writer, logData string, includeType bool) error {
 	}
 }
 
+// WriteSanitizedCSV parses an uploaded miner-log CSV, validates that it has one
+// of the expected miner-log headers, and rewrites all data cells with the same
+// spreadsheet-formula neutralization used by direct miner log formatting.
+func WriteSanitizedCSV(w io.Writer, r io.Reader) error {
+	reader := csv.NewReader(r)
+	header, err := reader.Read()
+	if errors.Is(err, io.EOF) {
+		return fmt.Errorf("empty miner log csv")
+	}
+	if err != nil {
+		return fmt.Errorf("read csv header: %w", err)
+	}
+	if !isMinerLogCSVHeader(header) {
+		return fmt.Errorf("unexpected miner log csv header")
+	}
+	if _, err := fmt.Fprintln(w, strings.Join(header, ",")); err != nil {
+		return fmt.Errorf("write csv header: %w", err)
+	}
+
+	for {
+		row, err := reader.Read()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read csv row: %w", err)
+		}
+		for i := range row {
+			row[i] = neutralizeCSVFormula(row[i])
+		}
+		if _, err := fmt.Fprintln(w, formatCSVFields(row)); err != nil {
+			return fmt.Errorf("write csv row: %w", err)
+		}
+	}
+}
+
 // FormatLineToCSVRow parses a single log line into a CSV row.
 func FormatLineToCSVRow(line string, includeType bool) string {
 	csvRow := func(ts, logType, message string) string {
-		esc := func(s string) string {
-			return strings.ReplaceAll(neutralizeCSVFormula(s), `"`, `""`)
-		}
 		if includeType {
-			return fmt.Sprintf(`"%s","%s","%s"`, esc(ts), esc(logType), esc(message))
+			return formatCSVFields([]string{ts, logType, message})
 		}
-		return fmt.Sprintf(`"%s","%s"`, esc(ts), esc(message))
+		return formatCSVFields([]string{ts, message})
 	}
 
 	for _, level := range logLevelSeparators {
@@ -126,6 +161,26 @@ func FormatLineToCSVRow(line string, includeType bool) string {
 	}
 
 	return csvRow("", "", line)
+}
+
+func isMinerLogCSVHeader(header []string) bool {
+	if len(header) == 2 {
+		return header[0] == "Time" && header[1] == "Message"
+	}
+	if len(header) == 3 {
+		return header[0] == "Time" && header[1] == "Type" && header[2] == "Message"
+	}
+	return false
+}
+
+func formatCSVFields(fields []string) string {
+	escaped := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = neutralizeCSVFormula(field)
+		field = strings.ReplaceAll(field, `"`, `""`)
+		escaped = append(escaped, `"`+field+`"`)
+	}
+	return strings.Join(escaped, ",")
 }
 
 func neutralizeCSVFormula(s string) string {

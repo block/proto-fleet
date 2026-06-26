@@ -103,3 +103,59 @@ func TestFormatLineToCSVRowNeutralizesFormulaCells(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteSanitizedCSVNeutralizesUploadedCells(t *testing.T) {
+	input := "Time,Type,Message\n=cmd,INFO,+message\n2026-01-01T00:00:00Z,WARN,\" \t@nested\"\n"
+
+	var got bytes.Buffer
+	if err := WriteSanitizedCSV(&got, strings.NewReader(input)); err != nil {
+		t.Fatalf("WriteSanitizedCSV() error = %v", err)
+	}
+
+	want := "Time,Type,Message\n\"'=cmd\",\"INFO\",\"'+message\"\n\"2026-01-01T00:00:00Z\",\"WARN\",\"' \t@nested\"\n"
+	if got.String() != want {
+		t.Fatalf("WriteSanitizedCSV() = %q, want %q", got.String(), want)
+	}
+}
+
+func TestWriteSanitizedCSVRejectsMalformedInput(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr string
+	}{
+		{
+			name:    "empty",
+			input:   "",
+			wantErr: "empty miner log csv",
+		},
+		{
+			name:    "unexpected header",
+			input:   "Timestamp,Message\n2026-01-01T00:00:00Z,hello\n",
+			wantErr: "unexpected miner log csv header",
+		},
+		{
+			name:    "wrong field count",
+			input:   "Time,Message\n2026-01-01T00:00:00Z,hello,extra\n",
+			wantErr: "wrong number of fields",
+		},
+		{
+			name:    "malformed row",
+			input:   "Time,Message\n\"unterminated\n",
+			wantErr: "extraneous or missing",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got bytes.Buffer
+			err := WriteSanitizedCSV(&got, strings.NewReader(tt.input))
+			if err == nil {
+				t.Fatal("WriteSanitizedCSV() error = nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("WriteSanitizedCSV() error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
