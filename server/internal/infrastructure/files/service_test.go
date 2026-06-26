@@ -94,6 +94,7 @@ func TestSaveCommandArtifactLog_MaterializesAndBundlesSingleCSV(t *testing.T) {
 	data, err := os.ReadFile(filePath)
 	require.NoError(t, err)
 	assert.Equal(t, content, string(data))
+	assert.NoDirExists(t, getCommandArtifactDirPath(info.ID))
 
 	bundlePath, err := svc.bundleLogs("batch-artifact-single")
 	require.NoError(t, err)

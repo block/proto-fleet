@@ -63,6 +63,36 @@ func TestFormatLineToCSVRowNeutralizesFormulaCells(t *testing.T) {
 			includeType: false,
 			want:        `"","'-2026-01-01T00:00:00Z message"`,
 		},
+		{
+			name:        "message formula after tab",
+			line:        "\t=cmd",
+			includeType: false,
+			want:        "\"\",\"'\t=cmd\"",
+		},
+		{
+			name:        "message formula after carriage return",
+			line:        "\r+cmd",
+			includeType: false,
+			want:        "\"\",\"'\r+cmd\"",
+		},
+		{
+			name:        "message formula after newline",
+			line:        "\n-cmd",
+			includeType: false,
+			want:        "\"\",\"'\n-cmd\"",
+		},
+		{
+			name:        "message formula after leading spaces",
+			line:        "   @cmd",
+			includeType: false,
+			want:        `"","'   @cmd"`,
+		},
+		{
+			name:        "typed message formula after tab",
+			line:        "2024-06-14 16:01:58.470952 | INFO  | \t=cmd",
+			includeType: true,
+			want:        "\"2024-06-14 16:01:58\",\"INFO\",\"'\t=cmd\"",
+		},
 	}
 
 	for _, tt := range tests {

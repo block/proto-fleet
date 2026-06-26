@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 )
 
 const csvLogHeaderWithType = "Time,Type,Message"
@@ -128,10 +129,11 @@ func FormatLineToCSVRow(line string, includeType bool) string {
 }
 
 func neutralizeCSVFormula(s string) string {
-	if s == "" {
+	trimmed := strings.TrimLeftFunc(s, unicode.IsSpace)
+	if trimmed == "" {
 		return s
 	}
-	switch s[0] {
+	switch trimmed[0] {
 	case '=', '+', '-', '@':
 		return "'" + s
 	default:

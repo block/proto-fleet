@@ -273,6 +273,10 @@ func (s *Service) SaveCommandArtifactLog(batchLogUUID string, macAddress string,
 	file = nil
 	keep = true
 
+	if err := s.DeleteCommandArtifact(info.ID); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to delete materialized command artifact %s: %v", info.ID, err)
+	}
+
 	return filePath, nil
 }
 
