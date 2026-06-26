@@ -199,18 +199,27 @@ describe("activeCurtailmentData", () => {
   });
 
   it("clears a mutation-backed event when active polling keeps omitting it", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-01T10:00:00Z"));
+
     const restoringEvent = curtailmentEvent("stopping-event", CurtailmentEventState.RESTORING);
-    applyActiveCurtailmentEvent(restoringEvent, { preserveAgainstStaleRefresh: true });
-    mockListActiveCurtailments.mockResolvedValue({ event: undefined });
 
-    await refreshActiveCurtailmentData();
-    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe(restoringEvent.eventUuid);
+    try {
+      applyActiveCurtailmentEvent(restoringEvent, { preserveAgainstStaleRefresh: true });
+      mockListActiveCurtailments.mockResolvedValue({ event: undefined });
 
-    await refreshActiveCurtailmentData();
-    expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe(restoringEvent.eventUuid);
+      await refreshActiveCurtailmentData();
+      expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe(restoringEvent.eventUuid);
 
-    await refreshActiveCurtailmentData();
-    expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
+      await refreshActiveCurtailmentData();
+      expect(getActiveCurtailmentSnapshot().event?.eventUuid).toBe(restoringEvent.eventUuid);
+
+      await vi.advanceTimersByTimeAsync(30_001);
+      await refreshActiveCurtailmentData();
+      expect(getActiveCurtailmentSnapshot().event).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("accepts same-state mutation-backed active polling once the event is visible", async () => {
