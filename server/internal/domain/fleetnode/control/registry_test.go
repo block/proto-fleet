@@ -287,6 +287,66 @@ func TestRegistry_SendCommandAckPayloadRoutesToMatchingCommand(t *testing.T) {
 	assert.Equal(t, []byte("payload-first"), res.ack.GetPayload())
 }
 
+func TestRegistry_SendCommandWithArtifactResultsReturnsCompletedUploadRefs(t *testing.T) {
+	r := NewRegistry()
+	s := r.Register(1)
+	defer s.Unregister()
+	expectation := ArtifactExpectation{
+		Direction:        ArtifactDirectionUpload,
+		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		DeviceIdentifier: "dev-1",
+	}
+	results := make(chan artifactCmdResult, 1)
+	go func() {
+		ack, refs, err := r.SendCommandWithArtifactResults(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "logs"}, []ArtifactExpectation{expectation})
+		results <- artifactCmdResult{ack: ack, refs: refs, err: err}
+	}()
+	require.Equal(t, "logs", recvCommandID(t, s))
+	require.NoError(t, r.AdmitCommandArtifact(1, "logs", expectation))
+	ref := &gatewaypb.CommandArtifactRef{
+		ArtifactId: "artifact-1",
+		Purpose:    expectation.Purpose,
+		Filename:   "logs.csv",
+		SizeBytes:  123,
+		Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+	}
+	require.True(t, r.CompleteCommandArtifactUpload(1, "logs", expectation, ref))
+
+	s.PublishAck(&gatewaypb.ControlAck{CommandId: "logs", Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+
+	res := recvArtifactResult(t, results)
+	require.NoError(t, res.err)
+	require.NotNil(t, res.ack)
+	require.Len(t, res.refs, 1)
+	assert.Equal(t, ref.GetArtifactId(), res.refs[0].GetArtifactId())
+	assert.Equal(t, ref.GetSha256(), res.refs[0].GetSha256())
+}
+
+func TestRegistry_SendCommandWithArtifactResultsRejectsOKAckWithoutCompletedUpload(t *testing.T) {
+	r := NewRegistry()
+	s := r.Register(1)
+	defer s.Unregister()
+	expectation := ArtifactExpectation{
+		Direction:        ArtifactDirectionUpload,
+		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		DeviceIdentifier: "dev-1",
+	}
+	results := make(chan artifactCmdResult, 1)
+	go func() {
+		ack, refs, err := r.SendCommandWithArtifactResults(context.Background(), 1, &gatewaypb.ControlCommand{CommandId: "logs"}, []ArtifactExpectation{expectation})
+		results <- artifactCmdResult{ack: ack, refs: refs, err: err}
+	}()
+	require.Equal(t, "logs", recvCommandID(t, s))
+
+	s.PublishAck(&gatewaypb.ControlAck{CommandId: "logs", Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK})
+
+	res := recvArtifactResult(t, results)
+	require.Error(t, res.err)
+	assert.Contains(t, res.err.Error(), "expected artifact upload")
+	require.NotNil(t, res.ack)
+	assert.Empty(t, res.refs)
+}
+
 func TestRegistry_TeardownClosesAllInFlightCommands(t *testing.T) {
 	// Arrange: a discovery and an ack-only command are both in flight.
 	r := NewRegistry()
@@ -655,6 +715,12 @@ type cmdResult struct {
 	err error
 }
 
+type artifactCmdResult struct {
+	ack  *gatewaypb.ControlAck
+	refs []*gatewaypb.CommandArtifactRef
+	err  error
+}
+
 // recvCommandID drains one dispatched command off the agent's outgoing channel and
 // returns its command_id. Receiving it proves the command was registered (addCmd runs
 // before the enqueue), so a subsequent PublishAck routes deterministically.
@@ -678,6 +744,17 @@ func recvResult(t *testing.T, ch <-chan cmdResult) cmdResult {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for SendCommand result")
 		return cmdResult{}
+	}
+}
+
+func recvArtifactResult(t *testing.T, ch <-chan artifactCmdResult) artifactCmdResult {
+	t.Helper()
+	select {
+	case res := <-ch:
+		return res
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for SendCommandWithArtifactResults result")
+		return artifactCmdResult{}
 	}
 }
 

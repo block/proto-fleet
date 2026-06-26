@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"buf.build/go/protovalidate"
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -22,6 +25,7 @@ import (
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -92,7 +96,7 @@ func TestHandleMinerCommand_ExecutesAndAcksOK(t *testing.T) {
 	ack := &captureAcker{}
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}}), discardLogger(t))
 
 	// Assert
@@ -127,7 +131,7 @@ func TestHandleMinerCommand_DecryptsTargetCredential(t *testing.T) {
 	mc.Target.CredentialPassword = encrypted.GetPassword()
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1", mc, discardLogger(t))
 
 	// Assert
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, ack.only(t).GetCode())
@@ -146,7 +150,7 @@ func TestHandleMinerCommand_InvalidTargetCredentialAcksUnauthenticated(t *testin
 	mc.Target.CredentialPassword = []byte("not-a-valid-credential")
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1", mc, discardLogger(t))
 
 	// Assert: rejected before the driver is dialed.
 	assert.Equal(t, pb.AckCode_ACK_CODE_UNAUTHENTICATED, ack.only(t).GetCode())
@@ -171,7 +175,7 @@ func TestHandleMinerCommand_WrongKeyTargetCredentialAcksUnauthenticated(t *testi
 	mc.Target.CredentialPassword = encrypted.GetPassword()
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1", mc, discardLogger(t))
 
 	// Assert: rejected before the driver is dialed.
 	assert.Equal(t, pb.AckCode_ACK_CODE_UNAUTHENTICATED, ack.only(t).GetCode())
@@ -189,7 +193,7 @@ func TestHandleMinerCommand_ConvertsCoolingMode(t *testing.T) {
 	ack := &captureAcker{}
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_SetCoolingMode{SetCoolingMode: &pb.SetCoolingModeAction{Mode: commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED}}}), discardLogger(t))
 
 	// Assert
@@ -219,7 +223,7 @@ func TestHandleMinerCommand_UpdatesMiningPools(t *testing.T) {
 	ack := &captureAcker{}
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMiningPools{UpdateMiningPools: &pb.UpdateMiningPoolsAction{
 			Pools: []*pb.MiningPoolConfig{
 				{Priority: 0, Url: "stratum+tcp://pool1.example.com:3333", Username: "worker1"},
@@ -261,7 +265,7 @@ func TestHandleMinerCommand_UpdateMinerPasswordReturnsEncryptedCredentials(t *te
 	mc.Target.CredentialPassword = encrypted.GetPassword()
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1", mc, discardLogger(t))
 
 	// Assert
 	got := ack.only(t)
@@ -305,7 +309,7 @@ func TestHandleMinerCommand_UpdateMinerPasswordDialsWithCurrentPassword(t *testi
 	mc.Target.CredentialPassword = encrypted.GetPassword()
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1", mc, discardLogger(t))
 
 	// Assert
 	got := ack.only(t)
@@ -344,7 +348,7 @@ func TestHandleMinerCommand_UpdateMinerPasswordAllowsPasswordOnlyCredentials(t *
 	mc.Target.CredentialPassword = encrypted.GetPassword()
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1", mc, discardLogger(t))
 
 	// Assert
 	got := ack.only(t)
@@ -381,7 +385,7 @@ func TestHandleMinerCommand_UpdateMinerPasswordUsesCurrentPasswordWhenProtoCrede
 	mc.Target.DriverName = minermodels.DriverNameProto
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1", mc, discardLogger(t))
 
 	// Assert
 	got := ack.only(t)
@@ -415,7 +419,7 @@ func TestHandleMinerCommand_UpdateMinerPasswordSealsBeforeUpdatingDevice(t *test
 	ack := &captureAcker{}
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMinerPassword{
 			UpdateMinerPassword: action,
 		}}), discardLogger(t))
@@ -451,7 +455,7 @@ func TestHandleMinerCommand_UpdateMinerPasswordFailedPreconditionAcksUnauthentic
 	mc.Target.CredentialPassword = encrypted.GetPassword()
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1", mc, discardLogger(t))
 
 	// Assert
 	assert.Equal(t, pb.AckCode_ACK_CODE_UNAUTHENTICATED, ack.only(t).GetCode())
@@ -485,7 +489,7 @@ func TestHandleMinerCommand_GetMiningPoolsReturnsPayload(t *testing.T) {
 	ack := &captureAcker{}
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetMiningPools{GetMiningPools: &pb.GetMiningPoolsAction{}}}), discardLogger(t))
 
 	// Assert
@@ -536,7 +540,7 @@ func TestHandleMinerCommand_GetErrorsReturnsPayload(t *testing.T) {
 	ack := &captureAcker{}
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}}}), discardLogger(t))
 
 	// Assert
@@ -561,6 +565,96 @@ func TestHandleMinerCommand_GetErrorsReturnsPayload(t *testing.T) {
 	assert.Equal(t, "Stops mining", errReport.GetImpact())
 	assert.Equal(t, "Power supply fault detected", errReport.GetSummary())
 	assert.Equal(t, errorspb.ComponentType_COMPONENT_TYPE_PSU, errReport.GetComponentType())
+}
+
+func TestHandleMinerCommand_DownloadLogsUploadsCSVAndAcksOK(t *testing.T) {
+	cases := []struct {
+		name     string
+		caps     sdk.Capabilities
+		logData  string
+		wantBody string
+	}{
+		{
+			name:     "with log levels",
+			caps:     sdk.Capabilities{sdk.CapabilityLogLevels: true},
+			logData:  "2024-06-14 16:01:58.470952 | INFO  | mcdd::temp | stable\n",
+			wantBody: "Time,Type,Message\n\"2024-06-14 16:01:58\",\"INFO\",\"mcdd::temp | stable\"\n",
+		},
+		{
+			name:     "without log levels",
+			caps:     sdk.Capabilities{},
+			logData:  "2026-02-24 07:52:12 30m avg rate is 84933.16 in 30 mins\n",
+			wantBody: "Time,Message\n\"2026-02-24 07:52:12\",\"30m avg rate is 84933.16 in 30 mins\"\n",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			dev := mocks.NewMockDevice(ctrl)
+			dev.EXPECT().DownloadLogs(gomock.Any(), nil, "batch-1").Return(tc.logData, false, nil)
+			dev.EXPECT().Close(gomock.Any()).Return(nil)
+			drv := mocks.NewMockDriver(ctrl)
+			drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+			drv.EXPECT().DescribeDriver(gomock.Any()).Return(sdk.DriverIdentifier{}, tc.caps, nil)
+
+			sum := sha256.Sum256([]byte(tc.wantBody))
+			sha := hex.EncodeToString(sum[:])
+			fake := &fakeFleetNodeGateway{commandArtifactRef: &pb.CommandArtifactRef{
+				ArtifactId: "artifact-1",
+				Purpose:    pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+				Filename:   minerLogsArtifactFilename,
+				SizeBytes:  int64(len(tc.wantBody)),
+				Sha256:     sha,
+			}}
+			server := newFakeServer(t, fake)
+			client := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(server.Client(), server.URL)
+			r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+			ack := &captureAcker{}
+
+			r.handleMinerCommand(context.Background(), client, ack, "cmd-1",
+				withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_DownloadLogs{DownloadLogs: &pb.DownloadLogsAction{BatchLogUuid: "batch-1"}}}), discardLogger(t))
+
+			got := ack.only(t)
+			assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+			assert.True(t, got.GetSucceeded())
+			uploads := fake.artifactUploads()
+			require.Len(t, uploads, 2)
+			header := uploads[0].GetHeader()
+			require.NotNil(t, header)
+			assert.Equal(t, "cmd-1", header.GetCommandId())
+			assert.Equal(t, pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS, header.GetPurpose())
+			assert.Equal(t, minerLogsArtifactFilename, header.GetFilename())
+			assert.Equal(t, "dev-1", header.GetDeviceIdentifier())
+			assert.Equal(t, int64(len(tc.wantBody)), header.GetSizeBytes())
+			assert.Equal(t, sha, header.GetSha256())
+			assert.Equal(t, tc.wantBody, string(uploads[1].GetChunk().GetData()))
+		})
+	}
+}
+
+func TestHandleMinerCommand_DownloadLogsAcksFailureWhenUploadFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().DownloadLogs(gomock.Any(), nil, "batch-1").Return("2026-02-24 07:52:12 log line\n", false, nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().DescribeDriver(gomock.Any()).Return(sdk.DriverIdentifier{}, sdk.Capabilities{}, nil)
+	fake := &fakeFleetNodeGateway{commandArtifactErr: connect.NewError(connect.CodeInternal, errors.New("upload failed"))}
+	server := newFakeServer(t, fake)
+	client := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(server.Client(), server.URL)
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+
+	r.handleMinerCommand(context.Background(), client, ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_DownloadLogs{DownloadLogs: &pb.DownloadLogsAction{BatchLogUuid: "batch-1"}}}), discardLogger(t))
+
+	got := ack.only(t)
+	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, got.GetCode())
+	assert.False(t, got.GetSucceeded())
+	assert.Contains(t, got.GetErrorMessage(), "finish miner logs upload")
+	assert.NotEmpty(t, fake.artifactUploads())
 }
 
 func TestGetErrorsResultFromSDKRejectsInvalidPluginErrorData(t *testing.T) {
@@ -688,7 +782,7 @@ func TestHandleMinerCommand_GetErrorsReturnsTruncatedPayloadForOversizedPayload(
 	ack := &captureAcker{}
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}}}), discardLogger(t))
 
 	// Assert
@@ -723,7 +817,7 @@ func TestHandleMinerCommand_GetMiningPoolsTrimsUnsupportedPoolSlots(t *testing.T
 	ack := &captureAcker{}
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetMiningPools{GetMiningPools: &pb.GetMiningPoolsAction{}}}), discardLogger(t))
 
 	// Assert
@@ -779,7 +873,7 @@ func TestHandleMinerCommand_GetMiningPoolsRejectsInvalidPluginResult(t *testing.
 			ack := &captureAcker{}
 
 			// Act
-			r.handleMinerCommand(context.Background(), ack, "cmd-1",
+			r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 				withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetMiningPools{GetMiningPools: &pb.GetMiningPoolsAction{}}}), discardLogger(t))
 
 			// Assert
@@ -804,7 +898,7 @@ func TestHandleMinerCommand_DeviceErrorClassifiesToUnimplemented(t *testing.T) {
 	ack := &captureAcker{}
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}}), discardLogger(t))
 
 	// Assert
@@ -860,7 +954,7 @@ func TestHandleMinerCommand_RejectsUndiallableTarget(t *testing.T) {
 			ack := &captureAcker{}
 
 			// Act
-			r.handleMinerCommand(context.Background(), ack, "cmd-1", mc, discardLogger(t))
+			r.handleMinerCommand(context.Background(), nil, ack, "cmd-1", mc, discardLogger(t))
 
 			// Assert: rejected at the control boundary; the driver is never dialed.
 			assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, ack.only(t).GetCode())
@@ -874,7 +968,7 @@ func TestHandleMinerCommand_UnknownDriverAcksAgentIncapable(t *testing.T) {
 	ack := &captureAcker{}
 
 	// Act
-	r.handleMinerCommand(context.Background(), ack, "cmd-1",
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}}), discardLogger(t))
 
 	// Assert

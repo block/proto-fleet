@@ -329,6 +329,7 @@ message MinerCommand {
         GetMiningPoolsAction get_mining_pools = 11;
         GetErrorsAction get_errors = 12;
         UpdateMinerPasswordAction update_miner_password = 13;
+        DownloadLogsAction download_logs = 14;
     }
 }
 
@@ -339,6 +340,10 @@ message BlinkLedAction {}
 message UncurtailAction {}
 message GetMiningPoolsAction {}
 message GetErrorsAction {}
+
+message DownloadLogsAction {
+    string batch_log_uuid = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+}
 
 message NodeEncryptedPayload {
     string algorithm = 1 [

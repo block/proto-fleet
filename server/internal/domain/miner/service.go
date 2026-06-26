@@ -249,6 +249,7 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 	remoteCommandMiner, err := remotenode.New(remotenode.Config{
 		Sender:             s.commandSender,
 		Gate:               s.nodeLimiter,
+		LogArtifacts:       s.filesService,
 		FleetNodeID:        telemetryRoute.FleetNodeID,
 		OrgID:              telemetryRoute.OrgID,
 		SiteID:             telemetryRoute.SiteID.Int64,

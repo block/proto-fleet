@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -166,7 +168,7 @@ func (s *Service) CreateBatchDirIfNotExists(batchLogUUID string) (string, error)
 	return batchDir, nil
 }
 
-func (s *Service) SaveLogs(batchLogUUID string, macAddress string, logLines []string) (string, error) {
+func (s *Service) batchLogFilePath(batchLogUUID string, macAddress string) (string, error) {
 	batchDir, err := s.CreateBatchDirIfNotExists(batchLogUUID)
 	if err != nil {
 		return "", err
@@ -175,11 +177,25 @@ func (s *Service) SaveLogs(batchLogUUID string, macAddress string, logLines []st
 	normalizedMAC := sanitizeMACForFilename(macAddress)
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	filename := fmt.Sprintf("miner-logs-%s-%s.csv", normalizedMAC, timestamp)
-	filePath := filepath.Join(batchDir, filename)
+	return filepath.Join(batchDir, filename), nil
+}
 
+func (s *Service) openBatchLogFile(batchLogUUID string, macAddress string) (string, *os.File, error) {
+	filePath, err := s.batchLogFilePath(batchLogUUID, macAddress)
+	if err != nil {
+		return "", nil, err
+	}
 	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
-		return "", fleeterror.NewInternalErrorf("failed to create log file: %v", err)
+		return "", nil, fleeterror.NewInternalErrorf("failed to create log file: %v", err)
+	}
+	return filePath, file, nil
+}
+
+func (s *Service) SaveLogs(batchLogUUID string, macAddress string, logLines []string) (string, error) {
+	filePath, file, err := s.openBatchLogFile(batchLogUUID, macAddress)
+	if err != nil {
+		return "", err
 	}
 	defer file.Close()
 
@@ -199,6 +215,54 @@ func (s *Service) SaveLogs(batchLogUUID string, macAddress string, logLines []st
 	if err := bufWriter.Flush(); err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to flush log data to file: %v", err)
 	}
+
+	return filePath, nil
+}
+
+func (s *Service) SaveCommandArtifactLog(batchLogUUID string, macAddress string, artifactID string) (string, error) {
+	reader, info, err := s.OpenCommandArtifact(artifactID)
+	if err != nil {
+		return "", err
+	}
+	defer reader.Close()
+
+	filePath, file, err := s.openBatchLogFile(batchLogUUID, macAddress)
+	if err != nil {
+		return "", err
+	}
+	keep := false
+	defer func() {
+		if file != nil {
+			if closeErr := file.Close(); closeErr != nil {
+				slog.Warn("failed to close command artifact log file", "path", filePath, "error", closeErr)
+			}
+		}
+		if !keep {
+			if removeErr := os.Remove(filePath); removeErr != nil && !os.IsNotExist(removeErr) {
+				slog.Warn("failed to remove partial command artifact log file", "path", filePath, "error", removeErr)
+			}
+		}
+	}()
+
+	hasher := sha256.New()
+	written, err := io.CopyBuffer(file, io.TeeReader(reader, hasher), make([]byte, commandArtifactCopyBufferSize))
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to copy command artifact log: %v", err)
+	}
+	if written != info.Size {
+		return "", fleeterror.NewInternalErrorf("corrupt command artifact %s: metadata size %d does not match copied size %d", info.ID, info.Size, written)
+	}
+	if actualSHA := hex.EncodeToString(hasher.Sum(nil)); actualSHA != info.SHA256 {
+		return "", fleeterror.NewInternalErrorf("corrupt command artifact %s: sha256 mismatch", info.ID)
+	}
+	if err := file.Sync(); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to sync command artifact log: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to close command artifact log: %v", err)
+	}
+	file = nil
+	keep = true
 
 	return filePath, nil
 }

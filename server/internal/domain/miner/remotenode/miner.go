@@ -42,12 +42,21 @@ type CommandSender interface {
 	SendCommand(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error)
 }
 
+type ArtifactCommandSender interface {
+	SendCommandWithArtifactResults(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error)
+}
+
+type LogArtifactSaver interface {
+	SaveCommandArtifactLog(batchLogUUID string, macAddress string, artifactID string) (string, error)
+}
+
 // Config carries everything the adapter needs to address a fleet-node-paired miner.
 type Config struct {
-	Sender      CommandSender
-	FleetNodeID int64
-	OrgID       int64
-	SiteID      int64
+	Sender       CommandSender
+	FleetNodeID  int64
+	OrgID        int64
+	SiteID       int64
+	LogArtifacts LogArtifactSaver
 	// Gate, if set, bounds concurrent commands the server has in flight to this
 	// fleet node so a large batch paces rather than oversubscribing the node.
 	Gate Gate
@@ -70,13 +79,14 @@ type Config struct {
 // value (no live connection), so caching the handle is safe; stream liveness is
 // resolved per command by the registry.
 type Miner struct {
-	sender      CommandSender
-	gate        Gate
-	fleetNodeID int64
-	orgID       int64
-	siteID      int64
-	desc        *gatewaypb.MinerConnectionDescriptor
-	connInfo    networking.ConnectionInfo
+	sender       CommandSender
+	gate         Gate
+	logArtifacts LogArtifactSaver
+	fleetNodeID  int64
+	orgID        int64
+	siteID       int64
+	desc         *gatewaypb.MinerConnectionDescriptor
+	connInfo     networking.ConnectionInfo
 }
 
 var _ interfaces.Miner = (*Miner)(nil)
@@ -100,11 +110,12 @@ func New(cfg Config) (*Miner, error) {
 		return nil, fleeterror.NewInternalErrorf("remote-node miner: connection info: %v", err)
 	}
 	return &Miner{
-		sender:      cfg.Sender,
-		gate:        cfg.Gate,
-		fleetNodeID: cfg.FleetNodeID,
-		orgID:       cfg.OrgID,
-		siteID:      cfg.SiteID,
+		sender:       cfg.Sender,
+		gate:         cfg.Gate,
+		logArtifacts: cfg.LogArtifacts,
+		fleetNodeID:  cfg.FleetNodeID,
+		orgID:        cfg.OrgID,
+		siteID:       cfg.SiteID,
 		desc: &gatewaypb.MinerConnectionDescriptor{
 			DeviceIdentifier:   cfg.DeviceIdentifier,
 			DriverName:         cfg.DriverName,
@@ -205,6 +216,34 @@ func (m *Miner) acquireGate(ctx context.Context) (func(), error) {
 }
 
 func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
+	cmd, err := m.controlCommandForMiner(id.GenerateID(), mc)
+	if err != nil {
+		return nil, err
+	}
+	ack, err := m.sender.SendCommand(ctx, m.fleetNodeID, cmd)
+	if err != nil {
+		return nil, mapSendCommandError(err)
+	}
+	return ack, nil
+}
+
+func (m *Miner) sendWithoutGateWithArtifactResults(ctx context.Context, mc *gatewaypb.MinerCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
+	sender, ok := m.sender.(ArtifactCommandSender)
+	if !ok {
+		return nil, nil, fleeterror.NewInternalError("fleet node command sender does not support artifact results")
+	}
+	cmd, err := m.controlCommandForMiner(id.GenerateID(), mc)
+	if err != nil {
+		return nil, nil, err
+	}
+	ack, refs, err := sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, cmd, artifacts)
+	if err != nil {
+		return nil, nil, mapSendCommandError(err)
+	}
+	return ack, refs, nil
+}
+
+func (m *Miner) controlCommandForMiner(commandID string, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlCommand, error) {
 	mc.Target = m.desc
 	if err := protovalidate.Validate(mc); err != nil {
 		return nil, fleeterror.NewInvalidArgumentErrorf("invalid fleet node miner command: %v", err)
@@ -215,19 +254,19 @@ func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("marshal miner command: %v", err)
 	}
-	ack, err := m.sender.SendCommand(ctx, m.fleetNodeID, &gatewaypb.ControlCommand{
-		CommandId: id.GenerateID(),
+	return &gatewaypb.ControlCommand{
+		CommandId: commandID,
 		Payload:   payload,
-	})
-	if err != nil {
-		if errors.Is(err, control.ErrNoActiveStream) {
-			// Retryable, not permanent (Unavailable is not in the queue's permanent-fail
-			// set), so a node mid-reconnect re-attempts rather than dropping the command.
-			return nil, fleeterror.NewUnavailableErrorf("fleet node has no active control stream; retry shortly")
-		}
-		return nil, err
+	}, nil
+}
+
+func mapSendCommandError(err error) error {
+	if errors.Is(err, control.ErrNoActiveStream) {
+		// Retryable, not permanent (Unavailable is not in the queue's permanent-fail
+		// set), so a node mid-reconnect re-attempts rather than dropping the command.
+		return fleeterror.NewUnavailableErrorf("fleet node has no active control stream; retry shortly")
 	}
-	return ack, nil
+	return err
 }
 
 // maxAckReasonBytes mirrors the node's send-side cap so a buggy/hostile node can't
@@ -336,8 +375,38 @@ func dtoNodeEncryptedPayloadToProto(payload *dto.NodeEncryptedPayload) *gatewayp
 	}
 }
 
-func (m *Miner) DownloadLogs(_ context.Context, _ string) error {
-	return errUnsupported("DownloadLogs")
+func (m *Miner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
+	if m.logArtifacts == nil {
+		return fleeterror.NewInternalError("remote-node miner log artifact saver is not configured")
+	}
+	release, err := m.acquireGate(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	ack, refs, err := m.sendWithoutGateWithArtifactResults(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_DownloadLogs{
+		DownloadLogs: &gatewaypb.DownloadLogsAction{BatchLogUuid: batchLogUUID},
+	}}, []control.ArtifactExpectation{{
+		Direction:        control.ArtifactDirectionUpload,
+		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		DeviceIdentifier: m.desc.GetDeviceIdentifier(),
+	}})
+	if err != nil {
+		return err
+	}
+	if err := ackToError(ack); err != nil {
+		return err
+	}
+
+	ref, ok := minerLogsArtifactRef(refs)
+	if !ok {
+		return fleeterror.NewInternalError("fleet node reported log download success without uploaded log artifact")
+	}
+	if _, err := m.logArtifacts.SaveCommandArtifactLog(batchLogUUID, m.desc.GetMacAddress(), ref.GetArtifactId()); err != nil {
+		return fleeterror.NewInternalErrorf("failed to save fleet node miner logs: %v", err)
+	}
+	return nil
 }
 
 func (m *Miner) FirmwareUpdate(_ context.Context, _ sdk.FirmwareFile) error {
@@ -439,6 +508,15 @@ func (m *Miner) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfigure
 
 func errUnsupported(op string) error {
 	return fleeterror.NewUnimplementedErrorf("%s is not yet supported for fleet-node-paired miners", op)
+}
+
+func minerLogsArtifactRef(refs []*gatewaypb.CommandArtifactRef) (*gatewaypb.CommandArtifactRef, bool) {
+	for _, ref := range refs {
+		if ref.GetPurpose() == gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS && ref.GetArtifactId() != "" {
+			return ref, true
+		}
+	}
+	return nil, false
 }
 
 func deviceErrorsFromResult(result *gatewaypb.GetErrorsResult) (models.DeviceErrors, error) {

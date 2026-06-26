@@ -2,6 +2,7 @@ package files
 
 import (
 	"archive/zip"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,6 +76,32 @@ func TestBundleLogs_SingleFile_MovesToTempWithNameSidecar(t *testing.T) {
 	assert.Equal(t, originalName, string(sidecar))
 }
 
+func TestSaveCommandArtifactLog_MaterializesAndBundlesSingleCSV(t *testing.T) {
+	svc := setupService(t)
+	content := "Time,Message\n2026-01-01T00:00:00Z,\"hello\"\n"
+	info, err := svc.SaveCommandArtifact("../../remote-miner-logs.csv", int64(len(content)), checksumOf(content), strings.NewReader(content))
+	require.NoError(t, err)
+
+	filePath, err := svc.SaveCommandArtifactLog("batch-artifact-single", "AA:BB:CC:DD:EE:FF", info.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, getBatchLogsDirPath("batch-artifact-single"), filepath.Dir(filePath))
+	assert.True(t, strings.HasPrefix(filepath.Base(filePath), "miner-logs-aabbccddeeff-"))
+	assert.True(t, strings.HasSuffix(filepath.Base(filePath), ".csv"))
+	data, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, content, string(data))
+
+	bundlePath, err := svc.bundleLogs("batch-artifact-single")
+	require.NoError(t, err)
+	assert.Equal(t, getBatchLogsSingleFilePath("batch-artifact-single"), bundlePath)
+
+	fsFile, err := svc.GetBatchLogBundleFile("batch-artifact-single")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Base(filePath), fsFile.Filename)
+	assert.Equal(t, content, string(fsFile.Data))
+}
+
 // TestBundleLogs_MultipleFiles_CreatesZIPWithNameSidecar verifies that when logs from
 // multiple devices are present they are bundled into a ZIP, and a .name sidecar is
 // written with a human-readable filename matching the miner-logs-{timestamp}.zip pattern.
@@ -124,6 +151,25 @@ func TestBundleLogs_MultipleFiles_ZIPContainsAllFiles(t *testing.T) {
 	}
 	assert.Contains(t, names, filepath.Base(file1))
 	assert.Contains(t, names, filepath.Base(file2))
+}
+
+func TestSaveCommandArtifactLog_BundlesMixedDirectAndRemoteLogsAsZIP(t *testing.T) {
+	svc := setupService(t)
+	directPath, err := svc.SaveLogs("batch-mixed", "aa:bb:cc:dd:ee:01", []string{"direct-line"})
+	require.NoError(t, err)
+	remoteContent := "remote-line\n"
+	info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(remoteContent)), checksumOf(remoteContent), strings.NewReader(remoteContent))
+	require.NoError(t, err)
+	remotePath, err := svc.SaveCommandArtifactLog("batch-mixed", "aa:bb:cc:dd:ee:02", info.ID)
+	require.NoError(t, err)
+
+	bundlePath, err := svc.bundleLogs("batch-mixed")
+	require.NoError(t, err)
+	assert.Equal(t, getBatchLogsZipFilePath("batch-mixed"), bundlePath)
+
+	contents := readZipFileContents(t, bundlePath)
+	assert.Equal(t, "direct-line\n", contents[filepath.Base(directPath)])
+	assert.Equal(t, remoteContent, contents[filepath.Base(remotePath)])
 }
 
 // TestBundleLogs_NoFiles_ReturnsEmpty verifies that bundling a batch with no log files
@@ -205,4 +251,54 @@ func TestBatchLogCleanup_RemovesAllFiles(t *testing.T) {
 	assert.NoFileExists(t, getBatchLogsSingleFilePath("batch-cleanup")+".name")
 	assert.NoFileExists(t, getBatchLogsZipFilePath("batch-cleanup"))
 	assert.NoFileExists(t, getBatchLogsZipFilePath("batch-cleanup")+".name")
+}
+
+func TestSaveCommandArtifactLog_RejectsMissingAndCorruptArtifacts(t *testing.T) {
+	t.Run("missing", func(t *testing.T) {
+		svc := setupService(t)
+
+		_, err := svc.SaveCommandArtifactLog("batch-missing-artifact", "aa:bb:cc:dd:ee:ff", "00000000-0000-0000-0000-000000000000")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "command artifact not found")
+		assert.NoDirExists(t, getBatchLogsDirPath("batch-missing-artifact"))
+	})
+
+	t.Run("corrupt", func(t *testing.T) {
+		svc := setupService(t)
+		content := "aaaa"
+		info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(content)), checksumOf(content), strings.NewReader(content))
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(getCommandArtifactDirPath(info.ID), info.Filename), []byte("bbbb"), 0600))
+
+		filePath, err := svc.SaveCommandArtifactLog("batch-corrupt-artifact", "aa:bb:cc:dd:ee:ff", info.ID)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "sha256 mismatch")
+		assert.Empty(t, filePath)
+		entries, readErr := os.ReadDir(getBatchLogsDirPath("batch-corrupt-artifact"))
+		if !os.IsNotExist(readErr) {
+			require.NoError(t, readErr)
+			assert.Empty(t, entries)
+		}
+	})
+}
+
+func readZipFileContents(t *testing.T, zipPath string) map[string]string {
+	t.Helper()
+	zr, err := zip.OpenReader(zipPath)
+	require.NoError(t, err)
+	defer zr.Close()
+
+	contents := make(map[string]string, len(zr.File))
+	for _, f := range zr.File {
+		reader, err := f.Open()
+		require.NoError(t, err)
+		data, err := io.ReadAll(reader)
+		closeErr := reader.Close()
+		require.NoError(t, err)
+		require.NoError(t, closeErr)
+		contents[f.Name] = string(data)
+	}
+	return contents
 }

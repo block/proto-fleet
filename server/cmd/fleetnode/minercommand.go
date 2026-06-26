@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -22,6 +24,7 @@ import (
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/commandresult"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
+	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
@@ -38,6 +41,8 @@ const (
 	supportedMiningPoolSlots       = 3
 	maxSupportedMiningPoolPriority = supportedMiningPoolSlots - 1
 	maxGetErrorsReports            = 512
+	minerLogsArtifactFilename      = "miner-logs.csv"
+	commandArtifactChunkSize       = 1 << 20
 )
 
 // driverGetter is the plugin-manager seam the executor needs; *plugins.Manager satisfies it.
@@ -64,7 +69,7 @@ func (nodeSecretProvider) Seal(_ sdk.SecretBundle) (*pb.EncryptedCredentials, er
 	return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no credential sealer configured")
 }
 
-func (r *RunCmd) handleMinerCommand(ctx context.Context, stream acker, commandID string, mc *pb.MinerCommand, logger *slog.Logger) {
+func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, stream acker, commandID string, mc *pb.MinerCommand, logger *slog.Logger) {
 	if r.driverGetter == nil || r.minerSecrets == nil {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no plugins loaded", logger)
 		return
@@ -128,11 +133,18 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, stream acker, commandID
 		}
 	}()
 
+	caps, err := commandCapabilities(cmdCtx, driver, mc)
+	if err != nil {
+		code, msg := classifyMinerCommandError("load driver capabilities", err)
+		r.sendAck(stream, commandID, code, msg, logger)
+		return
+	}
+
 	var payload []byte
 	if passwordUpdate != nil {
 		payload, err = passwordUpdate.run(cmdCtx, dev, bundle, r.minerSecrets)
 	} else {
-		payload, err = runMinerAction(cmdCtx, dev, mc)
+		payload, err = runMinerAction(cmdCtx, client, commandID, caps, dev, mc)
 	}
 	if err != nil {
 		code, msg := classifyMinerActionError("execute command", mc, err)
@@ -218,7 +230,15 @@ func validateDialTarget(t *pb.MinerConnectionDescriptor) error {
 	return nil
 }
 
-func runMinerAction(ctx context.Context, dev sdk.Device, mc *pb.MinerCommand) ([]byte, error) {
+func commandCapabilities(ctx context.Context, driver sdk.Driver, mc *pb.MinerCommand) (sdk.Capabilities, error) {
+	if _, ok := mc.GetAction().(*pb.MinerCommand_DownloadLogs); !ok {
+		return nil, nil
+	}
+	_, caps, err := driver.DescribeDriver(ctx)
+	return caps, err
+}
+
+func runMinerAction(ctx context.Context, client gatewayClient, commandID string, caps sdk.Capabilities, dev sdk.Device, mc *pb.MinerCommand) ([]byte, error) {
 	switch a := mc.GetAction().(type) {
 	case *pb.MinerCommand_Reboot:
 		return nil, dev.Reboot(ctx)
@@ -274,9 +294,103 @@ func runMinerAction(ctx context.Context, dev sdk.Device, mc *pb.MinerCommand) ([
 			return nil, err
 		}
 		return getErrorsResultPayload(mc.GetTarget().GetDeviceIdentifier(), deviceErrors)
+	case *pb.MinerCommand_DownloadLogs:
+		logData, moreData, err := dev.DownloadLogs(ctx, nil, a.DownloadLogs.GetBatchLogUuid())
+		if err != nil {
+			return nil, err
+		}
+		if moreData {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_PARTIAL, "miner log download returned partial data; retry after partial log pagination is supported")
+		}
+		payload, err := minerLogsArtifactPayload(logData, caps[sdk.CapabilityLogLevels])
+		if err != nil {
+			return nil, err
+		}
+		if _, err := uploadMinerLogsArtifact(ctx, client, commandID, mc.GetTarget().GetDeviceIdentifier(), payload); err != nil {
+			return nil, err
+		}
+		return nil, nil
 	default:
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unrecognized miner command action")
 	}
+}
+
+func uploadMinerLogsArtifact(ctx context.Context, client gatewayClient, commandID string, deviceIdentifier string, payload []byte) (*pb.CommandArtifactRef, error) {
+	if client == nil {
+		return nil, fmt.Errorf("gateway client unavailable for miner log upload")
+	}
+	sum := sha256.Sum256(payload)
+	sha := hex.EncodeToString(sum[:])
+
+	stream := client.UploadCommandArtifact(ctx)
+	if stream == nil {
+		return nil, fmt.Errorf("gateway client returned nil command artifact upload stream")
+	}
+	if err := stream.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Header{
+		Header: &pb.CommandArtifactUploadHeader{
+			CommandId:        commandID,
+			Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+			Filename:         minerLogsArtifactFilename,
+			SizeBytes:        int64(len(payload)),
+			Sha256:           sha,
+			DeviceIdentifier: deviceIdentifier,
+		},
+	}}); err != nil {
+		return nil, fmt.Errorf("upload miner logs header: %w", err)
+	}
+	for offset := 0; offset < len(payload); offset += commandArtifactChunkSize {
+		end := offset + commandArtifactChunkSize
+		if end > len(payload) {
+			end = len(payload)
+		}
+		if err := stream.Send(&pb.UploadCommandArtifactRequest{Part: &pb.UploadCommandArtifactRequest_Chunk{
+			Chunk: &pb.CommandArtifactChunk{Data: payload[offset:end]},
+		}}); err != nil {
+			return nil, fmt.Errorf("upload miner logs chunk: %w", err)
+		}
+	}
+	resp, err := stream.CloseAndReceive()
+	if err != nil {
+		return nil, fmt.Errorf("finish miner logs upload: %w", err)
+	}
+	if resp == nil || resp.Msg == nil || resp.Msg.GetArtifact() == nil {
+		return nil, fmt.Errorf("miner logs upload returned no artifact")
+	}
+	ref := resp.Msg.GetArtifact()
+	if ref.GetPurpose() != pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS {
+		return nil, fmt.Errorf("miner logs upload returned artifact purpose %s", ref.GetPurpose())
+	}
+	if ref.GetSizeBytes() != int64(len(payload)) {
+		return nil, fmt.Errorf("miner logs upload returned size %d, want %d", ref.GetSizeBytes(), len(payload))
+	}
+	if ref.GetSha256() != sha {
+		return nil, fmt.Errorf("miner logs upload returned sha256 %q, want %q", ref.GetSha256(), sha)
+	}
+	return ref, nil
+}
+
+func minerLogsArtifactPayload(logData string, includeType bool) ([]byte, error) {
+	if int64(len(logData)) > logformat.MaxArtifactBytes {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_PARTIAL, "miner log data exceeds %d byte download limit", logformat.MaxArtifactBytes)
+	}
+	payload := &limitedBuffer{limit: logformat.MaxArtifactBytes}
+	if err := logformat.WriteTextToCSV(payload, logData, includeType); err != nil {
+		return nil, err
+	}
+	return payload.Bytes(), nil
+}
+
+type limitedBuffer struct {
+	bytes.Buffer
+	limit int64
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if int64(b.Len()+len(p)) > b.limit {
+		return 0, cmdErr(pb.AckCode_ACK_CODE_PARTIAL, "miner log artifact exceeds %d byte download limit", b.limit)
+	}
+	n, _ := b.Buffer.Write(p)
+	return n, nil
 }
 
 func decryptUpdateMinerPasswordSecret(privateKey []byte, target *pb.MinerConnectionDescriptor, action *pb.UpdateMinerPasswordAction) (passwordupdate.Secret, error) {
