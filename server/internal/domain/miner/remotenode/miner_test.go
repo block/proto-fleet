@@ -458,6 +458,27 @@ func TestMiner_GetFirmwareUpdateStatus_EmptyPayloadReturnsNilStatus(t *testing.T
 	assert.NotNil(t, decodeSent(t, s).GetGetFirmwareUpdateStatus())
 }
 
+func TestMiner_GetFirmwareUpdateStatus_UsesBoundedCommandContext(t *testing.T) {
+	oldTimeout := remoteFirmwareStatusCommandTimeout
+	remoteFirmwareStatusCommandTimeout = 25 * time.Millisecond
+	t.Cleanup(func() { remoteFirmwareStatusCommandTimeout = oldTimeout })
+	s := &blockingSender{started: make(chan struct{})}
+	m := newTestMiner(t, s)
+
+	startedAt := time.Now()
+	_, err := m.GetFirmwareUpdateStatus(context.Background())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.True(t, fleeterror.IsConnectionError(err), "expected connection error, got %v", err)
+	assert.Less(t, time.Since(startedAt), time.Second)
+	select {
+	case <-s.started:
+	default:
+		t.Fatal("SendCommand was not called")
+	}
+}
+
 func TestMiner_GetErrors_DecodesPayload(t *testing.T) {
 	// Arrange
 	now := time.Now().UTC().Truncate(time.Millisecond)

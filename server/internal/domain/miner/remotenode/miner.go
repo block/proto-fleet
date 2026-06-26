@@ -103,6 +103,10 @@ var _ interfaces.FirmwareUpdateStatusProvider = (*Miner)(nil)
 // such as telemetry error polling that use a long-lived worker context.
 var remoteGetErrorsCommandTimeout = 30 * time.Second
 
+// Keep each firmware install-status poll short so a hung node/plugin can't hold
+// the per-node command gate for the full firmware update worker budget.
+var remoteFirmwareStatusCommandTimeout = 30 * time.Second
+
 const maxErrorColumnStringLen = 255
 
 // New builds a remote-node miner. It returns an error only if the connection
@@ -218,6 +222,23 @@ func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewayp
 	}
 	defer release()
 	return m.sendWithoutGate(ctx, mc)
+}
+
+func (m *Miner) sendWithCommandTimeout(ctx context.Context, timeout time.Duration, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
+	release, err := m.acquireGate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	commandCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ack, err := m.sendWithoutGate(commandCtx, mc)
+	if err != nil && errors.Is(err, context.DeadlineExceeded) {
+		return nil, fleeterror.NewConnectionError(m.desc.GetDeviceIdentifier(), err)
+	}
+	return ack, err
 }
 
 func (m *Miner) acquireGate(ctx context.Context) (func(), error) {
@@ -516,7 +537,7 @@ func (m *Miner) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) e
 }
 
 func (m *Miner) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpdateStatus, error) {
-	ack, err := m.send(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetFirmwareUpdateStatus{
+	ack, err := m.sendWithCommandTimeout(ctx, remoteFirmwareStatusCommandTimeout, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetFirmwareUpdateStatus{
 		GetFirmwareUpdateStatus: &gatewaypb.GetFirmwareUpdateStatusAction{},
 	}})
 	if err != nil {
@@ -563,22 +584,10 @@ func (m *Miner) GetDeviceStatus(_ context.Context) (minermodels.MinerStatus, err
 }
 
 func (m *Miner) GetErrors(ctx context.Context) (models.DeviceErrors, error) {
-	release, err := m.acquireGate(ctx)
-	if err != nil {
-		return models.DeviceErrors{}, err
-	}
-	defer release()
-
-	commandCtx, cancel := context.WithTimeout(ctx, remoteGetErrorsCommandTimeout)
-	defer cancel()
-
-	ack, err := m.sendWithoutGate(commandCtx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{
+	ack, err := m.sendWithCommandTimeout(ctx, remoteGetErrorsCommandTimeout, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{
 		GetErrors: &gatewaypb.GetErrorsAction{},
 	}})
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return models.DeviceErrors{}, fleeterror.NewConnectionError(m.desc.GetDeviceIdentifier(), err)
-		}
 		return models.DeviceErrors{}, err
 	}
 	if err := ackToError(ack); err != nil {
