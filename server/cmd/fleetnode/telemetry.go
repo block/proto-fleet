@@ -260,15 +260,18 @@ type telemetryDeviceCloser interface {
 }
 
 func closeTelemetryDeviceAsync(device telemetryDeviceCloser) bool {
+	// Capture the channel so the worker releases the exact slot it acquired,
+	// even if telemetryDeviceCloseTokens is reassigned later (tests swap it).
+	tokens := telemetryDeviceCloseTokens
 	select {
-	case telemetryDeviceCloseTokens <- struct{}{}:
+	case tokens <- struct{}{}:
 	default:
 		slog.Warn("telemetry device close worker capacity is exhausted; closing synchronously")
 		closeTelemetryDevice(device)
 		return false
 	}
 	go func() {
-		defer func() { <-telemetryDeviceCloseTokens }()
+		defer func() { <-tokens }()
 		closeTelemetryDevice(device)
 	}()
 	return true
