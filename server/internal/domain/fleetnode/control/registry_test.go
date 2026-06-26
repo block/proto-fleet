@@ -1046,7 +1046,7 @@ func TestCommandArtifactUploadSlotsLimitConcurrentStreams(t *testing.T) {
 	defer stream.Unregister()
 
 	var releases []ArtifactTransferRelease
-	for range maxConcurrentCommandArtifactUploadsPerFleetNode {
+	for range MaxConcurrentCommandArtifactUploadsPerFleetNode {
 		release, err := r.AcquireCommandArtifactUpload(fleetNodeID)
 		require.NoError(t, err)
 		releases = append(releases, release)
@@ -1074,7 +1074,7 @@ func TestCommandArtifactUploadSlotSurvivesControlStreamReconnect(t *testing.T) {
 	_ = r.Register(fleetNodeID)
 
 	var releases []ArtifactTransferRelease
-	for range maxConcurrentCommandArtifactUploadsPerFleetNode - 1 {
+	for range MaxConcurrentCommandArtifactUploadsPerFleetNode - 1 {
 		nextRelease, err := r.AcquireCommandArtifactUpload(fleetNodeID)
 		require.NoError(t, err)
 		releases = append(releases, nextRelease)

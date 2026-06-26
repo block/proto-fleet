@@ -51,9 +51,9 @@ const commandEventBuffer = 64
 // one node enqueue without serializing behind the gateway's single drain loop.
 const outgoingBuffer = 64
 
-// maxConcurrentCommandArtifactUploadsPerFleetNode bounds upload streams before
+// MaxConcurrentCommandArtifactUploadsPerFleetNode bounds upload streams before
 // their first message can be matched to a command expectation.
-const maxConcurrentCommandArtifactUploadsPerFleetNode = 2
+const MaxConcurrentCommandArtifactUploadsPerFleetNode = 2
 
 const maxConcurrentCommandArtifactDownloadsPerFleetNode = 2
 

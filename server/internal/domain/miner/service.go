@@ -53,7 +53,8 @@ type Service struct {
 	commandSender remotenode.CommandSender
 	// nodeLimiter paces commands per fleet node so a large batch can't oversubscribe
 	// a node. Shared across all remote-node miners (keyed by fleet_node id).
-	nodeLimiter remotenode.Gate
+	nodeLimiter            remotenode.Gate
+	nodeLogDownloadLimiter remotenode.Gate
 
 	// cache stores miner handles keyed by DeviceIdentifier (string).
 	// Both GetMiner and GetMinerFromDeviceIdentifier read from and write to
@@ -66,6 +67,7 @@ type Service struct {
 func (s *Service) WithCommandSender(sender remotenode.CommandSender) *Service {
 	s.commandSender = sender
 	s.nodeLimiter = remotenode.NewPerNodeLimiter(remotenode.DefaultPerNodeCommandLimit)
+	s.nodeLogDownloadLimiter = remotenode.NewPerNodeLimiter(remotenode.DefaultPerNodeLogDownloadLimit)
 	return s
 }
 
@@ -249,6 +251,7 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 	remoteCommandMiner, err := remotenode.New(remotenode.Config{
 		Sender:             s.commandSender,
 		Gate:               s.nodeLimiter,
+		LogDownloadGate:    s.nodeLogDownloadLimiter,
 		LogArtifacts:       s.filesService,
 		FleetNodeID:        telemetryRoute.FleetNodeID,
 		OrgID:              telemetryRoute.OrgID,

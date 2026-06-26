@@ -61,6 +61,9 @@ type Config struct {
 	// Gate, if set, bounds concurrent commands the server has in flight to this
 	// fleet node so a large batch paces rather than oversubscribing the node.
 	Gate Gate
+	// LogDownloadGate, if set, further bounds concurrent log downloads to this
+	// fleet node so artifact uploads stay within gateway admission capacity.
+	LogDownloadGate Gate
 
 	DeviceIdentifier string
 	DriverName       string
@@ -82,6 +85,7 @@ type Config struct {
 type Miner struct {
 	sender       CommandSender
 	gate         Gate
+	logGate      Gate
 	logArtifacts LogArtifactSaver
 	fleetNodeID  int64
 	orgID        int64
@@ -113,6 +117,7 @@ func New(cfg Config) (*Miner, error) {
 	return &Miner{
 		sender:       cfg.Sender,
 		gate:         cfg.Gate,
+		logGate:      cfg.LogDownloadGate,
 		logArtifacts: cfg.LogArtifacts,
 		fleetNodeID:  cfg.FleetNodeID,
 		orgID:        cfg.OrgID,
@@ -201,15 +206,23 @@ func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewayp
 }
 
 func (m *Miner) acquireGate(ctx context.Context) (func(), error) {
-	if m.gate == nil {
+	return acquireFleetNodeGate(ctx, m.gate, m.fleetNodeID, "fleet node command")
+}
+
+func (m *Miner) acquireLogDownloadGate(ctx context.Context) (func(), error) {
+	return acquireFleetNodeGate(ctx, m.logGate, m.fleetNodeID, "fleet node log download")
+}
+
+func acquireFleetNodeGate(ctx context.Context, gate Gate, fleetNodeID int64, slotName string) (func(), error) {
+	if gate == nil {
 		return func() {}, nil
 	}
 	// Pace per fleet node so a large batch can't oversubscribe the node (-> BUSY);
 	// the DB command queue holds the backlog while this worker waits for a slot.
-	release, err := m.gate.Acquire(ctx, m.fleetNodeID)
+	release, err := gate.Acquire(ctx, fleetNodeID)
 	if err != nil {
 		return nil, fleeterror.NewPlainError(
-			fmt.Sprintf("timed out waiting for a fleet node command slot: %v", err),
+			fmt.Sprintf("timed out waiting for a %s slot: %v", slotName, err),
 			connect.CodeResourceExhausted,
 		)
 	}
@@ -385,6 +398,11 @@ func (m *Miner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 		return err
 	}
 	defer release()
+	releaseLogDownload, err := m.acquireLogDownloadGate(ctx)
+	if err != nil {
+		return err
+	}
+	defer releaseLogDownload()
 
 	ack, refs, err := m.sendWithoutGateWithArtifactResults(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_DownloadLogs{
 		DownloadLogs: &gatewaypb.DownloadLogsAction{BatchLogUuid: batchLogUUID},
@@ -412,6 +430,9 @@ func (m *Miner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 	}
 	if _, err := m.logArtifacts.SaveCommandArtifactLog(batchLogUUID, m.desc.GetMacAddress(), ref.GetArtifactId()); err != nil {
 		return fleeterror.NewInternalErrorf("failed to save fleet node miner logs: %v", err)
+	}
+	if code == gatewaypb.AckCode_ACK_CODE_PARTIAL {
+		return nil
 	}
 	return ackErr
 }

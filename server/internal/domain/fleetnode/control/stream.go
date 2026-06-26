@@ -93,7 +93,7 @@ type ArtifactTransferRelease func()
 // stream's first message is read. The returned release is bound to this lease,
 // not to the fleet node's replaceable ControlStream connection.
 func (r *Registry) AcquireCommandArtifactUpload(fleetNodeID int64) (ArtifactTransferRelease, error) {
-	return r.acquireCommandArtifactSlot(fleetNodeID, r.commandArtifactUploads, maxConcurrentCommandArtifactUploadsPerFleetNode)
+	return r.acquireCommandArtifactSlot(fleetNodeID, r.commandArtifactUploads, MaxConcurrentCommandArtifactUploadsPerFleetNode)
 }
 
 // AcquireCommandArtifactDownload reserves one per-node download slot before the

@@ -115,6 +115,48 @@ func newTestMinerWithGate(t *testing.T, s CommandSender, gate Gate) *Miner {
 	return m
 }
 
+func newTestMinerWithLogDownloadGate(t *testing.T, s CommandSender, gate Gate, logGate Gate, saver LogArtifactSaver) *Miner {
+	t.Helper()
+	m, err := New(Config{
+		Sender: s, Gate: gate, LogDownloadGate: logGate, FleetNodeID: 7, OrgID: 1,
+		LogArtifacts:     saver,
+		DeviceIdentifier: "dev-1", DriverName: "virtual",
+		IPAddress: "10.0.0.5", Port: "4028", URLScheme: "http",
+		SerialNumber: "SN1", MacAddress: "AA:BB:CC:DD:EE:FF",
+	})
+	require.NoError(t, err)
+	return m
+}
+
+type blockingArtifactSender struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingArtifactSender) SendCommand(_ context.Context, _ int64, _ *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+	return nil, fmt.Errorf("unexpected SendCommand")
+}
+
+func (s *blockingArtifactSender) SendCommandWithArtifactResults(ctx context.Context, _ int64, _ *gatewaypb.ControlCommand, _ []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
+	select {
+	case s.started <- struct{}{}:
+	case <-ctx.Done():
+		return nil, nil, fmt.Errorf("record upload start: %w", ctx.Err())
+	}
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return nil, nil, fmt.Errorf("wait for upload release: %w", ctx.Err())
+	}
+	return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}, []*gatewaypb.CommandArtifactRef{{
+		ArtifactId: "artifact-1",
+		Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		Filename:   "logs.csv",
+		SizeBytes:  123,
+		Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+	}}, nil
+}
+
 func decodeSent(t *testing.T, s *fakeSender) *gatewaypb.MinerCommand {
 	t.Helper()
 	require.NotNil(t, s.cmd, "no command was sent")
@@ -889,7 +931,7 @@ func TestMiner_DownloadLogsRequiresUploadedArtifactRef(t *testing.T) {
 	assert.Empty(t, saver.artifactID)
 }
 
-func TestMiner_DownloadLogsMaterializesPartialArtifactBeforeReturningError(t *testing.T) {
+func TestMiner_DownloadLogsTreatsMaterializedPartialArtifactAsTerminal(t *testing.T) {
 	// Arrange
 	s := &fakeSender{
 		ack: &gatewaypb.ControlAck{
@@ -912,11 +954,47 @@ func TestMiner_DownloadLogsMaterializesPartialArtifactBeforeReturningError(t *te
 	err := m.DownloadLogs(context.Background(), "batch-1")
 
 	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "uploaded partial miner log data")
+	require.NoError(t, err)
 	assert.Equal(t, "batch-1", saver.batchLogUUID)
 	assert.Equal(t, "AA:BB:CC:DD:EE:FF", saver.macAddress)
 	assert.Equal(t, "artifact-1", saver.artifactID)
+}
+
+func TestMiner_DownloadLogsUsesLogDownloadGate(t *testing.T) {
+	// Arrange
+	sender := &blockingArtifactSender{
+		started: make(chan struct{}, 2),
+		release: make(chan struct{}),
+	}
+	logGate := NewPerNodeLimiter(1)
+	m1 := newTestMinerWithLogDownloadGate(t, sender, nil, logGate, &fakeLogArtifactSaver{})
+	m2 := newTestMinerWithLogDownloadGate(t, sender, nil, logGate, &fakeLogArtifactSaver{})
+	errCh := make(chan error, 2)
+
+	// Act: first log download enters the artifact-sending path and holds the gate.
+	go func() { errCh <- m1.DownloadLogs(context.Background(), "batch-1") }()
+	select {
+	case <-sender.started:
+	case <-time.After(time.Second):
+		t.Fatal("first log download did not start")
+	}
+	go func() { errCh <- m2.DownloadLogs(context.Background(), "batch-1") }()
+
+	// Assert: second log download waits at the log gate instead of starting another
+	// upload-capable command immediately.
+	select {
+	case <-sender.started:
+		t.Fatal("second log download should wait for the log download gate")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(sender.release)
+	select {
+	case <-sender.started:
+	case <-time.After(time.Second):
+		t.Fatal("second log download should start after the first releases the log gate")
+	}
+	require.NoError(t, <-errCh)
+	require.NoError(t, <-errCh)
 }
 
 func TestMiner_DownloadLogsNoActiveStreamIsRetryable(t *testing.T) {
