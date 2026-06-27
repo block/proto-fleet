@@ -50,6 +50,11 @@ func TestIsRetryableMigrationError(t *testing.T) {
 		// concurrent-migration load comes back within a second or two, so these
 		// retry rather than cascade into a job-wide failure.
 		{
+			name: "admin shutdown terminates in-flight session (57P01)",
+			err:  errors.New("migration failed: FATAL: terminating connection due to administrator command (SQLSTATE 57P01)"),
+			want: true,
+		},
+		{
 			name: "server not yet accepting connections (57P03)",
 			err:  errors.New("failed to connect: FATAL: the database system is not yet accepting connections (SQLSTATE 57P03)"),
 			want: true,

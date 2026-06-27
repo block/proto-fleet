@@ -99,10 +99,15 @@ const (
 // dozens of unrelated failures; retrying once the server is back lets each test
 // survive the blip instead.
 var transientServerErrors = []string{
+	// PostgreSQL class 57 (operator_intervention): the server is shutting
+	// down, crashing, or not yet back up — all expected during a restart.
+	"57P01", // admin_shutdown: "terminating connection due to administrator command"
+	"57P02", // crash_shutdown
 	"57P03", // cannot_connect_now: "the database system is not yet accepting connections"
 	"the database system is starting up",
 	"the database system is shutting down",
 	"the database system is in recovery mode",
+	// Connection torn down mid-statement when the server went away.
 	"bad connection",
 	"connection is already closed",
 	"connection reset by peer",
