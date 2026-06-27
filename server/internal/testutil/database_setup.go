@@ -182,22 +182,37 @@ func isTransientServerError(msg string) bool {
 func waitForServerReady(t *testing.T, adminConfig *db.Config) {
 	t.Helper()
 
-	conn, err := db.ConnectToDatabase(adminConfig)
-	if err != nil {
-		return // best effort; the subsequent admin op surfaces a real failure
-	}
-	defer conn.Close()
-
 	deadline := time.Now().Add(serverReadyTimeout)
 	for {
-		ctx, cancel := context.WithTimeout(t.Context(), serverReadyInterval)
-		_, pingErr := conn.ExecContext(ctx, "SELECT 1")
-		cancel()
-		if pingErr == nil || time.Now().After(deadline) {
+		err := pingAdminDatabase(t.Context(), adminConfig)
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			// Give up waiting and let the caller's admin DDL surface the real
+			// failure, but log why readiness never confirmed to aid diagnosis.
+			t.Logf("database server not ready after %s: %v", serverReadyTimeout, err)
 			return
 		}
 		time.Sleep(serverReadyInterval)
 	}
+}
+
+// pingAdminDatabase opens a fresh admin connection and runs SELECT 1, returning
+// an error while the server is not accepting queries (connect or ping failure).
+func pingAdminDatabase(ctx context.Context, adminConfig *db.Config) error {
+	conn, err := db.ConnectToDatabase(adminConfig)
+	if err != nil {
+		return fmt.Errorf("connect to admin database: %w", err)
+	}
+	defer conn.Close()
+
+	pingCtx, cancel := context.WithTimeout(ctx, serverReadyInterval)
+	defer cancel()
+	if _, err := conn.ExecContext(pingCtx, "SELECT 1"); err != nil {
+		return fmt.Errorf("ping admin database: %w", err)
+	}
+	return nil
 }
 
 // createTestDatabase drops any existing database with the given name and
