@@ -52,7 +52,7 @@ func newServiceDepsNoDB(t *testing.T) (*sql.DB, *encrypt.Service, *files.Service
 	testConfig, err := testutil.GetTestConfig()
 	require.NoError(t, err, "Failed to get test config")
 
-	db, err := sql.Open("pgx", "")
+	db, err := sql.Open("pgx", "postgres://127.0.0.1:1/invalid?sslmode=disable")
 	require.NoError(t, err, "Failed to open unconnected db handle")
 	t.Cleanup(func() { _ = db.Close() })
 
