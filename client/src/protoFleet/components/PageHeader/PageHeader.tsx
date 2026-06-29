@@ -126,6 +126,9 @@ function PageHeader({
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
+  // ListSites is server-gated on org-scoped site:read; without it we skip the
+  // fetch and hide the picker so non-site readers keep a clean header.
+  const canReadSites = useHasPermission("site:read");
 
   // Sites are fetched once on mount and held here so the SitePicker doesn't
   // re-fire ListSites on every route change. `undefined` means "still
@@ -133,7 +136,7 @@ function PageHeader({
   // picker hides itself unless `sitesError` is non-null, in which case it
   // shows the retry affordance).
   const { listSites } = useSites();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
+  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canReadSites ? undefined : []);
   const [sitesError, setSitesError] = useState<string | null>(null);
   // Bumped by the site create / rename / delete flows on pages and modals
   // below this header. Watching it lets the picker pick up a just-created
@@ -157,8 +160,9 @@ function PageHeader({
   }, [listSites]);
 
   useEffect(() => {
+    if (!canReadSites) return;
     return fetchSites();
-  }, [fetchSites, sitesRevision]);
+  }, [canReadSites, fetchSites, sitesRevision]);
 
   const handleCompleteSetup = () => {
     setDismissedSetup(false);
@@ -215,7 +219,9 @@ function PageHeader({
               />
             ) : null}
             <div className="min-w-0 flex-1" data-testid="page-header-selector-area">
-              {isDashboard ? null : <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} />}
+              {isDashboard || !canReadSites ? null : (
+                <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} />
+              )}
             </div>
           </div>
           {!isPhone && headerWidgetEnabled ? (

@@ -285,4 +285,31 @@ describe("PageHeader", () => {
     expect(screen.queryByText("Curtailment pill")).not.toBeInTheDocument();
     expect(mockCurtailmentPill).not.toHaveBeenCalled();
   });
+
+  it("skips the ListSites fetch and hides the SitePicker without site read permission", () => {
+    vi.mocked(useHasPermission).mockImplementation((permission) => permission !== "site:read");
+
+    render(
+      <MemoryRouter>
+        <PageHeader schedulePillData={createSchedulePillData()} />
+      </MemoryRouter>,
+    );
+
+    expect(useHasPermission).toHaveBeenCalledWith("site:read");
+    expect(mockListSites).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("site-picker-trigger")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("site-picker-error")).not.toBeInTheDocument();
+  });
+
+  it("fetches sites when the user has site read permission", () => {
+    vi.mocked(useHasPermission).mockReturnValue(true);
+
+    render(
+      <MemoryRouter>
+        <PageHeader schedulePillData={createSchedulePillData()} />
+      </MemoryRouter>,
+    );
+
+    expect(mockListSites).toHaveBeenCalledTimes(1);
+  });
 });
