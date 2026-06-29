@@ -767,10 +767,10 @@ func TestListMinerStateSnapshots_EmbeddedWebViewAvailable(t *testing.T) {
 
 	var fleetNodeID int64
 	require.NoError(t, conn.QueryRow(`
-		INSERT INTO fleet_node (org_id, name, identity_pubkey, enrollment_status)
-		VALUES (1, $1, $2, 'CONFIRMED')
+		INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, $1, $2, $3, 'CONFIRMED')
 		RETURNING id
-	`, "web-view-node", []byte("web-view-node-key")).Scan(&fleetNodeID))
+	`, "web-view-node", []byte("web-view-node-key"), make([]byte, 32)).Scan(&fleetNodeID))
 
 	identifiers := make([]string, 0, len(fixtures))
 	for i, fixture := range fixtures {

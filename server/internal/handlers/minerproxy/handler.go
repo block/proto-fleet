@@ -34,6 +34,7 @@ import (
 const (
 	proxyClientTimeout    = 30 * time.Second
 	maxProxyBodyBytes     = 64 << 20
+	maxLoginResponseBytes = 64 << 10
 	defaultProtoURLScheme = "http"
 	// Cached tokens are a latency optimization, not a source of truth: a 401
 	// from the miner already forces a fresh login. The TTL caps how long a
@@ -85,6 +86,14 @@ type proxyTarget struct {
 // the proxy forwards unauthenticated rather than attempting a doomed login.
 func (t proxyTarget) hasCredentials() bool {
 	return t.passwordEnc.Valid && t.passwordEnc.String != ""
+}
+
+// cacheKey scopes a cached token to both the device and its resolved endpoint.
+// If a discovery update changes the miner's address, the key changes too, so a
+// token minted for the old endpoint is never replayed to (or credentials
+// re-sent under the assumption of) a different address.
+func (t proxyTarget) cacheKey() string {
+	return t.deviceIdentifier + "\x00" + t.baseURL
 }
 
 func NewHandler(
@@ -170,10 +179,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxyPath := "/api/v1/" + rest
-	requiredPermission := permissionFor(r.Method, proxyPath)
-	if _, err := middleware.RequirePermission(ctx, requiredPermission, authz.ResourceContext{SiteID: target.siteID}); err != nil {
-		writeError(w, httpStatusForError(err), clientMessageForError(err))
-		return
+	for _, permission := range permissionsFor(r.Method, proxyPath) {
+		if _, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{SiteID: target.siteID}); err != nil {
+			writeError(w, httpStatusForError(err), clientMessageForError(err))
+			return
+		}
 	}
 
 	body, err := readProxyBody(w, r)
@@ -191,7 +201,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if resp.StatusCode == http.StatusUnauthorized && target.hasCredentials() {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		h.clearToken(target.deviceIdentifier)
+		h.clearToken(target.cacheKey())
 		resp.Body.Close()
 
 		resp, err = h.forward(ctx, r, target, proxyPath, body, true)
@@ -350,7 +360,7 @@ func (h *Handler) tokenFor(ctx context.Context, target proxyTarget, forceLogin b
 	}
 
 	if !forceLogin {
-		if token, ok := h.lookupToken(target.deviceIdentifier); ok {
+		if token, ok := h.lookupToken(target.cacheKey()); ok {
 			return token, nil
 		}
 	}
@@ -365,31 +375,31 @@ func (h *Handler) tokenFor(ctx context.Context, target proxyTarget, forceLogin b
 		return "", err
 	}
 
-	h.storeToken(target.deviceIdentifier, token)
+	h.storeToken(target.cacheKey(), token)
 	return token, nil
 }
 
-func (h *Handler) lookupToken(deviceIdentifier string) (string, bool) {
+func (h *Handler) lookupToken(key string) (string, bool) {
 	h.tokenMu.Lock()
 	defer h.tokenMu.Unlock()
-	entry, ok := h.tokens[deviceIdentifier]
+	entry, ok := h.tokens[key]
 	if !ok {
 		return "", false
 	}
 	if time.Now().After(entry.expiresAt) {
-		delete(h.tokens, deviceIdentifier)
+		delete(h.tokens, key)
 		return "", false
 	}
 	return entry.token, true
 }
 
-func (h *Handler) storeToken(deviceIdentifier string, token string) {
+func (h *Handler) storeToken(key string, token string) {
 	h.tokenMu.Lock()
 	defer h.tokenMu.Unlock()
-	if _, exists := h.tokens[deviceIdentifier]; !exists && len(h.tokens) >= maxCachedTokens {
+	if _, exists := h.tokens[key]; !exists && len(h.tokens) >= maxCachedTokens {
 		h.evictForRoomLocked()
 	}
-	h.tokens[deviceIdentifier] = cachedToken{token: token, expiresAt: time.Now().Add(tokenCacheTTL)}
+	h.tokens[key] = cachedToken{token: token, expiresAt: time.Now().Add(tokenCacheTTL)}
 }
 
 // evictForRoomLocked drops expired entries first; if the cache is still at
@@ -411,10 +421,10 @@ func (h *Handler) evictForRoomLocked() {
 	}
 }
 
-func (h *Handler) clearToken(deviceIdentifier string) {
+func (h *Handler) clearToken(key string) {
 	h.tokenMu.Lock()
 	defer h.tokenMu.Unlock()
-	delete(h.tokens, deviceIdentifier)
+	delete(h.tokens, key)
 }
 
 func (h *Handler) login(ctx context.Context, baseURL string, password string) (string, error) {
@@ -445,7 +455,10 @@ func (h *Handler) login(ctx context.Context, baseURL string, password string) (s
 	}
 
 	var tokens loginResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
+	// Bound the response: the login endpoint is dialed at a discovery-sourced
+	// address, so a hostile/wrong host must not be able to stream an unbounded
+	// body into the decoder.
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxLoginResponseBytes)).Decode(&tokens); err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to decode miner login response: %v", err)
 	}
 	if tokens.AccessToken == "" {
@@ -471,51 +484,55 @@ func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-func permissionFor(method string, proxyPath string) string {
+// permissionsFor returns every permission a proxied request must hold. Most
+// endpoints need a single permission, but some need more than one — firmware
+// installs can reboot the miner, so they require both firmware-update and
+// reboot, matching the direct Fleet command path (command/handler.go).
+func permissionsFor(method string, proxyPath string) []string {
 	if strings.HasPrefix(proxyPath, "/api/v1/system/logs") {
-		return authz.PermMinerDownloadLogs
+		return []string{authz.PermMinerDownloadLogs}
 	}
 
 	if method == http.MethodGet || method == http.MethodHead {
-		return authz.PermMinerRead
+		return []string{authz.PermMinerRead}
 	}
 
 	switch {
 	case proxyPath == "/api/v1/timeseries":
-		return authz.PermMinerRead
+		return []string{authz.PermMinerRead}
 	case strings.HasPrefix(proxyPath, "/api/v1/pools"):
-		return authz.PermMinerUpdatePools
+		return []string{authz.PermMinerUpdatePools}
 	case proxyPath == "/api/v1/cooling":
-		return authz.PermMinerSetCoolingMode
+		return []string{authz.PermMinerSetCoolingMode}
 	case proxyPath == "/api/v1/mining/target" || proxyPath == "/api/v1/mining/tuning":
-		return authz.PermMinerSetPowerTarget
+		return []string{authz.PermMinerSetPowerTarget}
 	case proxyPath == "/api/v1/mining/start":
-		return authz.PermMinerStartMining
+		return []string{authz.PermMinerStartMining}
 	case proxyPath == "/api/v1/mining/stop":
-		return authz.PermMinerStopMining
+		return []string{authz.PermMinerStopMining}
 	case proxyPath == "/api/v1/system/reboot":
-		return authz.PermMinerReboot
+		return []string{authz.PermMinerReboot}
 	case proxyPath == "/api/v1/system/locate":
-		return authz.PermMinerBlinkLED
+		return []string{authz.PermMinerBlinkLED}
 	case strings.HasPrefix(proxyPath, "/api/v1/system/update"):
-		return authz.PermMinerFirmwareUpdate
+		return []string{authz.PermMinerFirmwareUpdate, authz.PermMinerReboot}
 	case proxyPath == "/api/v1/power-supplies/update":
-		return authz.PermMinerFirmwareUpdate
+		return []string{authz.PermMinerFirmwareUpdate, authz.PermMinerReboot}
 	case strings.HasPrefix(proxyPath, "/api/v1/system/tag"):
-		return authz.PermMinerRename
+		return []string{authz.PermMinerRename}
 	case strings.HasPrefix(proxyPath, "/api/v1/auth/"):
-		return authz.PermMinerUpdatePassword
+		return []string{authz.PermMinerUpdatePassword}
 	case proxyPath == "/api/v1/system/ssh" ||
 		proxyPath == "/api/v1/system/unlock" ||
 		proxyPath == "/api/v1/network" ||
 		proxyPath == "/api/v1/system/telemetry" ||
 		strings.HasPrefix(proxyPath, "/api/v1/pairing/auth-key"):
-		return authz.PermMinerUpdatePassword
+		return []string{authz.PermMinerUpdatePassword}
 	default:
 		// Device settings still need finer-grained Fleet permissions. Until
 		// then, require an elevated miner setting permission for any mutating
 		// ProtoOS endpoint that is not explicitly classified above.
-		return authz.PermMinerUpdatePassword
+		return []string{authz.PermMinerUpdatePassword}
 	}
 }
 

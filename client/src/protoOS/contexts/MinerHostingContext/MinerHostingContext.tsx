@@ -40,6 +40,13 @@ const CreateApi = (baseUrl: string, mode: MinerHostingMode) => {
     baseApiParams: { secure: true },
   });
 
+  // The standalone protoOS app and its E2E suite read the miner client off the
+  // window (e.g. general.spec.ts verifies the system tag via window.api). Only
+  // expose it in direct mode — never leak the fleet-proxied client globally.
+  if (mode === "direct") {
+    (window as unknown as { api: InstanceType<typeof Api>["api"] }).api = instance.api;
+  }
+
   return instance;
 };
 

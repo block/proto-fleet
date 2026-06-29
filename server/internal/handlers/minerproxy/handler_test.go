@@ -4,93 +4,112 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 )
 
-func TestPermissionFor(t *testing.T) {
+func TestPermissionsFor(t *testing.T) {
 	tests := []struct {
 		name      string
 		method    string
 		proxyPath string
-		want      string
+		want      []string
 	}{
 		{
 			name:      "read endpoints require miner read",
 			method:    http.MethodGet,
 			proxyPath: "/api/v1/network",
-			want:      authz.PermMinerRead,
+			want:      []string{authz.PermMinerRead},
 		},
 		{
 			name:      "log downloads require log download permission for get",
 			method:    http.MethodGet,
 			proxyPath: "/api/v1/system/logs",
-			want:      authz.PermMinerDownloadLogs,
+			want:      []string{authz.PermMinerDownloadLogs},
 		},
 		{
 			name:      "log downloads require log download permission for head",
 			method:    http.MethodHead,
 			proxyPath: "/api/v1/system/logs",
-			want:      authz.PermMinerDownloadLogs,
+			want:      []string{authz.PermMinerDownloadLogs},
 		},
 		{
 			name:      "timeseries post is a read-style query",
 			method:    http.MethodPost,
 			proxyPath: "/api/v1/timeseries",
-			want:      authz.PermMinerRead,
+			want:      []string{authz.PermMinerRead},
 		},
 		{
 			name:      "pools writes require pool update",
 			method:    http.MethodPut,
 			proxyPath: "/api/v1/pools/1",
-			want:      authz.PermMinerUpdatePools,
+			want:      []string{authz.PermMinerUpdatePools},
 		},
 		{
 			name:      "power target writes require power target permission",
 			method:    http.MethodPut,
 			proxyPath: "/api/v1/mining/target",
-			want:      authz.PermMinerSetPowerTarget,
+			want:      []string{authz.PermMinerSetPowerTarget},
 		},
 		{
-			name:      "firmware writes require firmware update",
+			name:      "firmware writes require firmware update and reboot",
 			method:    http.MethodPost,
 			proxyPath: "/api/v1/system/update",
-			want:      authz.PermMinerFirmwareUpdate,
+			want:      []string{authz.PermMinerFirmwareUpdate, authz.PermMinerReboot},
 		},
 		{
-			name:      "psu firmware writes require firmware update",
+			name:      "psu firmware writes require firmware update and reboot",
 			method:    http.MethodPost,
 			proxyPath: "/api/v1/power-supplies/update",
-			want:      authz.PermMinerFirmwareUpdate,
+			want:      []string{authz.PermMinerFirmwareUpdate, authz.PermMinerReboot},
 		},
 		{
 			name:      "tag writes require rename",
 			method:    http.MethodPut,
 			proxyPath: "/api/v1/system/tag",
-			want:      authz.PermMinerRename,
+			want:      []string{authz.PermMinerRename},
 		},
 		{
 			name:      "security settings writes require password update",
 			method:    http.MethodPut,
 			proxyPath: "/api/v1/system/ssh",
-			want:      authz.PermMinerUpdatePassword,
+			want:      []string{authz.PermMinerUpdatePassword},
 		},
 		{
 			name:      "unknown mutating endpoints do not fall through to read",
 			method:    http.MethodPost,
 			proxyPath: "/api/v1/new-setting",
-			want:      authz.PermMinerUpdatePassword,
+			want:      []string{authz.PermMinerUpdatePassword},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := permissionFor(tt.method, tt.proxyPath); got != tt.want {
-				t.Fatalf("permissionFor(%q, %q) = %q, want %q", tt.method, tt.proxyPath, got, tt.want)
+			if got := permissionsFor(tt.method, tt.proxyPath); !slices.Equal(got, tt.want) {
+				t.Fatalf("permissionsFor(%q, %q) = %v, want %v", tt.method, tt.proxyPath, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCacheKeyVariesByEndpoint(t *testing.T) {
+	creds := sql.NullString{String: "enc", Valid: true}
+	base := proxyTarget{deviceIdentifier: "device-1", baseURL: "http://10.0.0.42:50051", passwordEnc: creds}
+	moved := proxyTarget{deviceIdentifier: "device-1", baseURL: "http://10.0.0.99:50051", passwordEnc: creds}
+
+	if base.cacheKey() == moved.cacheKey() {
+		t.Fatal("cacheKey must differ when the resolved endpoint changes for the same device")
+	}
+
+	// A token cached for the original endpoint must not be reused after the
+	// address moves, so credentials/tokens never cross endpoints.
+	h := &Handler{tokens: make(map[string]cachedToken)}
+	h.storeToken(base.cacheKey(), "token-for-original")
+	if _, ok := h.lookupToken(moved.cacheKey()); ok {
+		t.Fatal("token cached for the original endpoint leaked to the moved endpoint")
 	}
 }
 
