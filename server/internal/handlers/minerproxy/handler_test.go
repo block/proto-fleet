@@ -3,6 +3,7 @@ package minerproxy
 import (
 	"database/sql"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -136,6 +137,82 @@ func TestStoreTokenStaysBounded(t *testing.T) {
 
 	if len(h.tokens) > maxCachedTokens {
 		t.Fatalf("token cache size = %d, want <= %d", len(h.tokens), maxCachedTokens)
+	}
+}
+
+func TestParseRoutableMinerAddr(t *testing.T) {
+	allowed := []string{"10.0.0.42", "192.168.1.10", "172.16.5.5", "203.0.113.7", "fc00::1", "2001:db8::1"}
+	for _, ip := range allowed {
+		t.Run("allows "+ip, func(t *testing.T) {
+			if _, err := parseRoutableMinerAddr(ip); err != nil {
+				t.Fatalf("parseRoutableMinerAddr(%q) = %v, want nil", ip, err)
+			}
+		})
+	}
+
+	rejected := []string{
+		"127.0.0.1",              // loopback
+		"::1",                    // loopback v6
+		"169.254.169.254",        // link-local / cloud metadata
+		"fe80::1",                // link-local v6
+		"224.0.0.1",              // multicast
+		"0.0.0.0",                // unspecified
+		"::ffff:127.0.0.1",       // IPv4-mapped loopback
+		"::ffff:169.254.169.254", // IPv4-mapped metadata
+		"not-an-ip",              // hostname / non-literal
+		"miner.local",            // hostname (no DNS rebinding)
+	}
+	for _, ip := range rejected {
+		t.Run("rejects "+ip, func(t *testing.T) {
+			if _, err := parseRoutableMinerAddr(ip); err == nil {
+				t.Fatalf("parseRoutableMinerAddr(%q) = nil error, want rejection", ip)
+			}
+		})
+	}
+}
+
+func TestIsRenderingNavigation(t *testing.T) {
+	tests := []struct {
+		dest string
+		want bool
+	}{
+		{dest: "document", want: true},
+		{dest: "iframe", want: true},
+		{dest: "frame", want: true},
+		{dest: "embed", want: true},
+		{dest: "object", want: true},
+		{dest: "empty", want: false},
+		{dest: "", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.dest, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/miners/m1/api/v1/system/info", nil)
+			if tt.dest != "" {
+				r.Header.Set("Sec-Fetch-Dest", tt.dest)
+			}
+			if got := isRenderingNavigation(r); got != tt.want {
+				t.Fatalf("isRenderingNavigation(Sec-Fetch-Dest=%q) = %v, want %v", tt.dest, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetResponseHardeningHeaders(t *testing.T) {
+	h := http.Header{}
+	// A hostile miner trying to relax the policy must not win.
+	h.Set("Content-Security-Policy", "default-src *")
+	h.Set("X-Content-Type-Options", "")
+
+	setResponseHardeningHeaders(h)
+
+	if got := h.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := h.Get("Content-Security-Policy"); got != "default-src 'none'; sandbox" {
+		t.Fatalf("Content-Security-Policy = %q, want sandbox policy", got)
+	}
+	if got := h.Get("X-Frame-Options"); got != "DENY" {
+		t.Fatalf("X-Frame-Options = %q, want DENY", got)
 	}
 }
 

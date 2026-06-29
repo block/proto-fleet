@@ -12,7 +12,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -152,6 +154,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The only legitimate caller is the embedded ProtoOS client via fetch/XHR.
+	// Reject browser navigations and framed loads so miner-controlled bytes are
+	// never rendered as a document under the Fleet origin (defense in depth
+	// alongside the nosniff/sandbox headers set on the response).
+	if isRenderingNavigation(r) {
+		writeError(w, http.StatusForbidden, "miner API is not directly navigable")
+		return
+	}
+
 	target, err := h.resolveTarget(ctx, deviceIdentifier, info.OrganizationID)
 	if err != nil {
 		writeError(w, httpStatusForError(err), clientMessageForError(err))
@@ -192,6 +203,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	copyResponseHeaders(w.Header(), resp.Header)
+	// Set after copying so a miner cannot override them: neutralize any
+	// active content the miner might return on the same-origin Fleet URL.
+	// sandbox + default-src 'none' stops scripts even if the body is HTML, and
+	// nosniff stops MIME-sniffing a benign type into something executable.
+	setResponseHardeningHeaders(w.Header())
 	w.WriteHeader(resp.StatusCode)
 	if r.Method == http.MethodHead {
 		return
@@ -255,9 +271,22 @@ func (h *Handler) resolveTarget(ctx context.Context, deviceIdentifier string, or
 		return proxyTarget{}, fleeterror.NewFailedPreconditionErrorf("miner URL scheme %q cannot be proxied", row.UrlScheme)
 	}
 
-	host := row.IpAddress
+	// The proxy dials this address and POSTs decrypted miner credentials to it,
+	// so the discovery-sourced address must be a routable miner IP — never a
+	// loopback/link-local/metadata/multicast target that would turn fleet-api
+	// into an SSRF primitive or leak credentials to an unexpected host.
+	addr, err := parseRoutableMinerAddr(row.IpAddress)
+	if err != nil {
+		return proxyTarget{}, err
+	}
+
+	host := addr.String()
 	if row.Port != "" && row.Port != "0" {
-		host = net.JoinHostPort(row.IpAddress, row.Port)
+		port, perr := strconv.Atoi(row.Port)
+		if perr != nil || port < 1 || port > 65535 {
+			return proxyTarget{}, fleeterror.NewFailedPreconditionErrorf("miner port %q cannot be proxied", row.Port)
+		}
+		host = net.JoinHostPort(addr.String(), row.Port)
 	}
 
 	base := url.URL{Scheme: scheme, Host: host}
@@ -530,6 +559,44 @@ func shouldSkipResponseHeader(key string) bool {
 	default:
 		return false
 	}
+}
+
+// isRenderingNavigation reports whether the request is a browser navigation or
+// framed/embedded load rather than the embedded client's fetch/XHR (which
+// carries Sec-Fetch-Dest: empty). Requests without the header — non-browser
+// clients — are allowed; the sandbox/nosniff headers cover those.
+func isRenderingNavigation(r *http.Request) bool {
+	switch r.Header.Get("Sec-Fetch-Dest") {
+	case "document", "iframe", "frame", "embed", "object":
+		return true
+	default:
+		return false
+	}
+}
+
+func setResponseHardeningHeaders(h http.Header) {
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	h.Set("X-Frame-Options", "DENY")
+}
+
+// parseRoutableMinerAddr validates a discovered miner address as a literal IP in
+// a range we are willing to dial. Parsing as a literal (not a hostname) rules
+// out DNS rebinding; rejecting loopback, link-local (including the
+// 169.254.169.254 cloud-metadata endpoint), multicast, and the unspecified
+// address blocks a stale or poisoned discovery record from steering fleet-api
+// into an SSRF or leaking decrypted credentials to an unexpected host.
+func parseRoutableMinerAddr(ipAddress string) (netip.Addr, error) {
+	addr, err := netip.ParseAddr(ipAddress)
+	if err != nil {
+		return netip.Addr{}, fleeterror.NewFailedPreconditionErrorf("miner address %q is not a valid IP", ipAddress)
+	}
+	addr = addr.Unmap()
+	if addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() ||
+		addr.IsMulticast() || addr.IsInterfaceLocalMulticast() || addr.IsUnspecified() {
+		return netip.Addr{}, fleeterror.NewFailedPreconditionErrorf("miner address %q is not a routable miner address", ipAddress)
+	}
+	return addr, nil
 }
 
 func httpStatusForError(err error) int {
