@@ -57,6 +57,21 @@ func (mr *MockCollectionStoreMockRecorder) AddDevicesToCollection(ctx, orgID, co
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddDevicesToCollection", reflect.TypeOf((*MockCollectionStore)(nil).AddDevicesToCollection), ctx, orgID, collectionID, deviceIdentifiers)
 }
 
+// AddDevicesToCollectionReturningAdded mocks base method.
+func (m *MockCollectionStore) AddDevicesToCollectionReturningAdded(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddDevicesToCollectionReturningAdded", ctx, orgID, collectionID, deviceIdentifiers)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AddDevicesToCollectionReturningAdded indicates an expected call of AddDevicesToCollectionReturningAdded.
+func (mr *MockCollectionStoreMockRecorder) AddDevicesToCollectionReturningAdded(ctx, orgID, collectionID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddDevicesToCollectionReturningAdded", reflect.TypeOf((*MockCollectionStore)(nil).AddDevicesToCollectionReturningAdded), ctx, orgID, collectionID, deviceIdentifiers)
+}
+
 // CascadeAddedDeviceBuildings mocks base method.
 func (m *MockCollectionStore) CascadeAddedDeviceBuildings(ctx context.Context, orgID, deviceSetID int64, deviceIdentifiers []string) (int64, error) {
 	m.ctrl.T.Helper()
@@ -595,6 +610,21 @@ func (m *MockCollectionStore) RemoveDevicesFromCollection(ctx context.Context, o
 func (mr *MockCollectionStoreMockRecorder) RemoveDevicesFromCollection(ctx, orgID, collectionID, deviceIdentifiers any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveDevicesFromCollection", reflect.TypeOf((*MockCollectionStore)(nil).RemoveDevicesFromCollection), ctx, orgID, collectionID, deviceIdentifiers)
+}
+
+// RemoveDevicesFromCollectionReturningRemoved mocks base method.
+func (m *MockCollectionStore) RemoveDevicesFromCollectionReturningRemoved(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveDevicesFromCollectionReturningRemoved", ctx, orgID, collectionID, deviceIdentifiers)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RemoveDevicesFromCollectionReturningRemoved indicates an expected call of RemoveDevicesFromCollectionReturningRemoved.
+func (mr *MockCollectionStoreMockRecorder) RemoveDevicesFromCollectionReturningRemoved(ctx, orgID, collectionID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveDevicesFromCollectionReturningRemoved", reflect.TypeOf((*MockCollectionStore)(nil).RemoveDevicesFromCollectionReturningRemoved), ctx, orgID, collectionID, deviceIdentifiers)
 }
 
 // SetRackSlotPosition mocks base method.

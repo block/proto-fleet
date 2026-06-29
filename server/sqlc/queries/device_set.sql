@@ -326,7 +326,11 @@ SELECT EXISTS(
 SELECT type FROM device_set
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL;
 
--- name: AddDevicesToDeviceSet :execrows
+-- name: AddDevicesToDeviceSet :many
+-- RETURNING yields one row per device whose membership was actually inserted
+-- (ON CONFLICT DO NOTHING skips already-members), so callers can both count
+-- the change (len of result) and resolve the changed set for activity site
+-- scope (#538). Equivalent affected-row count to the prior :execrows shape.
 INSERT INTO device_set_membership (org_id, device_set_id, device_set_type, device_id, device_identifier)
 SELECT $1, $2, ds.type, d.id, d.device_identifier
 FROM device d
@@ -336,7 +340,8 @@ WHERE d.device_identifier = ANY(@device_identifiers::text[])
   AND d.deleted_at IS NULL
   AND ds.id = $2
   AND ds.deleted_at IS NULL
-ON CONFLICT (device_set_id, device_id) DO NOTHING;
+ON CONFLICT (device_set_id, device_id) DO NOTHING
+RETURNING device_identifier;
 
 -- name: GetAddedDeviceSiteConflicts :many
 -- Returns prior + target site_id for devices being added to a rack
@@ -469,11 +474,16 @@ WHERE org_id = $1
   AND device_set_type = 'rack'
   AND device_set_id != @target_rack_id::bigint;
 
--- name: RemoveDevicesFromDeviceSet :execrows
+-- name: RemoveDevicesFromDeviceSet :many
+-- RETURNING yields one row per membership actually deleted (identifiers that
+-- were not members match nothing), so callers can count the change and resolve
+-- the changed set for activity site scope (#538). Equivalent affected-row
+-- count to the prior :execrows shape.
 DELETE FROM device_set_membership
 WHERE device_set_id = $1
   AND org_id = $2
-  AND device_identifier = ANY(@device_identifiers::text[]);
+  AND device_identifier = ANY(@device_identifiers::text[])
+RETURNING device_identifier;
 
 -- name: ListDeviceSetMembersPaginated :many
 SELECT dsm.id, dsm.device_identifier, dsm.created_at,

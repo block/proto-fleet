@@ -1895,7 +1895,7 @@ func TestService_AddDevicesToGroup_HappyPath(t *testing.T) {
 	collectionID := int64(43)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
 		Return(&pb.DeviceCollection{Id: collectionID, Label: "G1", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
-	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
+	mockStore.EXPECT().AddDevicesToCollectionReturningAdded(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(deviceIDs, nil)
 
 	resp, err := svc.AddDevicesToGroup(ctx, AddDevicesToGroupParams{
 		TargetGroupID: collectionID,
@@ -1950,7 +1950,7 @@ func TestService_RemoveDevicesFromGroup_HappyPath(t *testing.T) {
 	collectionID := int64(45)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
 		Return(&pb.DeviceCollection{Id: collectionID, Label: "G2", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
-	mockStore.EXPECT().RemoveDevicesFromCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
+	mockStore.EXPECT().RemoveDevicesFromCollectionReturningRemoved(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(deviceIDs, nil)
 
 	resp, err := svc.RemoveDevicesFromGroup(ctx, RemoveDevicesFromGroupParams{
 		TargetGroupID: collectionID,
@@ -2006,7 +2006,7 @@ func TestService_AddDevicesToGroup_StampsSingleSite(t *testing.T) {
 	siteA := int64(7)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
 		Return(&pb.DeviceCollection{Id: collectionID, Label: "G1", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
-	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(2), nil)
+	mockStore.EXPECT().AddDevicesToCollectionReturningAdded(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(deviceIDs, nil)
 	mockSiteStore.EXPECT().GetDistinctDeviceSiteIDs(gomock.Any(), testOrgID, deviceIDs).
 		Return([]*int64{&siteA}, nil)
 
@@ -2045,7 +2045,7 @@ func TestService_AddDevicesToGroup_MarksMultiSite(t *testing.T) {
 	siteB := int64(8)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
 		Return(&pb.DeviceCollection{Id: collectionID, Label: "G2", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
-	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(2), nil)
+	mockStore.EXPECT().AddDevicesToCollectionReturningAdded(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(deviceIDs, nil)
 	mockSiteStore.EXPECT().GetDistinctDeviceSiteIDs(gomock.Any(), testOrgID, deviceIDs).
 		Return([]*int64{&siteA, &siteB}, nil)
 
@@ -2067,6 +2067,49 @@ func TestService_AddDevicesToGroup_MarksMultiSite(t *testing.T) {
 	assert.ElementsMatch(t, []int64{siteA, siteB}, event.MemberSiteIDs,
 		"cross-site group add records membership for each touched site")
 	assert.False(t, event.TouchesUnassigned)
+}
+
+// TestService_AddDevicesToGroup_ScopesToChangedMembersOnly pins the Codex P2
+// follow-up: when the request includes a no-op identifier in another site
+// (already a member), the activity scope is resolved from the devices whose
+// membership actually changed, not the full requested set — so the event does
+// NOT get pulled into the no-op device's site (#538).
+func TestService_AddDevicesToGroup_ScopesToChangedMembersOnly(t *testing.T) {
+	requested := []string{"device-A-new", "device-B-existing"}
+	changed := []string{"device-A-new"} // device-B-existing was already a member (ON CONFLICT DO NOTHING)
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return requested, nil
+	}
+	svc, mockStore, mockSiteStore, captured := newTestServiceWithSitesRecordingActivity(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(52)
+	siteA := int64(7)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "G3", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
+	mockStore.EXPECT().AddDevicesToCollectionReturningAdded(gomock.Any(), testOrgID, collectionID, requested).
+		Return(changed, nil)
+	// Scope must be resolved from the CHANGED set, not the requested set: the
+	// already-member site-B device must not appear here.
+	mockSiteStore.EXPECT().GetDistinctDeviceSiteIDs(gomock.Any(), testOrgID, changed).
+		Return([]*int64{&siteA}, nil)
+
+	resp, err := svc.AddDevicesToGroup(ctx, AddDevicesToGroupParams{
+		TargetGroupID: collectionID,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: requested},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), resp.AddedCount, "count reflects only the newly-added device")
+
+	require.Len(t, *captured, 1)
+	event := (*captured)[0]
+	require.NotNil(t, event.SiteID, "scope follows the one changed device's site")
+	assert.Equal(t, siteA, *event.SiteID)
+	assert.False(t, event.MultiSite, "the no-op site-B device must not make this multi-site")
 }
 
 // TestService_AssignDevicesToRack_atomicReassign covers the issue

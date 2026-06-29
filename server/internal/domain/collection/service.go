@@ -832,7 +832,7 @@ func (s *Service) AddDevicesToGroup(ctx context.Context, params AddDevicesToGrou
 	}
 
 	type txOut struct {
-		added int64
+		added []string
 		label string
 	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
@@ -844,12 +844,12 @@ func (s *Service) AddDevicesToGroup(ctx context.Context, params AddDevicesToGrou
 			return nil, fleeterror.NewInvalidArgumentErrorf("target_group_id %d is not a group", params.TargetGroupID)
 		}
 
-		addedCount, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, params.TargetGroupID, deviceIdentifiers)
+		added, err := s.collectionStore.AddDevicesToCollectionReturningAdded(ctx, info.OrganizationID, params.TargetGroupID, deviceIdentifiers)
 		if err != nil {
 			return nil, err
 		}
 
-		return &txOut{added: addedCount, label: coll.Label}, nil
+		return &txOut{added: added, label: coll.Label}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -859,7 +859,7 @@ func (s *Service) AddDevicesToGroup(ctx context.Context, params AddDevicesToGrou
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
-	addedCountInt := int(out.added)
+	addedCountInt := len(out.added)
 	scopeType := collectionScopeType(pb.CollectionType_COLLECTION_TYPE_GROUP)
 	addEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
@@ -872,10 +872,13 @@ func (s *Service) AddDevicesToGroup(ctx context.Context, params AddDevicesToGrou
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
 	}
-	addEvent.ApplySiteScope(s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, deviceIdentifiers))
+	// Scope to the devices whose membership actually changed (not the full
+	// requested set): a no-op identifier in another site must not pull the
+	// event into that site's feed (#538).
+	addEvent.ApplySiteScope(s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, out.added))
 	s.logActivity(ctx, addEvent)
 
-	return &AddDevicesToGroupResult{AddedCount: out.added}, nil
+	return &AddDevicesToGroupResult{AddedCount: int64(len(out.added))}, nil
 }
 
 // RemoveDevicesFromGroupParams is the domain-layer input shape for
@@ -906,7 +909,7 @@ func (s *Service) RemoveDevicesFromGroup(ctx context.Context, params RemoveDevic
 	}
 
 	type txOut struct {
-		removed int64
+		removed []string
 		label   string
 	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
@@ -918,12 +921,12 @@ func (s *Service) RemoveDevicesFromGroup(ctx context.Context, params RemoveDevic
 			return nil, fleeterror.NewInvalidArgumentErrorf("target_group_id %d is not a group", params.TargetGroupID)
 		}
 
-		removedCount, err := s.collectionStore.RemoveDevicesFromCollection(ctx, info.OrganizationID, params.TargetGroupID, deviceIdentifiers)
+		removed, err := s.collectionStore.RemoveDevicesFromCollectionReturningRemoved(ctx, info.OrganizationID, params.TargetGroupID, deviceIdentifiers)
 		if err != nil {
 			return nil, err
 		}
 
-		return &txOut{removed: removedCount, label: coll.Label}, nil
+		return &txOut{removed: removed, label: coll.Label}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -933,7 +936,7 @@ func (s *Service) RemoveDevicesFromGroup(ctx context.Context, params RemoveDevic
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
-	removedCountInt := int(out.removed)
+	removedCountInt := len(out.removed)
 	scopeType := collectionScopeType(pb.CollectionType_COLLECTION_TYPE_GROUP)
 	removeEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
@@ -946,13 +949,12 @@ func (s *Service) RemoveDevicesFromGroup(ctx context.Context, params RemoveDevic
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
 	}
-	// Resolve scope from the requested identifiers (not current membership):
-	// removal already happened, but the devices' own site_id is unchanged by
-	// group membership, so the touched set still reflects the right scope.
-	removeEvent.ApplySiteScope(s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, deviceIdentifiers))
+	// Scope to the devices whose membership actually changed: identifiers that
+	// were not members must not pull the event into their sites' feeds (#538).
+	removeEvent.ApplySiteScope(s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, out.removed))
 	s.logActivity(ctx, removeEvent)
 
-	return &RemoveDevicesFromGroupResult{RemovedCount: out.removed}, nil
+	return &RemoveDevicesFromGroupResult{RemovedCount: int64(len(out.removed))}, nil
 }
 
 // uniqueIdentifiers returns the unique entries of ids, preserving no

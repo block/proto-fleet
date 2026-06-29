@@ -601,15 +601,28 @@ func (s *SQLCollectionStore) GetCollectionTypes(ctx context.Context, orgID int64
 }
 
 func (s *SQLCollectionStore) AddDevicesToCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error) {
-	count, err := s.GetQueries(ctx).AddDevicesToDeviceSet(ctx, sqlc.AddDevicesToDeviceSetParams{
+	added, err := s.AddDevicesToCollectionReturningAdded(ctx, orgID, collectionID, deviceIdentifiers)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(added)), nil
+}
+
+// AddDevicesToCollectionReturningAdded adds the devices and returns the
+// identifiers whose membership was newly inserted (ON CONFLICT DO NOTHING
+// skips already-members). Callers that only need the count use
+// AddDevicesToCollection; the activity layer uses this to scope the event to
+// the devices that actually changed (#538).
+func (s *SQLCollectionStore) AddDevicesToCollectionReturningAdded(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) ([]string, error) {
+	added, err := s.GetQueries(ctx).AddDevicesToDeviceSet(ctx, sqlc.AddDevicesToDeviceSetParams{
 		OrgID:             orgID,
 		DeviceSetID:       collectionID,
 		DeviceIdentifiers: deviceIdentifiers,
 	})
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to add devices to collection: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to add devices to collection: %v", err)
 	}
-	return count, nil
+	return added, nil
 }
 
 func (s *SQLCollectionStore) RemoveAllDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64) (int64, error) {
@@ -624,15 +637,28 @@ func (s *SQLCollectionStore) RemoveAllDevicesFromCollection(ctx context.Context,
 }
 
 func (s *SQLCollectionStore) RemoveDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error) {
-	count, err := s.GetQueries(ctx).RemoveDevicesFromDeviceSet(ctx, sqlc.RemoveDevicesFromDeviceSetParams{
+	removed, err := s.RemoveDevicesFromCollectionReturningRemoved(ctx, orgID, collectionID, deviceIdentifiers)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(removed)), nil
+}
+
+// RemoveDevicesFromCollectionReturningRemoved removes the devices and returns
+// the identifiers whose membership was actually deleted (identifiers that were
+// not members match nothing). Callers that only need the count use
+// RemoveDevicesFromCollection; the activity layer uses this to scope the event
+// to the devices that actually changed (#538).
+func (s *SQLCollectionStore) RemoveDevicesFromCollectionReturningRemoved(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) ([]string, error) {
+	removed, err := s.GetQueries(ctx).RemoveDevicesFromDeviceSet(ctx, sqlc.RemoveDevicesFromDeviceSetParams{
 		DeviceSetID:       collectionID,
 		OrgID:             orgID,
 		DeviceIdentifiers: deviceIdentifiers,
 	})
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to remove devices from collection: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to remove devices from collection: %v", err)
 	}
-	return count, nil
+	return removed, nil
 }
 
 func (s *SQLCollectionStore) RemoveDevicesFromAnyRack(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) (int64, error) {
