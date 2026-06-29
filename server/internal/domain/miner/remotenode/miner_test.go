@@ -307,6 +307,29 @@ func TestMiner_UpdateMinerPasswordWithCredentials_DecodesEncryptedCredentials(t 
 	assert.Equal(t, []byte("node-pass"), creds.GetPassword())
 }
 
+func TestMiner_GetCoolingMode_DecodesPayload(t *testing.T) {
+	// Arrange
+	payload, err := proto.Marshal(&gatewaypb.GetCoolingModeResult{
+		Mode: commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED,
+	})
+	require.NoError(t, err)
+	s := &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}}
+	m := newTestMiner(t, s)
+
+	// Act
+	mode, err := m.GetCoolingMode(context.Background())
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED, mode)
+	mc := decodeSent(t, s)
+	assert.NotNil(t, mc.GetGetCoolingMode())
+}
+
 func testEncryptedPasswordUpdatePayload() *dto.NodeEncryptedPayload {
 	return &dto.NodeEncryptedPayload{
 		Algorithm:       passwordupdate.Algorithm,

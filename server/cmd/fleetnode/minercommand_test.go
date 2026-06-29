@@ -274,6 +274,29 @@ func TestHandleMinerCommand_ConvertsCoolingMode(t *testing.T) {
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, ack.only(t).GetCode())
 }
 
+func TestHandleMinerCommand_GetsCoolingMode(t *testing.T) {
+	// Arrange: the SDK cooling enum must map back to the shared proto value.
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().GetCoolingMode(gomock.Any()).Return(sdk.CoolingModeImmersionCooled, nil)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	drv := mocks.NewMockDriver(ctrl)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+
+	// Act
+	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}}}), discardLogger(t))
+
+	// Assert
+	got := ack.only(t)
+	require.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+	var result pb.GetCoolingModeResult
+	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
+	assert.Equal(t, commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED, result.GetMode())
+}
+
 func TestHandleMinerCommand_UpdatesMiningPools(t *testing.T) {
 	// Arrange
 	ctrl := gomock.NewController(t)
@@ -1335,6 +1358,7 @@ func TestRunMinerActionEnumConverters(t *testing.T) {
 		require.NoError(t, perfErr)
 		require.NoError(t, lvlErr)
 		assert.Equal(t, sdk.CoolingModeImmersionCooled, cool)
+		assert.Equal(t, commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED, toProtoCoolingMode(sdk.CoolingModeImmersionCooled))
 		assert.Equal(t, sdk.PerformanceModeEfficiency, perf)
 		assert.Equal(t, sdk.CurtailLevelFull, lvl)
 	})

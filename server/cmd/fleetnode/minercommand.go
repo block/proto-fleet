@@ -305,6 +305,12 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 			return nil, err
 		}
 		return nil, dev.SetCoolingMode(ctx, mode)
+	case *pb.MinerCommand_GetCoolingMode:
+		mode, err := dev.GetCoolingMode(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return getCoolingModeResultPayload(toProtoCoolingMode(mode))
 	case *pb.MinerCommand_SetPowerTarget:
 		mode, err := toSDKPerformanceMode(a.SetPowerTarget.GetPerformanceMode())
 		if err != nil {
@@ -754,6 +760,18 @@ func validateGetMiningPoolsResult(result *pb.GetMiningPoolsResult) error {
 	return nil
 }
 
+func getCoolingModeResultPayload(mode commonpb.CoolingMode) ([]byte, error) {
+	result := &pb.GetCoolingModeResult{Mode: mode}
+	if err := protovalidate.Validate(result); err != nil {
+		return nil, fmt.Errorf("invalid get cooling mode result: %w", err)
+	}
+	payload, err := proto.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal get cooling mode result: %w", err)
+	}
+	return payload, nil
+}
+
 func getFirmwareUpdateStatusResultPayload(ctx context.Context, dev sdk.Device) ([]byte, error) {
 	provider, ok := dev.(sdk.FirmwareUpdateStatusProvider)
 	if !ok {
@@ -949,6 +967,21 @@ func toSDKCoolingMode(m commonpb.CoolingMode) (sdk.CoolingMode, error) {
 		return sdk.CoolingModeManual, nil
 	}
 	return sdk.CoolingModeUnspecified, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unsupported cooling mode: %s", m)
+}
+
+func toProtoCoolingMode(m sdk.CoolingMode) commonpb.CoolingMode {
+	switch m {
+	case sdk.CoolingModeAirCooled:
+		return commonpb.CoolingMode_COOLING_MODE_AIR_COOLED
+	case sdk.CoolingModeImmersionCooled:
+		return commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED
+	case sdk.CoolingModeManual:
+		return commonpb.CoolingMode_COOLING_MODE_MANUAL
+	case sdk.CoolingModeUnspecified:
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED
+	default:
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED
+	}
 }
 
 func toSDKPerformanceMode(m minercommandpb.PerformanceMode) (sdk.PerformanceMode, error) {

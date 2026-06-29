@@ -613,8 +613,25 @@ func (m *Miner) GetErrors(ctx context.Context) (models.DeviceErrors, error) {
 	return deviceErrors, nil
 }
 
-func (m *Miner) GetCoolingMode(_ context.Context) (commonpb.CoolingMode, error) {
-	return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, errUnsupported("GetCoolingMode")
+func (m *Miner) GetCoolingMode(ctx context.Context) (commonpb.CoolingMode, error) {
+	ack, err := m.send(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetCoolingMode{
+		GetCoolingMode: &gatewaypb.GetCoolingModeAction{},
+	}})
+	if err != nil {
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, err
+	}
+	if err := ackToError(ack); err != nil {
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, err
+	}
+
+	var result gatewaypb.GetCoolingModeResult
+	if err := proto.Unmarshal(ack.GetPayload(), &result); err != nil {
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, fleeterror.NewInternalErrorf("unmarshal get cooling mode result: %v", err)
+	}
+	if err := protovalidate.Validate(&result); err != nil {
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, fleeterror.NewInternalErrorf("invalid get cooling mode result: %v", err)
+	}
+	return result.GetMode(), nil
 }
 
 func (m *Miner) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfiguredPool, error) {
