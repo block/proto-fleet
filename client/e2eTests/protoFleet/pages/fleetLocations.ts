@@ -33,7 +33,7 @@ export class FleetLocationsPage extends BasePage {
     await this.clickAddSiteButton();
     await this.page.getByTestId("site-settings-name-input").fill(name);
     await this.page.getByTestId("site-settings-modal-continue").click();
-    await this.waitForPageOverlayToClose("site-settings-modal");
+    await this.waitForModalToClose("site-settings-modal");
 
     const saveSiteButton = this.page.locator('[data-testid="manage-site-modal-save"]:visible');
     await expect(saveSiteButton).toBeVisible();
