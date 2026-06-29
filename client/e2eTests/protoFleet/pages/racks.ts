@@ -504,7 +504,7 @@ export class RacksPage extends BasePage {
     const row = this.getRackListRow(label);
     await expect(row).toBeVisible();
 
-    const trigger = row.locator('button[data-testid$="-actions-trigger"]').first();
+    const trigger = row.getByRole("button", { name: `Actions for ${label}`, exact: true });
     await expect(trigger).toBeVisible();
 
     const testId = await trigger.getAttribute("data-testid");
@@ -688,12 +688,16 @@ export class RacksPage extends BasePage {
   private async openRackActionsFromList(label: string) {
     const row = this.getRackListRow(label);
     await expect(row).toBeVisible();
-    await row.locator('button[data-testid$="-actions-trigger"]').first().click();
+    await row.getByRole("button", { name: `Actions for ${label}`, exact: true }).click();
   }
 
   private async selectParentPickerTarget(label: string) {
     const modal = this.page.getByTestId("modal");
+    await expect(modal).toBeVisible();
     await modal.getByText(label, { exact: true }).click();
-    await modal.getByRole("button", { name: "Save", exact: true }).click();
+    const saveButton = modal.getByRole("button", { name: "Save", exact: true });
+    await expect(saveButton).toBeVisible();
+    await saveButton.click();
+    await expect(modal).toHaveCount(0);
   }
 }

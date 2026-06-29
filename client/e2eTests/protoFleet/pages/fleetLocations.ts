@@ -27,7 +27,9 @@ export class FleetLocationsPage extends BasePage {
     await this.page.getByTestId("site-settings-modal-continue").click();
     await this.waitForModalToClose("site-settings-modal");
 
-    const saveSiteButton = this.page.locator('[data-testid="manage-site-modal-save"]:visible');
+    const saveSiteButton = this.page.getByTestId(
+      this.isMobile ? "manage-site-modal-save-mobile" : "manage-site-modal-save",
+    );
     await expect(saveSiteButton).toBeVisible();
     await saveSiteButton.click();
     await this.waitForModalToClose("full-screen-two-pane-modal");
@@ -238,43 +240,42 @@ export class FleetLocationsPage extends BasePage {
   }
 
   private async clickManageSiteDelete() {
-    const manageSiteDeleteButton = this.page.locator('[data-testid="manage-site-modal-delete"]:visible');
-    if (await manageSiteDeleteButton.isVisible().catch(() => false)) {
-      await manageSiteDeleteButton.click();
+    if (!this.isMobile) {
+      await this.page.getByTestId("manage-site-modal-delete").click();
       return;
     }
 
     const overflowMenu = await this.openFullScreenOverflowMenu();
-    await overflowMenu.getByText("Delete site", { exact: true }).click();
+    await overflowMenu.getByTestId("manage-site-modal-delete-overflow-item").click();
   }
 
   private async clickManageBuildingDelete() {
-    const deleteButton = this.page.locator('[data-testid="manage-building-delete"]:visible');
-    if (await deleteButton.isVisible().catch(() => false)) {
-      await deleteButton.click();
+    if (!this.isMobile) {
+      await this.page.getByTestId("manage-building-delete").click();
       return;
     }
 
     const overflowMenu = await this.openFullScreenOverflowMenu();
-    await overflowMenu.getByText("Delete building", { exact: true }).click();
+    await overflowMenu.getByTestId("manage-building-delete-overflow-item").click();
   }
 
   private async clickManageBuildingEditDetails(scope = this.page.getByTestId("full-screen-two-pane-modal")) {
-    const editDetailsButton = scope.locator('button[data-testid="manage-building-edit-details"]:visible');
-    if (await editDetailsButton.isVisible().catch(() => false)) {
-      await editDetailsButton.click();
+    if (!this.isMobile) {
+      await scope.getByTestId("manage-building-edit-details").click();
       return;
     }
 
     const overflowMenu = await this.openFullScreenOverflowMenu();
-    await overflowMenu.getByText("Building settings", { exact: true }).click();
+    await overflowMenu.getByTestId("manage-building-edit-details-overflow-item").click();
   }
 
   private async openFullScreenOverflowMenu() {
     const overflowTrigger = this.page.getByTestId("full-screen-two-pane-modal").getByTestId("overflow-menu-trigger");
     await expect(overflowTrigger).toBeVisible();
     await overflowTrigger.click();
-    return this.page.locator("div.fixed.inset-0.z-60");
+    const overflowMenu = this.page.getByTestId("full-screen-overflow-sheet");
+    await expect(overflowMenu).toBeVisible();
+    return overflowMenu;
   }
 
   private async closeFullScreenModalIfVisible() {
@@ -294,7 +295,7 @@ export class FleetLocationsPage extends BasePage {
   private async openRowActions(name: string) {
     const row = this.getListRowByName(name);
     await expect(row).toBeVisible();
-    await row.locator('button[data-testid$="-actions-trigger"]').first().click();
+    await row.getByRole("button", { name: `Actions for ${name}`, exact: true }).click();
   }
 
   private async clickRowAction(label: string) {
@@ -313,14 +314,14 @@ export class FleetLocationsPage extends BasePage {
     testId: "manage-building-save",
     scope = this.page.getByTestId("full-screen-two-pane-modal"),
   ) {
-    await scope.locator(`button[data-testid="${testId}"]:visible`).click();
+    await scope.getByTestId(this.isMobile ? `${testId}-mobile` : testId).click();
   }
 
   private async getScopeIdFromRowName(name: string, scope: Scope): Promise<bigint> {
     const row = this.getListRowByName(name);
     await expect(row).toBeVisible();
 
-    const trigger = row.locator('button[data-testid$="-actions-trigger"]').first();
+    const trigger = row.getByRole("button", { name: `Actions for ${name}`, exact: true });
     await expect(trigger).toBeVisible();
 
     const testId = await trigger.getAttribute("data-testid");

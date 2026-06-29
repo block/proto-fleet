@@ -335,9 +335,9 @@ export async function validateRackAndMinerPlacementAcrossTabs({
     await minersPage.waitForMinersListToLoad();
 
     for (const ipAddress of selectedMinerIps) {
-      test.expect(await minersPage.getMinerColumnText(ipAddress, "site")).toBe(siteName);
-      test.expect(await minersPage.getMinerColumnText(ipAddress, "building")).toBe(expectedBuildingName);
-      test.expect(await minersPage.getMinerColumnText(ipAddress, "rack")).toBe(rackLabel);
+      await test.expect.poll(() => minersPage.getMinerColumnText(ipAddress, "site")).toBe(siteName);
+      await test.expect.poll(() => minersPage.getMinerColumnText(ipAddress, "building")).toBe(expectedBuildingName);
+      await test.expect.poll(() => minersPage.getMinerColumnText(ipAddress, "rack")).toBe(rackLabel);
     }
   });
 }
