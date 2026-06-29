@@ -1307,18 +1307,33 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 		return nil, fleeterror.NewInternalErrorf("buildings.GetBuildingStats requires deviceQueryer and telemetry")
 	}
 
-	exists, err := s.store.BuildingBelongsToOrg(ctx, orgID, buildingID)
+	// Resolve floor-plan bounds for the out-of-range filter below. A rack
+	// with aisle_index >= aisles or position_in_aisle >= racks_per_aisle
+	// shouldn't normally exist (AssignRacksToBuilding + UpdateBuilding both
+	// validate), but the FE silently drops cells outside the rendered
+	// grid, so we clear the position fields server-side here for defense
+	// in depth — the rack still appears in rack_health[] without a cell.
+	building, err := s.store.GetBuilding(ctx, orgID, buildingID)
 	if err != nil {
 		return nil, err
 	}
-	if !exists {
+	// Guard against the AssignBuildingsToSite race: if the building has
+	// moved to a different site since the handler's pre-authz lookup,
+	// the permission grant we ran against doesn't match the current
+	// scope. NotFound is the safe surface here — the caller was never
+	// authorized for the building at its new site.
+	if !int64PtrEqual(expectedSiteID, building.SiteID) {
 		return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
 	}
+	aisles := building.Aisles
+	racksPerAisle := building.RacksPerAisle
 
 	// Pull every rack placement, paging at the store-clamp ceiling so a
 	// building with hundreds of racks doesn't take dozens of round-trips.
 	// `MaxRacksPerStatsRequest` is a defensive ceiling — the layout
-	// validation already caps real buildings well below it.
+	// validation already caps real buildings well below it. This runs
+	// after the building/site guard so moved or missing buildings don't
+	// pay for a large rack scan before returning NotFound.
 	var racks []models.BuildingRack
 	var pageToken string
 	for {
@@ -1341,27 +1356,6 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 		}
 		pageToken = next
 	}
-
-	// Resolve floor-plan bounds for the out-of-range filter below. A rack
-	// with aisle_index >= aisles or position_in_aisle >= racks_per_aisle
-	// shouldn't normally exist (AssignRacksToBuilding + UpdateBuilding both
-	// validate), but the FE silently drops cells outside the rendered
-	// grid, so we clear the position fields server-side here for defense
-	// in depth — the rack still appears in rack_health[] without a cell.
-	building, err := s.store.GetBuilding(ctx, orgID, buildingID)
-	if err != nil {
-		return nil, err
-	}
-	// Guard against the AssignBuildingsToSite race: if the building has
-	// moved to a different site since the handler's pre-authz lookup,
-	// the permission grant we ran against doesn't match the current
-	// scope. NotFound is the safe surface here — the caller was never
-	// authorized for the building at its new site.
-	if !int64PtrEqual(expectedSiteID, building.SiteID) {
-		return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
-	}
-	aisles := building.Aisles
-	racksPerAisle := building.RacksPerAisle
 
 	stats := &models.BuildingStats{
 		BuildingID: buildingID,

@@ -173,6 +173,98 @@ func TestAggregateMetrics_CumulativeVsNonCumulative(t *testing.T) {
 	assert.Equal(t, 72.0, tempAvg, "Temperature average should be mathematical average")
 }
 
+func TestMetricsFromCombinedMetricBuckets_PreservesRawBucketSemantics(t *testing.T) {
+	now := time.Now()
+	buckets := []combinedMetricBucket{
+		{
+			bucket: now,
+			hashRate: combinedMetricBucketValues{
+				avg:             300,
+				min:             250,
+				max:             350,
+				sum:             325,
+				count:           2,
+				deviceCount:     2,
+				minMaxAvailable: true,
+			},
+			temperature: combinedMetricBucketValues{
+				avg:             72,
+				min:             68,
+				max:             80,
+				sum:             216,
+				count:           3,
+				deviceCount:     2,
+				minMaxAvailable: true,
+			},
+		},
+	}
+
+	metrics := metricsFromCombinedMetricBuckets(
+		buckets,
+		[]models.MeasurementType{models.MeasurementTypeHashrate, models.MeasurementTypeTemperature},
+		[]models.AggregationType{
+			models.AggregationTypeAverage,
+			models.AggregationTypeMin,
+			models.AggregationTypeMax,
+			models.AggregationTypeSum,
+			models.AggregationTypeCount,
+		},
+	)
+
+	require.Len(t, metrics, 2)
+	hashrate := metricByType(t, metrics, models.MeasurementTypeHashrate)
+	assert.Equal(t, int32(2), hashrate.DeviceCount)
+	hashrateValues := aggValues(hashrate.AggregatedValues)
+	assert.Equal(t, 300.0, hashrateValues[models.AggregationTypeAverage])
+	assert.Equal(t, 250.0, hashrateValues[models.AggregationTypeMin])
+	assert.Equal(t, 350.0, hashrateValues[models.AggregationTypeMax])
+	assert.Equal(t, 325.0, hashrateValues[models.AggregationTypeSum])
+	assert.Equal(t, 2.0, hashrateValues[models.AggregationTypeCount])
+
+	temperature := metricByType(t, metrics, models.MeasurementTypeTemperature)
+	assert.Equal(t, int32(2), temperature.DeviceCount)
+	temperatureValues := aggValues(temperature.AggregatedValues)
+	assert.Equal(t, 72.0, temperatureValues[models.AggregationTypeAverage])
+	assert.Equal(t, 68.0, temperatureValues[models.AggregationTypeMin])
+	assert.Equal(t, 80.0, temperatureValues[models.AggregationTypeMax])
+	assert.Equal(t, 216.0, temperatureValues[models.AggregationTypeSum])
+	assert.Equal(t, 3.0, temperatureValues[models.AggregationTypeCount])
+}
+
+func TestMetricsFromCombinedMetricBuckets_OmitsUnavailableMinMax(t *testing.T) {
+	now := time.Now()
+	buckets := []combinedMetricBucket{
+		{
+			bucket: now,
+			power: combinedMetricBucketValues{
+				avg:             2000,
+				sum:             2000,
+				count:           2,
+				deviceCount:     2,
+				minMaxAvailable: false,
+			},
+		},
+	}
+
+	metrics := metricsFromCombinedMetricBuckets(
+		buckets,
+		[]models.MeasurementType{models.MeasurementTypePower},
+		[]models.AggregationType{
+			models.AggregationTypeAverage,
+			models.AggregationTypeMin,
+			models.AggregationTypeMax,
+			models.AggregationTypeSum,
+		},
+	)
+
+	require.Len(t, metrics, 1)
+	values := aggValues(metrics[0].AggregatedValues)
+	assert.Equal(t, 2000.0, values[models.AggregationTypeAverage])
+	assert.Equal(t, 2000.0, values[models.AggregationTypeSum])
+	assert.NotContains(t, values, models.AggregationTypeMin)
+	assert.NotContains(t, values, models.AggregationTypeMax)
+}
+
 func TestAggregateHourlyBucket_WeightedAverage(t *testing.T) {
 	// Device A: 360 data points, avg temp 70°C (full hour of reporting)
 	// Device B: 10 data points, avg temp 90°C (sparse reporting)
@@ -541,6 +633,17 @@ func aggValues(result []models.AggregatedValue) map[models.AggregationType]float
 		out[v.Type] = v.Value
 	}
 	return out
+}
+
+func metricByType(t *testing.T, metrics []models.Metric, measurementType models.MeasurementType) models.Metric {
+	t.Helper()
+	for _, metric := range metrics {
+		if metric.MeasurementType == measurementType {
+			return metric
+		}
+	}
+	t.Fatalf("metric %v not found in %+v", measurementType, metrics)
+	return models.Metric{}
 }
 
 func TestEstimateEnergyKWh(t *testing.T) {

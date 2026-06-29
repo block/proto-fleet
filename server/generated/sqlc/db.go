@@ -405,6 +405,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getCurtailmentTargetRollupByEventStmt, err = db.PrepareContext(ctx, getCurtailmentTargetRollupByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentTargetRollupByEvent: %w", err)
 	}
+	if q.getDailyCombinedMetricBucketsStmt, err = db.PrepareContext(ctx, getDailyCombinedMetricBuckets); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDailyCombinedMetricBuckets: %w", err)
+	}
 	if q.getDeviceByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceByDeviceIdentifier: %w", err)
 	}
@@ -546,6 +549,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getGroupRefsForDevicesStmt, err = db.PrepareContext(ctx, getGroupRefsForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetGroupRefsForDevices: %w", err)
 	}
+	if q.getHourlyCombinedMetricBucketsStmt, err = db.PrepareContext(ctx, getHourlyCombinedMetricBuckets); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHourlyCombinedMetricBuckets: %w", err)
+	}
 	if q.getKnownSubnetsStmt, err = db.PrepareContext(ctx, getKnownSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetKnownSubnets: %w", err)
 	}
@@ -638,6 +644,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getRackSlotsStmt, err = db.PrepareContext(ctx, getRackSlots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRackSlots: %w", err)
+	}
+	if q.getRawCombinedMetricBucketsStmt, err = db.PrepareContext(ctx, getRawCombinedMetricBuckets); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRawCombinedMetricBuckets: %w", err)
+	}
+	if q.getRawTemperatureStatusBucketsStmt, err = db.PrepareContext(ctx, getRawTemperatureStatusBuckets); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRawTemperatureStatusBuckets: %w", err)
 	}
 	if q.getRoleByIDStmt, err = db.PrepareContext(ctx, getRoleByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByID: %w", err)
@@ -1999,6 +2011,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getCurtailmentTargetRollupByEventStmt: %w", cerr)
 		}
 	}
+	if q.getDailyCombinedMetricBucketsStmt != nil {
+		if cerr := q.getDailyCombinedMetricBucketsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDailyCombinedMetricBucketsStmt: %w", cerr)
+		}
+	}
 	if q.getDeviceByDeviceIdentifierStmt != nil {
 		if cerr := q.getDeviceByDeviceIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceByDeviceIdentifierStmt: %w", cerr)
@@ -2234,6 +2251,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getGroupRefsForDevicesStmt: %w", cerr)
 		}
 	}
+	if q.getHourlyCombinedMetricBucketsStmt != nil {
+		if cerr := q.getHourlyCombinedMetricBucketsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHourlyCombinedMetricBucketsStmt: %w", cerr)
+		}
+	}
 	if q.getKnownSubnetsStmt != nil {
 		if cerr := q.getKnownSubnetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getKnownSubnetsStmt: %w", cerr)
@@ -2387,6 +2409,16 @@ func (q *Queries) Close() error {
 	if q.getRackSlotsStmt != nil {
 		if cerr := q.getRackSlotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRackSlotsStmt: %w", cerr)
+		}
+	}
+	if q.getRawCombinedMetricBucketsStmt != nil {
+		if cerr := q.getRawCombinedMetricBucketsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRawCombinedMetricBucketsStmt: %w", cerr)
+		}
+	}
+	if q.getRawTemperatureStatusBucketsStmt != nil {
+		if cerr := q.getRawTemperatureStatusBucketsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRawTemperatureStatusBucketsStmt: %w", cerr)
 		}
 	}
 	if q.getRoleByIDStmt != nil {
@@ -3755,6 +3787,7 @@ type Queries struct {
 	getCurtailmentReconcilerHeartbeatStmt                      *sql.Stmt
 	getCurtailmentResponseProfileByOrgStmt                     *sql.Stmt
 	getCurtailmentTargetRollupByEventStmt                      *sql.Stmt
+	getDailyCombinedMetricBucketsStmt                          *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                            *sql.Stmt
 	getDeviceByIDStmt                                          *sql.Stmt
 	getDeviceCommandRoutesStmt                                 *sql.Stmt
@@ -3802,6 +3835,7 @@ type Queries struct {
 	getFleetNodeSessionByTokenHashStmt                         *sql.Stmt
 	getFleetNodeTelemetryRouteByDeviceIdentifierStmt           *sql.Stmt
 	getGroupRefsForDevicesStmt                                 *sql.Stmt
+	getHourlyCombinedMetricBucketsStmt                         *sql.Stmt
 	getKnownSubnetsStmt                                        *sql.Stmt
 	getLatestAllDeviceMetricsStmt                              *sql.Stmt
 	getLatestDeviceMetricsStmt                                 *sql.Stmt
@@ -3833,6 +3867,8 @@ type Queries struct {
 	getRackInfoStmt                                            *sql.Stmt
 	getRackInfoBatchStmt                                       *sql.Stmt
 	getRackSlotsStmt                                           *sql.Stmt
+	getRawCombinedMetricBucketsStmt                            *sql.Stmt
+	getRawTemperatureStatusBucketsStmt                         *sql.Stmt
 	getRoleByIDStmt                                            *sql.Stmt
 	getRoleByIDForUpdateStmt                                   *sql.Stmt
 	getRunningPowerTargetScheduleOverlapsStmt                  *sql.Stmt
@@ -4206,6 +4242,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getCurtailmentReconcilerHeartbeatStmt:                      q.getCurtailmentReconcilerHeartbeatStmt,
 		getCurtailmentResponseProfileByOrgStmt:                     q.getCurtailmentResponseProfileByOrgStmt,
 		getCurtailmentTargetRollupByEventStmt:                      q.getCurtailmentTargetRollupByEventStmt,
+		getDailyCombinedMetricBucketsStmt:                          q.getDailyCombinedMetricBucketsStmt,
 		getDeviceByDeviceIdentifierStmt:                            q.getDeviceByDeviceIdentifierStmt,
 		getDeviceByIDStmt:                                          q.getDeviceByIDStmt,
 		getDeviceCommandRoutesStmt:                                 q.getDeviceCommandRoutesStmt,
@@ -4253,6 +4290,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFleetNodeSessionByTokenHashStmt:                         q.getFleetNodeSessionByTokenHashStmt,
 		getFleetNodeTelemetryRouteByDeviceIdentifierStmt:           q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt,
 		getGroupRefsForDevicesStmt:                                 q.getGroupRefsForDevicesStmt,
+		getHourlyCombinedMetricBucketsStmt:                         q.getHourlyCombinedMetricBucketsStmt,
 		getKnownSubnetsStmt:                                        q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                              q.getLatestAllDeviceMetricsStmt,
 		getLatestDeviceMetricsStmt:                                 q.getLatestDeviceMetricsStmt,
@@ -4284,6 +4322,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRackInfoStmt:                                            q.getRackInfoStmt,
 		getRackInfoBatchStmt:                                       q.getRackInfoBatchStmt,
 		getRackSlotsStmt:                                           q.getRackSlotsStmt,
+		getRawCombinedMetricBucketsStmt:                            q.getRawCombinedMetricBucketsStmt,
+		getRawTemperatureStatusBucketsStmt:                         q.getRawTemperatureStatusBucketsStmt,
 		getRoleByIDStmt:                                            q.getRoleByIDStmt,
 		getRoleByIDForUpdateStmt:                                   q.getRoleByIDForUpdateStmt,
 		getRunningPowerTargetScheduleOverlapsStmt:                  q.getRunningPowerTargetScheduleOverlapsStmt,
