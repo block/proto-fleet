@@ -191,13 +191,17 @@ SELECT
     COALESCE(avg_hash_rate, 0) AS avg_hash_rate,
     max_hash_rate,
     min_hash_rate,
+    hash_rate_points,
     COALESCE(avg_temp, 0) AS avg_temp,
     max_temp,
     min_temp,
+    temp_points,
     COALESCE(avg_fan_rpm, 0) AS avg_fan_rpm,
     COALESCE(avg_power, 0) AS avg_power,
     total_power,
+    power_points,
     COALESCE(avg_efficiency, 0) AS avg_efficiency,
+    efficiency_points,
     data_points
 FROM device_metrics_hourly
 WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
@@ -234,13 +238,17 @@ SELECT
     COALESCE(avg_hash_rate, 0) AS avg_hash_rate,
     max_hash_rate,
     min_hash_rate,
+    hash_rate_points,
     COALESCE(avg_temp, 0) AS avg_temp,
     max_temp,
     min_temp,
+    temp_points,
     COALESCE(avg_fan_rpm, 0) AS avg_fan_rpm,
     COALESCE(avg_power, 0) AS avg_power,
     total_power,
+    power_points,
     COALESCE(avg_efficiency, 0) AS avg_efficiency,
+    efficiency_points,
     data_points
 FROM device_metrics_hourly
 WHERE bucket >= $1

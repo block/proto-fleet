@@ -647,13 +647,17 @@ type DeviceMetricsHourly struct {
 	AvgHashRate      float64
 	MaxHashRate      sql.NullFloat64
 	MinHashRate      sql.NullFloat64
+	HashRatePoints   int64
 	AvgTemp          float64
 	MaxTemp          sql.NullFloat64
 	MinTemp          sql.NullFloat64
+	TempPoints       int64
 	AvgFanRpm        float64
 	AvgPower         float64
 	TotalPower       sql.NullFloat64
+	PowerPoints      int64
 	AvgEfficiency    float64
+	EfficiencyPoints int64
 	DataPoints       int64
 }
 

@@ -81,13 +81,17 @@ SELECT
     COALESCE(avg_hash_rate, 0) AS avg_hash_rate,
     max_hash_rate,
     min_hash_rate,
+    hash_rate_points,
     COALESCE(avg_temp, 0) AS avg_temp,
     max_temp,
     min_temp,
+    temp_points,
     COALESCE(avg_fan_rpm, 0) AS avg_fan_rpm,
     COALESCE(avg_power, 0) AS avg_power,
     total_power,
+    power_points,
     COALESCE(avg_efficiency, 0) AS avg_efficiency,
+    efficiency_points,
     data_points
 FROM device_metrics_hourly
 WHERE bucket >= $1
@@ -117,13 +121,17 @@ func (q *Queries) GetAllDeviceMetricsHourlyAggregates(ctx context.Context, arg G
 			&i.AvgHashRate,
 			&i.MaxHashRate,
 			&i.MinHashRate,
+			&i.HashRatePoints,
 			&i.AvgTemp,
 			&i.MaxTemp,
 			&i.MinTemp,
+			&i.TempPoints,
 			&i.AvgFanRpm,
 			&i.AvgPower,
 			&i.TotalPower,
+			&i.PowerPoints,
 			&i.AvgEfficiency,
+			&i.EfficiencyPoints,
 			&i.DataPoints,
 		); err != nil {
 			return nil, err
@@ -441,13 +449,17 @@ SELECT
     COALESCE(avg_hash_rate, 0) AS avg_hash_rate,
     max_hash_rate,
     min_hash_rate,
+    hash_rate_points,
     COALESCE(avg_temp, 0) AS avg_temp,
     max_temp,
     min_temp,
+    temp_points,
     COALESCE(avg_fan_rpm, 0) AS avg_fan_rpm,
     COALESCE(avg_power, 0) AS avg_power,
     total_power,
+    power_points,
     COALESCE(avg_efficiency, 0) AS avg_efficiency,
+    efficiency_points,
     data_points
 FROM device_metrics_hourly
 WHERE device_identifier = ANY($3::text[])
@@ -478,13 +490,17 @@ func (q *Queries) GetDeviceMetricsHourlyAggregates(ctx context.Context, arg GetD
 			&i.AvgHashRate,
 			&i.MaxHashRate,
 			&i.MinHashRate,
+			&i.HashRatePoints,
 			&i.AvgTemp,
 			&i.MaxTemp,
 			&i.MinTemp,
+			&i.TempPoints,
 			&i.AvgFanRpm,
 			&i.AvgPower,
 			&i.TotalPower,
+			&i.PowerPoints,
 			&i.AvgEfficiency,
+			&i.EfficiencyPoints,
 			&i.DataPoints,
 		); err != nil {
 			return nil, err
