@@ -863,6 +863,38 @@ func TestUpdateBuilding_rejectsShrinkBelowMemberCount(t *testing.T) {
 	}
 }
 
+// Giving an unconfigured (0×0) building its FIRST positive layout is a
+// growth, not a shrink — so the orphan scan is skipped — but racks staged
+// while capacity was 0 can still exceed the new grid. The membership cap
+// must run here too, not just on shrinks.
+func TestUpdateBuilding_rejectsFirstLayoutBelowMemberCount(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
+	// Building is unconfigured (0×0) and was allowed to stage 2 racks.
+	store.EXPECT().GetBuilding(inTxCtx, testOrgID, int64(11)).
+		Return(&models.Building{ID: 11, Aisles: 0, RacksPerAisle: 0}, nil)
+	// No orphan scan — 0→1 on each dimension is growth, not shrink.
+	store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, int64(11)).Return(int64(2), nil)
+	// UpdateBuilding must NOT run — the membership cap rejects the 1-cell grid.
+
+	_, err := svc.UpdateBuilding(context.Background(), models.UpdateParams{
+		OrgID:                 testOrgID,
+		ID:                    11,
+		Name:                  "configured",
+		Aisles:                1,
+		RacksPerAisle:         1,
+		DefaultRackOrderIndex: models.RackOrderIndexBottomLeft,
+	})
+	if !fleeterror.IsInvalidArgumentError(err) {
+		t.Fatalf("expected InvalidArgument for first layout below member count, got %v", err)
+	}
+}
+
 // Service-edge bounds cap mirrors the proto buf.validate cap. Defense
 // in depth for non-proto callers (sdk / agent-native paths) that
 // bypass the wire validator.
@@ -896,10 +928,10 @@ func TestCreateBuilding_rejectsLayoutAbove100(t *testing.T) {
 	}
 }
 
-// Layout growth (or no-shrink layout edit) must skip the
-// ListBuildingRacks bounds-scan entirely; that path used to fire
-// no scan at all, so the test pins the new behavior to the shrink
-// branch only.
+// Layout growth must skip the placed-rack bounds-scan (growth never
+// orphans a placed rack), but the total-membership cap still runs on any
+// positive-capacity edit — so the count query fires while
+// ListRacksOutsideBuildingBounds does not.
 func TestUpdateBuilding_growthSkipsBoundsScan(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
@@ -910,7 +942,9 @@ func TestUpdateBuilding_growthSkipsBoundsScan(t *testing.T) {
 	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
 	store.EXPECT().GetBuilding(inTxCtx, testOrgID, int64(11)).
 		Return(&models.Building{ID: 11, Aisles: 2, RacksPerAisle: 4}, nil)
-	// No ListBuildingRacks expected — growth path.
+	// No ListRacksOutsideBuildingBounds expected — growth doesn't orphan
+	// placed racks. The membership cap still counts: 0 members ≤ 30-cell grid.
+	store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil)
 	store.EXPECT().UpdateBuilding(inTxCtx, gomock.AssignableToTypeOf(models.UpdateParams{})).
 		Return(&models.Building{ID: 11, Aisles: 5, RacksPerAisle: 6}, nil)
 

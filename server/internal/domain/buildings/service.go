@@ -232,7 +232,7 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 			return err
 		}
 		// Bounds-shrink validation only runs when at least one
-		// dimension is being reduced; growth never orphans rows.
+		// dimension is being reduced; growth never orphans PLACED rows.
 		// Uses ListRacksOutsideBuildingBounds (unbounded by design)
 		// instead of the paged ListBuildingRacks so a tail row past
 		// the page-size cap can't silently bypass the guard.
@@ -248,23 +248,25 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 					r.RackLabel, *r.AisleIndex+1, *r.PositionInAisle+1, params.Aisles, params.RacksPerAisle,
 				)
 			}
-			// The orphan scan above only catches PLACED racks outside the
-			// new bounds; unplaced members slip past it. Bound total
-			// membership too, so shrinking below the rack count can't leave
-			// the building over capacity (the same invariant
-			// AssignRacksToBuilding enforces). Skipped when the new grid is
-			// unconfigured (capacity 0).
-			if capacity := gridCapacity(params.Aisles, params.RacksPerAisle); capacity > 0 {
-				members, err := s.store.CountRacksInBuilding(txCtx, params.OrgID, params.ID)
-				if err != nil {
-					return err
-				}
-				if members > capacity {
-					return fleeterror.NewInvalidArgumentErrorf(
-						"cannot shrink layout: building has %d racks but the new %d aisles × %d racks-per-aisle grid holds only %d; unassign some racks first",
-						members, params.Aisles, params.RacksPerAisle, capacity,
-					)
-				}
+		}
+		// Total-membership cap. Runs on ANY positive-capacity layout edit, not
+		// just shrinks: the orphan scan above only catches PLACED racks, and a
+		// building staged while unconfigured (capacity 0, where
+		// AssignRacksToBuilding skips the cap) can accumulate unplaced members
+		// and then be given its FIRST positive layout — a growth, not a shrink
+		// — that the grid can't hold. Bound total members against the new grid
+		// here so that path can't persist an over-capacity building. Skipped
+		// when the new grid is still unconfigured (capacity 0).
+		if capacity := gridCapacity(params.Aisles, params.RacksPerAisle); capacity > 0 {
+			members, err := s.store.CountRacksInBuilding(txCtx, params.OrgID, params.ID)
+			if err != nil {
+				return err
+			}
+			if members > capacity {
+				return fleeterror.NewInvalidArgumentErrorf(
+					"cannot apply layout: building has %d racks but the new %d aisles × %d racks-per-aisle grid holds only %d; unassign some racks first",
+					members, params.Aisles, params.RacksPerAisle, capacity,
+				)
 			}
 		}
 		updated, err := s.store.UpdateBuilding(txCtx, params)

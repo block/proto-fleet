@@ -217,6 +217,22 @@ const FleetCreateFlowProvider = ({
       // Synchronous re-entry guard: a double-click reaches here twice before
       // the `saving` prop re-renders, which would create duplicate buildings.
       if (creatingBuildingRef.current) return;
+
+      // Preflight seeded racks against the chosen layout BEFORE creating the
+      // building. The server's AssignRacksToBuilding now rejects an
+      // over-capacity assign; without this guard the building is created and
+      // then stranded with its racks unassigned (the assign failure only
+      // toasts). Net-new == every seeded rack since the building is brand
+      // new. Skipped at capacity 0 (unconfigured layout) — staging is allowed.
+      const rackCapacity = values.aisles * values.racksPerAisle;
+      if (buildingSeed && rackCapacity > 0 && buildingSeed.rackIds.length > rackCapacity) {
+        pushToast({
+          message: `This ${values.aisles}×${values.racksPerAisle} layout holds ${rackCapacity} rack(s), but ${buildingSeed.rackIds.length} are selected. Reduce the selection or increase the layout.`,
+          status: STATUSES.error,
+        });
+        return;
+      }
+
       creatingBuildingRef.current = true;
       setCreatingBuilding(true);
       try {
