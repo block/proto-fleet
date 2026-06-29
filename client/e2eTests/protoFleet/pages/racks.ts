@@ -481,10 +481,55 @@ export class RacksPage extends BasePage {
     await expect(row.getByTestId("miners")).toHaveText(String(miners));
   }
 
+  async validateRackPlacementRow(label: string, siteName: string, buildingName: string) {
+    const row = this.getRackListRow(label);
+    await expect(row).toBeVisible();
+    await expect(row.getByTestId("site")).toHaveText(siteName);
+    await expect(row.getByTestId("building")).toHaveText(buildingName);
+  }
+
   async openRackFromList(label: string) {
     const row = this.getRackListRow(label);
     await expect(row).toBeVisible();
     await row.getByTestId("name").getByRole("button", { name: label, exact: true }).click();
+  }
+
+  async getRackIdByLabel(label: string): Promise<bigint> {
+    const row = this.getRackListRow(label);
+    await expect(row).toBeVisible();
+
+    const trigger = row.locator('button[data-testid$="-actions-trigger"]').first();
+    await expect(trigger).toBeVisible();
+
+    const testId = await trigger.getAttribute("data-testid");
+    const capturedId = testId?.match(/^rack-list-row-(\d+)-actions-trigger$/)?.[1];
+    if (!capturedId) {
+      throw new Error(`Could not parse rack id from row action trigger: ${testId ?? "missing test id"}`);
+    }
+
+    return BigInt(capturedId);
+  }
+
+  async assignRackToBuildingFromList(label: string, buildingName: string) {
+    await this.navigateToRacksPage();
+    await this.clickViewList();
+    await this.waitForRackListToLoad({ allowEmpty: false });
+    await this.openRackActionsFromList(label);
+    await this.page.getByText("Add to building", { exact: true }).click();
+    await this.selectParentPickerTarget(buildingName);
+  }
+
+  async deleteRackByLabelIfVisible(label: string) {
+    await this.navigateToRacksPage();
+    await this.tryAction(() => this.clickViewList());
+    if (!(await this.tryAction(() => this.openRackFromList(label)))) {
+      return;
+    }
+
+    await this.clickEditRack();
+    await this.clickDeleteRack();
+    await this.clickDeleteConfirm();
+    await this.tryAction(() => this.validateRackDeletedToast());
   }
 
   async clickEditRack() {
@@ -632,5 +677,17 @@ export class RacksPage extends BasePage {
       .getByTestId("list-row")
       .filter({ has: this.page.getByTestId("name").getByRole("button", { name: label, exact: true }) })
       .first();
+  }
+
+  private async openRackActionsFromList(label: string) {
+    const row = this.getRackListRow(label);
+    await expect(row).toBeVisible();
+    await row.locator('button[data-testid$="-actions-trigger"]').first().click();
+  }
+
+  private async selectParentPickerTarget(label: string) {
+    const modal = this.page.getByTestId("modal");
+    await modal.getByText(label, { exact: true }).click();
+    await modal.getByRole("button", { name: "Save", exact: true }).click();
   }
 }

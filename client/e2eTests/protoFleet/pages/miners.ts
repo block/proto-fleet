@@ -201,6 +201,15 @@ export class MinersPage extends BasePage {
     await expect(columnLocator).toHaveText(expectedValue);
   }
 
+  async getMinerColumnText(ipAddress: string, columnTestId: string): Promise<string | undefined> {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    const text = await minerRow
+      .getByTestId(columnTestId)
+      .textContent()
+      .catch(() => null);
+    return text?.trim() || undefined;
+  }
+
   async validateMinerIcon(minerIp: string, columnTestId: string, iconId: IssueIconId) {
     const minerRow = await this.getMinerRowByIp(minerIp);
     const columnLocator = minerRow.locator(`//td[@data-testid='${columnTestId}']`);
