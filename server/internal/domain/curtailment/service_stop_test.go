@@ -320,12 +320,13 @@ func TestComputeEffectiveBatchSize(t *testing.T) {
 		nonTerminalCount int32
 		want             int32
 	}{
-		{"small_fleet_floors_to_10", 0, 50, 10},
-		{"five_thousand_picks_50", 10, 5000, 50},
-		{"ten_thousand_ceilings_at_100", 10, 10_000, 100},
-		{"twenty_thousand_still_at_100", 10, 20_000, 100},
-		{"restore_batch_size_floors_formula", 60, 1000, 60},
-		{"negative_restore_batch_size_floors_to_10", -5, 50, 10},
+		{"immediate_restore_claims_all_pending", 0, 50, 50},
+		{"immediate_restore_empty_selection_is_zero", 0, 0, 0},
+		{"positive_restore_batch_size_used_verbatim", 10, 5000, 10},
+		{"positive_restore_batch_size_not_clamped_at_100", 250, 10_000, 250},
+		{"large_positive_restore_batch_size_used_verbatim", 10_000, 20_000, 10_000},
+		{"positive_restore_batch_size_not_increased_by_formula", 60, 1000, 60},
+		{"negative_restore_batch_size_defensively_matches_immediate", -5, 50, 50},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -1391,9 +1391,34 @@ func (r *Reconciler) maybeCompleteRestoring(ctx context.Context, ev *models.Even
 	return true
 }
 
-// maybeClaimRestoreBatch enforces the in-flight + interval gates, then
-// claims up to EffectiveBatchSize pending restore targets and dispatches
-// one Uncurtail covering the batch.
+func restoreClaimBatchSize(ev *models.Event, targets []*models.Target) int32 {
+	if ev != nil && ev.RestoreBatchSize == 0 {
+		var pending int32
+		for _, t := range targets {
+			if t.DesiredState != models.DesiredStateActive {
+				continue
+			}
+			if t.State != models.TargetStatePending && t.State != models.TargetStateDispatching {
+				continue
+			}
+			if pending == math.MaxInt32 {
+				return math.MaxInt32
+			}
+			pending++
+		}
+		if pending > 0 {
+			return pending
+		}
+		return 1
+	}
+	if ev != nil && ev.EffectiveBatchSize != nil && *ev.EffectiveBatchSize > 0 {
+		return *ev.EffectiveBatchSize
+	}
+	return 1
+}
+
+// maybeClaimRestoreBatch enforces the in-flight + interval gates, then claims
+// pending restore targets and dispatches one Uncurtail covering the batch.
 func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Event, targets []*models.Target) {
 	// Gate 1: no in-flight restore batch.
 	for _, t := range targets {
@@ -1431,12 +1456,7 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 		}
 	}
 
-	// Service.Start stamped this via ComputeEffectiveBatchSize; floor at 1
-	// against a missing column.
-	batchSize := int32(1)
-	if ev.EffectiveBatchSize != nil && *ev.EffectiveBatchSize > 0 {
-		batchSize = *ev.EffectiveBatchSize
-	}
+	batchSize := restoreClaimBatchSize(ev, targets)
 
 	// First pass: redispatch any DISPATCHING orphans from an interrupted
 	// prior tick. Uncurtail is device-idempotent, so re-sending the

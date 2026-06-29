@@ -134,6 +134,24 @@ function getChangedUpdatePositiveUint32Setting(
   return nextValue;
 }
 
+function getChangedUpdateUint32Setting(
+  value: string,
+  initialValue: string | undefined,
+  options: OptionalUint32FieldOptions,
+): number | undefined {
+  const nextValue = getOptionalUpdateUint32Setting(value, options);
+  if (initialValue === undefined || initialValue.trim() === "") {
+    return nextValue;
+  }
+
+  const previousValue = getOptionalUpdateUint32Setting(initialValue, options);
+  if (nextValue === undefined || nextValue === previousValue) {
+    return undefined;
+  }
+
+  return nextValue;
+}
+
 function getPriority(priority: CurtailmentSubmitValues["priority"]): ProtoCurtailmentPriority {
   return priority === "emergency" ? ProtoCurtailmentPriority.EMERGENCY : ProtoCurtailmentPriority.NORMAL;
 }
@@ -281,7 +299,7 @@ export function buildUpdateCurtailmentEventRequest(
       initialValues?.maxDurationSec,
       maxDurationOptions,
     ),
-    restoreBatchIntervalSec: getChangedUpdatePositiveUint32Setting(
+    restoreBatchIntervalSec: getChangedUpdateUint32Setting(
       values.restoreIntervalSec,
       initialValues?.restoreIntervalSec,
       restoreBatchIntervalOptions,

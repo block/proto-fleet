@@ -450,7 +450,7 @@ func responseProfileFromPayload(
 	restoreBatchSizeInt, err := optionalUint32ToInt32Default(
 		"restore_batch_size",
 		restoreBatchSize,
-		domainCurtailment.DefaultResponseProfileRestoreBatchSize,
+		0,
 	)
 	if err != nil {
 		return models.ResponseProfile{}, err
@@ -458,7 +458,7 @@ func responseProfileFromPayload(
 	restoreBatchIntervalInt, err := optionalUint32ToInt32Default(
 		"restore_batch_interval_sec",
 		restoreBatchIntervalSec,
-		domainCurtailment.DefaultResponseProfileRestoreBatchIntervalSec,
+		0,
 	)
 	if err != nil {
 		return models.ResponseProfile{}, err

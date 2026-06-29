@@ -302,8 +302,8 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 
 	// effective_batch_size is stamped from the selected-target count and
 	// echoed in the Start response. Two selected candidates with no caller
-	// preference clamps to the minimum floor (10).
-	assert.Equal(t, uint32(10), ev.EffectiveBatchSize)
+	// preference means immediate restore of the full pending set.
+	assert.Equal(t, uint32(2), ev.EffectiveBatchSize)
 }
 
 func TestHandler_StartCurtailment_PersistsCurtailBatchControls(t *testing.T) {

@@ -88,7 +88,7 @@ const updateableCurtailmentEventStates = new Set<CurtailmentEventState>(["pendin
 const forceRestorableCurtailmentEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
 const defaultResponseDeadlineMinutes = "15";
 const defaultMaxDurationSec = "900";
-const immediateRestoreBatchSize = "10000";
+const immediateRestoreBatchSize = "0";
 
 const terminateRecoveryStateOptions: { label: string; value: TerminateRecoveryState }[] = [
   { label: "Cancelled", value: "cancelled" },

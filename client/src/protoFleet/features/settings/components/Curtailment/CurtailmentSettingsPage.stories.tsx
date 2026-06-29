@@ -107,7 +107,7 @@ const storyResponseProfiles: ResponseProfile[] = [
       maxDurationSec: "900",
       curtailBatchSize: "50",
       curtailBatchIntervalSec: "30",
-      restoreBatchSize: "10000",
+      restoreBatchSize: "0",
       restoreIntervalSec: "0",
       responseDeadlineMinutes: "15",
       includeMaintenance: false,

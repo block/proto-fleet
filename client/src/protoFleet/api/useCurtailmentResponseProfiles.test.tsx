@@ -62,7 +62,7 @@ const fixedKwFormValues: ResponseProfileFormValues = {
   maxDurationSec: "",
   curtailBatchSize: "50",
   curtailBatchIntervalSec: "30",
-  restoreBatchSize: "10000",
+  restoreBatchSize: "0",
   restoreIntervalSec: "0",
   responseDeadlineMinutes: "15",
   includeMaintenance: false,
@@ -83,7 +83,7 @@ function apiProfile(overrides: Partial<CurtailmentResponseProfile> = {}): Curtai
     },
     curtailBatchSize: 50,
     curtailBatchIntervalSec: 30,
-    restoreBatchSize: 10_000,
+    restoreBatchSize: 0,
     restoreBatchIntervalSec: 0,
   });
 
@@ -154,7 +154,7 @@ describe("useCurtailmentResponseProfiles", () => {
         }),
         curtailBatchSize: 50,
         curtailBatchIntervalSec: 30,
-        restoreBatchSize: 10_000,
+        restoreBatchSize: 0,
         restoreBatchIntervalSec: 0,
       }),
     );

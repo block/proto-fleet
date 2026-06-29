@@ -219,6 +219,37 @@ func TestReconciler_Restoring_ClaimDispatchesUncurtailBatch(t *testing.T) {
 		"batched Uncurtail targets must share a single batch_uuid")
 }
 
+func TestReconciler_Restoring_ImmediateRestoreClaimsAllPendingTargets(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(0)
+	eventID := int64(31)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		RestoreBatchSize:        0,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m2", State: models.TargetStatePending, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m3", State: models.TargetStatePending, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r.runTick(context.Background())
+
+	require.Equal(t, 1, disp.uncurtailCalls)
+	assert.ElementsMatch(t, []string{"m1", "m2", "m3"}, disp.uncurtailLastIDs)
+	for _, target := range store.targetsByEventID[eventID] {
+		assert.Equal(t, models.TargetStateDispatched, target.State)
+	}
+}
+
 func TestReconciler_Restoring_PostCommandStateWriteFailureConsumesRetry(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}

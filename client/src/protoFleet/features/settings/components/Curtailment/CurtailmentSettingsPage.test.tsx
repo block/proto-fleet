@@ -224,7 +224,7 @@ const testResponseProfiles: ResponseProfile[] = [
       maxDurationSec: "900",
       curtailBatchSize: "50",
       curtailBatchIntervalSec: "30",
-      restoreBatchSize: "10000",
+      restoreBatchSize: "0",
       restoreIntervalSec: "0",
       responseDeadlineMinutes: "15",
       includeMaintenance: false,
@@ -281,7 +281,7 @@ const siteScopedResponseProfile: ResponseProfile = {
     maxDurationSec: "900",
     curtailBatchSize: "40",
     curtailBatchIntervalSec: "30",
-    restoreBatchSize: "10000",
+    restoreBatchSize: "0",
     restoreIntervalSec: "0",
     responseDeadlineMinutes: "15",
     includeMaintenance: false,
@@ -957,7 +957,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getAllByLabelText("Batch interval (sec)")).toHaveLength(2);
     expect(screen.getByTestId("response-profile-curtail-batch-size")).toHaveValue("50");
     expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("30");
-    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
+    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("0");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
     expect(screen.queryByTestId("response-profile-post-event-cooldown")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
@@ -1243,7 +1243,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
     expect(screen.getByTestId("response-profile-curtail-batch-size")).toHaveValue("50");
     expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("30");
-    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
+    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("0");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();

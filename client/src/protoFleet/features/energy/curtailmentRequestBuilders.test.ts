@@ -368,19 +368,19 @@ describe("curtailmentRequestBuilders", () => {
     ).toThrow("Enter max duration greater than 0.");
   });
 
-  it("rejects zero restore interval updates", () => {
-    expect(() =>
-      buildUpdateCurtailmentEventRequest(
-        "curt-1",
-        {
-          ...baseValues,
-          restoreIntervalSec: "0",
-        },
-        {
-          ...baseValues,
-          restoreIntervalSec: "60",
-        },
-      ),
-    ).toThrow("Enter restore batch interval greater than 0.");
+  it("sends zero restore interval updates", () => {
+    const request = buildUpdateCurtailmentEventRequest(
+      "curt-1",
+      {
+        ...baseValues,
+        restoreIntervalSec: "0",
+      },
+      {
+        ...baseValues,
+        restoreIntervalSec: "60",
+      },
+    );
+
+    expect(request.restoreBatchIntervalSec).toBe(0);
   });
 });

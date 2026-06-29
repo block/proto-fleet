@@ -29,7 +29,7 @@ import type {
 import { useAuthErrors } from "@/protoFleet/store";
 
 const defaultResponseDeadlineMinutes: string = "15";
-const immediateRestoreBatchSize = 10_000;
+const immediateRestoreBatchSize = 0;
 const sessionFormValuesByProfileId = new Map<string, ResponseProfileFormValues>();
 export type UseCurtailmentResponseProfilesResult = {
   responseProfiles: ResponseProfile[];
@@ -161,7 +161,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
   const targetKw = numberToInputValue(fixedKw);
   const responseDeadlineMinutes = defaultResponseDeadlineMinutes;
   const restoreBehavior: ResponseProfileFormValues["restoreBehavior"] =
-    profile.restoreBatchIntervalSec === 0 && profile.restoreBatchSize >= immediateRestoreBatchSize
+    profile.restoreBatchIntervalSec === 0 && profile.restoreBatchSize === immediateRestoreBatchSize
       ? "automaticImmediateRestore"
       : "automaticBatchRestore";
   const targetSummary =
@@ -184,7 +184,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     maxDurationSec: "",
     curtailBatchSize: numberToInputValue(profile.curtailBatchSize),
     curtailBatchIntervalSec: curtailBatchIntervalInputValue(profile),
-    restoreBatchSize: numberToInputValue(profile.restoreBatchSize),
+    restoreBatchSize: numberToNonNegativeInputValue(profile.restoreBatchSize),
     restoreIntervalSec: numberToNonNegativeInputValue(profile.restoreBatchIntervalSec),
     responseDeadlineMinutes,
     includeMaintenance: profile.includeMaintenance,
@@ -333,15 +333,20 @@ function getModeParams(values: ResponseProfileFormValues): UpdateCurtailmentResp
 
 function getRestoreBatchSize(values: ResponseProfileFormValues): number | undefined {
   if (values.restoreBatchSize.trim() === "") {
-    return values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : undefined;
+    return immediateRestoreBatchSize;
   }
 
   const batchSize = Number(values.restoreBatchSize);
-  if (Number.isFinite(batchSize) && batchSize > 0) {
+  if (Number.isFinite(batchSize) && batchSize >= 0) {
     return batchSize;
   }
 
   return values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : undefined;
+}
+
+function getRestoreBatchIntervalSec(values: ResponseProfileFormValues): number | undefined {
+  const intervalSec = getOptionalNonNegativeNumber(values.restoreIntervalSec);
+  return intervalSec ?? 0;
 }
 
 function getOptionalPositiveNumber(value: string): number | undefined {
@@ -415,7 +420,7 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
     curtailBatchSize: getOptionalPositiveNumber(values.curtailBatchSize),
     curtailBatchIntervalSec: getOptionalNonNegativeNumber(values.curtailBatchIntervalSec),
     restoreBatchSize: getRestoreBatchSize(values),
-    restoreBatchIntervalSec: getOptionalNonNegativeNumber(values.restoreIntervalSec),
+    restoreBatchIntervalSec: getRestoreBatchIntervalSec(values),
     includeMaintenance: values.includeMaintenance,
     forceIncludeMaintenance: values.includeMaintenance,
   };

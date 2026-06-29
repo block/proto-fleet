@@ -144,7 +144,7 @@ func TestResponseProfileService_CreateAppliesBackendBatchDefaultsWithoutOverwrit
 	require.NotNil(t, profile)
 	assert.Nil(t, profile.CurtailBatchSize)
 	assert.Equal(t, DefaultResponseProfileCurtailBatchIntervalSec, profile.CurtailBatchIntervalSec)
-	assert.Equal(t, DefaultResponseProfileRestoreBatchSize, profile.RestoreBatchSize)
+	assert.Equal(t, int32(0), profile.RestoreBatchSize)
 	assert.Equal(t, int32(0), profile.RestoreBatchIntervalSec)
 	assert.Equal(t, int32(0), profile.PostEventCooldownSec)
 }
@@ -163,7 +163,7 @@ func TestResponseProfileService_UpdatePreservesImmediateRestoreInterval(t *testi
 			ProfileName:             "Standard shed",
 			Mode:                    models.ModeFixedKw,
 			TargetKW:                &targetKW,
-			RestoreBatchSize:        DefaultResponseProfileRestoreBatchSize,
+			RestoreBatchSize:        0,
 			RestoreBatchIntervalSec: 0,
 		},
 	})
@@ -171,8 +171,10 @@ func TestResponseProfileService_UpdatePreservesImmediateRestoreInterval(t *testi
 	require.NoError(t, err)
 	require.NotNil(t, profile)
 	assert.Equal(t, int32(0), profile.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), profile.RestoreBatchSize)
 	require.NotNil(t, store.updated)
 	assert.Equal(t, int32(0), store.updated.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), store.updated.RestoreBatchSize)
 }
 
 func TestResponseProfileService_CreateRejectsUnknownSite(t *testing.T) {

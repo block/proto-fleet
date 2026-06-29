@@ -58,15 +58,15 @@ type StartRequest struct {
 	// Reason: operator-supplied audit string. Required (DB CHECK).
 	Reason string
 
-	// Zero values pass through verbatim; handler normalizes to org defaults.
+	// Zero values pass through verbatim as explicit immediate restore controls.
 	RestoreBatchSize        int32
 	RestoreBatchIntervalSec int32
 	MinCurtailedDurationSec int32
 	// Curtailed dispatch controls. Manual Start calls leave
-	// UseProfileCurtailSettings=false so the pre-existing adaptive
-	// effective_batch_size behavior is preserved. Automation/profile starts set
-	// it true so nil CurtailBatchSize is persisted as NULL, meaning "curtail all
-	// selected targets in scope."
+	// UseProfileCurtailSettings=false so effective_batch_size also drives the
+	// curtail batch. Automation/profile starts set it true so nil
+	// CurtailBatchSize is persisted as NULL, meaning "curtail all selected
+	// targets in scope."
 	CurtailBatchSize          *int32
 	CurtailBatchIntervalSec   int32
 	UseProfileCurtailSettings bool
@@ -224,9 +224,6 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 			"only admins can set max_duration_seconds above org default %d",
 			orgConfig.MaxDurationDefaultSec,
 		)
-	}
-	if req.RestoreBatchIntervalSec == 0 {
-		req.RestoreBatchIntervalSec = defaultRestoreBatchIntervalSec
 	}
 	if req.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax && !req.CanUseAdminControls {
 		return nil, fleeterror.NewForbiddenErrorf(
@@ -1143,7 +1140,6 @@ const (
 	startTextFieldMaxLen = 256
 
 	maxFiniteDurationSeconds          int32 = 7 * 24 * 60 * 60
-	defaultRestoreBatchIntervalSec    int32 = 30
 	nonAdminRestoreBatchIntervalMax   int32 = 5 * 60
 	restoreBatchIntervalUpperBoundSec int32 = 60 * 60
 )
@@ -1838,13 +1834,6 @@ type StopRequest struct {
 	AutomationRestore bool
 }
 
-// Adaptive batch-sizing constants. [10, 100] is the inrush envelope, computed
-// at Start time from the selected target count.
-const (
-	minBatchSizeFloor   int32 = 10
-	maxBatchSizeCeiling int32 = 100
-)
-
 // Stop transitions a non-terminal event to `restoring` and flips every
 // non-terminal target to (desired_state='active', state='pending').
 // Idempotent re-Stop returns the current row without writing; terminal
@@ -1948,27 +1937,18 @@ func checkMinCurtailedDurationGate(event *models.Event, force bool, now time.Tim
 	)
 }
 
-// ComputeEffectiveBatchSize returns max(restore_batch_size, ceil(0.01 × non_terminal_count))
-// clamped to [minBatchSizeFloor, maxBatchSizeCeiling]. Stamped at Start;
-// the restorer reads the column.
+// ComputeEffectiveBatchSize returns the restore batch size stamped at Start.
+// restore_batch_size=0 is explicit immediate restore: claim every currently
+// selected target in one wave. Positive values are the caller's explicit
+// restore wave size.
 func ComputeEffectiveBatchSize(restoreBatchSize, nonTerminalCount int32) int32 {
-	base := restoreBatchSize
-	if base < 0 {
-		base = 0
-	}
-	if nonTerminalCount > 0 {
-		onePercent := int32(math.Ceil(float64(nonTerminalCount) * 0.01))
-		if onePercent > base {
-			base = onePercent
+	if restoreBatchSize <= 0 {
+		if nonTerminalCount > 0 {
+			return nonTerminalCount
 		}
+		return 0
 	}
-	if base < minBatchSizeFloor {
-		base = minBatchSizeFloor
-	}
-	if base > maxBatchSizeCeiling {
-		base = maxBatchSizeCeiling
-	}
-	return base
+	return restoreBatchSize
 }
 
 func cloneInt32Ptr(v *int32) *int32 {

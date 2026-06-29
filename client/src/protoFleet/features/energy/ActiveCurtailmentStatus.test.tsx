@@ -58,6 +58,20 @@ describe("ActiveCurtailmentStatus", () => {
     expect(onRequestStop).toHaveBeenCalledOnce();
   });
 
+  it("renders immediate restore profile for zero restore batch size", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          restoreBatchSize: 0,
+          restoreBatchIntervalSec: 0,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("All pending immediately")).toBeVisible();
+  });
+
   it("renders a pending event with stop available", async () => {
     const user = userEvent.setup();
     const onRequestStop = vi.fn();

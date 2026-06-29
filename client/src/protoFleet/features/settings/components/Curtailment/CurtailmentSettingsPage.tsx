@@ -149,7 +149,7 @@ const emptyUpdatingSourceIds = new Set<string>();
 const emptyUpdatingResponseProfileIds = new Set<string>();
 const emptyUpdatingAutomationRuleIds = new Set<string>();
 const savedPasswordPlaceholder = "......";
-const immediateRestoreBatchSize = "10000";
+const immediateRestoreBatchSize = "0";
 
 type SourceModalMode = "create" | "edit";
 
@@ -519,7 +519,7 @@ function getResponseProfileRestoreBehavior(
   const restoreIntervalSec = Number(values.restoreIntervalSec || "0");
 
   return Number.isFinite(restoreBatchSize) &&
-    restoreBatchSize >= Number(immediateRestoreBatchSize) &&
+    restoreBatchSize === Number(immediateRestoreBatchSize) &&
     Number.isFinite(restoreIntervalSec) &&
     restoreIntervalSec === 0
     ? "automaticImmediateRestore"

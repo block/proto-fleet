@@ -301,6 +301,12 @@ function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCur
 function formatRestoreProfile(
   event: Pick<ActiveCurtailmentEvent, "restoreBatchSize" | "restoreBatchIntervalSec">,
 ): string {
+  if (event.restoreBatchSize === 0) {
+    return "All pending immediately";
+  }
+  if (event.restoreBatchIntervalSec === 0) {
+    return `${formatMinerCount(event.restoreBatchSize)} with no wait`;
+  }
   return `${formatMinerCount(event.restoreBatchSize)} every ${event.restoreBatchIntervalSec.toLocaleString()}s`;
 }
 

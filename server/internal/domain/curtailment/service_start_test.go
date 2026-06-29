@@ -214,7 +214,7 @@ func TestService_Start_RejectsNegativeRestoreBatchSize(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-func TestService_Start_NormalizesZeroRestoreBatchInterval(t *testing.T) {
+func TestService_Start_PersistsZeroRestoreBatchInterval(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
@@ -228,8 +228,8 @@ func TestService_Start_NormalizesZeroRestoreBatchInterval(t *testing.T) {
 
 	plan, err := svc.Start(t.Context(), req)
 	require.NoError(t, err)
-	assert.Equal(t, defaultRestoreBatchIntervalSec, store.lastInsertEvent.RestoreBatchIntervalSec)
-	assert.Equal(t, defaultRestoreBatchIntervalSec, plan.EffectiveRestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), store.lastInsertEvent.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), plan.EffectiveRestoreBatchIntervalSec)
 }
 
 func TestService_Start_RejectsNonAdminLargeRestoreBatchInterval(t *testing.T) {
@@ -768,10 +768,10 @@ func TestService_Start_StampsEffectiveBatchSize(t *testing.T) {
 		candidateCount   int
 		want             int32
 	}{
-		{"small_fleet_floors_to_10", 0, 5, 10},
-		{"restore_batch_size_floors_formula", 60, 5, 60},
-		{"five_thousand_picks_50", 10, 5000, 50},
-		{"ten_thousand_ceilings_at_100", 10, 10_000, 100},
+		{"immediate_restore_claims_all_selected", 0, 5, 5},
+		{"positive_restore_batch_size_used_verbatim", 60, 5, 60},
+		{"positive_restore_batch_size_not_increased_by_large_fleet", 10, 5000, 10},
+		{"positive_restore_batch_size_not_clamped_at_100", 250, 10_000, 250},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
