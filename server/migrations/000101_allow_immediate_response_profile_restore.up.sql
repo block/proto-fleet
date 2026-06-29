@@ -15,3 +15,11 @@ ALTER TABLE curtailment_response_profile
     DROP CONSTRAINT ck_curtailment_response_profile_restore_batch_size,
     ADD CONSTRAINT ck_curtailment_response_profile_restore_batch_size
         CHECK (restore_batch_size >= 0 AND restore_batch_size <= 10000);
+
+-- Existing response profiles saved immediate restore as the old UI sentinel:
+-- restore_batch_size=10000 with no inter-batch wait. Normalize them to the new
+-- persisted sentinel so the client and automation read the same semantics.
+UPDATE curtailment_response_profile
+SET restore_batch_size = 0
+WHERE restore_batch_size = 10000
+    AND restore_batch_interval_sec = 0;

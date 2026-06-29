@@ -4,6 +4,11 @@
 -- distinguish them from explicit positive restore sizes.
 
 UPDATE curtailment_response_profile
+SET restore_batch_size = 10000
+WHERE restore_batch_size = 0
+    AND restore_batch_interval_sec = 0;
+
+UPDATE curtailment_response_profile
 SET restore_batch_size = 50
 WHERE restore_batch_size = 0;
 
