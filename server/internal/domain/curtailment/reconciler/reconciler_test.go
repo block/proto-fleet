@@ -196,6 +196,10 @@ func (f *fakeStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.U
 	panic("ListTargetSiteCoverageByEvent not exercised by reconciler tests")
 }
 
+func (f *fakeStore) ListTargetSiteCoverageByEvents(context.Context, int64, []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	panic("ListTargetSiteCoverageByEvents not exercised by reconciler tests")
+}
+
 func (f *fakeStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by reconciler tests")
 }

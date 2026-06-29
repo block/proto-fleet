@@ -523,14 +523,60 @@ WITH target_sites AS (
         AND d.deleted_at IS NULL
     WHERE ce.org_id = sqlc.arg('org_id')
         AND ce.event_uuid = sqlc.arg('event_uuid')
+),
+coverage AS (
+    SELECT
+        COUNT(*)::BIGINT AS target_count,
+        COUNT(site_id)::BIGINT AS mapped_target_count
+    FROM target_sites
+),
+site_rows AS (
+    SELECT DISTINCT site_id
+    FROM target_sites
 )
 SELECT
-    COALESCE(site_id, 0)::BIGINT AS site_id,
-    COUNT(*) OVER ()::BIGINT AS target_count,
-    COUNT(site_id) OVER ()::BIGINT AS mapped_target_count
-FROM target_sites
-GROUP BY site_id
-ORDER BY site_id NULLS FIRST;
+    COALESCE(site_rows.site_id, 0)::BIGINT AS site_id,
+    coverage.target_count,
+    coverage.mapped_target_count
+FROM site_rows
+CROSS JOIN coverage
+ORDER BY site_rows.site_id NULLS FIRST;
+
+-- name: ListCurtailmentTargetSiteCoverageByEvents :many
+-- Batched coverage for list permission filtering. Events with no persisted
+-- target rows are omitted so callers can default them to complete coverage.
+WITH target_sites AS (
+    SELECT
+        ce.event_uuid,
+        d.site_id::BIGINT AS site_id
+    FROM curtailment_event ce
+    JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
+    LEFT JOIN device d ON d.org_id = ce.org_id
+        AND d.device_identifier = ct.device_identifier
+        AND d.deleted_at IS NULL
+    WHERE ce.org_id = sqlc.arg('org_id')
+        AND ce.event_uuid = ANY(sqlc.arg('event_uuids')::UUID[])
+),
+coverage AS (
+    SELECT
+        event_uuid,
+        COUNT(*)::BIGINT AS target_count,
+        COUNT(site_id)::BIGINT AS mapped_target_count
+    FROM target_sites
+    GROUP BY event_uuid
+),
+site_rows AS (
+    SELECT DISTINCT event_uuid, site_id
+    FROM target_sites
+)
+SELECT
+    site_rows.event_uuid,
+    COALESCE(site_rows.site_id, 0)::BIGINT AS site_id,
+    coverage.target_count,
+    coverage.mapped_target_count
+FROM site_rows
+JOIN coverage USING (event_uuid)
+ORDER BY site_rows.event_uuid, site_rows.site_id NULLS FIRST;
 
 -- name: BulkInsertCurtailmentTargets :execrows
 -- Bulk fan-out via jsonb_to_recordset: per-row fields ride in a JSONB

@@ -798,6 +798,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listCurtailmentTargetSiteCoverageByEventStmt, err = db.PrepareContext(ctx, listCurtailmentTargetSiteCoverageByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetSiteCoverageByEvent: %w", err)
 	}
+	if q.listCurtailmentTargetSiteCoverageByEventsStmt, err = db.PrepareContext(ctx, listCurtailmentTargetSiteCoverageByEvents); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetSiteCoverageByEvents: %w", err)
+	}
 	if q.listCurtailmentTargetsByEventStmt, err = db.PrepareContext(ctx, listCurtailmentTargetsByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetsByEvent: %w", err)
 	}
@@ -2642,6 +2645,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listCurtailmentTargetSiteCoverageByEventStmt: %w", cerr)
 		}
 	}
+	if q.listCurtailmentTargetSiteCoverageByEventsStmt != nil {
+		if cerr := q.listCurtailmentTargetSiteCoverageByEventsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentTargetSiteCoverageByEventsStmt: %w", cerr)
+		}
+	}
 	if q.listCurtailmentTargetsByEventStmt != nil {
 		if cerr := q.listCurtailmentTargetsByEventStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCurtailmentTargetsByEventStmt: %w", cerr)
@@ -3854,6 +3862,7 @@ type Queries struct {
 	listCurtailmentResponseProfileDeviceSitesByOrgStmt         *sql.Stmt
 	listCurtailmentResponseProfilesByOrgStmt                   *sql.Stmt
 	listCurtailmentTargetSiteCoverageByEventStmt               *sql.Stmt
+	listCurtailmentTargetSiteCoverageByEventsStmt              *sql.Stmt
 	listCurtailmentTargetsByEventStmt                          *sql.Stmt
 	listCurtailmentTargetsByEventPageStmt                      *sql.Stmt
 	listCustomRolesForOrgStmt                                  *sql.Stmt
@@ -4301,6 +4310,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listCurtailmentResponseProfileDeviceSitesByOrgStmt:         q.listCurtailmentResponseProfileDeviceSitesByOrgStmt,
 		listCurtailmentResponseProfilesByOrgStmt:                   q.listCurtailmentResponseProfilesByOrgStmt,
 		listCurtailmentTargetSiteCoverageByEventStmt:               q.listCurtailmentTargetSiteCoverageByEventStmt,
+		listCurtailmentTargetSiteCoverageByEventsStmt:              q.listCurtailmentTargetSiteCoverageByEventsStmt,
 		listCurtailmentTargetsByEventStmt:                          q.listCurtailmentTargetsByEventStmt,
 		listCurtailmentTargetsByEventPageStmt:                      q.listCurtailmentTargetsByEventPageStmt,
 		listCustomRolesForOrgStmt:                                  q.listCustomRolesForOrgStmt,

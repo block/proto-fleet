@@ -105,6 +105,9 @@ func (s *stopStubStore) ListTargetSiteCoverageByEvent(context.Context, int64, uu
 		MappedTargetCount: mappedTargetCount,
 	}, nil
 }
+func (s *stopStubStore) ListTargetSiteCoverageByEvents(context.Context, int64, []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	panic("ListTargetSiteCoverageByEvents not exercised by Stop handler tests")
+}
 func (s *stopStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by Stop handler tests")
 }

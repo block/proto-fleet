@@ -155,6 +155,9 @@ func (s *adminTerminateStubStore) ListTargetSiteCoverageByEvent(context.Context,
 		MappedTargetCount: mappedTargetCount,
 	}, nil
 }
+func (s *adminTerminateStubStore) ListTargetSiteCoverageByEvents(context.Context, int64, []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	panic("ListTargetSiteCoverageByEvents not exercised by AdminTerminate handler tests")
+}
 func (s *adminTerminateStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by AdminTerminate handler tests")
 }

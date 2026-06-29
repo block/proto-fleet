@@ -266,6 +266,18 @@ func (f *fakeStore) ListTargetSiteCoverageByEvent(_ context.Context, _ int64, ev
 	}, nil
 }
 
+func (f *fakeStore) ListTargetSiteCoverageByEvents(_ context.Context, _ int64, eventUUIDs []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	coverageByEvent := make(map[uuid.UUID]models.TargetSiteCoverage, len(eventUUIDs))
+	for _, eventUUID := range eventUUIDs {
+		coverage, err := f.ListTargetSiteCoverageByEvent(context.Background(), 0, eventUUID)
+		if err != nil {
+			return nil, err
+		}
+		coverageByEvent[eventUUID] = coverage
+	}
+	return coverageByEvent, nil
+}
+
 func (f *fakeStore) GetTargetRollupByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.TargetRollup, error) {
 	targets := f.targetsByEventUUID[eventUUID]
 	rollup := &models.TargetRollup{Total: int64(len(targets))}

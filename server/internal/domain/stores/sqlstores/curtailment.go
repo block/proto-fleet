@@ -1380,27 +1380,78 @@ func (s *SQLCurtailmentStore) ListTargetSiteCoverageByEvent(
 	if err != nil {
 		return models.TargetSiteCoverage{}, fleeterror.NewInternalErrorf("failed to list curtailment target site coverage: %v", err)
 	}
+	coverageRows := make([]targetSiteCoverageRow, 0, len(rows))
+	for _, row := range rows {
+		coverageRows = append(coverageRows, targetSiteCoverageRow{
+			siteID:            row.SiteID,
+			targetCount:       row.TargetCount,
+			mappedTargetCount: row.MappedTargetCount,
+		})
+	}
+	return targetSiteCoverageFromRows(coverageRows), nil
+}
+
+func (s *SQLCurtailmentStore) ListTargetSiteCoverageByEvents(
+	ctx context.Context,
+	orgID int64,
+	eventUUIDs []uuid.UUID,
+) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	coverageByEvent := make(map[uuid.UUID]models.TargetSiteCoverage, len(eventUUIDs))
+	if len(eventUUIDs) == 0 {
+		return coverageByEvent, nil
+	}
+	for _, eventUUID := range eventUUIDs {
+		coverageByEvent[eventUUID] = models.TargetSiteCoverage{Complete: true}
+	}
+	rows, err := s.GetQueries(ctx).ListCurtailmentTargetSiteCoverageByEvents(ctx, sqlc.ListCurtailmentTargetSiteCoverageByEventsParams{
+		OrgID:      orgID,
+		EventUuids: eventUUIDs,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list curtailment target site coverage: %v", err)
+	}
+	rowsByEvent := make(map[uuid.UUID][]targetSiteCoverageRow, len(eventUUIDs))
+	for _, row := range rows {
+		rowsByEvent[row.EventUuid] = append(rowsByEvent[row.EventUuid], targetSiteCoverageRow{
+			siteID:            row.SiteID,
+			targetCount:       row.TargetCount,
+			mappedTargetCount: row.MappedTargetCount,
+		})
+	}
+	for eventUUID, rows := range rowsByEvent {
+		coverageByEvent[eventUUID] = targetSiteCoverageFromRows(rows)
+	}
+	return coverageByEvent, nil
+}
+
+type targetSiteCoverageRow struct {
+	siteID            int64
+	targetCount       int64
+	mappedTargetCount int64
+}
+
+func targetSiteCoverageFromRows(rows []targetSiteCoverageRow) models.TargetSiteCoverage {
 	if len(rows) == 0 {
-		return models.TargetSiteCoverage{Complete: true}, nil
+		return models.TargetSiteCoverage{Complete: true}
 	}
 	siteIDs := make([]int64, 0, len(rows))
-	complete := rows[0].TargetCount > 0 && rows[0].TargetCount == rows[0].MappedTargetCount
+	complete := rows[0].targetCount == rows[0].mappedTargetCount
 	for _, row := range rows {
-		if row.SiteID <= 0 {
+		if row.siteID <= 0 {
 			complete = false
 			continue
 		}
-		siteIDs = append(siteIDs, row.SiteID)
-		if row.TargetCount != rows[0].TargetCount || row.MappedTargetCount != rows[0].MappedTargetCount {
+		siteIDs = append(siteIDs, row.siteID)
+		if row.targetCount != rows[0].targetCount || row.mappedTargetCount != rows[0].mappedTargetCount {
 			complete = false
 		}
 	}
 	return models.TargetSiteCoverage{
 		SiteIDs:           siteIDs,
 		Complete:          complete,
-		TargetCount:       rows[0].TargetCount,
-		MappedTargetCount: rows[0].MappedTargetCount,
-	}, nil
+		TargetCount:       rows[0].targetCount,
+		MappedTargetCount: rows[0].mappedTargetCount,
+	}
 }
 
 func (s *SQLCurtailmentStore) GetTargetRollupByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.TargetRollup, error) {

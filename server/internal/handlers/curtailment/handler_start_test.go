@@ -150,6 +150,9 @@ func (s *startStubStore) ListTargetsByEventPage(context.Context, interfaces.List
 func (s *startStubStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.UUID) (models.TargetSiteCoverage, error) {
 	panic("ListTargetSiteCoverageByEvent not exercised by handler Start tests")
 }
+func (s *startStubStore) ListTargetSiteCoverageByEvents(context.Context, int64, []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	panic("ListTargetSiteCoverageByEvents not exercised by handler Start tests")
+}
 
 func (s *startStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by handler Start tests")

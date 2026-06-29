@@ -659,6 +659,9 @@ func (h *Handler) filterEventsByPermission(
 	permission string,
 	events []*models.Event,
 ) ([]*models.Event, error) {
+	if err := h.hydrateTargetSiteCoverageByEvents(ctx, orgID, events); err != nil {
+		return nil, err
+	}
 	filtered := make([]*models.Event, 0, len(events))
 	for _, event := range events {
 		siteContexts, err := h.eventSiteResourceContexts(ctx, orgID, event)
@@ -693,6 +696,54 @@ func (h *Handler) filterEventsByPermission(
 		}
 	}
 	return filtered, nil
+}
+
+func (h *Handler) hydrateTargetSiteCoverageByEvents(ctx context.Context, orgID int64, events []*models.Event) error {
+	eventUUIDs := make([]uuid.UUID, 0, len(events))
+	seen := make(map[uuid.UUID]struct{}, len(events))
+	for _, event := range events {
+		if !shouldBatchHydrateTargetSiteCoverage(event) {
+			continue
+		}
+		if _, ok := seen[event.EventUUID]; ok {
+			continue
+		}
+		seen[event.EventUUID] = struct{}{}
+		eventUUIDs = append(eventUUIDs, event.EventUUID)
+	}
+	if len(eventUUIDs) == 0 {
+		return nil
+	}
+	coverageByEvent, err := h.service.ListTargetSiteCoverageByEvents(ctx, orgID, eventUUIDs)
+	if err != nil {
+		return err
+	}
+	for _, event := range events {
+		if event == nil {
+			continue
+		}
+		coverage, ok := coverageByEvent[event.EventUUID]
+		if !ok {
+			continue
+		}
+		event.TargetSiteCoverage = &coverage
+	}
+	return nil
+}
+
+func shouldBatchHydrateTargetSiteCoverage(event *models.Event) bool {
+	if event == nil || event.TargetSiteCoverage != nil {
+		return false
+	}
+	switch event.ScopeType {
+	case models.ScopeTypeDeviceList, models.ScopeTypeDeviceSets:
+		return true
+	case models.ScopeTypeMixed:
+		_, handled, err := mixedSiteOnlyEventResourceContexts(event)
+		return !handled && err == nil
+	default:
+		return false
+	}
 }
 
 func (h *Handler) listPermittedEvents(
@@ -786,11 +837,17 @@ func (h *Handler) eventSiteResourceContexts(
 	if contexts, handled, err := mixedSiteOnlyEventResourceContexts(event); handled || err != nil {
 		return contexts, err
 	}
-	coverage, err := h.service.ListTargetSiteCoverageByEvent(ctx, orgID, event.EventUUID)
-	if err != nil {
-		return nil, err
+	var coverage models.TargetSiteCoverage
+	if event.TargetSiteCoverage != nil {
+		coverage = *event.TargetSiteCoverage
+	} else {
+		var err error
+		coverage, err = h.service.ListTargetSiteCoverageByEvent(ctx, orgID, event.EventUUID)
+		if err != nil {
+			return nil, err
+		}
+		event.TargetSiteCoverage = &coverage
 	}
-	event.TargetSiteCoverage = &coverage
 	if !coverage.Complete {
 		return nil, fleeterror.NewForbiddenError(incompleteTargetSiteContextMessage)
 	}

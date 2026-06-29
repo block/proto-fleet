@@ -1011,6 +1011,25 @@ func (s *Service) ListTargetSiteCoverageByEvent(
 	return s.store.ListTargetSiteCoverageByEvent(ctx, orgID, eventUUID)
 }
 
+func (s *Service) ListTargetSiteCoverageByEvents(
+	ctx context.Context,
+	orgID int64,
+	eventUUIDs []uuid.UUID,
+) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if len(eventUUIDs) == 0 {
+		return map[uuid.UUID]models.TargetSiteCoverage{}, nil
+	}
+	for _, eventUUID := range eventUUIDs {
+		if eventUUID == uuid.Nil {
+			return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
+		}
+	}
+	return s.store.ListTargetSiteCoverageByEvents(ctx, orgID, eventUUIDs)
+}
+
 // runSelector runs the org-config → scope → candidate → classify →
 // build-plan pipeline shared by Preview and Start. Returns the resolved
 // candidate floor (for the decision snapshot) and the OrgConfig (so Start

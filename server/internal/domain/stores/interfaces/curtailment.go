@@ -218,6 +218,7 @@ type CurtailmentStore interface {
 	// complete; callers can then derive any required site context from the
 	// persisted event scope.
 	ListTargetSiteCoverageByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (models.TargetSiteCoverage, error)
+	ListTargetSiteCoverageByEvents(ctx context.Context, orgID int64, eventUUIDs []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error)
 	GetTargetRollupByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.TargetRollup, error)
 
 	// InsertEventWithTargets writes the event + every target row in one
