@@ -741,6 +741,8 @@ func shouldBatchHydrateTargetSiteCoverage(event *models.Event) bool {
 	case models.ScopeTypeMixed:
 		_, handled, err := mixedSiteOnlyEventResourceContexts(event)
 		return !handled && err == nil
+	case models.ScopeTypeWholeOrg, models.ScopeTypeSite:
+		return false
 	default:
 		return false
 	}
