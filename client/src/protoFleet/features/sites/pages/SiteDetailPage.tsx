@@ -125,6 +125,16 @@ const SiteDetailPage = () => {
   // UpdateSite + CreateBuilding require site:manage server-side.
   const canManageSites = useHasPermission("site:manage");
 
+  // The performance charts hit TelemetryService.GetCombinedMetrics, whose
+  // handler requires org-default `fleet:read` (an empty ResourceContext — it
+  // is NOT site-scoped, unlike GetSiteStats which authorizes the metrics row
+  // against the requested SiteID). A site-scoped operator can therefore reach
+  // this page and load the metrics row but would be denied the telemetry call,
+  // leaving the charts stuck loading. `useHasPermission` reads that same
+  // org-default authority, so gate the whole section on it: skip the fetch and
+  // hide the charts unless GetCombinedMetrics would actually succeed.
+  const canReadFleet = useHasPermission("fleet:read");
+
   const [buildingsRefreshKey, setBuildingsRefreshKey] = useState(0);
   const refetchBuildings = useCallback(() => setBuildingsRefreshKey((n) => n + 1), []);
   // Membership saves in ManageSiteModal also affect building rows, so share
@@ -164,10 +174,10 @@ const SiteDetailPage = () => {
       measurementTypes: ALL_MEASUREMENT_TYPES,
       aggregations: ALL_AGGREGATION_TYPES,
       duration,
-      enabled: siteId !== undefined,
+      enabled: siteId !== undefined && canReadFleet,
       pollIntervalMs: POLL_INTERVAL_MS,
     }),
-    [telemetrySiteIds, duration, siteId],
+    [telemetrySiteIds, duration, siteId, canReadFleet],
   );
   const { data: telemetryData } = useTelemetryMetrics(telemetryOptions);
   // `undefined` while the first response is in flight (skeletons); a defined
@@ -333,65 +343,67 @@ const SiteDetailPage = () => {
             )}
           </div>
         </div>
-        <div className="flex flex-col gap-4" data-testid="site-detail-performance">
-          <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
-            <div className="tablet:flex-1">
-              <Header title="Performance" titleSize="text-heading-200" />
-            </div>
-            <div className="flex items-center gap-6 text-200 text-core-primary-50">
-              <div className="flex items-center gap-2">
-                <svg width="24" height="4">
-                  <line
-                    x1="0"
-                    y1="2"
-                    x2="24"
-                    y2="2"
-                    stroke="var(--color-core-primary-fill)"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <span>Site</span>
+        {canReadFleet ? (
+          <div className="flex flex-col gap-4" data-testid="site-detail-performance">
+            <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
+              <div className="tablet:flex-1">
+                <Header title="Performance" titleSize="text-heading-200" />
               </div>
-              <div className="flex items-center gap-2">
-                <svg width="24" height="4">
-                  <line
-                    x1="0"
-                    y1="2"
-                    x2="24"
-                    y2="2"
-                    stroke="var(--color-core-primary-50)"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeDasharray="1 6"
-                    strokeOpacity="0.5"
-                  />
-                </svg>
-                <span>Max</span>
+              <div className="flex items-center gap-6 text-200 text-core-primary-50">
+                <div className="flex items-center gap-2">
+                  <svg width="24" height="4">
+                    <line
+                      x1="0"
+                      y1="2"
+                      x2="24"
+                      y2="2"
+                      stroke="var(--color-core-primary-fill)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <span>Site</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <svg width="24" height="4">
+                    <line
+                      x1="0"
+                      y1="2"
+                      x2="24"
+                      y2="2"
+                      stroke="var(--color-core-primary-50)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeDasharray="1 6"
+                      strokeOpacity="0.5"
+                    />
+                  </svg>
+                  <span>Max</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <svg width="24" height="4">
+                    <line
+                      x1="0"
+                      y1="2"
+                      x2="24"
+                      y2="2"
+                      stroke="var(--color-intent-critical-fill)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeDasharray="1 6"
+                      strokeOpacity="0.5"
+                    />
+                  </svg>
+                  <span>Min</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <svg width="24" height="4">
-                  <line
-                    x1="0"
-                    y1="2"
-                    x2="24"
-                    y2="2"
-                    stroke="var(--color-intent-critical-fill)"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeDasharray="1 6"
-                    strokeOpacity="0.5"
-                  />
-                </svg>
-                <span>Min</span>
+              <div className="flex items-center tablet:flex-1 tablet:justify-end">
+                <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
               </div>
             </div>
-            <div className="flex items-center tablet:flex-1 tablet:justify-end">
-              <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
-            </div>
+            <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
           </div>
-          <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
-        </div>
+        ) : null}
       </div>
       <SiteModals modals={modals} sites={sites} buildingsRefreshKey={buildingsRefreshKey} />
       <BuildingModals modals={buildingModals} sites={sites} />

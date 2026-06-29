@@ -102,6 +102,9 @@ describe("SiteDetailPage", () => {
     vi.clearAllMocks();
     useFleetStore.setState((state) => {
       state.ui.activeSite = DEFAULT_ACTIVE_SITE;
+      // Reset per-test so the performance section's fleet:read gate starts
+      // from a known (denied) baseline; tests opt in explicitly.
+      state.auth.permissions = [];
     });
     listSitesMock.mockImplementation(({ onSuccess }: { onSuccess: (sites: SiteWithCounts[]) => void }) =>
       onSuccess([makeSite(7n, "Dallas"), makeSite(8n, "Austin")]),
@@ -130,7 +133,11 @@ describe("SiteDetailPage", () => {
     );
   });
 
-  it("renders the performance section scoped to the resolved site", async () => {
+  it("renders the performance section scoped to the resolved site for fleet:read operators", async () => {
+    useFleetStore.setState((state) => {
+      state.auth.permissions = ["fleet:read"];
+    });
+
     renderPage("/sites/7");
 
     expect(await screen.findByTestId("site-detail-performance")).toBeInTheDocument();
@@ -139,6 +146,19 @@ describe("SiteDetailPage", () => {
     await waitFor(() =>
       expect(useTelemetryMetricsMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [7n], enabled: true })),
     );
+  });
+
+  it("hides the performance section and disables telemetry without fleet:read", async () => {
+    // Site-scoped operators (site:read only) can load the metrics row but
+    // GetCombinedMetrics requires org-default fleet:read, so the section is
+    // gated and the telemetry fetch must stay disabled rather than poll a
+    // request the server will deny.
+    renderPage("/sites/7");
+
+    // Metrics row still renders for the site-scoped operator.
+    expect(await screen.findByTestId("site-detail-metrics-row")).toBeInTheDocument();
+    expect(screen.queryByTestId("site-detail-performance")).not.toBeInTheDocument();
+    expect(useTelemetryMetricsMock).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
   });
 
   it("updates active site before navigating to a breadcrumb sibling site", async () => {
