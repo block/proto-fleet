@@ -60,9 +60,7 @@ describe("ManageSiteModal", () => {
       />,
     );
 
-    // FullScreenTwoPaneModal renders the button twice (laptop + mobile);
-    // click the first instance.
-    fireEvent.click(screen.getAllByTestId("manage-site-modal-save")[0]);
+    fireEvent.click(screen.getByTestId("manage-site-modal-save"));
 
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     await waitFor(() => expect(onDismiss).toHaveBeenCalled());
@@ -85,7 +83,7 @@ describe("ManageSiteModal", () => {
       />,
     );
 
-    expect(screen.getAllByTestId("manage-site-modal-save")[0]).toBeDisabled();
+    expect(screen.getByTestId("manage-site-modal-save")).toBeDisabled();
   });
 
   it("Site settings fires the parent callback", () => {
@@ -144,7 +142,7 @@ describe("ManageSiteModal", () => {
     expect(screen.getAllByTestId("manage-site-modal-manage-buildings")[0]).toBeEnabled();
     expect(screen.getAllByTestId("manage-site-modal-empty-state-add")[0]).toBeEnabled();
     // Save is allowed immediately (creates the site with an empty building set).
-    expect(screen.getAllByTestId("manage-site-modal-save")[0]).toBeEnabled();
+    expect(screen.getByTestId("manage-site-modal-save")).toBeEnabled();
   });
 
   it("shows comma-separated meta on each corner of the preview", () => {

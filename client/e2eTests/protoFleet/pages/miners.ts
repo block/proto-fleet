@@ -201,6 +201,15 @@ export class MinersPage extends BasePage {
     await expect(columnLocator).toHaveText(expectedValue);
   }
 
+  async getMinerColumnText(ipAddress: string, columnTestId: string): Promise<string> {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    const text = await minerRow
+      .getByTestId(columnTestId)
+      .textContent()
+      .catch(() => null);
+    return text?.trim() ?? "";
+  }
+
   async validateMinerIcon(minerIp: string, columnTestId: string, iconId: IssueIconId) {
     const minerRow = await this.getMinerRowByIp(minerIp);
     const columnLocator = minerRow.locator(`//td[@data-testid='${columnTestId}']`);
@@ -384,7 +393,7 @@ export class MinersPage extends BasePage {
   }
 
   async clickBulkWorkerNameSave() {
-    await this.page.locator('[data-testid="bulk-worker-name-save-button"]:visible').click();
+    await this.bulkWorkerNameSaveButton().click();
   }
 
   async validateBulkWorkerNameModalOpened() {
@@ -392,7 +401,7 @@ export class MinersPage extends BasePage {
   }
 
   async validateBulkWorkerNameSaveLabel(expectedLabel: string) {
-    await expect(this.page.locator('[data-testid="bulk-worker-name-save-button"]:visible')).toHaveText(expectedLabel);
+    await expect(this.bulkWorkerNameSaveButton()).toHaveText(expectedLabel);
   }
 
   async closeBulkWorkerNameModal() {
@@ -731,7 +740,7 @@ export class MinersPage extends BasePage {
   }
 
   async clickBulkRenameSave() {
-    await this.page.getByTestId("bulk-rename-save-button").filter({ visible: true }).click();
+    await this.bulkRenameSaveButton().click();
   }
 
   async selectBulkRenameSeparator(separatorId: string) {
@@ -1258,6 +1267,16 @@ export class MinersPage extends BasePage {
 
   private kebabPopover(): Locator {
     return this.page.getByTestId("fleet-view-tabs-kebab-popover");
+  }
+
+  private bulkWorkerNameSaveButton(): Locator {
+    return this.page.getByTestId(
+      this.isMobile ? "bulk-worker-name-save-button-mobile" : "bulk-worker-name-save-button",
+    );
+  }
+
+  private bulkRenameSaveButton(): Locator {
+    return this.page.getByTestId(this.isMobile ? "bulk-rename-save-button-mobile" : "bulk-rename-save-button");
   }
 
   private async openViewsPopover() {

@@ -48,14 +48,16 @@ const OverflowActionSheet = ({ overflowButtons, onClose }: { overflowButtons: Bu
   const dangerItems = overflowButtons.filter((b) => isDangerVariant(b.variant));
 
   return (
-    <div className="fixed inset-0 z-60 flex items-end bg-grayscale-gray-5">
+    <div className="fixed inset-0 z-60 flex items-end bg-grayscale-gray-5" data-testid="full-screen-overflow-sheet">
       <div
         ref={sheetRef}
+        data-testid="full-screen-overflow-sheet-content"
         className="w-full rounded-t-2xl bg-surface-elevated-base px-6 pt-2 pb-[max(env(safe-area-inset-bottom),16px)]"
       >
         {nonDangerItems.map((button, index) => (
           <Row
             key={`${button.text}-${index}`}
+            testId={button.testId ? `${button.testId}-overflow-item` : undefined}
             className={clsx("text-emphasis-300 text-text-primary", button.disabled && "pointer-events-none opacity-40")}
             onClick={
               button.disabled
@@ -76,6 +78,7 @@ const OverflowActionSheet = ({ overflowButtons, onClose }: { overflowButtons: Bu
         {dangerItems.map((button, index) => (
           <Row
             key={`danger-${button.text}-${index}`}
+            testId={button.testId ? `${button.testId}-overflow-item` : undefined}
             className={clsx(
               "text-emphasis-300 text-intent-critical-fill",
               button.disabled && "pointer-events-none opacity-40",
@@ -159,7 +162,10 @@ const FullScreenTwoPaneModal = ({
   }
 
   if (primaryButton) {
-    mobileButtons.push(primaryButton);
+    mobileButtons.push({
+      ...primaryButton,
+      testId: primaryButton.testId ? `${primaryButton.testId}-mobile` : undefined,
+    });
   }
 
   const effectiveOnDismiss = isBusy ? undefined : onDismiss;
