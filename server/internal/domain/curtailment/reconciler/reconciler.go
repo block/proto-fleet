@@ -1401,8 +1401,8 @@ func restoreClaimBatchSize(ev *models.Event, targets []*models.Target) int32 {
 			if t.State != models.TargetStatePending && t.State != models.TargetStateDispatching {
 				continue
 			}
-			if pending == math.MaxInt32 {
-				return math.MaxInt32
+			if pending == curtailment.RestoreBatchSizeMax {
+				return curtailment.RestoreBatchSizeMax
 			}
 			pending++
 		}

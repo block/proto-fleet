@@ -18,7 +18,13 @@ const (
 	DefaultResponseProfileCurtailBatchIntervalSec int32 = 0
 	MaxPostEventCooldownSec                       int32 = 24 * 60 * 60
 
-	responseProfileBatchSizeMax int32   = 10000
+	// RestoreBatchSizeMax is the explicit safety limit for one restore wave.
+	// Positive restore_batch_size inputs are bounded to this value; immediate
+	// restore uses the same ceiling instead of reintroducing hidden adaptive
+	// clamps.
+	RestoreBatchSizeMax int32 = 10000
+
+	responseProfileBatchSizeMax int32   = RestoreBatchSizeMax
 	responseProfileNumericMax   float64 = 999999999.999
 )
 

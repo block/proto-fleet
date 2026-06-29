@@ -1185,6 +1185,13 @@ func validateStartRequest(req StartRequest) error {
 			"restore_batch_size must be >= 0, got %d", req.RestoreBatchSize,
 		)
 	}
+	if req.RestoreBatchSize > RestoreBatchSizeMax {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"restore_batch_size must be <= %d, got %d",
+			RestoreBatchSizeMax,
+			req.RestoreBatchSize,
+		)
+	}
 	if req.CurtailBatchSize != nil && *req.CurtailBatchSize <= 0 {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"curtail_batch_size must be > 0 when set, got %d",
@@ -1939,14 +1946,17 @@ func checkMinCurtailedDurationGate(event *models.Event, force bool, now time.Tim
 
 // ComputeEffectiveBatchSize returns the restore batch size stamped at Start.
 // restore_batch_size=0 is explicit immediate restore: claim every currently
-// selected target in one wave. Positive values are the caller's explicit
-// restore wave size.
+// selected target in one wave up to RestoreBatchSizeMax. Positive values are
+// the caller's explicit restore wave size.
 func ComputeEffectiveBatchSize(restoreBatchSize, nonTerminalCount int32) int32 {
 	if restoreBatchSize <= 0 {
-		if nonTerminalCount > 0 {
-			return nonTerminalCount
+		if nonTerminalCount <= 0 {
+			return 0
 		}
-		return 0
+		if nonTerminalCount > RestoreBatchSizeMax {
+			return RestoreBatchSizeMax
+		}
+		return nonTerminalCount
 	}
 	return restoreBatchSize
 }

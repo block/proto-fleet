@@ -181,7 +181,7 @@ const fieldHelp = {
   curtailBatchSize: "Number of miners to shut down in each wave.",
   curtailBatchInterval: "Seconds to wait between each curtailment wave.",
   restoreBatchSize:
-    "Number of miners to bring back online in each wave. 0 or blank restores all pending miners in one wave.",
+    "Number of miners to bring back online in each wave. 0 or blank restores pending miners up to the safety limit.",
   restoreBatchInterval: "Seconds to wait between each restore wave. 0 or blank means no wait.",
 } as const;
 const defaultValues: CurtailmentFormValues = {

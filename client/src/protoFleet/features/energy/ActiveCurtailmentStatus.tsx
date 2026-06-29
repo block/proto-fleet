@@ -302,7 +302,7 @@ function formatRestoreProfile(
   event: Pick<ActiveCurtailmentEvent, "restoreBatchSize" | "restoreBatchIntervalSec">,
 ): string {
   if (event.restoreBatchSize === 0) {
-    return "All pending immediately";
+    return "Up to safety limit immediately";
   }
   if (event.restoreBatchIntervalSec === 0) {
     return `${formatMinerCount(event.restoreBatchSize)} with no wait`;

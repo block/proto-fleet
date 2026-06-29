@@ -69,7 +69,7 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expect(screen.getByText("All pending immediately")).toBeVisible();
+    expect(screen.getByText("Up to safety limit immediately")).toBeVisible();
   });
 
   it("renders a pending event with stop available", async () => {

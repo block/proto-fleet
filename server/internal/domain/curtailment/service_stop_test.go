@@ -321,6 +321,7 @@ func TestComputeEffectiveBatchSize(t *testing.T) {
 		want             int32
 	}{
 		{"immediate_restore_claims_all_pending", 0, 50, 50},
+		{"immediate_restore_is_safety_limited", 0, RestoreBatchSizeMax + 1, RestoreBatchSizeMax},
 		{"immediate_restore_empty_selection_is_zero", 0, 0, 0},
 		{"positive_restore_batch_size_used_verbatim", 10, 5000, 10},
 		{"positive_restore_batch_size_not_clamped_at_100", 250, 10_000, 250},

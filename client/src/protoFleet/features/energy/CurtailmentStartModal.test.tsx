@@ -366,7 +366,7 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByRole("button", { name: "About restore batch size" }));
     expect(
       screen.getByText(
-        "Number of miners to bring back online in each wave. 0 or blank restores all pending miners in one wave.",
+        "Number of miners to bring back online in each wave. 0 or blank restores pending miners up to the safety limit.",
       ),
     ).toBeInTheDocument();
 
@@ -1139,7 +1139,7 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByRole("button", { name: "About restore batch size" }));
     expect(
       screen.getByText(
-        "Number of miners to bring back online in each wave. 0 or blank restores all pending miners in one wave.",
+        "Number of miners to bring back online in each wave. 0 or blank restores pending miners up to the safety limit.",
       ),
     ).toBeInTheDocument();
 

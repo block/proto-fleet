@@ -214,6 +214,17 @@ func TestService_Start_RejectsNegativeRestoreBatchSize(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
+func TestService_Start_RejectsOversizedRestoreBatchSize(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.RestoreBatchSize = RestoreBatchSizeMax + 1
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "restore_batch_size")
+}
+
 func TestService_Start_PersistsZeroRestoreBatchInterval(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
@@ -769,6 +780,7 @@ func TestService_Start_StampsEffectiveBatchSize(t *testing.T) {
 		want             int32
 	}{
 		{"immediate_restore_claims_all_selected", 0, 5, 5},
+		{"immediate_restore_is_safety_limited", 0, int(RestoreBatchSizeMax) + 1, RestoreBatchSizeMax},
 		{"positive_restore_batch_size_used_verbatim", 60, 5, 60},
 		{"positive_restore_batch_size_not_increased_by_large_fleet", 10, 5000, 10},
 		{"positive_restore_batch_size_not_clamped_at_100", 250, 10_000, 250},
