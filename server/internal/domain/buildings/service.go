@@ -248,6 +248,24 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 					r.RackLabel, *r.AisleIndex+1, *r.PositionInAisle+1, params.Aisles, params.RacksPerAisle,
 				)
 			}
+			// The orphan scan above only catches PLACED racks outside the
+			// new bounds; unplaced members slip past it. Bound total
+			// membership too, so shrinking below the rack count can't leave
+			// the building over capacity (the same invariant
+			// AssignRacksToBuilding enforces). Skipped when the new grid is
+			// unconfigured (capacity 0).
+			if capacity := gridCapacity(params.Aisles, params.RacksPerAisle); capacity > 0 {
+				members, err := s.store.CountRacksInBuilding(txCtx, params.OrgID, params.ID)
+				if err != nil {
+					return err
+				}
+				if members > capacity {
+					return fleeterror.NewInvalidArgumentErrorf(
+						"cannot shrink layout: building has %d racks but the new %d aisles × %d racks-per-aisle grid holds only %d; unassign some racks first",
+						members, params.Aisles, params.RacksPerAisle, capacity,
+					)
+				}
+			}
 		}
 		updated, err := s.store.UpdateBuilding(txCtx, params)
 		if err != nil {
@@ -578,8 +596,7 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 		// max_items, and the per-cell check above still rejects placement
 		// into a 0-cell grid.
 		if targetBuilding != nil {
-			capacity := int64(targetBuilding.Aisles) * int64(targetBuilding.RacksPerAisle)
-			if capacity > 0 {
+			if capacity := gridCapacity(targetBuilding.Aisles, targetBuilding.RacksPerAisle); capacity > 0 {
 				existing, err := s.store.CountRacksInBuilding(txCtx, params.OrgID, *params.TargetBuildingID)
 				if err != nil {
 					return nil, err
@@ -770,6 +787,17 @@ func validateLayoutBounds(aisles, racksPerAisle int32) error {
 		return fleeterror.NewInvalidArgumentErrorf("racks_per_aisle must be ≤ %d (got %d)", layoutDimensionMax, racksPerAisle)
 	}
 	return nil
+}
+
+// gridCapacity is the number of rack positions a building's grid holds.
+// 0 means the layout is unconfigured (aisles or racks_per_aisle still 0):
+// there is no geometric limit to enforce yet, so callers treat 0 as
+// "unbounded" and skip the membership cap. A building has no "floating
+// beyond capacity" state once a grid exists — every write path that grows
+// membership (AssignRacksToBuilding, the SaveRack placement path, and a
+// shrinking UpdateBuilding) bounds total members against this.
+func gridCapacity(aisles, racksPerAisle int32) int64 {
+	return int64(aisles) * int64(racksPerAisle)
 }
 
 func int64PtrEqual(a, b *int64) bool {

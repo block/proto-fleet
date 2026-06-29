@@ -47,7 +47,7 @@ const MAX_DEVICE_BATCH = 10000;
 // freezes the browser long before the save-time capacity guard fires. Cap
 // at the absolute max before ManageRackModal mounts — the exact
 // chosen-capacity check still runs at save once rows×columns are picked.
-const MAX_RACK_CAPACITY = 144;
+const MAX_RACK_CAPACITY = 12 * 12;
 
 // A seed that moves racked miners into a new building/site sends
 // forceClearConflictingRackMembership, which the server gates on rack:manage.

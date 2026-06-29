@@ -830,6 +830,39 @@ func TestUpdateBuilding_rejectsShrinkThatOrphansPlacement(t *testing.T) {
 	}
 }
 
+// A shrink can pass the placed-rack orphan scan (all excess members are
+// unplaced) yet still leave total membership over the new grid. The
+// membership cap catches that, mirroring AssignRacksToBuilding.
+func TestUpdateBuilding_rejectsShrinkBelowMemberCount(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
+	store.EXPECT().GetBuilding(inTxCtx, testOrgID, int64(11)).
+		Return(&models.Building{ID: 11, Aisles: 5, RacksPerAisle: 6}, nil)
+	// No placed racks fall outside the new 1×1 bounds…
+	store.EXPECT().ListRacksOutsideBuildingBounds(inTxCtx, testOrgID, int64(11), int32(1), int32(1)).
+		Return([]models.BuildingRack{}, nil)
+	// …but the building still holds 3 (unplaced) members, over the 1-cell grid.
+	store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, int64(11)).Return(int64(3), nil)
+	// UpdateBuilding must NOT be called when the membership cap rejects.
+
+	_, err := svc.UpdateBuilding(context.Background(), models.UpdateParams{
+		OrgID:                 testOrgID,
+		ID:                    11,
+		Name:                  "shrunk",
+		Aisles:                1,
+		RacksPerAisle:         1,
+		DefaultRackOrderIndex: models.RackOrderIndexBottomLeft,
+	})
+	if !fleeterror.IsInvalidArgumentError(err) {
+		t.Fatalf("expected InvalidArgument for shrink below member count, got %v", err)
+	}
+}
+
 // Service-edge bounds cap mirrors the proto buf.validate cap. Defense
 // in depth for non-proto callers (sdk / agent-native paths) that
 // bypass the wire validator.

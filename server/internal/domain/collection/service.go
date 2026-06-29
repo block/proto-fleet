@@ -168,6 +168,43 @@ func (s *Service) resolveAndLockRackPlacement(ctx context.Context, orgID int64, 
 	return siteID, buildingID, nil
 }
 
+// enforceBuildingRackCapacity rejects placing a rack into buildingID when
+// the building's grid (aisles×racks_per_aisle) is already full. netNew is
+// the count of racks newly joining the building: 1 for a create or a
+// move-in, 0 for a re-save that keeps the rack in the same building.
+//
+// A building has no "floating beyond capacity" state, so SaveRack — which
+// also writes device_set_rack.building_id via rack_info.building_id — must
+// honor the same cap that buildings.AssignRacksToBuilding enforces;
+// otherwise the assign-side guard is bypassable through the rack save path.
+// Skipped when buildingStore is unwired (placement-less test harnesses) or
+// the grid is unconfigured (capacity 0). Must run in-tx after the building
+// is locked (resolveAndLockRackPlacement) so the count can't race.
+func (s *Service) enforceBuildingRackCapacity(ctx context.Context, orgID, buildingID int64, netNew int) error {
+	if s.buildingStore == nil || netNew <= 0 {
+		return nil
+	}
+	b, err := s.buildingStore.GetBuilding(ctx, orgID, buildingID)
+	if err != nil {
+		return err
+	}
+	capacity := int64(b.Aisles) * int64(b.RacksPerAisle)
+	if capacity <= 0 {
+		return nil
+	}
+	existing, err := s.buildingStore.CountRacksInBuilding(ctx, orgID, buildingID)
+	if err != nil {
+		return err
+	}
+	if resulting := existing + int64(netNew); resulting > capacity {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"cannot assign racks: building has %d positions (%d aisles × %d racks per aisle) but %d racks would be assigned",
+			capacity, b.Aisles, b.RacksPerAisle, resulting,
+		)
+	}
+	return nil
+}
+
 // rackPlacementOmitted reports whether the caller omitted placement intent
 // (both ids nil). Explicit zero (unassign) returns false.
 func rackPlacementOmitted(rackInfo *pb.RackInfo) bool {
@@ -1727,7 +1764,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 	// write never persists more miners than the rack can ever hold.
 	if capacity := int(rackInfo.Rows) * int(rackInfo.Columns); len(deviceIdentifiers) > capacity {
 		return nil, fleeterror.NewInvalidArgumentErrorf(
-			"cannot assign %d miners to a rack with %d slots (%d×%d)",
+			"cannot assign %d miners to a rack with %d slot(s) (%d×%d)",
 			len(deviceIdentifiers), capacity, rackInfo.Rows, rackInfo.Columns,
 		)
 	}
@@ -1969,6 +2006,13 @@ func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *p
 		return nil, err
 	}
 
+	// A brand-new rack placed into a building is always a net-new member.
+	if newBuildingID != nil {
+		if err := s.enforceBuildingRackCapacity(ctx, info.OrganizationID, *newBuildingID, 1); err != nil {
+			return nil, err
+		}
+	}
+
 	// targetRackID 0: the rack doesn't exist yet, so the pre-pass locks only
 	// the source racks the members currently sit in. Runs after placement
 	// resolution above and before the membership writes below.
@@ -2070,6 +2114,17 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 		}
 		current, err = s.collectionStore.LockRackPlacementForWrite(ctx, collectionID, info.OrganizationID)
 		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Capacity guard: only a move INTO a different building is a net-new
+	// member. A re-save that keeps the rack in its current building (or the
+	// omitted-placement branch, where newBuildingID == current.BuildingID)
+	// is net-zero and must not be rejected just because the building is
+	// already at capacity.
+	if newBuildingID != nil && !int64PtrEqual(current.BuildingID, newBuildingID) {
+		if err := s.enforceBuildingRackCapacity(ctx, info.OrganizationID, *newBuildingID, 1); err != nil {
 			return nil, err
 		}
 	}

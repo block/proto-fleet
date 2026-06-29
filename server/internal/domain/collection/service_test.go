@@ -8,6 +8,7 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -1255,7 +1256,50 @@ func TestService_SaveRack_RejectsOverCapacity(t *testing.T) {
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "cannot assign 2 miners to a rack with 1 slots")
+	assert.Contains(t, err.Error(), "cannot assign 2 miners to a rack with 1 slot(s)")
+}
+
+// Building capacity guard on the SaveRack placement path: creating a rack
+// into a building that's already at grid capacity is rejected, so the
+// AssignRacksToBuilding cap can't be bypassed through rack_info.building_id.
+func TestService_SaveRack_RejectsCreateIntoFullBuilding(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := mocks.NewMockCollectionStore(ctrl)
+	mockSiteStore := mocks.NewMockSiteStore(ctrl)
+	mockBuildingStore := mocks.NewMockBuildingStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
+	).AnyTimes()
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return []string{}, nil
+	}
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, mockBuildingStore, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	ctx := testCtx(t)
+
+	buildingID := int64(7)
+	// resolveAndLockRackPlacement peeks then re-reads the building's site
+	// under the lock; the building is site-less here.
+	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, buildingID).Return(nil, nil).Times(2)
+	mockSiteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, buildingID).Return(nil)
+	// 1×1 building already holding its single rack → full.
+	mockBuildingStore.EXPECT().GetBuilding(gomock.Any(), testOrgID, buildingID).
+		Return(&buildingsmodels.Building{ID: buildingID, Aisles: 1, RacksPerAisle: 1}, nil)
+	mockBuildingStore.EXPECT().CountRacksInBuilding(gomock.Any(), testOrgID, buildingID).Return(int64(1), nil)
+	// CreateCollection must NOT run — the closure aborts at the cap.
+
+	_, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		Label: "New rack",
+		RackInfo: &pb.RackInfo{
+			Rows: 2, Columns: 2, Zone: "Z1",
+			BuildingId:  &buildingID,
+			OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+			CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+		},
+	})
+	if !fleeterror.IsInvalidArgumentError(err) {
+		t.Fatalf("expected InvalidArgument creating a rack into a full building, got %v", err)
+	}
 }
 
 func TestService_SaveRack_SlotAssignmentReferencesUnknownDevice(t *testing.T) {
