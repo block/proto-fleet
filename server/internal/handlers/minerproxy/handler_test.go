@@ -1,8 +1,10 @@
 package minerproxy
 
 import (
+	"database/sql"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 )
@@ -88,6 +90,52 @@ func TestPermissionFor(t *testing.T) {
 				t.Fatalf("permissionFor(%q, %q) = %q, want %q", tt.method, tt.proxyPath, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestHasCredentials(t *testing.T) {
+	tests := []struct {
+		name        string
+		passwordEnc sql.NullString
+		want        bool
+	}{
+		{name: "valid non-empty password", passwordEnc: sql.NullString{String: "enc", Valid: true}, want: true},
+		{name: "valid but empty password", passwordEnc: sql.NullString{String: "", Valid: true}, want: false},
+		{name: "null password", passwordEnc: sql.NullString{Valid: false}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target := proxyTarget{passwordEnc: tt.passwordEnc}
+			if got := target.hasCredentials(); got != tt.want {
+				t.Fatalf("hasCredentials() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLookupTokenEvictsExpired(t *testing.T) {
+	h := &Handler{tokens: map[string]cachedToken{
+		"device-1": {token: "stale", expiresAt: time.Now().Add(-time.Minute)},
+	}}
+
+	if token, ok := h.lookupToken("device-1"); ok || token != "" {
+		t.Fatalf("lookupToken returned (%q, %v), want expired miss", token, ok)
+	}
+	if _, exists := h.tokens["device-1"]; exists {
+		t.Fatal("expired entry should be deleted on lookup")
+	}
+}
+
+func TestStoreTokenStaysBounded(t *testing.T) {
+	h := &Handler{tokens: make(map[string]cachedToken)}
+
+	for i := range maxCachedTokens + 100 {
+		h.storeToken(string(rune(i)), "token")
+	}
+
+	if len(h.tokens) > maxCachedTokens {
+		t.Fatalf("token cache size = %d, want <= %d", len(h.tokens), maxCachedTokens)
 	}
 }
 

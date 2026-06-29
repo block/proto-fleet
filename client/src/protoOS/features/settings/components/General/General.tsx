@@ -2,6 +2,7 @@ import { motion } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
 import MinerSystemTagEditModal from "./MinerSystemTagEditModal";
 import { useSystemTag } from "@/protoOS/api";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import CheckForUpdate from "@/protoOS/features/firmwareUpdate/components/CheckForUpdate";
 import {
   useAccessToken,
@@ -38,13 +39,15 @@ const General = () => {
   const systemInfo = useSystemInfo();
   const isProtoRig = useIsProtoRig();
   const { getSystemTag } = useSystemTag();
+  const { mode } = useMinerHosting();
+  const isFleetHosted = mode === "fleet";
 
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
   const dismissedLoginModal = useDismissedLoginModal();
   const setDismissedLoginModal = useSetDismissedLoginModal();
   const { checkAccess, hasAccess } = useAccessToken(
-    pausedAuthAction === AUTH_ACTIONS.systemTag && !dismissedLoginModal,
+    !isFleetHosted && pausedAuthAction === AUTH_ACTIONS.systemTag && !dismissedLoginModal,
   );
 
   useEffect(() => {
@@ -54,9 +57,15 @@ const General = () => {
   }, [getSystemTag]);
 
   const handleMinerIdClick = useCallback(() => {
+    // Fleet-hosted: the server proxy authenticates to the miner, so open the
+    // edit modal directly instead of gating on a client miner token.
+    if (isFleetHosted) {
+      setShowMinerSystemTagEditModal(true);
+      return;
+    }
     setPausedAuthAction(AUTH_ACTIONS.systemTag);
     checkAccess();
-  }, [setPausedAuthAction, checkAccess]);
+  }, [isFleetHosted, setPausedAuthAction, checkAccess]);
 
   // useAccessToken doesn't support callbacks, so we must watch hasAccess to
   // know when auth succeeds (same pattern used by PowerTarget).

@@ -33,7 +33,18 @@ const (
 	proxyClientTimeout    = 30 * time.Second
 	maxProxyBodyBytes     = 64 << 20
 	defaultProtoURLScheme = "http"
+	// Cached tokens are a latency optimization, not a source of truth: a 401
+	// from the miner already forces a fresh login. The TTL caps how long a
+	// stale entry lingers, and the size bound stops the cache from growing
+	// without limit as devices churn over a long-running server's lifetime.
+	tokenCacheTTL   = 30 * time.Minute
+	maxCachedTokens = 8192
 )
+
+type cachedToken struct {
+	token     string
+	expiresAt time.Time
+}
 
 type errorResponse struct {
 	Error string `json:"error"`
@@ -57,7 +68,7 @@ type Handler struct {
 	httpsClient        *http.Client
 
 	tokenMu sync.Mutex
-	tokens  map[string]string
+	tokens  map[string]cachedToken
 }
 
 type proxyTarget struct {
@@ -65,6 +76,13 @@ type proxyTarget struct {
 	baseURL          string
 	siteID           *int64
 	passwordEnc      sql.NullString
+}
+
+// hasCredentials reports whether the target has a usable stored password. An
+// encrypted password that is present-but-empty counts as no credentials, so
+// the proxy forwards unauthenticated rather than attempting a doomed login.
+func (t proxyTarget) hasCredentials() bool {
+	return t.passwordEnc.Valid && t.passwordEnc.String != ""
 }
 
 func NewHandler(
@@ -82,7 +100,7 @@ func NewHandler(
 		encryptService:     encryptService,
 		httpClient:         newProxyHTTPClient(false),
 		httpsClient:        newProxyHTTPClient(true),
-		tokens:             make(map[string]string),
+		tokens:             make(map[string]cachedToken),
 	}
 }
 
@@ -160,7 +178,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusUnauthorized && target.passwordEnc.Valid {
+	if resp.StatusCode == http.StatusUnauthorized && target.hasCredentials() {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		h.clearToken(target.deviceIdentifier)
 		resp.Body.Close()
@@ -298,15 +316,12 @@ func (h *Handler) forward(
 }
 
 func (h *Handler) tokenFor(ctx context.Context, target proxyTarget, forceLogin bool) (string, error) {
-	if !target.passwordEnc.Valid || target.passwordEnc.String == "" {
+	if !target.hasCredentials() {
 		return "", nil
 	}
 
 	if !forceLogin {
-		h.tokenMu.Lock()
-		token := h.tokens[target.deviceIdentifier]
-		h.tokenMu.Unlock()
-		if token != "" {
+		if token, ok := h.lookupToken(target.deviceIdentifier); ok {
 			return token, nil
 		}
 	}
@@ -321,10 +336,50 @@ func (h *Handler) tokenFor(ctx context.Context, target proxyTarget, forceLogin b
 		return "", err
 	}
 
-	h.tokenMu.Lock()
-	h.tokens[target.deviceIdentifier] = token
-	h.tokenMu.Unlock()
+	h.storeToken(target.deviceIdentifier, token)
 	return token, nil
+}
+
+func (h *Handler) lookupToken(deviceIdentifier string) (string, bool) {
+	h.tokenMu.Lock()
+	defer h.tokenMu.Unlock()
+	entry, ok := h.tokens[deviceIdentifier]
+	if !ok {
+		return "", false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(h.tokens, deviceIdentifier)
+		return "", false
+	}
+	return entry.token, true
+}
+
+func (h *Handler) storeToken(deviceIdentifier string, token string) {
+	h.tokenMu.Lock()
+	defer h.tokenMu.Unlock()
+	if _, exists := h.tokens[deviceIdentifier]; !exists && len(h.tokens) >= maxCachedTokens {
+		h.evictForRoomLocked()
+	}
+	h.tokens[deviceIdentifier] = cachedToken{token: token, expiresAt: time.Now().Add(tokenCacheTTL)}
+}
+
+// evictForRoomLocked drops expired entries first; if the cache is still at
+// capacity it removes a single arbitrary entry to make room. Re-login on the
+// next request restores any token evicted prematurely. Callers hold tokenMu.
+func (h *Handler) evictForRoomLocked() {
+	now := time.Now()
+	for id, entry := range h.tokens {
+		if now.After(entry.expiresAt) {
+			delete(h.tokens, id)
+		}
+	}
+	if len(h.tokens) < maxCachedTokens {
+		return
+	}
+	for id := range h.tokens {
+		delete(h.tokens, id)
+		return
+	}
 }
 
 func (h *Handler) clearToken(deviceIdentifier string) {
