@@ -179,7 +179,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxyPath := "/api/v1/" + rest
-	if isUnproxyableEndpoint(proxyPath) {
+	if isUnproxyableEndpoint(r.Method, proxyPath) {
 		writeError(w, http.StatusForbidden, "this miner endpoint is managed by Fleet and cannot be changed from the embedded view")
 		return
 	}
@@ -490,15 +490,33 @@ func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 }
 
 // isUnproxyableEndpoint rejects endpoints that must not be reverse-proxied
-// because forwarding them blindly would desync Fleet's own state. Miner
-// password changes go through the dedicated Fleet UpdateMinerPassword command,
-// which re-encrypts and persists the new password, clears cached tokens, and
-// updates pairing/remediation state atomically with the miner-side change. A
-// password change forwarded through the generic proxy would succeed on the
-// miner while Fleet kept the stale password, eventually locking Fleet out.
-func isUnproxyableEndpoint(proxyPath string) bool {
+// because forwarding them blindly would either desync Fleet's own state or
+// bypass a dedicated Fleet flow that carries controls the generic proxy can't:
+//
+//   - Password changes (/api/v1/auth/password, /api/v1/auth/change-password)
+//     go through the Fleet UpdateMinerPassword command, which re-encrypts and
+//     persists the new password, clears cached tokens, and reconciles pairing
+//     state. Forwarded blindly they would leave Fleet on the stale password.
+//   - Pool mutations go through the Fleet UpdateMiningPools command, which
+//     requires step-up re-auth, runs SV2 preflight + worker-name composition,
+//     and records dispatch/audit state. The proxy enforces none of that, so a
+//     direct pool write would be an unaudited path to change payout addresses.
+//
+// Pool reads stay proxyable; only mutating methods are blocked there.
+func isUnproxyableEndpoint(method string, proxyPath string) bool {
 	switch proxyPath {
 	case "/api/v1/auth/password", "/api/v1/auth/change-password":
+		return true
+	}
+	if isWriteMethod(method) && strings.HasPrefix(proxyPath, "/api/v1/pools") {
+		return true
+	}
+	return false
+}
+
+func isWriteMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 		return true
 	default:
 		return false

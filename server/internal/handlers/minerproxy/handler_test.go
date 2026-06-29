@@ -96,18 +96,28 @@ func TestPermissionsFor(t *testing.T) {
 }
 
 func TestIsUnproxyableEndpoint(t *testing.T) {
-	blocked := []string{"/api/v1/auth/password", "/api/v1/auth/change-password"}
-	for _, p := range blocked {
-		if !isUnproxyableEndpoint(p) {
-			t.Fatalf("isUnproxyableEndpoint(%q) = false, want true (password changes must use Fleet's flow)", p)
-		}
+	tests := []struct {
+		name      string
+		method    string
+		proxyPath string
+		want      bool
+	}{
+		{name: "password set blocked", method: http.MethodPut, proxyPath: "/api/v1/auth/password", want: true},
+		{name: "change password blocked", method: http.MethodPut, proxyPath: "/api/v1/auth/change-password", want: true},
+		{name: "pool write blocked (put)", method: http.MethodPut, proxyPath: "/api/v1/pools/1", want: true},
+		{name: "pool write blocked (post)", method: http.MethodPost, proxyPath: "/api/v1/pools", want: true},
+		{name: "pool delete blocked", method: http.MethodDelete, proxyPath: "/api/v1/pools/1", want: true},
+		{name: "pool read allowed", method: http.MethodGet, proxyPath: "/api/v1/pools", want: false},
+		{name: "login allowed", method: http.MethodPost, proxyPath: "/api/v1/auth/login", want: false},
+		{name: "refresh allowed", method: http.MethodPost, proxyPath: "/api/v1/auth/refresh", want: false},
+		{name: "tag write allowed", method: http.MethodPut, proxyPath: "/api/v1/system/tag", want: false},
 	}
-
-	allowed := []string{"/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout", "/api/v1/system/tag"}
-	for _, p := range allowed {
-		if isUnproxyableEndpoint(p) {
-			t.Fatalf("isUnproxyableEndpoint(%q) = true, want false", p)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isUnproxyableEndpoint(tt.method, tt.proxyPath); got != tt.want {
+				t.Fatalf("isUnproxyableEndpoint(%q, %q) = %v, want %v", tt.method, tt.proxyPath, got, tt.want)
+			}
+		})
 	}
 }
 
