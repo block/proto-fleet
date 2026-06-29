@@ -95,6 +95,22 @@ func TestPermissionsFor(t *testing.T) {
 	}
 }
 
+func TestIsUnproxyableEndpoint(t *testing.T) {
+	blocked := []string{"/api/v1/auth/password", "/api/v1/auth/change-password"}
+	for _, p := range blocked {
+		if !isUnproxyableEndpoint(p) {
+			t.Fatalf("isUnproxyableEndpoint(%q) = false, want true (password changes must use Fleet's flow)", p)
+		}
+	}
+
+	allowed := []string{"/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout", "/api/v1/system/tag"}
+	for _, p := range allowed {
+		if isUnproxyableEndpoint(p) {
+			t.Fatalf("isUnproxyableEndpoint(%q) = true, want false", p)
+		}
+	}
+}
+
 func TestCacheKeyVariesByEndpoint(t *testing.T) {
 	creds := sql.NullString{String: "enc", Valid: true}
 	base := proxyTarget{deviceIdentifier: "device-1", baseURL: "http://10.0.0.42:50051", passwordEnc: creds}

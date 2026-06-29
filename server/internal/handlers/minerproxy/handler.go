@@ -179,6 +179,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxyPath := "/api/v1/" + rest
+	if isUnproxyableEndpoint(proxyPath) {
+		writeError(w, http.StatusForbidden, "this miner endpoint is managed by Fleet and cannot be changed from the embedded view")
+		return
+	}
+
 	for _, permission := range permissionsFor(r.Method, proxyPath) {
 		if _, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{SiteID: target.siteID}); err != nil {
 			writeError(w, httpStatusForError(err), clientMessageForError(err))
@@ -482,6 +487,22 @@ func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 		return nil, nil
 	}
 	return body, nil
+}
+
+// isUnproxyableEndpoint rejects endpoints that must not be reverse-proxied
+// because forwarding them blindly would desync Fleet's own state. Miner
+// password changes go through the dedicated Fleet UpdateMinerPassword command,
+// which re-encrypts and persists the new password, clears cached tokens, and
+// updates pairing/remediation state atomically with the miner-side change. A
+// password change forwarded through the generic proxy would succeed on the
+// miner while Fleet kept the stale password, eventually locking Fleet out.
+func isUnproxyableEndpoint(proxyPath string) bool {
+	switch proxyPath {
+	case "/api/v1/auth/password", "/api/v1/auth/change-password":
+		return true
+	default:
+		return false
+	}
 }
 
 // permissionsFor returns every permission a proxied request must hold. Most
