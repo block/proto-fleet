@@ -3,6 +3,7 @@ package collection
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -91,6 +92,27 @@ func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
 	if s.activitySvc != nil {
 		s.activitySvc.Log(ctx, event)
 	}
+}
+
+// resolveDeviceSetSiteScope derives the (site_id, multi_site) scope of a
+// multi-device group event (#538) from the touched identifiers: a single
+// shared site is stamped so the event surfaces under /{site}/activity; a
+// set spanning sites (or mixing sited + site-less devices) is marked
+// multi_site so it stays out of the unassigned bucket. Best-effort — a
+// resolution error leaves the event org-scoped (nil/false) rather than
+// failing the action's fire-and-forget audit log.
+func (s *Service) resolveDeviceSetSiteScope(ctx context.Context, orgID int64, identifiers []string) activitymodels.SiteScope {
+	if s.activitySvc == nil {
+		// No activity sink — the scope would only feed an event we never
+		// write, so skip the query entirely.
+		return activitymodels.SiteScope{}
+	}
+	sites, err := s.siteStore.GetDistinctDeviceSiteIDs(ctx, orgID, identifiers)
+	if err != nil {
+		slog.Warn("failed to resolve device-set site scope for activity log", "error", err)
+		return activitymodels.SiteScope{}
+	}
+	return activitymodels.ResolveSiteScope(sites)
 }
 
 func collectionScopeType(collType pb.CollectionType) string {
@@ -836,7 +858,7 @@ func (s *Service) AddDevicesToGroup(ctx context.Context, params AddDevicesToGrou
 
 	addedCountInt := int(out.added)
 	scopeType := collectionScopeType(pb.CollectionType_COLLECTION_TYPE_GROUP)
-	s.logActivity(ctx, activitymodels.Event{
+	addEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "add_devices",
 		Description:    fmt.Sprintf("Add devices to %s: %s", scopeType, out.label),
@@ -846,7 +868,9 @@ func (s *Service) AddDevicesToGroup(ctx context.Context, params AddDevicesToGrou
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-	})
+	}
+	addEvent.ApplySiteScope(s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, deviceIdentifiers))
+	s.logActivity(ctx, addEvent)
 
 	return &AddDevicesToGroupResult{AddedCount: out.added}, nil
 }
@@ -908,7 +932,7 @@ func (s *Service) RemoveDevicesFromGroup(ctx context.Context, params RemoveDevic
 
 	removedCountInt := int(out.removed)
 	scopeType := collectionScopeType(pb.CollectionType_COLLECTION_TYPE_GROUP)
-	s.logActivity(ctx, activitymodels.Event{
+	removeEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "remove_devices",
 		Description:    fmt.Sprintf("Remove devices from %s: %s", scopeType, out.label),
@@ -918,7 +942,12 @@ func (s *Service) RemoveDevicesFromGroup(ctx context.Context, params RemoveDevic
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-	})
+	}
+	// Resolve scope from the requested identifiers (not current membership):
+	// removal already happened, but the devices' own site_id is unchanged by
+	// group membership, so the touched set still reflects the right scope.
+	removeEvent.ApplySiteScope(s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, deviceIdentifiers))
+	s.logActivity(ctx, removeEvent)
 
 	return &RemoveDevicesFromGroupResult{RemovedCount: out.removed}, nil
 }

@@ -138,6 +138,93 @@ type Event struct {
 	// site at event time. Nil for org-scoped events that don't tie to
 	// a specific site.
 	SiteID *int64
+
+	// MultiSite marks a multi-device fleet event whose touched device set
+	// spans more than one site scope (#538). Such events carry SiteID == nil
+	// and instead record their full touched-site set in MemberSiteIDs /
+	// TouchesUnassigned, persisted to the activity_log_site side table so the
+	// event surfaces under EACH of its sites. MultiSite is the cheap
+	// discriminator the read filter checks before probing the side table; it
+	// is true exactly when the side table has membership rows.
+	MultiSite bool
+
+	// MemberSiteIDs is the distinct set of (non-nil) sites a MultiSite event
+	// touched. Empty for single-site / org-level events (those use the scalar
+	// SiteID or neither). Each becomes one activity_log_site row.
+	MemberSiteIDs []int64
+
+	// TouchesUnassigned records that a MultiSite event also touched site-less
+	// devices, so it surfaces in the /unassigned bucket too (via a NULL-site
+	// activity_log_site row). Only meaningful when MultiSite is true.
+	TouchesUnassigned bool
+}
+
+// SiteScope is the resolved site footprint of a multi-device event, produced
+// by ResolveSiteScope and applied to an Event via ApplySiteScope. It encodes
+// exactly one of three states (see the table in ResolveSiteScope):
+// single-site (SiteID set), org/site-less (all zero), or multi-site
+// (MultiSite true with the touched-site set).
+type SiteScope struct {
+	SiteID            *int64
+	MultiSite         bool
+	MemberSiteIDs     []int64
+	TouchesUnassigned bool
+}
+
+// ApplySiteScope stamps a resolved SiteScope onto the event.
+func (e *Event) ApplySiteScope(s SiteScope) {
+	e.SiteID = s.SiteID
+	e.MultiSite = s.MultiSite
+	e.MemberSiteIDs = s.MemberSiteIDs
+	e.TouchesUnassigned = s.TouchesUnassigned
+}
+
+// ResolveSiteScope reduces the distinct site_ids touched by a multi-device
+// event into the SiteScope stamped on its activity row. The input is the
+// distinct set of device site_ids (a nil entry represents a site-less
+// device). A "slot" is a distinct real site OR the single "unassigned" slot
+// (present iff any device is site-less); the representation is chosen by the
+// number of slots:
+//
+//   - 1 slot, a real site → SiteID set (single-site fast path; /{site}).
+//   - 1 slot, unassigned (every device site-less), or 0 slots (empty) →
+//     all-zero scope: SiteID nil, not multi-site (stays in /unassigned).
+//   - ≥2 slots → MultiSite, with MemberSiteIDs = the real sites and
+//     TouchesUnassigned = whether a site-less device was in the set. The
+//     event surfaces under each member site, and /unassigned iff
+//     TouchesUnassigned.
+func ResolveSiteScope(siteIDs []*int64) SiteScope {
+	seen := make(map[int64]struct{}, len(siteIDs))
+	var realSites []int64
+	hasUnassigned := false
+	for _, s := range siteIDs {
+		if s == nil {
+			hasUnassigned = true
+			continue
+		}
+		if _, dup := seen[*s]; dup {
+			continue
+		}
+		seen[*s] = struct{}{}
+		realSites = append(realSites, *s)
+	}
+
+	slots := len(realSites)
+	if hasUnassigned {
+		slots++
+	}
+
+	switch {
+	case slots >= 2:
+		return SiteScope{MultiSite: true, MemberSiteIDs: realSites, TouchesUnassigned: hasUnassigned}
+	case len(realSites) == 1:
+		site := realSites[0]
+		return SiteScope{SiteID: &site}
+	default:
+		// 0 slots (empty input) or the single "unassigned" slot: no single
+		// site to stamp and not multi-site — stays in the unassigned bucket.
+		return SiteScope{}
+	}
 }
 
 // Filter defines query parameters for listing activity entries.

@@ -498,6 +498,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDistinctActivityUsersStmt, err = db.PrepareContext(ctx, getDistinctActivityUsers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDistinctActivityUsers: %w", err)
 	}
+	if q.getDistinctDeviceSiteIDsStmt, err = db.PrepareContext(ctx, getDistinctDeviceSiteIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDistinctDeviceSiteIDs: %w", err)
+	}
 	if q.getDistinctEventTypesStmt, err = db.PrepareContext(ctx, getDistinctEventTypes); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDistinctEventTypes: %w", err)
 	}
@@ -2142,6 +2145,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDistinctActivityUsersStmt: %w", cerr)
 		}
 	}
+	if q.getDistinctDeviceSiteIDsStmt != nil {
+		if cerr := q.getDistinctDeviceSiteIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDistinctDeviceSiteIDsStmt: %w", cerr)
+		}
+	}
 	if q.getDistinctEventTypesStmt != nil {
 		if cerr := q.getDistinctEventTypesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDistinctEventTypesStmt: %w", cerr)
@@ -3754,6 +3762,7 @@ type Queries struct {
 	getDiscoveredDeviceByIDStmt                                *sql.Stmt
 	getDiscoveredDeviceByIPAndPortStmt                         *sql.Stmt
 	getDistinctActivityUsersStmt                               *sql.Stmt
+	getDistinctDeviceSiteIDsStmt                               *sql.Stmt
 	getDistinctEventTypesStmt                                  *sql.Stmt
 	getDistinctScopeTypesStmt                                  *sql.Stmt
 	getEnabledCurtailmentAutomationRuleByEventStmt             *sql.Stmt
@@ -4201,6 +4210,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDiscoveredDeviceByIDStmt:                                q.getDiscoveredDeviceByIDStmt,
 		getDiscoveredDeviceByIPAndPortStmt:                         q.getDiscoveredDeviceByIPAndPortStmt,
 		getDistinctActivityUsersStmt:                               q.getDistinctActivityUsersStmt,
+		getDistinctDeviceSiteIDsStmt:                               q.getDistinctDeviceSiteIDsStmt,
 		getDistinctEventTypesStmt:                                  q.getDistinctEventTypesStmt,
 		getDistinctScopeTypesStmt:                                  q.getDistinctScopeTypesStmt,
 		getEnabledCurtailmentAutomationRuleByEventStmt:             q.getEnabledCurtailmentAutomationRuleByEventStmt,

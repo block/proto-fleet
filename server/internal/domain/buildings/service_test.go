@@ -945,7 +945,9 @@ func TestAssignDevicesToBuilding_unassignedTargetSkipsLockAndCascade(t *testing.
 	siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
 	store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 	store.EXPECT().AssignDevicesToBuilding(inTxCtx, testOrgID, gomock.Nil(), identifiers).Return(int64(1), nil)
-	// No CascadeDevicesSiteForBuilding on unassign.
+	// No CascadeDevicesSiteForBuilding on unassign. This svc has no activity
+	// sink (nil), so building-unassign also skips the device-set site-scope
+	// resolution (#538) — exercised by a dedicated recording-activity test.
 
 	result, _, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
 		OrgID:             testOrgID,

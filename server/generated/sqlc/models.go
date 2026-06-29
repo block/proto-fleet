@@ -341,6 +341,13 @@ type ActivityLog struct {
 	CreatedAt      time.Time
 	BatchID        sql.NullString
 	SiteID         sql.NullInt64
+	MultiSite      bool
+}
+
+type ActivityLogSite struct {
+	ActivityLogID int64
+	OrgID         int64
+	SiteID        sql.NullInt64
 }
 
 type ApiKey struct {
