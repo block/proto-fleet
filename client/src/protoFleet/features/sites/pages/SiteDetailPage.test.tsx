@@ -28,6 +28,24 @@ vi.mock("@/protoFleet/api/sites", async () => {
   };
 });
 
+const useTelemetryMetricsMock = vi.hoisted(() => vi.fn((_options: unknown) => ({ data: { metrics: [] } })));
+
+vi.mock("@/protoFleet/api/useTelemetryMetrics", () => ({
+  useTelemetryMetrics: (options: unknown) => useTelemetryMetricsMock(options),
+}));
+
+const useSiteStatsMock = vi.hoisted(() =>
+  vi.fn((_options: unknown) => ({ stats: undefined, error: null, refetch: vi.fn() })),
+);
+
+vi.mock("@/protoFleet/api/useSiteStats", () => ({
+  useSiteStats: (options: unknown) => useSiteStatsMock(options),
+}));
+
+vi.mock("@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection", () => ({
+  DeviceSetPerformanceSection: () => <div data-testid="device-set-performance-section">Performance charts</div>,
+}));
+
 vi.mock("@/protoFleet/features/sites/components/SiteModals", () => ({
   __esModule: true,
   default: () => null,
@@ -101,6 +119,26 @@ describe("SiteDetailPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent("/austin/fleet"));
+  });
+
+  it("renders the metrics row scoped to the resolved site", async () => {
+    renderPage("/sites/7");
+
+    expect(await screen.findByTestId("site-detail-metrics-row")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(useSiteStatsMock).toHaveBeenCalledWith(expect.objectContaining({ siteId: 7n, enabled: true })),
+    );
+  });
+
+  it("renders the performance section scoped to the resolved site", async () => {
+    renderPage("/sites/7");
+
+    expect(await screen.findByTestId("site-detail-performance")).toBeInTheDocument();
+    expect(screen.getByTestId("device-set-performance-section")).toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(useTelemetryMetricsMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [7n], enabled: true })),
+    );
   });
 
   it("updates active site before navigating to a breadcrumb sibling site", async () => {
