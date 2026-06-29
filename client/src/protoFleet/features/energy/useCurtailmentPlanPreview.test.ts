@@ -12,6 +12,7 @@ import {
 import type { CurtailmentFormValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import {
   buildPreviewCurtailmentPlanRequest,
+  createCurtailmentPlanPreview,
   useCurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
 
@@ -395,6 +396,23 @@ describe("useCurtailmentPlanPreview", () => {
         signal: expect.any(AbortSignal),
       }),
     );
+  });
+
+  it("treats blank restore fields as immediate in the local preview", () => {
+    const preview = createCurtailmentPlanPreview(
+      {
+        ...baseValues,
+        restoreBatchSize: "",
+        restoreIntervalSec: "",
+      },
+      {
+        selectedMinerCount: 25,
+        targetKw: 40,
+        estimatedReductionKw: 45,
+      },
+    );
+
+    expect(preview.restoreEstimate).toBe("Immediately");
   });
 
   it("surfaces empty preview candidates as a preview error", async () => {

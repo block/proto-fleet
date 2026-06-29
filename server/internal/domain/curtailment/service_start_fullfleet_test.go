@@ -160,8 +160,9 @@ func TestService_Start_FullFleet_NoEligibleMinersPersistsActiveWatcher(t *testin
 		"nothing currently eligible still needs an active enforcement window")
 	assert.NotNil(t, store.lastInsertEvent.StartedAt, "active watcher records when enforcement began")
 	assert.Empty(t, store.lastInsertTargets, "an empty watcher starts with no targets")
-	assert.Nil(t, store.lastInsertEvent.CurtailBatchSize,
-		"empty immediate starts must persist NULL curtail_batch_size, not invalid zero")
+	require.NotNil(t, store.lastInsertEvent.CurtailBatchSize)
+	assert.Equal(t, defaultManualCurtailBatchSizeFloor, *store.lastInsertEvent.CurtailBatchSize,
+		"empty immediate watchers must keep a positive curtail admission throttle")
 	assert.Equal(t, int32(0), store.lastInsertEvent.EffectiveBatchSize)
 }
 

@@ -1956,17 +1956,17 @@ const (
 // throttle without letting immediate restore also become the curtail wave size.
 // Positive restore_batch_size continues to drive the manual curtail batch for
 // existing batched flows; restore_batch_size=0 uses the old adaptive [10,100]
-// envelope for curtail dispatch only. A zero selected count returns nil so the
-// DB sees NULL, not an invalid curtail_batch_size=0.
+// envelope for curtail dispatch only. A zero selected count still gets the
+// floor so empty closed-loop full-fleet watchers do not admit every later
+// candidate in one tick.
 func defaultManualCurtailBatchSize(restoreBatchSize, selectedCount int32) *int32 {
 	var batchSize int32
 	if restoreBatchSize > 0 {
 		batchSize = restoreBatchSize
+	} else if selectedCount <= 0 {
+		batchSize = defaultManualCurtailBatchSizeFloor
 	} else {
 		batchSize = adaptiveManualCurtailBatchSize(selectedCount)
-	}
-	if batchSize <= 0 {
-		return nil
 	}
 	return &batchSize
 }

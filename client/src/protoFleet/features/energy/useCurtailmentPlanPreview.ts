@@ -269,8 +269,8 @@ function estimateCurtailDuration(values: CurtailmentFormValues, selectedMinerCou
 }
 
 function estimateRestoreDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
-  const batchSize = parseNonNegativeInteger(values.restoreBatchSize);
-  const intervalSec = parseNonNegativeInteger(values.restoreIntervalSec);
+  const batchSize = parseNonNegativeInteger(values.restoreBatchSize) ?? 0;
+  const intervalSec = parseNonNegativeInteger(values.restoreIntervalSec) ?? 0;
   if (batchSize === 0 || intervalSec === 0) {
     return "Immediately";
   }
