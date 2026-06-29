@@ -167,6 +167,15 @@ func TestService_Update_RejectsAbsoluteCapViolations(t *testing.T) {
 			},
 			msg: "restore_batch_interval_sec must be <=",
 		},
+		{
+			name: "restore_batch_size above absolute ceiling",
+			req: UpdateRequest{
+				OrgID:            orgID,
+				EventUUID:        eventUUID,
+				RestoreBatchSize: int32Ptr(RestoreBatchSizeMax + 1),
+			},
+			msg: "restore_batch_size must be <=",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

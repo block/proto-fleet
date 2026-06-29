@@ -877,6 +877,13 @@ func validateUpdateRequest(req UpdateRequest) error {
 				"restore_batch_size must be >= 0, got %d", v,
 			)
 		}
+		if v > RestoreBatchSizeMax {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"restore_batch_size must be <= %d, got %d",
+				RestoreBatchSizeMax,
+				v,
+			)
+		}
 	}
 	if req.RestoreBatchIntervalSec != nil {
 		v := *req.RestoreBatchIntervalSec
