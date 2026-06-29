@@ -19,6 +19,7 @@ import ActiveCurtailmentStatus, {
 } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import type { CurtailmentEventState } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import CurtailmentHistory, { type CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
+import { immediateRestoreBatchSizeInputValue } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import { getDefaultCurtailmentSiteScope } from "@/protoFleet/features/energy/curtailmentSiteScopeDefaults";
 import CurtailmentStartModal, {
   type CurtailmentPlanPreview,
@@ -88,7 +89,6 @@ const updateableCurtailmentEventStates = new Set<CurtailmentEventState>(["pendin
 const forceRestorableCurtailmentEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
 const defaultResponseDeadlineMinutes = "15";
 const defaultMaxDurationSec = "900";
-const immediateRestoreBatchSize = "0";
 
 const terminateRecoveryStateOptions: { label: string; value: TerminateRecoveryState }[] = [
   { label: "Cancelled", value: "cancelled" },
@@ -214,7 +214,9 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     maxDurationSec: minutesToSeconds(responseDeadlineMinutes),
     curtailBatchSize: "",
     curtailBatchIntervalSec: "",
-    restoreBatchSize: profile.restoreBehavior.toLowerCase().includes("immediate") ? immediateRestoreBatchSize : "",
+    restoreBatchSize: profile.restoreBehavior.toLowerCase().includes("immediate")
+      ? immediateRestoreBatchSizeInputValue
+      : "",
     restoreIntervalSec: "",
     responseDeadlineMinutes,
     includeMaintenance: true,
@@ -225,7 +227,7 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
   const values = createResponseProfileFormValuesFromProfile(profile);
   const restoreBatchSize =
     values.restoreBatchSize ||
-    (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
+    (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSizeInputValue : "");
   const hasAllMinersSelected = values.minerSelectionMode === "all";
   const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
   const siteId = siteIds[0] ?? "";

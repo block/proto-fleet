@@ -1391,30 +1391,11 @@ func (r *Reconciler) maybeCompleteRestoring(ctx context.Context, ev *models.Even
 	return true
 }
 
-func restoreClaimBatchSize(ev *models.Event, targets []*models.Target) int32 {
+func restoreClaimBatchSize(ev *models.Event) int32 {
 	if ev != nil && ev.RestoreBatchSize == 0 {
-		var pending int32
-		for _, t := range targets {
-			if t.DesiredState != models.DesiredStateActive {
-				continue
-			}
-			if t.State != models.TargetStatePending && t.State != models.TargetStateDispatching {
-				continue
-			}
-			if pending == curtailment.RestoreBatchSizeMax {
-				return curtailment.RestoreBatchSizeMax
-			}
-			pending++
-		}
-		if pending > 0 {
-			return pending
-		}
-		return 1
+		return curtailment.RestoreBatchSizeMax
 	}
-	if ev != nil && ev.EffectiveBatchSize != nil && *ev.EffectiveBatchSize > 0 {
-		return *ev.EffectiveBatchSize
-	}
-	return 1
+	return batchSizeForEvent(ev)
 }
 
 // maybeClaimRestoreBatch enforces the in-flight + interval gates, then claims
@@ -1456,14 +1437,18 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 		}
 	}
 
-	batchSize := restoreClaimBatchSize(ev, targets)
+	batchSize := restoreClaimBatchSize(ev)
+	batchCapacity := int(batchSize)
+	if batchCapacity > len(targets) {
+		batchCapacity = len(targets)
+	}
 
 	// First pass: redispatch any DISPATCHING orphans from an interrupted
 	// prior tick. Uncurtail is device-idempotent, so re-sending the
 	// command is safe. Orphan recovery consumes this tick's batch slot
 	// on its own — mixing orphans with fresh PENDING would double the
 	// inrush and bypass the one-batch-per-interval throttle.
-	orphans := make([]*models.Target, 0, batchSize)
+	orphans := make([]*models.Target, 0, batchCapacity)
 	for _, t := range targets {
 		if t.DesiredState != models.DesiredStateActive {
 			continue
@@ -1482,7 +1467,7 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 	}
 
 	// Second pass: claim fresh PENDING up to batchSize.
-	claim := make([]*models.Target, 0, batchSize)
+	claim := make([]*models.Target, 0, batchCapacity)
 	for _, t := range targets {
 		if t.DesiredState != models.DesiredStateActive {
 			continue

@@ -374,8 +374,7 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 	// of an admin-elevated value doesn't trip the admin gate or bump
 	// updated_at.
 	patch := effectiveUpdatePatch(event, req)
-	if patch.Reason == nil && patch.RestoreBatchSize == nil &&
-		patch.RestoreBatchIntervalSec == nil && patch.MaxDurationSeconds == nil {
+	if patch.Reason == nil && patch.RestoreBatchIntervalSec == nil && patch.MaxDurationSeconds == nil {
 		return event, nil
 	}
 
@@ -424,9 +423,6 @@ func effectiveUpdatePatch(event *models.Event, req UpdateRequest) interfaces.Upd
 	patch := interfaces.UpdateOperatorFieldsParams{}
 	if req.Reason != nil && *req.Reason != event.Reason {
 		patch.Reason = req.Reason
-	}
-	if req.RestoreBatchSize != nil && *req.RestoreBatchSize != event.RestoreBatchSize {
-		patch.RestoreBatchSize = req.RestoreBatchSize
 	}
 	if req.RestoreBatchIntervalSec != nil && *req.RestoreBatchIntervalSec != event.RestoreBatchIntervalSec {
 		patch.RestoreBatchIntervalSec = req.RestoreBatchIntervalSec
@@ -713,17 +709,13 @@ func (s *Service) emitUpdateAuditTrail(ctx context.Context, event *models.Event,
 	if event == nil {
 		return
 	}
-	changed := make([]string, 0, 4)
+	changed := make([]string, 0, 3)
 	metadata := map[string]any{
 		"event_uuid": event.EventUUID.String(),
 	}
 	if patch.Reason != nil {
 		changed = append(changed, "reason")
 		metadata["reason"] = *patch.Reason
-	}
-	if patch.RestoreBatchSize != nil {
-		changed = append(changed, "restore_batch_size")
-		metadata["restore_batch_size"] = *patch.RestoreBatchSize
 	}
 	if patch.RestoreBatchIntervalSec != nil {
 		changed = append(changed, "restore_batch_interval_sec")

@@ -92,8 +92,9 @@ type Plan struct {
 	// delay. Zero means no delay.
 	EffectiveCurtailBatchIntervalSec int32
 	// EffectiveBatchSize is the restore batch size stamped on the event row at
-	// Start time. Zero for Preview. Echoed in the Start response; Stop and the
-	// reconciler read it from the persisted event row, not from Plan.
+	// Start time. Zero for Preview or starts with no selected targets. Echoed
+	// in the Start response; Stop and the reconciler read it from the
+	// persisted event row, not from Plan.
 	EffectiveBatchSize int32
 	// ReplayEvent is set only for idempotent Start replays. The handler uses
 	// the persisted row instead of rebuilding a response from the retry body.

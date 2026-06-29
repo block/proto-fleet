@@ -22,6 +22,12 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
 import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
+import {
+  curtailmentNumericFieldLimits,
+  getOptionalUint32Setting,
+  immediateRestoreBatchSize,
+  parseOptionalUint32Field,
+} from "@/protoFleet/features/energy/curtailmentNumericFields";
 import type {
   ResponseProfile,
   ResponseProfileFormValues,
@@ -29,8 +35,15 @@ import type {
 import { useAuthErrors } from "@/protoFleet/store";
 
 const defaultResponseDeadlineMinutes: string = "15";
-const immediateRestoreBatchSize = 0;
 const sessionFormValuesByProfileId = new Map<string, ResponseProfileFormValues>();
+const restoreBatchSizeOptions = {
+  label: "restore batch size",
+  max: curtailmentNumericFieldLimits.restoreBatchSize,
+};
+const restoreBatchIntervalOptions = {
+  label: "restore batch interval",
+  max: curtailmentNumericFieldLimits.restoreIntervalSec,
+};
 export type UseCurtailmentResponseProfilesResult = {
   responseProfiles: ResponseProfile[];
   isLoading: boolean;
@@ -332,21 +345,16 @@ function getModeParams(values: ResponseProfileFormValues): UpdateCurtailmentResp
 }
 
 function getRestoreBatchSize(values: ResponseProfileFormValues): number | undefined {
-  if (values.restoreBatchSize.trim() === "") {
-    return immediateRestoreBatchSize;
+  const parsedField = parseOptionalUint32Field(values.restoreBatchSize, restoreBatchSizeOptions);
+  if (parsedField.error) {
+    throw new Error(parsedField.error);
   }
 
-  const batchSize = Number(values.restoreBatchSize);
-  if (Number.isFinite(batchSize) && batchSize >= 0) {
-    return batchSize;
-  }
-
-  return values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : undefined;
+  return parsedField.parsed ?? immediateRestoreBatchSize;
 }
 
 function getRestoreBatchIntervalSec(values: ResponseProfileFormValues): number | undefined {
-  const intervalSec = getOptionalNonNegativeNumber(values.restoreIntervalSec);
-  return intervalSec ?? 0;
+  return getOptionalUint32Setting(values.restoreIntervalSec, restoreBatchIntervalOptions);
 }
 
 function getOptionalPositiveNumber(value: string): number | undefined {
