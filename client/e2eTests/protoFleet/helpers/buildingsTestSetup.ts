@@ -135,7 +135,7 @@ export function useBuildingsHooks() {
 export async function createSiteAndBuilding(
   fleetLocationsPage: FleetLocationsPage,
   scenario: BuildingsScenarioData,
-): Promise<number> {
+): Promise<bigint> {
   return await test.step("Create a site and building", async () => {
     await fleetLocationsPage.createSite(scenario.siteName);
     return await fleetLocationsPage.createBuilding(scenario.siteName, scenario.buildingName);
@@ -145,7 +145,7 @@ export async function createSiteAndBuilding(
 export async function createRackWithAssignedMiners(
   racksPage: RacksPage,
   rackLabel: string,
-): Promise<{ rackId: number; selectedMinerIps: string[] }> {
+): Promise<{ rackId: bigint; selectedMinerIps: string[] }> {
   return await test.step("Create a rack with two miners assigned", async () => {
     await racksPage.navigateToRacksPage();
     await racksPage.clickAddRackButton();
@@ -175,9 +175,9 @@ export async function assignRackToBuilding(
   page: Page,
   racksPage: RacksPage,
   rackLabel: string,
-  rackId: number,
+  rackId: bigint,
   buildingName: string,
-  buildingId: number,
+  buildingId: bigint,
 ) {
   await test.step("Move the rack into the building from the racks tab", async () => {
     const requestPromise = page.waitForRequest(new RegExp(ASSIGN_RACKS_TO_BUILDING));
