@@ -107,6 +107,10 @@ var remoteGetErrorsCommandTimeout = 30 * time.Second
 // the per-node command gate for the full firmware update worker budget.
 var remoteFirmwareStatusCommandTimeout = 30 * time.Second
 
+// Keep each cooling-mode read short so UI prefill does not hold a per-node
+// command slot behind a hung node/plugin until the caller context expires.
+var remoteGetCoolingModeCommandTimeout = 30 * time.Second
+
 const maxErrorColumnStringLen = 255
 
 // New builds a remote-node miner. It returns an error only if the connection
@@ -614,7 +618,7 @@ func (m *Miner) GetErrors(ctx context.Context) (models.DeviceErrors, error) {
 }
 
 func (m *Miner) GetCoolingMode(ctx context.Context) (commonpb.CoolingMode, error) {
-	ack, err := m.send(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetCoolingMode{
+	ack, err := m.sendWithCommandTimeout(ctx, remoteGetCoolingModeCommandTimeout, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetCoolingMode{
 		GetCoolingMode: &gatewaypb.GetCoolingModeAction{},
 	}})
 	if err != nil {

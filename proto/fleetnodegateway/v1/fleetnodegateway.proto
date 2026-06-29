@@ -385,7 +385,7 @@ message SetCoolingModeAction {
 }
 
 message GetCoolingModeResult {
-    common.v1.CoolingMode mode = 1;
+    common.v1.CoolingMode mode = 1 [(buf.validate.field).enum.defined_only = true];
 }
 
 message SetPowerTargetAction {
