@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { navigationItems } from "../constants";
 import NavigationItem from "../NavigationItem";
 import { NavigationItemValue } from "../types";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
@@ -16,6 +17,8 @@ interface AppNavigationItemsProps {
 const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
   const [showAccordionItems, setShowAccordionItems] = useState(pageName.startsWith("settings"));
   const [showAccordionExpand, setShowAccordionExpand] = useState(false);
+  const { mode } = useMinerHosting();
+  const isFleetHosted = mode === "fleet";
 
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
@@ -65,13 +68,18 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
               transition: { duration: 0.3, ease: easeGentle },
             }}
           >
-            <NavigationItem
-              id={navigationItems.authentication}
-              text="Authentication"
-              onClick={handleClick}
-              pageName={pageName}
-              isChildItem
-            />
+            {/* Pools and password are Fleet-managed in the embedded view
+                (the proxy blocks those writes); edits go through Fleet's
+                audited flows, so hide their entry points here. */}
+            {isFleetHosted ? null : (
+              <NavigationItem
+                id={navigationItems.authentication}
+                text="Authentication"
+                onClick={handleClick}
+                pageName={pageName}
+                isChildItem
+              />
+            )}
             <NavigationItem
               id={navigationItems.general}
               text="General"
@@ -79,13 +87,15 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
               pageName={pageName}
               isChildItem
             />
-            <NavigationItem
-              id={navigationItems.miningPools}
-              text="Pools"
-              onClick={handleClick}
-              pageName={pageName}
-              isChildItem
-            />
+            {isFleetHosted ? null : (
+              <NavigationItem
+                id={navigationItems.miningPools}
+                text="Pools"
+                onClick={handleClick}
+                pageName={pageName}
+                isChildItem
+              />
+            )}
             <NavigationItem
               id={navigationItems.hardware}
               text="Hardware"
