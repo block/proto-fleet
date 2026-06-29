@@ -179,7 +179,7 @@ export async function assignRackToBuilding(
   buildingName: string,
   buildingId: bigint,
 ) {
-  await test.step("Move the rack into the building from the racks tab", async () => {
+  await test.step(`Assign rack to building "${buildingName}" from the racks tab`, async () => {
     const requestPromise = page.waitForRequest(new RegExp(ASSIGN_RACKS_TO_BUILDING));
     const responsePromise = page.waitForResponse(new RegExp(ASSIGN_RACKS_TO_BUILDING));
 
@@ -193,6 +193,32 @@ export async function assignRackToBuilding(
     };
 
     test.expect(String(body.targetBuildingId)).toBe(buildingId.toString());
+    test.expect(body.racks).toHaveLength(1);
+    test.expect(String(body.racks[0]?.rackId)).toBe(rackId.toString());
+    test.expect(response.status()).toBe(200);
+  });
+}
+
+export async function removeRackFromBuilding(
+  page: Page,
+  fleetLocationsPage: FleetLocationsPage,
+  buildingName: string,
+  rackId: bigint,
+) {
+  await test.step(`Remove rack from building "${buildingName}" from the buildings tab`, async () => {
+    const requestPromise = page.waitForRequest(new RegExp(ASSIGN_RACKS_TO_BUILDING));
+    const responsePromise = page.waitForResponse(new RegExp(ASSIGN_RACKS_TO_BUILDING));
+
+    await fleetLocationsPage.removeRackFromBuilding(buildingName, rackId);
+
+    const request = await requestPromise;
+    const response = await responsePromise;
+    const body = request.postDataJSON() as {
+      targetBuildingId?: string;
+      racks: Array<{ rackId?: string }>;
+    };
+
+    test.expect(body.targetBuildingId).toBeUndefined();
     test.expect(body.racks).toHaveLength(1);
     test.expect(String(body.racks[0]?.rackId)).toBe(rackId.toString());
     test.expect(response.status()).toBe(200);
@@ -214,28 +240,93 @@ export async function validateBuildingPlacementAcrossTabs({
   scenario: BuildingsScenarioData;
   selectedMinerIps: string[];
 }) {
-  await test.step("Validate the sites tab shows the correct counts", async () => {
-    await fleetLocationsPage.validateSiteRowCounts(scenario.siteName, {
+  await validateSiteAndBuildingCounts(fleetLocationsPage, {
+    siteName: scenario.siteName,
+    siteCounts: {
       buildings: 1,
       racks: 1,
       miners: 2,
-    });
+    },
+    buildings: [
+      {
+        buildingName: scenario.buildingName,
+        racks: 1,
+        miners: 2,
+      },
+    ],
+  });
+
+  await validateRackAndMinerPlacementAcrossTabs({
+    page,
+    minersPage,
+    racksPage,
+    siteName: scenario.siteName,
+    buildingName: scenario.buildingName,
+    rackLabel: scenario.rackLabel,
+    selectedMinerIps,
+  });
+}
+
+export async function validateSiteAndBuildingCounts(
+  fleetLocationsPage: FleetLocationsPage,
+  {
+    siteName,
+    siteCounts,
+    buildings,
+  }: {
+    siteName: string;
+    siteCounts: {
+      buildings: number;
+      racks: number;
+      miners: number;
+    };
+    buildings: Array<{
+      buildingName: string;
+      racks: number;
+      miners: number;
+    }>;
+  },
+) {
+  await test.step("Validate the sites tab shows the correct counts", async () => {
+    await fleetLocationsPage.validateSiteRowCounts(siteName, siteCounts);
   });
 
   await test.step("Validate the buildings tab shows the correct counts", async () => {
-    await fleetLocationsPage.validateBuildingRowCounts(scenario.buildingName, {
-      siteName: scenario.siteName,
-      racks: 1,
-      miners: 2,
-    });
+    for (const building of buildings) {
+      await fleetLocationsPage.validateBuildingRowCounts(building.buildingName, {
+        siteName,
+        racks: building.racks,
+        miners: building.miners,
+      });
+    }
   });
+}
+
+export async function validateRackAndMinerPlacementAcrossTabs({
+  page,
+  minersPage,
+  racksPage,
+  siteName,
+  buildingName,
+  rackLabel,
+  selectedMinerIps,
+}: {
+  page: Page;
+  minersPage: MinersPage;
+  racksPage: RacksPage;
+  siteName: string;
+  buildingName?: string;
+  rackLabel: string;
+  selectedMinerIps: string[];
+}) {
+  const expectedBuildingName = buildingName ?? "";
 
   await test.step("Validate the racks tab shows the building placement", async () => {
     await racksPage.navigateToRacksPage();
     await racksPage.clickViewList();
     await racksPage.waitForRackListToLoad({ allowEmpty: false });
-    await racksPage.validateRackRow(scenario.rackLabel, TEMP_ZONE, 2);
-    await racksPage.validateRackPlacementRow(scenario.rackLabel, scenario.siteName, scenario.buildingName);
+    await racksPage.validateRackMinerCount(rackLabel, 2);
+    await racksPage.validateRackPlacementRow(rackLabel, siteName, expectedBuildingName);
   });
 
   await test.step("Validate the miners tab shows the building placement for both miners", async () => {
@@ -244,9 +335,9 @@ export async function validateBuildingPlacementAcrossTabs({
     await minersPage.waitForMinersListToLoad();
 
     for (const ipAddress of selectedMinerIps) {
-      test.expect(await minersPage.getMinerColumnText(ipAddress, "site")).toBe(scenario.siteName);
-      test.expect(await minersPage.getMinerColumnText(ipAddress, "building")).toBe(scenario.buildingName);
-      test.expect(await minersPage.getMinerColumnText(ipAddress, "rack")).toBe(scenario.rackLabel);
+      test.expect(await minersPage.getMinerColumnText(ipAddress, "site")).toBe(siteName);
+      test.expect(await minersPage.getMinerColumnText(ipAddress, "building")).toBe(expectedBuildingName);
+      test.expect(await minersPage.getMinerColumnText(ipAddress, "rack")).toBe(rackLabel);
     }
   });
 }

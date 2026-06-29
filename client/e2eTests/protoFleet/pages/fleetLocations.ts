@@ -73,8 +73,7 @@ export class FleetLocationsPage extends BasePage {
 
   async deleteBuilding(name: string) {
     await this.navigateToBuildingsPage();
-    await this.openRowActions(name);
-    await this.clickRowAction("Edit building");
+    await this.openManageBuildingFromList(name);
     await this.clickManageBuildingDelete();
 
     const confirmDeleteButton = this.page.getByTestId("building-delete-dialog-confirm");
@@ -82,6 +81,30 @@ export class FleetLocationsPage extends BasePage {
     await confirmDeleteButton.click({ trial: true });
     await confirmDeleteButton.click();
     await expect(this.getListRowByName(name)).toHaveCount(0);
+  }
+
+  async renameBuilding(currentName: string, nextName: string) {
+    await this.navigateToBuildingsPage();
+    const fullScreenModal = await this.openManageBuildingFromList(currentName);
+    await this.clickManageBuildingEditDetails(fullScreenModal);
+
+    const settingsModal = this.page.getByTestId("building-settings-modal");
+    await expect(settingsModal).toBeVisible();
+    await settingsModal.getByTestId("building-settings-name-input").fill(nextName);
+    await settingsModal.getByTestId("building-settings-modal-save").click();
+    await this.waitForModalToClose("building-settings-modal");
+
+    await this.closeFullScreenModalIfVisible();
+    await expect(this.getListRowByName(nextName)).toBeVisible();
+    await expect(this.getListRowByName(currentName)).toHaveCount(0);
+  }
+
+  async removeRackFromBuilding(buildingName: string, rackId: bigint) {
+    await this.navigateToBuildingsPage();
+    const fullScreenModal = await this.openManageBuildingFromList(buildingName);
+    await fullScreenModal.getByTestId(`manage-building-remove-rack-${rackId.toString()}`).click();
+    await this.clickVisibleManageBuildingAction("manage-building-save", fullScreenModal);
+    await this.waitForModalToClose("full-screen-two-pane-modal");
   }
 
   async deleteSiteByNameIfVisible(name: string) {
@@ -236,11 +259,32 @@ export class FleetLocationsPage extends BasePage {
     await overflowMenu.getByText("Delete building", { exact: true }).click();
   }
 
+  private async clickManageBuildingEditDetails(scope = this.page.getByTestId("full-screen-two-pane-modal")) {
+    const editDetailsButton = scope.locator('button[data-testid="manage-building-edit-details"]:visible');
+    if (await editDetailsButton.isVisible().catch(() => false)) {
+      await editDetailsButton.click();
+      return;
+    }
+
+    const overflowMenu = await this.openFullScreenOverflowMenu();
+    await overflowMenu.getByText("Building settings", { exact: true }).click();
+  }
+
   private async openFullScreenOverflowMenu() {
     const overflowTrigger = this.page.getByTestId("full-screen-two-pane-modal").getByTestId("overflow-menu-trigger");
     await expect(overflowTrigger).toBeVisible();
     await overflowTrigger.click();
     return this.page.locator("div.fixed.inset-0.z-60");
+  }
+
+  private async closeFullScreenModalIfVisible() {
+    const fullScreenModal = this.page.getByTestId("full-screen-two-pane-modal");
+    if (!(await fullScreenModal.isVisible().catch(() => false))) {
+      return;
+    }
+
+    await fullScreenModal.getByTestId("header-icon-button").click();
+    await expect(fullScreenModal).toHaveCount(0);
   }
 
   private async waitForModalToClose(testId: string) {
@@ -255,6 +299,21 @@ export class FleetLocationsPage extends BasePage {
 
   private async clickRowAction(label: string) {
     await this.page.getByText(label, { exact: true }).click();
+  }
+
+  private async openManageBuildingFromList(name: string) {
+    await this.openRowActions(name);
+    await this.clickRowAction("Edit building");
+    const fullScreenModal = this.page.getByTestId("full-screen-two-pane-modal");
+    await expect(fullScreenModal).toBeVisible();
+    return fullScreenModal;
+  }
+
+  private async clickVisibleManageBuildingAction(
+    testId: "manage-building-save",
+    scope = this.page.getByTestId("full-screen-two-pane-modal"),
+  ) {
+    await scope.locator(`button[data-testid="${testId}"]:visible`).click();
   }
 
   private async getScopeIdFromRowName(name: string, scope: Scope): Promise<bigint> {

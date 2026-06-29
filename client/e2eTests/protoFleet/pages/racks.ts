@@ -481,7 +481,13 @@ export class RacksPage extends BasePage {
     await expect(row.getByTestId("miners")).toHaveText(String(miners));
   }
 
-  async validateRackPlacementRow(label: string, siteName: string, buildingName: string) {
+  async validateRackMinerCount(label: string, miners: number) {
+    const row = this.getRackListRow(label);
+    await expect(row).toBeVisible();
+    await expect(row.getByTestId("miners")).toHaveText(String(miners));
+  }
+
+  async validateRackPlacementRow(label: string, siteName: string, buildingName = "") {
     const row = this.getRackListRow(label);
     await expect(row).toBeVisible();
     await expect(row.getByTestId("site")).toHaveText(siteName);
