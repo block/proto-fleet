@@ -72,21 +72,27 @@ const SingleMinerWrapper = ({ children }: { children: ReactNode }) => {
       mode="fleet"
       metadata={metadata}
     >
-      {/* Mirror the full-screen modal: slide/fade in on open, then finish the
-          exit animation before routing back to the miners list on close. Mounted
-          on the parent route, so this plays once per visit (not per tab). */}
-      <motion.div
-        initial={slideUpAnimation.initial}
-        animate={isClosing ? slideUpAnimation.exit : slideUpAnimation.animate}
-        transition={slideUpAnimation.transition}
-        onAnimationComplete={() => {
-          if (isClosing) {
-            navigate(scopedPath("/fleet/miners", activeSite));
-          }
-        }}
-      >
-        {children}
-      </motion.div>
+      <div className="min-h-screen bg-surface-base text-text-primary" data-testid="single-miner-surface">
+        {/* Mirror the full-screen modal: slide/fade in on open, then finish the
+            exit animation before routing back to the miners list on close. The
+            outer surface stays opaque while this content fades, avoiding a
+            route-transition flash against the document background. Mounted on
+            the parent route, so this plays once per visit (not per tab). */}
+        <motion.div
+          className="min-h-screen bg-surface-base"
+          data-testid="single-miner-content"
+          initial={slideUpAnimation.initial}
+          animate={isClosing ? slideUpAnimation.exit : slideUpAnimation.animate}
+          transition={slideUpAnimation.transition}
+          onAnimationComplete={() => {
+            if (isClosing) {
+              navigate(scopedPath("/fleet/miners", activeSite));
+            }
+          }}
+        >
+          {children}
+        </motion.div>
+      </div>
     </MinerHostingProvider>
   );
 };

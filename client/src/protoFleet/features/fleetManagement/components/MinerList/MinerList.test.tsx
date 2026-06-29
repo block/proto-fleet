@@ -1163,7 +1163,7 @@ describe("MinerList", () => {
       const row = screen.getByTestId("list-row");
       await user.click(row);
 
-      expect(screen.getByTestId("path-display")).toHaveTextContent("/miners/m1");
+      expect(screen.getByTestId("path-display")).toHaveTextContent("/miners/m1/hashrate");
       // Matches the list name column (miner.name), not the model.
       expect(screen.getByTestId("route-state-miner-name")).toHaveTextContent("Rig Alpha");
       expect(screen.getByTestId("route-state-ip-address")).toHaveTextContent("10.0.0.42");

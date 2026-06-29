@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { buildSingleMinerRouteState, canOpenEmbeddedMinerView, rememberSingleMinerMetadata } from "./routeState";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
+const DEFAULT_SINGLE_MINER_ROUTE = "hashrate";
+
 /**
  * Opens a miner the same way from every entry point (row click, actions menu):
  * the embedded single-miner view when the miner can be proxied, otherwise the
@@ -16,7 +18,7 @@ export const useOpenMinerView = () => {
     (miner: MinerStateSnapshot) => {
       if (canOpenEmbeddedMinerView(miner)) {
         rememberSingleMinerMetadata(miner);
-        navigate(`/miners/${encodeURIComponent(miner.deviceIdentifier)}`, {
+        navigate(`/miners/${encodeURIComponent(miner.deviceIdentifier)}/${DEFAULT_SINGLE_MINER_ROUTE}`, {
           state: buildSingleMinerRouteState(miner),
         });
         return;
