@@ -552,6 +552,14 @@ func start(config *Config) error {
 
 	grafanaClient := alertsDomain.NewGrafana(config.Metrics.Grafana)
 	alertsSvc := alertsDomain.NewService(grafanaClient, config.Metrics.AlertDestinations)
+	// Re-assert org alert routing after any Grafana re-provision; best-effort so a briefly-unavailable Grafana doesn't block boot.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := alertsSvc.ReconcileNotificationTree(ctx); err != nil {
+			slog.Warn("alerts.boot_reconcile_routes_failed", "error", err)
+		}
+	}()
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),

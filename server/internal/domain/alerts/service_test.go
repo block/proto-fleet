@@ -289,9 +289,40 @@ func fakeGrafana(t *testing.T, listed []GrafanaContactPoint, putBody *[]byte) *G
 		require.NoError(t, json.Unmarshal(b, &cp))
 		require.NoError(t, json.NewEncoder(w).Encode(cp))
 	})
+	// Channel writes reconcile the routing tree; accept the PUT so CRUD succeeds.
+	mux.HandleFunc("PUT /api/v1/provisioning/policies", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return NewGrafana(GrafanaConfig{URL: srv.URL})
+}
+
+func TestBuildNotificationTree(t *testing.T) {
+	t.Run("no org channels leaves the root single-receiver", func(t *testing.T) {
+		tree := buildNotificationTree([]GrafanaContactPoint{{Name: "shared-thing", Type: "webhook"}})
+		assert.Equal(t, rootDefaults.Receiver, tree.Receiver)
+		assert.Empty(t, tree.Routes)
+	})
+	t.Run("org channels get a route plus a history tee", func(t *testing.T) {
+		tree := buildNotificationTree([]GrafanaContactPoint{
+			{Name: "org-42-ops", Type: "slack"},
+			{Name: "org-42-test-abc", Type: "slack"}, // transient test-before-save, excluded
+			{Name: "shared-thing", Type: "webhook"},  // not org-managed
+		})
+		require.Len(t, tree.Routes, 2) // one org route + trailing tee
+
+		org := tree.Routes[0]
+		assert.Equal(t, "org-42-ops", org.Receiver)
+		assert.Equal(t, [][]string{{"organization_id", "=", "42"}}, org.ObjectMatchers)
+		assert.Equal(t, []string{"organization_id"}, org.GroupBy)
+		assert.True(t, org.Continue, "org route must fall through to the history tee")
+
+		tee := tree.Routes[1]
+		assert.Equal(t, rootDefaults.Receiver, tee.Receiver)
+		assert.False(t, tee.Continue)
+		assert.Empty(t, tee.ObjectMatchers, "tee must match all so the webhook still sees every alert")
+	})
 }
 
 func TestUpdateChannelRejectsRenameToExistingName(t *testing.T) {

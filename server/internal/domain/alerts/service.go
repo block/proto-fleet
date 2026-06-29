@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -23,6 +24,7 @@ type Service struct {
 	grafana *Grafana
 	policy  DestinationPolicy
 	now     func() time.Time
+	treeMu  sync.Mutex
 }
 
 type DestinationPolicy struct {
@@ -113,6 +115,7 @@ func (s *Service) CreateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	}
 	// Grafana's response strips the secret, so preserve the local HasSecret flag.
 	out.HasSecret = c.HasSecret
+	s.reconcileRoutes(ctx)
 	return &out, nil
 }
 
@@ -210,6 +213,7 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 		return nil, err
 	}
 	out.HasSecret = c.HasSecret
+	s.reconcileRoutes(ctx)
 	return &out, nil
 }
 
@@ -223,7 +227,68 @@ func (s *Service) DeleteChannel(ctx context.Context, orgID int64, id string) err
 	if err := s.grafana.DeleteContactPoint(ctx, id); err != nil && !IsNotFound(err) {
 		return err
 	}
+	s.reconcileRoutes(ctx)
 	return nil
+}
+
+// ReconcileNotificationTree rebuilds the org-routing tree from current contact points and replaces Grafana's policy tree; idempotent, called on boot to re-assert it.
+func (s *Service) ReconcileNotificationTree(ctx context.Context) error {
+	// Grafana replaces the whole tree on PUT, so serialize the read-modify-write.
+	s.treeMu.Lock()
+	defer s.treeMu.Unlock()
+	cps, err := s.grafana.ListContactPoints(ctx)
+	if err != nil {
+		return err
+	}
+	return s.grafana.SetNotificationTree(ctx, buildNotificationTree(cps))
+}
+
+// reconcileRoutes re-asserts routing after a channel write; best-effort since the contact point persisted and the boot reconcile converges any failure.
+func (s *Service) reconcileRoutes(ctx context.Context) {
+	if err := s.ReconcileNotificationTree(ctx); err != nil {
+		slog.Error("alerts.reconcile_routes_failed", "err", err)
+	}
+}
+
+// Root defaults mirror notification-policies.yaml; keep the two in sync.
+var rootDefaults = GrafanaRoute{
+	Receiver:       "protofleet-internal",
+	GroupBy:        []string{"alertname", ruleLabelOrganizationID, "device_id"},
+	GroupWait:      "30s",
+	GroupInterval:  "5m",
+	RepeatInterval: "1h",
+}
+
+// Recovers the org id from an "org-<id>-<name>" contact point name.
+var orgChannelName = regexp.MustCompile(`^org-(\d+)-`)
+
+// Display-name prefix of the transient contact points TestChannel creates; excluded from routing.
+const testChannelPrefix = "test-"
+
+// buildNotificationTree routes each org's alerts to its own contact point, collapsing the per-device fan-out into one notification per org.
+func buildNotificationTree(cps []GrafanaContactPoint) GrafanaRoute {
+	root := rootDefaults
+	var orgRoutes []GrafanaRoute
+	for _, cp := range cps {
+		m := orgChannelName.FindStringSubmatch(cp.Name)
+		// Skip non-org receivers and the transient test-before-save contact points.
+		if m == nil || strings.HasPrefix(cp.Name[len(m[0]):], testChannelPrefix) {
+			continue
+		}
+		orgRoutes = append(orgRoutes, GrafanaRoute{
+			Receiver:       cp.Name,
+			ObjectMatchers: [][]string{{ruleLabelOrganizationID, "=", m[1]}},
+			GroupBy:        []string{ruleLabelOrganizationID},
+			Continue:       true,
+		})
+	}
+	if len(orgRoutes) == 0 {
+		return root
+	}
+	// Trailing match-all tee keeps the history webhook fed once org routes divert alerts.
+	orgRoutes = append(orgRoutes, GrafanaRoute{Receiver: rootDefaults.Receiver})
+	root.Routes = orgRoutes
+	return root
 }
 
 func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool, int, string, error) {
@@ -259,7 +324,7 @@ func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool
 		return false, 0, "", err
 	}
 	gType := grafanaTypeFor(c.Kind)
-	tmpName := channelGrafanaName(orgID, "test-"+uuid.NewString())
+	tmpName := channelGrafanaName(orgID, testChannelPrefix+uuid.NewString())
 	created, err := s.grafana.CreateContactPoint(ctx, GrafanaContactPoint{Name: tmpName, Type: gType, Settings: settings})
 	if err != nil {
 		return false, 0, "", err

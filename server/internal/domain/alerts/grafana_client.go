@@ -82,6 +82,27 @@ func (g *Grafana) DeleteContactPoint(ctx context.Context, uid string) error {
 	return nil
 }
 
+// GrafanaRoute is a node in Grafana's notification policy tree; children route by object_matchers to per-org receivers.
+type GrafanaRoute struct {
+	Receiver       string   `json:"receiver,omitempty"`
+	GroupBy        []string `json:"group_by,omitempty"`
+	GroupWait      string   `json:"group_wait,omitempty"`
+	GroupInterval  string   `json:"group_interval,omitempty"`
+	RepeatInterval string   `json:"repeat_interval,omitempty"`
+	// Each matcher is [name, operator, value], e.g. ["organization_id","=","42"].
+	ObjectMatchers [][]string     `json:"object_matchers,omitempty"`
+	Continue       bool           `json:"continue,omitempty"`
+	Routes         []GrafanaRoute `json:"routes,omitempty"`
+}
+
+// SetNotificationTree replaces the whole policy tree; send() sets X-Disable-Provenance so it overrides the YAML-provisioned root.
+func (g *Grafana) SetNotificationTree(ctx context.Context, root GrafanaRoute) error {
+	if err := g.do(ctx, http.MethodPut, "/api/v1/provisioning/policies", root, nil); err != nil {
+		return fmt.Errorf("set notification policy tree: %w", err)
+	}
+	return nil
+}
+
 // ReceiverTestResult is the outcome of a Grafana "test contact point" call. The
 // receiver test endpoint answers HTTP 200 even when delivery to the destination
 // fails, so the real result lives in the decoded status/error, not the status code.
