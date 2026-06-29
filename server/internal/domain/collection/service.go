@@ -1719,6 +1719,19 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 		return nil, err
 	}
 
+	// Capacity guard. A rack has no "floating" members — every miner is
+	// expected to occupy a slot — so membership is bounded by the grid
+	// (rows×columns, each 1..maxRackDimension, validated above). Reject an
+	// over-capacity selection here, after the selector resolves (an
+	// all-mode selector can resolve to the full fleet), so the membership
+	// write never persists more miners than the rack can ever hold.
+	if capacity := int(rackInfo.Rows) * int(rackInfo.Columns); len(deviceIdentifiers) > capacity {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"cannot assign %d miners to a rack with %d slots (%d×%d)",
+			len(deviceIdentifiers), capacity, rackInfo.Rows, rackInfo.Columns,
+		)
+	}
+
 	// Build a set of resolved device IDs for slot assignment validation.
 	deviceSet := make(map[string]struct{}, len(deviceIdentifiers))
 	for _, id := range deviceIdentifiers {

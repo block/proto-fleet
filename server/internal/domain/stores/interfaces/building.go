@@ -63,6 +63,13 @@ type BuildingStore interface {
 	// page token (empty when the caller has reached the last page).
 	ListBuildingRacks(ctx context.Context, orgID, buildingID int64, pageSize int32, pageToken string) ([]models.BuildingRack, string, error)
 
+	// CountRacksInBuilding returns the number of live racks currently
+	// assigned to the building (placed or unplaced — membership, not
+	// grid occupancy). Used by AssignRacksToBuilding's capacity guard
+	// to reject a batch that would push membership past the building's
+	// aisles×racks_per_aisle grid.
+	CountRacksInBuilding(ctx context.Context, orgID, buildingID int64) (int64, error)
+
 	// ListRacksOutsideBuildingBounds returns racks whose grid
 	// position would fall outside the proposed (aisles,
 	// racksPerAisle) layout. Unbounded by design — used by

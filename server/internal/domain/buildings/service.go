@@ -430,7 +430,11 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			// the site-cascade set because a same-site building change
 			// (move within one site) hits buildings but not sites.
 			cascadeBuildingRackIDs []int64
-			positionedRackIDs      []int64
+			// Net-new members for the capacity guard: batch racks whose
+			// building_id differs from the target (i.e. not already in
+			// this building). Counted only when assigning to a target.
+			netNewBuildingMembers int
+			positionedRackIDs     []int64
 			// For a building-only unassign (TargetBuildingID == nil), capture
 			// the source site so the activity log preserves "the site this
 			// rack lives in" instead of nil. clearSourceSite holds the single
@@ -531,6 +535,9 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			// (nil on building-only unassign).
 			if !int64PtrEqual(current.BuildingID, params.TargetBuildingID) {
 				cascadeBuildingRackIDs = append(cascadeBuildingRackIDs, rp.RackID)
+				if params.TargetBuildingID != nil {
+					netNewBuildingMembers++
+				}
 				// Placing a previously site-less rack into a site-less
 				// building. The site gate above misses this (nil->nil,
 				// siteChanged false), but the building cascade below stamps
@@ -551,6 +558,39 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 		// whole batch shares one (see clearSourceSite above).
 		if params.TargetBuildingID == nil && !clearSourceAmbiguous {
 			fallbackSiteID = clearSourceSite
+		}
+
+		// Capacity guard. The per-cell bound check above only constrains
+		// PLACED racks; this bounds total MEMBERSHIP (placed + unplaced)
+		// against the building's grid. A building holds at most
+		// aisles×racks_per_aisle racks — there is no "floating beyond
+		// capacity" state — so reject a batch whose net-new members would
+		// push membership past that ceiling, mirroring SaveRack's miner
+		// cap. Runs inside the tx after the building lock + per-rack reads
+		// so the count can't race a concurrent assign. Skipped on
+		// building-only unassign (no target, membership only shrinks).
+		//
+		// capacity == 0 means the grid isn't configured yet (aisles or
+		// racks_per_aisle still 0 — both are optional at create). Racks
+		// can be staged in an unconfigured building; there's no geometric
+		// limit to enforce until a layout exists, so guard only once the
+		// grid is set. A single batch is still bounded by the proto's
+		// max_items, and the per-cell check above still rejects placement
+		// into a 0-cell grid.
+		if targetBuilding != nil {
+			capacity := int64(targetBuilding.Aisles) * int64(targetBuilding.RacksPerAisle)
+			if capacity > 0 {
+				existing, err := s.store.CountRacksInBuilding(txCtx, params.OrgID, *params.TargetBuildingID)
+				if err != nil {
+					return nil, err
+				}
+				if resulting := existing + int64(netNewBuildingMembers); resulting > capacity {
+					return nil, fleeterror.NewInvalidArgumentErrorf(
+						"cannot assign racks: building has %d positions (%d aisles × %d racks per aisle) but %d racks would be assigned",
+						capacity, targetBuilding.Aisles, targetBuilding.RacksPerAisle, resulting,
+					)
+				}
+			}
 		}
 
 		// Phase B1: single bulk write for site_id + building_id + zone

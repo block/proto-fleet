@@ -1227,6 +1227,37 @@ func TestService_SaveRack_ValidationErrors(t *testing.T) {
 	}
 }
 
+// Capacity guard: more resolved members than rows×columns is rejected
+// after the selector resolves but before any write. A rack has no
+// floating members — every miner needs a slot — so an oversized
+// (e.g. all-mode) selection can't persist.
+func TestService_SaveRack_RejectsOverCapacity(t *testing.T) {
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return []string{"device-1", "device-2"}, nil
+	}
+	svc, _, _ := newTestServiceWithResolver(t, resolver)
+	ctx := testCtx(t)
+
+	_, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		Label: "Rack",
+		// 1×1 = 1 slot, but the selector resolves to 2 devices.
+		RackInfo: &pb.RackInfo{
+			Rows: 1, Columns: 1,
+			OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+			CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+		},
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"device-1", "device-2"}},
+			},
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "cannot assign 2 miners to a rack with 1 slots")
+}
+
 func TestService_SaveRack_SlotAssignmentReferencesUnknownDevice(t *testing.T) {
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return []string{"device-1"}, nil

@@ -308,6 +308,32 @@ func (q *Queries) ClearDeviceBuildingsOnSiteMismatch(ctx context.Context, arg Cl
 	return result.RowsAffected()
 }
 
+const countRacksInBuilding = `-- name: CountRacksInBuilding :one
+SELECT COUNT(*)::bigint AS rack_count
+FROM device_set_rack dsr
+JOIN device_set ds ON ds.id = dsr.device_set_id
+WHERE dsr.org_id = $1
+  AND dsr.building_id = $2
+  AND ds.deleted_at IS NULL
+`
+
+type CountRacksInBuildingParams struct {
+	OrgID      int64
+	BuildingID sql.NullInt64
+}
+
+// Total live racks currently assigned to a building (placed or
+// unplaced — membership, not grid occupancy). Used by
+// AssignRacksToBuilding's capacity guard to reject a batch that would
+// push the building over its aisles×racks_per_aisle grid. Matches
+// ListBuildingRacks' filter so the count and the list agree.
+func (q *Queries) CountRacksInBuilding(ctx context.Context, arg CountRacksInBuildingParams) (int64, error) {
+	row := q.queryRow(ctx, q.countRacksInBuildingStmt, countRacksInBuilding, arg.OrgID, arg.BuildingID)
+	var rack_count int64
+	err := row.Scan(&rack_count)
+	return rack_count, err
+}
+
 const createBuilding = `-- name: CreateBuilding :one
 INSERT INTO building (
     org_id,

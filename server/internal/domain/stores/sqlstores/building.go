@@ -214,6 +214,17 @@ func (s *SQLBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildin
 	return out, nextPageToken, nil
 }
 
+func (s *SQLBuildingStore) CountRacksInBuilding(ctx context.Context, orgID, buildingID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountRacksInBuilding(ctx, sqlc.CountRacksInBuildingParams{
+		OrgID:      orgID,
+		BuildingID: zeroToNullInt64(buildingID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count racks in building: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLBuildingStore) ListRacksOutsideBuildingBounds(ctx context.Context, orgID, buildingID int64, newAisles, newRacksPerAisle int32) ([]models.BuildingRack, error) {
 	rows, err := s.GetQueries(ctx).ListRacksOutsideBuildingBounds(ctx, sqlc.ListRacksOutsideBuildingBoundsParams{
 		OrgID:            orgID,
