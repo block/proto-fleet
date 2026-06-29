@@ -102,9 +102,12 @@ func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
 // resolution error leaves the event org-scoped (nil/false) rather than
 // failing the action's fire-and-forget audit log.
 func (s *Service) resolveDeviceSetSiteScope(ctx context.Context, orgID int64, identifiers []string) activitymodels.SiteScope {
-	if s.activitySvc == nil {
-		// No activity sink — the scope would only feed an event we never
-		// write, so skip the query entirely.
+	// No activity sink, or a group-only service constructed without a
+	// siteStore (NewService documents it as optional): the scope would only
+	// feed an event we never write, AND this runs AFTER the membership tx has
+	// committed — so degrade to an org-scoped event rather than panicking on a
+	// nil siteStore for an operation that already succeeded.
+	if s.activitySvc == nil || s.siteStore == nil {
 		return activitymodels.SiteScope{}
 	}
 	sites, err := s.siteStore.GetDistinctDeviceSiteIDs(ctx, orgID, identifiers)

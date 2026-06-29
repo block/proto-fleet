@@ -34,12 +34,13 @@ member_sites AS (
     SELECT inserted.id, inserted.organization_id, member.site_id
     FROM inserted
     CROSS JOIN unnest(sqlc.arg('member_site_ids')::bigint[]) AS member(site_id)
+    WHERE sqlc.arg('multi_site')::boolean
     RETURNING activity_log_id
 )
 INSERT INTO activity_log_site (activity_log_id, org_id, site_id)
 SELECT inserted.id, inserted.organization_id, NULL::bigint
 FROM inserted
-WHERE sqlc.arg('member_unassigned')::boolean;
+WHERE sqlc.arg('multi_site')::boolean AND sqlc.arg('member_unassigned')::boolean;
 
 -- name: ListActivityLogs :many
 -- Array filter contract: the Go store layer must pass nil (not empty slice)

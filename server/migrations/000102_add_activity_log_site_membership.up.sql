@@ -12,9 +12,13 @@
 -- composite site FK is MATCH SIMPLE, so the NULL-site row skips the FK.
 --
 -- Mirrors command_on_device_log's site denormalization: org_id is carried so
--- the site FK can be composite-keyed, and ON DELETE SET NULL keeps a deleted
--- site from leaving a dangling membership id (the array-column alternative
--- can't preserve this).
+-- the site FK can be composite-keyed. The site FK is ON DELETE CASCADE (not
+-- SET NULL): deleting a site removes only that site's membership row, so the
+-- event stays attributed to its surviving sites and is never mistaken for one
+-- that touched unassigned devices (a nulled-out site_id would alias the
+-- "touched unassigned" representation and leak the event into /unassigned).
+-- The event's all-sites visibility is unaffected — the activity_log row
+-- persists regardless.
 CREATE TABLE activity_log_site (
     activity_log_id BIGINT NOT NULL
         REFERENCES activity_log(id) ON DELETE CASCADE,
@@ -22,11 +26,21 @@ CREATE TABLE activity_log_site (
     site_id BIGINT NULL,
     CONSTRAINT fk_activity_log_site_membership_site
         FOREIGN KEY (site_id, org_id) REFERENCES site(id, org_id)
-        ON DELETE SET NULL (site_id)
+        ON DELETE CASCADE
 );
 
--- Unique on (activity_log_id, site_id) both enforces distinct membership and
--- serves the read query's correlated EXISTS lookups (site match + the
--- site_id IS NULL "touches unassigned" probe). NULLs compare distinct, but
--- the writer emits at most one NULL row per event, so no duplicate arises.
+-- Read-side lookup + distinctness: the correlated EXISTS probes filter by
+-- (activity_log_id, site_id) and (activity_log_id, site_id IS NULL), and the
+-- unique index also stops duplicate (activity_log_id, real-site) rows. NULLs
+-- compare distinct in a UNIQUE index, so it does not bound the NULL-site rows;
+-- the writer emits at most one per event, and ON DELETE CASCADE removes
+-- referenced rows rather than nulling them, so no second NULL row can appear.
 CREATE UNIQUE INDEX uq_activity_log_site ON activity_log_site (activity_log_id, site_id);
+
+-- Supporting index for the site FK's referential-action lookup: deleting (or
+-- re-keying) a site must find its membership rows by (site_id, org_id) to
+-- cascade. Without a site_id-leading index that is a full table scan, making
+-- site deletion slow/lock-heavy as the table grows. NULL-site rows are never
+-- FK-referenced, so the partial predicate keeps the index small.
+CREATE INDEX idx_activity_log_site_site
+    ON activity_log_site (site_id, org_id) WHERE site_id IS NOT NULL;

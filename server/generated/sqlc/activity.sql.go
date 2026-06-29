@@ -213,13 +213,13 @@ WITH inserted AS (
         organization_id, metadata, batch_id,
         site_id, multi_site
     ) VALUES (
-        $2,
-        $3, $4, $5,
-        $6, $7,
-        $8, $9, $10,
-        $11, $12, $13,
-        $14, $15, $16,
-        $17, $18
+        $3,
+        $4, $5, $6,
+        $7, $8,
+        $9, $10, $11,
+        $12, $13, $14,
+        $15, $16, $17,
+        $18, $1
     )
     RETURNING id, organization_id
 ),
@@ -228,15 +228,17 @@ member_sites AS (
     SELECT inserted.id, inserted.organization_id, member.site_id
     FROM inserted
     CROSS JOIN unnest($19::bigint[]) AS member(site_id)
+    WHERE $1::boolean
     RETURNING activity_log_id
 )
 INSERT INTO activity_log_site (activity_log_id, org_id, site_id)
 SELECT inserted.id, inserted.organization_id, NULL::bigint
 FROM inserted
-WHERE $1::boolean
+WHERE $1::boolean AND $2::boolean
 `
 
 type InsertActivityLogParams struct {
+	MultiSite        bool
 	MemberUnassigned bool
 	EventID          uuid.UUID
 	EventCategory    string
@@ -254,7 +256,6 @@ type InsertActivityLogParams struct {
 	Metadata         pqtype.NullRawMessage
 	BatchID          sql.NullString
 	SiteID           sql.NullInt64
-	MultiSite        bool
 	MemberSiteIds    []int64
 }
 
@@ -270,6 +271,7 @@ type InsertActivityLogParams struct {
 // path inserts only the activity_log row.
 func (q *Queries) InsertActivityLog(ctx context.Context, arg InsertActivityLogParams) error {
 	_, err := q.exec(ctx, q.insertActivityLogStmt, insertActivityLog,
+		arg.MultiSite,
 		arg.MemberUnassigned,
 		arg.EventID,
 		arg.EventCategory,
@@ -287,7 +289,6 @@ func (q *Queries) InsertActivityLog(ctx context.Context, arg InsertActivityLogPa
 		arg.Metadata,
 		arg.BatchID,
 		arg.SiteID,
-		arg.MultiSite,
 		pq.Array(arg.MemberSiteIds),
 	)
 	return err

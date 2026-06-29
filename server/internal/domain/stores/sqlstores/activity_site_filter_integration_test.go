@@ -293,3 +293,60 @@ func TestActivityLogs_SiteScopeFilter(t *testing.T) {
 		})
 	}
 }
+
+// TestActivityLogs_SiteDeleteCascadesMembership pins the FK referential action
+// chosen for #538: a hard site delete CASCADE-removes that site's membership
+// row (rather than nulling it), so a cross-site event stays attributed to its
+// surviving site and is NOT misread as having touched unassigned devices. A
+// NULL-site (SET NULL) action would alias the "touches unassigned" row and
+// leak the event into /unassigned.
+func TestActivityLogs_SiteDeleteCascadesMembership(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	ctx := t.Context()
+	db := tc.ServiceProvider.DB
+	siteStore := sqlstores.NewSQLSiteStore(db)
+	store := sqlstores.NewSQLActivityStore(db)
+
+	user := tc.DatabaseService.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site A"})
+	require.NoError(t, err)
+	siteB, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site B"})
+	require.NoError(t, err)
+
+	const desc = "cross-site event surviving a site delete"
+	require.NoError(t, store.Insert(ctx, &models.Event{
+		Category:       models.CategoryFleetManagement,
+		Type:           "rename_miners",
+		Description:    desc,
+		Result:         models.ResultSuccess,
+		ActorType:      models.ActorUser,
+		OrganizationID: &orgID,
+		MultiSite:      true,
+		MemberSiteIDs:  []int64{siteA.ID, siteB.ID},
+	}))
+
+	// Hard-delete site B (sites are normally soft-deleted; this exercises the
+	// FK referential action directly).
+	_, err = db.ExecContext(ctx, `DELETE FROM site WHERE id = $1 AND org_id = $2`, siteB.ID, orgID)
+	require.NoError(t, err)
+
+	// Site B's membership row cascaded away; only site A's remains.
+	var memberRows int
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM activity_log_site als
+		 JOIN activity_log a ON a.id = als.activity_log_id
+		 WHERE a.organization_id = $1 AND a.description = $2`,
+		orgID, desc).Scan(&memberRows))
+	assert.Equal(t, 1, memberRows, "deleted site's membership row must cascade away, leaving only site A")
+
+	// The event still surfaces under /{siteA} and must NOT have leaked into
+	// the /unassigned bucket.
+	gotA, _ := listActivityDescriptions(t, ctx, store, orgID, []int64{siteA.ID}, false)
+	assert.Contains(t, gotA, desc, "event stays attributed to its surviving site")
+	gotUnassigned, _ := listActivityDescriptions(t, ctx, store, orgID, nil, true)
+	assert.NotContains(t, gotUnassigned, desc, "deleting a site must not leak the event into /unassigned")
+}
