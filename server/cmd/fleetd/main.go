@@ -552,12 +552,21 @@ func start(config *Config) error {
 
 	grafanaClient := alertsDomain.NewGrafana(config.Metrics.Grafana)
 	alertsSvc := alertsDomain.NewService(grafanaClient, config.Metrics.AlertDestinations)
-	// Re-assert org alert routing after any Grafana re-provision; best-effort so a briefly-unavailable Grafana doesn't block boot.
+	// Periodically rebuild the org alert-routing tree so it self-heals after a Grafana-only restart re-provisions the YAML root; best-effort so an unavailable Grafana never blocks boot.
+	alertsReconcileCtx, alertsReconcileCancel := context.WithCancel(context.Background())
+	defer alertsReconcileCancel()
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := alertsSvc.ReconcileNotificationTree(ctx); err != nil {
-			slog.Warn("alerts.boot_reconcile_routes_failed", "error", err)
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			if err := alertsSvc.ReconcileNotificationTree(alertsReconcileCtx); err != nil {
+				slog.Warn("alerts.reconcile_routes_failed", "error", err)
+			}
+			select {
+			case <-ticker.C:
+			case <-alertsReconcileCtx.Done():
+				return
+			}
 		}
 	}()
 

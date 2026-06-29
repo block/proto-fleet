@@ -307,22 +307,39 @@ func TestBuildNotificationTree(t *testing.T) {
 	t.Run("org channels get a route plus a history tee", func(t *testing.T) {
 		tree := buildNotificationTree([]GrafanaContactPoint{
 			{Name: "org-42-ops", Type: "slack"},
-			{Name: "org-42-test-abc", Type: "slack"}, // transient test-before-save, excluded
-			{Name: "shared-thing", Type: "webhook"},  // not org-managed
+			{Name: "org-42-test-pager", Type: "slack"}, // saved channel named "test-*" — must still route
+			{Name: "org-42-__test-abc", Type: "slack"}, // transient test-before-save receiver — excluded
+			{Name: "shared-thing", Type: "webhook"},    // not org-managed
 		})
-		require.Len(t, tree.Routes, 2) // one org route + trailing tee
+		require.Len(t, tree.Routes, 3) // two org routes + trailing tee
+
+		var receivers []string
+		for _, r := range tree.Routes {
+			receivers = append(receivers, r.Receiver)
+		}
+		assert.Contains(t, receivers, "org-42-ops")
+		assert.Contains(t, receivers, "org-42-test-pager", "a saved channel named test-* must still route")
+		assert.NotContains(t, receivers, "org-42-__test-abc", "transient test receiver must be excluded")
 
 		org := tree.Routes[0]
-		assert.Equal(t, "org-42-ops", org.Receiver)
 		assert.Equal(t, [][]string{{"organization_id", "=", "42"}}, org.ObjectMatchers)
 		assert.Equal(t, []string{"organization_id"}, org.GroupBy)
 		assert.True(t, org.Continue, "org route must fall through to the history tee")
 
-		tee := tree.Routes[1]
+		tee := tree.Routes[len(tree.Routes)-1]
 		assert.Equal(t, rootDefaults.Receiver, tee.Receiver)
 		assert.False(t, tee.Continue)
 		assert.Empty(t, tee.ObjectMatchers, "tee must match all so the webhook still sees every alert")
 	})
+}
+
+func TestValidateChannelNameRejectsReservedPrefix(t *testing.T) {
+	require.NoError(t, validateChannelName("ops"))
+	require.NoError(t, validateChannelName("test-pager"), "test-* names are user-allowed")
+
+	err := validateChannelName(transientChannelPrefix + "abc")
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
 func TestUpdateChannelRejectsRenameToExistingName(t *testing.T) {
@@ -511,7 +528,7 @@ func TestTestChannelBeforeSaveUsesTransientReceiver(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, 200, code)
 
-	assert.True(t, strings.HasPrefix(createdName, "org-7-test-"),
+	assert.True(t, strings.HasPrefix(createdName, "org-7-__test-"),
 		"transient receiver must keep the org prefix so isolation holds, got %q", createdName)
 	assert.Equal(t, base64.RawURLEncoding.EncodeToString([]byte(createdName)), testedName,
 		"test must address the transient receiver by base64(name)")
