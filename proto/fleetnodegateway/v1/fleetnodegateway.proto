@@ -332,6 +332,7 @@ message MinerCommand {
         DownloadLogsAction download_logs = 14;
         FirmwareUpdateAction firmware_update = 15;
         GetFirmwareUpdateStatusAction get_firmware_update_status = 16;
+        GetCoolingModeAction get_cooling_mode = 17;
     }
 }
 
@@ -343,6 +344,7 @@ message UncurtailAction {}
 message GetMiningPoolsAction {}
 message GetErrorsAction {}
 message GetFirmwareUpdateStatusAction {}
+message GetCoolingModeAction {}
 
 message DownloadLogsAction {
     string batch_log_uuid = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
@@ -380,6 +382,10 @@ message CurtailAction {
 
 message SetCoolingModeAction {
     common.v1.CoolingMode mode = 1;
+}
+
+message GetCoolingModeResult {
+    common.v1.CoolingMode mode = 1 [(buf.validate.field).enum.defined_only = true];
 }
 
 message SetPowerTargetAction {

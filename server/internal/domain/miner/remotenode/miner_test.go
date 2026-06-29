@@ -307,6 +307,74 @@ func TestMiner_UpdateMinerPasswordWithCredentials_DecodesEncryptedCredentials(t 
 	assert.Equal(t, []byte("node-pass"), creds.GetPassword())
 }
 
+func TestMiner_GetCoolingMode_DecodesPayload(t *testing.T) {
+	// Arrange
+	payload, err := proto.Marshal(&gatewaypb.GetCoolingModeResult{
+		Mode: commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED,
+	})
+	require.NoError(t, err)
+	s := &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}}
+	m := newTestMiner(t, s)
+
+	// Act
+	mode, err := m.GetCoolingMode(context.Background())
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED, mode)
+	mc := decodeSent(t, s)
+	assert.NotNil(t, mc.GetGetCoolingMode())
+}
+
+func TestMiner_GetCoolingMode_RejectsInvalidPayloadData(t *testing.T) {
+	// Arrange
+	payload, err := proto.Marshal(&gatewaypb.GetCoolingModeResult{
+		Mode: commonpb.CoolingMode(99),
+	})
+	require.NoError(t, err)
+	m := newTestMiner(t, &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}})
+
+	// Act
+	mode, err := m.GetCoolingMode(context.Background())
+
+	// Assert
+	require.Error(t, err)
+	assert.Equal(t, commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, mode)
+	assert.Contains(t, err.Error(), "invalid get cooling mode result")
+}
+
+func TestMiner_GetCoolingMode_UsesBoundedCommandContext(t *testing.T) {
+	// Arrange
+	oldTimeout := remoteGetCoolingModeCommandTimeout
+	remoteGetCoolingModeCommandTimeout = 25 * time.Millisecond
+	t.Cleanup(func() { remoteGetCoolingModeCommandTimeout = oldTimeout })
+	s := &blockingSender{started: make(chan struct{})}
+	m := newTestMiner(t, s)
+
+	// Act
+	startedAt := time.Now()
+	_, err := m.GetCoolingMode(context.Background())
+
+	// Assert
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.True(t, fleeterror.IsConnectionError(err), "expected connection error, got %v", err)
+	assert.Less(t, time.Since(startedAt), time.Second)
+	select {
+	case <-s.started:
+	default:
+		t.Fatal("SendCommand was not called")
+	}
+}
+
 func testEncryptedPasswordUpdatePayload() *dto.NodeEncryptedPayload {
 	return &dto.NodeEncryptedPayload{
 		Algorithm:       passwordupdate.Algorithm,
