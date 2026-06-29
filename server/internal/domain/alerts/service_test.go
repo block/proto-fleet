@@ -241,6 +241,9 @@ func TestCreateChannelAllowsDuplicateNameInDifferentOrg(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode(cp))
 	})
+	mux.HandleFunc("PUT /api/v1/provisioning/policies", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{AllowPrivateDestinations: true})
@@ -305,11 +308,12 @@ func TestBuildNotificationTree(t *testing.T) {
 		assert.Empty(t, tree.Routes)
 	})
 	t.Run("org channels get a route plus a history tee", func(t *testing.T) {
+		const transientUUID = "550e8400-e29b-41d4-a716-446655440000"
 		tree := buildNotificationTree([]GrafanaContactPoint{
 			{Name: "org-42-ops", Type: "slack"},
-			{Name: "org-42-test-pager", Type: "slack"}, // saved channel named "test-*" — must still route
-			{Name: "org-42-__test-abc", Type: "slack"}, // transient test-before-save receiver — excluded
-			{Name: "shared-thing", Type: "webhook"},    // not org-managed
+			{Name: "org-42-test-pager", Type: "slack"},            // saved channel named "test-*" — must still route
+			{Name: "org-42-test-" + transientUUID, Type: "slack"}, // transient test-before-save receiver — excluded
+			{Name: "shared-thing", Type: "webhook"},               // not org-managed
 		})
 		require.Len(t, tree.Routes, 3) // two org routes + trailing tee
 
@@ -319,7 +323,7 @@ func TestBuildNotificationTree(t *testing.T) {
 		}
 		assert.Contains(t, receivers, "org-42-ops")
 		assert.Contains(t, receivers, "org-42-test-pager", "a saved channel named test-* must still route")
-		assert.NotContains(t, receivers, "org-42-__test-abc", "transient test receiver must be excluded")
+		assert.NotContains(t, receivers, "org-42-test-"+transientUUID, "transient test receiver must be excluded")
 
 		org := tree.Routes[0]
 		assert.Equal(t, [][]string{{"organization_id", "=", "42"}}, org.ObjectMatchers)
@@ -333,11 +337,11 @@ func TestBuildNotificationTree(t *testing.T) {
 	})
 }
 
-func TestValidateChannelNameRejectsReservedPrefix(t *testing.T) {
+func TestValidateChannelNameRejectsTransientPattern(t *testing.T) {
 	require.NoError(t, validateChannelName("ops"))
-	require.NoError(t, validateChannelName("test-pager"), "test-* names are user-allowed")
+	require.NoError(t, validateChannelName("test-pager"), "a test-* name that isn't a transient UUID is user-allowed")
 
-	err := validateChannelName(transientChannelPrefix + "abc")
+	err := validateChannelName("test-550e8400-e29b-41d4-a716-446655440000")
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
@@ -528,7 +532,7 @@ func TestTestChannelBeforeSaveUsesTransientReceiver(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, 200, code)
 
-	assert.True(t, strings.HasPrefix(createdName, "org-7-__test-"),
+	assert.True(t, strings.HasPrefix(createdName, "org-7-test-"),
 		"transient receiver must keep the org prefix so isolation holds, got %q", createdName)
 	assert.Equal(t, base64.RawURLEncoding.EncodeToString([]byte(createdName)), testedName,
 		"test must address the transient receiver by base64(name)")

@@ -118,7 +118,15 @@ func (s *Service) CreateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	}
 	// Grafana's response strips the secret, so preserve the local HasSecret flag.
 	out.HasSecret = c.HasSecret
-	s.reconcileRoutes()
+	if err := s.reconcileRoutes(); err != nil {
+		// Roll back so a routing failure leaves no orphaned, unrouted channel.
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+		defer cancel()
+		if delErr := s.grafana.DeleteContactPoint(cleanupCtx, created.UID); delErr != nil {
+			slog.Error("alerts.create_rollback_failed", "uid", created.UID, "err", delErr)
+		}
+		return nil, fmt.Errorf("channel routing update failed: %w", err)
+	}
 	return &out, nil
 }
 
@@ -219,7 +227,9 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 		return nil, err
 	}
 	out.HasSecret = c.HasSecret
-	s.reconcileRoutes()
+	if err := s.reconcileRoutes(); err != nil {
+		return nil, fmt.Errorf("channel saved but routing update failed: %w", err)
+	}
 	return &out, nil
 }
 
@@ -233,7 +243,9 @@ func (s *Service) DeleteChannel(ctx context.Context, orgID int64, id string) err
 	if err := s.grafana.DeleteContactPoint(ctx, id); err != nil && !IsNotFound(err) {
 		return err
 	}
-	s.reconcileRoutes()
+	if err := s.reconcileRoutes(); err != nil {
+		return fmt.Errorf("channel deleted but routing update failed: %w", err)
+	}
 	return nil
 }
 
@@ -249,13 +261,11 @@ func (s *Service) ReconcileNotificationTree(ctx context.Context) error {
 	return s.grafana.SetNotificationTree(ctx, buildNotificationTree(cps))
 }
 
-// reconcileRoutes re-asserts routing after a channel write; runs on a fresh context so a client disconnect can't cancel the policy update, best-effort with the periodic reconcile as backstop.
-func (s *Service) reconcileRoutes() {
+// reconcileRoutes re-asserts routing after a channel write on a fresh context so a client disconnect can't cancel the policy update; the caller surfaces the error so an interactive write never silently loses routing.
+func (s *Service) reconcileRoutes() error {
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
 	defer cancel()
-	if err := s.ReconcileNotificationTree(ctx); err != nil {
-		slog.Error("alerts.reconcile_routes_failed", "err", err)
-	}
+	return s.ReconcileNotificationTree(ctx)
 }
 
 // Root defaults mirror notification-policies.yaml; keep the two in sync.
@@ -270,8 +280,8 @@ var rootDefaults = GrafanaRoute{
 // Recovers the org id from an "org-<id>-<name>" contact point name.
 var orgChannelName = regexp.MustCompile(`^org-(\d+)-`)
 
-// Reserved display-name prefix for TestChannel's transient receivers; rejected on save so a saved channel can't collide and be dropped from routing.
-const transientChannelPrefix = "__test-"
+// Matches TestChannel's transient "test-<uuid>" receivers precisely, so saved channels named "test-*" still route and orphaned transient receivers (old or new) never do.
+var transientReceiverName = regexp.MustCompile(`^test-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // reconcileTimeout bounds a post-write reconcile run on its own background context.
 const reconcileTimeout = 30 * time.Second
@@ -282,8 +292,8 @@ func buildNotificationTree(cps []GrafanaContactPoint) GrafanaRoute {
 	var orgRoutes []GrafanaRoute
 	for _, cp := range cps {
 		m := orgChannelName.FindStringSubmatch(cp.Name)
-		// Skip non-org receivers and the transient test-before-save contact points.
-		if m == nil || strings.HasPrefix(cp.Name[len(m[0]):], transientChannelPrefix) {
+		// Skip non-org receivers and TestChannel's transient test-before-save contact points.
+		if m == nil || transientReceiverName.MatchString(cp.Name[len(m[0]):]) {
 			continue
 		}
 		orgRoutes = append(orgRoutes, GrafanaRoute{
@@ -335,7 +345,7 @@ func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool
 		return false, 0, "", err
 	}
 	gType := grafanaTypeFor(c.Kind)
-	tmpName := channelGrafanaName(orgID, transientChannelPrefix+uuid.NewString())
+	tmpName := channelGrafanaName(orgID, "test-"+uuid.NewString())
 	created, err := s.grafana.CreateContactPoint(ctx, GrafanaContactPoint{Name: tmpName, Type: gType, Settings: settings})
 	if err != nil {
 		return false, 0, "", err
@@ -432,10 +442,10 @@ func carrySecretSettings(existing, next json.RawMessage, kind ChannelKind) (json
 	return b, true, nil
 }
 
-// Rejects the reserved transient-receiver prefix so a saved channel can never be mistaken for a TestChannel receiver and dropped from routing.
+// Rejects names matching the transient test-receiver pattern so a saved channel can never be misclassified as transient and dropped from routing.
 func validateChannelName(name string) error {
-	if strings.HasPrefix(name, transientChannelPrefix) {
-		return fleeterror.NewInvalidArgumentErrorf("channel name may not start with %q", transientChannelPrefix)
+	if transientReceiverName.MatchString(name) {
+		return fleeterror.NewInvalidArgumentError("channel name may not match the reserved transient test-receiver pattern")
 	}
 	return nil
 }

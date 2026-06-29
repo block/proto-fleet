@@ -552,23 +552,25 @@ func start(config *Config) error {
 
 	grafanaClient := alertsDomain.NewGrafana(config.Metrics.Grafana)
 	alertsSvc := alertsDomain.NewService(grafanaClient, config.Metrics.AlertDestinations)
-	// Periodically rebuild the org alert-routing tree so it self-heals after a Grafana-only restart re-provisions the YAML root; best-effort so an unavailable Grafana never blocks boot.
-	alertsReconcileCtx, alertsReconcileCancel := context.WithCancel(context.Background())
-	defer alertsReconcileCancel()
-	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-		for {
-			if err := alertsSvc.ReconcileNotificationTree(alertsReconcileCtx); err != nil {
-				slog.Warn("alerts.reconcile_routes_failed", "error", err)
+	// Periodically rebuild the org alert-routing tree so it self-heals after a Grafana-only restart re-provisions the YAML root; gated on alerts being enabled so a default-disabled deployment never touches Grafana.
+	if config.Metrics.Enabled {
+		alertsReconcileCtx, alertsReconcileCancel := context.WithCancel(context.Background())
+		defer alertsReconcileCancel()
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for {
+				if err := alertsSvc.ReconcileNotificationTree(alertsReconcileCtx); err != nil {
+					slog.Warn("alerts.reconcile_routes_failed", "error", err)
+				}
+				select {
+				case <-ticker.C:
+				case <-alertsReconcileCtx.Done():
+					return
+				}
 			}
-			select {
-			case <-ticker.C:
-			case <-alertsReconcileCtx.Done():
-				return
-			}
-		}
-	}()
+		}()
+	}
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
