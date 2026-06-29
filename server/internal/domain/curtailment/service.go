@@ -235,7 +235,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	// Stamp once so buildInsertParams and the Start response agree.
 	plan.EffectiveBatchSize = ComputeEffectiveBatchSize(req.RestoreBatchSize, int32(len(plan.Selected))) //nolint:gosec // bounded by per-org fleet size
 	if !req.UseProfileCurtailSettings {
-		req.CurtailBatchSize = &plan.EffectiveBatchSize
+		req.CurtailBatchSize = defaultManualCurtailBatchSize(req.RestoreBatchSize, int32(len(plan.Selected))) //nolint:gosec // bounded by per-org fleet size
 		req.CurtailBatchIntervalSec = 0
 	}
 	plan.EffectiveCurtailBatchSize = cloneInt32Ptr(req.CurtailBatchSize)
@@ -317,11 +317,10 @@ type GetEventWithTargetsRequest struct {
 
 // UpdateRequest is the service-level shape of an UpdateCurtailmentEvent
 // call. Pointer fields use "nil = preserve, non-nil = write" semantics.
-// CanUseAdminControls gates restore_batch_interval_sec above the
-// non-admin cap, mirroring Start. effective_batch_size is not on this
-// surface — recompute-vs-freeze of the batch size mid-event would race
-// an in-flight restore claim, so operators who need a different batch
-// size cancel and restart.
+// CanUseAdminControls gates restore_batch_interval_sec above the non-admin cap,
+// mirroring Start. restore_batch_size accepts same-value echoes only:
+// effective_batch_size is frozen at Start, so operators who need a different
+// restore batch size cancel and restart.
 type UpdateRequest struct {
 	OrgID                   int64
 	EventUUID               uuid.UUID
@@ -363,6 +362,11 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 		return nil, fleeterror.NewFailedPreconditionErrorf(
 			"curtailment event in state %q cannot be updated; restoring/terminal events reject operator-safe updates",
 			event.State,
+		)
+	}
+	if req.RestoreBatchSize != nil && *req.RestoreBatchSize != event.RestoreBatchSize {
+		return nil, fleeterror.NewInvalidArgumentError(
+			"restore_batch_size cannot be changed after Start; cancel and restart the curtailment to change restore batch size",
 		)
 	}
 
@@ -1949,6 +1953,44 @@ func checkMinCurtailedDurationGate(event *models.Event, force bool, now time.Tim
 		"min_curtailed_duration_sec not elapsed: %ds of %ds; an admin can supply force=true on Stop to bypass this gate",
 		int64(elapsed.Seconds()), event.MinCurtailedDurationSec,
 	)
+}
+
+const (
+	defaultManualCurtailBatchSizeFloor   int32 = 10
+	defaultManualCurtailBatchSizeCeiling int32 = 100
+)
+
+// defaultManualCurtailBatchSize preserves the legacy manual-curtail dispatch
+// throttle without letting immediate restore also become the curtail wave size.
+// Positive restore_batch_size continues to drive the manual curtail batch for
+// existing batched flows; restore_batch_size=0 uses the old adaptive [10,100]
+// envelope for curtail dispatch only. A zero selected count returns nil so the
+// DB sees NULL, not an invalid curtail_batch_size=0.
+func defaultManualCurtailBatchSize(restoreBatchSize, selectedCount int32) *int32 {
+	var batchSize int32
+	if restoreBatchSize > 0 {
+		batchSize = restoreBatchSize
+	} else {
+		batchSize = adaptiveManualCurtailBatchSize(selectedCount)
+	}
+	if batchSize <= 0 {
+		return nil
+	}
+	return &batchSize
+}
+
+func adaptiveManualCurtailBatchSize(selectedCount int32) int32 {
+	if selectedCount <= 0 {
+		return 0
+	}
+	base := int32(math.Ceil(float64(selectedCount) * 0.01))
+	if base < defaultManualCurtailBatchSizeFloor {
+		return defaultManualCurtailBatchSizeFloor
+	}
+	if base > defaultManualCurtailBatchSizeCeiling {
+		return defaultManualCurtailBatchSizeCeiling
+	}
+	return base
 }
 
 // ComputeEffectiveBatchSize returns the restore batch size stamped at Start.

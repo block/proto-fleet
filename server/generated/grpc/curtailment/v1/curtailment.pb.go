@@ -2461,14 +2461,15 @@ type StartCurtailmentRequest struct {
 	ModeParams isStartCurtailmentRequest_ModeParams `protobuf_oneof:"mode_params"`
 	// Operational controls.
 	MaxDurationSeconds uint32 `protobuf:"varint,20,opt,name=max_duration_seconds,json=maxDurationSeconds,proto3" json:"max_duration_seconds,omitempty"` // 0 = no cap
-	// 0 = restore all pending targets in one wave up to the server's explicit
-	// max restore wave size. Positive values are persisted and used as the
-	// caller's explicit restore wave size.
+	// Default 0 = restore all pending targets in one wave up to the server's
+	// explicit max restore wave size. Positive values are persisted and used as
+	// the caller's explicit restore wave size.
 	RestoreBatchSize        uint32 `protobuf:"varint,21,opt,name=restore_batch_size,json=restoreBatchSize,proto3" json:"restore_batch_size,omitempty"`
-	RestoreBatchIntervalSec uint32 `protobuf:"varint,22,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3" json:"restore_batch_interval_sec,omitempty"` // 0 = no wait between restore waves
+	RestoreBatchIntervalSec uint32 `protobuf:"varint,22,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3" json:"restore_batch_interval_sec,omitempty"` // Default 0 = no wait between restore waves.
 	MinCurtailedDurationSec uint32 `protobuf:"varint,23,opt,name=min_curtailed_duration_sec,json=minCurtailedDurationSec,proto3" json:"min_curtailed_duration_sec,omitempty"`
-	// Unset curtail_batch_size uses the same effective_batch_size value for
-	// curtail dispatch.
+	// Unset curtail_batch_size lets the server choose the manual curtail
+	// dispatch wave. This is independent from restore_batch_size; immediate
+	// restore does not imply immediate curtail dispatch.
 	CurtailBatchSize        *uint32 `protobuf:"varint,34,opt,name=curtail_batch_size,json=curtailBatchSize,proto3,oneof" json:"curtail_batch_size,omitempty"`
 	CurtailBatchIntervalSec *uint32 `protobuf:"varint,35,opt,name=curtail_batch_interval_sec,json=curtailBatchIntervalSec,proto3,oneof" json:"curtail_batch_interval_sec,omitempty"`
 	// include_maintenance requires force_include_maintenance.
@@ -2840,8 +2841,8 @@ type UpdateCurtailmentEventRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	EventUuid string                 `protobuf:"bytes,1,opt,name=event_uuid,json=eventUuid,proto3" json:"event_uuid,omitempty"`
 	Reason    *string                `protobuf:"bytes,10,opt,name=reason,proto3,oneof" json:"reason,omitempty"`
-	// 0 = restore all pending targets in one wave up to the server's explicit
-	// max restore wave size.
+	// Same-value echo only; restore batch size is frozen at Start.
+	// Changing this value after Start is rejected.
 	RestoreBatchSize *uint32 `protobuf:"varint,11,opt,name=restore_batch_size,json=restoreBatchSize,proto3,oneof" json:"restore_batch_size,omitempty"`
 	// 0 = no wait between restore waves.
 	RestoreBatchIntervalSec *uint32 `protobuf:"varint,12,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3,oneof" json:"restore_batch_interval_sec,omitempty"`
@@ -5461,10 +5462,10 @@ type CreateCurtailmentResponseProfileRequest struct {
 	// Unset curtail_batch_size means curtail all selected miners in scope.
 	CurtailBatchSize        *uint32 `protobuf:"varint,10,opt,name=curtail_batch_size,json=curtailBatchSize,proto3,oneof" json:"curtail_batch_size,omitempty"`
 	CurtailBatchIntervalSec *uint32 `protobuf:"varint,11,opt,name=curtail_batch_interval_sec,json=curtailBatchIntervalSec,proto3,oneof" json:"curtail_batch_interval_sec,omitempty"`
-	// 0 = restore all pending targets in one wave up to the server's explicit
-	// max restore wave size.
+	// Omitted or 0 = restore all pending targets in one wave up to the server's
+	// explicit max restore wave size.
 	RestoreBatchSize *uint32 `protobuf:"varint,12,opt,name=restore_batch_size,json=restoreBatchSize,proto3,oneof" json:"restore_batch_size,omitempty"`
-	// 0 = no wait between restore waves.
+	// Omitted or 0 = no wait between restore waves.
 	RestoreBatchIntervalSec *uint32 `protobuf:"varint,13,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3,oneof" json:"restore_batch_interval_sec,omitempty"`
 	IncludeMaintenance      bool    `protobuf:"varint,14,opt,name=include_maintenance,json=includeMaintenance,proto3" json:"include_maintenance,omitempty"`
 	ForceIncludeMaintenance bool    `protobuf:"varint,15,opt,name=force_include_maintenance,json=forceIncludeMaintenance,proto3" json:"force_include_maintenance,omitempty"`
@@ -5692,10 +5693,10 @@ type UpdateCurtailmentResponseProfileRequest struct {
 	// Unset curtail_batch_size means curtail all selected miners in scope.
 	CurtailBatchSize        *uint32 `protobuf:"varint,10,opt,name=curtail_batch_size,json=curtailBatchSize,proto3,oneof" json:"curtail_batch_size,omitempty"`
 	CurtailBatchIntervalSec *uint32 `protobuf:"varint,11,opt,name=curtail_batch_interval_sec,json=curtailBatchIntervalSec,proto3,oneof" json:"curtail_batch_interval_sec,omitempty"`
-	// 0 = restore all pending targets in one wave up to the server's explicit
-	// max restore wave size.
+	// Omitted or 0 = restore all pending targets in one wave up to the server's
+	// explicit max restore wave size.
 	RestoreBatchSize *uint32 `protobuf:"varint,12,opt,name=restore_batch_size,json=restoreBatchSize,proto3,oneof" json:"restore_batch_size,omitempty"`
-	// 0 = no wait between restore waves.
+	// Omitted or 0 = no wait between restore waves.
 	RestoreBatchIntervalSec *uint32 `protobuf:"varint,13,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3,oneof" json:"restore_batch_interval_sec,omitempty"`
 	IncludeMaintenance      bool    `protobuf:"varint,14,opt,name=include_maintenance,json=includeMaintenance,proto3" json:"include_maintenance,omitempty"`
 	ForceIncludeMaintenance bool    `protobuf:"varint,15,opt,name=force_include_maintenance,json=forceIncludeMaintenance,proto3" json:"force_include_maintenance,omitempty"`

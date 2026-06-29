@@ -593,14 +593,15 @@ message StartCurtailmentRequest {
 
     // Operational controls.
     uint32 max_duration_seconds       = 20 [(buf.validate.field).uint32 = {lte: 604800}];  // 0 = no cap
-    // 0 = restore all pending targets in one wave up to the server's explicit
-    // max restore wave size. Positive values are persisted and used as the
-    // caller's explicit restore wave size.
+    // Default 0 = restore all pending targets in one wave up to the server's
+    // explicit max restore wave size. Positive values are persisted and used as
+    // the caller's explicit restore wave size.
     uint32 restore_batch_size         = 21 [(buf.validate.field).uint32 = {lte: 10000}];
-    uint32 restore_batch_interval_sec = 22 [(buf.validate.field).uint32 = {lte: 3600}];  // 0 = no wait between restore waves
+    uint32 restore_batch_interval_sec = 22 [(buf.validate.field).uint32 = {lte: 3600}];  // Default 0 = no wait between restore waves.
     uint32 min_curtailed_duration_sec = 23;
-    // Unset curtail_batch_size uses the same effective_batch_size value for
-    // curtail dispatch.
+    // Unset curtail_batch_size lets the server choose the manual curtail
+    // dispatch wave. This is independent from restore_batch_size; immediate
+    // restore does not imply immediate curtail dispatch.
     optional uint32 curtail_batch_size = 34 [(buf.validate.field).uint32 = {gt: 0, lte: 10000}];
     optional uint32 curtail_batch_interval_sec = 35 [(buf.validate.field).uint32 = {lte: 3600}];
 
@@ -638,8 +639,8 @@ message UpdateCurtailmentEventRequest {
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
     optional string reason                     = 10 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
-    // 0 = restore all pending targets in one wave up to the server's explicit
-    // max restore wave size.
+    // Same-value echo only; restore batch size is frozen at Start.
+    // Changing this value after Start is rejected.
     optional uint32 restore_batch_size         = 11 [(buf.validate.field).uint32 = {lte: 10000}];
     // 0 = no wait between restore waves.
     optional uint32 restore_batch_interval_sec = 12 [(buf.validate.field).uint32 = {lte: 3600}];
@@ -1087,10 +1088,10 @@ message CreateCurtailmentResponseProfileRequest {
     // Unset curtail_batch_size means curtail all selected miners in scope.
     optional uint32 curtail_batch_size = 10 [(buf.validate.field).uint32 = {gt: 0, lte: 10000}];
     optional uint32 curtail_batch_interval_sec = 11 [(buf.validate.field).uint32 = {lte: 3600}];
-    // 0 = restore all pending targets in one wave up to the server's explicit
-    // max restore wave size.
+    // Omitted or 0 = restore all pending targets in one wave up to the server's
+    // explicit max restore wave size.
     optional uint32 restore_batch_size = 12 [(buf.validate.field).uint32 = {lte: 10000}];
-    // 0 = no wait between restore waves.
+    // Omitted or 0 = no wait between restore waves.
     optional uint32 restore_batch_interval_sec = 13 [(buf.validate.field).uint32 = {lte: 3600}];
     bool include_maintenance = 14;
     bool force_include_maintenance = 15;
@@ -1145,10 +1146,10 @@ message UpdateCurtailmentResponseProfileRequest {
     // Unset curtail_batch_size means curtail all selected miners in scope.
     optional uint32 curtail_batch_size = 10 [(buf.validate.field).uint32 = {gt: 0, lte: 10000}];
     optional uint32 curtail_batch_interval_sec = 11 [(buf.validate.field).uint32 = {lte: 3600}];
-    // 0 = restore all pending targets in one wave up to the server's explicit
-    // max restore wave size.
+    // Omitted or 0 = restore all pending targets in one wave up to the server's
+    // explicit max restore wave size.
     optional uint32 restore_batch_size = 12 [(buf.validate.field).uint32 = {lte: 10000}];
-    // 0 = no wait between restore waves.
+    // Omitted or 0 = no wait between restore waves.
     optional uint32 restore_batch_interval_sec = 13 [(buf.validate.field).uint32 = {lte: 3600}];
     bool include_maintenance = 14;
     bool force_include_maintenance = 15;

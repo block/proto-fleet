@@ -812,6 +812,57 @@ func TestService_Start_StampsEffectiveBatchSize(t *testing.T) {
 	}
 }
 
+func TestService_Start_DecouplesImmediateRestoreFromManualCurtailBatch(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name             string
+		restoreBatchSize int32
+		candidateCount   int
+		wantRestoreBatch int32
+		wantCurtailBatch int32
+	}{
+		{
+			name:             "immediate_restore_uses_adaptive_manual_curtail_batch",
+			restoreBatchSize: 0,
+			candidateCount:   5_000,
+			wantRestoreBatch: 5_000,
+			wantCurtailBatch: 50,
+		},
+		{
+			name:             "positive_restore_batch_still_drives_manual_curtail_batch",
+			restoreBatchSize: 250,
+			candidateCount:   10,
+			wantRestoreBatch: 250,
+			wantCurtailBatch: 250,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			const orgID = int64(1)
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			cands := make([]*models.Candidate, tc.candidateCount)
+			for i := range cands {
+				cands[i] = minerWithEff(fmt.Sprintf("m%d", i), 1500, 100, 40)
+			}
+			store.candidatesByOrg[orgID] = cands
+			svc := NewService(store)
+			req := validStartRequest(orgID)
+			req.RestoreBatchSize = tc.restoreBatchSize
+			req.TargetKW = float64(tc.candidateCount) * 10
+			req.ToleranceKW = req.TargetKW - 1
+
+			_, err := svc.Start(t.Context(), req)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantRestoreBatch, store.lastInsertEvent.EffectiveBatchSize)
+			require.NotNil(t, store.lastInsertEvent.CurtailBatchSize)
+			assert.Equal(t, tc.wantCurtailBatch, *store.lastInsertEvent.CurtailBatchSize)
+		})
+	}
+}
+
 // TestService_Start_DeviceOverlapReturnsAlreadyExists pins the device-exclusivity
 // race: a concurrent Start curtailed one of our selected devices between the
 // selector pass and the target insert, so the per-device unique index rejected

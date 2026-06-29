@@ -212,6 +212,32 @@ func TestService_Update_RejectsNonAdminLargeInterval(t *testing.T) {
 	assert.Contains(t, err.Error(), "restore_batch_interval_sec")
 }
 
+func TestService_Update_RejectsRestoreBatchSizeChange(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	currentBatch := int32(20)
+	store := newFakeStore()
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID:               1,
+		EventUUID:        eventUUID,
+		OrgID:            orgID,
+		State:            models.EventStateActive,
+		RestoreBatchSize: currentBatch,
+	}
+	svc := NewService(store)
+
+	_, err := svc.Update(t.Context(), UpdateRequest{
+		OrgID:            orgID,
+		EventUUID:        eventUUID,
+		RestoreBatchSize: int32Ptr(0),
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "restore_batch_size cannot be changed after Start")
+	assert.Equal(t, 0, store.updateOperatorFieldsCalls)
+}
+
 // TestService_Update_RejectsNonAdminMaxDurationAboveOrgDefault mirrors
 // Start's admin gate on max_duration_seconds. Without this check a
 // non-admin could Start at the org default then Update the same event

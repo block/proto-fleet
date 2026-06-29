@@ -1069,16 +1069,16 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   maxDurationSeconds: number;
 
   /**
-   * 0 = restore all pending targets in one wave up to the server's explicit
-   * max restore wave size. Positive values are persisted and used as the
-   * caller's explicit restore wave size.
+   * Default 0 = restore all pending targets in one wave up to the server's
+   * explicit max restore wave size. Positive values are persisted and used as
+   * the caller's explicit restore wave size.
    *
    * @generated from field: uint32 restore_batch_size = 21;
    */
   restoreBatchSize: number;
 
   /**
-   * 0 = no wait between restore waves
+   * Default 0 = no wait between restore waves.
    *
    * @generated from field: uint32 restore_batch_interval_sec = 22;
    */
@@ -1090,8 +1090,9 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   minCurtailedDurationSec: number;
 
   /**
-   * Unset curtail_batch_size uses the same effective_batch_size value for
-   * curtail dispatch.
+   * Unset curtail_batch_size lets the server choose the manual curtail
+   * dispatch wave. This is independent from restore_batch_size; immediate
+   * restore does not imply immediate curtail dispatch.
    *
    * @generated from field: optional uint32 curtail_batch_size = 34;
    */
@@ -1212,8 +1213,8 @@ export type UpdateCurtailmentEventRequest = Message<"curtailment.v1.UpdateCurtai
   reason?: string | undefined;
 
   /**
-   * 0 = restore all pending targets in one wave up to the server's explicit
-   * max restore wave size.
+   * Same-value echo only; restore batch size is frozen at Start.
+   * Changing this value after Start is rejected.
    *
    * @generated from field: optional uint32 restore_batch_size = 11;
    */
@@ -2572,15 +2573,15 @@ export type CreateCurtailmentResponseProfileRequest =
     curtailBatchIntervalSec?: number | undefined;
 
     /**
-     * 0 = restore all pending targets in one wave up to the server's explicit
-     * max restore wave size.
+     * Omitted or 0 = restore all pending targets in one wave up to the server's
+     * explicit max restore wave size.
      *
      * @generated from field: optional uint32 restore_batch_size = 12;
      */
     restoreBatchSize?: number | undefined;
 
     /**
-     * 0 = no wait between restore waves.
+     * Omitted or 0 = no wait between restore waves.
      *
      * @generated from field: optional uint32 restore_batch_interval_sec = 13;
      */
@@ -2705,15 +2706,15 @@ export type UpdateCurtailmentResponseProfileRequest =
     curtailBatchIntervalSec?: number | undefined;
 
     /**
-     * 0 = restore all pending targets in one wave up to the server's explicit
-     * max restore wave size.
+     * Omitted or 0 = restore all pending targets in one wave up to the server's
+     * explicit max restore wave size.
      *
      * @generated from field: optional uint32 restore_batch_size = 12;
      */
     restoreBatchSize?: number | undefined;
 
     /**
-     * 0 = no wait between restore waves.
+     * Omitted or 0 = no wait between restore waves.
      *
      * @generated from field: optional uint32 restore_batch_interval_sec = 13;
      */
