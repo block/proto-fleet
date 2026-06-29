@@ -10,7 +10,10 @@ import {
   MinerStateSnapshotSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import {
+  CommandBatchUpdateStatus_CommandBatchUpdateStatusType,
+  PerformanceMode,
+} from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { Settings } from "@/shared/assets/icons";
 import * as toaster from "@/shared/features/toaster";
@@ -620,6 +623,7 @@ describe("useMinerActions", () => {
       mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
         onStreamData({
           status: {
+            commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType.FINISHED,
             commandBatchDeviceCount: {
               total: BigInt(successIds.length + failureIds.length),
               success: BigInt(successIds.length),
@@ -714,9 +718,55 @@ describe("useMinerActions", () => {
       expect(findRetryCall()).toBeUndefined();
     });
 
+    it("keeps completed counts in progress until the stream reports FINISHED", async () => {
+      let capturedOnStreamData: ((resp: any) => void) | undefined;
+      let capturedAbortController: AbortController | undefined;
+
+      stubActionSuccess(mockBlinkLED, "batch-blink");
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData, streamAbortController }: any) => {
+        capturedOnStreamData = onStreamData;
+        capturedAbortController = streamAbortController;
+        return new Promise<void>((resolve) => {
+          streamAbortController.signal.addEventListener("abort", () => resolve());
+        });
+      });
+
+      const { result } = renderFor(DeviceStatus.ONLINE);
+      const blinkAction = result.current.popoverActions.find((a) => a.action === deviceActions.blinkLEDs);
+
+      await act(async () => {
+        blinkAction?.actionHandler();
+      });
+
+      act(() => {
+        capturedOnStreamData?.({
+          status: {
+            commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType.PROCESSING,
+            commandBatchDeviceCount: {
+              total: BigInt(2),
+              success: BigInt(2),
+              failure: BigInt(0),
+              successDeviceIdentifiers: ["device-1", "device-2"],
+              failureDeviceIdentifiers: [],
+            },
+          },
+        });
+      });
+
+      expect(capturedAbortController?.signal.aborted).toBe(false);
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: "Blinked LEDs 2 out of 2 miners",
+          status: toaster.STATUSES.loading,
+        }),
+      );
+      expect(mockCompleteBatchOperation).not.toHaveBeenCalledWith("batch-blink");
+    });
+
     // L3: all-fail path goes through removeToast(originalToastId) (not update)
     // before attaching Retry. This exercises that branch and confirms Retry is
-    // still offered (streamCompletedNormally is true when 0 + N === N).
+    // still offered when the stream reports a terminal state.
     it("attaches Retry when all devices fail", async () => {
       stubActionSuccess(mockReboot, "batch-reboot");
       stubPartialFailureStream([], ["device-1", "device-2"]);

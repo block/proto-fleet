@@ -489,11 +489,14 @@ export const useMinerActions = ({
 
           successDeviceIds = response.status?.commandBatchDeviceCount?.successDeviceIdentifiers || [];
           failureDeviceIds = response.status?.commandBatchDeviceCount?.failureDeviceIdentifiers || [];
+          const isFinished =
+            response.status?.commandBatchUpdateStatus ===
+            CommandBatchUpdateStatus_CommandBatchUpdateStatusType.FINISHED;
 
           if (successCount > 0) {
             updateToast(originalToastId, {
               message: getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
-              status: TOAST_STATUSES.success,
+              status: isFinished ? TOAST_STATUSES.success : TOAST_STATUSES.loading,
             });
           }
 
@@ -513,15 +516,19 @@ export const useMinerActions = ({
             }
           }
 
-          // Close the stream when we've received results for all devices
-          // This triggers .finally() to clear loading states immediately
-          if (successCount + failureCount === totalCount && totalCount > 0) {
+          // Counts can reach the selected total before the server has finished
+          // the whole batch. Only the explicit terminal stream status is final.
+          if (isFinished) {
             streamCompletedNormally = true;
             streamAbortController.abort();
           }
         },
         streamAbortController: streamAbortController,
       }).finally(() => {
+        if (!streamCompletedNormally) {
+          return;
+        }
+
         if (successCount > 0) {
           updateToast(originalToastId, {
             message: getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
