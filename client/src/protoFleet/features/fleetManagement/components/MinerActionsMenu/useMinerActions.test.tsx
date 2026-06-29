@@ -812,6 +812,45 @@ describe("useMinerActions", () => {
 
       expect(findRetryCall()).toBeUndefined();
       expect(toaster.pushToast).toHaveBeenCalledWith(expect.objectContaining({ status: toaster.STATUSES.error }));
+      expect(toaster.removeToast).toHaveBeenCalledWith(expect.any(Number));
+      expect(mockRemoveDevicesFromBatch).toHaveBeenCalledWith("batch-reboot", ["device-1"]);
+      expect(mockCompleteBatchOperation).not.toHaveBeenCalledWith("batch-reboot");
+    });
+
+    it("cleans up non-status-changing batches when the stream ends before FINISHED", async () => {
+      stubActionSuccess(mockBlinkLED, "batch-blink");
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({
+          status: {
+            commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType.PROCESSING,
+            commandBatchDeviceCount: {
+              total: BigInt(2),
+              success: BigInt(1),
+              failure: BigInt(0),
+              successDeviceIdentifiers: ["device-1"],
+              failureDeviceIdentifiers: [],
+            },
+          },
+        });
+        return Promise.resolve();
+      });
+
+      const { result } = renderFor(DeviceStatus.ONLINE);
+      const blinkAction = result.current.popoverActions.find((a) => a.action === deviceActions.blinkLEDs);
+
+      await act(async () => {
+        blinkAction?.actionHandler();
+      });
+
+      expect(findRetryCall()).toBeUndefined();
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: "Unable to confirm bulk action completion. Check miner status and try again.",
+          status: toaster.STATUSES.error,
+        }),
+      );
+      expect(mockCompleteBatchOperation).toHaveBeenCalledWith("batch-blink");
     });
   });
 
