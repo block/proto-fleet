@@ -57,6 +57,7 @@ import {
   type UnsupportedMinersInfo,
 } from "@/protoFleet/features/fleetManagement/components/BulkActions/types";
 import type { BatchOperationInput } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { isStatusChangingBatchAction } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
 import {
   Fan,
@@ -74,7 +75,13 @@ import {
 } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
-import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
+import {
+  pushToast,
+  removeToast,
+  STATUSES as TOAST_STATUSES,
+  type ToastStatusType,
+  updateToast,
+} from "@/shared/features/toaster";
 import { downloadBlob } from "@/shared/utils/utility";
 
 export interface MinerSelection {
@@ -268,13 +275,7 @@ const buildUnpairConfirmationSubtitle = (
 
 const noop = () => {};
 
-const statusChangingActions = new Set<SupportedAction>([
-  settingsActions.miningPool,
-  deviceActions.shutdown,
-  deviceActions.wakeUp,
-  deviceActions.reboot,
-  deviceActions.firmwareUpdate,
-]);
+const bulkActionUnconfirmedMessage = "Unable to confirm bulk action completion. Check miner status and try again.";
 
 export const useMinerActions = ({
   selectedMiners,
@@ -481,10 +482,15 @@ export const useMinerActions = ({
       let totalCount = 0;
       let successDeviceIds: string[] = [];
       let failureDeviceIds: string[] = [];
-      // Only true when we've received results for every expected device. Guards
-      // the Retry action below so a premature stream termination (network/auth
-      // failure, unmount) cannot offer a retry against a still-in-flight batch.
-      let streamCompletedNormally = false;
+      let finishedReceived = false;
+      let lastOriginalToast: { message: string; status: ToastStatusType } | null = null;
+      let lastErrorMessage: string | null = null;
+
+      const updateOriginalToast = (message: string, status: ToastStatusType) => {
+        if (lastOriginalToast?.message === message && lastOriginalToast.status === status) return;
+        lastOriginalToast = { message, status };
+        updateToast(originalToastId, { message, status });
+      };
 
       const removeReportedFailedDevices = () => {
         if (failureDeviceIds.length > 0) {
@@ -493,7 +499,7 @@ export const useMinerActions = ({
       };
 
       const completeNonStatusChangingBatch = () => {
-        if (!statusChangingActions.has(action)) {
+        if (!isStatusChangingBatchAction(action)) {
           completeBatchOperation(batchIdentifier);
         }
       };
@@ -514,21 +520,23 @@ export const useMinerActions = ({
             CommandBatchUpdateStatus_CommandBatchUpdateStatusType.FINISHED;
 
           if (successCount > 0) {
-            updateToast(originalToastId, {
-              message: getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
-              status: isFinished ? TOAST_STATUSES.success : TOAST_STATUSES.loading,
-            });
+            updateOriginalToast(
+              getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
+              isFinished ? TOAST_STATUSES.success : TOAST_STATUSES.loading,
+            );
           }
 
           if (failureCount > 0) {
             const failureMsg = getFailureMessage(action, `${failureCount} out of ${totalCount} ${minersMessage}`);
             if (!errorToastId) {
+              lastErrorMessage = failureMsg;
               errorToastId = pushToast({
                 message: failureMsg,
                 status: TOAST_STATUSES.error,
                 longRunning: true,
               });
-            } else {
+            } else if (lastErrorMessage !== failureMsg) {
+              lastErrorMessage = failureMsg;
               updateToast(errorToastId, {
                 message: failureMsg,
                 status: TOAST_STATUSES.error,
@@ -539,18 +547,15 @@ export const useMinerActions = ({
           // Counts can reach the selected total before the server has finished
           // the whole batch. Only the explicit terminal stream status is final.
           if (isFinished) {
-            streamCompletedNormally = true;
+            finishedReceived = true;
             streamAbortController.abort();
           }
         },
         streamAbortController: streamAbortController,
       }).finally(() => {
-        if (!streamCompletedNormally) {
+        if (!finishedReceived) {
           if (successCount > 0 || !errorToastId) {
-            updateToast(originalToastId, {
-              message: "Unable to confirm bulk action completion. Check miner status and try again.",
-              status: TOAST_STATUSES.error,
-            });
+            updateOriginalToast(bulkActionUnconfirmedMessage, TOAST_STATUSES.error);
           } else {
             removeToast(originalToastId);
           }
@@ -562,10 +567,10 @@ export const useMinerActions = ({
         }
 
         if (successCount > 0) {
-          updateToast(originalToastId, {
-            message: getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
-            status: TOAST_STATUSES.success,
-          });
+          updateOriginalToast(
+            getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
+            TOAST_STATUSES.success,
+          );
         } else {
           removeToast(originalToastId);
         }
