@@ -6,43 +6,84 @@
 -- enum values). The read query sums only 0..3, so unknown rows don't
 -- contribute to any chart bucket — matching CountMinersByState, which also
 -- excludes non-ACTIVE/non-bucketed statuses from every count.
-INSERT INTO miner_state_snapshots (time, org_id, site_id, device_identifier, state)
+WITH snapshot_rows AS (
+    SELECT
+        sqlc.arg('time')::timestamptz AS time,
+        d.org_id,
+        d.site_id,
+        d.device_identifier,
+        CASE
+            WHEN ds.status = 'OFFLINE'
+                 OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+                THEN 0
+            WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
+                 AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
+                THEN 1
+            WHEN ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
+                 OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
+                 OR open_errors.device_id IS NOT NULL
+                THEN 2
+            WHEN ds.status = 'ACTIVE'
+                 AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
+                 AND open_errors.device_id IS NULL
+                THEN 3
+            ELSE 4
+        END AS state
+    FROM device d
+    JOIN discovered_device dd ON d.discovered_device_id = dd.id
+    JOIN device_pairing     dp ON d.id = dp.device_id
+    LEFT JOIN device_status ds ON d.id = ds.device_id
+    LEFT JOIN (
+        SELECT DISTINCT device_id
+        FROM errors
+        WHERE closed_at IS NULL
+          AND severity IN (1, 2, 3, 4)
+    ) open_errors ON d.id = open_errors.device_id
+    WHERE d.deleted_at IS NULL
+      AND dd.is_active = TRUE
+      AND dd.deleted_at IS NULL
+      AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+),
+inserted_raw AS (
+    INSERT INTO miner_state_snapshots (time, org_id, site_id, device_identifier, state)
+    SELECT time, org_id, site_id, device_identifier, state
+    FROM snapshot_rows
+    ON CONFLICT (time, device_identifier) DO NOTHING
+    RETURNING time, org_id, site_id, device_identifier, state
+),
+upsert_hourly AS (
+    INSERT INTO miner_state_snapshot_hourly (bucket, sample_time, org_id, site_id, device_identifier, state)
+    SELECT
+        time_bucket('1 hour', time)::timestamptz,
+        time,
+        org_id,
+        site_id,
+        device_identifier,
+        state
+    FROM inserted_raw
+    ON CONFLICT (bucket, device_identifier) DO UPDATE SET
+        sample_time = EXCLUDED.sample_time,
+        org_id = EXCLUDED.org_id,
+        site_id = EXCLUDED.site_id,
+        state = EXCLUDED.state
+    WHERE miner_state_snapshot_hourly.sample_time <= EXCLUDED.sample_time
+    RETURNING 1
+)
+INSERT INTO miner_state_snapshot_daily (bucket, sample_time, org_id, site_id, device_identifier, state)
 SELECT
-    sqlc.arg('time')::timestamptz,
-    d.org_id,
-    d.site_id,
-    d.device_identifier,
-    CASE
-        WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-            THEN 0
-        WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
-            THEN 1
-        WHEN ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-             OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
-             OR open_errors.device_id IS NOT NULL
-            THEN 2
-        WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
-             AND open_errors.device_id IS NULL
-            THEN 3
-        ELSE 4
-    END
-FROM device d
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-JOIN device_pairing     dp ON d.id = dp.device_id
-LEFT JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN (
-    SELECT DISTINCT device_id
-    FROM errors
-    WHERE closed_at IS NULL
-      AND severity IN (1, 2, 3, 4)
-) open_errors ON d.id = open_errors.device_id
-WHERE d.deleted_at IS NULL
-  AND dd.is_active = TRUE
-  AND dd.deleted_at IS NULL
-  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD');
+    time_bucket('1 day', time)::timestamptz,
+    time,
+    org_id,
+    site_id,
+    device_identifier,
+    state
+FROM inserted_raw
+ON CONFLICT (bucket, device_identifier) DO UPDATE SET
+    sample_time = EXCLUDED.sample_time,
+    org_id = EXCLUDED.org_id,
+    site_id = EXCLUDED.site_id,
+    state = EXCLUDED.state
+WHERE miner_state_snapshot_daily.sample_time <= EXCLUDED.sample_time;
 
 -- name: GetMinerStateSnapshots :many
 -- DISTINCT ON keeps one state per device per bucket so summed counts always
@@ -67,5 +108,37 @@ SELECT
     SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
     SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
 FROM per_device_bucket
+GROUP BY bucket
+ORDER BY bucket ASC;
+
+-- name: GetMinerStateSnapshotHourlyRollups :many
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM miner_state_snapshot_hourly
+WHERE org_id = sqlc.arg('org_id')
+  AND bucket >= sqlc.arg('start_time')
+  AND bucket <= sqlc.arg('end_time')
+  AND (sqlc.narg('device_identifiers_filter')::text IS NULL
+       OR device_identifier = ANY(sqlc.arg('device_identifier_values')::text[]))
+GROUP BY bucket
+ORDER BY bucket ASC;
+
+-- name: GetMinerStateSnapshotDailyRollups :many
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM miner_state_snapshot_daily
+WHERE org_id = sqlc.arg('org_id')
+  AND bucket >= sqlc.arg('start_time')
+  AND bucket <= sqlc.arg('end_time')
+  AND (sqlc.narg('device_identifiers_filter')::text IS NULL
+       OR device_identifier = ANY(sqlc.arg('device_identifier_values')::text[]))
 GROUP BY bucket
 ORDER BY bucket ASC;

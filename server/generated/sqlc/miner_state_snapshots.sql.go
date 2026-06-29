@@ -13,6 +13,142 @@ import (
 	"github.com/lib/pq"
 )
 
+const getMinerStateSnapshotDailyRollups = `-- name: GetMinerStateSnapshotDailyRollups :many
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM miner_state_snapshot_daily
+WHERE org_id = $1
+  AND bucket >= $2
+  AND bucket <= $3
+  AND ($4::text IS NULL
+       OR device_identifier = ANY($5::text[]))
+GROUP BY bucket
+ORDER BY bucket ASC
+`
+
+type GetMinerStateSnapshotDailyRollupsParams struct {
+	OrgID                   int64
+	StartTime               time.Time
+	EndTime                 time.Time
+	DeviceIdentifiersFilter sql.NullString
+	DeviceIdentifierValues  []string
+}
+
+type GetMinerStateSnapshotDailyRollupsRow struct {
+	Bucket        time.Time
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
+func (q *Queries) GetMinerStateSnapshotDailyRollups(ctx context.Context, arg GetMinerStateSnapshotDailyRollupsParams) ([]GetMinerStateSnapshotDailyRollupsRow, error) {
+	rows, err := q.query(ctx, q.getMinerStateSnapshotDailyRollupsStmt, getMinerStateSnapshotDailyRollups,
+		arg.OrgID,
+		arg.StartTime,
+		arg.EndTime,
+		arg.DeviceIdentifiersFilter,
+		pq.Array(arg.DeviceIdentifierValues),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetMinerStateSnapshotDailyRollupsRow
+	for rows.Next() {
+		var i GetMinerStateSnapshotDailyRollupsRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getMinerStateSnapshotHourlyRollups = `-- name: GetMinerStateSnapshotHourlyRollups :many
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM miner_state_snapshot_hourly
+WHERE org_id = $1
+  AND bucket >= $2
+  AND bucket <= $3
+  AND ($4::text IS NULL
+       OR device_identifier = ANY($5::text[]))
+GROUP BY bucket
+ORDER BY bucket ASC
+`
+
+type GetMinerStateSnapshotHourlyRollupsParams struct {
+	OrgID                   int64
+	StartTime               time.Time
+	EndTime                 time.Time
+	DeviceIdentifiersFilter sql.NullString
+	DeviceIdentifierValues  []string
+}
+
+type GetMinerStateSnapshotHourlyRollupsRow struct {
+	Bucket        time.Time
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
+func (q *Queries) GetMinerStateSnapshotHourlyRollups(ctx context.Context, arg GetMinerStateSnapshotHourlyRollupsParams) ([]GetMinerStateSnapshotHourlyRollupsRow, error) {
+	rows, err := q.query(ctx, q.getMinerStateSnapshotHourlyRollupsStmt, getMinerStateSnapshotHourlyRollups,
+		arg.OrgID,
+		arg.StartTime,
+		arg.EndTime,
+		arg.DeviceIdentifiersFilter,
+		pq.Array(arg.DeviceIdentifierValues),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetMinerStateSnapshotHourlyRollupsRow
+	for rows.Next() {
+		var i GetMinerStateSnapshotHourlyRollupsRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getMinerStateSnapshots = `-- name: GetMinerStateSnapshots :many
 WITH per_device_bucket AS (
     SELECT DISTINCT ON (time_bucket($1::text::interval, time), device_identifier)
@@ -94,43 +230,84 @@ func (q *Queries) GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateS
 }
 
 const insertMinerStateSnapshot = `-- name: InsertMinerStateSnapshot :exec
-INSERT INTO miner_state_snapshots (time, org_id, site_id, device_identifier, state)
+WITH snapshot_rows AS (
+    SELECT
+        $1::timestamptz AS time,
+        d.org_id,
+        d.site_id,
+        d.device_identifier,
+        CASE
+            WHEN ds.status = 'OFFLINE'
+                 OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+                THEN 0
+            WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
+                 AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
+                THEN 1
+            WHEN ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
+                 OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
+                 OR open_errors.device_id IS NOT NULL
+                THEN 2
+            WHEN ds.status = 'ACTIVE'
+                 AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
+                 AND open_errors.device_id IS NULL
+                THEN 3
+            ELSE 4
+        END AS state
+    FROM device d
+    JOIN discovered_device dd ON d.discovered_device_id = dd.id
+    JOIN device_pairing     dp ON d.id = dp.device_id
+    LEFT JOIN device_status ds ON d.id = ds.device_id
+    LEFT JOIN (
+        SELECT DISTINCT device_id
+        FROM errors
+        WHERE closed_at IS NULL
+          AND severity IN (1, 2, 3, 4)
+    ) open_errors ON d.id = open_errors.device_id
+    WHERE d.deleted_at IS NULL
+      AND dd.is_active = TRUE
+      AND dd.deleted_at IS NULL
+      AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+),
+inserted_raw AS (
+    INSERT INTO miner_state_snapshots (time, org_id, site_id, device_identifier, state)
+    SELECT time, org_id, site_id, device_identifier, state
+    FROM snapshot_rows
+    ON CONFLICT (time, device_identifier) DO NOTHING
+    RETURNING time, org_id, site_id, device_identifier, state
+),
+upsert_hourly AS (
+    INSERT INTO miner_state_snapshot_hourly (bucket, sample_time, org_id, site_id, device_identifier, state)
+    SELECT
+        time_bucket('1 hour', time)::timestamptz,
+        time,
+        org_id,
+        site_id,
+        device_identifier,
+        state
+    FROM inserted_raw
+    ON CONFLICT (bucket, device_identifier) DO UPDATE SET
+        sample_time = EXCLUDED.sample_time,
+        org_id = EXCLUDED.org_id,
+        site_id = EXCLUDED.site_id,
+        state = EXCLUDED.state
+    WHERE miner_state_snapshot_hourly.sample_time <= EXCLUDED.sample_time
+    RETURNING 1
+)
+INSERT INTO miner_state_snapshot_daily (bucket, sample_time, org_id, site_id, device_identifier, state)
 SELECT
-    $1::timestamptz,
-    d.org_id,
-    d.site_id,
-    d.device_identifier,
-    CASE
-        WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-            THEN 0
-        WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
-            THEN 1
-        WHEN ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
-             OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
-             OR open_errors.device_id IS NOT NULL
-            THEN 2
-        WHEN ds.status = 'ACTIVE'
-             AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
-             AND open_errors.device_id IS NULL
-            THEN 3
-        ELSE 4
-    END
-FROM device d
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-JOIN device_pairing     dp ON d.id = dp.device_id
-LEFT JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN (
-    SELECT DISTINCT device_id
-    FROM errors
-    WHERE closed_at IS NULL
-      AND severity IN (1, 2, 3, 4)
-) open_errors ON d.id = open_errors.device_id
-WHERE d.deleted_at IS NULL
-  AND dd.is_active = TRUE
-  AND dd.deleted_at IS NULL
-  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+    time_bucket('1 day', time)::timestamptz,
+    time,
+    org_id,
+    site_id,
+    device_identifier,
+    state
+FROM inserted_raw
+ON CONFLICT (bucket, device_identifier) DO UPDATE SET
+    sample_time = EXCLUDED.sample_time,
+    org_id = EXCLUDED.org_id,
+    site_id = EXCLUDED.site_id,
+    state = EXCLUDED.state
+WHERE miner_state_snapshot_daily.sample_time <= EXCLUDED.sample_time
 `
 
 // CASE bucket order must match CountMinersByState (device.sql) — the chart

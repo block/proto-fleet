@@ -567,6 +567,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getMinerStateCountsByDeviceIDsStmt, err = db.PrepareContext(ctx, getMinerStateCountsByDeviceIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerStateCountsByDeviceIDs: %w", err)
 	}
+	if q.getMinerStateSnapshotDailyRollupsStmt, err = db.PrepareContext(ctx, getMinerStateSnapshotDailyRollups); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshotDailyRollups: %w", err)
+	}
+	if q.getMinerStateSnapshotHourlyRollupsStmt, err = db.PrepareContext(ctx, getMinerStateSnapshotHourlyRollups); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshotHourlyRollups: %w", err)
+	}
 	if q.getMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, getMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshots: %w", err)
 	}
@@ -2257,6 +2263,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getMinerStateCountsByDeviceIDsStmt: %w", cerr)
 		}
 	}
+	if q.getMinerStateSnapshotDailyRollupsStmt != nil {
+		if cerr := q.getMinerStateSnapshotDailyRollupsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMinerStateSnapshotDailyRollupsStmt: %w", cerr)
+		}
+	}
+	if q.getMinerStateSnapshotHourlyRollupsStmt != nil {
+		if cerr := q.getMinerStateSnapshotHourlyRollupsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMinerStateSnapshotHourlyRollupsStmt: %w", cerr)
+		}
+	}
 	if q.getMinerStateSnapshotsStmt != nil {
 		if cerr := q.getMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMinerStateSnapshotsStmt: %w", cerr)
@@ -3777,6 +3793,8 @@ type Queries struct {
 	getMinerCredentialsByDeviceIDStmt                          *sql.Stmt
 	getMinerModelGroupsStmt                                    *sql.Stmt
 	getMinerStateCountsByDeviceIDsStmt                         *sql.Stmt
+	getMinerStateSnapshotDailyRollupsStmt                      *sql.Stmt
+	getMinerStateSnapshotHourlyRollupsStmt                     *sql.Stmt
 	getMinerStateSnapshotsStmt                                 *sql.Stmt
 	getOfflineDevicesStmt                                      *sql.Stmt
 	getOpenErrorByDedupKeyStmt                                 *sql.Stmt
@@ -4224,6 +4242,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMinerCredentialsByDeviceIDStmt:                          q.getMinerCredentialsByDeviceIDStmt,
 		getMinerModelGroupsStmt:                                    q.getMinerModelGroupsStmt,
 		getMinerStateCountsByDeviceIDsStmt:                         q.getMinerStateCountsByDeviceIDsStmt,
+		getMinerStateSnapshotDailyRollupsStmt:                      q.getMinerStateSnapshotDailyRollupsStmt,
+		getMinerStateSnapshotHourlyRollupsStmt:                     q.getMinerStateSnapshotHourlyRollupsStmt,
 		getMinerStateSnapshotsStmt:                                 q.getMinerStateSnapshotsStmt,
 		getOfflineDevicesStmt:                                      q.getOfflineDevicesStmt,
 		getOpenErrorByDedupKeyStmt:                                 q.getOpenErrorByDedupKeyStmt,

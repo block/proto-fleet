@@ -599,7 +599,7 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 	metrics := s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
 	tempCounts := s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration)
+	uptimeCounts := s.getUptimeStatusCountsFromHourlyRollups(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime)
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -647,7 +647,7 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 	metrics := s.aggregateDailyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
 	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration)
+	uptimeCounts := s.getUptimeStatusCountsFromDailyRollups(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime)
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -657,10 +657,9 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 }
 
 // uptimeCountsForQuery returns nil when OrganizationID is unset so callers
-// without session context can't leak another org's counts. Callers pass the
-// same start/end used for the surrounding metric query so uptime bars line up
-// with metric bars (notably: hourly/daily callers pass a range normalized to
-// complete buckets, not the raw request range).
+// without session context can't leak another org's counts. Raw callers pass
+// the same start/end used for the surrounding metric query so uptime bars line
+// up with metric bars.
 func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) []models.UptimeStatusCount {
 	if query.OrganizationID == 0 {
 		return nil
@@ -1260,6 +1259,100 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	rows, err := s.queries.GetMinerStateSnapshots(ctx, params)
 	if err != nil {
 		s.logger.Error("failed to query miner state snapshots",
+			slog.Int64("org_id", orgID),
+			slog.String("error", err.Error()))
+		return nil
+	}
+
+	if len(rows) == 0 {
+		return nil
+	}
+
+	result := make([]models.UptimeStatusCount, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, models.UptimeStatusCount{
+			Timestamp:       row.Bucket,
+			HashingCount:    row.HashingCount,
+			BrokenCount:     row.BrokenCount,
+			NotHashingCount: row.OfflineCount + row.SleepingCount,
+		})
+	}
+	return result
+}
+
+func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromHourlyRollups(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []models.DeviceIdentifier,
+	startTime, endTime time.Time,
+) []models.UptimeStatusCount {
+	if orgID == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	params := sqlc.GetMinerStateSnapshotHourlyRollupsParams{
+		OrgID:     orgID,
+		StartTime: startTime,
+		EndTime:   endTime,
+	}
+	if len(deviceIDs) > 0 {
+		params.DeviceIdentifiersFilter = sql.NullString{String: "1", Valid: true}
+		params.DeviceIdentifierValues = deviceIDsToStrings(deviceIDs)
+	}
+
+	rows, err := s.queries.GetMinerStateSnapshotHourlyRollups(ctx, params)
+	if err != nil {
+		s.logger.Error("failed to query miner state snapshot hourly rollups",
+			slog.Int64("org_id", orgID),
+			slog.String("error", err.Error()))
+		return nil
+	}
+
+	if len(rows) == 0 {
+		return nil
+	}
+
+	result := make([]models.UptimeStatusCount, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, models.UptimeStatusCount{
+			Timestamp:       row.Bucket,
+			HashingCount:    row.HashingCount,
+			BrokenCount:     row.BrokenCount,
+			NotHashingCount: row.OfflineCount + row.SleepingCount,
+		})
+	}
+	return result
+}
+
+func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromDailyRollups(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []models.DeviceIdentifier,
+	startTime, endTime time.Time,
+) []models.UptimeStatusCount {
+	if orgID == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	params := sqlc.GetMinerStateSnapshotDailyRollupsParams{
+		OrgID:     orgID,
+		StartTime: startTime,
+		EndTime:   endTime,
+	}
+	if len(deviceIDs) > 0 {
+		params.DeviceIdentifiersFilter = sql.NullString{String: "1", Valid: true}
+		params.DeviceIdentifierValues = deviceIDsToStrings(deviceIDs)
+	}
+
+	rows, err := s.queries.GetMinerStateSnapshotDailyRollups(ctx, params)
+	if err != nil {
+		s.logger.Error("failed to query miner state snapshot daily rollups",
 			slog.Int64("org_id", orgID),
 			slog.String("error", err.Error()))
 		return nil
