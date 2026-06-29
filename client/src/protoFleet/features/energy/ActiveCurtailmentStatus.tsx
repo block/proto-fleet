@@ -22,6 +22,7 @@ export interface ActiveCurtailmentEvent {
   scopeLabel: string;
   sourceLabel: string;
   isAutomationOwned: boolean;
+  targetSiteCoverage?: ActiveCurtailmentTargetSiteCoverage;
   endedAt?: string;
   selectedMiners: number;
   estimatedReductionKw: number;
@@ -31,6 +32,13 @@ export interface ActiveCurtailmentEvent {
   restoreBatchSize: number;
   restoreBatchIntervalSec: number;
   rollups: CurtailmentTargetRollup[];
+}
+
+export interface ActiveCurtailmentTargetSiteCoverage {
+  complete: boolean;
+  targetCount: number;
+  mappedTargetCount: number;
+  unknownTargetCount: number;
 }
 
 interface ActiveCurtailmentStatusProps {
@@ -300,6 +308,21 @@ function formatActiveCurtailmentHeaderDetail(event: ActiveCurtailmentEvent): str
   return `${event.reason} (Applies to ${event.scopeLabel})`;
 }
 
+function formatIncompleteSiteCoverageWarning(coverage?: ActiveCurtailmentTargetSiteCoverage): string | null {
+  if (!coverage || coverage.complete) {
+    return null;
+  }
+
+  const unknownCount = coverage.unknownTargetCount;
+  const targetLabel = unknownCount === 1 ? "target" : "targets";
+  const verb = unknownCount === 1 ? "maps" : "map";
+  if (unknownCount > 0) {
+    return `${unknownCount.toLocaleString()} ${targetLabel} no longer ${verb} to a known site. Org admins can still stop or abort this event.`;
+  }
+
+  return "Some targets no longer map to a known site. Org admins can still stop or abort this event.";
+}
+
 function getForceReleaseButton(
   displayState: ActiveCurtailmentDisplayState,
   onRequestForceRelease?: () => void,
@@ -456,6 +479,7 @@ export default function ActiveCurtailmentStatus({
     isRestoreIncomplete: displayFlags.isRestoreIncomplete,
     isCurtailmentComplete: displayFlags.isCurtailmentComplete,
   });
+  const incompleteSiteCoverageWarning = formatIncompleteSiteCoverageWarning(event.targetSiteCoverage);
 
   return (
     <section className={clsx("grid gap-3", className)}>
@@ -510,6 +534,18 @@ export default function ActiveCurtailmentStatus({
             <div className="mt-1 text-text-primary-70">
               {event.sourceLabel} owns this event. Abort cancels this event and disables the owning automation rule so
               it cannot immediately curtail miners again.
+            </div>
+          </div>
+        ) : null}
+
+        {incompleteSiteCoverageWarning ? (
+          <div className="mt-6 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">
+            <div className="flex items-start gap-3">
+              <Alert className="mt-0.5 shrink-0" />
+              <div>
+                <div className="text-emphasis-300">Target site coverage incomplete</div>
+                <div className="mt-1 text-text-primary-70">{incompleteSiteCoverageWarning}</div>
+              </div>
             </div>
           </div>
         ) : null}

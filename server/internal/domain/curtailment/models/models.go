@@ -238,6 +238,7 @@ type Event struct {
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 	TargetRollup            *TargetRollup
+	TargetSiteCoverage      *TargetSiteCoverage
 }
 
 // TargetRollup summarizes all target rows for an event. Counts stay int64 at
@@ -252,6 +253,24 @@ type TargetRollup struct {
 	Released      int64
 	RestoreFailed int64
 	Total         int64
+}
+
+// TargetSiteCoverage summarizes how persisted target rows map back to current
+// device site assignments. Incomplete coverage means at least one target no
+// longer resolves to a live device with a site.
+type TargetSiteCoverage struct {
+	SiteIDs           []int64
+	Complete          bool
+	TargetCount       int64
+	MappedTargetCount int64
+}
+
+func (c TargetSiteCoverage) UnknownTargetCount() int64 {
+	unknown := c.TargetCount - c.MappedTargetCount
+	if unknown < 0 {
+		return 0
+	}
+	return unknown
 }
 
 // InsertEventParams is the caller-supplied fields; id / created_at /

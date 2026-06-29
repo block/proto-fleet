@@ -1368,16 +1368,20 @@ func (s *SQLCurtailmentStore) ListTargetsByEventPage(ctx context.Context, params
 	return targets, nextToken, nil
 }
 
-func (s *SQLCurtailmentStore) ListTargetSiteIDsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]int64, bool, error) {
+func (s *SQLCurtailmentStore) ListTargetSiteCoverageByEvent(
+	ctx context.Context,
+	orgID int64,
+	eventUUID uuid.UUID,
+) (models.TargetSiteCoverage, error) {
 	rows, err := s.GetQueries(ctx).ListCurtailmentTargetSiteCoverageByEvent(ctx, sqlc.ListCurtailmentTargetSiteCoverageByEventParams{
 		OrgID:     orgID,
 		EventUuid: eventUUID,
 	})
 	if err != nil {
-		return nil, false, fleeterror.NewInternalErrorf("failed to list curtailment target site coverage: %v", err)
+		return models.TargetSiteCoverage{}, fleeterror.NewInternalErrorf("failed to list curtailment target site coverage: %v", err)
 	}
 	if len(rows) == 0 {
-		return nil, true, nil
+		return models.TargetSiteCoverage{Complete: true}, nil
 	}
 	siteIDs := make([]int64, 0, len(rows))
 	complete := rows[0].TargetCount > 0 && rows[0].TargetCount == rows[0].MappedTargetCount
@@ -1391,7 +1395,12 @@ func (s *SQLCurtailmentStore) ListTargetSiteIDsByEvent(ctx context.Context, orgI
 			complete = false
 		}
 	}
-	return siteIDs, complete, nil
+	return models.TargetSiteCoverage{
+		SiteIDs:           siteIDs,
+		Complete:          complete,
+		TargetCount:       rows[0].TargetCount,
+		MappedTargetCount: rows[0].MappedTargetCount,
+	}, nil
 }
 
 func (s *SQLCurtailmentStore) GetTargetRollupByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.TargetRollup, error) {

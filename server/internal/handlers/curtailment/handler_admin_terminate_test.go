@@ -141,8 +141,19 @@ func (s *adminTerminateStubStore) ListTargetsByEvent(context.Context, int64, uui
 func (s *adminTerminateStubStore) ListTargetsByEventPage(context.Context, interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
 	panic("ListTargetsByEventPage not exercised by AdminTerminate handler tests")
 }
-func (s *adminTerminateStubStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, bool, error) {
-	return append([]int64(nil), s.targetSiteIDs...), s.targetSitesComplete, nil
+func (s *adminTerminateStubStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.UUID) (models.TargetSiteCoverage, error) {
+	siteIDs := append([]int64(nil), s.targetSiteIDs...)
+	mappedTargetCount := int64(len(siteIDs))
+	targetCount := mappedTargetCount
+	if !s.targetSitesComplete {
+		targetCount++
+	}
+	return models.TargetSiteCoverage{
+		SiteIDs:           siteIDs,
+		Complete:          s.targetSitesComplete,
+		TargetCount:       targetCount,
+		MappedTargetCount: mappedTargetCount,
+	}, nil
 }
 func (s *adminTerminateStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by AdminTerminate handler tests")

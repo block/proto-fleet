@@ -6,7 +6,10 @@ import {
   CurtailmentPriority as ProtoCurtailmentPriority,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
-import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
+import type {
+  ActiveCurtailmentEvent,
+  ActiveCurtailmentTargetSiteCoverage,
+} from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
   getActiveCurtailmentDisplayState,
   getCurtailmentEventEstimatedReductionKw,
@@ -242,6 +245,20 @@ function getSourceLabel(externalSource: string): string {
   return externalSource || "Manual";
 }
 
+function mapTargetSiteCoverage(event: ProtoCurtailmentEvent): ActiveCurtailmentTargetSiteCoverage | undefined {
+  const coverage = event.targetSiteCoverage;
+  if (!coverage) {
+    return undefined;
+  }
+
+  return {
+    complete: coverage.complete,
+    targetCount: coverage.targetCount,
+    mappedTargetCount: coverage.mappedTargetCount,
+    unknownTargetCount: coverage.unknownTargetCount,
+  };
+}
+
 function hasSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]): boolean {
   return keys.some((key) => typeof event.decisionSnapshot?.[key] === "number");
 }
@@ -286,6 +303,7 @@ export function mapActiveCurtailmentEvent(
     scopeLabel: getCurtailmentEventScopeLabel(event, options.siteNameById),
     sourceLabel: getSourceLabel(externalSource),
     isAutomationOwned: isAutomationExternalSource(externalSource),
+    targetSiteCoverage: mapTargetSiteCoverage(event),
     endedAt: timestampToIsoString(event.endedAt),
     selectedMiners: getCurtailmentEventSelectedMinerCount(event),
     estimatedReductionKw,

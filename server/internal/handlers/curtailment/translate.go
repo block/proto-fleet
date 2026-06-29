@@ -817,6 +817,7 @@ func toListActiveCurtailmentsResponse(events []*models.Event) *pb.ListActiveCurt
 		e := toEventProto(ev)
 		populateEventScope(e, ev)
 		populateEventModeParams(e, ev)
+		populateEventTargetSiteCoverage(e, ev)
 		scrubListSensitiveFields(e)
 		out.Events[i] = e
 	}
@@ -832,6 +833,7 @@ func toEventProtoListItem(event *models.Event) *pb.CurtailmentEvent {
 	populateEventScope(out, event)
 	populateEventModeParams(out, event)
 	populateEventDecisionSnapshot(out, event)
+	populateEventTargetSiteCoverage(out, event)
 	return out
 }
 
@@ -897,6 +899,7 @@ func toEventProtoWithTargets(event *models.Event, targets []*models.Target) *pb.
 	populateEventDecisionSnapshot(out, event)
 	populateEventTargets(out, targets)
 	populateEventTargetRollup(out, event)
+	populateEventTargetSiteCoverage(out, event)
 	return out
 }
 
@@ -905,6 +908,7 @@ func toForceReleaseEventProto(event *models.Event) *pb.CurtailmentEvent {
 	populateEventScope(out, event)
 	populateEventModeParams(out, event)
 	populateEventTargetRollup(out, event)
+	populateEventTargetSiteCoverage(out, event)
 	return out
 }
 
@@ -1047,6 +1051,18 @@ func populateEventTargetRollup(out *pb.CurtailmentEvent, event *models.Event) {
 		return
 	}
 	out.TargetRollup = targetRollupProto(event.TargetRollup)
+}
+
+func populateEventTargetSiteCoverage(out *pb.CurtailmentEvent, event *models.Event) {
+	if event.TargetSiteCoverage == nil {
+		return
+	}
+	out.TargetSiteCoverage = &pb.CurtailmentTargetSiteCoverage{
+		Complete:           event.TargetSiteCoverage.Complete,
+		TargetCount:        uint32SaturatingInt64(event.TargetSiteCoverage.TargetCount),
+		MappedTargetCount:  uint32SaturatingInt64(event.TargetSiteCoverage.MappedTargetCount),
+		UnknownTargetCount: uint32SaturatingInt64(event.TargetSiteCoverage.UnknownTargetCount()),
+	}
 }
 
 func targetRollupProto(rollup *models.TargetRollup) *pb.CurtailmentTargetRollup {

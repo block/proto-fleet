@@ -173,6 +173,27 @@ describe("ActiveCurtailmentStatus", () => {
     expectActionButtonHidden("Restore");
   });
 
+  it("renders incomplete target site coverage warning", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailedCurtailmentEvent,
+          targetSiteCoverage: {
+            complete: false,
+            targetCount: 52,
+            mappedTargetCount: 50,
+            unknownTargetCount: 2,
+          },
+        }}
+        onRequestForceRelease={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Target site coverage incomplete")).toBeVisible();
+    expect(screen.getByText(/2 targets no longer map to a known site/)).toBeVisible();
+    expect(screen.getByText(/Org admins can still stop or abort this event/)).toBeVisible();
+  });
+
   it("renders a restoring event without stop, restore, or manage actions", () => {
     render(<ActiveCurtailmentStatus event={restoringCurtailmentEvent} />);
 

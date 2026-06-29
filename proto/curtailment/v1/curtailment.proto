@@ -354,6 +354,11 @@ message CurtailmentEvent {
     // Per-state target counts for summaries.
     CurtailmentTargetRollup target_rollup = 40;
 
+    // Target site coverage for event shapes whose authorization is derived
+    // from concrete targets. Incomplete coverage means at least one target no
+    // longer maps to a live device with a known site assignment.
+    CurtailmentTargetSiteCoverage target_site_coverage = 43;
+
     // Full target details.
     repeated CurtailmentTarget targets = 41;
 
@@ -1233,3 +1238,10 @@ message DeleteCurtailmentAutomationRuleRequest {
 }
 
 message DeleteCurtailmentAutomationRuleResponse {}
+
+message CurtailmentTargetSiteCoverage {
+    bool   complete             = 1;
+    uint32 target_count         = 2;
+    uint32 mapped_target_count  = 3;
+    uint32 unknown_target_count = 4;
+}
