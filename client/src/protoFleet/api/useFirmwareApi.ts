@@ -66,6 +66,8 @@ async function fetchFirmwareConfig(logout: () => void): Promise<FirmwareConfig> 
 }
 
 export interface FirmwareUploadOptions {
+  targetManufacturer: string;
+  targetModel: string;
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
 }
@@ -96,6 +98,8 @@ export interface FirmwareFileInfo {
   filename: string;
   size: number;
   uploaded_at: string;
+  target_manufacturer: string;
+  target_model: string;
 }
 
 interface CheckFirmwareResponse {
@@ -112,12 +116,20 @@ export const useFirmwareApi = () => {
   }, [logout]);
 
   const checkFirmwareFile = useCallback(
-    async (sha256: string, signal?: AbortSignal): Promise<{ exists: boolean; firmwareFileId?: string }> => {
+    async (
+      sha256: string,
+      target: { targetManufacturer: string; targetModel: string },
+      signal?: AbortSignal,
+    ): Promise<{ exists: boolean; firmwareFileId?: string }> => {
       const response = await fetch(`${API_BASE}/check`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sha256 }),
+        body: JSON.stringify({
+          sha256,
+          target_manufacturer: target.targetManufacturer,
+          target_model: target.targetModel,
+        }),
         signal,
       });
 
@@ -146,6 +158,14 @@ export const useFirmwareApi = () => {
   const uploadFirmwareFile = useCallback(
     async (file: File, options?: FirmwareUploadOptions): Promise<string> => {
       const config = await fetchFirmwareConfig(logout);
+      const targetManufacturer = options?.targetManufacturer.trim();
+      const targetModel = options?.targetModel.trim();
+      if (!targetManufacturer) {
+        throw new Error("Product is required.");
+      }
+      if (!targetModel) {
+        throw new Error("Model is required.");
+      }
 
       let data: unknown;
       const useChunked = file.size > config.chunkSizeBytes;
@@ -153,6 +173,10 @@ export const useFirmwareApi = () => {
         data = await upload(`${API_BASE}/upload`, file, {
           onProgress: options?.onProgress,
           signal: options?.signal,
+          initiateFields: {
+            target_manufacturer: targetManufacturer,
+            target_model: targetModel,
+          },
           chunked: {
             enabled: true,
             chunkSize: config.chunkSizeBytes,
@@ -165,6 +189,10 @@ export const useFirmwareApi = () => {
         data = await upload(`${API_BASE}/upload`, file, {
           onProgress: options?.onProgress,
           signal: options?.signal,
+          formFields: {
+            target_manufacturer: targetManufacturer,
+            target_model: targetModel,
+          },
         });
       }
 

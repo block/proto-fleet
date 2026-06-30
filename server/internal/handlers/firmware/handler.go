@@ -25,7 +25,9 @@ type uploadResponse struct {
 }
 
 type checkRequest struct {
-	SHA256 string `json:"sha256"`
+	SHA256             string `json:"sha256"`
+	TargetManufacturer string `json:"target_manufacturer"`
+	TargetModel        string `json:"target_model"`
 }
 
 type checkResponse struct {
@@ -148,7 +150,16 @@ func (h *checkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileID, ok := h.filesService.FindFirmwareFileByChecksum(strings.ToLower(req.SHA256))
+	metadata := files.FirmwareMetadata{
+		TargetManufacturer: req.TargetManufacturer,
+		TargetModel:        req.TargetModel,
+	}
+	if err := files.ValidateFirmwareMetadata(metadata); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	fileID, ok := h.filesService.FindFirmwareFileByChecksum(strings.ToLower(req.SHA256), metadata)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -195,7 +206,7 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	const multipartOverhead int64 = 1 * 1024 * 1024 // 1 MB
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadBytes+multipartOverhead)
 
-	filename, fileReader, err := extractMultipartFile(r)
+	filename, fileReader, metadata, err := extractMultipartFile(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -207,7 +218,7 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileID, err := h.filesService.SaveFirmwareFile(filename, fileReader)
+	fileID, err := h.filesService.SaveFirmwareFile(filename, fileReader, metadata)
 	if err != nil {
 		if isClientError(err) {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -229,33 +240,57 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // extractMultipartFile streams the multipart body to find the "file" part
 // without buffering the entire body in memory or spilling to temp files.
-func extractMultipartFile(r *http.Request) (filename string, reader io.ReadCloser, err error) {
+func extractMultipartFile(r *http.Request) (filename string, reader io.ReadCloser, metadata files.FirmwareMetadata, err error) {
 	contentType := r.Header.Get("Content-Type")
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil || !strings.HasPrefix(mediaType, "multipart/") {
-		return "", nil, fmt.Errorf("expected multipart/form-data content type")
+		return "", nil, files.FirmwareMetadata{}, fmt.Errorf("expected multipart/form-data content type")
 	}
 
 	boundary := params["boundary"]
 	if boundary == "" {
-		return "", nil, fmt.Errorf("missing multipart boundary")
+		return "", nil, files.FirmwareMetadata{}, fmt.Errorf("missing multipart boundary")
 	}
 
 	mr := multipart.NewReader(r.Body, boundary)
+	var filePart io.ReadCloser
+	var fileName string
 	for {
 		part, err := mr.NextPart()
 		if err == io.EOF {
-			return "", nil, fmt.Errorf("missing 'file' field in multipart form")
+			break
 		}
 		if err != nil {
-			return "", nil, fmt.Errorf("failed to read multipart form: %w", err)
+			return "", nil, files.FirmwareMetadata{}, fmt.Errorf("failed to read multipart form: %w", err)
 		}
 
-		if part.FormName() == "file" {
-			return part.FileName(), part, nil
+		switch part.FormName() {
+		case "file":
+			filePart = part
+			fileName = part.FileName()
+			if err := files.ValidateFirmwareMetadata(metadata); err != nil {
+				return "", nil, files.FirmwareMetadata{}, err
+			}
+			return fileName, filePart, metadata, nil
+		case "target_manufacturer":
+			value, readErr := io.ReadAll(io.LimitReader(part, 1024))
+			part.Close()
+			if readErr != nil {
+				return "", nil, files.FirmwareMetadata{}, fmt.Errorf("failed to read target_manufacturer: %w", readErr)
+			}
+			metadata.TargetManufacturer = string(value)
+		case "target_model":
+			value, readErr := io.ReadAll(io.LimitReader(part, 1024))
+			part.Close()
+			if readErr != nil {
+				return "", nil, files.FirmwareMetadata{}, fmt.Errorf("failed to read target_model: %w", readErr)
+			}
+			metadata.TargetModel = string(value)
+		default:
+			part.Close()
 		}
-		part.Close()
 	}
+	return "", nil, files.FirmwareMetadata{}, fmt.Errorf("missing 'file' field in multipart form")
 }
 
 // authenticate extracts and validates the session cookie from the HTTP request,

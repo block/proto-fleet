@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import { useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
@@ -11,6 +11,7 @@ import {
 } from "@/protoFleet/components/FirmwareUpload";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
+import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular/ProgressCircular";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -18,11 +19,23 @@ import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimesta
 
 interface FirmwareUpdateModalProps {
   open?: boolean;
+  target?: {
+    targetManufacturer: string;
+    targetModel: string;
+  } | null;
   onConfirm: (firmwareFileId: string) => void;
   onDismiss: () => void;
 }
 
-const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModalProps) => {
+const fileMatchesTarget = (
+  file: FirmwareFileInfo,
+  target: { targetManufacturer: string; targetModel: string } | null | undefined,
+) => {
+  if (!target) return true;
+  return file.target_manufacturer === target.targetManufacturer && file.target_model === target.targetModel;
+};
+
+const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpdateModalProps) => {
   const {
     state: uploadState,
     file: uploadFile,
@@ -39,6 +52,16 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
   const [existingFiles, setExistingFiles] = useState<FirmwareFileInfo[] | null>(null);
   const [selectedExistingFileId, setSelectedExistingFileId] = useState<string | null>(null);
   const [showUploadZone, setShowUploadZone] = useState(false);
+  const [targetManufacturer, setTargetManufacturer] = useState("");
+  const [targetModel, setTargetModel] = useState("");
+
+  const effectiveTargetManufacturer = target?.targetManufacturer ?? targetManufacturer;
+  const effectiveTargetModel = target?.targetModel ?? targetModel;
+  const uploadTarget = useMemo(
+    () => ({ targetManufacturer: effectiveTargetManufacturer.trim(), targetModel: effectiveTargetModel.trim() }),
+    [effectiveTargetManufacturer, effectiveTargetModel],
+  );
+  const hasUploadTarget = uploadTarget.targetManufacturer !== "" && uploadTarget.targetModel !== "";
 
   useEffect(() => {
     if (open) {
@@ -74,13 +97,18 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
     (file: File) => {
       setSelectedExistingFileId(null);
       setShowUploadZone(true);
-      processFile(file);
+      processFile(file, uploadTarget);
     },
-    [processFile],
+    [processFile, uploadTarget],
   );
 
   const effectiveFirmwareFileId = selectedExistingFileId ?? uploadedFileId;
   const isReady = selectedExistingFileId != null || uploadState === "ready";
+  const compatibleExistingFiles = useMemo(
+    () => existingFiles?.filter((file) => fileMatchesTarget(file, target)) ?? null,
+    [existingFiles, target],
+  );
+  const visibleExistingFiles = compatibleExistingFiles ?? [];
 
   const handleConfirm = useCallback(() => {
     if (effectiveFirmwareFileId) {
@@ -89,6 +117,8 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
       setSelectedExistingFileId(null);
       setExistingFiles(null);
       setShowUploadZone(false);
+      setTargetManufacturer("");
+      setTargetModel("");
     }
   }, [effectiveFirmwareFileId, onConfirm, reset]);
 
@@ -97,12 +127,14 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
     setSelectedExistingFileId(null);
     setExistingFiles(null);
     setShowUploadZone(false);
+    setTargetManufacturer("");
+    setTargetModel("");
     onDismiss();
   }, [onDismiss, reset]);
 
   const isProcessing = uploadState === "hashing" || uploadState === "checking" || uploadState === "uploading";
   const configLoading = uploadState !== "error" && !serverConfig;
-  const hasExistingFiles = existingFiles != null && existingFiles.length > 0;
+  const hasExistingFiles = visibleExistingFiles.length > 0;
   const showLoadingSpinner = configLoading && !hasExistingFiles;
 
   const buttons = isReady ? [{ text: "Continue", variant: variants.primary, onClick: handleConfirm }] : undefined;
@@ -127,7 +159,7 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
               role="radiogroup"
               aria-label="Existing firmware files"
             >
-              {existingFiles.map((f) => (
+              {visibleExistingFiles.map((f) => (
                 <button
                   key={f.id}
                   type="button"
@@ -151,7 +183,8 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
                   <div className="flex min-w-0 flex-col">
                     <div className="truncate text-300 text-text-primary">{f.filename}</div>
                     <div className="text-200 text-text-primary-70">
-                      {formatFileSize(f.size)}, {formatTimestamp(isoToEpochSeconds(f.uploaded_at))}
+                      {f.target_manufacturer} {f.target_model} · {formatFileSize(f.size)} ·{" "}
+                      {formatTimestamp(isoToEpochSeconds(f.uploaded_at))}
                     </div>
                   </div>
                 </button>
@@ -176,7 +209,31 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
         {uploadState === "error" && errorMessage ? <FileErrorStatus message={errorMessage} onRetry={retry} /> : null}
 
         {uploadState === "idle" && serverConfig && (!hasExistingFiles || showUploadZone) ? (
-          <FileDropZone extensions={serverConfig.allowedExtensions} onFileSelect={handleUploadFileSelect} />
+          <>
+            <div className="grid gap-4 tablet:grid-cols-2">
+              <Input
+                id="firmware-update-target-manufacturer"
+                label="Product"
+                initValue={effectiveTargetManufacturer}
+                onChange={setTargetManufacturer}
+                disabled={!!target}
+                required
+              />
+              <Input
+                id="firmware-update-target-model"
+                label="Model"
+                initValue={effectiveTargetModel}
+                onChange={setTargetModel}
+                disabled={!!target}
+                required
+              />
+            </div>
+            <FileDropZone
+              extensions={serverConfig.allowedExtensions}
+              onFileSelect={handleUploadFileSelect}
+              disabled={!hasUploadTarget}
+            />
+          </>
         ) : null}
 
         {isProcessing && uploadFile ? (

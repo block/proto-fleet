@@ -52,6 +52,14 @@ func TestParseContentRange(t *testing.T) {
 	}
 }
 
+func chunkedInitiateBody(filename string, size int) string {
+	return fmt.Sprintf(
+		`{"filename":%q,"file_size":%d,"target_manufacturer":"Proto","target_model":"S21"}`,
+		filename,
+		size,
+	)
+}
+
 func TestChunkedUpload_FullLifecycle(t *testing.T) {
 	env := newTestEnv(t)
 	mgr := NewChunkedUploadManager()
@@ -64,7 +72,7 @@ func TestChunkedUpload_FullLifecycle(t *testing.T) {
 
 	// Initiate
 	env.expectAuth()
-	body := fmt.Sprintf(`{"filename":"firmware.swu","file_size":%d}`, len(content))
+	body := chunkedInitiateBody("firmware.swu", len(content))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(validSessionCookie(env.sessionID))
@@ -118,7 +126,7 @@ func TestChunkedUpload_InitiateRejectsInvalidExtension(t *testing.T) {
 	mgr := NewChunkedUploadManager()
 
 	h := &initiateHandler{mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc, userStore: env.userStoreMock}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(`{"filename":"bad.bin","file_size":100}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(chunkedInitiateBody("bad.bin", 100)))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(validSessionCookie(env.sessionID))
 	rr := httptest.NewRecorder()
@@ -128,6 +136,22 @@ func TestChunkedUpload_InitiateRejectsInvalidExtension(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "unsupported firmware file type")
 }
 
+func TestChunkedUpload_InitiateRejectsMissingTargetMetadata(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	mgr := NewChunkedUploadManager()
+
+	h := &initiateHandler{mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc, userStore: env.userStoreMock}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(`{"filename":"firmware.swu","file_size":100}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "target_manufacturer")
+}
+
 func TestChunkedUpload_InitiateRejectsOversizedFile(t *testing.T) {
 	env := newTestEnv(t)
 	env.expectAuth()
@@ -135,7 +159,7 @@ func TestChunkedUpload_InitiateRejectsOversizedFile(t *testing.T) {
 	mgr := NewChunkedUploadManager()
 
 	h := &initiateHandler{mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc, userStore: env.userStoreMock}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(`{"filename":"firmware.swu","file_size":200}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(chunkedInitiateBody("firmware.swu", 200)))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(validSessionCookie(env.sessionID))
 	rr := httptest.NewRecorder()
@@ -150,7 +174,7 @@ func TestChunkedUpload_InitiateRejectsAuth(t *testing.T) {
 	mgr := NewChunkedUploadManager()
 
 	h := &initiateHandler{mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc, userStore: env.userStoreMock}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(`{"filename":"firmware.swu","file_size":100}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(chunkedInitiateBody("firmware.swu", 100)))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
@@ -183,7 +207,7 @@ func TestChunkedUpload_ChunkRejectsOutOfOrder(t *testing.T) {
 
 	// Initiate
 	env.expectAuth()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(`{"filename":"firmware.swu","file_size":10}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(chunkedInitiateBody("firmware.swu", 10)))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(validSessionCookie(env.sessionID))
 	rr := httptest.NewRecorder()
@@ -216,7 +240,7 @@ func TestChunkedUpload_CompleteRejectsSizeMismatch(t *testing.T) {
 
 	// Initiate with file_size=10
 	env.expectAuth()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(`{"filename":"firmware.swu","file_size":10}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(chunkedInitiateBody("firmware.swu", 10)))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(validSessionCookie(env.sessionID))
 	rr := httptest.NewRecorder()
@@ -257,7 +281,7 @@ func TestChunkedUpload_DuplicateChunkRejected(t *testing.T) {
 
 	// Initiate
 	env.expectAuth()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(`{"filename":"firmware.swu","file_size":10}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(chunkedInitiateBody("firmware.swu", 10)))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(validSessionCookie(env.sessionID))
 	rr := httptest.NewRecorder()

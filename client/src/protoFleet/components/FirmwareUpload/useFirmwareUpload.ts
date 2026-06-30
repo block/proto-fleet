@@ -11,9 +11,14 @@ export interface UseFirmwareUploadReturn {
   uploadProgress: number;
   errorMessage: string | null;
   serverConfig: FirmwareConfig | null;
-  processFile: (file: File) => void;
+  processFile: (file: File, target: FirmwareUploadTarget) => void;
   reset: () => void;
   retry: () => void;
+}
+
+export interface FirmwareUploadTarget {
+  targetManufacturer: string;
+  targetModel: string;
 }
 
 export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
@@ -76,7 +81,7 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
   }, [reset]);
 
   const processFile = useCallback(
-    async (selectedFile: File) => {
+    async (selectedFile: File, target: FirmwareUploadTarget) => {
       abortControllerRef.current?.abort();
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -98,7 +103,7 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
         if (controller.signal.aborted) return;
 
         setState("checking");
-        const { exists, firmwareFileId: existingId } = await checkFirmwareFile(sha256, controller.signal);
+        const { exists, firmwareFileId: existingId } = await checkFirmwareFile(sha256, target, controller.signal);
         if (controller.signal.aborted) return;
 
         if (exists && existingId) {
@@ -110,6 +115,8 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
         setState("uploading");
         setUploadProgress(0);
         const newId = await uploadFirmwareFile(selectedFile, {
+          targetManufacturer: target.targetManufacturer,
+          targetModel: target.targetModel,
           onProgress: setUploadProgress,
           signal: controller.signal,
         });
@@ -125,7 +132,10 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
     [checkFirmwareFile, uploadFirmwareFile, serverConfig, getConfig],
   );
 
-  const wrappedProcessFile = useCallback((f: File) => void processFile(f), [processFile]);
+  const wrappedProcessFile = useCallback(
+    (f: File, target: FirmwareUploadTarget) => void processFile(f, target),
+    [processFile],
+  );
 
   return {
     state,

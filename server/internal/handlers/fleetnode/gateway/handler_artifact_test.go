@@ -240,7 +240,10 @@ func TestCommandArtifactUploadAndDownloadRequireInFlightExpectation(t *testing.T
 func TestDownloadCommandArtifactServesFirmwarePayload(t *testing.T) {
 	h, client := newArtifactTestClient(t)
 	payload := []byte("firmware image bytes")
-	fileID, err := h.files.SaveFirmwareFile("update.swu", bytes.NewReader(payload))
+	fileID, err := h.files.SaveFirmwareFile("update.swu", bytes.NewReader(payload), files.FirmwareMetadata{
+		TargetManufacturer: "Proto",
+		TargetModel:        "S21",
+	})
 	require.NoError(t, err)
 	_, info, err := h.files.OpenFirmwareFileWithInfo(fileID)
 	require.NoError(t, err)

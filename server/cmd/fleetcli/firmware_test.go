@@ -89,6 +89,10 @@ func writeTempFirmwareFile(t *testing.T, name string, content []byte) string {
 	return path
 }
 
+func testFirmwareTarget() firmwareTarget {
+	return firmwareTarget{Manufacturer: "Proto", Model: "S21"}
+}
+
 func TestFileSHA256(t *testing.T) {
 	content := []byte("fleet firmware payload")
 	path := writeTempFirmwareFile(t, "fw.swu", content)
@@ -187,7 +191,7 @@ func TestFirmwareCheckSendsSHA256(t *testing.T) {
 	client := newFirmwareTestServer(t, mux)
 
 	digest := strings.Repeat("ab", 32)
-	resp, err := client.FirmwareCheck(context.Background(), digest)
+	resp, err := client.FirmwareCheck(context.Background(), digest, testFirmwareTarget())
 	if err != nil {
 		t.Fatalf("FirmwareCheck() error = %v", err)
 	}
@@ -195,7 +199,7 @@ func TestFirmwareCheckSendsSHA256(t *testing.T) {
 	if gotContentType != contentTypeJSON {
 		t.Errorf("check Content-Type = %q, want %q", gotContentType, contentTypeJSON)
 	}
-	wantBody := fmt.Sprintf(`{"sha256":%q}`, digest)
+	wantBody := fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"S21"}`, digest)
 	if string(gotBody) != wantBody {
 		t.Errorf("check body = %s, want %s", gotBody, wantBody)
 	}
@@ -243,7 +247,7 @@ func TestFirmwareUploadReusesExistingFile(t *testing.T) {
 	forbidFirmwareEndpoint(t, mux, "POST /api/v1/firmware/upload/chunked")
 	client := newFirmwareTestServer(t, mux)
 
-	result, reused, err := runFirmwareUpload(context.Background(), client, path, false, nil)
+	result, reused, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), false, nil)
 	if err != nil {
 		t.Fatalf("runFirmwareUpload() error = %v", err)
 	}
@@ -268,7 +272,7 @@ func TestFirmwareUploadForceUploadsDespiteCheckHit(t *testing.T) {
 	})
 	client := newFirmwareTestServer(t, mux)
 
-	result, reused, err := runFirmwareUpload(context.Background(), client, path, true, nil)
+	result, reused, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), true, nil)
 	if err != nil {
 		t.Fatalf("runFirmwareUpload() error = %v", err)
 	}
@@ -315,6 +319,12 @@ func TestFirmwareUploadDirectUsesMultipart(t *testing.T) {
 				}
 				defer func() { _ = file.Close() }()
 				gotFilename = header.Filename
+				if got := r.FormValue("target_manufacturer"); got != "Proto" {
+					t.Errorf("target_manufacturer = %q, want Proto", got)
+				}
+				if got := r.FormValue("target_model"); got != "S21" {
+					t.Errorf("target_model = %q, want S21", got)
+				}
 				gotBytes, err = io.ReadAll(file)
 				if err != nil {
 					t.Errorf("read multipart file: %v", err)
@@ -323,7 +333,7 @@ func TestFirmwareUploadDirectUsesMultipart(t *testing.T) {
 			})
 			client := newFirmwareTestServer(t, mux)
 
-			result, reused, err := runFirmwareUpload(context.Background(), client, path, false, nil)
+			result, reused, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), false, nil)
 			if err != nil {
 				t.Fatalf("runFirmwareUpload() error = %v", err)
 			}
@@ -382,7 +392,7 @@ func TestFirmwareUploadChunkedSequence(t *testing.T) {
 	})
 	client := newFirmwareTestServer(t, mux)
 
-	result, reused, err := runFirmwareUpload(context.Background(), client, path, false, nil)
+	result, reused, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), false, nil)
 	if err != nil {
 		t.Fatalf("runFirmwareUpload() error = %v", err)
 	}
@@ -394,6 +404,9 @@ func TestFirmwareUploadChunkedSequence(t *testing.T) {
 	}
 	if initiateBody.Filename != "big-firmware.swu" || initiateBody.FileSize != int64(len(content)) {
 		t.Errorf("initiate body = %+v, want filename big-firmware.swu and file_size %d", initiateBody, len(content))
+	}
+	if initiateBody.TargetManufacturer != "Proto" || initiateBody.TargetModel != "S21" {
+		t.Errorf("initiate target = %s %s, want Proto S21", initiateBody.TargetManufacturer, initiateBody.TargetModel)
 	}
 	wantRanges := []string{"bytes 0-7/20", "bytes 8-15/20", "bytes 16-19/20"}
 	if len(gotRanges) != len(wantRanges) {
@@ -448,7 +461,7 @@ func TestFirmwareUploadValidationRejectsLocally(t *testing.T) {
 			forbidFirmwareEndpoint(t, mux, "POST /api/v1/firmware/upload/chunked")
 			client := newFirmwareTestServer(t, mux)
 
-			_, _, err := runFirmwareUpload(context.Background(), client, tt.path(t), false, nil)
+			_, _, err := runFirmwareUpload(context.Background(), client, tt.path(t), testFirmwareTarget(), false, nil)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("runFirmwareUpload() error = %v, want containing %q", err, tt.wantErr)
 			}
