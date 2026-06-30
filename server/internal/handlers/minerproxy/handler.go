@@ -516,7 +516,13 @@ func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 // request's own RawQuery, never through the path wildcard.
 func proxyPathFor(rest string) (string, bool) {
 	proxyPath := "/api/v1/" + rest
-	if strings.ContainsAny(proxyPath, "?#") {
+	// Reject query/fragment delimiters and any residual percent-encoding. The
+	// mux already decoded the wildcard once, so a leftover "%" means a
+	// double-encoded delimiter (e.g. "%252F" -> "%2F") that path.Clean won't
+	// normalize but the miner may still decode to "/" — letting a crafted path
+	// reach a protected endpoint under the wrong permission. No real ProtoOS
+	// endpoint segment contains "%", "?", or "#".
+	if strings.ContainsAny(proxyPath, "?#%") {
 		return proxyPath, false
 	}
 	return proxyPath, path.Clean(proxyPath) == proxyPath
@@ -637,13 +643,13 @@ var responseHeaderAllowlist = map[string]bool{
 	"content-disposition": true,
 	"content-range":       true,
 	"accept-ranges":       true,
-	"cache-control":       true,
-	"etag":                true,
-	"last-modified":       true,
-	"expires":             true,
 	"vary":                true,
-	"age":                 true,
 	"date":                true,
+	// Caching headers (cache-control, expires, etag, last-modified, age) are
+	// deliberately not forwarded: these are authenticated, per-user, RBAC-gated
+	// responses that must never be served from the browser cache after a
+	// logout, user switch, or permission change. The proxy forces no-store
+	// instead (see setResponseHardeningHeaders).
 }
 
 func copyResponseHeaders(dst http.Header, src http.Header) {
@@ -705,6 +711,9 @@ func setResponseHardeningHeaders(h http.Header) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	h.Set("X-Frame-Options", "DENY")
+	// Authenticated, per-user, RBAC-gated data must not linger in the browser
+	// cache where a later session/user could read it without re-authorizing.
+	h.Set("Cache-Control", "no-store")
 }
 
 // parseRoutableMinerAddr validates a discovered miner address as a literal IP in

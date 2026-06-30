@@ -134,6 +134,9 @@ func TestProxyPathFor(t *testing.T) {
 		"auth/password?x",         // decoded %3F: "?" would split into a query upstream, evading the block
 		"auth/change-password#x",  // decoded %23: "#" would split into a fragment upstream
 		"pools?x",                 // query delimiter smuggled into a write path
+		"system%2Freboot",         // double-encoded slash (%252F -> %2F) the miner may decode to "/"
+		"system%2ereboot",         // residual encoded dot
+		"system%252Freboot",       // triple-encoded slash
 	}
 	for _, rest := range nonCanonical {
 		t.Run("rejects "+rest, func(t *testing.T) {
@@ -402,27 +405,34 @@ func TestSetResponseHardeningHeaders(t *testing.T) {
 	if got := h.Get("X-Frame-Options"); got != "DENY" {
 		t.Fatalf("X-Frame-Options = %q, want DENY", got)
 	}
+	if got := h.Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
 }
 
 func TestCopyResponseHeadersUsesAllowlist(t *testing.T) {
 	src := http.Header{}
-	// Allowlisted content/caching metadata should pass through.
+	// Allowlisted content metadata should pass through.
 	src.Add("Content-Type", "application/json")
 	src.Add("Content-Disposition", "attachment; filename=logs.csv")
-	src.Add("Cache-Control", "no-store")
-	// Origin-affecting / unknown headers a miner must not be able to set on the
-	// Fleet origin must be dropped (default-deny).
+	// Origin-affecting / cache / unknown headers a miner must not set on the
+	// Fleet origin must be dropped (default-deny). Caching headers are dropped
+	// so authenticated per-user responses are never browser-cached.
 	src.Add("Set-Cookie", "miner_session=unsafe; Path=/")
 	src.Add("Clear-Site-Data", `"*"`)
 	src.Add("Strict-Transport-Security", "max-age=63072000")
 	src.Add("Content-Security-Policy", "default-src *")
 	src.Add("X-Frame-Options", "ALLOWALL")
+	src.Add("Cache-Control", "public, max-age=86400")
+	src.Add("Expires", "Tue, 01 Jan 2030 00:00:00 GMT")
+	src.Add("ETag", `"abc"`)
+	src.Add("Last-Modified", "Tue, 01 Jan 2030 00:00:00 GMT")
 	src.Add("X-Surprise-Header", "anything")
 
 	dst := http.Header{}
 	copyResponseHeaders(dst, src)
 
-	for _, h := range []string{"Content-Type", "Content-Disposition", "Cache-Control"} {
+	for _, h := range []string{"Content-Type", "Content-Disposition"} {
 		if dst.Get(h) == "" {
 			t.Fatalf("allowlisted header %q was dropped", h)
 		}
@@ -430,6 +440,7 @@ func TestCopyResponseHeadersUsesAllowlist(t *testing.T) {
 	for _, h := range []string{
 		"Set-Cookie", "Clear-Site-Data", "Strict-Transport-Security",
 		"Content-Security-Policy", "X-Frame-Options", "X-Surprise-Header",
+		"Cache-Control", "Expires", "ETag", "Last-Modified",
 	} {
 		if got := dst.Values(h); len(got) != 0 {
 			t.Fatalf("non-allowlisted header %q passed through: %v", h, got)
