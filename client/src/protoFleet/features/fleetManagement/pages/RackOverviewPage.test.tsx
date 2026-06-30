@@ -43,6 +43,13 @@ vi.mock("@/protoFleet/api/sites", () => ({
   useSites: () => mockUseSites(),
 }));
 
+// RackOverviewPage reads the site catalog (for the breadcrumb site label) from
+// the shell-level SitesProvider. Drive it directly here.
+const sitesCtx = vi.hoisted(() => ({ current: { sites: [] as unknown[] } }));
+vi.mock("@/protoFleet/api/SitesContext", () => ({
+  useSitesContext: () => sitesCtx.current,
+}));
+
 vi.mock("@/protoFleet/api/useDeviceSetStateCounts", () => ({
   useDeviceSetStateCounts: () => mockUseDeviceSetStateCounts(),
 }));
@@ -159,6 +166,7 @@ function mockResolvedRackPageData(
   mockUseSites.mockReturnValue({
     listSites: ({ onSuccess }: { onSuccess: (sites: unknown[]) => void }) => onSuccess(options.sites ?? []),
   });
+  sitesCtx.current = { sites: options.sites ?? [] };
   mockUseDeviceSetStateCounts.mockReturnValue({
     stateCounts: {
       hashingCount: 0,

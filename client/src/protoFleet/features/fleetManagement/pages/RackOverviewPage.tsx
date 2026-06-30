@@ -11,9 +11,8 @@ import {
   type RackOrderIndex,
   RackSlotPositionSchema,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
-import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useSites } from "@/protoFleet/api/sites";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { useDeviceSetStateCounts } from "@/protoFleet/api/useDeviceSetStateCounts";
@@ -57,7 +56,6 @@ const RackOverviewPage = () => {
   // Rack resolution state
   const [rack, setRack] = useState<DeviceSet | null>(null);
   const [memberDeviceIds, setMemberDeviceIds] = useState<string[] | null>(null);
-  const [sites, setSites] = useState<SiteWithCounts[]>([]);
   const [allBuildings, setAllBuildings] = useState<BuildingWithCounts[]>([]);
   const [rackSiblingState, setRackSiblingState] = useState<{ key: string; siblings: BreadcrumbSibling[] } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,7 +69,10 @@ const RackOverviewPage = () => {
   const { getDeviceSet, listGroupMembers, assignDevicesToRack, setRackSlotPosition, deleteGroup, listRacks } =
     useDeviceSets();
   const { listAllBuildings } = useBuildings();
-  const { listSites } = useSites();
+  // Site catalog comes from the shared shell-level provider (used here only to
+  // label the rack's parent site in breadcrumbs), so this page no longer fires
+  // its own ListSites.
+  const { sites } = useSitesContext();
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);
@@ -152,18 +153,13 @@ const RackOverviewPage = () => {
 
   useEffect(() => {
     const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: setSites,
-      onError: () => setSites([]),
-    });
     void listAllBuildings({
       signal: controller.signal,
       onSuccess: setAllBuildings,
       onError: () => setAllBuildings([]),
     });
     return () => controller.abort();
-  }, [listAllBuildings, listSites]);
+  }, [listAllBuildings]);
 
   // Initial resolution from URL param
   useEffect(() => {
@@ -202,7 +198,9 @@ const RackOverviewPage = () => {
   const numberingOrigin = orderIndex !== undefined ? orderIndexToOrigin(orderIndex) : "bottom-left";
   const siteNameById = useMemo(
     () =>
-      new Map(sites.filter((row) => row.site !== undefined).map((row) => [row.site!.id.toString(), row.site!.name])),
+      new Map(
+        (sites ?? []).filter((row) => row.site !== undefined).map((row) => [row.site!.id.toString(), row.site!.name]),
+      ),
     [sites],
   );
   const buildingById = useMemo(

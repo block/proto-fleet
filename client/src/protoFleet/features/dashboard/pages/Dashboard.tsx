@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { useMemo } from "react";
 import { MeasurementType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds } from "@/protoFleet/api/sites";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
@@ -48,38 +48,14 @@ const Dashboard = () => {
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
 
-  // Load the org's sites so useActiveSite can validate the route scope: a
+  // The org's site catalog is owned by the shell-level SitesProvider (one
+  // shared fetch). useActiveSite uses it to validate the route scope: a
   // stale/deleted site id (route or persisted activeSite) falls back to
-  // all-sites instead of resolving zero devices into an empty dashboard.
-  const { listSites } = useSites();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
-  const [sitesError, setSitesError] = useState<string | null>(null);
-  const [siteValidationSettled, setSiteValidationSettled] = useState(false);
-  // Track the error and surface it through the heading SitePicker's retry
-  // affordance — the dashboard is the only selector now that the topbar
-  // picker is hidden here, so a transient ListSites failure must be
-  // recoverable rather than stranding the picker in a loading skeleton.
-  const fetchSites = useCallback(() => {
-    const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: (rows) => {
-        setSites(rows);
-        setSitesError(null);
-      },
-      onError: (msg) => {
-        setSitesError(msg);
-        setSites([]);
-      },
-      onFinally: () => {
-        if (!controller.signal.aborted) {
-          setSiteValidationSettled(true);
-        }
-      },
-    });
-    return () => controller.abort();
-  }, [listSites]);
-  useEffect(() => fetchSites(), [fetchSites]);
+  // all-sites instead of resolving zero devices into an empty dashboard. The
+  // dashboard is the only selector now that the topbar picker is hidden here,
+  // so a transient ListSites failure surfaces a retry via the heading picker
+  // rather than stranding it in a loading skeleton.
+  const { sites, sitesError, sitesSettled: siteValidationSettled, refetchSites } = useSitesContext();
 
   // Active site comes from the route path (`/`, `/:site`, `/unassigned`),
   // validated against knownSiteIds. All-sites yields an empty filter, so
@@ -180,7 +156,7 @@ const Dashboard = () => {
             {/* Heading-style site selector — stands in for the (hidden) global
                 topbar picker and replaces the former "Overview" title. */}
             <div className="-ml-2">
-              <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} triggerClassName="text-heading-300" />
+              <SitePicker sites={sites} error={sitesError} onRetry={refetchSites} triggerClassName="text-heading-300" />
             </div>
             <div className="mt-6">
               {activeSite.kind === "site" ? (
