@@ -536,6 +536,42 @@ func TestSelectedMinerStateSnapshotBucketsByTimeScan_DeduplicatesDeviceIDs(t *te
 	assert.Equal(t, int32(0), rows[0].SleepingCount)
 }
 
+func TestAllMinerStateSnapshotBuckets_UsesLatestSnapshotPerBucket(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	db := testutil.GetTestDB(t)
+	queries := sqlc.New(db)
+	ctx := t.Context()
+	orgID := int64(424243)
+	firstSnapshot := time.Now().UTC().Truncate(time.Minute).Add(-5 * time.Minute)
+	secondSnapshot := firstSnapshot.Add(30 * time.Second)
+
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO miner_state_snapshots (time, org_id, device_identifier, state)
+		VALUES
+			($1, $3, 'latest-bucket-miner-a', 3),
+			($1, $3, 'latest-bucket-miner-b', 2),
+			($2, $3, 'latest-bucket-miner-a', 0),
+			($2, $3, 'latest-bucket-miner-b', 1)
+	`, firstSnapshot, secondSnapshot, orgID)
+	require.NoError(t, err)
+
+	rows, err := queries.GetAllMinerStateSnapshotBuckets(ctx, sqlc.GetAllMinerStateSnapshotBucketsParams{
+		OrgID:          orgID,
+		BucketInterval: "60 seconds",
+		StartTime:      firstSnapshot.Add(-time.Second),
+		EndTime:        secondSnapshot.Add(time.Second),
+	})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, int32(0), rows[0].HashingCount)
+	assert.Equal(t, int32(0), rows[0].BrokenCount)
+	assert.Equal(t, int32(1), rows[0].OfflineCount)
+	assert.Equal(t, int32(1), rows[0].SleepingCount)
+}
+
 // Helper functions
 
 func cleanupDeviceMetrics(t *testing.T, db *sql.DB, deviceIdentifier string) {

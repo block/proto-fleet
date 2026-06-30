@@ -14,33 +14,43 @@ import (
 )
 
 const getAllMinerStateSnapshotBuckets = `-- name: GetAllMinerStateSnapshotBuckets :many
-WITH latest_snapshot_per_bucket AS (
+WITH snapshot_counts AS (
     SELECT
-        time_bucket($2::text::interval, mss.time)::timestamptz AS bucket,
-        MAX(mss.time) AS snapshot_time
+        time_bucket($1::text::interval, mss.time)::timestamptz AS bucket,
+        mss.time AS snapshot_time,
+        SUM(CASE WHEN mss.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+        SUM(CASE WHEN mss.state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+        SUM(CASE WHEN mss.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+        SUM(CASE WHEN mss.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
     FROM miner_state_snapshots mss
-    WHERE mss.org_id = $1
+    WHERE mss.org_id = $2
       AND mss.time >= $3
       AND mss.time <= $4
-    GROUP BY bucket
+    GROUP BY bucket, mss.time
 )
 SELECT
-    latest_snapshot_per_bucket.bucket,
-    SUM(CASE WHEN m.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
-    SUM(CASE WHEN m.state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
-    SUM(CASE WHEN m.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
-    SUM(CASE WHEN m.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
-FROM latest_snapshot_per_bucket
-JOIN miner_state_snapshots m
-  ON m.org_id = $1
- AND m.time = latest_snapshot_per_bucket.snapshot_time
-GROUP BY latest_snapshot_per_bucket.bucket
-ORDER BY latest_snapshot_per_bucket.bucket ASC
+    latest.bucket,
+    latest.hashing_count,
+    latest.broken_count,
+    latest.offline_count,
+    latest.sleeping_count
+FROM (
+    SELECT DISTINCT ON (bucket)
+        bucket,
+        snapshot_time,
+        hashing_count,
+        broken_count,
+        offline_count,
+        sleeping_count
+    FROM snapshot_counts
+    ORDER BY bucket, snapshot_time DESC
+) latest
+ORDER BY latest.bucket ASC
 `
 
 type GetAllMinerStateSnapshotBucketsParams struct {
-	OrgID          int64
 	BucketInterval string
+	OrgID          int64
 	StartTime      time.Time
 	EndTime        time.Time
 }
@@ -54,13 +64,14 @@ type GetAllMinerStateSnapshotBucketsRow struct {
 }
 
 // Fast path for all-device dashboard uptime counts. InsertMinerStateSnapshot
-// stamps one complete fleet snapshot time across all devices, so selecting the
-// latest snapshot time per chart bucket avoids sorting every device row by
-// (bucket, device, time) while preserving the latest-state-per-bucket result.
+// stamps one complete fleet snapshot time across all devices, so we aggregate
+// each snapshot once and then keep the latest snapshot inside each chart
+// bucket. This avoids scanning the range once to find timestamps and then
+// joining back across all rows for those timestamps.
 func (q *Queries) GetAllMinerStateSnapshotBuckets(ctx context.Context, arg GetAllMinerStateSnapshotBucketsParams) ([]GetAllMinerStateSnapshotBucketsRow, error) {
 	rows, err := q.query(ctx, q.getAllMinerStateSnapshotBucketsStmt, getAllMinerStateSnapshotBuckets,
-		arg.OrgID,
 		arg.BucketInterval,
+		arg.OrgID,
 		arg.StartTime,
 		arg.EndTime,
 	)
@@ -173,38 +184,48 @@ func (q *Queries) GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateS
 
 const getSelectedMinerStateSnapshotBucketsByTimeScan = `-- name: GetSelectedMinerStateSnapshotBucketsByTimeScan :many
 WITH selected_devices AS (
-    SELECT DISTINCT unnest($2::text[]) AS device_identifier
+    SELECT DISTINCT unnest($1::text[]) AS device_identifier
 ),
-latest_snapshot_per_bucket AS (
+snapshot_counts AS (
     SELECT
-        time_bucket($3::text::interval, mss.time)::timestamptz AS bucket,
-        MAX(mss.time) AS snapshot_time
+        time_bucket($2::text::interval, mss.time)::timestamptz AS bucket,
+        mss.time AS snapshot_time,
+        SUM(CASE WHEN mss.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+        SUM(CASE WHEN mss.state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+        SUM(CASE WHEN mss.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+        SUM(CASE WHEN mss.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
     FROM miner_state_snapshots mss
-    WHERE mss.org_id = $1
+    JOIN selected_devices sd
+      ON sd.device_identifier = (mss.device_identifier || '')
+    WHERE mss.org_id = $3
       AND mss.time >= $4
       AND mss.time <= $5
-    GROUP BY bucket
+    GROUP BY bucket, mss.time
 )
 SELECT
-    latest_snapshot_per_bucket.bucket,
-    SUM(CASE WHEN m.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
-    SUM(CASE WHEN m.state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
-    SUM(CASE WHEN m.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
-    SUM(CASE WHEN m.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
-FROM latest_snapshot_per_bucket
-JOIN miner_state_snapshots m
-  ON m.org_id = $1
- AND m.time = latest_snapshot_per_bucket.snapshot_time
-JOIN selected_devices sd
-  ON sd.device_identifier = (m.device_identifier || '')
-GROUP BY latest_snapshot_per_bucket.bucket
-ORDER BY latest_snapshot_per_bucket.bucket ASC
+    latest.bucket,
+    latest.hashing_count,
+    latest.broken_count,
+    latest.offline_count,
+    latest.sleeping_count
+FROM (
+    SELECT DISTINCT ON (bucket)
+        bucket,
+        snapshot_time,
+        hashing_count,
+        broken_count,
+        offline_count,
+        sleeping_count
+    FROM snapshot_counts
+    ORDER BY bucket, snapshot_time DESC
+) latest
+ORDER BY latest.bucket ASC
 `
 
 type GetSelectedMinerStateSnapshotBucketsByTimeScanParams struct {
-	OrgID                  int64
 	DeviceIdentifierValues []string
 	BucketInterval         string
+	OrgID                  int64
 	StartTime              time.Time
 	EndTime                time.Time
 }
@@ -219,15 +240,15 @@ type GetSelectedMinerStateSnapshotBucketsByTimeScanRow struct {
 
 // Fast path for large explicit device selectors, such as building charts.
 // InsertMinerStateSnapshot stamps one complete fleet snapshot time across all
-// devices, so the latest snapshot time per chart bucket contains the latest
-// state for every selected device. The join intentionally compares against a
-// non-indexable device expression so Postgres walks the latest snapshot times
-// instead of doing thousands of device_identifier index scans.
+// devices, so we aggregate selected devices per snapshot and keep the latest
+// snapshot inside each chart bucket. The selected-device join intentionally
+// compares against a non-indexable device expression so Postgres walks the
+// time range instead of doing thousands of device_identifier index scans.
 func (q *Queries) GetSelectedMinerStateSnapshotBucketsByTimeScan(ctx context.Context, arg GetSelectedMinerStateSnapshotBucketsByTimeScanParams) ([]GetSelectedMinerStateSnapshotBucketsByTimeScanRow, error) {
 	rows, err := q.query(ctx, q.getSelectedMinerStateSnapshotBucketsByTimeScanStmt, getSelectedMinerStateSnapshotBucketsByTimeScan,
-		arg.OrgID,
 		pq.Array(arg.DeviceIdentifierValues),
 		arg.BucketInterval,
+		arg.OrgID,
 		arg.StartTime,
 		arg.EndTime,
 	)
