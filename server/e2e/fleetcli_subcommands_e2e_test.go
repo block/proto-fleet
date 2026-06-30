@@ -331,7 +331,7 @@ func TestFleetCLISubcommands(t *testing.T) {
 		require.NotEmpty(t, deviceIdentifier, "deviceIdentifier must be set")
 
 		firmwarePath := writeRandomFirmwareFile(t, t.TempDir(), "fleetcli-destructive.swu", 64*1024)
-		uploaded := runFleetCLIJSON(t, ctx, env, "firmware", "upload", "--quiet", firmwarePath)
+		uploaded := runFleetCLIJSON(t, ctx, env, "firmware", "upload", "--quiet", "--target-manufacturer", firmwareE2ETargetManufacturer, "--target-model", firmwareE2ETargetModel, firmwarePath)
 		firmwareFileID := jsonString(t, uploaded, "firmware_file_id")
 		require.NotEmpty(t, firmwareFileID, "firmware upload should return firmware_file_id")
 		t.Cleanup(func() {

@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-
 	poolsv1 "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -15,7 +14,7 @@ func generatedPoolsCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "pools",
 		Usage: "Manage pools commands",
-		Commands: []*cli.Command{
+		Commands: append(manualGroupCommands("pools"), []*cli.Command{
 			generatedRequestCommand(
 				"create",
 				"Create pool",
@@ -198,6 +197,6 @@ func generatedPoolsCommand() *cli.Command {
 				},
 				func() proto.Message { return &poolsv1.ValidatePoolResponse{} },
 			),
-		},
+		}...),
 	}
 }

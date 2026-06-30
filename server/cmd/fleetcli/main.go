@@ -43,14 +43,36 @@ var (
 
 func main() {
 	if err := newRootCommand().Run(context.Background(), os.Args); err != nil {
+		exitCode := 1
+		var coded cliExitError
+		if errors.As(err, &coded) {
+			exitCode = coded.code
+			err = coded.err
+		}
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
 			writeAPIError(os.Stderr, apiErr)
 		} else {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		}
-		os.Exit(1)
+		os.Exit(exitCode)
 	}
+}
+
+type cliExitError struct {
+	code int
+	err  error
+}
+
+func (e cliExitError) Error() string {
+	if e.err == nil {
+		return fmt.Sprintf("exit %d", e.code)
+	}
+	return e.err.Error()
+}
+
+func (e cliExitError) Unwrap() error {
+	return e.err
 }
 
 func newRootCommand() *cli.Command {

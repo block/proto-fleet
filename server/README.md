@@ -163,12 +163,12 @@ This will:
 
 Docker Compose includes simulated miners for development:
 
-- **fake-proto-rig**: Proto firmware simulator (5 replicas by default)
+- **fake-proto-rig**: Proto firmware simulator (30 replicas by default for temporary cohort/reservation testing; override with `FAKE_PROTO_RIG_REPLICAS`)
 - **fake-antminer**: Antminer simulator (2 replicas by default)
 - **proto-sim**: Single Proto simulator on fixed ports
 - **antminer-sim**: Single Antminer simulator on fixed ports
 
-Scale replicas with: `docker compose up --scale fake-proto-rig=10`
+Scale replicas with: `FAKE_PROTO_RIG_REPLICAS=10 docker compose up fake-proto-rig` or `docker compose up --scale fake-proto-rig=10`
 
 ## Configuration
 
