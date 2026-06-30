@@ -24,18 +24,51 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 type fakeSender struct {
-	cmd *gatewaypb.ControlCommand
-	ack *gatewaypb.ControlAck
-	err error
+	cmd       *gatewaypb.ControlCommand
+	ack       *gatewaypb.ControlAck
+	err       error
+	artifacts []control.ArtifactExpectation
+	refs      []*gatewaypb.CommandArtifactRef
 }
 
 func (f *fakeSender) SendCommand(_ context.Context, _ int64, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 	f.cmd = cmd
 	return f.ack, f.err
+}
+
+func (f *fakeSender) SendCommandWithArtifactResults(_ context.Context, _ int64, cmd *gatewaypb.ControlCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
+	f.cmd = cmd
+	f.artifacts = artifacts
+	return f.ack, f.refs, f.err
+}
+
+type fakeLogArtifactSaver struct {
+	batchLogUUID      string
+	macAddress        string
+	artifactID        string
+	deletedArtifactID string
+	err               error
+	deleteErr         error
+}
+
+func (f *fakeLogArtifactSaver) SaveCommandArtifactLog(batchLogUUID string, macAddress string, artifactID string) (string, error) {
+	f.batchLogUUID = batchLogUUID
+	f.macAddress = macAddress
+	f.artifactID = artifactID
+	if f.err != nil {
+		return "", f.err
+	}
+	return "logs/" + batchLogUUID + "/miner-logs.csv", nil
+}
+
+func (f *fakeLogArtifactSaver) DeleteCommandArtifact(artifactID string) error {
+	f.deletedArtifactID = artifactID
+	return f.deleteErr
 }
 
 type blockingSender struct {
@@ -64,6 +97,19 @@ func newTestMiner(t *testing.T, s CommandSender) *Miner {
 	return m
 }
 
+func newTestMinerWithLogSaver(t *testing.T, s CommandSender, saver LogArtifactSaver) *Miner {
+	t.Helper()
+	m, err := New(Config{
+		Sender: s, FleetNodeID: 7, OrgID: 1,
+		LogArtifacts:     saver,
+		DeviceIdentifier: "dev-1", DriverName: "virtual",
+		IPAddress: "10.0.0.5", Port: "4028", URLScheme: "http",
+		SerialNumber: "SN1", MacAddress: "AA:BB:CC:DD:EE:FF",
+	})
+	require.NoError(t, err)
+	return m
+}
+
 func newTestMinerWithGate(t *testing.T, s CommandSender, gate Gate) *Miner {
 	t.Helper()
 	m, err := New(Config{
@@ -74,6 +120,48 @@ func newTestMinerWithGate(t *testing.T, s CommandSender, gate Gate) *Miner {
 	})
 	require.NoError(t, err)
 	return m
+}
+
+func newTestMinerWithLogDownloadGate(t *testing.T, s CommandSender, gate Gate, logGate Gate, saver LogArtifactSaver) *Miner {
+	t.Helper()
+	m, err := New(Config{
+		Sender: s, Gate: gate, LogDownloadGate: logGate, FleetNodeID: 7, OrgID: 1,
+		LogArtifacts:     saver,
+		DeviceIdentifier: "dev-1", DriverName: "virtual",
+		IPAddress: "10.0.0.5", Port: "4028", URLScheme: "http",
+		SerialNumber: "SN1", MacAddress: "AA:BB:CC:DD:EE:FF",
+	})
+	require.NoError(t, err)
+	return m
+}
+
+type blockingArtifactSender struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingArtifactSender) SendCommand(_ context.Context, _ int64, _ *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+	return nil, fmt.Errorf("unexpected SendCommand")
+}
+
+func (s *blockingArtifactSender) SendCommandWithArtifactResults(ctx context.Context, _ int64, _ *gatewaypb.ControlCommand, _ []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
+	select {
+	case s.started <- struct{}{}:
+	case <-ctx.Done():
+		return nil, nil, fmt.Errorf("record upload start: %w", ctx.Err())
+	}
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return nil, nil, fmt.Errorf("wait for upload release: %w", ctx.Err())
+	}
+	return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}, []*gatewaypb.CommandArtifactRef{{
+		ArtifactId: "artifact-1",
+		Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		Filename:   "logs.csv",
+		SizeBytes:  123,
+		Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+	}}, nil
 }
 
 func decodeSent(t *testing.T, s *fakeSender) *gatewaypb.MinerCommand {
@@ -219,6 +307,74 @@ func TestMiner_UpdateMinerPasswordWithCredentials_DecodesEncryptedCredentials(t 
 	assert.Equal(t, []byte("node-pass"), creds.GetPassword())
 }
 
+func TestMiner_GetCoolingMode_DecodesPayload(t *testing.T) {
+	// Arrange
+	payload, err := proto.Marshal(&gatewaypb.GetCoolingModeResult{
+		Mode: commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED,
+	})
+	require.NoError(t, err)
+	s := &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}}
+	m := newTestMiner(t, s)
+
+	// Act
+	mode, err := m.GetCoolingMode(context.Background())
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, commonpb.CoolingMode_COOLING_MODE_IMMERSION_COOLED, mode)
+	mc := decodeSent(t, s)
+	assert.NotNil(t, mc.GetGetCoolingMode())
+}
+
+func TestMiner_GetCoolingMode_RejectsInvalidPayloadData(t *testing.T) {
+	// Arrange
+	payload, err := proto.Marshal(&gatewaypb.GetCoolingModeResult{
+		Mode: commonpb.CoolingMode(99),
+	})
+	require.NoError(t, err)
+	m := newTestMiner(t, &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}})
+
+	// Act
+	mode, err := m.GetCoolingMode(context.Background())
+
+	// Assert
+	require.Error(t, err)
+	assert.Equal(t, commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, mode)
+	assert.Contains(t, err.Error(), "invalid get cooling mode result")
+}
+
+func TestMiner_GetCoolingMode_UsesBoundedCommandContext(t *testing.T) {
+	// Arrange
+	oldTimeout := remoteGetCoolingModeCommandTimeout
+	remoteGetCoolingModeCommandTimeout = 25 * time.Millisecond
+	t.Cleanup(func() { remoteGetCoolingModeCommandTimeout = oldTimeout })
+	s := &blockingSender{started: make(chan struct{})}
+	m := newTestMiner(t, s)
+
+	// Act
+	startedAt := time.Now()
+	_, err := m.GetCoolingMode(context.Background())
+
+	// Assert
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.True(t, fleeterror.IsConnectionError(err), "expected connection error, got %v", err)
+	assert.Less(t, time.Since(startedAt), time.Second)
+	select {
+	case <-s.started:
+	default:
+		t.Fatal("SendCommand was not called")
+	}
+}
+
 func testEncryptedPasswordUpdatePayload() *dto.NodeEncryptedPayload {
 	return &dto.NodeEncryptedPayload{
 		Algorithm:       passwordupdate.Algorithm,
@@ -302,6 +458,93 @@ func TestMiner_GetMiningPools_DecodesPayload(t *testing.T) {
 	assert.Equal(t, "stratum+tcp://pool4.example.com:3333", pools[1].URL)
 	assert.Equal(t, "worker4", pools[1].Username)
 	assert.NotNil(t, decodeSent(t, s).GetGetMiningPools())
+}
+
+func TestMiner_FirmwareUpdate_SendsArtifactCommand(t *testing.T) {
+	s := &fakeSender{ack: &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}}
+	m := newTestMiner(t, s)
+
+	err := m.FirmwareUpdate(context.Background(), sdk.FirmwareFile{
+		ID:       "11111111-1111-1111-1111-111111111111",
+		Filename: "update.swu",
+		Size:     42,
+		SHA256:   strings.Repeat("a", 64),
+	})
+
+	require.NoError(t, err)
+	mc := decodeSent(t, s)
+	ref := mc.GetFirmwareUpdate().GetArtifact()
+	require.NotNil(t, ref)
+	assert.Equal(t, "11111111-1111-1111-1111-111111111111", ref.GetArtifactId())
+	assert.Equal(t, gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD, ref.GetPurpose())
+	assert.Equal(t, "update.swu", ref.GetFilename())
+	assert.Equal(t, int64(42), ref.GetSizeBytes())
+	assert.Equal(t, strings.Repeat("a", 64), ref.GetSha256())
+	require.Len(t, s.artifacts, 1)
+	assert.Equal(t, control.ArtifactDirectionDownload, s.artifacts[0].Direction)
+	assert.Equal(t, ref.GetPurpose(), s.artifacts[0].Purpose)
+	assert.Equal(t, ref.GetArtifactId(), s.artifacts[0].ArtifactID)
+	assert.Equal(t, "dev-1", s.artifacts[0].DeviceIdentifier)
+}
+
+func TestMiner_GetFirmwareUpdateStatus_DecodesPayload(t *testing.T) {
+	progress := int32(72)
+	errMsg := "installing"
+	payload, err := proto.Marshal(&gatewaypb.FirmwareUpdateStatusResult{
+		State:    "installing",
+		Progress: &progress,
+		Error:    &errMsg,
+	})
+	require.NoError(t, err)
+	s := &fakeSender{ack: &gatewaypb.ControlAck{
+		Succeeded: true,
+		Code:      gatewaypb.AckCode_ACK_CODE_OK,
+		Payload:   payload,
+	}}
+	m := newTestMiner(t, s)
+
+	status, err := m.GetFirmwareUpdateStatus(context.Background())
+
+	require.NoError(t, err)
+	require.NotNil(t, status)
+	assert.Equal(t, "installing", status.State)
+	require.NotNil(t, status.Progress)
+	assert.Equal(t, 72, *status.Progress)
+	require.NotNil(t, status.Error)
+	assert.Equal(t, errMsg, *status.Error)
+	assert.NotNil(t, decodeSent(t, s).GetGetFirmwareUpdateStatus())
+}
+
+func TestMiner_GetFirmwareUpdateStatus_EmptyPayloadReturnsNilStatus(t *testing.T) {
+	s := okSender()
+	m := newTestMiner(t, s)
+
+	status, err := m.GetFirmwareUpdateStatus(context.Background())
+
+	require.NoError(t, err)
+	assert.Nil(t, status)
+	assert.NotNil(t, decodeSent(t, s).GetGetFirmwareUpdateStatus())
+}
+
+func TestMiner_GetFirmwareUpdateStatus_UsesBoundedCommandContext(t *testing.T) {
+	oldTimeout := remoteFirmwareStatusCommandTimeout
+	remoteFirmwareStatusCommandTimeout = 25 * time.Millisecond
+	t.Cleanup(func() { remoteFirmwareStatusCommandTimeout = oldTimeout })
+	s := &blockingSender{started: make(chan struct{})}
+	m := newTestMiner(t, s)
+
+	startedAt := time.Now()
+	_, err := m.GetFirmwareUpdateStatus(context.Background())
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.True(t, fleeterror.IsConnectionError(err), "expected connection error, got %v", err)
+	assert.Less(t, time.Since(startedAt), time.Second)
+	select {
+	case <-s.started:
+	default:
+		t.Fatal("SendCommand was not called")
+	}
 }
 
 func TestMiner_GetErrors_DecodesPayload(t *testing.T) {
@@ -803,6 +1046,271 @@ func TestMiner_NoActiveStreamIsRetryable(t *testing.T) {
 	assert.False(t, fleeterror.IsFailedPreconditionError(err))
 }
 
+func TestMiner_DownloadLogsSendsActionAndMaterializesArtifact(t *testing.T) {
+	// Arrange
+	s := &fakeSender{
+		ack: &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK},
+		refs: []*gatewaypb.CommandArtifactRef{{
+			ArtifactId: "artifact-1",
+			Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+			Filename:   "logs.csv",
+			SizeBytes:  123,
+			Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+		}},
+	}
+	saver := &fakeLogArtifactSaver{}
+	m := newTestMinerWithLogSaver(t, s, saver)
+
+	// Act
+	err := m.DownloadLogs(context.Background(), "batch-1")
+
+	// Assert
+	require.NoError(t, err)
+	mc := decodeSent(t, s)
+	assert.Equal(t, "batch-1", mc.GetDownloadLogs().GetBatchLogUuid())
+	require.Len(t, s.artifacts, 1)
+	assert.Equal(t, control.ArtifactDirectionUpload, s.artifacts[0].Direction)
+	assert.Equal(t, gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS, s.artifacts[0].Purpose)
+	assert.Equal(t, "dev-1", s.artifacts[0].DeviceIdentifier)
+	assert.Equal(t, logformat.MaxArtifactBytes, s.artifacts[0].MaxSizeBytes)
+	assert.Equal(t, "batch-1", saver.batchLogUUID)
+	assert.Equal(t, "AA:BB:CC:DD:EE:FF", saver.macAddress)
+	assert.Equal(t, "artifact-1", saver.artifactID)
+}
+
+func TestMiner_DownloadLogsRequiresUploadedArtifactRef(t *testing.T) {
+	// Arrange
+	s := &fakeSender{ack: &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}}
+	saver := &fakeLogArtifactSaver{}
+	m := newTestMinerWithLogSaver(t, s, saver)
+
+	// Act
+	err := m.DownloadLogs(context.Background(), "batch-1")
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "without uploaded log artifact")
+	assert.Empty(t, saver.artifactID)
+}
+
+func TestMiner_DownloadLogsMaterializesPartialArtifactAndFailsTerminally(t *testing.T) {
+	// Arrange
+	s := &fakeSender{
+		ack: &gatewaypb.ControlAck{
+			Succeeded:    false,
+			Code:         gatewaypb.AckCode_ACK_CODE_PARTIAL,
+			ErrorMessage: "uploaded partial miner log data",
+		},
+		refs: []*gatewaypb.CommandArtifactRef{{
+			ArtifactId: "artifact-1",
+			Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+			Filename:   "logs.csv",
+			SizeBytes:  123,
+			Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+		}},
+	}
+	saver := &fakeLogArtifactSaver{}
+	m := newTestMinerWithLogSaver(t, s, saver)
+
+	// Act
+	err := m.DownloadLogs(context.Background(), "batch-1")
+
+	// Assert
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "uploaded partial miner log data")
+	assert.Equal(t, "batch-1", saver.batchLogUUID)
+	assert.Equal(t, "AA:BB:CC:DD:EE:FF", saver.macAddress)
+	assert.Equal(t, "artifact-1", saver.artifactID)
+}
+
+func TestMiner_DownloadLogsPartialAckWithoutArtifactFailsTerminally(t *testing.T) {
+	// Arrange
+	s := &fakeSender{
+		ack: &gatewaypb.ControlAck{
+			Succeeded:    false,
+			Code:         gatewaypb.AckCode_ACK_CODE_PARTIAL,
+			ErrorMessage: "miner log data incomplete",
+		},
+	}
+	saver := &fakeLogArtifactSaver{}
+	m := newTestMinerWithLogSaver(t, s, saver)
+
+	// Act
+	err := m.DownloadLogs(context.Background(), "batch-1")
+
+	// Assert
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "miner log data incomplete")
+	assert.Empty(t, saver.artifactID)
+}
+
+func TestMiner_DownloadLogsBadRequestFailsTerminally(t *testing.T) {
+	// Arrange: the fleet node returns BAD_REQUEST for no-artifact log failures such
+	// as raw logs or formatted CSV exceeding the miner-log artifact cap.
+	s := &fakeSender{
+		ack: &gatewaypb.ControlAck{
+			Succeeded:    false,
+			Code:         gatewaypb.AckCode_ACK_CODE_BAD_REQUEST,
+			ErrorMessage: "miner log data exceeds 4194304 byte download limit",
+		},
+	}
+	saver := &fakeLogArtifactSaver{}
+	m := newTestMinerWithLogSaver(t, s, saver)
+
+	// Act
+	err := m.DownloadLogs(context.Background(), "batch-1")
+
+	// Assert
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "miner log data exceeds")
+	assert.Empty(t, saver.artifactID)
+}
+
+func TestMiner_DownloadLogsDeletesRejectedArtifactAndFailsTerminally(t *testing.T) {
+	// Arrange
+	s := &fakeSender{
+		ack: &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK},
+		refs: []*gatewaypb.CommandArtifactRef{{
+			ArtifactId: "artifact-1",
+			Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+			Filename:   "logs.csv",
+			SizeBytes:  123,
+			Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+		}},
+	}
+	saver := &fakeLogArtifactSaver{err: fleeterror.NewFailedPreconditionError("malformed miner log artifact")}
+	m := newTestMinerWithLogSaver(t, s, saver)
+
+	// Act
+	err := m.DownloadLogs(context.Background(), "batch-1")
+
+	// Assert
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Equal(t, "artifact-1", saver.artifactID)
+	assert.Equal(t, "artifact-1", saver.deletedArtifactID)
+}
+
+func TestMiner_DownloadLogsKeepsArtifactForRetryableMaterializationError(t *testing.T) {
+	// Arrange
+	s := &fakeSender{
+		ack: &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK},
+		refs: []*gatewaypb.CommandArtifactRef{{
+			ArtifactId: "artifact-1",
+			Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+			Filename:   "logs.csv",
+			SizeBytes:  123,
+			Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+		}},
+	}
+	saver := &fakeLogArtifactSaver{err: fleeterror.NewInternalError("disk unavailable")}
+	m := newTestMinerWithLogSaver(t, s, saver)
+
+	// Act
+	err := m.DownloadLogs(context.Background(), "batch-1")
+
+	// Assert
+	require.Error(t, err)
+	assert.False(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Equal(t, "artifact-1", saver.artifactID)
+	assert.Empty(t, saver.deletedArtifactID)
+}
+
+func TestMiner_DownloadLogsUsesLogDownloadGate(t *testing.T) {
+	// Arrange
+	sender := &blockingArtifactSender{
+		started: make(chan struct{}, 2),
+		release: make(chan struct{}),
+	}
+	logGate := NewPerNodeLimiter(1)
+	m1 := newTestMinerWithLogDownloadGate(t, sender, nil, logGate, &fakeLogArtifactSaver{})
+	m2 := newTestMinerWithLogDownloadGate(t, sender, nil, logGate, &fakeLogArtifactSaver{})
+	errCh := make(chan error, 2)
+
+	// Act: first log download enters the artifact-sending path and holds the gate.
+	go func() { errCh <- m1.DownloadLogs(context.Background(), "batch-1") }()
+	select {
+	case <-sender.started:
+	case <-time.After(time.Second):
+		t.Fatal("first log download did not start")
+	}
+	go func() { errCh <- m2.DownloadLogs(context.Background(), "batch-1") }()
+
+	// Assert: second log download waits at the log gate instead of starting another
+	// upload-capable command immediately.
+	select {
+	case <-sender.started:
+		t.Fatal("second log download should wait for the log download gate")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(sender.release)
+	select {
+	case <-sender.started:
+	case <-time.After(time.Second):
+		t.Fatal("second log download should start after the first releases the log gate")
+	}
+	require.NoError(t, <-errCh)
+	require.NoError(t, <-errCh)
+}
+
+func TestMiner_DownloadLogsWaitsForLogGateBeforeCommandGate(t *testing.T) {
+	// Arrange
+	logGate := NewPerNodeLimiter(1)
+	releaseHeldLogDownload, err := logGate.Acquire(context.Background(), 7)
+	require.NoError(t, err)
+	gate := &releasableGate{
+		acquired: make(chan int64, 1),
+		release:  make(chan struct{}),
+	}
+	s := &fakeSender{
+		ack: &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK},
+		refs: []*gatewaypb.CommandArtifactRef{{
+			ArtifactId: "artifact-1",
+			Purpose:    gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+			Filename:   "logs.csv",
+			SizeBytes:  123,
+			Sha256:     "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7",
+		}},
+	}
+	m := newTestMinerWithLogDownloadGate(t, s, gate, logGate, &fakeLogArtifactSaver{})
+	errCh := make(chan error, 1)
+
+	// Act
+	go func() { errCh <- m.DownloadLogs(context.Background(), "batch-1") }()
+
+	// Assert: waiting for log artifact capacity must not occupy a general command slot.
+	select {
+	case <-gate.acquired:
+		t.Fatal("general command gate should wait until log download gate is available")
+	case <-time.After(50 * time.Millisecond):
+	}
+	releaseHeldLogDownload()
+	select {
+	case fleetNodeID := <-gate.acquired:
+		assert.Equal(t, int64(7), fleetNodeID)
+	case <-time.After(time.Second):
+		t.Fatal("general command gate should be acquired after log download gate is available")
+	}
+	close(gate.release)
+	require.NoError(t, <-errCh)
+}
+
+func TestMiner_DownloadLogsNoActiveStreamIsRetryable(t *testing.T) {
+	// Arrange
+	m := newTestMinerWithLogSaver(t, &fakeSender{err: control.ErrNoActiveStream}, &fakeLogArtifactSaver{})
+
+	// Act
+	err := m.DownloadLogs(context.Background(), "batch-1")
+
+	// Assert
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.False(t, fleeterror.IsFailedPreconditionError(err))
+}
+
 func TestClampAckReason(t *testing.T) {
 	// Arrange: an untrusted oversized ack message (a well-behaved node caps at the limit).
 	oversized := strings.Repeat("x", maxAckReasonBytes*2)
@@ -823,7 +1331,6 @@ func TestMiner_UnsupportedMethodsReturnUnimplemented(t *testing.T) {
 
 	// Assert: not-yet-supported methods return Unimplemented.
 	assert.True(t, fleeterror.IsUnimplementedError(m.Unpair(ctx)))
-	assert.True(t, fleeterror.IsUnimplementedError(m.DownloadLogs(ctx, "batch")))
 	_, err := m.GetDeviceStatus(ctx)
 	assert.True(t, fleeterror.IsUnimplementedError(err))
 }

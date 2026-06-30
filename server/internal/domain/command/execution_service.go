@@ -544,22 +544,19 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			err = fleeterror.NewInternalErrorf("error unmarshalling firmware update payload: %v", fwErr)
 			break
 		}
-		reader, filename, size, openErr := es.filesService.OpenFirmwareFile(p.FirmwareFileID)
+		reader, info, openErr := es.filesService.OpenFirmwareFileWithInfo(p.FirmwareFileID)
 		if openErr != nil {
 			err = fleeterror.NewInternalErrorf("error opening firmware file: %v", openErr)
 			break
 		}
 		defer reader.Close()
-		filePath, pathErr := es.filesService.GetFirmwareFilePath(p.FirmwareFileID)
-		if pathErr != nil {
-			err = fleeterror.NewInternalErrorf("error resolving firmware file path: %v", pathErr)
-			break
-		}
 		err = minerInfo.FirmwareUpdate(ctx, sdk.FirmwareFile{
 			Reader:   reader,
-			Filename: filename,
-			Size:     size,
-			FilePath: filePath,
+			ID:       info.ID,
+			Filename: info.Filename,
+			Size:     info.Size,
+			SHA256:   info.SHA256,
+			FilePath: info.FilePath,
 		})
 		if err != nil {
 			break

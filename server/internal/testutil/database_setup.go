@@ -34,36 +34,22 @@ func GetTestDB(t *testing.T) *sql.DB {
 		dbName = generateTestDBName(t.Name())
 	}
 
-	// Connect to PostgreSQL without selecting a database to create our test database
-	// Connect to the default "postgres" database first
+	// Create the test database on the default "postgres" database.
+	// createTestDatabase waits out / retries a transient server restart, so a
+	// test that starts while the server is still recovering does not fail on the
+	// admin DDL before reaching the migration retry below.
 	adminConfig := config
 	adminConfig.Name = "postgres"
-	conn, err := db.ConnectToDatabase(&adminConfig)
-	assert.NoError(t, err)
+	createTestDatabase(t, &adminConfig, dbName)
 
-	// Drop existing connections to the test database if any
-	_, _ = conn.ExecContext(t.Context(), fmt.Sprintf(`
-		SELECT pg_terminate_backend(pg_stat_activity.pid)
-		FROM pg_stat_activity
-		WHERE pg_stat_activity.datname = '%s'
-		AND pid <> pg_backend_pid()
-	`, dbName))
-
-	// Create the test database
-	_, err = conn.ExecContext(t.Context(), fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
-	assert.NoError(t, err)
-	_, err = conn.ExecContext(t.Context(), fmt.Sprintf("CREATE DATABASE %s", dbName))
-	assert.NoError(t, err)
-	conn.Close()
-
-	// Connect and run migrations with retry on deadlock.
-	// TimescaleDB continuous aggregate DDL acquires instance-level catalog locks
-	// that can deadlock when parallel tests migrate concurrently. On failure we
-	// drop and recreate the database for a clean slate (avoids golang-migrate
-	// dirty flag issues).
+	// Connect and run migrations with retry. TimescaleDB continuous aggregate
+	// DDL acquires instance-level catalog locks that can deadlock when parallel
+	// tests migrate concurrently; a transient server restart is also tolerated.
+	// On failure we drop and recreate the database for a clean slate (avoids
+	// golang-migrate dirty flag issues).
 	testDBConfig := config
 	testDBConfig.Name = dbName
-	conn, err = connectAndMigrateWithRetry(t, &testDBConfig, &adminConfig, dbName)
+	conn, err := connectAndMigrateWithRetry(t, &testDBConfig, &adminConfig, dbName)
 	assert.NoError(t, err)
 
 	// Clean up the database when the test is done
@@ -98,7 +84,34 @@ const (
 
 	pgInternalError                   = "XX000"
 	timescaleTupleConcurrentlyDeleted = "tuple concurrently deleted"
+
+	// serverReadyTimeout bounds how long we wait for the database server to
+	// start accepting connections again after a transient restart before a
+	// migration retry.
+	serverReadyTimeout  = 30 * time.Second
+	serverReadyInterval = 250 * time.Millisecond
 )
+
+// transientServerErrors are substrings of errors emitted while the database
+// server itself is restarting/recovering — e.g. a crash under heavy concurrent
+// migration load that `restart: always` brings back within a second or two.
+// Under the per-test-database model one such restart otherwise cascades into
+// dozens of unrelated failures; retrying once the server is back lets each test
+// survive the blip instead.
+var transientServerErrors = []string{
+	// PostgreSQL class 57 (operator_intervention): the server is shutting
+	// down, crashing, or not yet back up — all expected during a restart.
+	"57P01", // admin_shutdown: "terminating connection due to administrator command"
+	"57P02", // crash_shutdown
+	"57P03", // cannot_connect_now: "the database system is not yet accepting connections"
+	"the database system is starting up",
+	"the database system is shutting down",
+	"the database system is in recovery mode",
+	// Connection torn down mid-statement when the server went away.
+	"bad connection",
+	"connection is already closed",
+	"connection reset by peer",
+}
 
 // connectAndMigrateWithRetry wraps db.ConnectAndMigrate with retry logic for
 // deadlocks caused by concurrent TimescaleDB catalog operations across test
@@ -124,8 +137,10 @@ func connectAndMigrateWithRetry(
 			return nil, lastErr
 		}
 
-		t.Logf("migration deadlock (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
-		recreateTestDatabase(t, adminConfig, dbName)
+		t.Logf("retryable migration error (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
+		// Recreate the database for a clean slate (clears any dirty migration
+		// state), waiting out / retrying a transient server restart.
+		createTestDatabase(t, adminConfig, dbName)
 
 		delay := time.Duration(attempt) * migrationRetryBaseDelay
 		time.Sleep(delay)
@@ -145,30 +160,120 @@ func isRetryableMigrationError(err error) bool {
 		return true
 	}
 	msg := err.Error()
-	return strings.Contains(msg, db.PGDeadlockDetected) ||
+	if strings.Contains(msg, db.PGDeadlockDetected) ||
 		strings.Contains(msg, db.PGSerializationFailure) ||
-		(strings.Contains(msg, pgInternalError) && strings.Contains(msg, timescaleTupleConcurrentlyDeleted))
+		(strings.Contains(msg, pgInternalError) && strings.Contains(msg, timescaleTupleConcurrentlyDeleted)) {
+		return true
+	}
+	return isTransientServerError(msg)
 }
 
-// recreateTestDatabase drops and recreates a test database via the admin connection.
-func recreateTestDatabase(t *testing.T, adminConfig *db.Config, dbName string) {
+// isTransientServerError reports whether the error came from the database server
+// being temporarily unavailable (restarting/recovering) rather than from the
+// migration itself.
+func isTransientServerError(msg string) bool {
+	for _, s := range transientServerErrors {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// waitForServerReady blocks until the database server accepts a query on the
+// admin database, or serverReadyTimeout elapses. This bridges the brief window
+// after a transient server restart so the admin DDL used to recreate a test
+// database before a migration retry runs against a live server.
+func waitForServerReady(t *testing.T, adminConfig *db.Config) {
 	t.Helper()
 
-	adminConn, err := db.ConnectToDatabase(adminConfig)
-	assert.NoError(t, err)
-	defer adminConn.Close()
+	deadline := time.Now().Add(serverReadyTimeout)
+	for {
+		err := pingAdminDatabase(t.Context(), adminConfig)
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			// Give up waiting and let the caller's admin DDL surface the real
+			// failure, but log why readiness never confirmed to aid diagnosis.
+			t.Logf("database server not ready after %s: %v", serverReadyTimeout, err)
+			return
+		}
+		time.Sleep(serverReadyInterval)
+	}
+}
 
-	_, _ = adminConn.ExecContext(t.Context(), fmt.Sprintf(`
+// pingAdminDatabase opens a fresh admin connection and runs SELECT 1, returning
+// an error while the server is not accepting queries (connect or ping failure).
+func pingAdminDatabase(ctx context.Context, adminConfig *db.Config) error {
+	conn, err := db.ConnectToDatabase(adminConfig)
+	if err != nil {
+		return fmt.Errorf("connect to admin database: %w", err)
+	}
+	defer conn.Close()
+
+	pingCtx, cancel := context.WithTimeout(ctx, serverReadyInterval)
+	defer cancel()
+	if _, err := conn.ExecContext(pingCtx, "SELECT 1"); err != nil {
+		return fmt.Errorf("ping admin database: %w", err)
+	}
+	return nil
+}
+
+// createTestDatabase drops any existing database with the given name and
+// creates a fresh one. It waits for the server to accept connections and
+// retries the admin DDL across a transient server restart (the same
+// 57P03 / "bad connection" / startup window connectAndMigrateWithRetry
+// tolerates), so a test that starts while the server is recovering survives the
+// blip instead of failing on the very first DROP/CREATE.
+func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string) {
+	t.Helper()
+
+	var lastErr error
+	for attempt := 1; attempt <= migrationMaxRetries; attempt++ {
+		// Wait for the server before issuing admin DDL.
+		waitForServerReady(t, adminConfig)
+
+		lastErr = tryCreateTestDatabase(t.Context(), adminConfig, dbName)
+		if lastErr == nil {
+			return
+		}
+		if !isTransientServerError(lastErr.Error()) || attempt == migrationMaxRetries {
+			break
+		}
+
+		t.Logf("create test database failed transiently (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
+		time.Sleep(time.Duration(attempt) * migrationRetryBaseDelay)
+	}
+
+	assert.NoError(t, lastErr, "error creating test database")
+}
+
+// tryCreateTestDatabase terminates lingering connections then drops and creates
+// the database on a fresh admin connection, returning any error rather than
+// failing the test so the caller can retry transient failures.
+func tryCreateTestDatabase(ctx context.Context, adminConfig *db.Config, dbName string) error {
+	conn, err := db.ConnectToDatabase(adminConfig)
+	if err != nil {
+		return fmt.Errorf("connect to admin database: %w", err)
+	}
+	defer conn.Close()
+
+	// Best effort: the database may not exist yet, so ignore terminate errors.
+	_, _ = conn.ExecContext(ctx, fmt.Sprintf(`
 		SELECT pg_terminate_backend(pg_stat_activity.pid)
 		FROM pg_stat_activity
 		WHERE pg_stat_activity.datname = '%s'
 		AND pid <> pg_backend_pid()
 	`, dbName))
 
-	_, err = adminConn.ExecContext(t.Context(), fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
-	assert.NoError(t, err)
-	_, err = adminConn.ExecContext(t.Context(), fmt.Sprintf("CREATE DATABASE %s", dbName))
-	assert.NoError(t, err)
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)); err != nil {
+		return fmt.Errorf("drop test database: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", dbName)); err != nil {
+		return fmt.Errorf("create test database: %w", err)
+	}
+	return nil
 }
 
 // generateTestDBName creates a unique database name that includes part of the test name for readability.

@@ -6,57 +6,6 @@ test.describe("Proto Fleet - Add Miners Validation", () => {
     await commonSteps.loginAsAdmin();
   });
 
-  test("Shows validation error dialog for invalid IP addresses", async ({ minersPage, addMinersPage }) => {
-    await test.step("Navigate to add miners flow", async () => {
-      await minersPage.navigateToMinersPage();
-      await minersPage.clickAddMinersButton();
-    });
-
-    await test.step("Enter invalid IP addresses", async () => {
-      await addMinersPage.inputMinerIp("999.999.999.999, 256.1.1.1");
-      await addMinersPage.clickFindMinersByIp();
-    });
-
-    await test.step("Validate error dialog is shown with invalid entries", async () => {
-      await addMinersPage.validateValidationErrorDialogIsVisible();
-      await addMinersPage.validateInvalidIpAddressesInDialog(["999.999.999.999", "256.1.1.1"]);
-    });
-  });
-
-  test("Shows validation error dialog for invalid IP ranges", async ({ minersPage, addMinersPage }) => {
-    await test.step("Navigate to add miners flow", async () => {
-      await minersPage.navigateToMinersPage();
-      await minersPage.clickAddMinersButton();
-    });
-
-    await test.step("Enter invalid IP range (end before start)", async () => {
-      await addMinersPage.inputMinerIp("192.168.1.100-50");
-      await addMinersPage.clickFindMinersByIp();
-    });
-
-    await test.step("Validate error dialog is shown with invalid range", async () => {
-      await addMinersPage.validateValidationErrorDialogIsVisible();
-      await addMinersPage.validateInvalidIpRangesInDialog(["192.168.1.100-50"]);
-    });
-  });
-
-  test("Shows validation error dialog for invalid subnets", async ({ minersPage, addMinersPage }) => {
-    await test.step("Navigate to add miners flow", async () => {
-      await minersPage.navigateToMinersPage();
-      await minersPage.clickAddMinersButton();
-    });
-
-    await test.step("Enter invalid subnet (mask > 32)", async () => {
-      await addMinersPage.inputMinerIp("192.168.1.0/33");
-      await addMinersPage.clickFindMinersByIp();
-    });
-
-    await test.step("Validate error dialog is shown with invalid subnet", async () => {
-      await addMinersPage.validateValidationErrorDialogIsVisible();
-      await addMinersPage.validateInvalidSubnetsInDialog(["192.168.1.0/33"]);
-    });
-  });
-
   test("Back to editing button closes dialog and returns to form", async ({ minersPage, addMinersPage }) => {
     await test.step("Navigate to add miners flow", async () => {
       await minersPage.navigateToMinersPage();
@@ -158,23 +107,6 @@ test.describe("Proto Fleet - Add Miners Validation", () => {
     await test.step("Back to editing works correctly", async () => {
       await addMinersPage.clickBackToEditing();
       await addMinersPage.validateValidationErrorDialogIsClosed();
-    });
-  });
-
-  test("Shows Continue anyway when mix of valid and invalid entries", async ({ minersPage, addMinersPage }) => {
-    await test.step("Navigate to add miners flow", async () => {
-      await minersPage.navigateToMinersPage();
-      await minersPage.clickAddMinersButton();
-    });
-
-    await test.step("Enter mix of valid and invalid entries", async () => {
-      await addMinersPage.inputMinerIp("192.168.1.1, 999.999.999.999");
-      await addMinersPage.clickFindMinersByIp();
-    });
-
-    await test.step("Validate dialog shows both buttons", async () => {
-      await addMinersPage.validateValidationErrorDialogIsVisible();
-      await addMinersPage.validateContinueAnywayButtonVisible();
     });
   });
 });

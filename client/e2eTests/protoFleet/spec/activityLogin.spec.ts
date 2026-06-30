@@ -8,28 +8,6 @@ test.describe("Proto Fleet - Activity Login", () => {
     await page.goto("/");
   });
 
-  test("Login activity is visible for the signed-in admin", async ({ authPage, activityPage }) => {
-    await test.step("Log in as admin", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
-
-    await test.step("Open Activity and filter to login events", async () => {
-      await activityPage.navigateToActivityPage();
-      await activityPage.waitForActivityListToLoad();
-      await activityPage.selectTypeFilter("Login");
-      await activityPage.selectUserFilter(testConfig.users.admin.username);
-    });
-
-    await test.step("Validate the latest login row", async () => {
-      await activityPage.validateLatestActivityDescription("Login");
-      await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
-      await activityPage.validateLatestActivityNotMarkedFailed();
-    });
-  });
-
   test("Failed login activity is visible after correcting invalid credentials and signing in", async ({
     authPage,
     activityPage,

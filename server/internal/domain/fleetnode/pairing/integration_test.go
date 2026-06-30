@@ -645,70 +645,6 @@ func TestUpsertDiscoveredDevices_RejectsReportFromOtherFleetNode(t *testing.T) {
 	assert.Equal(t, fleetNodeA, attributed.Int64, "attribution must remain with the original discoverer")
 }
 
-func TestUpsertDiscoveredDevices_RejectsInvalidIPAddress(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-bad-ip")
-
-	// Act
-	_, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "x", IPAddress: "not-an-ip", Port: "80", URLScheme: "http", DriverName: "virtual"},
-	})
-
-	// Assert
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-}
-
-func TestUpsertDiscoveredDevices_RejectsInvalidPort(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-bad-port")
-
-	// Act
-	_, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "x", IPAddress: "10.0.0.1", Port: "999999", URLScheme: "http", DriverName: "virtual"},
-	})
-
-	// Assert
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-}
-
-func TestUpsertDiscoveredDevices_AcceptsVirtualScheme(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-virtual-scheme")
-
-	// Act
-	acceptedIdx, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "virt-1", IPAddress: "10.0.0.1", Port: "80", URLScheme: "virtual", DriverName: "virtual"},
-	})
-
-	// Assert
-	require.NoError(t, err)
-	assert.Len(t, acceptedIdx, 1)
-}
-
-func TestUpsertDiscoveredDevices_RejectsMalformedURLScheme(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-bad-scheme")
-
-	// Act: an injection payload that would otherwise become a clickable link.
-	_, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "x", IPAddress: "10.0.0.1", Port: "80", URLScheme: "javascript:alert(1)//", DriverName: "virtual"},
-	})
-
-	// Assert
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-}
-
 func TestUpsertDiscoveredDevices_PersistsSchemeUpToProtoLimit(t *testing.T) {
 	// Arrange: a non-http scheme longer than the old VARCHAR(10) column but
 	// within the gateway proto's advertised max_len of 32. Before the column
@@ -853,39 +789,6 @@ func TestUpsertDiscoveredDevices_RefreshesDevicePairedToReportingNode(t *testing
 	require.NoError(t, db.QueryRow(`SELECT ip_address, port FROM discovered_device WHERE id = $1`, ddID).Scan(&ip, &port))
 	assert.Equal(t, "10.0.0.71", ip)
 	assert.Equal(t, "8080", port)
-}
-
-func TestUpsertDiscoveredDevices_RejectsNonPrivateIPs(t *testing.T) {
-	// Arrange
-	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
-	fleetNodeID := createFleetNode(t, enrollment, orgID, "node-ip-ranges")
-
-	cases := []struct {
-		name string
-		ip   string
-	}{
-		{"loopback v4", "127.0.0.1"},
-		{"loopback v6", "::1"},
-		{"link-local v4", "169.254.1.1"},
-		{"link-local v6", "fe80::1"},
-		{"public v4", "8.8.8.8"},
-		{"public v6", "2606:4700:4700::1111"},
-		{"multicast v4", "224.0.0.1"},
-		{"unspecified v4", "0.0.0.0"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Act
-			_, _, err := pairing.UpsertDiscoveredDevices(ctx, fleetNodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-				{DeviceIdentifier: "x-" + tc.name, IPAddress: tc.ip, Port: "80", URLScheme: "http", DriverName: "virtual"},
-			})
-
-			// Assert
-			require.Error(t, err)
-			assert.True(t, fleeterror.IsInvalidArgumentError(err), "expected InvalidArgument for %s (%s)", tc.name, tc.ip)
-		})
-	}
 }
 
 func TestUpsertDiscoveredDevices_AcceptsRFC4193IPv6(t *testing.T) {

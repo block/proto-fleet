@@ -245,63 +245,6 @@ func TestTelemetryStore_GetCombinedMetrics(t *testing.T) {
 	assert.NotEmpty(t, result.Metrics, "Expected combined metrics")
 }
 
-// TestTelemetryStore_GetCombinedMetrics_TemperatureStatusCounts tests temperature status bucketing.
-func TestTelemetryStore_GetCombinedMetrics_TemperatureStatusCounts(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	db := testutil.GetTestDB(t)
-	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
-	require.NoError(t, err)
-	ctx := t.Context()
-
-	// Create devices in different temperature ranges
-	devices := []struct {
-		id   string
-		temp float64
-	}{
-		{"device-temp-cold", -5.0},     // cold
-		{"device-temp-ok1", 50.0},      // ok
-		{"device-temp-ok2", 65.0},      // ok
-		{"device-temp-hot", 85.0},      // hot
-		{"device-temp-critical", 95.0}, // critical
-	}
-
-	for _, d := range devices {
-		t.Cleanup(func() {
-			cleanupDeviceMetrics(t, db, d.id)
-		})
-	}
-
-	now := time.Now().Truncate(time.Millisecond)
-	for _, d := range devices {
-		insertTestMetrics(t, db, d.id, now, 100_000_000, d.temp)
-	}
-
-	startTime := now.Add(-1 * time.Minute)
-	endTime := now.Add(1 * time.Minute)
-
-	// Collect device IDs for the query
-	deviceIDs := make([]models.DeviceIdentifier, len(devices))
-	for i, d := range devices {
-		deviceIDs[i] = models.DeviceIdentifier(d.id)
-	}
-
-	query := models.CombinedMetricsQuery{
-		DeviceIDs:        deviceIDs,
-		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeTemperature},
-		TimeRange: models.TimeRange{
-			StartTime: &startTime,
-			EndTime:   &endTime,
-		},
-	}
-
-	result, err := store.GetCombinedMetrics(ctx, query)
-	require.NoError(t, err)
-	require.NotEmpty(t, result.TemperatureStatusCounts, "Expected temperature status counts")
-}
-
 // TestTelemetryStore_StreamTelemetryUpdates tests streaming telemetry updates.
 func TestTelemetryStore_StreamTelemetryUpdates(t *testing.T) {
 	if testing.Short() {

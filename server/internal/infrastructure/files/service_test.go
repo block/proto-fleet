@@ -2,6 +2,8 @@ package files
 
 import (
 	"archive/zip"
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 )
 
 // setupService creates a Service backed by a temporary directory and restores the
@@ -75,6 +80,83 @@ func TestBundleLogs_SingleFile_MovesToTempWithNameSidecar(t *testing.T) {
 	assert.Equal(t, originalName, string(sidecar))
 }
 
+func TestSaveCommandArtifactLog_MaterializesAndBundlesSingleCSV(t *testing.T) {
+	svc := setupService(t)
+	content := "Time,Message\n2026-01-01T00:00:00Z,\"hello\"\n"
+	wantContent := "Time,Message\n\"2026-01-01T00:00:00Z\",\"hello\"\n"
+	info, err := svc.SaveCommandArtifact("../../remote-miner-logs.csv", int64(len(content)), checksumOf(content), strings.NewReader(content))
+	require.NoError(t, err)
+
+	filePath, err := svc.SaveCommandArtifactLog("batch-artifact-single", "AA:BB:CC:DD:EE:FF", info.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, getBatchLogsDirPath("batch-artifact-single"), filepath.Dir(filePath))
+	assert.True(t, strings.HasPrefix(filepath.Base(filePath), "miner-logs-aabbccddeeff-"))
+	assert.True(t, strings.HasSuffix(filepath.Base(filePath), ".csv"))
+	data, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, wantContent, string(data))
+	assert.NoDirExists(t, getCommandArtifactDirPath(info.ID))
+
+	bundlePath, err := svc.bundleLogs("batch-artifact-single")
+	require.NoError(t, err)
+	assert.Equal(t, getBatchLogsSingleFilePath("batch-artifact-single"), bundlePath)
+
+	fsFile, err := svc.GetBatchLogBundleFile("batch-artifact-single")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Base(filePath), fsFile.Filename)
+	assert.Equal(t, wantContent, string(fsFile.Data))
+}
+
+func TestSaveCommandArtifactLog_SanitizesUploadedCSV(t *testing.T) {
+	svc := setupService(t)
+	content := "Time,Type,Message\n=cmd,INFO,+message\n2026-01-01T00:00:00Z,WARN,\" \t@nested\"\n"
+	info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(content)), checksumOf(content), strings.NewReader(content))
+	require.NoError(t, err)
+
+	filePath, err := svc.SaveCommandArtifactLog("batch-sanitize-artifact", "aa:bb:cc:dd:ee:ff", info.ID)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "Time,Type,Message\n\"'=cmd\",\"INFO\",\"'+message\"\n\"2026-01-01T00:00:00Z\",\"WARN\",\"' \t@nested\"\n", string(data))
+	assert.NoDirExists(t, getCommandArtifactDirPath(info.ID))
+}
+
+func TestSaveCommandArtifactLog_DoesNotOverwriteCollidingBatchLogNames(t *testing.T) {
+	svc := setupService(t)
+	originalTimestamp := batchLogTimestamp
+	batchLogTimestamp = func() string { return "2026-01-01_00-00-00" }
+	t.Cleanup(func() { batchLogTimestamp = originalTimestamp })
+	contentA := "Time,Message\n2026-01-01T00:00:00Z,first\n"
+	contentB := "Time,Message\n2026-01-01T00:00:01Z,second\n"
+	infoA, err := svc.SaveCommandArtifact("remote-a.csv", int64(len(contentA)), checksumOf(contentA), strings.NewReader(contentA))
+	require.NoError(t, err)
+	infoB, err := svc.SaveCommandArtifact("remote-b.csv", int64(len(contentB)), checksumOf(contentB), strings.NewReader(contentB))
+	require.NoError(t, err)
+
+	pathA, err := svc.SaveCommandArtifactLog("batch-colliding-artifacts", "", infoA.ID)
+	require.NoError(t, err)
+	pathB, err := svc.SaveCommandArtifactLog("batch-colliding-artifacts", "", infoB.ID)
+	require.NoError(t, err)
+
+	require.NotEqual(t, pathA, pathB)
+	assert.Equal(t, "miner-logs-unknown-2026-01-01_00-00-00.csv", filepath.Base(pathA))
+	assert.Equal(t, "miner-logs-unknown-2026-01-01_00-00-00-1.csv", filepath.Base(pathB))
+	dataA, err := os.ReadFile(pathA)
+	require.NoError(t, err)
+	dataB, err := os.ReadFile(pathB)
+	require.NoError(t, err)
+	assert.Equal(t, "Time,Message\n\"2026-01-01T00:00:00Z\",\"first\"\n", string(dataA))
+	assert.Equal(t, "Time,Message\n\"2026-01-01T00:00:01Z\",\"second\"\n", string(dataB))
+
+	bundlePath, err := svc.bundleLogs("batch-colliding-artifacts")
+	require.NoError(t, err)
+	contents := readZipFileContents(t, bundlePath)
+	assert.Equal(t, string(dataA), contents[filepath.Base(pathA)])
+	assert.Equal(t, string(dataB), contents[filepath.Base(pathB)])
+}
+
 // TestBundleLogs_MultipleFiles_CreatesZIPWithNameSidecar verifies that when logs from
 // multiple devices are present they are bundled into a ZIP, and a .name sidecar is
 // written with a human-readable filename matching the miner-logs-{timestamp}.zip pattern.
@@ -124,6 +206,26 @@ func TestBundleLogs_MultipleFiles_ZIPContainsAllFiles(t *testing.T) {
 	}
 	assert.Contains(t, names, filepath.Base(file1))
 	assert.Contains(t, names, filepath.Base(file2))
+}
+
+func TestSaveCommandArtifactLog_BundlesMixedDirectAndRemoteLogsAsZIP(t *testing.T) {
+	svc := setupService(t)
+	directPath, err := svc.SaveLogs("batch-mixed", "aa:bb:cc:dd:ee:01", []string{"direct-line"})
+	require.NoError(t, err)
+	remoteContent := "Time,Message\n2026-01-01T00:00:00Z,remote-line\n"
+	wantRemoteContent := "Time,Message\n\"2026-01-01T00:00:00Z\",\"remote-line\"\n"
+	info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(remoteContent)), checksumOf(remoteContent), strings.NewReader(remoteContent))
+	require.NoError(t, err)
+	remotePath, err := svc.SaveCommandArtifactLog("batch-mixed", "aa:bb:cc:dd:ee:02", info.ID)
+	require.NoError(t, err)
+
+	bundlePath, err := svc.bundleLogs("batch-mixed")
+	require.NoError(t, err)
+	assert.Equal(t, getBatchLogsZipFilePath("batch-mixed"), bundlePath)
+
+	contents := readZipFileContents(t, bundlePath)
+	assert.Equal(t, "direct-line\n", contents[filepath.Base(directPath)])
+	assert.Equal(t, wantRemoteContent, contents[filepath.Base(remotePath)])
 }
 
 // TestBundleLogs_NoFiles_ReturnsEmpty verifies that bundling a batch with no log files
@@ -205,4 +307,110 @@ func TestBatchLogCleanup_RemovesAllFiles(t *testing.T) {
 	assert.NoFileExists(t, getBatchLogsSingleFilePath("batch-cleanup")+".name")
 	assert.NoFileExists(t, getBatchLogsZipFilePath("batch-cleanup"))
 	assert.NoFileExists(t, getBatchLogsZipFilePath("batch-cleanup")+".name")
+}
+
+func TestSaveCommandArtifactLog_RejectsMissingAndCorruptArtifacts(t *testing.T) {
+	t.Run("missing", func(t *testing.T) {
+		svc := setupService(t)
+
+		_, err := svc.SaveCommandArtifactLog("batch-missing-artifact", "aa:bb:cc:dd:ee:ff", "00000000-0000-0000-0000-000000000000")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "command artifact not found")
+		assert.NoDirExists(t, getBatchLogsDirPath("batch-missing-artifact"))
+	})
+
+	t.Run("corrupt", func(t *testing.T) {
+		svc := setupService(t)
+		content := "Time,Message\n,aaaa\n"
+		info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(content)), checksumOf(content), strings.NewReader(content))
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(getCommandArtifactDirPath(info.ID), info.Filename), []byte("Time,Message\n,bbbb\n"), 0600))
+
+		filePath, err := svc.SaveCommandArtifactLog("batch-corrupt-artifact", "aa:bb:cc:dd:ee:ff", info.ID)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "sha256 mismatch")
+		assert.True(t, fleeterror.IsFailedPreconditionError(err))
+		assert.Empty(t, filePath)
+		entries, readErr := os.ReadDir(getBatchLogsDirPath("batch-corrupt-artifact"))
+		if !os.IsNotExist(readErr) {
+			require.NoError(t, readErr)
+			assert.Empty(t, entries)
+		}
+	})
+}
+
+func TestSaveCommandArtifactLog_RejectsMalformedCSV(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		wantErr string
+	}{
+		{
+			name:    "unexpected header",
+			content: "Timestamp,Message\n2026-01-01T00:00:00Z,hello\n",
+			wantErr: "unexpected miner log csv header",
+		},
+		{
+			name:    "malformed row",
+			content: "Time,Message\n\"unterminated\n",
+			wantErr: "read csv row",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := setupService(t)
+			info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(tc.content)), checksumOf(tc.content), strings.NewReader(tc.content))
+			require.NoError(t, err)
+
+			filePath, err := svc.SaveCommandArtifactLog("batch-malformed-artifact", "aa:bb:cc:dd:ee:ff", info.ID)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err))
+			assert.Empty(t, filePath)
+			entries, readErr := os.ReadDir(getBatchLogsDirPath("batch-malformed-artifact"))
+			if !os.IsNotExist(readErr) {
+				require.NoError(t, readErr)
+				assert.Empty(t, entries)
+			}
+			assert.DirExists(t, getCommandArtifactDirPath(info.ID))
+		})
+	}
+}
+
+func TestSaveCommandArtifactLog_RejectsOversizedMinerLogs(t *testing.T) {
+	svc := setupService(t)
+	content := bytes.Repeat([]byte("x"), int(logformat.MaxArtifactBytes)+1)
+	info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(content)), checksumOf(string(content)), bytes.NewReader(content))
+	require.NoError(t, err)
+
+	filePath, err := svc.SaveCommandArtifactLog("batch-oversized-artifact", "aa:bb:cc:dd:ee:ff", info.ID)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "miner log artifact too large")
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Empty(t, filePath)
+	assert.NoDirExists(t, getBatchLogsDirPath("batch-oversized-artifact"))
+}
+
+func readZipFileContents(t *testing.T, zipPath string) map[string]string {
+	t.Helper()
+	zr, err := zip.OpenReader(zipPath)
+	require.NoError(t, err)
+	defer zr.Close()
+
+	contents := make(map[string]string, len(zr.File))
+	for _, f := range zr.File {
+		reader, err := f.Open()
+		require.NoError(t, err)
+		data, err := io.ReadAll(reader)
+		closeErr := reader.Close()
+		require.NoError(t, err)
+		require.NoError(t, closeErr)
+		contents[f.Name] = string(data)
+	}
+	return contents
 }

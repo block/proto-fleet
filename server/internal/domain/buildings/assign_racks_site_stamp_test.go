@@ -99,3 +99,95 @@ func TestAssignRacksToBuilding_unassignStampsSingleSourceSite(t *testing.T) {
 		})
 	}
 }
+
+// TestAssignDevicesToBuilding_unassignStampsDeviceSetSiteScope pins #538
+// for the device building-unassign path: with no target building site to
+// stamp, the activity row's scope comes from the touched devices' own
+// sites — a single shared site is stamped; a set spanning sites is marked
+// multi_site so it stays out of the /unassigned bucket.
+func TestAssignDevicesToBuilding_unassignStampsDeviceSetSiteScope(t *testing.T) {
+	siteA := int64(3)
+	siteB := int64(8)
+	identifiers := []string{"d1", "d2"}
+
+	cases := []struct {
+		name              string
+		deviceSites       []*int64
+		wantSite          *int64
+		wantMultiSite     bool
+		wantMembers       []int64
+		wantTouchesUnassd bool
+	}{
+		{
+			name:        "single shared site stamps that site (scalar, no membership)",
+			deviceSites: []*int64{&siteA, &siteA},
+			wantSite:    &siteA,
+		},
+		{
+			name:          "cross-site set records membership for both sites",
+			deviceSites:   []*int64{&siteA, &siteB},
+			wantSite:      nil,
+			wantMultiSite: true,
+			wantMembers:   []int64{siteA, siteB},
+		},
+		{
+			name:              "mix of sited + site-less records membership + touches unassigned",
+			deviceSites:       []*int64{&siteA, nil},
+			wantSite:          nil,
+			wantMultiSite:     true,
+			wantMembers:       []int64{siteA},
+			wantTouchesUnassd: true,
+		},
+		{
+			name:        "all site-less stays unassigned (no site, not multi_site)",
+			deviceSites: []*int64{nil, nil},
+			wantSite:    nil,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			store := mocks.NewMockBuildingStore(ctrl)
+			siteStore := mocks.NewMockSiteStore(ctrl)
+			activityStore := mocks.NewMockActivityStore(ctrl)
+			tx := &fakeTransactor{}
+			svc := NewService(store, siteStore, nil, nil, nil, tx, activity.NewService(activityStore))
+
+			// Building-unassign (target nil): no building lock, no site
+			// cascade. The conflict probes that gate on a non-nil target are
+			// skipped; only existence + building-conflict checks run.
+			siteStore.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+			siteStore.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+			store.EXPECT().FindDeviceBuildingConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
+			store.EXPECT().AssignDevicesToBuilding(inTxCtx, testOrgID, gomock.Nil(), identifiers).Return(int64(len(identifiers)), nil)
+			// The new device-set scope resolution (#538).
+			siteStore.EXPECT().GetDistinctDeviceSiteIDs(inTxCtx, testOrgID, identifiers).Return(tc.deviceSites, nil)
+
+			var got *activitymodels.Event
+			activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, e *activitymodels.Event) error {
+					got = e
+					return nil
+				})
+
+			_, _, err := svc.AssignDevicesToBuilding(context.Background(), models.AssignDevicesToBuildingParams{
+				OrgID:             testOrgID,
+				TargetBuildingID:  nil,
+				DeviceIdentifiers: identifiers,
+			})
+			require.NoError(t, err)
+
+			require.NotNil(t, got, "expected a devices-reassigned-to-building activity row")
+			assert.Equal(t, tc.wantMultiSite, got.MultiSite)
+			assert.Equal(t, tc.wantTouchesUnassd, got.TouchesUnassigned)
+			assert.ElementsMatch(t, tc.wantMembers, got.MemberSiteIDs)
+			if tc.wantSite == nil {
+				assert.Nil(t, got.SiteID)
+			} else {
+				require.NotNil(t, got.SiteID)
+				assert.Equal(t, *tc.wantSite, *got.SiteID)
+			}
+		})
+	}
+}

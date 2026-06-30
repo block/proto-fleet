@@ -173,6 +173,12 @@ type DeviceStore interface {
 	GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error)
 	GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error)
 	GetDeviceSiteID(ctx context.Context, identifier string, orgID int64) (*int64, error)
+	// GetDistinctDeviceSiteIDs returns the distinct site_id values (a nil
+	// entry for a site-less device) across the given identifiers, for
+	// resolving the site scope of a multi-device activity event (#538).
+	// Excludes soft-deleted devices, so DeleteMiners must call it before
+	// the soft-delete.
+	GetDistinctDeviceSiteIDs(ctx context.Context, orgID int64, identifiers []string) ([]*int64, error)
 	IsDeviceOwnedByFleetNode(ctx context.Context, identifier string, orgID int64) (bool, error)
 	UpdateDeviceInfo(ctx context.Context, device *pb.Device, orgID int64) error
 	GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*discoverymodels.DiscoveredDevice, error)

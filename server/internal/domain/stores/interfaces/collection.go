@@ -228,6 +228,12 @@ type CollectionStore interface {
 	// Returns the number of devices actually added (excludes duplicates and non-existent devices).
 	AddDevicesToCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error)
 
+	// AddDevicesToCollectionReturningAdded adds devices and returns the
+	// identifiers whose membership was newly inserted (excludes already-members
+	// and non-existent devices). Used to scope activity events to the devices
+	// that actually changed (#538).
+	AddDevicesToCollectionReturningAdded(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) ([]string, error)
+
 	// RemoveAllDevicesFromCollection removes all devices from a collection.
 	// Returns the number of devices removed.
 	RemoveAllDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64) (int64, error)
@@ -235,6 +241,12 @@ type CollectionStore interface {
 	// RemoveDevicesFromCollection removes devices from a collection.
 	// Returns the number of devices actually removed.
 	RemoveDevicesFromCollection(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) (int64, error)
+
+	// RemoveDevicesFromCollectionReturningRemoved removes devices and returns
+	// the identifiers whose membership was actually deleted (excludes
+	// non-members). Used to scope activity events to the devices that actually
+	// changed (#538).
+	RemoveDevicesFromCollectionReturningRemoved(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) ([]string, error)
 
 	// RemoveDevicesFromAnyRack deletes the given devices' rack
 	// membership rows regardless of which rack they currently sit in,

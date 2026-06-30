@@ -741,14 +741,18 @@ class UpdateMinerPasswordRequest(_message.Message):
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., current_password: _Optional[str] = ..., new_password: _Optional[str] = ...) -> None: ...
 
 class FirmwareFileInfo(_message.Message):
-    __slots__ = ("file_path", "original_filename", "file_size")
+    __slots__ = ("file_path", "original_filename", "file_size", "id", "sha256")
     FILE_PATH_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_FILENAME_FIELD_NUMBER: _ClassVar[int]
     FILE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    ID_FIELD_NUMBER: _ClassVar[int]
+    SHA256_FIELD_NUMBER: _ClassVar[int]
     file_path: str
     original_filename: str
     file_size: int
-    def __init__(self, file_path: _Optional[str] = ..., original_filename: _Optional[str] = ..., file_size: _Optional[int] = ...) -> None: ...
+    id: str
+    sha256: str
+    def __init__(self, file_path: _Optional[str] = ..., original_filename: _Optional[str] = ..., file_size: _Optional[int] = ..., id: _Optional[str] = ..., sha256: _Optional[str] = ...) -> None: ...
 
 class UpdateFirmwareRequest(_message.Message):
     __slots__ = ("ref", "firmware")

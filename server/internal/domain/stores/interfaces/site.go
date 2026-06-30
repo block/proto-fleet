@@ -125,6 +125,12 @@ type SiteStore interface {
 	// target.
 	FindDeviceSiteConflicts(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]int64, error)
 
+	// GetDistinctDeviceSiteIDs returns the distinct device.site_id values
+	// (a nil entry for a site-less device) across the given identifiers,
+	// for resolving the site scope of a multi-device activity event
+	// (#538). Reduced via activity models.ResolveSiteScope.
+	GetDistinctDeviceSiteIDs(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]*int64, error)
+
 	// FindDevicesInSiteLessRacks returns the requested device
 	// identifiers that sit in a live rack with NO site (a
 	// fully-unassigned rack). The site peer of FindDeviceSiteConflicts:

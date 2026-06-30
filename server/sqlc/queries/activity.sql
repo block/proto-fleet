@@ -1,17 +1,46 @@
 -- name: InsertActivityLog :exec
 -- The unique partial index on (batch_id, event_type) for '*.completed' event
 -- types lets the Go layer detect idempotent re-inserts via pq unique_violation.
-INSERT INTO activity_log (
-    event_id,
-    event_category, event_type, description,
-    result, error_message,
-    scope_type, scope_label, scope_count,
-    actor_type, user_id, username,
-    organization_id, metadata, batch_id,
-    site_id
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
-);
+--
+-- Single statement so the activity row and its site membership (#538) commit
+-- atomically. member_site_ids carries the distinct touched sites for a
+-- multi_site event (empty otherwise); member_unassigned adds the NULL-site
+-- membership row when the multi-site set also touched site-less devices. Both
+-- data-modifying CTEs run to completion regardless of the outer SELECT, and
+-- an empty member array unnests to zero rows — so the single-site / org-level
+-- path inserts only the activity_log row.
+WITH inserted AS (
+    INSERT INTO activity_log (
+        event_id,
+        event_category, event_type, description,
+        result, error_message,
+        scope_type, scope_label, scope_count,
+        actor_type, user_id, username,
+        organization_id, metadata, batch_id,
+        site_id, multi_site
+    ) VALUES (
+        sqlc.arg('event_id'),
+        sqlc.arg('event_category'), sqlc.arg('event_type'), sqlc.arg('description'),
+        sqlc.arg('result'), sqlc.arg('error_message'),
+        sqlc.arg('scope_type'), sqlc.arg('scope_label'), sqlc.arg('scope_count'),
+        sqlc.arg('actor_type'), sqlc.arg('user_id'), sqlc.arg('username'),
+        sqlc.arg('organization_id'), sqlc.arg('metadata'), sqlc.arg('batch_id'),
+        sqlc.arg('site_id'), sqlc.arg('multi_site')
+    )
+    RETURNING id, organization_id
+),
+member_sites AS (
+    INSERT INTO activity_log_site (activity_log_id, org_id, site_id)
+    SELECT inserted.id, inserted.organization_id, member.site_id
+    FROM inserted
+    CROSS JOIN unnest(sqlc.arg('member_site_ids')::bigint[]) AS member(site_id)
+    WHERE sqlc.arg('multi_site')::boolean
+    RETURNING activity_log_id
+)
+INSERT INTO activity_log_site (activity_log_id, org_id, site_id)
+SELECT inserted.id, inserted.organization_id, NULL::bigint
+FROM inserted
+WHERE sqlc.arg('multi_site')::boolean AND sqlc.arg('member_unassigned')::boolean;
 
 -- name: ListActivityLogs :many
 -- Array filter contract: the Go store layer must pass nil (not empty slice)
@@ -44,17 +73,32 @@ WHERE a.organization_id = sqlc.arg('org_id')
         (cardinality(sqlc.arg('site_ids')::bigint[]) = 0
          AND sqlc.arg('include_unassigned')::boolean = false)
 
-        -- direct (non-batch) events: scalar site_id, Option B unassigned bucket
-        -- TODO(#538): multi-device fleet writers (rename/unpair miners,
-        -- collection add/remove-devices, device building-unassign) still emit
-        -- NULL site_id with a non-org-level category, so they land here in the
-        -- unassigned bucket instead of /{site}. Scope-stamp (single-source) or
-        -- exclude them once they carry scope metadata.
+        -- direct (non-batch) events. Site scope has two representations (#538):
+        -- the scalar a.site_id is the single-site fast path; multi_site events
+        -- carry their full touched-site set in activity_log_site (the two are
+        -- mutually exclusive — multi_site rows have site_id NULL). So a
+        -- cross-site event surfaces under EACH of its sites via the membership
+        -- EXISTS. The unassigned bucket takes a single-slot site-less event
+        -- (site_id NULL, not multi_site, non-org-level) OR a multi-site event
+        -- that also touched site-less devices (its NULL-site membership row).
         OR (a.batch_id IS NULL AND (
                 a.site_id = ANY(sqlc.arg('site_ids')::bigint[])
+             OR (a.multi_site AND EXISTS (
+                    SELECT 1 FROM activity_log_site als
+                    WHERE als.activity_log_id = a.id
+                      AND als.site_id = ANY(sqlc.arg('site_ids')::bigint[])
+                ))
              OR (sqlc.arg('include_unassigned')::boolean
                  AND a.site_id IS NULL
+                 AND NOT a.multi_site
                  AND a.event_category <> ALL(sqlc.arg('org_level_categories')::text[]))
+             OR (sqlc.arg('include_unassigned')::boolean
+                 AND a.multi_site
+                 AND EXISTS (
+                    SELECT 1 FROM activity_log_site als
+                    WHERE als.activity_log_id = a.id
+                      AND als.site_id IS NULL
+                ))
         ))
 
         -- command-batch events: derive touched sites from command_on_device_log
@@ -92,9 +136,22 @@ WHERE a.organization_id = sqlc.arg('org_id')
 
         OR (a.batch_id IS NULL AND (
                 a.site_id = ANY(sqlc.arg('site_ids')::bigint[])
+             OR (a.multi_site AND EXISTS (
+                    SELECT 1 FROM activity_log_site als
+                    WHERE als.activity_log_id = a.id
+                      AND als.site_id = ANY(sqlc.arg('site_ids')::bigint[])
+                ))
              OR (sqlc.arg('include_unassigned')::boolean
                  AND a.site_id IS NULL
+                 AND NOT a.multi_site
                  AND a.event_category <> ALL(sqlc.arg('org_level_categories')::text[]))
+             OR (sqlc.arg('include_unassigned')::boolean
+                 AND a.multi_site
+                 AND EXISTS (
+                    SELECT 1 FROM activity_log_site als
+                    WHERE als.activity_log_id = a.id
+                      AND als.site_id IS NULL
+                ))
         ))
 
         OR (a.batch_id IS NOT NULL AND EXISTS (

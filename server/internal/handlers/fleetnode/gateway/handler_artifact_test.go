@@ -15,6 +15,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
@@ -33,6 +34,7 @@ func newArtifactTestClient(t *testing.T, opts ...connect.HandlerOption) (*contro
 	h := &controlHarness{
 		handler:     gateway.NewHandler(nil, nil, nil, registry, filesService),
 		registry:    registry,
+		files:       filesService,
 		fleetNodeID: 44,
 	}
 	return h, startControlServer(t, h, opts...)
@@ -43,6 +45,7 @@ func uploadExpectation() control.ArtifactExpectation {
 		Direction:        control.ArtifactDirectionUpload,
 		Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
 		DeviceIdentifier: "miner-a",
+		MaxSizeBytes:     logformat.MaxArtifactBytes,
 	}
 }
 
@@ -50,6 +53,15 @@ func downloadExpectation(artifact *pb.CommandArtifactRef) control.ArtifactExpect
 	return control.ArtifactExpectation{
 		Direction:        control.ArtifactDirectionDownload,
 		Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
+		ArtifactID:       artifact.GetArtifactId(),
+		DeviceIdentifier: "miner-a",
+	}
+}
+
+func firmwareDownloadExpectation(artifact *pb.CommandArtifactRef) control.ArtifactExpectation {
+	return control.ArtifactExpectation{
+		Direction:        control.ArtifactDirectionDownload,
+		Purpose:          pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD,
 		ArtifactID:       artifact.GetArtifactId(),
 		DeviceIdentifier: "miner-a",
 	}
@@ -66,6 +78,12 @@ func uploadHeaderRequest(commandID string, payload []byte) *pb.UploadCommandArti
 			DeviceIdentifier: "miner-a",
 		},
 	}}
+}
+
+func oversizedUploadHeaderRequest(commandID string) *pb.UploadCommandArtifactRequest {
+	req := uploadHeaderRequest(commandID, []byte("x"))
+	req.GetHeader().SizeBytes = logformat.MaxArtifactBytes + 1
+	return req
 }
 
 func uploadChunkRequest(payload []byte) *pb.UploadCommandArtifactRequest {
@@ -219,6 +237,53 @@ func TestCommandArtifactUploadAndDownloadRequireInFlightExpectation(t *testing.T
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(badDownload.Err()))
 }
 
+func TestDownloadCommandArtifactServesFirmwarePayload(t *testing.T) {
+	h, client := newArtifactTestClient(t)
+	payload := []byte("firmware image bytes")
+	fileID, err := h.files.SaveFirmwareFile("update.swu", bytes.NewReader(payload))
+	require.NoError(t, err)
+	_, info, err := h.files.OpenFirmwareFileWithInfo(fileID)
+	require.NoError(t, err)
+	ref := &pb.CommandArtifactRef{
+		ArtifactId: info.ID,
+		Purpose:    pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD,
+		Filename:   info.Filename,
+		SizeBytes:  info.Size,
+		Sha256:     info.SHA256,
+	}
+
+	commandID := "download-firmware-command"
+	stream, done := startAckOnlyCommandWithArtifacts(t, h, commandID, []control.ArtifactExpectation{firmwareDownloadExpectation(ref)})
+	download, err := client.DownloadCommandArtifact(context.Background(), connect.NewRequest(&pb.DownloadCommandArtifactRequest{
+		CommandId:        commandID,
+		Artifact:         ref,
+		DeviceIdentifier: "miner-a",
+	}))
+	require.NoError(t, err)
+	defer download.Close()
+
+	var got bytes.Buffer
+	var header *pb.CommandArtifactRef
+	for download.Receive() {
+		msg := download.Msg()
+		if h := msg.GetHeader(); h != nil {
+			header = h.GetArtifact()
+			continue
+		}
+		_, err := got.Write(msg.GetChunk().GetData())
+		require.NoError(t, err)
+	}
+	require.NoError(t, download.Err())
+	require.NotNil(t, header)
+	assert.Equal(t, ref.GetArtifactId(), header.GetArtifactId())
+	assert.Equal(t, ref.GetPurpose(), header.GetPurpose())
+	assert.Equal(t, ref.GetFilename(), header.GetFilename())
+	assert.Equal(t, ref.GetSizeBytes(), header.GetSizeBytes())
+	assert.Equal(t, ref.GetSha256(), header.GetSha256())
+	assert.Equal(t, payload, got.Bytes())
+	finishAckOnlyCommand(t, stream, commandID, done)
+}
+
 func TestCommandArtifactUploadTimeoutReleasesSlotAndAllowsRetry(t *testing.T) {
 	oldHeaderTimeout := gateway.CommandArtifactUploadHeaderTimeout
 	oldChunkTimeout := gateway.CommandArtifactUploadChunkTimeout
@@ -270,6 +335,30 @@ func TestCommandArtifactUploadReadLimitRejectsOversizedMessageBeforeChunkReader(
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(err))
 
+	retry := client.UploadCommandArtifact(context.Background())
+	require.NoError(t, retry.Send(uploadHeaderRequest(commandID, payload)))
+	require.NoError(t, retry.Send(uploadChunkRequest(payload)))
+	uploadResp, err := retry.CloseAndReceive()
+	require.NoError(t, err)
+	require.NotNil(t, uploadResp.Msg.GetArtifact())
+
+	finishAckOnlyCommand(t, uploadStream, commandID, uploadDone)
+}
+
+func TestCommandArtifactUploadRejectsMinerLogsOverExpectedSize(t *testing.T) {
+	h, client := newArtifactTestClient(t)
+	commandID := "oversized-miner-log-artifact-command"
+	uploadStream, uploadDone := startAckOnlyCommandWithArtifacts(t, h, commandID, []control.ArtifactExpectation{uploadExpectation()})
+
+	oversized := client.UploadCommandArtifact(context.Background())
+	err := oversized.Send(oversizedUploadHeaderRequest(commandID))
+	if err == nil {
+		_, err = oversized.CloseAndReceive()
+	}
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(err))
+
+	payload := []byte("bounded miner logs")
 	retry := client.UploadCommandArtifact(context.Background())
 	require.NoError(t, retry.Send(uploadHeaderRequest(commandID, payload)))
 	require.NoError(t, retry.Send(uploadChunkRequest(payload)))

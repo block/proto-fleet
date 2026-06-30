@@ -22,6 +22,7 @@ import (
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -30,6 +31,7 @@ import (
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
+	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -1698,6 +1700,133 @@ func TestService_DeleteMiners_ShouldSoftDeleteSpecificDevices(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, listResp.Miners, 1, "only 1 miner should remain after deleting 2")
 	assert.Equal(t, deviceIDs[2], listResp.Miners[0].DeviceIdentifier)
+}
+
+// TestService_DeleteMiners_StampsActivitySiteScope is the end-to-end #538
+// regression for the unpair path: an unpair of devices that all sit in one
+// site stamps that site_id on the unpair_miners activity row, so it surfaces
+// under /{siteA}/activity and never pollutes the /unassigned bucket. The
+// scope is resolved BEFORE the soft-delete (the query excludes deleted rows),
+// which this test pins by deleting and then asserting against the read filter.
+func TestService_DeleteMiners_StampsActivitySiteScope(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	orgID := testUser.OrganizationID
+	db := testContext.ServiceProvider.DB
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, orgID)
+
+	siteStore := sqlstores.NewSQLSiteStore(db)
+	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site A"})
+	require.NoError(t, err)
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
+	for _, id := range deviceIDs {
+		_, err := db.ExecContext(ctx,
+			`UPDATE device SET site_id = $1 WHERE org_id = $2 AND device_identifier = $3`,
+			siteA.ID, orgID, id)
+		require.NoError(t, err)
+	}
+
+	service := testContext.ServiceProvider.FleetManagementService
+	resp, err := service.DeleteMiners(ctx, &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(2), resp.DeletedCount)
+
+	activityStore := sqlstores.NewSQLActivityStore(db)
+	hasUnpairEvent := func(filter activitymodels.Filter) bool {
+		filter.OrganizationID = orgID
+		filter.PageSize = activitymodels.MaxPageSize
+		entries, err := activityStore.List(ctx, filter)
+		require.NoError(t, err)
+		for _, e := range entries {
+			if e.Type == "unpair_miners" {
+				return true
+			}
+		}
+		return false
+	}
+
+	assert.True(t, hasUnpairEvent(activitymodels.Filter{SiteIDs: []int64{siteA.ID}}),
+		"single-site unpair must surface under /{siteA}/activity")
+	assert.False(t, hasUnpairEvent(activitymodels.Filter{IncludeUnassigned: true}),
+		"single-site unpair must NOT pollute the unassigned bucket")
+}
+
+// TestService_DeleteMiners_CrossSiteSurfacesUnderEachSite is the end-to-end
+// #538 middle-path regression: an unpair spanning two sites records site
+// membership so it surfaces under BOTH /{siteA} and /{siteB} and the all-sites
+// feed, but NOT the /unassigned bucket (no site-less devices were touched).
+func TestService_DeleteMiners_CrossSiteSurfacesUnderEachSite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	orgID := testUser.OrganizationID
+	db := testContext.ServiceProvider.DB
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, orgID)
+
+	siteStore := sqlstores.NewSQLSiteStore(db)
+	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site A"})
+	require.NoError(t, err)
+	siteB, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site B"})
+	require.NoError(t, err)
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
+	// Split the set across two sites so the touched scope has cardinality 2.
+	for i, id := range deviceIDs {
+		siteID := siteA.ID
+		if i%2 == 1 {
+			siteID = siteB.ID
+		}
+		_, err := db.ExecContext(ctx,
+			`UPDATE device SET site_id = $1 WHERE org_id = $2 AND device_identifier = $3`,
+			siteID, orgID, id)
+		require.NoError(t, err)
+	}
+
+	service := testContext.ServiceProvider.FleetManagementService
+	resp, err := service.DeleteMiners(ctx, &pb.DeleteMinersRequest{
+		DeviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(2), resp.DeletedCount)
+
+	activityStore := sqlstores.NewSQLActivityStore(db)
+	hasUnpairEvent := func(filter activitymodels.Filter) bool {
+		filter.OrganizationID = orgID
+		filter.PageSize = activitymodels.MaxPageSize
+		entries, err := activityStore.List(ctx, filter)
+		require.NoError(t, err)
+		for _, e := range entries {
+			if e.Type == "unpair_miners" {
+				return true
+			}
+		}
+		return false
+	}
+
+	assert.True(t, hasUnpairEvent(activitymodels.Filter{SiteIDs: []int64{siteA.ID}}),
+		"cross-site unpair must surface under /{siteA}/activity")
+	assert.True(t, hasUnpairEvent(activitymodels.Filter{SiteIDs: []int64{siteB.ID}}),
+		"cross-site unpair must surface under /{siteB}/activity")
+	assert.False(t, hasUnpairEvent(activitymodels.Filter{IncludeUnassigned: true}),
+		"cross-site unpair with no site-less devices must NOT pollute the unassigned bucket")
 }
 
 func TestService_DeleteMiners_ShouldCleanFleetNodePairingRows(t *testing.T) {

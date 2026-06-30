@@ -269,7 +269,7 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 	case *pb.AgentCommand_Discover:
 		r.handleDiscover(ctx, client, stream, commandID, k.Discover, logger)
 	case *pb.AgentCommand_MinerCommand:
-		r.handleMinerCommand(ctx, stream, commandID, k.MinerCommand, logger)
+		r.handleMinerCommand(ctx, client, stream, commandID, k.MinerCommand, logger)
 	case *pb.AgentCommand_Pair:
 		r.handlePairCommand(ctx, client, stream, commandID, k.Pair, logger)
 	case *pb.AgentCommand_Telemetry:

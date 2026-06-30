@@ -15,6 +15,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -594,7 +595,7 @@ func TestFormatLogLineToCSVRow(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := formatLogLineToCSVRow(tt.line, tt.includeType)
+			result := logformat.FormatLineToCSVRow(tt.line, tt.includeType)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

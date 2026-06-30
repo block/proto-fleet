@@ -759,6 +759,14 @@ type assignDevicesToBuildingTx struct {
 	targetSiteID              *int64
 	txConflicts               []models.PerDeviceBuildingConflict
 	forceClearedIDs           []string
+	// scope carries the activity-log site scope for a building-UNASSIGN
+	// (TargetBuildingID nil), where there is no target building site to
+	// stamp. Resolved from the touched devices' own sites (#538): a single
+	// shared site stamps that site; a set spanning sites (or mixing sited +
+	// site-less) is recorded as multi_site membership so the event surfaces
+	// under each touched site. Unused when assigning to a building — that
+	// path stamps targetSiteID directly.
+	scope activitymodels.SiteScope
 }
 
 // AssignDevicesToBuilding enforces the cross-building invariant and,
@@ -862,6 +870,17 @@ func (s *Service) AssignDevicesToBuilding(ctx context.Context, params models.Ass
 				return attempt, err
 			}
 			attempt.siteReassignedDeviceCount = count
+		} else if s.activitySvc != nil {
+			// Building-UNASSIGN: there is no target building site to stamp, so
+			// resolve the activity-log scope from the touched devices' own
+			// sites (unchanged by the unassign — the cascade is skipped). The
+			// devices are row-locked above, so the read is race-free (#538).
+			// Skipped with no activity sink — the scope feeds only the event.
+			sites, err := s.siteStore.GetDistinctDeviceSiteIDs(txCtx, params.OrgID, identifiers)
+			if err != nil {
+				return attempt, err
+			}
+			attempt.scope = activitymodels.ResolveSiteScope(sites)
 		}
 		return attempt, nil
 	})
@@ -906,9 +925,16 @@ func (s *Service) AssignDevicesToBuilding(ctx context.Context, params models.Ass
 			Category:       activitymodels.CategoryFleetManagement,
 			Type:           eventDevicesReassignedToBuilding,
 			OrganizationID: &orgIDVal,
-			SiteID:         committed.targetSiteID,
 			Description:    description,
 			Metadata:       metadata,
+		}
+		// Assign-to-building stamps the target building's site directly;
+		// building-unassign (target nil) has no such site, so it carries the
+		// device-set scope resolved inside the tx (#538).
+		if targetBuildingID == nil {
+			event.ApplySiteScope(committed.scope)
+		} else {
+			event.SiteID = committed.targetSiteID
 		}
 		activity.StampActor(ctx, &event)
 		s.activitySvc.Log(ctx, event)

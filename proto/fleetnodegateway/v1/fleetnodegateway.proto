@@ -329,6 +329,10 @@ message MinerCommand {
         GetMiningPoolsAction get_mining_pools = 11;
         GetErrorsAction get_errors = 12;
         UpdateMinerPasswordAction update_miner_password = 13;
+        DownloadLogsAction download_logs = 14;
+        FirmwareUpdateAction firmware_update = 15;
+        GetFirmwareUpdateStatusAction get_firmware_update_status = 16;
+        GetCoolingModeAction get_cooling_mode = 17;
     }
 }
 
@@ -339,6 +343,12 @@ message BlinkLedAction {}
 message UncurtailAction {}
 message GetMiningPoolsAction {}
 message GetErrorsAction {}
+message GetFirmwareUpdateStatusAction {}
+message GetCoolingModeAction {}
+
+message DownloadLogsAction {
+    string batch_log_uuid = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+}
 
 message NodeEncryptedPayload {
     string algorithm = 1 [
@@ -362,12 +372,20 @@ message UpdateMinerPasswordResult {
     EncryptedCredentials encrypted_credentials = 1 [(buf.validate.field).required = true];
 }
 
+message FirmwareUpdateAction {
+    CommandArtifactRef artifact = 1 [(buf.validate.field).required = true];
+}
+
 message CurtailAction {
     curtailment.v1.CurtailmentLevel level = 1;
 }
 
 message SetCoolingModeAction {
     common.v1.CoolingMode mode = 1;
+}
+
+message GetCoolingModeResult {
+    common.v1.CoolingMode mode = 1 [(buf.validate.field).enum.defined_only = true];
 }
 
 message SetPowerTargetAction {
@@ -392,6 +410,12 @@ message UpdateMiningPoolsAction {
 
 message GetMiningPoolsResult {
     repeated MiningPoolConfig pools = 1 [(buf.validate.field).repeated.max_items = 3];
+}
+
+message FirmwareUpdateStatusResult {
+    string state = 1 [(buf.validate.field).string.max_len = 64];
+    optional int32 progress = 2;
+    optional string error = 3 [(buf.validate.field).string.max_len = 4096];
 }
 
 message MinerErrorReport {

@@ -320,6 +320,17 @@ func (s *SQLSiteStore) AssignDevicesToSite(ctx context.Context, orgID int64, tar
 	return rowsAffected, nil
 }
 
+func (s *SQLSiteStore) GetDistinctDeviceSiteIDs(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]*int64, error) {
+	rows, err := s.GetQueries(ctx).GetDistinctDeviceSiteIDs(ctx, sqlc.GetDistinctDeviceSiteIDsParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to query distinct device site_ids: %v", err)
+	}
+	return nullInt64sToPtrs(rows), nil
+}
+
 func (s *SQLSiteStore) FindDeviceSiteConflicts(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]int64, error) {
 	rows, err := s.GetQueries(ctx).FindDeviceSiteConflicts(ctx, sqlc.FindDeviceSiteConflictsParams{
 		OrgID:             orgID,

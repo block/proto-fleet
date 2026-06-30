@@ -57,6 +57,7 @@ import {
   type UnsupportedMinersInfo,
 } from "@/protoFleet/features/fleetManagement/components/BulkActions/types";
 import type { BatchOperationInput } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { isStatusChangingBatchAction } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
 import {
   Fan,
@@ -74,7 +75,13 @@ import {
 } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
-import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
+import {
+  pushToast,
+  removeToast,
+  STATUSES as TOAST_STATUSES,
+  type ToastStatusType,
+  updateToast,
+} from "@/shared/features/toaster";
 import { downloadBlob } from "@/shared/utils/utility";
 
 export interface MinerSelection {
@@ -267,6 +274,8 @@ const buildUnpairConfirmationSubtitle = (
 };
 
 const noop = () => {};
+
+const bulkActionUnconfirmedMessage = "Unable to confirm bulk action completion. Check miner status and try again.";
 
 export const useMinerActions = ({
   selectedMiners,
@@ -473,10 +482,27 @@ export const useMinerActions = ({
       let totalCount = 0;
       let successDeviceIds: string[] = [];
       let failureDeviceIds: string[] = [];
-      // Only true when we've received results for every expected device. Guards
-      // the Retry action below so a premature stream termination (network/auth
-      // failure, unmount) cannot offer a retry against a still-in-flight batch.
-      let streamCompletedNormally = false;
+      let finishedReceived = false;
+      let lastOriginalToast: { message: string; status: ToastStatusType } | null = null;
+      let lastErrorMessage: string | null = null;
+
+      const updateOriginalToast = (message: string, status: ToastStatusType) => {
+        if (lastOriginalToast?.message === message && lastOriginalToast.status === status) return;
+        lastOriginalToast = { message, status };
+        updateToast(originalToastId, { message, status });
+      };
+
+      const removeReportedFailedDevices = () => {
+        if (failureDeviceIds.length > 0) {
+          removeDevicesFromBatch(batchIdentifier, failureDeviceIds);
+        }
+      };
+
+      const completeNonStatusChangingBatch = () => {
+        if (!isStatusChangingBatchAction(action)) {
+          completeBatchOperation(batchIdentifier);
+        }
+      };
 
       streamCommandBatchUpdates({
         streamRequest: create(StreamCommandBatchUpdatesRequestSchema, {
@@ -489,23 +515,28 @@ export const useMinerActions = ({
 
           successDeviceIds = response.status?.commandBatchDeviceCount?.successDeviceIdentifiers || [];
           failureDeviceIds = response.status?.commandBatchDeviceCount?.failureDeviceIdentifiers || [];
+          const isFinished =
+            response.status?.commandBatchUpdateStatus ===
+            CommandBatchUpdateStatus_CommandBatchUpdateStatusType.FINISHED;
 
           if (successCount > 0) {
-            updateToast(originalToastId, {
-              message: getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
-              status: TOAST_STATUSES.success,
-            });
+            updateOriginalToast(
+              getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
+              isFinished ? TOAST_STATUSES.success : TOAST_STATUSES.loading,
+            );
           }
 
           if (failureCount > 0) {
             const failureMsg = getFailureMessage(action, `${failureCount} out of ${totalCount} ${minersMessage}`);
             if (!errorToastId) {
+              lastErrorMessage = failureMsg;
               errorToastId = pushToast({
                 message: failureMsg,
                 status: TOAST_STATUSES.error,
                 longRunning: true,
               });
-            } else {
+            } else if (lastErrorMessage !== failureMsg) {
+              lastErrorMessage = failureMsg;
               updateToast(errorToastId, {
                 message: failureMsg,
                 status: TOAST_STATUSES.error,
@@ -513,25 +544,38 @@ export const useMinerActions = ({
             }
           }
 
-          // Close the stream when we've received results for all devices
-          // This triggers .finally() to clear loading states immediately
-          if (successCount + failureCount === totalCount && totalCount > 0) {
-            streamCompletedNormally = true;
+          // Counts can reach the selected total before the server has finished
+          // the whole batch. Only the explicit terminal stream status is final.
+          if (isFinished) {
+            finishedReceived = true;
             streamAbortController.abort();
           }
         },
         streamAbortController: streamAbortController,
       }).finally(() => {
+        if (!finishedReceived) {
+          if (successCount > 0 || !errorToastId) {
+            updateOriginalToast(bulkActionUnconfirmedMessage, TOAST_STATUSES.error);
+          } else {
+            removeToast(originalToastId);
+          }
+
+          onBatchComplete?.(successDeviceIds, failureDeviceIds);
+          removeReportedFailedDevices();
+          completeNonStatusChangingBatch();
+          return;
+        }
+
         if (successCount > 0) {
-          updateToast(originalToastId, {
-            message: getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
-            status: TOAST_STATUSES.success,
-          });
+          updateOriginalToast(
+            getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
+            TOAST_STATUSES.success,
+          );
         } else {
           removeToast(originalToastId);
         }
 
-        if (streamCompletedNormally && errorToastId && retryAction && failureDeviceIds.length > 0) {
+        if (errorToastId && retryAction && failureDeviceIds.length > 0) {
           const capturedToastId = errorToastId;
           const capturedFailureIds = [...failureDeviceIds];
           // Guard against rapid double-clicks on the Retry button: the toast
@@ -557,9 +601,7 @@ export const useMinerActions = ({
         onBatchComplete?.(successDeviceIds, failureDeviceIds);
 
         // Remove failed devices from batch (revert to their original status)
-        if (failureDeviceIds.length > 0) {
-          removeDevicesFromBatch(batchIdentifier, failureDeviceIds);
-        }
+        removeReportedFailedDevices();
 
         // Actions that change device status (reboot, shutdown, wake-up, pool, firmware)
         // are handled by hasReachedExpectedStatus — keep the batch active so the
@@ -567,16 +609,7 @@ export const useMinerActions = ({
         // (5 min) is the safety net. For actions that don't change status
         // (blink LEDs, cooling, security, etc.), complete the batch immediately
         // so the transient state clears.
-        const statusChangingActions = new Set<SupportedAction>([
-          settingsActions.miningPool,
-          deviceActions.shutdown,
-          deviceActions.wakeUp,
-          deviceActions.reboot,
-          deviceActions.firmwareUpdate,
-        ]);
-        if (!statusChangingActions.has(action)) {
-          completeBatchOperation(batchIdentifier);
-        }
+        completeNonStatusChangingBatch();
       });
     },
     [streamCommandBatchUpdates, removeDevicesFromBatch, completeBatchOperation],

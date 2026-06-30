@@ -1008,6 +1008,49 @@ func (q *Queries) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, devic
 	return items, nil
 }
 
+const getDistinctDeviceSiteIDs = `-- name: GetDistinctDeviceSiteIDs :many
+SELECT DISTINCT d.site_id
+FROM device d
+WHERE d.org_id = $1
+  AND d.device_identifier = ANY($2::text[])
+  AND d.deleted_at IS NULL
+`
+
+type GetDistinctDeviceSiteIDsParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Returns the DISTINCT site_id values (NULL included) across the given
+// device identifiers, for resolving the site scope of a multi-device
+// activity event (#538). A NULL row means at least one touched device is
+// site-less. Callers reduce the set: exactly one non-NULL value (and no
+// NULL) → stamp that site; otherwise the event spans sites and is marked
+// multi_site. DeleteMiners must call this BEFORE soft-deleting, since the
+// deleted_at filter would otherwise drop the just-removed rows.
+func (q *Queries) GetDistinctDeviceSiteIDs(ctx context.Context, arg GetDistinctDeviceSiteIDsParams) ([]sql.NullInt64, error) {
+	rows, err := q.query(ctx, q.getDistinctDeviceSiteIDsStmt, getDistinctDeviceSiteIDs, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []sql.NullInt64
+	for rows.Next() {
+		var site_id sql.NullInt64
+		if err := rows.Scan(&site_id); err != nil {
+			return nil, err
+		}
+		items = append(items, site_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getFilteredDeviceIdentifiers = `-- name: GetFilteredDeviceIdentifiers :many
 SELECT
     d.device_identifier

@@ -231,6 +231,46 @@ func TestOpenFirmwareFile_ReturnsReaderAndMetadata(t *testing.T) {
 	assert.Equal(t, content, string(data))
 }
 
+func TestOpenFirmwareFileWithInfo_ReturnsReaderAndChecksum(t *testing.T) {
+	svc := setupService(t)
+
+	content := "firmware binary data here"
+	fileID, err := svc.SaveFirmwareFile("update.swu", strings.NewReader(content))
+	require.NoError(t, err)
+
+	reader, info, err := svc.OpenFirmwareFileWithInfo(fileID)
+	require.NoError(t, err)
+	defer reader.Close()
+
+	assert.Equal(t, fileID, info.ID)
+	assert.Equal(t, "update.swu", info.Filename)
+	assert.Equal(t, int64(len(content)), info.Size)
+	assert.Equal(t, checksumOf(content), info.SHA256)
+	assert.Equal(t, filepath.Join(firmwareDir, fileID, "update.swu"), info.FilePath)
+
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.Equal(t, content, string(data))
+}
+
+func TestOpenFirmwareFileWithInfo_RebuildsMissingChecksumIndexEntry(t *testing.T) {
+	svc := setupService(t)
+
+	content := "firmware binary data here"
+	fileID, err := svc.SaveFirmwareFile("update.swu", strings.NewReader(content))
+	require.NoError(t, err)
+	svc.checksumIndex = make(map[string][]string)
+	svc.firmwareChecksumByID = make(map[string]string)
+
+	reader, info, err := svc.OpenFirmwareFileWithInfo(fileID)
+	require.NoError(t, err)
+	defer reader.Close()
+
+	assert.Equal(t, checksumOf(content), info.SHA256)
+	assert.Equal(t, []string{fileID}, svc.checksumIndex[checksumOf(content)])
+	assert.Equal(t, checksumOf(content), svc.firmwareChecksumByID[fileID])
+}
+
 func TestOpenFirmwareFile_ReturnsErrorForMissing(t *testing.T) {
 	svc := setupService(t)
 
@@ -246,6 +286,18 @@ func TestOpenFirmwareFile_RejectsPathTraversal(t *testing.T) {
 	_, _, _, err := svc.OpenFirmwareFile("../logs/tmp")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid firmware file ID")
+}
+
+func TestOpenFirmwareFileWithInfo_RejectsInvalidOrMissingID(t *testing.T) {
+	svc := setupService(t)
+
+	_, _, err := svc.OpenFirmwareFileWithInfo("../logs/tmp")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid firmware file ID")
+
+	_, _, err = svc.OpenFirmwareFileWithInfo("00000000-0000-0000-0000-000000000000")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "firmware file not found")
 }
 
 func TestFindFirmwareFileByChecksum_ReturnsTrueForExistingFile(t *testing.T) {
@@ -308,6 +360,7 @@ func TestDeleteFirmwareFile_RemovesFromChecksumIndex(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Empty(t, svc.checksumIndex, "checksumIndex should be empty after delete")
+	assert.Empty(t, svc.firmwareChecksumByID, "firmwareChecksumByID should be empty after delete")
 
 	newID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content))
 	require.NoError(t, err)

@@ -13,7 +13,7 @@ import (
 	"github.com/lib/pq"
 )
 
-const addDevicesToDeviceSet = `-- name: AddDevicesToDeviceSet :execrows
+const addDevicesToDeviceSet = `-- name: AddDevicesToDeviceSet :many
 INSERT INTO device_set_membership (org_id, device_set_id, device_set_type, device_id, device_identifier)
 SELECT $1, $2, ds.type, d.id, d.device_identifier
 FROM device d
@@ -24,6 +24,7 @@ WHERE d.device_identifier = ANY($3::text[])
   AND ds.id = $2
   AND ds.deleted_at IS NULL
 ON CONFLICT (device_set_id, device_id) DO NOTHING
+RETURNING device_identifier
 `
 
 type AddDevicesToDeviceSetParams struct {
@@ -32,12 +33,31 @@ type AddDevicesToDeviceSetParams struct {
 	DeviceIdentifiers []string
 }
 
-func (q *Queries) AddDevicesToDeviceSet(ctx context.Context, arg AddDevicesToDeviceSetParams) (int64, error) {
-	result, err := q.exec(ctx, q.addDevicesToDeviceSetStmt, addDevicesToDeviceSet, arg.OrgID, arg.DeviceSetID, pq.Array(arg.DeviceIdentifiers))
+// RETURNING yields one row per device whose membership was actually inserted
+// (ON CONFLICT DO NOTHING skips already-members), so callers can both count
+// the change (len of result) and resolve the changed set for activity site
+// scope (#538). Equivalent affected-row count to the prior :execrows shape.
+func (q *Queries) AddDevicesToDeviceSet(ctx context.Context, arg AddDevicesToDeviceSetParams) ([]string, error) {
+	rows, err := q.query(ctx, q.addDevicesToDeviceSetStmt, addDevicesToDeviceSet, arg.OrgID, arg.DeviceSetID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected()
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const cascadeAddedDeviceBuildings = `-- name: CascadeAddedDeviceBuildings :execrows
@@ -1657,11 +1677,12 @@ func (q *Queries) RemoveDevicesFromAnyRack(ctx context.Context, arg RemoveDevice
 	return result.RowsAffected()
 }
 
-const removeDevicesFromDeviceSet = `-- name: RemoveDevicesFromDeviceSet :execrows
+const removeDevicesFromDeviceSet = `-- name: RemoveDevicesFromDeviceSet :many
 DELETE FROM device_set_membership
 WHERE device_set_id = $1
   AND org_id = $2
   AND device_identifier = ANY($3::text[])
+RETURNING device_identifier
 `
 
 type RemoveDevicesFromDeviceSetParams struct {
@@ -1670,12 +1691,31 @@ type RemoveDevicesFromDeviceSetParams struct {
 	DeviceIdentifiers []string
 }
 
-func (q *Queries) RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) (int64, error) {
-	result, err := q.exec(ctx, q.removeDevicesFromDeviceSetStmt, removeDevicesFromDeviceSet, arg.DeviceSetID, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+// RETURNING yields one row per membership actually deleted (identifiers that
+// were not members match nothing), so callers can count the change and resolve
+// the changed set for activity site scope (#538). Equivalent affected-row
+// count to the prior :execrows shape.
+func (q *Queries) RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error) {
+	rows, err := q.query(ctx, q.removeDevicesFromDeviceSetStmt, removeDevicesFromDeviceSet, arg.DeviceSetID, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected()
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const setRackSlotPosition = `-- name: SetRackSlotPosition :exec

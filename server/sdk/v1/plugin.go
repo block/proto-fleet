@@ -569,8 +569,10 @@ func (s *DriverGRPCServer) UpdateFirmware(ctx context.Context, req *pb.UpdateFir
 
 	firmware := FirmwareFile{
 		Reader:   file,
+		ID:       fw.Id,
 		Filename: fw.OriginalFilename,
 		Size:     fw.FileSize,
+		SHA256:   fw.Sha256,
 		FilePath: fw.FilePath,
 	}
 
@@ -1164,6 +1166,8 @@ func (d *DeviceGRPCClient) FirmwareUpdate(ctx context.Context, firmware Firmware
 			FilePath:         firmware.FilePath,
 			OriginalFilename: firmware.Filename,
 			FileSize:         firmware.Size,
+			Id:               firmware.ID,
+			Sha256:           firmware.SHA256,
 		},
 	})
 	return err

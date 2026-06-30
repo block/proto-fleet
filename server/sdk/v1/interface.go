@@ -407,8 +407,10 @@ type DeviceConfiguration interface {
 // FirmwareFile represents a firmware file to be uploaded to a device.
 type FirmwareFile struct {
 	Reader   io.Reader
+	ID       string
 	Filename string
 	Size     int64
+	SHA256   string
 	FilePath string // On-disk path for gRPC bridge passthrough (plugins share the server's filesystem)
 }
 

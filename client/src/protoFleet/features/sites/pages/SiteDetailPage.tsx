@@ -1,25 +1,42 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
+import SiteMetricsRow from "../components/SiteMetricsRow";
 import SiteModals from "../components/SiteModals";
 import { useSiteModals } from "../hooks/useSiteModals";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { buildKnownSiteIds, parseBigIntId, useSites } from "@/protoFleet/api/sites";
+import { useSiteStats } from "@/protoFleet/api/useSiteStats";
+import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import BuildingSummaryCard from "@/protoFleet/features/buildings/components/BuildingSummaryCard";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
-import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
+import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
-import { useHasPermission } from "@/protoFleet/store";
+import { useDuration, useHasPermission, useSetDuration } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Breadcrumb from "@/shared/components/Breadcrumb";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
+import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
-import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
+
+// Same measurement / aggregation slate the group, rack, and building overview
+// pages use, so the performance charts render identically across surfaces.
+const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
+  MeasurementType.HASHRATE,
+  MeasurementType.POWER,
+  MeasurementType.TEMPERATURE,
+  MeasurementType.EFFICIENCY,
+  MeasurementType.UPTIME,
+];
+
+const ALL_AGGREGATION_TYPES: AggregationType[] = [AggregationType.AVERAGE, AggregationType.MIN, AggregationType.MAX];
 
 const SiteDetailPage = () => {
   const navigate = useNavigate();
@@ -108,6 +125,16 @@ const SiteDetailPage = () => {
   // UpdateSite + CreateBuilding require site:manage server-side.
   const canManageSites = useHasPermission("site:manage");
 
+  // The performance charts hit TelemetryService.GetCombinedMetrics, whose
+  // handler requires org-default `fleet:read` (an empty ResourceContext — it
+  // is NOT site-scoped, unlike GetSiteStats which authorizes the metrics row
+  // against the requested SiteID). A site-scoped operator can therefore reach
+  // this page and load the metrics row but would be denied the telemetry call,
+  // leaving the charts stuck loading. `useHasPermission` reads that same
+  // org-default authority, so gate the whole section on it: skip the fetch and
+  // hide the charts unless GetCombinedMetrics would actually succeed.
+  const canReadFleet = useHasPermission("fleet:read");
+
   const [buildingsRefreshKey, setBuildingsRefreshKey] = useState(0);
   const refetchBuildings = useCallback(() => setBuildingsRefreshKey((n) => n + 1), []);
   // Membership saves in ManageSiteModal also affect building rows, so share
@@ -124,6 +151,38 @@ const SiteDetailPage = () => {
     if (siteId === undefined) return undefined;
     return fetchBuildings(siteId);
   }, [fetchBuildings, siteId, buildingsRefreshKey]);
+
+  // Server-rolled metrics for the header strip (hashrate / power / efficiency
+  // + building count). Scope is server-side: every device whose site_id
+  // matches, racked or site-direct, so the row matches the miner list.
+  const {
+    stats: siteStats,
+    error: siteStatsError,
+    refetch: refetchSiteStats,
+  } = useSiteStats({ siteId: siteId ?? 0n, enabled: siteId !== undefined, pollIntervalMs: POLL_INTERVAL_MS });
+
+  // Performance charts — mirrors the group/rack/building overview pages, but
+  // scopes telemetry by site rather than by explicit device-set membership.
+  // GetCombinedMetrics expands the site into its devices server-side, so no
+  // separate member-id fetch is needed here.
+  const duration = useDuration();
+  const setDuration = useSetDuration();
+  const telemetrySiteIds = useMemo(() => (siteId !== undefined ? [siteId] : []), [siteId]);
+  const telemetryOptions = useMemo(
+    () => ({
+      siteIds: telemetrySiteIds,
+      measurementTypes: ALL_MEASUREMENT_TYPES,
+      aggregations: ALL_AGGREGATION_TYPES,
+      duration,
+      enabled: siteId !== undefined && canReadFleet,
+      pollIntervalMs: POLL_INTERVAL_MS,
+    }),
+    [telemetrySiteIds, duration, siteId, canReadFleet],
+  );
+  const { data: telemetryData } = useTelemetryMetrics(telemetryOptions);
+  // `undefined` while the first response is in flight (skeletons); a defined
+  // (possibly empty) array once it lands, so empty sites show "No data".
+  const metrics = telemetryData?.metrics;
 
   if (sites === undefined) {
     return (
@@ -164,7 +223,6 @@ const SiteDetailPage = () => {
     );
   }
 
-  const address = formatSiteAddress(site.site);
   const siteSiblings = sites
     .filter((row) => row.site !== undefined)
     .map((row) => {
@@ -205,7 +263,7 @@ const SiteDetailPage = () => {
           testId="site-detail-breadcrumb"
         />
         <div className="flex items-start justify-between gap-4">
-          <Header title={site.site.name} titleSize="text-heading-300" subtitle={address || undefined} />
+          <Header title={site.site.name} titleSize="text-heading-300" />
           {canManageSites ? (
             <Button
               variant={variants.primary}
@@ -216,7 +274,28 @@ const SiteDetailPage = () => {
             />
           ) : null}
         </div>
-        <PlaceholderBlock label="Metrics row — coming soon" className="h-20" />
+        <div className="flex flex-col gap-4">
+          {siteStatsError ? (
+            <Callout
+              intent="danger"
+              prefixIcon={<Alert />}
+              title="Couldn't load site metrics"
+              subtitle={siteStatsError}
+              buttonText="Retry"
+              buttonOnClick={() => refetchSiteStats()}
+              testId="site-detail-metrics-error"
+            />
+          ) : null}
+          <SiteMetricsRow
+            locationCity={site.site.locationCity}
+            locationState={site.site.locationState}
+            powerCapacityMw={site.site.powerCapacityMw}
+            buildingCount={siteStats?.buildingCount ?? Number(site.buildingCount)}
+            metrics={siteStats}
+            variant="compact"
+            testId="site-detail-metrics-row"
+          />
+        </div>
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <Header title="Buildings" titleSize="text-heading-200" />
@@ -243,7 +322,7 @@ const SiteDetailPage = () => {
               testId="site-detail-buildings-error"
             />
           ) : null}
-          <div className="rounded-[24px] border border-border-5 bg-surface-base p-6 shadow-300 tablet:p-8 laptop:p-10">
+          <div className="rounded-xl bg-surface-base p-10 dark:bg-core-primary-5 phone:p-6">
             {visibleBuildings === undefined ? (
               <div className="text-200 text-text-primary-50">Loading buildings…</div>
             ) : visibleBuildings.length === 0 ? (
@@ -264,7 +343,67 @@ const SiteDetailPage = () => {
             )}
           </div>
         </div>
-        <PlaceholderBlock label="Details table — coming soon" className="h-40" />
+        {canReadFleet ? (
+          <div className="flex flex-col gap-4" data-testid="site-detail-performance">
+            <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
+              <div className="tablet:flex-1">
+                <Header title="Performance" titleSize="text-heading-200" />
+              </div>
+              <div className="flex items-center gap-6 text-200 text-core-primary-50">
+                <div className="flex items-center gap-2">
+                  <svg width="24" height="4">
+                    <line
+                      x1="0"
+                      y1="2"
+                      x2="24"
+                      y2="2"
+                      stroke="var(--color-core-primary-fill)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <span>Site</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <svg width="24" height="4">
+                    <line
+                      x1="0"
+                      y1="2"
+                      x2="24"
+                      y2="2"
+                      stroke="var(--color-core-primary-50)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeDasharray="1 6"
+                      strokeOpacity="0.5"
+                    />
+                  </svg>
+                  <span>Max</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <svg width="24" height="4">
+                    <line
+                      x1="0"
+                      y1="2"
+                      x2="24"
+                      y2="2"
+                      stroke="var(--color-intent-critical-fill)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeDasharray="1 6"
+                      strokeOpacity="0.5"
+                    />
+                  </svg>
+                  <span>Min</span>
+                </div>
+              </div>
+              <div className="flex items-center tablet:flex-1 tablet:justify-end">
+                <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
+              </div>
+            </div>
+            <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
+          </div>
+        ) : null}
       </div>
       <SiteModals modals={modals} sites={sites} buildingsRefreshKey={buildingsRefreshKey} />
       <BuildingModals modals={buildingModals} sites={sites} />

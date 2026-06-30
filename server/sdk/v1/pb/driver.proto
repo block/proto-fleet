@@ -507,6 +507,8 @@ message FirmwareFileInfo {
   string file_path = 1;
   string original_filename = 2;
   int64 file_size = 3;
+  string id = 4;
+  string sha256 = 5;
 }
 
 // Uploads firmware to a device. The server resolves the firmware file on disk

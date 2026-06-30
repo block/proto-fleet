@@ -112,13 +112,19 @@ export default defineConfig(({ mode, command }) => {
   let proxies;
   if (mode === "protoFleet") {
     const proxyUrl = env.FLEET_PROXY_URL || process.env.FLEET_PROXY_URL || "http://localhost:4000";
+    const apiProxyConfig = {
+      target: proxyUrl,
+      rewrite: (path: string) => path.replace(/^\/api-proxy/, ""),
+      changeOrigin: true,
+      secure: false,
+    };
     proxies = {
-      "/api-proxy": {
-        target: proxyUrl,
-        rewrite: (path: string) => path.replace(/^\/api-proxy/, ""),
-        changeOrigin: true,
-        secure: false,
+      "/api-proxy/pairing.v1.PairingService/Pair": {
+        ...apiProxyConfig,
+        timeout: 4_500_000,
+        proxyTimeout: 4_500_000,
       },
+      "/api-proxy": apiProxyConfig,
     };
   } else {
     // For ProtoOS: Use PROXY_URL from .env file

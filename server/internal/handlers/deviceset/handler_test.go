@@ -965,8 +965,8 @@ func TestAddDevicesToGroup_HappyPath(t *testing.T) {
 			GetCollection(gomock.Any(), testOrgID, targetGroupID).
 			Return(&collectionpb.DeviceCollection{Id: targetGroupID, Label: "Group A", Type: collectionpb.CollectionType_COLLECTION_TYPE_GROUP}, nil),
 		h.collectionStore.EXPECT().
-			AddDevicesToCollection(gomock.Any(), testOrgID, targetGroupID, deviceIDs).
-			Return(int64(2), nil),
+			AddDevicesToCollectionReturningAdded(gomock.Any(), testOrgID, targetGroupID, deviceIDs).
+			Return(deviceIDs, nil),
 	)
 
 	resp, err := h.handler.AddDevicesToGroup(testCtx(t), connect.NewRequest(&dspb.AddDevicesToGroupRequest{
@@ -1050,8 +1050,8 @@ func TestRemoveDevicesFromGroup_HappyPath(t *testing.T) {
 			GetCollection(gomock.Any(), testOrgID, targetGroupID).
 			Return(&collectionpb.DeviceCollection{Id: targetGroupID, Label: "Group A", Type: collectionpb.CollectionType_COLLECTION_TYPE_GROUP}, nil),
 		h.collectionStore.EXPECT().
-			RemoveDevicesFromCollection(gomock.Any(), testOrgID, targetGroupID, deviceIDs).
-			Return(int64(1), nil),
+			RemoveDevicesFromCollectionReturningRemoved(gomock.Any(), testOrgID, targetGroupID, deviceIDs).
+			Return(deviceIDs, nil),
 	)
 
 	resp, err := h.handler.RemoveDevicesFromGroup(testCtx(t), connect.NewRequest(&dspb.RemoveDevicesFromGroupRequest{

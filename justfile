@@ -201,6 +201,7 @@ fleetnode-ui-test-up:
     -H 'Content-Type: application/json' \
     -d '{}' \
     http://localhost:4000/onboarding.v1.OnboardingService/GetFleetInitStatus >/dev/null
+  "${COMPOSE[@]}" build fleetnode-ui-test
   "${COMPOSE[@]}" run --rm \
     -e FLEET_ADMIN_USERNAME \
     -e FLEET_ADMIN_PASSWORD \
@@ -208,7 +209,7 @@ fleetnode-ui-test-up:
     --api-url=http://fleet-api:4000 \
     --node-server-url=http://fleet-api:4000 \
     --state-dir=/state
-  "${COMPOSE[@]}" up -d --build fleetnode-ui-test
+  "${COMPOSE[@]}" up -d fleetnode-ui-test
   cd ../client
   GIT_VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
   BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

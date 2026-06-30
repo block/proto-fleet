@@ -21,6 +21,8 @@ type FirmwareFileInfo struct {
 	ID         string    `json:"id"`
 	Filename   string    `json:"filename"`
 	Size       int64     `json:"size"`
+	SHA256     string    `json:"sha256,omitempty"`
+	FilePath   string    `json:"-"`
 	UploadedAt time.Time `json:"uploaded_at"`
 }
 
@@ -182,9 +184,7 @@ func (s *Service) SaveFirmwareFile(filename string, reader io.Reader) (string, e
 
 	checksum := hex.EncodeToString(hasher.Sum(nil))
 
-	s.mu.Lock()
-	s.checksumIndex[checksum] = append(s.checksumIndex[checksum], fileID)
-	s.mu.Unlock()
+	s.rememberFirmwareChecksum(checksum, fileID)
 
 	slog.Info("firmware file saved", "file_id", fileID, "filename", sanitized, "checksum", checksum)
 	return fileID, nil
@@ -226,9 +226,7 @@ func (s *Service) SaveFirmwareFileFromPath(filename string, srcPath string) (str
 		return "", fleeterror.NewInvalidArgumentError("firmware file is empty")
 	}
 
-	s.mu.Lock()
-	s.checksumIndex[checksum] = append(s.checksumIndex[checksum], fileID)
-	s.mu.Unlock()
+	s.rememberFirmwareChecksum(checksum, fileID)
 
 	slog.Info("firmware file saved from path", "file_id", fileID, "filename", sanitized, "checksum", checksum)
 	return fileID, nil
@@ -241,7 +239,10 @@ func (s *Service) GetFirmwareFilePath(fileID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return getFirmwareFilePathForCanonicalID(canonical)
+}
 
+func getFirmwareFilePathForCanonicalID(canonical string) (string, error) {
 	dir := getFirmwareDirPath(canonical)
 	path, err := findSingleFileInDir(dir)
 	if err != nil {
@@ -253,23 +254,79 @@ func (s *Service) GetFirmwareFilePath(fileID string) (string, error) {
 // OpenFirmwareFile opens the firmware file for reading and returns the reader,
 // original filename, and file size. The caller is responsible for closing the reader.
 func (s *Service) OpenFirmwareFile(fileID string) (io.ReadCloser, string, int64, error) {
-	filePath, err := s.GetFirmwareFilePath(fileID)
+	reader, info, err := s.OpenFirmwareFileWithInfo(fileID)
 	if err != nil {
 		return nil, "", 0, err
 	}
+	return reader, info.Filename, info.Size, nil
+}
 
+// OpenFirmwareFileWithInfo opens the firmware file for reading and returns
+// metadata required to address it as a command artifact payload.
+func (s *Service) OpenFirmwareFileWithInfo(fileID string) (io.ReadCloser, FirmwareFileInfo, error) {
+	canonical, err := canonicalizeFirmwareFileID(fileID)
+	if err != nil {
+		return nil, FirmwareFileInfo{}, err
+	}
+	filePath, err := getFirmwareFilePathForCanonicalID(canonical)
+	if err != nil {
+		return nil, FirmwareFileInfo{}, err
+	}
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, "", 0, fleeterror.NewInternalErrorf("failed to open firmware file: %v", err)
+		return nil, FirmwareFileInfo{}, fleeterror.NewInternalErrorf("failed to open firmware file: %v", err)
 	}
 
 	info, err := file.Stat()
 	if err != nil {
 		file.Close()
-		return nil, "", 0, fleeterror.NewInternalErrorf("failed to stat firmware file: %v", err)
+		return nil, FirmwareFileInfo{}, fleeterror.NewInternalErrorf("failed to stat firmware file: %v", err)
 	}
 
-	return file, filepath.Base(filePath), info.Size(), nil
+	checksum, err := s.firmwareChecksum(canonical, filePath)
+	if err != nil {
+		file.Close()
+		return nil, FirmwareFileInfo{}, err
+	}
+
+	return file, FirmwareFileInfo{
+		ID:       canonical,
+		Filename: filepath.Base(filePath),
+		Size:     info.Size(),
+		SHA256:   checksum,
+		FilePath: filePath,
+	}, nil
+}
+
+func (s *Service) firmwareChecksum(canonicalID, filePath string) (string, error) {
+	if checksum, ok := s.lookupFirmwareChecksum(canonicalID); ok {
+		return checksum, nil
+	}
+	checksum, err := computeFileChecksum(filePath)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to compute firmware checksum: %v", err)
+	}
+	s.rememberFirmwareChecksum(checksum, canonicalID)
+	return checksum, nil
+}
+
+func (s *Service) lookupFirmwareChecksum(canonicalID string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	checksum, ok := s.firmwareChecksumByID[canonicalID]
+	return checksum, ok
+}
+
+func (s *Service) rememberFirmwareChecksum(checksum, canonicalID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.firmwareChecksumByID[canonicalID] = checksum
+	for _, id := range s.checksumIndex[checksum] {
+		if id == canonicalID {
+			return
+		}
+	}
+	s.checksumIndex[checksum] = append(s.checksumIndex[checksum], canonicalID)
 }
 
 // FindFirmwareFileByChecksum looks up a firmware file by its SHA-256 hex digest.
@@ -307,23 +364,49 @@ func (s *Service) DeleteFirmwareFile(fileID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for checksum, ids := range s.checksumIndex {
-		for i, fid := range ids {
-			if fid == canonical {
-				ids = append(ids[:i], ids[i+1:]...)
-				if len(ids) == 0 {
-					delete(s.checksumIndex, checksum)
-				} else {
-					s.checksumIndex[checksum] = ids
-				}
-				goto indexDone
-			}
-		}
+	checksum, ok := s.firmwareChecksumByID[canonical]
+	if ok {
+		s.removeFirmwareChecksumLocked(checksum, canonical)
+	} else {
+		s.removeFirmwareChecksumByScanLocked(canonical)
 	}
-indexDone:
 
 	slog.Info("firmware file deleted", "file_id", canonical)
 	return nil
+}
+
+func (s *Service) removeFirmwareChecksumLocked(checksum, canonicalID string) {
+	delete(s.firmwareChecksumByID, canonicalID)
+	ids := s.checksumIndex[checksum]
+	for i, id := range ids {
+		if id != canonicalID {
+			continue
+		}
+		ids = append(ids[:i], ids[i+1:]...)
+		if len(ids) == 0 {
+			delete(s.checksumIndex, checksum)
+		} else {
+			s.checksumIndex[checksum] = ids
+		}
+		return
+	}
+}
+
+func (s *Service) removeFirmwareChecksumByScanLocked(canonicalID string) {
+	for checksum, ids := range s.checksumIndex {
+		for i, id := range ids {
+			if id != canonicalID {
+				continue
+			}
+			ids = append(ids[:i], ids[i+1:]...)
+			if len(ids) == 0 {
+				delete(s.checksumIndex, checksum)
+			} else {
+				s.checksumIndex[checksum] = ids
+			}
+			return
+		}
+	}
 }
 
 // ListFirmwareFiles returns metadata for all stored firmware files, sorted by
@@ -441,7 +524,7 @@ func (s *Service) initChecksumIndex() error {
 			continue
 		}
 
-		s.checksumIndex[checksum] = append(s.checksumIndex[checksum], fileID)
+		s.rememberFirmwareChecksum(checksum, fileID)
 	}
 
 	count := 0

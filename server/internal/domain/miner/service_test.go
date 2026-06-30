@@ -24,7 +24,7 @@ func newTestPluginManager() *plugins.Manager {
 }
 
 func TestNewMinerService_WithValidDB_ShouldCreateService(t *testing.T) {
-	db, encryptService, filesService := setupTestDB(t)
+	db, encryptService, filesService := newServiceDepsNoDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
 	service := miner.NewMinerService(db, userStore, encryptService, filesService, newTestPluginManager())
@@ -33,7 +33,7 @@ func TestNewMinerService_WithValidDB_ShouldCreateService(t *testing.T) {
 }
 
 func TestNewMinerService_WithNilDB_ShouldPanic(t *testing.T) {
-	db, encryptService, filesService := setupTestDB(t)
+	db, encryptService, filesService := newServiceDepsNoDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
 	assert.Panics(t, func() {
@@ -42,7 +42,7 @@ func TestNewMinerService_WithNilDB_ShouldPanic(t *testing.T) {
 }
 
 func TestNewMinerService_WithNilEncryptService_ShouldPanic(t *testing.T) {
-	db, _, filesService := setupTestDB(t)
+	db, _, filesService := newServiceDepsNoDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
 	assert.Panics(t, func() {
@@ -51,7 +51,7 @@ func TestNewMinerService_WithNilEncryptService_ShouldPanic(t *testing.T) {
 }
 
 func TestNewMinerService_WithNilPluginManager_ShouldPanic(t *testing.T) {
-	db, encryptService, filesService := setupTestDB(t)
+	db, encryptService, filesService := newServiceDepsNoDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
 	assert.Panics(t, func() {
@@ -82,7 +82,7 @@ func TestMinerService_GetMinerFromDeviceID_WithNonexistentDevice_ShouldReturnErr
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithEmptyDeviceID_ShouldReturnError(t *testing.T) {
-	db, encryptService, filesService := setupTestDB(t)
+	db, encryptService, filesService := newServiceDepsNoDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
 
 	service := miner.NewMinerService(db, userStore, encryptService, filesService, newTestPluginManager())

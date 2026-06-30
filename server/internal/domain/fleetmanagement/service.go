@@ -194,6 +194,28 @@ func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
 	}
 }
 
+// resolveDeviceSetSiteScope derives the (site_id, multi_site) scope of a
+// multi-device fleet event (#538) from the touched identifiers: a single
+// shared site is stamped so the event surfaces under /{site}/activity; a
+// set spanning sites (or mixing sited + site-less devices) is marked
+// multi_site so it stays out of the unassigned bucket. Best-effort — a
+// resolution error leaves the event org-scoped (nil/false) rather than
+// failing the action's fire-and-forget audit log. DeleteMiners must call
+// this BEFORE soft-deleting, since the query excludes deleted devices.
+func (s *Service) resolveDeviceSetSiteScope(ctx context.Context, orgID int64, identifiers []string) activitymodels.SiteScope {
+	if s.activitySvc == nil {
+		// No activity sink — the scope would only feed an event we never
+		// write, so skip the query entirely.
+		return activitymodels.SiteScope{}
+	}
+	sites, err := s.deviceStore.GetDistinctDeviceSiteIDs(ctx, orgID, identifiers)
+	if err != nil {
+		slog.Warn("failed to resolve device-set site scope for activity log", "error", err)
+		return activitymodels.SiteScope{}
+	}
+	return activitymodels.ResolveSiteScope(sites)
+}
+
 // WaitForPendingUnpairs blocks until all background Unpair goroutines
 // complete or the timeout expires. Call during graceful server shutdown.
 func (s *Service) WaitForPendingUnpairs(timeout time.Duration) {
@@ -1454,6 +1476,11 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 	// Collect Proto miner objects BEFORE soft-delete (lookups filter deleted_at IS NULL)
 	miners := s.collectProtoMinersForUnpair(ctx, deviceIdentifiers)
 
+	// Resolve the site scope BEFORE the soft-delete — GetDistinctDeviceSiteIDs
+	// filters deleted_at IS NULL, so post-delete it would return nothing and
+	// the audit row would fall into the unassigned bucket (#538).
+	siteScope := s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, deviceIdentifiers)
+
 	// SoftDeleteDevices verifies ownership and deletes in a single transaction
 	// to prevent TOCTOU races between the check and the delete.
 	deletedCount, err := s.deviceStore.SoftDeleteDevices(ctx, deviceIdentifiers, info.OrganizationID)
@@ -1470,7 +1497,7 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 	}
 
 	count := int(deletedCount)
-	s.logActivity(ctx, activitymodels.Event{
+	unpairEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
 		Type:           "unpair_miners",
 		Description:    "Unpaired miners",
@@ -1478,7 +1505,9 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-	})
+	}
+	unpairEvent.ApplySiteScope(siteScope)
+	s.logActivity(ctx, unpairEvent)
 
 	// Best-effort background Unpair for Proto rigs using a bounded worker pool.
 	// Workers are tracked by s.backgroundWg so the server can await completion

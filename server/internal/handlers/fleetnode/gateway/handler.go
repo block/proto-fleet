@@ -150,6 +150,7 @@ func (h *Handler) UploadCommandArtifact(ctx context.Context, stream *connect.Cli
 		Direction:        control.ArtifactDirectionUpload,
 		Purpose:          header.GetPurpose(),
 		DeviceIdentifier: header.GetDeviceIdentifier(),
+		SizeBytes:        header.GetSizeBytes(),
 	}
 	commandDone, err := h.registry.AdmitCommandArtifactTransfer(subject.FleetNodeID, header.GetCommandId(), expectation)
 	if err != nil {
@@ -227,7 +228,7 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 	}
 	defer h.registry.ReinstateCommandArtifactTransfer(subject.FleetNodeID, req.Msg.GetCommandId(), expectation)
 
-	reader, info, err := h.files.OpenCommandArtifact(ref.GetArtifactId())
+	reader, info, err := h.openCommandArtifactPayload(ref)
 	if err != nil {
 		return err
 	}
@@ -264,6 +265,22 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 			return fleeterror.NewInternalErrorf("read command artifact: %v", readErr)
 		}
 	}
+}
+
+func (h *Handler) openCommandArtifactPayload(ref *pb.CommandArtifactRef) (io.ReadCloser, files.CommandArtifactInfo, error) {
+	if ref.GetPurpose() != pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD {
+		return h.files.OpenCommandArtifact(ref.GetArtifactId())
+	}
+	reader, info, err := h.files.OpenFirmwareFileWithInfo(ref.GetArtifactId())
+	if err != nil {
+		return nil, files.CommandArtifactInfo{}, err
+	}
+	return reader, files.CommandArtifactInfo{
+		ID:       info.ID,
+		Filename: info.Filename,
+		Size:     info.Size,
+		SHA256:   info.SHA256,
+	}, nil
 }
 
 func sendCommandArtifactDownloadResponse(ctx context.Context, stream *connect.ServerStream[pb.DownloadCommandArtifactResponse], msg *pb.DownloadCommandArtifactResponse) error {
@@ -447,6 +464,8 @@ func mapArtifactAdmissionError(err error) error {
 	case errors.Is(err, control.ErrArtifactAlreadyTransferred):
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.Is(err, control.ErrArtifactTransferLimitExceeded):
+		return connect.NewError(connect.CodeResourceExhausted, err)
+	case errors.Is(err, control.ErrArtifactTooLarge):
 		return connect.NewError(connect.CodeResourceExhausted, err)
 	case errors.Is(err, control.ErrArtifactTransferAttemptsExceeded):
 		return connect.NewError(connect.CodeResourceExhausted, err)

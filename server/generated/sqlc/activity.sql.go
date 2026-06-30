@@ -32,9 +32,22 @@ WHERE a.organization_id = $1
 
         OR (a.batch_id IS NULL AND (
                 a.site_id = ANY($9::bigint[])
+             OR (a.multi_site AND EXISTS (
+                    SELECT 1 FROM activity_log_site als
+                    WHERE als.activity_log_id = a.id
+                      AND als.site_id = ANY($9::bigint[])
+                ))
              OR ($10::boolean
                  AND a.site_id IS NULL
+                 AND NOT a.multi_site
                  AND a.event_category <> ALL($11::text[]))
+             OR ($10::boolean
+                 AND a.multi_site
+                 AND EXISTS (
+                    SELECT 1 FROM activity_log_site als
+                    WHERE als.activity_log_id = a.id
+                      AND als.site_id IS NULL
+                ))
         ))
 
         OR (a.batch_id IS NOT NULL AND EXISTS (
@@ -190,42 +203,76 @@ func (q *Queries) GetDistinctScopeTypes(ctx context.Context, orgID sql.NullInt64
 }
 
 const insertActivityLog = `-- name: InsertActivityLog :exec
-INSERT INTO activity_log (
-    event_id,
-    event_category, event_type, description,
-    result, error_message,
-    scope_type, scope_label, scope_count,
-    actor_type, user_id, username,
-    organization_id, metadata, batch_id,
-    site_id
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+WITH inserted AS (
+    INSERT INTO activity_log (
+        event_id,
+        event_category, event_type, description,
+        result, error_message,
+        scope_type, scope_label, scope_count,
+        actor_type, user_id, username,
+        organization_id, metadata, batch_id,
+        site_id, multi_site
+    ) VALUES (
+        $3,
+        $4, $5, $6,
+        $7, $8,
+        $9, $10, $11,
+        $12, $13, $14,
+        $15, $16, $17,
+        $18, $1
+    )
+    RETURNING id, organization_id
+),
+member_sites AS (
+    INSERT INTO activity_log_site (activity_log_id, org_id, site_id)
+    SELECT inserted.id, inserted.organization_id, member.site_id
+    FROM inserted
+    CROSS JOIN unnest($19::bigint[]) AS member(site_id)
+    WHERE $1::boolean
+    RETURNING activity_log_id
 )
+INSERT INTO activity_log_site (activity_log_id, org_id, site_id)
+SELECT inserted.id, inserted.organization_id, NULL::bigint
+FROM inserted
+WHERE $1::boolean AND $2::boolean
 `
 
 type InsertActivityLogParams struct {
-	EventID        uuid.UUID
-	EventCategory  string
-	EventType      string
-	Description    string
-	Result         string
-	ErrorMessage   sql.NullString
-	ScopeType      sql.NullString
-	ScopeLabel     sql.NullString
-	ScopeCount     sql.NullInt32
-	ActorType      string
-	UserID         sql.NullString
-	Username       sql.NullString
-	OrganizationID sql.NullInt64
-	Metadata       pqtype.NullRawMessage
-	BatchID        sql.NullString
-	SiteID         sql.NullInt64
+	MultiSite        bool
+	MemberUnassigned bool
+	EventID          uuid.UUID
+	EventCategory    string
+	EventType        string
+	Description      string
+	Result           string
+	ErrorMessage     sql.NullString
+	ScopeType        sql.NullString
+	ScopeLabel       sql.NullString
+	ScopeCount       sql.NullInt32
+	ActorType        string
+	UserID           sql.NullString
+	Username         sql.NullString
+	OrganizationID   sql.NullInt64
+	Metadata         pqtype.NullRawMessage
+	BatchID          sql.NullString
+	SiteID           sql.NullInt64
+	MemberSiteIds    []int64
 }
 
 // The unique partial index on (batch_id, event_type) for '*.completed' event
 // types lets the Go layer detect idempotent re-inserts via pq unique_violation.
+//
+// Single statement so the activity row and its site membership (#538) commit
+// atomically. member_site_ids carries the distinct touched sites for a
+// multi_site event (empty otherwise); member_unassigned adds the NULL-site
+// membership row when the multi-site set also touched site-less devices. Both
+// data-modifying CTEs run to completion regardless of the outer SELECT, and
+// an empty member array unnests to zero rows — so the single-site / org-level
+// path inserts only the activity_log row.
 func (q *Queries) InsertActivityLog(ctx context.Context, arg InsertActivityLogParams) error {
 	_, err := q.exec(ctx, q.insertActivityLogStmt, insertActivityLog,
+		arg.MultiSite,
+		arg.MemberUnassigned,
 		arg.EventID,
 		arg.EventCategory,
 		arg.EventType,
@@ -242,6 +289,7 @@ func (q *Queries) InsertActivityLog(ctx context.Context, arg InsertActivityLogPa
 		arg.Metadata,
 		arg.BatchID,
 		arg.SiteID,
+		pq.Array(arg.MemberSiteIds),
 	)
 	return err
 }
@@ -268,17 +316,32 @@ WHERE a.organization_id = $1
         (cardinality($11::bigint[]) = 0
          AND $12::boolean = false)
 
-        -- direct (non-batch) events: scalar site_id, Option B unassigned bucket
-        -- TODO(#538): multi-device fleet writers (rename/unpair miners,
-        -- collection add/remove-devices, device building-unassign) still emit
-        -- NULL site_id with a non-org-level category, so they land here in the
-        -- unassigned bucket instead of /{site}. Scope-stamp (single-source) or
-        -- exclude them once they carry scope metadata.
+        -- direct (non-batch) events. Site scope has two representations (#538):
+        -- the scalar a.site_id is the single-site fast path; multi_site events
+        -- carry their full touched-site set in activity_log_site (the two are
+        -- mutually exclusive — multi_site rows have site_id NULL). So a
+        -- cross-site event surfaces under EACH of its sites via the membership
+        -- EXISTS. The unassigned bucket takes a single-slot site-less event
+        -- (site_id NULL, not multi_site, non-org-level) OR a multi-site event
+        -- that also touched site-less devices (its NULL-site membership row).
         OR (a.batch_id IS NULL AND (
                 a.site_id = ANY($11::bigint[])
+             OR (a.multi_site AND EXISTS (
+                    SELECT 1 FROM activity_log_site als
+                    WHERE als.activity_log_id = a.id
+                      AND als.site_id = ANY($11::bigint[])
+                ))
              OR ($12::boolean
                  AND a.site_id IS NULL
+                 AND NOT a.multi_site
                  AND a.event_category <> ALL($13::text[]))
+             OR ($12::boolean
+                 AND a.multi_site
+                 AND EXISTS (
+                    SELECT 1 FROM activity_log_site als
+                    WHERE als.activity_log_id = a.id
+                      AND als.site_id IS NULL
+                ))
         ))
 
         -- command-batch events: derive touched sites from command_on_device_log

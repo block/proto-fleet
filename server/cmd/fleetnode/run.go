@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -41,6 +42,7 @@ type RunCmd struct {
 	nmapPath                 string                                                                   `kong:"-"`
 	resolver                 ipResolver                                                               `kong:"-"`
 	localSubnets             func() ([]string, error)                                                 `kong:"-"` // test seam for local-subnet detection
+	firmwareTempRoot         string                                                                   `kong:"-"`
 
 	stateMu sync.Mutex `kong:"-"` // guards st.SessionToken across refreshAndSave + tokenSource.
 	pairMu  sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
@@ -140,6 +142,10 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	// session_token is still fresh.
 	if err := bootstrap.ValidateServerURL(st.ServerURL, st.AllowInsecureTransport); err != nil {
 		return err
+	}
+	r.firmwareTempRoot = filepath.Join(c.StateDir, firmwareArtifactTempDirName)
+	if err := prepareFirmwareArtifactTempRoot(r.firmwareTempRoot); err != nil {
+		return fmt.Errorf("prepare firmware temp dir: %w", err)
 	}
 
 	// Reap + spawn inside the lock, from the state loaded under it, so the
