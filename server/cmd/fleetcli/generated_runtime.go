@@ -132,6 +132,12 @@ func generatedCommonSelectorFlags() []cli.Flag {
 	}
 }
 
+func generatedCommonDeviceListSelectorFlags() []cli.Flag {
+	return []cli.Flag{
+		&cli.StringSliceFlag{Name: "device", Usage: "Select one or more device identifiers"},
+	}
+}
+
 // generatedMinerSelectorProvided reports whether any miner selector flag was
 // set. It mirrors generatedMinerSelectorFlags so the set of selector flags
 // lives in one place, even when a command also accepts a --json request body.
@@ -152,6 +158,10 @@ func generatedCommonSelectorProvided(cmd *cli.Command) bool {
 	return cmd.IsSet("all-devices") || cmd.IsSet("device")
 }
 
+func generatedCommonDeviceListSelectorProvided(cmd *cli.Command) bool {
+	return cmd.IsSet("device")
+}
+
 func generatedBuildCommonSelector(cmd *cli.Command) (*commonv1.DeviceSelector, error) {
 	allDevices := cmd.Bool("all-devices")
 	deviceIDs := dedupeStrings(cmd.StringSlice("device"))
@@ -166,6 +176,18 @@ func generatedBuildCommonSelector(cmd *cli.Command) (*commonv1.DeviceSelector, e
 	}
 	if len(deviceIDs) == 0 {
 		return nil, fmt.Errorf("one of --all-devices or --device is required")
+	}
+	return &commonv1.DeviceSelector{
+		SelectionType: &commonv1.DeviceSelector_DeviceList{
+			DeviceList: &commonv1.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+		},
+	}, nil
+}
+
+func generatedBuildCommonDeviceListSelector(cmd *cli.Command) (*commonv1.DeviceSelector, error) {
+	deviceIDs := dedupeStrings(cmd.StringSlice("device"))
+	if len(deviceIDs) == 0 {
+		return nil, fmt.Errorf("at least one --device is required")
 	}
 	return &commonv1.DeviceSelector{
 		SelectionType: &commonv1.DeviceSelector_DeviceList{
@@ -214,7 +236,11 @@ func generatedBuildBoundedMinerSelector(ctx context.Context, cmd *cli.Command, c
 		}
 		groupIDs = append(groupIDs, labelIDs...)
 	}
+	groupIDs = dedupeInt64s(groupIDs)
 	if len(groupIDs) > 0 {
+		if err := generatedRequireCollectionTypes(ctx, client, groupIDs, collectionv1.CollectionType_COLLECTION_TYPE_GROUP); err != nil {
+			return nil, fmt.Errorf("verify group ids: %w", err)
+		}
 		memberIDs, err := generatedCollectionMemberDeviceIDs(ctx, client, groupIDs)
 		if err != nil {
 			return nil, fmt.Errorf("resolve group members: %w", err)
@@ -228,7 +254,11 @@ func generatedBuildBoundedMinerSelector(ctx context.Context, cmd *cli.Command, c
 		}
 		rackIDs = append(rackIDs, labelIDs...)
 	}
+	rackIDs = dedupeInt64s(rackIDs)
 	if len(rackIDs) > 0 {
+		if err := generatedRequireCollectionTypes(ctx, client, rackIDs, collectionv1.CollectionType_COLLECTION_TYPE_RACK); err != nil {
+			return nil, fmt.Errorf("verify rack ids: %w", err)
+		}
 		memberIDs, err := generatedCollectionMemberDeviceIDs(ctx, client, rackIDs)
 		if err != nil {
 			return nil, fmt.Errorf("resolve rack members: %w", err)
@@ -332,6 +362,45 @@ func generatedResolveCollectionIDsByLabel(
 		}
 	}
 	return dedupeInt64s(result), nil
+}
+
+func generatedRequireCollectionType(
+	ctx context.Context,
+	client *Client,
+	collectionID int64,
+	want collectionv1.CollectionType,
+) error {
+	if collectionID == 0 {
+		return fmt.Errorf("collection-id is required")
+	}
+	req := &collectionv1.GetCollectionRequest{CollectionId: collectionID}
+	resp := &collectionv1.GetCollectionResponse{}
+	if err := client.CallBearer(ctx, "/collection.v1.DeviceCollectionService/GetCollection", req, resp); err != nil {
+		return fmt.Errorf("verify %s %d: %w", generatedCollectionTypeName(want), collectionID, err)
+	}
+	collection := resp.GetCollection()
+	if collection == nil {
+		return fmt.Errorf("verify %s %d: response did not include collection", generatedCollectionTypeName(want), collectionID)
+	}
+	got := collection.GetType()
+	if got != want {
+		return fmt.Errorf("collection %d is a %s, not a %s", collectionID, generatedCollectionTypeName(got), generatedCollectionTypeName(want))
+	}
+	return nil
+}
+
+func generatedRequireCollectionTypes(
+	ctx context.Context,
+	client *Client,
+	collectionIDs []int64,
+	want collectionv1.CollectionType,
+) error {
+	for _, collectionID := range dedupeInt64s(collectionIDs) {
+		if err := generatedRequireCollectionType(ctx, client, collectionID, want); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func generatedCollectionTypeName(collectionType collectionv1.CollectionType) string {

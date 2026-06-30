@@ -37,7 +37,8 @@
       "method": "/collection.v1.DeviceCollectionService/GetCollection",
       "group": "groups",
       "command": "get",
-      "usage": "Get a group by id"
+      "usage": "Get a group by id",
+      "require_collection_type": "group"
     },
     {
       "method": "/collection.v1.DeviceCollectionService/CreateCollection",
@@ -50,34 +51,39 @@
       "ignore_fields": ["type"]
     },
     {
-      "method": "/collection.v1.DeviceCollectionService/AddDevicesToCollection",
+      "method": "/device_set.v1.DeviceSetService/AddDevicesToGroup",
       "group": "groups",
       "command": "add-devices",
-      "usage": "Add devices to a group"
+      "usage": "Add devices to a group",
+      "require_collection_type": "group"
     },
     {
-      "method": "/collection.v1.DeviceCollectionService/RemoveDevicesFromCollection",
+      "method": "/device_set.v1.DeviceSetService/RemoveDevicesFromGroup",
       "group": "groups",
       "command": "remove-devices",
-      "usage": "Remove devices from a group"
+      "usage": "Remove devices from a group",
+      "require_collection_type": "group"
     },
     {
       "method": "/collection.v1.DeviceCollectionService/UpdateCollection",
       "group": "groups",
       "command": "update",
-      "usage": "Update a group"
+      "usage": "Update a group",
+      "require_collection_type": "group"
     },
     {
       "method": "/collection.v1.DeviceCollectionService/DeleteCollection",
       "group": "groups",
       "command": "delete",
-      "usage": "Delete a group"
+      "usage": "Delete a group",
+      "require_collection_type": "group"
     },
     {
       "method": "/collection.v1.DeviceCollectionService/ListCollectionMembers",
       "group": "groups",
       "command": "members",
-      "usage": "List group members"
+      "usage": "List group members",
+      "require_collection_type": "group"
     },
     {
       "method": "/collection.v1.DeviceCollectionService/GetDeviceCollections",
@@ -93,7 +99,8 @@
       "method": "/collection.v1.DeviceCollectionService/GetCollectionStats",
       "group": "groups",
       "command": "stats",
-      "usage": "Get aggregated stats for one or more groups"
+      "usage": "Get aggregated stats for one or more groups",
+      "require_collection_type": "group"
     },
     {
       "method": "/collection.v1.DeviceCollectionService/ListCollections",
@@ -109,37 +116,39 @@
       "method": "/collection.v1.DeviceCollectionService/GetCollection",
       "group": "racks",
       "command": "get",
-      "usage": "Get a rack by id"
+      "usage": "Get a rack by id",
+      "require_collection_type": "rack"
     },
     {
       "method": "/collection.v1.DeviceCollectionService/SaveRack",
       "group": "racks",
       "command": "save",
-      "usage": "Create or update a rack"
+      "usage": "Create or update a rack",
+      "common_selector": "device_list",
+      "require_collection_type": "rack"
     },
     {
-      "method": "/collection.v1.DeviceCollectionService/AddDevicesToCollection",
+      "method": "/device_set.v1.DeviceSetService/AssignDevicesToRack",
       "group": "racks",
       "command": "add-devices",
-      "usage": "Add devices to a rack"
-    },
-    {
-      "method": "/collection.v1.DeviceCollectionService/RemoveDevicesFromCollection",
-      "group": "racks",
-      "command": "remove-devices",
-      "usage": "Remove devices from a rack"
+      "usage": "Add devices to a rack",
+      "required_fields": ["target_rack_id"],
+      "common_selector": "device_list",
+      "require_collection_type": "rack"
     },
     {
       "method": "/collection.v1.DeviceCollectionService/DeleteCollection",
       "group": "racks",
       "command": "delete",
-      "usage": "Delete a rack"
+      "usage": "Delete a rack",
+      "require_collection_type": "rack"
     },
     {
       "method": "/collection.v1.DeviceCollectionService/ListCollectionMembers",
       "group": "racks",
       "command": "members",
-      "usage": "List rack members"
+      "usage": "List rack members",
+      "require_collection_type": "rack"
     },
     {
       "method": "/collection.v1.DeviceCollectionService/GetRackSlots",
@@ -173,7 +182,8 @@
       "method": "/collection.v1.DeviceCollectionService/GetCollectionStats",
       "group": "racks",
       "command": "stats",
-      "usage": "Get aggregated stats for one or more racks"
+      "usage": "Get aggregated stats for one or more racks",
+      "require_collection_type": "rack"
     }
   ]
 }

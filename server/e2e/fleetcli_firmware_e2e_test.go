@@ -43,17 +43,7 @@ func TestFleetCLIFirmwareWorkflow(t *testing.T) {
 		"NO_COLOR=1",
 	}
 
-	// Firmware commands need session credentials, which only work once the
-	// fleet has an admin; accept already-onboarded failures so the test is
-	// rerunnable.
-	if _, err := runFleetCLI(ctx, env,
-		"onboarding", "create-admin",
-		"--username", testUsername,
-		"--password", testPassword,
-	); err != nil {
-		require.Truef(t, isAlreadyOnboardedError(err),
-			"create-admin failed for a reason other than existing onboarding: %v", err)
-	}
+	ensureFleetCLIAdmin(t, ctx, env)
 
 	workDir := t.TempDir()
 	// Random content guarantees the checksum pre-check cannot collide with

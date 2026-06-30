@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -54,6 +55,24 @@ func TestNormalizeBaseURL(t *testing.T) {
 func TestNormalizeBaseURLRejectsMissingHost(t *testing.T) {
 	if _, err := normalizeBaseURL("https:///api-proxy", false); err == nil {
 		t.Fatal("normalizeBaseURL() error = nil, want missing host error")
+	}
+}
+
+func TestNewClientTransportPreservesDefaultProxyHook(t *testing.T) {
+	client, err := New(context.Background(), Options{Server: "https://fleet.example.com", APIKey: "test-key"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	transport, ok := client.httpClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport = %T, want *http.Transport", client.httpClient.Transport)
+	}
+	if transport.Proxy == nil {
+		t.Fatal("Transport.Proxy = nil, want default proxy hook")
+	}
+	if transport.TLSClientConfig == nil {
+		t.Fatal("Transport.TLSClientConfig = nil, want CLI TLS config")
 	}
 }
 

@@ -258,7 +258,8 @@ func performanceCommand() *cli.Command {
 					&cli.DurationFlag{Name: "window", Usage: "Lookback window for historical metrics", Value: time.Hour},
 					&cli.DurationFlag{Name: "granularity", Usage: "Bucket size for aggregated metrics", Value: 30 * time.Second},
 					&cli.Int32Flag{Name: "page-size", Usage: "Maximum number of metric rows to request", Value: 500},
-					&cli.StringSliceFlag{Name: "metric", Usage: "Metric types to request", Value: defaultPerformanceMetrics},
+					&cli.StringFlag{Name: "page-token", Usage: "Pagination token from a previous response"},
+					&cli.StringSliceFlag{Name: "metric", Usage: "Metric types to request"},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					req, err := buildCombinedMetricsRequest(cmd)
@@ -328,7 +329,8 @@ func normalizeEnum(value string) string {
 func buildCombinedMetricsRequest(cmd *cli.Command) (*telemetryv1.GetCombinedMetricsRequest, error) {
 	end := time.Now().UTC()
 	start := end.Add(-cmd.Duration("window"))
-	measurementTypes, err := parseMeasurementTypes(cmd.StringSlice("metric"))
+	metrics := requestedPerformanceMetrics(cmd)
+	measurementTypes, err := parseMeasurementTypes(metrics)
 	if err != nil {
 		return nil, err
 	}
@@ -348,6 +350,7 @@ func buildCombinedMetricsRequest(cmd *cli.Command) (*telemetryv1.GetCombinedMetr
 		StartTime:   timestamppb.New(start),
 		EndTime:     timestamppb.New(end),
 		PageSize:    cmd.Int32("page-size"),
+		PageToken:   cmd.String("page-token"),
 	}, nil
 }
 
@@ -369,6 +372,13 @@ func parseMeasurementTypes(values []string) ([]telemetryv1.MeasurementType, erro
 		return nil, fmt.Errorf("invalid value for metric: %s. Valid options: %s", strings.Join(unknown, ", "), strings.Join(supportedMetricNames(), ", "))
 	}
 	return result, nil
+}
+
+func requestedPerformanceMetrics(cmd *cli.Command) []string {
+	if cmd.IsSet("metric") {
+		return cmd.StringSlice("metric")
+	}
+	return defaultPerformanceMetrics
 }
 
 func supportedMetricNames() []string {
@@ -478,7 +488,7 @@ func summarizePerformance(cmd *cli.Command, resp *telemetryv1.GetCombinedMetrics
 		Source:            "telemetry.v1.TelemetryService/GetCombinedMetrics",
 		Window:            cmd.Duration("window").String(),
 		Granularity:       cmd.Duration("granularity").String(),
-		RequestedMetrics:  cmd.StringSlice("metric"),
+		RequestedMetrics:  requestedPerformanceMetrics(cmd),
 		ReturnedRows:      len(resp.GetMetrics()),
 		NextPageToken:     resp.GetNextPageToken(),
 		Latest:            orderedLatest,
