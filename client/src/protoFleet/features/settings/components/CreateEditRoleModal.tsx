@@ -43,6 +43,7 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
     permissionGroups,
     withRequiredReads,
     lockedReadKeys,
+    missingDependencies,
     isLoading: catalogLoading,
     error: catalogError,
   } = usePermissionCatalog();
@@ -68,6 +69,7 @@ const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRol
       permissionGroups={permissionGroups}
       withRequiredReads={withRequiredReads}
       lockedReadKeys={lockedReadKeys}
+      missingDependencies={missingDependencies}
       createRole={createRole}
       updateRole={updateRole}
       onDismiss={onDismiss}
@@ -84,6 +86,7 @@ interface FormProps {
   permissionGroups: PermissionGroup[];
   withRequiredReads: (selected: Iterable<string>) => string[];
   lockedReadKeys: (selected: Iterable<string>) => Set<string>;
+  missingDependencies: (selected: Iterable<string>) => string[];
   createRole: ReturnType<typeof useRoleManagement>["createRole"];
   updateRole: ReturnType<typeof useRoleManagement>["updateRole"];
   onDismiss: () => void;
@@ -98,6 +101,7 @@ const CreateEditRoleModalForm = ({
   permissionGroups,
   withRequiredReads,
   lockedReadKeys,
+  missingDependencies,
   createRole,
   updateRole,
   onDismiss,
@@ -225,6 +229,20 @@ const CreateEditRoleModalForm = ({
 
   const lockedReads = useMemo(() => lockedReadKeys(Array.from(selected)), [selected, lockedReadKeys]);
 
+  // Permissions the current selection needs to be usable but doesn't grant
+  // yet (e.g. Schedules can't run an action without the matching miner
+  // permission). Surfaced as a one-click suggestion rather than auto-added.
+  const descriptionByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    permissionGroups.forEach((group) => group.entries.forEach((entry) => map.set(entry.key, entry.description)));
+    return map;
+  }, [permissionGroups]);
+  const missingDeps = useMemo(() => missingDependencies(Array.from(selected)), [selected, missingDependencies]);
+  const addMissingDeps = useCallback(() => {
+    setErrorMsg("");
+    setExplicit((prev) => new Set([...prev, ...missingDeps]));
+  }, [missingDeps]);
+
   return (
     <Modal
       open={isVisible}
@@ -292,6 +310,20 @@ const CreateEditRoleModalForm = ({
         />
       </div>
 
+      {missingDeps.length > 0 ? (
+        <Callout
+          className="mb-3"
+          intent="warning"
+          prefixIcon={<Alert />}
+          title="This role needs more access to be usable"
+          subtitle={`The permissions you selected also depend on: ${missingDeps
+            .map((key) => descriptionByKey.get(key) ?? key)
+            .join(", ")}`}
+          buttonText="Add required permissions"
+          buttonOnClick={addMissingDeps}
+        />
+      ) : null}
+
       {renderedGroups.length === 0 ? (
         <div className="py-10 text-center text-200 text-text-primary-50">No permissions match "{query.trim()}".</div>
       ) : (
@@ -307,6 +339,7 @@ const CreateEditRoleModalForm = ({
               <section key={group.resource}>
                 <div className="flex items-center gap-3 py-3">
                   <Checkbox
+                    className="shrink-0"
                     checked={allSelected}
                     partiallyChecked={someSelected}
                     onChange={(e) => toggleGroup(groupKeys, e.target.checked)}
@@ -351,6 +384,7 @@ const CreateEditRoleModalForm = ({
                           )}
                         >
                           <Checkbox
+                            className="shrink-0"
                             checked={checked}
                             disabled={isLocked}
                             onChange={(e) => toggleKey(entry.key, e.target.checked)}

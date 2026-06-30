@@ -43,18 +43,18 @@ const SystemDefaultRoleLockContent = () => {
   return (
     <div
       ref={triggerRef}
-      className={`${systemDefaultRoleTriggerClassName} relative inline-flex justify-center text-text-primary-50`}
+      className={`${systemDefaultRoleTriggerClassName} relative flex w-full text-text-primary-50`}
       data-testid="system-role-lock"
     >
       <button
         type="button"
-        className="p-1 hover:cursor-pointer hover:text-text-primary"
+        className="flex h-8 w-8 items-center justify-center hover:cursor-pointer hover:text-text-primary"
         aria-label="System default role"
         aria-expanded={isOpen}
         aria-haspopup="dialog"
         onClick={() => setIsOpen((current) => !current)}
       >
-        <Lock width="w-5" />
+        <Lock />
       </button>
       {isOpen ? (
         <Popover

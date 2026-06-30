@@ -124,22 +124,22 @@ type CatalogEntry struct {
 // catalog is the canonical list. Order is by resource group then by key,
 // chosen to match the order the admin UI renders.
 var catalog = []CatalogEntry{
-	{PermFleetRead, "View dashboard, miner list, and telemetry. Required floor for any role with miner actions.", ResourceFleet},
+	{PermFleetRead, "View the dashboard, miner list, and live telemetry.", ResourceFleet},
 
-	{PermMinerRead, "View miner detail, status snapshot, and error history. Required floor for any miner action permission.", ResourceMiner},
-	{PermMinerBlinkLED, "Trigger the locator LED on a miner.", ResourceMiner},
+	{PermMinerRead, "View a miner's details, status, and error history.", ResourceMiner},
+	{PermMinerBlinkLED, "Flash a miner's locator LED.", ResourceMiner},
 	{PermMinerReboot, "Reboot a miner.", ResourceMiner},
 	{PermMinerStartMining, "Start mining on a miner.", ResourceMiner},
 	{PermMinerStopMining, "Stop mining on a miner.", ResourceMiner},
-	{PermMinerUpdatePools, "Update a miner's pool configuration.", ResourceMiner},
-	{PermMinerUpdateWorkerName, "Update worker names on a miner.", ResourceMiner},
+	{PermMinerUpdatePools, "Change a miner's mining pool configuration.", ResourceMiner},
+	{PermMinerUpdateWorkerName, "Change a miner's worker names.", ResourceMiner},
 	{PermMinerRename, "Rename a miner.", ResourceMiner},
 	{PermMinerDelete, "Delete a miner.", ResourceMiner},
 	{PermMinerSetCoolingMode, "Change a miner's cooling mode.", ResourceMiner},
 	{PermMinerSetPowerTarget, "Change a miner's power target.", ResourceMiner},
-	{PermMinerFirmwareUpdate, "Push a firmware update to a miner. Firmware dispatch also requires miner:reboot because successful installs may reboot automatically.", ResourceMiner},
+	{PermMinerFirmwareUpdate, "Install firmware updates on a miner. Installs can reboot the device, so this also needs reboot access.", ResourceMiner},
 	{PermMinerDownloadLogs, "Download diagnostic logs from a miner.", ResourceMiner},
-	{PermMinerUpdatePassword, "Change the miner's device-local web UI password.", ResourceMiner},
+	{PermMinerUpdatePassword, "Change a miner's local web interface password.", ResourceMiner},
 	{PermMinerUnpair, "Unpair a miner from the fleet.", ResourceMiner},
 	{PermMinerPair, "Pair a new miner into the fleet.", ResourceMiner},
 	{PermMinerExportCSV, "Export miner data as CSV.", ResourceMiner},
@@ -162,7 +162,7 @@ var catalog = []CatalogEntry{
 	{PermPoolManage, "Create, edit, and delete saved mining pool configurations.", ResourcePool},
 
 	{PermScheduleRead, "View scheduled miner actions.", ResourceSchedule},
-	{PermScheduleManage, "Create, edit, pause, resume, and delete scheduled miner actions. Requires the underlying miner action permission to schedule that action.", ResourceSchedule},
+	{PermScheduleManage, "Create, edit, pause, resume, and delete scheduled miner actions. Scheduling an action also needs permission to perform that action.", ResourceSchedule},
 
 	{PermFleetnodeRead, "View fleet-node state.", ResourceFleetNode},
 	{PermFleetnodeManage, "Perform fleet-node admin operations.", ResourceFleetNode},

@@ -15,6 +15,21 @@ describe("primaryNavItems", () => {
     });
     expect(labels.indexOf("Energy")).toBe(labels.indexOf("Activity") - 1);
   });
+
+  it("gates Fleet and Groups on fleet:read so inaccessible pages stay hidden", () => {
+    const fleet = primaryNavItems.find((item) => item.label === "Fleet");
+    const groups = primaryNavItems.find((item) => item.label === "Groups");
+
+    expect(fleet?.requiredPermission).toBe("fleet:read");
+    expect(groups?.requiredPermission).toBe("fleet:read");
+  });
+
+  it("leaves Home ungated as the universal landing", () => {
+    const home = primaryNavItems.find((item) => item.label === "Home");
+
+    expect(home?.requiredPermission).toBeUndefined();
+    expect(home?.requiredAnyPermission).toBeUndefined();
+  });
 });
 
 describe("secondaryNavItems", () => {
