@@ -12,8 +12,12 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file authz/v1/authz.proto.
  */
-export const file_authz_v1_authz: GenFile = /*@__PURE__*/
-  fileDesc("ChRhdXRoei92MS9hdXRoei5wcm90bxIIYXV0aHoudjEiQAoKUGVybWlzc2lvbhILCgNrZXkYASABKAkSEwoLZGVzY3JpcHRpb24YAiABKAkSEAoIcmVzb3VyY2UYAyABKAkiTgoPUGVybWlzc2lvbkdyb3VwEhAKCHJlc291cmNlGAEgASgJEikKC3Blcm1pc3Npb25zGAIgAygLMhQuYXV0aHoudjEuUGVybWlzc2lvbiLVAQoEUm9sZRIPCgdyb2xlX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkSFwoPcGVybWlzc2lvbl9rZXlzGAQgAygJEg8KB2J1aWx0aW4YBSABKAgSKQoLYnVpbHRpbl9rZXkYBiABKA4yFC5hdXRoei52MS5CdWlsdGluS2V5EhQKDG1lbWJlcl9jb3VudBgHIAEoBRIuCgp1cGRhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCLTAQoKQXNzaWdubWVudBIVCg1hc3NpZ25tZW50X2lkGAEgASgJEg8KB3VzZXJfaWQYAiABKAkSDwoHcm9sZV9pZBgDIAEoCRIRCglyb2xlX25hbWUYBCABKAkSJwoKc2NvcGVfdHlwZRgFIAEoDjITLmF1dGh6LnYxLlNjb3BlVHlwZRIUCgdzaXRlX2lkGAYgASgDSACIAQESLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCCgoIX3NpdGVfaWQiGAoWTGlzdFBlcm1pc3Npb25zUmVxdWVzdCJEChdMaXN0UGVybWlzc2lvbnNSZXNwb25zZRIpCgtwZXJtaXNzaW9ucxgBIAMoCzIULmF1dGh6LnYxLlBlcm1pc3Npb24iEgoQTGlzdFJvbGVzUmVxdWVzdCIyChFMaXN0Um9sZXNSZXNwb25zZRIdCgVyb2xlcxgBIAMoCzIOLmF1dGh6LnYxLlJvbGUijwEKF0NyZWF0ZUN1c3RvbVJvbGVSZXF1ZXN0EhgKBG5hbWUYASABKAlCCrpIB3IFEAEY/wESHQoLZGVzY3JpcHRpb24YAiABKAlCCLpIBXIDGIAIEjsKD3Blcm1pc3Npb25fa2V5cxgDIAMoCUIiukgfkgEcEGQiGHIWEAMYQDIQXlthLXpdKzpbYS16X10rJCI4ChhDcmVhdGVDdXN0b21Sb2xlUmVzcG9uc2USHAoEcm9sZRgBIAEoCzIOLmF1dGh6LnYxLlJvbGUiqwEKF1VwZGF0ZUN1c3RvbVJvbGVSZXF1ZXN0EhoKB3JvbGVfaWQYASABKAlCCbpIBnIEEAEYFBIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxiACBI7Cg9wZXJtaXNzaW9uX2tleXMYBCADKAlCIrpIH5IBHBBkIhhyFhADGEAyEF5bYS16XSs6W2Etel9dKyQiOAoYVXBkYXRlQ3VzdG9tUm9sZVJlc3BvbnNlEhwKBHJvbGUYASABKAsyDi5hdXRoei52MS5Sb2xlIjUKF0RlbGV0ZUN1c3RvbVJvbGVSZXF1ZXN0EhoKB3JvbGVfaWQYASABKAlCCbpIBnIEEAEYFCIaChhEZWxldGVDdXN0b21Sb2xlUmVzcG9uc2UiqwEKEUFzc2lnblJvbGVSZXF1ZXN0EhoKB3VzZXJfaWQYASABKAlCCbpIBnIEEAEYQBIaCgdyb2xlX2lkGAIgASgJQgm6SAZyBBABGBQSMwoKc2NvcGVfdHlwZRgDIAEoDjITLmF1dGh6LnYxLlNjb3BlVHlwZUIKukgHggEEEAEgABIdCgdzaXRlX2lkGAQgASgDQge6SAQiAiAASACIAQFCCgoIX3NpdGVfaWQiPgoSQXNzaWduUm9sZVJlc3BvbnNlEigKCmFzc2lnbm1lbnQYASABKAsyFC5hdXRoei52MS5Bc3NpZ25tZW50IjcKE1VuYXNzaWduUm9sZVJlcXVlc3QSIAoNYXNzaWdubWVudF9pZBgBIAEoCUIJukgGcgQQARgUIhYKFFVuYXNzaWduUm9sZVJlc3BvbnNlIjgKGkxpc3RVc2VyQXNzaWdubWVudHNSZXF1ZXN0EhoKB3VzZXJfaWQYASABKAlCCbpIBnIEEAEYQCJIChtMaXN0VXNlckFzc2lnbm1lbnRzUmVzcG9uc2USKQoLYXNzaWdubWVudHMYASADKAsyFC5hdXRoei52MS5Bc3NpZ25tZW50KnkKCkJ1aWx0aW5LZXkSGwoXQlVJTFRJTl9LRVlfVU5TUEVDSUZJRUQQABIbChdCVUlMVElOX0tFWV9TVVBFUl9BRE1JThABEhUKEUJVSUxUSU5fS0VZX0FETUlOEAISGgoWQlVJTFRJTl9LRVlfRklFTERfVEVDSBADKlAKCVNjb3BlVHlwZRIaChZTQ09QRV9UWVBFX1VOU1BFQ0lGSUVEEAASEgoOU0NPUEVfVFlQRV9PUkcQARITCg9TQ09QRV9UWVBFX1NJVEUQAjK5BQoMQXV0aHpTZXJ2aWNlElYKD0xpc3RQZXJtaXNzaW9ucxIgLmF1dGh6LnYxLkxpc3RQZXJtaXNzaW9uc1JlcXVlc3QaIS5hdXRoei52MS5MaXN0UGVybWlzc2lvbnNSZXNwb25zZRJECglMaXN0Um9sZXMSGi5hdXRoei52MS5MaXN0Um9sZXNSZXF1ZXN0GhsuYXV0aHoudjEuTGlzdFJvbGVzUmVzcG9uc2USWQoQQ3JlYXRlQ3VzdG9tUm9sZRIhLmF1dGh6LnYxLkNyZWF0ZUN1c3RvbVJvbGVSZXF1ZXN0GiIuYXV0aHoudjEuQ3JlYXRlQ3VzdG9tUm9sZVJlc3BvbnNlElkKEFVwZGF0ZUN1c3RvbVJvbGUSIS5hdXRoei52MS5VcGRhdGVDdXN0b21Sb2xlUmVxdWVzdBoiLmF1dGh6LnYxLlVwZGF0ZUN1c3RvbVJvbGVSZXNwb25zZRJZChBEZWxldGVDdXN0b21Sb2xlEiEuYXV0aHoudjEuRGVsZXRlQ3VzdG9tUm9sZVJlcXVlc3QaIi5hdXRoei52MS5EZWxldGVDdXN0b21Sb2xlUmVzcG9uc2USRwoKQXNzaWduUm9sZRIbLmF1dGh6LnYxLkFzc2lnblJvbGVSZXF1ZXN0GhwuYXV0aHoudjEuQXNzaWduUm9sZVJlc3BvbnNlEk0KDFVuYXNzaWduUm9sZRIdLmF1dGh6LnYxLlVuYXNzaWduUm9sZVJlcXVlc3QaHi5hdXRoei52MS5VbmFzc2lnblJvbGVSZXNwb25zZRJiChNMaXN0VXNlckFzc2lnbm1lbnRzEiQuYXV0aHoudjEuTGlzdFVzZXJBc3NpZ25tZW50c1JlcXVlc3QaJS5hdXRoei52MS5MaXN0VXNlckFzc2lnbm1lbnRzUmVzcG9uc2VCoAEKDGNvbS5hdXRoei52MUIKQXV0aHpQcm90b1ABWkNnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9hdXRoei92MTthdXRoenYxogIDQVhYqgIIQXV0aHouVjHKAghBdXRoelxWMeICFEF1dGh6XFYxXEdQQk1ldGFkYXRh6gIJQXV0aHo6OlYxYgZwcm90bzM", [file_buf_validate_validate, file_google_protobuf_timestamp]);
+export const file_authz_v1_authz: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    "ChRhdXRoei92MS9hdXRoei5wcm90bxIIYXV0aHoudjEiQAoKUGVybWlzc2lvbhILCgNrZXkYASABKAkSEwoLZGVzY3JpcHRpb24YAiABKAkSEAoIcmVzb3VyY2UYAyABKAkiTgoPUGVybWlzc2lvbkdyb3VwEhAKCHJlc291cmNlGAEgASgJEikKC3Blcm1pc3Npb25zGAIgAygLMhQuYXV0aHoudjEuUGVybWlzc2lvbiLVAQoEUm9sZRIPCgdyb2xlX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkSFwoPcGVybWlzc2lvbl9rZXlzGAQgAygJEg8KB2J1aWx0aW4YBSABKAgSKQoLYnVpbHRpbl9rZXkYBiABKA4yFC5hdXRoei52MS5CdWlsdGluS2V5EhQKDG1lbWJlcl9jb3VudBgHIAEoBRIuCgp1cGRhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCLTAQoKQXNzaWdubWVudBIVCg1hc3NpZ25tZW50X2lkGAEgASgJEg8KB3VzZXJfaWQYAiABKAkSDwoHcm9sZV9pZBgDIAEoCRIRCglyb2xlX25hbWUYBCABKAkSJwoKc2NvcGVfdHlwZRgFIAEoDjITLmF1dGh6LnYxLlNjb3BlVHlwZRIUCgdzaXRlX2lkGAYgASgDSACIAQESLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCCgoIX3NpdGVfaWQiGAoWTGlzdFBlcm1pc3Npb25zUmVxdWVzdCJEChdMaXN0UGVybWlzc2lvbnNSZXNwb25zZRIpCgtwZXJtaXNzaW9ucxgBIAMoCzIULmF1dGh6LnYxLlBlcm1pc3Npb24iEgoQTGlzdFJvbGVzUmVxdWVzdCIyChFMaXN0Um9sZXNSZXNwb25zZRIdCgVyb2xlcxgBIAMoCzIOLmF1dGh6LnYxLlJvbGUijwEKF0NyZWF0ZUN1c3RvbVJvbGVSZXF1ZXN0EhgKBG5hbWUYASABKAlCCrpIB3IFEAEY/wESHQoLZGVzY3JpcHRpb24YAiABKAlCCLpIBXIDGIAIEjsKD3Blcm1pc3Npb25fa2V5cxgDIAMoCUIiukgfkgEcEGQiGHIWEAMYQDIQXlthLXpdKzpbYS16X10rJCI4ChhDcmVhdGVDdXN0b21Sb2xlUmVzcG9uc2USHAoEcm9sZRgBIAEoCzIOLmF1dGh6LnYxLlJvbGUiqwEKF1VwZGF0ZUN1c3RvbVJvbGVSZXF1ZXN0EhoKB3JvbGVfaWQYASABKAlCCbpIBnIEEAEYFBIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxiACBI7Cg9wZXJtaXNzaW9uX2tleXMYBCADKAlCIrpIH5IBHBBkIhhyFhADGEAyEF5bYS16XSs6W2Etel9dKyQiOAoYVXBkYXRlQ3VzdG9tUm9sZVJlc3BvbnNlEhwKBHJvbGUYASABKAsyDi5hdXRoei52MS5Sb2xlIjUKF0RlbGV0ZUN1c3RvbVJvbGVSZXF1ZXN0EhoKB3JvbGVfaWQYASABKAlCCbpIBnIEEAEYFCIaChhEZWxldGVDdXN0b21Sb2xlUmVzcG9uc2UiqwEKEUFzc2lnblJvbGVSZXF1ZXN0EhoKB3VzZXJfaWQYASABKAlCCbpIBnIEEAEYQBIaCgdyb2xlX2lkGAIgASgJQgm6SAZyBBABGBQSMwoKc2NvcGVfdHlwZRgDIAEoDjITLmF1dGh6LnYxLlNjb3BlVHlwZUIKukgHggEEEAEgABIdCgdzaXRlX2lkGAQgASgDQge6SAQiAiAASACIAQFCCgoIX3NpdGVfaWQiPgoSQXNzaWduUm9sZVJlc3BvbnNlEigKCmFzc2lnbm1lbnQYASABKAsyFC5hdXRoei52MS5Bc3NpZ25tZW50IjcKE1VuYXNzaWduUm9sZVJlcXVlc3QSIAoNYXNzaWdubWVudF9pZBgBIAEoCUIJukgGcgQQARgUIhYKFFVuYXNzaWduUm9sZVJlc3BvbnNlIjgKGkxpc3RVc2VyQXNzaWdubWVudHNSZXF1ZXN0EhoKB3VzZXJfaWQYASABKAlCCbpIBnIEEAEYQCJIChtMaXN0VXNlckFzc2lnbm1lbnRzUmVzcG9uc2USKQoLYXNzaWdubWVudHMYASADKAsyFC5hdXRoei52MS5Bc3NpZ25tZW50KnkKCkJ1aWx0aW5LZXkSGwoXQlVJTFRJTl9LRVlfVU5TUEVDSUZJRUQQABIbChdCVUlMVElOX0tFWV9TVVBFUl9BRE1JThABEhUKEUJVSUxUSU5fS0VZX0FETUlOEAISGgoWQlVJTFRJTl9LRVlfRklFTERfVEVDSBADKlAKCVNjb3BlVHlwZRIaChZTQ09QRV9UWVBFX1VOU1BFQ0lGSUVEEAASEgoOU0NPUEVfVFlQRV9PUkcQARITCg9TQ09QRV9UWVBFX1NJVEUQAjK5BQoMQXV0aHpTZXJ2aWNlElYKD0xpc3RQZXJtaXNzaW9ucxIgLmF1dGh6LnYxLkxpc3RQZXJtaXNzaW9uc1JlcXVlc3QaIS5hdXRoei52MS5MaXN0UGVybWlzc2lvbnNSZXNwb25zZRJECglMaXN0Um9sZXMSGi5hdXRoei52MS5MaXN0Um9sZXNSZXF1ZXN0GhsuYXV0aHoudjEuTGlzdFJvbGVzUmVzcG9uc2USWQoQQ3JlYXRlQ3VzdG9tUm9sZRIhLmF1dGh6LnYxLkNyZWF0ZUN1c3RvbVJvbGVSZXF1ZXN0GiIuYXV0aHoudjEuQ3JlYXRlQ3VzdG9tUm9sZVJlc3BvbnNlElkKEFVwZGF0ZUN1c3RvbVJvbGUSIS5hdXRoei52MS5VcGRhdGVDdXN0b21Sb2xlUmVxdWVzdBoiLmF1dGh6LnYxLlVwZGF0ZUN1c3RvbVJvbGVSZXNwb25zZRJZChBEZWxldGVDdXN0b21Sb2xlEiEuYXV0aHoudjEuRGVsZXRlQ3VzdG9tUm9sZVJlcXVlc3QaIi5hdXRoei52MS5EZWxldGVDdXN0b21Sb2xlUmVzcG9uc2USRwoKQXNzaWduUm9sZRIbLmF1dGh6LnYxLkFzc2lnblJvbGVSZXF1ZXN0GhwuYXV0aHoudjEuQXNzaWduUm9sZVJlc3BvbnNlEk0KDFVuYXNzaWduUm9sZRIdLmF1dGh6LnYxLlVuYXNzaWduUm9sZVJlcXVlc3QaHi5hdXRoei52MS5VbmFzc2lnblJvbGVSZXNwb25zZRJiChNMaXN0VXNlckFzc2lnbm1lbnRzEiQuYXV0aHoudjEuTGlzdFVzZXJBc3NpZ25tZW50c1JlcXVlc3QaJS5hdXRoei52MS5MaXN0VXNlckFzc2lnbm1lbnRzUmVzcG9uc2VCoAEKDGNvbS5hdXRoei52MUIKQXV0aHpQcm90b1ABWkNnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9hdXRoei92MTthdXRoenYxogIDQVhYqgIIQXV0aHouVjHKAghBdXRoelxWMeICFEF1dGh6XFYxXEdQQk1ldGFkYXRh6gIJQXV0aHo6OlYxYgZwcm90bzM",
+    [file_buf_validate_validate, file_google_protobuf_timestamp],
+  );
 
 /**
  * Permission is a single resource:action grant in the catalog. The catalog is
@@ -51,8 +55,7 @@ export type Permission = Message<"authz.v1.Permission"> & {
  * Describes the message authz.v1.Permission.
  * Use `create(PermissionSchema)` to create a new message.
  */
-export const PermissionSchema: GenMessage<Permission> = /*@__PURE__*/
-  messageDesc(file_authz_v1_authz, 0);
+export const PermissionSchema: GenMessage<Permission> = /*@__PURE__*/ messageDesc(file_authz_v1_authz, 0);
 
 /**
  * PermissionGroup buckets permissions under a single resource so the admin UI
@@ -76,8 +79,7 @@ export type PermissionGroup = Message<"authz.v1.PermissionGroup"> & {
  * Describes the message authz.v1.PermissionGroup.
  * Use `create(PermissionGroupSchema)` to create a new message.
  */
-export const PermissionGroupSchema: GenMessage<PermissionGroup> = /*@__PURE__*/
-  messageDesc(file_authz_v1_authz, 1);
+export const PermissionGroupSchema: GenMessage<PermissionGroup> = /*@__PURE__*/ messageDesc(file_authz_v1_authz, 1);
 
 /**
  * Role is a (name, description, permission set) bundle that can be assigned
@@ -139,8 +141,7 @@ export type Role = Message<"authz.v1.Role"> & {
  * Describes the message authz.v1.Role.
  * Use `create(RoleSchema)` to create a new message.
  */
-export const RoleSchema: GenMessage<Role> = /*@__PURE__*/
-  messageDesc(file_authz_v1_authz, 2);
+export const RoleSchema: GenMessage<Role> = /*@__PURE__*/ messageDesc(file_authz_v1_authz, 2);
 
 /**
  * Assignment is one (user, role, scope) row. site_id is set only when
@@ -193,20 +194,19 @@ export type Assignment = Message<"authz.v1.Assignment"> & {
  * Describes the message authz.v1.Assignment.
  * Use `create(AssignmentSchema)` to create a new message.
  */
-export const AssignmentSchema: GenMessage<Assignment> = /*@__PURE__*/
-  messageDesc(file_authz_v1_authz, 3);
+export const AssignmentSchema: GenMessage<Assignment> = /*@__PURE__*/ messageDesc(file_authz_v1_authz, 3);
 
 /**
  * @generated from message authz.v1.ListPermissionsRequest
  */
-export type ListPermissionsRequest = Message<"authz.v1.ListPermissionsRequest"> & {
-};
+export type ListPermissionsRequest = Message<"authz.v1.ListPermissionsRequest"> & {};
 
 /**
  * Describes the message authz.v1.ListPermissionsRequest.
  * Use `create(ListPermissionsRequestSchema)` to create a new message.
  */
-export const ListPermissionsRequestSchema: GenMessage<ListPermissionsRequest> = /*@__PURE__*/
+export const ListPermissionsRequestSchema: GenMessage<ListPermissionsRequest> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 4);
 
 /**
@@ -227,21 +227,20 @@ export type ListPermissionsResponse = Message<"authz.v1.ListPermissionsResponse"
  * Describes the message authz.v1.ListPermissionsResponse.
  * Use `create(ListPermissionsResponseSchema)` to create a new message.
  */
-export const ListPermissionsResponseSchema: GenMessage<ListPermissionsResponse> = /*@__PURE__*/
+export const ListPermissionsResponseSchema: GenMessage<ListPermissionsResponse> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 5);
 
 /**
  * @generated from message authz.v1.ListRolesRequest
  */
-export type ListRolesRequest = Message<"authz.v1.ListRolesRequest"> & {
-};
+export type ListRolesRequest = Message<"authz.v1.ListRolesRequest"> & {};
 
 /**
  * Describes the message authz.v1.ListRolesRequest.
  * Use `create(ListRolesRequestSchema)` to create a new message.
  */
-export const ListRolesRequestSchema: GenMessage<ListRolesRequest> = /*@__PURE__*/
-  messageDesc(file_authz_v1_authz, 6);
+export const ListRolesRequestSchema: GenMessage<ListRolesRequest> = /*@__PURE__*/ messageDesc(file_authz_v1_authz, 6);
 
 /**
  * @generated from message authz.v1.ListRolesResponse
@@ -257,8 +256,7 @@ export type ListRolesResponse = Message<"authz.v1.ListRolesResponse"> & {
  * Describes the message authz.v1.ListRolesResponse.
  * Use `create(ListRolesResponseSchema)` to create a new message.
  */
-export const ListRolesResponseSchema: GenMessage<ListRolesResponse> = /*@__PURE__*/
-  messageDesc(file_authz_v1_authz, 7);
+export const ListRolesResponseSchema: GenMessage<ListRolesResponse> = /*@__PURE__*/ messageDesc(file_authz_v1_authz, 7);
 
 /**
  * @generated from message authz.v1.CreateCustomRoleRequest
@@ -295,7 +293,8 @@ export type CreateCustomRoleRequest = Message<"authz.v1.CreateCustomRoleRequest"
  * Describes the message authz.v1.CreateCustomRoleRequest.
  * Use `create(CreateCustomRoleRequestSchema)` to create a new message.
  */
-export const CreateCustomRoleRequestSchema: GenMessage<CreateCustomRoleRequest> = /*@__PURE__*/
+export const CreateCustomRoleRequestSchema: GenMessage<CreateCustomRoleRequest> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 8);
 
 /**
@@ -312,7 +311,8 @@ export type CreateCustomRoleResponse = Message<"authz.v1.CreateCustomRoleRespons
  * Describes the message authz.v1.CreateCustomRoleResponse.
  * Use `create(CreateCustomRoleResponseSchema)` to create a new message.
  */
-export const CreateCustomRoleResponseSchema: GenMessage<CreateCustomRoleResponse> = /*@__PURE__*/
+export const CreateCustomRoleResponseSchema: GenMessage<CreateCustomRoleResponse> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 9);
 
 /**
@@ -347,7 +347,8 @@ export type UpdateCustomRoleRequest = Message<"authz.v1.UpdateCustomRoleRequest"
  * Describes the message authz.v1.UpdateCustomRoleRequest.
  * Use `create(UpdateCustomRoleRequestSchema)` to create a new message.
  */
-export const UpdateCustomRoleRequestSchema: GenMessage<UpdateCustomRoleRequest> = /*@__PURE__*/
+export const UpdateCustomRoleRequestSchema: GenMessage<UpdateCustomRoleRequest> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 10);
 
 /**
@@ -364,7 +365,8 @@ export type UpdateCustomRoleResponse = Message<"authz.v1.UpdateCustomRoleRespons
  * Describes the message authz.v1.UpdateCustomRoleResponse.
  * Use `create(UpdateCustomRoleResponseSchema)` to create a new message.
  */
-export const UpdateCustomRoleResponseSchema: GenMessage<UpdateCustomRoleResponse> = /*@__PURE__*/
+export const UpdateCustomRoleResponseSchema: GenMessage<UpdateCustomRoleResponse> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 11);
 
 /**
@@ -381,20 +383,21 @@ export type DeleteCustomRoleRequest = Message<"authz.v1.DeleteCustomRoleRequest"
  * Describes the message authz.v1.DeleteCustomRoleRequest.
  * Use `create(DeleteCustomRoleRequestSchema)` to create a new message.
  */
-export const DeleteCustomRoleRequestSchema: GenMessage<DeleteCustomRoleRequest> = /*@__PURE__*/
+export const DeleteCustomRoleRequestSchema: GenMessage<DeleteCustomRoleRequest> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 12);
 
 /**
  * @generated from message authz.v1.DeleteCustomRoleResponse
  */
-export type DeleteCustomRoleResponse = Message<"authz.v1.DeleteCustomRoleResponse"> & {
-};
+export type DeleteCustomRoleResponse = Message<"authz.v1.DeleteCustomRoleResponse"> & {};
 
 /**
  * Describes the message authz.v1.DeleteCustomRoleResponse.
  * Use `create(DeleteCustomRoleResponseSchema)` to create a new message.
  */
-export const DeleteCustomRoleResponseSchema: GenMessage<DeleteCustomRoleResponse> = /*@__PURE__*/
+export const DeleteCustomRoleResponseSchema: GenMessage<DeleteCustomRoleResponse> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 13);
 
 /**
@@ -432,7 +435,8 @@ export type AssignRoleRequest = Message<"authz.v1.AssignRoleRequest"> & {
  * Describes the message authz.v1.AssignRoleRequest.
  * Use `create(AssignRoleRequestSchema)` to create a new message.
  */
-export const AssignRoleRequestSchema: GenMessage<AssignRoleRequest> = /*@__PURE__*/
+export const AssignRoleRequestSchema: GenMessage<AssignRoleRequest> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 14);
 
 /**
@@ -449,7 +453,8 @@ export type AssignRoleResponse = Message<"authz.v1.AssignRoleResponse"> & {
  * Describes the message authz.v1.AssignRoleResponse.
  * Use `create(AssignRoleResponseSchema)` to create a new message.
  */
-export const AssignRoleResponseSchema: GenMessage<AssignRoleResponse> = /*@__PURE__*/
+export const AssignRoleResponseSchema: GenMessage<AssignRoleResponse> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 15);
 
 /**
@@ -466,20 +471,21 @@ export type UnassignRoleRequest = Message<"authz.v1.UnassignRoleRequest"> & {
  * Describes the message authz.v1.UnassignRoleRequest.
  * Use `create(UnassignRoleRequestSchema)` to create a new message.
  */
-export const UnassignRoleRequestSchema: GenMessage<UnassignRoleRequest> = /*@__PURE__*/
+export const UnassignRoleRequestSchema: GenMessage<UnassignRoleRequest> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 16);
 
 /**
  * @generated from message authz.v1.UnassignRoleResponse
  */
-export type UnassignRoleResponse = Message<"authz.v1.UnassignRoleResponse"> & {
-};
+export type UnassignRoleResponse = Message<"authz.v1.UnassignRoleResponse"> & {};
 
 /**
  * Describes the message authz.v1.UnassignRoleResponse.
  * Use `create(UnassignRoleResponseSchema)` to create a new message.
  */
-export const UnassignRoleResponseSchema: GenMessage<UnassignRoleResponse> = /*@__PURE__*/
+export const UnassignRoleResponseSchema: GenMessage<UnassignRoleResponse> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 17);
 
 /**
@@ -496,7 +502,8 @@ export type ListUserAssignmentsRequest = Message<"authz.v1.ListUserAssignmentsRe
  * Describes the message authz.v1.ListUserAssignmentsRequest.
  * Use `create(ListUserAssignmentsRequestSchema)` to create a new message.
  */
-export const ListUserAssignmentsRequestSchema: GenMessage<ListUserAssignmentsRequest> = /*@__PURE__*/
+export const ListUserAssignmentsRequestSchema: GenMessage<ListUserAssignmentsRequest> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 18);
 
 /**
@@ -513,7 +520,8 @@ export type ListUserAssignmentsResponse = Message<"authz.v1.ListUserAssignmentsR
  * Describes the message authz.v1.ListUserAssignmentsResponse.
  * Use `create(ListUserAssignmentsResponseSchema)` to create a new message.
  */
-export const ListUserAssignmentsResponseSchema: GenMessage<ListUserAssignmentsResponse> = /*@__PURE__*/
+export const ListUserAssignmentsResponseSchema: GenMessage<ListUserAssignmentsResponse> =
+  /*@__PURE__*/
   messageDesc(file_authz_v1_authz, 19);
 
 /**
@@ -548,8 +556,7 @@ export enum BuiltinKey {
 /**
  * Describes the enum authz.v1.BuiltinKey.
  */
-export const BuiltinKeySchema: GenEnum<BuiltinKey> = /*@__PURE__*/
-  enumDesc(file_authz_v1_authz, 0);
+export const BuiltinKeySchema: GenEnum<BuiltinKey> = /*@__PURE__*/ enumDesc(file_authz_v1_authz, 0);
 
 /**
  * ScopeType narrows an assignment's reach. Building-level scoping is not
@@ -578,8 +585,7 @@ export enum ScopeType {
 /**
  * Describes the enum authz.v1.ScopeType.
  */
-export const ScopeTypeSchema: GenEnum<ScopeType> = /*@__PURE__*/
-  enumDesc(file_authz_v1_authz, 1);
+export const ScopeTypeSchema: GenEnum<ScopeType> = /*@__PURE__*/ enumDesc(file_authz_v1_authz, 1);
 
 /**
  * AuthzService is the role + assignment management surface for granular
@@ -614,7 +620,7 @@ export const AuthzService: GenService<{
     methodKind: "unary";
     input: typeof ListPermissionsRequestSchema;
     output: typeof ListPermissionsResponseSchema;
-  },
+  };
   /**
    * ListRoles returns built-in (SUPER_ADMIN, ADMIN, FIELD_TECH) and custom
    * roles scoped to the caller's organization. Built-ins are always
@@ -626,7 +632,7 @@ export const AuthzService: GenService<{
     methodKind: "unary";
     input: typeof ListRolesRequestSchema;
     output: typeof ListRolesResponseSchema;
-  },
+  };
   /**
    * CreateCustomRole adds a new role to the organization. The caller must
    * hold every permission they grant the new role (privilege-parity
@@ -638,7 +644,7 @@ export const AuthzService: GenService<{
     methodKind: "unary";
     input: typeof CreateCustomRoleRequestSchema;
     output: typeof CreateCustomRoleResponseSchema;
-  },
+  };
   /**
    * UpdateCustomRole replaces the full attribute set on a custom role.
    * Built-in roles (SUPER_ADMIN, ADMIN, FIELD_TECH) are rejected with
@@ -653,7 +659,7 @@ export const AuthzService: GenService<{
     methodKind: "unary";
     input: typeof UpdateCustomRoleRequestSchema;
     output: typeof UpdateCustomRoleResponseSchema;
-  },
+  };
   /**
    * DeleteCustomRole soft-deletes a custom role. Rejects when the role
    * still has active assignments — callers must unassign first. Built-in
@@ -665,7 +671,7 @@ export const AuthzService: GenService<{
     methodKind: "unary";
     input: typeof DeleteCustomRoleRequestSchema;
     output: typeof DeleteCustomRoleResponseSchema;
-  },
+  };
   /**
    * AssignRole creates a (user, role, scope) assignment. SiteId is set
    * only when scope_type is SCOPE_TYPE_SITE. Privilege-parity applies:
@@ -678,7 +684,7 @@ export const AuthzService: GenService<{
     methodKind: "unary";
     input: typeof AssignRoleRequestSchema;
     output: typeof AssignRoleResponseSchema;
-  },
+  };
   /**
    * UnassignRole soft-deletes an assignment row by id.
    *
@@ -688,7 +694,7 @@ export const AuthzService: GenService<{
     methodKind: "unary";
     input: typeof UnassignRoleRequestSchema;
     output: typeof UnassignRoleResponseSchema;
-  },
+  };
   /**
    * ListUserAssignments returns every active assignment for a given
    * user in the caller's organization. Used by the Team page to render
@@ -700,7 +706,5 @@ export const AuthzService: GenService<{
     methodKind: "unary";
     input: typeof ListUserAssignmentsRequestSchema;
     output: typeof ListUserAssignmentsResponseSchema;
-  },
-}> = /*@__PURE__*/
-  serviceDesc(file_authz_v1_authz, 0);
-
+  };
+}> = /*@__PURE__*/ serviceDesc(file_authz_v1_authz, 0);

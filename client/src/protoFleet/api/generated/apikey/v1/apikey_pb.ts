@@ -12,8 +12,12 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file apikey/v1/apikey.proto.
  */
-export const file_apikey_v1_apikey: GenFile = /*@__PURE__*/
-  fileDesc("ChZhcGlrZXkvdjEvYXBpa2V5LnByb3RvEglhcGlrZXkudjEiXwoTQ3JlYXRlQXBpS2V5UmVxdWVzdBIYCgRuYW1lGAEgASgJQgq6SAdyBRABGP8BEi4KCmV4cGlyZXNfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIkwKFENyZWF0ZUFwaUtleVJlc3BvbnNlEg8KB2FwaV9rZXkYASABKAkSIwoEaW5mbxgCIAEoCzIVLmFwaWtleS52MS5BcGlLZXlJbmZvIhQKEkxpc3RBcGlLZXlzUmVxdWVzdCI+ChNMaXN0QXBpS2V5c1Jlc3BvbnNlEicKCGFwaV9rZXlzGAEgAygLMhUuYXBpa2V5LnYxLkFwaUtleUluZm8i4AEKCkFwaUtleUluZm8SDgoGa2V5X2lkGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGcHJlZml4GAMgASgJEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmV4cGlyZXNfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGxhc3RfdXNlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKY3JlYXRlZF9ieRgHIAEoCSIuChNSZXZva2VBcGlLZXlSZXF1ZXN0EhcKBmtleV9pZBgBIAEoCUIHukgEcgIQASIWChRSZXZva2VBcGlLZXlSZXNwb25zZTL/AQoNQXBpS2V5U2VydmljZRJPCgxDcmVhdGVBcGlLZXkSHi5hcGlrZXkudjEuQ3JlYXRlQXBpS2V5UmVxdWVzdBofLmFwaWtleS52MS5DcmVhdGVBcGlLZXlSZXNwb25zZRJMCgtMaXN0QXBpS2V5cxIdLmFwaWtleS52MS5MaXN0QXBpS2V5c1JlcXVlc3QaHi5hcGlrZXkudjEuTGlzdEFwaUtleXNSZXNwb25zZRJPCgxSZXZva2VBcGlLZXkSHi5hcGlrZXkudjEuUmV2b2tlQXBpS2V5UmVxdWVzdBofLmFwaWtleS52MS5SZXZva2VBcGlLZXlSZXNwb25zZUKoAQoNY29tLmFwaWtleS52MUILQXBpa2V5UHJvdG9QAVpFZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvYXBpa2V5L3YxO2FwaWtleXYxogIDQVhYqgIJQXBpa2V5LlYxygIJQXBpa2V5XFYx4gIVQXBpa2V5XFYxXEdQQk1ldGFkYXRh6gIKQXBpa2V5OjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp, file_buf_validate_validate]);
+export const file_apikey_v1_apikey: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    "ChZhcGlrZXkvdjEvYXBpa2V5LnByb3RvEglhcGlrZXkudjEiXwoTQ3JlYXRlQXBpS2V5UmVxdWVzdBIYCgRuYW1lGAEgASgJQgq6SAdyBRABGP8BEi4KCmV4cGlyZXNfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIkwKFENyZWF0ZUFwaUtleVJlc3BvbnNlEg8KB2FwaV9rZXkYASABKAkSIwoEaW5mbxgCIAEoCzIVLmFwaWtleS52MS5BcGlLZXlJbmZvIhQKEkxpc3RBcGlLZXlzUmVxdWVzdCI+ChNMaXN0QXBpS2V5c1Jlc3BvbnNlEicKCGFwaV9rZXlzGAEgAygLMhUuYXBpa2V5LnYxLkFwaUtleUluZm8i4AEKCkFwaUtleUluZm8SDgoGa2V5X2lkGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGcHJlZml4GAMgASgJEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmV4cGlyZXNfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGxhc3RfdXNlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKY3JlYXRlZF9ieRgHIAEoCSIuChNSZXZva2VBcGlLZXlSZXF1ZXN0EhcKBmtleV9pZBgBIAEoCUIHukgEcgIQASIWChRSZXZva2VBcGlLZXlSZXNwb25zZTL/AQoNQXBpS2V5U2VydmljZRJPCgxDcmVhdGVBcGlLZXkSHi5hcGlrZXkudjEuQ3JlYXRlQXBpS2V5UmVxdWVzdBofLmFwaWtleS52MS5DcmVhdGVBcGlLZXlSZXNwb25zZRJMCgtMaXN0QXBpS2V5cxIdLmFwaWtleS52MS5MaXN0QXBpS2V5c1JlcXVlc3QaHi5hcGlrZXkudjEuTGlzdEFwaUtleXNSZXNwb25zZRJPCgxSZXZva2VBcGlLZXkSHi5hcGlrZXkudjEuUmV2b2tlQXBpS2V5UmVxdWVzdBofLmFwaWtleS52MS5SZXZva2VBcGlLZXlSZXNwb25zZUKoAQoNY29tLmFwaWtleS52MUILQXBpa2V5UHJvdG9QAVpFZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvYXBpa2V5L3YxO2FwaWtleXYxogIDQVhYqgIJQXBpa2V5LlYxygIJQXBpa2V5XFYx4gIVQXBpa2V5XFYxXEdQQk1ldGFkYXRh6gIKQXBpa2V5OjpWMWIGcHJvdG8z",
+    [file_google_protobuf_timestamp, file_buf_validate_validate],
+  );
 
 /**
  * @generated from message apikey.v1.CreateApiKeyRequest
@@ -38,7 +42,8 @@ export type CreateApiKeyRequest = Message<"apikey.v1.CreateApiKeyRequest"> & {
  * Describes the message apikey.v1.CreateApiKeyRequest.
  * Use `create(CreateApiKeyRequestSchema)` to create a new message.
  */
-export const CreateApiKeyRequestSchema: GenMessage<CreateApiKeyRequest> = /*@__PURE__*/
+export const CreateApiKeyRequestSchema: GenMessage<CreateApiKeyRequest> =
+  /*@__PURE__*/
   messageDesc(file_apikey_v1_apikey, 0);
 
 /**
@@ -64,20 +69,21 @@ export type CreateApiKeyResponse = Message<"apikey.v1.CreateApiKeyResponse"> & {
  * Describes the message apikey.v1.CreateApiKeyResponse.
  * Use `create(CreateApiKeyResponseSchema)` to create a new message.
  */
-export const CreateApiKeyResponseSchema: GenMessage<CreateApiKeyResponse> = /*@__PURE__*/
+export const CreateApiKeyResponseSchema: GenMessage<CreateApiKeyResponse> =
+  /*@__PURE__*/
   messageDesc(file_apikey_v1_apikey, 1);
 
 /**
  * @generated from message apikey.v1.ListApiKeysRequest
  */
-export type ListApiKeysRequest = Message<"apikey.v1.ListApiKeysRequest"> & {
-};
+export type ListApiKeysRequest = Message<"apikey.v1.ListApiKeysRequest"> & {};
 
 /**
  * Describes the message apikey.v1.ListApiKeysRequest.
  * Use `create(ListApiKeysRequestSchema)` to create a new message.
  */
-export const ListApiKeysRequestSchema: GenMessage<ListApiKeysRequest> = /*@__PURE__*/
+export const ListApiKeysRequestSchema: GenMessage<ListApiKeysRequest> =
+  /*@__PURE__*/
   messageDesc(file_apikey_v1_apikey, 2);
 
 /**
@@ -94,7 +100,8 @@ export type ListApiKeysResponse = Message<"apikey.v1.ListApiKeysResponse"> & {
  * Describes the message apikey.v1.ListApiKeysResponse.
  * Use `create(ListApiKeysResponseSchema)` to create a new message.
  */
-export const ListApiKeysResponseSchema: GenMessage<ListApiKeysResponse> = /*@__PURE__*/
+export const ListApiKeysResponseSchema: GenMessage<ListApiKeysResponse> =
+  /*@__PURE__*/
   messageDesc(file_apikey_v1_apikey, 3);
 
 /**
@@ -155,8 +162,7 @@ export type ApiKeyInfo = Message<"apikey.v1.ApiKeyInfo"> & {
  * Describes the message apikey.v1.ApiKeyInfo.
  * Use `create(ApiKeyInfoSchema)` to create a new message.
  */
-export const ApiKeyInfoSchema: GenMessage<ApiKeyInfo> = /*@__PURE__*/
-  messageDesc(file_apikey_v1_apikey, 4);
+export const ApiKeyInfoSchema: GenMessage<ApiKeyInfo> = /*@__PURE__*/ messageDesc(file_apikey_v1_apikey, 4);
 
 /**
  * @generated from message apikey.v1.RevokeApiKeyRequest
@@ -174,20 +180,21 @@ export type RevokeApiKeyRequest = Message<"apikey.v1.RevokeApiKeyRequest"> & {
  * Describes the message apikey.v1.RevokeApiKeyRequest.
  * Use `create(RevokeApiKeyRequestSchema)` to create a new message.
  */
-export const RevokeApiKeyRequestSchema: GenMessage<RevokeApiKeyRequest> = /*@__PURE__*/
+export const RevokeApiKeyRequestSchema: GenMessage<RevokeApiKeyRequest> =
+  /*@__PURE__*/
   messageDesc(file_apikey_v1_apikey, 5);
 
 /**
  * @generated from message apikey.v1.RevokeApiKeyResponse
  */
-export type RevokeApiKeyResponse = Message<"apikey.v1.RevokeApiKeyResponse"> & {
-};
+export type RevokeApiKeyResponse = Message<"apikey.v1.RevokeApiKeyResponse"> & {};
 
 /**
  * Describes the message apikey.v1.RevokeApiKeyResponse.
  * Use `create(RevokeApiKeyResponseSchema)` to create a new message.
  */
-export const RevokeApiKeyResponseSchema: GenMessage<RevokeApiKeyResponse> = /*@__PURE__*/
+export const RevokeApiKeyResponseSchema: GenMessage<RevokeApiKeyResponse> =
+  /*@__PURE__*/
   messageDesc(file_apikey_v1_apikey, 6);
 
 /**
@@ -206,7 +213,7 @@ export const ApiKeyService: GenService<{
     methodKind: "unary";
     input: typeof CreateApiKeyRequestSchema;
     output: typeof CreateApiKeyResponseSchema;
-  },
+  };
   /**
    * ListApiKeys returns all active (non-revoked) API keys for the organization.
    *
@@ -216,7 +223,7 @@ export const ApiKeyService: GenService<{
     methodKind: "unary";
     input: typeof ListApiKeysRequestSchema;
     output: typeof ListApiKeysResponseSchema;
-  },
+  };
   /**
    * RevokeApiKey permanently revokes an API key. The key cannot be used after revocation.
    *
@@ -226,7 +233,5 @@ export const ApiKeyService: GenService<{
     methodKind: "unary";
     input: typeof RevokeApiKeyRequestSchema;
     output: typeof RevokeApiKeyResponseSchema;
-  },
-}> = /*@__PURE__*/
-  serviceDesc(file_apikey_v1_apikey, 0);
-
+  };
+}> = /*@__PURE__*/ serviceDesc(file_apikey_v1_apikey, 0);

@@ -11,8 +11,12 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file common/v1/measurement.proto.
  */
-export const file_common_v1_measurement: GenFile = /*@__PURE__*/
-  fileDesc("Chtjb21tb24vdjEvbWVhc3VyZW1lbnQucHJvdG8SCWNvbW1vbi52MSJ1CgtNZWFzdXJlbWVudBItCgl0aW1lc3RhbXAYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBXZhbHVlGAIgASgBEigKBHVuaXQYAyABKA4yGi5jb21tb24udjEuTWVhc3VyZW1lbnRVbml0KqICCg9NZWFzdXJlbWVudFVuaXQSIAocTUVBU1VSRU1FTlRfVU5JVF9VTlNQRUNJRklFRBAAEigKJE1FQVNVUkVNRU5UX1VOSVRfVEVSQUhBU0hfUEVSX1NFQ09ORBABEigKJE1FQVNVUkVNRU5UX1VOSVRfSk9VTEVTX1BFUl9URVJBSEFTSBACEh0KGU1FQVNVUkVNRU5UX1VOSVRfS0lMT1dBVFQQAxIcChhNRUFTVVJFTUVOVF9VTklUX0NFTFNJVVMQBBIfChtNRUFTVVJFTUVOVF9VTklUX0ZBSFJFTkhFSVQQBRIfChtNRUFTVVJFTUVOVF9VTklUX1BFUkNFTlRBR0UQBhIaChZNRUFTVVJFTUVOVF9VTklUX0hPVVJTEAdCrQEKDWNvbS5jb21tb24udjFCEE1lYXN1cmVtZW50UHJvdG9QAVpFZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvY29tbW9uL3YxO2NvbW1vbnYxogIDQ1hYqgIJQ29tbW9uLlYxygIJQ29tbW9uXFYx4gIVQ29tbW9uXFYxXEdQQk1ldGFkYXRh6gIKQ29tbW9uOjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+export const file_common_v1_measurement: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    "Chtjb21tb24vdjEvbWVhc3VyZW1lbnQucHJvdG8SCWNvbW1vbi52MSJ1CgtNZWFzdXJlbWVudBItCgl0aW1lc3RhbXAYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBXZhbHVlGAIgASgBEigKBHVuaXQYAyABKA4yGi5jb21tb24udjEuTWVhc3VyZW1lbnRVbml0KqICCg9NZWFzdXJlbWVudFVuaXQSIAocTUVBU1VSRU1FTlRfVU5JVF9VTlNQRUNJRklFRBAAEigKJE1FQVNVUkVNRU5UX1VOSVRfVEVSQUhBU0hfUEVSX1NFQ09ORBABEigKJE1FQVNVUkVNRU5UX1VOSVRfSk9VTEVTX1BFUl9URVJBSEFTSBACEh0KGU1FQVNVUkVNRU5UX1VOSVRfS0lMT1dBVFQQAxIcChhNRUFTVVJFTUVOVF9VTklUX0NFTFNJVVMQBBIfChtNRUFTVVJFTUVOVF9VTklUX0ZBSFJFTkhFSVQQBRIfChtNRUFTVVJFTUVOVF9VTklUX1BFUkNFTlRBR0UQBhIaChZNRUFTVVJFTUVOVF9VTklUX0hPVVJTEAdCrQEKDWNvbS5jb21tb24udjFCEE1lYXN1cmVtZW50UHJvdG9QAVpFZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvY29tbW9uL3YxO2NvbW1vbnYxogIDQ1hYqgIJQ29tbW9uLlYxygIJQ29tbW9uXFYx4gIVQ29tbW9uXFYxXEdQQk1ldGFkYXRh6gIKQ29tbW9uOjpWMWIGcHJvdG8z",
+    [file_google_protobuf_timestamp],
+  );
 
 /**
  * A single measurement with timestamp, value, and unit
@@ -46,8 +50,7 @@ export type Measurement = Message<"common.v1.Measurement"> & {
  * Describes the message common.v1.Measurement.
  * Use `create(MeasurementSchema)` to create a new message.
  */
-export const MeasurementSchema: GenMessage<Measurement> = /*@__PURE__*/
-  messageDesc(file_common_v1_measurement, 0);
+export const MeasurementSchema: GenMessage<Measurement> = /*@__PURE__*/ messageDesc(file_common_v1_measurement, 0);
 
 /**
  * Standard units used throughout the API
@@ -115,6 +118,4 @@ export enum MeasurementUnit {
 /**
  * Describes the enum common.v1.MeasurementUnit.
  */
-export const MeasurementUnitSchema: GenEnum<MeasurementUnit> = /*@__PURE__*/
-  enumDesc(file_common_v1_measurement, 0);
-
+export const MeasurementUnitSchema: GenEnum<MeasurementUnit> = /*@__PURE__*/ enumDesc(file_common_v1_measurement, 0);

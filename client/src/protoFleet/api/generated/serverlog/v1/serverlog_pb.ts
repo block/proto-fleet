@@ -12,8 +12,12 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file serverlog/v1/serverlog.proto.
  */
-export const file_serverlog_v1_serverlog: GenFile = /*@__PURE__*/
-  fileDesc("ChxzZXJ2ZXJsb2cvdjEvc2VydmVybG9nLnByb3RvEgxzZXJ2ZXJsb2cudjEiJQoHTG9nQXR0chILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAkirgEKCExvZ0VudHJ5EgoKAmlkGAEgASgEEigKBHRpbWUYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiUKBWxldmVsGAMgASgOMhYuc2VydmVybG9nLnYxLkxvZ0xldmVsEg8KB21lc3NhZ2UYBCABKAkSJAoFYXR0cnMYBSADKAsyFS5zZXJ2ZXJsb2cudjEuTG9nQXR0chIOCgZzb3VyY2UYBiABKAkihAEKFUxpc3RTZXJ2ZXJMb2dzUmVxdWVzdBIpCgltaW5fbGV2ZWwYASABKA4yFi5zZXJ2ZXJsb2cudjEuTG9nTGV2ZWwSEwoLc2VhcmNoX3RleHQYAiABKAkSEAoIc2luY2VfaWQYAyABKAQSGQoFbGltaXQYBCABKAVCCrpIBxoFGIgnKAAifAoWTGlzdFNlcnZlckxvZ3NSZXNwb25zZRInCgdlbnRyaWVzGAEgAygLMhYuc2VydmVybG9nLnYxLkxvZ0VudHJ5EhEKCWxhdGVzdF9pZBgCIAEoBBITCgtidWZmZXJfc2l6ZRgDIAEoBRIRCgl0cnVuY2F0ZWQYBCABKAgqdwoITG9nTGV2ZWwSGQoVTE9HX0xFVkVMX1VOU1BFQ0lGSUVEEAASEwoPTE9HX0xFVkVMX0RFQlVHEAESEgoOTE9HX0xFVkVMX0lORk8QAhISCg5MT0dfTEVWRUxfV0FSThADEhMKD0xPR19MRVZFTF9FUlJPUhAEMnQKEFNlcnZlckxvZ1NlcnZpY2USYAoOTGlzdFNlcnZlckxvZ3MSIy5zZXJ2ZXJsb2cudjEuTGlzdFNlcnZlckxvZ3NSZXF1ZXN0GiQuc2VydmVybG9nLnYxLkxpc3RTZXJ2ZXJMb2dzUmVzcG9uc2UiA5ACAULAAQoQY29tLnNlcnZlcmxvZy52MUIOU2VydmVybG9nUHJvdG9QAVpLZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvc2VydmVybG9nL3YxO3NlcnZlcmxvZ3YxogIDU1hYqgIMU2VydmVybG9nLlYxygIMU2VydmVybG9nXFYx4gIYU2VydmVybG9nXFYxXEdQQk1ldGFkYXRh6gINU2VydmVybG9nOjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp, file_buf_validate_validate]);
+export const file_serverlog_v1_serverlog: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    "ChxzZXJ2ZXJsb2cvdjEvc2VydmVybG9nLnByb3RvEgxzZXJ2ZXJsb2cudjEiJQoHTG9nQXR0chILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAkirgEKCExvZ0VudHJ5EgoKAmlkGAEgASgEEigKBHRpbWUYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiUKBWxldmVsGAMgASgOMhYuc2VydmVybG9nLnYxLkxvZ0xldmVsEg8KB21lc3NhZ2UYBCABKAkSJAoFYXR0cnMYBSADKAsyFS5zZXJ2ZXJsb2cudjEuTG9nQXR0chIOCgZzb3VyY2UYBiABKAkihAEKFUxpc3RTZXJ2ZXJMb2dzUmVxdWVzdBIpCgltaW5fbGV2ZWwYASABKA4yFi5zZXJ2ZXJsb2cudjEuTG9nTGV2ZWwSEwoLc2VhcmNoX3RleHQYAiABKAkSEAoIc2luY2VfaWQYAyABKAQSGQoFbGltaXQYBCABKAVCCrpIBxoFGIgnKAAifAoWTGlzdFNlcnZlckxvZ3NSZXNwb25zZRInCgdlbnRyaWVzGAEgAygLMhYuc2VydmVybG9nLnYxLkxvZ0VudHJ5EhEKCWxhdGVzdF9pZBgCIAEoBBITCgtidWZmZXJfc2l6ZRgDIAEoBRIRCgl0cnVuY2F0ZWQYBCABKAgqdwoITG9nTGV2ZWwSGQoVTE9HX0xFVkVMX1VOU1BFQ0lGSUVEEAASEwoPTE9HX0xFVkVMX0RFQlVHEAESEgoOTE9HX0xFVkVMX0lORk8QAhISCg5MT0dfTEVWRUxfV0FSThADEhMKD0xPR19MRVZFTF9FUlJPUhAEMnQKEFNlcnZlckxvZ1NlcnZpY2USYAoOTGlzdFNlcnZlckxvZ3MSIy5zZXJ2ZXJsb2cudjEuTGlzdFNlcnZlckxvZ3NSZXF1ZXN0GiQuc2VydmVybG9nLnYxLkxpc3RTZXJ2ZXJMb2dzUmVzcG9uc2UiA5ACAULAAQoQY29tLnNlcnZlcmxvZy52MUIOU2VydmVybG9nUHJvdG9QAVpLZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvc2VydmVybG9nL3YxO3NlcnZlcmxvZ3YxogIDU1hYqgIMU2VydmVybG9nLlYxygIMU2VydmVybG9nXFYx4gIYU2VydmVybG9nXFYxXEdQQk1ldGFkYXRh6gINU2VydmVybG9nOjpWMWIGcHJvdG8z",
+    [file_google_protobuf_timestamp, file_buf_validate_validate],
+  );
 
 /**
  * LogAttr is a single structured attribute attached to a log record.
@@ -39,8 +43,7 @@ export type LogAttr = Message<"serverlog.v1.LogAttr"> & {
  * Describes the message serverlog.v1.LogAttr.
  * Use `create(LogAttrSchema)` to create a new message.
  */
-export const LogAttrSchema: GenMessage<LogAttr> = /*@__PURE__*/
-  messageDesc(file_serverlog_v1_serverlog, 0);
+export const LogAttrSchema: GenMessage<LogAttr> = /*@__PURE__*/ messageDesc(file_serverlog_v1_serverlog, 0);
 
 /**
  * LogEntry is one captured log record from the server's slog output.
@@ -96,8 +99,7 @@ export type LogEntry = Message<"serverlog.v1.LogEntry"> & {
  * Describes the message serverlog.v1.LogEntry.
  * Use `create(LogEntrySchema)` to create a new message.
  */
-export const LogEntrySchema: GenMessage<LogEntry> = /*@__PURE__*/
-  messageDesc(file_serverlog_v1_serverlog, 1);
+export const LogEntrySchema: GenMessage<LogEntry> = /*@__PURE__*/ messageDesc(file_serverlog_v1_serverlog, 1);
 
 /**
  * ListServerLogsRequest is the filter used by ListServerLogs.
@@ -142,7 +144,8 @@ export type ListServerLogsRequest = Message<"serverlog.v1.ListServerLogsRequest"
  * Describes the message serverlog.v1.ListServerLogsRequest.
  * Use `create(ListServerLogsRequestSchema)` to create a new message.
  */
-export const ListServerLogsRequestSchema: GenMessage<ListServerLogsRequest> = /*@__PURE__*/
+export const ListServerLogsRequestSchema: GenMessage<ListServerLogsRequest> =
+  /*@__PURE__*/
   messageDesc(file_serverlog_v1_serverlog, 2);
 
 /**
@@ -194,7 +197,8 @@ export type ListServerLogsResponse = Message<"serverlog.v1.ListServerLogsRespons
  * Describes the message serverlog.v1.ListServerLogsResponse.
  * Use `create(ListServerLogsResponseSchema)` to create a new message.
  */
-export const ListServerLogsResponseSchema: GenMessage<ListServerLogsResponse> = /*@__PURE__*/
+export const ListServerLogsResponseSchema: GenMessage<ListServerLogsResponse> =
+  /*@__PURE__*/
   messageDesc(file_serverlog_v1_serverlog, 3);
 
 /**
@@ -232,8 +236,7 @@ export enum LogLevel {
 /**
  * Describes the enum serverlog.v1.LogLevel.
  */
-export const LogLevelSchema: GenEnum<LogLevel> = /*@__PURE__*/
-  enumDesc(file_serverlog_v1_serverlog, 0);
+export const LogLevelSchema: GenEnum<LogLevel> = /*@__PURE__*/ enumDesc(file_serverlog_v1_serverlog, 0);
 
 /**
  * ServerLogService exposes recent server-side log records emitted by slog.
@@ -254,7 +257,5 @@ export const ServerLogService: GenService<{
     methodKind: "unary";
     input: typeof ListServerLogsRequestSchema;
     output: typeof ListServerLogsResponseSchema;
-  },
-}> = /*@__PURE__*/
-  serviceDesc(file_serverlog_v1_serverlog, 0);
-
+  };
+}> = /*@__PURE__*/ serviceDesc(file_serverlog_v1_serverlog, 0);
