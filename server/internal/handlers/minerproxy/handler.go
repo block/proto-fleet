@@ -601,6 +601,10 @@ func permissionsFor(method string, proxyPath string) []string {
 		return []string{authz.PermMinerReboot}
 	case proxyPath == "/api/v1/system/locate":
 		return []string{authz.PermMinerBlinkLED}
+	case proxyPath == "/api/v1/system/update/check":
+		// Only checks whether a newer version exists — no download/install or
+		// reboot — so it must not require miner:reboot like the install paths.
+		return []string{authz.PermMinerFirmwareUpdate}
 	case strings.HasPrefix(proxyPath, "/api/v1/system/update"):
 		return []string{authz.PermMinerFirmwareUpdate, authz.PermMinerReboot}
 	case proxyPath == "/api/v1/power-supplies/update":

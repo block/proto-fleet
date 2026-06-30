@@ -63,6 +63,12 @@ func TestPermissionsFor(t *testing.T) {
 			want:      []string{authz.PermMinerFirmwareUpdate, authz.PermMinerReboot},
 		},
 		{
+			name:      "update check requires firmware update but not reboot",
+			method:    http.MethodPost,
+			proxyPath: "/api/v1/system/update/check",
+			want:      []string{authz.PermMinerFirmwareUpdate},
+		},
+		{
 			name:      "psu firmware writes require firmware update and reboot",
 			method:    http.MethodPost,
 			proxyPath: "/api/v1/power-supplies/update",
