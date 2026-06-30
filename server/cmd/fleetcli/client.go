@@ -76,18 +76,23 @@ func New(_ context.Context, opts Options) (*Client, error) {
 		return nil, fmt.Errorf("create cookie jar: %w", err)
 	}
 
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("default transport is %T, want *http.Transport", http.DefaultTransport)
+	}
+	httpTransport := transport.Clone()
+	httpTransport.TLSClientConfig = &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		// #nosec G402 -- insecure TLS is an explicit user opt-in via --insecure.
+		InsecureSkipVerify: opts.Insecure,
+	}
+
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Jar: &loopbackSecureJar{inner: jar},
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					MinVersion: tls.VersionTLS12,
-					// #nosec G402 -- insecure TLS is an explicit user opt-in via --insecure.
-					InsecureSkipVerify: opts.Insecure,
-				},
-			},
-			Timeout: 30 * time.Second,
+			Jar:       &loopbackSecureJar{inner: jar},
+			Transport: httpTransport,
+			Timeout:   30 * time.Second,
 		},
 		apiKey:   opts.APIKey,
 		username: strings.TrimSpace(opts.Username),

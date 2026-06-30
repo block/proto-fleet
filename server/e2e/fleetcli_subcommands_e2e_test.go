@@ -39,6 +39,7 @@ func TestFleetCLISubcommands(t *testing.T) {
 		"NO_COLOR=1",
 	}
 	ensureFleetCLIAdmin(t, ctx, env)
+	deviceIdentifier := ensureFleetCLIPairedMiner(t, ctx, env)
 
 	unique := fmt.Sprintf("e2e-cli-%d", time.Now().UnixNano())
 
@@ -57,11 +58,9 @@ func TestFleetCLISubcommands(t *testing.T) {
 		require.NotNil(t, revoked, "apikey revoke should return JSON")
 	})
 
-	var deviceIdentifier string
-
 	t.Run("Miners", func(t *testing.T) {
 		miners := runFleetCLIJSON(t, ctx, env, "miners", "list", "--page-size", "25")
-		deviceIdentifier = fleetCLIMinerIdentifier(t, miners, "")
+		assert.Equal(t, deviceIdentifier, fleetCLIMinerIdentifier(t, miners, deviceIdentifier))
 		require.NotEmpty(t, deviceIdentifier, "miners list should expose a usable miner identifier")
 	})
 
@@ -88,7 +87,7 @@ func TestFleetCLISubcommands(t *testing.T) {
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "list", "--page-size", "25"))
 		added := runFleetCLIJSON(t, ctx, env,
 			"groups", "add-devices",
-			"--collection-id", groupID,
+			"--target-group-id", groupID,
 			"--device", deviceIdentifier,
 		)
 		assert.Equal(t, 1, jsonInt(t, added, "added_count"))
@@ -97,7 +96,7 @@ func TestFleetCLISubcommands(t *testing.T) {
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "device", "--device-identifier", deviceIdentifier))
 		removed := runFleetCLIJSON(t, ctx, env,
 			"groups", "remove-devices",
-			"--collection-id", groupID,
+			"--target-group-id", groupID,
 			"--device", deviceIdentifier,
 		)
 		assert.Equal(t, 1, jsonInt(t, removed, "removed_count"))
@@ -139,20 +138,14 @@ func TestFleetCLISubcommands(t *testing.T) {
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "list", "--page-size", "25"))
 		added := runFleetCLIJSON(t, ctx, env,
 			"racks", "add-devices",
-			"--collection-id", rackID,
+			"--target-rack-id", rackID,
 			"--device", deviceIdentifier,
 		)
-		assert.Equal(t, 1, jsonInt(t, added, "added_count"))
+		assert.Equal(t, 1, jsonInt(t, added, "assigned_count"))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "members", "--collection-id", rackID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "slots", "--collection-id", rackID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "stats", "--collection-ids", rackID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "device", "--device-identifier", deviceIdentifier))
-		removed := runFleetCLIJSON(t, ctx, env,
-			"racks", "remove-devices",
-			"--collection-id", rackID,
-			"--device", deviceIdentifier,
-		)
-		assert.Equal(t, 1, jsonInt(t, removed, "removed_count"))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "types"))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "zones"))
 	})
@@ -248,7 +241,6 @@ func TestFleetCLILeafCommandCoverage(t *testing.T) {
 		"racks get",
 		"racks list",
 		"racks members",
-		"racks remove-devices",
 		"racks save",
 		"racks slots",
 		"racks stats",
@@ -291,7 +283,6 @@ func TestFleetCLILeafCommandCoverage(t *testing.T) {
 		"racks get":               "live: TestFleetCLISubcommands/Racks",
 		"racks list":              "live: TestFleetCLISubcommands/Racks",
 		"racks members":           "live: TestFleetCLISubcommands/Racks",
-		"racks remove-devices":    "live: TestFleetCLISubcommands/Racks",
 		"racks save":              "live: TestFleetCLISubcommands/Racks",
 		"racks slots":             "live: TestFleetCLISubcommands/Racks",
 		"racks stats":             "live: TestFleetCLISubcommands/Racks",
@@ -312,14 +303,49 @@ func TestFleetCLILeafCommandCoverage(t *testing.T) {
 func ensureFleetCLIAdmin(t *testing.T, ctx context.Context, env []string) {
 	t.Helper()
 
-	if _, err := runFleetCLI(ctx, env,
+	output, err := runFleetCLI(ctx, env,
 		"onboarding", "create-admin",
 		"--username", testUsername,
 		"--password", testPassword,
-	); err != nil {
-		require.Truef(t, isAlreadyOnboardedError(err),
-			"create-admin failed for a reason other than existing onboarding: %v", err)
+	)
+	if err == nil {
+		assert.Contains(t, output, "user_id", "create-admin output should include the new user id")
+		t.Log("✓ Admin user created")
+		return
 	}
+
+	require.Truef(t, isAlreadyOnboardedError(err),
+		"create-admin failed for a reason other than existing onboarding: %v", err)
+
+	if _, loginErr := runFleetCLI(ctx, env, "auth", "login"); loginErr != nil {
+		require.NoErrorf(t, loginErr,
+			"Fleet is already onboarded, but fleetcli cannot authenticate with the e2e credentials %s/%s. Reset the stack or run these tests with matching FLEET_USERNAME/FLEET_PASSWORD.",
+			testUsername, testPassword)
+	}
+	t.Log("Fleet already onboarded and e2e credentials are valid")
+}
+
+func ensureFleetCLIPairedMiner(t *testing.T, ctx context.Context, env []string) string {
+	t.Helper()
+
+	token := authenticateViaRealAPI(t, ctx, testUsername, testPassword)
+	devices := discoverDeviceViaRealAPI(t, ctx, token, protoSimDiscoveryHost, protoSimPort)
+	require.NotEmpty(t, devices, "discover should find proto-sim before fleetcli miner commands run")
+
+	deviceIdentifier := devices[0].DeviceIdentifier
+	require.NotEmpty(t, deviceIdentifier, "discovered proto-sim device should have an identifier")
+	pairDeviceViaRealAPI(t, ctx, token, deviceIdentifier)
+
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		miners := runFleetCLIJSON(t, ctx, env, "miners", "list", "--page-size", "25")
+		if got := fleetCLIMinerIdentifierOrEmpty(t, miners, deviceIdentifier); got == deviceIdentifier {
+			return deviceIdentifier
+		}
+		time.Sleep(2 * time.Second)
+	}
+	require.Failf(t, "paired miner did not appear in fleetcli miners list", "device_identifier=%s", deviceIdentifier)
+	return ""
 }
 
 func runFleetCLIJSON(t *testing.T, ctx context.Context, env []string, args ...string) map[string]any {
@@ -407,8 +433,18 @@ func jsonStringValue(t *testing.T, value any, label string) string {
 func fleetCLIMinerIdentifier(t *testing.T, miners map[string]any, preferred string) string {
 	t.Helper()
 
+	id := fleetCLIMinerIdentifierOrEmpty(t, miners, preferred)
+	require.NotEmpty(t, id, "miners list should return at least one miner")
+	return id
+}
+
+func fleetCLIMinerIdentifierOrEmpty(t *testing.T, miners map[string]any, preferred string) string {
+	t.Helper()
+
 	items := jsonSlice(t, miners, "miners")
-	require.NotEmpty(t, items, "miners list should return at least one miner")
+	if len(items) == 0 {
+		return ""
+	}
 
 	var fallback string
 	for _, item := range items {

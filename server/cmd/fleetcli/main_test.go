@@ -173,6 +173,16 @@ func TestBuildCombinedMetricsRequestMetrics(t *testing.T) {
 			t.Fatalf("buildCombinedMetricsRequest() error = %v, want invalid metric error", err)
 		}
 	})
+
+	t.Run("page token", func(t *testing.T) {
+		req, err := buildCombinedMetricsRequestFromArgs(t, "--page-token", "next-page-1")
+		if err != nil {
+			t.Fatalf("buildCombinedMetricsRequest() error = %v", err)
+		}
+		if req.GetPageToken() != "next-page-1" {
+			t.Fatalf("page token = %q, want next-page-1", req.GetPageToken())
+		}
+	})
 }
 
 func TestPerformanceGetRejectsUnknownMetricBeforeRequest(t *testing.T) {
@@ -198,6 +208,637 @@ func TestPerformanceGetRejectsUnknownMetricBeforeRequest(t *testing.T) {
 	if requestCount != 0 {
 		t.Fatalf("request count = %d, want 0", requestCount)
 	}
+}
+
+func TestCollectionDeleteVerifiesCollectionType(t *testing.T) {
+	t.Run("groups delete rejects rack id before delete", func(t *testing.T) {
+		pinFleetAuthEnv(t, nil)
+
+		var getAuth string
+		deleteCount := 0
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, r *http.Request) {
+			getAuth = r.Header.Get("Authorization")
+			w.Header().Set("Content-Type", contentTypeJSON)
+			_, _ = w.Write([]byte(`{"collection":{"id":"42","type":"COLLECTION_TYPE_RACK","label":"rack-42"}}`))
+		})
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/DeleteCollection", func(w http.ResponseWriter, r *http.Request) {
+			deleteCount++
+			http.Error(w, "delete should not be called", http.StatusTeapot)
+		})
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+			"groups", "delete", "--collection-id", "42",
+		})
+		if err == nil || !strings.Contains(err.Error(), "collection 42 is a rack, not a group") {
+			t.Fatalf("groups delete error = %v, want collection type mismatch", err)
+		}
+		if getAuth != "Bearer test-key" {
+			t.Errorf("GetCollection Authorization = %q, want %q", getAuth, "Bearer test-key")
+		}
+		if deleteCount != 0 {
+			t.Fatalf("delete count = %d, want 0", deleteCount)
+		}
+	})
+
+	t.Run("racks delete proceeds for rack id", func(t *testing.T) {
+		pinFleetAuthEnv(t, nil)
+
+		var calls []string
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, r *http.Request) {
+			calls = append(calls, "get")
+			w.Header().Set("Content-Type", contentTypeJSON)
+			_, _ = w.Write([]byte(`{"collection":{"id":"42","type":"COLLECTION_TYPE_RACK","label":"rack-42"}}`))
+		})
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/DeleteCollection", func(w http.ResponseWriter, r *http.Request) {
+			calls = append(calls, "delete")
+			w.Header().Set("Content-Type", contentTypeJSON)
+			_, _ = w.Write([]byte("{}"))
+		})
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+			"racks", "delete", "--collection-id", "42",
+		})
+		if err != nil {
+			t.Fatalf("racks delete error = %v, want success", err)
+		}
+		want := []string{"get", "delete"}
+		if strings.Join(calls, ",") != strings.Join(want, ",") {
+			t.Fatalf("calls = %v, want %v", calls, want)
+		}
+	})
+}
+
+func TestCollectionGetVerifiesCollectionType(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		actualType string
+		wantError  string
+	}{
+		{
+			name:       "groups get rejects rack id",
+			args:       []string{"groups", "get", "--collection-id", "42"},
+			actualType: "COLLECTION_TYPE_RACK",
+			wantError:  "collection 42 is a rack, not a group",
+		},
+		{
+			name:       "racks get rejects group id",
+			args:       []string{"racks", "get", "--collection-id", "42"},
+			actualType: "COLLECTION_TYPE_GROUP",
+			wantError:  "collection 42 is a group, not a rack",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pinFleetAuthEnv(t, nil)
+
+			getCount := 0
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, _ *http.Request) {
+				getCount++
+				w.Header().Set("Content-Type", contentTypeJSON)
+				_, _ = w.Write([]byte(`{"collection":{"id":"42","type":"` + tt.actualType + `","label":"wrong-type"}}`))
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+
+			err := newRootCommand().Run(context.Background(), append([]string{
+				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+			}, tt.args...))
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("fleetcli %s error = %v, want %q", strings.Join(tt.args, " "), err, tt.wantError)
+			}
+			if getCount != 1 {
+				t.Fatalf("get count = %d, want 1", getCount)
+			}
+		})
+	}
+
+	t.Run("matching group id proceeds to command get", func(t *testing.T) {
+		pinFleetAuthEnv(t, nil)
+
+		getCount := 0
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, _ *http.Request) {
+			getCount++
+			w.Header().Set("Content-Type", contentTypeJSON)
+			_, _ = w.Write([]byte(`{"collection":{"id":"42","type":"COLLECTION_TYPE_GROUP","label":"group-42"}}`))
+		})
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+			"groups", "get", "--collection-id", "42",
+		})
+		if err != nil {
+			t.Fatalf("groups get error = %v, want success", err)
+		}
+		if getCount != 2 {
+			t.Fatalf("get count = %d, want 2", getCount)
+		}
+	})
+}
+
+func TestCollectionMutationsVerifyCollectionType(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          []string
+		actualType    string
+		mutationRoute string
+		wantError     string
+	}{
+		{
+			name:          "groups add-devices rejects rack id",
+			args:          []string{"groups", "add-devices", "--target-group-id", "42", "--all-devices"},
+			actualType:    "COLLECTION_TYPE_RACK",
+			mutationRoute: "POST /device_set.v1.DeviceSetService/AddDevicesToGroup",
+			wantError:     "collection 42 is a rack, not a group",
+		},
+		{
+			name:          "groups remove-devices rejects rack id",
+			args:          []string{"groups", "remove-devices", "--target-group-id", "42", "--all-devices"},
+			actualType:    "COLLECTION_TYPE_RACK",
+			mutationRoute: "POST /device_set.v1.DeviceSetService/RemoveDevicesFromGroup",
+			wantError:     "collection 42 is a rack, not a group",
+		},
+		{
+			name:          "groups update rejects rack id",
+			args:          []string{"groups", "update", "--collection-id", "42", "--label", "group-label"},
+			actualType:    "COLLECTION_TYPE_RACK",
+			mutationRoute: "POST /collection.v1.DeviceCollectionService/UpdateCollection",
+			wantError:     "collection 42 is a rack, not a group",
+		},
+		{
+			name:          "racks add-devices rejects group id",
+			args:          []string{"racks", "add-devices", "--target-rack-id", "42", "--device", "miner-1"},
+			actualType:    "COLLECTION_TYPE_GROUP",
+			mutationRoute: "POST /device_set.v1.DeviceSetService/AssignDevicesToRack",
+			wantError:     "collection 42 is a group, not a rack",
+		},
+		{
+			name:          "racks save rejects group id",
+			args:          []string{"racks", "save", "--collection-id", "42", "--label", "rack-label"},
+			actualType:    "COLLECTION_TYPE_GROUP",
+			mutationRoute: "POST /collection.v1.DeviceCollectionService/SaveRack",
+			wantError:     "collection 42 is a group, not a rack",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pinFleetAuthEnv(t, nil)
+
+			mutationCount := 0
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", contentTypeJSON)
+				_, _ = w.Write([]byte(`{"collection":{"id":"42","type":"` + tt.actualType + `","label":"wrong-type"}}`))
+			})
+			mux.HandleFunc(tt.mutationRoute, func(w http.ResponseWriter, r *http.Request) {
+				mutationCount++
+				t.Errorf("unexpected mutation request: %s %s", r.Method, r.URL.Path)
+				http.Error(w, "mutation should not be called", http.StatusTeapot)
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+
+			err := newRootCommand().Run(context.Background(), append([]string{
+				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+			}, tt.args...))
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("fleetcli %s error = %v, want %q", strings.Join(tt.args, " "), err, tt.wantError)
+			}
+			if mutationCount != 0 {
+				t.Fatalf("mutation count = %d, want 0", mutationCount)
+			}
+		})
+	}
+}
+
+func TestRackSaveWithoutCollectionIDSkipsTypeCheck(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	getCount := 0
+	saveCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, r *http.Request) {
+		getCount++
+		t.Errorf("unexpected preflight request: %s %s", r.Method, r.URL.Path)
+		http.Error(w, "preflight should not be called", http.StatusTeapot)
+	})
+	mux.HandleFunc("POST /collection.v1.DeviceCollectionService/SaveRack", func(w http.ResponseWriter, _ *http.Request) {
+		saveCount++
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte("{}"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"racks", "save", "--label", "new-rack",
+	})
+	if err != nil {
+		t.Fatalf("racks save without collection id error = %v, want success", err)
+	}
+	if getCount != 0 {
+		t.Fatalf("get count = %d, want 0", getCount)
+	}
+	if saveCount != 1 {
+		t.Fatalf("save count = %d, want 1", saveCount)
+	}
+}
+
+func TestRackAddDevicesRequiresTargetRackID(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	requestCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		http.Error(w, "request should not be called", http.StatusTeapot)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"racks", "add-devices", "--device", "miner-1",
+	})
+	if err == nil || !strings.Contains(err.Error(), "target-rack-id") {
+		t.Fatalf("racks add-devices error = %v, want target-rack-id requirement", err)
+	}
+	if requestCount != 0 {
+		t.Fatalf("request count = %d, want 0", requestCount)
+	}
+}
+
+func TestRackAddDevicesRejectsAllDevicesBeforeRequest(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	requestCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		http.Error(w, "request should not be called", http.StatusTeapot)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"racks", "add-devices", "--target-rack-id", "42", "--all-devices",
+	})
+	if err == nil || !strings.Contains(err.Error(), "all-devices") {
+		t.Fatalf("racks add-devices error = %v, want all-devices rejection", err)
+	}
+	if requestCount != 0 {
+		t.Fatalf("request count = %d, want 0", requestCount)
+	}
+}
+
+func TestRackSaveRejectsAllDevicesBeforeRequest(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	jsonPath := filepath.Join(t.TempDir(), "rack.json")
+	if err := os.WriteFile(jsonPath, []byte(`{
+		"label": "rack-from-json",
+		"rackInfo": {
+			"rows": 1,
+			"columns": 1,
+			"orderIndex": "RACK_ORDER_INDEX_BOTTOM_LEFT",
+			"coolingType": "RACK_COOLING_TYPE_AIR"
+		},
+		"deviceSelector": {
+			"deviceList": {
+				"deviceIdentifiers": ["miner-1"]
+			}
+		}
+	}`), 0o600); err != nil {
+		t.Fatalf("write rack json: %v", err)
+	}
+
+	requestCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		http.Error(w, "request should not be called", http.StatusTeapot)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"racks", "save", "--json", jsonPath, "--all-devices",
+	})
+	if err == nil || !strings.Contains(err.Error(), "all-devices") {
+		t.Fatalf("racks save error = %v, want all-devices rejection", err)
+	}
+	if requestCount != 0 {
+		t.Fatalf("request count = %d, want 0", requestCount)
+	}
+}
+
+func boundedSelectorDeviceIDsFromArgs(t *testing.T, srv *httptest.Server, args ...string) ([]string, error) {
+	t.Helper()
+	client, err := New(context.Background(), Options{Server: srv.URL + "/", APIKey: "test-key"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	var deviceIDs []string
+	var buildErr error
+	cmd := &cli.Command{
+		Name:  "selector-test",
+		Flags: generatedBoundedMinerSelectorFlags(),
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			selector, err := generatedBuildBoundedMinerSelector(ctx, cmd, client)
+			if err != nil {
+				buildErr = err
+				return nil
+			}
+			deviceIDs = selector.GetIncludeDevices().GetDeviceIdentifiers()
+			return nil
+		},
+	}
+	if err := cmd.Run(context.Background(), append([]string{"selector-test"}, args...)); err != nil {
+		t.Fatalf("run selector harness: %v", err)
+	}
+	return deviceIDs, buildErr
+}
+
+func collectionIDFromRequest(t *testing.T, r *http.Request) string {
+	t.Helper()
+	var body struct {
+		CollectionID string `json:"collection_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		t.Fatalf("decode collection request: %v", err)
+	}
+	return body.CollectionID
+}
+
+func TestBoundedMinerSelectorVerifiesCollectionIDs(t *testing.T) {
+	t.Run("group id rejects rack", func(t *testing.T) {
+		listMembersCount := 0
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", contentTypeJSON)
+			_, _ = w.Write([]byte(`{"collection":{"id":"42","type":"COLLECTION_TYPE_RACK","label":"rack-42"}}`))
+		})
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/ListCollectionMembers", func(w http.ResponseWriter, r *http.Request) {
+			listMembersCount++
+			t.Errorf("unexpected member list request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "members should not be listed", http.StatusTeapot)
+		})
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+
+		_, err := boundedSelectorDeviceIDsFromArgs(t, srv, "--group-id", "42")
+		if err == nil || !strings.Contains(err.Error(), "verify group ids: collection 42 is a rack, not a group") {
+			t.Fatalf("selector error = %v, want group/rack mismatch", err)
+		}
+		if listMembersCount != 0 {
+			t.Fatalf("list members count = %d, want 0", listMembersCount)
+		}
+	})
+
+	t.Run("rack id rejects group", func(t *testing.T) {
+		listMembersCount := 0
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", contentTypeJSON)
+			_, _ = w.Write([]byte(`{"collection":{"id":"42","type":"COLLECTION_TYPE_GROUP","label":"group-42"}}`))
+		})
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/ListCollectionMembers", func(w http.ResponseWriter, r *http.Request) {
+			listMembersCount++
+			t.Errorf("unexpected member list request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "members should not be listed", http.StatusTeapot)
+		})
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+
+		_, err := boundedSelectorDeviceIDsFromArgs(t, srv, "--rack-id", "42")
+		if err == nil || !strings.Contains(err.Error(), "verify rack ids: collection 42 is a group, not a rack") {
+			t.Fatalf("selector error = %v, want rack/group mismatch", err)
+		}
+		if listMembersCount != 0 {
+			t.Fatalf("list members count = %d, want 0", listMembersCount)
+		}
+	})
+
+	t.Run("matching group and rack ids expand members", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, r *http.Request) {
+			collectionID := collectionIDFromRequest(t, r)
+			collectionType := "COLLECTION_TYPE_GROUP"
+			if collectionID == "9" {
+				collectionType = "COLLECTION_TYPE_RACK"
+			}
+			w.Header().Set("Content-Type", contentTypeJSON)
+			_, _ = w.Write([]byte(`{"collection":{"id":"` + collectionID + `","type":"` + collectionType + `","label":"collection-` + collectionID + `"}}`))
+		})
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/ListCollectionMembers", func(w http.ResponseWriter, r *http.Request) {
+			collectionID := collectionIDFromRequest(t, r)
+			deviceID := "group-device"
+			if collectionID == "9" {
+				deviceID = "rack-device"
+			}
+			w.Header().Set("Content-Type", contentTypeJSON)
+			_, _ = w.Write([]byte(`{"members":[{"device_identifier":"` + deviceID + `"}]}`))
+		})
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+
+		got, err := boundedSelectorDeviceIDsFromArgs(t, srv, "--group-id", "7", "--rack-id", "9")
+		if err != nil {
+			t.Fatalf("selector error = %v, want success", err)
+		}
+		want := []string{"group-device", "rack-device"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("device ids = %v, want %v", got, want)
+		}
+	})
+}
+
+func TestCollectionStatsVerifyCollectionType(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		actualType string
+		wantError  string
+	}{
+		{
+			name:       "groups stats rejects rack id",
+			args:       []string{"groups", "stats", "--collection-ids", "42"},
+			actualType: "COLLECTION_TYPE_RACK",
+			wantError:  "collection 42 is a rack, not a group",
+		},
+		{
+			name:       "racks stats rejects group id",
+			args:       []string{"racks", "stats", "--collection-ids", "42"},
+			actualType: "COLLECTION_TYPE_GROUP",
+			wantError:  "collection 42 is a group, not a rack",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pinFleetAuthEnv(t, nil)
+
+			statsCount := 0
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", contentTypeJSON)
+				_, _ = w.Write([]byte(`{"collection":{"id":"42","type":"` + tt.actualType + `","label":"wrong-type"}}`))
+			})
+			mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollectionStats", func(w http.ResponseWriter, r *http.Request) {
+				statsCount++
+				t.Errorf("unexpected stats request: %s %s", r.Method, r.URL.Path)
+				http.Error(w, "stats should not be called", http.StatusTeapot)
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+
+			err := newRootCommand().Run(context.Background(), append([]string{
+				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+			}, tt.args...))
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("fleetcli %s error = %v, want %q", strings.Join(tt.args, " "), err, tt.wantError)
+			}
+			if statsCount != 0 {
+				t.Fatalf("stats count = %d, want 0", statsCount)
+			}
+		})
+	}
+
+	t.Run("matching group id proceeds", func(t *testing.T) {
+		pinFleetAuthEnv(t, nil)
+
+		var calls []string
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, _ *http.Request) {
+			calls = append(calls, "get")
+			w.Header().Set("Content-Type", contentTypeJSON)
+			_, _ = w.Write([]byte(`{"collection":{"id":"42","type":"COLLECTION_TYPE_GROUP","label":"group-42"}}`))
+		})
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollectionStats", func(w http.ResponseWriter, _ *http.Request) {
+			calls = append(calls, "stats")
+			w.Header().Set("Content-Type", contentTypeJSON)
+			_, _ = w.Write([]byte(`{"stats":[]}`))
+		})
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+			"groups", "stats", "--collection-ids", "42",
+		})
+		if err != nil {
+			t.Fatalf("groups stats error = %v, want success", err)
+		}
+		want := []string{"get", "stats"}
+		if strings.Join(calls, ",") != strings.Join(want, ",") {
+			t.Fatalf("calls = %v, want %v", calls, want)
+		}
+	})
+}
+
+func TestCollectionMembersVerifyCollectionType(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		actualType string
+		wantError  string
+	}{
+		{
+			name:       "groups members rejects rack id",
+			args:       []string{"groups", "members", "--collection-id", "42"},
+			actualType: "COLLECTION_TYPE_RACK",
+			wantError:  "collection 42 is a rack, not a group",
+		},
+		{
+			name:       "racks members rejects group id",
+			args:       []string{"racks", "members", "--collection-id", "42"},
+			actualType: "COLLECTION_TYPE_GROUP",
+			wantError:  "collection 42 is a group, not a rack",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pinFleetAuthEnv(t, nil)
+
+			membersCount := 0
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", contentTypeJSON)
+				_, _ = w.Write([]byte(`{"collection":{"id":"42","type":"` + tt.actualType + `","label":"wrong-type"}}`))
+			})
+			mux.HandleFunc("POST /collection.v1.DeviceCollectionService/ListCollectionMembers", func(w http.ResponseWriter, r *http.Request) {
+				membersCount++
+				t.Errorf("unexpected members request: %s %s", r.Method, r.URL.Path)
+				http.Error(w, "members should not be called", http.StatusTeapot)
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+
+			err := newRootCommand().Run(context.Background(), append([]string{
+				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+			}, tt.args...))
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("fleetcli %s error = %v, want %q", strings.Join(tt.args, " "), err, tt.wantError)
+			}
+			if membersCount != 0 {
+				t.Fatalf("members count = %d, want 0", membersCount)
+			}
+		})
+	}
+
+	t.Run("matching group id proceeds", func(t *testing.T) {
+		pinFleetAuthEnv(t, nil)
+
+		var calls []string
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, _ *http.Request) {
+			calls = append(calls, "get")
+			w.Header().Set("Content-Type", contentTypeJSON)
+			_, _ = w.Write([]byte(`{"collection":{"id":"42","type":"COLLECTION_TYPE_GROUP","label":"group-42"}}`))
+		})
+		mux.HandleFunc("POST /collection.v1.DeviceCollectionService/ListCollectionMembers", func(w http.ResponseWriter, _ *http.Request) {
+			calls = append(calls, "members")
+			w.Header().Set("Content-Type", contentTypeJSON)
+			_, _ = w.Write([]byte(`{"members":[]}`))
+		})
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+			"groups", "members", "--collection-id", "42",
+		})
+		if err != nil {
+			t.Fatalf("groups members error = %v, want success", err)
+		}
+		want := []string{"get", "members"}
+		if strings.Join(calls, ",") != strings.Join(want, ",") {
+			t.Fatalf("calls = %v, want %v", calls, want)
+		}
+	})
 }
 
 func TestResolvedAuthInputs(t *testing.T) {

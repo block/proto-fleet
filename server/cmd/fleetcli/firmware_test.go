@@ -695,6 +695,10 @@ func TestFirmwareDeployResolvesGroupToDevices(t *testing.T) {
 		w.Header().Set("Content-Type", contentTypeJSON)
 		_, _ = w.Write([]byte(`{"collections":[{"id":"7","label":"group-a"}]}`))
 	})
+	mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{"collection":{"id":"7","type":"COLLECTION_TYPE_GROUP","label":"group-a"}}`))
+	})
 	mux.HandleFunc("POST /collection.v1.DeviceCollectionService/ListCollectionMembers", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", contentTypeJSON)
 		_, _ = w.Write([]byte(`{"members":[{"device_identifier":"device-b"},{"device_identifier":"device-a"}]}`))

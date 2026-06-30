@@ -51,14 +51,17 @@ type methodOverride struct {
 }
 
 type commandOverride struct {
-	Method       string            `json:"method"`
-	Group        string            `json:"group"`
-	Command      string            `json:"command"`
-	Usage        string            `json:"usage,omitempty"`
-	Auth         string            `json:"auth,omitempty"`
-	IgnoreFields []string          `json:"ignore_fields,omitempty"`
-	FixedFields  map[string]string `json:"fixed_fields,omitempty"`
-	JSONOnly     bool              `json:"json_only,omitempty"`
+	Method                string            `json:"method"`
+	Group                 string            `json:"group"`
+	Command               string            `json:"command"`
+	Usage                 string            `json:"usage,omitempty"`
+	Auth                  string            `json:"auth,omitempty"`
+	IgnoreFields          []string          `json:"ignore_fields,omitempty"`
+	RequiredFields        []string          `json:"required_fields,omitempty"`
+	FixedFields           map[string]string `json:"fixed_fields,omitempty"`
+	RequireCollectionType string            `json:"require_collection_type,omitempty"`
+	CommonSelector        string            `json:"common_selector,omitempty"`
+	JSONOnly              bool              `json:"json_only,omitempty"`
 }
 
 type importSpec struct {
@@ -94,12 +97,15 @@ type methodRef struct {
 }
 
 type renderOptions struct {
-	CommandName  string
-	Usage        string
-	Auth         string
-	JSONOnly     bool
-	IgnoreFields map[string]bool
-	FixedFields  map[string]string
+	CommandName           string
+	Usage                 string
+	Auth                  string
+	JSONOnly              bool
+	IgnoreFields          map[string]bool
+	RequiredFields        map[string]bool
+	FixedFields           map[string]string
+	RequireCollectionType string
+	CommonSelector        string
 }
 
 type messageInfo struct {
@@ -383,12 +389,15 @@ func buildGroups(
 			return nil, generationReport{}, fmt.Errorf("unknown override method %q", override.Method)
 		}
 		options := renderOptions{
-			CommandName:  override.Command,
-			Usage:        override.Usage,
-			Auth:         chooseOverrideAuth(ref.ServiceOverride, override.Auth),
-			JSONOnly:     override.JSONOnly,
-			IgnoreFields: sliceToSet(override.IgnoreFields),
-			FixedFields:  override.FixedFields,
+			CommandName:           override.Command,
+			Usage:                 override.Usage,
+			Auth:                  chooseOverrideAuth(ref.ServiceOverride, override.Auth),
+			JSONOnly:              override.JSONOnly,
+			IgnoreFields:          sliceToSet(override.IgnoreFields),
+			RequiredFields:        sliceToSet(override.RequiredFields),
+			FixedFields:           override.FixedFields,
+			RequireCollectionType: override.RequireCollectionType,
+			CommonSelector:        override.CommonSelector,
 		}
 		if options.Usage == "" {
 			options.Usage = humanizeMethod(string(ref.Method.Name()))
@@ -567,7 +576,10 @@ func renderMethodExpr(
 		if analysis.needsFmt {
 			imports["fmt"] = ""
 		}
-		expr = renderSimpleExpr(options.CommandName, options.Usage, "/"+ref.ServiceKey+"/"+string(ref.Method.Name()), options.Auth, request, response, analysis)
+		expr, err = renderSimpleExpr(options.CommandName, options.Usage, "/"+ref.ServiceKey+"/"+string(ref.Method.Name()), options.Auth, request, response, analysis, options)
+		if err != nil {
+			return renderResult{}, err
+		}
 		if analysis.jsonFallback {
 			status = "generated_json_fallback"
 			reason = analysis.Reason
@@ -615,6 +627,8 @@ type requestAnalysis struct {
 	Reason              string
 	minerSelectorField  string
 	commonSelectorField string
+	commonSelectorBuild string
+	commonSelectorSet   string
 	imports             map[string]string
 }
 
@@ -631,6 +645,7 @@ func analyzeRequest(
 		return analysis, nil
 	}
 	hasUnsupported := false
+	seenRequiredFields := map[string]bool{}
 
 	for i := range message.Oneofs().Len() {
 		oneof := message.Oneofs().Get(i)
@@ -654,8 +669,14 @@ func analyzeRequest(
 			continue
 		}
 		if isCommonSelectorField(field) {
-			analysis.flagHelpers = appendUniqueString(analysis.flagHelpers, "generatedCommonSelectorFlags()")
+			helper, builder, provided, err := commonSelectorMode(options.CommonSelector)
+			if err != nil {
+				return analysis, err
+			}
+			analysis.flagHelpers = appendUniqueString(analysis.flagHelpers, helper)
 			analysis.commonSelectorField = toGoFieldName(field.Name())
+			analysis.commonSelectorBuild = builder
+			analysis.commonSelectorSet = provided
 			continue
 		}
 		if isStringValueField(field) {
@@ -694,9 +715,19 @@ func analyzeRequest(
 		if flag == "" && len(lines) == 0 {
 			continue
 		}
+		if options.RequiredFields[fieldName] {
+			flag = markFlagRequired(flag)
+			seenRequiredFields[fieldName] = true
+		}
 		analysis.flags = append(analysis.flags, flag)
 		analysis.lines = append(analysis.lines, lines...)
 		analysis.needsFmt = analysis.needsFmt || needsFmt
+	}
+
+	for fieldName := range options.RequiredFields {
+		if !seenRequiredFields[fieldName] {
+			return analysis, fmt.Errorf("required_fields references non-flag field %q on %s", fieldName, message.FullName())
+		}
 	}
 
 	if len(analysis.flags) == 0 && hasUnsupported {
@@ -723,6 +754,24 @@ func analyzeRequest(
 	}
 
 	return analysis, nil
+}
+
+func markFlagRequired(flag string) string {
+	if flag == "" || !strings.HasSuffix(flag, "}") {
+		return flag
+	}
+	return strings.TrimSuffix(flag, "}") + ", Required: true}"
+}
+
+func commonSelectorMode(value string) (helper, builder, provided string, err error) {
+	switch normalizeInput(value) {
+	case "", "default":
+		return "generatedCommonSelectorFlags()", "generatedBuildCommonSelector(cmd)", "generatedCommonSelectorProvided(cmd)", nil
+	case "device_list":
+		return "generatedCommonDeviceListSelectorFlags()", "generatedBuildCommonDeviceListSelector(cmd)", "generatedCommonDeviceListSelectorProvided(cmd)", nil
+	default:
+		return "", "", "", fmt.Errorf("unsupported common_selector %q", value)
+	}
 }
 
 func addImport(imports map[string]string, path, alias string) map[string]string {
@@ -1085,7 +1134,8 @@ func renderSimpleExpr(
 	request messageInfo,
 	response messageInfo,
 	analysis requestAnalysis,
-) string {
+	options renderOptions,
+) (string, error) {
 	var buf bytes.Buffer
 	buf.WriteString("generatedRequestCommand(\n")
 	buf.WriteString(fmt.Sprintf("\t%q,\n", commandName))
@@ -1125,16 +1175,78 @@ func renderSimpleExpr(
 		writeSelectorAssignment(&buf, analysis.minerSelectorField, "generatedBuildMinerSelector(ctx, cmd, client)", "generatedMinerSelectorProvided(cmd)", analysis.jsonFallback)
 	}
 	if analysis.commonSelectorField != "" {
-		writeSelectorAssignment(&buf, analysis.commonSelectorField, "generatedBuildCommonSelector(cmd)", "generatedCommonSelectorProvided(cmd)", analysis.jsonFallback)
+		writeSelectorAssignment(&buf, analysis.commonSelectorField, analysis.commonSelectorBuild, analysis.commonSelectorSet, analysis.jsonFallback)
 	}
 	for _, line := range analysis.lines {
 		buf.WriteString("\t\t" + line + "\n")
+	}
+	if options.RequireCollectionType != "" {
+		lines, err := requireCollectionTypeLines(request.Descriptor, options.RequireCollectionType)
+		if err != nil {
+			return "", err
+		}
+		for _, line := range lines {
+			buf.WriteString("\t\t" + line + "\n")
+		}
 	}
 	buf.WriteString("\t\treturn req, nil\n")
 	buf.WriteString("\t},\n")
 	buf.WriteString(fmt.Sprintf("\tfunc() proto.Message { return &%s.%s{} },\n", response.GoAlias, response.GoIdent))
 	buf.WriteString(")")
-	return strings.TrimSpace(buf.String())
+	return strings.TrimSpace(buf.String()), nil
+}
+
+func requireCollectionTypeLines(message protoreflect.MessageDescriptor, collectionType string) ([]string, error) {
+	typeExpr, err := requiredCollectionTypeExpr(collectionType)
+	if err != nil {
+		return nil, err
+	}
+
+	if field := message.Fields().ByName("collection_ids"); field != nil && field.IsList() {
+		goFieldName := toGoFieldName(field.Name())
+		return []string{
+			fmt.Sprintf("if err := generatedRequireCollectionTypes(ctx, client, req.%s, %s); err != nil {", goFieldName, typeExpr),
+			"\treturn nil, err",
+			"}",
+		}, nil
+	}
+
+	var field protoreflect.FieldDescriptor
+	for _, fieldName := range []protoreflect.Name{"collection_id", "target_group_id", "target_rack_id"} {
+		field = message.Fields().ByName(fieldName)
+		if field != nil {
+			break
+		}
+	}
+	if field == nil {
+		return nil, fmt.Errorf("require_collection_type needs collection_id, collection_ids, target_group_id, or target_rack_id field on %s", message.FullName())
+	}
+	goFieldName := toGoFieldName(field.Name())
+	if fieldNeedsPointer(field) {
+		return []string{
+			fmt.Sprintf("if req.%s != nil {", goFieldName),
+			fmt.Sprintf("\tif err := generatedRequireCollectionType(ctx, client, *req.%s, %s); err != nil {", goFieldName, typeExpr),
+			"\t\treturn nil, err",
+			"\t}",
+			"}",
+		}, nil
+	}
+	return []string{
+		fmt.Sprintf("if err := generatedRequireCollectionType(ctx, client, req.%s, %s); err != nil {", goFieldName, typeExpr),
+		"\treturn nil, err",
+		"}",
+	}, nil
+}
+
+func requiredCollectionTypeExpr(value string) (string, error) {
+	switch normalizeInput(value) {
+	case "group":
+		return "collectionv1.CollectionType_COLLECTION_TYPE_GROUP", nil
+	case "rack":
+		return "collectionv1.CollectionType_COLLECTION_TYPE_RACK", nil
+	default:
+		return "", fmt.Errorf("unsupported require_collection_type %q", value)
+	}
 }
 
 // writeSelectorAssignment emits the code that builds a device selector and
