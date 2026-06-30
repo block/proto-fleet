@@ -240,6 +240,12 @@ func start(config *Config) error {
 	notificationHistoryStore := sqlstores.NewSQLNotificationHistoryStore(conn)
 
 	activitySvc := activityDomain.NewService(activityStore)
+	cohortStore := sqlstores.NewSQLCohortStore(conn)
+	cohortSvc := cohortDomain.NewService(
+		cohortStore,
+		cohortDomain.WithAuditLogger(activitySvc),
+		cohortDomain.WithSourceDeviceSetResolver(collectionStore),
+	)
 
 	apiKeyStore := sqlstores.NewSQLApiKeyStore(conn)
 	apiKeySvc := apikeyDomain.NewService(apiKeyStore, activitySvc)
@@ -288,6 +294,11 @@ func start(config *Config) error {
 					slog.Error("failed to sweep expired fleet node auth state", "error", err)
 				} else if challenges > 0 || sessions > 0 {
 					slog.Debug("swept expired fleet node auth state", "challenges", challenges, "sessions", sessions)
+				}
+				if cohorts, err := cohortSvc.SweepExpired(cleanupCtx); err != nil {
+					slog.Error("failed to sweep expired cohorts", "error", err)
+				} else if len(cohorts) > 0 {
+					slog.Debug("swept expired cohorts", "count", len(cohorts))
 				}
 			case <-cleanupCtx.Done():
 				return
@@ -375,6 +386,7 @@ func start(config *Config) error {
 		}
 	}()
 	defer commandArtifactCleanupCancel()
+	cohortSvc.SetFirmwareMetadataProvider(filesService)
 	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, pluginManager).
 		WithCommandSender(fleetNodeControlRegistry)
 
@@ -508,9 +520,6 @@ func start(config *Config) error {
 		curtailmentDomain.WithAuditLogger(activitySvc),
 	)
 	curtailmentResponseProfileSvc := curtailmentDomain.NewResponseProfileService(curtailmentStore)
-	cohortStore := sqlstores.NewSQLCohortStore(conn)
-	cohortSvc := cohortDomain.NewService(cohortStore, cohortDomain.WithAuditLogger(activitySvc))
-
 	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn)
@@ -525,6 +534,9 @@ func start(config *Config) error {
 	// CurtailmentActiveFilter blocks non-curtailment commands on locked
 	// devices; reconciler self-traffic bypasses via ActorCurtailment.
 	commandSvc.RegisterFilter(commandDomain.NewCurtailmentActiveFilter(curtailmentStore))
+	// CohortMembershipFilter blocks non-owner commands on leased devices;
+	// cohort enforcement self-traffic bypasses via ActorCohort.
+	commandSvc.RegisterFilter(commandDomain.NewCohortMembershipFilter(cohortStore))
 
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, deviceStore, commandSvc, activitySvc)
 	if err := scheduleProcessor.Start(context.Background()); err != nil {
