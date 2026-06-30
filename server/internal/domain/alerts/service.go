@@ -313,10 +313,14 @@ func buildNotificationTree(cps []GrafanaContactPoint) GrafanaRoute {
 			continue
 		}
 		orgRoutes = append(orgRoutes, GrafanaRoute{
-			Receiver:       cp.Name,
-			ObjectMatchers: [][]string{{ruleLabelOrganizationID, "=", m[1]}},
-			GroupBy:        []string{ruleLabelOrganizationID},
-			Continue:       true,
+			Receiver: cp.Name,
+			// Exclude operator-only internal alerts: they carry organization_id but must reach only the webhook/history tee, never an org's external channel.
+			ObjectMatchers: [][]string{
+				{ruleLabelOrganizationID, "=", m[1]},
+				{ruleLabelScope, "!=", ruleScopeInternal},
+			},
+			GroupBy:  []string{ruleLabelOrganizationID},
+			Continue: true,
 		})
 	}
 	if len(orgRoutes) == 0 {

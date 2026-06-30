@@ -326,7 +326,10 @@ func TestBuildNotificationTree(t *testing.T) {
 		assert.NotContains(t, receivers, "org-42-test-"+transientUUID, "transient test receiver must be excluded")
 
 		org := tree.Routes[0]
-		assert.Equal(t, [][]string{{"organization_id", "=", "42"}}, org.ObjectMatchers)
+		assert.Equal(t, [][]string{
+			{"organization_id", "=", "42"},
+			{"proto_fleet_scope", "!=", "internal"},
+		}, org.ObjectMatchers, "org route must exclude operator-only internal alerts")
 		assert.Equal(t, []string{"organization_id"}, org.GroupBy)
 		assert.True(t, org.Continue, "org route must fall through to the history tee")
 
