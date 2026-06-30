@@ -605,7 +605,7 @@ func (s *Subscriber) recordRuntimeStatus(update RuntimeStatusUpdate) {
 		}
 	}
 	state := RuntimeStateRunning
-	if running == 0 {
+	if subscribed == 0 {
 		state = RuntimeStateStarting
 		if lastError != "" {
 			state = RuntimeStateError

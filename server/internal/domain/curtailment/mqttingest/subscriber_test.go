@@ -325,3 +325,52 @@ func TestSubscriber_RuntimeStatusTracksBrokerDisconnectAndReconnect(t *testing.T
 	status = requireRuntimeStatus(t, s, src.ID, RuntimeStateRunning, 2, 2)
 	assert.Empty(t, status.LastError)
 }
+
+func TestSubscriber_RuntimeStatusTreatsConnectedUnsubscribedErrorsAsError(t *testing.T) {
+	t.Parallel()
+
+	s, err := NewSubscriber(Config{
+		Store:     newFakeSourceStore(),
+		NewClient: func() MQTTClient { return &countingClient{} },
+		Decryptor: passthroughDecryptor{},
+		Logger:    slog.New(slog.DiscardHandler),
+	})
+	require.NoError(t, err)
+
+	s.recordRuntimeStatus(RuntimeStatusUpdate{
+		SourceID:   1,
+		Broker:     "primary",
+		Connected:  true,
+		Subscribed: false,
+		Error:      "mqttclient: resubscribe \"curtailment/source\": subscription rejected",
+	})
+	status := s.SourceRuntimeStatus(1)
+	assert.Equal(t, RuntimeStateError, status.State)
+	assert.Equal(t, 1, status.RunningBrokerCount)
+	assert.Zero(t, status.SubscribedBrokerCount)
+	assert.Contains(t, status.LastError, "subscription rejected")
+
+	s.recordRuntimeStatus(RuntimeStatusUpdate{
+		SourceID:   1,
+		Broker:     "secondary",
+		Connected:  true,
+		Subscribed: false,
+		Error:      "mqttclient: resubscribe \"curtailment/source\": not authorized",
+	})
+	status = s.SourceRuntimeStatus(1)
+	assert.Equal(t, RuntimeStateError, status.State)
+	assert.Equal(t, 2, status.RunningBrokerCount)
+	assert.Zero(t, status.SubscribedBrokerCount)
+
+	s.recordRuntimeStatus(RuntimeStatusUpdate{
+		SourceID:   1,
+		Broker:     "primary",
+		Connected:  true,
+		Subscribed: true,
+	})
+	status = s.SourceRuntimeStatus(1)
+	assert.Equal(t, RuntimeStateRunning, status.State)
+	assert.Equal(t, 2, status.RunningBrokerCount)
+	assert.Equal(t, 1, status.SubscribedBrokerCount)
+	assert.Contains(t, status.LastError, "not authorized")
+}
