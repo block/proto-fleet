@@ -15,12 +15,22 @@ import (
 )
 
 func toCreateCohortParams(req *pb.CreateCohortRequest, info *session.Info) (models.CreateCohortParams, error) {
-	if _, ok := req.GetInitialMembers().(*pb.CreateCohortRequest_SourceDeviceSetId); ok {
-		return models.CreateCohortParams{}, fleeterror.NewUnimplementedError("source_device_set_id cohort creation is not implemented yet")
-	}
 	desiredConfig, err := structToJSON(req.GetDesiredConfig())
 	if err != nil {
 		return models.CreateCohortParams{}, err
+	}
+	var sourceDeviceSetID *int64
+	if x, ok := req.GetInitialMembers().(*pb.CreateCohortRequest_SourceDeviceSetId); ok {
+		sourceDeviceSetID = &x.SourceDeviceSetId
+	}
+	var selector *models.CohortDeviceSelector
+	if x, ok := req.GetInitialMembers().(*pb.CreateCohortRequest_Select); ok && x.Select != nil {
+		selector = &models.CohortDeviceSelector{
+			Count:   x.Select.GetCount(),
+			Product: stringPtrFromOptional(x.Select.Product),
+			Model:   stringPtrFromOptional(x.Select.Model),
+			SiteID:  x.Select.SiteId,
+		}
 	}
 	var ownerUserID *int64
 	var ownerUsername *string
@@ -42,6 +52,8 @@ func toCreateCohortParams(req *pb.CreateCohortRequest, info *session.Info) (mode
 		SourceActorID:         deriveSourceActorID(info),
 		IdempotencyKey:        nonEmptyPtr(req.GetIdempotencyKey()),
 		DeviceIdentifiers:     req.GetDeviceIdentifiers().GetDeviceIdentifiers(),
+		SourceDeviceSetID:     sourceDeviceSetID,
+		DeviceSelector:        selector,
 	}, nil
 }
 
@@ -65,10 +77,25 @@ func toUpdateCohortParams(req *pb.UpdateCohortRequest, orgID int64) (models.Upda
 	}, nil
 }
 
+func toSetCohortFirmwareTargetParams(req *pb.SetCohortFirmwareTargetRequest, info *session.Info) models.SetCohortFirmwareTargetParams {
+	return models.SetCohortFirmwareTargetParams{
+		OrgID:          info.OrganizationID,
+		CohortID:       req.GetCohortId(),
+		ActorUserID:    info.UserID,
+		ActorRole:      info.Role,
+		Manufacturer:   req.GetManufacturer(),
+		Model:          req.GetModel(),
+		FirmwareFileID: stringPtrFromOptional(req.FirmwareFileId),
+	}
+}
+
 func toListCohortsParams(req *pb.ListCohortsRequest, orgID int64) models.ListCohortsParams {
 	return models.ListCohortsParams{
 		OrgID:           orgID,
 		IncludeReleased: req.GetIncludeReleased(),
+		PageSize:        req.GetPageSize(),
+		PageToken:       req.GetPageToken(),
+		Search:          req.GetSearch(),
 	}
 }
 
@@ -77,6 +104,55 @@ func toListCohortsByOwnerParams(req *pb.GetMyCohortsRequest, info *session.Info)
 		OrgID:           info.OrganizationID,
 		OwnerUserID:     info.UserID,
 		IncludeReleased: req.GetIncludeReleased(),
+		PageSize:        req.GetPageSize(),
+		PageToken:       req.GetPageToken(),
+		Search:          req.GetSearch(),
+	}
+}
+
+func toMembershipMutationParams(orgID int64, userID int64, role string, cohortID int64, deviceIdentifiers []string) models.MembershipMutationParams {
+	return models.MembershipMutationParams{
+		OrgID:             orgID,
+		CohortID:          cohortID,
+		ActorUserID:       userID,
+		ActorRole:         role,
+		DeviceIdentifiers: deviceIdentifiers,
+	}
+}
+
+func toListDevicesParams(req *pb.ListDevicesRequest, orgID int64) models.ListDevicesParams {
+	return models.ListDevicesParams{
+		OrgID:     orgID,
+		SiteID:    req.SiteId,
+		PageSize:  req.GetPageSize(),
+		PageToken: req.GetPageToken(),
+		Filter:    toCohortDeviceFilter(req.GetFilter()),
+	}
+}
+
+func toCohortDeviceFilter(filter *pb.CohortDeviceFilter) models.CohortDeviceFilter {
+	if filter == nil {
+		return models.CohortDeviceFilter{}
+	}
+	assignments := make([]models.CohortDeviceAssignment, 0, len(filter.GetAssignments()))
+	for _, assignment := range filter.GetAssignments() {
+		switch assignment {
+		case pb.CohortDeviceAssignment_COHORT_DEVICE_ASSIGNMENT_AVAILABLE:
+			assignments = append(assignments, models.CohortDeviceAssignmentAvailable)
+		case pb.CohortDeviceAssignment_COHORT_DEVICE_ASSIGNMENT_RESERVED:
+			assignments = append(assignments, models.CohortDeviceAssignmentReserved)
+		}
+	}
+	return models.CohortDeviceFilter{
+		Assignments:           assignments,
+		CohortIDs:             filter.GetCohortIds(),
+		OwnerUserIDs:          filter.GetOwnerUserIds(),
+		IncludeUnowned:        filter.GetIncludeUnowned(),
+		Manufacturers:         filter.GetManufacturers(),
+		Models:                filter.GetModels(),
+		SiteIDs:               filter.GetSiteIds(),
+		IncludeUnassignedSite: filter.GetIncludeUnassignedSite(),
+		Search:                filter.GetSearch(),
 	}
 }
 
@@ -85,8 +161,9 @@ func toProtoCohort(cohort *models.Cohort) *pb.Cohort {
 		return nil
 	}
 	return &pb.Cohort{
-		Summary: toProtoCohortSummary(cohort),
-		Members: toProtoMembers(cohort.Members),
+		Summary:         toProtoCohortSummary(cohort),
+		Members:         toProtoMembers(cohort.Members),
+		FirmwareTargets: toProtoFirmwareTargets(cohort.FirmwareTargets),
 	}
 }
 
@@ -132,6 +209,7 @@ func toProtoMembers(members []models.CohortMember) []*pb.CohortMember {
 			CohortId:         member.CohortID,
 			DeviceIdentifier: member.DeviceIdentifier,
 			AddedAt:          timestamppb.New(member.AddedAt),
+			Display:          toProtoDeviceDisplay(member.Display),
 		}
 		if member.SiteID != nil {
 			pbMember.SiteId = member.SiteID
@@ -139,6 +217,46 @@ func toProtoMembers(members []models.CohortMember) []*pb.CohortMember {
 		out = append(out, pbMember)
 	}
 	return out
+}
+
+func toProtoFirmwareTargets(targets []models.CohortFirmwareTarget) []*pb.CohortFirmwareTarget {
+	out := make([]*pb.CohortFirmwareTarget, 0, len(targets))
+	for _, target := range targets {
+		out = append(out, &pb.CohortFirmwareTarget{
+			Manufacturer:   target.Manufacturer,
+			Model:          target.Model,
+			FirmwareFileId: ptrToString(target.FirmwareFileID),
+		})
+	}
+	return out
+}
+
+func toProtoCohortDevices(devices []models.CohortDevice) []*pb.CohortDevice {
+	out := make([]*pb.CohortDevice, 0, len(devices))
+	for _, device := range devices {
+		pbDevice := &pb.CohortDevice{
+			DeviceIdentifier: device.DeviceIdentifier,
+			EffectiveCohort:  toProtoCohortSummary(&device.EffectiveCohort),
+			Display:          toProtoDeviceDisplay(device.Display),
+		}
+		if device.SiteID != nil {
+			pbDevice.SiteId = device.SiteID
+		}
+		out = append(out, pbDevice)
+	}
+	return out
+}
+
+func toProtoDeviceDisplay(display models.CohortDeviceDisplay) *pb.CohortDeviceDisplay {
+	return &pb.CohortDeviceDisplay{
+		Name:         display.Name,
+		WorkerName:   display.WorkerName,
+		Manufacturer: display.Manufacturer,
+		Model:        display.Model,
+		IpAddress:    display.IPAddress,
+		SerialNumber: display.SerialNumber,
+		SiteLabel:    display.SiteLabel,
+	}
 }
 
 func toProtoState(state models.CohortState) pb.CohortState {
@@ -217,6 +335,9 @@ func deriveSourceActorType(info *session.Info) models.SourceActorType {
 	}
 	if info.Actor == session.ActorScheduler {
 		return models.SourceActorScheduler
+	}
+	if info.Actor == session.ActorCohort {
+		return models.SourceActorCohort
 	}
 	if info.AuthMethod == session.AuthMethodAPIKey {
 		return models.SourceActorAPIKey

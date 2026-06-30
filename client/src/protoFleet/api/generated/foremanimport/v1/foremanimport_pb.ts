@@ -9,11 +9,8 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file foremanimport/v1/foremanimport.proto.
  */
-export const file_foremanimport_v1_foremanimport: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "CiRmb3JlbWFuaW1wb3J0L3YxL2ZvcmVtYW5pbXBvcnQucHJvdG8SEGZvcmVtYW5pbXBvcnQudjEiOAoSRm9yZW1hbkNyZWRlbnRpYWxzEg8KB2FwaV9rZXkYASABKAkSEQoJY2xpZW50X2lkGAIgASgJIlUKGEltcG9ydEZyb21Gb3JlbWFuUmVxdWVzdBI5CgtjcmVkZW50aWFscxgBIAEoCzIkLmZvcmVtYW5pbXBvcnQudjEuRm9yZW1hbkNyZWRlbnRpYWxzIlQKDEZvcmVtYW5NaW5lchISCgppcF9hZGRyZXNzGAEgASgJEhMKC21hY19hZGRyZXNzGAIgASgJEgwKBG5hbWUYAyABKAkSDQoFbW9kZWwYBCABKAkiSwoZSW1wb3J0RnJvbUZvcmVtYW5SZXNwb25zZRIuCgZtaW5lcnMYASADKAsyHi5mb3JlbWFuaW1wb3J0LnYxLkZvcmVtYW5NaW5lciK4AQoVQ29tcGxldGVJbXBvcnRSZXF1ZXN0EjkKC2NyZWRlbnRpYWxzGAEgASgLMiQuZm9yZW1hbmltcG9ydC52MS5Gb3JlbWFuQ3JlZGVudGlhbHMSFAoMaW1wb3J0X3Bvb2xzGAIgASgIEhUKDWltcG9ydF9ncm91cHMYAyABKAgSFAoMaW1wb3J0X3JhY2tzGAQgASgIEiEKGXBhaXJlZF9kZXZpY2VfaWRlbnRpZmllcnMYBSADKAkiqwEKFkNvbXBsZXRlSW1wb3J0UmVzcG9uc2USFQoNcG9vbHNfY3JlYXRlZBgBIAEoBRIWCg5ncm91cHNfY3JlYXRlZBgCIAEoBRIVCg1yYWNrc19jcmVhdGVkGAMgASgFEhgKEGRldmljZXNfYXNzaWduZWQYBCABKAUSGAoQd29ya2VyX25hbWVzX3NldBgFIAEoBRIXCg9taW5lcl9uYW1lc19zZXQYBiABKAUy6QEKFEZvcmVtYW5JbXBvcnRTZXJ2aWNlEmwKEUltcG9ydEZyb21Gb3JlbWFuEiouZm9yZW1hbmltcG9ydC52MS5JbXBvcnRGcm9tRm9yZW1hblJlcXVlc3QaKy5mb3JlbWFuaW1wb3J0LnYxLkltcG9ydEZyb21Gb3JlbWFuUmVzcG9uc2USYwoOQ29tcGxldGVJbXBvcnQSJy5mb3JlbWFuaW1wb3J0LnYxLkNvbXBsZXRlSW1wb3J0UmVxdWVzdBooLmZvcmVtYW5pbXBvcnQudjEuQ29tcGxldGVJbXBvcnRSZXNwb25zZULgAQoUY29tLmZvcmVtYW5pbXBvcnQudjFCEkZvcmVtYW5pbXBvcnRQcm90b1ABWlNnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9mb3JlbWFuaW1wb3J0L3YxO2ZvcmVtYW5pbXBvcnR2MaICA0ZYWKoCEEZvcmVtYW5pbXBvcnQuVjHKAhBGb3JlbWFuaW1wb3J0XFYx4gIcRm9yZW1hbmltcG9ydFxWMVxHUEJNZXRhZGF0YeoCEUZvcmVtYW5pbXBvcnQ6OlYxYgZwcm90bzM",
-  );
+export const file_foremanimport_v1_foremanimport: GenFile = /*@__PURE__*/
+  fileDesc("CiRmb3JlbWFuaW1wb3J0L3YxL2ZvcmVtYW5pbXBvcnQucHJvdG8SEGZvcmVtYW5pbXBvcnQudjEiOAoSRm9yZW1hbkNyZWRlbnRpYWxzEg8KB2FwaV9rZXkYASABKAkSEQoJY2xpZW50X2lkGAIgASgJIlUKGEltcG9ydEZyb21Gb3JlbWFuUmVxdWVzdBI5CgtjcmVkZW50aWFscxgBIAEoCzIkLmZvcmVtYW5pbXBvcnQudjEuRm9yZW1hbkNyZWRlbnRpYWxzIlQKDEZvcmVtYW5NaW5lchISCgppcF9hZGRyZXNzGAEgASgJEhMKC21hY19hZGRyZXNzGAIgASgJEgwKBG5hbWUYAyABKAkSDQoFbW9kZWwYBCABKAkiSwoZSW1wb3J0RnJvbUZvcmVtYW5SZXNwb25zZRIuCgZtaW5lcnMYASADKAsyHi5mb3JlbWFuaW1wb3J0LnYxLkZvcmVtYW5NaW5lciK4AQoVQ29tcGxldGVJbXBvcnRSZXF1ZXN0EjkKC2NyZWRlbnRpYWxzGAEgASgLMiQuZm9yZW1hbmltcG9ydC52MS5Gb3JlbWFuQ3JlZGVudGlhbHMSFAoMaW1wb3J0X3Bvb2xzGAIgASgIEhUKDWltcG9ydF9ncm91cHMYAyABKAgSFAoMaW1wb3J0X3JhY2tzGAQgASgIEiEKGXBhaXJlZF9kZXZpY2VfaWRlbnRpZmllcnMYBSADKAkiqwEKFkNvbXBsZXRlSW1wb3J0UmVzcG9uc2USFQoNcG9vbHNfY3JlYXRlZBgBIAEoBRIWCg5ncm91cHNfY3JlYXRlZBgCIAEoBRIVCg1yYWNrc19jcmVhdGVkGAMgASgFEhgKEGRldmljZXNfYXNzaWduZWQYBCABKAUSGAoQd29ya2VyX25hbWVzX3NldBgFIAEoBRIXCg9taW5lcl9uYW1lc19zZXQYBiABKAUy6QEKFEZvcmVtYW5JbXBvcnRTZXJ2aWNlEmwKEUltcG9ydEZyb21Gb3JlbWFuEiouZm9yZW1hbmltcG9ydC52MS5JbXBvcnRGcm9tRm9yZW1hblJlcXVlc3QaKy5mb3JlbWFuaW1wb3J0LnYxLkltcG9ydEZyb21Gb3JlbWFuUmVzcG9uc2USYwoOQ29tcGxldGVJbXBvcnQSJy5mb3JlbWFuaW1wb3J0LnYxLkNvbXBsZXRlSW1wb3J0UmVxdWVzdBooLmZvcmVtYW5pbXBvcnQudjEuQ29tcGxldGVJbXBvcnRSZXNwb25zZULgAQoUY29tLmZvcmVtYW5pbXBvcnQudjFCEkZvcmVtYW5pbXBvcnRQcm90b1ABWlNnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9mb3JlbWFuaW1wb3J0L3YxO2ZvcmVtYW5pbXBvcnR2MaICA0ZYWKoCEEZvcmVtYW5pbXBvcnQuVjHKAhBGb3JlbWFuaW1wb3J0XFYx4gIcRm9yZW1hbmltcG9ydFxWMVxHUEJNZXRhZGF0YeoCEUZvcmVtYW5pbXBvcnQ6OlYxYgZwcm90bzM");
 
 /**
  * @generated from message foremanimport.v1.ForemanCredentials
@@ -34,8 +31,7 @@ export type ForemanCredentials = Message<"foremanimport.v1.ForemanCredentials"> 
  * Describes the message foremanimport.v1.ForemanCredentials.
  * Use `create(ForemanCredentialsSchema)` to create a new message.
  */
-export const ForemanCredentialsSchema: GenMessage<ForemanCredentials> =
-  /*@__PURE__*/
+export const ForemanCredentialsSchema: GenMessage<ForemanCredentials> = /*@__PURE__*/
   messageDesc(file_foremanimport_v1_foremanimport, 0);
 
 /**
@@ -52,8 +48,7 @@ export type ImportFromForemanRequest = Message<"foremanimport.v1.ImportFromForem
  * Describes the message foremanimport.v1.ImportFromForemanRequest.
  * Use `create(ImportFromForemanRequestSchema)` to create a new message.
  */
-export const ImportFromForemanRequestSchema: GenMessage<ImportFromForemanRequest> =
-  /*@__PURE__*/
+export const ImportFromForemanRequestSchema: GenMessage<ImportFromForemanRequest> = /*@__PURE__*/
   messageDesc(file_foremanimport_v1_foremanimport, 1);
 
 /**
@@ -85,8 +80,7 @@ export type ForemanMiner = Message<"foremanimport.v1.ForemanMiner"> & {
  * Describes the message foremanimport.v1.ForemanMiner.
  * Use `create(ForemanMinerSchema)` to create a new message.
  */
-export const ForemanMinerSchema: GenMessage<ForemanMiner> =
-  /*@__PURE__*/
+export const ForemanMinerSchema: GenMessage<ForemanMiner> = /*@__PURE__*/
   messageDesc(file_foremanimport_v1_foremanimport, 2);
 
 /**
@@ -103,8 +97,7 @@ export type ImportFromForemanResponse = Message<"foremanimport.v1.ImportFromFore
  * Describes the message foremanimport.v1.ImportFromForemanResponse.
  * Use `create(ImportFromForemanResponseSchema)` to create a new message.
  */
-export const ImportFromForemanResponseSchema: GenMessage<ImportFromForemanResponse> =
-  /*@__PURE__*/
+export const ImportFromForemanResponseSchema: GenMessage<ImportFromForemanResponse> = /*@__PURE__*/
   messageDesc(file_foremanimport_v1_foremanimport, 3);
 
 /**
@@ -146,8 +139,7 @@ export type CompleteImportRequest = Message<"foremanimport.v1.CompleteImportRequ
  * Describes the message foremanimport.v1.CompleteImportRequest.
  * Use `create(CompleteImportRequestSchema)` to create a new message.
  */
-export const CompleteImportRequestSchema: GenMessage<CompleteImportRequest> =
-  /*@__PURE__*/
+export const CompleteImportRequestSchema: GenMessage<CompleteImportRequest> = /*@__PURE__*/
   messageDesc(file_foremanimport_v1_foremanimport, 4);
 
 /**
@@ -189,8 +181,7 @@ export type CompleteImportResponse = Message<"foremanimport.v1.CompleteImportRes
  * Describes the message foremanimport.v1.CompleteImportResponse.
  * Use `create(CompleteImportResponseSchema)` to create a new message.
  */
-export const CompleteImportResponseSchema: GenMessage<CompleteImportResponse> =
-  /*@__PURE__*/
+export const CompleteImportResponseSchema: GenMessage<CompleteImportResponse> = /*@__PURE__*/
   messageDesc(file_foremanimport_v1_foremanimport, 5);
 
 /**
@@ -207,7 +198,7 @@ export const ForemanImportService: GenService<{
     methodKind: "unary";
     input: typeof ImportFromForemanRequestSchema;
     output: typeof ImportFromForemanResponseSchema;
-  };
+  },
   /**
    * Creates pools/groups/racks and assigns paired devices to their collections.
    * Call this after miners from ImportFromForeman have been discovered and paired.
@@ -218,5 +209,7 @@ export const ForemanImportService: GenService<{
     methodKind: "unary";
     input: typeof CompleteImportRequestSchema;
     output: typeof CompleteImportResponseSchema;
-  };
-}> = /*@__PURE__*/ serviceDesc(file_foremanimport_v1_foremanimport, 0);
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_foremanimport_v1_foremanimport, 0);
+

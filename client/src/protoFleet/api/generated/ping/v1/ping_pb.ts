@@ -9,11 +9,8 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file ping/v1/ping.proto.
  */
-export const file_ping_v1_ping: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "ChJwaW5nL3YxL3BpbmcucHJvdG8SB3BpbmcudjEiGwoLUGluZ1JlcXVlc3QSDAoEdGV4dBgBIAEoCSIcCgxQaW5nUmVzcG9uc2USDAoEdGV4dBgBIAEoCSIbCgtFY2hvUmVxdWVzdBIMCgR0ZXh0GAEgASgJIhwKDEVjaG9SZXNwb25zZRIMCgR0ZXh0GAEgASgJIiEKEVBpbmdTdHJlYW1SZXF1ZXN0EgwKBHRleHQYASABKAkiIgoSUGluZ1N0cmVhbVJlc3BvbnNlEgwKBHRleHQYASABKAkyzgEKC1BpbmdTZXJ2aWNlEjgKBFBpbmcSFC5waW5nLnYxLlBpbmdSZXF1ZXN0GhUucGluZy52MS5QaW5nUmVzcG9uc2UiA5ACARI4CgRFY2hvEhQucGluZy52MS5FY2hvUmVxdWVzdBoVLnBpbmcudjEuRWNob1Jlc3BvbnNlIgOQAgISSwoKUGluZ1N0cmVhbRIaLnBpbmcudjEuUGluZ1N0cmVhbVJlcXVlc3QaGy5waW5nLnYxLlBpbmdTdHJlYW1SZXNwb25zZSIAKAEwAUKYAQoLY29tLnBpbmcudjFCCVBpbmdQcm90b1ABWkFnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9waW5nL3YxO3Bpbmd2MaICA1BYWKoCB1BpbmcuVjHKAgdQaW5nXFYx4gITUGluZ1xWMVxHUEJNZXRhZGF0YeoCCFBpbmc6OlYxYgZwcm90bzM",
-  );
+export const file_ping_v1_ping: GenFile = /*@__PURE__*/
+  fileDesc("ChJwaW5nL3YxL3BpbmcucHJvdG8SB3BpbmcudjEiGwoLUGluZ1JlcXVlc3QSDAoEdGV4dBgBIAEoCSIcCgxQaW5nUmVzcG9uc2USDAoEdGV4dBgBIAEoCSIbCgtFY2hvUmVxdWVzdBIMCgR0ZXh0GAEgASgJIhwKDEVjaG9SZXNwb25zZRIMCgR0ZXh0GAEgASgJIiEKEVBpbmdTdHJlYW1SZXF1ZXN0EgwKBHRleHQYASABKAkiIgoSUGluZ1N0cmVhbVJlc3BvbnNlEgwKBHRleHQYASABKAkyzgEKC1BpbmdTZXJ2aWNlEjgKBFBpbmcSFC5waW5nLnYxLlBpbmdSZXF1ZXN0GhUucGluZy52MS5QaW5nUmVzcG9uc2UiA5ACARI4CgRFY2hvEhQucGluZy52MS5FY2hvUmVxdWVzdBoVLnBpbmcudjEuRWNob1Jlc3BvbnNlIgOQAgISSwoKUGluZ1N0cmVhbRIaLnBpbmcudjEuUGluZ1N0cmVhbVJlcXVlc3QaGy5waW5nLnYxLlBpbmdTdHJlYW1SZXNwb25zZSIAKAEwAUKYAQoLY29tLnBpbmcudjFCCVBpbmdQcm90b1ABWkFnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9waW5nL3YxO3Bpbmd2MaICA1BYWKoCB1BpbmcuVjHKAgdQaW5nXFYx4gITUGluZ1xWMVxHUEJNZXRhZGF0YeoCCFBpbmc6OlYxYgZwcm90bzM");
 
 /**
  * @generated from message ping.v1.PingRequest
@@ -29,7 +26,8 @@ export type PingRequest = Message<"ping.v1.PingRequest"> & {
  * Describes the message ping.v1.PingRequest.
  * Use `create(PingRequestSchema)` to create a new message.
  */
-export const PingRequestSchema: GenMessage<PingRequest> = /*@__PURE__*/ messageDesc(file_ping_v1_ping, 0);
+export const PingRequestSchema: GenMessage<PingRequest> = /*@__PURE__*/
+  messageDesc(file_ping_v1_ping, 0);
 
 /**
  * @generated from message ping.v1.PingResponse
@@ -45,7 +43,8 @@ export type PingResponse = Message<"ping.v1.PingResponse"> & {
  * Describes the message ping.v1.PingResponse.
  * Use `create(PingResponseSchema)` to create a new message.
  */
-export const PingResponseSchema: GenMessage<PingResponse> = /*@__PURE__*/ messageDesc(file_ping_v1_ping, 1);
+export const PingResponseSchema: GenMessage<PingResponse> = /*@__PURE__*/
+  messageDesc(file_ping_v1_ping, 1);
 
 /**
  * @generated from message ping.v1.EchoRequest
@@ -61,7 +60,8 @@ export type EchoRequest = Message<"ping.v1.EchoRequest"> & {
  * Describes the message ping.v1.EchoRequest.
  * Use `create(EchoRequestSchema)` to create a new message.
  */
-export const EchoRequestSchema: GenMessage<EchoRequest> = /*@__PURE__*/ messageDesc(file_ping_v1_ping, 2);
+export const EchoRequestSchema: GenMessage<EchoRequest> = /*@__PURE__*/
+  messageDesc(file_ping_v1_ping, 2);
 
 /**
  * @generated from message ping.v1.EchoResponse
@@ -77,7 +77,8 @@ export type EchoResponse = Message<"ping.v1.EchoResponse"> & {
  * Describes the message ping.v1.EchoResponse.
  * Use `create(EchoResponseSchema)` to create a new message.
  */
-export const EchoResponseSchema: GenMessage<EchoResponse> = /*@__PURE__*/ messageDesc(file_ping_v1_ping, 3);
+export const EchoResponseSchema: GenMessage<EchoResponse> = /*@__PURE__*/
+  messageDesc(file_ping_v1_ping, 3);
 
 /**
  * @generated from message ping.v1.PingStreamRequest
@@ -93,7 +94,8 @@ export type PingStreamRequest = Message<"ping.v1.PingStreamRequest"> & {
  * Describes the message ping.v1.PingStreamRequest.
  * Use `create(PingStreamRequestSchema)` to create a new message.
  */
-export const PingStreamRequestSchema: GenMessage<PingStreamRequest> = /*@__PURE__*/ messageDesc(file_ping_v1_ping, 4);
+export const PingStreamRequestSchema: GenMessage<PingStreamRequest> = /*@__PURE__*/
+  messageDesc(file_ping_v1_ping, 4);
 
 /**
  * @generated from message ping.v1.PingStreamResponse
@@ -109,7 +111,8 @@ export type PingStreamResponse = Message<"ping.v1.PingStreamResponse"> & {
  * Describes the message ping.v1.PingStreamResponse.
  * Use `create(PingStreamResponseSchema)` to create a new message.
  */
-export const PingStreamResponseSchema: GenMessage<PingStreamResponse> = /*@__PURE__*/ messageDesc(file_ping_v1_ping, 5);
+export const PingStreamResponseSchema: GenMessage<PingStreamResponse> = /*@__PURE__*/
+  messageDesc(file_ping_v1_ping, 5);
 
 /**
  * @generated from service ping.v1.PingService
@@ -124,7 +127,7 @@ export const PingService: GenService<{
     methodKind: "unary";
     input: typeof PingRequestSchema;
     output: typeof PingResponseSchema;
-  };
+  },
   /**
    * Echo is a unary RPC that returns the same text that was sent.
    *
@@ -134,7 +137,7 @@ export const PingService: GenService<{
     methodKind: "unary";
     input: typeof EchoRequestSchema;
     output: typeof EchoResponseSchema;
-  };
+  },
   /**
    * PingStream is a bidirectional stream of pings.
    *
@@ -144,5 +147,7 @@ export const PingService: GenService<{
     methodKind: "bidi_streaming";
     input: typeof PingStreamRequestSchema;
     output: typeof PingStreamResponseSchema;
-  };
-}> = /*@__PURE__*/ serviceDesc(file_ping_v1_ping, 0);
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_ping_v1_ping, 0);
+

@@ -10,12 +10,8 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file common/v1/zone.proto.
  */
-export const file_common_v1_zone: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "ChRjb21tb24vdjEvem9uZS5wcm90bxIJY29tbW9uLnYxIkAKB1pvbmVLZXkSHAoLYnVpbGRpbmdfaWQYASABKANCB7pIBCICKAASFwoEem9uZRgCIAEoCUIJukgGcgQQARhkImkKB1pvbmVSZWYSEwoLYnVpbGRpbmdfaWQYASABKAMSFgoOYnVpbGRpbmdfbGFiZWwYAiABKAkSDwoHc2l0ZV9pZBgDIAEoAxISCgpzaXRlX2xhYmVsGAQgASgJEgwKBHpvbmUYBSABKAlCpgEKDWNvbS5jb21tb24udjFCCVpvbmVQcm90b1ABWkVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb21tb24vdjE7Y29tbW9udjGiAgNDWFiqAglDb21tb24uVjHKAglDb21tb25cVjHiAhVDb21tb25cVjFcR1BCTWV0YWRhdGHqAgpDb21tb246OlYxYgZwcm90bzM",
-    [file_buf_validate_validate],
-  );
+export const file_common_v1_zone: GenFile = /*@__PURE__*/
+  fileDesc("ChRjb21tb24vdjEvem9uZS5wcm90bxIJY29tbW9uLnYxIkAKB1pvbmVLZXkSHAoLYnVpbGRpbmdfaWQYASABKANCB7pIBCICKAASFwoEem9uZRgCIAEoCUIJukgGcgQQARhkImkKB1pvbmVSZWYSEwoLYnVpbGRpbmdfaWQYASABKAMSFgoOYnVpbGRpbmdfbGFiZWwYAiABKAkSDwoHc2l0ZV9pZBgDIAEoAxISCgpzaXRlX2xhYmVsGAQgASgJEgwKBHpvbmUYBSABKAlCpgEKDWNvbS5jb21tb24udjFCCVpvbmVQcm90b1ABWkVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb21tb24vdjE7Y29tbW9udjGiAgNDWFiqAglDb21tb24uVjHKAglDb21tb25cVjHiAhVDb21tb25cVjFcR1BCTWV0YWRhdGHqAgpDb21tb246OlYxYgZwcm90bzM", [file_buf_validate_validate]);
 
 /**
  * A building-scoped zone identifier. Two ZoneKeys with the same `zone`
@@ -52,7 +48,8 @@ export type ZoneKey = Message<"common.v1.ZoneKey"> & {
  * Describes the message common.v1.ZoneKey.
  * Use `create(ZoneKeySchema)` to create a new message.
  */
-export const ZoneKeySchema: GenMessage<ZoneKey> = /*@__PURE__*/ messageDesc(file_common_v1_zone, 0);
+export const ZoneKeySchema: GenMessage<ZoneKey> = /*@__PURE__*/
+  messageDesc(file_common_v1_zone, 0);
 
 /**
  * Denormalized zone reference returned by ListRackZones. Carries enough
@@ -107,4 +104,6 @@ export type ZoneRef = Message<"common.v1.ZoneRef"> & {
  * Describes the message common.v1.ZoneRef.
  * Use `create(ZoneRefSchema)` to create a new message.
  */
-export const ZoneRefSchema: GenMessage<ZoneRef> = /*@__PURE__*/ messageDesc(file_common_v1_zone, 1);
+export const ZoneRefSchema: GenMessage<ZoneRef> = /*@__PURE__*/
+  messageDesc(file_common_v1_zone, 1);
+

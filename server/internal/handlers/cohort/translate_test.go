@@ -34,7 +34,7 @@ func TestToCreateCohortParams_DeviceIdentifierInitialMembers(t *testing.T) {
 	}
 }
 
-func TestToCreateCohortParams_SourceDeviceSetInitialMembersUnimplemented(t *testing.T) {
+func TestToCreateCohortParams_SourceDeviceSetInitialMembers(t *testing.T) {
 	req := &pb.CreateCohortRequest{
 		Label:   "reservation",
 		Purpose: "test",
@@ -43,8 +43,50 @@ func TestToCreateCohortParams_SourceDeviceSetInitialMembersUnimplemented(t *test
 		},
 	}
 
-	if _, err := toCreateCohortParams(req, testSessionInfo()); err == nil {
-		t.Fatal("toCreateCohortParams returned nil error for source_device_set_id")
+	params, err := toCreateCohortParams(req, testSessionInfo())
+	if err != nil {
+		t.Fatalf("toCreateCohortParams returned error: %v", err)
+	}
+	if params.SourceDeviceSetID == nil || *params.SourceDeviceSetID != 42 {
+		t.Fatalf("SourceDeviceSetID = %v, want 42", params.SourceDeviceSetID)
+	}
+}
+
+func TestToCreateCohortParams_SelectInitialMembers(t *testing.T) {
+	product := "TestCorp"
+	model := "TestMiner"
+	siteID := int64(12)
+	req := &pb.CreateCohortRequest{
+		Label:   "reservation",
+		Purpose: "test",
+		InitialMembers: &pb.CreateCohortRequest_Select{
+			Select: &pb.CohortDeviceSelector{
+				Count:   3,
+				Product: &product,
+				Model:   &model,
+				SiteId:  &siteID,
+			},
+		},
+	}
+
+	params, err := toCreateCohortParams(req, testSessionInfo())
+	if err != nil {
+		t.Fatalf("toCreateCohortParams returned error: %v", err)
+	}
+	if params.DeviceSelector == nil {
+		t.Fatal("DeviceSelector = nil, want populated selector")
+	}
+	if params.DeviceSelector.Count != 3 {
+		t.Fatalf("selector count = %d, want 3", params.DeviceSelector.Count)
+	}
+	if params.DeviceSelector.Product == nil || *params.DeviceSelector.Product != product {
+		t.Fatalf("selector product = %v, want %q", params.DeviceSelector.Product, product)
+	}
+	if params.DeviceSelector.Model == nil || *params.DeviceSelector.Model != model {
+		t.Fatalf("selector model = %v, want %q", params.DeviceSelector.Model, model)
+	}
+	if params.DeviceSelector.SiteID == nil || *params.DeviceSelector.SiteID != siteID {
+		t.Fatalf("selector site = %v, want %d", params.DeviceSelector.SiteID, siteID)
 	}
 }
 
@@ -140,6 +182,15 @@ func TestToProtoCohort_ComposesSummaryAndMembers(t *testing.T) {
 			OrgID:            99,
 			DeviceIdentifier: "miner-1",
 			AddedAt:          now,
+			Display: models.CohortDeviceDisplay{
+				Name:         "Rig A",
+				WorkerName:   "worker-a",
+				Manufacturer: "TestCorp",
+				Model:        "TestMiner",
+				IPAddress:    "127.0.0.1",
+				SerialNumber: "SN-A",
+				SiteLabel:    "Site A",
+			},
 		}},
 	}
 
@@ -149,6 +200,9 @@ func TestToProtoCohort_ComposesSummaryAndMembers(t *testing.T) {
 	}
 	if len(got.GetMembers()) != 1 || got.GetMembers()[0].GetDeviceIdentifier() != "miner-1" {
 		t.Fatalf("members = %+v, want miner-1", got.GetMembers())
+	}
+	if got.GetMembers()[0].GetDisplay().GetName() != "Rig A" || got.GetMembers()[0].GetDisplay().GetSiteLabel() != "Site A" {
+		t.Fatalf("member display = %+v, want Rig A at Site A", got.GetMembers()[0].GetDisplay())
 	}
 }
 

@@ -17,6 +17,9 @@ type NoOpAuditLogger struct{}
 func (NoOpAuditLogger) Log(context.Context, activitymodels.Event) {}
 
 const (
-	activityTypeCreated = "cohort_created"
-	activityTypeDeleted = "cohort_deleted"
+	activityTypeCreated  = "cohort_created"
+	activityTypeDeleted  = "cohort_deleted"
+	activityTypeReleased = "cohort_released"
+	activityTypeExpired  = "cohort_expired"
+	activityTypeUpdated  = "cohort_updated"
 )

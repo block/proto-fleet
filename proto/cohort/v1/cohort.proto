@@ -16,6 +16,9 @@ service CohortService {
     // UpdateCohort changes operator-owned metadata and desired state.
     rpc UpdateCohort(UpdateCohortRequest) returns (UpdateCohortResponse);
 
+    // SetCohortFirmwareTarget sets or clears desired firmware for one miner type.
+    rpc SetCohortFirmwareTarget(SetCohortFirmwareTargetRequest) returns (SetCohortFirmwareTargetResponse);
+
     // AddDevicesToCohort moves explicit devices into a cohort.
     rpc AddDevicesToCohort(AddDevicesToCohortRequest) returns (AddDevicesToCohortResponse);
 
@@ -79,10 +82,27 @@ message CohortSummary {
     int64 explicit_member_count = 31;
 }
 
+message CohortFirmwareTarget {
+    string manufacturer = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string model = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string firmware_file_id = 3 [(buf.validate.field).string.max_len = 255];
+}
+
 // Cohort is the full read shape returned by get and mutating cohort RPCs.
 message Cohort {
     CohortSummary summary = 1;
     repeated CohortMember members = 2;
+    repeated CohortFirmwareTarget firmware_targets = 3;
+}
+
+message CohortDeviceDisplay {
+    string name = 1;
+    string worker_name = 2;
+    string manufacturer = 3;
+    string model = 4;
+    string ip_address = 5;
+    string serial_number = 6;
+    string site_label = 7;
 }
 
 // CohortMember is an explicit non-default cohort membership row. Default
@@ -92,6 +112,7 @@ message CohortMember {
     string device_identifier = 2;
     optional int64 site_id = 3;
     google.protobuf.Timestamp added_at = 4;
+    CohortDeviceDisplay display = 5;
 }
 
 message CohortDeviceIdentifierList {
@@ -99,6 +120,16 @@ message CohortDeviceIdentifierList {
         max_items: 10000
         items: {string: {min_len: 1, max_len: 256}}
     }];
+}
+
+message CohortDeviceSelector {
+    int32 count = 1 [(buf.validate.field).int32 = {
+        gt: 0
+        lte: 10000
+    }];
+    optional string product = 2 [(buf.validate.field).string.max_len = 255];
+    optional string model = 3 [(buf.validate.field).string.max_len = 255];
+    optional int64 site_id = 4 [(buf.validate.field).int64.gt = 0];
 }
 
 message CreateCohortRequest {
@@ -116,6 +147,7 @@ message CreateCohortRequest {
     oneof initial_members {
         CohortDeviceIdentifierList device_identifiers = 7;
         int64 source_device_set_id = 8 [(buf.validate.field).int64.gt = 0];
+        CohortDeviceSelector select = 10;
     }
     string idempotency_key = 9 [(buf.validate.field).string.max_len = 255];
 }
@@ -147,6 +179,17 @@ message UpdateCohortRequest {
 }
 
 message UpdateCohortResponse {
+    Cohort cohort = 1;
+}
+
+message SetCohortFirmwareTargetRequest {
+    int64 cohort_id = 1 [(buf.validate.field).int64.gt = 0];
+    string manufacturer = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string model = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    optional string firmware_file_id = 4 [(buf.validate.field).string.max_len = 255];
+}
+
+message SetCohortFirmwareTargetResponse {
     Cohort cohort = 1;
 }
 
@@ -202,32 +245,68 @@ message GetCohortResponse {
 
 message ListCohortsRequest {
     bool include_released = 1;
+    int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 500}];
+    string page_token = 3 [(buf.validate.field).string.max_len = 2048];
+    string search = 4 [(buf.validate.field).string.max_len = 255];
 }
 
 message ListCohortsResponse {
     repeated CohortSummary cohorts = 1;
+    string next_page_token = 2;
+    int32 total_count = 3;
 }
 
 message GetMyCohortsRequest {
     bool include_released = 1;
+    int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 500}];
+    string page_token = 3 [(buf.validate.field).string.max_len = 2048];
+    string search = 4 [(buf.validate.field).string.max_len = 255];
 }
 
 message GetMyCohortsResponse {
     repeated CohortSummary cohorts = 1;
+    string next_page_token = 2;
+    int32 total_count = 3;
 }
 
 message ListDevicesRequest {
     optional int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
+    int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 500}];
+    string page_token = 3 [(buf.validate.field).string.max_len = 2048];
+    CohortDeviceFilter filter = 4;
+}
+
+enum CohortDeviceAssignment {
+    COHORT_DEVICE_ASSIGNMENT_UNSPECIFIED = 0;
+    COHORT_DEVICE_ASSIGNMENT_AVAILABLE = 1;
+    COHORT_DEVICE_ASSIGNMENT_RESERVED = 2;
+}
+
+message CohortDeviceFilter {
+    repeated CohortDeviceAssignment assignments = 1;
+    repeated int64 cohort_ids = 2;
+    repeated int64 owner_user_ids = 3;
+    bool include_unowned = 4;
+    repeated string manufacturers = 5 [(buf.validate.field).repeated.items.string.max_len = 255];
+    repeated string models = 6 [(buf.validate.field).repeated.items.string.max_len = 255];
+    repeated int64 site_ids = 7;
+    bool include_unassigned_site = 8;
+    string search = 9 [(buf.validate.field).string.max_len = 255];
 }
 
 message CohortDevice {
     string device_identifier = 1;
     optional int64 site_id = 2;
     CohortSummary effective_cohort = 3;
+    CohortDeviceDisplay display = 4;
 }
 
 message ListDevicesResponse {
     repeated CohortDevice devices = 1;
+    string next_page_token = 2;
+    int32 total_count = 3;
+    int32 available_count = 4;
+    int32 reserved_count = 5;
 }
 
 message AdminReassignRequest {

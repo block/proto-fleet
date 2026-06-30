@@ -14,6 +14,7 @@ func TestActorConstantsAreDistinct(t *testing.T) {
 	actors := map[Actor]string{
 		ActorScheduler:   "scheduler",
 		ActorCurtailment: "curtailment",
+		ActorCohort:      "cohort",
 	}
 	seen := make(map[string]Actor, len(actors))
 	for a, want := range actors {

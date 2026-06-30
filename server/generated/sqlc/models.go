@@ -418,6 +418,16 @@ type Cohort struct {
 	UpdatedAt             time.Time
 }
 
+type CohortFirmwareTarget struct {
+	CohortID       int64
+	OrgID          int64
+	Manufacturer   string
+	Model          string
+	FirmwareFileID sql.NullString
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type CohortMembership struct {
 	CohortID         int64
 	OrgID            int64

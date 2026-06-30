@@ -100,6 +100,36 @@ func (mr *MockCohortStoreMockRecorder) InsertCohortMember(ctx, params any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertCohortMember", reflect.TypeOf((*MockCohortStore)(nil).InsertCohortMember), ctx, params)
 }
 
+// ListActiveOwnedCohortMemberships mocks base method.
+func (m *MockCohortStore) ListActiveOwnedCohortMemberships(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]models.CohortDeviceOwnership, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveOwnedCohortMemberships", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]models.CohortDeviceOwnership)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveOwnedCohortMemberships indicates an expected call of ListActiveOwnedCohortMemberships.
+func (mr *MockCohortStoreMockRecorder) ListActiveOwnedCohortMemberships(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveOwnedCohortMemberships", reflect.TypeOf((*MockCohortStore)(nil).ListActiveOwnedCohortMemberships), ctx, orgID, deviceIdentifiers)
+}
+
+// ListCohortDeviceOwnership mocks base method.
+func (m *MockCohortStore) ListCohortDeviceOwnership(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]models.CohortDeviceOwnership, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCohortDeviceOwnership", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]models.CohortDeviceOwnership)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListCohortDeviceOwnership indicates an expected call of ListCohortDeviceOwnership.
+func (mr *MockCohortStoreMockRecorder) ListCohortDeviceOwnership(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCohortDeviceOwnership", reflect.TypeOf((*MockCohortStore)(nil).ListCohortDeviceOwnership), ctx, orgID, deviceIdentifiers)
+}
+
 // ListCohortMembers mocks base method.
 func (m *MockCohortStore) ListCohortMembers(ctx context.Context, orgID, cohortID int64) ([]models.CohortMember, error) {
 	m.ctrl.T.Helper()
@@ -116,10 +146,10 @@ func (mr *MockCohortStoreMockRecorder) ListCohortMembers(ctx, orgID, cohortID an
 }
 
 // ListCohorts mocks base method.
-func (m *MockCohortStore) ListCohorts(ctx context.Context, params models.ListCohortsParams) ([]*models.Cohort, error) {
+func (m *MockCohortStore) ListCohorts(ctx context.Context, params models.ListCohortsParams) (models.PagedCohorts, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListCohorts", ctx, params)
-	ret0, _ := ret[0].([]*models.Cohort)
+	ret0, _ := ret[0].(models.PagedCohorts)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -131,10 +161,10 @@ func (mr *MockCohortStoreMockRecorder) ListCohorts(ctx, params any) *gomock.Call
 }
 
 // ListCohortsByOwner mocks base method.
-func (m *MockCohortStore) ListCohortsByOwner(ctx context.Context, params models.ListCohortsByOwnerParams) ([]*models.Cohort, error) {
+func (m *MockCohortStore) ListCohortsByOwner(ctx context.Context, params models.ListCohortsByOwnerParams) (models.PagedCohorts, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListCohortsByOwner", ctx, params)
-	ret0, _ := ret[0].([]*models.Cohort)
+	ret0, _ := ret[0].(models.PagedCohorts)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -160,6 +190,36 @@ func (mr *MockCohortStoreMockRecorder) ListDefaultCohortDevices(ctx, orgID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDefaultCohortDevices", reflect.TypeOf((*MockCohortStore)(nil).ListDefaultCohortDevices), ctx, orgID)
 }
 
+// ListDevices mocks base method.
+func (m *MockCohortStore) ListDevices(ctx context.Context, params models.ListDevicesParams) (models.PagedCohortDevices, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDevices", ctx, params)
+	ret0, _ := ret[0].(models.PagedCohortDevices)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDevices indicates an expected call of ListDevices.
+func (mr *MockCohortStoreMockRecorder) ListDevices(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDevices", reflect.TypeOf((*MockCohortStore)(nil).ListDevices), ctx, params)
+}
+
+// MoveDevicesToCohort mocks base method.
+func (m *MockCohortStore) MoveDevicesToCohort(ctx context.Context, params models.MembershipMutationParams) (*models.Cohort, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MoveDevicesToCohort", ctx, params)
+	ret0, _ := ret[0].(*models.Cohort)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MoveDevicesToCohort indicates an expected call of MoveDevicesToCohort.
+func (mr *MockCohortStoreMockRecorder) MoveDevicesToCohort(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MoveDevicesToCohort", reflect.TypeOf((*MockCohortStore)(nil).MoveDevicesToCohort), ctx, params)
+}
+
 // ReleaseCohort mocks base method.
 func (m *MockCohortStore) ReleaseCohort(ctx context.Context, orgID, cohortID int64) (*models.Cohort, error) {
 	m.ctrl.T.Helper()
@@ -175,6 +235,21 @@ func (mr *MockCohortStoreMockRecorder) ReleaseCohort(ctx, orgID, cohortID any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseCohort", reflect.TypeOf((*MockCohortStore)(nil).ReleaseCohort), ctx, orgID, cohortID)
 }
 
+// RemoveDevicesAndGetCohort mocks base method.
+func (m *MockCohortStore) RemoveDevicesAndGetCohort(ctx context.Context, params models.MembershipMutationParams) (*models.Cohort, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveDevicesAndGetCohort", ctx, params)
+	ret0, _ := ret[0].(*models.Cohort)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RemoveDevicesAndGetCohort indicates an expected call of RemoveDevicesAndGetCohort.
+func (mr *MockCohortStoreMockRecorder) RemoveDevicesAndGetCohort(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveDevicesAndGetCohort", reflect.TypeOf((*MockCohortStore)(nil).RemoveDevicesAndGetCohort), ctx, params)
+}
+
 // ResolveEffectiveCohortForDevice mocks base method.
 func (m *MockCohortStore) ResolveEffectiveCohortForDevice(ctx context.Context, orgID int64, deviceIdentifier string) (*models.Cohort, error) {
 	m.ctrl.T.Helper()
@@ -188,4 +263,64 @@ func (m *MockCohortStore) ResolveEffectiveCohortForDevice(ctx context.Context, o
 func (mr *MockCohortStoreMockRecorder) ResolveEffectiveCohortForDevice(ctx, orgID, deviceIdentifier any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveEffectiveCohortForDevice", reflect.TypeOf((*MockCohortStore)(nil).ResolveEffectiveCohortForDevice), ctx, orgID, deviceIdentifier)
+}
+
+// SetCohortFirmwareTarget mocks base method.
+func (m *MockCohortStore) SetCohortFirmwareTarget(ctx context.Context, params models.SetCohortFirmwareTargetParams) (*models.Cohort, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetCohortFirmwareTarget", ctx, params)
+	ret0, _ := ret[0].(*models.Cohort)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetCohortFirmwareTarget indicates an expected call of SetCohortFirmwareTarget.
+func (mr *MockCohortStoreMockRecorder) SetCohortFirmwareTarget(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCohortFirmwareTarget", reflect.TypeOf((*MockCohortStore)(nil).SetCohortFirmwareTarget), ctx, params)
+}
+
+// SweepExpiredCohorts mocks base method.
+func (m *MockCohortStore) SweepExpiredCohorts(ctx context.Context) ([]*models.Cohort, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SweepExpiredCohorts", ctx)
+	ret0, _ := ret[0].([]*models.Cohort)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SweepExpiredCohorts indicates an expected call of SweepExpiredCohorts.
+func (mr *MockCohortStoreMockRecorder) SweepExpiredCohorts(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SweepExpiredCohorts", reflect.TypeOf((*MockCohortStore)(nil).SweepExpiredCohorts), ctx)
+}
+
+// UpdateCohort mocks base method.
+func (m *MockCohortStore) UpdateCohort(ctx context.Context, params models.UpdateCohortParams) (*models.Cohort, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCohort", ctx, params)
+	ret0, _ := ret[0].(*models.Cohort)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateCohort indicates an expected call of UpdateCohort.
+func (mr *MockCohortStoreMockRecorder) UpdateCohort(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCohort", reflect.TypeOf((*MockCohortStore)(nil).UpdateCohort), ctx, params)
+}
+
+// UpdateDefaultCohortFirmware mocks base method.
+func (m *MockCohortStore) UpdateDefaultCohortFirmware(ctx context.Context, params models.UpdateCohortParams) (*models.Cohort, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDefaultCohortFirmware", ctx, params)
+	ret0, _ := ret[0].(*models.Cohort)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateDefaultCohortFirmware indicates an expected call of UpdateDefaultCohortFirmware.
+func (mr *MockCohortStoreMockRecorder) UpdateDefaultCohortFirmware(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDefaultCohortFirmware", reflect.TypeOf((*MockCohortStore)(nil).UpdateDefaultCohortFirmware), ctx, params)
 }

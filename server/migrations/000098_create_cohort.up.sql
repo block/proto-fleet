@@ -24,7 +24,7 @@ CREATE TABLE cohort (
     CONSTRAINT ck_cohort_label_nonempty CHECK (length(trim(label)) > 0),
     CONSTRAINT ck_cohort_purpose_nonempty CHECK (length(trim(purpose)) > 0),
     CONSTRAINT ck_cohort_source_actor_type
-        CHECK (source_actor_type IN ('user', 'api_key', 'scheduler')),
+        CHECK (source_actor_type IN ('user', 'api_key', 'scheduler', 'cohort')),
     CONSTRAINT ck_cohort_source_actor_id_nonempty
         CHECK (source_actor_id IS NULL OR source_actor_id <> ''),
     CONSTRAINT ck_cohort_idempotency_key_nonempty

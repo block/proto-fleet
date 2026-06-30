@@ -45,6 +45,225 @@ func (q *Queries) BulkInsertCohortMemberships(ctx context.Context, arg BulkInser
 	return result.RowsAffected()
 }
 
+const countCohortDevices = `-- name: CountCohortDevices :one
+WITH cohort_devices AS (
+    SELECT
+        d.device_identifier AS device_identifier,
+        d.site_id AS device_site_id,
+        COALESCE(
+            NULLIF(d.custom_name, ''),
+            NULLIF(TRIM(CONCAT_WS(' ', NULLIF(dd.manufacturer, ''), NULLIF(dd.model, ''))), ''),
+            d.device_identifier
+        )::text AS display_name,
+        COALESCE(d.worker_name, '') AS worker_name,
+        COALESCE(dd.manufacturer, '') AS manufacturer,
+        COALESCE(dd.model, '') AS model,
+        COALESCE(dd.ip_address, '') AS ip_address,
+        COALESCE(d.serial_number, '') AS serial_number,
+        COALESCE(s.name, '') AS site_label,
+        c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at
+    FROM device d
+    JOIN discovered_device dd
+        ON dd.id = d.discovered_device_id
+       AND dd.org_id = d.org_id
+       AND dd.deleted_at IS NULL
+    LEFT JOIN cohort_membership cm
+        ON cm.org_id = d.org_id
+       AND cm.device_identifier = d.device_identifier
+    LEFT JOIN site s
+        ON s.id = d.site_id
+       AND s.org_id = d.org_id
+       AND s.deleted_at IS NULL
+    JOIN cohort default_c
+        ON default_c.org_id = d.org_id
+       AND default_c.is_default = TRUE
+    JOIN cohort c
+        ON c.id = COALESCE(cm.cohort_id, default_c.id)
+    WHERE d.org_id = $11
+      AND d.deleted_at IS NULL
+      AND (
+        NOT $12::boolean
+        OR d.site_id = $13
+      )
+)
+SELECT
+    COUNT(*)::bigint AS total_count,
+    COUNT(*) FILTER (WHERE is_default = TRUE)::bigint AS available_count,
+    COUNT(*) FILTER (WHERE is_default = FALSE)::bigint AS reserved_count
+FROM cohort_devices
+WHERE (
+    cardinality($1::text[]) = 0
+    OR ('available' = ANY($1::text[]) AND is_default = TRUE)
+    OR ('reserved' = ANY($1::text[]) AND is_default = FALSE)
+  )
+  AND (
+    cardinality($2::bigint[]) = 0
+    OR id = ANY($2::bigint[])
+  )
+  AND (
+    cardinality($3::bigint[]) = 0
+    OR owner_user_id = ANY($3::bigint[])
+    OR ($4::boolean AND owner_user_id IS NULL)
+  )
+  AND (
+    cardinality($5::text[]) = 0
+    OR manufacturer = ANY($5::text[])
+  )
+  AND (
+    cardinality($6::text[]) = 0
+    OR model = ANY($6::text[])
+  )
+  AND (
+    cardinality($7::bigint[]) = 0
+    OR device_site_id = ANY($7::bigint[])
+    OR ($8::boolean AND device_site_id IS NULL)
+  )
+  AND (
+    NOT $9::boolean
+    OR display_name ILIKE '%' || $10::text || '%'
+    OR worker_name ILIKE '%' || $10::text || '%'
+    OR manufacturer ILIKE '%' || $10::text || '%'
+    OR model ILIKE '%' || $10::text || '%'
+    OR ip_address ILIKE '%' || $10::text || '%'
+    OR serial_number ILIKE '%' || $10::text || '%'
+    OR site_label ILIKE '%' || $10::text || '%'
+    OR device_identifier ILIKE '%' || $10::text || '%'
+    OR label ILIKE '%' || $10::text || '%'
+    OR COALESCE(owner_username, '') ILIKE '%' || $10::text || '%'
+  )
+`
+
+type CountCohortDevicesParams struct {
+	Assignments           []string
+	CohortIds             []int64
+	OwnerUserIds          []int64
+	IncludeUnowned        bool
+	Manufacturers         []string
+	Models                []string
+	SiteIds               []int64
+	IncludeUnassignedSite bool
+	SearchFilterSet       bool
+	Search                string
+	OrgID                 int64
+	LegacySiteIDFilterSet bool
+	LegacySiteID          sql.NullInt64
+}
+
+type CountCohortDevicesRow struct {
+	TotalCount     int64
+	AvailableCount int64
+	ReservedCount  int64
+}
+
+func (q *Queries) CountCohortDevices(ctx context.Context, arg CountCohortDevicesParams) (CountCohortDevicesRow, error) {
+	row := q.queryRow(ctx, q.countCohortDevicesStmt, countCohortDevices,
+		pq.Array(arg.Assignments),
+		pq.Array(arg.CohortIds),
+		pq.Array(arg.OwnerUserIds),
+		arg.IncludeUnowned,
+		pq.Array(arg.Manufacturers),
+		pq.Array(arg.Models),
+		pq.Array(arg.SiteIds),
+		arg.IncludeUnassignedSite,
+		arg.SearchFilterSet,
+		arg.Search,
+		arg.OrgID,
+		arg.LegacySiteIDFilterSet,
+		arg.LegacySiteID,
+	)
+	var i CountCohortDevicesRow
+	err := row.Scan(&i.TotalCount, &i.AvailableCount, &i.ReservedCount)
+	return i, err
+}
+
+const countCohortMemberships = `-- name: CountCohortMemberships :one
+SELECT COUNT(*)::bigint
+FROM cohort_membership
+WHERE cohort_id = $1
+  AND org_id = $2
+  AND device_identifier = ANY($3::text[])
+`
+
+type CountCohortMembershipsParams struct {
+	CohortID          int64
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+func (q *Queries) CountCohortMemberships(ctx context.Context, arg CountCohortMembershipsParams) (int64, error) {
+	row := q.queryRow(ctx, q.countCohortMembershipsStmt, countCohortMemberships, arg.CohortID, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countCohorts = `-- name: CountCohorts :one
+SELECT COUNT(*)::bigint
+FROM cohort c
+WHERE c.org_id = $1
+  AND ($2::boolean OR c.state = 'active')
+  AND (
+    NOT $3::boolean
+    OR c.label ILIKE '%' || $4::text || '%'
+    OR c.purpose ILIKE '%' || $4::text || '%'
+    OR COALESCE(c.owner_username, '') ILIKE '%' || $4::text || '%'
+  )
+`
+
+type CountCohortsParams struct {
+	OrgID           int64
+	IncludeReleased bool
+	SearchFilterSet bool
+	Search          string
+}
+
+func (q *Queries) CountCohorts(ctx context.Context, arg CountCohortsParams) (int64, error) {
+	row := q.queryRow(ctx, q.countCohortsStmt, countCohorts,
+		arg.OrgID,
+		arg.IncludeReleased,
+		arg.SearchFilterSet,
+		arg.Search,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countCohortsByOwner = `-- name: CountCohortsByOwner :one
+SELECT COUNT(*)::bigint
+FROM cohort c
+WHERE c.org_id = $1
+  AND c.owner_user_id = $2
+  AND ($3::boolean OR c.state = 'active')
+  AND (
+    NOT $4::boolean
+    OR c.label ILIKE '%' || $5::text || '%'
+    OR c.purpose ILIKE '%' || $5::text || '%'
+    OR COALESCE(c.owner_username, '') ILIKE '%' || $5::text || '%'
+  )
+`
+
+type CountCohortsByOwnerParams struct {
+	OrgID           int64
+	OwnerUserID     sql.NullInt64
+	IncludeReleased bool
+	SearchFilterSet bool
+	Search          string
+}
+
+func (q *Queries) CountCohortsByOwner(ctx context.Context, arg CountCohortsByOwnerParams) (int64, error) {
+	row := q.queryRow(ctx, q.countCohortsByOwnerStmt, countCohortsByOwner,
+		arg.OrgID,
+		arg.OwnerUserID,
+		arg.IncludeReleased,
+		arg.SearchFilterSet,
+		arg.Search,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createCohort = `-- name: CreateCohort :one
 INSERT INTO cohort (
     org_id,
@@ -154,6 +373,34 @@ func (q *Queries) CreateDefaultCohort(ctx context.Context, orgID int64) error {
 	return err
 }
 
+const deleteCohortFirmwareTarget = `-- name: DeleteCohortFirmwareTarget :execrows
+DELETE FROM cohort_firmware_target
+WHERE cohort_id = $1
+  AND org_id = $2
+  AND manufacturer = $3
+  AND model = $4
+`
+
+type DeleteCohortFirmwareTargetParams struct {
+	CohortID     int64
+	OrgID        int64
+	Manufacturer string
+	Model        string
+}
+
+func (q *Queries) DeleteCohortFirmwareTarget(ctx context.Context, arg DeleteCohortFirmwareTargetParams) (int64, error) {
+	result, err := q.exec(ctx, q.deleteCohortFirmwareTargetStmt, deleteCohortFirmwareTarget,
+		arg.CohortID,
+		arg.OrgID,
+		arg.Manufacturer,
+		arg.Model,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteCohortMemberships = `-- name: DeleteCohortMemberships :execrows
 DELETE FROM cohort_membership
 WHERE cohort_id = $1
@@ -188,6 +435,25 @@ type DeleteCohortMembershipsByCohortParams struct {
 
 func (q *Queries) DeleteCohortMembershipsByCohort(ctx context.Context, arg DeleteCohortMembershipsByCohortParams) (int64, error) {
 	result, err := q.exec(ctx, q.deleteCohortMembershipsByCohortStmt, deleteCohortMembershipsByCohort, arg.CohortID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteCohortMembershipsByDevice = `-- name: DeleteCohortMembershipsByDevice :execrows
+DELETE FROM cohort_membership
+WHERE org_id = $1
+  AND device_identifier = ANY($2::text[])
+`
+
+type DeleteCohortMembershipsByDeviceParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+func (q *Queries) DeleteCohortMembershipsByDevice(ctx context.Context, arg DeleteCohortMembershipsByDeviceParams) (int64, error) {
+	result, err := q.exec(ctx, q.deleteCohortMembershipsByDeviceStmt, deleteCohortMembershipsByDevice, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
 		return 0, err
 	}
@@ -289,12 +555,406 @@ func (q *Queries) InsertCohortMembership(ctx context.Context, arg InsertCohortMe
 	return err
 }
 
-const listCohortMembers = `-- name: ListCohortMembers :many
-SELECT cohort_id, org_id, device_identifier, site_id, added_at
-FROM cohort_membership
+const listActiveOwnedCohortMemberships = `-- name: ListActiveOwnedCohortMemberships :many
+SELECT
+    cm.device_identifier,
+    cm.cohort_id,
+    c.owner_user_id,
+    c.owner_username
+FROM cohort_membership cm
+JOIN cohort c ON c.id = cm.cohort_id
+WHERE cm.org_id = $1
+  AND cm.device_identifier = ANY($2::text[])
+  AND c.state = 'active'
+  AND c.is_default = FALSE
+  AND c.owner_user_id IS NOT NULL
+ORDER BY cm.device_identifier
+`
+
+type ListActiveOwnedCohortMembershipsParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type ListActiveOwnedCohortMembershipsRow struct {
+	DeviceIdentifier string
+	CohortID         int64
+	OwnerUserID      sql.NullInt64
+	OwnerUsername    sql.NullString
+}
+
+func (q *Queries) ListActiveOwnedCohortMemberships(ctx context.Context, arg ListActiveOwnedCohortMembershipsParams) ([]ListActiveOwnedCohortMembershipsRow, error) {
+	rows, err := q.query(ctx, q.listActiveOwnedCohortMembershipsStmt, listActiveOwnedCohortMemberships, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveOwnedCohortMembershipsRow
+	for rows.Next() {
+		var i ListActiveOwnedCohortMembershipsRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.CohortID,
+			&i.OwnerUserID,
+			&i.OwnerUsername,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCohortDeviceOwnership = `-- name: ListCohortDeviceOwnership :many
+SELECT
+    cm.device_identifier,
+    cm.cohort_id,
+    c.owner_user_id,
+    c.owner_username
+FROM cohort_membership cm
+JOIN cohort c ON c.id = cm.cohort_id
+WHERE cm.org_id = $1
+  AND cm.device_identifier = ANY($2::text[])
+  AND c.state = 'active'
+  AND c.is_default = FALSE
+ORDER BY cm.device_identifier
+`
+
+type ListCohortDeviceOwnershipParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type ListCohortDeviceOwnershipRow struct {
+	DeviceIdentifier string
+	CohortID         int64
+	OwnerUserID      sql.NullInt64
+	OwnerUsername    sql.NullString
+}
+
+func (q *Queries) ListCohortDeviceOwnership(ctx context.Context, arg ListCohortDeviceOwnershipParams) ([]ListCohortDeviceOwnershipRow, error) {
+	rows, err := q.query(ctx, q.listCohortDeviceOwnershipStmt, listCohortDeviceOwnership, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCohortDeviceOwnershipRow
+	for rows.Next() {
+		var i ListCohortDeviceOwnershipRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.CohortID,
+			&i.OwnerUserID,
+			&i.OwnerUsername,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCohortDevices = `-- name: ListCohortDevices :many
+WITH cohort_devices AS (
+    SELECT
+        d.device_identifier AS device_identifier,
+        d.site_id AS device_site_id,
+        COALESCE(
+            NULLIF(d.custom_name, ''),
+            NULLIF(TRIM(CONCAT_WS(' ', NULLIF(dd.manufacturer, ''), NULLIF(dd.model, ''))), ''),
+            d.device_identifier
+        )::text AS display_name,
+        COALESCE(d.worker_name, '') AS worker_name,
+        COALESCE(dd.manufacturer, '') AS manufacturer,
+        COALESCE(dd.model, '') AS model,
+        COALESCE(dd.ip_address, '') AS ip_address,
+        COALESCE(d.serial_number, '') AS serial_number,
+        COALESCE(s.name, '') AS site_label,
+        c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
+        COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+    FROM device d
+    JOIN discovered_device dd
+        ON dd.id = d.discovered_device_id
+       AND dd.org_id = d.org_id
+       AND dd.deleted_at IS NULL
+    LEFT JOIN cohort_membership cm
+        ON cm.org_id = d.org_id
+       AND cm.device_identifier = d.device_identifier
+    LEFT JOIN site s
+        ON s.id = d.site_id
+       AND s.org_id = d.org_id
+       AND s.deleted_at IS NULL
+    JOIN cohort default_c
+        ON default_c.org_id = d.org_id
+       AND default_c.is_default = TRUE
+    JOIN cohort c
+        ON c.id = COALESCE(cm.cohort_id, default_c.id)
+    LEFT JOIN (
+        SELECT cohort_id, COUNT(*) AS explicit_member_count
+        FROM cohort_membership
+        GROUP BY cohort_id
+    ) m ON m.cohort_id = c.id
+    WHERE d.org_id = $15
+      AND d.deleted_at IS NULL
+      AND (
+        NOT $16::boolean
+        OR d.site_id = $17
+      )
+)
+SELECT device_identifier, device_site_id, display_name, worker_name, manufacturer, model, ip_address, serial_number, site_label, id, org_id, label, is_default, owner_user_id, owner_username, expires_at, desired_firmware_file_id, desired_config_jsonb, state, purpose, source_actor_type, source_actor_id, idempotency_key, created_at, updated_at, explicit_member_count
+FROM cohort_devices
+WHERE (
+    cardinality($1::text[]) = 0
+    OR ('available' = ANY($1::text[]) AND is_default = TRUE)
+    OR ('reserved' = ANY($1::text[]) AND is_default = FALSE)
+  )
+  AND (
+    cardinality($2::bigint[]) = 0
+    OR id = ANY($2::bigint[])
+  )
+  AND (
+    cardinality($3::bigint[]) = 0
+    OR owner_user_id = ANY($3::bigint[])
+    OR ($4::boolean AND owner_user_id IS NULL)
+  )
+  AND (
+    cardinality($5::text[]) = 0
+    OR manufacturer = ANY($5::text[])
+  )
+  AND (
+    cardinality($6::text[]) = 0
+    OR model = ANY($6::text[])
+  )
+  AND (
+    cardinality($7::bigint[]) = 0
+    OR device_site_id = ANY($7::bigint[])
+    OR ($8::boolean AND device_site_id IS NULL)
+  )
+  AND (
+    NOT $9::boolean
+    OR display_name ILIKE '%' || $10::text || '%'
+    OR worker_name ILIKE '%' || $10::text || '%'
+    OR manufacturer ILIKE '%' || $10::text || '%'
+    OR model ILIKE '%' || $10::text || '%'
+    OR ip_address ILIKE '%' || $10::text || '%'
+    OR serial_number ILIKE '%' || $10::text || '%'
+    OR site_label ILIKE '%' || $10::text || '%'
+    OR device_identifier ILIKE '%' || $10::text || '%'
+    OR label ILIKE '%' || $10::text || '%'
+    OR COALESCE(owner_username, '') ILIKE '%' || $10::text || '%'
+  )
+  AND (
+    NOT $11::boolean
+    OR display_name > $12::text
+    OR (display_name = $12::text AND device_identifier > $13::text)
+  )
+ORDER BY display_name ASC, device_identifier ASC
+LIMIT $14::int
+`
+
+type ListCohortDevicesParams struct {
+	Assignments            []string
+	CohortIds              []int64
+	OwnerUserIds           []int64
+	IncludeUnowned         bool
+	Manufacturers          []string
+	Models                 []string
+	SiteIds                []int64
+	IncludeUnassignedSite  bool
+	SearchFilterSet        bool
+	Search                 string
+	CursorSet              bool
+	CursorDisplayName      string
+	CursorDeviceIdentifier string
+	LimitCount             int32
+	OrgID                  int64
+	LegacySiteIDFilterSet  bool
+	LegacySiteID           sql.NullInt64
+}
+
+type ListCohortDevicesRow struct {
+	DeviceIdentifier      string
+	DeviceSiteID          sql.NullInt64
+	DisplayName           string
+	WorkerName            string
+	Manufacturer          string
+	Model                 string
+	IpAddress             string
+	SerialNumber          string
+	SiteLabel             string
+	ID                    int64
+	OrgID                 int64
+	Label                 string
+	IsDefault             bool
+	OwnerUserID           sql.NullInt64
+	OwnerUsername         sql.NullString
+	ExpiresAt             sql.NullTime
+	DesiredFirmwareFileID sql.NullString
+	DesiredConfigJsonb    pqtype.NullRawMessage
+	State                 string
+	Purpose               string
+	SourceActorType       string
+	SourceActorID         sql.NullString
+	IdempotencyKey        sql.NullString
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ExplicitMemberCount   int64
+}
+
+func (q *Queries) ListCohortDevices(ctx context.Context, arg ListCohortDevicesParams) ([]ListCohortDevicesRow, error) {
+	rows, err := q.query(ctx, q.listCohortDevicesStmt, listCohortDevices,
+		pq.Array(arg.Assignments),
+		pq.Array(arg.CohortIds),
+		pq.Array(arg.OwnerUserIds),
+		arg.IncludeUnowned,
+		pq.Array(arg.Manufacturers),
+		pq.Array(arg.Models),
+		pq.Array(arg.SiteIds),
+		arg.IncludeUnassignedSite,
+		arg.SearchFilterSet,
+		arg.Search,
+		arg.CursorSet,
+		arg.CursorDisplayName,
+		arg.CursorDeviceIdentifier,
+		arg.LimitCount,
+		arg.OrgID,
+		arg.LegacySiteIDFilterSet,
+		arg.LegacySiteID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCohortDevicesRow
+	for rows.Next() {
+		var i ListCohortDevicesRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.DeviceSiteID,
+			&i.DisplayName,
+			&i.WorkerName,
+			&i.Manufacturer,
+			&i.Model,
+			&i.IpAddress,
+			&i.SerialNumber,
+			&i.SiteLabel,
+			&i.ID,
+			&i.OrgID,
+			&i.Label,
+			&i.IsDefault,
+			&i.OwnerUserID,
+			&i.OwnerUsername,
+			&i.ExpiresAt,
+			&i.DesiredFirmwareFileID,
+			&i.DesiredConfigJsonb,
+			&i.State,
+			&i.Purpose,
+			&i.SourceActorType,
+			&i.SourceActorID,
+			&i.IdempotencyKey,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ExplicitMemberCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCohortFirmwareTargets = `-- name: ListCohortFirmwareTargets :many
+SELECT cohort_id, org_id, manufacturer, model, firmware_file_id, created_at, updated_at
+FROM cohort_firmware_target
 WHERE cohort_id = $1
   AND org_id = $2
-ORDER BY added_at, device_identifier
+ORDER BY manufacturer, model
+`
+
+type ListCohortFirmwareTargetsParams struct {
+	CohortID int64
+	OrgID    int64
+}
+
+func (q *Queries) ListCohortFirmwareTargets(ctx context.Context, arg ListCohortFirmwareTargetsParams) ([]CohortFirmwareTarget, error) {
+	rows, err := q.query(ctx, q.listCohortFirmwareTargetsStmt, listCohortFirmwareTargets, arg.CohortID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CohortFirmwareTarget
+	for rows.Next() {
+		var i CohortFirmwareTarget
+		if err := rows.Scan(
+			&i.CohortID,
+			&i.OrgID,
+			&i.Manufacturer,
+			&i.Model,
+			&i.FirmwareFileID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCohortMembers = `-- name: ListCohortMembers :many
+SELECT
+    cm.cohort_id, cm.org_id, cm.device_identifier, cm.site_id, cm.added_at,
+    COALESCE(
+        NULLIF(d.custom_name, ''),
+        NULLIF(TRIM(CONCAT_WS(' ', NULLIF(dd.manufacturer, ''), NULLIF(dd.model, ''))), ''),
+        ''
+    )::text AS display_name,
+    COALESCE(d.worker_name, '') AS worker_name,
+    COALESCE(dd.manufacturer, '') AS manufacturer,
+    COALESCE(dd.model, '') AS model,
+    COALESCE(dd.ip_address, '') AS ip_address,
+    COALESCE(d.serial_number, '') AS serial_number,
+    COALESCE(s.name, '') AS site_label
+FROM cohort_membership cm
+LEFT JOIN device d
+    ON d.org_id = cm.org_id
+   AND d.device_identifier = cm.device_identifier
+   AND d.deleted_at IS NULL
+LEFT JOIN discovered_device dd
+    ON dd.id = d.discovered_device_id
+   AND dd.org_id = d.org_id
+   AND dd.deleted_at IS NULL
+LEFT JOIN site s
+    ON s.id = COALESCE(cm.site_id, d.site_id)
+   AND s.org_id = cm.org_id
+   AND s.deleted_at IS NULL
+WHERE cm.cohort_id = $1
+  AND cm.org_id = $2
+ORDER BY cm.added_at, cm.device_identifier
 `
 
 type ListCohortMembersParams struct {
@@ -302,21 +962,43 @@ type ListCohortMembersParams struct {
 	OrgID    int64
 }
 
-func (q *Queries) ListCohortMembers(ctx context.Context, arg ListCohortMembersParams) ([]CohortMembership, error) {
+type ListCohortMembersRow struct {
+	CohortID         int64
+	OrgID            int64
+	DeviceIdentifier string
+	SiteID           sql.NullInt64
+	AddedAt          time.Time
+	DisplayName      string
+	WorkerName       string
+	Manufacturer     string
+	Model            string
+	IpAddress        string
+	SerialNumber     string
+	SiteLabel        string
+}
+
+func (q *Queries) ListCohortMembers(ctx context.Context, arg ListCohortMembersParams) ([]ListCohortMembersRow, error) {
 	rows, err := q.query(ctx, q.listCohortMembersStmt, listCohortMembers, arg.CohortID, arg.OrgID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []CohortMembership
+	var items []ListCohortMembersRow
 	for rows.Next() {
-		var i CohortMembership
+		var i ListCohortMembersRow
 		if err := rows.Scan(
 			&i.CohortID,
 			&i.OrgID,
 			&i.DeviceIdentifier,
 			&i.SiteID,
 			&i.AddedAt,
+			&i.DisplayName,
+			&i.WorkerName,
+			&i.Manufacturer,
+			&i.Model,
+			&i.IpAddress,
+			&i.SerialNumber,
+			&i.SiteLabel,
 		); err != nil {
 			return nil, err
 		}
@@ -343,12 +1025,37 @@ LEFT JOIN (
 ) m ON m.cohort_id = c.id
 WHERE c.org_id = $1
   AND ($2::boolean OR c.state = 'active')
+  AND (
+    NOT $3::boolean
+    OR c.label ILIKE '%' || $4::text || '%'
+    OR c.purpose ILIKE '%' || $4::text || '%'
+    OR COALESCE(c.owner_username, '') ILIKE '%' || $4::text || '%'
+  )
+  AND (
+    NOT $5::boolean
+    OR c.is_default < $6::boolean
+    OR (
+      c.is_default = $6::boolean
+      AND (
+        c.updated_at < $7::timestamptz
+        OR (c.updated_at = $7::timestamptz AND c.id < $8::bigint)
+      )
+    )
+  )
 ORDER BY c.is_default DESC, c.updated_at DESC, c.id DESC
+LIMIT $9::int
 `
 
 type ListCohortsParams struct {
 	OrgID           int64
 	IncludeReleased bool
+	SearchFilterSet bool
+	Search          string
+	CursorSet       bool
+	CursorIsDefault bool
+	CursorUpdatedAt sql.NullTime
+	CursorID        sql.NullInt64
+	LimitCount      int32
 }
 
 type ListCohortsRow struct {
@@ -372,7 +1079,17 @@ type ListCohortsRow struct {
 }
 
 func (q *Queries) ListCohorts(ctx context.Context, arg ListCohortsParams) ([]ListCohortsRow, error) {
-	rows, err := q.query(ctx, q.listCohortsStmt, listCohorts, arg.OrgID, arg.IncludeReleased)
+	rows, err := q.query(ctx, q.listCohortsStmt, listCohorts,
+		arg.OrgID,
+		arg.IncludeReleased,
+		arg.SearchFilterSet,
+		arg.Search,
+		arg.CursorSet,
+		arg.CursorIsDefault,
+		arg.CursorUpdatedAt,
+		arg.CursorID,
+		arg.LimitCount,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -425,13 +1142,31 @@ LEFT JOIN (
 WHERE c.org_id = $1
   AND c.owner_user_id = $2
   AND ($3::boolean OR c.state = 'active')
+  AND (
+    NOT $4::boolean
+    OR c.label ILIKE '%' || $5::text || '%'
+    OR c.purpose ILIKE '%' || $5::text || '%'
+    OR COALESCE(c.owner_username, '') ILIKE '%' || $5::text || '%'
+  )
+  AND (
+    NOT $6::boolean
+    OR c.updated_at < $7::timestamptz
+    OR (c.updated_at = $7::timestamptz AND c.id < $8::bigint)
+  )
 ORDER BY c.updated_at DESC, c.id DESC
+LIMIT $9::int
 `
 
 type ListCohortsByOwnerParams struct {
 	OrgID           int64
 	OwnerUserID     sql.NullInt64
 	IncludeReleased bool
+	SearchFilterSet bool
+	Search          string
+	CursorSet       bool
+	CursorUpdatedAt sql.NullTime
+	CursorID        sql.NullInt64
+	LimitCount      int32
 }
 
 type ListCohortsByOwnerRow struct {
@@ -455,7 +1190,17 @@ type ListCohortsByOwnerRow struct {
 }
 
 func (q *Queries) ListCohortsByOwner(ctx context.Context, arg ListCohortsByOwnerParams) ([]ListCohortsByOwnerRow, error) {
-	rows, err := q.query(ctx, q.listCohortsByOwnerStmt, listCohortsByOwner, arg.OrgID, arg.OwnerUserID, arg.IncludeReleased)
+	rows, err := q.query(ctx, q.listCohortsByOwnerStmt, listCohortsByOwner,
+		arg.OrgID,
+		arg.OwnerUserID,
+		arg.IncludeReleased,
+		arg.SearchFilterSet,
+		arg.Search,
+		arg.CursorSet,
+		arg.CursorUpdatedAt,
+		arg.CursorID,
+		arg.LimitCount,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -498,22 +1243,59 @@ func (q *Queries) ListCohortsByOwner(ctx context.Context, arg ListCohortsByOwner
 const listDefaultCohortDevices = `-- name: ListDefaultCohortDevices :many
 SELECT d.device_identifier, d.site_id
 FROM device d
+JOIN discovered_device dd
+    ON dd.id = d.discovered_device_id
+   AND dd.org_id = d.org_id
+   AND dd.deleted_at IS NULL
 LEFT JOIN cohort_membership cm
     ON cm.org_id = d.org_id
    AND cm.device_identifier = d.device_identifier
 WHERE d.org_id = $1
   AND d.deleted_at IS NULL
   AND cm.cohort_id IS NULL
+  AND (
+    NOT $2::boolean
+    OR dd.manufacturer = $3
+  )
+  AND (
+    NOT $4::boolean
+    OR dd.model = $5
+  )
+  AND (
+    NOT $6::boolean
+    OR d.site_id = $7
+  )
 ORDER BY d.device_identifier
+LIMIT $8::int
 `
+
+type ListDefaultCohortDevicesParams struct {
+	OrgID            int64
+	ProductFilterSet bool
+	Product          sql.NullString
+	ModelFilterSet   bool
+	Model            sql.NullString
+	SiteIDFilterSet  bool
+	SiteID           sql.NullInt64
+	LimitCount       int32
+}
 
 type ListDefaultCohortDevicesRow struct {
 	DeviceIdentifier string
 	SiteID           sql.NullInt64
 }
 
-func (q *Queries) ListDefaultCohortDevices(ctx context.Context, orgID int64) ([]ListDefaultCohortDevicesRow, error) {
-	rows, err := q.query(ctx, q.listDefaultCohortDevicesStmt, listDefaultCohortDevices, orgID)
+func (q *Queries) ListDefaultCohortDevices(ctx context.Context, arg ListDefaultCohortDevicesParams) ([]ListDefaultCohortDevicesRow, error) {
+	rows, err := q.query(ctx, q.listDefaultCohortDevicesStmt, listDefaultCohortDevices,
+		arg.OrgID,
+		arg.ProductFilterSet,
+		arg.Product,
+		arg.ModelFilterSet,
+		arg.Model,
+		arg.SiteIDFilterSet,
+		arg.SiteID,
+		arg.LimitCount,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -522,6 +1304,126 @@ func (q *Queries) ListDefaultCohortDevices(ctx context.Context, orgID int64) ([]
 	for rows.Next() {
 		var i ListDefaultCohortDevicesRow
 		if err := rows.Scan(&i.DeviceIdentifier, &i.SiteID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDeviceSitesForIdentifiers = `-- name: ListDeviceSitesForIdentifiers :many
+SELECT device_identifier, site_id
+FROM device
+WHERE org_id = $1
+  AND device_identifier = ANY($2::text[])
+  AND deleted_at IS NULL
+ORDER BY device_identifier
+`
+
+type ListDeviceSitesForIdentifiersParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type ListDeviceSitesForIdentifiersRow struct {
+	DeviceIdentifier string
+	SiteID           sql.NullInt64
+}
+
+func (q *Queries) ListDeviceSitesForIdentifiers(ctx context.Context, arg ListDeviceSitesForIdentifiersParams) ([]ListDeviceSitesForIdentifiersRow, error) {
+	rows, err := q.query(ctx, q.listDeviceSitesForIdentifiersStmt, listDeviceSitesForIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDeviceSitesForIdentifiersRow
+	for rows.Next() {
+		var i ListDeviceSitesForIdentifiersRow
+		if err := rows.Scan(&i.DeviceIdentifier, &i.SiteID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listExpiredActiveCohorts = `-- name: ListExpiredActiveCohorts :many
+SELECT
+    c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
+    COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+FROM cohort c
+LEFT JOIN (
+    SELECT cohort_id, COUNT(*) AS explicit_member_count
+    FROM cohort_membership
+    GROUP BY cohort_id
+) m ON m.cohort_id = c.id
+WHERE c.state = 'active'
+  AND c.is_default = FALSE
+  AND c.expires_at IS NOT NULL
+  AND c.expires_at <= CURRENT_TIMESTAMP
+ORDER BY c.expires_at, c.id
+`
+
+type ListExpiredActiveCohortsRow struct {
+	ID                    int64
+	OrgID                 int64
+	Label                 string
+	IsDefault             bool
+	OwnerUserID           sql.NullInt64
+	OwnerUsername         sql.NullString
+	ExpiresAt             sql.NullTime
+	DesiredFirmwareFileID sql.NullString
+	DesiredConfigJsonb    pqtype.NullRawMessage
+	State                 string
+	Purpose               string
+	SourceActorType       string
+	SourceActorID         sql.NullString
+	IdempotencyKey        sql.NullString
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ExplicitMemberCount   int64
+}
+
+func (q *Queries) ListExpiredActiveCohorts(ctx context.Context) ([]ListExpiredActiveCohortsRow, error) {
+	rows, err := q.query(ctx, q.listExpiredActiveCohortsStmt, listExpiredActiveCohorts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListExpiredActiveCohortsRow
+	for rows.Next() {
+		var i ListExpiredActiveCohortsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Label,
+			&i.IsDefault,
+			&i.OwnerUserID,
+			&i.OwnerUsername,
+			&i.ExpiresAt,
+			&i.DesiredFirmwareFileID,
+			&i.DesiredConfigJsonb,
+			&i.State,
+			&i.Purpose,
+			&i.SourceActorType,
+			&i.SourceActorID,
+			&i.IdempotencyKey,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ExplicitMemberCount,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -643,6 +1545,173 @@ func (q *Queries) ResolveEffectiveCohortForDevice(ctx context.Context, arg Resol
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ExplicitMemberCount,
+	)
+	return i, err
+}
+
+const updateCohort = `-- name: UpdateCohort :one
+UPDATE cohort
+SET label = COALESCE($1, label),
+    purpose = COALESCE($2, purpose),
+    expires_at = CASE
+        WHEN $3::boolean THEN NULL
+        WHEN $4::timestamptz IS NOT NULL THEN $4::timestamptz
+        ELSE expires_at
+    END,
+    desired_firmware_file_id = CASE
+        WHEN $5::boolean THEN $6
+        ELSE desired_firmware_file_id
+    END,
+    desired_config_jsonb = CASE
+        WHEN $7::boolean THEN NULL
+        WHEN $8::boolean THEN $9::jsonb
+        ELSE desired_config_jsonb
+    END,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $10
+  AND org_id = $11
+  AND is_default = FALSE
+  AND state = 'active'
+RETURNING id, org_id, label, is_default, owner_user_id, owner_username, expires_at, desired_firmware_file_id, desired_config_jsonb, state, purpose, source_actor_type, source_actor_id, idempotency_key, created_at, updated_at
+`
+
+type UpdateCohortParams struct {
+	Label                    sql.NullString
+	Purpose                  sql.NullString
+	ClearExpiresAt           bool
+	ExpiresAt                sql.NullTime
+	DesiredFirmwareFileIDSet bool
+	DesiredFirmwareFileID    sql.NullString
+	ClearDesiredConfig       bool
+	DesiredConfigJsonbSet    bool
+	DesiredConfigJsonb       pqtype.NullRawMessage
+	ID                       int64
+	OrgID                    int64
+}
+
+func (q *Queries) UpdateCohort(ctx context.Context, arg UpdateCohortParams) (Cohort, error) {
+	row := q.queryRow(ctx, q.updateCohortStmt, updateCohort,
+		arg.Label,
+		arg.Purpose,
+		arg.ClearExpiresAt,
+		arg.ExpiresAt,
+		arg.DesiredFirmwareFileIDSet,
+		arg.DesiredFirmwareFileID,
+		arg.ClearDesiredConfig,
+		arg.DesiredConfigJsonbSet,
+		arg.DesiredConfigJsonb,
+		arg.ID,
+		arg.OrgID,
+	)
+	var i Cohort
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Label,
+		&i.IsDefault,
+		&i.OwnerUserID,
+		&i.OwnerUsername,
+		&i.ExpiresAt,
+		&i.DesiredFirmwareFileID,
+		&i.DesiredConfigJsonb,
+		&i.State,
+		&i.Purpose,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.IdempotencyKey,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateDefaultCohortFirmware = `-- name: UpdateDefaultCohortFirmware :one
+UPDATE cohort
+SET desired_firmware_file_id = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
+  AND org_id = $3
+  AND is_default = TRUE
+  AND state = 'active'
+RETURNING id, org_id, label, is_default, owner_user_id, owner_username, expires_at, desired_firmware_file_id, desired_config_jsonb, state, purpose, source_actor_type, source_actor_id, idempotency_key, created_at, updated_at
+`
+
+type UpdateDefaultCohortFirmwareParams struct {
+	DesiredFirmwareFileID sql.NullString
+	ID                    int64
+	OrgID                 int64
+}
+
+func (q *Queries) UpdateDefaultCohortFirmware(ctx context.Context, arg UpdateDefaultCohortFirmwareParams) (Cohort, error) {
+	row := q.queryRow(ctx, q.updateDefaultCohortFirmwareStmt, updateDefaultCohortFirmware, arg.DesiredFirmwareFileID, arg.ID, arg.OrgID)
+	var i Cohort
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Label,
+		&i.IsDefault,
+		&i.OwnerUserID,
+		&i.OwnerUsername,
+		&i.ExpiresAt,
+		&i.DesiredFirmwareFileID,
+		&i.DesiredConfigJsonb,
+		&i.State,
+		&i.Purpose,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.IdempotencyKey,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertCohortFirmwareTarget = `-- name: UpsertCohortFirmwareTarget :one
+INSERT INTO cohort_firmware_target (
+    cohort_id,
+    org_id,
+    manufacturer,
+    model,
+    firmware_file_id
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5
+)
+ON CONFLICT (cohort_id, manufacturer, model)
+DO UPDATE SET
+    firmware_file_id = EXCLUDED.firmware_file_id,
+    updated_at = CURRENT_TIMESTAMP
+RETURNING cohort_id, org_id, manufacturer, model, firmware_file_id, created_at, updated_at
+`
+
+type UpsertCohortFirmwareTargetParams struct {
+	CohortID       int64
+	OrgID          int64
+	Manufacturer   string
+	Model          string
+	FirmwareFileID sql.NullString
+}
+
+func (q *Queries) UpsertCohortFirmwareTarget(ctx context.Context, arg UpsertCohortFirmwareTargetParams) (CohortFirmwareTarget, error) {
+	row := q.queryRow(ctx, q.upsertCohortFirmwareTargetStmt, upsertCohortFirmwareTarget,
+		arg.CohortID,
+		arg.OrgID,
+		arg.Manufacturer,
+		arg.Model,
+		arg.FirmwareFileID,
+	)
+	var i CohortFirmwareTarget
+	err := row.Scan(
+		&i.CohortID,
+		&i.OrgID,
+		&i.Manufacturer,
+		&i.Model,
+		&i.FirmwareFileID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/cohort/v1/cohortv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
@@ -158,6 +159,22 @@ var ProcedurePermissions = map[string]string{
 	curtailmentv1connect.CurtailmentServiceSetCurtailmentAutomationRuleEnabledProcedure: authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceDeleteCurtailmentAutomationRuleProcedure:     authz.PermCurtailmentManage,
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure:             authz.PermCurtailmentIngest,
+
+	// CohortService — read visibility uses cohort:read; lease and
+	// membership mutations use cohort:manage.
+	cohortv1connect.CohortServiceGetCohortProcedure:               authz.PermCohortRead,
+	cohortv1connect.CohortServiceListCohortsProcedure:             authz.PermCohortRead,
+	cohortv1connect.CohortServiceGetMyCohortsProcedure:            authz.PermCohortRead,
+	cohortv1connect.CohortServiceListDevicesProcedure:             authz.PermCohortRead,
+	cohortv1connect.CohortServiceCreateCohortProcedure:            authz.PermCohortManage,
+	cohortv1connect.CohortServiceUpdateCohortProcedure:            authz.PermCohortManage,
+	cohortv1connect.CohortServiceSetCohortFirmwareTargetProcedure: authz.PermCohortManage,
+	cohortv1connect.CohortServiceAddDevicesToCohortProcedure:      authz.PermCohortManage,
+	cohortv1connect.CohortServiceRemoveDevicesFromCohortProcedure: authz.PermCohortManage,
+	cohortv1connect.CohortServiceReleaseCohortProcedure:           authz.PermCohortManage,
+	cohortv1connect.CohortServiceDeleteCohortProcedure:            authz.PermCohortManage,
+	cohortv1connect.CohortServiceAdminReassignProcedure:           authz.PermCohortManage,
+	cohortv1connect.CohortServiceAdminReleaseCohortProcedure:      authz.PermCohortManage,
 
 	// DeviceCollectionService — rack:read for reads, rack:manage for writes.
 	// Collections are the legacy name for racks; the wire surface still

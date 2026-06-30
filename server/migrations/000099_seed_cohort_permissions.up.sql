@@ -7,12 +7,12 @@ ON CONFLICT (key) DO UPDATE SET description = EXCLUDED.description;
 -- ADMIN in additive mode and does NOT re-assert seed permissions onto an
 -- already-created ADMIN role (see reconcile.go), so without this migration,
 -- deployments upgraded from a prior release would never grant ADMIN the cohort
--- keys and every CohortService endpoint would silently deny. SUPER_ADMIN is
--- reconciled in full mode at boot and converges on its own; FIELD_TECH does not
--- receive cohort permissions by design.
+-- keys and every CohortService endpoint would deny. SUPER_ADMIN is reconciled
+-- in full mode at boot and converges on its own; FIELD_TECH does not receive
+-- cohort permissions by design.
 --
 -- Scoped to roles with builtin_key='ADMIN' so operator-created custom roles
--- aren't touched. ON CONFLICT makes this safe to replay against orgs that
+-- are not touched. ON CONFLICT makes this safe to replay against orgs that
 -- already hold either key.
 INSERT INTO role_permission (role_id, permission_id)
 SELECT r.id, p.id

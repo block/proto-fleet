@@ -5,13 +5,12 @@
 package cohortv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/cohort/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/cohort/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -40,6 +39,9 @@ const (
 	// CohortServiceUpdateCohortProcedure is the fully-qualified name of the CohortService's
 	// UpdateCohort RPC.
 	CohortServiceUpdateCohortProcedure = "/cohort.v1.CohortService/UpdateCohort"
+	// CohortServiceSetCohortFirmwareTargetProcedure is the fully-qualified name of the CohortService's
+	// SetCohortFirmwareTarget RPC.
+	CohortServiceSetCohortFirmwareTargetProcedure = "/cohort.v1.CohortService/SetCohortFirmwareTarget"
 	// CohortServiceAddDevicesToCohortProcedure is the fully-qualified name of the CohortService's
 	// AddDevicesToCohort RPC.
 	CohortServiceAddDevicesToCohortProcedure = "/cohort.v1.CohortService/AddDevicesToCohort"
@@ -79,6 +81,8 @@ type CohortServiceClient interface {
 	CreateCohort(context.Context, *connect.Request[v1.CreateCohortRequest]) (*connect.Response[v1.CreateCohortResponse], error)
 	// UpdateCohort changes operator-owned metadata and desired state.
 	UpdateCohort(context.Context, *connect.Request[v1.UpdateCohortRequest]) (*connect.Response[v1.UpdateCohortResponse], error)
+	// SetCohortFirmwareTarget sets or clears desired firmware for one miner type.
+	SetCohortFirmwareTarget(context.Context, *connect.Request[v1.SetCohortFirmwareTargetRequest]) (*connect.Response[v1.SetCohortFirmwareTargetResponse], error)
 	// AddDevicesToCohort moves explicit devices into a cohort.
 	AddDevicesToCohort(context.Context, *connect.Request[v1.AddDevicesToCohortRequest]) (*connect.Response[v1.AddDevicesToCohortResponse], error)
 	// RemoveDevicesFromCohort moves explicit devices back to the default cohort.
@@ -119,6 +123,11 @@ func NewCohortServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 		updateCohort: connect.NewClient[v1.UpdateCohortRequest, v1.UpdateCohortResponse](
 			httpClient,
 			baseURL+CohortServiceUpdateCohortProcedure,
+			opts...,
+		),
+		setCohortFirmwareTarget: connect.NewClient[v1.SetCohortFirmwareTargetRequest, v1.SetCohortFirmwareTargetResponse](
+			httpClient,
+			baseURL+CohortServiceSetCohortFirmwareTargetProcedure,
 			opts...,
 		),
 		addDevicesToCohort: connect.NewClient[v1.AddDevicesToCohortRequest, v1.AddDevicesToCohortResponse](
@@ -178,6 +187,7 @@ func NewCohortServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 type cohortServiceClient struct {
 	createCohort            *connect.Client[v1.CreateCohortRequest, v1.CreateCohortResponse]
 	updateCohort            *connect.Client[v1.UpdateCohortRequest, v1.UpdateCohortResponse]
+	setCohortFirmwareTarget *connect.Client[v1.SetCohortFirmwareTargetRequest, v1.SetCohortFirmwareTargetResponse]
 	addDevicesToCohort      *connect.Client[v1.AddDevicesToCohortRequest, v1.AddDevicesToCohortResponse]
 	removeDevicesFromCohort *connect.Client[v1.RemoveDevicesFromCohortRequest, v1.RemoveDevicesFromCohortResponse]
 	releaseCohort           *connect.Client[v1.ReleaseCohortRequest, v1.ReleaseCohortResponse]
@@ -198,6 +208,11 @@ func (c *cohortServiceClient) CreateCohort(ctx context.Context, req *connect.Req
 // UpdateCohort calls cohort.v1.CohortService.UpdateCohort.
 func (c *cohortServiceClient) UpdateCohort(ctx context.Context, req *connect.Request[v1.UpdateCohortRequest]) (*connect.Response[v1.UpdateCohortResponse], error) {
 	return c.updateCohort.CallUnary(ctx, req)
+}
+
+// SetCohortFirmwareTarget calls cohort.v1.CohortService.SetCohortFirmwareTarget.
+func (c *cohortServiceClient) SetCohortFirmwareTarget(ctx context.Context, req *connect.Request[v1.SetCohortFirmwareTargetRequest]) (*connect.Response[v1.SetCohortFirmwareTargetResponse], error) {
+	return c.setCohortFirmwareTarget.CallUnary(ctx, req)
 }
 
 // AddDevicesToCohort calls cohort.v1.CohortService.AddDevicesToCohort.
@@ -258,6 +273,8 @@ type CohortServiceHandler interface {
 	CreateCohort(context.Context, *connect.Request[v1.CreateCohortRequest]) (*connect.Response[v1.CreateCohortResponse], error)
 	// UpdateCohort changes operator-owned metadata and desired state.
 	UpdateCohort(context.Context, *connect.Request[v1.UpdateCohortRequest]) (*connect.Response[v1.UpdateCohortResponse], error)
+	// SetCohortFirmwareTarget sets or clears desired firmware for one miner type.
+	SetCohortFirmwareTarget(context.Context, *connect.Request[v1.SetCohortFirmwareTargetRequest]) (*connect.Response[v1.SetCohortFirmwareTargetResponse], error)
 	// AddDevicesToCohort moves explicit devices into a cohort.
 	AddDevicesToCohort(context.Context, *connect.Request[v1.AddDevicesToCohortRequest]) (*connect.Response[v1.AddDevicesToCohortResponse], error)
 	// RemoveDevicesFromCohort moves explicit devices back to the default cohort.
@@ -294,6 +311,11 @@ func NewCohortServiceHandler(svc CohortServiceHandler, opts ...connect.HandlerOp
 	cohortServiceUpdateCohortHandler := connect.NewUnaryHandler(
 		CohortServiceUpdateCohortProcedure,
 		svc.UpdateCohort,
+		opts...,
+	)
+	cohortServiceSetCohortFirmwareTargetHandler := connect.NewUnaryHandler(
+		CohortServiceSetCohortFirmwareTargetProcedure,
+		svc.SetCohortFirmwareTarget,
 		opts...,
 	)
 	cohortServiceAddDevicesToCohortHandler := connect.NewUnaryHandler(
@@ -352,6 +374,8 @@ func NewCohortServiceHandler(svc CohortServiceHandler, opts ...connect.HandlerOp
 			cohortServiceCreateCohortHandler.ServeHTTP(w, r)
 		case CohortServiceUpdateCohortProcedure:
 			cohortServiceUpdateCohortHandler.ServeHTTP(w, r)
+		case CohortServiceSetCohortFirmwareTargetProcedure:
+			cohortServiceSetCohortFirmwareTargetHandler.ServeHTTP(w, r)
 		case CohortServiceAddDevicesToCohortProcedure:
 			cohortServiceAddDevicesToCohortHandler.ServeHTTP(w, r)
 		case CohortServiceRemoveDevicesFromCohortProcedure:
@@ -387,6 +411,10 @@ func (UnimplementedCohortServiceHandler) CreateCohort(context.Context, *connect.
 
 func (UnimplementedCohortServiceHandler) UpdateCohort(context.Context, *connect.Request[v1.UpdateCohortRequest]) (*connect.Response[v1.UpdateCohortResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cohort.v1.CohortService.UpdateCohort is not implemented"))
+}
+
+func (UnimplementedCohortServiceHandler) SetCohortFirmwareTarget(context.Context, *connect.Request[v1.SetCohortFirmwareTargetRequest]) (*connect.Response[v1.SetCohortFirmwareTargetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cohort.v1.CohortService.SetCohortFirmwareTarget is not implemented"))
 }
 
 func (UnimplementedCohortServiceHandler) AddDevicesToCohort(context.Context, *connect.Request[v1.AddDevicesToCohortRequest]) (*connect.Response[v1.AddDevicesToCohortResponse], error) {

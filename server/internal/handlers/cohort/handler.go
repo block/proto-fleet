@@ -10,7 +10,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/cohort/v1/cohortv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/cohort"
-	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -58,11 +57,15 @@ func (h *Handler) ListCohorts(ctx context.Context, req *connect.Request[pb.ListC
 	if err != nil {
 		return nil, err
 	}
-	cohorts, err := h.service.ListCohorts(ctx, toListCohortsParams(req.Msg, info.OrganizationID))
+	result, err := h.service.ListCohorts(ctx, toListCohortsParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.ListCohortsResponse{Cohorts: toProtoCohortSummaries(cohorts)}), nil
+	return connect.NewResponse(&pb.ListCohortsResponse{
+		Cohorts:       toProtoCohortSummaries(result.Cohorts),
+		NextPageToken: result.NextPageToken,
+		TotalCount:    result.TotalCount,
+	}), nil
 }
 
 func (h *Handler) DeleteCohort(ctx context.Context, req *connect.Request[pb.DeleteCohortRequest]) (*connect.Response[pb.DeleteCohortResponse], error) {
@@ -77,32 +80,68 @@ func (h *Handler) DeleteCohort(ctx context.Context, req *connect.Request[pb.Dele
 	return connect.NewResponse(&pb.DeleteCohortResponse{Cohort: toProtoCohort(cohort)}), nil
 }
 
-func (h *Handler) UpdateCohort(ctx context.Context, _ *connect.Request[pb.UpdateCohortRequest]) (*connect.Response[pb.UpdateCohortResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermCohortManage, authz.ResourceContext{}); err != nil {
+func (h *Handler) UpdateCohort(ctx context.Context, req *connect.Request[pb.UpdateCohortRequest]) (*connect.Response[pb.UpdateCohortResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCohortManage, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
 	}
-	return nil, errCohortNotImplemented("UpdateCohort")
+	params, err := toUpdateCohortParams(req.Msg, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	cohort, err := h.service.UpdateCohort(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.UpdateCohortResponse{Cohort: toProtoCohort(cohort)}), nil
 }
 
-func (h *Handler) AddDevicesToCohort(ctx context.Context, _ *connect.Request[pb.AddDevicesToCohortRequest]) (*connect.Response[pb.AddDevicesToCohortResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermCohortManage, authz.ResourceContext{}); err != nil {
+func (h *Handler) SetCohortFirmwareTarget(ctx context.Context, req *connect.Request[pb.SetCohortFirmwareTargetRequest]) (*connect.Response[pb.SetCohortFirmwareTargetResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCohortManage, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
 	}
-	return nil, errCohortNotImplemented("AddDevicesToCohort")
+	cohort, err := h.service.SetCohortFirmwareTarget(ctx, toSetCohortFirmwareTargetParams(req.Msg, info))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.SetCohortFirmwareTargetResponse{Cohort: toProtoCohort(cohort)}), nil
 }
 
-func (h *Handler) RemoveDevicesFromCohort(ctx context.Context, _ *connect.Request[pb.RemoveDevicesFromCohortRequest]) (*connect.Response[pb.RemoveDevicesFromCohortResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermCohortManage, authz.ResourceContext{}); err != nil {
+func (h *Handler) AddDevicesToCohort(ctx context.Context, req *connect.Request[pb.AddDevicesToCohortRequest]) (*connect.Response[pb.AddDevicesToCohortResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCohortManage, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
 	}
-	return nil, errCohortNotImplemented("RemoveDevicesFromCohort")
+	cohort, err := h.service.AddDevicesToCohort(ctx, toMembershipMutationParams(info.OrganizationID, info.UserID, info.Role, req.Msg.GetCohortId(), req.Msg.GetDeviceIdentifiers()))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.AddDevicesToCohortResponse{Cohort: toProtoCohort(cohort)}), nil
 }
 
-func (h *Handler) ReleaseCohort(ctx context.Context, _ *connect.Request[pb.ReleaseCohortRequest]) (*connect.Response[pb.ReleaseCohortResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermCohortManage, authz.ResourceContext{}); err != nil {
+func (h *Handler) RemoveDevicesFromCohort(ctx context.Context, req *connect.Request[pb.RemoveDevicesFromCohortRequest]) (*connect.Response[pb.RemoveDevicesFromCohortResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCohortManage, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
 	}
-	return nil, errCohortNotImplemented("ReleaseCohort")
+	cohort, err := h.service.RemoveDevicesFromCohort(ctx, toMembershipMutationParams(info.OrganizationID, info.UserID, info.Role, req.Msg.GetCohortId(), req.Msg.GetDeviceIdentifiers()))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.RemoveDevicesFromCohortResponse{Cohort: toProtoCohort(cohort)}), nil
+}
+
+func (h *Handler) ReleaseCohort(ctx context.Context, req *connect.Request[pb.ReleaseCohortRequest]) (*connect.Response[pb.ReleaseCohortResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCohortManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	cohort, err := h.service.ReleaseCohort(ctx, toMembershipMutationParams(info.OrganizationID, info.UserID, info.Role, req.Msg.GetCohortId(), nil))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.ReleaseCohortResponse{Cohort: toProtoCohort(cohort)}), nil
 }
 
 func (h *Handler) GetMyCohorts(ctx context.Context, req *connect.Request[pb.GetMyCohortsRequest]) (*connect.Response[pb.GetMyCohortsResponse], error) {
@@ -110,34 +149,61 @@ func (h *Handler) GetMyCohorts(ctx context.Context, req *connect.Request[pb.GetM
 	if err != nil {
 		return nil, err
 	}
-	cohorts, err := h.service.ListCohortsByOwner(ctx, toListCohortsByOwnerParams(req.Msg, info))
+	result, err := h.service.ListCohortsByOwner(ctx, toListCohortsByOwnerParams(req.Msg, info))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.GetMyCohortsResponse{Cohorts: toProtoCohortSummaries(cohorts)}), nil
+	return connect.NewResponse(&pb.GetMyCohortsResponse{
+		Cohorts:       toProtoCohortSummaries(result.Cohorts),
+		NextPageToken: result.NextPageToken,
+		TotalCount:    result.TotalCount,
+	}), nil
 }
 
-func (h *Handler) ListDevices(ctx context.Context, _ *connect.Request[pb.ListDevicesRequest]) (*connect.Response[pb.ListDevicesResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermCohortRead, authz.ResourceContext{}); err != nil {
+func (h *Handler) ListDevices(ctx context.Context, req *connect.Request[pb.ListDevicesRequest]) (*connect.Response[pb.ListDevicesResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCohortRead, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
 	}
-	return nil, errCohortNotImplemented("ListDevices")
-}
-
-func (h *Handler) AdminReassign(ctx context.Context, _ *connect.Request[pb.AdminReassignRequest]) (*connect.Response[pb.AdminReassignResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermCohortManage, authz.ResourceContext{}); err != nil {
+	result, err := h.service.ListDevices(ctx, toListDevicesParams(req.Msg, info.OrganizationID))
+	if err != nil {
 		return nil, err
 	}
-	return nil, errCohortNotImplemented("AdminReassign")
+	return connect.NewResponse(&pb.ListDevicesResponse{
+		Devices:        toProtoCohortDevices(result.Devices),
+		NextPageToken:  result.NextPageToken,
+		TotalCount:     result.TotalCount,
+		AvailableCount: result.AvailableCount,
+		ReservedCount:  result.ReservedCount,
+	}), nil
 }
 
-func (h *Handler) AdminReleaseCohort(ctx context.Context, _ *connect.Request[pb.AdminReleaseCohortRequest]) (*connect.Response[pb.AdminReleaseCohortResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermCohortManage, authz.ResourceContext{}); err != nil {
+func (h *Handler) AdminReassign(ctx context.Context, req *connect.Request[pb.AdminReassignRequest]) (*connect.Response[pb.AdminReassignResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCohortManage, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
 	}
-	return nil, errCohortNotImplemented("AdminReleaseCohort")
+	if _, err := middleware.RequireSuperAdmin(ctx, "reassign cohort"); err != nil {
+		return nil, err
+	}
+	cohort, err := h.service.AddDevicesToCohort(ctx, toMembershipMutationParams(info.OrganizationID, info.UserID, info.Role, req.Msg.GetTargetCohortId(), req.Msg.GetDeviceIdentifiers()))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.AdminReassignResponse{Cohort: toProtoCohort(cohort)}), nil
 }
 
-func errCohortNotImplemented(rpc string) error {
-	return fleeterror.NewUnimplementedErrorf("cohort.%s is not implemented yet", rpc)
+func (h *Handler) AdminReleaseCohort(ctx context.Context, req *connect.Request[pb.AdminReleaseCohortRequest]) (*connect.Response[pb.AdminReleaseCohortResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCohortManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequireSuperAdmin(ctx, "release any cohort"); err != nil {
+		return nil, err
+	}
+	cohort, err := h.service.ReleaseCohort(ctx, toMembershipMutationParams(info.OrganizationID, info.UserID, info.Role, req.Msg.GetCohortId(), nil))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.AdminReleaseCohortResponse{Cohort: toProtoCohort(cohort)}), nil
 }
