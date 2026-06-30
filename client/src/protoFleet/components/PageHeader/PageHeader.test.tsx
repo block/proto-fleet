@@ -1,8 +1,10 @@
 import { MemoryRouter } from "react-router-dom";
 import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import PageHeader from "./PageHeader";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
+import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import { SiteScopeProvider } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
@@ -35,6 +37,24 @@ vi.mock("@/protoFleet/api/sites", () => ({
   buildSiteSlugById: () => new Map<string, string>(),
 }));
 
+// PageHeader reads the catalog from the shell-level SitesProvider; the fetch
+// itself is the provider's job (covered by its own tests). Drive the context
+// directly so these tests focus on header/picker rendering.
+const sitesCtx = vi.hoisted(() => ({
+  current: {
+    sites: [] as SiteWithCounts[] | undefined,
+    sitesError: null as string | null,
+    sitesLoaded: false,
+    sitesSettled: false,
+    sitesPermissionDenied: false,
+    siteCatalogAccessGranted: false,
+    refetchSites: vi.fn(),
+  },
+}));
+vi.mock("@/protoFleet/api/SitesContext", () => ({
+  useSitesContext: () => sitesCtx.current,
+}));
+
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
   useWindowDimensions: () => mockUseWindowDimensions(),
 }));
@@ -47,9 +67,15 @@ vi.mock("@/protoFleet/store", () => ({
   useHasPermission: vi.fn(),
 }));
 
-vi.mock("@/shared/assets/icons", () => ({
-  Pause: ({ ariaLabel }: { ariaLabel?: string }) => <button aria-label={ariaLabel}>menu</button>,
-}));
+vi.mock("@/shared/assets/icons", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/shared/assets/icons")>();
+  return {
+    ...actual,
+    // Override the menu button; the SitePicker trigger + Modal pull in other
+    // icons (ChevronDown, Dismiss, …) which stay real via the spread above.
+    Pause: ({ ariaLabel }: { ariaLabel?: string }) => <button aria-label={ariaLabel}>menu</button>,
+  };
+});
 const createPillSchedule = (name: string): ScheduleListItem =>
   ({
     id: "1",
@@ -77,6 +103,15 @@ describe("PageHeader", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListSites.mockReturnValue(undefined);
+    sitesCtx.current = {
+      sites: [],
+      sitesError: null,
+      sitesLoaded: true,
+      sitesSettled: true,
+      sitesPermissionDenied: false,
+      siteCatalogAccessGranted: true,
+      refetchSites: vi.fn(),
+    };
     mockUseWindowDimensions.mockReturnValue({
       width: 375,
       isPhone: true,
@@ -286,7 +321,7 @@ describe("PageHeader", () => {
     expect(mockCurtailmentPill).not.toHaveBeenCalled();
   });
 
-  it("skips the ListSites fetch and hides the SitePicker without site read permission", () => {
+  it("hides the SitePicker without site read permission", () => {
     vi.mocked(useHasPermission).mockImplementation((permission) => permission !== "site:read");
 
     render(
@@ -296,13 +331,21 @@ describe("PageHeader", () => {
     );
 
     expect(useHasPermission).toHaveBeenCalledWith("site:read");
-    expect(mockListSites).not.toHaveBeenCalled();
     expect(screen.queryByTestId("site-picker-trigger")).not.toBeInTheDocument();
     expect(screen.queryByTestId("site-picker-error")).not.toBeInTheDocument();
   });
 
-  it("fetches sites when the user has site read permission", () => {
+  it("renders the SitePicker from the shared catalog when the user has site read permission", () => {
     vi.mocked(useHasPermission).mockReturnValue(true);
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, isTablet: false });
+    sitesCtx.current = {
+      ...sitesCtx.current,
+      sites: [
+        create(SiteWithCountsSchema, {
+          site: create(SiteSchema, { id: 7n, name: "Austin", slug: "austin" }),
+        }),
+      ],
+    };
 
     render(
       <MemoryRouter>
@@ -310,6 +353,6 @@ describe("PageHeader", () => {
       </MemoryRouter>,
     );
 
-    expect(mockListSites).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("site-picker-trigger")).toBeInTheDocument();
   });
 });

@@ -6,9 +6,9 @@ import SiteModals from "../components/SiteModals";
 import { useSiteModals } from "../hooks/useSiteModals";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { buildKnownSiteIds, parseBigIntId, useSites } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds, parseBigIntId } from "@/protoFleet/api/sites";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useSiteStats } from "@/protoFleet/api/useSiteStats";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
@@ -43,33 +43,14 @@ const SiteDetailPage = () => {
   const { id: idParam } = useParams<{ id?: string }>();
   const targetId = idParam ?? "";
 
-  const { listSites } = useSites();
   const { listBuildingsBySite } = useBuildings();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
-  const [sitesLoaded, setSitesLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Site catalog is owned by the shell-level SitesProvider; this page reads it
+  // (and triggers a refresh after rename/delete via refetchSites) instead of
+  // firing its own ListSites.
+  const { sites, sitesError: error, sitesLoaded, refetchSites } = useSitesContext();
   const [buildings, setBuildings] = useState<{ siteId: string; rows: BuildingWithCounts[] } | undefined>(undefined);
   const [buildingsError, setBuildingsError] = useState<{ siteId: string; message: string } | null>(null);
   const breadcrumbSiteSelectionRef = useRef<string | null>(null);
-
-  const fetchSites = useCallback(() => {
-    const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: (rows) => {
-        setSites(rows);
-        setSitesLoaded(true);
-        setError(null);
-      },
-      onError: (msg) => {
-        setError(msg);
-        // Preserve last-good list across transient errors; only fall to []
-        // on the initial-load failure path.
-        setSites((prev) => prev ?? []);
-      },
-    });
-    return () => controller.abort();
-  }, [listSites]);
 
   const fetchBuildings = useCallback(
     (siteId: bigint) => {
@@ -93,13 +74,6 @@ const SiteDetailPage = () => {
     },
     [listBuildingsBySite],
   );
-
-  // Bump retryCounter to re-run the effect so the cleanup AbortController
-  // stays owned by useEffect and isn't leaked by an imperative call.
-  const [retryCounter, setRetryCounter] = useState(0);
-  const handleRetry = useCallback(() => setRetryCounter((n) => n + 1), []);
-
-  useEffect(() => fetchSites(), [fetchSites, retryCounter]);
 
   // Bounce to /fleet when SitePicker switches to a different specific
   // site — "All sites" / "Unassigned" don't conflict with this view.
@@ -139,7 +113,7 @@ const SiteDetailPage = () => {
   const refetchBuildings = useCallback(() => setBuildingsRefreshKey((n) => n + 1), []);
   // Membership saves in ManageSiteModal also affect building rows, so share
   // the same refresh signal used for direct building mutations.
-  const modals = useSiteModals({ refetchSites: fetchSites, refetchBuildings });
+  const modals = useSiteModals({ refetchSites, refetchBuildings });
   const buildingModals = useBuildingModals({ refetchBuildings });
 
   const siteId = site?.site?.id;
@@ -203,7 +177,7 @@ const SiteDetailPage = () => {
           variant={variants.secondary}
           size={sizes.compact}
           text="Retry"
-          onClick={handleRetry}
+          onClick={refetchSites}
           testId="site-detail-retry"
         />
       </div>
@@ -251,7 +225,7 @@ const SiteDetailPage = () => {
             title="Couldn't refresh site"
             subtitle={error}
             buttonText="Retry"
-            buttonOnClick={handleRetry}
+            buttonOnClick={refetchSites}
             testId="site-detail-inline-error"
           />
         ) : null}

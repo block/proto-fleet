@@ -13,9 +13,9 @@ import {
   type BuildingWithCounts,
   BuildingWithCountsSchema,
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { parseBigIntId, useSites } from "@/protoFleet/api/sites";
+import { parseBigIntId } from "@/protoFleet/api/sites";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useBuildingStats } from "@/protoFleet/api/useBuildingStats";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
@@ -61,7 +61,10 @@ const BuildingPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { getBuilding, listAllBuildings, listBuildingRacks } = useBuildings();
-  const { listSites } = useSites();
+  // Site catalog comes from the shared shell-level provider (just used here to
+  // label the building's parent site in breadcrumbs), so this page no longer
+  // fires its own ListSites.
+  const { sites } = useSitesContext();
   const activeSite = useFleetStore((state) => state.ui.activeSite);
 
   const buildingId = useMemo(() => parseBigIntId(id), [id]);
@@ -73,7 +76,6 @@ const BuildingPage = () => {
   // Parallel-fetched rack count keyed by buildingId so it can't race a
   // navigation. Used to populate the cascade-delete dialog's count copy.
   const [rackCountResponse, setRackCountResponse] = useState<{ id: bigint; count: bigint } | undefined>(undefined);
-  const [sites, setSites] = useState<SiteWithCounts[]>([]);
   const [allBuildings, setAllBuildings] = useState<BuildingWithCounts[]>([]);
   const inflightControllerRef = useRef<AbortController | null>(null);
   const racksInflightRef = useRef<AbortController | null>(null);
@@ -112,18 +114,13 @@ const BuildingPage = () => {
 
   useEffect(() => {
     const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: setSites,
-      onError: () => setSites([]),
-    });
     void listAllBuildings({
       signal: controller.signal,
       onSuccess: setAllBuildings,
       onError: () => setAllBuildings([]),
     });
     return () => controller.abort();
-  }, [listAllBuildings, listSites]);
+  }, [listAllBuildings]);
 
   useEffect(() => {
     if (buildingId === null) return;
@@ -207,7 +204,9 @@ const BuildingPage = () => {
     buildingId === null ? "invalid" : response && response.id === buildingId ? response.outcome : "loading";
   const siteNameById = useMemo(
     () =>
-      new Map(sites.filter((row) => row.site !== undefined).map((row) => [row.site!.id.toString(), row.site!.name])),
+      new Map(
+        (sites ?? []).filter((row) => row.site !== undefined).map((row) => [row.site!.id.toString(), row.site!.name]),
+      ),
     [sites],
   );
 

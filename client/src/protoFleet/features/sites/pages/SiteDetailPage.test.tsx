@@ -28,6 +28,24 @@ vi.mock("@/protoFleet/api/sites", async () => {
   };
 });
 
+// SiteDetailPage reads the site catalog from the shell-level SitesProvider.
+// Drive it directly so the page renders against a known catalog without the
+// provider's fetch/poll machinery.
+const sitesCtx = vi.hoisted(() => ({
+  current: {
+    sites: undefined as SiteWithCounts[] | undefined,
+    sitesError: null as string | null,
+    sitesLoaded: false,
+    sitesSettled: false,
+    sitesPermissionDenied: false,
+    siteCatalogAccessGranted: false,
+    refetchSites: vi.fn(),
+  },
+}));
+vi.mock("@/protoFleet/api/SitesContext", () => ({
+  useSitesContext: () => sitesCtx.current,
+}));
+
 const useTelemetryMetricsMock = vi.hoisted(() => vi.fn((_options: unknown) => ({ data: { metrics: [] } })));
 
 vi.mock("@/protoFleet/api/useTelemetryMetrics", () => ({
@@ -106,9 +124,15 @@ describe("SiteDetailPage", () => {
       // from a known (denied) baseline; tests opt in explicitly.
       state.auth.permissions = [];
     });
-    listSitesMock.mockImplementation(({ onSuccess }: { onSuccess: (sites: SiteWithCounts[]) => void }) =>
-      onSuccess([makeSite(7n, "Dallas"), makeSite(8n, "Austin")]),
-    );
+    sitesCtx.current = {
+      sites: [makeSite(7n, "Dallas"), makeSite(8n, "Austin")],
+      sitesError: null,
+      sitesLoaded: true,
+      sitesSettled: true,
+      sitesPermissionDenied: false,
+      siteCatalogAccessGranted: true,
+      refetchSites: vi.fn(),
+    };
     listBuildingsBySiteMock.mockImplementation(({ onSuccess }: { onSuccess: (buildings: []) => void }) =>
       onSuccess([]),
     );

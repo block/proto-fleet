@@ -38,6 +38,23 @@ vi.mock("@/protoFleet/api/sites", async (importOriginal) => {
   };
 });
 
+// BuildingPage reads the site catalog (for the breadcrumb site label) from the
+// shell-level SitesProvider. Drive it directly here.
+const sitesCtx = vi.hoisted(() => ({
+  current: {
+    sites: undefined as SiteWithCounts[] | undefined,
+    sitesError: null as string | null,
+    sitesLoaded: false,
+    sitesSettled: false,
+    sitesPermissionDenied: false,
+    siteCatalogAccessGranted: false,
+    refetchSites: vi.fn(),
+  },
+}));
+vi.mock("@/protoFleet/api/SitesContext", () => ({
+  useSitesContext: () => sitesCtx.current,
+}));
+
 vi.mock("@/protoFleet/api/useBuildingStats", () => ({
   useBuildingStats: () => ({
     stats: {
@@ -169,16 +186,22 @@ describe("BuildingPage", () => {
     listBuildingRacksMock.mockImplementation(({ onSuccess }: { onSuccess: (racks: BuildingRack[]) => void }) =>
       onSuccess([]),
     );
-    listSitesMock.mockImplementation(({ onSuccess }: { onSuccess: (sites: SiteWithCounts[]) => void }) =>
-      onSuccess([
+    sitesCtx.current = {
+      sites: [
         create(SiteWithCountsSchema, {
           site: create(SiteSchema, {
             id: 8n,
             name: "Austin",
           }),
         }),
-      ]),
-    );
+      ],
+      sitesError: null,
+      sitesLoaded: true,
+      sitesSettled: true,
+      sitesPermissionDenied: false,
+      siteCatalogAccessGranted: true,
+      refetchSites: vi.fn(),
+    };
   });
 
   it("preserves the selected site when leaving building detail for miners", async () => {
