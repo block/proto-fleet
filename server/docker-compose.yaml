@@ -118,7 +118,9 @@ services:
     expose:
       - 8080
     deploy:
-      replicas: 5 # Default is 5 instances, can be overridden with --scale
+      # Temporary higher default for reservation/cohort stress testing.
+      # Override locally with FAKE_PROTO_RIG_REPLICAS or --scale fake-proto-rig=N.
+      replicas: ${FAKE_PROTO_RIG_REPLICAS:-30}
       resources:
         limits:
           cpus: "0.25"

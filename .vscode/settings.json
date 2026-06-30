@@ -46,5 +46,13 @@
   },
   "clangd.arguments": [
     "--proto-path=proto"
-  ]
+  ],
+  "python.autoComplete.extraPaths": [
+    "${workspaceFolder}/sources/poky/bitbake/lib",
+    "${workspaceFolder}/sources/poky/meta/lib"
+  ],
+  "files.associations": {
+    "*.conf": "bitbake",
+    "*.inc": "bitbake"
+  }
 }
