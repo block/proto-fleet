@@ -364,6 +364,7 @@ func (s *TimescaleTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, qu
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
+	started := time.Now()
 	endTime := time.Now()
 	startTime := endTime.Add(-s.config.MaxAge)
 
@@ -376,6 +377,7 @@ func (s *TimescaleTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, qu
 
 	var rows []sqlc.DeviceMetric
 	var err error
+	queryPath := selectorPath(len(query.DeviceIDs))
 
 	maxRows := safeIntToInt32(s.config.MaxTimeSeriesRows)
 	if maxRows <= 0 {
@@ -401,6 +403,16 @@ func (s *TimescaleTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, qu
 		})
 	}
 	if err != nil {
+		s.logger.Warn("time series telemetry query failed",
+			"query_path", queryPath,
+			"device_selector_count", len(query.DeviceIDs),
+			"all_devices", len(query.DeviceIDs) == 0,
+			"start_time", startTime.Format(time.RFC3339),
+			"end_time", endTime.Format(time.RFC3339),
+			"range_ms", endTime.Sub(startTime).Milliseconds(),
+			"max_rows", maxRows,
+			"elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, fmt.Errorf("failed to query time series: %w", err)
 	}
 
@@ -412,6 +424,18 @@ func (s *TimescaleTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, qu
 	if query.Limit != nil && len(result) > *query.Limit {
 		result = result[:*query.Limit]
 	}
+
+	s.logger.Info("time series telemetry query completed",
+		"query_path", queryPath,
+		"device_selector_count", len(query.DeviceIDs),
+		"all_devices", len(query.DeviceIDs) == 0,
+		"start_time", startTime.Format(time.RFC3339),
+		"end_time", endTime.Format(time.RFC3339),
+		"range_ms", endTime.Sub(startTime).Milliseconds(),
+		"max_rows", maxRows,
+		"row_count", len(rows),
+		"result_count", len(result),
+		"elapsed_ms", time.Since(started).Milliseconds())
 
 	return result, nil
 }
@@ -513,26 +537,57 @@ func (s *TimescaleTelemetryStore) StreamTelemetryUpdates(ctx context.Context, qu
 // - Hourly aggregates (device_metrics_hourly) for queries 24h-10d
 // - Daily aggregates (device_metrics_daily) for queries > 10d
 func (s *TimescaleTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	started := time.Now()
 	ds := selectDataSource(query.TimeRange.StartTime, query.TimeRange.EndTime)
+	startTime, endTime := s.getTimeRange(query.TimeRange)
 
-	s.logger.Debug("selected data source for combined metrics",
+	s.logger.Info("selected data source for combined metrics",
 		slog.String("source", ds.String()),
 		slog.Any("start_time", query.TimeRange.StartTime),
-		slog.Any("end_time", query.TimeRange.EndTime))
+		slog.Any("end_time", query.TimeRange.EndTime),
+		slog.Int("device_selector_count", len(query.DeviceIDs)),
+		slog.Bool("all_devices", len(query.DeviceIDs) == 0),
+		slog.Int64("range_ms", endTime.Sub(startTime).Milliseconds()),
+		slog.Int("measurement_count", len(query.MeasurementTypes)),
+		slog.Int("aggregation_count", len(query.AggregationTypes)))
 
+	var result models.CombinedMetric
+	var err error
 	switch ds {
 	case dataSourceRaw:
-		return s.getCombinedMetricsFromRaw(ctx, query)
+		result, err = s.getCombinedMetricsFromRaw(ctx, query)
 	case dataSourceHourly:
-		return s.getCombinedMetricsFromHourly(ctx, query)
+		result, err = s.getCombinedMetricsFromHourly(ctx, query)
 	case dataSourceDaily:
-		return s.getCombinedMetricsFromDaily(ctx, query)
+		result, err = s.getCombinedMetricsFromDaily(ctx, query)
+	default:
+		result, err = s.getCombinedMetricsFromRaw(ctx, query)
 	}
-	return s.getCombinedMetricsFromRaw(ctx, query)
+	if err != nil {
+		s.logger.Warn("combined metrics store query failed",
+			"source", ds.String(),
+			"device_selector_count", len(query.DeviceIDs),
+			"all_devices", len(query.DeviceIDs) == 0,
+			"range_ms", endTime.Sub(startTime).Milliseconds(),
+			"elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
+		return result, err
+	}
+	s.logger.Info("combined metrics store query completed",
+		"source", ds.String(),
+		"device_selector_count", len(query.DeviceIDs),
+		"all_devices", len(query.DeviceIDs) == 0,
+		"range_ms", endTime.Sub(startTime).Milliseconds(),
+		"metric_bucket_count", len(result.Metrics),
+		"temperature_bucket_count", len(result.TemperatureStatusCounts),
+		"uptime_bucket_count", len(result.UptimeStatusCounts),
+		"elapsed_ms", time.Since(started).Milliseconds())
+	return result, nil
 }
 
 // getCombinedMetricsFromRaw queries raw device_metrics table (for short time ranges).
 func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	started := time.Now()
 	tsQuery := models.TimeSeriesTelemetryQuery{
 		DeviceIDs:        query.DeviceIDs,
 		MeasurementTypes: query.MeasurementTypes,
@@ -543,6 +598,11 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 	if err != nil {
 		return models.CombinedMetric{}, err
 	}
+	s.logger.Info("combined metrics raw time series loaded",
+		"device_selector_count", len(query.DeviceIDs),
+		"all_devices", len(query.DeviceIDs) == 0,
+		"sample_count", len(data),
+		"elapsed_ms", time.Since(started).Milliseconds())
 
 	if len(data) == 0 {
 		return models.CombinedMetric{}, nil
@@ -553,9 +613,25 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 		bucketDuration = *query.SlideInterval
 	}
 
+	aggregateStarted := time.Now()
 	result := s.aggregateMetrics(data, query.MeasurementTypes, query.AggregationTypes, bucketDuration)
+	s.logger.Info("combined metrics raw aggregation completed",
+		"device_selector_count", len(query.DeviceIDs),
+		"all_devices", len(query.DeviceIDs) == 0,
+		"sample_count", len(data),
+		"metric_bucket_count", len(result.Metrics),
+		"bucket_duration_ms", bucketDuration.Milliseconds(),
+		"elapsed_ms", time.Since(aggregateStarted).Milliseconds())
+
 	startTime, endTime := s.getTimeRange(query.TimeRange)
+	uptimeStarted := time.Now()
 	result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration)
+	s.logger.Info("combined metrics raw uptime counts attached",
+		"device_selector_count", len(query.DeviceIDs),
+		"all_devices", len(query.DeviceIDs) == 0,
+		"uptime_bucket_count", len(result.UptimeStatusCounts),
+		"bucket_duration_ms", bucketDuration.Milliseconds(),
+		"elapsed_ms", time.Since(uptimeStarted).Milliseconds())
 
 	return result, nil
 }
@@ -565,9 +641,14 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
+	started := time.Now()
 	startTime, endTime := s.getTimeRange(query.TimeRange)
 	startTime, endTime, hasCompleteBucket := normalizeCompleteBucketRange(startTime, endTime, hourlyBucketDuration)
 	if !hasCompleteBucket {
+		s.logger.Info("combined metrics hourly skipped empty complete bucket range",
+			"device_selector_count", len(query.DeviceIDs),
+			"all_devices", len(query.DeviceIDs) == 0,
+			"elapsed_ms", time.Since(started).Milliseconds())
 		return models.CombinedMetric{}, nil
 	}
 
@@ -589,17 +670,48 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 	}
 
 	if err != nil {
+		s.logger.Warn("combined metrics hourly aggregate query failed",
+			"query_path", selectorPath(len(query.DeviceIDs)),
+			"device_selector_count", len(query.DeviceIDs),
+			"all_devices", len(query.DeviceIDs) == 0,
+			"start_time", startTime.Format(time.RFC3339),
+			"end_time", endTime.Format(time.RFC3339),
+			"range_ms", endTime.Sub(startTime).Milliseconds(),
+			"elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return models.CombinedMetric{}, fmt.Errorf("failed to query hourly aggregates: %w", err)
 	}
+	s.logger.Info("combined metrics hourly aggregate query completed",
+		"query_path", selectorPath(len(query.DeviceIDs)),
+		"device_selector_count", len(query.DeviceIDs),
+		"all_devices", len(query.DeviceIDs) == 0,
+		"start_time", startTime.Format(time.RFC3339),
+		"end_time", endTime.Format(time.RFC3339),
+		"range_ms", endTime.Sub(startTime).Milliseconds(),
+		"row_count", len(rows),
+		"elapsed_ms", time.Since(started).Milliseconds())
 
 	if len(rows) == 0 {
 		return models.CombinedMetric{}, nil
 	}
 
+	aggregateStarted := time.Now()
 	metrics := s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
+	s.logger.Info("combined metrics hourly aggregation completed",
+		"row_count", len(rows),
+		"metric_bucket_count", len(metrics),
+		"elapsed_ms", time.Since(aggregateStarted).Milliseconds())
 
+	tempStarted := time.Now()
 	tempCounts := s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, startTime, endTime)
+	s.logger.Info("combined metrics hourly temperature counts completed",
+		"temperature_bucket_count", len(tempCounts),
+		"elapsed_ms", time.Since(tempStarted).Milliseconds())
+	uptimeStarted := time.Now()
 	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration)
+	s.logger.Info("combined metrics hourly uptime counts attached",
+		"uptime_bucket_count", len(uptimeCounts),
+		"elapsed_ms", time.Since(uptimeStarted).Milliseconds())
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -613,9 +725,14 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
+	started := time.Now()
 	startTime, endTime := s.getTimeRange(query.TimeRange)
 	startTime, endTime, hasCompleteBucket := normalizeCompleteBucketRange(startTime, endTime, dailyBucketDuration)
 	if !hasCompleteBucket {
+		s.logger.Info("combined metrics daily skipped empty complete bucket range",
+			"device_selector_count", len(query.DeviceIDs),
+			"all_devices", len(query.DeviceIDs) == 0,
+			"elapsed_ms", time.Since(started).Milliseconds())
 		return models.CombinedMetric{}, nil
 	}
 
@@ -637,17 +754,48 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 	}
 
 	if err != nil {
+		s.logger.Warn("combined metrics daily aggregate query failed",
+			"query_path", selectorPath(len(query.DeviceIDs)),
+			"device_selector_count", len(query.DeviceIDs),
+			"all_devices", len(query.DeviceIDs) == 0,
+			"start_time", startTime.Format(time.RFC3339),
+			"end_time", endTime.Format(time.RFC3339),
+			"range_ms", endTime.Sub(startTime).Milliseconds(),
+			"elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return models.CombinedMetric{}, fmt.Errorf("failed to query daily aggregates: %w", err)
 	}
+	s.logger.Info("combined metrics daily aggregate query completed",
+		"query_path", selectorPath(len(query.DeviceIDs)),
+		"device_selector_count", len(query.DeviceIDs),
+		"all_devices", len(query.DeviceIDs) == 0,
+		"start_time", startTime.Format(time.RFC3339),
+		"end_time", endTime.Format(time.RFC3339),
+		"range_ms", endTime.Sub(startTime).Milliseconds(),
+		"row_count", len(rows),
+		"elapsed_ms", time.Since(started).Milliseconds())
 
 	if len(rows) == 0 {
 		return models.CombinedMetric{}, nil
 	}
 
+	aggregateStarted := time.Now()
 	metrics := s.aggregateDailyRows(rows, query.MeasurementTypes, query.AggregationTypes)
+	s.logger.Info("combined metrics daily aggregation completed",
+		"row_count", len(rows),
+		"metric_bucket_count", len(metrics),
+		"elapsed_ms", time.Since(aggregateStarted).Milliseconds())
 
+	tempStarted := time.Now()
 	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query.DeviceIDs, startTime, endTime)
+	s.logger.Info("combined metrics daily temperature counts completed",
+		"temperature_bucket_count", len(tempCounts),
+		"elapsed_ms", time.Since(tempStarted).Milliseconds())
+	uptimeStarted := time.Now()
 	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration)
+	s.logger.Info("combined metrics daily uptime counts attached",
+		"uptime_bucket_count", len(uptimeCounts),
+		"elapsed_ms", time.Since(uptimeStarted).Milliseconds())
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -689,6 +837,13 @@ func deviceIDsToStrings(ids []models.DeviceIdentifier) []string {
 		result[i] = string(id)
 	}
 	return result
+}
+
+func selectorPath(deviceCount int) string {
+	if deviceCount == 0 {
+		return "all_devices"
+	}
+	return "selected_devices"
 }
 
 func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
@@ -1238,6 +1393,7 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	if orgID == 0 {
 		return nil
 	}
+	started := time.Now()
 	// Snapshot cadence is ~60s, so finer buckets would yield empty slots.
 	if bucketDuration < time.Minute {
 		bucketDuration = time.Minute
@@ -1261,11 +1417,31 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	if err != nil {
 		s.logger.Error("failed to query miner state snapshots",
 			slog.Int64("org_id", orgID),
+			slog.String("query_path", selectorPath(len(deviceIDs))),
+			slog.Int("device_selector_count", len(deviceIDs)),
+			slog.Bool("all_devices", len(deviceIDs) == 0),
+			slog.String("start_time", startTime.Format(time.RFC3339)),
+			slog.String("end_time", endTime.Format(time.RFC3339)),
+			slog.Int64("range_ms", endTime.Sub(startTime).Milliseconds()),
+			slog.Int64("bucket_duration_ms", bucketDuration.Milliseconds()),
+			slog.Int64("elapsed_ms", time.Since(started).Milliseconds()),
 			slog.String("error", err.Error()))
 		return nil
 	}
 
 	if len(rows) == 0 {
+		s.logger.Info("miner state snapshot uptime query completed",
+			"org_id", orgID,
+			"query_path", selectorPath(len(deviceIDs)),
+			"device_selector_count", len(deviceIDs),
+			"all_devices", len(deviceIDs) == 0,
+			"start_time", startTime.Format(time.RFC3339),
+			"end_time", endTime.Format(time.RFC3339),
+			"range_ms", endTime.Sub(startTime).Milliseconds(),
+			"bucket_duration_ms", bucketDuration.Milliseconds(),
+			"row_count", len(rows),
+			"uptime_bucket_count", 0,
+			"elapsed_ms", time.Since(started).Milliseconds())
 		return nil
 	}
 
@@ -1278,6 +1454,18 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 			NotHashingCount: row.OfflineCount + row.SleepingCount,
 		})
 	}
+	s.logger.Info("miner state snapshot uptime query completed",
+		"org_id", orgID,
+		"query_path", selectorPath(len(deviceIDs)),
+		"device_selector_count", len(deviceIDs),
+		"all_devices", len(deviceIDs) == 0,
+		"start_time", startTime.Format(time.RFC3339),
+		"end_time", endTime.Format(time.RFC3339),
+		"range_ms", endTime.Sub(startTime).Milliseconds(),
+		"bucket_duration_ms", bucketDuration.Milliseconds(),
+		"row_count", len(rows),
+		"uptime_bucket_count", len(result),
+		"elapsed_ms", time.Since(started).Milliseconds())
 	return result
 }
 

@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"connectrpc.com/connect"
@@ -30,6 +31,7 @@ func (h *Handler) GetCombinedMetrics(
 	ctx context.Context,
 	req *connect.Request[telemetryv1.GetCombinedMetricsRequest],
 ) (*connect.Response[telemetryv1.GetCombinedMetricsResponse], error) {
+	started := time.Now()
 	info, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
@@ -40,17 +42,71 @@ func (h *Handler) GetCombinedMetrics(
 	}
 	query.OrganizationID = info.OrganizationID
 
+	slog.Info("GetCombinedMetrics request started", combinedMetricsHandlerLogArgs(query)...)
+
 	combinedMetrics, err := h.telemetryService.GetCombinedMetrics(ctx, query)
 	if err != nil {
+		args := combinedMetricsHandlerLogArgs(query)
+		args = append(args,
+			"elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err,
+		)
+		slog.Warn("GetCombinedMetrics request failed", args...)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
 	response, err := fromCombinedMetrics(combinedMetrics)
 	if err != nil {
+		args := combinedMetricsHandlerLogArgs(query)
+		args = append(args,
+			"elapsed_ms", time.Since(started).Milliseconds(),
+			"metric_bucket_count", len(combinedMetrics.Metrics),
+			"temperature_bucket_count", len(combinedMetrics.TemperatureStatusCounts),
+			"uptime_bucket_count", len(combinedMetrics.UptimeStatusCounts),
+			"error", err,
+		)
+		slog.Warn("GetCombinedMetrics response conversion failed", args...)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
+	args := combinedMetricsHandlerLogArgs(query)
+	args = append(args,
+		"elapsed_ms", time.Since(started).Milliseconds(),
+		"metric_bucket_count", len(combinedMetrics.Metrics),
+		"temperature_bucket_count", len(combinedMetrics.TemperatureStatusCounts),
+		"uptime_bucket_count", len(combinedMetrics.UptimeStatusCounts),
+		"has_live_state_counts", combinedMetrics.MinerStateCounts != nil,
+	)
+	slog.Info("GetCombinedMetrics request completed", args...)
+
 	return connect.NewResponse(response), nil
+}
+
+func combinedMetricsHandlerLogArgs(query models.CombinedMetricsQuery) []any {
+	args := []any{
+		"component", "telemetry_handler",
+		"org_id", query.OrganizationID,
+		"device_selector_count", len(query.DeviceIDs),
+		"all_devices", len(query.DeviceIDs) == 0,
+		"measurement_count", len(query.MeasurementTypes),
+		"aggregation_count", len(query.AggregationTypes),
+		"site_count", len(query.SiteIDs),
+		"include_unassigned", query.IncludeUnassigned,
+		"page_size", query.PageSize,
+	}
+	if query.TimeRange.StartTime != nil {
+		args = append(args, "start_time", query.TimeRange.StartTime.Format(time.RFC3339))
+	}
+	if query.TimeRange.EndTime != nil {
+		args = append(args, "end_time", query.TimeRange.EndTime.Format(time.RFC3339))
+	}
+	if query.TimeRange.StartTime != nil && query.TimeRange.EndTime != nil {
+		args = append(args, "range_ms", query.TimeRange.EndTime.Sub(*query.TimeRange.StartTime).Milliseconds())
+	}
+	if query.SlideInterval != nil {
+		args = append(args, "slide_interval_ms", query.SlideInterval.Milliseconds())
+	}
+	return args
 }
 
 func (h *Handler) StreamCombinedMetricUpdates(

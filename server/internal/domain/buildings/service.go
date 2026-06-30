@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"time"
 
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -1303,15 +1304,50 @@ func (s *Service) DeleteBuilding(ctx context.Context, orgID, id int64) (*models.
 // wrong site-scope. nil means "the handler saw an unassigned
 // building"; nil/nil and equal int64 pointers compare as a match.
 func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64, expectedSiteID *int64) (*models.BuildingStats, error) {
+	started := time.Now()
+	slog.Info("GetBuildingStats request started",
+		"component", "buildings_service",
+		"org_id", orgID,
+		"building_id", buildingID,
+		"has_expected_site", expectedSiteID != nil)
+
 	if s.deviceQueryer == nil || s.telemetry == nil {
+		slog.Warn("GetBuildingStats missing dependencies",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"elapsed_ms", time.Since(started).Milliseconds())
 		return nil, fleeterror.NewInternalErrorf("buildings.GetBuildingStats requires deviceQueryer and telemetry")
 	}
 
+	existsStarted := time.Now()
+	slog.Info("GetBuildingStats membership check started",
+		"component", "buildings_service",
+		"org_id", orgID,
+		"building_id", buildingID)
 	exists, err := s.store.BuildingBelongsToOrg(ctx, orgID, buildingID)
 	if err != nil {
+		slog.Warn("GetBuildingStats membership check failed",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"elapsed_ms", time.Since(existsStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, err
 	}
+	slog.Info("GetBuildingStats membership check completed",
+		"component", "buildings_service",
+		"org_id", orgID,
+		"building_id", buildingID,
+		"exists", exists,
+		"elapsed_ms", time.Since(existsStarted).Milliseconds())
 	if !exists {
+		slog.Info("GetBuildingStats request completed not found",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"elapsed_ms", time.Since(started).Milliseconds())
 		return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
 	}
 
@@ -1321,9 +1357,23 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	// validation already caps real buildings well below it.
 	var racks []models.BuildingRack
 	var pageToken string
+	racksStarted := time.Now()
+	slog.Info("GetBuildingStats rack scan started",
+		"component", "buildings_service",
+		"org_id", orgID,
+		"building_id", buildingID,
+		"page_size", ListBuildingRacksMaxPageSize)
 	for {
 		page, next, listErr := s.store.ListBuildingRacks(ctx, orgID, buildingID, ListBuildingRacksMaxPageSize, pageToken)
 		if listErr != nil {
+			slog.Warn("GetBuildingStats rack scan failed",
+				"component", "buildings_service",
+				"org_id", orgID,
+				"building_id", buildingID,
+				"rack_count_so_far", len(racks),
+				"elapsed_ms", time.Since(racksStarted).Milliseconds(),
+				"total_elapsed_ms", time.Since(started).Milliseconds(),
+				"error", listErr)
 			return nil, listErr
 		}
 		racks = append(racks, page...)
@@ -1334,6 +1384,14 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 		// (a page-1 of 10,000 + final page of 1,000 with next="" would
 		// otherwise bypass the cap entirely).
 		if len(racks) > MaxRacksPerStatsRequest {
+			slog.Warn("GetBuildingStats rack scan exceeded cap",
+				"component", "buildings_service",
+				"org_id", orgID,
+				"building_id", buildingID,
+				"rack_count", len(racks),
+				"cap", MaxRacksPerStatsRequest,
+				"elapsed_ms", time.Since(racksStarted).Milliseconds(),
+				"total_elapsed_ms", time.Since(started).Milliseconds())
 			return nil, fleeterror.NewInternalErrorf("building %d exceeded the %d rack scan cap", buildingID, MaxRacksPerStatsRequest)
 		}
 		if next == "" {
@@ -1341,6 +1399,12 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 		}
 		pageToken = next
 	}
+	slog.Info("GetBuildingStats rack scan completed",
+		"component", "buildings_service",
+		"org_id", orgID,
+		"building_id", buildingID,
+		"rack_count", len(racks),
+		"elapsed_ms", time.Since(racksStarted).Milliseconds())
 
 	// Resolve floor-plan bounds for the out-of-range filter below. A rack
 	// with aisle_index >= aisles or position_in_aisle >= racks_per_aisle
@@ -1348,16 +1412,40 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	// validate), but the FE silently drops cells outside the rendered
 	// grid, so we clear the position fields server-side here for defense
 	// in depth — the rack still appears in rack_health[] without a cell.
+	buildingStarted := time.Now()
+	slog.Info("GetBuildingStats layout read started",
+		"component", "buildings_service",
+		"org_id", orgID,
+		"building_id", buildingID)
 	building, err := s.store.GetBuilding(ctx, orgID, buildingID)
 	if err != nil {
+		slog.Warn("GetBuildingStats layout read failed",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"elapsed_ms", time.Since(buildingStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, err
 	}
+	slog.Info("GetBuildingStats layout read completed",
+		"component", "buildings_service",
+		"org_id", orgID,
+		"building_id", buildingID,
+		"aisles", building.Aisles,
+		"racks_per_aisle", building.RacksPerAisle,
+		"elapsed_ms", time.Since(buildingStarted).Milliseconds())
 	// Guard against the AssignBuildingsToSite race: if the building has
 	// moved to a different site since the handler's pre-authz lookup,
 	// the permission grant we ran against doesn't match the current
 	// scope. NotFound is the safe surface here — the caller was never
 	// authorized for the building at its new site.
 	if !int64PtrEqual(expectedSiteID, building.SiteID) {
+		slog.Info("GetBuildingStats request completed site mismatch",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"elapsed_ms", time.Since(started).Milliseconds())
 		return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
 	}
 	aisles := building.Aisles
@@ -1391,10 +1479,30 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	}
 	rackCounts := map[int64]interfaces.MinerStateCounts{}
 	if len(rackIDs) > 0 {
+		rackCountsStarted := time.Now()
+		slog.Info("GetBuildingStats rack state counts started",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"rack_count", len(rackIDs))
 		rackCounts, err = s.deviceQueryer.GetMinerStateCountsByCollections(ctx, orgID, rackIDs)
 		if err != nil {
+			slog.Warn("GetBuildingStats rack state counts failed",
+				"component", "buildings_service",
+				"org_id", orgID,
+				"building_id", buildingID,
+				"rack_count", len(rackIDs),
+				"elapsed_ms", time.Since(rackCountsStarted).Milliseconds(),
+				"total_elapsed_ms", time.Since(started).Milliseconds(),
+				"error", err)
 			return nil, err
 		}
+		slog.Info("GetBuildingStats rack state counts completed",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"rack_count", len(rackIDs),
+			"elapsed_ms", time.Since(rackCountsStarted).Milliseconds())
 	}
 	for _, r := range racks {
 		counts := rackCounts[r.RackID]
@@ -1453,11 +1561,39 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	} else {
 		devFilter.IncludeUnassigned = true
 	}
+	deviceIDsStarted := time.Now()
+	slog.Info("GetBuildingStats device identifier scan started",
+		"component", "buildings_service",
+		"org_id", orgID,
+		"building_id", buildingID,
+		"limit", devFilter.Limit,
+		"has_expected_site", expectedSiteID != nil)
 	deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, devFilter)
 	if err != nil {
+		slog.Warn("GetBuildingStats device identifier scan failed",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"elapsed_ms", time.Since(deviceIDsStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, err
 	}
+	slog.Info("GetBuildingStats device identifier scan completed",
+		"component", "buildings_service",
+		"org_id", orgID,
+		"building_id", buildingID,
+		"device_count", len(deviceIDs),
+		"elapsed_ms", time.Since(deviceIDsStarted).Milliseconds())
 	if len(deviceIDs) > MaxDevicesPerStatsResponse {
+		slog.Warn("GetBuildingStats device identifier scan exceeded cap",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"device_count", len(deviceIDs),
+			"cap", MaxDevicesPerStatsResponse,
+			"elapsed_ms", time.Since(deviceIDsStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds())
 		return nil, fleeterror.NewInternalErrorf("building %d exceeded the %d device cap", buildingID, MaxDevicesPerStatsResponse)
 	}
 	stats.DeviceCount = int32(len(deviceIDs)) //nolint:gosec // bounded by cap above
@@ -1468,22 +1604,59 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	// below either way, so an empty-device path can't skip the race
 	// guard.
 	if len(deviceIDs) > 0 {
+		stateStarted := time.Now()
+		slog.Info("GetBuildingStats device state counts started",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"device_count", len(deviceIDs))
 		counts, err := s.deviceQueryer.GetMinerStateCountsByDeviceIDs(ctx, orgID, deviceIDs)
 		if err != nil {
+			slog.Warn("GetBuildingStats device state counts failed",
+				"component", "buildings_service",
+				"org_id", orgID,
+				"building_id", buildingID,
+				"device_count", len(deviceIDs),
+				"elapsed_ms", time.Since(stateStarted).Milliseconds(),
+				"total_elapsed_ms", time.Since(started).Milliseconds(),
+				"error", err)
 			return nil, err
 		}
+		slog.Info("GetBuildingStats device state counts completed",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"device_count", len(deviceIDs),
+			"elapsed_ms", time.Since(stateStarted).Milliseconds())
 		stats.HashingCount = counts.HashingCount
 		stats.BrokenCount = counts.BrokenCount
 		stats.OfflineCount = counts.OfflineCount
 		stats.SleepingCount = counts.SleepingCount
 
+		componentStarted := time.Now()
+		slog.Info("GetBuildingStats component issue counts started",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID)
 		componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{
 			Kind: interfaces.ComponentErrorScopeBuildings,
 			IDs:  []int64{buildingID},
 		})
 		if err != nil {
+			slog.Warn("GetBuildingStats component issue counts failed",
+				"component", "buildings_service",
+				"org_id", orgID,
+				"building_id", buildingID,
+				"elapsed_ms", time.Since(componentStarted).Milliseconds(),
+				"total_elapsed_ms", time.Since(started).Milliseconds(),
+				"error", err)
 			return nil, err
 		}
+		slog.Info("GetBuildingStats component issue counts completed",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"elapsed_ms", time.Since(componentStarted).Milliseconds())
 		issues := devicerollup.AggregateComponentIssueCounts(componentCounts, buildingID)
 		stats.ControlBoardIssueCount = issues.ControlBoardIssueCount
 		stats.FanIssueCount = issues.FanIssueCount
@@ -1491,10 +1664,31 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 		stats.PsuIssueCount = issues.PsuIssueCount
 
 		telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
+		telemetryStarted := time.Now()
+		slog.Info("GetBuildingStats latest telemetry started",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"device_count", len(telemetryIDs))
 		metrics, err := s.telemetry.GetLatestDeviceMetrics(ctx, telemetryIDs)
 		if err != nil {
+			slog.Warn("GetBuildingStats latest telemetry failed",
+				"component", "buildings_service",
+				"org_id", orgID,
+				"building_id", buildingID,
+				"device_count", len(telemetryIDs),
+				"elapsed_ms", time.Since(telemetryStarted).Milliseconds(),
+				"total_elapsed_ms", time.Since(started).Milliseconds(),
+				"error", err)
 			return nil, fleeterror.NewInternalErrorf("failed to fetch building telemetry: %v", err)
 		}
+		slog.Info("GetBuildingStats latest telemetry completed",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"device_count", len(telemetryIDs),
+			"metric_count", len(metrics),
+			"elapsed_ms", time.Since(telemetryStarted).Milliseconds())
 		rollup := devicerollup.AggregateLatestMetrics(metrics, telemetryIDs)
 		stats.ReportingCount = rollup.ReportingCount
 		stats.HashrateReportingCount = rollup.HashrateReportingCount
@@ -1518,13 +1712,38 @@ func (s *Service) GetBuildingStats(ctx context.Context, orgID, buildingID int64,
 	// return a snapshot that mixes pre-move authz with post-move data.
 	// Runs in both the with-devices and zero-devices paths so a moved
 	// building that no longer has any site-A devices still trips here.
+	postReadStarted := time.Now()
+	slog.Info("GetBuildingStats post-read guard started",
+		"component", "buildings_service",
+		"org_id", orgID,
+		"building_id", buildingID)
 	postReadBuilding, err := s.store.GetBuilding(ctx, orgID, buildingID)
 	if err != nil {
+		slog.Warn("GetBuildingStats post-read guard failed",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"elapsed_ms", time.Since(postReadStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, err
 	}
 	if !int64PtrEqual(expectedSiteID, postReadBuilding.SiteID) {
+		slog.Info("GetBuildingStats request completed post-read site mismatch",
+			"component", "buildings_service",
+			"org_id", orgID,
+			"building_id", buildingID,
+			"elapsed_ms", time.Since(started).Milliseconds())
 		return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
 	}
+	slog.Info("GetBuildingStats request completed",
+		"component", "buildings_service",
+		"org_id", orgID,
+		"building_id", buildingID,
+		"rack_count", len(racks),
+		"device_count", len(deviceIDs),
+		"reporting_count", stats.ReportingCount,
+		"elapsed_ms", time.Since(started).Milliseconds())
 
 	return stats, nil
 }

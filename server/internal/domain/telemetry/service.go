@@ -1483,12 +1483,25 @@ func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query 
 }
 
 func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	started := time.Now()
+	initialDeviceCount := len(query.DeviceIDs)
+	slog.Info("GetCombinedMetrics service started",
+		"component", "telemetry_service",
+		"org_id", query.OrganizationID,
+		"device_selector_count", initialDeviceCount,
+		"all_devices", initialDeviceCount == 0,
+		"site_count", len(query.SiteIDs),
+		"include_unassigned", query.IncludeUnassigned,
+		"measurement_count", len(query.MeasurementTypes),
+		"aggregation_count", len(query.AggregationTypes))
+
 	// Site scope is applied by resolving the in-scope device identifiers and
 	// feeding the existing device-list paths: the telemetry continuous
 	// aggregates have no site_id column, so we cannot filter them directly.
 	// This scopes line metrics, status counts, and the live uptime bar
 	// uniformly to the site's current devices.
 	if len(query.SiteIDs) > 0 || query.IncludeUnassigned {
+		scopeStarted := time.Now()
 		identifiers, err := s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, query.OrganizationID, &stores.MinerFilter{
 			SiteIDs:           query.SiteIDs,
 			IncludeUnassigned: query.IncludeUnassigned,
@@ -1499,6 +1512,14 @@ func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.
 			PairingStatuses: pairedLikeStatuses,
 		})
 		if err != nil {
+			slog.Warn("GetCombinedMetrics site scope resolution failed",
+				"component", "telemetry_service",
+				"org_id", query.OrganizationID,
+				"site_count", len(query.SiteIDs),
+				"include_unassigned", query.IncludeUnassigned,
+				"requested_device_count", initialDeviceCount,
+				"elapsed_ms", time.Since(scopeStarted).Milliseconds(),
+				"error", err)
 			return models.CombinedMetric{}, err
 		}
 		// Site scope is AND'd with any explicit device selector: intersect the
@@ -1507,18 +1528,60 @@ func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.
 		// intersection) returns empty rather than falling through to the
 		// "empty device list = all devices" path.
 		scoped := intersectDeviceIDs(query.DeviceIDs, models.ToDeviceIdentifiers(identifiers))
+		slog.Info("GetCombinedMetrics site scope resolved",
+			"component", "telemetry_service",
+			"org_id", query.OrganizationID,
+			"site_count", len(query.SiteIDs),
+			"include_unassigned", query.IncludeUnassigned,
+			"requested_device_count", initialDeviceCount,
+			"resolved_device_count", len(identifiers),
+			"scoped_device_count", len(scoped),
+			"elapsed_ms", time.Since(scopeStarted).Milliseconds())
 		if len(scoped) == 0 {
+			slog.Info("GetCombinedMetrics service completed with empty site scope",
+				"component", "telemetry_service",
+				"org_id", query.OrganizationID,
+				"elapsed_ms", time.Since(started).Milliseconds())
 			return models.CombinedMetric{}, nil
 		}
 		query.DeviceIDs = scoped
 	}
 
 	// Returns raw values (H/s, W, J/H) - conversion to display units happens in the handler layer
+	storeStarted := time.Now()
 	result, err := s.telemetryDataStore.GetCombinedMetrics(ctx, query)
 	if err != nil {
+		slog.Warn("GetCombinedMetrics store call failed",
+			"component", "telemetry_service",
+			"org_id", query.OrganizationID,
+			"device_selector_count", len(query.DeviceIDs),
+			"all_devices", len(query.DeviceIDs) == 0,
+			"elapsed_ms", time.Since(storeStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return result, err
 	}
+	slog.Info("GetCombinedMetrics store call completed",
+		"component", "telemetry_service",
+		"org_id", query.OrganizationID,
+		"device_selector_count", len(query.DeviceIDs),
+		"all_devices", len(query.DeviceIDs) == 0,
+		"metric_bucket_count", len(result.Metrics),
+		"temperature_bucket_count", len(result.TemperatureStatusCounts),
+		"uptime_bucket_count", len(result.UptimeStatusCounts),
+		"elapsed_ms", time.Since(storeStarted).Milliseconds())
+
 	s.appendLiveUptimeBar(ctx, query.OrganizationID, query.DeviceIDs, &result)
+	slog.Info("GetCombinedMetrics service completed",
+		"component", "telemetry_service",
+		"org_id", query.OrganizationID,
+		"device_selector_count", len(query.DeviceIDs),
+		"all_devices", len(query.DeviceIDs) == 0,
+		"metric_bucket_count", len(result.Metrics),
+		"temperature_bucket_count", len(result.TemperatureStatusCounts),
+		"uptime_bucket_count", len(result.UptimeStatusCounts),
+		"has_live_state_counts", result.MinerStateCounts != nil,
+		"elapsed_ms", time.Since(started).Milliseconds())
 	return result, nil
 }
 
@@ -1530,9 +1593,16 @@ func (s *TelemetryService) appendLiveUptimeBar(ctx context.Context, orgID int64,
 	if orgID == 0 {
 		return
 	}
+	started := time.Now()
 	counts, err := s.deviceStore.GetMinerStateCounts(ctx, orgID, minerFilterForDeviceIDs(deviceIDs))
 	if err != nil {
-		slog.Warn("failed to compute live miner state counts", "error", err)
+		slog.Warn("failed to compute live miner state counts",
+			"component", "telemetry_service",
+			"org_id", orgID,
+			"device_selector_count", len(deviceIDs),
+			"all_devices", len(deviceIDs) == 0,
+			"elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return
 	}
 	result.MinerStateCounts = &models.MinerStateCounts{
@@ -1541,12 +1611,23 @@ func (s *TelemetryService) appendLiveUptimeBar(ctx context.Context, orgID int64,
 		Offline:  counts.OfflineCount,
 		Sleeping: counts.SleepingCount,
 	}
+	now := time.Now()
 	result.UptimeStatusCounts = append(result.UptimeStatusCounts, models.UptimeStatusCount{
-		Timestamp:       time.Now(),
+		Timestamp:       now,
 		HashingCount:    counts.HashingCount,
 		BrokenCount:     counts.BrokenCount,
 		NotHashingCount: counts.OfflineCount + counts.SleepingCount,
 	})
+	slog.Info("GetCombinedMetrics live miner state counts completed",
+		"component", "telemetry_service",
+		"org_id", orgID,
+		"device_selector_count", len(deviceIDs),
+		"all_devices", len(deviceIDs) == 0,
+		"hashing_count", counts.HashingCount,
+		"broken_count", counts.BrokenCount,
+		"offline_count", counts.OfflineCount,
+		"sleeping_count", counts.SleepingCount,
+		"elapsed_ms", time.Since(started).Milliseconds())
 }
 
 // pairedLikeStatuses is the fleet-visible "paired-like" set the dashboard

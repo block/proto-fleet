@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"sort"
 	"strings"
+	"time"
 
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -1012,28 +1013,99 @@ func formatSiteIDForDescription(target *int64) string {
 // in the site (racked or directly site-attached) plus the live building
 // count. NotFound when the site doesn't exist in the org.
 func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*models.SiteStats, error) {
+	started := time.Now()
+	slog.Info("GetSiteStats request started",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID)
+
 	if s.deviceQueryer == nil || s.telemetry == nil {
+		slog.Warn("GetSiteStats missing dependencies",
+			"component", "sites_service",
+			"org_id", orgID,
+			"site_id", siteID,
+			"elapsed_ms", time.Since(started).Milliseconds())
 		return nil, fleeterror.NewInternalErrorf("sites.GetSiteStats requires deviceQueryer and telemetry")
 	}
 
 	// Existence check — NotFound if the site is gone or belongs to a
 	// different org. Cheaper than fetching the full row.
+	existsStarted := time.Now()
+	slog.Info("GetSiteStats membership check started",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID)
 	exists, err := s.store.SiteBelongsToOrg(ctx, orgID, siteID)
 	if err != nil {
+		slog.Warn("GetSiteStats membership check failed",
+			"component", "sites_service",
+			"org_id", orgID,
+			"site_id", siteID,
+			"elapsed_ms", time.Since(existsStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, err
 	}
+	slog.Info("GetSiteStats membership check completed",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID,
+		"exists", exists,
+		"elapsed_ms", time.Since(existsStarted).Milliseconds())
 	if !exists {
+		slog.Info("GetSiteStats request completed not found",
+			"component", "sites_service",
+			"org_id", orgID,
+			"site_id", siteID,
+			"elapsed_ms", time.Since(started).Milliseconds())
 		return nil, fleeterror.NewNotFoundErrorf("site %d not found", siteID)
 	}
 
+	buildingCountStarted := time.Now()
+	slog.Info("GetSiteStats building count started",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID)
 	buildingCount, err := s.store.CountBuildingsBySite(ctx, orgID, siteID)
 	if err != nil {
+		slog.Warn("GetSiteStats building count failed",
+			"component", "sites_service",
+			"org_id", orgID,
+			"site_id", siteID,
+			"elapsed_ms", time.Since(buildingCountStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, err
 	}
+	slog.Info("GetSiteStats building count completed",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID,
+		"building_count", buildingCount,
+		"elapsed_ms", time.Since(buildingCountStarted).Milliseconds())
+
+	rackCountStarted := time.Now()
+	slog.Info("GetSiteStats rack count started",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID)
 	rackCount, err := s.store.CountRacksBySite(ctx, orgID, siteID)
 	if err != nil {
+		slog.Warn("GetSiteStats rack count failed",
+			"component", "sites_service",
+			"org_id", orgID,
+			"site_id", siteID,
+			"elapsed_ms", time.Since(rackCountStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, err
 	}
+	slog.Info("GetSiteStats rack count completed",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID,
+		"rack_count", rackCount,
+		"elapsed_ms", time.Since(rackCountStarted).Milliseconds())
 
 	// Device identifiers scoped to the site via the existing MinerFilter.
 	// SiteIDs alone is enough — site-direct devices have device.site_id
@@ -1046,6 +1118,12 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	// The cap-exceeded guard below trips when the SQL returns cap+1 rows;
 	// we never hold a slice larger than that even for an unboundedly-sized
 	// site.
+	deviceIDsStarted := time.Now()
+	slog.Info("GetSiteStats device identifier scan started",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID,
+		"limit", MaxDevicesPerSiteStatsRequest+1)
 	deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, &interfaces.MinerFilter{
 		SiteIDs: []int64{siteID},
 		PairingStatuses: []fm.PairingStatus{
@@ -1056,9 +1134,30 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 		Limit: MaxDevicesPerSiteStatsRequest + 1,
 	})
 	if err != nil {
+		slog.Warn("GetSiteStats device identifier scan failed",
+			"component", "sites_service",
+			"org_id", orgID,
+			"site_id", siteID,
+			"elapsed_ms", time.Since(deviceIDsStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, err
 	}
+	slog.Info("GetSiteStats device identifier scan completed",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID,
+		"device_count", len(deviceIDs),
+		"elapsed_ms", time.Since(deviceIDsStarted).Milliseconds())
 	if len(deviceIDs) > MaxDevicesPerSiteStatsRequest {
+		slog.Warn("GetSiteStats device identifier scan exceeded cap",
+			"component", "sites_service",
+			"org_id", orgID,
+			"site_id", siteID,
+			"device_count", len(deviceIDs),
+			"cap", MaxDevicesPerSiteStatsRequest,
+			"elapsed_ms", time.Since(deviceIDsStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds())
 		return nil, fleeterror.NewInternalErrorf("site %d exceeded the %d device cap", siteID, MaxDevicesPerSiteStatsRequest)
 	}
 
@@ -1070,27 +1169,71 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	}
 
 	if len(deviceIDs) == 0 {
+		slog.Info("GetSiteStats request completed with no devices",
+			"component", "sites_service",
+			"org_id", orgID,
+			"site_id", siteID,
+			"building_count", buildingCount,
+			"rack_count", rackCount,
+			"elapsed_ms", time.Since(started).Milliseconds())
 		return stats, nil
 	}
 
 	// State counts via the flat by-device-ids query (covers un-racked devices
 	// that wouldn't appear in a collection-membership join).
+	stateStarted := time.Now()
+	slog.Info("GetSiteStats device state counts started",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID,
+		"device_count", len(deviceIDs))
 	counts, err := s.deviceQueryer.GetMinerStateCountsByDeviceIDs(ctx, orgID, deviceIDs)
 	if err != nil {
+		slog.Warn("GetSiteStats device state counts failed",
+			"component", "sites_service",
+			"org_id", orgID,
+			"site_id", siteID,
+			"device_count", len(deviceIDs),
+			"elapsed_ms", time.Since(stateStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, err
 	}
+	slog.Info("GetSiteStats device state counts completed",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID,
+		"device_count", len(deviceIDs),
+		"elapsed_ms", time.Since(stateStarted).Milliseconds())
 	stats.HashingCount = counts.HashingCount
 	stats.BrokenCount = counts.BrokenCount
 	stats.OfflineCount = counts.OfflineCount
 	stats.SleepingCount = counts.SleepingCount
 
+	componentStarted := time.Now()
+	slog.Info("GetSiteStats component issue counts started",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID)
 	componentCounts, err := s.deviceQueryer.GetComponentErrorCounts(ctx, orgID, interfaces.ComponentErrorScope{
 		Kind: interfaces.ComponentErrorScopeSites,
 		IDs:  []int64{siteID},
 	})
 	if err != nil {
+		slog.Warn("GetSiteStats component issue counts failed",
+			"component", "sites_service",
+			"org_id", orgID,
+			"site_id", siteID,
+			"elapsed_ms", time.Since(componentStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, err
 	}
+	slog.Info("GetSiteStats component issue counts completed",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID,
+		"elapsed_ms", time.Since(componentStarted).Milliseconds())
 	issues := devicerollup.AggregateComponentIssueCounts(componentCounts, siteID)
 	stats.ControlBoardIssueCount = issues.ControlBoardIssueCount
 	stats.FanIssueCount = issues.FanIssueCount
@@ -1100,10 +1243,31 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	// Telemetry rollup runs through the shared aggregator so site +
 	// building stats can't drift on unit conversions or NaN handling.
 	telemetryIDs := devicerollup.ToDeviceIdentifiers(deviceIDs)
+	telemetryStarted := time.Now()
+	slog.Info("GetSiteStats latest telemetry started",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID,
+		"device_count", len(telemetryIDs))
 	metrics, err := s.telemetry.GetLatestDeviceMetrics(ctx, telemetryIDs)
 	if err != nil {
+		slog.Warn("GetSiteStats latest telemetry failed",
+			"component", "sites_service",
+			"org_id", orgID,
+			"site_id", siteID,
+			"device_count", len(telemetryIDs),
+			"elapsed_ms", time.Since(telemetryStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, fleeterror.NewInternalErrorf("failed to fetch site telemetry: %v", err)
 	}
+	slog.Info("GetSiteStats latest telemetry completed",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID,
+		"device_count", len(telemetryIDs),
+		"metric_count", len(metrics),
+		"elapsed_ms", time.Since(telemetryStarted).Milliseconds())
 	rollup := devicerollup.AggregateLatestMetrics(metrics, telemetryIDs)
 	stats.ReportingCount = rollup.ReportingCount
 	stats.HashrateReportingCount = rollup.HashrateReportingCount
@@ -1115,6 +1279,16 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	stats.AvgEfficiencyJth = rollup.AvgEfficiencyJth
 	stats.MinTemperatureC = rollup.MinTemperatureC
 	stats.MaxTemperatureC = rollup.MaxTemperatureC
+
+	slog.Info("GetSiteStats request completed",
+		"component", "sites_service",
+		"org_id", orgID,
+		"site_id", siteID,
+		"building_count", buildingCount,
+		"rack_count", rackCount,
+		"device_count", len(deviceIDs),
+		"reporting_count", stats.ReportingCount,
+		"elapsed_ms", time.Since(started).Milliseconds())
 
 	return stats, nil
 }

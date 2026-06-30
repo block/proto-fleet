@@ -491,6 +491,7 @@ func refreshMinersRequestTimeout(deviceCount int, refreshDeviceTimeout time.Dura
 
 // GetMinerStateCounts returns counts of miners in different states without fetching miner data
 func (s *Service) GetMinerStateCounts(ctx context.Context, req *pb.GetMinerStateCountsRequest) (*pb.GetMinerStateCountsResponse, error) {
+	started := time.Now()
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
@@ -501,18 +502,61 @@ func (s *Service) GetMinerStateCounts(ctx context.Context, req *pb.GetMinerState
 		return nil, err
 	}
 
+	slog.Info("GetMinerStateCounts request started",
+		"component", "fleetmanagement_service",
+		"org_id", info.OrganizationID,
+		"site_count", len(req.SiteIds),
+		"include_unassigned", req.IncludeUnassigned)
+
 	// Both the total and the per-state breakdown must share the same scope,
 	// otherwise the dashboard FleetHealth bar mixes a scoped breakdown with
 	// an org-wide total.
+	totalStarted := time.Now()
 	total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, filter)
 	if err != nil {
+		slog.Warn("GetMinerStateCounts total count failed",
+			"component", "fleetmanagement_service",
+			"org_id", info.OrganizationID,
+			"site_count", len(req.SiteIds),
+			"include_unassigned", req.IncludeUnassigned,
+			"elapsed_ms", time.Since(totalStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 	}
+	slog.Info("GetMinerStateCounts total count completed",
+		"component", "fleetmanagement_service",
+		"org_id", info.OrganizationID,
+		"site_count", len(req.SiteIds),
+		"include_unassigned", req.IncludeUnassigned,
+		"total_miners", total,
+		"elapsed_ms", time.Since(totalStarted).Milliseconds())
 
+	stateStarted := time.Now()
 	stateCounts, err := s.deviceStore.GetMinerStateCounts(ctx, info.OrganizationID, filter)
 	if err != nil {
+		slog.Warn("GetMinerStateCounts state count failed",
+			"component", "fleetmanagement_service",
+			"org_id", info.OrganizationID,
+			"site_count", len(req.SiteIds),
+			"include_unassigned", req.IncludeUnassigned,
+			"elapsed_ms", time.Since(stateStarted).Milliseconds(),
+			"total_elapsed_ms", time.Since(started).Milliseconds(),
+			"error", err)
 		return nil, fleeterror.NewInternalErrorf("failed to get state counts: %v", err)
 	}
+	slog.Info("GetMinerStateCounts request completed",
+		"component", "fleetmanagement_service",
+		"org_id", info.OrganizationID,
+		"site_count", len(req.SiteIds),
+		"include_unassigned", req.IncludeUnassigned,
+		"total_miners", total,
+		"hashing_count", stateCounts.HashingCount,
+		"broken_count", stateCounts.BrokenCount,
+		"offline_count", stateCounts.OfflineCount,
+		"sleeping_count", stateCounts.SleepingCount,
+		"state_elapsed_ms", time.Since(stateStarted).Milliseconds(),
+		"elapsed_ms", time.Since(started).Milliseconds())
 
 	return &pb.GetMinerStateCountsResponse{
 		TotalMiners: int32(total), //nolint:gosec
