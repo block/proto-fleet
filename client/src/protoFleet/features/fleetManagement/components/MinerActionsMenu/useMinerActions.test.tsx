@@ -4060,9 +4060,14 @@ describe("useMinerActions", () => {
     });
 
     it("should show error toast and not open modal when selected miners have mixed models", async () => {
-      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-1", model: "S19" });
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-1",
+        manufacturer: "Bitmain",
+        model: "S19",
+      });
       testMiners["device-2"] = createProto(MinerStateSnapshotSchema, {
         deviceIdentifier: "device-2",
+        manufacturer: "Proto",
         model: "Proto Rig",
       });
 
@@ -4098,8 +4103,16 @@ describe("useMinerActions", () => {
     });
 
     it("should open modal when all selected miners have the same model", async () => {
-      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-1", model: "S19" });
-      testMiners["device-2"] = createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-2", model: "S19" });
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-1",
+        manufacturer: "Bitmain",
+        model: "S19",
+      });
+      testMiners["device-2"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-2",
+        manufacturer: "Bitmain",
+        model: "S19",
+      });
 
       const { result } = renderHook(() =>
         useMinerActions({
@@ -4119,6 +4132,10 @@ describe("useMinerActions", () => {
       });
 
       expect(result.current.showFirmwareUpdateModal).toBe(true);
+      expect(result.current.firmwareUpdateTarget).toEqual({
+        targetManufacturer: "Bitmain",
+        targetModel: "S19",
+      });
     });
   });
 });

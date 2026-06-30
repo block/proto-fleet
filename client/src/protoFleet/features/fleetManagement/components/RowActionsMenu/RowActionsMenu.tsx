@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode, useCallback, useEffect, useState } from "react";
 
+import clsx from "clsx";
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import ActionSheet from "@/shared/components/ActionSheet";
@@ -131,7 +132,15 @@ const RowActionsMenuInner = ({
         className={triggerClassName ?? "-my-[10px] !p-[14px]"}
         size={sizes.compact}
         variant={triggerVariant ?? variants.textOnly}
-        prefixIcon={triggerLabel ? undefined : <Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
+        prefixIcon={
+          triggerLabel ? undefined : (
+            <Ellipsis
+              width={iconSizes.small}
+              testId={`${resolvedTriggerTestId}-icon`}
+              className={clsx(disabled ? "text-text-primary-50" : "text-text-primary")}
+            />
+          )
+        }
         suffixIcon={triggerSuffixIcon}
         ariaLabel={ariaLabel}
         ariaHasPopup="menu"

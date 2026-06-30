@@ -45,6 +45,7 @@ const Row = ({
           "flex items-center gap-4": suffixIcon || prefixIcon,
           "-ml-3 w-[calc(100%+24px)] rounded-lg px-3": isInteractive,
           "hover:bg-core-primary-5": isInteractive && !disabled,
+          "cursor-not-allowed opacity-50": disabled,
         })}
         onClick={disabled ? undefined : onClick}
         data-testid={testId}

@@ -11,6 +11,7 @@ import { ApiKeyService } from "@/protoFleet/api/generated/apikey/v1/apikey_pb";
 import { AuthService } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { AuthzService } from "@/protoFleet/api/generated/authz/v1/authz_pb";
 import { BuildingService } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { CohortService } from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
 import { CurtailmentService } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { DeviceSetService } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ErrorQueryService } from "@/protoFleet/api/generated/errors/v1/errors_pb";
@@ -32,6 +33,7 @@ const activityClient = createClient(ActivityService, transport);
 const apiKeyClient = createClient(ApiKeyService, transport);
 const authClient = createClient(AuthService, transport);
 const authzClient = createClient(AuthzService, transport);
+const cohortClient = createClient(CohortService, transport);
 const curtailmentClient = createClient(CurtailmentService, transport);
 const errorQueryClient = createClient(ErrorQueryService, transport);
 const networkInfoClient = createClient(NetworkInfoService, transport);
@@ -64,6 +66,7 @@ export {
   authClient,
   authzClient,
   buildingsClient,
+  cohortClient,
   curtailmentClient,
   deviceSetClient,
   errorQueryClient,

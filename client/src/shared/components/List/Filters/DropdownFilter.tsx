@@ -44,11 +44,15 @@ const FilterContent = ({
   className,
 }: DropdownFilterProps) => {
   const [showPopover, setShowPopover] = useState(false);
-  const { triggerRef } = usePopover();
+  const { setPopoverRenderMode, triggerRef } = usePopover();
   const { height: windowHeight } = useWindowDimensions();
   const popoverRef = useRef<HTMLDivElement>(null) as RefObject<HTMLDivElement>;
   const [optionsMaxHeight, setOptionsMaxHeight] = useState<number | undefined>();
   const [popoverPosition, setPopoverPosition] = useState<Position>(positions["bottom right"]);
+
+  useEffect(() => {
+    setPopoverRenderMode("portal-scrolling");
+  }, [setPopoverRenderMode]);
 
   // Only use internal state when buttons are shown
   const [internalSelectedItems, setInternalSelectedItems] = useState<string[]>(externalSelectedItems);

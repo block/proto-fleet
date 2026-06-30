@@ -8,6 +8,8 @@ import {
   importActivityPage,
   importAuth,
   importBuildingPage,
+  importCohortOverviewPage,
+  importCohortsPage,
   importDashboard,
   importEnergyPage,
   importFleetBuildingsPage,
@@ -70,6 +72,8 @@ const EnergyPage = lazy(importEnergyPage);
 const ServerLogsPage = lazy(importServerLogsPage);
 const GroupsPage = lazy(importGroupsPage);
 const GroupOverviewPage = lazy(importGroupOverviewPage);
+const CohortsPage = lazy(importCohortsPage);
+const CohortOverviewPage = lazy(importCohortOverviewPage);
 const RacksPage = lazy(importRacksPage);
 const RackOverviewPage = lazy(importRackOverviewPage);
 const Auth = lazy(importAuth);
@@ -214,6 +218,9 @@ const createScopableRoutes = (absolute: boolean) => [
   createRoute(absolute ? "/dashboard" : "dashboard", <Dashboard />),
   createFleetRoute(absolute ? "/fleet" : "fleet"),
   createRoute(absolute ? "/groups" : "groups", <GroupsPage />),
+  createRoute(absolute ? "/groups/:groupLabel" : "groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
+  createRoute(absolute ? "/cohorts" : "cohorts", <CohortsPage />),
+  createRoute(absolute ? "/cohorts/:cohortId" : "cohorts/:cohortId", <CohortOverviewPage />, { bg: "surface-5" }),
   createRoute(absolute ? "/energy" : "energy", <EnergyPage />),
   createRoute(absolute ? "/activity" : "activity", <ActivityPage />),
 ];

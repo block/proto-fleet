@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, type ReactNode, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { clone, create } from "@bufbuild/protobuf";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
@@ -49,6 +49,7 @@ import { classifySubnetLine, normalizeSubnetLine, validateSubnetLine } from "@/s
 export type DeviceListItem = {
   deviceIdentifier: string;
   name: string;
+  manufacturer: string;
   model: string;
   ipAddress: string;
   rackLabel: string;
@@ -97,9 +98,13 @@ export interface MinerSelectionListHandle {
 export interface MinerSelectionListProps {
   filterConfig?: FilterConfig;
   initialAllSelected?: boolean;
+  fixedModels?: string[];
   initialSelectedItems?: string[];
   isMembersLoading?: boolean;
   isRowDisabled?: (item: DeviceListItem) => boolean;
+  isRowVisible?: (item: DeviceListItem) => boolean;
+  noDataElement?: ReactNode;
+  visibleTotal?: number;
   /** When true, renders radio buttons for single-item selection instead of checkboxes. */
   singleSelect?: boolean;
   disableFilteredSelectAll?: boolean;
@@ -218,6 +223,7 @@ const hasUnsupportedAllSelectionFilter = (filter: MinerListFilter): boolean =>
 const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
   deviceIdentifier: miner.deviceIdentifier,
   name: miner.name,
+  manufacturer: miner.manufacturer,
   model: miner.model,
   ipAddress: miner.ipAddress,
   rackLabel: getMinerRackLabel(miner),
@@ -255,15 +261,19 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     {
       filterConfig,
       initialAllSelected = false,
+      fixedModels,
       initialSelectedItems,
       isMembersLoading = false,
       isRowDisabled,
+      isRowVisible,
+      noDataElement,
       singleSelect = false,
       disableFilteredSelectAll = false,
       showSelectAllFooter = true,
       scope,
       eligibility,
       targetRackLabel,
+      visibleTotal,
       onSelectionChange,
     },
     ref,
@@ -329,7 +339,9 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // The user's facet selections (model / subnet / site / building / rack /
     // group). Site scope and eligibility are layered on top in the derived
     // `filter` below so applying a facet never drops those constraints.
-    const [userFilter, setUserFilter] = useState(() => create(MinerListFilterSchema, {}));
+    const [userFilter, setUserFilter] = useState(() =>
+      create(MinerListFilterSchema, { models: fixedModels ?? [] }),
+    );
     const [selectedItems, setSelectedItems] = useState<string[]>(initialSelectedItems ?? []);
     const [allSelected, setAllSelected] = useState(initialAllSelected && !singleSelect);
     const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
@@ -361,6 +373,9 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // only triggers a refetch when the contents actually change.
     const filter = useMemo(() => {
       const merged = clone(MinerListFilterSchema, userFilter);
+      if (fixedModels && fixedModels.length > 0) {
+        merged.models = [...fixedModels];
+      }
       // Site scope is the soft baseline; a user-selected Site facet
       // (userFilter.siteIds) is more specific and takes precedence.
       if (merged.siteIds.length === 0) {
@@ -422,6 +437,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       return merged;
     }, [
       userFilter,
+      fixedModels,
       scopeSiteIds,
       scopeIncludeUnassigned,
       showAssigned,
@@ -454,8 +470,11 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       return minerIds
         .map((id) => miners[id])
         .filter((snapshot): snapshot is ProtoMinerStateSnapshot => Boolean(snapshot))
-        .map(toDeviceListItem);
-    }, [minerIds, miners]);
+        .map(toDeviceListItem)
+        .filter((item) => (isRowVisible ? isRowVisible(item) : true));
+    }, [isRowVisible, minerIds, miners]);
+
+    const displayedTotalMiners = visibleTotal ?? totalMiners;
 
     // Assignable-only + a conflicting placement facet = provably no results.
     //
@@ -552,8 +571,8 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       (!disableFilteredSelectAll || !hasUnsupportedAllSelectionFilter(filter));
     const shouldShowSelectionFooter =
       showSelectAllFooter &&
-      totalMiners !== undefined &&
-      totalMiners > 0 &&
+      displayedTotalMiners !== undefined &&
+      displayedTotalMiners > 0 &&
       !singleSelect &&
       !placementFacetConflict &&
       (canSelectAll || allSelected || selectedItems.length > 0);
@@ -596,11 +615,11 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // empty view without discarding the underlying selection state.
     useEffect(() => {
       if (placementFacetConflict) {
-        onSelectionChange?.({ selectedItems: [], allSelected: false, totalMiners });
+        onSelectionChange?.({ selectedItems: [], allSelected: false, totalMiners: displayedTotalMiners });
         return;
       }
-      onSelectionChange?.({ selectedItems, allSelected, totalMiners });
-    }, [selectedItems, allSelected, totalMiners, onSelectionChange, placementFacetConflict]);
+      onSelectionChange?.({ selectedItems, allSelected, totalMiners: displayedTotalMiners });
+    }, [selectedItems, allSelected, displayedTotalMiners, onSelectionChange, placementFacetConflict]);
 
     useEffect(() => {
       if (!allSelected || canSelectAll) {
@@ -622,14 +641,14 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
           return {
             selectedItems,
             allSelected,
-            totalMiners,
+            totalMiners: displayedTotalMiners,
             filter,
             reassignedItems,
             blockedByFilter: placementFacetConflict,
           };
         },
       }),
-      [selectedItems, allSelected, totalMiners, filter, isReassignment, placementFacetConflict],
+      [selectedItems, allSelected, displayedTotalMiners, filter, isReassignment, placementFacetConflict],
     );
 
     const handleSetSelectedItems = useCallback(
@@ -896,6 +915,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             }
             items={displayItems}
             itemKey="deviceIdentifier"
+            noDataElement={noDataElement}
             itemSelectable
             selectionType={singleSelect ? "radio" : "checkbox"}
             sortableColumns={ALL_SORTABLE_COLUMNS}
@@ -905,7 +925,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             customSetSelectedItems={handleSetSelectedItems}
             preserveOffPageSelection
             isRowDisabled={isRowDisabled}
-            total={totalMiners}
+            total={displayedTotalMiners}
             hideTotal
             itemName={{ singular: "miner", plural: "miners" }}
             containerClassName="min-h-0"
@@ -916,11 +936,15 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
               <div className="py-10 text-center text-300 text-text-primary-70">No miners match these filters.</div>
             }
             footerContent={
-              !placementFacetConflict && !isLoading && totalMiners !== undefined && totalMiners > 0 ? (
+              !placementFacetConflict &&
+              !isLoading &&
+              displayedTotalMiners !== undefined &&
+              displayedTotalMiners > 0 ? (
                 <div className="flex flex-col items-center gap-4 py-6">
                   <span className="text-300 text-text-primary">
-                    Showing {currentPage * PAGE_SIZE + 1}–{currentPage * PAGE_SIZE + currentPageItems.length} of{" "}
-                    {totalMiners} miners
+                    {visibleTotal === undefined
+                      ? `Showing ${currentPage * PAGE_SIZE + 1}–${currentPage * PAGE_SIZE + currentPageItems.length} of ${displayedTotalMiners} miners`
+                      : `${displayedTotalMiners} available ${displayedTotalMiners === 1 ? "miner" : "miners"}`}
                   </span>
                   <div className="flex gap-3">
                     <Button
@@ -950,7 +974,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             <ModalSelectAllFooter
               label={
                 allSelected && canSelectAll
-                  ? `All ${totalMiners} miners selected`
+                  ? `All ${displayedTotalMiners} miners selected`
                   : `${selectedItems.length} miners selected`
               }
               onSelectAll={

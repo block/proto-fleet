@@ -56,6 +56,26 @@ describe("RowActionsMenu", () => {
     expect(screen.queryByText("Edit")).not.toBeInTheDocument();
   });
 
+  it("renders disabled actions as disabled and visually muted", () => {
+    const onExtend = vi.fn();
+    render(
+      <RowActionsMenu actions={[{ label: "Extend", onClick: onExtend, disabled: true, testId: "extend-action" }]} />,
+    );
+    const triggerIcon = screen.getByTestId("row-actions-menu-trigger-icon");
+    expect(triggerIcon).toHaveClass("text-text-primary");
+    expect(triggerIcon).not.toHaveClass("text-text-primary-50");
+
+    fireEvent.click(screen.getByTestId("row-actions-menu-trigger"));
+
+    const action = screen.getByTestId("extend-action");
+    expect(action).toBeDisabled();
+    expect(action).toHaveClass("cursor-not-allowed");
+    expect(action).toHaveClass("opacity-50");
+
+    fireEvent.click(action);
+    expect(onExtend).not.toHaveBeenCalled();
+  });
+
   it("omits hidden actions from the popover", () => {
     render(
       <RowActionsMenu

@@ -89,6 +89,11 @@ export interface MinerSelection {
   deviceStatus?: DeviceStatus;
 }
 
+export interface FirmwareTarget {
+  targetManufacturer: string;
+  targetModel: string;
+}
+
 interface UseMinerActionsParams {
   selectedMiners: MinerSelection[];
   selectionMode: SelectionMode;
@@ -148,19 +153,26 @@ const generateUnpairBatchIdentifier = (): string => {
   return `unpair-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 };
 
-function getUniqueModels(
+function getUniqueMinerTypes(
   deviceIds: string[],
   miners: Record<string, MinerStateSnapshot>,
-): { models: Set<string>; hasMissing: boolean } {
-  const models = new Set<string>();
+): { types: FirmwareTarget[]; hasMissing: boolean } {
+  const types = new Map<string, FirmwareTarget>();
   let hasMissing = false;
   for (const id of deviceIds) {
     const miner = miners[id];
-    const model = miner?.model;
-    if (model) models.add(model);
-    else hasMissing = true;
+    const manufacturer = miner?.manufacturer?.trim();
+    const model = miner?.model?.trim();
+    if (manufacturer && model) {
+      types.set(`${manufacturer}\u0000${model}`, {
+        targetManufacturer: manufacturer,
+        targetModel: model,
+      });
+    } else {
+      hasMissing = true;
+    }
   }
-  return { models, hasMissing };
+  return { types: [...types.values()], hasMissing };
 }
 
 /**
@@ -344,6 +356,7 @@ export const useMinerActions = ({
   const [firmwareUpdateFilteredDeviceIds, setFirmwareUpdateFilteredDeviceIds] = useState<string[] | undefined>(
     undefined,
   );
+  const [firmwareUpdateTarget, setFirmwareUpdateTarget] = useState<FirmwareTarget | null>(null);
   const [showPoolSelectionPage, setShowPoolSelectionPage] = useState(false);
   const [poolFilteredDeviceIds, setPoolFilteredDeviceIds] = useState<string[] | undefined>(undefined);
   const [unsupportedMinersInfo, setUnsupportedMinersInfo] =
@@ -813,6 +826,7 @@ export const useMinerActions = ({
       setShowFirmwareUpdateModal(false);
       setFirmwareUpdateFilteredSelector(undefined);
       setFirmwareUpdateFilteredDeviceIds(undefined);
+      setFirmwareUpdateTarget(null);
       setCurrentAction(null);
 
       const toastId = pushToast({
@@ -962,6 +976,7 @@ export const useMinerActions = ({
     setShowFirmwareUpdateModal(false);
     setFirmwareUpdateFilteredSelector(undefined);
     setFirmwareUpdateFilteredDeviceIds(undefined);
+    setFirmwareUpdateTarget(null);
     setCurrentAction(null);
     onActionComplete?.();
   }, [onActionComplete]);
@@ -1267,6 +1282,7 @@ export const useMinerActions = ({
     setShowFirmwareUpdateModal(false);
     setFirmwareUpdateFilteredSelector(undefined);
     setFirmwareUpdateFilteredDeviceIds(undefined);
+    setFirmwareUpdateTarget(null);
     setShowAddToGroupModal(false);
     setShowRenameDialog(false);
     setUnsupportedMinersInfo(initialUnsupportedMinersState);
@@ -1509,12 +1525,10 @@ export const useMinerActions = ({
 
       await withCapabilityCheck(deviceActions.firmwareUpdate, (filteredSelector, filteredDeviceIds) => {
         const idsToCheck = filteredDeviceIds ?? deviceIdentifiers;
-        const { models, hasMissing } =
-          idsToCheck.length > 0
-            ? getUniqueModels(idsToCheck, miners)
-            : { models: new Set<string>(), hasMissing: false };
+        const { types, hasMissing } =
+          idsToCheck.length > 0 ? getUniqueMinerTypes(idsToCheck, miners) : { types: [], hasMissing: false };
 
-        if (models.size === 0) {
+        if (types.length === 0) {
           pushToast({
             message: "Unable to verify miner model compatibility. Please select specific miners.",
             status: TOAST_STATUSES.error,
@@ -1532,7 +1546,7 @@ export const useMinerActions = ({
           return;
         }
 
-        if (models.size > 1) {
+        if (types.length > 1) {
           pushToast({
             message: "Firmware update requires miners of the same model. Your selection includes multiple models.",
             status: TOAST_STATUSES.error,
@@ -1543,6 +1557,7 @@ export const useMinerActions = ({
 
         setFirmwareUpdateFilteredSelector(filteredSelector);
         setFirmwareUpdateFilteredDeviceIds(filteredDeviceIds);
+        setFirmwareUpdateTarget(types[0]);
         setCurrentAction(deviceActions.firmwareUpdate);
         setShowFirmwareUpdateModal(true);
       });
@@ -1751,6 +1766,7 @@ export const useMinerActions = ({
     handleManagePowerConfirm,
     handleManagePowerDismiss,
     showFirmwareUpdateModal,
+    firmwareUpdateTarget,
     handleFirmwareUpdateConfirm,
     handleFirmwareUpdateDismiss,
     showCoolingModeModal,
