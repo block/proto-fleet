@@ -13,6 +13,99 @@ import (
 	"github.com/lib/pq"
 )
 
+const getMinerStateSnapshotCounts = `-- name: GetMinerStateSnapshotCounts :many
+WITH scoped_counts AS (
+    SELECT
+        snapshot_time,
+        SUM(hashing_count)::int AS hashing_count,
+        SUM(broken_count)::int AS broken_count,
+        SUM(offline_count)::int AS offline_count,
+        SUM(sleeping_count)::int AS sleeping_count
+    FROM miner_state_snapshot_counts_1m
+    WHERE org_id = $1
+      AND snapshot_time >= $2
+      AND snapshot_time <= $3
+      AND (
+          (cardinality(COALESCE($4::bigint[], '{}')) = 0
+           AND $5::boolean = false)
+          OR site_id = ANY(COALESCE($4::bigint[], '{}'))
+          OR ($5::boolean AND site_id IS NULL)
+      )
+    GROUP BY snapshot_time
+),
+latest_per_bucket AS (
+    SELECT DISTINCT ON (time_bucket($6::text::interval, scoped_counts.snapshot_time))
+        time_bucket($6::text::interval, scoped_counts.snapshot_time)::timestamptz AS bucket,
+        hashing_count,
+        broken_count,
+        offline_count,
+        sleeping_count
+    FROM scoped_counts
+    ORDER BY time_bucket($6::text::interval, scoped_counts.snapshot_time), scoped_counts.snapshot_time DESC
+)
+SELECT
+    bucket,
+    hashing_count,
+    broken_count,
+    offline_count,
+    sleeping_count
+FROM latest_per_bucket
+ORDER BY bucket ASC
+`
+
+type GetMinerStateSnapshotCountsParams struct {
+	OrgID             int64
+	StartTime         time.Time
+	EndTime           time.Time
+	SiteIds           []int64
+	IncludeUnassigned bool
+	BucketInterval    string
+}
+
+type GetMinerStateSnapshotCountsRow struct {
+	Bucket        time.Time
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
+func (q *Queries) GetMinerStateSnapshotCounts(ctx context.Context, arg GetMinerStateSnapshotCountsParams) ([]GetMinerStateSnapshotCountsRow, error) {
+	rows, err := q.query(ctx, q.getMinerStateSnapshotCountsStmt, getMinerStateSnapshotCounts,
+		arg.OrgID,
+		arg.StartTime,
+		arg.EndTime,
+		pq.Array(arg.SiteIds),
+		arg.IncludeUnassigned,
+		arg.BucketInterval,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetMinerStateSnapshotCountsRow
+	for rows.Next() {
+		var i GetMinerStateSnapshotCountsRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getMinerStateSnapshots = `-- name: GetMinerStateSnapshots :many
 WITH per_device_bucket AS (
     SELECT DISTINCT ON (time_bucket($1::text::interval, time), device_identifier)
@@ -94,11 +187,12 @@ func (q *Queries) GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateS
 }
 
 const insertMinerStateSnapshot = `-- name: InsertMinerStateSnapshot :exec
-INSERT INTO miner_state_snapshots (time, org_id, site_id, device_identifier, state)
+INSERT INTO miner_state_snapshots (time, org_id, site_id, building_id, device_identifier, state)
 SELECT
     $1::timestamptz,
     d.org_id,
     d.site_id,
+    d.building_id,
     d.device_identifier,
     CASE
         WHEN ds.status = 'OFFLINE'

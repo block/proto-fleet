@@ -665,6 +665,12 @@ func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, quer
 	if query.OrganizationID == 0 {
 		return nil
 	}
+	if !query.ExplicitDeviceIDs {
+		if counts := s.getUptimeStatusCountsFromSnapshotCounts(ctx, query, startTime, endTime, bucketDuration); len(counts) > 0 {
+			return counts
+		}
+		return nil
+	}
 	return s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration)
 }
 
@@ -1265,6 +1271,55 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 		return nil
 	}
 
+	if len(rows) == 0 {
+		return nil
+	}
+
+	result := make([]models.UptimeStatusCount, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, models.UptimeStatusCount{
+			Timestamp:       row.Bucket,
+			HashingCount:    row.HashingCount,
+			BrokenCount:     row.BrokenCount,
+			NotHashingCount: row.OfflineCount + row.SleepingCount,
+		})
+	}
+	return result
+}
+
+func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshotCounts(
+	ctx context.Context,
+	query models.CombinedMetricsQuery,
+	startTime, endTime time.Time,
+	bucketDuration time.Duration,
+) []models.UptimeStatusCount {
+	if query.OrganizationID == 0 {
+		return nil
+	}
+	// Snapshot cadence is ~60s, so finer buckets would yield empty slots.
+	if bucketDuration < time.Minute {
+		bucketDuration = time.Minute
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	rows, err := s.queries.GetMinerStateSnapshotCounts(ctx, sqlc.GetMinerStateSnapshotCountsParams{
+		BucketInterval:    fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds())),
+		OrgID:             query.OrganizationID,
+		StartTime:         startTime,
+		EndTime:           endTime,
+		SiteIds:           query.SiteIDs,
+		IncludeUnassigned: query.IncludeUnassigned,
+	})
+	if err != nil {
+		s.logger.Error("failed to query miner state snapshot counts",
+			slog.Int64("org_id", query.OrganizationID),
+			slog.Int("site_count", len(query.SiteIDs)),
+			slog.Bool("include_unassigned", query.IncludeUnassigned),
+			slog.String("error", err.Error()))
+		return nil
+	}
 	if len(rows) == 0 {
 		return nil
 	}

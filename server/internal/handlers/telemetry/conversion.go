@@ -81,12 +81,14 @@ var (
 
 func toCombinedMetricsQuery(req *telemetryv1.GetCombinedMetricsRequest) (models.CombinedMetricsQuery, error) {
 	var deviceIDs []models.DeviceIdentifier
+	var explicitDeviceIDs bool
 
 	if req.DeviceSelector != nil {
 		switch selector := req.DeviceSelector.SelectorValue.(type) {
 		case *telemetryv1.DeviceSelector_AllDevices:
 			deviceIDs = []models.DeviceIdentifier{}
 		case *telemetryv1.DeviceSelector_DeviceList:
+			explicitDeviceIDs = true
 			if selector.DeviceList != nil {
 				deviceIDs = models.ToDeviceIdentifiers(selector.DeviceList.DeviceIds)
 			}
@@ -135,6 +137,7 @@ func toCombinedMetricsQuery(req *telemetryv1.GetCombinedMetricsRequest) (models.
 		PageSize:          pageSize,
 		SiteIDs:           req.SiteIds,
 		IncludeUnassigned: req.IncludeUnassigned,
+		ExplicitDeviceIDs: explicitDeviceIDs,
 	}
 
 	return query, nil

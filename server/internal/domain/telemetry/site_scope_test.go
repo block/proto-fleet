@@ -45,6 +45,7 @@ func TestGetCombinedMetrics_SiteScope(t *testing.T) {
 			GetCombinedMetrics(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ any, q models.CombinedMetricsQuery) (models.CombinedMetric, error) {
 				assert.Equal(t, []models.DeviceIdentifier{"device-a", "device-b"}, q.DeviceIDs)
+				assert.False(t, q.ExplicitDeviceIDs)
 				return models.CombinedMetric{Metrics: []models.Metric{}}, nil
 			})
 
@@ -124,6 +125,7 @@ func TestGetCombinedMetrics_SiteScope(t *testing.T) {
 			GetCombinedMetrics(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ any, q models.CombinedMetricsQuery) (models.CombinedMetric, error) {
 				assert.Equal(t, []models.DeviceIdentifier{"device-a"}, q.DeviceIDs)
+				assert.True(t, q.ExplicitDeviceIDs)
 				return models.CombinedMetric{}, nil
 			})
 		deviceStore.EXPECT().

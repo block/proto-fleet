@@ -1483,11 +1483,15 @@ func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query 
 }
 
 func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	explicitDeviceIDs := query.ExplicitDeviceIDs || len(query.DeviceIDs) > 0
+	query.ExplicitDeviceIDs = explicitDeviceIDs
+
 	// Site scope is applied by resolving the in-scope device identifiers and
-	// feeding the existing device-list paths: the telemetry continuous
-	// aggregates have no site_id column, so we cannot filter them directly.
-	// This scopes line metrics, status counts, and the live uptime bar
-	// uniformly to the site's current devices.
+	// feeding the existing device-list paths for line metrics/status counts.
+	// query.ExplicitDeviceIDs keeps track of whether DeviceIDs came from the
+	// caller or from this scope resolution; uptime history can use site-scoped
+	// aggregate rows for the latter but must keep exact raw selector semantics
+	// for the former.
 	if len(query.SiteIDs) > 0 || query.IncludeUnassigned {
 		identifiers, err := s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, query.OrganizationID, &stores.MinerFilter{
 			SiteIDs:           query.SiteIDs,
@@ -1653,12 +1657,13 @@ func (s *TelemetryService) StreamCombinedMetrics(ctx context.Context, query mode
 
 func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateChan chan<- models.CombinedMetric, query models.StreamCombinedMetricsQuery, updateInterval time.Duration) error {
 	combinedQuery := models.CombinedMetricsQuery{
-		DeviceIDs:        query.DeviceIDs,
-		MeasurementTypes: query.MeasurementTypes,
-		AggregationTypes: query.AggregationTypes,
-		SlideInterval:    &query.Granularity,
-		PageSize:         defaultCombinedMetricsPageSize,
-		OrganizationID:   query.OrganizationID,
+		DeviceIDs:         query.DeviceIDs,
+		MeasurementTypes:  query.MeasurementTypes,
+		AggregationTypes:  query.AggregationTypes,
+		SlideInterval:     &query.Granularity,
+		PageSize:          defaultCombinedMetricsPageSize,
+		OrganizationID:    query.OrganizationID,
+		ExplicitDeviceIDs: len(query.DeviceIDs) > 0,
 	}
 
 	now := time.Now()

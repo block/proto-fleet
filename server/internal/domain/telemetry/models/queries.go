@@ -33,6 +33,11 @@ type CombinedMetricsQuery struct {
 	PageSize         int                `json:"page_size,omitempty"`
 	SlideInterval    *time.Duration     `json:"slide_interval,omitempty"`
 	OrganizationID   int64              `json:"organization_id,omitempty"`
+	// ExplicitDeviceIDs is true when DeviceIDs came from a caller-supplied
+	// DeviceList selector. It stays false when the service resolves a site
+	// scope into DeviceIDs for metric queries, allowing uptime history to use
+	// site-scoped aggregate rows instead of the raw arbitrary-selector path.
+	ExplicitDeviceIDs bool `json:"explicit_device_ids,omitempty"`
 	// SiteIDs scopes metrics to devices assigned to ANY of these sites (OR),
 	// AND'd with DeviceIDs. Empty + IncludeUnassigned=false applies no site
 	// restriction. Scope is by current site membership: the service resolves

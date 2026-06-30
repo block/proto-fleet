@@ -6,11 +6,12 @@
 -- enum values). The read query sums only 0..3, so unknown rows don't
 -- contribute to any chart bucket — matching CountMinersByState, which also
 -- excludes non-ACTIVE/non-bucketed statuses from every count.
-INSERT INTO miner_state_snapshots (time, org_id, site_id, device_identifier, state)
+INSERT INTO miner_state_snapshots (time, org_id, site_id, building_id, device_identifier, state)
 SELECT
     sqlc.arg('time')::timestamptz,
     d.org_id,
     d.site_id,
+    d.building_id,
     d.device_identifier,
     CASE
         WHEN ds.status = 'OFFLINE'
@@ -68,4 +69,43 @@ SELECT
     SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
 FROM per_device_bucket
 GROUP BY bucket
+ORDER BY bucket ASC;
+
+-- name: GetMinerStateSnapshotCounts :many
+WITH scoped_counts AS (
+    SELECT
+        snapshot_time,
+        SUM(hashing_count)::int AS hashing_count,
+        SUM(broken_count)::int AS broken_count,
+        SUM(offline_count)::int AS offline_count,
+        SUM(sleeping_count)::int AS sleeping_count
+    FROM miner_state_snapshot_counts_1m
+    WHERE org_id = sqlc.arg('org_id')
+      AND snapshot_time >= sqlc.arg('start_time')
+      AND snapshot_time <= sqlc.arg('end_time')
+      AND (
+          (cardinality(COALESCE(sqlc.arg('site_ids')::bigint[], '{}')) = 0
+           AND sqlc.arg('include_unassigned')::boolean = false)
+          OR site_id = ANY(COALESCE(sqlc.arg('site_ids')::bigint[], '{}'))
+          OR (sqlc.arg('include_unassigned')::boolean AND site_id IS NULL)
+      )
+    GROUP BY snapshot_time
+),
+latest_per_bucket AS (
+    SELECT DISTINCT ON (time_bucket(sqlc.arg('bucket_interval')::text::interval, scoped_counts.snapshot_time))
+        time_bucket(sqlc.arg('bucket_interval')::text::interval, scoped_counts.snapshot_time)::timestamptz AS bucket,
+        hashing_count,
+        broken_count,
+        offline_count,
+        sleeping_count
+    FROM scoped_counts
+    ORDER BY time_bucket(sqlc.arg('bucket_interval')::text::interval, scoped_counts.snapshot_time), scoped_counts.snapshot_time DESC
+)
+SELECT
+    bucket,
+    hashing_count,
+    broken_count,
+    offline_count,
+    sleeping_count
+FROM latest_per_bucket
 ORDER BY bucket ASC;

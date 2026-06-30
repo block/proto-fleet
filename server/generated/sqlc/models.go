@@ -865,6 +865,19 @@ type MinerStateSnapshot struct {
 	DeviceIdentifier string
 	State            int16
 	SiteID           sql.NullInt64
+	BuildingID       sql.NullInt64
+}
+
+type MinerStateSnapshotCounts1m struct {
+	Bucket        time.Time
+	SnapshotTime  time.Time
+	OrgID         int64
+	SiteID        sql.NullInt64
+	BuildingID    sql.NullInt64
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
 }
 
 type NotificationActive struct {
