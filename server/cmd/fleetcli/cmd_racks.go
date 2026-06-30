@@ -6,7 +6,7 @@ import (
 	"context"
 	collectionv1 "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	devicesetv1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
-	"github.com/urfave/cli/v3"
+	cli "github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
 )
 
@@ -171,31 +171,13 @@ func generatedRacksCommand() *cli.Command {
 				"Create or update a rack",
 				"/collection.v1.DeviceCollectionService/SaveRack",
 				generatedAuthBearer,
-				append([]cli.Flag{
-					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
-					&cli.StringFlag{Name: "label", Usage: "label"},
-				}, generatedCommonDeviceListSelectorFlags()...),
+				[]cli.Flag{
+					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin", Required: true},
+				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &collectionv1.SaveRackRequest{}
-					if jsonPath := cmd.String("json"); jsonPath != "" {
-						if err := readProtoJSON(jsonPath, req); err != nil {
-							return nil, err
-						}
-					}
-					if generatedCommonDeviceListSelectorProvided(cmd) {
-						selector, err := generatedBuildCommonDeviceListSelector(cmd)
-						if err != nil {
-							return nil, err
-						}
-						req.DeviceSelector = selector
-					}
-					if cmd.IsSet("collection-id") {
-						value := cmd.Int64("collection-id")
-						req.CollectionId = &value
-					}
-					if cmd.IsSet("label") {
-						req.Label = cmd.String("label")
+					if err := readProtoJSON(cmd.String("json"), req); err != nil {
+						return nil, err
 					}
 					if req.CollectionId != nil {
 						if err := generatedRequireCollectionType(ctx, client, *req.CollectionId, collectionv1.CollectionType_COLLECTION_TYPE_RACK); err != nil {

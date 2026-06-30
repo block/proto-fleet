@@ -567,7 +567,12 @@ func renderMethodExpr(
 	reason := ""
 	if analysis.jsonOnly {
 		imports["google.golang.org/protobuf/proto"] = "proto"
-		expr = renderJSONOnlyExpr(options.CommandName, options.Usage, "/"+ref.ServiceKey+"/"+string(ref.Method.Name()), options.Auth, request, response)
+		imports["context"] = ""
+		imports["github.com/urfave/cli/v3"] = "cli"
+		expr, err = renderJSONOnlyExpr(options.CommandName, options.Usage, "/"+ref.ServiceKey+"/"+string(ref.Method.Name()), options.Auth, request, response, options)
+		if err != nil {
+			return renderResult{}, err
+		}
 		status = "generated_json_only"
 		reason = analysis.Reason
 	} else {
@@ -1113,17 +1118,36 @@ func renderJSONOnlyExpr(
 	auth string,
 	request messageInfo,
 	response messageInfo,
-) string {
-	return strings.Join([]string{
-		"generatedJSONRequestCommand(",
-		fmt.Sprintf("\t%q,", commandName),
-		fmt.Sprintf("\t%q,", usage),
-		fmt.Sprintf("\t%q,", methodPath),
-		fmt.Sprintf("\t%s,", auth),
-		fmt.Sprintf("\tfunc() proto.Message { return &%s.%s{} },", request.GoAlias, request.GoIdent),
-		fmt.Sprintf("\tfunc() proto.Message { return &%s.%s{} },", response.GoAlias, response.GoIdent),
-		")",
-	}, "\n")
+	options renderOptions,
+) (string, error) {
+	var buf strings.Builder
+	buf.WriteString("generatedRequestCommand(\n")
+	buf.WriteString(fmt.Sprintf("\t%q,\n", commandName))
+	buf.WriteString(fmt.Sprintf("\t%q,\n", usage))
+	buf.WriteString(fmt.Sprintf("\t%q,\n", methodPath))
+	buf.WriteString(fmt.Sprintf("\t%s,\n", auth))
+	buf.WriteString("\t[]cli.Flag{\n")
+	buf.WriteString("\t\t&cli.StringFlag{Name: \"json\", Usage: \"Path to a request JSON file, or - for stdin\", Required: true},\n")
+	buf.WriteString("\t},\n")
+	buf.WriteString("\tfunc(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {\n")
+	buf.WriteString(fmt.Sprintf("\t\treq := &%s.%s{}\n", request.GoAlias, request.GoIdent))
+	buf.WriteString("\t\tif err := readProtoJSON(cmd.String(\"json\"), req); err != nil {\n")
+	buf.WriteString("\t\t\treturn nil, err\n")
+	buf.WriteString("\t\t}\n")
+	if options.RequireCollectionType != "" {
+		lines, err := requireCollectionTypeLines(request.Descriptor, options.RequireCollectionType)
+		if err != nil {
+			return "", err
+		}
+		for _, line := range lines {
+			buf.WriteString("\t\t" + line + "\n")
+		}
+	}
+	buf.WriteString("\t\treturn req, nil\n")
+	buf.WriteString("\t},\n")
+	buf.WriteString(fmt.Sprintf("\tfunc() proto.Message { return &%s.%s{} },\n", response.GoAlias, response.GoIdent))
+	buf.WriteString(")")
+	return strings.TrimSpace(buf.String()), nil
 }
 
 func renderSimpleExpr(

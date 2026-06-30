@@ -124,7 +124,7 @@
       "group": "racks",
       "command": "save",
       "usage": "Create or update a rack",
-      "common_selector": "device_list",
+      "json_only": true,
       "require_collection_type": "rack"
     },
     {
