@@ -306,12 +306,18 @@ const reconcileTimeout = 30 * time.Second
 func buildNotificationTree(cps []GrafanaContactPoint) GrafanaRoute {
 	root := rootDefaults
 	var orgRoutes []GrafanaRoute
+	seen := map[string]bool{}
 	for _, cp := range cps {
 		m := orgChannelName.FindStringSubmatch(cp.Name)
 		// Skip non-org receivers and TestChannel's transient test-before-save contact points.
 		if m == nil || transientReceiverName.MatchString(cp.Name[len(m[0]):]) {
 			continue
 		}
+		// One route per receiver name: Grafana collapses same-named integrations onto one receiver, so a duplicate route would double-deliver.
+		if seen[cp.Name] {
+			continue
+		}
+		seen[cp.Name] = true
 		orgRoutes = append(orgRoutes, GrafanaRoute{
 			Receiver: cp.Name,
 			// Exclude operator-only internal alerts: they carry organization_id but must reach only the webhook/history tee, never an org's external channel.

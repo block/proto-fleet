@@ -311,17 +311,22 @@ func TestBuildNotificationTree(t *testing.T) {
 		const transientUUID = "550e8400-e29b-41d4-a716-446655440000"
 		tree := buildNotificationTree([]GrafanaContactPoint{
 			{Name: "org-42-ops", Type: "slack"},
+			{Name: "org-42-ops", Type: "slack"},                   // duplicate receiver name (Grafana collapses these) — must yield one route
 			{Name: "org-42-test-pager", Type: "slack"},            // saved channel named "test-*" — must still route
 			{Name: "org-42-test-" + transientUUID, Type: "slack"}, // transient test-before-save receiver — excluded
 			{Name: "shared-thing", Type: "webhook"},               // not org-managed
 		})
-		require.Len(t, tree.Routes, 3) // two org routes + trailing tee
+		require.Len(t, tree.Routes, 3) // two org routes (ops deduped) + trailing tee
 
 		var receivers []string
+		opsCount := 0
 		for _, r := range tree.Routes {
 			receivers = append(receivers, r.Receiver)
+			if r.Receiver == "org-42-ops" {
+				opsCount++
+			}
 		}
-		assert.Contains(t, receivers, "org-42-ops")
+		assert.Equal(t, 1, opsCount, "duplicate receiver names must collapse to a single route")
 		assert.Contains(t, receivers, "org-42-test-pager", "a saved channel named test-* must still route")
 		assert.NotContains(t, receivers, "org-42-test-"+transientUUID, "transient test receiver must be excluded")
 
