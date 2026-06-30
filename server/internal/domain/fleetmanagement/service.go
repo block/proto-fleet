@@ -723,8 +723,9 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 	snapshots := make([]*pb.MinerStateSnapshot, 0, len(rows))
 	for _, row := range rows {
 		snapshot := &pb.MinerStateSnapshot{
-			DeviceIdentifier: row.DeviceIdentifier,
-			DriverName:       row.DriverName,
+			DeviceIdentifier:         row.DeviceIdentifier,
+			DriverName:               row.DriverName,
+			EmbeddedWebViewAvailable: row.EmbeddedWebViewAvailable,
 		}
 
 		if row.SiteID.Valid {

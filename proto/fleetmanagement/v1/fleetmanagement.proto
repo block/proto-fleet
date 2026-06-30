@@ -155,6 +155,12 @@ message MinerStateSnapshot {
   // device is not assigned at that level; groups is empty when the device is
   // not a member of any group.
   common.v1.PlacementRefs placement = 28;
+
+  // True when Fleet can open an embedded web management view for this miner.
+  // Availability is computed from driver support, pairing state, and routing
+  // ownership; unsupported or fleet-node-owned devices should use their external
+  // URL or typed control-stream commands instead.
+  bool embedded_web_view_available = 29;
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering

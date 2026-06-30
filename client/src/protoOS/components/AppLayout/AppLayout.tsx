@@ -6,6 +6,7 @@ import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import NavigationMenu, { NavigationMenuType } from "@/protoOS/components/NavigationMenu";
 
 import PageHeader from "@/protoOS/components/PageHeader";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
   useIpAddress,
   useMacAddress,
@@ -32,6 +33,7 @@ const AppLayout = ({
   ContentLayout = DefaultContentLayout,
 }: AppLayoutProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { metadata = {}, isFleetHosted } = useMinerHosting();
 
   // Read system info from store
   const osVersion = useOSVersion();
@@ -48,22 +50,24 @@ const AppLayout = ({
       <div className="fixed top-0 left-0 z-40 h-screen grow overflow-hidden">
         <NavigationMenu
           macInfo={{
-            value: macAddress,
-            loading: pendingNetworkInfo,
+            // Fleet snapshots often omit mac/ip/firmware; fall back to the
+            // device's own values, which the proxy fetches into the store.
+            value: isFleetHosted ? metadata.macAddress || macAddress : macAddress,
+            loading: isFleetHosted ? !metadata.macAddress && pendingNetworkInfo : pendingNetworkInfo,
           }}
           isVisible={isMenuOpen}
           closeMenu={() => setIsMenuOpen(false)}
           versionInfo={{
-            value: osVersion,
-            loading: pendingSystemInfo,
+            value: isFleetHosted ? metadata.firmwareVersion || osVersion : osVersion,
+            loading: isFleetHosted ? !metadata.firmwareVersion && pendingSystemInfo : pendingSystemInfo,
           }}
           ipAddressInfo={{
-            value: ipAddress,
-            loading: pendingNetworkInfo,
+            value: isFleetHosted ? metadata.ipAddress || ipAddress : ipAddress,
+            loading: isFleetHosted ? !metadata.ipAddress && pendingNetworkInfo : pendingNetworkInfo,
           }}
           minerNameInfo={{
-            value: productName,
-            loading: pendingSystemInfo,
+            value: isFleetHosted ? metadata.minerName : productName,
+            loading: isFleetHosted ? false : pendingSystemInfo,
           }}
           type={type}
         />

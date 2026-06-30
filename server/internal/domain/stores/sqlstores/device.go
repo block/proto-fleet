@@ -1107,6 +1107,7 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.SiteLabel,
 			&row.BuildingID,
 			&row.BuildingLabel,
+			&row.EmbeddedWebViewAvailable,
 			&row.SortValue,
 		)
 		if err != nil {

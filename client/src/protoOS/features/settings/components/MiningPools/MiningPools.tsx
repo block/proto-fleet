@@ -3,10 +3,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { STATUS_MESSAGES } from "./constants";
+import ReadOnlyMiningPools from "./ReadOnlyMiningPools";
 import { useCreatePools, useEditPool, usePoolsInfo } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-
 import MiningPools, { getEmptyPoolsInfo, isValidPool, PoolInfo } from "@/protoOS/components/MiningPools";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+
 import { Alert } from "@/shared/assets/icons";
 import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, ToastStatusType } from "@/shared/features/toaster";
@@ -24,6 +26,7 @@ const SettingsMiningPools = () => {
   const toastId = useRef<number | null>(null);
   const skipSuccessToastRef = useRef(false);
 
+  const { isFleetHosted } = useMinerHosting();
   const { data: poolsInfo, pending: poolsInfoPending, error: poolsInfoError } = usePoolsInfo();
   const { createPools } = useCreatePools();
   const { editPool } = useEditPool();
@@ -200,6 +203,14 @@ const SettingsMiningPools = () => {
     },
     [debouncedSubmitPools],
   );
+
+  // Fleet-hosted: pool writes are blocked at the proxy (edits go through Fleet's
+  // audited flow), so show the miner's current pools read-only rather than an
+  // editable form that would fail on save.
+  if (isFleetHosted) {
+    const fleetPoolsLoading = poolsInfoPending && !pools.some(isValidPool);
+    return <ReadOnlyMiningPools pools={pools} loading={fleetPoolsLoading} />;
+  }
 
   return (
     <MiningPools

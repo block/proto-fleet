@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { navigationItems } from "../constants";
 import NavigationItem from "../NavigationItem";
 import { NavigationItemValue } from "../types";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
@@ -16,6 +17,7 @@ interface AppNavigationItemsProps {
 const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
   const [showAccordionItems, setShowAccordionItems] = useState(pageName.startsWith("settings"));
   const [showAccordionExpand, setShowAccordionExpand] = useState(false);
+  const { isFleetHosted } = useMinerHosting();
 
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
@@ -65,13 +67,20 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
               transition: { duration: 0.3, ease: easeGentle },
             }}
           >
-            <NavigationItem
-              id={navigationItems.authentication}
-              text="Authentication"
-              onClick={handleClick}
-              pageName={pageName}
-              isChildItem
-            />
+            {/* Authentication (password change) is Fleet-managed in the
+                embedded view — the proxy blocks that write and it has no useful
+                read-only view — so hide it. Pools stays visible: pool edits are
+                also Fleet-managed, but the page shows the miner's current pools
+                read-only so operators can see what's configured. */}
+            {isFleetHosted ? null : (
+              <NavigationItem
+                id={navigationItems.authentication}
+                text="Authentication"
+                onClick={handleClick}
+                pageName={pageName}
+                isChildItem
+              />
+            )}
             <NavigationItem
               id={navigationItems.general}
               text="General"

@@ -1948,7 +1948,8 @@ SELECT
     d.site_id,
     COALESCE(s.name, '') as site_label,
     d.building_id,
-    COALESCE(b.name, '') as building_label
+    COALESCE(b.name, '') as building_label,
+    FALSE as embedded_web_view_available
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
@@ -1959,28 +1960,29 @@ WHERE FALSE
 `
 
 type ListMinerStateSnapshotsRow struct {
-	DeviceIdentifier string
-	MacAddress       string
-	SerialNumber     sql.NullString
-	Model            sql.NullString
-	Manufacturer     sql.NullString
-	FirmwareVersion  sql.NullString
-	WorkerName       sql.NullString
-	DeviceStatus     NullDeviceStatusEnum
-	StatusTimestamp  sql.NullTime
-	StatusDetails    sql.NullString
-	IpAddress        string
-	Port             string
-	UrlScheme        string
-	PairingStatus    string
-	CursorID         int64
-	DeviceID         int64
-	DriverName       string
-	CustomName       sql.NullString
-	SiteID           sql.NullInt64
-	SiteLabel        string
-	BuildingID       sql.NullInt64
-	BuildingLabel    string
+	DeviceIdentifier         string
+	MacAddress               string
+	SerialNumber             sql.NullString
+	Model                    sql.NullString
+	Manufacturer             sql.NullString
+	FirmwareVersion          sql.NullString
+	WorkerName               sql.NullString
+	DeviceStatus             NullDeviceStatusEnum
+	StatusTimestamp          sql.NullTime
+	StatusDetails            sql.NullString
+	IpAddress                string
+	Port                     string
+	UrlScheme                string
+	PairingStatus            string
+	CursorID                 int64
+	DeviceID                 int64
+	DriverName               string
+	CustomName               sql.NullString
+	SiteID                   sql.NullInt64
+	SiteLabel                string
+	BuildingID               sql.NullInt64
+	BuildingLabel            string
+	EmbeddedWebViewAvailable bool
 }
 
 // TYPE GENERATION STUB - This query is never executed.
@@ -2019,6 +2021,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			&i.SiteLabel,
 			&i.BuildingID,
 			&i.BuildingLabel,
+			&i.EmbeddedWebViewAvailable,
 		); err != nil {
 			return nil, err
 		}

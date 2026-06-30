@@ -30,6 +30,7 @@ import {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
+import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
 import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
@@ -669,11 +670,8 @@ const MinerList = ({
     });
   }, []);
 
-  const handleRowClick = useCallback((item: DeviceListItem) => {
-    if (item.miner.url) {
-      window.open(item.miner.url, "_blank", "noopener,noreferrer");
-    }
-  }, []);
+  const openMinerView = useOpenMinerView();
+  const handleRowClick = useCallback((item: DeviceListItem) => openMinerView(item.miner), [openMinerView]);
   const sortColumnFromUrl = useMemo(() => {
     const parsedSort = parseSortFromURL(searchParams);
     return parsedSort ? getColumnForSortField(parsedSort.field) : undefined;
