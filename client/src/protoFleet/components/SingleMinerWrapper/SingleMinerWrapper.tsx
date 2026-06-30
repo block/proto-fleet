@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { recallSingleMinerMetadata, type SingleMinerMetadata, type SingleMinerRouteState } from "./routeState";
 import { singleMinerRoutePrefetch } from "@/protoFleet/routePrefetch";
@@ -100,7 +100,12 @@ const SingleMinerWrapper = ({ children }: { children: ReactNode }) => {
             }
           }}
         >
-          {children}
+          {/* Key the hosted ProtoOS subtree by miner so a direct A->B route
+              change (React Router reuses this element) remounts it: the store
+              reset clears the shared slices, and this clears page-local state
+              (e.g. Cooling's local mode, MiningPools' local pools) so B never
+              inherits A's UI. */}
+          <Fragment key={safeId}>{children}</Fragment>
         </motion.div>
       </div>
     </MinerHostingProvider>
