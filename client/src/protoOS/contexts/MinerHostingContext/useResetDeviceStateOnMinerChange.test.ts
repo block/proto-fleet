@@ -6,6 +6,8 @@ import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const seedPools = () => useMinerStore.getState().pools.setPoolsInfo([{ url: "stratum+tcp://a" }] as never);
 const seedHardware = () => useMinerStore.getState().hardware.setHashboards([{ serial: "HB-A-1" }] as never);
+const poolsCount = () => useMinerStore.getState().pools.poolsInfo?.length ?? 0;
+const hashboardCount = () => useMinerStore.getState().hardware.hashboards.size;
 
 describe("useResetDeviceStateOnMinerChange", () => {
   beforeEach(() => {
@@ -13,33 +15,35 @@ describe("useResetDeviceStateOnMinerChange", () => {
     useMinerStore.getState().hardware.reset();
   });
 
-  test("does not clear on first mount", () => {
-    seedPools();
-    renderHook(() => useResetDeviceStateOnMinerChange("/api-proxy/miners/a"));
-    expect(useMinerStore.getState().pools.poolsInfo).toHaveLength(1);
-  });
-
-  test("clears device data (incl. hardware) when the miner key changes", () => {
+  test("clears stale device data on first fleet mount (close-then-reopen)", () => {
+    // Residual data from a previously-viewed miner, store survived the unmount.
     seedPools();
     seedHardware();
-    const { rerender } = renderHook(({ k }) => useResetDeviceStateOnMinerChange(k), {
-      initialProps: { k: "/api-proxy/miners/a" },
-    });
-    expect(useMinerStore.getState().pools.poolsInfo).toHaveLength(1);
-    expect(useMinerStore.getState().hardware.hashboards.size).toBe(1);
 
-    rerender({ k: "/api-proxy/miners/b" });
-    expect(useMinerStore.getState().pools.poolsInfo).toBeUndefined();
-    expect(useMinerStore.getState().hardware.hashboards.size).toBe(0);
+    renderHook(() => useResetDeviceStateOnMinerChange("/api-proxy/miners/b"));
+
+    expect(poolsCount()).toBe(0);
+    expect(hashboardCount()).toBe(0);
   });
 
-  test("does not clear when the key is unchanged", () => {
+  test("clears device data when the miner key changes in place", () => {
     const { rerender } = renderHook(({ k }) => useResetDeviceStateOnMinerChange(k), {
       initialProps: { k: "/api-proxy/miners/a" },
     });
+    // Populate after mount, then switch miners.
     seedPools();
-    rerender({ k: "/api-proxy/miners/a" });
-    expect(useMinerStore.getState().pools.poolsInfo).toHaveLength(1);
+    seedHardware();
+    expect(poolsCount()).toBe(1);
+
+    rerender({ k: "/api-proxy/miners/b" });
+    expect(poolsCount()).toBe(0);
+    expect(hashboardCount()).toBe(0);
+  });
+
+  test("does nothing in direct mode (empty key)", () => {
+    seedPools();
+    renderHook(() => useResetDeviceStateOnMinerChange(""));
+    expect(poolsCount()).toBe(1);
   });
 
   test("preserves UI preferences across a miner change", () => {
