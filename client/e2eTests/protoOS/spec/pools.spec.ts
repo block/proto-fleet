@@ -98,4 +98,25 @@ test.describe("Mining pools", () => {
       await poolsPage.validatePoolRowDetails(2, poolName2, testConfig.pool.url);
     });
   });
+
+  test("Suppress no-pools global callout on the pools empty state page", async ({ homePage, poolsPage }) => {
+    await test.step("Clear configured pools through the authenticated API", async () => {
+      await poolsPage.clearAllPoolsViaApi();
+      await homePage.reloadPage();
+    });
+
+    await test.step("Validate the home page shows the global no-pools callout", async () => {
+      await homePage.validateTitle("Home");
+      await homePage.validateNoMiningPoolsCallout();
+    });
+
+    await test.step("Follow the callout CTA to mining pools settings", async () => {
+      await homePage.clickAddMiningPoolsInCallout();
+    });
+
+    await test.step("Validate the pools page shows its own empty state without the global callout", async () => {
+      await poolsPage.validateNoPoolsEmptyState();
+      await poolsPage.validateNoMiningPoolsCalloutHidden();
+    });
+  });
 });

@@ -2,6 +2,63 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class PoolsPage extends BasePage {
+  async clearAllPoolsViaApi() {
+    const response = await this.page.evaluate(async () => {
+      const authStorage = window.localStorage.getItem("proto-os-auth");
+      if (!authStorage) {
+        throw new Error("proto-os-auth is missing from localStorage");
+      }
+
+      const parsedStorage = JSON.parse(authStorage) as {
+        state?: {
+          auth?: {
+            authTokens?: {
+              accessToken?: {
+                value?: string;
+              };
+            };
+          };
+        };
+      };
+
+      const accessToken = parsedStorage.state?.auth?.authTokens?.accessToken?.value;
+      if (!accessToken) {
+        throw new Error("Access token is missing from proto-os-auth");
+      }
+
+      const request = await fetch("/api/v1/pools", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify([]),
+      });
+
+      return {
+        ok: request.ok,
+        status: request.status,
+        statusText: request.statusText,
+        body: await request.text(),
+      };
+    });
+
+    expect(
+      response.ok,
+      `Failed to clear pools: ${response.status} ${response.statusText} ${response.body}`,
+    ).toBeTruthy();
+  }
+
+  async validateNoPoolsEmptyState() {
+    await expect(this.page.getByText("Pools", { exact: true })).toBeVisible();
+    await expect(this.page.getByText("Add up to 3 pools for your miner.")).toBeVisible();
+    await expect(this.page.getByTestId("add-pool-button")).toBeVisible();
+  }
+
+  async validateNoMiningPoolsCalloutHidden() {
+    await expect(this.page.getByTestId("callout").getByText("No mining pools configured.")).toBeHidden();
+  }
+
   async validatePoolModalOpened() {
     await expect(this.page.getByTestId("modal")).toBeVisible();
   }
