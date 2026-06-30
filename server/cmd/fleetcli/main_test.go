@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
+	"github.com/fatih/color"
 	"github.com/urfave/cli/v3"
 )
 
@@ -36,6 +38,27 @@ func findSubcommand(t *testing.T, parent *cli.Command, name string) *cli.Command
 	}
 	t.Fatalf("subcommand %q not found under %q", name, parent.Name)
 	return nil
+}
+
+func TestWriteAPIErrorWritesBodyToProvidedWriter(t *testing.T) {
+	oldNoColor := color.NoColor
+	color.NoColor = true
+	t.Cleanup(func() { color.NoColor = oldNoColor })
+
+	var stderr bytes.Buffer
+	writeAPIError(&stderr, &APIError{
+		Method: "POST /example.Service/Call",
+		Status: "401 Unauthorized",
+		Body:   []byte(`{"error":"denied"}`),
+	})
+
+	output := stderr.String()
+	if !strings.Contains(output, "POST /example.Service/Call returned 401 Unauthorized:") {
+		t.Fatalf("output = %q, want status line", output)
+	}
+	if !strings.Contains(output, `"error": "denied"`) {
+		t.Fatalf("output = %q, want formatted API error body", output)
+	}
 }
 
 // probeAuthInputs runs the full root command with argv and captures what

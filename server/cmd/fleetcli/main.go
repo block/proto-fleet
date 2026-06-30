@@ -48,8 +48,7 @@ func main() {
 	if err := newRootCommand().Run(context.Background(), os.Args); err != nil {
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
-			fmt.Fprintf(os.Stderr, "%s returned %s:\n", apiErr.Method, apiErr.Status)
-			colorizeJSON(apiErr.Body)
+			writeAPIError(os.Stderr, apiErr)
 		} else {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		}
@@ -545,7 +544,16 @@ func usernamePassword(cmd *cli.Command) (string, string, error) {
 	return username, password, nil
 }
 
+func writeAPIError(w io.Writer, apiErr *APIError) {
+	fmt.Fprintf(w, "%s returned %s:\n", apiErr.Method, apiErr.Status)
+	colorizeJSONTo(w, apiErr.Body)
+}
+
 func colorizeJSON(data []byte) {
+	colorizeJSONTo(os.Stdout, data)
+}
+
+func colorizeJSONTo(w io.Writer, data []byte) {
 	formatter := prettyjson.NewFormatter()
 	formatter.Indent = 2
 	formatter.KeyColor = color.New(color.FgBlue)
@@ -556,10 +564,10 @@ func colorizeJSON(data []byte) {
 
 	colorized, err := formatter.Format(data)
 	if err != nil {
-		fmt.Println(string(data))
+		fmt.Fprintln(w, string(data))
 		return
 	}
-	fmt.Println(string(colorized))
+	fmt.Fprintln(w, string(colorized))
 }
 
 func printProto(message proto.Message) error {
