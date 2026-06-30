@@ -72,8 +72,7 @@ func (c *Client) Connect(ctx context.Context, host string, port int32, transport
 			return
 		}
 		if initialConnectComplete.Load() {
-			c.resubscribe(client)
-			c.reportRuntimeStatus(true, true, nil)
+			c.reportReconnectStatus(ctx, client)
 		}
 	}, func(_ paho.Client, err error) {
 		c.reportRuntimeStatus(false, false, normalizeConnectionLostError(err))
@@ -159,14 +158,21 @@ func (c *Client) reportRuntimeStatus(connected bool, subscribed bool, err error)
 	}
 }
 
-func (c *Client) resubscribe(client paho.Client) {
-	c.replaySubscriptions(client)
+func (c *Client) reportReconnectStatus(ctx context.Context, client subscriptionClient) {
+	if err := c.replaySubscriptions(ctx, client); err != nil {
+		c.reportRuntimeStatus(true, false, err)
+		return
+	}
+	c.reportRuntimeStatus(true, true, nil)
 }
 
-func (c *Client) replaySubscriptions(client subscriptionClient) {
+func (c *Client) replaySubscriptions(ctx context.Context, client subscriptionClient) error {
 	for topic, handler := range c.subscriptionSnapshot() {
-		client.Subscribe(topic, subscribeQoS, handler)
+		if err := waitToken(ctx, client.Subscribe(topic, subscribeQoS, handler)); err != nil {
+			return fmt.Errorf("mqttclient: resubscribe %q: %w", topic, err)
+		}
 	}
+	return nil
 }
 
 func (c *Client) addRoutes(client routeClient) {

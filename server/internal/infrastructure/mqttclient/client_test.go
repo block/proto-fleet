@@ -16,7 +16,8 @@ type subscribeCall struct {
 }
 
 type replayClient struct {
-	calls []subscribeCall
+	calls    []subscribeCall
+	tokenErr error
 }
 
 func (r *replayClient) Subscribe(topic string, qos byte, callback paho.MessageHandler) paho.Token {
@@ -25,7 +26,29 @@ func (r *replayClient) Subscribe(topic string, qos byte, callback paho.MessageHa
 		qos:      qos,
 		callback: callback,
 	})
-	return nil
+	return completedToken{err: r.tokenErr}
+}
+
+type completedToken struct {
+	err error
+}
+
+func (t completedToken) Wait() bool {
+	return true
+}
+
+func (t completedToken) WaitTimeout(time.Duration) bool {
+	return true
+}
+
+func (t completedToken) Done() <-chan struct{} {
+	done := make(chan struct{})
+	close(done)
+	return done
+}
+
+func (t completedToken) Error() error {
+	return t.err
 }
 
 type routeCall struct {
@@ -106,7 +129,9 @@ func TestReplaySubscriptionsResubscribesStoredTopics(t *testing.T) {
 	client.subscriptions["curtailment/source"] = handler
 
 	replay := &replayClient{}
-	client.replaySubscriptions(replay)
+	if err := client.replaySubscriptions(t.Context(), replay); err != nil {
+		t.Fatalf("replaySubscriptions returned error: %v", err)
+	}
 
 	if len(replay.calls) != 1 {
 		t.Fatalf("replayed %d subscriptions, want 1", len(replay.calls))
@@ -224,6 +249,64 @@ func TestClientRuntimeStatusReporter(t *testing.T) {
 
 	if gotConnected {
 		t.Fatal("connected = true, want false")
+	}
+	if gotSubscribed {
+		t.Fatal("subscribed = true, want false")
+	}
+	if !errors.Is(gotErr, wantErr) {
+		t.Fatalf("err = %v, want %v", gotErr, wantErr)
+	}
+}
+
+func TestReportReconnectStatusReportsSubscribedAfterReplaySuccess(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	client.subscriptions["curtailment/source"] = func(_ paho.Client, _ paho.Message) {}
+
+	var gotConnected bool
+	var gotSubscribed bool
+	var gotErr error
+	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
+		gotConnected = connected
+		gotSubscribed = subscribed
+		gotErr = err
+	})
+
+	client.reportReconnectStatus(t.Context(), &replayClient{})
+
+	if !gotConnected {
+		t.Fatal("connected = false, want true")
+	}
+	if !gotSubscribed {
+		t.Fatal("subscribed = false, want true")
+	}
+	if gotErr != nil {
+		t.Fatalf("err = %v, want nil", gotErr)
+	}
+}
+
+func TestReportReconnectStatusReportsSubscribeReplayFailure(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	client.subscriptions["curtailment/source"] = func(_ paho.Client, _ paho.Message) {}
+
+	wantErr := errors.New("subscription rejected")
+	replay := &replayClient{tokenErr: wantErr}
+	var gotConnected bool
+	var gotSubscribed bool
+	var gotErr error
+	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
+		gotConnected = connected
+		gotSubscribed = subscribed
+		gotErr = err
+	})
+
+	client.reportReconnectStatus(t.Context(), replay)
+
+	if !gotConnected {
+		t.Fatal("connected = false, want true")
 	}
 	if gotSubscribed {
 		t.Fatal("subscribed = true, want false")
