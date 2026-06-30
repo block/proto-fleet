@@ -380,6 +380,12 @@ func (h *Handler) tokenFor(ctx context.Context, target proxyTarget, forceLogin b
 		}
 	}
 
+	// Deliberately no device-identity preflight before sending credentials:
+	// miner subnets are treated as trusted, and login itself fails closed
+	// against a host that does not hold the stored password (resolveTarget has
+	// already rejected non-routable addresses). An earlier serial/MAC preflight
+	// was removed as disproportionate for this threat model; revisit if the
+	// trust assumption changes.
 	passwordBytes, err := h.encryptService.Decrypt(target.passwordEnc.String)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to decrypt miner credentials: %v", err)
