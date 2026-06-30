@@ -161,8 +161,8 @@ const useMinerStore = create<MinerStore>()(
             state.hardware.reset();
             state.telemetry.clearAllData();
             state.pools.setPoolsInfo(undefined);
-            state.systemInfo.setSystemInfo(undefined);
-            state.networkInfo.setNetworkInfo(undefined);
+            state.systemInfo.reset();
+            state.networkInfo.reset();
             state.miningTarget.reset();
             // Status data only — onboarding/password/identity flags are not
             // device telemetry and must survive a miner switch.

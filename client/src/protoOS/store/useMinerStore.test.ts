@@ -16,6 +16,10 @@ describe("useMinerStore.resetDeviceData", () => {
     s.systemInfo.setSystemInfo({ product_name: "Rig" } as never);
     s.networkInfo.setNetworkInfo({ mac: "AA:BB" } as never);
 
+    // Sanity: the flattened info slices actually hold the seeded data first.
+    expect((useMinerStore.getState().systemInfo as unknown as Record<string, unknown>).product_name).toBe("Rig");
+    expect((useMinerStore.getState().networkInfo as unknown as Record<string, unknown>).mac).toBe("AA:BB");
+
     useMinerStore.getState().resetDeviceData();
 
     const after = useMinerStore.getState();
@@ -23,6 +27,10 @@ describe("useMinerStore.resetDeviceData", () => {
     expect(after.hardware.hashboards.size).toBe(0);
     expect(after.telemetry.fans.size).toBe(0);
     expect(after.telemetry.coolingMode).toBeNull();
+    // setSystemInfo(undefined)/setNetworkInfo(undefined) are no-ops, so these
+    // assert the real reset clears the flattened fields.
+    expect((after.systemInfo as unknown as Record<string, unknown>).product_name).toBeUndefined();
+    expect((after.networkInfo as unknown as Record<string, unknown>).mac).toBeUndefined();
   });
 
   test("preserves UI preferences and onboarding/identity flags", () => {
