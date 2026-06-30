@@ -415,6 +415,23 @@ describe("useCurtailmentPlanPreview", () => {
     expect(preview.restoreEstimate).toBe("Immediately");
   });
 
+  it("estimates zero-sized restore waves with the safety limit when an interval is set", () => {
+    const preview = createCurtailmentPlanPreview(
+      {
+        ...baseValues,
+        restoreBatchSize: "0",
+        restoreIntervalSec: "3600",
+      },
+      {
+        selectedMinerCount: 20_001,
+        targetKw: 40,
+        estimatedReductionKw: 45,
+      },
+    );
+
+    expect(preview.restoreEstimate).toBe("~2 hours");
+  });
+
   it("surfaces empty preview candidates as a preview error", async () => {
     mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse(0));
 

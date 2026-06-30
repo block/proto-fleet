@@ -235,7 +235,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	// Stamp once so buildInsertParams and the Start response agree.
 	plan.EffectiveBatchSize = ComputeEffectiveBatchSize(req.RestoreBatchSize, int32(len(plan.Selected))) //nolint:gosec // bounded by per-org fleet size
 	if !req.UseProfileCurtailSettings {
-		req.CurtailBatchSize = defaultManualCurtailBatchSize(req.RestoreBatchSize, int32(len(plan.Selected))) //nolint:gosec // bounded by per-org fleet size
+		req.CurtailBatchSize = defaultManualCurtailBatchSize(int32(len(plan.Selected))) //nolint:gosec // bounded by per-org fleet size
 		req.CurtailBatchIntervalSec = 0
 	}
 	plan.EffectiveCurtailBatchSize = cloneInt32Ptr(req.CurtailBatchSize)
@@ -1952,21 +1952,14 @@ const (
 	defaultManualCurtailBatchSizeCeiling int32 = 100
 )
 
-// defaultManualCurtailBatchSize preserves the legacy manual-curtail dispatch
-// throttle without letting immediate restore also become the curtail wave size.
-// Positive restore_batch_size continues to drive the manual curtail batch for
-// existing batched flows; restore_batch_size=0 uses the old adaptive [10,100]
-// envelope for curtail dispatch only. A zero selected count still gets the
+// defaultManualCurtailBatchSize preserves the manual-curtail dispatch throttle
+// independently from restore controls. A zero selected count still gets the
 // floor so empty closed-loop full-fleet watchers do not admit every later
 // candidate in one tick.
-func defaultManualCurtailBatchSize(restoreBatchSize, selectedCount int32) *int32 {
-	var batchSize int32
-	if restoreBatchSize > 0 {
-		batchSize = restoreBatchSize
-	} else if selectedCount <= 0 {
+func defaultManualCurtailBatchSize(selectedCount int32) *int32 {
+	batchSize := adaptiveManualCurtailBatchSize(selectedCount)
+	if batchSize <= 0 {
 		batchSize = defaultManualCurtailBatchSizeFloor
-	} else {
-		batchSize = adaptiveManualCurtailBatchSize(selectedCount)
 	}
 	return &batchSize
 }

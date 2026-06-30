@@ -812,7 +812,7 @@ func TestService_Start_StampsEffectiveBatchSize(t *testing.T) {
 	}
 }
 
-func TestService_Start_DecouplesImmediateRestoreFromManualCurtailBatch(t *testing.T) {
+func TestService_Start_DecouplesRestoreBatchFromManualCurtailBatch(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name             string
@@ -829,11 +829,11 @@ func TestService_Start_DecouplesImmediateRestoreFromManualCurtailBatch(t *testin
 			wantCurtailBatch: 50,
 		},
 		{
-			name:             "positive_restore_batch_still_drives_manual_curtail_batch",
+			name:             "positive_restore_batch_uses_adaptive_manual_curtail_batch",
 			restoreBatchSize: 250,
-			candidateCount:   10,
+			candidateCount:   10_000,
 			wantRestoreBatch: 250,
-			wantCurtailBatch: 250,
+			wantCurtailBatch: 100,
 		},
 	}
 
