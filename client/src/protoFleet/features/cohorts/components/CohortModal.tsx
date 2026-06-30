@@ -10,10 +10,11 @@ import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import useMinerModelGroups from "@/protoFleet/api/useMinerModelGroups";
 import MinerSelectionList, { type MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
-import { durationToExpiresAt, type ExpiryPreset, type ExpiryUnit } from "@/protoFleet/features/cohorts/utils";
+import { durationToExpiresAt, type ExpiryPreset } from "@/protoFleet/features/cohorts/utils";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
+import { DatePickerField } from "@/shared/components/DatePicker";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
@@ -43,10 +44,38 @@ const expiryPresetOptions = [
   { value: "custom", label: "Custom" },
 ];
 
-const expiryUnitOptions = [
-  { value: "hours", label: "Hours" },
-  { value: "days", label: "Days" },
-];
+const hourOptions = Array.from({ length: 24 }, (_, hour) => {
+  const value = hour.toString().padStart(2, "0");
+  return { value, label: value };
+});
+
+const minuteOptions = Array.from({ length: 12 }, (_, index) => {
+  const value = (index * 5).toString().padStart(2, "0");
+  return { value, label: value };
+});
+
+const roundToFiveMinutes = (date: Date) => {
+  const next = new Date(date);
+  const remainder = next.getMinutes() % 5;
+  if (remainder !== 0) {
+    next.setMinutes(next.getMinutes() + (5 - remainder));
+  }
+  next.setSeconds(0, 0);
+  return next;
+};
+
+const combineDateAndTime = (date: Date | undefined, hour: string, minute: string) => {
+  if (!date) return undefined;
+  const next = new Date(date);
+  next.setHours(Number.parseInt(hour, 10), Number.parseInt(minute, 10), 0, 0);
+  return next;
+};
+
+const isPastDate = (date: Date) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return date < today;
+};
 
 const optionalBigInt = (value: string, label: string) => {
   const trimmed = value.trim();
@@ -96,8 +125,12 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
   const [label, setLabel] = useState("");
   const [purpose, setPurpose] = useState("");
   const [expiryPreset, setExpiryPreset] = useState<ExpiryPreset>("24h");
-  const [customExpiryAmount, setCustomExpiryAmount] = useState("1");
-  const [customExpiryUnit, setCustomExpiryUnit] = useState<ExpiryUnit>("days");
+  const initialCustomExpiry = useMemo(() => roundToFiveMinutes(new Date()), []);
+  const [customExpiryDate, setCustomExpiryDate] = useState<Date | undefined>(initialCustomExpiry);
+  const [customExpiryHour, setCustomExpiryHour] = useState(initialCustomExpiry.getHours().toString().padStart(2, "0"));
+  const [customExpiryMinute, setCustomExpiryMinute] = useState(
+    initialCustomExpiry.getMinutes().toString().padStart(2, "0"),
+  );
   const [firmwareFileId, setFirmwareFileId] = useState("");
   const [sourceDeviceSetId, setSourceDeviceSetId] = useState("");
   const [count, setCount] = useState("1");
@@ -117,8 +150,10 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
     setLabel("");
     setPurpose("");
     setExpiryPreset("24h");
-    setCustomExpiryAmount("1");
-    setCustomExpiryUnit("days");
+    const nextCustomExpiry = roundToFiveMinutes(new Date());
+    setCustomExpiryDate(nextCustomExpiry);
+    setCustomExpiryHour(nextCustomExpiry.getHours().toString().padStart(2, "0"));
+    setCustomExpiryMinute(nextCustomExpiry.getMinutes().toString().padStart(2, "0"));
     setFirmwareFileId("");
     setSourceDeviceSetId("");
     setCount("1");
@@ -263,6 +298,12 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
     [hasCohortTarget, isSubmitting, label],
   );
 
+  const customExpiresAt = useMemo(
+    () => combineDateAndTime(customExpiryDate, customExpiryHour, customExpiryMinute),
+    [customExpiryDate, customExpiryHour, customExpiryMinute],
+  );
+  const customExpiresAtLabel = customExpiresAt ? customExpiresAt.toLocaleString() : "Select an expiration";
+
   const handleCreate = useCallback(() => {
     const trimmedLabel = label.trim();
     if (!trimmedLabel) {
@@ -302,7 +343,13 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
         throw new Error("Group is required");
       }
       const parsedSiteId = mode === "count" ? optionalBigInt(siteId, "Site") : undefined;
-      const expiresAt = durationToExpiresAt(expiryPreset, customExpiryAmount, customExpiryUnit);
+      const expiresAt = expiryPreset === "custom" ? customExpiresAt : durationToExpiresAt(expiryPreset, "1", "days");
+      if (expiryPreset === "custom" && !expiresAt) {
+        throw new Error("Expiration is required");
+      }
+      if (expiresAt && expiresAt.getTime() <= Date.now()) {
+        throw new Error("Expiration must be in the future");
+      }
 
       void createCohort({
         label: trimmedLabel,
@@ -338,8 +385,7 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
   }, [
     count,
     createCohort,
-    customExpiryAmount,
-    customExpiryUnit,
+    customExpiresAt,
     expiryPreset,
     label,
     mode,
@@ -429,24 +475,48 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
         </div>
 
         {expiryPreset === "custom" ? (
-          <div className="grid gap-4 tablet:grid-cols-2">
-            <Input
-              id="cohort-custom-expiry-amount"
-              label="Duration"
-              initValue={customExpiryAmount}
-              onChange={(value) => setCustomExpiryAmount(value)}
-              inputMode="decimal"
-              type="number"
-              required
+          <div className="flex flex-col gap-4">
+            <DatePickerField
+              id="cohort-custom-expiry-date"
+              label="Date"
+              labelPlacement="floating"
+              selectedDate={customExpiryDate}
+              onSelectedDateChange={(date) => {
+                setCustomExpiryDate(date);
+                setErrorMsg("");
+              }}
+              isDateDisabled={isPastDate}
+              popoverRenderMode="portal-scrolling"
+              testId="cohort-custom-expiry-date"
             />
-            <Select
-              id="cohort-custom-expiry-unit"
-              label="Unit"
-              options={expiryUnitOptions}
-              value={customExpiryUnit}
-              onChange={(value) => setCustomExpiryUnit(value as ExpiryUnit)}
-              forceBelow
-            />
+            <div className="grid gap-4 tablet:grid-cols-2">
+              <Select
+                id="cohort-custom-expiry-hour"
+                label="Hour"
+                options={hourOptions}
+                value={customExpiryHour}
+                onChange={(value) => {
+                  setCustomExpiryHour(value);
+                  setErrorMsg("");
+                }}
+                forceBelow
+              />
+              <Select
+                id="cohort-custom-expiry-minute"
+                label="Minute"
+                options={minuteOptions}
+                value={customExpiryMinute}
+                onChange={(value) => {
+                  setCustomExpiryMinute(value);
+                  setErrorMsg("");
+                }}
+                forceBelow
+              />
+            </div>
+            <div className="rounded-lg bg-core-primary-5 px-4 py-3">
+              <div className="text-200 text-text-primary-70">Expiration</div>
+              <div className="mt-1 text-emphasis-300 text-text-primary">{customExpiresAtLabel}</div>
+            </div>
           </div>
         ) : null}
 
