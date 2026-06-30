@@ -319,6 +319,12 @@ type runtimeStatusCapture struct {
 	err        error
 }
 
+type runtimeStatusReport struct {
+	connected  bool
+	subscribed bool
+	err        error
+}
+
 func captureRuntimeStatus(client *Client) *runtimeStatusCapture {
 	capture := &runtimeStatusCapture{}
 	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
@@ -418,6 +424,91 @@ func TestReportReconnectStatusSuppressesStaleReplayReport(t *testing.T) {
 	client.reportReconnectStatusForSequence(t.Context(), &replayClient{}, staleSequence)
 	if status.reports != 1 {
 		t.Fatalf("stale replay report was not suppressed; reports = %d, want 1", status.reports)
+	}
+}
+
+func TestReportRuntimeStatusForSequenceDoesNotOverwriteNewerDisconnect(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	healthyReportEntered := make(chan struct{})
+	allowHealthyReport := make(chan struct{})
+	disconnectedReported := make(chan struct{})
+	reports := make(chan runtimeStatusReport, 2)
+	wantErr := errors.New("broker lost")
+
+	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
+		if connected && subscribed {
+			close(healthyReportEntered)
+			<-allowHealthyReport
+		}
+		reports <- runtimeStatusReport{
+			connected:  connected,
+			subscribed: subscribed,
+			err:        err,
+		}
+		if !connected && !subscribed {
+			close(disconnectedReported)
+		}
+	})
+
+	healthyReleased := false
+	defer func() {
+		if !healthyReleased {
+			close(allowHealthyReport)
+		}
+	}()
+
+	sequence := client.nextStatusSequence()
+	healthyDone := make(chan struct{})
+	go func() {
+		defer close(healthyDone)
+		client.reportRuntimeStatusForSequence(sequence, true, true, nil)
+	}()
+
+	select {
+	case <-healthyReportEntered:
+	case <-time.After(time.Second):
+		t.Fatal("healthy report did not enter reporter")
+	}
+
+	closedClient := &replayClient{}
+	closedClient.setConnectionOpen(false)
+	disconnectDone := make(chan struct{})
+	go func() {
+		defer close(disconnectDone)
+		client.reportConnectionLostStatus(closedClient, wantErr)
+	}()
+
+	select {
+	case <-disconnectedReported:
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(allowHealthyReport)
+	healthyReleased = true
+
+	select {
+	case <-healthyDone:
+	case <-time.After(time.Second):
+		t.Fatal("healthy report did not complete")
+	}
+	select {
+	case <-disconnectDone:
+	case <-time.After(time.Second):
+		t.Fatal("disconnect report did not complete")
+	}
+	close(reports)
+
+	var last runtimeStatusReport
+	for report := range reports {
+		last = report
+	}
+	if last.connected || last.subscribed {
+		t.Fatalf("last report connected=%v subscribed=%v, want both false", last.connected, last.subscribed)
+	}
+	if !errors.Is(last.err, wantErr) {
+		t.Fatalf("last err = %v, want %v", last.err, wantErr)
 	}
 }
 

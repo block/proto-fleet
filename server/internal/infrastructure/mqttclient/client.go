@@ -29,6 +29,7 @@ const (
 // Client adapts Eclipse Paho to the curtailment MQTT ingest interface.
 type Client struct {
 	mu             sync.Mutex
+	statusMu       sync.Mutex
 	client         paho.Client
 	subscriptions  map[string]paho.MessageHandler
 	statusReporter func(connected bool, subscribed bool, err error)
@@ -162,6 +163,12 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(paylo
 }
 
 func (c *Client) reportRuntimeStatus(connected bool, subscribed bool, err error) {
+	c.statusMu.Lock()
+	defer c.statusMu.Unlock()
+	c.reportRuntimeStatusLocked(connected, subscribed, err)
+}
+
+func (c *Client) reportRuntimeStatusLocked(connected bool, subscribed bool, err error) {
 	c.mu.Lock()
 	reporter := c.statusReporter
 	c.mu.Unlock()
@@ -171,14 +178,18 @@ func (c *Client) reportRuntimeStatus(connected bool, subscribed bool, err error)
 }
 
 func (c *Client) nextStatusSequence() uint64 {
+	c.statusMu.Lock()
+	defer c.statusMu.Unlock()
 	return c.statusSequence.Add(1)
 }
 
 func (c *Client) reportRuntimeStatusForSequence(sequence uint64, connected bool, subscribed bool, err error) {
+	c.statusMu.Lock()
+	defer c.statusMu.Unlock()
 	if c.statusSequence.Load() != sequence {
 		return
 	}
-	c.reportRuntimeStatus(connected, subscribed, err)
+	c.reportRuntimeStatusLocked(connected, subscribed, err)
 }
 
 func (c *Client) reportConnectionLostStatus(client connectionStateClient, err error) {
@@ -198,9 +209,6 @@ func (c *Client) reportReconnectStatus(ctx context.Context, client reconnectClie
 
 func (c *Client) reportReconnectStatusForSequence(ctx context.Context, client reconnectClient, sequence uint64) {
 	err := c.replaySubscriptions(ctx, client)
-	if c.statusSequence.Load() != sequence {
-		return
-	}
 	if !client.IsConnectionOpen() {
 		if err == nil {
 			err = errors.New("mqttclient: connection lost during resubscribe")
