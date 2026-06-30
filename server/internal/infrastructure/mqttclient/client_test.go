@@ -1,6 +1,7 @@
 package mqttclient
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ type subscribeCall struct {
 
 type replayClient struct {
 	calls    []subscribeCall
+	token    paho.Token
 	tokenErr error
 }
 
@@ -26,6 +28,9 @@ func (r *replayClient) Subscribe(topic string, qos byte, callback paho.MessageHa
 		qos:      qos,
 		callback: callback,
 	})
+	if r.token != nil {
+		return r.token
+	}
 	return completedToken{err: r.tokenErr}
 }
 
@@ -49,6 +54,38 @@ func (t completedToken) Done() <-chan struct{} {
 
 func (t completedToken) Error() error {
 	return t.err
+}
+
+type pendingToken struct {
+	done chan struct{}
+}
+
+func newPendingToken() pendingToken {
+	return pendingToken{done: make(chan struct{})}
+}
+
+func (t pendingToken) Wait() bool {
+	<-t.done
+	return true
+}
+
+func (t pendingToken) WaitTimeout(timeout time.Duration) bool {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-t.done:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+func (t pendingToken) Done() <-chan struct{} {
+	return t.done
+}
+
+func (t pendingToken) Error() error {
+	return nil
 }
 
 type routeCall struct {
@@ -313,6 +350,35 @@ func TestReportReconnectStatusReportsSubscribeReplayFailure(t *testing.T) {
 	}
 	if !errors.Is(gotErr, wantErr) {
 		t.Fatalf("err = %v, want %v", gotErr, wantErr)
+	}
+}
+
+func TestReportReconnectStatusReportsSubscribeReplayTimeout(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	client.subscriptions["curtailment/source"] = func(_ paho.Client, _ paho.Message) {}
+
+	replay := &replayClient{token: newPendingToken()}
+	var gotConnected bool
+	var gotSubscribed bool
+	var gotErr error
+	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
+		gotConnected = connected
+		gotSubscribed = subscribed
+		gotErr = err
+	})
+
+	client.reportReconnectStatusWithTimeout(t.Context(), replay, time.Millisecond)
+
+	if !gotConnected {
+		t.Fatal("connected = false, want true")
+	}
+	if gotSubscribed {
+		t.Fatal("subscribed = true, want false")
+	}
+	if !errors.Is(gotErr, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context deadline exceeded", gotErr)
 	}
 }
 

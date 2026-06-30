@@ -18,6 +18,7 @@ import (
 
 const subscribeQoS byte = 1
 const maxPayloadBytes = 1024
+const reconnectSubscribeTimeout = 10 * time.Second
 
 const (
 	transportTCP = "tcp"
@@ -159,7 +160,13 @@ func (c *Client) reportRuntimeStatus(connected bool, subscribed bool, err error)
 }
 
 func (c *Client) reportReconnectStatus(ctx context.Context, client subscriptionClient) {
-	if err := c.replaySubscriptions(ctx, client); err != nil {
+	c.reportReconnectStatusWithTimeout(ctx, client, reconnectSubscribeTimeout)
+}
+
+func (c *Client) reportReconnectStatusWithTimeout(ctx context.Context, client subscriptionClient, timeout time.Duration) {
+	replayCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if err := c.replaySubscriptions(replayCtx, client); err != nil {
 		c.reportRuntimeStatus(true, false, err)
 		return
 	}
