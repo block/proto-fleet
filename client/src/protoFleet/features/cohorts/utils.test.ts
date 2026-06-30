@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
+import { create } from "@bufbuild/protobuf";
+import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 
-import { cohortDeviceDisplayName, cohortDeviceSecondaryText, durationToExpiresAt } from "./utils";
+import {
+  cohortDeviceDisplayName,
+  cohortDeviceSecondaryText,
+  durationToExpiresAt,
+  formatCohortExpiryTimeLeft,
+} from "./utils";
+
+const timestampFromIso = (iso: string) =>
+  create(TimestampSchema, {
+    seconds: BigInt(Math.floor(new Date(iso).getTime() / 1000)),
+    nanos: 0,
+  });
 
 describe("cohort duration helpers", () => {
   const baseDate = new Date("2026-06-25T12:00:00.000Z");
@@ -19,6 +32,22 @@ describe("cohort duration helpers", () => {
     expect(() => durationToExpiresAt("custom", "0", "hours", baseDate)).toThrow(
       "Expiration duration must be greater than zero",
     );
+  });
+});
+
+describe("cohort expiry display helpers", () => {
+  const now = new Date("2026-06-25T12:00:00.000Z");
+
+  it("formats compact time left for active reservations", () => {
+    expect(formatCohortExpiryTimeLeft(timestampFromIso("2026-06-25T12:45:00.000Z"), now)).toBe("<1h left");
+    expect(formatCohortExpiryTimeLeft(timestampFromIso("2026-06-25T14:14:00.000Z"), now)).toBe("2h 14m left");
+    expect(formatCohortExpiryTimeLeft(timestampFromIso("2026-06-27T11:00:00.000Z"), now)).toBe("1d 23h left");
+    expect(formatCohortExpiryTimeLeft(timestampFromIso("2026-06-28T12:00:00.000Z"), now)).toBe("3d left");
+  });
+
+  it("omits missing or elapsed expirations", () => {
+    expect(formatCohortExpiryTimeLeft(undefined, now)).toBeUndefined();
+    expect(formatCohortExpiryTimeLeft(timestampFromIso("2026-06-25T11:59:00.000Z"), now)).toBeUndefined();
   });
 });
 

@@ -6,6 +6,7 @@ import {
   type Cohort,
   type CohortFirmwareTarget,
   type CohortMember,
+  CohortState,
 } from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
 import type { MinerModelGroup } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useCohortApi } from "@/protoFleet/api/useCohortApi";
@@ -21,6 +22,7 @@ import {
   durationToExpiresAt,
   type ExpiryPreset,
   type ExpiryUnit,
+  formatCohortExpiryTimeLeft,
   formatCohortTimestamp,
   isActiveCohort,
   isActiveNonDefaultCohort,
@@ -444,6 +446,11 @@ const CohortOverviewPage = () => {
     );
   }
 
+  const expiryTimeLeft =
+    !summary.isDefault && summary.state === CohortState.ACTIVE
+      ? formatCohortExpiryTimeLeft(summary.expiresAt)
+      : undefined;
+
   return (
     <div className="flex flex-col gap-6 p-6 laptop:p-10" data-testid="cohort-overview-page">
       <Header
@@ -503,7 +510,15 @@ const CohortOverviewPage = () => {
         <OverviewMetric label="State" value={cohortStateLabel(summary.state)} />
         <OverviewMetric label="Members" value={summary.explicitMemberCount.toString()} />
         <OverviewMetric label="Owner" value={summary.ownerUsername || "Unowned"} />
-        <OverviewMetric label="Expires" value={formatCohortTimestamp(summary.expiresAt)} />
+        <OverviewMetric
+          label="Expires"
+          value={
+            <>
+              {formatCohortTimestamp(summary.expiresAt)}
+              {expiryTimeLeft ? <span className="text-text-primary-50"> · {expiryTimeLeft}</span> : null}
+            </>
+          }
+        />
       </section>
 
       <section className="overflow-hidden rounded-lg border border-border-5">
@@ -608,7 +623,7 @@ const CohortOverviewPage = () => {
   );
 };
 
-const OverviewMetric = ({ label, value }: { label: string; value: string }) => (
+const OverviewMetric = ({ label, value }: { label: string; value: ReactNode }) => (
   <div className="rounded-lg border border-border-5 bg-surface-base p-4">
     <div className="text-200 text-text-primary-70">{label}</div>
     <div className="mt-1 truncate text-heading-100 text-text-primary">{value}</div>

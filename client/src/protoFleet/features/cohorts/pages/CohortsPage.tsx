@@ -12,6 +12,7 @@ import {
   cohortDeviceDisplayName,
   cohortDeviceSecondaryText,
   cohortStateLabel,
+  formatCohortExpiryTimeLeft,
   formatCohortTimestamp,
   isActiveNonDefaultCohort,
   isSuperAdminRole,
@@ -35,7 +36,8 @@ const pluralize = (count: number, singular: string, plural = `${singular}s`) =>
 
 type RigAssignmentFilterKey = "assignment" | "cohort" | "owner" | "target" | "site";
 
-const cohortPageSize = 50;
+const cohortListPageSize = 5;
+const assignmentPageSize = 50;
 const availableAssignmentValue = "available";
 const reservedAssignmentValue = "reserved";
 const defaultCohortFilterValue = "__default__";
@@ -87,15 +89,26 @@ const bigintFromFilterValue = (value: string) => {
   }
 };
 
-const pageEndCount = (pageIndex: number, itemCount: number) => pageIndex * cohortPageSize + itemCount;
+const pageEndCount = (pageIndex: number, pageSize: number, itemCount: number) => pageIndex * pageSize + itemCount;
 
-const displayedTotalCount = (reportedTotal: number, pageIndex: number, itemCount: number) =>
-  Math.max(reportedTotal, pageEndCount(pageIndex, itemCount));
+const displayedTotalCount = (reportedTotal: number, pageIndex: number, pageSize: number, itemCount: number) =>
+  Math.max(reportedTotal, pageEndCount(pageIndex, pageSize, itemCount));
 
 const isOwnedByCurrentUser = (cohort: CohortSummary, username: string) => {
   const ownerUsername = cohort.ownerUsername.trim().toLowerCase();
   const currentUsername = username.trim().toLowerCase();
   return ownerUsername !== "" && currentUsername !== "" && ownerUsername === currentUsername;
+};
+
+const CohortExpiryText = ({ cohort }: { cohort: CohortSummary }) => {
+  const timeLeft = isActiveNonDefaultCohort(cohort) ? formatCohortExpiryTimeLeft(cohort.expiresAt) : undefined;
+
+  return (
+    <>
+      {formatCohortTimestamp(cohort.expiresAt)}
+      {timeLeft ? <span className="text-text-primary-50"> · {timeLeft}</span> : null}
+    </>
+  );
 };
 
 const CohortsPage = () => {
@@ -207,18 +220,18 @@ const CohortsPage = () => {
       const [nextCohorts, nextMyCohorts, nextDevices] = await Promise.allSettled([
         listCohorts({
           includeReleased: false,
-          pageSize: cohortPageSize,
+          pageSize: cohortListPageSize,
           pageToken: cohortsPageToken,
           search: debouncedCohortsSearch,
         }),
         getMyCohorts({
           includeReleased: false,
-          pageSize: cohortPageSize,
+          pageSize: cohortListPageSize,
           pageToken: myCohortsPageToken,
           search: debouncedMyCohortsSearch,
         }),
         listDevices({
-          pageSize: cohortPageSize,
+          pageSize: assignmentPageSize,
           pageToken: devicesPageToken,
           filter: rigAssignmentDeviceFilter,
         }),
@@ -365,9 +378,24 @@ const CohortsPage = () => {
   const cohortsPageIndex = cohortsPageHistory.length;
   const myCohortsPageIndex = myCohortsPageHistory.length;
   const devicesPageIndex = devicesPageHistory.length;
-  const displayedCohortsTotalCount = displayedTotalCount(cohortsTotalCount, cohortsPageIndex, cohorts.length);
-  const displayedMyCohortsTotalCount = displayedTotalCount(myCohortsTotalCount, myCohortsPageIndex, myCohorts.length);
-  const displayedDevicesTotalCount = displayedTotalCount(devicesTotalCount, devicesPageIndex, devices.length);
+  const displayedCohortsTotalCount = displayedTotalCount(
+    cohortsTotalCount,
+    cohortsPageIndex,
+    cohortListPageSize,
+    cohorts.length,
+  );
+  const displayedMyCohortsTotalCount = displayedTotalCount(
+    myCohortsTotalCount,
+    myCohortsPageIndex,
+    cohortListPageSize,
+    myCohorts.length,
+  );
+  const displayedDevicesTotalCount = displayedTotalCount(
+    devicesTotalCount,
+    devicesPageIndex,
+    assignmentPageSize,
+    devices.length,
+  );
 
   const detailHref = useCallback(
     (cohortId: bigint) => scopedPath(`/cohorts/${cohortId.toString()}`, activeSite),
@@ -538,10 +566,7 @@ const CohortsPage = () => {
 
       <section className="overflow-hidden rounded-lg border border-border-5">
         <div className="border-b border-border-5 px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Header title="Miner assignments" titleSize="text-heading-100" />
-            <span className="text-200 text-text-primary-70">{pluralize(displayedDevicesTotalCount, "miner")}</span>
-          </div>
+          <Header title="Miner assignments" titleSize="text-heading-100" />
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Search compact initValue={rigAssignmentSearch} onChange={handleRigAssignmentSearchChange} />
             <FilterChipsBar
@@ -603,6 +628,7 @@ const CohortsPage = () => {
           itemCount={devices.length}
           totalCount={displayedDevicesTotalCount}
           pageIndex={devicesPageIndex}
+          pageSize={assignmentPageSize}
           itemName={{ singular: "miner", plural: "miners" }}
           canGoPrevious={devicesPageHistory.length > 0}
           canGoNext={devicesNextPageToken !== ""}
@@ -655,10 +681,7 @@ const CohortList = ({
 }: CohortListProps) => (
   <section className="overflow-hidden rounded-lg border border-border-5">
     <div className="border-b border-border-5 px-4 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Header title={title} titleSize="text-heading-100" />
-        <span className="text-200 text-text-primary-70">{pluralize(totalCount, "cohort")}</span>
-      </div>
+      <Header title={title} titleSize="text-heading-100" />
       <div className="mt-3">
         <Search compact initValue={search} onChange={onSearchChange} />
       </div>
@@ -670,7 +693,7 @@ const CohortList = ({
             <div className="truncate font-medium text-text-primary hover:underline">{cohort.label}</div>
             <div className="truncate text-200 text-text-primary-70">
               {cohort.explicitMemberCount.toString()} miners · {cohort.ownerUsername || "Unowned"} ·{" "}
-              {formatCohortTimestamp(cohort.expiresAt)}
+              <CohortExpiryText cohort={cohort} />
             </div>
           </Link>
           <div className="flex items-center gap-2">
@@ -699,6 +722,7 @@ const CohortList = ({
       itemCount={cohorts.length}
       totalCount={totalCount}
       pageIndex={pageIndex}
+      pageSize={cohortListPageSize}
       itemName={{ singular: "cohort", plural: "cohorts" }}
       canGoPrevious={canGoPrevious}
       canGoNext={canGoNext}
@@ -712,6 +736,7 @@ interface PaginationControlsProps {
   itemCount: number;
   totalCount: number;
   pageIndex: number;
+  pageSize: number;
   itemName: {
     singular: string;
     plural: string;
@@ -726,6 +751,7 @@ const PaginationControls = ({
   itemCount,
   totalCount,
   pageIndex,
+  pageSize,
   itemName,
   canGoPrevious,
   canGoNext,
@@ -734,8 +760,8 @@ const PaginationControls = ({
 }: PaginationControlsProps) => {
   if (itemCount === 0 && totalCount === 0 && !canGoPrevious && !canGoNext) return null;
 
-  const firstItemIndex = pageIndex * cohortPageSize + 1;
-  const lastItemIndex = pageEndCount(pageIndex, itemCount);
+  const firstItemIndex = pageIndex * pageSize + 1;
+  const lastItemIndex = pageEndCount(pageIndex, pageSize, itemCount);
 
   return (
     <div className="flex flex-col items-center gap-4 border-t border-border-5 px-4 py-6">

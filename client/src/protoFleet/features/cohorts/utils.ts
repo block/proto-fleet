@@ -18,6 +18,27 @@ export const formatCohortTimestamp = (timestamp: CohortSummary["expiresAt"]) => 
   return new Date(timestampMs(timestamp)).toLocaleString();
 };
 
+export const formatCohortExpiryTimeLeft = (timestamp: CohortSummary["expiresAt"], referenceDate = new Date()) => {
+  if (!timestamp) return undefined;
+
+  const remainingMs = timestampMs(timestamp) - referenceDate.getTime();
+  if (remainingMs <= 0) return undefined;
+
+  const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60_000));
+  if (remainingMinutes < 60) return "<1h left";
+
+  const totalHours = Math.floor(remainingMinutes / 60);
+  const minutes = remainingMinutes % 60;
+  if (totalHours < 24) {
+    return `${totalHours}h${minutes > 0 ? ` ${minutes}m` : ""} left`;
+  }
+
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  if (days === 1 && hours > 0) return `1d ${hours}h left`;
+  return `${days}d left`;
+};
+
 export const formatDateTimeLocal = (date: Date) => {
   const offsetMs = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
