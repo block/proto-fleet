@@ -1,4 +1,5 @@
 import { createContext, ReactNode, useMemo } from "react";
+import { useResetDeviceStateOnMinerChange } from "./useResetDeviceStateOnMinerChange";
 import { Api, RequestParams } from "@/protoOS/api/generatedApi";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import type { MinerMetadata } from "@/shared/types/minerMetadata";
@@ -83,6 +84,10 @@ export const MinerHostingProvider = ({
 }: MinerHostingProviderProps) => {
   const instance = useMemo(() => CreateApi(baseUrl, mode), [baseUrl, mode]);
   const api = instance.api;
+
+  // baseUrl is per-miner in fleet mode, so this clears the singleton device
+  // store when switching miners (no-op in direct mode, where baseUrl is fixed).
+  useResetDeviceStateOnMinerChange(baseUrl);
 
   return (
     <MinerHostingContext.Provider value={{ api, minerRoot, closeButton, mode, metadata }}>
