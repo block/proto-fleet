@@ -26,9 +26,10 @@ const (
 
 // Client adapts Eclipse Paho to the curtailment MQTT ingest interface.
 type Client struct {
-	mu            sync.Mutex
-	client        paho.Client
-	subscriptions map[string]paho.MessageHandler
+	mu             sync.Mutex
+	client         paho.Client
+	subscriptions  map[string]paho.MessageHandler
+	statusReporter func(connected bool, subscribed bool, err error)
 }
 
 type subscriptionClient interface {
@@ -43,6 +44,10 @@ var _ interface {
 	Connect(ctx context.Context, host string, port int32, transport string, username, password, clientIdentity string) error
 	Subscribe(ctx context.Context, topic string, handler func(payload []byte, receivedAt time.Time)) error
 	Disconnect(shutdownDeadline time.Duration)
+} = (*Client)(nil)
+
+var _ interface {
+	SetRuntimeStatusReporter(reporter func(connected bool, subscribed bool, err error))
 } = (*Client)(nil)
 
 func New() *Client {
@@ -61,10 +66,17 @@ func (c *Client) Connect(ctx context.Context, host string, port int32, transport
 		return err
 	}
 	initialConnectComplete := &atomic.Bool{}
+	initialOnConnectObserved := &atomic.Bool{}
 	opts := clientOptions(brokerURL, tlsConfig, username, password, clientIdentity, func(client paho.Client) {
+		if initialOnConnectObserved.CompareAndSwap(false, true) {
+			return
+		}
 		if initialConnectComplete.Load() {
 			c.resubscribe(client)
+			c.reportRuntimeStatus(true, true, nil)
 		}
+	}, func(_ paho.Client, err error) {
+		c.reportRuntimeStatus(false, false, normalizeConnectionLostError(err))
 	})
 
 	client := paho.NewClient(opts)
@@ -90,6 +102,12 @@ func (c *Client) Connect(ctx context.Context, host string, port int32, transport
 	}
 	initialConnectComplete.Store(true)
 	return nil
+}
+
+func (c *Client) SetRuntimeStatusReporter(reporter func(connected bool, subscribed bool, err error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.statusReporter = reporter
 }
 
 func (c *Client) Subscribe(ctx context.Context, topic string, handler func(payload []byte, receivedAt time.Time)) error {
@@ -130,6 +148,15 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(paylo
 		return fmt.Errorf("mqttclient: subscribe %q: %w", topic, err)
 	}
 	return nil
+}
+
+func (c *Client) reportRuntimeStatus(connected bool, subscribed bool, err error) {
+	c.mu.Lock()
+	reporter := c.statusReporter
+	c.mu.Unlock()
+	if reporter != nil {
+		reporter(connected, subscribed, err)
+	}
 }
 
 func (c *Client) resubscribe(client paho.Client) {
@@ -187,6 +214,7 @@ func clientOptions(
 	password string,
 	clientIdentity string,
 	onConnect paho.OnConnectHandler,
+	onConnectionLost paho.ConnectionLostHandler,
 ) *paho.ClientOptions {
 	opts := paho.NewClientOptions().
 		AddBroker(brokerURL).
@@ -199,10 +227,20 @@ func clientOptions(
 		SetOnConnectHandler(onConnect).
 		SetOrderMatters(true).
 		SetProtocolVersion(4)
+	if onConnectionLost != nil {
+		opts.SetConnectionLostHandler(onConnectionLost)
+	}
 	if tlsConfig != nil {
 		opts.SetTLSConfig(tlsConfig)
 	}
 	return opts
+}
+
+func normalizeConnectionLostError(err error) error {
+	if err != nil {
+		return err
+	}
+	return errors.New("mqttclient: connection lost")
 }
 
 func (c *Client) Disconnect(shutdownDeadline time.Duration) {

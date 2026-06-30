@@ -36,6 +36,10 @@ type RuntimeStatusUpdate struct {
 
 type RuntimeStatusReporter func(RuntimeStatusUpdate)
 
+type runtimeStatusReportingMQTTClient interface {
+	SetRuntimeStatusReporter(reporter func(connected bool, subscribed bool, err error))
+}
+
 const (
 	brokerTransportTCP = "tcp"
 	brokerTransportTLS = "tls"

@@ -2,6 +2,7 @@ package mqttingest
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"testing"
@@ -77,6 +78,71 @@ func (c *countingClient) Disconnect(time.Duration) {
 	}
 }
 
+type runtimeStatusClientRegistry struct {
+	mu      sync.Mutex
+	clients map[string]*runtimeStatusClient
+}
+
+func newRuntimeStatusClientRegistry() *runtimeStatusClientRegistry {
+	return &runtimeStatusClientRegistry{
+		clients: make(map[string]*runtimeStatusClient),
+	}
+}
+
+func (r *runtimeStatusClientRegistry) newClient() MQTTClient {
+	return &runtimeStatusClient{reg: r}
+}
+
+func (r *runtimeStatusClientRegistry) register(host string, client *runtimeStatusClient) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.clients[host] = client
+}
+
+func (r *runtimeStatusClientRegistry) report(t *testing.T, host string, connected bool, subscribed bool, err error) {
+	t.Helper()
+	var client *runtimeStatusClient
+	require.Eventually(t, func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		client = r.clients[host]
+		return client != nil
+	}, 2*time.Second, 10*time.Millisecond, "broker client %s was not registered", host)
+	client.report(connected, subscribed, err)
+}
+
+type runtimeStatusClient struct {
+	reg      *runtimeStatusClientRegistry
+	mu       sync.Mutex
+	reporter func(connected bool, subscribed bool, err error)
+}
+
+func (c *runtimeStatusClient) Connect(_ context.Context, host string, _ int32, _ string, _ string, _ string, _ string) error {
+	c.reg.register(host, c)
+	return nil
+}
+
+func (c *runtimeStatusClient) Subscribe(_ context.Context, _ string, _ func(payload []byte, receivedAt time.Time)) error {
+	return nil
+}
+
+func (c *runtimeStatusClient) Disconnect(time.Duration) {}
+
+func (c *runtimeStatusClient) SetRuntimeStatusReporter(reporter func(connected bool, subscribed bool, err error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reporter = reporter
+}
+
+func (c *runtimeStatusClient) report(connected bool, subscribed bool, err error) {
+	c.mu.Lock()
+	reporter := c.reporter
+	c.mu.Unlock()
+	if reporter != nil {
+		reporter(connected, subscribed, err)
+	}
+}
+
 func (f *fakeSourceStore) setSources(sources ...SourceConfig) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -109,6 +175,20 @@ func requireRunningBrokers(t *testing.T, s *Subscriber, sourceID int64, want int
 		status := s.SourceRuntimeStatus(sourceID)
 		return status.State == RuntimeStateRunning && status.RunningBrokerCount == want
 	}, 2*time.Second, 10*time.Millisecond, "source %d never reported %d running brokers", sourceID, want)
+}
+
+func requireRuntimeStatus(t *testing.T, s *Subscriber, sourceID int64, state RuntimeState, running int, subscribed int) RuntimeStatus {
+	t.Helper()
+	var status RuntimeStatus
+	require.Eventually(t, func() bool {
+		status = s.SourceRuntimeStatus(sourceID)
+		return status.State == state &&
+			status.RunningBrokerCount == running &&
+			status.SubscribedBrokerCount == subscribed
+	}, 2*time.Second, 10*time.Millisecond,
+		"source %d never reported state=%v running=%d subscribed=%d",
+		sourceID, state, running, subscribed)
+	return status
 }
 
 func TestSubscriber_ReconcileStartsAndStopsWorkers(t *testing.T) {
@@ -208,4 +288,40 @@ func TestSubscriber_QuiesceSourceStopsOnlyTargetSource(t *testing.T) {
 	running := s.SourceRuntimeStatus(second.ID)
 	assert.Equal(t, RuntimeStateRunning, running.State)
 	assert.Equal(t, 2, running.RunningBrokerCount)
+}
+
+func TestSubscriber_RuntimeStatusTracksBrokerDisconnectAndReconnect(t *testing.T) {
+	t.Parallel()
+
+	src := reconcileTestSource(1, "maestro")
+	store := newFakeSourceStore(src)
+	reg := newRuntimeStatusClientRegistry()
+	s, err := NewSubscriber(Config{
+		Store:            store,
+		NewClient:        reg.newClient,
+		Decryptor:        passthroughDecryptor{},
+		Logger:           slog.New(slog.DiscardHandler),
+		ShutdownDeadline: 2 * time.Second,
+	})
+	require.NoError(t, err)
+	require.NoError(t, s.Start(context.Background()))
+	defer s.Stop()
+
+	requireRuntimeStatus(t, s, src.ID, RuntimeStateRunning, 2, 2)
+
+	reg.report(t, src.BrokerPrimaryHost, false, false, errors.New("primary broker lost"))
+	status := requireRuntimeStatus(t, s, src.ID, RuntimeStateRunning, 1, 1)
+	assert.Equal(t, "primary broker lost", status.LastError)
+
+	reg.report(t, src.BrokerSecondaryHost, false, false, errors.New("secondary broker lost"))
+	status = requireRuntimeStatus(t, s, src.ID, RuntimeStateError, 0, 0)
+	assert.NotEmpty(t, status.LastError)
+
+	reg.report(t, src.BrokerPrimaryHost, true, true, nil)
+	status = requireRuntimeStatus(t, s, src.ID, RuntimeStateRunning, 1, 1)
+	assert.Equal(t, "secondary broker lost", status.LastError)
+
+	reg.report(t, src.BrokerSecondaryHost, true, true, nil)
+	status = requireRuntimeStatus(t, s, src.ID, RuntimeStateRunning, 2, 2)
+	assert.Empty(t, status.LastError)
 }

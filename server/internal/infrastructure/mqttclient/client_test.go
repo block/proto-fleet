@@ -1,6 +1,7 @@
 package mqttclient
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -148,7 +149,7 @@ func TestSubscribeBeforeConnectStagesRoute(t *testing.T) {
 func TestClientOptions_DurableOrderedSession(t *testing.T) {
 	t.Parallel()
 
-	opts := clientOptions("tcp://10.0.0.1:1883", nil, "user", "pass", "source|broker|topic", nil)
+	opts := clientOptions("tcp://10.0.0.1:1883", nil, "user", "pass", "source|broker|topic", nil, nil)
 
 	if opts.CleanSession {
 		t.Fatal("CleanSession must be false so broker QoS1 queues survive fleetd restarts")
@@ -164,6 +165,71 @@ func TestClientOptions_DurableOrderedSession(t *testing.T) {
 	}
 	if opts.ClientID != clientID("source|broker|topic") {
 		t.Fatalf("ClientID = %q, want deterministic clientID helper output", opts.ClientID)
+	}
+}
+
+func TestClientOptions_RuntimeStatusCallbacks(t *testing.T) {
+	t.Parallel()
+
+	var connected bool
+	var lostErr error
+	opts := clientOptions(
+		"tcp://10.0.0.1:1883",
+		nil,
+		"user",
+		"pass",
+		"source|broker|topic",
+		func(paho.Client) {
+			connected = true
+		},
+		func(_ paho.Client, err error) {
+			lostErr = err
+		},
+	)
+
+	if opts.OnConnect == nil {
+		t.Fatal("OnConnect handler was not installed")
+	}
+	if opts.OnConnectionLost == nil {
+		t.Fatal("OnConnectionLost handler was not installed")
+	}
+
+	opts.OnConnect(nil)
+	if !connected {
+		t.Fatal("OnConnect handler did not run")
+	}
+
+	wantErr := errors.New("broker lost")
+	opts.OnConnectionLost(nil, wantErr)
+	if !errors.Is(lostErr, wantErr) {
+		t.Fatalf("lostErr = %v, want %v", lostErr, wantErr)
+	}
+}
+
+func TestClientRuntimeStatusReporter(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	var gotConnected bool
+	var gotSubscribed bool
+	var gotErr error
+	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
+		gotConnected = connected
+		gotSubscribed = subscribed
+		gotErr = err
+	})
+
+	wantErr := errors.New("connection lost")
+	client.reportRuntimeStatus(false, false, wantErr)
+
+	if gotConnected {
+		t.Fatal("connected = true, want false")
+	}
+	if gotSubscribed {
+		t.Fatal("subscribed = true, want false")
+	}
+	if !errors.Is(gotErr, wantErr) {
+		t.Fatalf("err = %v, want %v", gotErr, wantErr)
 	}
 }
 
