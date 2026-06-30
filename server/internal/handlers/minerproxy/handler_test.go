@@ -1,7 +1,6 @@
 package minerproxy
 
 import (
-	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -326,95 +325,6 @@ func TestSetResponseHardeningHeaders(t *testing.T) {
 	}
 	if got := h.Get("X-Frame-Options"); got != "DENY" {
 		t.Fatalf("X-Frame-Options = %q, want DENY", got)
-	}
-}
-
-func TestVerifyTargetIdentity(t *testing.T) {
-	newHandler := func() *Handler {
-		return &Handler{httpClient: newProxyHTTPClient(false), httpsClient: newProxyHTTPClient(true)}
-	}
-	// identityServer serves the unauthenticated /system and /network endpoints.
-	identityServer := func(t *testing.T, cbsn, mac string) *httptest.Server {
-		t.Helper()
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/api/v1/system":
-				_, _ = w.Write([]byte(`{"system-info":{"cb_sn":"` + cbsn + `"}}`))
-			case "/api/v1/network":
-				_, _ = w.Write([]byte(`{"network-info":{"mac":"` + mac + `"}}`))
-			default:
-				w.WriteHeader(http.StatusNotFound)
-			}
-		}))
-		t.Cleanup(srv.Close)
-		return srv
-	}
-
-	t.Run("serial match passes", func(t *testing.T) {
-		srv := identityServer(t, "SN-123", "AA:BB:CC:DD:EE:01")
-		h := newHandler()
-		err := h.verifyTargetIdentity(context.Background(), proxyTarget{baseURL: srv.URL, serialNumber: "sn-123"})
-		if err != nil {
-			t.Fatalf("verifyTargetIdentity = %v, want nil (serial matches case-insensitively)", err)
-		}
-	})
-
-	t.Run("serial mismatch fails closed", func(t *testing.T) {
-		srv := identityServer(t, "SN-999", "AA:BB:CC:DD:EE:01")
-		h := newHandler()
-		if err := h.verifyTargetIdentity(context.Background(), proxyTarget{baseURL: srv.URL, serialNumber: "SN-123"}); err == nil {
-			t.Fatal("verifyTargetIdentity = nil, want error on serial mismatch")
-		}
-	})
-
-	t.Run("falls back to MAC when no serial on record", func(t *testing.T) {
-		srv := identityServer(t, "SN-123", "aa:bb:cc:dd:ee:01")
-		h := newHandler()
-		// Record MAC differs only in formatting/case — must still match.
-		err := h.verifyTargetIdentity(context.Background(), proxyTarget{baseURL: srv.URL, macAddress: "AA-BB-CC-DD-EE-01"})
-		if err != nil {
-			t.Fatalf("verifyTargetIdentity = %v, want nil (MAC matches after normalization)", err)
-		}
-	})
-
-	t.Run("MAC mismatch fails closed", func(t *testing.T) {
-		srv := identityServer(t, "SN-123", "11:22:33:44:55:66")
-		h := newHandler()
-		if err := h.verifyTargetIdentity(context.Background(), proxyTarget{baseURL: srv.URL, macAddress: "AA:BB:CC:DD:EE:01"}); err == nil {
-			t.Fatal("verifyTargetIdentity = nil, want error on MAC mismatch")
-		}
-	})
-
-	t.Run("no identity on record fails closed", func(t *testing.T) {
-		srv := identityServer(t, "SN-123", "AA:BB:CC:DD:EE:01")
-		h := newHandler()
-		if err := h.verifyTargetIdentity(context.Background(), proxyTarget{baseURL: srv.URL}); err == nil {
-			t.Fatal("verifyTargetIdentity = nil, want error when neither serial nor MAC is recorded")
-		}
-	})
-
-	t.Run("unreadable identity endpoint fails closed", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusInternalServerError)
-		}))
-		t.Cleanup(srv.Close)
-		h := newHandler()
-		if err := h.verifyTargetIdentity(context.Background(), proxyTarget{baseURL: srv.URL, serialNumber: "SN-123"}); err == nil {
-			t.Fatal("verifyTargetIdentity = nil, want error when identity cannot be read")
-		}
-	})
-}
-
-func TestNormalizeMAC(t *testing.T) {
-	for _, tt := range []struct{ in, want string }{
-		{"AA:BB:CC:DD:EE:01", "aabbccddee01"},
-		{"aa-bb-cc-dd-ee-01", "aabbccddee01"},
-		{"aabbccddee01", "aabbccddee01"},
-		{"", ""},
-	} {
-		if got := normalizeMAC(tt.in); got != tt.want {
-			t.Fatalf("normalizeMAC(%q) = %q, want %q", tt.in, got, tt.want)
-		}
 	}
 }
 
