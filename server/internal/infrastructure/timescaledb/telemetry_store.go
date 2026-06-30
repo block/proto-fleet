@@ -40,9 +40,9 @@ const (
 	// Large building telemetry requests pass thousands of explicit device IDs.
 	// Above this size, time-ordered snapshot scans are faster than per-device
 	// index fanout for both metrics and uptime status buckets. Local profiling
-	// kept 10/100-device selectors on the index path, while 1k/5k selectors
+	// kept 10/100/500-device selectors on the index path, while 1k/5k selectors
 	// were faster on time scans.
-	largeDeviceSelectorScanThreshold = 2000
+	largeDeviceSelectorScanThreshold = 1000
 )
 
 // estimateEnergyKWh computes estimated energy consumption in kilowatt-hours
