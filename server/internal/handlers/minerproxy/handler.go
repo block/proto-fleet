@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -178,7 +179,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	proxyPath := "/api/v1/" + rest
+	proxyPath, ok := proxyPathFor(rest)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid miner API path")
+		return
+	}
 	if isUnproxyableEndpoint(r.Method, proxyPath) {
 		writeError(w, http.StatusForbidden, "this miner endpoint is managed by Fleet and cannot be changed from the embedded view")
 		return
@@ -489,6 +494,19 @@ func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
+// proxyPathFor builds the upstream miner path from the {rest...} wildcard and
+// reports whether it is canonical. The wildcard preserves percent-decoded
+// dot-segments and slashes (Go's ServeMux collapses only *unencoded* ".."), and
+// the handler both authorizes on and forwards this exact string — so a
+// non-canonical path (".." traversal, encoded "%2f"/"%2e%2e", empty segments, a
+// trailing slash) would let a caller classify one endpoint while the miner
+// routes another. Anything path.Clean would rewrite is rejected, which keeps
+// the classified path byte-identical to the forwarded path.
+func proxyPathFor(rest string) (string, bool) {
+	proxyPath := "/api/v1/" + rest
+	return proxyPath, path.Clean(proxyPath) == proxyPath
+}
+
 // isUnproxyableEndpoint rejects endpoints that must not be reverse-proxied
 // because forwarding them blindly would either desync Fleet's own state or
 // bypass a dedicated Fleet flow that carries controls the generic proxy can't:
@@ -528,11 +546,14 @@ func isWriteMethod(method string) bool {
 // installs can reboot the miner, so they require both firmware-update and
 // reboot, matching the direct Fleet command path (command/handler.go).
 func permissionsFor(method string, proxyPath string) []string {
-	if strings.HasPrefix(proxyPath, "/api/v1/system/logs") {
-		return []string{authz.PermMinerDownloadLogs}
-	}
-
+	// Reads: log retrieval gets its own permission; everything else is a plain
+	// read. Gate the logs prefix to read methods so a write under that prefix
+	// falls through to the mutating switch below rather than being authorized
+	// with only the download-logs permission.
 	if method == http.MethodGet || method == http.MethodHead {
+		if strings.HasPrefix(proxyPath, "/api/v1/system/logs") {
+			return []string{authz.PermMinerDownloadLogs}
+		}
 		return []string{authz.PermMinerRead}
 	}
 

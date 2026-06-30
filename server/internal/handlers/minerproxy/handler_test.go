@@ -84,6 +84,18 @@ func TestPermissionsFor(t *testing.T) {
 			proxyPath: "/api/v1/new-setting",
 			want:      []string{authz.PermMinerUpdatePassword},
 		},
+		{
+			name:      "log download is read-only",
+			method:    http.MethodGet,
+			proxyPath: "/api/v1/system/logs",
+			want:      []string{authz.PermMinerDownloadLogs},
+		},
+		{
+			name:      "a write under the logs prefix is not authorized as a mere log download",
+			method:    http.MethodPost,
+			proxyPath: "/api/v1/system/logs",
+			want:      []string{authz.PermMinerUpdatePassword},
+		},
 	}
 
 	for _, tt := range tests {
@@ -92,6 +104,58 @@ func TestPermissionsFor(t *testing.T) {
 				t.Fatalf("permissionsFor(%q, %q) = %v, want %v", tt.method, tt.proxyPath, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestProxyPathFor(t *testing.T) {
+	canonical := []string{"system/tag", "pools/1", "system/logs", "mining/target", "system/update"}
+	for _, rest := range canonical {
+		t.Run("accepts "+rest, func(t *testing.T) {
+			got, ok := proxyPathFor(rest)
+			if !ok {
+				t.Fatalf("proxyPathFor(%q) ok=false, want true", rest)
+			}
+			if want := "/api/v1/" + rest; got != want {
+				t.Fatalf("proxyPathFor(%q) = %q, want %q", rest, got, want)
+			}
+		})
+	}
+
+	// Non-canonical inputs that path.Clean would rewrite — the dot-segment
+	// smuggling, encoded-slash, double-slash, and trailing-slash bypasses.
+	nonCanonical := []string{
+		"system/logs/../../pools", // decoded ..%2f..%2f traversal
+		"../../auth/password",     // escape the /api/v1 prefix
+		"system//tag",             // empty segment
+		"auth/password/",          // trailing slash evades exact-match blocklist
+		"pools/../system/reboot",  // privilege downgrade attempt
+	}
+	for _, rest := range nonCanonical {
+		t.Run("rejects "+rest, func(t *testing.T) {
+			if _, ok := proxyPathFor(rest); ok {
+				t.Fatalf("proxyPathFor(%q) ok=true, want false (non-canonical path)", rest)
+			}
+		})
+	}
+}
+
+func TestCopyRequestHeadersStripsAuthAndCookie(t *testing.T) {
+	src := http.Header{}
+	src.Add("Content-Type", "application/json")
+	src.Add("Authorization", "Bearer caller-token")
+	src.Add("Cookie", "fleet_session=secret")
+	src.Add("Connection", "keep-alive")
+
+	dst := http.Header{}
+	copyRequestHeaders(dst, src)
+
+	if got := dst.Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", got)
+	}
+	for _, h := range []string{"Authorization", "Cookie", "Connection"} {
+		if v := dst.Values(h); len(v) != 0 {
+			t.Fatalf("%s forwarded to miner = %v, want stripped", h, v)
+		}
 	}
 }
 
