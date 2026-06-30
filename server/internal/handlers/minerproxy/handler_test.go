@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"net/url"
 	"slices"
 	"testing"
 	"time"
@@ -249,6 +251,47 @@ func TestStoreTokenStaysBounded(t *testing.T) {
 
 	if len(h.tokens) > maxCachedTokens {
 		t.Fatalf("token cache size = %d, want <= %d", len(h.tokens), maxCachedTokens)
+	}
+}
+
+func TestMinerHost(t *testing.T) {
+	tests := []struct {
+		name    string
+		ip      string
+		port    string
+		want    string
+		wantErr bool
+	}{
+		{name: "ipv4 default port", ip: "10.0.0.5", port: "", want: "10.0.0.5"},
+		{name: "ipv4 zero port treated as default", ip: "10.0.0.5", port: "0", want: "10.0.0.5"},
+		{name: "ipv4 explicit port", ip: "10.0.0.5", port: "8080", want: "10.0.0.5:8080"},
+		{name: "ipv6 default port is bracketed", ip: "2001:db8::1", port: "", want: "[2001:db8::1]"},
+		{name: "ipv6 explicit port is bracketed", ip: "2001:db8::1", port: "8080", want: "[2001:db8::1]:8080"},
+		{name: "invalid port", ip: "10.0.0.5", port: "notaport", wantErr: true},
+		{name: "out-of-range port", ip: "10.0.0.5", port: "70000", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := minerHost(netip.MustParseAddr(tt.ip), tt.port)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("minerHost(%q, %q) err = nil, want error", tt.ip, tt.port)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("minerHost(%q, %q) err = %v", tt.ip, tt.port, err)
+			}
+			if got != tt.want {
+				t.Fatalf("minerHost(%q, %q) = %q, want %q", tt.ip, tt.port, got, tt.want)
+			}
+			// The bracketed host must round-trip through url.URL without the
+			// address being mis-parsed as host:port.
+			u := url.URL{Scheme: "http", Host: got}
+			if parsed, perr := url.Parse(u.String()); perr != nil || parsed.Hostname() == "" {
+				t.Fatalf("url.Parse(%q) hostname=%q err=%v", u.String(), parsed.Hostname(), perr)
+			}
+		})
 	}
 }
 

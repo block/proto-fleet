@@ -309,13 +309,9 @@ func (h *Handler) resolveTarget(ctx context.Context, deviceIdentifier string, or
 		return proxyTarget{}, err
 	}
 
-	host := addr.String()
-	if row.Port != "" && row.Port != "0" {
-		port, perr := strconv.Atoi(row.Port)
-		if perr != nil || port < 1 || port > 65535 {
-			return proxyTarget{}, fleeterror.NewFailedPreconditionErrorf("miner port %q cannot be proxied", row.Port)
-		}
-		host = net.JoinHostPort(addr.String(), row.Port)
+	host, err := minerHost(addr, row.Port)
+	if err != nil {
+		return proxyTarget{}, err
 	}
 
 	base := url.URL{Scheme: scheme, Host: host}
@@ -717,6 +713,24 @@ func setResponseHardeningHeaders(h http.Header) {
 // 169.254.169.254 cloud-metadata endpoint), multicast, and the unspecified
 // address blocks a stale or poisoned discovery record from steering fleet-api
 // into an SSRF or leaking decrypted credentials to an unexpected host.
+// minerHost formats the dialable host for a validated miner address. IPv6
+// literals are bracketed so url.URL parses them correctly — including the
+// default-port case, where there is no port to trigger net.JoinHostPort's
+// own bracketing and a bare "2001:db8::1" would be mis-read as host:port.
+func minerHost(addr netip.Addr, port string) (string, error) {
+	if port == "" || port == "0" {
+		if addr.Is6() {
+			return "[" + addr.String() + "]", nil
+		}
+		return addr.String(), nil
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return "", fleeterror.NewFailedPreconditionErrorf("miner port %q cannot be proxied", port)
+	}
+	return net.JoinHostPort(addr.String(), port), nil
+}
+
 func parseRoutableMinerAddr(ipAddress string) (netip.Addr, error) {
 	addr, err := netip.ParseAddr(ipAddress)
 	if err != nil {
