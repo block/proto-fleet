@@ -33,10 +33,11 @@ import (
 )
 
 const (
-	proxyClientTimeout    = 30 * time.Second
-	maxProxyBodyBytes     = 64 << 20
-	maxLoginResponseBytes = 64 << 10
-	defaultProtoURLScheme = "http"
+	proxyClientTimeout       = 30 * time.Second
+	maxProxyBodyBytes        = 64 << 20
+	maxLoginResponseBytes    = 64 << 10
+	maxIdentityResponseBytes = 64 << 10
+	defaultProtoURLScheme    = "http"
 	// Cached tokens are a latency optimization, not a source of truth: a 401
 	// from the miner already forces a fresh login. The TTL caps how long a
 	// stale entry lingers, and the size bound stops the cache from growing
@@ -80,6 +81,11 @@ type proxyTarget struct {
 	baseURL          string
 	siteID           *int64
 	passwordEnc      sql.NullString
+	// Stable identities from the paired device record, used to verify we are
+	// talking to the right miner before sending credentials. serialNumber may
+	// be empty (not always recorded); macAddress is the fallback.
+	serialNumber string
+	macAddress   string
 }
 
 // hasCredentials reports whether the target has a usable stored password. An
@@ -321,6 +327,8 @@ func (h *Handler) resolveTarget(ctx context.Context, deviceIdentifier string, or
 		baseURL:          base.String(),
 		siteID:           siteID,
 		passwordEnc:      row.PasswordEnc,
+		serialNumber:     row.SerialNumber.String,
+		macAddress:       row.MacAddress,
 	}, nil
 }
 
@@ -373,6 +381,14 @@ func (h *Handler) tokenFor(ctx context.Context, target proxyTarget, forceLogin b
 		if token, ok := h.lookupToken(target.cacheKey()); ok {
 			return token, nil
 		}
+	}
+
+	// Identity preflight: a login (cache miss or forced re-login) is about to
+	// send the decrypted miner password to a discovery-sourced address. Confirm
+	// the live device identity matches the paired record first, so a stale or
+	// poisoned discovery row cannot leak credentials to an unexpected host.
+	if err := h.verifyTargetIdentity(ctx, target); err != nil {
+		return "", err
 	}
 
 	passwordBytes, err := h.encryptService.Decrypt(target.passwordEnc.String)
@@ -475,6 +491,86 @@ func (h *Handler) login(ctx context.Context, baseURL string, password string) (s
 		return "", fleeterror.NewInternalError("miner login response did not include an access token")
 	}
 	return tokens.AccessToken, nil
+}
+
+type minerSystemIdentity struct {
+	SystemInfo struct {
+		CBSN string `json:"cb_sn"`
+	} `json:"system-info"`
+}
+
+type minerNetworkIdentity struct {
+	NetworkInfo struct {
+		MAC string `json:"mac"`
+	} `json:"network-info"`
+}
+
+// verifyTargetIdentity confirms the live miner at the resolved address is the
+// paired device before any credential is sent. The control-board serial number
+// (GET /api/v1/system -> system-info.cb_sn) is the strongest signal; the MAC
+// (GET /api/v1/network) is the fallback for records without a recorded serial.
+// Both endpoints are unauthenticated. We fail closed on mismatch, on inability
+// to read the identity, and when the record carries no identity to check — a
+// stale or poisoned discovery row cannot present the paired miner's serial/MAC,
+// so this stops the proxy from POSTing the decrypted password to a wrong host.
+func (h *Handler) verifyTargetIdentity(ctx context.Context, target proxyTarget) error {
+	if want := strings.TrimSpace(target.serialNumber); want != "" {
+		var id minerSystemIdentity
+		if err := h.fetchMinerIdentity(ctx, target.baseURL, "/api/v1/system", &id); err != nil {
+			return fleeterror.NewFailedPreconditionErrorf("could not verify miner identity: %v", err)
+		}
+		if !strings.EqualFold(strings.TrimSpace(id.SystemInfo.CBSN), want) {
+			return fleeterror.NewFailedPreconditionError("miner identity mismatch: refusing to send credentials")
+		}
+		return nil
+	}
+
+	if want := normalizeMAC(target.macAddress); want != "" {
+		var id minerNetworkIdentity
+		if err := h.fetchMinerIdentity(ctx, target.baseURL, "/api/v1/network", &id); err != nil {
+			return fleeterror.NewFailedPreconditionErrorf("could not verify miner identity: %v", err)
+		}
+		if normalizeMAC(id.NetworkInfo.MAC) != want {
+			return fleeterror.NewFailedPreconditionError("miner identity mismatch: refusing to send credentials")
+		}
+		return nil
+	}
+
+	return fleeterror.NewFailedPreconditionError("cannot verify miner identity: no serial or MAC on record")
+}
+
+// fetchMinerIdentity GETs an unauthenticated identity endpoint and decodes a
+// bounded JSON body into out.
+func (h *Handler) fetchMinerIdentity(ctx context.Context, baseURL, path string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
+	if err != nil {
+		return fmt.Errorf("build identity request: %w", err)
+	}
+	resp, err := h.clientFor(baseURL).Do(req)
+	if err != nil {
+		return fmt.Errorf("reach miner: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return fmt.Errorf("identity endpoint %s returned status %d", path, resp.StatusCode)
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxIdentityResponseBytes)).Decode(out); err != nil {
+		return fmt.Errorf("decode identity response: %w", err)
+	}
+	return nil
+}
+
+// normalizeMAC lowercases and strips non-hex separators so MAC addresses
+// compare regardless of formatting ("AA:BB:CC:.." vs "aabbcc..").
+func normalizeMAC(mac string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(mac) {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
