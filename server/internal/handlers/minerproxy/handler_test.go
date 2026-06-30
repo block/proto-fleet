@@ -418,18 +418,35 @@ func TestNormalizeMAC(t *testing.T) {
 	}
 }
 
-func TestCopyResponseHeadersDropsSetCookie(t *testing.T) {
+func TestCopyResponseHeadersUsesAllowlist(t *testing.T) {
 	src := http.Header{}
+	// Allowlisted content/caching metadata should pass through.
 	src.Add("Content-Type", "application/json")
+	src.Add("Content-Disposition", "attachment; filename=logs.csv")
+	src.Add("Cache-Control", "no-store")
+	// Origin-affecting / unknown headers a miner must not be able to set on the
+	// Fleet origin must be dropped (default-deny).
 	src.Add("Set-Cookie", "miner_session=unsafe; Path=/")
+	src.Add("Clear-Site-Data", `"*"`)
+	src.Add("Strict-Transport-Security", "max-age=63072000")
+	src.Add("Content-Security-Policy", "default-src *")
+	src.Add("X-Frame-Options", "ALLOWALL")
+	src.Add("X-Surprise-Header", "anything")
 
 	dst := http.Header{}
 	copyResponseHeaders(dst, src)
 
-	if got := dst.Get("Content-Type"); got != "application/json" {
-		t.Fatalf("Content-Type = %q, want application/json", got)
+	for _, h := range []string{"Content-Type", "Content-Disposition", "Cache-Control"} {
+		if dst.Get(h) == "" {
+			t.Fatalf("allowlisted header %q was dropped", h)
+		}
 	}
-	if got := dst.Values("Set-Cookie"); len(got) != 0 {
-		t.Fatalf("Set-Cookie values = %v, want none", got)
+	for _, h := range []string{
+		"Set-Cookie", "Clear-Site-Data", "Strict-Transport-Security",
+		"Content-Security-Policy", "X-Frame-Options", "X-Surprise-Header",
+	} {
+		if got := dst.Values(h); len(got) != 0 {
+			t.Fatalf("non-allowlisted header %q passed through: %v", h, got)
+		}
 	}
 }

@@ -713,9 +713,33 @@ func copyRequestHeaders(dst http.Header, src http.Header) {
 	}
 }
 
+// responseHeaderAllowlist is the set of upstream (miner) response headers safe
+// to surface from the Fleet origin. Default-deny is deliberate: the miner is
+// untrusted and its bytes are served same-origin, so a compromised/misbehaving
+// miner must not set origin-affecting headers — Set-Cookie, Clear-Site-Data,
+// Strict-Transport-Security, or its own CSP/X-Frame-Options — that the browser
+// would apply to Fleet. Only content-negotiation, caching, and range metadata
+// pass through; the proxy sets its own security headers afterward.
+var responseHeaderAllowlist = map[string]bool{
+	"content-type":        true,
+	"content-length":      true,
+	"content-encoding":    true,
+	"content-language":    true,
+	"content-disposition": true,
+	"content-range":       true,
+	"accept-ranges":       true,
+	"cache-control":       true,
+	"etag":                true,
+	"last-modified":       true,
+	"expires":             true,
+	"vary":                true,
+	"age":                 true,
+	"date":                true,
+}
+
 func copyResponseHeaders(dst http.Header, src http.Header) {
 	for key, values := range src {
-		if shouldSkipResponseHeader(key) {
+		if !responseHeaderAllowlist[strings.ToLower(key)] {
 			continue
 		}
 		for _, value := range values {
@@ -728,16 +752,6 @@ func shouldSkipRequestHeader(key string) bool {
 	switch strings.ToLower(key) {
 	case "authorization", "cookie", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
 		"te", "trailer", "transfer-encoding", "upgrade", "host":
-		return true
-	default:
-		return false
-	}
-}
-
-func shouldSkipResponseHeader(key string) bool {
-	switch strings.ToLower(key) {
-	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer",
-		"transfer-encoding", "upgrade", "set-cookie":
 		return true
 	default:
 		return false
