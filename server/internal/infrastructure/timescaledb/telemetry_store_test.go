@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
@@ -493,6 +494,46 @@ func TestTelemetryStore_GetCombinedMetrics_TemperatureStatusCounts_Values(t *tes
 	assert.Equal(t, int32(2), totalOk, "Expected 2 ok devices (0 <= temp < 70)")
 	assert.Equal(t, int32(1), totalHot, "Expected 1 hot device (70 <= temp < 90)")
 	assert.Equal(t, int32(1), totalCritical, "Expected 1 critical device (temp >= 90)")
+}
+
+func TestSelectedMinerStateSnapshotBucketsByTimeScan_DeduplicatesDeviceIDs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	db := testutil.GetTestDB(t)
+	queries := sqlc.New(db)
+	ctx := t.Context()
+	orgID := int64(424242)
+	snapshotTime := time.Now().UTC().Truncate(time.Second).Add(-5 * time.Minute)
+
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO miner_state_snapshots (time, org_id, device_identifier, state)
+		VALUES
+			($1, $2, 'duplicate-uptime-miner-a', 3),
+			($1, $2, 'duplicate-uptime-miner-b', 0)
+	`, snapshotTime, orgID)
+	require.NoError(t, err)
+
+	deviceIDs := make([]string, 0, 1002)
+	for range 1001 {
+		deviceIDs = append(deviceIDs, "duplicate-uptime-miner-a")
+	}
+	deviceIDs = append(deviceIDs, "duplicate-uptime-miner-b")
+
+	rows, err := queries.GetSelectedMinerStateSnapshotBucketsByTimeScan(ctx, sqlc.GetSelectedMinerStateSnapshotBucketsByTimeScanParams{
+		OrgID:                  orgID,
+		DeviceIdentifierValues: deviceIDs,
+		BucketInterval:         "60 seconds",
+		StartTime:              snapshotTime.Add(-time.Minute),
+		EndTime:                snapshotTime.Add(time.Minute),
+	})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, int32(1), rows[0].HashingCount)
+	assert.Equal(t, int32(1), rows[0].OfflineCount)
+	assert.Equal(t, int32(0), rows[0].BrokenCount)
+	assert.Equal(t, int32(0), rows[0].SleepingCount)
 }
 
 // Helper functions

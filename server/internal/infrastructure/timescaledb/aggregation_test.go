@@ -734,6 +734,19 @@ func TestUptimeStatusCountsFromSelectedMinerStateSnapshotRows(t *testing.T) {
 	assert.Nil(t, uptimeStatusCountsFromSelectedMinerStateSnapshotRows(nil))
 }
 
+func TestDeviceIDsToStrings_DeduplicatesBeforeLargeSelectorThreshold(t *testing.T) {
+	ids := make([]models.DeviceIdentifier, 0, largeDeviceSelectorScanThreshold+2)
+	for range largeDeviceSelectorScanThreshold + 1 {
+		ids = append(ids, "miner-a")
+	}
+	ids = append(ids, "miner-b")
+
+	result := deviceIDsToStrings(ids)
+
+	assert.Equal(t, []string{"miner-a", "miner-b"}, result)
+	assert.Less(t, len(result), largeDeviceSelectorScanThreshold)
+}
+
 func TestLatestSamplePerDevice_Empty(t *testing.T) {
 	assert.Nil(t, latestSamplePerDevice(nil))
 	assert.Nil(t, latestSamplePerDevice([]modelsV2.DeviceMetrics{}))

@@ -393,10 +393,7 @@ func (s *TimescaleTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, qu
 			MaxRows: maxRows,
 		})
 	} else {
-		identifiers := make([]string, len(query.DeviceIDs))
-		for i, id := range query.DeviceIDs {
-			identifiers[i] = string(id)
-		}
+		identifiers := deviceIDsToStrings(query.DeviceIDs)
 		if len(identifiers) >= largeDeviceSelectorScanThreshold {
 			rows, err = s.queries.GetDeviceMetricsTimeSeriesByTimeScan(ctx, sqlc.GetDeviceMetricsTimeSeriesByTimeScanParams{
 				DeviceIdentifiers: identifiers,
@@ -703,11 +700,19 @@ func (s *TimescaleTelemetryStore) getTimeRange(tr models.TimeRange) (time.Time, 
 	return startTime, endTime
 }
 
-// deviceIDsToStrings converts device identifiers to strings.
+// deviceIDsToStrings converts device identifiers to strings and preserves the
+// first occurrence order. Device selectors are set-like; repeated request IDs
+// must not affect counts or large-selector routing.
 func deviceIDsToStrings(ids []models.DeviceIdentifier) []string {
-	result := make([]string, len(ids))
-	for i, id := range ids {
-		result[i] = string(id)
+	result := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		value := string(id)
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
 	}
 	return result
 }

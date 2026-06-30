@@ -106,7 +106,7 @@ ORDER BY latest_snapshot_per_bucket.bucket ASC;
 -- non-indexable device expression so Postgres walks the latest snapshot times
 -- instead of doing thousands of device_identifier index scans.
 WITH selected_devices AS (
-    SELECT unnest(sqlc.arg('device_identifier_values')::text[]) AS device_identifier
+    SELECT DISTINCT unnest(sqlc.arg('device_identifier_values')::text[]) AS device_identifier
 ),
 latest_snapshot_per_bucket AS (
     SELECT

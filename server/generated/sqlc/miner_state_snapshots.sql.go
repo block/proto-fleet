@@ -173,7 +173,7 @@ func (q *Queries) GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateS
 
 const getSelectedMinerStateSnapshotBucketsByTimeScan = `-- name: GetSelectedMinerStateSnapshotBucketsByTimeScan :many
 WITH selected_devices AS (
-    SELECT unnest($2::text[]) AS device_identifier
+    SELECT DISTINCT unnest($2::text[]) AS device_identifier
 ),
 latest_snapshot_per_bucket AS (
     SELECT
