@@ -38,8 +38,9 @@ const (
 	wattsPerKilowatt       = 1000.0
 
 	// Large building telemetry requests pass thousands of explicit device IDs.
-	// Above this size, a time-ordered scan is faster than per-device index fanout.
-	largeDeviceTimeSeriesScanThreshold = 2000
+	// Above this size, time-ordered snapshot scans are faster than per-device
+	// index fanout for both metrics and uptime status buckets.
+	largeDeviceSelectorScanThreshold = 2000
 )
 
 // estimateEnergyKWh computes estimated energy consumption in kilowatt-hours
@@ -381,10 +382,7 @@ func (s *TimescaleTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, qu
 	var rows []sqlc.DeviceMetric
 	var err error
 
-	maxRows := safeIntToInt32(s.config.MaxTimeSeriesRows)
-	if maxRows <= 0 {
-		maxRows = safeIntToInt32(DefaultConfig().MaxTimeSeriesRows)
-	}
+	maxRows := s.maxTimeSeriesRows()
 
 	if len(query.DeviceIDs) == 0 {
 		rows, err = s.queries.GetAllDeviceMetricsTimeSeries(ctx, sqlc.GetAllDeviceMetricsTimeSeriesParams{
@@ -397,7 +395,7 @@ func (s *TimescaleTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, qu
 		for i, id := range query.DeviceIDs {
 			identifiers[i] = string(id)
 		}
-		if len(identifiers) >= largeDeviceTimeSeriesScanThreshold {
+		if len(identifiers) >= largeDeviceSelectorScanThreshold {
 			rows, err = s.queries.GetDeviceMetricsTimeSeriesByTimeScan(ctx, sqlc.GetDeviceMetricsTimeSeriesByTimeScanParams{
 				DeviceIdentifiers: identifiers,
 				Time:              startTime,
@@ -427,6 +425,14 @@ func (s *TimescaleTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, qu
 	}
 
 	return result, nil
+}
+
+func (s *TimescaleTelemetryStore) maxTimeSeriesRows() int32 {
+	maxRows := safeIntToInt32(s.config.MaxTimeSeriesRows)
+	if maxRows <= 0 {
+		maxRows = safeIntToInt32(DefaultConfig().MaxTimeSeriesRows)
+	}
+	return maxRows
 }
 
 // StreamTelemetryUpdates returns a channel that streams telemetry updates.
@@ -546,6 +552,16 @@ func (s *TimescaleTelemetryStore) GetCombinedMetrics(ctx context.Context, query 
 
 // getCombinedMetricsFromRaw queries raw device_metrics table (for short time ranges).
 func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+	bucketDuration := DefaultBucketDuration
+	if query.SlideInterval != nil {
+		bucketDuration = *query.SlideInterval
+	}
+	startTime, endTime := s.getTimeRange(query.TimeRange)
+
+	if shouldUseRawAggregateTimeScan(query, bucketDuration) {
+		return s.getCombinedMetricsFromRawAggregates(ctx, query, startTime, endTime, bucketDuration)
+	}
+
 	tsQuery := models.TimeSeriesTelemetryQuery{
 		DeviceIDs:        query.DeviceIDs,
 		MeasurementTypes: query.MeasurementTypes,
@@ -561,15 +577,56 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 		return models.CombinedMetric{}, nil
 	}
 
-	bucketDuration := DefaultBucketDuration
-	if query.SlideInterval != nil {
-		bucketDuration = *query.SlideInterval
-	}
-
 	result := s.aggregateMetrics(data, query.MeasurementTypes, query.AggregationTypes, bucketDuration)
-	startTime, endTime := s.getTimeRange(query.TimeRange)
 	result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration)
 
+	return result, nil
+}
+
+func shouldUseRawAggregateTimeScan(query models.CombinedMetricsQuery, bucketDuration time.Duration) bool {
+	return query.OrganizationID != 0 &&
+		len(query.DeviceIDs) >= largeDeviceSelectorScanThreshold &&
+		bucketDuration > 0 &&
+		bucketDuration%time.Second == 0
+}
+
+// getCombinedMetricsFromRawAggregates uses a SQL aggregate for large raw chart
+// selectors to avoid materializing the time-series max-row window in Go.
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromRawAggregates(
+	ctx context.Context,
+	query models.CombinedMetricsQuery,
+	startTime, endTime time.Time,
+	bucketDuration time.Duration,
+) (models.CombinedMetric, error) {
+	uptimeCtx, cancelUptime := context.WithCancel(ctx)
+	uptimeCounts := make(chan []models.UptimeStatusCount, 1)
+	go func() {
+		uptimeCounts <- s.uptimeCountsForQuery(uptimeCtx, query, startTime, endTime, bucketDuration)
+	}()
+
+	queryCtx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+
+	rows, err := s.queries.GetDeviceMetricsTimeSeriesAggregatesByTimeScan(queryCtx, sqlc.GetDeviceMetricsTimeSeriesAggregatesByTimeScanParams{
+		BucketInterval:    fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds())),
+		DeviceIdentifiers: deviceIDsToStrings(query.DeviceIDs),
+		StartTime:         startTime,
+		EndTime:           endTime,
+		MaxRows:           s.maxTimeSeriesRows(),
+	})
+	cancel()
+	if err != nil {
+		cancelUptime()
+		return models.CombinedMetric{}, fmt.Errorf("failed to query raw aggregate metrics: %w", err)
+	}
+
+	if len(rows) == 0 {
+		cancelUptime()
+		return models.CombinedMetric{}, nil
+	}
+
+	result := combinedMetricFromRawAggregateRows(rows, query.MeasurementTypes, query.AggregationTypes)
+	result.UptimeStatusCounts = <-uptimeCounts
+	cancelUptime()
 	return result, nil
 }
 
@@ -1126,6 +1183,162 @@ func extractDailyValues(row sqlc.DeviceMetricsDaily, mt models.MeasurementType) 
 	return 0, 0, 0, false, false
 }
 
+type rawAggregateMetricValues struct {
+	average     float64
+	minimum     float64
+	maximum     float64
+	sum         float64
+	valueCount  int32
+	deviceCount int32
+}
+
+func combinedMetricFromRawAggregateRows(
+	rows []sqlc.GetDeviceMetricsTimeSeriesAggregatesByTimeScanRow,
+	measurementTypes []models.MeasurementType,
+	aggregationTypes []models.AggregationType,
+) models.CombinedMetric {
+	if len(rows) == 0 {
+		return models.CombinedMetric{}
+	}
+	if len(measurementTypes) == 0 {
+		measurementTypes = modelsV2.DefaultMeasurementTypes
+	}
+	if len(aggregationTypes) == 0 {
+		aggregationTypes = []models.AggregationType{models.AggregationTypeAverage}
+	}
+
+	allMetrics := make([]models.Metric, 0, len(rows)*len(measurementTypes))
+	tempCounts := make([]models.TemperatureStatusCount, 0, len(rows))
+
+	for _, row := range rows {
+		tempCounts = append(tempCounts, models.TemperatureStatusCount{
+			Timestamp:     row.Bucket,
+			ColdCount:     row.TempColdCount,
+			OkCount:       row.TempOkCount,
+			HotCount:      row.TempHotCount,
+			CriticalCount: row.TempCriticalCount,
+		})
+
+		for _, measurementType := range measurementTypes {
+			values, ok := rawAggregateValuesForMeasurement(row, measurementType)
+			if !ok {
+				continue
+			}
+			allMetrics = appendRawAggregateMetric(allMetrics, row.Bucket, measurementType, values, aggregationTypes)
+		}
+	}
+
+	return models.CombinedMetric{
+		Metrics:                 allMetrics,
+		TemperatureStatusCounts: tempCounts,
+	}
+}
+
+func rawAggregateValuesForMeasurement(
+	row sqlc.GetDeviceMetricsTimeSeriesAggregatesByTimeScanRow,
+	measurementType models.MeasurementType,
+) (rawAggregateMetricValues, bool) {
+	switch measurementType {
+	case models.MeasurementTypeHashrate:
+		return rawAggregateMetricValues{
+			average:     row.HashRateAvg,
+			minimum:     row.HashRateMin,
+			maximum:     row.HashRateMax,
+			sum:         row.HashRateSum,
+			valueCount:  row.HashRateDeviceCount,
+			deviceCount: row.HashRateDeviceCount,
+		}, true
+	case models.MeasurementTypeTemperature:
+		return rawAggregateMetricValues{
+			average:     row.TempAvg,
+			minimum:     row.TempMin,
+			maximum:     row.TempMax,
+			sum:         row.TempSum,
+			valueCount:  row.TempSampleCount,
+			deviceCount: row.TempDeviceCount,
+		}, true
+	case models.MeasurementTypePower:
+		return rawAggregateMetricValues{
+			average:     row.PowerAvg,
+			minimum:     row.PowerMin,
+			maximum:     row.PowerMax,
+			sum:         row.PowerSum,
+			valueCount:  row.PowerDeviceCount,
+			deviceCount: row.PowerDeviceCount,
+		}, true
+	case models.MeasurementTypeEfficiency:
+		return rawAggregateMetricValues{
+			average:     row.EfficiencyAvg,
+			minimum:     row.EfficiencyMin,
+			maximum:     row.EfficiencyMax,
+			sum:         row.EfficiencySum,
+			valueCount:  row.EfficiencySampleCount,
+			deviceCount: row.EfficiencyDeviceCount,
+		}, true
+	case models.MeasurementTypeFanSpeed:
+		return rawAggregateMetricValues{
+			average:     row.FanRpmAvg,
+			minimum:     row.FanRpmMin,
+			maximum:     row.FanRpmMax,
+			sum:         row.FanRpmSum,
+			valueCount:  row.FanRpmSampleCount,
+			deviceCount: row.FanRpmDeviceCount,
+		}, true
+	case models.MeasurementTypeUnknown,
+		models.MeasurementTypeVoltage,
+		models.MeasurementTypeCurrent,
+		models.MeasurementTypeUptime,
+		models.MeasurementTypeErrorRate:
+		return rawAggregateMetricValues{}, false
+	}
+	return rawAggregateMetricValues{}, false
+}
+
+func appendRawAggregateMetric(
+	metrics []models.Metric,
+	bucket time.Time,
+	measurementType models.MeasurementType,
+	values rawAggregateMetricValues,
+	aggregationTypes []models.AggregationType,
+) []models.Metric {
+	if values.deviceCount == 0 || values.valueCount == 0 {
+		return metrics
+	}
+
+	aggregatedValues := make([]models.AggregatedValue, 0, len(aggregationTypes))
+	for _, aggType := range aggregationTypes {
+		var value float64
+		switch aggType {
+		case models.AggregationTypeAverage:
+			value = values.average
+		case models.AggregationTypeMin:
+			value = values.minimum
+		case models.AggregationTypeMax:
+			value = values.maximum
+		case models.AggregationTypeSum:
+			value = values.sum
+		case models.AggregationTypeCount:
+			value = float64(values.valueCount)
+		case models.AggregationTypeUnknown, models.AggregationTypeTotal, models.AggregationTypeMeanChange:
+			continue
+		}
+		aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+			Type:  aggType,
+			Value: value,
+		})
+	}
+	if len(aggregatedValues) == 0 {
+		return metrics
+	}
+
+	return append(metrics, models.Metric{
+		MeasurementType:  measurementType,
+		AggregatedValues: aggregatedValues,
+		OpenTime:         bucket,
+		DeviceCount:      values.deviceCount,
+	})
+}
+
 // aggregateMetrics performs aggregations on the metrics data.
 func (s *TimescaleTelemetryStore) aggregateMetrics(
 	data []modelsV2.DeviceMetrics,
@@ -1276,13 +1489,32 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 		return uptimeStatusCountsFromAllMinerStateSnapshotRows(rows)
 	}
 
+	deviceIdentifierValues := deviceIDsToStrings(deviceIDs)
+	if len(deviceIdentifierValues) >= largeDeviceSelectorScanThreshold {
+		rows, err := s.queries.GetSelectedMinerStateSnapshotBucketsByTimeScan(ctx, sqlc.GetSelectedMinerStateSnapshotBucketsByTimeScanParams{
+			DeviceIdentifierValues: deviceIdentifierValues,
+			BucketInterval:         bucketInterval,
+			OrgID:                  orgID,
+			StartTime:              startTime,
+			EndTime:                endTime,
+		})
+		if err != nil {
+			s.logger.Error("failed to query large-selector miner state snapshots",
+				slog.Int64("org_id", orgID),
+				slog.Int("device_count", len(deviceIdentifierValues)),
+				slog.String("error", err.Error()))
+			return nil
+		}
+		return uptimeStatusCountsFromSelectedMinerStateSnapshotRows(rows)
+	}
+
 	params := sqlc.GetMinerStateSnapshotsParams{
 		BucketInterval:          bucketInterval,
 		OrgID:                   orgID,
 		StartTime:               startTime,
 		EndTime:                 endTime,
 		DeviceIdentifiersFilter: sql.NullString{String: "1", Valid: true},
-		DeviceIdentifierValues:  deviceIDsToStrings(deviceIDs),
+		DeviceIdentifierValues:  deviceIdentifierValues,
 	}
 
 	rows, err := s.queries.GetMinerStateSnapshots(ctx, params)
@@ -1301,6 +1533,17 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 }
 
 func uptimeStatusCountsFromAllMinerStateSnapshotRows(rows []sqlc.GetAllMinerStateSnapshotBucketsRow) []models.UptimeStatusCount {
+	if len(rows) == 0 {
+		return nil
+	}
+	result := make([]models.UptimeStatusCount, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, uptimeStatusCountFromSnapshotBucket(row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount))
+	}
+	return result
+}
+
+func uptimeStatusCountsFromSelectedMinerStateSnapshotRows(rows []sqlc.GetSelectedMinerStateSnapshotBucketsByTimeScanRow) []models.UptimeStatusCount {
 	if len(rows) == 0 {
 		return nil
 	}

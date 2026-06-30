@@ -171,6 +171,93 @@ func (q *Queries) GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateS
 	return items, nil
 }
 
+const getSelectedMinerStateSnapshotBucketsByTimeScan = `-- name: GetSelectedMinerStateSnapshotBucketsByTimeScan :many
+WITH selected_devices AS (
+    SELECT unnest($2::text[]) AS device_identifier
+),
+latest_snapshot_per_bucket AS (
+    SELECT
+        time_bucket($3::text::interval, mss.time)::timestamptz AS bucket,
+        MAX(mss.time) AS snapshot_time
+    FROM miner_state_snapshots mss
+    WHERE mss.org_id = $1
+      AND mss.time >= $4
+      AND mss.time <= $5
+    GROUP BY bucket
+)
+SELECT
+    latest_snapshot_per_bucket.bucket,
+    SUM(CASE WHEN m.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN m.state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN m.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN m.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM latest_snapshot_per_bucket
+JOIN miner_state_snapshots m
+  ON m.org_id = $1
+ AND m.time = latest_snapshot_per_bucket.snapshot_time
+JOIN selected_devices sd
+  ON sd.device_identifier = (m.device_identifier || '')
+GROUP BY latest_snapshot_per_bucket.bucket
+ORDER BY latest_snapshot_per_bucket.bucket ASC
+`
+
+type GetSelectedMinerStateSnapshotBucketsByTimeScanParams struct {
+	OrgID                  int64
+	DeviceIdentifierValues []string
+	BucketInterval         string
+	StartTime              time.Time
+	EndTime                time.Time
+}
+
+type GetSelectedMinerStateSnapshotBucketsByTimeScanRow struct {
+	Bucket        time.Time
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
+// Fast path for large explicit device selectors, such as building charts.
+// InsertMinerStateSnapshot stamps one complete fleet snapshot time across all
+// devices, so the latest snapshot time per chart bucket contains the latest
+// state for every selected device. The join intentionally compares against a
+// non-indexable device expression so Postgres walks the latest snapshot times
+// instead of doing thousands of device_identifier index scans.
+func (q *Queries) GetSelectedMinerStateSnapshotBucketsByTimeScan(ctx context.Context, arg GetSelectedMinerStateSnapshotBucketsByTimeScanParams) ([]GetSelectedMinerStateSnapshotBucketsByTimeScanRow, error) {
+	rows, err := q.query(ctx, q.getSelectedMinerStateSnapshotBucketsByTimeScanStmt, getSelectedMinerStateSnapshotBucketsByTimeScan,
+		arg.OrgID,
+		pq.Array(arg.DeviceIdentifierValues),
+		arg.BucketInterval,
+		arg.StartTime,
+		arg.EndTime,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetSelectedMinerStateSnapshotBucketsByTimeScanRow
+	for rows.Next() {
+		var i GetSelectedMinerStateSnapshotBucketsByTimeScanRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertMinerStateSnapshot = `-- name: InsertMinerStateSnapshot :exec
 INSERT INTO miner_state_snapshots (time, org_id, site_id, device_identifier, state)
 SELECT
