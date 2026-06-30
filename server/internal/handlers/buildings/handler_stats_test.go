@@ -93,6 +93,7 @@ func TestHandler_GetBuildingStats_plumbsRackHealth(t *testing.T) {
 	t.Parallel()
 	h := newStatsHandler(t)
 
+	h.buildingStore.EXPECT().BuildingBelongsToOrg(gomock.Any(), int64(7), int64(1)).Return(true, nil)
 	h.buildingStore.EXPECT().ListBuildingRacks(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).Return(
 		[]models.BuildingRack{
 			{RackID: 10, RackLabel: "R1", AisleIndex: intPtrStats(0), PositionInAisle: intPtrStats(0)},

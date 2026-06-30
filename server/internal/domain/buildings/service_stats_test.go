@@ -68,8 +68,7 @@ func buildingWith(aisles, racksPerAisle int32) *models.Building {
 func TestGetBuildingStats_notFound(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
-	store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(42)).
-		Return(nil, fleeterror.NewNotFoundErrorf("building %d not found", 42))
+	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(42)).Return(false, nil)
 
 	svc := NewService(store, nil, nil, newDevices(nil), newTelemetry(), newTx(), nil)
 	_, err := svc.GetBuildingStats(context.Background(), testOrgID, 42, nil)
@@ -86,6 +85,8 @@ func TestGetBuildingStats_notFoundWhenSiteMovedDuringAuthz(t *testing.T) {
 	// wasn't authorized for in the new site-scope.
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
+	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
+	store.EXPECT().ListBuildingRacks(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).Return(nil, "", nil)
 	siteB := int64(2)
 	store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(&models.Building{Aisles: 1, RacksPerAisle: 1, SiteID: &siteB}, nil)
 
@@ -106,6 +107,7 @@ func TestGetBuildingStats_notFoundWhenSiteMovedAfterReads(t *testing.T) {
 	// handing the caller a snapshot built under stale authz.
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
+	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
 	store.EXPECT().ListBuildingRacks(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).Return(nil, "", nil)
 	siteA := int64(1)
 	siteB := int64(2)
@@ -138,6 +140,7 @@ func TestGetBuildingStats_internalErrorWhenDepsMissing(t *testing.T) {
 func TestGetBuildingStats_includesActionablePairingStatusesInFilter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
+	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
 	store.EXPECT().ListBuildingRacks(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).Return(nil, "", nil)
 	// GetBuilding called twice: layout-bounds read + post-read race re-check.
 	store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(buildingWith(2, 4), nil).Times(2)
@@ -173,6 +176,7 @@ func TestGetBuildingStats_failsFastOverCap(t *testing.T) {
 	// call into state-counts or telemetry.
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
+	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
 	store.EXPECT().ListBuildingRacks(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).Return(nil, "", nil)
 	store.EXPECT().GetBuilding(gomock.Any(), testOrgID, int64(1)).Return(buildingWith(1, 1), nil)
 
@@ -192,6 +196,7 @@ func TestGetBuildingStats_failsFastOverCap(t *testing.T) {
 func TestGetBuildingStats_clearsOutOfBoundsRackPositions(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
+	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
 	// Building is 2 aisles × 3 racks/aisle. Rack r2's position (aisle=5)
 	// is outside the floor plan; the service should null its position
 	// fields so the FE skips that grid cell.
@@ -232,6 +237,7 @@ func TestGetBuildingStats_clearsOutOfBoundsRackPositions(t *testing.T) {
 func TestGetBuildingStats_rollsUpDeviceMetrics(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
+	store.EXPECT().BuildingBelongsToOrg(gomock.Any(), testOrgID, int64(1)).Return(true, nil)
 	store.EXPECT().ListBuildingRacks(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).Return(
 		[]models.BuildingRack{
 			{RackID: 100, RackLabel: "R1", AisleIndex: intPtr(0), PositionInAisle: intPtr(0)},
