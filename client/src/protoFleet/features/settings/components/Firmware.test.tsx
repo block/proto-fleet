@@ -24,8 +24,22 @@ beforeEach(() => {
 });
 
 const sampleFiles = [
-  { id: "f1", filename: "alpha.swu", size: 1024, uploaded_at: "2025-06-01T12:00:00Z" },
-  { id: "f2", filename: "beta.tar.gz", size: 2048000, uploaded_at: "2025-06-02T14:30:00Z" },
+  {
+    id: "f1",
+    filename: "alpha.swu",
+    size: 1024,
+    uploaded_at: "2025-06-01T12:00:00Z",
+    target_manufacturer: "Proto",
+    target_model: "S21",
+  },
+  {
+    id: "f2",
+    filename: "beta.tar.gz",
+    size: 2048000,
+    uploaded_at: "2025-06-02T14:30:00Z",
+    target_manufacturer: "Bitmain",
+    target_model: "S19",
+  },
 ];
 
 describe("Firmware", () => {

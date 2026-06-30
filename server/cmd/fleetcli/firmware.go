@@ -61,8 +61,13 @@ func firmwareCheckCommand() *cli.Command {
 		Name:      "check",
 		Usage:     "Check whether a firmware file with the same SHA-256 already exists on the server",
 		ArgsUsage: "<path>",
+		Flags:     firmwareTargetFlags(),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			path, err := singleArg(cmd, "<path>")
+			if err != nil {
+				return err
+			}
+			target, err := firmwareTargetFromCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -77,7 +82,7 @@ func firmwareCheckCommand() *cli.Command {
 			}
 			defer func() { _ = client.Close() }()
 
-			resp, err := client.FirmwareCheck(ctx, digest)
+			resp, err := client.FirmwareCheck(ctx, digest, target)
 			if err != nil {
 				return err
 			}
@@ -92,6 +97,8 @@ func firmwareUploadCommand() *cli.Command {
 		Usage:     "Upload a firmware file, reusing the server copy when checksums match",
 		ArgsUsage: "<path>",
 		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "target-manufacturer", Usage: "Firmware target manufacturer/product"},
+			&cli.StringFlag{Name: "target-model", Usage: "Firmware target miner model"},
 			&cli.BoolFlag{Name: "force", Usage: "Upload even when a file with the same checksum already exists on the server"},
 			&cli.BoolFlag{Name: "quiet", Usage: "Suppress progress output on stderr"},
 		},
@@ -111,7 +118,11 @@ func firmwareUploadCommand() *cli.Command {
 			if !cmd.Bool("quiet") {
 				progress = os.Stderr
 			}
-			result, reused, err := runFirmwareUpload(ctx, client, path, cmd.Bool("force"), progress)
+			target, err := firmwareTargetFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			result, reused, err := runFirmwareUpload(ctx, client, path, target, cmd.Bool("force"), progress)
 			if err != nil {
 				return err
 			}
@@ -285,11 +296,37 @@ type firmwareUploadResult struct {
 	FirmwareFileID string `json:"firmware_file_id"`
 }
 
+type firmwareTarget struct {
+	Manufacturer string
+	Model        string
+}
+
+func firmwareTargetFlags() []cli.Flag {
+	return []cli.Flag{
+		&cli.StringFlag{Name: "target-manufacturer", Usage: "Firmware target manufacturer/product"},
+		&cli.StringFlag{Name: "target-model", Usage: "Firmware target miner model"},
+	}
+}
+
+func firmwareTargetFromCommand(cmd *cli.Command) (firmwareTarget, error) {
+	target := firmwareTarget{
+		Manufacturer: strings.TrimSpace(cmd.String("target-manufacturer")),
+		Model:        strings.TrimSpace(cmd.String("target-model")),
+	}
+	if target.Manufacturer == "" {
+		return firmwareTarget{}, fmt.Errorf("--target-manufacturer is required")
+	}
+	if target.Model == "" {
+		return firmwareTarget{}, fmt.Errorf("--target-model is required")
+	}
+	return target, nil
+}
+
 // runFirmwareUpload drives the full upload flow: fetch config, validate the
 // local file, hash it, reuse the server copy on a checksum hit (unless force),
 // and otherwise stream a direct or chunked upload depending on size. A nil
 // progress writer suppresses all progress output.
-func runFirmwareUpload(ctx context.Context, client *Client, path string, force bool, progress io.Writer) (firmwareUploadResult, bool, error) {
+func runFirmwareUpload(ctx context.Context, client *Client, path string, target firmwareTarget, force bool, progress io.Writer) (firmwareUploadResult, bool, error) {
 	var result firmwareUploadResult
 
 	f, err := os.Open(path)
@@ -327,7 +364,7 @@ func runFirmwareUpload(ctx context.Context, client *Client, path string, force b
 		return result, false, fmt.Errorf("rewind %s: %w", path, err)
 	}
 
-	check, err := client.FirmwareCheck(ctx, digest)
+	check, err := client.FirmwareCheck(ctx, digest, target)
 	if err != nil {
 		return result, false, err
 	}
@@ -339,9 +376,9 @@ func runFirmwareUpload(ctx context.Context, client *Client, path string, force b
 	reporter := newProgressPrinter(progress, size)
 	var fileID string
 	if size <= cfg.ChunkSizeBytes {
-		fileID, err = client.FirmwareUploadDirect(ctx, filename, f, reporter)
+		fileID, err = client.FirmwareUploadDirect(ctx, filename, f, target, reporter)
 	} else {
-		fileID, err = client.FirmwareUploadChunked(ctx, filename, f, size, cfg.ChunkSizeBytes, reporter)
+		fileID, err = client.FirmwareUploadChunked(ctx, filename, f, size, cfg.ChunkSizeBytes, target, reporter)
 	}
 	if reporter != nil {
 		_, _ = fmt.Fprintln(progress)

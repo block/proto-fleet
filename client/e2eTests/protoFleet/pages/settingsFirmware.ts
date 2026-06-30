@@ -13,7 +13,10 @@ export class SettingsFirmwarePage extends BasePage {
     await this.validateTitleInModal("Upload firmware");
   }
 
-  async uploadFirmwareFile(fileName: string, fileContents: string) {
+  async uploadFirmwareFile(fileName: string, fileContents: string, product = "Proto", model = "Rig") {
+    const modal = this.page.getByTestId("modal");
+    await modal.getByLabel("Product").fill(product);
+    await modal.getByLabel("Model").fill(model);
     await this.page.getByTestId("firmware-file-input").setInputFiles({
       name: fileName,
       mimeType: "application/octet-stream",

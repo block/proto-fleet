@@ -4,6 +4,7 @@ import { _resetConfigCache, useFirmwareApi, validateFirmwareFile } from "./useFi
 
 const mockLogout = vi.fn();
 const mockUpload = vi.fn();
+const firmwareTarget = { targetManufacturer: "Proto", targetModel: "S21" };
 
 vi.mock("@/protoFleet/store", () => ({
   useLogout: () => mockLogout,
@@ -90,7 +91,7 @@ describe("useFirmwareApi", () => {
       vi.stubGlobal("fetch", mockFetch);
 
       const { result } = renderHook(() => useFirmwareApi());
-      await result.current.checkFirmwareFile("abc123");
+      await result.current.checkFirmwareFile("abc123", firmwareTarget);
 
       expect(mockFetch).toHaveBeenCalledWith(
         "/api-proxy/api/v1/firmware/check",
@@ -98,7 +99,7 @@ describe("useFirmwareApi", () => {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sha256: "abc123" }),
+          body: JSON.stringify({ sha256: "abc123", target_manufacturer: "Proto", target_model: "S21" }),
         }),
       );
     });
@@ -114,7 +115,7 @@ describe("useFirmwareApi", () => {
       );
 
       const { result } = renderHook(() => useFirmwareApi());
-      const data = await result.current.checkFirmwareFile("abc123");
+      const data = await result.current.checkFirmwareFile("abc123", firmwareTarget);
 
       expect(data).toEqual({ exists: true, firmwareFileId: "file-123" });
     });
@@ -130,7 +131,7 @@ describe("useFirmwareApi", () => {
       );
 
       const { result } = renderHook(() => useFirmwareApi());
-      const data = await result.current.checkFirmwareFile("abc123");
+      const data = await result.current.checkFirmwareFile("abc123", firmwareTarget);
 
       expect(data).toEqual({ exists: false, firmwareFileId: undefined });
     });
@@ -146,7 +147,7 @@ describe("useFirmwareApi", () => {
       );
 
       const { result } = renderHook(() => useFirmwareApi());
-      await expect(result.current.checkFirmwareFile("abc123")).rejects.toThrow("Session expired");
+      await expect(result.current.checkFirmwareFile("abc123", firmwareTarget)).rejects.toThrow("Session expired");
 
       expect(mockLogout).toHaveBeenCalledOnce();
     });
@@ -163,7 +164,9 @@ describe("useFirmwareApi", () => {
       );
 
       const { result } = renderHook(() => useFirmwareApi());
-      await expect(result.current.checkFirmwareFile("abc123")).rejects.toThrow("Firmware check failed: 500");
+      await expect(result.current.checkFirmwareFile("abc123", firmwareTarget)).rejects.toThrow(
+        "Firmware check failed: 500",
+      );
 
       expect(mockLogout).not.toHaveBeenCalled();
     });
@@ -180,7 +183,9 @@ describe("useFirmwareApi", () => {
       );
 
       const { result } = renderHook(() => useFirmwareApi());
-      await expect(result.current.checkFirmwareFile("bad")).rejects.toThrow("sha256 must be a 64-character hex string");
+      await expect(result.current.checkFirmwareFile("bad", firmwareTarget)).rejects.toThrow(
+        "sha256 must be a 64-character hex string",
+      );
     });
   });
 
@@ -201,7 +206,7 @@ describe("useFirmwareApi", () => {
 
       const file = new File(["data"], "firmware.swu");
       const { result } = renderHook(() => useFirmwareApi());
-      const id = await result.current.uploadFirmwareFile(file);
+      const id = await result.current.uploadFirmwareFile(file, firmwareTarget);
 
       expect(id).toBe("fw-abc");
       expect(mockUpload).toHaveBeenCalledWith(
@@ -210,6 +215,10 @@ describe("useFirmwareApi", () => {
         expect.objectContaining({
           onProgress: undefined,
           signal: undefined,
+          formFields: {
+            target_manufacturer: "Proto",
+            target_model: "S21",
+          },
         }),
       );
     });
@@ -230,7 +239,7 @@ describe("useFirmwareApi", () => {
       const file = new File(["a".repeat(10)], "firmware.swu");
       const onProgress = vi.fn();
       const { result } = renderHook(() => useFirmwareApi());
-      const id = await result.current.uploadFirmwareFile(file, { onProgress });
+      const id = await result.current.uploadFirmwareFile(file, { ...firmwareTarget, onProgress });
 
       expect(id).toBe("fw-chunked");
       expect(mockUpload).toHaveBeenCalledWith(
@@ -238,6 +247,10 @@ describe("useFirmwareApi", () => {
         file,
         expect.objectContaining({
           onProgress,
+          initiateFields: {
+            target_manufacturer: "Proto",
+            target_model: "S21",
+          },
           chunked: expect.objectContaining({
             enabled: true,
             chunkSize: 5,
@@ -265,7 +278,7 @@ describe("useFirmwareApi", () => {
       const file = new File(["data"], "firmware.swu");
       const { result } = renderHook(() => useFirmwareApi());
 
-      await expect(result.current.uploadFirmwareFile(file)).rejects.toThrow(
+      await expect(result.current.uploadFirmwareFile(file, firmwareTarget)).rejects.toThrow(
         "Server response missing firmware_file_id.",
       );
     });
@@ -290,7 +303,7 @@ describe("useFirmwareApi", () => {
       const file = new File(["data"], "firmware.swu");
       const { result } = renderHook(() => useFirmwareApi());
 
-      await result.current.uploadFirmwareFile(file, { signal: controller.signal });
+      await result.current.uploadFirmwareFile(file, { ...firmwareTarget, signal: controller.signal });
 
       expect(mockUpload).toHaveBeenCalledWith(
         expect.any(String),
@@ -302,7 +315,16 @@ describe("useFirmwareApi", () => {
 
   describe("listFirmwareFiles", () => {
     it("sends GET with credentials and returns file list", async () => {
-      const mockFiles = [{ id: "f1", filename: "fw.swu", size: 1024, uploaded_at: "2025-01-01T00:00:00Z" }];
+      const mockFiles = [
+        {
+          id: "f1",
+          filename: "fw.swu",
+          size: 1024,
+          uploaded_at: "2025-01-01T00:00:00Z",
+          target_manufacturer: "Proto",
+          target_model: "S21",
+        },
+      ];
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,

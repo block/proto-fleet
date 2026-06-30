@@ -2473,6 +2473,54 @@ func TestHandleSystem_SwUpdateStatusUsesSpecFieldNames(t *testing.T) {
 	}
 }
 
+func TestStagedFirmwareVersion_UsesFilenameVersionWhenPresent(t *testing.T) {
+	tests := []struct {
+		name           string
+		filename       string
+		currentVersion string
+		want           string
+	}{
+		{
+			name:           "plain semantic version",
+			filename:       "protoos-1.9.0.swu",
+			currentVersion: "1.8.0",
+			want:           "1.9.0",
+		},
+		{
+			name:           "v-prefixed semantic version",
+			filename:       "firmware-update-v2.0.2.swu",
+			currentVersion: "1.8.0",
+			want:           "2.0.2",
+		},
+		{
+			name:           "fallback when filename has no version",
+			filename:       "protoos-update.swu",
+			currentVersion: "1.8.0",
+			want:           defaultNextFirmwareVersion,
+		},
+		{
+			name:           "fallback increments non-default current version",
+			filename:       "protoos-update.swu",
+			currentVersion: "2.3.4",
+			want:           "2.3.5",
+		},
+		{
+			name:           "does not extract partial four-part version",
+			filename:       "protoos-1.2.3.4.swu",
+			currentVersion: "1.8.0",
+			want:           defaultNextFirmwareVersion,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := stagedFirmwareVersion(tt.filename, tt.currentVersion); got != tt.want {
+				t.Fatalf("expected staged version %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
 func TestHandleSystem_PreviousVersionSetAfterInstallReboot(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
@@ -2622,10 +2670,11 @@ func TestHandleUpdate_PutWhileInstalled_RejectsAndPreservesStagedVersion(t *test
 func TestHandleUpdate_PutProgressesToInstalled(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
+	const uploadedVersion = "2.4.6"
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("file", "protoos-update.swu")
+	part, err := writer.CreateFormFile("file", "protoos-"+uploadedVersion+".swu")
 	if err != nil {
 		t.Fatalf("failed to create multipart file: %v", err)
 	}
@@ -2653,11 +2702,34 @@ func TestHandleUpdate_PutProgressesToInstalled(t *testing.T) {
 			t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
 		}
 
-		if got := swUpdate["new_version"]; got != defaultNextFirmwareVersion {
-			t.Fatalf("expected new_version %q after upload, got %v", defaultNextFirmwareVersion, got)
+		if got := swUpdate["new_version"]; got != uploadedVersion {
+			t.Fatalf("expected new_version %q after upload, got %v", uploadedVersion, got)
 		}
 
 		if swUpdate["status"] == "installed" {
+			rebootRR := httptest.NewRecorder()
+			rebootReq := httptest.NewRequest(http.MethodPost, "/api/v1/system/reboot", nil)
+			h.handleReboot(rebootRR, rebootReq)
+
+			if rebootRR.Code != http.StatusAccepted {
+				t.Fatalf("expected %d from reboot, got %d; body=%s", http.StatusAccepted, rebootRR.Code, rebootRR.Body.String())
+			}
+
+			state.mu.Lock()
+			state.Rebooting = false
+			state.mu.Unlock()
+
+			info = getSystemInfo(t, h)
+			swUpdate, ok = info["sw_update_status"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected sw_update_status object after reboot, got: %v", info["sw_update_status"])
+			}
+			if got := swUpdate["current_version"]; got != uploadedVersion {
+				t.Fatalf("expected current_version %q after reboot, got %v", uploadedVersion, got)
+			}
+			if got := swUpdate["previous_version"]; got != defaultFirmwareVersion {
+				t.Fatalf("expected previous_version %q after reboot, got %v", defaultFirmwareVersion, got)
+			}
 			return
 		}
 
