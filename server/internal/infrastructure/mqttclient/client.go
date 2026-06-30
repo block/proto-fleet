@@ -19,6 +19,7 @@ import (
 const subscribeQoS byte = 1
 const maxPayloadBytes = 1024
 const reconnectSubscribeTimeout = 10 * time.Second
+const subscribeFailureCode byte = 0x80
 
 const (
 	transportTCP = "tcp"
@@ -31,10 +32,20 @@ type Client struct {
 	client         paho.Client
 	subscriptions  map[string]paho.MessageHandler
 	statusReporter func(connected bool, subscribed bool, err error)
+	statusSequence atomic.Uint64
 }
 
 type subscriptionClient interface {
 	Subscribe(topic string, qos byte, callback paho.MessageHandler) paho.Token
+}
+
+type connectionStateClient interface {
+	IsConnectionOpen() bool
+}
+
+type reconnectClient interface {
+	subscriptionClient
+	connectionStateClient
 }
 
 type routeClient interface {
@@ -75,8 +86,8 @@ func (c *Client) Connect(ctx context.Context, host string, port int32, transport
 		if initialConnectComplete.Load() {
 			c.reportReconnectStatus(ctx, client)
 		}
-	}, func(_ paho.Client, err error) {
-		c.reportRuntimeStatus(false, false, normalizeConnectionLostError(err))
+	}, func(client paho.Client, err error) {
+		c.reportConnectionLostStatus(client, err)
 	})
 
 	client := paho.NewClient(opts)
@@ -90,7 +101,7 @@ func (c *Client) Connect(ctx context.Context, host string, port int32, transport
 	c.client = client
 	c.mu.Unlock()
 	for topic, handler := range c.subscriptionSnapshot() {
-		if err := waitToken(ctx, client.Subscribe(topic, subscribeQoS, handler)); err != nil {
+		if err := waitSubscribeToken(ctx, topic, client.Subscribe(topic, subscribeQoS, handler)); err != nil {
 			client.Disconnect(0)
 			c.mu.Lock()
 			if c.client == client {
@@ -144,7 +155,7 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(paylo
 	c.mu.Unlock()
 
 	token := client.Subscribe(topic, subscribeQoS, messageHandler)
-	if err := waitToken(ctx, token); err != nil {
+	if err := waitSubscribeToken(ctx, topic, token); err != nil {
 		return fmt.Errorf("mqttclient: subscribe %q: %w", topic, err)
 	}
 	return nil
@@ -159,23 +170,59 @@ func (c *Client) reportRuntimeStatus(connected bool, subscribed bool, err error)
 	}
 }
 
-func (c *Client) reportReconnectStatus(ctx context.Context, client subscriptionClient) {
-	c.reportReconnectStatusWithTimeout(ctx, client, reconnectSubscribeTimeout)
+func (c *Client) nextStatusSequence() uint64 {
+	return c.statusSequence.Add(1)
 }
 
-func (c *Client) reportReconnectStatusWithTimeout(ctx context.Context, client subscriptionClient, timeout time.Duration) {
-	replayCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	if err := c.replaySubscriptions(replayCtx, client); err != nil {
-		c.reportRuntimeStatus(true, false, err)
+func (c *Client) reportRuntimeStatusForSequence(sequence uint64, connected bool, subscribed bool, err error) {
+	if c.statusSequence.Load() != sequence {
 		return
 	}
-	c.reportRuntimeStatus(true, true, nil)
+	c.reportRuntimeStatus(connected, subscribed, err)
+}
+
+func (c *Client) reportConnectionLostStatus(client connectionStateClient, err error) {
+	if client != nil && client.IsConnectionOpen() {
+		return
+	}
+	sequence := c.nextStatusSequence()
+	c.reportRuntimeStatusForSequence(sequence, false, false, normalizeConnectionLostError(err))
+}
+
+func (c *Client) reportReconnectStatus(ctx context.Context, client reconnectClient) {
+	sequence := c.nextStatusSequence()
+	c.reportReconnectStatusWithTimeoutForSequence(ctx, client, reconnectSubscribeTimeout, sequence)
+}
+
+func (c *Client) reportReconnectStatusWithTimeout(ctx context.Context, client reconnectClient, timeout time.Duration) {
+	sequence := c.nextStatusSequence()
+	c.reportReconnectStatusWithTimeoutForSequence(ctx, client, timeout, sequence)
+}
+
+func (c *Client) reportReconnectStatusWithTimeoutForSequence(ctx context.Context, client reconnectClient, timeout time.Duration, sequence uint64) {
+	replayCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	err := c.replaySubscriptions(replayCtx, client)
+	if c.statusSequence.Load() != sequence {
+		return
+	}
+	if !client.IsConnectionOpen() {
+		if err == nil {
+			err = errors.New("mqttclient: connection lost during resubscribe")
+		}
+		c.reportRuntimeStatusForSequence(sequence, false, false, err)
+		return
+	}
+	if err != nil {
+		c.reportRuntimeStatusForSequence(sequence, true, false, err)
+		return
+	}
+	c.reportRuntimeStatusForSequence(sequence, true, true, nil)
 }
 
 func (c *Client) replaySubscriptions(ctx context.Context, client subscriptionClient) error {
 	for topic, handler := range c.subscriptionSnapshot() {
-		if err := waitToken(ctx, client.Subscribe(topic, subscribeQoS, handler)); err != nil {
+		if err := waitSubscribeToken(ctx, topic, client.Subscribe(topic, subscribeQoS, handler)); err != nil {
 			return fmt.Errorf("mqttclient: resubscribe %q: %w", topic, err)
 		}
 	}
@@ -278,6 +325,31 @@ func waitToken(ctx context.Context, token paho.Token) error {
 	case <-token.Done():
 		return token.Error() //nolint:wrapcheck // paho token error; callers add context
 	}
+}
+
+func waitSubscribeToken(ctx context.Context, topic string, token paho.Token) error {
+	if err := waitToken(ctx, token); err != nil {
+		return err
+	}
+	return validateSubscribeResult(topic, token)
+}
+
+func validateSubscribeResult(topic string, token paho.Token) error {
+	resultToken, ok := token.(interface{ Result() map[string]byte })
+	if !ok {
+		return nil
+	}
+	qos, ok := resultToken.Result()[topic]
+	if !ok {
+		return errors.New("SUBACK missing topic result")
+	}
+	if qos == subscribeFailureCode {
+		return fmt.Errorf("SUBACK rejected subscription with code 0x%02x", qos)
+	}
+	if qos > 2 {
+		return fmt.Errorf("SUBACK returned invalid QoS %d", qos)
+	}
+	return nil
 }
 
 func clientID(identity string) string {
