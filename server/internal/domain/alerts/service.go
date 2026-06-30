@@ -249,6 +249,22 @@ func (s *Service) DeleteChannel(ctx context.Context, orgID int64, id string) err
 	return nil
 }
 
+// RunReconcileLoop reconciles immediately, then every interval until ctx is cancelled; best-effort (logs) so it self-heals routing after a Grafana-only restart without blocking the caller.
+func (s *Service) RunReconcileLoop(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if err := s.ReconcileNotificationTree(ctx); err != nil {
+			slog.Warn("alerts.reconcile_routes_failed", "error", err)
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 // ReconcileNotificationTree rebuilds the org-routing tree from current contact points and replaces Grafana's policy tree; idempotent, called on boot to re-assert it.
 func (s *Service) ReconcileNotificationTree(ctx context.Context) error {
 	// Grafana replaces the whole tree on PUT, so serialize the read-modify-write.
