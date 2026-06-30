@@ -309,6 +309,39 @@ func TestIsRenderingNavigation(t *testing.T) {
 	}
 }
 
+func TestIsDisallowedCrossOriginWrite(t *testing.T) {
+	req := func(method string, headers map[string]string) *http.Request {
+		r := httptest.NewRequest(method, "https://fleet.example/miners/m1/api/v1/mining/stop", nil)
+		for k, v := range headers {
+			r.Header.Set(k, v)
+		}
+		return r
+	}
+
+	tests := []struct {
+		name    string
+		request *http.Request
+		want    bool
+	}{
+		{"same-origin write allowed", req(http.MethodPost, map[string]string{"Sec-Fetch-Site": "same-origin"}), false},
+		{"same-site write rejected", req(http.MethodPost, map[string]string{"Sec-Fetch-Site": "same-site"}), true},
+		{"cross-site write rejected", req(http.MethodPost, map[string]string{"Sec-Fetch-Site": "cross-site"}), true},
+		{"none write rejected", req(http.MethodPost, map[string]string{"Sec-Fetch-Site": "none"}), true},
+		{"non-browser write allowed (no fetch metadata)", req(http.MethodPut, nil), false},
+		{"matching Origin fallback allowed", req(http.MethodPost, map[string]string{"Origin": "https://fleet.example"}), false},
+		{"mismatched Origin fallback rejected", req(http.MethodPost, map[string]string{"Origin": "https://evil.example"}), true},
+		{"cross-site read is not a write", req(http.MethodGet, map[string]string{"Sec-Fetch-Site": "cross-site"}), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isDisallowedCrossOriginWrite(tt.request); got != tt.want {
+				t.Fatalf("isDisallowedCrossOriginWrite = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSetResponseHardeningHeaders(t *testing.T) {
 	h := http.Header{}
 	// A hostile miner trying to relax the policy must not win.

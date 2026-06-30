@@ -173,6 +173,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// State-changing requests must originate from the same-origin embedded
+	// client. The proxy authenticates with the Fleet session cookie, which a
+	// same-site sibling origin (shared parent domain) can still send, so reject
+	// cross-origin browser writes before acting on that cookie auth (CSRF).
+	if isDisallowedCrossOriginWrite(r) {
+		writeError(w, http.StatusForbidden, "cross-origin miner mutation rejected")
+		return
+	}
+
 	target, err := h.resolveTarget(ctx, deviceIdentifier, info.OrganizationID)
 	if err != nil {
 		writeError(w, httpStatusForError(err), clientMessageForError(err))
@@ -673,6 +682,27 @@ func isRenderingNavigation(r *http.Request) bool {
 	default:
 		return false
 	}
+}
+
+// isDisallowedCrossOriginWrite reports whether a state-changing request comes
+// from a browser context that is not same-origin. Sec-Fetch-Site is set by the
+// browser and cannot be forged by page JS, so for write methods only
+// "same-origin" (the embedded client) is accepted; "same-site"/"cross-site"/
+// "none" are rejected. Older browsers that omit Sec-Fetch-* fall back to an
+// Origin host check. Non-browser callers send neither header and are not a CSRF
+// vector, so they pass (the session-cookie auth still applies).
+func isDisallowedCrossOriginWrite(r *http.Request) bool {
+	if !isWriteMethod(r.Method) {
+		return false
+	}
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" {
+		return site != "same-origin"
+	}
+	if origin := r.Header.Get("Origin"); origin != "" {
+		u, err := url.Parse(origin)
+		return err != nil || u.Host != r.Host
+	}
+	return false
 }
 
 func setResponseHardeningHeaders(h http.Header) {
