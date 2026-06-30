@@ -152,31 +152,48 @@ const FUNCTIONAL_DEPENDENCIES: Record<string, FunctionalDependency> = {
   "miner:firmware_update": { requires: ["miner:reboot"] },
 };
 
+export interface DependencyGaps {
+  /**
+   * Hard companion permissions the selection is missing. These are always
+   * required, so the one-click add can safely grant all of them at once.
+   */
+  required: string[];
+  /**
+   * Unsatisfied "at least one" sets — the admin must grant at least one
+   * member of each set, but the choice is theirs. Never auto-added, since
+   * granting every member would over-grant (e.g. handing a scheduling role
+   * every sensitive miner action when only one is needed).
+   */
+  chooseOneOf: string[][];
+}
+
 /**
- * Companion permissions a selection functionally depends on but is missing.
+ * Splits a selection's functional dependency gap into hard requirements (safe
+ * to one-click add) and "choose at least one" sets (display-only guidance).
  * Only keys the catalog actually publishes are returned, so a dependency the
  * server hasn't shipped is skipped rather than offered as an un-grantable row.
- * For an unsatisfied "at least one" set, every member is suggested so the
- * one-click add yields a fully usable role the admin can then trim down.
+ * An "at least one" set already satisfied by the selection is omitted, so a
+ * deliberately narrow role isn't nagged once it holds a member.
  */
-export const missingDependencies = (selected: Iterable<string>, catalog: CatalogEntry[]): string[] => {
+export const dependencyGaps = (selected: Iterable<string>, catalog: CatalogEntry[]): DependencyGaps => {
   const selectedSet = new Set(selected);
   const catalogKeys = new Set(catalog.map((entry) => entry.key));
   const has = (key: string) => catalogKeys.has(key) && !selectedSet.has(key);
-  const missing = new Set<string>();
+  const required = new Set<string>();
+  const chooseOneOf: string[][] = [];
   for (const key of selectedSet) {
     const dep = FUNCTIONAL_DEPENDENCIES[key];
     if (!dep) continue;
-    for (const required of dep.requires ?? []) {
-      if (has(required)) missing.add(required);
+    for (const requiredKey of dep.requires ?? []) {
+      if (has(requiredKey)) required.add(requiredKey);
     }
     for (const group of dep.oneOf ?? []) {
-      if (!group.some((member) => selectedSet.has(member))) {
-        group.filter(has).forEach((member) => missing.add(member));
-      }
+      if (group.some((member) => selectedSet.has(member))) continue;
+      const options = group.filter((member) => catalogKeys.has(member));
+      if (options.length > 0) chooseOneOf.push(options);
     }
   }
-  return [...missing];
+  return { required: [...required], chooseOneOf };
 };
 
 export interface UsePermissionCatalogResult {
@@ -187,7 +204,7 @@ export interface UsePermissionCatalogResult {
   requiredReadsFor: (key: string) => string[];
   withRequiredReads: (selected: Iterable<string>) => string[];
   lockedReadKeys: (selected: Iterable<string>) => Set<string>;
-  missingDependencies: (selected: Iterable<string>) => string[];
+  dependencyGaps: (selected: Iterable<string>) => DependencyGaps;
 }
 
 // Module-level cache so multiple hook instances share the single fetch.
@@ -254,10 +271,7 @@ export const usePermissionCatalog = (): UsePermissionCatalogResult => {
     [catalog],
   );
   const boundLockedReadKeys = useCallback((selected: Iterable<string>) => lockedReadKeys(selected, catalog), [catalog]);
-  const boundMissingDependencies = useCallback(
-    (selected: Iterable<string>) => missingDependencies(selected, catalog),
-    [catalog],
-  );
+  const boundDependencyGaps = useCallback((selected: Iterable<string>) => dependencyGaps(selected, catalog), [catalog]);
 
   return {
     catalog,
@@ -267,6 +281,6 @@ export const usePermissionCatalog = (): UsePermissionCatalogResult => {
     requiredReadsFor: boundRequiredReadsFor,
     withRequiredReads: boundWithRequiredReads,
     lockedReadKeys: boundLockedReadKeys,
-    missingDependencies: boundMissingDependencies,
+    dependencyGaps: boundDependencyGaps,
   };
 };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type CatalogEntry, missingDependencies, withRequiredReads } from "./permissionCatalog";
+import { type CatalogEntry, dependencyGaps, withRequiredReads } from "./permissionCatalog";
 
 // Minimal catalog covering the keys the dependency rules reference.
 const catalog: CatalogEntry[] = [
@@ -15,35 +15,59 @@ const catalog: CatalogEntry[] = [
   { key: "schedule:manage", description: "Create, edit, pause, resume, and delete schedules.", resource: "schedule" },
 ];
 
-describe("missingDependencies", () => {
-  it("flags the reads and at least one action schedule:manage needs", () => {
-    expect(missingDependencies(["schedule:manage"], catalog).sort()).toEqual(
-      ["fleet:read", "miner:read", "miner:reboot", "miner:set_power_target", "miner:stop_mining", "rack:read"].sort(),
-    );
+describe("dependencyGaps", () => {
+  it("splits schedule:manage gaps into hard reads and a choose-one-of action set", () => {
+    const gaps = dependencyGaps(["schedule:manage"], catalog);
+    // Reads are hard requirements, safe for the one-click add.
+    expect(gaps.required.sort()).toEqual(["fleet:read", "miner:read", "rack:read"].sort());
+    // The miner actions are a "choose at least one" set, never auto-added.
+    expect(gaps.chooseOneOf).toEqual([["miner:reboot", "miner:stop_mining", "miner:set_power_target"]]);
   });
 
-  it("stops suggesting the other actions once one is held (oneOf)", () => {
+  it("never lists oneOf members as hard-required", () => {
+    const gaps = dependencyGaps(["schedule:manage"], catalog);
+    expect(gaps.required).not.toContain("miner:reboot");
+    expect(gaps.required).not.toContain("miner:stop_mining");
+    expect(gaps.required).not.toContain("miner:set_power_target");
+  });
+
+  it("stops suggesting the action set once one member is held (oneOf)", () => {
     const selected = withRequiredReads(["schedule:manage", "miner:reboot"], catalog);
     // miner:reboot satisfies the "at least one action" set and pulls in
     // miner:read + fleet:read via required reads, leaving only rack:read.
-    expect(missingDependencies(selected, catalog)).toEqual(["rack:read"]);
+    const gaps = dependencyGaps(selected, catalog);
+    expect(gaps.required).toEqual(["rack:read"]);
+    expect(gaps.chooseOneOf).toEqual([]);
   });
 
-  it("flags reboot access for firmware updates", () => {
-    expect(missingDependencies(["miner:firmware_update"], catalog)).toEqual(["miner:reboot"]);
+  it("treats reboot access for firmware updates as a hard requirement", () => {
+    const gaps = dependencyGaps(["miner:firmware_update"], catalog);
+    expect(gaps.required).toEqual(["miner:reboot"]);
+    expect(gaps.chooseOneOf).toEqual([]);
   });
 
-  it("returns nothing once dependencies are satisfied", () => {
+  it("returns no gaps once dependencies are satisfied", () => {
     const selected = ["schedule:manage", "fleet:read", "miner:read", "rack:read", "miner:reboot"];
-    expect(missingDependencies(selected, catalog)).toEqual([]);
+    const gaps = dependencyGaps(selected, catalog);
+    expect(gaps.required).toEqual([]);
+    expect(gaps.chooseOneOf).toEqual([]);
   });
 
-  it("skips dependencies the catalog does not publish", () => {
+  it("skips choose-one-of members the catalog does not publish", () => {
     const trimmed = catalog.filter((entry) => entry.key !== "miner:set_power_target");
-    expect(missingDependencies(["schedule:manage"], trimmed)).not.toContain("miner:set_power_target");
+    const gaps = dependencyGaps(["schedule:manage"], trimmed);
+    expect(gaps.chooseOneOf).toEqual([["miner:reboot", "miner:stop_mining"]]);
   });
 
-  it("reports nothing for selections without functional dependencies", () => {
-    expect(missingDependencies(["miner:reboot", "miner:read", "fleet:read"], catalog)).toEqual([]);
+  it("omits a choose-one-of set entirely when the catalog publishes none of its members", () => {
+    const trimmed = catalog.filter((entry) => entry.resource !== "miner" || entry.key === "miner:read");
+    const gaps = dependencyGaps(["schedule:manage"], trimmed);
+    expect(gaps.chooseOneOf).toEqual([]);
+  });
+
+  it("reports no gaps for selections without functional dependencies", () => {
+    const gaps = dependencyGaps(["miner:reboot", "miner:read", "fleet:read"], catalog);
+    expect(gaps.required).toEqual([]);
+    expect(gaps.chooseOneOf).toEqual([]);
   });
 });

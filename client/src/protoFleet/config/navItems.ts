@@ -60,18 +60,27 @@ export const primaryNavItems: NavItem[] = [
     path: "/fleet",
     label: "Fleet",
     icon: Fleet,
-    // Fleet (miner list + telemetry) and Groups (miners grouped by label) both
-    // surface fleet data the server gates on fleet:read, so a role without it
-    // would land on an empty, erroring page. Home stays ungated as the safe
-    // universal landing; its widgets already degrade per-permission.
-    requiredPermission: "fleet:read",
+    // The Fleet shell hosts several tabs, each with its own server-side gate
+    // (see FleetLayout's isTabReachable): miners on fleet:read, racks on
+    // rack:read, and sites/buildings/infrastructure on site:read. Use the OR
+    // union of those gates so any role that can reach at least one tab keeps a
+    // nav path in; gating on fleet:read alone would strand rack- or site-only
+    // readers who can still deep-link to /fleet/racks or /fleet/sites. Home
+    // stays ungated as the safe universal landing; its widgets already degrade
+    // per-permission.
+    requiredAnyPermission: ["fleet:read", "rack:read", "site:read"],
     scopable: true,
   },
   {
     path: "/groups",
     label: "Groups",
     icon: Groups,
-    requiredPermission: "fleet:read",
+    // The Groups page's list + stats flow (ListDeviceSets, GetDeviceSetStats)
+    // is gated server-side on rack:read (see deviceset handler's
+    // requireDeviceSetReadPermission), so gate the nav on rack:read to match.
+    // fleet:read would wrongly hide it from rack readers/managers who can use
+    // the page.
+    requiredPermission: "rack:read",
     scopable: true,
   },
   {

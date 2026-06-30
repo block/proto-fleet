@@ -16,12 +16,27 @@ describe("primaryNavItems", () => {
     expect(labels.indexOf("Energy")).toBe(labels.indexOf("Activity") - 1);
   });
 
-  it("gates Fleet and Groups on fleet:read so inaccessible pages stay hidden", () => {
+  it("gates Fleet on the union of its tab permissions so any reachable tab keeps a nav path", () => {
     const fleet = primaryNavItems.find((item) => item.label === "Fleet");
+
+    expect(fleet?.requiredPermission).toBeUndefined();
+    expect(fleet?.requiredAnyPermission).toEqual(["fleet:read", "rack:read", "site:read"]);
+
+    // Rack- and site-only readers can reach Fleet tabs by deep link, so the
+    // nav entry must stay visible for them.
+    expect(isNavItemAllowedByPermissions(fleet!, ["rack:read"])).toBe(true);
+    expect(isNavItemAllowedByPermissions(fleet!, ["site:read"])).toBe(true);
+    expect(isNavItemAllowedByPermissions(fleet!, ["fleet:read"])).toBe(true);
+    expect(isNavItemAllowedByPermissions(fleet!, ["activity:read"])).toBe(false);
+  });
+
+  it("gates Groups on rack:read to match the server-side device-set read gate", () => {
     const groups = primaryNavItems.find((item) => item.label === "Groups");
 
-    expect(fleet?.requiredPermission).toBe("fleet:read");
-    expect(groups?.requiredPermission).toBe("fleet:read");
+    expect(groups?.requiredPermission).toBe("rack:read");
+    expect(groups?.requiredAnyPermission).toBeUndefined();
+    expect(isNavItemAllowedByPermissions(groups!, ["rack:read"])).toBe(true);
+    expect(isNavItemAllowedByPermissions(groups!, ["fleet:read"])).toBe(false);
   });
 
   it("leaves Home ungated as the universal landing", () => {
