@@ -1,15 +1,11 @@
 import { createContext, ReactNode, useMemo } from "react";
 import { Api, RequestParams } from "@/protoOS/api/generatedApi";
 import useMinerStore from "@/protoOS/store/useMinerStore";
+import type { MinerMetadata } from "@/shared/types/minerMetadata";
 
 export type MinerHostingMode = "direct" | "fleet";
 
-export type MinerHostingMetadata = {
-  minerName?: string;
-  ipAddress?: string;
-  macAddress?: string;
-  firmwareVersion?: string;
-};
+export type MinerHostingMetadata = MinerMetadata;
 
 // Stable identity for the absent-metadata case so consumers' memoization
 // (useMinerHosting) isn't busted by a fresh `{}` on every provider render.

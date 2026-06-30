@@ -11,8 +11,7 @@ import {
 } from "@/protoOS/store";
 
 const useFirmwareUpdate = () => {
-  const { api, mode } = useMinerHosting();
-  const isFleetHosted = mode === "fleet";
+  const { api, isFleetHosted } = useMinerHosting();
   const { checkAccess, hasAccess } = useAccessToken(!isFleetHosted);
   const authHeader = useAuthHeader();
   const pausedAuthAction = usePausedAuthAction();

@@ -29,7 +29,7 @@ vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
 describe("useAuthRetry", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUseMinerHosting.mockReturnValue({ mode: "direct" });
+    mockUseMinerHosting.mockReturnValue({ mode: "direct", isFleetHosted: false });
     currentAccessToken = "test-token";
     mockGetState.mockImplementation(() => ({
       auth: {
@@ -76,7 +76,7 @@ describe("useAuthRetry", () => {
   });
 
   test("does not use direct miner bearer auth or refresh retry in fleet-hosted mode", async () => {
-    mockUseMinerHosting.mockReturnValue({ mode: "fleet" });
+    mockUseMinerHosting.mockReturnValue({ mode: "fleet", isFleetHosted: true });
     const error = { status: 401, error: { message: "Unauthorized" } };
     const request = vi.fn().mockRejectedValue(error);
     const onError = vi.fn();

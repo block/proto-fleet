@@ -1,11 +1,7 @@
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import type { MinerMetadata } from "@/shared/types/minerMetadata";
 
-export type SingleMinerMetadata = {
-  minerName?: string;
-  ipAddress?: string;
-  macAddress?: string;
-  firmwareVersion?: string;
-};
+export type SingleMinerMetadata = MinerMetadata;
 
 export type SingleMinerRouteState = {
   singleMinerMetadata?: SingleMinerMetadata;

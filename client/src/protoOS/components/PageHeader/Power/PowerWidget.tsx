@@ -47,8 +47,7 @@ const PowerWidget = ({
   const { triggerRef: WidgetRef } = useResponsivePopover();
   const isAwake = useIsAwake();
   const isSleeping = useIsSleeping();
-  const { mode } = useMinerHosting();
-  const isFleetHosted = mode === "fleet";
+  const { isFleetHosted } = useMinerHosting();
 
   const [isOpen, setIsOpen] = useState(shouldShowPopover);
   const [warnReboot, setWarnReboot] = useState(false);

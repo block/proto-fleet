@@ -26,8 +26,7 @@ const PowerTarget = () => {
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
   const [lastMiningTarget, setLastMiningTarget] = useState<MiningTarget | null>(null);
-  const { mode } = useMinerHosting();
-  const isFleetHosted = mode === "fleet";
+  const { isFleetHosted } = useMinerHosting();
 
   const { hasAccess, checkAccess } = useAccessToken(!isFleetHosted && !!pausedAuthAction && !dismissedLoginModal);
 

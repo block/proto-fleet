@@ -53,7 +53,7 @@ describe("PowerTarget", () => {
     mockState.hasAccess = undefined;
     mockState.pausedAuthAction = null;
     mockState.dismissedLoginModal = false;
-    (useMinerHosting as Mock).mockReturnValue({ mode: "direct" });
+    (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
     (useMiningTarget as Mock).mockReturnValue({
       miningTarget: 4000,
       defaultTarget: 4000,
@@ -83,7 +83,7 @@ describe("PowerTarget", () => {
   });
 
   test("fleet-hosted mode applies the target directly without the auth gate", () => {
-    (useMinerHosting as Mock).mockReturnValue({ mode: "fleet" });
+    (useMinerHosting as Mock).mockReturnValue({ mode: "fleet", isFleetHosted: true });
 
     openAndApply();
 

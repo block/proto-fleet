@@ -23,8 +23,7 @@ interface AuthRetryOptions<T> {
  */
 export const useAuthRetry = () => {
   const { handleAuthErrors } = useAuthErrors();
-  const { mode } = useMinerHosting();
-  const isFleetHosted = mode === "fleet";
+  const { isFleetHosted } = useMinerHosting();
 
   return useCallback(
     <T>({ request, onSuccess, onError, shouldRetry }: AuthRetryOptions<T>): Promise<void> => {

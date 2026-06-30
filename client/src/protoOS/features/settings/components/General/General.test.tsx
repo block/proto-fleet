@@ -53,7 +53,7 @@ describe("General system-tag flow", () => {
     mockState.hasAccess = undefined;
     mockState.pausedAuthAction = null;
     mockState.dismissedLoginModal = false;
-    (useMinerHosting as Mock).mockReturnValue({ mode: "direct" });
+    (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
     // Resolve an existing tag so the "Edit" affordance renders.
     (useSystemTag as Mock).mockReturnValue({
       getSystemTag: ({ onSuccess }: { onSuccess: (tag: string) => void }) => onSuccess("rig-01"),
@@ -71,7 +71,7 @@ describe("General system-tag flow", () => {
   });
 
   test("fleet-hosted mode opens the edit modal directly without the auth gate", () => {
-    (useMinerHosting as Mock).mockReturnValue({ mode: "fleet" });
+    (useMinerHosting as Mock).mockReturnValue({ mode: "fleet", isFleetHosted: true });
 
     const { getByTestId } = render(<General />);
 

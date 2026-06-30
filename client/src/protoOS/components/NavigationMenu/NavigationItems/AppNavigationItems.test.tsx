@@ -18,7 +18,7 @@ describe("AppNavigationItems", () => {
     render(<AppNavigationItems onClick={vi.fn()} pageName="settings/general" />);
 
   test("direct mode shows the Fleet-managed settings", () => {
-    (useMinerHosting as Mock).mockReturnValue({ mode: "direct" });
+    (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
 
     renderExpanded();
 
@@ -28,7 +28,7 @@ describe("AppNavigationItems", () => {
   });
 
   test("fleet-hosted mode hides Authentication and Pools (Fleet-managed)", () => {
-    (useMinerHosting as Mock).mockReturnValue({ mode: "fleet" });
+    (useMinerHosting as Mock).mockReturnValue({ mode: "fleet", isFleetHosted: true });
 
     renderExpanded();
 

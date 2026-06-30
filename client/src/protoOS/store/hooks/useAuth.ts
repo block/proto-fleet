@@ -71,8 +71,7 @@ export const useAuthErrors = () => {
   const setShowLoginModal = useMinerStore((state) => state.ui.setShowLoginModal);
   const setDefaultPasswordActive = useMinerStore((state) => state.minerStatus.setDefaultPasswordActive);
   const refresh = useRefresh();
-  const { mode } = useMinerHosting();
-  const isFleetHosted = mode === "fleet";
+  const { isFleetHosted } = useMinerHosting();
 
   const handleAuthErrors = useCallback(
     ({ error, onError, onSuccess }: HandleAuthErrorsProps) => {

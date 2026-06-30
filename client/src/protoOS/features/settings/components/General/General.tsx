@@ -39,8 +39,7 @@ const General = () => {
   const systemInfo = useSystemInfo();
   const isProtoRig = useIsProtoRig();
   const { getSystemTag } = useSystemTag();
-  const { mode } = useMinerHosting();
-  const isFleetHosted = mode === "fleet";
+  const { isFleetHosted } = useMinerHosting();
 
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();

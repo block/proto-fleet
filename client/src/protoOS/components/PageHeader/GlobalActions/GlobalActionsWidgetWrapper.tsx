@@ -21,8 +21,7 @@ const GlobalActionsWidgetWrapper = () => {
   const { locateSystem } = useLocateSystem();
   const { downloadLogs } = useDownloadLogs();
   const [error, setError] = useState<ErrorProps | null>(null);
-  const { mode } = useMinerHosting();
-  const isFleetHosted = mode === "fleet";
+  const { isFleetHosted } = useMinerHosting();
 
   const dismissedLoginModal = useDismissedLoginModal();
   const setDismissedLoginModal = useSetDismissedLoginModal();

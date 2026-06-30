@@ -33,8 +33,7 @@ const AppLayout = ({
   ContentLayout = DefaultContentLayout,
 }: AppLayoutProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const { metadata = {}, mode } = useMinerHosting();
-  const isFleetHosted = mode === "fleet";
+  const { metadata = {}, isFleetHosted } = useMinerHosting();
 
   // Read system info from store
   const osVersion = useOSVersion();

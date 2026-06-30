@@ -82,8 +82,7 @@ const App = ({
   const navigate = useNavigate();
   const location = useLocation();
   const { pathname } = useMemo(() => location, [location]);
-  const { mode } = useMinerHosting();
-  const isFleetHosted = mode === "fleet";
+  const { isFleetHosted } = useMinerHosting();
 
   // Infer if this is an onboarding route from the pathname
   const isOnboardingRoute = pathname.startsWith("/onboarding");

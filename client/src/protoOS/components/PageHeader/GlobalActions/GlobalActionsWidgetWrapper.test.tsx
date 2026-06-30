@@ -54,7 +54,7 @@ describe("GlobalActionsWidgetWrapper", () => {
     mockState.pausedAuthAction = null;
     mockState.dismissedLoginModal = false;
 
-    (useMinerHosting as Mock).mockReturnValue({ mode: "direct" });
+    (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
 
     (useLocateSystem as Mock).mockReturnValue({
       locateSystem: mockLocateSystem,
@@ -89,7 +89,7 @@ describe("GlobalActionsWidgetWrapper", () => {
   });
 
   test("calls locateSystem directly when Blink LEDs is clicked in fleet-hosted mode", () => {
-    (useMinerHosting as Mock).mockReturnValue({ mode: "fleet" });
+    (useMinerHosting as Mock).mockReturnValue({ mode: "fleet", isFleetHosted: true });
 
     const { container, getByText } = render(<GlobalActionsWidgetWrapper />);
 

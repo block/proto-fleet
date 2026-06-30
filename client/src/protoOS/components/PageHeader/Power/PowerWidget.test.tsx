@@ -77,7 +77,7 @@ describe("Power Widget", () => {
     mockState.dismissedLoginModal = false;
     mockState.hasAccess = undefined;
     mockState.pausedAuthAction = null;
-    (useMinerHosting as Mock).mockReturnValue({ mode: "direct" });
+    (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
     (useIsAwake as Mock).mockReturnValue(true);
     (useIsSleeping as Mock).mockReturnValue(false);
   });
@@ -116,7 +116,7 @@ describe("Power Widget", () => {
   });
 
   test("opens reboot confirmation directly in fleet-hosted mode", () => {
-    (useMinerHosting as Mock).mockReturnValue({ mode: "fleet" });
+    (useMinerHosting as Mock).mockReturnValue({ mode: "fleet", isFleetHosted: true });
 
     const { getByTestId } = render(
       <BrowserRouter>

@@ -35,8 +35,7 @@ export const useWakeMiner = ({ afterWake, onSuccess, onError }: UseWakeMinerProp
   const setDismissedLoginModal = useSetDismissedLoginModal();
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
-  const { mode } = useMinerHosting();
-  const isFleetHosted = mode === "fleet";
+  const { isFleetHosted } = useMinerHosting();
   const { checkAccess, hasAccess } = useAccessToken(!isFleetHosted && !!pausedAuthAction && !dismissedLoginModal);
   const afterWakeRef = useRef(afterWake);
   const onSuccessRef = useRef(onSuccess);

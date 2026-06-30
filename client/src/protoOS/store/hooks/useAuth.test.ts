@@ -60,7 +60,7 @@ describe("useAuthErrors", () => {
     vi.clearAllMocks();
     __resetRefreshInFlightForTest();
     mockUseLocation.mockReturnValue({ pathname: "/" });
-    mockUseMinerHosting.mockReturnValue({ mode: "direct" });
+    mockUseMinerHosting.mockReturnValue({ mode: "direct", isFleetHosted: false });
     mockGetState.mockReturnValue({
       auth: {
         authTokens: {
@@ -99,7 +99,7 @@ describe("useAuthErrors", () => {
     });
 
     test("does not run direct miner refresh or show the login modal for fleet-hosted 401s", () => {
-      mockUseMinerHosting.mockReturnValue({ mode: "fleet" });
+      mockUseMinerHosting.mockReturnValue({ mode: "fleet", isFleetHosted: true });
       const onError = vi.fn();
 
       const { result } = renderHook(() => useAuthErrors());

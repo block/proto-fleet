@@ -17,8 +17,7 @@ interface AppNavigationItemsProps {
 const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
   const [showAccordionItems, setShowAccordionItems] = useState(pageName.startsWith("settings"));
   const [showAccordionExpand, setShowAccordionExpand] = useState(false);
-  const { mode } = useMinerHosting();
-  const isFleetHosted = mode === "fleet";
+  const { isFleetHosted } = useMinerHosting();
 
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 

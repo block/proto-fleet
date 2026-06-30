@@ -36,7 +36,11 @@ describe("useFirmwareUpdate", () => {
     vi.clearAllMocks();
     mockState.hasAccess = undefined;
     mockState.pausedAuthAction = null;
-    (useMinerHosting as Mock).mockReturnValue({ api: { postUpdateSystem: mockPostUpdateSystem }, mode: "direct" });
+    (useMinerHosting as Mock).mockReturnValue({
+      api: { postUpdateSystem: mockPostUpdateSystem },
+      mode: "direct",
+      isFleetHosted: false,
+    });
   });
 
   test("direct mode pauses on the auth gate instead of updating immediately", async () => {
@@ -52,7 +56,11 @@ describe("useFirmwareUpdate", () => {
   });
 
   test("fleet-hosted mode posts the update directly without the auth gate", async () => {
-    (useMinerHosting as Mock).mockReturnValue({ api: { postUpdateSystem: mockPostUpdateSystem }, mode: "fleet" });
+    (useMinerHosting as Mock).mockReturnValue({
+      api: { postUpdateSystem: mockPostUpdateSystem },
+      mode: "fleet",
+      isFleetHosted: true,
+    });
     mockPostUpdateSystem.mockResolvedValue({ status: 200, ok: true });
 
     const { result } = renderHook(() => useFirmwareUpdate());

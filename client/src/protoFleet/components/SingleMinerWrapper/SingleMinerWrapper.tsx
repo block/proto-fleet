@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { recallSingleMinerMetadata, type SingleMinerMetadata, type SingleMinerRouteState } from "./routeState";
 import { singleMinerRoutePrefetch } from "@/protoFleet/routePrefetch";
@@ -48,14 +48,23 @@ const SingleMinerWrapper = ({ children }: { children: ReactNode }) => {
   // protoOS loader redirects (which drop navigation state).
   const cachedMetadata = routeMetadata(location.state) ?? recallSingleMinerMetadata(displayId);
 
-  const metadata = {
-    minerName: cachedMetadata?.minerName ?? displayId,
-    ipAddress: cachedMetadata?.ipAddress,
-    macAddress: cachedMetadata?.macAddress,
-    firmwareVersion: cachedMetadata?.firmwareVersion,
-  };
+  // Stable identity: useMinerHosting memoizes on `metadata`, so a fresh object
+  // every render would bust that memo for every embedded consumer.
+  const metadata = useMemo(
+    () => ({
+      minerName: cachedMetadata?.minerName ?? displayId,
+      ipAddress: cachedMetadata?.ipAddress,
+      macAddress: cachedMetadata?.macAddress,
+      firmwareVersion: cachedMetadata?.firmwareVersion,
+    }),
+    [cachedMetadata, displayId],
+  );
 
   const handleClose = useCallback(() => setIsClosing(true), []);
+  // Guarantees the close navigation fires once even if the exit animation
+  // replays (StrictMode double-mount, a second close click, or a back-nav that
+  // re-enters this still-mounted layout route in the closing pose).
+  const hasNavigatedOnClose = useRef(false);
 
   // Once the user is in /miners/:id/*, sibling protoOS chunks (KPI tabs, Logs,
   // Diagnostics, per-miner Settings) are one click away; warm them at idle so
@@ -85,7 +94,8 @@ const SingleMinerWrapper = ({ children }: { children: ReactNode }) => {
           animate={isClosing ? slideUpAnimation.exit : slideUpAnimation.animate}
           transition={slideUpAnimation.transition}
           onAnimationComplete={() => {
-            if (isClosing) {
+            if (isClosing && !hasNavigatedOnClose.current) {
+              hasNavigatedOnClose.current = true;
               navigate(scopedPath("/fleet/miners", activeSite));
             }
           }}
