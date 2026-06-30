@@ -80,13 +80,53 @@ describe("FirmwareUpdateModal", () => {
 
   it("renders existing files immediately even while config is still loading", async () => {
     mockListFirmwareFiles.mockResolvedValue([
-      { id: "fw-1", filename: "alpha.swu", size: 1024, uploaded_at: "2025-01-01T00:00:00Z" },
+      {
+        id: "fw-1",
+        filename: "alpha.swu",
+        size: 1024,
+        uploaded_at: "2025-01-01T00:00:00Z",
+        target_manufacturer: "Proto",
+        target_model: "S21",
+      },
     ]);
 
     render(<FirmwareUpdateModal open onConfirm={vi.fn()} onDismiss={vi.fn()} />);
 
     expect(await screen.findByText("Select an existing firmware file")).toBeInTheDocument();
     expect(screen.getByText("alpha.swu")).toBeInTheDocument();
+  });
+
+  it("filters existing files to the selected miner target", async () => {
+    mockListFirmwareFiles.mockResolvedValue([
+      {
+        id: "fw-1",
+        filename: "alpha.swu",
+        size: 1024,
+        uploaded_at: "2025-01-01T00:00:00Z",
+        target_manufacturer: "Proto",
+        target_model: "Rig",
+      },
+      {
+        id: "fw-2",
+        filename: "beta.swu",
+        size: 1024,
+        uploaded_at: "2025-01-01T00:00:00Z",
+        target_manufacturer: "Bitmain",
+        target_model: "S21",
+      },
+    ]);
+
+    render(
+      <FirmwareUpdateModal
+        open
+        target={{ targetManufacturer: "Proto", targetModel: "Rig" }}
+        onConfirm={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("alpha.swu")).toBeInTheDocument();
+    expect(screen.queryByText("beta.swu")).not.toBeInTheDocument();
   });
 
   it("explains that miners reboot automatically after firmware installation", () => {

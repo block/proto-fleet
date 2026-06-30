@@ -25,6 +25,7 @@ type uploadSession struct {
 	mu            sync.Mutex
 	uploadID      string
 	filename      string
+	metadata      files.FirmwareMetadata
 	expectedSize  int64
 	receivedBytes int64
 	tempFilePath  string
@@ -33,8 +34,10 @@ type uploadSession struct {
 }
 
 type initiateRequest struct {
-	Filename string `json:"filename"`
-	FileSize int64  `json:"file_size"`
+	Filename           string `json:"filename"`
+	FileSize           int64  `json:"file_size"`
+	TargetManufacturer string `json:"target_manufacturer"`
+	TargetModel        string `json:"target_model"`
 }
 
 type initiateResponse struct {
@@ -137,6 +140,14 @@ func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	metadata := files.FirmwareMetadata{
+		TargetManufacturer: req.TargetManufacturer,
+		TargetModel:        req.TargetModel,
+	}
+	if err := files.ValidateFirmwareMetadata(metadata); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if req.FileSize <= 0 {
 		writeError(w, http.StatusBadRequest, "file_size must be greater than zero")
@@ -168,6 +179,7 @@ func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mgr.sessions[uploadID] = &uploadSession{
 		uploadID:     uploadID,
 		filename:     req.Filename,
+		metadata:     metadata,
 		expectedSize: req.FileSize,
 		tempFilePath: tempPath,
 		createdAt:    now,
@@ -326,7 +338,7 @@ func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileID, err := h.filesService.SaveFirmwareFileFromPath(sess.filename, sess.tempFilePath)
+	fileID, err := h.filesService.SaveFirmwareFileFromPath(sess.filename, sess.tempFilePath, sess.metadata)
 	if err != nil {
 		os.Remove(sess.tempFilePath)
 		if isClientError(err) {
