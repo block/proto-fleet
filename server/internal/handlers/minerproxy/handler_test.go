@@ -129,6 +129,9 @@ func TestProxyPathFor(t *testing.T) {
 		"system//tag",             // empty segment
 		"auth/password/",          // trailing slash evades exact-match blocklist
 		"pools/../system/reboot",  // privilege downgrade attempt
+		"auth/password?x",         // decoded %3F: "?" would split into a query upstream, evading the block
+		"auth/change-password#x",  // decoded %23: "#" would split into a fragment upstream
+		"pools?x",                 // query delimiter smuggled into a write path
 	}
 	for _, rest := range nonCanonical {
 		t.Run("rejects "+rest, func(t *testing.T) {

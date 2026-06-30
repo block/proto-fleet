@@ -502,8 +502,18 @@ func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 // trailing slash) would let a caller classify one endpoint while the miner
 // routes another. Anything path.Clean would rewrite is rejected, which keeps
 // the classified path byte-identical to the forwarded path.
+//
+// path.Clean does not treat "?" or "#" as special, but they are URL delimiters:
+// a decoded "?"/"#" survives path.Clean yet becomes a query/fragment when the
+// path is built into the upstream URL, so "/api/v1/auth/password?x" would be
+// authorized as a non-blocked path while the miner routes it to the password
+// endpoint. Reject those bytes too — a real query string arrives via the
+// request's own RawQuery, never through the path wildcard.
 func proxyPathFor(rest string) (string, bool) {
 	proxyPath := "/api/v1/" + rest
+	if strings.ContainsAny(proxyPath, "?#") {
+		return proxyPath, false
+	}
 	return proxyPath, path.Clean(proxyPath) == proxyPath
 }
 
