@@ -11,6 +11,7 @@ import useCurtailmentResponseProfiles, {
 } from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { immediateRestoreBatchSizeInputValue } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import { getDefaultCurtailmentSiteScope } from "@/protoFleet/features/energy/curtailmentSiteScopeDefaults";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
@@ -149,7 +150,6 @@ const emptyUpdatingSourceIds = new Set<string>();
 const emptyUpdatingResponseProfileIds = new Set<string>();
 const emptyUpdatingAutomationRuleIds = new Set<string>();
 const savedPasswordPlaceholder = "......";
-const immediateRestoreBatchSize = "10000";
 
 type SourceModalMode = "create" | "edit";
 
@@ -444,7 +444,7 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     curtailBatchIntervalSec: emptyResponseProfileFormValues.curtailBatchIntervalSec,
     restoreBatchSize:
       profile.restoreBehavior === responseProfileRestoreBehaviorLabel.automaticImmediateRestore
-        ? immediateRestoreBatchSize
+        ? immediateRestoreBatchSizeInputValue
         : emptyResponseProfileFormValues.restoreBatchSize,
     restoreIntervalSec: emptyResponseProfileFormValues.restoreIntervalSec,
     responseDeadlineMinutes:
@@ -458,7 +458,7 @@ function createCurtailmentFormValuesFromResponseProfile(
 ): Partial<CurtailmentFormValues> {
   const restoreBatchSize =
     values.restoreBatchSize ||
-    (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
+    (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSizeInputValue : "");
   const hasAllMinersSelected = values.minerSelectionMode === "all";
   const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
   const siteId = siteIds[0] ?? "";
@@ -519,7 +519,7 @@ function getResponseProfileRestoreBehavior(
   const restoreIntervalSec = Number(values.restoreIntervalSec || "0");
 
   return Number.isFinite(restoreBatchSize) &&
-    restoreBatchSize >= Number(immediateRestoreBatchSize) &&
+    restoreBatchSize === Number(immediateRestoreBatchSizeInputValue) &&
     Number.isFinite(restoreIntervalSec) &&
     restoreIntervalSec === 0
     ? "automaticImmediateRestore"

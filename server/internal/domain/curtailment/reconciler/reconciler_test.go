@@ -911,6 +911,51 @@ func TestReconciler_ActiveClosedLoopFullFleetClaimsOnlyOneCurtailBatch(t *testin
 	assert.Len(t, store.targetsByEventID[eventID], 2)
 }
 
+func TestReconciler_EmptyClosedLoopFullFleetWatcherUsesPersistedCurtailBatchFloor(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	curtailBatchSize := int32(10)
+	store.events = []*models.Event{
+		{
+			ID:               eventID,
+			EventUUID:        eventUUID,
+			OrgID:            1,
+			State:            models.EventStateActive,
+			Mode:             models.ModeFullFleet,
+			LoopType:         models.LoopTypeClosed,
+			ScopeType:        models.ScopeTypeWholeOrg,
+			CurtailBatchSize: &curtailBatchSize,
+			CreatedByUserID:  99,
+		},
+	}
+	driver := "antminer"
+	now := time.Now()
+	for i := range 12 {
+		store.candidates = append(store.candidates, &models.Candidate{
+			DeviceIdentifier: fmt.Sprintf("miner-%02d", i),
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestPowerW:     ptrFloat64(3000),
+			LatestHashRateHS: ptrFloat64(100),
+			AvgEfficiencyJH:  ptrFloat64(40),
+		})
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.claimTargetsCalls)
+	require.Len(t, store.claimedTargetParams, int(curtailBatchSize),
+		"empty watchers must not admit every later-eligible miner in one tick")
+	assert.Len(t, disp.curtailLastIDs, int(curtailBatchSize))
+	assert.Len(t, store.targetsByEventID[eventID], int(curtailBatchSize))
+}
+
 func TestReconciler_ActiveClosedLoopFullFleetSkipsConflictsBeforeBatchLimit(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}

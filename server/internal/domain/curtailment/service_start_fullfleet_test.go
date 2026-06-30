@@ -149,6 +149,7 @@ func TestService_Start_FullFleet_NoEligibleMinersPersistsActiveWatcher(t *testin
 	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
 	req.Mode = models.ModeFullFleet
 	req.TargetKW = 0
+	req.RestoreBatchSize = 0
 
 	plan, err := svc.Start(t.Context(), req)
 	require.NoError(t, err, "empty full_fleet is valid, not an insufficient-load rejection")
@@ -159,6 +160,10 @@ func TestService_Start_FullFleet_NoEligibleMinersPersistsActiveWatcher(t *testin
 		"nothing currently eligible still needs an active enforcement window")
 	assert.NotNil(t, store.lastInsertEvent.StartedAt, "active watcher records when enforcement began")
 	assert.Empty(t, store.lastInsertTargets, "an empty watcher starts with no targets")
+	require.NotNil(t, store.lastInsertEvent.CurtailBatchSize)
+	assert.Equal(t, defaultManualCurtailBatchSizeFloor, *store.lastInsertEvent.CurtailBatchSize,
+		"empty immediate watchers must keep a positive curtail admission throttle")
+	assert.Equal(t, int32(0), store.lastInsertEvent.EffectiveBatchSize)
 }
 
 func TestService_Preview_FullFleet_AllSkippedReturnsTargetReachedWithSkips(t *testing.T) {

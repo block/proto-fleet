@@ -62,7 +62,7 @@ const fixedKwFormValues: ResponseProfileFormValues = {
   maxDurationSec: "",
   curtailBatchSize: "50",
   curtailBatchIntervalSec: "30",
-  restoreBatchSize: "10000",
+  restoreBatchSize: "0",
   restoreIntervalSec: "0",
   responseDeadlineMinutes: "15",
   includeMaintenance: false,
@@ -83,7 +83,7 @@ function apiProfile(overrides: Partial<CurtailmentResponseProfile> = {}): Curtai
     },
     curtailBatchSize: 50,
     curtailBatchIntervalSec: 30,
-    restoreBatchSize: 10_000,
+    restoreBatchSize: 0,
     restoreBatchIntervalSec: 0,
   });
 
@@ -154,7 +154,7 @@ describe("useCurtailmentResponseProfiles", () => {
         }),
         curtailBatchSize: 50,
         curtailBatchIntervalSec: 30,
-        restoreBatchSize: 10_000,
+        restoreBatchSize: 0,
         restoreBatchIntervalSec: 0,
       }),
     );
@@ -171,6 +171,23 @@ describe("useCurtailmentResponseProfiles", () => {
       }),
     );
     expectWholeOrgScope(mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0]?.scopes);
+  });
+
+  it("rejects batch restore profiles without a positive restore batch size", async () => {
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await expect(
+      act(async () => {
+        await result.current.createResponseProfile({
+          ...fixedKwFormValues,
+          restoreBehavior: "automaticBatchRestore",
+          restoreBatchSize: "",
+          restoreIntervalSec: "",
+        });
+      }),
+    ).rejects.toThrow("Enter restore batch size greater than 0 for batch restore.");
+
+    expect(mockCreateCurtailmentResponseProfile).not.toHaveBeenCalled();
   });
 
   it("preserves site in the CRUD payload when site values are present", async () => {

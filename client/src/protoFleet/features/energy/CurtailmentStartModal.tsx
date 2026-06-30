@@ -180,8 +180,9 @@ const fieldHelp = {
   fixedTargetReduction: "The amount to reduce based on the selected mode.",
   curtailBatchSize: "Number of miners to shut down in each wave.",
   curtailBatchInterval: "Seconds to wait between each curtailment wave.",
-  restoreBatchSize: "Number of miners to bring back online in each wave.",
-  restoreBatchInterval: "Seconds to wait between each restore wave.",
+  restoreBatchSize:
+    "Number of miners to bring back online in each wave. 0 or blank restores pending miners up to the safety limit.",
+  restoreBatchInterval: "Seconds to wait between each restore wave. 0 or blank means no wait.",
 } as const;
 const defaultValues: CurtailmentFormValues = {
   scopeType: "wholeOrg",
@@ -675,9 +676,6 @@ function validateCurtailmentFormValues(
   ) {
     localErrors.curtailBatchIntervalSec = "Enter batch size before adding a batch interval.";
   }
-  if (isEditMode && restoreInterval.error === undefined && restoreInterval.parsed === 0) {
-    localErrors.restoreIntervalSec = "Enter batch interval greater than 0.";
-  }
   if (
     isEditMode &&
     restoreInterval.error === undefined &&
@@ -711,9 +709,6 @@ function validateCurtailmentFormValues(
   }
   if (restoreBatchSize.error) {
     localErrors.restoreBatchSize = restoreBatchSize.error;
-  }
-  if (isResponseProfileVariant && restoreBatchSize.error === undefined && restoreBatchSize.parsed === 0) {
-    localErrors.restoreBatchSize = "Enter batch size greater than 0.";
   }
   return localErrors;
 }

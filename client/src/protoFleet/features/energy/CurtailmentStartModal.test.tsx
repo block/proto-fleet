@@ -364,10 +364,16 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Seconds to wait between each curtailment wave.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "About restore batch size" }));
-    expect(screen.getByText("Number of miners to bring back online in each wave.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Number of miners to bring back online in each wave. 0 or blank restores pending miners up to the safety limit.",
+      ),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "About restore batch interval" }));
-    expect(screen.getByText("Seconds to wait between each restore wave.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Seconds to wait between each restore wave. 0 or blank means no wait."),
+    ).toBeInTheDocument();
   });
 
   it("applies response profile values and switches back to custom plan after edits", async () => {
@@ -1131,10 +1137,16 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Seconds to wait between each curtailment wave.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "About restore batch size" }));
-    expect(screen.getByText("Number of miners to bring back online in each wave.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Number of miners to bring back online in each wave. 0 or blank restores pending miners up to the safety limit.",
+      ),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "About restore batch interval" }));
-    expect(screen.getByText("Seconds to wait between each restore wave.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Seconds to wait between each restore wave. 0 or blank means no wait."),
+    ).toBeInTheDocument();
   });
 
   it("renders the response profile edit variant with prefilled fields and delete action", async () => {
@@ -1157,7 +1169,7 @@ describe("CurtailmentStartModal", () => {
         targetKw: "500",
         curtailBatchSize: "50",
         curtailBatchIntervalSec: "30",
-        restoreBatchSize: "10000",
+        restoreBatchSize: "0",
         restoreIntervalSec: "0",
         includeMaintenance: false,
       },
@@ -1176,7 +1188,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByTestId("response-profile-curtail-batch-size")).toHaveValue("50");
     expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("30");
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
-    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
+    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("0");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
     expect(screen.queryByTestId("response-profile-post-event-cooldown")).not.toBeInTheDocument();
     expect(screen.getByText("Apply to")).toBeInTheDocument();
@@ -1208,7 +1220,7 @@ describe("CurtailmentStartModal", () => {
         targetKw: "750",
         curtailBatchSize: "50",
         curtailBatchIntervalSec: "30",
-        restoreBatchSize: "10000",
+        restoreBatchSize: "0",
         restoreIntervalSec: "0",
       }),
     );
@@ -1224,7 +1236,7 @@ describe("CurtailmentStartModal", () => {
         targetKw: "750",
         curtailBatchSize: "50",
         curtailBatchIntervalSec: "30",
-        restoreBatchSize: "10000",
+        restoreBatchSize: "0",
         restoreIntervalSec: "0",
       }),
     );
@@ -1357,7 +1369,7 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("blocks zero restore interval in edit mode", async () => {
+  it("allows zero restore interval in edit mode", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       mode: "edit",
@@ -1372,11 +1384,11 @@ describe("CurtailmentStartModal", () => {
     await user.clear(screen.getByTestId("curtailment-restore-batch-interval"));
     await user.type(screen.getByTestId("curtailment-restore-batch-interval"), "0");
 
-    expect(screen.getByText("Enter batch interval greater than 0.")).toBeInTheDocument();
+    expect(screen.queryByText("Enter batch interval greater than 0.")).not.toBeInTheDocument();
     expect(saveButton).toBeEnabled();
 
     await user.click(saveButton);
-    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ restoreIntervalSec: "0" }));
   });
 
   it("submits edit mode without maintenance confirmation", async () => {

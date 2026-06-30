@@ -15,14 +15,16 @@ import (
 const (
 	maxResponseProfileNameLength = 64
 
-	// Response profile defaults are intentionally backend-owned so the
-	// frontend can omit empty form fields without baking policy into the UI.
 	DefaultResponseProfileCurtailBatchIntervalSec int32 = 0
-	DefaultResponseProfileRestoreBatchSize        int32 = 50
-	DefaultResponseProfileRestoreBatchIntervalSec int32 = 5
 	MaxPostEventCooldownSec                       int32 = 24 * 60 * 60
 
-	responseProfileBatchSizeMax int32   = 10000
+	// RestoreBatchSizeMax is the explicit safety limit for one restore wave.
+	// Positive restore_batch_size inputs are bounded to this value; immediate
+	// restore uses the same ceiling instead of reintroducing hidden adaptive
+	// clamps.
+	RestoreBatchSizeMax int32 = 10000
+
+	responseProfileBatchSizeMax int32   = RestoreBatchSizeMax
 	responseProfileNumericMax   float64 = 999999999.999
 )
 
@@ -177,9 +179,6 @@ func normalizeResponseProfile(profile models.ResponseProfile) models.ResponsePro
 	if profile.CurtailBatchIntervalSec == 0 {
 		profile.CurtailBatchIntervalSec = DefaultResponseProfileCurtailBatchIntervalSec
 	}
-	if profile.RestoreBatchSize == 0 {
-		profile.RestoreBatchSize = DefaultResponseProfileRestoreBatchSize
-	}
 	return profile
 }
 
@@ -279,9 +278,9 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 			nonAdminRestoreBatchIntervalMax,
 		)
 	}
-	if profile.RestoreBatchSize <= 0 {
+	if profile.RestoreBatchSize < 0 {
 		return fleeterror.NewInvalidArgumentErrorf(
-			"restore_batch_size must be > 0, got %d",
+			"restore_batch_size must be >= 0, got %d",
 			profile.RestoreBatchSize,
 		)
 	}

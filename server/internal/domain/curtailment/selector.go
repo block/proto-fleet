@@ -82,8 +82,8 @@ type Plan struct {
 	// resolves the "use org default" sentinel. nil when AllowUnbounded=true
 	// or for Preview.
 	EffectiveMaxDurationSeconds *int32
-	// EffectiveRestoreBatchIntervalSec is the persisted inter-batch delay
-	// after Service.Start resolves the server-default sentinel. Zero for Preview.
+	// EffectiveRestoreBatchIntervalSec is the persisted inter-batch delay.
+	// Zero means no delay.
 	EffectiveRestoreBatchIntervalSec int32
 	// EffectiveCurtailBatchSize is the persisted curtail batch size. nil means
 	// all selected targets in scope. Zero for Preview.
@@ -91,9 +91,10 @@ type Plan struct {
 	// EffectiveCurtailBatchIntervalSec is the persisted curtail inter-batch
 	// delay. Zero means no delay.
 	EffectiveCurtailBatchIntervalSec int32
-	// EffectiveBatchSize is the adaptive batch size stamped on the event row
-	// at Start time. Zero for Preview. Echoed in the Start response; Stop
-	// and the reconciler read it from the persisted event row, not from Plan.
+	// EffectiveBatchSize is the restore batch size stamped on the event row at
+	// Start time. Zero for Preview or starts with no selected targets. Echoed
+	// in the Start response; Stop and the reconciler read it from the
+	// persisted event row, not from Plan.
 	EffectiveBatchSize int32
 	// ReplayEvent is set only for idempotent Start replays. The handler uses
 	// the persisted row instead of rebuilding a response from the retry body.

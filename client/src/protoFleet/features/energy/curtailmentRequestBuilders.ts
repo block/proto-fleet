@@ -112,16 +112,11 @@ function getChangedUpdateStringSetting(value: string, initialValue?: string): st
   return trimmedValue === initialValue.trim() ? undefined : trimmedValue;
 }
 
-function getChangedUpdatePositiveUint32Setting(
-  value: string,
+function getChangedParsedUpdateUint32Setting(
+  nextValue: number | undefined,
   initialValue: string | undefined,
   options: OptionalUint32FieldOptions,
 ): number | undefined {
-  const nextValue = getOptionalUpdateUint32Setting(value, options);
-  if (nextValue === 0) {
-    throw new Error(`Enter ${options.label} greater than 0.`);
-  }
-
   if (initialValue === undefined || initialValue.trim() === "") {
     return nextValue;
   }
@@ -132,6 +127,28 @@ function getChangedUpdatePositiveUint32Setting(
   }
 
   return nextValue;
+}
+
+function getChangedUpdatePositiveUint32Setting(
+  value: string,
+  initialValue: string | undefined,
+  options: OptionalUint32FieldOptions,
+): number | undefined {
+  const nextValue = getOptionalUpdateUint32Setting(value, options);
+  if (nextValue === 0) {
+    throw new Error(`Enter ${options.label} greater than 0.`);
+  }
+
+  return getChangedParsedUpdateUint32Setting(nextValue, initialValue, options);
+}
+
+function getChangedUpdateUint32Setting(
+  value: string,
+  initialValue: string | undefined,
+  options: OptionalUint32FieldOptions,
+): number | undefined {
+  const nextValue = getOptionalUpdateUint32Setting(value, options);
+  return getChangedParsedUpdateUint32Setting(nextValue, initialValue, options);
 }
 
 function getPriority(priority: CurtailmentSubmitValues["priority"]): ProtoCurtailmentPriority {
@@ -281,7 +298,7 @@ export function buildUpdateCurtailmentEventRequest(
       initialValues?.maxDurationSec,
       maxDurationOptions,
     ),
-    restoreBatchIntervalSec: getChangedUpdatePositiveUint32Setting(
+    restoreBatchIntervalSec: getChangedUpdateUint32Setting(
       values.restoreIntervalSec,
       initialValues?.restoreIntervalSec,
       restoreBatchIntervalOptions,

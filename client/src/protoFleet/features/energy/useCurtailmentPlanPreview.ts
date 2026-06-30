@@ -11,6 +11,7 @@ import {
   type PreviewCurtailmentPlanResponse,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { curtailmentNumericFieldLimits } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import { buildCurtailmentScopes } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
@@ -269,7 +270,14 @@ function estimateCurtailDuration(values: CurtailmentFormValues, selectedMinerCou
 }
 
 function estimateRestoreDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
-  return estimateBatchDuration(values.restoreBatchSize, values.restoreIntervalSec, selectedMinerCount);
+  const batchSize = parseNonNegativeInteger(values.restoreBatchSize) ?? 0;
+  const intervalSec = parseNonNegativeInteger(values.restoreIntervalSec) ?? 0;
+  if (intervalSec === 0) {
+    return "Immediately";
+  }
+  const effectiveBatchSize = batchSize === 0 ? curtailmentNumericFieldLimits.restoreBatchSize : batchSize;
+  const batchCount = Math.ceil(selectedMinerCount / effectiveBatchSize);
+  return formatDurationEstimate(Math.max(batchCount - 1, 0) * intervalSec);
 }
 
 export function createCurtailmentPlanPreview(

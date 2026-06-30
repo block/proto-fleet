@@ -84,8 +84,10 @@ func TestHandler_CreateCurtailmentResponseProfilePreservesExplicitZeroRestoreInt
 
 	require.NoError(t, err)
 	assert.Equal(t, uint32(0), resp.Msg.GetProfile().GetRestoreBatchIntervalSec())
+	assert.Equal(t, uint32(0), resp.Msg.GetProfile().GetRestoreBatchSize())
 	require.NotNil(t, store.created)
 	assert.Equal(t, int32(0), store.created.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), store.created.RestoreBatchSize)
 }
 
 func TestHandler_CreateCurtailmentResponseProfileWithoutSite(t *testing.T) {
