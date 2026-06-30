@@ -224,6 +224,8 @@ func TestAssignRacksToBuilding_placesRackWithGridCell(t *testing.T) {
 	rackID := int64(99)
 	siteID := int64(3)
 
+	// Capacity guard reads current membership (unordered vs the chain below).
+	h.store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, buildingID).Return(int64(0), nil)
 	gomock.InOrder(
 		h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, buildingID).Return(nil),
 		h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, buildingID).
@@ -276,6 +278,7 @@ func TestAssignRacksToBuilding_membersWithoutPositionClearsCell(t *testing.T) {
 	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, buildingID).Return(nil)
 	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, buildingID).
 		Return(&models.Building{ID: buildingID, SiteID: &siteID, Aisles: 4, RacksPerAisle: 6}, nil)
+	h.store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, buildingID).Return(int64(0), nil)
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
 		Return(interfaces.RackPlacement{SiteID: &siteID}, nil)
 	// No site cascade — site unchanged. Building cascade DOES fire
@@ -310,6 +313,7 @@ func TestAssignRacksToBuilding_sameBuildingUnplaceClearsPosition(t *testing.T) {
 	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, buildingID).Return(nil)
 	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, buildingID).
 		Return(&models.Building{ID: buildingID, SiteID: &siteID, Aisles: 4, RacksPerAisle: 6}, nil)
+	h.store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, buildingID).Return(int64(0), nil)
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
 		Return(interfaces.RackPlacement{SiteID: &siteID, BuildingID: ptrInt64(buildingID), Zone: "Z1"}, nil)
 	// Bulk placement update — zone preservation is now decided in SQL
@@ -372,6 +376,7 @@ func TestAssignRacksToBuilding_crossBuildingClearsZoneAndCascadesSite(t *testing
 	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuildingID).Return(nil)
 	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, targetBuildingID).
 		Return(&models.Building{ID: targetBuildingID, SiteID: &newSite, Aisles: 4, RacksPerAisle: 6}, nil)
+	h.store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, targetBuildingID).Return(int64(0), nil)
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
 		Return(interfaces.RackPlacement{SiteID: &priorSite, BuildingID: ptrInt64(priorBuildingID), Zone: "Z1"}, nil)
 	// Bulk placement update — crossingBuildings zone clear runs in SQL.
@@ -423,6 +428,67 @@ func TestAssignRacksToBuilding_rejectsOutOfBoundsAisle(t *testing.T) {
 }
 
 // Position pairing: aisle_index set, position_in_aisle absent.
+// Capacity guard: a batch whose net-new members would push the
+// building past aisles×racks_per_aisle is rejected after the per-rack
+// reads but before any write. Mirrors SaveRack's miner cap — a building
+// holds no racks beyond its grid.
+func TestAssignRacksToBuilding_rejectsOverCapacity(t *testing.T) {
+	h := newAssignHarness(t)
+	buildingID := int64(11)
+	rackID := int64(99)
+
+	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, buildingID).Return(nil)
+	// 1×1 grid = 1 slot, already holding 1 rack.
+	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, buildingID).
+		Return(&models.Building{ID: buildingID, Aisles: 1, RacksPerAisle: 1}, nil)
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil) // no current building → net-new member
+	h.store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, buildingID).Return(int64(1), nil)
+	// No Phase B writes — the closure aborts at the capacity check.
+
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: &buildingID,
+		Racks:            []models.RackPlacementParam{{RackID: rackID}},
+	})
+	if !fleeterror.IsInvalidArgumentError(err) {
+		t.Fatalf("expected InvalidArgument for over-capacity assign, got %v", err)
+	}
+}
+
+// A building with no configured grid (aisles/racks_per_aisle still 0)
+// has no geometric limit yet, so the capacity guard is skipped and
+// CountRacksInBuilding is never called. Racks can be staged before the
+// layout is set.
+func TestAssignRacksToBuilding_skipsCapacityWhenGridUnconfigured(t *testing.T) {
+	h := newAssignHarness(t)
+	buildingID := int64(11)
+	rackID := int64(99)
+
+	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, buildingID).Return(nil)
+	// Aisles/RacksPerAisle default to 0 → capacity 0 → guard skipped.
+	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, buildingID).
+		Return(&models.Building{ID: buildingID}, nil)
+	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: nil, BuildingID: nil}, nil)
+	// No CountRacksInBuilding expectation — it must not be called.
+	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, (*int64)(nil), &buildingID).Return(int64(1), nil)
+	// Site-less building + site-less rack: the site cascade still fires
+	// with a nil target to keep member device.site_id in lockstep.
+	h.collectionStore.EXPECT().CascadeRackDeviceSitesBulk(inTxCtx, testOrgID, []int64{rackID}, gomock.Nil()).Return(int64(0), nil)
+	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(inTxCtx, testOrgID, []int64{rackID}, &buildingID).Return(int64(0), nil)
+	h.store.EXPECT().SetRackBuildingPositionBulkClear(inTxCtx, testOrgID, []int64{rackID}).Return(nil)
+
+	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
+		OrgID:            testOrgID,
+		TargetBuildingID: &buildingID,
+		Racks:            []models.RackPlacementParam{{RackID: rackID}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error assigning to unconfigured building: %v", err)
+	}
+}
+
 func TestAssignRacksToBuilding_rejectsHalfSetPosition(t *testing.T) {
 	h := newAssignHarness(t)
 	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
@@ -548,6 +614,8 @@ func TestAssignRacksToBuilding_swapsPositionsInSingleBatch(t *testing.T) {
 	rackA := int64(100)
 	rackB := int64(101)
 
+	// Capacity guard reads current membership (unordered vs the chain below).
+	h.store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, buildingID).Return(int64(0), nil)
 	// Racks are sorted by id, so rackA(100) is processed before rackB(101)
 	// during Phase A (lock acquisition). Phase B issues one bulk
 	// placement update, then one bulk pass-1 vacate covering both racks,
@@ -603,6 +671,8 @@ func TestAssignRacksToBuilding_mixedClearAndPlaceInSingleBatch(t *testing.T) {
 	rackClearer := int64(100) // was at (0,0), going to NULL
 	rackPlacer := int64(101)  // was unplaced, going to (0,0)
 
+	// Capacity guard reads current membership (unordered vs the chain below).
+	h.store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, buildingID).Return(int64(0), nil)
 	gomock.InOrder(
 		h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, buildingID).Return(nil),
 		h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, buildingID).
@@ -674,6 +744,8 @@ func TestAssignRacksToBuilding_largeBatchIssuesSingleBulkWrites(t *testing.T) {
 	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, buildingID).Return(nil)
 	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, buildingID).
 		Return(&models.Building{ID: buildingID, SiteID: &siteID, Aisles: 10, RacksPerAisle: 10}, nil)
+	// Empty building → all 100 net-new members fit the 10×10 grid exactly.
+	h.store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, buildingID).Return(int64(0), nil)
 	// Phase A: N per-rack lock acquisitions in sorted order — these are
 	// the only writes that fan out by N.
 	for _, id := range wantRackIDs {
@@ -758,6 +830,71 @@ func TestUpdateBuilding_rejectsShrinkThatOrphansPlacement(t *testing.T) {
 	}
 }
 
+// A shrink can pass the placed-rack orphan scan (all excess members are
+// unplaced) yet still leave total membership over the new grid. The
+// membership cap catches that, mirroring AssignRacksToBuilding.
+func TestUpdateBuilding_rejectsShrinkBelowMemberCount(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
+	store.EXPECT().GetBuilding(inTxCtx, testOrgID, int64(11)).
+		Return(&models.Building{ID: 11, Aisles: 5, RacksPerAisle: 6}, nil)
+	// No placed racks fall outside the new 1×1 bounds…
+	store.EXPECT().ListRacksOutsideBuildingBounds(inTxCtx, testOrgID, int64(11), int32(1), int32(1)).
+		Return([]models.BuildingRack{}, nil)
+	// …but the building still holds 3 (unplaced) members, over the 1-cell grid.
+	store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, int64(11)).Return(int64(3), nil)
+	// UpdateBuilding must NOT be called when the membership cap rejects.
+
+	_, err := svc.UpdateBuilding(context.Background(), models.UpdateParams{
+		OrgID:                 testOrgID,
+		ID:                    11,
+		Name:                  "shrunk",
+		Aisles:                1,
+		RacksPerAisle:         1,
+		DefaultRackOrderIndex: models.RackOrderIndexBottomLeft,
+	})
+	if !fleeterror.IsInvalidArgumentError(err) {
+		t.Fatalf("expected InvalidArgument for shrink below member count, got %v", err)
+	}
+}
+
+// Giving an unconfigured (0×0) building its FIRST positive layout is a
+// growth, not a shrink — so the orphan scan is skipped — but racks staged
+// while capacity was 0 can still exceed the new grid. The membership cap
+// must run here too, not just on shrinks.
+func TestUpdateBuilding_rejectsFirstLayoutBelowMemberCount(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
+	// Building is unconfigured (0×0) and was allowed to stage 2 racks.
+	store.EXPECT().GetBuilding(inTxCtx, testOrgID, int64(11)).
+		Return(&models.Building{ID: 11, Aisles: 0, RacksPerAisle: 0}, nil)
+	// No orphan scan — 0→1 on each dimension is growth, not shrink.
+	store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, int64(11)).Return(int64(2), nil)
+	// UpdateBuilding must NOT run — the membership cap rejects the 1-cell grid.
+
+	_, err := svc.UpdateBuilding(context.Background(), models.UpdateParams{
+		OrgID:                 testOrgID,
+		ID:                    11,
+		Name:                  "configured",
+		Aisles:                1,
+		RacksPerAisle:         1,
+		DefaultRackOrderIndex: models.RackOrderIndexBottomLeft,
+	})
+	if !fleeterror.IsInvalidArgumentError(err) {
+		t.Fatalf("expected InvalidArgument for first layout below member count, got %v", err)
+	}
+}
+
 // Service-edge bounds cap mirrors the proto buf.validate cap. Defense
 // in depth for non-proto callers (sdk / agent-native paths) that
 // bypass the wire validator.
@@ -791,10 +928,10 @@ func TestCreateBuilding_rejectsLayoutAbove100(t *testing.T) {
 	}
 }
 
-// Layout growth (or no-shrink layout edit) must skip the
-// ListBuildingRacks bounds-scan entirely; that path used to fire
-// no scan at all, so the test pins the new behavior to the shrink
-// branch only.
+// Layout growth must skip the placed-rack bounds-scan (growth never
+// orphans a placed rack), but the total-membership cap still runs on any
+// positive-capacity edit — so the count query fires while
+// ListRacksOutsideBuildingBounds does not.
 func TestUpdateBuilding_growthSkipsBoundsScan(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockBuildingStore(ctrl)
@@ -805,7 +942,9 @@ func TestUpdateBuilding_growthSkipsBoundsScan(t *testing.T) {
 	siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
 	store.EXPECT().GetBuilding(inTxCtx, testOrgID, int64(11)).
 		Return(&models.Building{ID: 11, Aisles: 2, RacksPerAisle: 4}, nil)
-	// No ListBuildingRacks expected — growth path.
+	// No ListRacksOutsideBuildingBounds expected — growth doesn't orphan
+	// placed racks. The membership cap still counts: 0 members ≤ 30-cell grid.
+	store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil)
 	store.EXPECT().UpdateBuilding(inTxCtx, gomock.AssignableToTypeOf(models.UpdateParams{})).
 		Return(&models.Building{ID: 11, Aisles: 5, RacksPerAisle: 6}, nil)
 
@@ -1277,6 +1416,7 @@ func TestAssignRacksToBuilding_sameSiteCascadesBuilding(t *testing.T) {
 	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, targetBuildingID).Return(nil)
 	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, targetBuildingID).
 		Return(&models.Building{ID: targetBuildingID, SiteID: &siteID, Aisles: 4, RacksPerAisle: 6}, nil)
+	h.store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, targetBuildingID).Return(int64(0), nil)
 	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
 		Return(interfaces.RackPlacement{SiteID: &siteID, BuildingID: ptrInt64(priorBuildingID), Zone: "Z1"}, nil)
 	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &siteID, &targetBuildingID).Return(int64(1), nil)

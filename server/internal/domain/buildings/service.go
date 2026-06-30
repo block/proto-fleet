@@ -232,7 +232,7 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 			return err
 		}
 		// Bounds-shrink validation only runs when at least one
-		// dimension is being reduced; growth never orphans rows.
+		// dimension is being reduced; growth never orphans PLACED rows.
 		// Uses ListRacksOutsideBuildingBounds (unbounded by design)
 		// instead of the paged ListBuildingRacks so a tail row past
 		// the page-size cap can't silently bypass the guard.
@@ -246,6 +246,26 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 				return fleeterror.NewInvalidArgumentErrorf(
 					"cannot shrink layout: rack %q is at aisle %d, position %d which is outside the new %d aisles × %d racks-per-aisle bounds; unplace it first",
 					r.RackLabel, *r.AisleIndex+1, *r.PositionInAisle+1, params.Aisles, params.RacksPerAisle,
+				)
+			}
+		}
+		// Total-membership cap. Runs on ANY positive-capacity layout edit, not
+		// just shrinks: the orphan scan above only catches PLACED racks, and a
+		// building staged while unconfigured (capacity 0, where
+		// AssignRacksToBuilding skips the cap) can accumulate unplaced members
+		// and then be given its FIRST positive layout — a growth, not a shrink
+		// — that the grid can't hold. Bound total members against the new grid
+		// here so that path can't persist an over-capacity building. Skipped
+		// when the new grid is still unconfigured (capacity 0).
+		if capacity := gridCapacity(params.Aisles, params.RacksPerAisle); capacity > 0 {
+			members, err := s.store.CountRacksInBuilding(txCtx, params.OrgID, params.ID)
+			if err != nil {
+				return err
+			}
+			if members > capacity {
+				return fleeterror.NewInvalidArgumentErrorf(
+					"cannot apply layout: building has %d racks but the new %d aisles × %d racks-per-aisle grid holds only %d; unassign some racks first",
+					members, params.Aisles, params.RacksPerAisle, capacity,
 				)
 			}
 		}
@@ -430,7 +450,11 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			// the site-cascade set because a same-site building change
 			// (move within one site) hits buildings but not sites.
 			cascadeBuildingRackIDs []int64
-			positionedRackIDs      []int64
+			// Net-new members for the capacity guard: batch racks whose
+			// building_id differs from the target (i.e. not already in
+			// this building). Counted only when assigning to a target.
+			netNewBuildingMembers int
+			positionedRackIDs     []int64
 			// For a building-only unassign (TargetBuildingID == nil), capture
 			// the source site so the activity log preserves "the site this
 			// rack lives in" instead of nil. clearSourceSite holds the single
@@ -531,6 +555,9 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 			// (nil on building-only unassign).
 			if !int64PtrEqual(current.BuildingID, params.TargetBuildingID) {
 				cascadeBuildingRackIDs = append(cascadeBuildingRackIDs, rp.RackID)
+				if params.TargetBuildingID != nil {
+					netNewBuildingMembers++
+				}
 				// Placing a previously site-less rack into a site-less
 				// building. The site gate above misses this (nil->nil,
 				// siteChanged false), but the building cascade below stamps
@@ -551,6 +578,38 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 		// whole batch shares one (see clearSourceSite above).
 		if params.TargetBuildingID == nil && !clearSourceAmbiguous {
 			fallbackSiteID = clearSourceSite
+		}
+
+		// Capacity guard. The per-cell bound check above only constrains
+		// PLACED racks; this bounds total MEMBERSHIP (placed + unplaced)
+		// against the building's grid. A building holds at most
+		// aisles×racks_per_aisle racks — there is no "floating beyond
+		// capacity" state — so reject a batch whose net-new members would
+		// push membership past that ceiling, mirroring SaveRack's miner
+		// cap. Runs inside the tx after the building lock + per-rack reads
+		// so the count can't race a concurrent assign. Skipped on
+		// building-only unassign (no target, membership only shrinks).
+		//
+		// capacity == 0 means the grid isn't configured yet (aisles or
+		// racks_per_aisle still 0 — both are optional at create). Racks
+		// can be staged in an unconfigured building; there's no geometric
+		// limit to enforce until a layout exists, so guard only once the
+		// grid is set. A single batch is still bounded by the proto's
+		// max_items, and the per-cell check above still rejects placement
+		// into a 0-cell grid.
+		if targetBuilding != nil {
+			if capacity := gridCapacity(targetBuilding.Aisles, targetBuilding.RacksPerAisle); capacity > 0 {
+				existing, err := s.store.CountRacksInBuilding(txCtx, params.OrgID, *params.TargetBuildingID)
+				if err != nil {
+					return nil, err
+				}
+				if resulting := existing + int64(netNewBuildingMembers); resulting > capacity {
+					return nil, fleeterror.NewInvalidArgumentErrorf(
+						"cannot assign racks: building has %d positions (%d aisles × %d racks per aisle) but %d racks would be assigned",
+						capacity, targetBuilding.Aisles, targetBuilding.RacksPerAisle, resulting,
+					)
+				}
+			}
 		}
 
 		// Phase B1: single bulk write for site_id + building_id + zone
@@ -730,6 +789,17 @@ func validateLayoutBounds(aisles, racksPerAisle int32) error {
 		return fleeterror.NewInvalidArgumentErrorf("racks_per_aisle must be ≤ %d (got %d)", layoutDimensionMax, racksPerAisle)
 	}
 	return nil
+}
+
+// gridCapacity is the number of rack positions a building's grid holds.
+// 0 means the layout is unconfigured (aisles or racks_per_aisle still 0):
+// there is no geometric limit to enforce yet, so callers treat 0 as
+// "unbounded" and skip the membership cap. A building has no "floating
+// beyond capacity" state once a grid exists — every write path that grows
+// membership (AssignRacksToBuilding, the SaveRack placement path, and a
+// shrinking UpdateBuilding) bounds total members against this.
+func gridCapacity(aisles, racksPerAisle int32) int64 {
+	return int64(aisles) * int64(racksPerAisle)
 }
 
 func int64PtrEqual(a, b *int64) bool {

@@ -470,6 +470,8 @@ func TestHandler_AssignRacksToBuilding_happy(t *testing.T) {
 	buildingID := int64(11)
 	siteID := int64(3)
 
+	// Capacity guard reads current membership (unordered vs the chain below).
+	h.buildingStore.EXPECT().CountRacksInBuilding(gomock.Any(), int64(7), buildingID).Return(int64(0), nil)
 	gomock.InOrder(
 		h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), buildingID).Return(nil),
 		h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), buildingID).
