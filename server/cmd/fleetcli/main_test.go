@@ -385,13 +385,6 @@ func TestCollectionMutationsVerifyCollectionType(t *testing.T) {
 			mutationRoute: "POST /device_set.v1.DeviceSetService/AssignDevicesToRack",
 			wantError:     "collection 42 is a group, not a rack",
 		},
-		{
-			name:          "racks save rejects group id",
-			args:          []string{"racks", "save", "--collection-id", "42", "--label", "rack-label"},
-			actualType:    "COLLECTION_TYPE_GROUP",
-			mutationRoute: "POST /collection.v1.DeviceCollectionService/SaveRack",
-			wantError:     "collection 42 is a group, not a rack",
-		},
 	}
 
 	for _, tt := range tests {
@@ -425,8 +418,46 @@ func TestCollectionMutationsVerifyCollectionType(t *testing.T) {
 	}
 }
 
-func TestRackSaveWithoutCollectionIDSkipsTypeCheck(t *testing.T) {
+func TestRackSaveRequiresJSON(t *testing.T) {
 	pinFleetAuthEnv(t, nil)
+
+	requestCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		http.Error(w, "request should not be called", http.StatusTeapot)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"racks", "save",
+	})
+	if err == nil || !strings.Contains(err.Error(), "json") {
+		t.Fatalf("racks save error = %v, want json requirement", err)
+	}
+	if requestCount != 0 {
+		t.Fatalf("request count = %d, want 0", requestCount)
+	}
+}
+
+func TestRackSaveJSONWithoutCollectionIDSkipsTypeCheck(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	jsonPath := filepath.Join(t.TempDir(), "rack.json")
+	if err := os.WriteFile(jsonPath, []byte(`{
+		"label": "new-rack",
+		"rackInfo": {
+			"rows": 1,
+			"columns": 1,
+			"orderIndex": "RACK_ORDER_INDEX_BOTTOM_LEFT",
+			"coolingType": "RACK_COOLING_TYPE_AIR"
+		}
+	}`), 0o600); err != nil {
+		t.Fatalf("write rack json: %v", err)
+	}
 
 	getCount := 0
 	saveCount := 0
@@ -446,16 +477,59 @@ func TestRackSaveWithoutCollectionIDSkipsTypeCheck(t *testing.T) {
 
 	err := newRootCommand().Run(context.Background(), []string{
 		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-		"racks", "save", "--label", "new-rack",
+		"racks", "save", "--json", jsonPath,
 	})
 	if err != nil {
-		t.Fatalf("racks save without collection id error = %v, want success", err)
+		t.Fatalf("racks save json without collection id error = %v, want success", err)
 	}
 	if getCount != 0 {
 		t.Fatalf("get count = %d, want 0", getCount)
 	}
 	if saveCount != 1 {
 		t.Fatalf("save count = %d, want 1", saveCount)
+	}
+}
+
+func TestRackSaveJSONRejectsGroupID(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	jsonPath := filepath.Join(t.TempDir(), "rack.json")
+	if err := os.WriteFile(jsonPath, []byte(`{
+		"collectionId": "42",
+		"label": "rack-label",
+		"rackInfo": {
+			"rows": 1,
+			"columns": 1,
+			"orderIndex": "RACK_ORDER_INDEX_BOTTOM_LEFT",
+			"coolingType": "RACK_COOLING_TYPE_AIR"
+		}
+	}`), 0o600); err != nil {
+		t.Fatalf("write rack json: %v", err)
+	}
+
+	saveCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{"collection":{"id":"42","type":"COLLECTION_TYPE_GROUP","label":"wrong-type"}}`))
+	})
+	mux.HandleFunc("POST /collection.v1.DeviceCollectionService/SaveRack", func(w http.ResponseWriter, r *http.Request) {
+		saveCount++
+		t.Errorf("unexpected save request: %s %s", r.Method, r.URL.Path)
+		http.Error(w, "save should not be called", http.StatusTeapot)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"racks", "save", "--json", jsonPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "collection 42 is a group, not a rack") {
+		t.Fatalf("racks save json error = %v, want group/rack mismatch", err)
+	}
+	if saveCount != 0 {
+		t.Fatalf("save count = %d, want 0", saveCount)
 	}
 }
 
