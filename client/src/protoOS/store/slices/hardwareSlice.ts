@@ -21,6 +21,8 @@ export interface HardwareSlice {
   psus: PsuMap;
   fans: FanMap;
 
+  reset: () => void;
+
   setMiner: (miner: MinerHardwareData) => void;
   getMiner: () => MinerHardwareData | null;
 
@@ -76,6 +78,16 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
   asics: new Map(),
   psus: new Map(),
   fans: new Map(),
+
+  reset: () =>
+    set((state) => {
+      state.hardware.miner = null;
+      state.hardware.controlBoard = null;
+      state.hardware.hashboards = new Map();
+      state.hardware.asics = new Map();
+      state.hardware.psus = new Map();
+      state.hardware.fans = new Map();
+    }),
 
   setMiner: (miner) =>
     set((state) => {

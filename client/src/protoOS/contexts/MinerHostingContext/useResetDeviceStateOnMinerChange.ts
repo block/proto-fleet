@@ -7,8 +7,10 @@ import useMinerStore from "@/protoOS/store/useMinerStore";
  *
  * The ProtoOS store is a module-level singleton, so when an operator opens
  * miner B after viewing miner A in the same Fleet session, B would otherwise
- * render A's telemetry/status/pools/system data until B's own fetches land —
- * and keep showing it indefinitely if B is slow or its proxy request fails.
+ * render A's hardware/telemetry/status/pools/system data until B's own fetches
+ * land — and keep showing it indefinitely if B is slow or its proxy request
+ * fails (the hardware slice also feeds hashboard serials used for follow-up
+ * queries, so stale entries there are queried against the new miner).
  * Keyed on `minerKey` (the per-miner hosting baseUrl), this wipes the live
  * device data on switch. UI preferences, auth tokens, and onboarding/identity
  * flags are intentionally left intact.
@@ -29,7 +31,8 @@ export const useResetDeviceStateOnMinerChange = (minerKey: string) => {
     }
     previousKey.current = minerKey;
 
-    const { telemetry, minerStatus, pools, systemInfo, networkInfo, miningTarget } = useMinerStore.getState();
+    const { hardware, telemetry, minerStatus, pools, systemInfo, networkInfo, miningTarget } = useMinerStore.getState();
+    hardware.reset();
     telemetry.clearLatestData();
     telemetry.clearTimeSeriesData();
     minerStatus.setErrors([]);
