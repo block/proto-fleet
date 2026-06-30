@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect } from "react";
 import clsx from "clsx";
+import type { JsonObject, JsonValue } from "@bufbuild/protobuf";
 
 import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import type {
@@ -8,12 +9,13 @@ import type {
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { useCommandBatchDeviceResults } from "@/protoFleet/api/useCommandBatchDeviceResults";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
-import { isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
+import { baseEventType, isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
 import {
   formatActivityDescription,
   formatActivityErrorMessage,
   formatActivityErrorSummary,
 } from "@/protoFleet/features/activity/utils/formatActivityDescription";
+import { formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
 import { formatScope } from "@/protoFleet/features/activity/utils/formatScope";
 import { Alert, Info } from "@/shared/assets/icons";
 import Modal from "@/shared/components/Modal";
@@ -57,6 +59,108 @@ const formatBatchResult = (data: GetCommandBatchDeviceResultsResponse): string =
   return `${completedCount}/${totalCount} ${totalCount === 1 ? "miner" : "miners"} completed`;
 };
 
+type MetadataRow = {
+  label: string;
+  value: ReactNode;
+};
+
+const hiddenMetadataKeys = new Set([
+  "cohort_id",
+  "device_identifier",
+  "device_identifiers",
+  "idempotency_key",
+  "label",
+  "rig_uuid",
+  "rig_uuids",
+]);
+
+const cohortMetadataLabels: Record<string, string> = {
+  update_kind: "Update kind",
+  old_expires_at: "Expiry before",
+  new_expires_at: "Expiry after",
+  old_firmware_file_id: "Firmware before",
+  new_firmware_file_id: "Firmware after",
+  affected_member_count: "Affected miners",
+  desired_config_changed: "Config changed",
+  desired_config_cleared: "Config cleared",
+};
+
+function metadataRows(entry: ActivityEntry, hasBatch: boolean): MetadataRow[] {
+  if (hasBatch || !entry.metadata) return [];
+  if (baseEventType(entry.eventType) === "cohort_updated") {
+    return cohortUpdateMetadataRows(entry.metadata);
+  }
+  return genericMetadataRows(entry.metadata);
+}
+
+function cohortUpdateMetadataRows(metadata: JsonObject): MetadataRow[] {
+  const rows: MetadataRow[] = [];
+  addMetadataRow(rows, "Update kind", formatLabel(stringMetadataValue(metadata.update_kind)));
+  addMetadataRow(rows, "Expiry before", formatTimestampMetadataValue(metadata.old_expires_at));
+  addMetadataRow(rows, "Expiry after", formatTimestampMetadataValue(metadata.new_expires_at));
+  addMetadataRow(
+    rows,
+    "Target",
+    [stringMetadataValue(metadata.manufacturer), stringMetadataValue(metadata.model)].filter(Boolean).join(" "),
+  );
+  addMetadataRow(rows, "Firmware before", formatNullableMetadataValue(metadata.old_firmware_file_id));
+  addMetadataRow(rows, "Firmware after", formatNullableMetadataValue(metadata.new_firmware_file_id));
+  addMetadataRow(rows, "Affected miners", formatMinerCount(metadata.affected_member_count));
+  addMetadataRow(rows, "Config changed", formatBooleanMetadataValue(metadata.desired_config_changed));
+  addMetadataRow(rows, "Config cleared", formatBooleanMetadataValue(metadata.desired_config_cleared));
+  return rows;
+}
+
+function genericMetadataRows(metadata: JsonObject): MetadataRow[] {
+  return Object.entries(metadata).flatMap(([key, value]) => {
+    if (hiddenMetadataKeys.has(key) || Array.isArray(value) || isJsonObject(value)) return [];
+    return [{ label: cohortMetadataLabels[key] ?? formatLabel(key), value: formatGenericMetadataValue(value) }];
+  });
+}
+
+function addMetadataRow(rows: MetadataRow[], label: string, value: ReactNode) {
+  if (value == null || value === "") return;
+  rows.push({ label, value });
+}
+
+function stringMetadataValue(value: JsonValue | undefined): string {
+  return typeof value === "string" ? value : "";
+}
+
+function formatTimestampMetadataValue(value: JsonValue | undefined): string {
+  if (typeof value !== "string") return "";
+  const seconds = Date.parse(value) / 1000;
+  if (!Number.isFinite(seconds)) return value;
+  return formatActivityTimestamp(seconds);
+}
+
+function formatNullableMetadataValue(value: JsonValue | undefined): string {
+  if (value == null) return "None";
+  if (typeof value === "string" && value.trim() !== "") return value;
+  return "";
+}
+
+function formatMinerCount(value: JsonValue | undefined): string {
+  if (typeof value !== "number") return "";
+  return `${value} ${value === 1 ? "miner" : "miners"}`;
+}
+
+function formatBooleanMetadataValue(value: JsonValue | undefined): string {
+  return typeof value === "boolean" ? (value ? "Yes" : "No") : "";
+}
+
+function formatGenericMetadataValue(value: JsonValue | undefined): ReactNode {
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") return value.toLocaleString();
+  if (typeof value === "string") return value;
+  if (value == null) return "None";
+  return "";
+}
+
+function isJsonObject(value: JsonValue | undefined): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => {
   const batchId = entry?.batchId;
   const { fetch, getResult } = useCommandBatchDeviceResults({
@@ -72,6 +176,7 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
 
   if (!entry) return null;
 
+  const detailMetadataRows = metadataRows(entry, batchId != null);
   const batchState = batchId ? getResult(batchId) : null;
   const batchData = batchState?.data;
   const batchInProgress =
@@ -101,7 +206,7 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
             {formatScope(entry.scopeType, entry.scopeLabel, entry.scopeCount || undefined)}
           </SummaryRow>
           <SummaryRow label="User">{entry.username ?? "—"}</SummaryRow>
-          <SummaryRow label="Result" divider={hasErrorMessage}>
+          <SummaryRow label="Result" divider={hasErrorMessage || detailMetadataRows.length > 0}>
             <span className="inline-flex items-center gap-1.5">
               <StatusCircle
                 status={batchInProgress ? "pending" : isFailed ? "error" : "normal"}
@@ -113,10 +218,19 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
             </span>
           </SummaryRow>
           {entry.errorMessage ? (
-            <SummaryRow label="Issue" className="text-intent-critical break-words" divider={false}>
+            <SummaryRow
+              label="Issue"
+              className="text-intent-critical break-words"
+              divider={detailMetadataRows.length > 0}
+            >
               {formatActivityErrorSummary(entry.errorMessage)}
             </SummaryRow>
           ) : null}
+          {detailMetadataRows.map((row, index) => (
+            <SummaryRow key={row.label} label={row.label} divider={index < detailMetadataRows.length - 1}>
+              {row.value}
+            </SummaryRow>
+          ))}
         </div>
 
         {batchId ? (

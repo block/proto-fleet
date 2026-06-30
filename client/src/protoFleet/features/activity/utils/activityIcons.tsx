@@ -107,6 +107,7 @@ const iconMap: Record<string, (props: IconProps) => ReactNode> = {
 
   update_role: Edit,
   delete_role: MinusFilled,
+  cohort_updated: Edit,
 };
 
 export function getActivityIcon(eventType: string, result?: string): (props: IconProps) => ReactNode {
