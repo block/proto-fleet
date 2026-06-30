@@ -295,17 +295,39 @@ func start(config *Config) error {
 				} else if challenges > 0 || sessions > 0 {
 					slog.Debug("swept expired fleet node auth state", "challenges", challenges, "sessions", sessions)
 				}
-				if cohorts, err := cohortSvc.SweepExpired(cleanupCtx); err != nil {
-					slog.Error("failed to sweep expired cohorts", "error", err)
-				} else if len(cohorts) > 0 {
-					slog.Debug("swept expired cohorts", "count", len(cohorts))
-				}
 			case <-cleanupCtx.Done():
 				return
 			}
 		}
 	}()
 	defer cleanupCancel()
+
+	cohortSweepCtx, cohortSweepCancel := context.WithCancel(context.Background())
+	runCohortExpirySweep := func() {
+		cohorts, err := cohortSvc.SweepExpired(cohortSweepCtx)
+		if err != nil {
+			slog.Error("failed to sweep expired cohorts", "error", err)
+			return
+		}
+		if len(cohorts) > 0 {
+			slog.Debug("swept expired cohorts", "count", len(cohorts))
+		}
+	}
+	go func() {
+		ticker := time.NewTicker(config.Cohort.NormalizedExpirySweepInterval())
+		defer ticker.Stop()
+		runCohortExpirySweep()
+
+		for {
+			select {
+			case <-ticker.C:
+				runCohortExpirySweep()
+			case <-cohortSweepCtx.Done():
+				return
+			}
+		}
+	}()
+	defer cohortSweepCancel()
 
 	if err := config.Plugins.Validate(); err != nil {
 		return fmt.Errorf("invalid plugin configuration: %w", err)
