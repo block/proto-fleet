@@ -191,18 +191,13 @@ func (c *Client) reportConnectionLostStatus(client connectionStateClient, err er
 
 func (c *Client) reportReconnectStatus(ctx context.Context, client reconnectClient) {
 	sequence := c.nextStatusSequence()
-	c.reportReconnectStatusWithTimeoutForSequence(ctx, client, reconnectSubscribeTimeout, sequence)
-}
-
-func (c *Client) reportReconnectStatusWithTimeout(ctx context.Context, client reconnectClient, timeout time.Duration) {
-	sequence := c.nextStatusSequence()
-	c.reportReconnectStatusWithTimeoutForSequence(ctx, client, timeout, sequence)
-}
-
-func (c *Client) reportReconnectStatusWithTimeoutForSequence(ctx context.Context, client reconnectClient, timeout time.Duration, sequence uint64) {
-	replayCtx, cancel := context.WithTimeout(ctx, timeout)
+	replayCtx, cancel := context.WithTimeout(ctx, reconnectSubscribeTimeout)
 	defer cancel()
-	err := c.replaySubscriptions(replayCtx, client)
+	c.reportReconnectStatusForSequence(replayCtx, client, sequence)
+}
+
+func (c *Client) reportReconnectStatusForSequence(ctx context.Context, client reconnectClient, sequence uint64) {
+	err := c.replaySubscriptions(ctx, client)
 	if c.statusSequence.Load() != sequence {
 		return
 	}

@@ -312,30 +312,49 @@ func TestClientOptions_RuntimeStatusCallbacks(t *testing.T) {
 	}
 }
 
+type runtimeStatusCapture struct {
+	reports    int
+	connected  bool
+	subscribed bool
+	err        error
+}
+
+func captureRuntimeStatus(client *Client) *runtimeStatusCapture {
+	capture := &runtimeStatusCapture{}
+	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
+		capture.reports++
+		capture.connected = connected
+		capture.subscribed = subscribed
+		capture.err = err
+	})
+	return capture
+}
+
+func reportReconnectStatusWithTestTimeout(t *testing.T, client *Client, replay reconnectClient, timeout time.Duration) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+	defer cancel()
+	sequence := client.nextStatusSequence()
+	client.reportReconnectStatusForSequence(ctx, replay, sequence)
+}
+
 func TestClientRuntimeStatusReporter(t *testing.T) {
 	t.Parallel()
 
 	client := New()
-	var gotConnected bool
-	var gotSubscribed bool
-	var gotErr error
-	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
-		gotConnected = connected
-		gotSubscribed = subscribed
-		gotErr = err
-	})
+	status := captureRuntimeStatus(client)
 
 	wantErr := errors.New("connection lost")
 	client.reportRuntimeStatus(false, false, wantErr)
 
-	if gotConnected {
+	if status.connected {
 		t.Fatal("connected = true, want false")
 	}
-	if gotSubscribed {
+	if status.subscribed {
 		t.Fatal("subscribed = true, want false")
 	}
-	if !errors.Is(gotErr, wantErr) {
-		t.Fatalf("err = %v, want %v", gotErr, wantErr)
+	if !errors.Is(status.err, wantErr) {
+		t.Fatalf("err = %v, want %v", status.err, wantErr)
 	}
 }
 
@@ -343,17 +362,14 @@ func TestReportConnectionLostStatusSkipsAlreadyOpenClient(t *testing.T) {
 	t.Parallel()
 
 	client := New()
-	calls := 0
-	client.SetRuntimeStatusReporter(func(bool, bool, error) {
-		calls++
-	})
+	status := captureRuntimeStatus(client)
 
 	openClient := &replayClient{}
 	openClient.setConnectionOpen(true)
 	client.reportConnectionLostStatus(openClient, errors.New("stale connection loss"))
 
-	if calls != 0 {
-		t.Fatalf("runtime status reports = %d, want 0", calls)
+	if status.reports != 0 {
+		t.Fatalf("runtime status reports = %d, want 0", status.reports)
 	}
 }
 
@@ -362,26 +378,18 @@ func TestReportReconnectStatusReportsSubscribedAfterReplaySuccess(t *testing.T) 
 
 	client := New()
 	client.subscriptions["curtailment/source"] = func(_ paho.Client, _ paho.Message) {}
-
-	var gotConnected bool
-	var gotSubscribed bool
-	var gotErr error
-	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
-		gotConnected = connected
-		gotSubscribed = subscribed
-		gotErr = err
-	})
+	status := captureRuntimeStatus(client)
 
 	client.reportReconnectStatus(t.Context(), &replayClient{})
 
-	if !gotConnected {
+	if !status.connected {
 		t.Fatal("connected = false, want true")
 	}
-	if !gotSubscribed {
+	if !status.subscribed {
 		t.Fatal("subscribed = false, want true")
 	}
-	if gotErr != nil {
-		t.Fatalf("err = %v, want nil", gotErr)
+	if status.err != nil {
+		t.Fatalf("err = %v, want nil", status.err)
 	}
 }
 
@@ -390,35 +398,26 @@ func TestReportReconnectStatusSuppressesStaleReplayReport(t *testing.T) {
 
 	client := New()
 	client.subscriptions["curtailment/source"] = func(_ paho.Client, _ paho.Message) {}
-	reports := 0
-	var gotConnected bool
-	var gotSubscribed bool
-	var gotErr error
-	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
-		reports++
-		gotConnected = connected
-		gotSubscribed = subscribed
-		gotErr = err
-	})
+	status := captureRuntimeStatus(client)
 
 	staleSequence := client.nextStatusSequence()
 	closedClient := &replayClient{}
 	closedClient.setConnectionOpen(false)
 	wantErr := errors.New("broker lost")
 	client.reportConnectionLostStatus(closedClient, wantErr)
-	if reports != 1 {
-		t.Fatalf("runtime status reports = %d, want 1", reports)
+	if status.reports != 1 {
+		t.Fatalf("runtime status reports = %d, want 1", status.reports)
 	}
-	if gotConnected || gotSubscribed {
-		t.Fatalf("connected=%v subscribed=%v, want both false", gotConnected, gotSubscribed)
+	if status.connected || status.subscribed {
+		t.Fatalf("connected=%v subscribed=%v, want both false", status.connected, status.subscribed)
 	}
-	if !errors.Is(gotErr, wantErr) {
-		t.Fatalf("err = %v, want %v", gotErr, wantErr)
+	if !errors.Is(status.err, wantErr) {
+		t.Fatalf("err = %v, want %v", status.err, wantErr)
 	}
 
-	client.reportReconnectStatusWithTimeoutForSequence(t.Context(), &replayClient{}, time.Millisecond, staleSequence)
-	if reports != 1 {
-		t.Fatalf("stale replay report was not suppressed; reports = %d, want 1", reports)
+	client.reportReconnectStatusForSequence(t.Context(), &replayClient{}, staleSequence)
+	if status.reports != 1 {
+		t.Fatalf("stale replay report was not suppressed; reports = %d, want 1", status.reports)
 	}
 }
 
@@ -430,25 +429,18 @@ func TestReportReconnectStatusReportsSubscribeReplayFailure(t *testing.T) {
 
 	wantErr := errors.New("subscription rejected")
 	replay := &replayClient{tokenErr: wantErr}
-	var gotConnected bool
-	var gotSubscribed bool
-	var gotErr error
-	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
-		gotConnected = connected
-		gotSubscribed = subscribed
-		gotErr = err
-	})
+	status := captureRuntimeStatus(client)
 
 	client.reportReconnectStatus(t.Context(), replay)
 
-	if !gotConnected {
+	if !status.connected {
 		t.Fatal("connected = false, want true")
 	}
-	if gotSubscribed {
+	if status.subscribed {
 		t.Fatal("subscribed = true, want false")
 	}
-	if !errors.Is(gotErr, wantErr) {
-		t.Fatalf("err = %v, want %v", gotErr, wantErr)
+	if !errors.Is(status.err, wantErr) {
+		t.Fatalf("err = %v, want %v", status.err, wantErr)
 	}
 }
 
@@ -460,25 +452,18 @@ func TestReportReconnectStatusReportsDisconnectedWhenReplayTimeoutFindsClosedCli
 
 	replay := &replayClient{token: newPendingToken()}
 	replay.setConnectionOpen(false)
-	var gotConnected bool
-	var gotSubscribed bool
-	var gotErr error
-	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
-		gotConnected = connected
-		gotSubscribed = subscribed
-		gotErr = err
-	})
+	status := captureRuntimeStatus(client)
 
-	client.reportReconnectStatusWithTimeout(t.Context(), replay, time.Millisecond)
+	reportReconnectStatusWithTestTimeout(t, client, replay, time.Millisecond)
 
-	if gotConnected {
+	if status.connected {
 		t.Fatal("connected = true, want false")
 	}
-	if gotSubscribed {
+	if status.subscribed {
 		t.Fatal("subscribed = true, want false")
 	}
-	if !errors.Is(gotErr, context.DeadlineExceeded) {
-		t.Fatalf("err = %v, want context deadline exceeded", gotErr)
+	if !errors.Is(status.err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context deadline exceeded", status.err)
 	}
 }
 
@@ -489,25 +474,18 @@ func TestReportReconnectStatusReportsSubscribeReplayTimeout(t *testing.T) {
 	client.subscriptions["curtailment/source"] = func(_ paho.Client, _ paho.Message) {}
 
 	replay := &replayClient{token: newPendingToken()}
-	var gotConnected bool
-	var gotSubscribed bool
-	var gotErr error
-	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
-		gotConnected = connected
-		gotSubscribed = subscribed
-		gotErr = err
-	})
+	status := captureRuntimeStatus(client)
 
-	client.reportReconnectStatusWithTimeout(t.Context(), replay, time.Millisecond)
+	reportReconnectStatusWithTestTimeout(t, client, replay, time.Millisecond)
 
-	if !gotConnected {
+	if !status.connected {
 		t.Fatal("connected = false, want true")
 	}
-	if gotSubscribed {
+	if status.subscribed {
 		t.Fatal("subscribed = true, want false")
 	}
-	if !errors.Is(gotErr, context.DeadlineExceeded) {
-		t.Fatalf("err = %v, want context deadline exceeded", gotErr)
+	if !errors.Is(status.err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context deadline exceeded", status.err)
 	}
 }
 
