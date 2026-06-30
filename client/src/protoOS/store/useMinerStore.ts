@@ -32,6 +32,14 @@ export interface MinerStore {
   networkInfo: NetworkInfoSlice;
   auth: AuthSlice;
   miningTarget: MiningTargetSlice;
+
+  /**
+   * Clears every per-device slice so data from one miner never bleeds into
+   * another in the embedded fleet view. This is the single source of truth for
+   * "what is device-scoped"; UI preferences, auth tokens, and the miner's
+   * onboarding/identity flags are intentionally preserved.
+   */
+  resetDeviceData: () => void;
 }
 
 // =============================================================================
@@ -147,6 +155,20 @@ const useMinerStore = create<MinerStore>()(
           networkInfo: createNetworkInfoSlice(set, get, api),
           auth: createAuthSlice(set, get, api),
           miningTarget: createMiningTargetSlice(set, get, api),
+
+          resetDeviceData: () => {
+            const state = get();
+            state.hardware.reset();
+            state.telemetry.clearAllData();
+            state.pools.setPoolsInfo(undefined);
+            state.systemInfo.setSystemInfo(undefined);
+            state.networkInfo.setNetworkInfo(undefined);
+            state.miningTarget.reset();
+            // Status data only — onboarding/password/identity flags are not
+            // device telemetry and must survive a miner switch.
+            state.minerStatus.setErrors([]);
+            state.minerStatus.setMiningStatus(undefined);
+          },
         })),
         {
           name: "miner-store",

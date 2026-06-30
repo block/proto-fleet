@@ -24,17 +24,6 @@ export const useResetDeviceStateOnMinerChange = (minerKey: string) => {
     if (!minerKey) {
       return;
     }
-
-    const { hardware, telemetry, minerStatus, pools, systemInfo, networkInfo, miningTarget } = useMinerStore.getState();
-    hardware.reset();
-    // clearAllData empties miner/hashboards/asics/psus/fans and coolingMode —
-    // the latest/timeSeries strips left fans and cooling mode behind.
-    telemetry.clearAllData();
-    minerStatus.setErrors([]);
-    minerStatus.setMiningStatus(undefined);
-    pools.setPoolsInfo(undefined);
-    systemInfo.setSystemInfo(undefined);
-    networkInfo.setNetworkInfo(undefined);
-    miningTarget.reset();
+    useMinerStore.getState().resetDeviceData();
   }, [minerKey]);
 };
