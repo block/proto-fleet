@@ -301,11 +301,14 @@ function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCur
 function formatRestoreProfile(
   event: Pick<ActiveCurtailmentEvent, "restoreBatchSize" | "restoreBatchIntervalSec">,
 ): string {
-  if (event.restoreBatchSize === 0) {
-    return "Up to safety limit immediately";
-  }
   if (event.restoreBatchIntervalSec === 0) {
+    if (event.restoreBatchSize === 0) {
+      return "Up to safety limit immediately";
+    }
     return `${formatMinerCount(event.restoreBatchSize)} with no wait`;
+  }
+  if (event.restoreBatchSize === 0) {
+    return `Up to safety limit every ${event.restoreBatchIntervalSec.toLocaleString()}s`;
   }
   return `${formatMinerCount(event.restoreBatchSize)} every ${event.restoreBatchIntervalSec.toLocaleString()}s`;
 }

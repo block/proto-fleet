@@ -349,11 +349,20 @@ function getRestoreBatchSize(values: ResponseProfileFormValues): number | undefi
   if (parsedField.error) {
     throw new Error(parsedField.error);
   }
+  if (values.restoreBehavior === "automaticImmediateRestore") {
+    return immediateRestoreBatchSize;
+  }
+  if (parsedField.parsed === undefined || parsedField.parsed === 0) {
+    throw new Error("Enter restore batch size greater than 0 for batch restore.");
+  }
 
-  return parsedField.parsed ?? immediateRestoreBatchSize;
+  return parsedField.parsed;
 }
 
 function getRestoreBatchIntervalSec(values: ResponseProfileFormValues): number | undefined {
+  if (values.restoreBehavior === "automaticImmediateRestore") {
+    return 0;
+  }
   return getOptionalUint32Setting(values.restoreIntervalSec, restoreBatchIntervalOptions);
 }
 

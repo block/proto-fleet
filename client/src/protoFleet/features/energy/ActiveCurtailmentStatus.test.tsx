@@ -72,6 +72,20 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("Up to safety limit immediately")).toBeVisible();
   });
 
+  it("renders paced safety-limited restore profile for zero restore batch size with interval", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          restoreBatchSize: 0,
+          restoreBatchIntervalSec: 3600,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Up to safety limit every 3,600s")).toBeVisible();
+  });
+
   it("renders a pending event with stop available", async () => {
     const user = userEvent.setup();
     const onRequestStop = vi.fn();
