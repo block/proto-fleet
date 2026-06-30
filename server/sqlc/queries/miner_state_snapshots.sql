@@ -69,3 +69,31 @@ SELECT
 FROM per_device_bucket
 GROUP BY bucket
 ORDER BY bucket ASC;
+
+-- name: GetAllMinerStateSnapshotBuckets :many
+-- Fast path for all-device dashboard uptime counts. InsertMinerStateSnapshot
+-- stamps one complete fleet snapshot time across all devices, so selecting the
+-- latest snapshot time per chart bucket avoids sorting every device row by
+-- (bucket, device, time) while preserving the latest-state-per-bucket result.
+WITH latest_snapshot_per_bucket AS (
+    SELECT
+        time_bucket(sqlc.arg('bucket_interval')::text::interval, mss.time)::timestamptz AS bucket,
+        MAX(mss.time) AS snapshot_time
+    FROM miner_state_snapshots mss
+    WHERE mss.org_id = sqlc.arg('org_id')
+      AND mss.time >= sqlc.arg('start_time')
+      AND mss.time <= sqlc.arg('end_time')
+    GROUP BY bucket
+)
+SELECT
+    latest_snapshot_per_bucket.bucket,
+    SUM(CASE WHEN m.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN m.state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN m.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN m.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM latest_snapshot_per_bucket
+JOIN miner_state_snapshots m
+  ON m.org_id = sqlc.arg('org_id')
+ AND m.time = latest_snapshot_per_bucket.snapshot_time
+GROUP BY latest_snapshot_per_bucket.bucket
+ORDER BY latest_snapshot_per_bucket.bucket ASC;

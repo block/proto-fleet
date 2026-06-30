@@ -13,6 +13,84 @@ import (
 	"github.com/lib/pq"
 )
 
+const getAllMinerStateSnapshotBuckets = `-- name: GetAllMinerStateSnapshotBuckets :many
+WITH latest_snapshot_per_bucket AS (
+    SELECT
+        time_bucket($2::text::interval, mss.time)::timestamptz AS bucket,
+        MAX(mss.time) AS snapshot_time
+    FROM miner_state_snapshots mss
+    WHERE mss.org_id = $1
+      AND mss.time >= $3
+      AND mss.time <= $4
+    GROUP BY bucket
+)
+SELECT
+    latest_snapshot_per_bucket.bucket,
+    SUM(CASE WHEN m.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN m.state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN m.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN m.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM latest_snapshot_per_bucket
+JOIN miner_state_snapshots m
+  ON m.org_id = $1
+ AND m.time = latest_snapshot_per_bucket.snapshot_time
+GROUP BY latest_snapshot_per_bucket.bucket
+ORDER BY latest_snapshot_per_bucket.bucket ASC
+`
+
+type GetAllMinerStateSnapshotBucketsParams struct {
+	OrgID          int64
+	BucketInterval string
+	StartTime      time.Time
+	EndTime        time.Time
+}
+
+type GetAllMinerStateSnapshotBucketsRow struct {
+	Bucket        time.Time
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
+// Fast path for all-device dashboard uptime counts. InsertMinerStateSnapshot
+// stamps one complete fleet snapshot time across all devices, so selecting the
+// latest snapshot time per chart bucket avoids sorting every device row by
+// (bucket, device, time) while preserving the latest-state-per-bucket result.
+func (q *Queries) GetAllMinerStateSnapshotBuckets(ctx context.Context, arg GetAllMinerStateSnapshotBucketsParams) ([]GetAllMinerStateSnapshotBucketsRow, error) {
+	rows, err := q.query(ctx, q.getAllMinerStateSnapshotBucketsStmt, getAllMinerStateSnapshotBuckets,
+		arg.OrgID,
+		arg.BucketInterval,
+		arg.StartTime,
+		arg.EndTime,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAllMinerStateSnapshotBucketsRow
+	for rows.Next() {
+		var i GetAllMinerStateSnapshotBucketsRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getMinerStateSnapshots = `-- name: GetMinerStateSnapshots :many
 WITH per_device_bucket AS (
     SELECT DISTINCT ON (time_bucket($1::text::interval, time), device_identifier)

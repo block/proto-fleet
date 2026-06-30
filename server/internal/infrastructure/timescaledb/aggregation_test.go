@@ -690,6 +690,28 @@ func TestCalculateUptimeStatusCount_LatestHealthWins(t *testing.T) {
 	assert.Equal(t, int32(0), result.NotHashingCount)
 }
 
+func TestUptimeStatusCountsFromAllMinerStateSnapshotRows(t *testing.T) {
+	bucket := time.Now().Truncate(time.Minute)
+	rows := []sqlc.GetAllMinerStateSnapshotBucketsRow{
+		{
+			Bucket:        bucket,
+			HashingCount:  7,
+			BrokenCount:   2,
+			OfflineCount:  3,
+			SleepingCount: 5,
+		},
+	}
+
+	result := uptimeStatusCountsFromAllMinerStateSnapshotRows(rows)
+
+	require.Len(t, result, 1)
+	assert.Equal(t, bucket, result[0].Timestamp)
+	assert.Equal(t, int32(7), result[0].HashingCount)
+	assert.Equal(t, int32(2), result[0].BrokenCount)
+	assert.Equal(t, int32(8), result[0].NotHashingCount)
+	assert.Nil(t, uptimeStatusCountsFromAllMinerStateSnapshotRows(nil))
+}
+
 func TestLatestSamplePerDevice_Empty(t *testing.T) {
 	assert.Nil(t, latestSamplePerDevice(nil))
 	assert.Nil(t, latestSamplePerDevice([]modelsV2.DeviceMetrics{}))

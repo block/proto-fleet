@@ -149,6 +149,44 @@ WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
 ORDER BY time ASC
 LIMIT sqlc.arg('max_rows')::int;
 
+-- name: GetDeviceMetricsTimeSeriesByTimeScan :many
+-- Large explicit device selectors, such as building pages with thousands of
+-- miners, can make Postgres choose thousands of device_identifier index scans
+-- and then sort the result. This variant intentionally makes the device
+-- predicate non-indexable so the planner walks the time-ordered index once,
+-- applies the in-memory device filter, and stops at max_rows.
+SELECT
+    time,
+    device_identifier,
+    hash_rate_hs,
+    hash_rate_hs_kind,
+    temp_c,
+    temp_c_kind,
+    fan_rpm,
+    fan_rpm_kind,
+    power_w,
+    power_w_kind,
+    efficiency_jh,
+    efficiency_jh_kind,
+    voltage_v,
+    voltage_v_kind,
+    current_a,
+    current_a_kind,
+    inlet_temp_c,
+    outlet_temp_c,
+    ambient_temp_c,
+    chip_count,
+    chip_count_kind,
+    chip_frequency_mhz,
+    health,
+    site_id
+FROM device_metrics
+WHERE (device_identifier || '') = ANY(sqlc.arg('device_identifiers')::text[])
+  AND time >= $1
+  AND time <= $2
+ORDER BY time ASC
+LIMIT sqlc.arg('max_rows')::int;
+
 -- name: GetAllDeviceMetricsTimeSeries :many
 -- Returns time series metrics for ALL devices within a time range.
 -- Used when DeviceSelector_AllDevices is specified (empty device list).

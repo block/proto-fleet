@@ -342,6 +342,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getAllDeviceStatusHourlyAggregatesStmt, err = db.PrepareContext(ctx, getAllDeviceStatusHourlyAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllDeviceStatusHourlyAggregates: %w", err)
 	}
+	if q.getAllMinerStateSnapshotBucketsStmt, err = db.PrepareContext(ctx, getAllMinerStateSnapshotBuckets); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllMinerStateSnapshotBuckets: %w", err)
+	}
 	if q.getAllPairedDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getAllPairedDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllPairedDeviceIdentifiers: %w", err)
 	}
@@ -449,6 +452,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getDeviceMetricsTimeSeriesStmt, err = db.PrepareContext(ctx, getDeviceMetricsTimeSeries); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceMetricsTimeSeries: %w", err)
+	}
+	if q.getDeviceMetricsTimeSeriesByTimeScanStmt, err = db.PrepareContext(ctx, getDeviceMetricsTimeSeriesByTimeScan); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceMetricsTimeSeriesByTimeScan: %w", err)
 	}
 	if q.getDevicePairingStatusByDeviceDatabaseIDStmt, err = db.PrepareContext(ctx, getDevicePairingStatusByDeviceDatabaseID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDevicePairingStatusByDeviceDatabaseID: %w", err)
@@ -1894,6 +1900,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getAllDeviceStatusHourlyAggregatesStmt: %w", cerr)
 		}
 	}
+	if q.getAllMinerStateSnapshotBucketsStmt != nil {
+		if cerr := q.getAllMinerStateSnapshotBucketsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllMinerStateSnapshotBucketsStmt: %w", cerr)
+		}
+	}
 	if q.getAllPairedDeviceIdentifiersStmt != nil {
 		if cerr := q.getAllPairedDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAllPairedDeviceIdentifiersStmt: %w", cerr)
@@ -2072,6 +2083,11 @@ func (q *Queries) Close() error {
 	if q.getDeviceMetricsTimeSeriesStmt != nil {
 		if cerr := q.getDeviceMetricsTimeSeriesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceMetricsTimeSeriesStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceMetricsTimeSeriesByTimeScanStmt != nil {
+		if cerr := q.getDeviceMetricsTimeSeriesByTimeScanStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceMetricsTimeSeriesByTimeScanStmt: %w", cerr)
 		}
 	}
 	if q.getDevicePairingStatusByDeviceDatabaseIDStmt != nil {
@@ -3734,6 +3750,7 @@ type Queries struct {
 	getAllDeviceMetricsTimeSeriesStmt                          *sql.Stmt
 	getAllDeviceStatusDailyAggregatesStmt                      *sql.Stmt
 	getAllDeviceStatusHourlyAggregatesStmt                     *sql.Stmt
+	getAllMinerStateSnapshotBucketsStmt                        *sql.Stmt
 	getAllPairedDeviceIdentifiersStmt                          *sql.Stmt
 	getApiKeyByHashStmt                                        *sql.Stmt
 	getAssignmentByIDStmt                                      *sql.Stmt
@@ -3770,6 +3787,7 @@ type Queries struct {
 	getDeviceMetricsDailyAggregatesStmt                        *sql.Stmt
 	getDeviceMetricsHourlyAggregatesStmt                       *sql.Stmt
 	getDeviceMetricsTimeSeriesStmt                             *sql.Stmt
+	getDeviceMetricsTimeSeriesByTimeScanStmt                   *sql.Stmt
 	getDevicePairingStatusByDeviceDatabaseIDStmt               *sql.Stmt
 	getDevicePropertiesForRenameStmt                           *sql.Stmt
 	getDevicePropertiesForRenameWithoutTelemetryStmt           *sql.Stmt
@@ -4185,6 +4203,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getAllDeviceMetricsTimeSeriesStmt:                          q.getAllDeviceMetricsTimeSeriesStmt,
 		getAllDeviceStatusDailyAggregatesStmt:                      q.getAllDeviceStatusDailyAggregatesStmt,
 		getAllDeviceStatusHourlyAggregatesStmt:                     q.getAllDeviceStatusHourlyAggregatesStmt,
+		getAllMinerStateSnapshotBucketsStmt:                        q.getAllMinerStateSnapshotBucketsStmt,
 		getAllPairedDeviceIdentifiersStmt:                          q.getAllPairedDeviceIdentifiersStmt,
 		getApiKeyByHashStmt:                                        q.getApiKeyByHashStmt,
 		getAssignmentByIDStmt:                                      q.getAssignmentByIDStmt,
@@ -4221,6 +4240,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceMetricsDailyAggregatesStmt:                        q.getDeviceMetricsDailyAggregatesStmt,
 		getDeviceMetricsHourlyAggregatesStmt:                       q.getDeviceMetricsHourlyAggregatesStmt,
 		getDeviceMetricsTimeSeriesStmt:                             q.getDeviceMetricsTimeSeriesStmt,
+		getDeviceMetricsTimeSeriesByTimeScanStmt:                   q.getDeviceMetricsTimeSeriesByTimeScanStmt,
 		getDevicePairingStatusByDeviceDatabaseIDStmt:               q.getDevicePairingStatusByDeviceDatabaseIDStmt,
 		getDevicePropertiesForRenameStmt:                           q.getDevicePropertiesForRenameStmt,
 		getDevicePropertiesForRenameWithoutTelemetryStmt:           q.getDevicePropertiesForRenameWithoutTelemetryStmt,

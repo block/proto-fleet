@@ -36,6 +36,10 @@ const (
 	pollingIntervalSeconds = 10.0
 	secondsPerHour         = 3600.0
 	wattsPerKilowatt       = 1000.0
+
+	// Large building telemetry requests pass thousands of explicit device IDs.
+	// Above this size, a time-ordered scan is faster than per-device index fanout.
+	largeDeviceTimeSeriesScanThreshold = 2000
 )
 
 // estimateEnergyKWh computes estimated energy consumption in kilowatt-hours
@@ -393,12 +397,21 @@ func (s *TimescaleTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, qu
 		for i, id := range query.DeviceIDs {
 			identifiers[i] = string(id)
 		}
-		rows, err = s.queries.GetDeviceMetricsTimeSeries(ctx, sqlc.GetDeviceMetricsTimeSeriesParams{
-			DeviceIdentifiers: identifiers,
-			Time:              startTime,
-			Time_2:            endTime,
-			MaxRows:           maxRows,
-		})
+		if len(identifiers) >= largeDeviceTimeSeriesScanThreshold {
+			rows, err = s.queries.GetDeviceMetricsTimeSeriesByTimeScan(ctx, sqlc.GetDeviceMetricsTimeSeriesByTimeScanParams{
+				DeviceIdentifiers: identifiers,
+				Time:              startTime,
+				Time_2:            endTime,
+				MaxRows:           maxRows,
+			})
+		} else {
+			rows, err = s.queries.GetDeviceMetricsTimeSeries(ctx, sqlc.GetDeviceMetricsTimeSeriesParams{
+				DeviceIdentifiers: identifiers,
+				Time:              startTime,
+				Time_2:            endTime,
+				MaxRows:           maxRows,
+			})
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query time series: %w", err)
@@ -1246,15 +1259,30 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
-	params := sqlc.GetMinerStateSnapshotsParams{
-		BucketInterval: fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds())),
-		OrgID:          orgID,
-		StartTime:      startTime,
-		EndTime:        endTime,
+	bucketInterval := fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds()))
+	if len(deviceIDs) == 0 {
+		rows, err := s.queries.GetAllMinerStateSnapshotBuckets(ctx, sqlc.GetAllMinerStateSnapshotBucketsParams{
+			BucketInterval: bucketInterval,
+			OrgID:          orgID,
+			StartTime:      startTime,
+			EndTime:        endTime,
+		})
+		if err != nil {
+			s.logger.Error("failed to query all-device miner state snapshots",
+				slog.Int64("org_id", orgID),
+				slog.String("error", err.Error()))
+			return nil
+		}
+		return uptimeStatusCountsFromAllMinerStateSnapshotRows(rows)
 	}
-	if len(deviceIDs) > 0 {
-		params.DeviceIdentifiersFilter = sql.NullString{String: "1", Valid: true}
-		params.DeviceIdentifierValues = deviceIDsToStrings(deviceIDs)
+
+	params := sqlc.GetMinerStateSnapshotsParams{
+		BucketInterval:          bucketInterval,
+		OrgID:                   orgID,
+		StartTime:               startTime,
+		EndTime:                 endTime,
+		DeviceIdentifiersFilter: sql.NullString{String: "1", Valid: true},
+		DeviceIdentifierValues:  deviceIDsToStrings(deviceIDs),
 	}
 
 	rows, err := s.queries.GetMinerStateSnapshots(ctx, params)
@@ -1269,16 +1297,38 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 		return nil
 	}
 
+	return uptimeStatusCountsFromMinerStateSnapshotRows(rows)
+}
+
+func uptimeStatusCountsFromAllMinerStateSnapshotRows(rows []sqlc.GetAllMinerStateSnapshotBucketsRow) []models.UptimeStatusCount {
+	if len(rows) == 0 {
+		return nil
+	}
 	result := make([]models.UptimeStatusCount, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, models.UptimeStatusCount{
-			Timestamp:       row.Bucket,
-			HashingCount:    row.HashingCount,
-			BrokenCount:     row.BrokenCount,
-			NotHashingCount: row.OfflineCount + row.SleepingCount,
-		})
+		result = append(result, uptimeStatusCountFromSnapshotBucket(row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount))
 	}
 	return result
+}
+
+func uptimeStatusCountsFromMinerStateSnapshotRows(rows []sqlc.GetMinerStateSnapshotsRow) []models.UptimeStatusCount {
+	if len(rows) == 0 {
+		return nil
+	}
+	result := make([]models.UptimeStatusCount, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, uptimeStatusCountFromSnapshotBucket(row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount))
+	}
+	return result
+}
+
+func uptimeStatusCountFromSnapshotBucket(bucket time.Time, hashing, broken, offline, sleeping int32) models.UptimeStatusCount {
+	return models.UptimeStatusCount{
+		Timestamp:       bucket,
+		HashingCount:    hashing,
+		BrokenCount:     broken,
+		NotHashingCount: offline + sleeping,
+	}
 }
 
 func toNullString(s string) sql.NullString {

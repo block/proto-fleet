@@ -594,6 +594,105 @@ func (q *Queries) GetDeviceMetricsTimeSeries(ctx context.Context, arg GetDeviceM
 	return items, nil
 }
 
+const getDeviceMetricsTimeSeriesByTimeScan = `-- name: GetDeviceMetricsTimeSeriesByTimeScan :many
+SELECT
+    time,
+    device_identifier,
+    hash_rate_hs,
+    hash_rate_hs_kind,
+    temp_c,
+    temp_c_kind,
+    fan_rpm,
+    fan_rpm_kind,
+    power_w,
+    power_w_kind,
+    efficiency_jh,
+    efficiency_jh_kind,
+    voltage_v,
+    voltage_v_kind,
+    current_a,
+    current_a_kind,
+    inlet_temp_c,
+    outlet_temp_c,
+    ambient_temp_c,
+    chip_count,
+    chip_count_kind,
+    chip_frequency_mhz,
+    health,
+    site_id
+FROM device_metrics
+WHERE (device_identifier || '') = ANY($3::text[])
+  AND time >= $1
+  AND time <= $2
+ORDER BY time ASC
+LIMIT $4::int
+`
+
+type GetDeviceMetricsTimeSeriesByTimeScanParams struct {
+	Time              time.Time
+	Time_2            time.Time
+	DeviceIdentifiers []string
+	MaxRows           int32
+}
+
+// Large explicit device selectors, such as building pages with thousands of
+// miners, can make Postgres choose thousands of device_identifier index scans
+// and then sort the result. This variant intentionally makes the device
+// predicate non-indexable so the planner walks the time-ordered index once,
+// applies the in-memory device filter, and stops at max_rows.
+func (q *Queries) GetDeviceMetricsTimeSeriesByTimeScan(ctx context.Context, arg GetDeviceMetricsTimeSeriesByTimeScanParams) ([]DeviceMetric, error) {
+	rows, err := q.query(ctx, q.getDeviceMetricsTimeSeriesByTimeScanStmt, getDeviceMetricsTimeSeriesByTimeScan,
+		arg.Time,
+		arg.Time_2,
+		pq.Array(arg.DeviceIdentifiers),
+		arg.MaxRows,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceMetric
+	for rows.Next() {
+		var i DeviceMetric
+		if err := rows.Scan(
+			&i.Time,
+			&i.DeviceIdentifier,
+			&i.HashRateHs,
+			&i.HashRateHsKind,
+			&i.TempC,
+			&i.TempCKind,
+			&i.FanRpm,
+			&i.FanRpmKind,
+			&i.PowerW,
+			&i.PowerWKind,
+			&i.EfficiencyJh,
+			&i.EfficiencyJhKind,
+			&i.VoltageV,
+			&i.VoltageVKind,
+			&i.CurrentA,
+			&i.CurrentAKind,
+			&i.InletTempC,
+			&i.OutletTempC,
+			&i.AmbientTempC,
+			&i.ChipCount,
+			&i.ChipCountKind,
+			&i.ChipFrequencyMhz,
+			&i.Health,
+			&i.SiteID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDeviceStatusDailyAggregates = `-- name: GetDeviceStatusDailyAggregates :many
 SELECT
     bucket,
