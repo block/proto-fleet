@@ -27,8 +27,9 @@ export const useResetDeviceStateOnMinerChange = (minerKey: string) => {
 
     const { hardware, telemetry, minerStatus, pools, systemInfo, networkInfo, miningTarget } = useMinerStore.getState();
     hardware.reset();
-    telemetry.clearLatestData();
-    telemetry.clearTimeSeriesData();
+    // clearAllData empties miner/hashboards/asics/psus/fans and coolingMode —
+    // the latest/timeSeries strips left fans and cooling mode behind.
+    telemetry.clearAllData();
     minerStatus.setErrors([]);
     minerStatus.setMiningStatus(undefined);
     pools.setPoolsInfo(undefined);

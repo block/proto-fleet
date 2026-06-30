@@ -50,6 +50,11 @@ LEFT JOIN miner_credentials mc ON d.id = mc.device_id
 WHERE d.device_identifier = $1
     AND d.org_id = $2
     AND d.deleted_at IS NULL
+    -- Match the miner-list eligibility: a soft-deleted or inactive discovery
+    -- row must not be proxyable via a bookmarked /miners/:id URL, or the proxy
+    -- could keep dialing a stale/reassigned address with stored credentials.
+    AND dd.is_active = TRUE
+    AND dd.deleted_at IS NULL
     AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
     AND dd.driver_name = 'proto'
     -- This HTTP proxy dials the miner from fleet-api. Fleet-node-owned
