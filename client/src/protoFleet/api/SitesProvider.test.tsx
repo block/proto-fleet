@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
@@ -37,6 +37,7 @@ const Probe = () => {
       <span data-testid="settled">{String(ctx.sitesSettled)}</span>
       <span data-testid="denied">{String(ctx.sitesPermissionDenied)}</span>
       <span data-testid="granted">{String(ctx.siteCatalogAccessGranted)}</span>
+      <button onClick={ctx.refetchSites}>refetch</button>
     </div>
   );
 };
@@ -96,12 +97,53 @@ describe("SitesProvider", () => {
     expect(screen.getByTestId("denied").textContent).toBe("false");
   });
 
-  it("flags PermissionDenied so the redirect waterfall can react", async () => {
-    listSitesMock.mockImplementation(async ({ onError }) => onError?.("denied", Code.PermissionDenied));
-
+  it("flags PermissionDenied and clears the catalog so the picker can't show stale sites", async () => {
+    // First load succeeds, then a later fetch is denied (mid-session authz change).
+    listSitesMock.mockImplementationOnce(async ({ onSuccess }) => onSuccess?.([makeSite(1)]));
     renderProvider();
+    await waitFor(() => expect(screen.getByTestId("count").textContent).toBe("1"));
+
+    listSitesMock.mockImplementationOnce(async ({ onError }) => onError?.("denied", Code.PermissionDenied));
+    fireEvent.click(screen.getByText("refetch"));
 
     await waitFor(() => expect(screen.getByTestId("denied").textContent).toBe("true"));
+    // Last-good list is dropped (not preserved) on PermissionDenied.
+    expect(screen.getByTestId("count").textContent).toBe("0");
     expect(screen.getByTestId("granted").textContent).toBe("false");
+  });
+
+  it("preserves the last-good list across a transient (non-permission) error", async () => {
+    listSitesMock.mockImplementationOnce(async ({ onSuccess }) => onSuccess?.([makeSite(1)]));
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId("count").textContent).toBe("1"));
+
+    listSitesMock.mockImplementationOnce(async ({ onError }) => onError?.("network blip", Code.Unavailable));
+    fireEvent.click(screen.getByText("refetch"));
+
+    await waitFor(() => expect(screen.getByTestId("error").textContent).toBe("network blip"));
+    // Transient failures keep the last-good catalog visible.
+    expect(screen.getByTestId("count").textContent).toBe("1");
+    expect(screen.getByTestId("denied").textContent).toBe("false");
+  });
+
+  it("aborts the prior in-flight request before starting a new one", async () => {
+    const signals: AbortSignal[] = [];
+    // Never resolve, so both requests stay in flight and their signals persist.
+    listSitesMock.mockImplementation(({ signal }: { signal?: AbortSignal }) => {
+      if (signal) signals.push(signal);
+      return new Promise<void>(() => {});
+    });
+
+    renderProvider();
+    await waitFor(() => expect(signals).toHaveLength(1));
+
+    act(() => {
+      fireEvent.click(screen.getByText("refetch"));
+    });
+
+    await waitFor(() => expect(signals).toHaveLength(2));
+    // The superseded request is aborted; a late response from it is ignored.
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code } from "@connectrpc/connect";
 
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
@@ -28,29 +28,48 @@ export const SitesProvider = ({ children }: { children: ReactNode }) => {
   const [sitesSettled, setSitesSettled] = useState(!canReadSites);
   const [sitesPermissionDenied, setSitesPermissionDenied] = useState(false);
 
-  const fetchSites = useCallback(
-    () =>
-      listSites({
-        onSuccess: (rows) => {
-          setSites(rows);
-          setSitesError(null);
-          setSitesLoaded(true);
-          setSitesSettled(true);
-          setSitesPermissionDenied(false);
-        },
-        onError: (msg, code) => {
-          setSitesError(msg);
-          setSitesSettled(true);
-          if (code === Code.PermissionDenied) {
-            setSitesPermissionDenied(true);
-          }
+  // Tracks the in-flight ListSites request. A mutation fires both a direct
+  // refetchSites() and a sitesRevision bump, and the 15s poll can overlap a
+  // manual refetch — so without sequencing a slow older response could land
+  // after a newer one and resurrect a deleted site or revert a rename.
+  // Aborting the previous request before starting a new one (listSites skips
+  // onSuccess/onError once its signal aborts) keeps state monotonic.
+  const abortRef = useRef<AbortController | null>(null);
+
+  const fetchSites = useCallback(() => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    return listSites({
+      signal: controller.signal,
+      onSuccess: (rows) => {
+        setSites(rows);
+        setSitesError(null);
+        setSitesLoaded(true);
+        setSitesSettled(true);
+        setSitesPermissionDenied(false);
+      },
+      onError: (msg, code) => {
+        setSitesError(msg);
+        setSitesSettled(true);
+        if (code === Code.PermissionDenied) {
+          setSitesPermissionDenied(true);
+          // The catalog is genuinely inaccessible now (e.g. a mid-session
+          // server-side authz change), so drop the last-good list — otherwise
+          // picker consumers, which only read `sites`/`sitesError`, keep
+          // rendering stale site names and allow selecting them.
+          setSites([]);
+        } else {
           // Preserve last-good list across transient errors; only fall to []
           // on the initial-load failure path.
           setSites((prev) => prev ?? []);
-        },
-      }),
-    [listSites],
-  );
+        }
+      },
+    });
+  }, [listSites]);
+
+  // Abort any in-flight request on unmount to avoid setState-after-unmount.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   usePoll({
     fetchData: fetchSites,

@@ -42,7 +42,6 @@ export const importSettingsCurtailment = () => import("@/protoFleet/features/set
 export const importSettingsAlerts = () => import("@/protoFleet/features/alerts/pages/Alerts");
 export const importSettingsIntegrations = () => import("@/protoFleet/features/settings/components/ApiKeys");
 export const importSiteDetailPage = () => import("@/protoFleet/features/sites/pages/SiteDetailPage");
-export const importSitesPage = () => import("@/protoFleet/features/sites/pages/SitesPage");
 export const importBuildingPage = () => import("@/protoFleet/features/buildings/pages/BuildingPage");
 export const importFleetLayout = () => import("@/protoFleet/features/fleetManagement/components/FleetLayout");
 export const importFleetBuildingsPage = () => import("@/protoFleet/features/fleetManagement/pages/FleetBuildingsPage");

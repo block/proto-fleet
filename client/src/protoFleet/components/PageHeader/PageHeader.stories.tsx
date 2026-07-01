@@ -20,6 +20,8 @@ import {
   ScheduleSchema,
 } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
 import type { Schedule as ProtoSchedule } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
+import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { SitesContext, type SitesContextValue } from "@/protoFleet/api/SitesContext";
 import type { ScheduleAction, ScheduleListItem, ScheduleStatus } from "@/protoFleet/api/useScheduleApi";
 
 const HOUR_IN_MS = 60 * 60 * 1000;
@@ -208,8 +210,29 @@ const emptySchedulePillData: UseSchedulePillDataResult = {
   onToggleScheduleStatus: async () => {},
 };
 
+// PageHeader reads the site catalog from the shell-level SitesProvider via
+// useSitesContext(); Storybook's global decorators don't mount it, so supply a
+// static catalog here to keep the story self-contained (and show a populated
+// picker) instead of firing a real ListSites request.
+const storySitesContext: SitesContextValue = {
+  sites: [
+    create(SiteWithCountsSchema, { site: create(SiteSchema, { id: 1n, name: "Austin", slug: "austin" }) }),
+    create(SiteWithCountsSchema, { site: create(SiteSchema, { id: 2n, name: "Dallas", slug: "dallas" }) }),
+  ],
+  sitesError: null,
+  sitesLoaded: true,
+  sitesSettled: true,
+  sitesPermissionDenied: false,
+  siteCatalogAccessGranted: true,
+  refetchSites: () => {},
+};
+
 export const PageHeader = () => {
-  return <PageHeaderComponent schedulePillData={emptySchedulePillData} />;
+  return (
+    <SitesContext.Provider value={storySitesContext}>
+      <PageHeaderComponent schedulePillData={emptySchedulePillData} />
+    </SitesContext.Provider>
+  );
 };
 
 export const SchedulePill = () => {
