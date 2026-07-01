@@ -85,6 +85,84 @@ func TestTelemetryStore_UptimeCountsExplicitDeviceIDsUseRawSnapshots(t *testing.
 	assert.Equal(t, int32(0), counts[0].NotHashingCount)
 }
 
+func TestTelemetryStore_GetCombinedMetricsSkipsUptimeCountsWhenNotRequested(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := NewTelemetryStore(db, DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	deviceIdentifier := "skip-uptime-counts-device"
+	now := time.Now().UTC().Truncate(time.Minute)
+	insertDeviceMetricForUptimeRequest(t, db, now, deviceIdentifier)
+	insertMinerStateSnapshotRow(t, db, now, orgID, sql.NullInt64{}, sql.NullInt64{}, deviceIdentifier, 3)
+
+	start := now.Add(-time.Minute)
+	end := now.Add(time.Minute)
+	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+		OrganizationID:    orgID,
+		DeviceIDs:         []models.DeviceIdentifier{models.DeviceIdentifier(deviceIdentifier)},
+		ExplicitDeviceIDs: true,
+		MeasurementTypes:  []models.MeasurementType{models.MeasurementTypeHashrate},
+		TimeRange: models.TimeRange{
+			StartTime: &start,
+			EndTime:   &end,
+		},
+		SlideInterval: ptrDuration(time.Minute),
+	})
+
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Metrics)
+	assert.Empty(t, result.UptimeStatusCounts)
+}
+
+func TestTelemetryStore_GetCombinedMetricsIncludesUptimeCountsWhenRequested(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := NewTelemetryStore(db, DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	deviceIdentifier := "include-uptime-counts-device"
+	now := time.Now().UTC().Truncate(time.Minute)
+	insertDeviceMetricForUptimeRequest(t, db, now, deviceIdentifier)
+	insertMinerStateSnapshotRow(t, db, now, orgID, sql.NullInt64{}, sql.NullInt64{}, deviceIdentifier, 3)
+
+	start := now.Add(-time.Minute)
+	end := now.Add(time.Minute)
+	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+		OrganizationID:    orgID,
+		DeviceIDs:         []models.DeviceIdentifier{models.DeviceIdentifier(deviceIdentifier)},
+		ExplicitDeviceIDs: true,
+		MeasurementTypes: []models.MeasurementType{
+			models.MeasurementTypeHashrate,
+			models.MeasurementTypeUptime,
+		},
+		TimeRange: models.TimeRange{
+			StartTime: &start,
+			EndTime:   &end,
+		},
+		SlideInterval: ptrDuration(time.Minute),
+	})
+
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Metrics)
+	require.Len(t, result.UptimeStatusCounts, 1)
+	assert.Equal(t, int32(1), result.UptimeStatusCounts[0].HashingCount)
+}
+
 func TestTelemetryStore_InsertMinerStateSnapshotStampsBuildingID(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -157,6 +235,21 @@ func insertMinerStateSnapshotRow(t *testing.T, db *sql.DB, at time.Time, orgID i
 			state = EXCLUDED.state
 	`, at, orgID, siteID, buildingID, deviceIdentifier, state)
 	require.NoError(t, err)
+}
+
+func insertDeviceMetricForUptimeRequest(t *testing.T, db *sql.DB, at time.Time, deviceIdentifier string) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(), `
+		INSERT INTO device_metrics (time, device_identifier, hash_rate_hs)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (time, device_identifier) DO UPDATE SET
+			hash_rate_hs = EXCLUDED.hash_rate_hs
+	`, at, deviceIdentifier, 100_000_000.0)
+	require.NoError(t, err)
+}
+
+func ptrDuration(d time.Duration) *time.Duration {
+	return &d
 }
 
 func refreshUptimeSnapshotCounts(t *testing.T, db *sql.DB, start, end time.Time) {
