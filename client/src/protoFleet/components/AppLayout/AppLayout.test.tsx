@@ -18,6 +18,12 @@ vi.mock("@/protoFleet/api/ScheduleApiProvider", () => ({
   ScheduleApiProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
+// AppLayout now wraps its content in SitesProvider; the catalog fetch isn't
+// under test here (PageHeader is mocked), so stub it as a passthrough.
+vi.mock("@/protoFleet/api/SitesProvider", () => ({
+  SitesProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
+
 vi.mock("@/protoFleet/components/NavigationMenu", () => ({
   __esModule: true,
   default: () => <div>Navigation menu</div>,

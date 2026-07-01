@@ -1,16 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
-import { Code } from "@connectrpc/connect";
 
 import { type FleetOutletContext } from "./outletContext";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
-import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds } from "@/protoFleet/api/sites";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { INFRASTRUCTURE_DEVICES_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
-import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import FleetCreateFlowProvider from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetCreateFlowProvider";
 import FleetViewTabs from "@/protoFleet/features/fleetManagement/components/FleetViewTabs";
 import { type FleetTabId } from "@/protoFleet/features/fleetManagement/views/savedViews";
@@ -20,7 +18,6 @@ import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteS
 import { activeSiteFromScopablePath, scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { useHasPermission, useUsername } from "@/protoFleet/store";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
-import { usePoll } from "@/shared/hooks/usePoll";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
 const ROUTE_TAB_ORDER: FleetTabId[] = ["sites", "buildings", "racks", "miners", "infrastructure"];
@@ -67,40 +64,12 @@ const FleetLayout = () => {
   const canReadRacks = useHasPermission("rack:read");
   const canReadFleet = useHasPermission("fleet:read");
 
-  const { listSites } = useSites();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canReadSites ? undefined : []);
-  const [sitesError, setSitesError] = useState<string | null>(null);
-  // Stays true once any listSites response succeeds, even through later
-  // failures. Lets consumers tell "we have last-good data" from "we've
-  // never seen data" when sites is [].
-  const [sitesLoaded, setSitesLoaded] = useState(false);
-  // Keep a defensive PermissionDenied branch for stale sessions or server-side
-  // auth changes so the redirect waterfall avoids site-catalog-backed tabs.
-  const [sitesPermissionDenied, setSitesPermissionDenied] = useState(false);
-
-  const fetchSites = useCallback(
-    () =>
-      listSites({
-        onSuccess: (rows) => {
-          setSites(rows);
-          setSitesError(null);
-          setSitesLoaded(true);
-          setSitesPermissionDenied(false);
-        },
-        onError: (msg, code) => {
-          setSitesError(msg);
-          if (code === Code.PermissionDenied) {
-            setSitesPermissionDenied(true);
-          }
-          // Preserve last-good list across transient errors; only fall to []
-          // on the initial-load failure path.
-          setSites((prev) => prev ?? []);
-        },
-      }),
-    [listSites],
-  );
-
-  usePoll({ fetchData: fetchSites, poll: true, pollIntervalMs: POLL_INTERVAL_MS, enabled: canReadSites });
+  // The site catalog (fetch + poll + last-good/permission-denied tracking) is
+  // owned by the shell-level SitesProvider and shared with PageHeader and the
+  // other routed pages, so FleetLayout just reads it and re-exposes it to its
+  // tab children through the outlet context below.
+  const { sites, sitesError, sitesLoaded, sitesPermissionDenied, siteCatalogAccessGranted, refetchSites } =
+    useSitesContext();
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const validatedKnownSiteIds = sitesLoaded ? knownSiteIds : undefined;
@@ -116,7 +85,6 @@ const FleetLayout = () => {
   const pathScope = useMemo(() => rawPathScope ?? activeSite, [rawPathScope, activeSite]);
 
   const sitesAccessBlocked = !canReadSites || sitesPermissionDenied;
-  const siteCatalogAccessGranted = canReadSites && sitesLoaded && !sitesPermissionDenied;
   const canReadRacksTab = canReadRacks;
   const canReadMinersTab = canReadMiners && canReadRacks && canReadFleet;
   const canReadInfrastructureTab = !sitesAccessBlocked;
@@ -243,7 +211,7 @@ const FleetLayout = () => {
       sitesError,
       sitesLoaded,
       siteCatalogAccessGranted,
-      refetchSites: fetchSites,
+      refetchSites,
       notifyPairingCompleted,
       minersChangedAt,
       publishViewFilterContext,
@@ -253,7 +221,7 @@ const FleetLayout = () => {
       sitesError,
       sitesLoaded,
       siteCatalogAccessGranted,
-      fetchSites,
+      refetchSites,
       notifyPairingCompleted,
       minersChangedAt,
       publishViewFilterContext,
@@ -316,7 +284,7 @@ const FleetLayout = () => {
       <div className="min-h-0 flex-1">
         <FleetCreateFlowProvider
           sites={sites ?? []}
-          refetchSites={fetchSites}
+          refetchSites={refetchSites}
           notifyMinersChanged={notifyMinersChanged}
         >
           {outlet}
