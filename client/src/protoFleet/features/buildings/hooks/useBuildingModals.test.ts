@@ -163,6 +163,21 @@ describe("useBuildingModals", () => {
     }
   });
 
+  it("detailsSaveEdit invokes onMutationSuccess on update success", async () => {
+    vi.mocked(buildingsClient.updateBuilding).mockResolvedValue(makeUpdateResp(11n, "Renamed"));
+    const initial = makeBuildingRow(11n, "Old");
+    const onMutationSuccess = vi.fn();
+    const { result } = renderHook(() => useBuildingModals({ onMutationSuccess }));
+    act(() => result.current.openManage(initial, "North DC"));
+    act(() => result.current.manageEditDetails());
+
+    await act(async () => {
+      await result.current.detailsSaveEdit({ ...emptyBuildingFormValues(), name: "Renamed" });
+    });
+
+    expect(onMutationSuccess).toHaveBeenCalled();
+  });
+
   it("requestDeleteCurrent from detailsEdit sets deleteTarget and closes everything to none", () => {
     const row = makeBuildingRow(11n, "Target", 2n);
     const { result } = renderHook(() => useBuildingModals());

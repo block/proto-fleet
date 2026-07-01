@@ -94,12 +94,15 @@ const SiteDetailPage = () => {
     [listBuildingsBySite],
   );
 
-  // Bump retryCounter to re-run the effect so the cleanup AbortController
-  // stays owned by useEffect and isn't leaked by an imperative call.
+  // Bump retryCounter / sitesRefreshKey to re-run the effect so the cleanup
+  // AbortController stays owned by useEffect and isn't leaked by an
+  // imperative callback.
   const [retryCounter, setRetryCounter] = useState(0);
+  const [sitesRefreshKey, setSitesRefreshKey] = useState(0);
   const handleRetry = useCallback(() => setRetryCounter((n) => n + 1), []);
+  const refetchSites = useCallback(() => setSitesRefreshKey((n) => n + 1), []);
 
-  useEffect(() => fetchSites(), [fetchSites, retryCounter]);
+  useEffect(() => fetchSites(), [fetchSites, retryCounter, sitesRefreshKey]);
 
   // Bounce to /fleet when SitePicker switches to a different specific
   // site — "All sites" / "Unassigned" don't conflict with this view.
@@ -139,8 +142,8 @@ const SiteDetailPage = () => {
   const refetchBuildings = useCallback(() => setBuildingsRefreshKey((n) => n + 1), []);
   // Membership saves in ManageSiteModal also affect building rows, so share
   // the same refresh signal used for direct building mutations.
-  const modals = useSiteModals({ refetchSites: fetchSites, refetchBuildings });
-  const buildingModals = useBuildingModals({ refetchBuildings, onMutationSuccess: fetchSites });
+  const modals = useSiteModals({ refetchSites, refetchBuildings });
+  const buildingModals = useBuildingModals({ refetchBuildings, onMutationSuccess: refetchSites });
 
   const siteId = site?.site?.id;
   const siteIdText = siteId?.toString();
@@ -223,8 +226,10 @@ const SiteDetailPage = () => {
     );
   }
 
-  const detailBuildingCount =
-    visibleBuildings !== undefined ? visibleBuildings.length : (siteStats?.buildingCount ?? Number(site.buildingCount));
+  const hasLoadedVisibleBuildings = visibleBuildings !== undefined && visibleBuildingsError === null;
+  const detailBuildingCount = hasLoadedVisibleBuildings
+    ? visibleBuildings.length
+    : (siteStats?.buildingCount ?? Number(site.buildingCount));
 
   const siteSiblings = sites
     .filter((row) => row.site !== undefined)
