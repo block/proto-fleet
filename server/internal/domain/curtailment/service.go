@@ -1108,7 +1108,12 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	// TODO: registry-driven curtail_full capability check. classifyCandidates
 	// already skips devices missing driver metadata as defense-in-depth.
 	if req.ForceIncludeAllPairedMiners {
-		plan := BuildAllPairedPolicyPlan(candidates, activeSet, minPowerW)
+		plan := BuildAllPairedPolicyPlan(
+			candidates,
+			activeSet,
+			req.IncludeMaintenance && req.ForceIncludeMaintenance,
+			minPowerW,
+		)
 		return &plan, minPowerW, orgConfig, nil
 	}
 

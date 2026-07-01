@@ -74,7 +74,7 @@ func (s *stopStubStore) ClaimAllPairedPolicyTargets(
 	context.Context,
 	int64,
 	[]models.InsertTargetParams,
-) ([]*models.Target, error) {
+) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by Stop handler tests")
 }
 func (s *stopStubStore) GetEventByUUID(_ context.Context, _ int64, _ uuid.UUID) (*models.Event, error) {

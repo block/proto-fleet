@@ -248,6 +248,8 @@ const (
 	allPairedUnavailableOffline              = "offline"
 	allPairedUnavailableUpdating             = "updating"
 	allPairedUnavailableRebootRequired       = "reboot_required"
+	allPairedUnavailableNonActionableStatus  = "non_actionable_status"
+	allPairedUnavailableMaintenance          = "maintenance"
 )
 
 // BuildAllPairedPolicyPlan creates a durable FULL_FLEET target list from every
@@ -257,6 +259,7 @@ const (
 func BuildAllPairedPolicyPlan(
 	candidates []*models.Candidate,
 	activeEventDevices map[string]struct{},
+	includeMaintenance bool,
 	minPowerW int32,
 ) Plan {
 	selected := make([]SelectedDevice, 0, len(candidates))
@@ -277,7 +280,7 @@ func BuildAllPairedPolicyPlan(
 			continue
 		}
 
-		state, reason := AllPairedPolicyTargetState(c)
+		state, reason := AllPairedPolicyTargetState(c, includeMaintenance)
 		powerW := 0.0
 		if state != models.TargetStateUnavailable && hasNonNegativeFiniteFloat(c.LatestPowerW) {
 			powerW = derefFloat(c.LatestPowerW)
@@ -309,7 +312,7 @@ func BuildAllPairedPolicyPlan(
 	}
 }
 
-func AllPairedPolicyTargetState(c *models.Candidate) (models.TargetState, string) {
+func AllPairedPolicyTargetState(c *models.Candidate, includeMaintenance bool) (models.TargetState, string) {
 	if c == nil {
 		return models.TargetStateUnavailable, allPairedUnavailableMissingStatus
 	}
@@ -328,6 +331,13 @@ func AllPairedPolicyTargetState(c *models.Candidate) (models.TargetState, string
 		return models.TargetStateUnavailable, allPairedUnavailableUpdating
 	case "REBOOT_REQUIRED":
 		return models.TargetStateUnavailable, allPairedUnavailableRebootRequired
+	case "INACTIVE", "NEEDS_MINING_POOL":
+		return models.TargetStateUnavailable, allPairedUnavailableNonActionableStatus
+	case "MAINTENANCE":
+		if !includeMaintenance {
+			return models.TargetStateUnavailable, allPairedUnavailableMaintenance
+		}
+		return models.TargetStatePending, ""
 	default:
 		return models.TargetStatePending, ""
 	}

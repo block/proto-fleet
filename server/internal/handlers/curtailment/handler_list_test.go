@@ -104,7 +104,7 @@ func (s *listStubStore) ClaimAllPairedPolicyTargets(
 	context.Context,
 	int64,
 	[]models.InsertTargetParams,
-) ([]*models.Target, error) {
+) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by List handler tests")
 }
 func (s *listStubStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {

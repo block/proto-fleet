@@ -101,7 +101,7 @@ func (s *startStubStore) ClaimAllPairedPolicyTargets(
 	context.Context,
 	int64,
 	[]models.InsertTargetParams,
-) ([]*models.Target, error) {
+) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by handler Start tests")
 }
 

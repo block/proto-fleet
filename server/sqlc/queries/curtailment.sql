@@ -103,7 +103,8 @@ JOIN device d ON d.org_id = ce.org_id
 WHERE ce.org_id = sqlc.arg('org_id')
     AND ce.state IN ('pending', 'active', 'restoring')
     AND ce.mode = 'FULL_FLEET'
-    AND ce.loop_type = 'closed';
+    AND ce.loop_type = 'closed'
+    AND NOT ce.force_include_all_paired_miners;
 
 -- name: ListActiveCurtailmentTargetDevicesByOrg :many
 -- Devices with concrete non-terminal target rows; used by closed-loop
@@ -788,7 +789,7 @@ AND NOT EXISTS (
 ON CONFLICT DO NOTHING
 RETURNING curtailment_target.*;
 
--- name: ClaimAllPairedPolicyTargets :many
+-- name: ClaimAllPairedPolicyTargets :one
 -- Durable all-paired FULL_FLEET admission. Inserts targets in their computed
 -- policy state (pending or unavailable) instead of immediately claiming them
 -- as DISPATCHING. Same-event RELEASED rows may be reopened during a recurtail;
@@ -846,7 +847,7 @@ reopened AS (
             AND other_event.state IN ('pending', 'active', 'restoring')
             AND other_target.state NOT IN ('resolved', 'restore_failed', 'released')
       )
-    RETURNING target.*
+    RETURNING 1
 ),
 inserted AS (
 INSERT INTO curtailment_target (
@@ -889,11 +890,9 @@ WHERE NOT EXISTS (
       AND existing.device_identifier = t.device_identifier
 )
 ON CONFLICT DO NOTHING
-RETURNING curtailment_target.*
+RETURNING 1
 )
-SELECT * FROM reopened
-UNION ALL
-SELECT * FROM inserted;
+SELECT ((SELECT COUNT(*) FROM reopened) + (SELECT COUNT(*) FROM inserted))::BIGINT AS claimed_count;
 
 -- name: ListCurtailmentTargetsByEvent :many
 -- Org-scoped via the join.

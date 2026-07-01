@@ -172,7 +172,7 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 	_ context.Context,
 	eventID int64,
 	targets []models.InsertTargetParams,
-) ([]*models.Target, error) {
+) (int64, error) {
 	f.claimAllPairedCalls++
 	f.claimedAllPairedParams = append([]models.InsertTargetParams(nil), targets...)
 	existing := map[string]*models.Target{}
@@ -180,7 +180,7 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 		existing[t.DeviceIdentifier] = t
 	}
 
-	var claimed []*models.Target
+	var claimed int64
 	for _, target := range targets {
 		state := target.State
 		if state == "" {
@@ -196,7 +196,7 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 			row.LastError = target.LastError
 			row.ReleasedAt = nil
 			row.CurtailPhase = models.TargetPhaseSummary{}
-			claimed = append(claimed, row)
+			claimed++
 			continue
 		}
 
@@ -212,7 +212,7 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 		}
 		f.targetsByEventID[eventID] = append(f.targetsByEventID[eventID], row)
 		existing[target.DeviceIdentifier] = row
-		claimed = append(claimed, row)
+		claimed++
 	}
 	return claimed, nil
 }
@@ -2287,6 +2287,87 @@ func TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget(t *testing.
 	assert.Equal(t, int32(1), final.RetryCount, "missing candidate consumes a retry")
 	require.NotNil(t, final.LastError)
 	assert.Contains(t, *final.LastError, "candidate row missing")
+}
+
+func TestReconciler_AllPairedDispatchedTargetMissingCandidateDoesNotRelease(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStatePending,
+			ForceIncludeAllPairedMiners: true,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "vanished",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateCurtailed,
+			RetryCount:         0,
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatched, final.State)
+	assert.Equal(t, int32(1), final.RetryCount)
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "candidate row missing")
+}
+
+func TestReconciler_AllPairedConfirmedTargetUnpairedDoesNotRelease(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStateActive,
+			ForceIncludeAllPairedMiners: true,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "unpaired",
+			State:              models.TargetStateConfirmed,
+			DesiredState:       models.DesiredStateCurtailed,
+			RetryCount:         0,
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{
+			DeviceIdentifier: "unpaired",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "UNPAIRED",
+			LatestPowerW:     ptrFloat64(3000),
+			LatestHashRateHS: ptrFloat64(100),
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDrifted, final.State)
+	assert.Equal(t, int32(1), final.RetryCount)
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "device is no longer paired-like")
 }
 
 func TestReconciler_CurtailConfirmationTimeoutConsumesRetryBudget(t *testing.T) {

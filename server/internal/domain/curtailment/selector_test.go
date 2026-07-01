@@ -149,6 +149,27 @@ func TestBuildAllPairedPolicyPlan_TargetsPairedLikeMinersByDispatchReadiness(t *
 			LatestPowerW:     eff(2000),
 		},
 		{
+			DeviceIdentifier: "inactive",
+			DriverName:       &driver,
+			DeviceStatus:     "INACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(2000),
+		},
+		{
+			DeviceIdentifier: "needs-pool",
+			DriverName:       &driver,
+			DeviceStatus:     "NEEDS_MINING_POOL",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(2000),
+		},
+		{
+			DeviceIdentifier: "maintenance",
+			DriverName:       &driver,
+			DeviceStatus:     "MAINTENANCE",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(2000),
+		},
+		{
 			DeviceIdentifier: "unpaired",
 			DriverName:       &driver,
 			DeviceStatus:     "ACTIVE",
@@ -157,11 +178,11 @@ func TestBuildAllPairedPolicyPlan_TargetsPairedLikeMinersByDispatchReadiness(t *
 		},
 	}
 
-	plan := BuildAllPairedPolicyPlan(inputs, map[string]struct{}{"already-owned": {}}, 1500)
+	plan := BuildAllPairedPolicyPlan(inputs, map[string]struct{}{"already-owned": {}}, false, 1500)
 
-	require.Len(t, plan.Selected, 4)
-	assert.Equal(t, 4, plan.PolicyTargetCount)
-	assert.Equal(t, 2, plan.UnavailableTargetCount)
+	require.Len(t, plan.Selected, 7)
+	assert.Equal(t, 7, plan.PolicyTargetCount)
+	assert.Equal(t, 5, plan.UnavailableTargetCount)
 	assert.InDelta(t, 5.0, plan.EstimatedReductionKW, 0.001)
 	assert.Equal(t, models.TargetStatePending, plan.Selected[0].TargetState)
 	assert.Equal(t, models.TargetStatePending, plan.Selected[1].TargetState)
@@ -169,8 +190,37 @@ func TestBuildAllPairedPolicyPlan_TargetsPairedLikeMinersByDispatchReadiness(t *
 	assert.Equal(t, "authentication_needed", plan.Selected[2].LastError)
 	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[3].TargetState)
 	assert.Equal(t, "offline", plan.Selected[3].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[4].TargetState)
+	assert.Equal(t, "non_actionable_status", plan.Selected[4].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[5].TargetState)
+	assert.Equal(t, "non_actionable_status", plan.Selected[5].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[6].TargetState)
+	assert.Equal(t, "maintenance", plan.Selected[6].LastError)
 	require.Len(t, plan.Skipped, 1)
 	assert.Equal(t, SkipPairing, plan.Skipped[0].Reason)
+}
+
+func TestBuildAllPairedPolicyPlan_MaintenanceOverrideMakesMaintenancePending(t *testing.T) {
+	t.Parallel()
+
+	driver := "antminer"
+	inputs := []*models.Candidate{
+		{
+			DeviceIdentifier: "maintenance",
+			DriverName:       &driver,
+			DeviceStatus:     "MAINTENANCE",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(2000),
+		},
+	}
+
+	plan := BuildAllPairedPolicyPlan(inputs, nil, true, 1500)
+
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, models.TargetStatePending, plan.Selected[0].TargetState)
+	assert.Empty(t, plan.Selected[0].LastError)
+	assert.Equal(t, 0, plan.UnavailableTargetCount)
+	assert.InDelta(t, 2.0, plan.EstimatedReductionKW, 0.001)
 }
 
 func TestBuildPlan_PreFilteredSkippedAreForwarded(t *testing.T) {

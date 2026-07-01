@@ -123,7 +123,7 @@ func (s *adminTerminateStubStore) ClaimAllPairedPolicyTargets(
 	context.Context,
 	int64,
 	[]models.InsertTargetParams,
-) ([]*models.Target, error) {
+) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {

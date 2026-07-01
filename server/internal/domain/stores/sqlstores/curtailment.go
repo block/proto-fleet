@@ -1857,24 +1857,20 @@ func (s *SQLCurtailmentStore) ClaimAllPairedPolicyTargets(
 	ctx context.Context,
 	eventID int64,
 	targets []models.InsertTargetParams,
-) ([]*models.Target, error) {
+) (int64, error) {
 	if len(targets) == 0 {
-		return nil, nil
+		return 0, nil
 	}
 	payload, err := buildBulkTargetPayload(targets)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to encode curtailment target payload: %v", err)
+		return 0, fleeterror.NewInternalErrorf("failed to encode curtailment target payload: %v", err)
 	}
-	rows, err := s.GetQueries(ctx).ClaimAllPairedPolicyTargets(ctx, sqlc.ClaimAllPairedPolicyTargetsParams{
+	claimed, err := s.GetQueries(ctx).ClaimAllPairedPolicyTargets(ctx, sqlc.ClaimAllPairedPolicyTargetsParams{
 		CurtailmentEventID: eventID,
 		TargetsJsonb:       payload,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to claim all-paired policy targets: %v", err)
-	}
-	claimed := make([]*models.Target, len(rows))
-	for i, row := range rows {
-		claimed[i] = convertAllPairedPolicyTargetRow(row)
+		return 0, fleeterror.NewInternalErrorf("failed to claim all-paired policy targets: %v", err)
 	}
 	return claimed, nil
 }
@@ -2223,57 +2219,7 @@ func convertTargetRow(row sqlc.CurtailmentTarget) *models.Target {
 	}
 }
 
-func convertAllPairedPolicyTargetRow(row sqlc.ClaimAllPairedPolicyTargetsRow) *models.Target {
-	return &models.Target{
-		CurtailmentEventID:    row.CurtailmentEventID,
-		DeviceIdentifier:      row.DeviceIdentifier,
-		TargetType:            row.TargetType,
-		State:                 models.TargetState(row.State),
-		DesiredState:          row.DesiredState,
-		BaselinePowerW:        nullStringToFloat64Ptr(row.BaselinePowerW),
-		AddedAt:               row.AddedAt,
-		ReleasedAt:            nullTimeToPtr(row.ReleasedAt),
-		LastDispatchedAt:      nullTimeToPtr(row.LastDispatchedAt),
-		LastBatchUUID:         nullStringToPtr(row.LastBatchUuid),
-		ObservedPowerW:        nullStringToFloat64Ptr(row.ObservedPowerW),
-		ObservedAt:            nullTimeToPtr(row.ObservedAt),
-		ConfirmedAt:           nullTimeToPtr(row.ConfirmedAt),
-		RetryCount:            row.RetryCount,
-		LastError:             nullStringToPtr(row.LastError),
-		SelectorRationaleJSON: nullRawMessageToBytes(row.SelectorRationaleJsonb),
-		CurtailPhase: models.TargetPhaseSummary{
-			Phase:        models.TargetPhaseCurtail,
-			State:        models.TargetState(row.CurtailState),
-			StartedAt:    &row.AddedAt,
-			DispatchedAt: nullTimeToPtr(row.CurtailDispatchedAt),
-			BatchUUID:    nullStringToPtr(row.CurtailBatchUuid),
-			CompletedAt:  nullTimeToPtr(row.CurtailCompletedAt),
-			RetryCount:   row.CurtailRetryCount,
-			FailureCount: row.CurtailFailureCount,
-			LastError:    nullStringToPtr(row.CurtailLastError),
-		},
-		RestorePhase: restorePhaseFromAllPairedPolicyTargetRow(row),
-	}
-}
-
 func restorePhaseFromTargetRow(row sqlc.CurtailmentTarget) *models.TargetPhaseSummary {
-	if !row.RestoreState.Valid {
-		return nil
-	}
-	return &models.TargetPhaseSummary{
-		Phase:        models.TargetPhaseRestore,
-		State:        models.TargetState(row.RestoreState.String),
-		StartedAt:    nullTimeToPtr(row.RestoreStartedAt),
-		DispatchedAt: nullTimeToPtr(row.RestoreDispatchedAt),
-		BatchUUID:    nullStringToPtr(row.RestoreBatchUuid),
-		CompletedAt:  nullTimeToPtr(row.RestoreCompletedAt),
-		RetryCount:   row.RestoreRetryCount,
-		FailureCount: row.RestoreFailureCount,
-		LastError:    nullStringToPtr(row.RestoreLastError),
-	}
-}
-
-func restorePhaseFromAllPairedPolicyTargetRow(row sqlc.ClaimAllPairedPolicyTargetsRow) *models.TargetPhaseSummary {
 	if !row.RestoreState.Valid {
 		return nil
 	}

@@ -153,7 +153,7 @@ func (s *updateStubStore) ClaimAllPairedPolicyTargets(
 	context.Context,
 	int64,
 	[]models.InsertTargetParams,
-) ([]*models.Target, error) {
+) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by Update handler tests")
 }
 func (s *updateStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {

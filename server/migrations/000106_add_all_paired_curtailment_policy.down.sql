@@ -7,6 +7,12 @@ SET curtail_state = 'released'
 WHERE curtail_state = 'unavailable';
 
 UPDATE curtailment_target
+SET state       = 'released',
+    released_at = COALESCE(released_at, CURRENT_TIMESTAMP),
+    last_error  = COALESCE(last_error, 'released during all-paired policy rollback')
+WHERE state = 'unavailable';
+
+UPDATE curtailment_target
 SET restore_state = 'released'
 WHERE restore_state = 'unavailable';
 

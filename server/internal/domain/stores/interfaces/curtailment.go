@@ -249,7 +249,7 @@ type CurtailmentStore interface {
 		ctx context.Context,
 		eventID int64,
 		targets []models.InsertTargetParams,
-	) ([]*models.Target, error)
+	) (int64, error)
 
 	// Heartbeat singleton row used by liveness alerts.
 	GetHeartbeat(ctx context.Context) (*models.Heartbeat, error)

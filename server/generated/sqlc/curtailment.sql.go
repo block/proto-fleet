@@ -13,7 +13,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
-	"github.com/sqlc-dev/pqtype"
 )
 
 const adminTerminateCurtailmentEvent = `-- name: AdminTerminateCurtailmentEvent :one
@@ -263,7 +262,7 @@ func (q *Queries) BumpCurtailmentTargetRetry(ctx context.Context, arg BumpCurtai
 	return result.RowsAffected()
 }
 
-const claimAllPairedPolicyTargets = `-- name: ClaimAllPairedPolicyTargets :many
+const claimAllPairedPolicyTargets = `-- name: ClaimAllPairedPolicyTargets :one
 WITH locked_event AS MATERIALIZED (
     SELECT
         curtailment_event.id,
@@ -317,7 +316,7 @@ reopened AS (
             AND other_event.state IN ('pending', 'active', 'restoring')
             AND other_target.state NOT IN ('resolved', 'restore_failed', 'released')
       )
-    RETURNING target.curtailment_event_id, target.device_identifier, target.target_type, target.state, target.desired_state, target.baseline_power_w, target.added_at, target.released_at, target.last_dispatched_at, target.last_batch_uuid, target.observed_power_w, target.observed_at, target.confirmed_at, target.retry_count, target.last_error, target.selector_rationale_jsonb, target.curtail_state, target.curtail_dispatched_at, target.curtail_batch_uuid, target.curtail_completed_at, target.curtail_retry_count, target.curtail_failure_count, target.curtail_last_error, target.restore_state, target.restore_started_at, target.restore_dispatched_at, target.restore_batch_uuid, target.restore_completed_at, target.restore_retry_count, target.restore_failure_count, target.restore_last_error
+    RETURNING 1
 ),
 inserted AS (
 INSERT INTO curtailment_target (
@@ -360,11 +359,9 @@ WHERE NOT EXISTS (
       AND existing.device_identifier = t.device_identifier
 )
 ON CONFLICT DO NOTHING
-RETURNING curtailment_target.curtailment_event_id, curtailment_target.device_identifier, curtailment_target.target_type, curtailment_target.state, curtailment_target.desired_state, curtailment_target.baseline_power_w, curtailment_target.added_at, curtailment_target.released_at, curtailment_target.last_dispatched_at, curtailment_target.last_batch_uuid, curtailment_target.observed_power_w, curtailment_target.observed_at, curtailment_target.confirmed_at, curtailment_target.retry_count, curtailment_target.last_error, curtailment_target.selector_rationale_jsonb, curtailment_target.curtail_state, curtailment_target.curtail_dispatched_at, curtailment_target.curtail_batch_uuid, curtailment_target.curtail_completed_at, curtailment_target.curtail_retry_count, curtailment_target.curtail_failure_count, curtailment_target.curtail_last_error, curtailment_target.restore_state, curtailment_target.restore_started_at, curtailment_target.restore_dispatched_at, curtailment_target.restore_batch_uuid, curtailment_target.restore_completed_at, curtailment_target.restore_retry_count, curtailment_target.restore_failure_count, curtailment_target.restore_last_error
+RETURNING 1
 )
-SELECT curtailment_event_id, device_identifier, target_type, state, desired_state, baseline_power_w, added_at, released_at, last_dispatched_at, last_batch_uuid, observed_power_w, observed_at, confirmed_at, retry_count, last_error, selector_rationale_jsonb, curtail_state, curtail_dispatched_at, curtail_batch_uuid, curtail_completed_at, curtail_retry_count, curtail_failure_count, curtail_last_error, restore_state, restore_started_at, restore_dispatched_at, restore_batch_uuid, restore_completed_at, restore_retry_count, restore_failure_count, restore_last_error FROM reopened
-UNION ALL
-SELECT curtailment_event_id, device_identifier, target_type, state, desired_state, baseline_power_w, added_at, released_at, last_dispatched_at, last_batch_uuid, observed_power_w, observed_at, confirmed_at, retry_count, last_error, selector_rationale_jsonb, curtail_state, curtail_dispatched_at, curtail_batch_uuid, curtail_completed_at, curtail_retry_count, curtail_failure_count, curtail_last_error, restore_state, restore_started_at, restore_dispatched_at, restore_batch_uuid, restore_completed_at, restore_retry_count, restore_failure_count, restore_last_error FROM inserted
+SELECT ((SELECT COUNT(*) FROM reopened) + (SELECT COUNT(*) FROM inserted))::BIGINT AS claimed_count
 `
 
 type ClaimAllPairedPolicyTargetsParams struct {
@@ -372,97 +369,15 @@ type ClaimAllPairedPolicyTargetsParams struct {
 	TargetsJsonb       json.RawMessage
 }
 
-type ClaimAllPairedPolicyTargetsRow struct {
-	CurtailmentEventID     int64
-	DeviceIdentifier       string
-	TargetType             string
-	State                  string
-	DesiredState           string
-	BaselinePowerW         sql.NullString
-	AddedAt                time.Time
-	ReleasedAt             sql.NullTime
-	LastDispatchedAt       sql.NullTime
-	LastBatchUuid          sql.NullString
-	ObservedPowerW         sql.NullString
-	ObservedAt             sql.NullTime
-	ConfirmedAt            sql.NullTime
-	RetryCount             int32
-	LastError              sql.NullString
-	SelectorRationaleJsonb pqtype.NullRawMessage
-	CurtailState           string
-	CurtailDispatchedAt    sql.NullTime
-	CurtailBatchUuid       sql.NullString
-	CurtailCompletedAt     sql.NullTime
-	CurtailRetryCount      int32
-	CurtailFailureCount    int32
-	CurtailLastError       sql.NullString
-	RestoreState           sql.NullString
-	RestoreStartedAt       sql.NullTime
-	RestoreDispatchedAt    sql.NullTime
-	RestoreBatchUuid       sql.NullString
-	RestoreCompletedAt     sql.NullTime
-	RestoreRetryCount      int32
-	RestoreFailureCount    int32
-	RestoreLastError       sql.NullString
-}
-
 // Durable all-paired FULL_FLEET admission. Inserts targets in their computed
 // policy state (pending or unavailable) instead of immediately claiming them
 // as DISPATCHING. Same-event RELEASED rows may be reopened during a recurtail;
 // other same-event rows and cross-event conflicts are no-ops.
-func (q *Queries) ClaimAllPairedPolicyTargets(ctx context.Context, arg ClaimAllPairedPolicyTargetsParams) ([]ClaimAllPairedPolicyTargetsRow, error) {
-	rows, err := q.query(ctx, q.claimAllPairedPolicyTargetsStmt, claimAllPairedPolicyTargets, arg.CurtailmentEventID, arg.TargetsJsonb)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ClaimAllPairedPolicyTargetsRow
-	for rows.Next() {
-		var i ClaimAllPairedPolicyTargetsRow
-		if err := rows.Scan(
-			&i.CurtailmentEventID,
-			&i.DeviceIdentifier,
-			&i.TargetType,
-			&i.State,
-			&i.DesiredState,
-			&i.BaselinePowerW,
-			&i.AddedAt,
-			&i.ReleasedAt,
-			&i.LastDispatchedAt,
-			&i.LastBatchUuid,
-			&i.ObservedPowerW,
-			&i.ObservedAt,
-			&i.ConfirmedAt,
-			&i.RetryCount,
-			&i.LastError,
-			&i.SelectorRationaleJsonb,
-			&i.CurtailState,
-			&i.CurtailDispatchedAt,
-			&i.CurtailBatchUuid,
-			&i.CurtailCompletedAt,
-			&i.CurtailRetryCount,
-			&i.CurtailFailureCount,
-			&i.CurtailLastError,
-			&i.RestoreState,
-			&i.RestoreStartedAt,
-			&i.RestoreDispatchedAt,
-			&i.RestoreBatchUuid,
-			&i.RestoreCompletedAt,
-			&i.RestoreRetryCount,
-			&i.RestoreFailureCount,
-			&i.RestoreLastError,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+func (q *Queries) ClaimAllPairedPolicyTargets(ctx context.Context, arg ClaimAllPairedPolicyTargetsParams) (int64, error) {
+	row := q.queryRow(ctx, q.claimAllPairedPolicyTargetsStmt, claimAllPairedPolicyTargets, arg.CurtailmentEventID, arg.TargetsJsonb)
+	var claimed_count int64
+	err := row.Scan(&claimed_count)
+	return claimed_count, err
 }
 
 const claimClosedLoopFullFleetTargets = `-- name: ClaimClosedLoopFullFleetTargets :many
@@ -1477,6 +1392,7 @@ WHERE ce.org_id = $1
     AND ce.state IN ('pending', 'active', 'restoring')
     AND ce.mode = 'FULL_FLEET'
     AND ce.loop_type = 'closed'
+    AND NOT ce.force_include_all_paired_miners
 `
 
 // Devices locked in a non-terminal event; excluded from candidates to

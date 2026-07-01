@@ -844,6 +844,7 @@ func (r *Reconciler) claimAllPairedPolicyTargets(
 	plan := curtailment.BuildAllPairedPolicyPlan(
 		candidates,
 		activeSet,
+		ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
 		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
 	)
 	targets := curtailment.BuildInsertTargetParams(
@@ -864,9 +865,9 @@ func (r *Reconciler) claimAllPairedPolicyTargets(
 			"error", err)
 		return nil
 	}
-	if len(claimed) > 0 {
+	if claimed > 0 {
 		slog.Info("curtailment reconciler: claimed all-paired policy targets",
-			"event_id", ev.ID, "claimed", len(claimed))
+			"event_id", ev.ID, "claimed", claimed)
 	}
 	return nil
 }
@@ -889,7 +890,10 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 			r.releaseAllPairedPolicyTarget(ctx, ev, target, "released: device is no longer paired-like")
 			continue
 		}
-		nextState, reason := curtailment.AllPairedPolicyTargetState(candidate)
+		nextState, reason := curtailment.AllPairedPolicyTargetState(
+			candidate,
+			ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
+		)
 		switch {
 		case nextState == target.State && reason == targetErrorString(target):
 			continue
@@ -1114,12 +1118,12 @@ func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandida
 // shows curtailment, resetting retry_count. Missing candidate row goes
 // through recordDispatchFailure so a vanished device can't stall.
 func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate, nonTerminalState models.TargetState) {
-	if isAllPairedPolicyEvent(ev) && (c == nil || !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus)) {
-		r.releaseAllPairedPolicyTarget(ctx, ev, t, "released: device is no longer paired-like")
-		return
-	}
 	if c == nil {
 		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", nonTerminalState)
+		return
+	}
+	if isAllPairedPolicyEvent(ev) && !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
+		r.recordDispatchFailure(ctx, ev, t, "device is no longer paired-like", nonTerminalState)
 		return
 	}
 	if !isCurtailed(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor, true) {
@@ -1167,12 +1171,12 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 // checkDrift evaluates a confirmed target against telemetry. Uncurtailed
 // → Drifted, re-dispatch if budget remains.
 func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
-	if isAllPairedPolicyEvent(ev) && (c == nil || !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus)) {
-		r.releaseAllPairedPolicyTarget(ctx, ev, t, "released: device is no longer paired-like")
-		return
-	}
 	if c == nil {
 		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", models.TargetStateDrifted)
+		return
+	}
+	if isAllPairedPolicyEvent(ev) && !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
+		r.recordDispatchFailure(ctx, ev, t, "device is no longer paired-like", models.TargetStateDrifted)
 		return
 	}
 	if !isCurtailed(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor, false) {
