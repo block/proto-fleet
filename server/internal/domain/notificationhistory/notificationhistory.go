@@ -23,6 +23,8 @@ type Notification struct {
 
 type Store interface {
 	Insert(ctx context.Context, n *Notification) error
+	// InsertBatch persists many notifications atomically (all-or-nothing), for large alert batches.
+	InsertBatch(ctx context.Context, notifs []*Notification) error
 }
 
 type StoredNotification struct {

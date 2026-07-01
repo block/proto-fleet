@@ -25,13 +25,13 @@ const deliverTimeout = 25 * time.Second
 
 const authorizationScheme = "Bearer "
 
-const maxBodyBytes = 1 << 20 // 1 MiB
+// maxBodyBytes bounds the request body (guards memory); large enough for a fleet-wide outage
+// batched into one org-grouped notification (~tens of thousands of alerts).
+const maxBodyBytes = 32 << 20 // 32 MiB
 
-const maxAlertsPerRequest = 100
-
-const maxRowsPerRequest = 1000
-
-const insertsTimeout = 10 * time.Second
+// insertsTimeout bounds the batch persist; chunked multi-row INSERTs stay well under this even
+// for a very large outage, with headroom for a slow database.
+const insertsTimeout = 30 * time.Second
 
 const (
 	statusFiring   = "firing"
@@ -121,61 +121,58 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(payload.Alerts) > maxAlertsPerRequest {
-		slog.Warn("alertmanager webhook: alert batch exceeds per-request cap; rejecting",
-			"alerts", len(payload.Alerts),
-			"limit", maxAlertsPerRequest,
-		)
-		writeError(w, http.StatusRequestEntityTooLarge, "alert batch exceeds limit")
-		return
-	}
-
 	orgIDs := h.fanOutOrgIDs(r.Context())
+	rows := buildRows(payload.Alerts, orgIDs)
 
-	remainingRows := maxRowsPerRequest
-	persisted := 0
-	truncated := false
 	persistCtx, cancel := context.WithTimeout(r.Context(), insertsTimeout)
 	defer cancel()
 
-	// Only alerts whose history row landed are eligible for delivery, so a channel never
-	// receives an alert that isn't in history (Grafana won't retry after our 204).
-	delivered := make([]alertmanagerAlert, 0, len(payload.Alerts))
-	for i, alert := range payload.Alerts {
-		if remainingRows <= 0 {
-			slog.Warn("alertmanager webhook: per-request row cap reached; dropping remaining alerts",
-				"limit", maxRowsPerRequest,
-				"dropped_alerts", len(payload.Alerts)-i,
-			)
-			truncated = true
-			break
-		}
-		attempted, written := h.persistAlert(persistCtx, alert, remainingRows, orgIDs)
-		persisted += written
-		remainingRows -= attempted
-		if written > 0 {
-			delivered = append(delivered, alert)
-		}
-	}
-
-	slog.Debug("alertmanager webhook delivered",
-		"alerts", len(payload.Alerts),
-		"persisted", persisted,
-		"truncated", truncated,
-		"status", payload.Status,
-	)
-
-	// Return 5xx so Grafana retries delivery.
-	if persisted == 0 {
+	// One atomic batch: all rows land or none do, so on success every alert is in history and
+	// the whole batch is safe to deliver; on failure we 5xx and Grafana retries the batch.
+	if err := h.store.InsertBatch(persistCtx, rows); err != nil {
+		slog.Error("alertmanager webhook: failed to persist alert batch",
+			"error", err,
+			"alerts", len(payload.Alerts),
+			"rows", len(rows),
+		)
 		writeError(w, http.StatusInternalServerError, "failed to persist alerts")
 		return
 	}
 
-	// Fan out only the persisted alerts once history is stored. Delivery failures are logged
-	// inside the deliverer, never surfaced here, so a bad destination can't trigger a Grafana retry.
-	h.deliver(r.Context(), delivered)
+	slog.Debug("alertmanager webhook delivered",
+		"alerts", len(payload.Alerts),
+		"rows", len(rows),
+		"status", payload.Status,
+	)
+
+	// History is stored; fan out the whole batch. Delivery failures are logged inside the
+	// deliverer, never surfaced here, so a bad destination can't trigger a Grafana retry.
+	h.deliver(r.Context(), payload.Alerts)
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// buildRows converts a batch into history rows, expanding a global self-monitoring alert
+// (no organization_id) into one row per active org.
+func buildRows(alerts []alertmanagerAlert, orgIDs []int64) []*notificationhistory.Notification {
+	rows := make([]*notificationhistory.Notification, 0, len(alerts))
+	for _, alert := range alerts {
+		row := alertToRow(alert)
+		if row.OrganizationID != nil {
+			rows = append(rows, &row)
+			continue
+		}
+		if !isGlobalSelfMonitoringAlert(alert.Labels) || len(orgIDs) == 0 {
+			rows = append(rows, &row)
+			continue
+		}
+		for i := range orgIDs {
+			scoped := row
+			scoped.OrganizationID = &orgIDs[i]
+			rows = append(rows, &scoped)
+		}
+	}
+	return rows
 }
 
 func (h *Handler) deliver(ctx context.Context, alerts []alertmanagerAlert) {
@@ -229,55 +226,6 @@ func (h *Handler) authorized(r *http.Request) bool {
 	}
 	presented := header[len(authorizationScheme):]
 	return subtle.ConstantTimeCompare([]byte(presented), []byte(h.webhookToken)) == 1
-}
-
-func (h *Handler) persistAlert(ctx context.Context, alert alertmanagerAlert, budget int, orgIDs []int64) (attempted, persisted int) {
-	if budget <= 0 {
-		return 0, 0
-	}
-	row := alertToRow(alert)
-
-	// Org-scoped alert (the usual case).
-	if row.OrganizationID != nil {
-		return 1, h.insert(ctx, row, alert)
-	}
-
-	// Unscoped + not self-monitoring → keep historic single-row behaviour.
-	if !isGlobalSelfMonitoringAlert(alert.Labels) || len(orgIDs) == 0 {
-		return 1, h.insert(ctx, row, alert)
-	}
-
-	// Self-monitoring fan-out, capped at the remaining row budget.
-	n := len(orgIDs)
-	if n > budget {
-		slog.Warn("alertmanager webhook: self-monitoring fan-out truncated by per-request row cap",
-			"alertname", alert.Labels[labelAlertName],
-			"fingerprint", alert.Fingerprint,
-			"active_orgs", len(orgIDs),
-			"fan_out_to", budget,
-		)
-		n = budget
-	}
-
-	for i := range n {
-		scoped := row
-		scoped.OrganizationID = &orgIDs[i]
-		persisted += h.insert(ctx, scoped, alert)
-	}
-	return n, persisted
-}
-
-func (h *Handler) insert(ctx context.Context, row notificationhistory.Notification, alert alertmanagerAlert) int {
-	if err := h.store.Insert(ctx, &row); err != nil {
-		// Best-effort within a batch — log and let the caller count successes.
-		slog.Error("alertmanager webhook: failed to insert notification_history row",
-			"error", err,
-			"fingerprint", alert.Fingerprint,
-			"alertname", alert.Labels[labelAlertName],
-		)
-		return 0
-	}
-	return 1
 }
 
 func isGlobalSelfMonitoringAlert(labels map[string]string) bool {

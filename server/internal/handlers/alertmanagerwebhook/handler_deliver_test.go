@@ -21,6 +21,11 @@ func (s *okStore) Insert(context.Context, *notificationhistory.Notification) err
 	return nil
 }
 
+func (s *okStore) InsertBatch(_ context.Context, notifs []*notificationhistory.Notification) error {
+	s.inserts += len(notifs)
+	return nil
+}
+
 type captureDeliverer struct {
 	called bool
 	got    []alertsdomain.Alert
@@ -46,31 +51,24 @@ func TestServeHTTP_InvokesDelivererWithParsedAlerts(t *testing.T) {
 	assert.Equal(t, "firing", deliverer.got[0].Status)
 }
 
-// failDeviceStore fails the insert for one device_id and records the rest, to exercise partial persistence.
-type failDeviceStore struct{ failDevice string }
+// failBatchStore fails the atomic batch insert, to exercise the all-or-nothing persist path.
+type failBatchStore struct{}
 
-func (s *failDeviceStore) Insert(_ context.Context, n *notificationhistory.Notification) error {
-	if n.DeviceID == s.failDevice {
-		return errors.New("insert failed")
-	}
-	return nil
+func (failBatchStore) Insert(context.Context, *notificationhistory.Notification) error { return nil }
+func (failBatchStore) InsertBatch(context.Context, []*notificationhistory.Notification) error {
+	return errors.New("batch insert failed")
 }
 
-func TestServeHTTP_DeliversOnlyPersistedAlerts(t *testing.T) {
+// When the atomic batch fails, the handler must 500 (so Grafana retries) and never deliver.
+func TestServeHTTP_BatchInsertFailureReturns500AndNoDelivery(t *testing.T) {
 	deliverer := &captureDeliverer{}
-	handler := NewHandler(&failDeviceStore{failDevice: "device-bad"}, testWebhookToken, nil, deliverer)
+	handler := NewHandler(failBatchStore{}, testWebhookToken, nil, deliverer)
 
-	payload := []byte(`{"status":"firing","alerts":[
-		{"status":"firing","labels":{"alertname":"A","organization_id":"7","device_id":"device-ok"},"annotations":{},"fingerprint":"ok"},
-		{"status":"firing","labels":{"alertname":"B","organization_id":"7","device_id":"device-bad"},"annotations":{},"fingerprint":"bad"}
-	]}`)
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, newAuthedRequest(t, payload))
+	handler.ServeHTTP(rec, newAuthedRequest(t, shapedPayload()))
 
-	require.Equal(t, http.StatusNoContent, rec.Code)
-	require.True(t, deliverer.called)
-	require.Len(t, deliverer.got, 1, "only the persisted alert is delivered")
-	assert.Equal(t, "device-ok", deliverer.got[0].Labels["device_id"])
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.False(t, deliverer.called, "no delivery when nothing persisted")
 }
 
 // A nil deliverer must be tolerated (delivery simply skipped).
