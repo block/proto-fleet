@@ -159,6 +159,19 @@ func TestDelivererRejectsRedirectToPrivate(t *testing.T) {
 	require.Error(t, d.httpClient.CheckRedirect(pub, deep))
 }
 
+func TestDelivererDialRejectsPrivateAtConnect(t *testing.T) {
+	// The pinned-IP dialer must refuse internal addresses even if reached via DNS rebind or redirect.
+	d := NewDeliverer(newFakeChannelStore(), testCipher(t), fakeDeviceLookup{}, DestinationPolicy{}, "")
+	tr, ok := d.httpClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.NotNil(t, tr.DialContext)
+
+	for _, addr := range []string{"127.0.0.1:80", "169.254.169.254:80", "10.0.0.5:443"} {
+		_, err := tr.DialContext(context.Background(), "tcp", addr)
+		require.Errorf(t, err, "dial to %s must be refused", addr)
+	}
+}
+
 func TestSendTestReturnsAcceptedOnSuccess(t *testing.T) {
 	srv, got := captureServer(t)
 	d, _ := newDeliverer(t, newFakeChannelStore(), fakeDeviceLookup{})

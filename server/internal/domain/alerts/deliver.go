@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -41,24 +43,57 @@ type Deliverer struct {
 }
 
 func NewDeliverer(channels ChannelStore, crypto Cipher, devices DeviceIdentityLookup, policy DestinationPolicy, publicURL string) *Deliverer {
-	client := &http.Client{
-		Timeout: perSendTimeout,
-		// Re-validate every redirect target so a public webhook can't 3xx us onto an internal
-		// address (169.254.169.254, RFC1918, loopback); the initial URL check alone is bypassable.
+	return &Deliverer{
+		channels:   channels,
+		crypto:     crypto,
+		devices:    devices,
+		httpClient: newDeliveryHTTPClient(policy),
+		policy:     policy,
+		publicURL:  strings.TrimRight(publicURL, "/"),
+	}
+}
+
+// newDeliveryHTTPClient pins the resolved+validated IP into the dial so a DNS rebind between
+// the preflight check and the actual connection can't reach an internal address, and re-checks
+// each redirect target so a public webhook can't 3xx us onto one either.
+func newDeliveryHTTPClient(policy DestinationPolicy) *http.Client {
+	dialer := &net.Dialer{Timeout: perSendTimeout}
+	transport, _ := http.DefaultTransport.(*http.Transport)
+	transport = transport.Clone()
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, fmt.Errorf("split destination address: %w", err)
+		}
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+		if err != nil {
+			return nil, fmt.Errorf("resolve destination: %w", err)
+		}
+		lastErr := errors.New("destination has no dialable address")
+		for _, ip := range ips {
+			if !destinationIPAllowed(policy, ip) {
+				lastErr = errors.New("destination resolves to a private or internal address")
+				continue
+			}
+			// Dial the validated IP directly; TLS SNI/verification still uses the original host.
+			conn, derr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			if derr != nil {
+				lastErr = derr
+				continue
+			}
+			return conn, nil
+		}
+		return nil, lastErr
+	}
+	return &http.Client{
+		Timeout:   perSendTimeout,
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= maxRedirects {
 				return fmt.Errorf("stopped after %d redirects", maxRedirects)
 			}
 			return checkDestinationURL(req.Context(), policy, req.URL.String(), "redirect")
 		},
-	}
-	return &Deliverer{
-		channels:   channels,
-		crypto:     crypto,
-		devices:    devices,
-		httpClient: client,
-		policy:     policy,
-		publicURL:  strings.TrimRight(publicURL, "/"),
 	}
 }
 

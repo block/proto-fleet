@@ -413,7 +413,7 @@ func checkDestinationURL(ctx context.Context, policy DestinationPolicy, raw, lab
 
 const destinationLookupTimeout = 3 * time.Second
 
-// DNS failures fail closed. Not rebinding-proof; egress enforcement at fleet-api's network boundary is the hard guarantee.
+// DNS failures fail closed. This preflight is TOCTOU-prone on its own; the deliverer pins the validated IP at dial time (destinationIPAllowed) to close the rebind gap.
 func checkDestinationHost(ctx context.Context, policy DestinationPolicy, host string) error {
 	if policy.AllowPrivateDestinations {
 		return nil
@@ -440,12 +440,21 @@ func checkDestinationHost(ctx context.Context, policy DestinationPolicy, host st
 		ips = resolved
 	}
 	for _, ip := range ips {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-			ip.IsLinkLocalMulticast() || ip.IsUnspecified() || isReservedIP(ip) {
+		if !destinationIPAllowed(policy, ip) {
 			return reject()
 		}
 	}
 	return nil
+}
+
+// destinationIPAllowed reports whether an IP may be reached; the deliverer re-checks the
+// dialed IP at connect time with this so a DNS rebind between preflight and connect is refused.
+func destinationIPAllowed(policy DestinationPolicy, ip net.IP) bool {
+	if policy.AllowPrivateDestinations {
+		return true
+	}
+	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || isReservedIP(ip))
 }
 
 // Non-public ranges net.IP.IsPrivate misses (CGNAT, benchmarking, reserved); blocked so internal-only deployments stay off-limits.
