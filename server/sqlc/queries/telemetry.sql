@@ -348,6 +348,18 @@ FROM per_device_bucket
 GROUP BY bucket
 ORDER BY bucket ASC;
 
+-- =====================================================
+-- Continuous aggregate queries (hourly/daily rollups)
+-- Org scoping includes buckets that overlap the device lifetime
+-- (bucket end > created_at). The creation bucket may blend samples a
+-- previous registration of the identifier wrote in it and cannot be
+-- split per sample, so it is included only when no earlier device row
+-- ever used the identifier: isolation wins over inclusion. The device
+-- table is the only durable evidence; probing device_metrics or the
+-- hourly rollup instead would silently re-admit blended buckets once
+-- retention (10 days / 3 months) expires the proof.
+-- =====================================================
+
 -- name: GetDeviceMetricsHourlyAggregates :many
 -- COALESCE handles NULL values from AVG() when all source values are NULL
 SELECT
@@ -369,7 +381,12 @@ JOIN device d
   ON d.device_identifier = dmh.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
- AND dmh.bucket >= d.created_at
+ AND dmh.bucket + INTERVAL '1 hour' > d.created_at
+ AND (dmh.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dmh.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND dmh.bucket >= sqlc.arg('start_bucket')
   AND dmh.bucket <= sqlc.arg('end_bucket')
@@ -394,7 +411,12 @@ JOIN device d
   ON d.device_identifier = dmd.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
- AND dmd.bucket >= d.created_at
+ AND dmd.bucket + INTERVAL '1 day' > d.created_at
+ AND (dmd.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dmd.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND dmd.bucket >= sqlc.arg('start_bucket')
   AND dmd.bucket <= sqlc.arg('end_bucket')
@@ -422,7 +444,12 @@ JOIN device d
   ON d.device_identifier = dmh.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
- AND dmh.bucket >= d.created_at
+ AND dmh.bucket + INTERVAL '1 hour' > d.created_at
+ AND (dmh.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dmh.bucket >= sqlc.arg('start_bucket')
   AND dmh.bucket <= sqlc.arg('end_bucket')
 ORDER BY dmh.bucket ASC;
@@ -447,13 +474,19 @@ JOIN device d
   ON d.device_identifier = dmd.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
- AND dmd.bucket >= d.created_at
+ AND dmd.bucket + INTERVAL '1 day' > d.created_at
+ AND (dmd.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dmd.bucket >= sqlc.arg('start_bucket')
   AND dmd.bucket <= sqlc.arg('end_bucket')
 ORDER BY dmd.bucket ASC;
 
 -- =====================================================
 -- Status aggregate queries (temperature histogram + uptime)
+-- Org scoping follows the bucket-overlap rule described above.
 -- =====================================================
 
 -- name: GetDeviceStatusHourlyAggregates :many
@@ -481,7 +514,12 @@ JOIN device d
   ON d.device_identifier = dsh.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
- AND dsh.bucket >= d.created_at
+ AND dsh.bucket + INTERVAL '1 hour' > d.created_at
+ AND (dsh.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dsh.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND dsh.bucket >= sqlc.arg('start_bucket')
   AND dsh.bucket <= sqlc.arg('end_bucket')
@@ -512,7 +550,12 @@ JOIN device d
   ON d.device_identifier = dsh.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
- AND dsh.bucket >= d.created_at
+ AND dsh.bucket + INTERVAL '1 hour' > d.created_at
+ AND (dsh.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dsh.bucket >= sqlc.arg('start_bucket')
   AND dsh.bucket <= sqlc.arg('end_bucket')
 ORDER BY dsh.bucket ASC;
@@ -542,7 +585,12 @@ JOIN device d
   ON d.device_identifier = dsd.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
- AND dsd.bucket >= d.created_at
+ AND dsd.bucket + INTERVAL '1 day' > d.created_at
+ AND (dsd.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dsd.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND dsd.bucket >= sqlc.arg('start_bucket')
   AND dsd.bucket <= sqlc.arg('end_bucket')
@@ -573,7 +621,12 @@ JOIN device d
   ON d.device_identifier = dsd.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
- AND dsd.bucket >= d.created_at
+ AND dsd.bucket + INTERVAL '1 day' > d.created_at
+ AND (dsd.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dsd.bucket >= sqlc.arg('start_bucket')
   AND dsd.bucket <= sqlc.arg('end_bucket')
 ORDER BY dsd.bucket ASC;

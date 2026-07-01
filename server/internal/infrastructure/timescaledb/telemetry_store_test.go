@@ -585,6 +585,216 @@ func TestTelemetryStore_GetCombinedMetrics_HourlyAggregatesIgnoreTelemetryBefore
 	assert.InDelta(t, 1.0, hashrateValues[models.AggregationTypeCount], 0.001)
 }
 
+func TestTelemetryStore_GetCombinedMetrics_HourlyAggregatesIncludeCreationBucketForMidBucketDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	orgUser := dbSvc.CreateSuperAdminUser()
+	device := dbSvc.CreateDevice(orgUser.OrganizationID, "proto")
+	identifier := "midbucket-hourly-telemetry-device"
+	t.Cleanup(func() {
+		cleanupDeviceMetrics(t, db, identifier)
+	})
+
+	bucket := time.Now().UTC().Truncate(time.Hour).Add(-25 * time.Hour)
+	createdAt := bucket.Add(30 * time.Minute)
+	// Metrics go in first: insertTestMetrics backdates created_at for devices
+	// already carrying the identifier, which would defeat the mid-bucket setup.
+	insertTestMetrics(t, db, identifier, createdAt.Add(10*time.Minute), 100, 60)
+	setTelemetryTestDeviceIdentity(t, db, device.DatabaseID, identifier, createdAt, sql.NullTime{})
+
+	_, err = db.ExecContext(ctx,
+		"CALL refresh_continuous_aggregate('device_metrics_hourly', $1::timestamptz, $2::timestamptz)",
+		bucket.Add(-time.Hour),
+		bucket.Add(2*time.Hour),
+	)
+	require.NoError(t, err)
+
+	// Act
+	endTime := time.Now().UTC().Truncate(time.Hour)
+	startTime := endTime.Add(-26 * time.Hour)
+	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+		OrganizationID:   orgUser.OrganizationID,
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		AggregationTypes: []models.AggregationType{models.AggregationTypeAverage, models.AggregationTypeCount},
+		TimeRange: models.TimeRange{
+			StartTime: &startTime,
+			EndTime:   &endTime,
+		},
+	})
+	require.NoError(t, err)
+
+	// Assert
+	hashrate := requireMetric(t, result, models.MeasurementTypeHashrate)
+	assert.Equal(t, int32(1), hashrate.DeviceCount)
+	hashrateValues := aggValues(hashrate.AggregatedValues)
+	assert.InDelta(t, 100.0, hashrateValues[models.AggregationTypeAverage], 0.001)
+	assert.InDelta(t, 1.0, hashrateValues[models.AggregationTypeCount], 0.001)
+}
+
+func TestTelemetryStore_GetCombinedMetrics_HourlyAggregatesDropBlendedCreationBucketForReusedIdentifier(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	orgAUser := dbSvc.CreateSuperAdminUser()
+	orgBUser := dbSvc.CreateSuperAdminUser2()
+	orgADevice := dbSvc.CreateDevice(orgAUser.OrganizationID, "proto")
+	orgBDevice := dbSvc.CreateDevice(orgBUser.OrganizationID, "proto")
+	reusedIdentifier := "reused-blended-hourly-telemetry-device"
+	t.Cleanup(func() {
+		cleanupDeviceMetrics(t, db, reusedIdentifier)
+	})
+
+	creationBucket := time.Now().UTC().Truncate(time.Hour).Add(-26 * time.Hour)
+	liveCreatedAt := creationBucket.Add(30 * time.Minute)
+	setTelemetryTestDeviceIdentity(t, db, orgADevice.DatabaseID, reusedIdentifier, creationBucket.Add(-time.Hour), sql.NullTime{
+		Time:  liveCreatedAt.Add(-time.Minute),
+		Valid: true,
+	})
+	setTelemetryTestDeviceIdentity(t, db, orgBDevice.DatabaseID, reusedIdentifier, liveCreatedAt, sql.NullTime{})
+
+	// Previous owner's sample lands in the same hour bucket as the new
+	// device's creation, blending the bucket beyond per-sample separation.
+	insertTestMetrics(t, db, reusedIdentifier, creationBucket.Add(10*time.Minute), 900, 90)
+	insertTestMetrics(t, db, reusedIdentifier, liveCreatedAt.Add(10*time.Minute), 100, 60)
+	insertTestMetrics(t, db, reusedIdentifier, creationBucket.Add(time.Hour+10*time.Minute), 200, 60)
+
+	_, err = db.ExecContext(ctx,
+		"CALL refresh_continuous_aggregate('device_metrics_hourly', $1::timestamptz, $2::timestamptz)",
+		creationBucket.Add(-time.Hour),
+		creationBucket.Add(3*time.Hour),
+	)
+	require.NoError(t, err)
+
+	queryOrgBHashrate := func(t *testing.T) []models.Metric {
+		t.Helper()
+		endTime := time.Now().UTC().Truncate(time.Hour)
+		startTime := endTime.Add(-27 * time.Hour)
+		result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+			OrganizationID:   orgBUser.OrganizationID,
+			MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+			AggregationTypes: []models.AggregationType{models.AggregationTypeAverage, models.AggregationTypeCount},
+			TimeRange: models.TimeRange{
+				StartTime: &startTime,
+				EndTime:   &endTime,
+			},
+		})
+		require.NoError(t, err)
+		var hashrateMetrics []models.Metric
+		for _, metric := range result.Metrics {
+			if metric.MeasurementType == models.MeasurementTypeHashrate {
+				hashrateMetrics = append(hashrateMetrics, metric)
+			}
+		}
+		return hashrateMetrics
+	}
+
+	assertOnlyCleanBucket := func(t *testing.T, hashrateMetrics []models.Metric) {
+		t.Helper()
+		require.Len(t, hashrateMetrics, 1, "blended creation bucket must be dropped")
+		hashrate := hashrateMetrics[0]
+		assert.WithinDuration(t, creationBucket.Add(time.Hour), hashrate.OpenTime, time.Second)
+		assert.Equal(t, int32(1), hashrate.DeviceCount)
+		hashrateValues := aggValues(hashrate.AggregatedValues)
+		assert.InDelta(t, 200.0, hashrateValues[models.AggregationTypeAverage], 0.001)
+		assert.InDelta(t, 1.0, hashrateValues[models.AggregationTypeCount], 0.001)
+	}
+
+	t.Run("creation bucket dropped while raw samples exist", func(t *testing.T) {
+		// Act
+		hashrateMetrics := queryOrgBHashrate(t)
+
+		// Assert
+		assertOnlyCleanBucket(t, hashrateMetrics)
+	})
+
+	t.Run("creation bucket still dropped after raw retention expires pre-creation samples", func(t *testing.T) {
+		// Arrange: retention drops raw chunks but keeps materialized
+		// aggregate rows, so the blend must stay excluded without raw proof.
+		_, err := db.ExecContext(ctx,
+			"DELETE FROM device_metrics WHERE device_identifier = $1 AND time < $2",
+			reusedIdentifier, liveCreatedAt)
+		require.NoError(t, err)
+
+		// Act
+		hashrateMetrics := queryOrgBHashrate(t)
+
+		// Assert
+		assertOnlyCleanBucket(t, hashrateMetrics)
+	})
+}
+
+func TestTelemetryStore_GetCombinedMetrics_DailyAggregatesIncludeCreationBucketForMidDayDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	orgUser := dbSvc.CreateSuperAdminUser()
+	device := dbSvc.CreateDevice(orgUser.OrganizationID, "proto")
+	identifier := "midday-daily-telemetry-device"
+	t.Cleanup(func() {
+		cleanupDeviceMetrics(t, db, identifier)
+	})
+
+	day := time.Now().UTC().Truncate(24 * time.Hour).Add(-2 * 24 * time.Hour)
+	createdAt := day.Add(10 * time.Hour)
+	// Metrics go in first: insertTestMetrics backdates created_at for devices
+	// already carrying the identifier, which would defeat the mid-day setup.
+	insertTestMetrics(t, db, identifier, createdAt.Add(2*time.Hour), 100, 60)
+	setTelemetryTestDeviceIdentity(t, db, device.DatabaseID, identifier, createdAt, sql.NullTime{})
+
+	_, err = db.ExecContext(ctx,
+		"CALL refresh_continuous_aggregate('device_metrics_daily', $1::timestamptz, $2::timestamptz)",
+		day.Add(-24*time.Hour),
+		day.Add(48*time.Hour),
+	)
+	require.NoError(t, err)
+
+	// Act
+	endTime := time.Now().UTC().Truncate(time.Hour)
+	startTime := endTime.Add(-11 * 24 * time.Hour)
+	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+		OrganizationID:   orgUser.OrganizationID,
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		AggregationTypes: []models.AggregationType{models.AggregationTypeAverage, models.AggregationTypeCount},
+		TimeRange: models.TimeRange{
+			StartTime: &startTime,
+			EndTime:   &endTime,
+		},
+	})
+	require.NoError(t, err)
+
+	// Assert
+	hashrate := requireMetric(t, result, models.MeasurementTypeHashrate)
+	assert.Equal(t, int32(1), hashrate.DeviceCount)
+	hashrateValues := aggValues(hashrate.AggregatedValues)
+	assert.InDelta(t, 100.0, hashrateValues[models.AggregationTypeAverage], 0.001)
+	assert.InDelta(t, 1.0, hashrateValues[models.AggregationTypeCount], 0.001)
+}
+
 func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesDefaultInvalidSlideInterval(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

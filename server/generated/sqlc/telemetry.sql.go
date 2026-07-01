@@ -45,7 +45,12 @@ JOIN device d
   ON d.device_identifier = dmd.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
- AND dmd.bucket >= d.created_at
+ AND dmd.bucket + INTERVAL '1 day' > d.created_at
+ AND (dmd.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dmd.bucket >= $2
   AND dmd.bucket <= $3
 ORDER BY dmd.bucket ASC
@@ -114,7 +119,12 @@ JOIN device d
   ON d.device_identifier = dmh.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
- AND dmh.bucket >= d.created_at
+ AND dmh.bucket + INTERVAL '1 hour' > d.created_at
+ AND (dmh.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dmh.bucket >= $2
   AND dmh.bucket <= $3
 ORDER BY dmh.bucket ASC
@@ -463,7 +473,12 @@ JOIN device d
   ON d.device_identifier = dsd.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
- AND dsd.bucket >= d.created_at
+ AND dsd.bucket + INTERVAL '1 day' > d.created_at
+ AND (dsd.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dsd.bucket >= $2
   AND dsd.bucket <= $3
 ORDER BY dsd.bucket ASC
@@ -541,7 +556,12 @@ JOIN device d
   ON d.device_identifier = dsh.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
- AND dsh.bucket >= d.created_at
+ AND dsh.bucket + INTERVAL '1 hour' > d.created_at
+ AND (dsh.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dsh.bucket >= $2
   AND dsh.bucket <= $3
 ORDER BY dsh.bucket ASC
@@ -613,7 +633,12 @@ JOIN device d
   ON d.device_identifier = dmd.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
- AND dmd.bucket >= d.created_at
+ AND dmd.bucket + INTERVAL '1 day' > d.created_at
+ AND (dmd.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dmd.device_identifier = ANY($2::text[])
   AND dmd.bucket >= $3
   AND dmd.bucket <= $4
@@ -669,6 +694,7 @@ func (q *Queries) GetDeviceMetricsDailyAggregates(ctx context.Context, arg GetDe
 }
 
 const getDeviceMetricsHourlyAggregates = `-- name: GetDeviceMetricsHourlyAggregates :many
+
 SELECT
     dmh.bucket,
     dmh.device_identifier,
@@ -688,7 +714,12 @@ JOIN device d
   ON d.device_identifier = dmh.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
- AND dmh.bucket >= d.created_at
+ AND dmh.bucket + INTERVAL '1 hour' > d.created_at
+ AND (dmh.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dmh.device_identifier = ANY($2::text[])
   AND dmh.bucket >= $3
   AND dmh.bucket <= $4
@@ -702,6 +733,17 @@ type GetDeviceMetricsHourlyAggregatesParams struct {
 	EndBucket         time.Time
 }
 
+// =====================================================
+// Continuous aggregate queries (hourly/daily rollups)
+// Org scoping includes buckets that overlap the device lifetime
+// (bucket end > created_at). The creation bucket may blend samples a
+// previous registration of the identifier wrote in it and cannot be
+// split per sample, so it is included only when no earlier device row
+// ever used the identifier: isolation wins over inclusion. The device
+// table is the only durable evidence; probing device_metrics or the
+// hourly rollup instead would silently re-admit blended buckets once
+// retention (10 days / 3 months) expires the proof.
+// =====================================================
 // COALESCE handles NULL values from AVG() when all source values are NULL
 func (q *Queries) GetDeviceMetricsHourlyAggregates(ctx context.Context, arg GetDeviceMetricsHourlyAggregatesParams) ([]DeviceMetricsHourly, error) {
 	rows, err := q.query(ctx, q.getDeviceMetricsHourlyAggregatesStmt, getDeviceMetricsHourlyAggregates,
@@ -1051,7 +1093,12 @@ JOIN device d
   ON d.device_identifier = dsd.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
- AND dsd.bucket >= d.created_at
+ AND dsd.bucket + INTERVAL '1 day' > d.created_at
+ AND (dsd.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dsd.device_identifier = ANY($2::text[])
   AND dsd.bucket >= $3
   AND dsd.bucket <= $4
@@ -1137,7 +1184,12 @@ JOIN device d
   ON d.device_identifier = dsh.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
- AND dsh.bucket >= d.created_at
+ AND dsh.bucket + INTERVAL '1 hour' > d.created_at
+ AND (dsh.bucket >= d.created_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device prev
+          WHERE prev.device_identifier = d.device_identifier
+            AND prev.created_at < d.created_at))
 WHERE dsh.device_identifier = ANY($2::text[])
   AND dsh.bucket >= $3
   AND dsh.bucket <= $4
@@ -1153,6 +1205,7 @@ type GetDeviceStatusHourlyAggregatesParams struct {
 
 // =====================================================
 // Status aggregate queries (temperature histogram + uptime)
+// Org scoping follows the bucket-overlap rule described above.
 // =====================================================
 // Returns hourly status aggregates for specific devices within a time range.
 func (q *Queries) GetDeviceStatusHourlyAggregates(ctx context.Context, arg GetDeviceStatusHourlyAggregatesParams) ([]DeviceStatusHourly, error) {
