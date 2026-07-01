@@ -1004,6 +1004,78 @@ func TestReconciler_PendingAllPairedPolicyUnavailableTargetsDoNotBlockActive(t *
 	assert.Equal(t, 0, disp.curtailCalls)
 }
 
+func TestReconciler_PendingAllPairedPolicyReleasedTargetsReopenAfterActivation(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	releasedReason := "released without restore: no curtail command dispatched"
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStatePending,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			CreatedByUserID:             99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "confirmed",
+			State:              models.TargetStateConfirmed,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "released-policy-row",
+			State:              models.TargetStateReleased,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &releasedReason,
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{
+			DeviceIdentifier: "confirmed",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     ptrFloat64(100),
+			LatestHashRateHS: ptrFloat64(0),
+		},
+		{
+			DeviceIdentifier: "released-policy-row",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     ptrFloat64(3000),
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, models.EventStateActive, store.updateEventLast[eventID])
+	assert.Equal(t, models.EventStateActive, store.events[0].State)
+	assert.Equal(t, models.TargetStateReleased, store.targetsByEventID[eventID][1].State)
+	assert.Equal(t, 0, store.claimAllPairedCalls, "pending activation should not claim in the same tick")
+
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.claimAllPairedCalls)
+	require.Len(t, store.claimedAllPairedParams, 1)
+	assert.Equal(t, "released-policy-row", store.claimedAllPairedParams[0].DeviceIdentifier)
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][1].State)
+	assert.Nil(t, store.targetsByEventID[eventID][1].LastError)
+}
+
 func TestReconciler_ActiveClosedLoopFullFleetUsesPersistedCandidateFloor(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}

@@ -1253,7 +1253,16 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 		case models.TargetStatePending, models.TargetStateDispatching, models.TargetStateDispatched, models.TargetStateDrifted:
 			// In flight.
 			return
-		case models.TargetStateResolved, models.TargetStateReleased:
+		case models.TargetStateReleased:
+			if isAllPairedPolicyReleasedCurtailTarget(ev, t) {
+				// Released all-paired policy rows are dormant placeholders.
+				// Active admission can reopen them when the miner is paired-like
+				// again, so they must not pin the parent event in pending.
+				continue
+			}
+			// Unreachable on a pending event; hold for manual cleanup.
+			return
+		case models.TargetStateResolved:
 			// Unreachable on a pending event; hold for manual cleanup.
 			return
 		}
@@ -1276,6 +1285,13 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 	if err := r.store.UpdateEventState(ctx, ev.ID, ev.State, models.EventStateActive, &now, nil); err != nil {
 		r.logEventStateUpdateError(ev, "pending→active", err)
 	}
+}
+
+func isAllPairedPolicyReleasedCurtailTarget(ev *models.Event, target *models.Target) bool {
+	return isAllPairedPolicyEvent(ev) &&
+		target != nil &&
+		target.State == models.TargetStateReleased &&
+		target.DesiredState == models.DesiredStateCurtailed
 }
 
 // logEventStateUpdateError buckets store.UpdateEventState errors:
