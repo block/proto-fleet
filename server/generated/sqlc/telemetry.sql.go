@@ -139,6 +139,180 @@ func (q *Queries) GetAllDeviceMetricsHourlyAggregates(ctx context.Context, arg G
 	return items, nil
 }
 
+const getAllDeviceMetricsRawBucketAggregates = `-- name: GetAllDeviceMetricsRawBucketAggregates :many
+WITH per_device_bucket AS (
+    SELECT
+        time_bucket($1::text::interval, time)::timestamptz AS bucket,
+        device_identifier,
+        AVG(hash_rate_hs) AS avg_hash_rate,
+        MIN(hash_rate_hs) AS min_hash_rate,
+        MAX(hash_rate_hs) AS max_hash_rate,
+        last(hash_rate_hs, time) FILTER (WHERE hash_rate_hs IS NOT NULL) AS latest_hash_rate,
+        COUNT(hash_rate_hs)::bigint AS hash_rate_points,
+        AVG(temp_c) AS avg_temp,
+        MIN(temp_c) AS min_temp,
+        MAX(temp_c) AS max_temp,
+        SUM(temp_c) AS sum_temp,
+        last(temp_c, time) FILTER (WHERE temp_c IS NOT NULL) AS latest_temp,
+        COUNT(temp_c)::bigint AS temp_points,
+        AVG(fan_rpm) AS avg_fan_rpm,
+        MIN(fan_rpm) AS min_fan_rpm,
+        MAX(fan_rpm) AS max_fan_rpm,
+        SUM(fan_rpm) AS sum_fan_rpm,
+        COUNT(fan_rpm)::bigint AS fan_rpm_points,
+        AVG(power_w) AS avg_power,
+        MIN(power_w) AS min_power,
+        MAX(power_w) AS max_power,
+        last(power_w, time) FILTER (WHERE power_w IS NOT NULL) AS latest_power,
+        COUNT(power_w)::bigint AS power_points,
+        AVG(efficiency_jh) AS avg_efficiency,
+        MIN(efficiency_jh) AS min_efficiency,
+        MAX(efficiency_jh) AS max_efficiency,
+        SUM(efficiency_jh) AS sum_efficiency,
+        COUNT(efficiency_jh)::bigint AS efficiency_points
+    FROM device_metrics
+    WHERE time >= $2
+      AND time <= $3
+    GROUP BY bucket, device_identifier
+)
+SELECT
+    bucket,
+    COALESCE(SUM(avg_hash_rate), 0)::float8 AS avg_hash_rate,
+    COALESCE(SUM(min_hash_rate), 0)::float8 AS min_hash_rate,
+    COALESCE(SUM(max_hash_rate), 0)::float8 AS max_hash_rate,
+    COALESCE(SUM(latest_hash_rate), 0)::float8 AS latest_hash_rate,
+    COUNT(*) FILTER (WHERE hash_rate_points > 0)::bigint AS hash_rate_device_count,
+    CASE WHEN SUM(temp_points) > 0 THEN (SUM(sum_temp) / SUM(temp_points)) ELSE 0 END::float8 AS avg_temp,
+    COALESCE(MIN(min_temp), 0)::float8 AS min_temp,
+    COALESCE(MAX(max_temp), 0)::float8 AS max_temp,
+    COALESCE(SUM(sum_temp), 0)::float8 AS sum_temp,
+    SUM(temp_points)::bigint AS temp_points,
+    COUNT(*) FILTER (WHERE temp_points > 0)::bigint AS temp_device_count,
+    COUNT(*) FILTER (WHERE latest_temp < 0)::int AS temp_cold_count,
+    COUNT(*) FILTER (WHERE latest_temp >= 0 AND latest_temp < 70)::int AS temp_ok_count,
+    COUNT(*) FILTER (WHERE latest_temp >= 70 AND latest_temp < 90)::int AS temp_hot_count,
+    COUNT(*) FILTER (WHERE latest_temp >= 90)::int AS temp_critical_count,
+    CASE WHEN SUM(fan_rpm_points) > 0 THEN (SUM(sum_fan_rpm) / SUM(fan_rpm_points)) ELSE 0 END::float8 AS avg_fan_rpm,
+    COALESCE(MIN(min_fan_rpm), 0)::float8 AS min_fan_rpm,
+    COALESCE(MAX(max_fan_rpm), 0)::float8 AS max_fan_rpm,
+    COALESCE(SUM(sum_fan_rpm), 0)::float8 AS sum_fan_rpm,
+    SUM(fan_rpm_points)::bigint AS fan_rpm_points,
+    COUNT(*) FILTER (WHERE fan_rpm_points > 0)::bigint AS fan_rpm_device_count,
+    COALESCE(SUM(avg_power), 0)::float8 AS avg_power,
+    COALESCE(SUM(min_power), 0)::float8 AS min_power,
+    COALESCE(SUM(max_power), 0)::float8 AS max_power,
+    COALESCE(SUM(latest_power), 0)::float8 AS latest_power,
+    COUNT(*) FILTER (WHERE power_points > 0)::bigint AS power_device_count,
+    CASE WHEN SUM(efficiency_points) > 0 THEN (SUM(sum_efficiency) / SUM(efficiency_points)) ELSE 0 END::float8 AS avg_efficiency,
+    COALESCE(MIN(min_efficiency), 0)::float8 AS min_efficiency,
+    COALESCE(MAX(max_efficiency), 0)::float8 AS max_efficiency,
+    COALESCE(SUM(sum_efficiency), 0)::float8 AS sum_efficiency,
+    SUM(efficiency_points)::bigint AS efficiency_points,
+    COUNT(*) FILTER (WHERE efficiency_points > 0)::bigint AS efficiency_device_count
+FROM per_device_bucket
+GROUP BY bucket
+ORDER BY bucket ASC
+`
+
+type GetAllDeviceMetricsRawBucketAggregatesParams struct {
+	BucketInterval string
+	StartTime      time.Time
+	EndTime        time.Time
+}
+
+type GetAllDeviceMetricsRawBucketAggregatesRow struct {
+	Bucket                time.Time
+	AvgHashRate           float64
+	MinHashRate           float64
+	MaxHashRate           float64
+	LatestHashRate        float64
+	HashRateDeviceCount   int64
+	AvgTemp               float64
+	MinTemp               float64
+	MaxTemp               float64
+	SumTemp               float64
+	TempPoints            int64
+	TempDeviceCount       int64
+	TempColdCount         int32
+	TempOkCount           int32
+	TempHotCount          int32
+	TempCriticalCount     int32
+	AvgFanRpm             float64
+	MinFanRpm             float64
+	MaxFanRpm             float64
+	SumFanRpm             float64
+	FanRpmPoints          int64
+	FanRpmDeviceCount     int64
+	AvgPower              float64
+	MinPower              float64
+	MaxPower              float64
+	LatestPower           float64
+	PowerDeviceCount      int64
+	AvgEfficiency         float64
+	MinEfficiency         float64
+	MaxEfficiency         float64
+	SumEfficiency         float64
+	EfficiencyPoints      int64
+	EfficiencyDeviceCount int64
+}
+
+func (q *Queries) GetAllDeviceMetricsRawBucketAggregates(ctx context.Context, arg GetAllDeviceMetricsRawBucketAggregatesParams) ([]GetAllDeviceMetricsRawBucketAggregatesRow, error) {
+	rows, err := q.query(ctx, q.getAllDeviceMetricsRawBucketAggregatesStmt, getAllDeviceMetricsRawBucketAggregates, arg.BucketInterval, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAllDeviceMetricsRawBucketAggregatesRow
+	for rows.Next() {
+		var i GetAllDeviceMetricsRawBucketAggregatesRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.AvgHashRate,
+			&i.MinHashRate,
+			&i.MaxHashRate,
+			&i.LatestHashRate,
+			&i.HashRateDeviceCount,
+			&i.AvgTemp,
+			&i.MinTemp,
+			&i.MaxTemp,
+			&i.SumTemp,
+			&i.TempPoints,
+			&i.TempDeviceCount,
+			&i.TempColdCount,
+			&i.TempOkCount,
+			&i.TempHotCount,
+			&i.TempCriticalCount,
+			&i.AvgFanRpm,
+			&i.MinFanRpm,
+			&i.MaxFanRpm,
+			&i.SumFanRpm,
+			&i.FanRpmPoints,
+			&i.FanRpmDeviceCount,
+			&i.AvgPower,
+			&i.MinPower,
+			&i.MaxPower,
+			&i.LatestPower,
+			&i.PowerDeviceCount,
+			&i.AvgEfficiency,
+			&i.MinEfficiency,
+			&i.MaxEfficiency,
+			&i.SumEfficiency,
+			&i.EfficiencyPoints,
+			&i.EfficiencyDeviceCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAllDeviceMetricsTimeSeries = `-- name: GetAllDeviceMetricsTimeSeries :many
 SELECT
     time,
@@ -486,6 +660,187 @@ func (q *Queries) GetDeviceMetricsHourlyAggregates(ctx context.Context, arg GetD
 			&i.TotalPower,
 			&i.AvgEfficiency,
 			&i.DataPoints,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDeviceMetricsRawBucketAggregates = `-- name: GetDeviceMetricsRawBucketAggregates :many
+WITH per_device_bucket AS (
+    SELECT
+        time_bucket($1::text::interval, time)::timestamptz AS bucket,
+        device_identifier,
+        AVG(hash_rate_hs) AS avg_hash_rate,
+        MIN(hash_rate_hs) AS min_hash_rate,
+        MAX(hash_rate_hs) AS max_hash_rate,
+        last(hash_rate_hs, time) FILTER (WHERE hash_rate_hs IS NOT NULL) AS latest_hash_rate,
+        COUNT(hash_rate_hs)::bigint AS hash_rate_points,
+        AVG(temp_c) AS avg_temp,
+        MIN(temp_c) AS min_temp,
+        MAX(temp_c) AS max_temp,
+        SUM(temp_c) AS sum_temp,
+        last(temp_c, time) FILTER (WHERE temp_c IS NOT NULL) AS latest_temp,
+        COUNT(temp_c)::bigint AS temp_points,
+        AVG(fan_rpm) AS avg_fan_rpm,
+        MIN(fan_rpm) AS min_fan_rpm,
+        MAX(fan_rpm) AS max_fan_rpm,
+        SUM(fan_rpm) AS sum_fan_rpm,
+        COUNT(fan_rpm)::bigint AS fan_rpm_points,
+        AVG(power_w) AS avg_power,
+        MIN(power_w) AS min_power,
+        MAX(power_w) AS max_power,
+        last(power_w, time) FILTER (WHERE power_w IS NOT NULL) AS latest_power,
+        COUNT(power_w)::bigint AS power_points,
+        AVG(efficiency_jh) AS avg_efficiency,
+        MIN(efficiency_jh) AS min_efficiency,
+        MAX(efficiency_jh) AS max_efficiency,
+        SUM(efficiency_jh) AS sum_efficiency,
+        COUNT(efficiency_jh)::bigint AS efficiency_points
+    FROM device_metrics
+    WHERE device_identifier = ANY($2::text[])
+      AND time >= $3
+      AND time <= $4
+    GROUP BY bucket, device_identifier
+)
+SELECT
+    bucket,
+    COALESCE(SUM(avg_hash_rate), 0)::float8 AS avg_hash_rate,
+    COALESCE(SUM(min_hash_rate), 0)::float8 AS min_hash_rate,
+    COALESCE(SUM(max_hash_rate), 0)::float8 AS max_hash_rate,
+    COALESCE(SUM(latest_hash_rate), 0)::float8 AS latest_hash_rate,
+    COUNT(*) FILTER (WHERE hash_rate_points > 0)::bigint AS hash_rate_device_count,
+    CASE WHEN SUM(temp_points) > 0 THEN (SUM(sum_temp) / SUM(temp_points)) ELSE 0 END::float8 AS avg_temp,
+    COALESCE(MIN(min_temp), 0)::float8 AS min_temp,
+    COALESCE(MAX(max_temp), 0)::float8 AS max_temp,
+    COALESCE(SUM(sum_temp), 0)::float8 AS sum_temp,
+    SUM(temp_points)::bigint AS temp_points,
+    COUNT(*) FILTER (WHERE temp_points > 0)::bigint AS temp_device_count,
+    COUNT(*) FILTER (WHERE latest_temp < 0)::int AS temp_cold_count,
+    COUNT(*) FILTER (WHERE latest_temp >= 0 AND latest_temp < 70)::int AS temp_ok_count,
+    COUNT(*) FILTER (WHERE latest_temp >= 70 AND latest_temp < 90)::int AS temp_hot_count,
+    COUNT(*) FILTER (WHERE latest_temp >= 90)::int AS temp_critical_count,
+    CASE WHEN SUM(fan_rpm_points) > 0 THEN (SUM(sum_fan_rpm) / SUM(fan_rpm_points)) ELSE 0 END::float8 AS avg_fan_rpm,
+    COALESCE(MIN(min_fan_rpm), 0)::float8 AS min_fan_rpm,
+    COALESCE(MAX(max_fan_rpm), 0)::float8 AS max_fan_rpm,
+    COALESCE(SUM(sum_fan_rpm), 0)::float8 AS sum_fan_rpm,
+    SUM(fan_rpm_points)::bigint AS fan_rpm_points,
+    COUNT(*) FILTER (WHERE fan_rpm_points > 0)::bigint AS fan_rpm_device_count,
+    COALESCE(SUM(avg_power), 0)::float8 AS avg_power,
+    COALESCE(SUM(min_power), 0)::float8 AS min_power,
+    COALESCE(SUM(max_power), 0)::float8 AS max_power,
+    COALESCE(SUM(latest_power), 0)::float8 AS latest_power,
+    COUNT(*) FILTER (WHERE power_points > 0)::bigint AS power_device_count,
+    CASE WHEN SUM(efficiency_points) > 0 THEN (SUM(sum_efficiency) / SUM(efficiency_points)) ELSE 0 END::float8 AS avg_efficiency,
+    COALESCE(MIN(min_efficiency), 0)::float8 AS min_efficiency,
+    COALESCE(MAX(max_efficiency), 0)::float8 AS max_efficiency,
+    COALESCE(SUM(sum_efficiency), 0)::float8 AS sum_efficiency,
+    SUM(efficiency_points)::bigint AS efficiency_points,
+    COUNT(*) FILTER (WHERE efficiency_points > 0)::bigint AS efficiency_device_count
+FROM per_device_bucket
+GROUP BY bucket
+ORDER BY bucket ASC
+`
+
+type GetDeviceMetricsRawBucketAggregatesParams struct {
+	BucketInterval    string
+	DeviceIdentifiers []string
+	StartTime         time.Time
+	EndTime           time.Time
+}
+
+type GetDeviceMetricsRawBucketAggregatesRow struct {
+	Bucket                time.Time
+	AvgHashRate           float64
+	MinHashRate           float64
+	MaxHashRate           float64
+	LatestHashRate        float64
+	HashRateDeviceCount   int64
+	AvgTemp               float64
+	MinTemp               float64
+	MaxTemp               float64
+	SumTemp               float64
+	TempPoints            int64
+	TempDeviceCount       int64
+	TempColdCount         int32
+	TempOkCount           int32
+	TempHotCount          int32
+	TempCriticalCount     int32
+	AvgFanRpm             float64
+	MinFanRpm             float64
+	MaxFanRpm             float64
+	SumFanRpm             float64
+	FanRpmPoints          int64
+	FanRpmDeviceCount     int64
+	AvgPower              float64
+	MinPower              float64
+	MaxPower              float64
+	LatestPower           float64
+	PowerDeviceCount      int64
+	AvgEfficiency         float64
+	MinEfficiency         float64
+	MaxEfficiency         float64
+	SumEfficiency         float64
+	EfficiencyPoints      int64
+	EfficiencyDeviceCount int64
+}
+
+func (q *Queries) GetDeviceMetricsRawBucketAggregates(ctx context.Context, arg GetDeviceMetricsRawBucketAggregatesParams) ([]GetDeviceMetricsRawBucketAggregatesRow, error) {
+	rows, err := q.query(ctx, q.getDeviceMetricsRawBucketAggregatesStmt, getDeviceMetricsRawBucketAggregates,
+		arg.BucketInterval,
+		pq.Array(arg.DeviceIdentifiers),
+		arg.StartTime,
+		arg.EndTime,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDeviceMetricsRawBucketAggregatesRow
+	for rows.Next() {
+		var i GetDeviceMetricsRawBucketAggregatesRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.AvgHashRate,
+			&i.MinHashRate,
+			&i.MaxHashRate,
+			&i.LatestHashRate,
+			&i.HashRateDeviceCount,
+			&i.AvgTemp,
+			&i.MinTemp,
+			&i.MaxTemp,
+			&i.SumTemp,
+			&i.TempPoints,
+			&i.TempDeviceCount,
+			&i.TempColdCount,
+			&i.TempOkCount,
+			&i.TempHotCount,
+			&i.TempCriticalCount,
+			&i.AvgFanRpm,
+			&i.MinFanRpm,
+			&i.MaxFanRpm,
+			&i.SumFanRpm,
+			&i.FanRpmPoints,
+			&i.FanRpmDeviceCount,
+			&i.AvgPower,
+			&i.MinPower,
+			&i.MaxPower,
+			&i.LatestPower,
+			&i.PowerDeviceCount,
+			&i.AvgEfficiency,
+			&i.MinEfficiency,
+			&i.MaxEfficiency,
+			&i.SumEfficiency,
+			&i.EfficiencyPoints,
+			&i.EfficiencyDeviceCount,
 		); err != nil {
 			return nil, err
 		}

@@ -245,6 +245,84 @@ func TestTelemetryStore_GetCombinedMetrics(t *testing.T) {
 	assert.NotEmpty(t, result.Metrics, "Expected combined metrics")
 }
 
+func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesIgnoreTimeSeriesRowLimit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	db := testutil.GetTestDB(t)
+	config := timescaledb.DefaultConfig()
+	config.MaxTimeSeriesRows = 1
+	store, err := timescaledb.NewTelemetryStore(db, config)
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	deviceA := "raw-bucket-aggregate-a"
+	deviceB := "raw-bucket-aggregate-b"
+	t.Cleanup(func() {
+		cleanupDeviceMetrics(t, db, deviceA)
+		cleanupDeviceMetrics(t, db, deviceB)
+	})
+
+	bucket := time.Now().UTC().Add(-time.Hour).Truncate(time.Minute)
+	insertTestMetrics(t, db, deviceA, bucket.Add(10*time.Second), 100, 60)
+	insertTestMetrics(t, db, deviceA, bucket.Add(20*time.Second), 200, 80)
+	insertTestMetrics(t, db, deviceB, bucket.Add(30*time.Second), 300, 70)
+	insertTestMetrics(t, db, deviceB, bucket.Add(40*time.Second), 500, 90)
+
+	startTime := bucket
+	endTime := bucket.Add(time.Minute - time.Nanosecond)
+	slideInterval := time.Minute
+	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+		DeviceIDs: []models.DeviceIdentifier{
+			models.DeviceIdentifier(deviceA),
+			models.DeviceIdentifier(deviceB),
+		},
+		MeasurementTypes: []models.MeasurementType{
+			models.MeasurementTypeHashrate,
+			models.MeasurementTypeTemperature,
+		},
+		AggregationTypes: []models.AggregationType{
+			models.AggregationTypeAverage,
+			models.AggregationTypeMin,
+			models.AggregationTypeMax,
+			models.AggregationTypeSum,
+			models.AggregationTypeCount,
+		},
+		TimeRange: models.TimeRange{
+			StartTime: &startTime,
+			EndTime:   &endTime,
+		},
+		SlideInterval: &slideInterval,
+	})
+	require.NoError(t, err)
+
+	hashrate := requireMetric(t, result, models.MeasurementTypeHashrate)
+	assert.Equal(t, int32(2), hashrate.DeviceCount)
+	hashrateValues := aggregatedValuesByType(hashrate)
+	assert.InDelta(t, 550.0, hashrateValues[models.AggregationTypeAverage], 0.001)
+	assert.InDelta(t, 400.0, hashrateValues[models.AggregationTypeMin], 0.001)
+	assert.InDelta(t, 700.0, hashrateValues[models.AggregationTypeMax], 0.001)
+	assert.InDelta(t, 700.0, hashrateValues[models.AggregationTypeSum], 0.001)
+	assert.InDelta(t, 2.0, hashrateValues[models.AggregationTypeCount], 0.001)
+
+	temperature := requireMetric(t, result, models.MeasurementTypeTemperature)
+	assert.Equal(t, int32(2), temperature.DeviceCount)
+	temperatureValues := aggregatedValuesByType(temperature)
+	assert.InDelta(t, 75.0, temperatureValues[models.AggregationTypeAverage], 0.001)
+	assert.InDelta(t, 60.0, temperatureValues[models.AggregationTypeMin], 0.001)
+	assert.InDelta(t, 90.0, temperatureValues[models.AggregationTypeMax], 0.001)
+	assert.InDelta(t, 300.0, temperatureValues[models.AggregationTypeSum], 0.001)
+	assert.InDelta(t, 4.0, temperatureValues[models.AggregationTypeCount], 0.001)
+
+	require.Len(t, result.TemperatureStatusCounts, 1)
+	assert.True(t, bucket.Equal(result.TemperatureStatusCounts[0].Timestamp), "expected bucket %s, got %s", bucket, result.TemperatureStatusCounts[0].Timestamp)
+	assert.Equal(t, int32(0), result.TemperatureStatusCounts[0].ColdCount)
+	assert.Equal(t, int32(0), result.TemperatureStatusCounts[0].OkCount)
+	assert.Equal(t, int32(1), result.TemperatureStatusCounts[0].HotCount)
+	assert.Equal(t, int32(1), result.TemperatureStatusCounts[0].CriticalCount)
+}
+
 // TestTelemetryStore_StreamTelemetryUpdates tests streaming telemetry updates.
 func TestTelemetryStore_StreamTelemetryUpdates(t *testing.T) {
 	if testing.Short() {
@@ -516,6 +594,25 @@ func insertTestMetrics(t *testing.T, db *sql.DB, deviceIdentifier string, ts tim
 		ts, deviceIdentifier, hashRate, temp, 3500.0, 1500.0, 15.0,
 	)
 	require.NoError(t, err, "Failed to insert test metrics")
+}
+
+func requireMetric(t *testing.T, result models.CombinedMetric, measurementType models.MeasurementType) models.Metric {
+	t.Helper()
+	for _, metric := range result.Metrics {
+		if metric.MeasurementType == measurementType {
+			return metric
+		}
+	}
+	require.Failf(t, "missing metric", "measurement type %s not found", measurementType.String())
+	return models.Metric{}
+}
+
+func aggregatedValuesByType(metric models.Metric) map[models.AggregationType]float64 {
+	values := make(map[models.AggregationType]float64, len(metric.AggregatedValues))
+	for _, value := range metric.AggregatedValues {
+		values[value.Type] = value.Value
+	}
+	return values
 }
 
 func createTelemetryTestSite(t *testing.T, db *sql.DB, orgID int64, name string) int64 {

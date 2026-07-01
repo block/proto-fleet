@@ -533,28 +533,49 @@ func (s *TimescaleTelemetryStore) GetCombinedMetrics(ctx context.Context, query 
 
 // getCombinedMetricsFromRaw queries raw device_metrics table (for short time ranges).
 func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
-	tsQuery := models.TimeSeriesTelemetryQuery{
-		DeviceIDs:        query.DeviceIDs,
-		MeasurementTypes: query.MeasurementTypes,
-		TimeRange:        query.TimeRange,
-	}
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
 
-	data, err := s.GetTimeSeriesTelemetry(ctx, tsQuery)
-	if err != nil {
-		return models.CombinedMetric{}, err
-	}
-
-	if len(data) == 0 {
-		return models.CombinedMetric{}, nil
-	}
-
+	startTime, endTime := s.getTimeRange(query.TimeRange)
 	bucketDuration := DefaultBucketDuration
 	if query.SlideInterval != nil {
 		bucketDuration = *query.SlideInterval
 	}
 
-	result := s.aggregateMetrics(data, query.MeasurementTypes, query.AggregationTypes, bucketDuration)
-	startTime, endTime := s.getTimeRange(query.TimeRange)
+	bucketInterval := fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds()))
+	var buckets []rawMetricBucket
+	var err error
+
+	if len(query.DeviceIDs) == 0 {
+		var rows []sqlc.GetAllDeviceMetricsRawBucketAggregatesRow
+		rows, err = s.queries.GetAllDeviceMetricsRawBucketAggregates(ctx, sqlc.GetAllDeviceMetricsRawBucketAggregatesParams{
+			BucketInterval: bucketInterval,
+			StartTime:      startTime,
+			EndTime:        endTime,
+		})
+		buckets = make([]rawMetricBucket, 0, len(rows))
+		for _, row := range rows {
+			buckets = append(buckets, rawMetricBucketFromAllDevices(row))
+		}
+	} else {
+		var rows []sqlc.GetDeviceMetricsRawBucketAggregatesRow
+		rows, err = s.queries.GetDeviceMetricsRawBucketAggregates(ctx, sqlc.GetDeviceMetricsRawBucketAggregatesParams{
+			BucketInterval:    bucketInterval,
+			DeviceIdentifiers: deviceIDsToStrings(query.DeviceIDs),
+			StartTime:         startTime,
+			EndTime:           endTime,
+		})
+		buckets = make([]rawMetricBucket, 0, len(rows))
+		for _, row := range rows {
+			buckets = append(buckets, rawMetricBucketFromDevices(row))
+		}
+	}
+	if err != nil {
+		return models.CombinedMetric{}, fmt.Errorf("failed to query raw bucket aggregates: %w", err)
+	}
+
+	result := aggregateRawMetricBuckets(buckets, query.MeasurementTypes, query.AggregationTypes)
+
 	result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration)
 
 	return result, nil
@@ -1113,6 +1134,260 @@ func extractDailyValues(row sqlc.DeviceMetricsDaily, mt models.MeasurementType) 
 	return 0, 0, 0, false, false
 }
 
+type rawMetricBucket struct {
+	bucket                time.Time
+	avgHashRate           float64
+	minHashRate           float64
+	maxHashRate           float64
+	latestHashRate        float64
+	hashRateDeviceCount   int64
+	avgTemp               float64
+	minTemp               float64
+	maxTemp               float64
+	sumTemp               float64
+	tempPoints            int64
+	tempDeviceCount       int64
+	tempColdCount         int32
+	tempOkCount           int32
+	tempHotCount          int32
+	tempCriticalCount     int32
+	avgFanRpm             float64
+	minFanRpm             float64
+	maxFanRpm             float64
+	sumFanRpm             float64
+	fanRpmPoints          int64
+	fanRpmDeviceCount     int64
+	avgPower              float64
+	minPower              float64
+	maxPower              float64
+	latestPower           float64
+	powerDeviceCount      int64
+	avgEfficiency         float64
+	minEfficiency         float64
+	maxEfficiency         float64
+	sumEfficiency         float64
+	efficiencyPoints      int64
+	efficiencyDeviceCount int64
+}
+
+func rawMetricBucketFromAllDevices(row sqlc.GetAllDeviceMetricsRawBucketAggregatesRow) rawMetricBucket {
+	return rawMetricBucket{
+		bucket:                row.Bucket,
+		avgHashRate:           row.AvgHashRate,
+		minHashRate:           row.MinHashRate,
+		maxHashRate:           row.MaxHashRate,
+		latestHashRate:        row.LatestHashRate,
+		hashRateDeviceCount:   row.HashRateDeviceCount,
+		avgTemp:               row.AvgTemp,
+		minTemp:               row.MinTemp,
+		maxTemp:               row.MaxTemp,
+		sumTemp:               row.SumTemp,
+		tempPoints:            row.TempPoints,
+		tempDeviceCount:       row.TempDeviceCount,
+		tempColdCount:         row.TempColdCount,
+		tempOkCount:           row.TempOkCount,
+		tempHotCount:          row.TempHotCount,
+		tempCriticalCount:     row.TempCriticalCount,
+		avgFanRpm:             row.AvgFanRpm,
+		minFanRpm:             row.MinFanRpm,
+		maxFanRpm:             row.MaxFanRpm,
+		sumFanRpm:             row.SumFanRpm,
+		fanRpmPoints:          row.FanRpmPoints,
+		fanRpmDeviceCount:     row.FanRpmDeviceCount,
+		avgPower:              row.AvgPower,
+		minPower:              row.MinPower,
+		maxPower:              row.MaxPower,
+		latestPower:           row.LatestPower,
+		powerDeviceCount:      row.PowerDeviceCount,
+		avgEfficiency:         row.AvgEfficiency,
+		minEfficiency:         row.MinEfficiency,
+		maxEfficiency:         row.MaxEfficiency,
+		sumEfficiency:         row.SumEfficiency,
+		efficiencyPoints:      row.EfficiencyPoints,
+		efficiencyDeviceCount: row.EfficiencyDeviceCount,
+	}
+}
+
+func rawMetricBucketFromDevices(row sqlc.GetDeviceMetricsRawBucketAggregatesRow) rawMetricBucket {
+	return rawMetricBucket{
+		bucket:                row.Bucket,
+		avgHashRate:           row.AvgHashRate,
+		minHashRate:           row.MinHashRate,
+		maxHashRate:           row.MaxHashRate,
+		latestHashRate:        row.LatestHashRate,
+		hashRateDeviceCount:   row.HashRateDeviceCount,
+		avgTemp:               row.AvgTemp,
+		minTemp:               row.MinTemp,
+		maxTemp:               row.MaxTemp,
+		sumTemp:               row.SumTemp,
+		tempPoints:            row.TempPoints,
+		tempDeviceCount:       row.TempDeviceCount,
+		tempColdCount:         row.TempColdCount,
+		tempOkCount:           row.TempOkCount,
+		tempHotCount:          row.TempHotCount,
+		tempCriticalCount:     row.TempCriticalCount,
+		avgFanRpm:             row.AvgFanRpm,
+		minFanRpm:             row.MinFanRpm,
+		maxFanRpm:             row.MaxFanRpm,
+		sumFanRpm:             row.SumFanRpm,
+		fanRpmPoints:          row.FanRpmPoints,
+		fanRpmDeviceCount:     row.FanRpmDeviceCount,
+		avgPower:              row.AvgPower,
+		minPower:              row.MinPower,
+		maxPower:              row.MaxPower,
+		latestPower:           row.LatestPower,
+		powerDeviceCount:      row.PowerDeviceCount,
+		avgEfficiency:         row.AvgEfficiency,
+		minEfficiency:         row.MinEfficiency,
+		maxEfficiency:         row.MaxEfficiency,
+		sumEfficiency:         row.SumEfficiency,
+		efficiencyPoints:      row.EfficiencyPoints,
+		efficiencyDeviceCount: row.EfficiencyDeviceCount,
+	}
+}
+
+type rawMetricValues struct {
+	avg         float64
+	min         float64
+	max         float64
+	sum         float64
+	count       int64
+	deviceCount int64
+}
+
+func aggregateRawMetricBuckets(rows []rawMetricBucket, measurementTypes []models.MeasurementType, aggregationTypes []models.AggregationType) models.CombinedMetric {
+	if len(rows) == 0 {
+		return models.CombinedMetric{}
+	}
+	if len(measurementTypes) == 0 {
+		measurementTypes = modelsV2.DefaultMeasurementTypes
+	}
+	if len(aggregationTypes) == 0 {
+		aggregationTypes = []models.AggregationType{models.AggregationTypeAverage}
+	}
+
+	metrics := make([]models.Metric, 0, len(rows)*len(measurementTypes))
+	tempCounts := make([]models.TemperatureStatusCount, 0, len(rows))
+
+	for _, row := range rows {
+		tempCounts = append(tempCounts, models.TemperatureStatusCount{
+			Timestamp:     row.bucket,
+			ColdCount:     row.tempColdCount,
+			OkCount:       row.tempOkCount,
+			HotCount:      row.tempHotCount,
+			CriticalCount: row.tempCriticalCount,
+		})
+
+		for _, measurementType := range measurementTypes {
+			values, ok := rawMetricValuesForMeasurement(row, measurementType)
+			if !ok {
+				continue
+			}
+
+			aggregatedValues := make([]models.AggregatedValue, 0, len(aggregationTypes))
+			for _, aggType := range aggregationTypes {
+				value, ok := rawMetricAggregationValue(values, aggType)
+				if !ok {
+					continue
+				}
+				aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+					Type:  aggType,
+					Value: value,
+				})
+			}
+			if len(aggregatedValues) == 0 {
+				continue
+			}
+			metrics = append(metrics, models.Metric{
+				MeasurementType:  measurementType,
+				AggregatedValues: aggregatedValues,
+				OpenTime:         row.bucket,
+				DeviceCount:      safeInt64ToInt32(values.deviceCount),
+			})
+		}
+	}
+
+	return models.CombinedMetric{
+		Metrics:                 metrics,
+		TemperatureStatusCounts: tempCounts,
+	}
+}
+
+func rawMetricValuesForMeasurement(row rawMetricBucket, mt models.MeasurementType) (rawMetricValues, bool) {
+	switch mt {
+	case models.MeasurementTypeHashrate:
+		return rawMetricValues{
+			avg:         row.avgHashRate,
+			min:         row.minHashRate,
+			max:         row.maxHashRate,
+			sum:         row.latestHashRate,
+			count:       row.hashRateDeviceCount,
+			deviceCount: row.hashRateDeviceCount,
+		}, row.hashRateDeviceCount > 0
+	case models.MeasurementTypeTemperature:
+		return rawMetricValues{
+			avg:         row.avgTemp,
+			min:         row.minTemp,
+			max:         row.maxTemp,
+			sum:         row.sumTemp,
+			count:       row.tempPoints,
+			deviceCount: row.tempDeviceCount,
+		}, row.tempPoints > 0
+	case models.MeasurementTypePower:
+		return rawMetricValues{
+			avg:         row.avgPower,
+			min:         row.minPower,
+			max:         row.maxPower,
+			sum:         row.latestPower,
+			count:       row.powerDeviceCount,
+			deviceCount: row.powerDeviceCount,
+		}, row.powerDeviceCount > 0
+	case models.MeasurementTypeEfficiency:
+		return rawMetricValues{
+			avg:         row.avgEfficiency,
+			min:         row.minEfficiency,
+			max:         row.maxEfficiency,
+			sum:         row.sumEfficiency,
+			count:       row.efficiencyPoints,
+			deviceCount: row.efficiencyDeviceCount,
+		}, row.efficiencyPoints > 0
+	case models.MeasurementTypeFanSpeed:
+		return rawMetricValues{
+			avg:         row.avgFanRpm,
+			min:         row.minFanRpm,
+			max:         row.maxFanRpm,
+			sum:         row.sumFanRpm,
+			count:       row.fanRpmPoints,
+			deviceCount: row.fanRpmDeviceCount,
+		}, row.fanRpmPoints > 0
+	case models.MeasurementTypeUnknown,
+		models.MeasurementTypeVoltage,
+		models.MeasurementTypeCurrent,
+		models.MeasurementTypeUptime,
+		models.MeasurementTypeErrorRate:
+		return rawMetricValues{}, false
+	}
+	return rawMetricValues{}, false
+}
+
+func rawMetricAggregationValue(values rawMetricValues, aggType models.AggregationType) (float64, bool) {
+	switch aggType {
+	case models.AggregationTypeAverage:
+		return values.avg, true
+	case models.AggregationTypeMin:
+		return values.min, true
+	case models.AggregationTypeMax:
+		return values.max, true
+	case models.AggregationTypeSum:
+		return values.sum, true
+	case models.AggregationTypeCount:
+		return float64(values.count), true
+	case models.AggregationTypeUnknown, models.AggregationTypeTotal, models.AggregationTypeMeanChange:
+		return 0, false
+	}
+	return 0, false
+}
+
 // aggregateMetrics performs aggregations on the metrics data.
 func (s *TimescaleTelemetryStore) aggregateMetrics(
 	data []modelsV2.DeviceMetrics,
@@ -1619,6 +1894,13 @@ func calculateAggregation(values []float64, aggType models.AggregationType) floa
 
 // safeIntToInt32 converts an int to int32, clamping to math.MaxInt32 if needed.
 func safeIntToInt32(n int) int32 {
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(n) // #nosec G115 -- bounds checked above
+}
+
+func safeInt64ToInt32(n int64) int32 {
 	if n > math.MaxInt32 {
 		return math.MaxInt32
 	}

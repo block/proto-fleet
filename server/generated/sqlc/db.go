@@ -333,6 +333,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getAllDeviceMetricsHourlyAggregatesStmt, err = db.PrepareContext(ctx, getAllDeviceMetricsHourlyAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllDeviceMetricsHourlyAggregates: %w", err)
 	}
+	if q.getAllDeviceMetricsRawBucketAggregatesStmt, err = db.PrepareContext(ctx, getAllDeviceMetricsRawBucketAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAllDeviceMetricsRawBucketAggregates: %w", err)
+	}
 	if q.getAllDeviceMetricsTimeSeriesStmt, err = db.PrepareContext(ctx, getAllDeviceMetricsTimeSeries); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllDeviceMetricsTimeSeries: %w", err)
 	}
@@ -446,6 +449,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getDeviceMetricsHourlyAggregatesStmt, err = db.PrepareContext(ctx, getDeviceMetricsHourlyAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceMetricsHourlyAggregates: %w", err)
+	}
+	if q.getDeviceMetricsRawBucketAggregatesStmt, err = db.PrepareContext(ctx, getDeviceMetricsRawBucketAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceMetricsRawBucketAggregates: %w", err)
 	}
 	if q.getDeviceMetricsTimeSeriesStmt, err = db.PrepareContext(ctx, getDeviceMetricsTimeSeries); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceMetricsTimeSeries: %w", err)
@@ -1879,6 +1885,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getAllDeviceMetricsHourlyAggregatesStmt: %w", cerr)
 		}
 	}
+	if q.getAllDeviceMetricsRawBucketAggregatesStmt != nil {
+		if cerr := q.getAllDeviceMetricsRawBucketAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAllDeviceMetricsRawBucketAggregatesStmt: %w", cerr)
+		}
+	}
 	if q.getAllDeviceMetricsTimeSeriesStmt != nil {
 		if cerr := q.getAllDeviceMetricsTimeSeriesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAllDeviceMetricsTimeSeriesStmt: %w", cerr)
@@ -2067,6 +2078,11 @@ func (q *Queries) Close() error {
 	if q.getDeviceMetricsHourlyAggregatesStmt != nil {
 		if cerr := q.getDeviceMetricsHourlyAggregatesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceMetricsHourlyAggregatesStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceMetricsRawBucketAggregatesStmt != nil {
+		if cerr := q.getDeviceMetricsRawBucketAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceMetricsRawBucketAggregatesStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceMetricsTimeSeriesStmt != nil {
@@ -3731,6 +3747,7 @@ type Queries struct {
 	getAllDeviceInfoForCapabilityCheckStmt                     *sql.Stmt
 	getAllDeviceMetricsDailyAggregatesStmt                     *sql.Stmt
 	getAllDeviceMetricsHourlyAggregatesStmt                    *sql.Stmt
+	getAllDeviceMetricsRawBucketAggregatesStmt                 *sql.Stmt
 	getAllDeviceMetricsTimeSeriesStmt                          *sql.Stmt
 	getAllDeviceStatusDailyAggregatesStmt                      *sql.Stmt
 	getAllDeviceStatusHourlyAggregatesStmt                     *sql.Stmt
@@ -3769,6 +3786,7 @@ type Queries struct {
 	getDeviceInfoForCapabilityCheckStmt                        *sql.Stmt
 	getDeviceMetricsDailyAggregatesStmt                        *sql.Stmt
 	getDeviceMetricsHourlyAggregatesStmt                       *sql.Stmt
+	getDeviceMetricsRawBucketAggregatesStmt                    *sql.Stmt
 	getDeviceMetricsTimeSeriesStmt                             *sql.Stmt
 	getDevicePairingStatusByDeviceDatabaseIDStmt               *sql.Stmt
 	getDevicePropertiesForRenameStmt                           *sql.Stmt
@@ -4182,6 +4200,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getAllDeviceInfoForCapabilityCheckStmt:                     q.getAllDeviceInfoForCapabilityCheckStmt,
 		getAllDeviceMetricsDailyAggregatesStmt:                     q.getAllDeviceMetricsDailyAggregatesStmt,
 		getAllDeviceMetricsHourlyAggregatesStmt:                    q.getAllDeviceMetricsHourlyAggregatesStmt,
+		getAllDeviceMetricsRawBucketAggregatesStmt:                 q.getAllDeviceMetricsRawBucketAggregatesStmt,
 		getAllDeviceMetricsTimeSeriesStmt:                          q.getAllDeviceMetricsTimeSeriesStmt,
 		getAllDeviceStatusDailyAggregatesStmt:                      q.getAllDeviceStatusDailyAggregatesStmt,
 		getAllDeviceStatusHourlyAggregatesStmt:                     q.getAllDeviceStatusHourlyAggregatesStmt,
@@ -4220,6 +4239,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceInfoForCapabilityCheckStmt:                        q.getDeviceInfoForCapabilityCheckStmt,
 		getDeviceMetricsDailyAggregatesStmt:                        q.getDeviceMetricsDailyAggregatesStmt,
 		getDeviceMetricsHourlyAggregatesStmt:                       q.getDeviceMetricsHourlyAggregatesStmt,
+		getDeviceMetricsRawBucketAggregatesStmt:                    q.getDeviceMetricsRawBucketAggregatesStmt,
 		getDeviceMetricsTimeSeriesStmt:                             q.getDeviceMetricsTimeSeriesStmt,
 		getDevicePairingStatusByDeviceDatabaseIDStmt:               q.getDevicePairingStatusByDeviceDatabaseIDStmt,
 		getDevicePropertiesForRenameStmt:                           q.getDevicePropertiesForRenameStmt,
