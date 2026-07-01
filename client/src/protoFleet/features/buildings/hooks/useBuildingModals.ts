@@ -37,6 +37,9 @@ interface UseBuildingModalsOptions {
   // mutation so ManageSiteModal stays in sync without the
   // host wiring its own refetch into every callback.
   refetchBuildings?: () => void;
+  // Optional host-level follow-up when a successful building mutation also
+  // needs to refresh adjacent page state, like parent-site summary counts.
+  onMutationSuccess?: () => void;
   // Fires when a delete originating from ManageBuildingModal succeeds. The
   // manage modal's anchor is the now-deleted building, so the host page
   // (typically /buildings/:id) needs to navigate elsewhere — this hook
@@ -95,6 +98,7 @@ export interface BuildingModalsApi {
 
 const useBuildingModals = ({
   refetchBuildings,
+  onMutationSuccess,
   onDeleteFromManage,
 }: UseBuildingModalsOptions = {}): BuildingModalsApi => {
   const [state, setState] = useState<BuildingModalState>({ kind: "none" });
@@ -170,6 +174,7 @@ const useBuildingModals = ({
           onSuccess: (building) => {
             pushToast({ message: `Building "${building.name}" created`, status: STATUSES.success });
             refetchBuildings?.();
+            onMutationSuccess?.();
             // Functional setState so a mid-flight dismiss can't be overwritten
             // by this success closure.
             setState((prev) => (prev.kind === "detailsCreate" ? { kind: "none" } : prev));
@@ -186,7 +191,7 @@ const useBuildingModals = ({
         });
       });
     },
-    [state, createBuilding, refetchBuildings],
+    [state, createBuilding, refetchBuildings, onMutationSuccess],
   );
 
   const detailsSaveEdit = useCallback(
@@ -208,6 +213,7 @@ const useBuildingModals = ({
           onSuccess: (building) => {
             pushToast({ message: `Building "${building.name}" saved`, status: STATUSES.success });
             refetchBuildings?.();
+            onMutationSuccess?.();
             setState((prev) => {
               if (prev.kind === "detailsEdit") return { kind: "none" };
               if (prev.kind === "manageEditingDetails") {
@@ -231,7 +237,7 @@ const useBuildingModals = ({
         });
       });
     },
-    [state, updateBuilding, refetchBuildings],
+    [state, updateBuilding, refetchBuildings, onMutationSuccess],
   );
 
   const requestDeleteCurrent = useCallback(() => {
@@ -277,6 +283,7 @@ const useBuildingModals = ({
         onSuccess: () => {
           pushToast({ message: `Building "${name}" deleted`, status: STATUSES.success });
           refetchBuildings?.();
+          onMutationSuccess?.();
           setDeleteTarget(null);
           deleteFromManageRef.current = false;
           setState({ kind: "none" });
@@ -298,7 +305,7 @@ const useBuildingModals = ({
         onFinally: () => setDeleting(false),
       });
     });
-  }, [deleteTarget, deleteBuilding, refetchBuildings, onDeleteFromManage]);
+  }, [deleteTarget, deleteBuilding, refetchBuildings, onMutationSuccess, onDeleteFromManage]);
 
   const refreshBuildings = useCallback(() => {
     refetchBuildings?.();

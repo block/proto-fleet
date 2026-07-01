@@ -28,8 +28,13 @@ const Metric = ({ label, value, valueSize, variant = "default", testId, classNam
 
   return (
     <div className={clsx("flex flex-col", compact ? "gap-0.5" : "gap-1", className)} data-testid={testId}>
-      <div className="text-300 text-text-primary-50">{label}</div>
-      <div className={clsx(resolvedValueSize, "text-text-primary")}>
+      <div className="text-300 text-text-primary-50" data-testid={testId ? `${testId}-label` : undefined}>
+        {label}
+      </div>
+      <div
+        className={clsx(resolvedValueSize, "text-text-primary")}
+        data-testid={testId ? `${testId}-value` : undefined}
+      >
         {value === undefined ? (
           <SkeletonBar className={clsx("w-24", compact ? "h-4" : "h-7")} />
         ) : value === null ? (
