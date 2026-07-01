@@ -202,20 +202,17 @@ func (q *Queries) GetAllMinerStateSnapshotDeviceRollupsHourly(ctx context.Contex
 }
 
 const getMinerStateSnapshotDeviceRollups1m = `-- name: GetMinerStateSnapshotDeviceRollups1m :many
-WITH selected_devices AS (
-    SELECT DISTINCT unnest($1::text[]) AS device_identifier
-),
-per_device_bucket AS (
-    SELECT DISTINCT ON (time_bucket($2::text::interval, r.bucket), r.device_identifier)
-        time_bucket($2::text::interval, r.bucket)::timestamptz AS bucket,
+WITH per_device_bucket AS (
+    SELECT DISTINCT ON (time_bucket($1::text::interval, r.bucket), r.device_identifier)
+        time_bucket($1::text::interval, r.bucket)::timestamptz AS bucket,
         r.device_identifier,
         r.state
     FROM miner_state_snapshot_device_1m r
-    JOIN selected_devices sd ON sd.device_identifier = r.device_identifier
-    WHERE r.org_id = $3
-      AND r.bucket >= $4
-      AND r.bucket <= $5
-    ORDER BY time_bucket($2::text::interval, r.bucket), r.device_identifier, r.bucket DESC
+    WHERE r.org_id = $2
+      AND r.bucket >= $3
+      AND r.bucket <= $4
+      AND r.device_identifier = ANY($5::text[])
+    ORDER BY time_bucket($1::text::interval, r.bucket), r.device_identifier, r.bucket DESC
 )
 SELECT
     bucket,
@@ -229,11 +226,11 @@ ORDER BY bucket ASC
 `
 
 type GetMinerStateSnapshotDeviceRollups1mParams struct {
-	DeviceIdentifierValues []string
 	BucketInterval         string
 	OrgID                  int64
 	StartTime              time.Time
 	EndTime                time.Time
+	DeviceIdentifierValues []string
 }
 
 type GetMinerStateSnapshotDeviceRollups1mRow struct {
@@ -246,11 +243,11 @@ type GetMinerStateSnapshotDeviceRollups1mRow struct {
 
 func (q *Queries) GetMinerStateSnapshotDeviceRollups1m(ctx context.Context, arg GetMinerStateSnapshotDeviceRollups1mParams) ([]GetMinerStateSnapshotDeviceRollups1mRow, error) {
 	rows, err := q.query(ctx, q.getMinerStateSnapshotDeviceRollups1mStmt, getMinerStateSnapshotDeviceRollups1m,
-		pq.Array(arg.DeviceIdentifierValues),
 		arg.BucketInterval,
 		arg.OrgID,
 		arg.StartTime,
 		arg.EndTime,
+		pq.Array(arg.DeviceIdentifierValues),
 	)
 	if err != nil {
 		return nil, err
@@ -280,9 +277,6 @@ func (q *Queries) GetMinerStateSnapshotDeviceRollups1m(ctx context.Context, arg 
 }
 
 const getMinerStateSnapshotDeviceRollupsDaily = `-- name: GetMinerStateSnapshotDeviceRollupsDaily :many
-WITH selected_devices AS (
-    SELECT DISTINCT unnest($4::text[]) AS device_identifier
-)
 SELECT
     r.bucket,
     SUM(CASE WHEN r.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
@@ -290,10 +284,10 @@ SELECT
     SUM(CASE WHEN r.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
     SUM(CASE WHEN r.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
 FROM miner_state_snapshot_device_daily r
-JOIN selected_devices sd ON sd.device_identifier = r.device_identifier
 WHERE r.org_id = $1
   AND r.bucket >= $2
   AND r.bucket <= $3
+  AND r.device_identifier = ANY($4::text[])
 GROUP BY r.bucket
 ORDER BY r.bucket ASC
 `
@@ -348,9 +342,6 @@ func (q *Queries) GetMinerStateSnapshotDeviceRollupsDaily(ctx context.Context, a
 }
 
 const getMinerStateSnapshotDeviceRollupsHourly = `-- name: GetMinerStateSnapshotDeviceRollupsHourly :many
-WITH selected_devices AS (
-    SELECT DISTINCT unnest($4::text[]) AS device_identifier
-)
 SELECT
     r.bucket,
     SUM(CASE WHEN r.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
@@ -358,10 +349,10 @@ SELECT
     SUM(CASE WHEN r.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
     SUM(CASE WHEN r.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
 FROM miner_state_snapshot_device_hourly r
-JOIN selected_devices sd ON sd.device_identifier = r.device_identifier
 WHERE r.org_id = $1
   AND r.bucket >= $2
   AND r.bucket <= $3
+  AND r.device_identifier = ANY($4::text[])
 GROUP BY r.bucket
 ORDER BY r.bucket ASC
 `
@@ -496,12 +487,11 @@ func (q *Queries) GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateS
 }
 
 const insertMinerStateSnapshot = `-- name: InsertMinerStateSnapshot :exec
-INSERT INTO miner_state_snapshots (time, org_id, site_id, building_id, device_identifier, state)
+INSERT INTO miner_state_snapshots (time, org_id, site_id, device_identifier, state)
 SELECT
     $1::timestamptz,
     d.org_id,
     d.site_id,
-    d.building_id,
     d.device_identifier,
     CASE
         WHEN ds.status = 'OFFLINE'

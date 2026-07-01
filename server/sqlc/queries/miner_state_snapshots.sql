@@ -6,12 +6,11 @@
 -- enum values). The read query sums only 0..3, so unknown rows don't
 -- contribute to any chart bucket — matching CountMinersByState, which also
 -- excludes non-ACTIVE/non-bucketed statuses from every count.
-INSERT INTO miner_state_snapshots (time, org_id, site_id, building_id, device_identifier, state)
+INSERT INTO miner_state_snapshots (time, org_id, site_id, device_identifier, state)
 SELECT
     sqlc.arg('time')::timestamptz,
     d.org_id,
     d.site_id,
-    d.building_id,
     d.device_identifier,
     CASE
         WHEN ds.status = 'OFFLINE'
@@ -94,19 +93,16 @@ GROUP BY bucket
 ORDER BY bucket ASC;
 
 -- name: GetMinerStateSnapshotDeviceRollups1m :many
-WITH selected_devices AS (
-    SELECT DISTINCT unnest(sqlc.arg('device_identifier_values')::text[]) AS device_identifier
-),
-per_device_bucket AS (
+WITH per_device_bucket AS (
     SELECT DISTINCT ON (time_bucket(sqlc.arg('bucket_interval')::text::interval, r.bucket), r.device_identifier)
         time_bucket(sqlc.arg('bucket_interval')::text::interval, r.bucket)::timestamptz AS bucket,
         r.device_identifier,
         r.state
     FROM miner_state_snapshot_device_1m r
-    JOIN selected_devices sd ON sd.device_identifier = r.device_identifier
     WHERE r.org_id = sqlc.arg('org_id')
       AND r.bucket >= sqlc.arg('start_time')
       AND r.bucket <= sqlc.arg('end_time')
+      AND r.device_identifier = ANY(sqlc.arg('device_identifier_values')::text[])
     ORDER BY time_bucket(sqlc.arg('bucket_interval')::text::interval, r.bucket), r.device_identifier, r.bucket DESC
 )
 SELECT
@@ -134,9 +130,6 @@ GROUP BY bucket
 ORDER BY bucket ASC;
 
 -- name: GetMinerStateSnapshotDeviceRollupsHourly :many
-WITH selected_devices AS (
-    SELECT DISTINCT unnest(sqlc.arg('device_identifier_values')::text[]) AS device_identifier
-)
 SELECT
     r.bucket,
     SUM(CASE WHEN r.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
@@ -144,10 +137,10 @@ SELECT
     SUM(CASE WHEN r.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
     SUM(CASE WHEN r.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
 FROM miner_state_snapshot_device_hourly r
-JOIN selected_devices sd ON sd.device_identifier = r.device_identifier
 WHERE r.org_id = sqlc.arg('org_id')
   AND r.bucket >= sqlc.arg('start_time')
   AND r.bucket <= sqlc.arg('end_time')
+  AND r.device_identifier = ANY(sqlc.arg('device_identifier_values')::text[])
 GROUP BY r.bucket
 ORDER BY r.bucket ASC;
 
@@ -166,9 +159,6 @@ GROUP BY bucket
 ORDER BY bucket ASC;
 
 -- name: GetMinerStateSnapshotDeviceRollupsDaily :many
-WITH selected_devices AS (
-    SELECT DISTINCT unnest(sqlc.arg('device_identifier_values')::text[]) AS device_identifier
-)
 SELECT
     r.bucket,
     SUM(CASE WHEN r.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
@@ -176,9 +166,9 @@ SELECT
     SUM(CASE WHEN r.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
     SUM(CASE WHEN r.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
 FROM miner_state_snapshot_device_daily r
-JOIN selected_devices sd ON sd.device_identifier = r.device_identifier
 WHERE r.org_id = sqlc.arg('org_id')
   AND r.bucket >= sqlc.arg('start_time')
   AND r.bucket <= sqlc.arg('end_time')
+  AND r.device_identifier = ANY(sqlc.arg('device_identifier_values')::text[])
 GROUP BY r.bucket
 ORDER BY r.bucket ASC;

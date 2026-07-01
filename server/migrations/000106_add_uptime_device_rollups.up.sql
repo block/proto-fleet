@@ -1,10 +1,3 @@
-ALTER TABLE miner_state_snapshots
-    ADD COLUMN building_id BIGINT NULL;
-
-CREATE INDEX idx_miner_state_snapshots_org_building_time
-    ON miner_state_snapshots(org_id, building_id, time DESC)
-    WHERE building_id IS NOT NULL;
-
 -- Large fleets write millions of raw per-device snapshots per day. Keep raw
 -- history short for debugging; serve long-range uptime history from compact
 -- per-device rollups below.
@@ -22,8 +15,6 @@ SELECT
     time_bucket(INTERVAL '1 minute', time) AS bucket,
     org_id,
     device_identifier,
-    last(site_id, time)::bigint AS site_id,
-    last(building_id, time)::bigint AS building_id,
     last(state, time)::smallint AS state
 FROM miner_state_snapshots
 GROUP BY bucket, org_id, device_identifier
@@ -56,8 +47,6 @@ SELECT
     time_bucket(INTERVAL '1 hour', time) AS bucket,
     org_id,
     device_identifier,
-    last(site_id, time)::bigint AS site_id,
-    last(building_id, time)::bigint AS building_id,
     last(state, time)::smallint AS state
 FROM miner_state_snapshots
 GROUP BY bucket, org_id, device_identifier
@@ -90,8 +79,6 @@ SELECT
     time_bucket(INTERVAL '1 day', time) AS bucket,
     org_id,
     device_identifier,
-    last(site_id, time)::bigint AS site_id,
-    last(building_id, time)::bigint AS building_id,
     last(state, time)::smallint AS state
 FROM miner_state_snapshots
 GROUP BY bucket, org_id, device_identifier

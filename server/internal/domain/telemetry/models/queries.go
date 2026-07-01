@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 type TimeRange struct {
 	StartTime *time.Time `json:"start_time,omitempty"`
@@ -50,12 +53,7 @@ func ShouldIncludeUptimeStatusCounts(measurementTypes []MeasurementType) bool {
 	if len(measurementTypes) == 0 {
 		return true
 	}
-	for _, measurementType := range measurementTypes {
-		if measurementType == MeasurementTypeUptime {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(measurementTypes, MeasurementTypeUptime)
 }
 
 type StreamCombinedMetricsQuery struct {

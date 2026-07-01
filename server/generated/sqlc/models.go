@@ -865,15 +865,12 @@ type MinerStateSnapshot struct {
 	DeviceIdentifier string
 	State            int16
 	SiteID           sql.NullInt64
-	BuildingID       sql.NullInt64
 }
 
 type MinerStateSnapshotDevice1m struct {
 	Bucket           time.Time
 	OrgID            int64
 	DeviceIdentifier string
-	SiteID           int64
-	BuildingID       int64
 	State            int16
 }
 
@@ -881,8 +878,6 @@ type MinerStateSnapshotDeviceDaily struct {
 	Bucket           time.Time
 	OrgID            int64
 	DeviceIdentifier string
-	SiteID           int64
-	BuildingID       int64
 	State            int16
 }
 
@@ -890,8 +885,6 @@ type MinerStateSnapshotDeviceHourly struct {
 	Bucket           time.Time
 	OrgID            int64
 	DeviceIdentifier string
-	SiteID           int64
-	BuildingID       int64
 	State            int16
 }
 
