@@ -313,7 +313,7 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 	assert.Equal(t, uint32(2), ev.EffectiveBatchSize)
 }
 
-func TestHandler_StartCurtailment_AllPairedPolicyEchoesUnavailableTargets(t *testing.T) {
+func TestHandler_StartCurtailment_AllPairedPolicyReturnsBoundedTargetRollup(t *testing.T) {
 	t.Parallel()
 
 	store := newStartStubStore()
@@ -343,10 +343,7 @@ func TestHandler_StartCurtailment_AllPairedPolicyEchoesUnavailableTargets(t *tes
 	ev := resp.Msg.Event
 	assert.True(t, ev.GetForceIncludeAllPairedMiners())
 	assert.True(t, store.lastEvent.ForceIncludeAllPairedMiners)
-	require.Len(t, ev.Targets, 2)
-	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING, ev.Targets[0].State)
-	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNAVAILABLE, ev.Targets[1].State)
-	assert.Equal(t, "offline", ev.Targets[1].LastError)
+	assert.Empty(t, ev.Targets, "all-paired starts use rollups instead of returning one target per miner")
 	assert.Equal(t, int32(1), ev.TargetRollup.Pending)
 	assert.Equal(t, int32(1), ev.TargetRollup.Unavailable)
 	assert.Equal(t, int32(2), ev.TargetRollup.Total)

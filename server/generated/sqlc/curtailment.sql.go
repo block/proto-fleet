@@ -2354,6 +2354,9 @@ WHERE curtailment_event_id = $1
   AND desired_state = 'curtailed'
   AND state IN ('pending', 'unavailable')
   AND last_dispatched_at IS NULL
+  AND curtail_dispatched_at IS NULL
+  AND retry_count = 0
+  AND curtail_failure_count = 0
 `
 
 // All-paired policy targets that never received a Curtail command do not need

@@ -747,6 +747,14 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 		return nil
 	}
 	params.OrgID = ev.OrgID
+	if !isAllPairedPolicyEvent(ev) {
+		if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev, existingTargets) {
+			return nil
+		}
+		if hasInFlightCurtailDispatch(existingTargets) {
+			return nil
+		}
+	}
 	candidates, err := r.store.ListCandidates(ctx, params)
 	if err != nil {
 		slog.Error("curtailment reconciler: list candidates (full_fleet admission) failed",
@@ -755,12 +763,6 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 	}
 	if isAllPairedPolicyEvent(ev) {
 		return r.claimAllPairedPolicyTargets(ctx, ev, existingTargets, candidates, params)
-	}
-	if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev, existingTargets) {
-		return nil
-	}
-	if hasInFlightCurtailDispatch(existingTargets) {
-		return nil
 	}
 	orgConfig, err := r.store.GetOrgConfig(ctx, ev.OrgID)
 	if err != nil {

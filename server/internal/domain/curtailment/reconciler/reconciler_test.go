@@ -54,6 +54,7 @@ type fakeStore struct {
 	bumpTargetRetryErr   error
 
 	listTargetsByEventCalls int
+	listCandidatesCalls     int
 	claimTargetsCalls       int
 	claimedTargetParams     []models.InsertTargetParams
 	claimAllPairedCalls     int
@@ -255,6 +256,7 @@ func (f *fakeStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*
 }
 
 func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
+	f.listCandidatesCalls++
 	f.lastListCandidatesSiteIDs = append([]int64(nil), params.SiteIDs...)
 	if len(params.DeviceIdentifiers) == 0 {
 		return f.candidates, nil
@@ -822,6 +824,59 @@ func TestReconciler_ActiveClosedLoopFullFleetAdmitsAndDispatchesNewTarget(t *tes
 	assert.Equal(t, 1, disp.curtailCalls)
 	assert.ElementsMatch(t, []string{"miner-new"}, disp.curtailLastIDs)
 	assert.Equal(t, models.TargetStateDispatched, target.State)
+}
+
+func TestReconciler_ActiveClosedLoopFullFleetSkipsCandidateScanWhenAdmissionIntervalBlocked(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	lastBatchAt := time.Now()
+	lastBatchUUID := "batch-recent"
+	store.events = []*models.Event{
+		{
+			ID:                      eventID,
+			EventUUID:               eventUUID,
+			OrgID:                   1,
+			State:                   models.EventStateActive,
+			Mode:                    models.ModeFullFleet,
+			LoopType:                models.LoopTypeClosed,
+			ScopeType:               models.ScopeTypeWholeOrg,
+			CurtailBatchSize:        &batchSize,
+			CurtailBatchIntervalSec: 600,
+			CreatedByUserID:         99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "recently-dispatched",
+			State:              models.TargetStateConfirmed,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastDispatchedAt:   &lastBatchAt,
+			LastBatchUUID:      &lastBatchUUID,
+			CurtailPhase: models.TargetPhaseSummary{
+				Phase:        models.TargetPhaseCurtail,
+				State:        models.TargetStateConfirmed,
+				DispatchedAt: &lastBatchAt,
+				BatchUUID:    &lastBatchUUID,
+			},
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-new", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.listCandidatesCalls,
+		"tick may read existing-target telemetry, but admission interval gate should prevent a second fleet candidate scan")
+	assert.Equal(t, 0, store.claimTargetsCalls)
+	assert.Equal(t, 0, disp.curtailCalls)
 }
 
 func TestReconciler_ActiveAllPairedPolicyClaimsDispatchableAndUnavailableTargets(t *testing.T) {

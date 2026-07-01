@@ -1007,7 +1007,10 @@ SET state              = 'released',
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND desired_state = 'curtailed'
   AND state IN ('pending', 'unavailable')
-  AND last_dispatched_at IS NULL;
+  AND last_dispatched_at IS NULL
+  AND curtail_dispatched_at IS NULL
+  AND retry_count = 0
+  AND curtail_failure_count = 0;
 
 -- name: ResumeCurtailmentFromRestoring :one
 -- Restore reversal: go back through pending so the curtail dispatcher picks

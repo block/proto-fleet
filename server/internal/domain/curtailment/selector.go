@@ -331,7 +331,7 @@ func AllPairedPolicyTargetState(c *models.Candidate, includeMaintenance bool) (m
 		return models.TargetStateUnavailable, allPairedUnavailableUpdating
 	case "REBOOT_REQUIRED":
 		return models.TargetStateUnavailable, allPairedUnavailableRebootRequired
-	case "INACTIVE", "NEEDS_MINING_POOL":
+	case "INACTIVE", "NEEDS_MINING_POOL", "ERROR", "UNKNOWN":
 		return models.TargetStateUnavailable, allPairedUnavailableNonActionableStatus
 	case "MAINTENANCE":
 		if !includeMaintenance {

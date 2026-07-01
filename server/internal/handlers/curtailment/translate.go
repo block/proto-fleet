@@ -421,7 +421,7 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	}
 
 	var targets []*pb.CurtailmentTarget
-	if !isClosedLoopFullFleetStartResponse(req) || req.GetForceIncludeAllPairedMiners() {
+	if !isClosedLoopFullFleetStartResponse(req) {
 		// Open-loop starts persist targets immediately; reconciler updates them in-place.
 		targets = make([]*pb.CurtailmentTarget, len(plan.Selected))
 		for i, sel := range plan.Selected {
@@ -448,6 +448,7 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	event.Targets = targets
 	pendingCount := 0
 	unavailableCount := 0
+	totalCount := len(targets)
 	for _, target := range targets {
 		switch target.GetState() {
 		case pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNAVAILABLE:
@@ -464,10 +465,15 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 			pendingCount++
 		}
 	}
+	if len(targets) == 0 && req.GetForceIncludeAllPairedMiners() {
+		pendingCount = len(plan.Selected) - plan.UnavailableTargetCount
+		unavailableCount = plan.UnavailableTargetCount
+		totalCount = plan.PolicyTargetCount
+	}
 	event.TargetRollup = &pb.CurtailmentTargetRollup{
 		Pending:     lenToInt32Saturating(pendingCount),
 		Unavailable: lenToInt32Saturating(unavailableCount),
-		Total:       lenToInt32Saturating(len(targets)),
+		Total:       lenToInt32Saturating(totalCount),
 	}
 
 	return &pb.StartCurtailmentResponse{Event: event}
@@ -588,20 +594,24 @@ func deriveSourceActorID(info *session.Info) *string {
 // toPreviewResponse maps the service Plan to the proto response.
 func toPreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailmentPlanRequest) *pb.PreviewCurtailmentPlanResponse {
 	reasonSelected := strategyReasonLabel(req.GetStrategy())
-	candidates := make([]*pb.CurtailmentCandidate, len(plan.Selected))
-	for i, c := range plan.Selected {
-		candidates[i] = &pb.CurtailmentCandidate{
-			DeviceIdentifier: c.DeviceIdentifier,
-			CurrentPowerW:    c.PowerW,
-			EfficiencyJh:     c.EfficiencyJH,
-			ReasonSelected:   reasonSelected,
+	var candidates []*pb.CurtailmentCandidate
+	var skipped []*pb.SkippedCandidate
+	if !req.GetForceIncludeAllPairedMiners() {
+		candidates = make([]*pb.CurtailmentCandidate, len(plan.Selected))
+		for i, c := range plan.Selected {
+			candidates[i] = &pb.CurtailmentCandidate{
+				DeviceIdentifier: c.DeviceIdentifier,
+				CurrentPowerW:    c.PowerW,
+				EfficiencyJh:     c.EfficiencyJH,
+				ReasonSelected:   reasonSelected,
+			}
 		}
-	}
-	skipped := make([]*pb.SkippedCandidate, len(plan.Skipped))
-	for i, s := range plan.Skipped {
-		skipped[i] = &pb.SkippedCandidate{
-			DeviceIdentifier: s.DeviceIdentifier,
-			Reason:           string(s.Reason),
+		skipped = make([]*pb.SkippedCandidate, len(plan.Skipped))
+		for i, s := range plan.Skipped {
+			skipped[i] = &pb.SkippedCandidate{
+				DeviceIdentifier: s.DeviceIdentifier,
+				Reason:           string(s.Reason),
+			}
 		}
 	}
 	resp := &pb.PreviewCurtailmentPlanResponse{
