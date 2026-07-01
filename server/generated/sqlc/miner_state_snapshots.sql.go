@@ -21,6 +21,8 @@ WITH per_device_bucket AS (
         r.state
     FROM miner_state_snapshot_device_1m r
     WHERE r.org_id = $2
+      AND r.bucket >= time_bucket(INTERVAL '1 minute', $3::timestamptz)
+      AND r.bucket <= $4
       AND r.state_time >= $3
       AND r.state_time <= $4
     ORDER BY time_bucket($1::text::interval, r.state_time), r.device_identifier, r.state_time DESC
@@ -209,6 +211,8 @@ WITH per_device_bucket AS (
         r.state
     FROM miner_state_snapshot_device_1m r
     WHERE r.org_id = $2
+      AND r.bucket >= time_bucket(INTERVAL '1 minute', $3::timestamptz)
+      AND r.bucket <= $4
       AND r.state_time >= $3
       AND r.state_time <= $4
       AND r.device_identifier = ANY($5::text[])

@@ -78,6 +78,8 @@ WITH per_device_bucket AS (
         r.state
     FROM miner_state_snapshot_device_1m r
     WHERE r.org_id = sqlc.arg('org_id')
+      AND r.bucket >= time_bucket(INTERVAL '1 minute', sqlc.arg('start_time')::timestamptz)
+      AND r.bucket <= sqlc.arg('end_time')
       AND r.state_time >= sqlc.arg('start_time')
       AND r.state_time <= sqlc.arg('end_time')
     ORDER BY time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time), r.device_identifier, r.state_time DESC
@@ -100,6 +102,8 @@ WITH per_device_bucket AS (
         r.state
     FROM miner_state_snapshot_device_1m r
     WHERE r.org_id = sqlc.arg('org_id')
+      AND r.bucket >= time_bucket(INTERVAL '1 minute', sqlc.arg('start_time')::timestamptz)
+      AND r.bucket <= sqlc.arg('end_time')
       AND r.state_time >= sqlc.arg('start_time')
       AND r.state_time <= sqlc.arg('end_time')
       AND r.device_identifier = ANY(sqlc.arg('device_identifier_values')::text[])
