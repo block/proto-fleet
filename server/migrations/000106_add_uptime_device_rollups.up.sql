@@ -1,12 +1,7 @@
--- Large fleets write millions of raw per-device snapshots per day. Keep raw
--- history short for debugging; serve long-range uptime history from compact
--- per-device rollups below.
-SELECT remove_retention_policy('miner_state_snapshots', if_exists => true);
-SELECT add_retention_policy('miner_state_snapshots', INTERVAL '14 days',
-    schedule_interval => INTERVAL '1 hour');
-
--- Future chunks should be small enough for retention/compression jobs to work
--- in day-sized units. Existing chunks keep their current interval.
+-- Keep raw retention unchanged in this migration. The compact rollups are
+-- populated by TimescaleDB policies outside the migration transaction, and raw
+-- snapshots remain the correctness fallback while the deployment proves rollup
+-- coverage in production.
 SELECT set_chunk_time_interval('miner_state_snapshots', INTERVAL '1 day');
 
 CREATE MATERIALIZED VIEW miner_state_snapshot_device_1m
@@ -15,6 +10,7 @@ SELECT
     time_bucket(INTERVAL '1 minute', time) AS bucket,
     org_id,
     device_identifier,
+    last(time, time)::timestamptz AS state_time,
     last(state, time)::smallint AS state
 FROM miner_state_snapshots
 GROUP BY bucket, org_id, device_identifier

@@ -128,6 +128,73 @@ func TestTelemetryStore_UptimeCountsUseHourlyAndDailyDeviceRollups(t *testing.T)
 	}
 }
 
+func TestTelemetryStore_UptimeCountsMergeRawTailWhenRollupIsPartial(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := NewTelemetryStore(db, DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	deviceIdentifier := fmt.Sprintf("rollup-tail-device-%d", time.Now().UnixNano())
+	first := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Minute)
+	second := first.Add(time.Minute)
+
+	insertMinerStateSnapshotRow(t, db, first, orgID, sql.NullInt64{}, deviceIdentifier, 3)
+	insertMinerStateSnapshotRow(t, db, second, orgID, sql.NullInt64{}, deviceIdentifier, 2)
+	refreshUptimeDeviceRollup(t, db, "miner_state_snapshot_device_1m", first.Add(-time.Minute), second.Add(-time.Nanosecond))
+
+	counts := store.uptimeCountsForQuery(ctx, models.CombinedMetricsQuery{
+		OrganizationID: orgID,
+		DeviceIDs:      []models.DeviceIdentifier{models.DeviceIdentifier(deviceIdentifier)},
+	}, first, second, time.Minute, dataSourceRaw)
+
+	require.Len(t, counts, 2)
+	assert.True(t, first.Equal(counts[0].Timestamp), "expected bucket %s, got %s", first, counts[0].Timestamp)
+	assert.Equal(t, int32(1), counts[0].HashingCount)
+	assert.Equal(t, int32(0), counts[0].BrokenCount)
+	assert.True(t, second.Equal(counts[1].Timestamp), "expected bucket %s, got %s", second, counts[1].Timestamp)
+	assert.Equal(t, int32(0), counts[1].HashingCount)
+	assert.Equal(t, int32(1), counts[1].BrokenCount)
+}
+
+func TestTelemetryStore_UptimeRollup1mMatchesRawBucketingForNinetySecondBuckets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := NewTelemetryStore(db, DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	deviceIdentifier := fmt.Sprintf("rollup-90s-device-%d", time.Now().UnixNano())
+	at := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Minute).Add(50 * time.Second)
+	start := at.Add(-time.Minute)
+	end := at.Add(time.Minute)
+
+	insertMinerStateSnapshotRow(t, db, at, orgID, sql.NullInt64{}, deviceIdentifier, 3)
+	rawCounts := store.getUptimeStatusCountsFromSnapshots(ctx, orgID, []models.DeviceIdentifier{models.DeviceIdentifier(deviceIdentifier)}, start, end, 90*time.Second)
+	require.Len(t, rawCounts, 1)
+
+	refreshUptimeDeviceRollup(t, db, "miner_state_snapshot_device_1m", start.Add(-time.Minute), end.Add(time.Minute))
+	rollupCounts := store.getUptimeStatusCountsFromDeviceRollups(ctx, orgID, []models.DeviceIdentifier{models.DeviceIdentifier(deviceIdentifier)}, start, end, 90*time.Second, dataSourceRaw)
+	require.Len(t, rollupCounts, 1)
+
+	assert.Equal(t, rawCounts[0].Timestamp, rollupCounts[0].Timestamp)
+	assert.Equal(t, rawCounts[0].HashingCount, rollupCounts[0].HashingCount)
+	assert.Equal(t, rawCounts[0].BrokenCount, rollupCounts[0].BrokenCount)
+	assert.Equal(t, rawCounts[0].NotHashingCount, rollupCounts[0].NotHashingCount)
+}
+
 func TestTelemetryStore_GetCombinedMetricsSkipsUptimeCountsWhenNotRequested(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

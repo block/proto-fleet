@@ -674,8 +674,17 @@ func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, quer
 	if query.OrganizationID == 0 {
 		return nil
 	}
-	if counts := s.getUptimeStatusCountsFromDeviceRollups(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration, ds); len(counts) > 0 {
-		return counts
+	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
+
+	rollupCounts := s.getUptimeStatusCountsFromDeviceRollups(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration, ds)
+	if complete, rawTailStart, canMergeTail := uptimeRollupCoverage(rollupCounts, startTime, endTime, bucketDuration); complete {
+		return rollupCounts
+	} else if canMergeTail {
+		rawTail := s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, rawTailStart, endTime, bucketDuration)
+		if len(rawTail) == 0 {
+			return rollupCounts
+		}
+		return mergeUptimeStatusCounts(rollupCounts, rawTail)
 	}
 	return s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration)
 }
@@ -1256,9 +1265,7 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromDeviceRollups(
 	if orgID == 0 {
 		return nil
 	}
-	if bucketDuration < time.Minute {
-		bucketDuration = time.Minute
-	}
+	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
 
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
@@ -1387,6 +1394,68 @@ func appendUptimeStatusCount(result []models.UptimeStatusCount, bucket time.Time
 	})
 }
 
+func normalizedUptimeBucketDuration(bucketDuration time.Duration) time.Duration {
+	// Snapshot cadence is ~60s, so finer buckets would yield empty slots.
+	if bucketDuration < time.Minute {
+		return time.Minute
+	}
+	return bucketDuration
+}
+
+func uptimeRollupCoverage(counts []models.UptimeStatusCount, startTime, endTime time.Time, bucketDuration time.Duration) (complete bool, rawTailStart time.Time, canMergeTail bool) {
+	if len(counts) == 0 {
+		return false, time.Time{}, false
+	}
+
+	ordered := append([]models.UptimeStatusCount(nil), counts...)
+	sort.Slice(ordered, func(i, j int) bool {
+		return ordered[i].Timestamp.Before(ordered[j].Timestamp)
+	})
+
+	first := ordered[0].Timestamp
+	last := first
+	for i, count := range ordered {
+		if i > 0 && count.Timestamp.Sub(last) > bucketDuration {
+			return false, time.Time{}, false
+		}
+		last = count.Timestamp
+	}
+
+	if first.After(startTime) && first.Sub(startTime) >= bucketDuration {
+		return false, time.Time{}, false
+	}
+	if endTime.After(last) && endTime.Sub(last) >= bucketDuration {
+		return false, last.Add(bucketDuration), true
+	}
+	return true, time.Time{}, false
+}
+
+func mergeUptimeStatusCounts(base, tail []models.UptimeStatusCount) []models.UptimeStatusCount {
+	if len(base) == 0 {
+		return tail
+	}
+	if len(tail) == 0 {
+		return base
+	}
+
+	byTimestamp := make(map[time.Time]models.UptimeStatusCount, len(base)+len(tail))
+	for _, count := range base {
+		byTimestamp[count.Timestamp] = count
+	}
+	for _, count := range tail {
+		byTimestamp[count.Timestamp] = count
+	}
+
+	result := make([]models.UptimeStatusCount, 0, len(byTimestamp))
+	for _, count := range byTimestamp {
+		result = append(result, count)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp.Before(result[j].Timestamp)
+	})
+	return result
+}
+
 func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	ctx context.Context,
 	orgID int64,
@@ -1397,10 +1466,7 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	if orgID == 0 {
 		return nil
 	}
-	// Snapshot cadence is ~60s, so finer buckets would yield empty slots.
-	if bucketDuration < time.Minute {
-		bucketDuration = time.Minute
-	}
+	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
 
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()

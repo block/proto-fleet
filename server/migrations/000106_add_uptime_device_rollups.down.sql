@@ -19,7 +19,4 @@ DROP INDEX IF EXISTS idx_miner_state_snapshot_device_1m_org_device_bucket;
 DROP INDEX IF EXISTS idx_miner_state_snapshot_device_1m_org_bucket;
 DROP MATERIALIZED VIEW IF EXISTS miner_state_snapshot_device_1m;
 
-SELECT remove_retention_policy('miner_state_snapshots', if_exists => true);
-SELECT add_retention_policy('miner_state_snapshots', INTERVAL '1 year');
-
 SELECT set_chunk_time_interval('miner_state_snapshots', INTERVAL '7 days');

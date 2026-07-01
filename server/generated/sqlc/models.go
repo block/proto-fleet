@@ -871,6 +871,7 @@ type MinerStateSnapshotDevice1m struct {
 	Bucket           time.Time
 	OrgID            int64
 	DeviceIdentifier string
+	StateTime        time.Time
 	State            int16
 }
 

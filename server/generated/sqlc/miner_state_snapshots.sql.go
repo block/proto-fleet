@@ -15,15 +15,15 @@ import (
 
 const getAllMinerStateSnapshotDeviceRollups1m = `-- name: GetAllMinerStateSnapshotDeviceRollups1m :many
 WITH per_device_bucket AS (
-    SELECT DISTINCT ON (time_bucket($1::text::interval, r.bucket), r.device_identifier)
-        time_bucket($1::text::interval, r.bucket)::timestamptz AS bucket,
+    SELECT DISTINCT ON (time_bucket($1::text::interval, r.state_time), r.device_identifier)
+        time_bucket($1::text::interval, r.state_time)::timestamptz AS bucket,
         r.device_identifier,
         r.state
     FROM miner_state_snapshot_device_1m r
     WHERE r.org_id = $2
-      AND r.bucket >= $3
-      AND r.bucket <= $4
-    ORDER BY time_bucket($1::text::interval, r.bucket), r.device_identifier, r.bucket DESC
+      AND r.state_time >= $3
+      AND r.state_time <= $4
+    ORDER BY time_bucket($1::text::interval, r.state_time), r.device_identifier, r.state_time DESC
 )
 SELECT
     bucket,
@@ -203,16 +203,16 @@ func (q *Queries) GetAllMinerStateSnapshotDeviceRollupsHourly(ctx context.Contex
 
 const getMinerStateSnapshotDeviceRollups1m = `-- name: GetMinerStateSnapshotDeviceRollups1m :many
 WITH per_device_bucket AS (
-    SELECT DISTINCT ON (time_bucket($1::text::interval, r.bucket), r.device_identifier)
-        time_bucket($1::text::interval, r.bucket)::timestamptz AS bucket,
+    SELECT DISTINCT ON (time_bucket($1::text::interval, r.state_time), r.device_identifier)
+        time_bucket($1::text::interval, r.state_time)::timestamptz AS bucket,
         r.device_identifier,
         r.state
     FROM miner_state_snapshot_device_1m r
     WHERE r.org_id = $2
-      AND r.bucket >= $3
-      AND r.bucket <= $4
+      AND r.state_time >= $3
+      AND r.state_time <= $4
       AND r.device_identifier = ANY($5::text[])
-    ORDER BY time_bucket($1::text::interval, r.bucket), r.device_identifier, r.bucket DESC
+    ORDER BY time_bucket($1::text::interval, r.state_time), r.device_identifier, r.state_time DESC
 )
 SELECT
     bucket,
