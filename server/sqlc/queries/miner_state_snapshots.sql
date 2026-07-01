@@ -71,18 +71,23 @@ GROUP BY bucket
 ORDER BY bucket ASC;
 
 -- name: GetAllMinerStateSnapshotDeviceRollups1m :many
+-- last(state, state_time) per (bucket, device) instead of DISTINCT ON: the
+-- expression sort key has no index, so DISTINCT ON sorts one row per device
+-- per minute for the whole range (spills work_mem on large fleets), while
+-- GROUP BY hash-aggregates and parallelizes.
 WITH per_device_bucket AS (
-    SELECT DISTINCT ON (time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time), r.device_identifier)
+    SELECT
         time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time)::timestamptz AS bucket,
         r.device_identifier,
-        r.state
+        last(r.state, r.state_time) AS state
     FROM miner_state_snapshot_device_1m r
     WHERE r.org_id = sqlc.arg('org_id')
       AND r.bucket >= time_bucket(INTERVAL '1 minute', sqlc.arg('start_time')::timestamptz)
       AND r.bucket <= sqlc.arg('end_time')
       AND r.state_time >= sqlc.arg('start_time')
       AND r.state_time <= sqlc.arg('end_time')
-    ORDER BY time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time), r.device_identifier, r.state_time DESC
+    -- The view has its own bucket column, so the output alias can't be used here.
+    GROUP BY time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time), r.device_identifier
 )
 SELECT
     bucket,
@@ -96,10 +101,10 @@ ORDER BY bucket ASC;
 
 -- name: GetMinerStateSnapshotDeviceRollups1m :many
 WITH per_device_bucket AS (
-    SELECT DISTINCT ON (time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time), r.device_identifier)
+    SELECT
         time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time)::timestamptz AS bucket,
         r.device_identifier,
-        r.state
+        last(r.state, r.state_time) AS state
     FROM miner_state_snapshot_device_1m r
     WHERE r.org_id = sqlc.arg('org_id')
       AND r.bucket >= time_bucket(INTERVAL '1 minute', sqlc.arg('start_time')::timestamptz)
@@ -107,7 +112,8 @@ WITH per_device_bucket AS (
       AND r.state_time >= sqlc.arg('start_time')
       AND r.state_time <= sqlc.arg('end_time')
       AND r.device_identifier = ANY(sqlc.arg('device_identifier_values')::text[])
-    ORDER BY time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time), r.device_identifier, r.state_time DESC
+    -- The view has its own bucket column, so the output alias can't be used here.
+    GROUP BY time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time), r.device_identifier
 )
 SELECT
     bucket,

@@ -195,6 +195,111 @@ func TestTelemetryStore_UptimeRollup1mMatchesRawBucketingForNinetySecondBuckets(
 	assert.Equal(t, rawCounts[0].NotHashingCount, rollupCounts[0].NotHashingCount)
 }
 
+func TestTelemetryStore_UptimeRollup1mPicksLatestStateWhenBucketSpansMinutes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := NewTelemetryStore(db, DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	deviceIdentifier := fmt.Sprintf("rollup-latest-state-device-%d", time.Now().UnixNano())
+
+	// Two snapshots one minute apart inside a single 90s bucket: the bucket
+	// count must reflect the later state, matching the raw path.
+	bucketStart := time.Now().UTC().Add(-2 * time.Hour).Truncate(90 * time.Second)
+	first := bucketStart
+	second := bucketStart.Add(time.Minute)
+
+	// Arrange
+	insertMinerStateSnapshotRow(t, db, first, orgID, sql.NullInt64{}, deviceIdentifier, 3)
+	insertMinerStateSnapshotRow(t, db, second, orgID, sql.NullInt64{}, deviceIdentifier, 2)
+	rawCounts := store.getUptimeStatusCountsFromSnapshots(ctx, orgID, []models.DeviceIdentifier{models.DeviceIdentifier(deviceIdentifier)}, bucketStart, second, 90*time.Second)
+	require.Len(t, rawCounts, 1)
+	refreshUptimeDeviceRollup(t, db, "miner_state_snapshot_device_1m", bucketStart.Add(-time.Minute), second.Add(time.Minute))
+
+	// Act
+	rollupCounts := store.getUptimeStatusCountsFromDeviceRollups(ctx, orgID, []models.DeviceIdentifier{models.DeviceIdentifier(deviceIdentifier)}, bucketStart, second, 90*time.Second, dataSourceRaw)
+
+	// Assert
+	require.Len(t, rollupCounts, 1)
+	assert.Equal(t, int32(0), rollupCounts[0].HashingCount)
+	assert.Equal(t, int32(1), rollupCounts[0].BrokenCount)
+	assert.Equal(t, rawCounts[0].Timestamp, rollupCounts[0].Timestamp)
+	assert.Equal(t, rawCounts[0].HashingCount, rollupCounts[0].HashingCount)
+	assert.Equal(t, rawCounts[0].BrokenCount, rollupCounts[0].BrokenCount)
+	assert.Equal(t, rawCounts[0].NotHashingCount, rollupCounts[0].NotHashingCount)
+}
+
+func TestTelemetryStore_UptimeCountsBoundAllDevicesRawFallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := NewTelemetryStore(db, DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	deviceIdentifier := fmt.Sprintf("rollup-fallback-bound-device-%d", time.Now().UnixNano())
+
+	// A snapshot in the head of the range is never refreshed into the rollup,
+	// leaving a coverage gap; only the later snapshot is materialized.
+	start := time.Now().UTC().Add(-4 * time.Hour).Truncate(time.Minute)
+	end := start.Add(3 * time.Hour)
+	gapped := start.Add(30 * time.Minute)
+	covered := start.Add(2 * time.Hour)
+
+	insertMinerStateSnapshotRow(t, db, gapped, orgID, sql.NullInt64{}, deviceIdentifier, 3)
+	insertMinerStateSnapshotRow(t, db, covered, orgID, sql.NullInt64{}, deviceIdentifier, 2)
+	refreshUptimeDeviceRollup(t, db, "miner_state_snapshot_device_1m", covered.Add(-time.Minute), covered.Add(time.Minute))
+
+	t.Run("all-devices past the range cap returns partial rollup counts", func(t *testing.T) {
+		// Act
+		counts := store.uptimeCountsForQuery(ctx, models.CombinedMetricsQuery{
+			OrganizationID: orgID,
+		}, start, end, time.Minute, dataSourceRaw)
+
+		// Assert: only the rollup-covered bucket, not the raw-only gapped one
+		require.Len(t, counts, 1)
+		assert.True(t, covered.Equal(counts[0].Timestamp), "expected bucket %s, got %s", covered, counts[0].Timestamp)
+		assert.Equal(t, int32(1), counts[0].BrokenCount)
+	})
+
+	t.Run("all-devices within the range cap still falls back to raw", func(t *testing.T) {
+		// Act
+		counts := store.uptimeCountsForQuery(ctx, models.CombinedMetricsQuery{
+			OrganizationID: orgID,
+		}, gapped, gapped.Add(time.Hour), time.Minute, dataSourceRaw)
+
+		// Assert: raw fallback serves the bucket the rollup is missing
+		require.Len(t, counts, 1)
+		assert.True(t, gapped.Equal(counts[0].Timestamp), "expected bucket %s, got %s", gapped, counts[0].Timestamp)
+		assert.Equal(t, int32(1), counts[0].HashingCount)
+	})
+
+	t.Run("device-filtered fallback is not bounded", func(t *testing.T) {
+		// Act
+		counts := store.uptimeCountsForQuery(ctx, models.CombinedMetricsQuery{
+			OrganizationID: orgID,
+			DeviceIDs:      []models.DeviceIdentifier{models.DeviceIdentifier(deviceIdentifier)},
+		}, start, end, time.Minute, dataSourceRaw)
+
+		// Assert: raw fallback covers both buckets despite the 3h range
+		require.Len(t, counts, 2)
+		assert.Equal(t, int32(1), counts[0].HashingCount)
+		assert.Equal(t, int32(1), counts[1].BrokenCount)
+	})
+}
+
 func TestTelemetryStore_GetCombinedMetricsSkipsUptimeCountsWhenNotRequested(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

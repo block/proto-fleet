@@ -15,17 +15,18 @@ import (
 
 const getAllMinerStateSnapshotDeviceRollups1m = `-- name: GetAllMinerStateSnapshotDeviceRollups1m :many
 WITH per_device_bucket AS (
-    SELECT DISTINCT ON (time_bucket($1::text::interval, r.state_time), r.device_identifier)
+    SELECT
         time_bucket($1::text::interval, r.state_time)::timestamptz AS bucket,
         r.device_identifier,
-        r.state
+        last(r.state, r.state_time) AS state
     FROM miner_state_snapshot_device_1m r
     WHERE r.org_id = $2
       AND r.bucket >= time_bucket(INTERVAL '1 minute', $3::timestamptz)
       AND r.bucket <= $4
       AND r.state_time >= $3
       AND r.state_time <= $4
-    ORDER BY time_bucket($1::text::interval, r.state_time), r.device_identifier, r.state_time DESC
+    -- The view has its own bucket column, so the output alias can't be used here.
+    GROUP BY time_bucket($1::text::interval, r.state_time), r.device_identifier
 )
 SELECT
     bucket,
@@ -53,6 +54,10 @@ type GetAllMinerStateSnapshotDeviceRollups1mRow struct {
 	SleepingCount int32
 }
 
+// last(state, state_time) per (bucket, device) instead of DISTINCT ON: the
+// expression sort key has no index, so DISTINCT ON sorts one row per device
+// per minute for the whole range (spills work_mem on large fleets), while
+// GROUP BY hash-aggregates and parallelizes.
 func (q *Queries) GetAllMinerStateSnapshotDeviceRollups1m(ctx context.Context, arg GetAllMinerStateSnapshotDeviceRollups1mParams) ([]GetAllMinerStateSnapshotDeviceRollups1mRow, error) {
 	rows, err := q.query(ctx, q.getAllMinerStateSnapshotDeviceRollups1mStmt, getAllMinerStateSnapshotDeviceRollups1m,
 		arg.BucketInterval,
@@ -205,10 +210,10 @@ func (q *Queries) GetAllMinerStateSnapshotDeviceRollupsHourly(ctx context.Contex
 
 const getMinerStateSnapshotDeviceRollups1m = `-- name: GetMinerStateSnapshotDeviceRollups1m :many
 WITH per_device_bucket AS (
-    SELECT DISTINCT ON (time_bucket($1::text::interval, r.state_time), r.device_identifier)
+    SELECT
         time_bucket($1::text::interval, r.state_time)::timestamptz AS bucket,
         r.device_identifier,
-        r.state
+        last(r.state, r.state_time) AS state
     FROM miner_state_snapshot_device_1m r
     WHERE r.org_id = $2
       AND r.bucket >= time_bucket(INTERVAL '1 minute', $3::timestamptz)
@@ -216,7 +221,8 @@ WITH per_device_bucket AS (
       AND r.state_time >= $3
       AND r.state_time <= $4
       AND r.device_identifier = ANY($5::text[])
-    ORDER BY time_bucket($1::text::interval, r.state_time), r.device_identifier, r.state_time DESC
+    -- The view has its own bucket column, so the output alias can't be used here.
+    GROUP BY time_bucket($1::text::interval, r.state_time), r.device_identifier
 )
 SELECT
     bucket,

@@ -31,6 +31,13 @@ const (
 	hourlyBucketDuration = time.Hour
 	dailyBucketDuration  = 24 * time.Hour
 
+	// Raw miner_state_snapshots scans cost one row per device per minute, so an
+	// all-devices fallback over a long range degenerates on large fleets (a 24h
+	// window at 5k devices is ~7M rows). Gapped rollups share any data gap with
+	// raw (both come from the same writer), so a full raw re-scan past this
+	// range recovers nothing the rollups don't already have.
+	maxRawUptimeFallbackRange = 2 * time.Hour
+
 	// Energy estimation constants.
 	// Each telemetry data point represents one polling interval of device uptime.
 	pollingIntervalSeconds = 10.0
@@ -685,6 +692,14 @@ func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, quer
 			return rollupCounts
 		}
 		return mergeUptimeStatusCounts(rollupCounts, rawTail)
+	}
+	if len(query.DeviceIDs) == 0 && endTime.Sub(startTime) > maxRawUptimeFallbackRange {
+		s.logger.Warn("uptime rollup coverage gap exceeds raw fallback range, returning partial rollup counts",
+			slog.Int64("org_id", query.OrganizationID),
+			slog.Time("start_time", startTime),
+			slog.Time("end_time", endTime),
+			slog.Int("rollup_bucket_count", len(rollupCounts)))
+		return rollupCounts
 	}
 	return s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration)
 }
