@@ -1,4 +1,4 @@
-# Root defaults only; fleet-api owns the live tree at runtime (see alerts.rootDefaults / buildNotificationTree).
+# Root policy for the internal webhook; fleet-api reads this batch, writes history, and fans out to each org's channels (it no longer overrides Grafana's notification tree).
 apiVersion: 1
 
 policies:
