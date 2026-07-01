@@ -143,7 +143,6 @@ const SiteDetailPage = () => {
   // Membership saves in ManageSiteModal also affect building rows, so share
   // the same refresh signal used for direct building mutations.
   const modals = useSiteModals({ refetchSites, refetchBuildings });
-  const buildingModals = useBuildingModals({ refetchBuildings, onMutationSuccess: refetchSites });
 
   const siteId = site?.site?.id;
   const siteIdText = siteId?.toString();
@@ -163,6 +162,11 @@ const SiteDetailPage = () => {
     error: siteStatsError,
     refetch: refetchSiteStats,
   } = useSiteStats({ siteId: siteId ?? 0n, enabled: siteId !== undefined, pollIntervalMs: POLL_INTERVAL_MS });
+  const handleBuildingMutationSuccess = useCallback(() => {
+    refetchSites();
+    refetchSiteStats();
+  }, [refetchSites, refetchSiteStats]);
+  const buildingModals = useBuildingModals({ refetchBuildings, onMutationSuccess: handleBuildingMutationSuccess });
 
   // Performance charts — mirrors the group/rack/building overview pages, but
   // scopes telemetry by site rather than by explicit device-set membership.
@@ -227,9 +231,8 @@ const SiteDetailPage = () => {
   }
 
   const hasLoadedVisibleBuildings = visibleBuildings !== undefined && visibleBuildingsError === null;
-  const detailBuildingCount = hasLoadedVisibleBuildings
-    ? visibleBuildings.length
-    : (siteStats?.buildingCount ?? Number(site.buildingCount));
+  const detailBuildingCount =
+    siteStats?.buildingCount ?? (hasLoadedVisibleBuildings ? visibleBuildings.length : Number(site.buildingCount));
 
   const siteSiblings = sites
     .filter((row) => row.site !== undefined)

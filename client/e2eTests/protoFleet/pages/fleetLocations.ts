@@ -153,10 +153,13 @@ export class FleetLocationsPage extends BasePage {
     await this.page.getByTestId("site-detail-edit").click();
     await this.clickManageSiteDelete();
 
+    const deleteDialog = this.page.getByTestId("site-delete-dialog");
     const confirmDeleteButton = this.page.getByTestId("site-delete-dialog-confirm");
     await expect(confirmDeleteButton).toBeVisible();
     await confirmDeleteButton.click({ trial: true });
     await confirmDeleteButton.click();
+    await expect(deleteDialog).toHaveCount(0);
+    await expect(this.page.getByTestId("full-screen-two-pane-modal")).toHaveCount(0);
   }
 
   async validateSiteNotVisible(name: string) {
