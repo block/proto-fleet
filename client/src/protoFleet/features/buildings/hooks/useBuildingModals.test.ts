@@ -105,7 +105,8 @@ describe("useBuildingModals", () => {
   it("detailsCreate calls CreateBuilding and closes on success", async () => {
     vi.mocked(buildingsClient.createBuilding).mockResolvedValue(makeCreateResp(11n, "Main"));
     const refetch = vi.fn();
-    const { result } = renderHook(() => useBuildingModals({ refetchBuildings: refetch }));
+    const onMutationSuccess = vi.fn();
+    const { result } = renderHook(() => useBuildingModals({ refetchBuildings: refetch, onMutationSuccess }));
     act(() => result.current.openDetailsCreate(7n, "North DC"));
 
     await act(async () => {
@@ -116,6 +117,7 @@ describe("useBuildingModals", () => {
       expect(buildingsClient.createBuilding).toHaveBeenCalledTimes(1);
     });
     expect(refetch).toHaveBeenCalled();
+    expect(onMutationSuccess).toHaveBeenCalled();
     expect(result.current.state.kind).toBe("none");
   });
 
@@ -186,7 +188,8 @@ describe("useBuildingModals", () => {
     vi.mocked(buildingsClient.deleteBuilding).mockResolvedValue(makeDeleteResp());
     const row = makeBuildingRow(11n, "Target");
     const onDeleteFromManage = vi.fn();
-    const { result } = renderHook(() => useBuildingModals({ onDeleteFromManage }));
+    const onMutationSuccess = vi.fn();
+    const { result } = renderHook(() => useBuildingModals({ onDeleteFromManage, onMutationSuccess }));
     act(() => result.current.openManage(row, "North DC"));
     act(() => result.current.manageEditDetails());
     act(() => result.current.requestDeleteCurrent());
@@ -197,6 +200,7 @@ describe("useBuildingModals", () => {
 
     expect(buildingsClient.deleteBuilding).toHaveBeenCalledWith({ id: 11n }, { signal: undefined });
     expect(onDeleteFromManage).toHaveBeenCalledWith(11n);
+    expect(onMutationSuccess).toHaveBeenCalled();
     expect(result.current.deleteTarget).toBeNull();
     expect(result.current.state.kind).toBe("none");
   });

@@ -140,7 +140,7 @@ const SiteDetailPage = () => {
   // Membership saves in ManageSiteModal also affect building rows, so share
   // the same refresh signal used for direct building mutations.
   const modals = useSiteModals({ refetchSites: fetchSites, refetchBuildings });
-  const buildingModals = useBuildingModals({ refetchBuildings });
+  const buildingModals = useBuildingModals({ refetchBuildings, onMutationSuccess: fetchSites });
 
   const siteId = site?.site?.id;
   const siteIdText = siteId?.toString();
@@ -223,6 +223,9 @@ const SiteDetailPage = () => {
     );
   }
 
+  const detailBuildingCount =
+    visibleBuildings !== undefined ? visibleBuildings.length : (siteStats?.buildingCount ?? Number(site.buildingCount));
+
   const siteSiblings = sites
     .filter((row) => row.site !== undefined)
     .map((row) => {
@@ -263,7 +266,7 @@ const SiteDetailPage = () => {
           testId="site-detail-breadcrumb"
         />
         <div className="flex items-start justify-between gap-4">
-          <Header title={site.site.name} titleSize="text-heading-300" />
+          <Header title={site.site.name} titleSize="text-heading-300" testId="site-detail-title" />
           {canManageSites ? (
             <Button
               variant={variants.primary}
@@ -290,7 +293,7 @@ const SiteDetailPage = () => {
             locationCity={site.site.locationCity}
             locationState={site.site.locationState}
             powerCapacityMw={site.site.powerCapacityMw}
-            buildingCount={siteStats?.buildingCount ?? Number(site.buildingCount)}
+            buildingCount={detailBuildingCount}
             metrics={siteStats}
             variant="compact"
             testId="site-detail-metrics-row"

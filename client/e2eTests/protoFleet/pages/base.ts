@@ -115,8 +115,24 @@ export class BasePage {
   }
 
   async navigateToFleetPage() {
+    if (
+      FLEET_TAB_ROUTE.test(this.page.url()) &&
+      (await this.page
+        .getByTestId("fleet-layout")
+        .isVisible()
+        .catch(() => false))
+    ) {
+      return;
+    }
+
+    const fleetLink = this.page.getByTestId("navigation-menu").locator('a[href="/fleet"]');
+
     await this.clickNavigationMenuIfMobile();
-    await this.page.getByTestId("navigation-menu").locator('a[href="/fleet"]').click();
+    if (await fleetLink.isVisible().catch(() => false)) {
+      await fleetLink.click();
+    } else {
+      await this.page.goto("/fleet/sites");
+    }
     await expect(this.page.getByTestId("fleet-layout")).toBeVisible();
     await expect(this.page).toHaveURL(FLEET_TAB_ROUTE);
   }
