@@ -31,12 +31,17 @@ const (
 	hourlyBucketDuration = time.Hour
 	dailyBucketDuration  = 24 * time.Hour
 
-	// Raw miner_state_snapshots scans cost one row per device per minute, so an
-	// all-devices fallback over a long range degenerates on large fleets (a 24h
+	// Raw miner_state_snapshots scans cost one row per device per minute, so a
+	// gapped-rollup fallback degenerates when devices x minutes is large (a 24h
 	// window at 5k devices is ~7M rows). Gapped rollups share any data gap with
-	// raw (both come from the same writer), so a full raw re-scan past this
-	// range recovers nothing the rollups don't already have.
+	// raw (both come from the same writer), so a huge raw re-scan recovers
+	// nothing the rollups don't already have. All-devices requests are bounded
+	// by range alone (the store doesn't know the fleet size); device lists,
+	// including large site scopes the service resolves into IDs, are bounded by
+	// estimated scanned rows using the budget the range cap implies at a
+	// 5k-device fleet.
 	maxRawUptimeFallbackRange = 2 * time.Hour
+	maxRawUptimeFallbackRows  = 600_000
 
 	// Energy estimation constants.
 	// Each telemetry data point represents one polling interval of device uptime.
@@ -693,9 +698,10 @@ func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, quer
 		}
 		return mergeUptimeStatusCounts(rollupCounts, rawTail)
 	}
-	if len(query.DeviceIDs) == 0 && endTime.Sub(startTime) > maxRawUptimeFallbackRange {
-		s.logger.Warn("uptime rollup coverage gap exceeds raw fallback range, returning partial rollup counts",
+	if rawUptimeFallbackTooLarge(len(query.DeviceIDs), startTime, endTime) {
+		s.logger.Warn("uptime rollup coverage gap exceeds raw fallback budget, returning partial rollup counts",
 			slog.Int64("org_id", query.OrganizationID),
+			slog.Int("device_count", len(query.DeviceIDs)),
 			slog.Time("start_time", startTime),
 			slog.Time("end_time", endTime),
 			slog.Int("rollup_bucket_count", len(rollupCounts)))
@@ -1415,6 +1421,15 @@ func normalizedUptimeBucketDuration(bucketDuration time.Duration) time.Duration 
 		return time.Minute
 	}
 	return bucketDuration
+}
+
+func rawUptimeFallbackTooLarge(deviceCount int, startTime, endTime time.Time) bool {
+	timeRange := endTime.Sub(startTime)
+	if deviceCount == 0 {
+		return timeRange > maxRawUptimeFallbackRange
+	}
+	estimatedRows := int64(deviceCount) * int64(timeRange/time.Minute)
+	return estimatedRows > maxRawUptimeFallbackRows
 }
 
 func uptimeRollupCoverage(counts []models.UptimeStatusCount, startTime, endTime time.Time, bucketDuration time.Duration) (complete bool, rawTailStart time.Time, canMergeTail bool) {

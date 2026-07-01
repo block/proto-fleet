@@ -236,7 +236,7 @@ func TestTelemetryStore_UptimeRollup1mPicksLatestStateWhenBucketSpansMinutes(t *
 	assert.Equal(t, rawCounts[0].NotHashingCount, rollupCounts[0].NotHashingCount)
 }
 
-func TestTelemetryStore_UptimeCountsBoundAllDevicesRawFallback(t *testing.T) {
+func TestTelemetryStore_UptimeCountsBoundLargeRawFallbacks(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -286,7 +286,7 @@ func TestTelemetryStore_UptimeCountsBoundAllDevicesRawFallback(t *testing.T) {
 		assert.Equal(t, int32(1), counts[0].HashingCount)
 	})
 
-	t.Run("device-filtered fallback is not bounded", func(t *testing.T) {
+	t.Run("small device list still falls back to raw", func(t *testing.T) {
 		// Act
 		counts := store.uptimeCountsForQuery(ctx, models.CombinedMetricsQuery{
 			OrganizationID: orgID,
@@ -297,6 +297,27 @@ func TestTelemetryStore_UptimeCountsBoundAllDevicesRawFallback(t *testing.T) {
 		require.Len(t, counts, 2)
 		assert.Equal(t, int32(1), counts[0].HashingCount)
 		assert.Equal(t, int32(1), counts[1].BrokenCount)
+	})
+
+	t.Run("device list past the row budget returns partial rollup counts", func(t *testing.T) {
+		// Arrange: a service-resolved site scope of 3500 devices over 3h
+		// estimates 630k scanned rows, past the 600k budget.
+		deviceIDs := make([]models.DeviceIdentifier, 0, 3500)
+		deviceIDs = append(deviceIDs, models.DeviceIdentifier(deviceIdentifier))
+		for i := 1; i < 3500; i++ {
+			deviceIDs = append(deviceIDs, models.DeviceIdentifier(fmt.Sprintf("rollup-fallback-bound-filler-%d", i)))
+		}
+
+		// Act
+		counts := store.uptimeCountsForQuery(ctx, models.CombinedMetricsQuery{
+			OrganizationID: orgID,
+			DeviceIDs:      deviceIDs,
+		}, start, end, time.Minute, dataSourceRaw)
+
+		// Assert: only the rollup-covered bucket, not the raw-only gapped one
+		require.Len(t, counts, 1)
+		assert.True(t, covered.Equal(counts[0].Timestamp), "expected bucket %s, got %s", covered, counts[0].Timestamp)
+		assert.Equal(t, int32(1), counts[0].BrokenCount)
 	})
 }
 
