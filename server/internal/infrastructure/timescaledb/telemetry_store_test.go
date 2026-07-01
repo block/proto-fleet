@@ -299,7 +299,7 @@ func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesIgnoreTimeSeriesRo
 
 	hashrate := requireMetric(t, result, models.MeasurementTypeHashrate)
 	assert.Equal(t, int32(2), hashrate.DeviceCount)
-	hashrateValues := aggregatedValuesByType(hashrate)
+	hashrateValues := aggValues(hashrate.AggregatedValues)
 	assert.InDelta(t, 550.0, hashrateValues[models.AggregationTypeAverage], 0.001)
 	assert.InDelta(t, 400.0, hashrateValues[models.AggregationTypeMin], 0.001)
 	assert.InDelta(t, 700.0, hashrateValues[models.AggregationTypeMax], 0.001)
@@ -308,7 +308,7 @@ func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesIgnoreTimeSeriesRo
 
 	temperature := requireMetric(t, result, models.MeasurementTypeTemperature)
 	assert.Equal(t, int32(2), temperature.DeviceCount)
-	temperatureValues := aggregatedValuesByType(temperature)
+	temperatureValues := aggValues(temperature.AggregatedValues)
 	assert.InDelta(t, 75.0, temperatureValues[models.AggregationTypeAverage], 0.001)
 	assert.InDelta(t, 60.0, temperatureValues[models.AggregationTypeMin], 0.001)
 	assert.InDelta(t, 90.0, temperatureValues[models.AggregationTypeMax], 0.001)
@@ -321,6 +321,67 @@ func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesIgnoreTimeSeriesRo
 	assert.Equal(t, int32(0), result.TemperatureStatusCounts[0].OkCount)
 	assert.Equal(t, int32(1), result.TemperatureStatusCounts[0].HotCount)
 	assert.Equal(t, int32(1), result.TemperatureStatusCounts[0].CriticalCount)
+}
+
+func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesDefaultInvalidSlideInterval(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	db := testutil.GetTestDB(t)
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	deviceID := "raw-bucket-zero-slide"
+	t.Cleanup(func() {
+		cleanupDeviceMetrics(t, db, deviceID)
+	})
+
+	ts := time.Now().UTC().Add(-time.Hour).Truncate(10 * time.Second)
+	insertTestMetrics(t, db, deviceID, ts, 123, 55)
+
+	startTime := ts.Add(-time.Second)
+	endTime := ts.Add(time.Second)
+	zeroSlideInterval := time.Duration(0)
+	negativeSlideInterval := -time.Second
+	subSecondSlideInterval := 500 * time.Millisecond
+
+	tests := []struct {
+		name          string
+		slideInterval *time.Duration
+	}{
+		{name: "nil"},
+		{name: "zero", slideInterval: &zeroSlideInterval},
+		{name: "negative", slideInterval: &negativeSlideInterval},
+		{name: "sub_second", slideInterval: &subSecondSlideInterval},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+				DeviceIDs: []models.DeviceIdentifier{
+					models.DeviceIdentifier(deviceID),
+				},
+				MeasurementTypes: []models.MeasurementType{
+					models.MeasurementTypeHashrate,
+				},
+				AggregationTypes: []models.AggregationType{
+					models.AggregationTypeAverage,
+				},
+				TimeRange: models.TimeRange{
+					StartTime: &startTime,
+					EndTime:   &endTime,
+				},
+				SlideInterval: tt.slideInterval,
+			})
+			require.NoError(t, err)
+
+			hashrate := requireMetric(t, result, models.MeasurementTypeHashrate)
+			hashrateValues := aggValues(hashrate.AggregatedValues)
+			assert.InDelta(t, 123.0, hashrateValues[models.AggregationTypeAverage], 0.001)
+		})
+	}
 }
 
 // TestTelemetryStore_StreamTelemetryUpdates tests streaming telemetry updates.
@@ -607,9 +668,9 @@ func requireMetric(t *testing.T, result models.CombinedMetric, measurementType m
 	return models.Metric{}
 }
 
-func aggregatedValuesByType(metric models.Metric) map[models.AggregationType]float64 {
-	values := make(map[models.AggregationType]float64, len(metric.AggregatedValues))
-	for _, value := range metric.AggregatedValues {
+func aggValues(result []models.AggregatedValue) map[models.AggregationType]float64 {
+	values := make(map[models.AggregationType]float64, len(result))
+	for _, value := range result {
 		values[value.Type] = value.Value
 	}
 	return values

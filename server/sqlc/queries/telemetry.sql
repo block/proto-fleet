@@ -186,7 +186,7 @@ LIMIT sqlc.arg('max_rows')::int;
 -- name: GetDeviceMetricsRawBucketAggregates :many
 WITH per_device_bucket AS (
     SELECT
-        time_bucket(sqlc.arg('bucket_interval')::text::interval, time)::timestamptz AS bucket,
+        time_bucket(make_interval(secs => sqlc.arg('bucket_seconds')::int), time)::timestamptz AS bucket,
         device_identifier,
         AVG(hash_rate_hs) AS avg_hash_rate,
         MIN(hash_rate_hs) AS min_hash_rate,
@@ -261,7 +261,7 @@ ORDER BY bucket ASC;
 -- name: GetAllDeviceMetricsRawBucketAggregates :many
 WITH per_device_bucket AS (
     SELECT
-        time_bucket(sqlc.arg('bucket_interval')::text::interval, time)::timestamptz AS bucket,
+        time_bucket(make_interval(secs => sqlc.arg('bucket_seconds')::int), time)::timestamptz AS bucket,
         device_identifier,
         AVG(hash_rate_hs) AS avg_hash_rate,
         MIN(hash_rate_hs) AS min_hash_rate,

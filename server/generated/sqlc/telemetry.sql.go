@@ -142,7 +142,7 @@ func (q *Queries) GetAllDeviceMetricsHourlyAggregates(ctx context.Context, arg G
 const getAllDeviceMetricsRawBucketAggregates = `-- name: GetAllDeviceMetricsRawBucketAggregates :many
 WITH per_device_bucket AS (
     SELECT
-        time_bucket($1::text::interval, time)::timestamptz AS bucket,
+        time_bucket(make_interval(secs => $1::int), time)::timestamptz AS bucket,
         device_identifier,
         AVG(hash_rate_hs) AS avg_hash_rate,
         MIN(hash_rate_hs) AS min_hash_rate,
@@ -215,9 +215,9 @@ ORDER BY bucket ASC
 `
 
 type GetAllDeviceMetricsRawBucketAggregatesParams struct {
-	BucketInterval string
-	StartTime      time.Time
-	EndTime        time.Time
+	BucketSeconds int32
+	StartTime     time.Time
+	EndTime       time.Time
 }
 
 type GetAllDeviceMetricsRawBucketAggregatesRow struct {
@@ -257,7 +257,7 @@ type GetAllDeviceMetricsRawBucketAggregatesRow struct {
 }
 
 func (q *Queries) GetAllDeviceMetricsRawBucketAggregates(ctx context.Context, arg GetAllDeviceMetricsRawBucketAggregatesParams) ([]GetAllDeviceMetricsRawBucketAggregatesRow, error) {
-	rows, err := q.query(ctx, q.getAllDeviceMetricsRawBucketAggregatesStmt, getAllDeviceMetricsRawBucketAggregates, arg.BucketInterval, arg.StartTime, arg.EndTime)
+	rows, err := q.query(ctx, q.getAllDeviceMetricsRawBucketAggregatesStmt, getAllDeviceMetricsRawBucketAggregates, arg.BucketSeconds, arg.StartTime, arg.EndTime)
 	if err != nil {
 		return nil, err
 	}
@@ -677,7 +677,7 @@ func (q *Queries) GetDeviceMetricsHourlyAggregates(ctx context.Context, arg GetD
 const getDeviceMetricsRawBucketAggregates = `-- name: GetDeviceMetricsRawBucketAggregates :many
 WITH per_device_bucket AS (
     SELECT
-        time_bucket($1::text::interval, time)::timestamptz AS bucket,
+        time_bucket(make_interval(secs => $1::int), time)::timestamptz AS bucket,
         device_identifier,
         AVG(hash_rate_hs) AS avg_hash_rate,
         MIN(hash_rate_hs) AS min_hash_rate,
@@ -751,7 +751,7 @@ ORDER BY bucket ASC
 `
 
 type GetDeviceMetricsRawBucketAggregatesParams struct {
-	BucketInterval    string
+	BucketSeconds     int32
 	DeviceIdentifiers []string
 	StartTime         time.Time
 	EndTime           time.Time
@@ -795,7 +795,7 @@ type GetDeviceMetricsRawBucketAggregatesRow struct {
 
 func (q *Queries) GetDeviceMetricsRawBucketAggregates(ctx context.Context, arg GetDeviceMetricsRawBucketAggregatesParams) ([]GetDeviceMetricsRawBucketAggregatesRow, error) {
 	rows, err := q.query(ctx, q.getDeviceMetricsRawBucketAggregatesStmt, getDeviceMetricsRawBucketAggregates,
-		arg.BucketInterval,
+		arg.BucketSeconds,
 		pq.Array(arg.DeviceIdentifiers),
 		arg.StartTime,
 		arg.EndTime,

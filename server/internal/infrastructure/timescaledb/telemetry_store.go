@@ -538,20 +538,23 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 
 	startTime, endTime := s.getTimeRange(query.TimeRange)
 	bucketDuration := DefaultBucketDuration
-	if query.SlideInterval != nil {
+	if query.SlideInterval != nil && *query.SlideInterval > 0 {
 		bucketDuration = *query.SlideInterval
 	}
 
-	bucketInterval := fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds()))
+	bucketSeconds := safeInt64ToInt32(int64(bucketDuration / time.Second))
+	if bucketSeconds <= 0 {
+		bucketSeconds = safeInt64ToInt32(int64(DefaultBucketDuration / time.Second))
+	}
 	var buckets []rawMetricBucket
 	var err error
 
 	if len(query.DeviceIDs) == 0 {
 		var rows []sqlc.GetAllDeviceMetricsRawBucketAggregatesRow
 		rows, err = s.queries.GetAllDeviceMetricsRawBucketAggregates(ctx, sqlc.GetAllDeviceMetricsRawBucketAggregatesParams{
-			BucketInterval: bucketInterval,
-			StartTime:      startTime,
-			EndTime:        endTime,
+			BucketSeconds: bucketSeconds,
+			StartTime:     startTime,
+			EndTime:       endTime,
 		})
 		buckets = make([]rawMetricBucket, 0, len(rows))
 		for _, row := range rows {
@@ -560,7 +563,7 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 	} else {
 		var rows []sqlc.GetDeviceMetricsRawBucketAggregatesRow
 		rows, err = s.queries.GetDeviceMetricsRawBucketAggregates(ctx, sqlc.GetDeviceMetricsRawBucketAggregatesParams{
-			BucketInterval:    bucketInterval,
+			BucketSeconds:     bucketSeconds,
 			DeviceIdentifiers: deviceIDsToStrings(query.DeviceIDs),
 			StartTime:         startTime,
 			EndTime:           endTime,
