@@ -60,12 +60,28 @@ export const primaryNavItems: NavItem[] = [
     path: "/fleet",
     label: "Fleet",
     icon: Fleet,
+    // The Fleet shell hosts several tabs, each with its own gate (see
+    // FleetLayout's isTabReachable): racks needs rack:read, sites/buildings/
+    // infrastructure need site:read, and miners needs miner:read + rack:read +
+    // fleet:read. rack:read and site:read are the only permissions that
+    // independently make a tab reachable, so gate on their OR union. fleet:read
+    // and miner:read are deliberately excluded: neither unlocks a tab on its
+    // own (a fleet:read-only role would land on the empty "no permission"
+    // shell), and the miners tab already requires rack:read. Home stays ungated
+    // as the safe universal landing; its widgets already degrade per-permission.
+    requiredAnyPermission: ["rack:read", "site:read"],
     scopable: true,
   },
   {
     path: "/groups",
     label: "Groups",
     icon: Groups,
+    // The Groups page's list + stats flow (ListDeviceSets, GetDeviceSetStats)
+    // is gated server-side on rack:read (see deviceset handler's
+    // requireDeviceSetReadPermission), so gate the nav on rack:read to match.
+    // fleet:read would wrongly hide it from rack readers/managers who can use
+    // the page.
+    requiredPermission: "rack:read",
     scopable: true,
   },
   {

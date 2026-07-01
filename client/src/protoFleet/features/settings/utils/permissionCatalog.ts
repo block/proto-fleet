@@ -123,6 +123,82 @@ export const lockedReadKeys = (selected: Iterable<string>, catalog: CatalogEntry
   return locked;
 };
 
+interface FunctionalDependency {
+  /** Companion keys always needed for the grant to be usable. */
+  requires?: string[];
+  /**
+   * Sets where at least one key must be held. Suggested only while none of
+   * the set is selected, so a deliberately narrow role (e.g. a reboot-only
+   * scheduler) isn't nagged to grant the other actions once it holds one.
+   */
+  oneOf?: string[][];
+}
+
+// Companion permissions a grant needs to be usable, beyond the same-resource
+// reads requiredReadsFor already resolves. These are surfaced as a one-click
+// suggestion rather than auto-added, so handing a role miner-action authority
+// stays a deliberate choice.
+const FUNCTIONAL_DEPENDENCIES: Record<string, FunctionalDependency> = {
+  // schedule:manage lets a role open the Schedules surface, but a schedule is
+  // inert until it can perform an action: the server gates create / update /
+  // resume on the underlying miner action (reboot / sleep / set power).
+  // Selecting one of those actions pulls in its own read floor (miner:read +
+  // fleet:read) via withRequiredReads, and an empty target list already means
+  // "all miners" — so no read is a hard requirement here. rack/miner reads are
+  // only needed for optional rack/group/miner targeting, which the admin can
+  // add if they want it rather than being forced into broader access.
+  "schedule:manage": {
+    oneOf: [["miner:reboot", "miner:stop_mining", "miner:set_power_target"]],
+  },
+  // Installing firmware can reboot the device, so the server gates the
+  // firmware RPC on miner:reboot in addition to miner:firmware_update.
+  "miner:firmware_update": { requires: ["miner:reboot"] },
+};
+
+export interface DependencyGaps {
+  /**
+   * Hard companion permissions the selection is missing. These are always
+   * required, so the one-click add can safely grant all of them at once.
+   */
+  required: string[];
+  /**
+   * Unsatisfied "at least one" sets — the admin must grant at least one
+   * member of each set, but the choice is theirs. Never auto-added, since
+   * granting every member would over-grant (e.g. handing a scheduling role
+   * every sensitive miner action when only one is needed).
+   */
+  chooseOneOf: string[][];
+}
+
+/**
+ * Splits a selection's functional dependency gap into hard requirements (safe
+ * to one-click add) and "choose at least one" sets (display-only guidance).
+ * Only keys the catalog actually publishes are returned, so a dependency the
+ * server hasn't shipped is skipped rather than offered as an un-grantable row.
+ * An "at least one" set already satisfied by the selection is omitted, so a
+ * deliberately narrow role isn't nagged once it holds a member.
+ */
+export const dependencyGaps = (selected: Iterable<string>, catalog: CatalogEntry[]): DependencyGaps => {
+  const selectedSet = new Set(selected);
+  const catalogKeys = new Set(catalog.map((entry) => entry.key));
+  const has = (key: string) => catalogKeys.has(key) && !selectedSet.has(key);
+  const required = new Set<string>();
+  const chooseOneOf: string[][] = [];
+  for (const key of selectedSet) {
+    const dep = FUNCTIONAL_DEPENDENCIES[key];
+    if (!dep) continue;
+    for (const requiredKey of dep.requires ?? []) {
+      if (has(requiredKey)) required.add(requiredKey);
+    }
+    for (const group of dep.oneOf ?? []) {
+      if (group.some((member) => selectedSet.has(member))) continue;
+      const options = group.filter((member) => catalogKeys.has(member));
+      if (options.length > 0) chooseOneOf.push(options);
+    }
+  }
+  return { required: [...required], chooseOneOf };
+};
+
 export interface UsePermissionCatalogResult {
   catalog: CatalogEntry[];
   permissionGroups: PermissionGroup[];
@@ -131,6 +207,7 @@ export interface UsePermissionCatalogResult {
   requiredReadsFor: (key: string) => string[];
   withRequiredReads: (selected: Iterable<string>) => string[];
   lockedReadKeys: (selected: Iterable<string>) => Set<string>;
+  dependencyGaps: (selected: Iterable<string>) => DependencyGaps;
 }
 
 // Module-level cache so multiple hook instances share the single fetch.
@@ -197,6 +274,7 @@ export const usePermissionCatalog = (): UsePermissionCatalogResult => {
     [catalog],
   );
   const boundLockedReadKeys = useCallback((selected: Iterable<string>) => lockedReadKeys(selected, catalog), [catalog]);
+  const boundDependencyGaps = useCallback((selected: Iterable<string>) => dependencyGaps(selected, catalog), [catalog]);
 
   return {
     catalog,
@@ -206,5 +284,6 @@ export const usePermissionCatalog = (): UsePermissionCatalogResult => {
     requiredReadsFor: boundRequiredReadsFor,
     withRequiredReads: boundWithRequiredReads,
     lockedReadKeys: boundLockedReadKeys,
+    dependencyGaps: boundDependencyGaps,
   };
 };
