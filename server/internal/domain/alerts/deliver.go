@@ -10,11 +10,18 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // perSendTimeout bounds a single destination POST so one slow channel can't stall the whole batch.
 const perSendTimeout = 10 * time.Second
+
+// maxRedirects caps redirect hops per send; each hop is re-validated against the SSRF policy.
+const maxRedirects = 5
+
+// maxDeliveryConcurrency bounds in-flight sends per org so one slow channel can't starve the rest.
+const maxDeliveryConcurrency = 8
 
 // Alert is one alert instance from a Grafana webhook batch, reduced to what delivery needs.
 type Alert struct {
@@ -34,11 +41,22 @@ type Deliverer struct {
 }
 
 func NewDeliverer(channels ChannelStore, crypto Cipher, devices DeviceIdentityLookup, policy DestinationPolicy, publicURL string) *Deliverer {
+	client := &http.Client{
+		Timeout: perSendTimeout,
+		// Re-validate every redirect target so a public webhook can't 3xx us onto an internal
+		// address (169.254.169.254, RFC1918, loopback); the initial URL check alone is bypassable.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= maxRedirects {
+				return fmt.Errorf("stopped after %d redirects", maxRedirects)
+			}
+			return checkDestinationURL(req.Context(), policy, req.URL.String(), "redirect")
+		},
+	}
 	return &Deliverer{
 		channels:   channels,
 		crypto:     crypto,
 		devices:    devices,
-		httpClient: &http.Client{Timeout: perSendTimeout},
+		httpClient: client,
 		policy:     policy,
 		publicURL:  strings.TrimRight(publicURL, "/"),
 	}
@@ -73,20 +91,34 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 		return
 	}
 	identities := d.resolveDevices(ctx, orgID, orgAlerts)
+	// Deliver channels concurrently (bounded) so one slow destination can't delay the others.
+	sem := make(chan struct{}, maxDeliveryConcurrency)
+	var wg sync.WaitGroup
 	for _, rec := range recs {
-		cfg, err := decodeChannelConfig(d.crypto, rec.EncryptedConfig)
-		if err != nil {
-			slog.Error("alerts.deliver_decode_failed", "org", orgID, "channel", rec.ID, "err", err)
-			continue
-		}
-		body, err := d.render(rec.Kind, orgID, orgAlerts, identities)
-		if err != nil {
-			slog.Error("alerts.deliver_render_failed", "org", orgID, "channel", rec.ID, "err", err)
-			continue
-		}
-		if err := d.send(ctx, rec.Kind, cfg, body); err != nil {
-			slog.Error("alerts.deliver_send_failed", "org", orgID, "channel", rec.ID, "kind", rec.Kind, "err", err)
-		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(rec ChannelRecord) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			d.deliverChannel(ctx, orgID, rec, orgAlerts, identities)
+		}(rec)
+	}
+	wg.Wait()
+}
+
+func (d *Deliverer) deliverChannel(ctx context.Context, orgID int64, rec ChannelRecord, orgAlerts []Alert, identities map[string]DeviceIdentity) {
+	cfg, err := decodeChannelConfig(d.crypto, rec.EncryptedConfig)
+	if err != nil {
+		slog.Error("alerts.deliver_decode_failed", "org", orgID, "channel", rec.ID, "err", err)
+		return
+	}
+	body, err := d.render(rec.Kind, orgID, orgAlerts, identities)
+	if err != nil {
+		slog.Error("alerts.deliver_render_failed", "org", orgID, "channel", rec.ID, "err", err)
+		return
+	}
+	if err := d.send(ctx, rec.Kind, cfg, body); err != nil {
+		slog.Error("alerts.deliver_send_failed", "org", orgID, "channel", rec.ID, "kind", rec.Kind, "err", err)
 	}
 }
 

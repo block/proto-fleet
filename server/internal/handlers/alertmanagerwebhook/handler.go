@@ -186,7 +186,9 @@ func (h *Handler) deliver(ctx context.Context, alerts []alertmanagerAlert) {
 	for _, a := range alerts {
 		out = append(out, alertsdomain.Alert{Status: a.Status, Labels: a.Labels, Annotations: a.Annotations})
 	}
-	deliverCtx, cancel := context.WithTimeout(ctx, deliverTimeout)
+	// Detach from request cancellation so a client disconnect can't abort in-flight sends partway;
+	// deliverTimeout still bounds the fan-out.
+	deliverCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deliverTimeout)
 	defer cancel()
 	h.deliverer.Deliver(deliverCtx, out)
 }

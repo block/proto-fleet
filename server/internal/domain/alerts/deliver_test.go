@@ -140,6 +140,25 @@ func TestDeliverSkipsPrivateDestinationUnderPolicy(t *testing.T) {
 	d.Deliver(context.Background(), []Alert{firingAlert("7", "dev-a", "X")})
 }
 
+func TestDelivererRejectsRedirectToPrivate(t *testing.T) {
+	// Policy disallows private destinations, so a redirect hop onto an internal address must be refused.
+	d := NewDeliverer(newFakeChannelStore(), testCipher(t), fakeDeviceLookup{}, DestinationPolicy{}, "")
+	require.NotNil(t, d.httpClient.CheckRedirect)
+
+	for _, target := range []string{"http://127.0.0.1/x", "http://169.254.169.254/latest", "http://10.0.0.5/hook"} {
+		req := httptest.NewRequest(http.MethodPost, target, nil)
+		require.Errorf(t, d.httpClient.CheckRedirect(req, nil), "redirect to %s must be rejected", target)
+	}
+
+	// A public target is allowed to be followed.
+	pub := httptest.NewRequest(http.MethodPost, "http://8.8.8.8/hook", nil)
+	require.NoError(t, d.httpClient.CheckRedirect(pub, nil))
+
+	// Redirect chains are capped.
+	deep := make([]*http.Request, maxRedirects)
+	require.Error(t, d.httpClient.CheckRedirect(pub, deep))
+}
+
 func TestSendTestReturnsAcceptedOnSuccess(t *testing.T) {
 	srv, got := captureServer(t)
 	d, _ := newDeliverer(t, newFakeChannelStore(), fakeDeviceLookup{})
