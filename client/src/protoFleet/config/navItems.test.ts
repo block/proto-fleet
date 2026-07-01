@@ -16,17 +16,20 @@ describe("primaryNavItems", () => {
     expect(labels.indexOf("Energy")).toBe(labels.indexOf("Activity") - 1);
   });
 
-  it("gates Fleet on the union of its tab permissions so any reachable tab keeps a nav path", () => {
+  it("gates Fleet on the permissions that actually make a tab reachable", () => {
     const fleet = primaryNavItems.find((item) => item.label === "Fleet");
 
     expect(fleet?.requiredPermission).toBeUndefined();
-    expect(fleet?.requiredAnyPermission).toEqual(["fleet:read", "rack:read", "site:read"]);
+    expect(fleet?.requiredAnyPermission).toEqual(["rack:read", "site:read"]);
 
-    // Rack- and site-only readers can reach Fleet tabs by deep link, so the
-    // nav entry must stay visible for them.
+    // Rack- and site-only readers can reach Fleet tabs (racks / sites), so the
+    // nav entry stays visible for them.
     expect(isNavItemAllowedByPermissions(fleet!, ["rack:read"])).toBe(true);
     expect(isNavItemAllowedByPermissions(fleet!, ["site:read"])).toBe(true);
-    expect(isNavItemAllowedByPermissions(fleet!, ["fleet:read"])).toBe(true);
+    // fleet:read alone unlocks no Fleet tab (the miners tab also needs
+    // miner:read + rack:read), so it must NOT advertise an unreachable page.
+    expect(isNavItemAllowedByPermissions(fleet!, ["fleet:read"])).toBe(false);
+    expect(isNavItemAllowedByPermissions(fleet!, ["miner:read"])).toBe(false);
     expect(isNavItemAllowedByPermissions(fleet!, ["activity:read"])).toBe(false);
   });
 
