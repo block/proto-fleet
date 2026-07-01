@@ -123,11 +123,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/server"
 )
 
-const (
-	shutdownTimeout = 10 * time.Second
-	// How often to re-assert the org alert-routing tree against a Grafana-only restart.
-	alertsReconcileInterval = 5 * time.Minute
-)
+const shutdownTimeout = 10 * time.Second
 
 // version is overwritten at release build time via -ldflags "-X main.version=<tag>".
 var version = "dev"
@@ -580,13 +576,11 @@ func start(config *Config) error {
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
 	grafanaClient := alertsDomain.NewGrafana(config.Metrics.Grafana)
-	alertsSvc := alertsDomain.NewService(grafanaClient, config.Metrics.AlertDestinations)
-	// Periodically re-assert the org alert-routing tree so it self-heals after a Grafana-only restart re-provisions the YAML root; gated on alerts being enabled so a default-disabled deployment never touches Grafana.
-	if config.Metrics.Enabled {
-		alertsReconcileCtx, alertsReconcileCancel := context.WithCancel(context.Background())
-		defer alertsReconcileCancel()
-		go alertsSvc.RunReconcileLoop(alertsReconcileCtx, alertsReconcileInterval)
-	}
+	// fleet-api owns org channel storage + delivery; Grafana keeps only rule evaluation,
+	// silences (rule pause / maintenance windows), and the internal history webhook.
+	alertChannelStore := sqlstores.NewSQLAlertChannelStore(conn)
+	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
+	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
@@ -612,7 +606,7 @@ func start(config *Config) error {
 			slog.Warn("FLEET_ALERTS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
 		}
 		orgQueries := sqlc.New(db.NewRetryDB(conn))
-		mux.Handle("POST "+alertmanagerwebhook.Path, alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries))
+		mux.Handle("POST "+alertmanagerwebhook.Path, alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries, alertsDeliverer))
 	}
 	mux.Handle("/api/v1/firmware/upload", firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, filesService.MaxFirmwareFileSize()))
 	mux.Handle("/api/v1/firmware/check", firmwareHandler.NewCheckHandler(filesService, sessionSvc, userStore))

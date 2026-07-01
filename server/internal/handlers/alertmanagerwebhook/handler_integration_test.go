@@ -208,7 +208,7 @@ func newAuthedRequest(t *testing.T, body []byte) *http.Request {
 // happy path: Grafana-shaped firing payload lands as one notification_history row.
 func TestServeHTTP_FiringPayloadPersistsNotification(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := newAuthedRequest(t, shapedPayload())
 	rec := httptest.NewRecorder()
@@ -233,7 +233,7 @@ func TestServeHTTP_FiringPayloadPersistsNotification(t *testing.T) {
 // resolved alerts persist with status=resolved.
 func TestServeHTTP_ResolvedPayloadRecordsStatus(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	resolved := strings.ReplaceAll(string(shapedPayload()), `"status": "firing"`, `"status": "resolved"`)
 
@@ -251,7 +251,7 @@ func TestServeHTTP_ResolvedPayloadRecordsStatus(t *testing.T) {
 // before auth so Grafana operators get a useful Allow header back.
 func TestServeHTTP_NonPostRejected(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, Path, nil)
 	req.Header.Set("Authorization", "Bearer "+testWebhookToken)
@@ -266,7 +266,7 @@ func TestServeHTTP_NonPostRejected(t *testing.T) {
 // missing Authorization → 401, no DB writes.
 func TestServeHTTP_MissingAuthorizationRejected(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
 	req.Header.Set("Content-Type", "application/json")
@@ -280,7 +280,7 @@ func TestServeHTTP_MissingAuthorizationRejected(t *testing.T) {
 // wrong Bearer credential → 401.
 func TestServeHTTP_WrongTokenRejected(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
 	req.Header.Set("Authorization", "Bearer not-the-secret")
@@ -294,7 +294,7 @@ func TestServeHTTP_WrongTokenRejected(t *testing.T) {
 // a non-Bearer scheme is rejected even when the credential matches.
 func TestServeHTTP_NonBearerSchemeRejected(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
 	req.Header.Set("Authorization", "Token "+testWebhookToken)
@@ -309,7 +309,7 @@ func TestServeHTTP_NonBearerSchemeRejected(t *testing.T) {
 // an "empty Bearer" — empty-equals-empty would otherwise round-trip true.
 func TestServeHTTP_UnconfiguredHandlerRejectsEverything(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, "", nil)
+	handler := NewHandler(h.store, "", nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
 	req.Header.Set("Authorization", "Bearer ")
@@ -323,7 +323,7 @@ func TestServeHTTP_UnconfiguredHandlerRejectsEverything(t *testing.T) {
 // malformed JSON → 400, no DB writes.
 func TestServeHTTP_InvalidJSONRejected(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := newAuthedRequest(t, []byte("not json"))
 	rec := httptest.NewRecorder()
@@ -336,7 +336,7 @@ func TestServeHTTP_InvalidJSONRejected(t *testing.T) {
 // empty batch is ack'd without writing.
 func TestServeHTTP_EmptyBatchAcked(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := newAuthedRequest(t, []byte(`{"version":"4","status":"firing","alerts":[]}`))
 	rec := httptest.NewRecorder()
@@ -352,7 +352,7 @@ func TestServeHTTP_EmptyBatchAcked(t *testing.T) {
 func TestServeHTTP_PartialStoreFailureKeepsBatchProgressing(t *testing.T) {
 	h := newDBHarness(t)
 	store := &errInjectingStore{inner: h.store, errs: []error{errors.New("transient db error")}}
-	handler := NewHandler(store, testWebhookToken, nil)
+	handler := NewHandler(store, testWebhookToken, nil, nil)
 
 	body := []byte(`{
 		"version": "4",
@@ -378,7 +378,7 @@ func TestServeHTTP_PartialStoreFailureKeepsBatchProgressing(t *testing.T) {
 func TestServeHTTP_AllStoreFailuresReturn5xx(t *testing.T) {
 	h := newDBHarness(t)
 	store := &errInjectingStore{inner: h.store, errs: []error{errors.New("transient db error"), errors.New("transient db error")}}
-	handler := NewHandler(store, testWebhookToken, nil)
+	handler := NewHandler(store, testWebhookToken, nil, nil)
 
 	body := []byte(`{
 		"version": "4",
@@ -401,7 +401,7 @@ func TestServeHTTP_AllStoreFailuresReturn5xx(t *testing.T) {
 // envelope keys doesn't break the receiver.
 func TestServeHTTP_AcceptsUnknownFields(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	body := []byte(`{
 		"version": "5-future",
@@ -427,7 +427,7 @@ func TestServeHTTP_AcceptsUnknownFields(t *testing.T) {
 // self-monitoring fan-out → one row per active org.
 func TestServeHTTP_SelfMonitoringFansOutToAllOrgs(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: []int64{1, 2, 5}})
+	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: []int64{1, 2, 5}}, nil)
 
 	req := newAuthedRequest(t, selfMonitoringPayload())
 	rec := httptest.NewRecorder()
@@ -450,7 +450,7 @@ func TestServeHTTP_SelfMonitoringFansOutToAllOrgs(t *testing.T) {
 // but the critical signal still lands.
 func TestServeHTTP_SelfMonitoringFallsBackOnListerError(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{err: errors.New("db down")})
+	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{err: errors.New("db down")}, nil)
 
 	req := newAuthedRequest(t, selfMonitoringPayload())
 	rec := httptest.NewRecorder()
@@ -466,7 +466,7 @@ func TestServeHTTP_SelfMonitoringFallsBackOnListerError(t *testing.T) {
 // no active orgs → single unscoped row.
 func TestServeHTTP_SelfMonitoringNoActiveOrgsFallsBackToUnscoped(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: nil})
+	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: nil}, nil)
 
 	req := newAuthedRequest(t, selfMonitoringPayload())
 	rec := httptest.NewRecorder()
@@ -482,7 +482,7 @@ func TestServeHTTP_SelfMonitoringNoActiveOrgsFallsBackToUnscoped(t *testing.T) {
 // fan-out is opt-in via rule_group.
 func TestServeHTTP_UnscopedNonSelfAlertDoesNotFanOut(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: []int64{1, 2, 3}})
+	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: []int64{1, 2, 3}}, nil)
 
 	body := []byte(`{
 		"version": "4",
@@ -507,7 +507,7 @@ func TestServeHTTP_UnscopedNonSelfAlertDoesNotFanOut(t *testing.T) {
 func TestServeHTTP_SelfMonitoringFanOutToleratesPartialFailure(t *testing.T) {
 	h := newDBHarness(t)
 	store := &errInjectingStore{inner: h.store, errs: []error{nil, errors.New("transient db error"), nil}}
-	handler := NewHandler(store, testWebhookToken, stubOrgLister{ids: []int64{1, 2, 3}})
+	handler := NewHandler(store, testWebhookToken, stubOrgLister{ids: []int64{1, 2, 3}}, nil)
 
 	req := newAuthedRequest(t, selfMonitoringPayload())
 	rec := httptest.NewRecorder()
@@ -526,7 +526,7 @@ func TestServeHTTP_SelfMonitoringFanOutToleratesPartialFailure(t *testing.T) {
 func TestServeHTTP_SelfMonitoringFanOutAllFailuresReturn5xx(t *testing.T) {
 	h := newDBHarness(t)
 	store := &errInjectingStore{inner: h.store, errs: []error{errors.New("db down"), errors.New("db down")}}
-	handler := NewHandler(store, testWebhookToken, stubOrgLister{ids: []int64{1, 2}})
+	handler := NewHandler(store, testWebhookToken, stubOrgLister{ids: []int64{1, 2}}, nil)
 
 	req := newAuthedRequest(t, selfMonitoringPayload())
 	rec := httptest.NewRecorder()
@@ -540,7 +540,7 @@ func TestServeHTTP_SelfMonitoringFanOutAllFailuresReturn5xx(t *testing.T) {
 // reach the DB.
 func TestServeHTTP_TooManyAlertsRejected(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	alerts := make([]map[string]any, 0, maxAlertsPerRequest+1)
 	for i := 0; i <= maxAlertsPerRequest; i++ {
@@ -567,7 +567,7 @@ func TestServeHTTP_TooManyAlertsRejected(t *testing.T) {
 // a batch sitting exactly at the per-request alert cap still passes.
 func TestServeHTTP_AtAlertCapStillAccepted(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	alerts := make([]map[string]any, 0, maxAlertsPerRequest)
 	for range maxAlertsPerRequest {
@@ -599,7 +599,7 @@ func TestServeHTTP_SelfMonitoringFanOutTruncatesAtRowCap(t *testing.T) {
 	for i := range orgIDs {
 		orgIDs[i] = int64(i + 1)
 	}
-	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: orgIDs})
+	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: orgIDs}, nil)
 
 	req := newAuthedRequest(t, selfMonitoringPayload())
 	rec := httptest.NewRecorder()
@@ -617,7 +617,7 @@ func TestServeHTTP_RowBudgetSharedAcrossBatch(t *testing.T) {
 	for i := range orgIDs {
 		orgIDs[i] = int64(i + 1)
 	}
-	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: orgIDs})
+	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: orgIDs}, nil)
 
 	body := []byte(`{
 		"version": "4",
@@ -651,7 +651,7 @@ func TestServeHTTP_RowBudgetSharedAcrossBatch(t *testing.T) {
 // payloads larger than the body cap return 413 and never touch the DB.
 func TestServeHTTP_OversizedBodyRejected(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	junk := bytes.Repeat([]byte("a"), maxBodyBytes+1024)
 	body, err := json.Marshal(map[string]any{

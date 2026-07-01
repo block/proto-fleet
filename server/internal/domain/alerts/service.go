@@ -13,26 +13,38 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/google/uuid"
 )
 
+// Cipher encrypts/decrypts a channel's destination secret at rest.
+type Cipher interface {
+	Encrypt(plaintext []byte) (string, error)
+	Decrypt(ciphertext string) ([]byte, error)
+}
+
+// ChannelTester delivers a one-off test message to a destination (implemented by Deliverer),
+// so channel CRUD can verify a destination without a Grafana receiver-test round trip.
+type ChannelTester interface {
+	SendTest(ctx context.Context, kind ChannelKind, url, bearer string) (ok bool, errMsg string, err error)
+}
+
 type Service struct {
-	grafana *Grafana
-	policy  DestinationPolicy
-	now     func() time.Time
-	treeMu  sync.Mutex
+	grafana  *Grafana
+	channels ChannelStore
+	crypto   Cipher
+	tester   ChannelTester
+	policy   DestinationPolicy
+	now      func() time.Time
 }
 
 type DestinationPolicy struct {
 	AllowPrivateDestinations bool `help:"Allow alert destinations (webhook URLs, SMTP hosts) that resolve to loopback, link-local, or private network ranges. Enable for dev stacks or deployments whose relays live on internal addresses." default:"false" env:"ALLOW_PRIVATE_DESTINATIONS"`
 }
 
-func NewService(g *Grafana, policy DestinationPolicy) *Service {
-	return &Service{grafana: g, policy: policy, now: time.Now}
+func NewService(g *Grafana, channels ChannelStore, crypto Cipher, tester ChannelTester, policy DestinationPolicy) *Service {
+	return &Service{grafana: g, channels: channels, crypto: crypto, tester: tester, policy: policy, now: time.Now}
 }
 
 var ErrZeroOrgID = errors.New("alerts: organization id is required")
@@ -47,27 +59,114 @@ func requireOrg(orgID int64) error {
 	return nil
 }
 
+// channelConfig is the plaintext destination secret, persisted encrypted in ChannelRecord.
+type channelConfig struct {
+	URL    string `json:"url"`
+	Bearer string `json:"bearer,omitempty"`
+}
+
+func encodeChannelConfig(crypto Cipher, cfg channelConfig) (string, error) {
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("marshal channel config: %w", err)
+	}
+	return crypto.Encrypt(b)
+}
+
+func decodeChannelConfig(crypto Cipher, enc string) (channelConfig, error) {
+	if enc == "" {
+		return channelConfig{}, nil
+	}
+	b, err := crypto.Decrypt(enc)
+	if err != nil {
+		return channelConfig{}, err
+	}
+	var cfg channelConfig
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return channelConfig{}, fmt.Errorf("unmarshal channel config: %w", err)
+	}
+	return cfg, nil
+}
+
+func (s *Service) encodeConfig(cfg channelConfig) (string, error) {
+	return encodeChannelConfig(s.crypto, cfg)
+}
+
+func (s *Service) decodeConfig(enc string) (channelConfig, error) {
+	return decodeChannelConfig(s.crypto, enc)
+}
+
+func configFromChannel(c Channel) channelConfig {
+	switch c.Kind {
+	case ChannelKindWebhook:
+		if c.Webhook != nil {
+			return channelConfig{URL: c.Webhook.URL, Bearer: c.Webhook.BearerHeader}
+		}
+	case ChannelKindSlack:
+		if c.Slack != nil {
+			return channelConfig{URL: c.Slack.WebhookURL}
+		}
+	}
+	return channelConfig{}
+}
+
+// recordToChannel derives HasSecret and a redacted webhook URL from the stored config, never returning the secret itself.
+func (s *Service) recordToChannel(rec ChannelRecord) (Channel, error) {
+	cfg, err := s.decodeConfig(rec.EncryptedConfig)
+	if err != nil {
+		return Channel{}, err
+	}
+	c := Channel{
+		ID:              strconv.FormatInt(rec.ID, 10),
+		OrganizationID:  rec.OrganizationID,
+		Name:            rec.Name,
+		Kind:            rec.Kind,
+		CreatedAt:       rec.CreatedAt,
+		UpdatedAt:       rec.UpdatedAt,
+		ValidatedAt:     rec.ValidatedAt,
+		ValidationState: rec.ValidationState,
+		ValidationError: rec.ValidationError,
+	}
+	switch rec.Kind {
+	case ChannelKindWebhook:
+		// Host-only: webhook URLs embed capability tokens reachable by alert:read holders.
+		c.Webhook = &WebhookConfig{URL: redactWebhookURL(cfg.URL)}
+		c.HasSecret = cfg.Bearer != ""
+	case ChannelKindSlack:
+		// The URL is the secret; expose presence only.
+		c.Slack = &SlackConfig{}
+		c.HasSecret = cfg.URL != ""
+	}
+	return c, nil
+}
+
+// A non-numeric id can't name a real row, so treat it as not found rather than a parse error.
+func parseChannelID(id string) (int64, error) {
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return 0, ErrNotFound
+	}
+	return n, nil
+}
+
 func (s *Service) ListChannels(ctx context.Context, orgID int64) ([]Channel, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
 	}
-	cps, err := s.grafana.ListContactPoints(ctx)
+	recs, err := s.channels.List(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
-	prefix := channelNamePrefix(orgID)
-	out := make([]Channel, 0, len(cps))
-	for _, cp := range cps {
-		if !strings.HasPrefix(cp.Name, prefix) {
-			continue
-		}
-		c, err := contactPointToChannel(orgID, cp)
+	out := make([]Channel, 0, len(recs))
+	for _, rec := range recs {
+		c, err := s.recordToChannel(rec)
 		if err != nil {
+			// A row we can't decrypt (e.g. rotated master key) shouldn't sink the whole list.
+			slog.Error("alerts.channel_decode_failed", "id", rec.ID, "err", err)
 			continue
 		}
 		out = append(out, c)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, nil
 }
 
@@ -81,51 +180,29 @@ func (s *Service) CreateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	if err := s.validateDestination(ctx, &c); err != nil {
 		return nil, err
 	}
-	// Reject a duplicate name up front: Grafana would otherwise collapse the new
-	// contact point onto the existing receiver as a second integration (they share
-	// the org-prefixed name), which muddles per-channel test/delete semantics.
-	grafanaName := channelGrafanaName(orgID, c.Name)
-	existing, err := s.grafana.ListContactPoints(ctx)
+	// Reject a duplicate name up front (the live-rows unique index would reject it anyway).
+	if _, err := s.channels.GetByName(ctx, orgID, c.Name); err == nil {
+		return nil, fleeterror.NewAlreadyExistsErrorf("a channel named %q already exists", c.Name)
+	} else if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	enc, err := s.encodeConfig(configFromChannel(c))
 	if err != nil {
 		return nil, err
 	}
-	for _, cp := range existing {
-		if cp.Name == grafanaName {
-			return nil, fleeterror.NewAlreadyExistsErrorf("a channel named %q already exists", c.Name)
-		}
-	}
-	c.OrganizationID = orgID
-	c.CreatedAt = s.now()
-	c.UpdatedAt = c.CreatedAt
-	c.ValidationState = ValidationPending
-
-	settings, err := encodeChannelSettings(&c)
+	rec, err := s.channels.Insert(ctx, ChannelRecord{
+		OrganizationID:  orgID,
+		Name:            c.Name,
+		Kind:            c.Kind,
+		EncryptedConfig: enc,
+		ValidationState: ValidationPending,
+	})
 	if err != nil {
 		return nil, err
 	}
-	cp := GrafanaContactPoint{
-		Name:     grafanaName,
-		Type:     grafanaTypeFor(c.Kind),
-		Settings: settings,
-	}
-	created, err := s.grafana.CreateContactPoint(ctx, cp)
+	out, err := s.recordToChannel(rec)
 	if err != nil {
 		return nil, err
-	}
-	out, err := contactPointToChannel(orgID, *created)
-	if err != nil {
-		return nil, err
-	}
-	// Grafana's response strips the secret, so preserve the local HasSecret flag.
-	out.HasSecret = c.HasSecret
-	if err := s.reconcileRoutes(); err != nil {
-		// Roll back so a routing failure leaves no orphaned, unrouted channel.
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
-		defer cancel()
-		if delErr := s.grafana.DeleteContactPoint(cleanupCtx, created.UID); delErr != nil {
-			slog.Error("alerts.create_rollback_failed", "uid", created.UID, "err", delErr)
-		}
-		return nil, fmt.Errorf("channel routing update failed: %w", err)
 	}
 	return &out, nil
 }
@@ -140,257 +217,148 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	if err := validateChannelName(c.Name); err != nil {
 		return nil, err
 	}
-	// Grafana doesn't enforce our prefix scheme, so verify ownership before the PUT.
-	owned, ownedCP, err := s.findOwnedChannel(ctx, orgID, c.ID)
+	id, err := parseChannelID(c.ID)
 	if err != nil {
 		return nil, err
 	}
-	// A rename to another channel's name would collapse both onto one Grafana
-	// receiver, so reject it the same way CreateChannel does (excluding self).
-	if c.Name != owned.Name {
-		grafanaName := channelGrafanaName(orgID, c.Name)
-		existing, err := s.grafana.ListContactPoints(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, ecp := range existing {
-			if ecp.Name == grafanaName && ecp.UID != c.ID {
-				return nil, fleeterror.NewAlreadyExistsErrorf("a channel named %q already exists", c.Name)
-			}
-		}
+	rec, err := s.channels.Get(ctx, orgID, id)
+	if err != nil {
+		return nil, err
 	}
-	// destinationChanged gates secret preservation: a stored secret must never be carried onto a new destination.
-	destinationChanged := false
-	keepStoredSlackURL := false
-	switch c.Kind {
-	case ChannelKindWebhook:
-		if c.Webhook != nil {
-			// Only reuse the stored URL when this was already a webhook; otherwise we'd graft the prior kind's secret (e.g. a Slack URL) onto the webhook.
-			stored := ""
-			if owned.Kind == ChannelKindWebhook {
-				stored = webhookURLFromSettings(ownedCP.Settings)
-			}
-			if stored != "" && (c.Webhook.URL == "" || c.Webhook.URL == redactWebhookURL(stored)) {
-				c.Webhook.URL = stored
-			}
-			destinationChanged = c.Webhook.URL != stored
-		}
-	case ChannelKindSlack:
-		// Only keep the stored URL when this was already a Slack channel; otherwise carrySecretSettings would graft the prior kind's secret onto the new Slack contact point.
-		keepStoredSlackURL = owned.Kind == ChannelKindSlack && (c.Slack == nil || c.Slack.WebhookURL == "")
-		if c.Slack == nil {
-			c.Slack = &SlackConfig{}
-		}
-		destinationChanged = !keepStoredSlackURL
+	stored, err := s.decodeConfig(rec.EncryptedConfig)
+	if err != nil {
+		return nil, err
 	}
-	if !keepStoredSlackURL {
-		if err := s.validateDestination(ctx, &c); err != nil {
+	// Reject a rename onto another live channel's name (the unique index would reject it too).
+	if c.Name != rec.Name {
+		if other, err := s.channels.GetByName(ctx, orgID, c.Name); err == nil && other.ID != id {
+			return nil, fleeterror.NewAlreadyExistsErrorf("a channel named %q already exists", c.Name)
+		} else if err != nil && !errors.Is(err, ErrNotFound) {
 			return nil, err
 		}
 	}
-	c.OrganizationID = orgID
-	c.UpdatedAt = s.now()
-	c.ValidationState = ValidationPending
-	c.ValidatedAt = nil
-	c.ValidationError = ""
-	hasNewSecret := s.requestHasNewSecret(&c)
-
-	settings, err := encodeChannelSettings(&c)
-	if err != nil {
-		return nil, err
-	}
-	// Carry the stored secret forward only when the destination is unchanged, so the old credential can't be delivered to a new destination.
-	if !hasNewSecret {
-		if destinationChanged {
-			c.HasSecret = false
-		} else {
-			var carried bool
-			settings, carried, err = carrySecretSettings(ownedCP.Settings, settings, c.Kind)
-			if err != nil {
-				return nil, err
-			}
-			c.HasSecret = owned.HasSecret || carried
+	newCfg, needValidate := mergeChannelConfig(c, rec.Kind, stored)
+	if needValidate {
+		if err := s.validateConfig(ctx, c.Kind, newCfg); err != nil {
+			return nil, err
 		}
 	}
-	cp := GrafanaContactPoint{
-		UID:      c.ID,
-		Name:     channelGrafanaName(orgID, c.Name),
-		Type:     grafanaTypeFor(c.Kind),
-		Settings: settings,
-	}
-	if err := s.grafana.UpdateContactPoint(ctx, c.ID, cp); err != nil {
-		return nil, err
-	}
-	// Grafana's provisioning PUT returns a 202 Ack, not the contact point, so build the response from what we sent.
-	out, err := contactPointToChannel(orgID, cp)
+	enc, err := s.encodeConfig(newCfg)
 	if err != nil {
 		return nil, err
 	}
-	out.HasSecret = c.HasSecret
-	if err := s.reconcileRoutes(); err != nil {
-		return nil, fmt.Errorf("channel saved but routing update failed: %w", err)
+	updated, err := s.channels.Update(ctx, ChannelRecord{
+		ID:              id,
+		OrganizationID:  orgID,
+		Name:            c.Name,
+		Kind:            c.Kind,
+		EncryptedConfig: enc,
+		ValidationState: ValidationPending,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out, err := s.recordToChannel(updated)
+	if err != nil {
+		return nil, err
 	}
 	return &out, nil
+}
+
+// mergeChannelConfig folds an update onto the stored config, carrying the secret only when the destination is unchanged; returns whether the result still needs SSRF validation.
+func mergeChannelConfig(c Channel, storedKind ChannelKind, stored channelConfig) (channelConfig, bool) {
+	switch c.Kind {
+	case ChannelKindWebhook:
+		req := configFromChannel(c) // {URL, Bearer} from the request
+		// Only reuse the stored URL when this was already a webhook; otherwise we'd graft the
+		// prior kind's secret onto the webhook. Reads redact the URL to host, so treat an
+		// unchanged (empty or host-only) submission as "keep the stored destination".
+		storedURL := ""
+		if storedKind == ChannelKindWebhook {
+			storedURL = stored.URL
+		}
+		if storedURL != "" && (req.URL == "" || req.URL == redactWebhookURL(storedURL)) {
+			req.URL = storedURL
+		}
+		destinationChanged := req.URL != storedURL
+		if req.Bearer == "" && !destinationChanged && storedKind == ChannelKindWebhook {
+			req.Bearer = stored.Bearer // carry the stored bearer when nothing else changed
+		}
+		return req, true
+	case ChannelKindSlack:
+		keepStored := storedKind == ChannelKindSlack && (c.Slack == nil || c.Slack.WebhookURL == "")
+		if keepStored {
+			return channelConfig{URL: stored.URL}, false
+		}
+		return configFromChannel(c), true
+	}
+	return channelConfig{}, false
+}
+
+// validateConfig runs the SSRF/destination checks against an effective (post-merge) config.
+func (s *Service) validateConfig(ctx context.Context, kind ChannelKind, cfg channelConfig) error {
+	tmp := Channel{Kind: kind}
+	switch kind {
+	case ChannelKindWebhook:
+		tmp.Webhook = &WebhookConfig{URL: cfg.URL, BearerHeader: cfg.Bearer}
+	case ChannelKindSlack:
+		tmp.Slack = &SlackConfig{WebhookURL: cfg.URL}
+	}
+	return s.validateDestination(ctx, &tmp)
 }
 
 func (s *Service) DeleteChannel(ctx context.Context, orgID int64, id string) error {
 	if err := requireOrg(orgID); err != nil {
 		return err
 	}
-	if _, _, err := s.findOwnedChannel(ctx, orgID, id); err != nil {
-		return err
-	}
-	if err := s.grafana.DeleteContactPoint(ctx, id); err != nil && !IsNotFound(err) {
-		return err
-	}
-	if err := s.reconcileRoutes(); err != nil {
-		return fmt.Errorf("channel deleted but routing update failed: %w", err)
-	}
-	return nil
-}
-
-// RunReconcileLoop reconciles immediately, then every interval until ctx is cancelled; best-effort (logs) so it self-heals routing after a Grafana-only restart without blocking the caller.
-func (s *Service) RunReconcileLoop(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if err := s.ReconcileNotificationTree(ctx); err != nil {
-			slog.Warn("alerts.reconcile_routes_failed", "error", err)
-		}
-		select {
-		case <-ticker.C:
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-// ReconcileNotificationTree rebuilds the org-routing tree from current contact points and replaces Grafana's policy tree; idempotent, called on boot to re-assert it.
-func (s *Service) ReconcileNotificationTree(ctx context.Context) error {
-	// Grafana replaces the whole tree on PUT, so serialize the read-modify-write.
-	s.treeMu.Lock()
-	defer s.treeMu.Unlock()
-	cps, err := s.grafana.ListContactPoints(ctx)
+	n, err := parseChannelID(id)
 	if err != nil {
 		return err
 	}
-	return s.grafana.SetNotificationTree(ctx, buildNotificationTree(cps))
+	return s.channels.SoftDelete(ctx, orgID, n)
 }
 
-// reconcileRoutes re-asserts routing after a channel write on a fresh context so a client disconnect can't cancel the policy update; the caller surfaces the error so an interactive write never silently loses routing.
-func (s *Service) reconcileRoutes() error {
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
-	defer cancel()
-	return s.ReconcileNotificationTree(ctx)
-}
-
-// Root defaults mirror notification-policies.yaml; keep the two in sync.
-var rootDefaults = GrafanaRoute{
-	Receiver:       "protofleet-internal",
-	GroupBy:        []string{"alertname", ruleLabelOrganizationID, "device_id"},
-	GroupWait:      "30s",
-	GroupInterval:  "5m",
-	RepeatInterval: "1h",
-}
-
-// Recovers the org id from an "org-<id>-<name>" contact point name.
-var orgChannelName = regexp.MustCompile(`^org-(\d+)-`)
-
-// Matches TestChannel's transient "test-<uuid>" receivers precisely, so saved channels named "test-*" still route and orphaned transient receivers (old or new) never do.
+// Reserves the "test-<uuid>" shape (kept from the earlier Grafana-routed design) so a saved
+// channel can never be named to collide with transient test receivers.
 var transientReceiverName = regexp.MustCompile(`^test-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-
-// reconcileTimeout bounds a post-write reconcile run on its own background context.
-const reconcileTimeout = 30 * time.Second
-
-// buildNotificationTree routes each org's alerts to its own contact point, collapsing the per-device fan-out into one notification per org.
-func buildNotificationTree(cps []GrafanaContactPoint) GrafanaRoute {
-	root := rootDefaults
-	var orgRoutes []GrafanaRoute
-	seen := map[string]bool{}
-	for _, cp := range cps {
-		m := orgChannelName.FindStringSubmatch(cp.Name)
-		// Skip non-org receivers and TestChannel's transient test-before-save contact points.
-		if m == nil || transientReceiverName.MatchString(cp.Name[len(m[0]):]) {
-			continue
-		}
-		// One route per receiver name: Grafana collapses same-named integrations onto one receiver, so a duplicate route would double-deliver.
-		if seen[cp.Name] {
-			continue
-		}
-		seen[cp.Name] = true
-		orgRoutes = append(orgRoutes, GrafanaRoute{
-			Receiver: cp.Name,
-			// Exclude operator-only internal alerts: they carry organization_id but must reach only the webhook/history tee, never an org's external channel.
-			ObjectMatchers: [][]string{
-				{ruleLabelOrganizationID, "=", m[1]},
-				{ruleLabelScope, "!=", ruleScopeInternal},
-			},
-			GroupBy:  []string{ruleLabelOrganizationID},
-			Continue: true,
-		})
-	}
-	if len(orgRoutes) == 0 {
-		return root
-	}
-	// Trailing match-all tee keeps the history webhook fed once org routes divert alerts.
-	orgRoutes = append(orgRoutes, GrafanaRoute{Receiver: rootDefaults.Receiver})
-	root.Routes = orgRoutes
-	return root
-}
 
 func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool, int, string, error) {
 	if err := requireOrg(orgID); err != nil {
 		return false, 0, "", err
 	}
-
+	var (
+		kind        ChannelKind
+		url, bearer string
+	)
 	if c.ID != "" {
-		// Saved channel: verify org ownership, then replay the receiver's stored
-		// integration so Grafana reuses its secrets. We can't rebuild the body from
-		// a read — reads redact the secret (Slack url, webhook bearer), and sending
-		// those placeholders back fails delivery.
-		_, ownedCP, err := s.findOwnedChannel(ctx, orgID, c.ID)
+		// Saved channel: decrypt the stored destination so we test the real secret, not the
+		// redacted placeholder a read returns.
+		id, err := parseChannelID(c.ID)
 		if err != nil {
 			return false, 0, "", err
 		}
-		res, err := s.grafana.TestStoredReceiver(ctx, ownedCP.Name, ownedCP.UID)
+		rec, err := s.channels.Get(ctx, orgID, id)
 		if err != nil {
 			return false, 0, "", err
 		}
-		return res.OK, testStatusCode(res.OK), res.Error, nil
-	}
-
-	// Test-before-save: Grafana's receiver test API only addresses an existing
-	// receiver, so stand up a transient org-scoped contact point, test it, and
-	// tear it down. The temp name keeps the org prefix so isolation still holds.
-	if err := s.validateDestination(ctx, &c); err != nil {
-		return false, 0, "", err
-	}
-	c.OrganizationID = orgID
-	settings, err := encodeChannelSettings(&c)
-	if err != nil {
-		return false, 0, "", err
-	}
-	gType := grafanaTypeFor(c.Kind)
-	tmpName := channelGrafanaName(orgID, "test-"+uuid.NewString())
-	created, err := s.grafana.CreateContactPoint(ctx, GrafanaContactPoint{Name: tmpName, Type: gType, Settings: settings})
-	if err != nil {
-		return false, 0, "", err
-	}
-	defer func() {
-		// Fresh context: if the caller's ctx is already canceled (client gone or
-		// deadline hit during the test), reusing it would skip the delete and leave
-		// an org-<id>-test-* contact point that ListChannels would surface.
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if delErr := s.grafana.DeleteContactPoint(cleanupCtx, created.UID); delErr != nil {
-			slog.Warn("alerts.test_channel_cleanup_failed", "uid", created.UID, "err", delErr)
+		cfg, err := s.decodeConfig(rec.EncryptedConfig)
+		if err != nil {
+			return false, 0, "", err
 		}
-	}()
-	res, err := s.grafana.TestReceiverIntegration(ctx, tmpName, gType, settings)
+		kind, url, bearer = rec.Kind, cfg.URL, cfg.Bearer
+	} else {
+		// Test-before-save: validate the submitted destination, then send to it directly.
+		if err := s.validateDestination(ctx, &c); err != nil {
+			return false, 0, "", err
+		}
+		cfg := configFromChannel(c)
+		kind, url, bearer = c.Kind, cfg.URL, cfg.Bearer
+	}
+	ok, errMsg, err := s.tester.SendTest(ctx, kind, url, bearer)
 	if err != nil {
 		return false, 0, "", err
 	}
-	return res.OK, testStatusCode(res.OK), res.Error, nil
+	return ok, testStatusCode(ok), errMsg, nil
 }
 
 // testStatusCode keeps the wire response_code field meaningful for the legacy
@@ -403,71 +371,6 @@ func testStatusCode(ok bool) int {
 	return 0
 }
 
-// Returns the raw contact point too, needed to carry secret settings the decoded Channel drops.
-func (s *Service) findOwnedChannel(ctx context.Context, orgID int64, id string) (*Channel, *GrafanaContactPoint, error) {
-	cps, err := s.grafana.ListContactPoints(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	prefix := channelNamePrefix(orgID)
-	for i, cp := range cps {
-		if cp.UID != id || !strings.HasPrefix(cp.Name, prefix) {
-			continue
-		}
-		c, err := contactPointToChannel(orgID, cp)
-		if err != nil {
-			return nil, nil, err
-		}
-		return &c, &cps[i], nil
-	}
-	return nil, nil, ErrNotFound
-}
-
-func (s *Service) requestHasNewSecret(c *Channel) bool {
-	switch c.Kind {
-	case ChannelKindWebhook:
-		return c.Webhook != nil && c.Webhook.BearerHeader != ""
-	case ChannelKindSlack:
-		return c.Slack != nil && c.Slack.WebhookURL != ""
-	}
-	return false
-}
-
-func secretSettingsKeyFor(kind ChannelKind) string {
-	switch kind {
-	case ChannelKindWebhook:
-		return "authorization_credentials"
-	case ChannelKindSlack:
-		return "url"
-	}
-	return ""
-}
-
-func carrySecretSettings(existing, next json.RawMessage, kind ChannelKind) (json.RawMessage, bool, error) {
-	key := secretSettingsKeyFor(kind)
-	if key == "" {
-		return next, false, nil
-	}
-	var prev map[string]json.RawMessage
-	if err := json.Unmarshal(existing, &prev); err != nil {
-		return nil, false, fmt.Errorf("unmarshal existing contact point settings: %w", err)
-	}
-	raw, ok := prev[key]
-	if !ok || len(raw) == 0 || string(raw) == `""` || string(raw) == "null" {
-		return next, false, nil
-	}
-	var out map[string]json.RawMessage
-	if err := json.Unmarshal(next, &out); err != nil {
-		return nil, false, fmt.Errorf("unmarshal update settings: %w", err)
-	}
-	out[key] = raw
-	b, err := json.Marshal(out)
-	if err != nil {
-		return nil, false, fmt.Errorf("marshal settings with carried secret: %w", err)
-	}
-	return b, true, nil
-}
-
 // Rejects names matching the transient test-receiver pattern so a saved channel can never be misclassified as transient and dropped from routing.
 func validateChannelName(name string) error {
 	if transientReceiverName.MatchString(name) {
@@ -476,24 +379,24 @@ func validateChannelName(name string) error {
 	return nil
 }
 
-// Grafana is what connects out, so an unvalidated destination is an SSRF vector.
+// fleet-api is what connects out, so an unvalidated destination is an SSRF vector.
 func (s *Service) validateDestination(ctx context.Context, c *Channel) error {
 	switch c.Kind {
 	case ChannelKindWebhook:
 		if c.Webhook == nil || c.Webhook.URL == "" {
 			return fleeterror.NewInvalidArgumentError("webhook url is required")
 		}
-		return s.checkDestinationURL(ctx, c.Webhook.URL, "webhook")
+		return checkDestinationURL(ctx, s.policy, c.Webhook.URL, "webhook")
 	case ChannelKindSlack:
 		if c.Slack == nil || c.Slack.WebhookURL == "" {
 			return fleeterror.NewInvalidArgumentError("slack webhook url is required")
 		}
-		return s.checkDestinationURL(ctx, c.Slack.WebhookURL, "slack webhook")
+		return checkDestinationURL(ctx, s.policy, c.Slack.WebhookURL, "slack webhook")
 	}
 	return nil
 }
 
-func (s *Service) checkDestinationURL(ctx context.Context, raw, label string) error {
+func checkDestinationURL(ctx context.Context, policy DestinationPolicy, raw, label string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
 		// url.Parse's error embeds the raw input (which can carry a capability token); keep the message generic so the secret can't leak.
@@ -505,14 +408,14 @@ func (s *Service) checkDestinationURL(ctx context.Context, raw, label string) er
 	if u.Hostname() == "" {
 		return fleeterror.NewInvalidArgumentError(label + " url must include a host")
 	}
-	return s.checkDestinationHost(ctx, u.Hostname())
+	return checkDestinationHost(ctx, policy, u.Hostname())
 }
 
 const destinationLookupTimeout = 3 * time.Second
 
-// DNS failures fail closed. Not rebinding-proof; egress enforcement at Grafana's network boundary is the hard guarantee.
-func (s *Service) checkDestinationHost(ctx context.Context, host string) error {
-	if s.policy.AllowPrivateDestinations {
+// DNS failures fail closed. Not rebinding-proof; egress enforcement at fleet-api's network boundary is the hard guarantee.
+func checkDestinationHost(ctx context.Context, policy DestinationPolicy, host string) error {
+	if policy.AllowPrivateDestinations {
 		return nil
 	}
 	reject := func() error {
@@ -1016,65 +919,6 @@ const (
 
 const silenceLabelOrganizationID = "organization_id"
 
-// Grafana doesn't sandbox by org, so we sandbox by name prefix.
-func channelNamePrefix(orgID int64) string {
-	return fmt.Sprintf("org-%d-", orgID)
-}
-
-func channelGrafanaName(orgID int64, name string) string {
-	return channelNamePrefix(orgID) + name
-}
-
-func channelDisplayName(orgID int64, grafanaName string) string {
-	return strings.TrimPrefix(grafanaName, channelNamePrefix(orgID))
-}
-
-func grafanaTypeFor(kind ChannelKind) string {
-	switch kind {
-	case ChannelKindWebhook:
-		return "webhook"
-	case ChannelKindSlack:
-		return "slack"
-	}
-	return ""
-}
-
-func encodeChannelSettings(c *Channel) (json.RawMessage, error) {
-	switch c.Kind {
-	case ChannelKindWebhook:
-		if c.Webhook == nil {
-			return nil, errors.New("webhook config is required")
-		}
-		settings := map[string]any{
-			"url":                       c.Webhook.URL,
-			"authorization_scheme":      "Bearer",
-			"authorization_credentials": c.Webhook.BearerHeader,
-		}
-		c.HasSecret = c.Webhook.BearerHeader != ""
-		b, err := json.Marshal(settings)
-		if err != nil {
-			return nil, fmt.Errorf("marshal webhook settings: %w", err)
-		}
-		return b, nil
-	case ChannelKindSlack:
-		if c.Slack == nil {
-			return nil, errors.New("slack config is required")
-		}
-		// Omit the URL when empty so carrySecretSettings can fill it on a stored-destination edit.
-		settings := map[string]any{}
-		if c.Slack.WebhookURL != "" {
-			settings["url"] = c.Slack.WebhookURL
-		}
-		c.HasSecret = c.Slack.WebhookURL != ""
-		b, err := json.Marshal(settings)
-		if err != nil {
-			return nil, fmt.Errorf("marshal slack settings: %w", err)
-		}
-		return b, nil
-	}
-	return nil, fmt.Errorf("unsupported channel kind %q", c.Kind)
-}
-
 // Reduces a webhook URL to scheme://host[:port], dropping userinfo/path/query/fragment where capability tokens live.
 func redactWebhookURL(raw string) string {
 	if raw == "" {
@@ -1085,56 +929,6 @@ func redactWebhookURL(raw string) string {
 		return ""
 	}
 	return u.Scheme + "://" + u.Host
-}
-
-func webhookURLFromSettings(raw json.RawMessage) string {
-	var settings map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &settings); err != nil {
-		return ""
-	}
-	v, ok := settings["url"]
-	if !ok {
-		return ""
-	}
-	var url string
-	_ = json.Unmarshal(v, &url)
-	return url
-}
-
-// Returns HasSecret but never the secret value.
-func contactPointToChannel(orgID int64, cp GrafanaContactPoint) (Channel, error) {
-	out := Channel{
-		ID:             cp.UID,
-		OrganizationID: orgID,
-		Name:           channelDisplayName(orgID, cp.Name),
-	}
-	var settings map[string]json.RawMessage
-	if err := json.Unmarshal(cp.Settings, &settings); err != nil {
-		return Channel{}, fmt.Errorf("unmarshal contact point settings: %w", err)
-	}
-	switch cp.Type {
-	case "webhook":
-		out.Kind = ChannelKindWebhook
-		var url string
-		if raw, ok := settings["url"]; ok {
-			_ = json.Unmarshal(raw, &url)
-		}
-		// Host-only: webhook URLs embed capability tokens reachable by alert:read holders.
-		out.Webhook = &WebhookConfig{URL: redactWebhookURL(url)}
-		if raw, ok := settings["authorization_credentials"]; ok && len(raw) > 0 && string(raw) != `""` {
-			out.HasSecret = true
-		}
-	case "slack":
-		out.Kind = ChannelKindSlack
-		// The URL is the secret; expose presence only, not even the placeholder.
-		out.Slack = &SlackConfig{}
-		if raw, ok := settings["url"]; ok && len(raw) > 0 && string(raw) != `""` {
-			out.HasSecret = true
-		}
-	}
-	// Default to pending; loading the real last-validated state on every list is too expensive.
-	out.ValidationState = ValidationPending
-	return out, nil
 }
 
 func ruleVisibleToOrg(r GrafanaAlertRule, wantOrgID string) bool {

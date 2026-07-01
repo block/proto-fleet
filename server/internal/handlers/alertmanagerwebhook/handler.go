@@ -14,10 +14,14 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	alertsdomain "github.com/block/proto-fleet/server/internal/domain/alerts"
 	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
 )
 
 const Path = "/internal/alertmanager-webhook"
+
+// deliverTimeout bounds the per-request fan-out so a slow destination can't hold the response open until Grafana times out and retries.
+const deliverTimeout = 25 * time.Second
 
 const authorizationScheme = "Bearer "
 
@@ -63,14 +67,20 @@ type OrgLister interface {
 	ListOrganizations(ctx context.Context) ([]sqlc.Organization, error)
 }
 
+// Deliverer fans a parsed alert batch out to each org's channels (implemented by alerts.Deliverer).
+type Deliverer interface {
+	Deliver(ctx context.Context, alerts []alertsdomain.Alert)
+}
+
 type Handler struct {
 	store        notificationhistory.Store
 	webhookToken string
 	orgLister    OrgLister
+	deliverer    Deliverer
 }
 
-func NewHandler(store notificationhistory.Store, webhookToken string, orgLister OrgLister) http.Handler {
-	return &Handler{store: store, webhookToken: webhookToken, orgLister: orgLister}
+func NewHandler(store notificationhistory.Store, webhookToken string, orgLister OrgLister, deliverer Deliverer) http.Handler {
+	return &Handler{store: store, webhookToken: webhookToken, orgLister: orgLister, deliverer: deliverer}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -155,7 +165,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fan out to org channels once history is stored. Delivery failures are logged inside the
+	// deliverer, never surfaced here, so a bad destination can't trigger a Grafana retry.
+	h.deliver(r.Context(), payload.Alerts)
+
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) deliver(ctx context.Context, alerts []alertmanagerAlert) {
+	if h.deliverer == nil {
+		return
+	}
+	// Best-effort: a panic here must not abort the request before the 204, or Grafana retries and re-sends.
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("alertmanager webhook: delivery panicked; alerts persisted but not delivered", "panic", r)
+		}
+	}()
+	out := make([]alertsdomain.Alert, 0, len(alerts))
+	for _, a := range alerts {
+		out = append(out, alertsdomain.Alert{Status: a.Status, Labels: a.Labels, Annotations: a.Annotations})
+	}
+	deliverCtx, cancel := context.WithTimeout(ctx, deliverTimeout)
+	defer cancel()
+	h.deliverer.Deliver(deliverCtx, out)
 }
 
 // fanOutOrgIDs returns the orgs eligible for self-monitoring fan-out, or

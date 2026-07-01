@@ -33,6 +33,9 @@ type HTTPConfig struct {
 type Config struct {
 	Mode string `help:"Execution mode" enum:"server,agent,combined" default:"combined" env:"MODE"`
 
+	// Operator-facing base URL of this instance, used in outbound alert notification links.
+	PublicURL string `help:"Base URL of the proto-fleet instance, used in alert notification links (e.g. https://fleet.example.com)" default:"" env:"FLEET_PUBLIC_URL"`
+
 	DB             db.Config                    `embed:"" prefix:"db-" envprefix:"DB_"`
 	Log            logging.Config               `embed:"" prefix:"logging-" envprefix:"LOG_"`
 	HTTP           HTTPConfig                   `embed:"" prefix:"http-" envprefix:"HTTP_"`
