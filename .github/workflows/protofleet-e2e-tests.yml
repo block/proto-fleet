@@ -52,7 +52,7 @@ jobs:
       # Rolldown's Linux binding), so we always run a clean `npm ci` and just
       # keep its downloads warm. This is also the pattern Client Checks uses.
       - name: Cache npm dependencies
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
           key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
@@ -186,7 +186,7 @@ jobs:
       # See the build job: cache ~/.npm and run a clean `npm ci` rather than
       # caching a built node_modules.
       - name: Cache npm dependencies
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
           key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
@@ -195,7 +195,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('client/package-lock.json') }}
@@ -359,7 +359,7 @@ jobs:
 
       # See the build job: cache ~/.npm and run a clean `npm ci`.
       - name: Cache npm dependencies
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
           key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
