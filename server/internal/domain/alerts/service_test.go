@@ -241,6 +241,9 @@ func TestCreateChannelAllowsDuplicateNameInDifferentOrg(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode(cp))
 	})
+	mux.HandleFunc("PUT /api/v1/provisioning/policies", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{AllowPrivateDestinations: true})
@@ -289,9 +292,66 @@ func fakeGrafana(t *testing.T, listed []GrafanaContactPoint, putBody *[]byte) *G
 		require.NoError(t, json.Unmarshal(b, &cp))
 		require.NoError(t, json.NewEncoder(w).Encode(cp))
 	})
+	// Channel writes reconcile the routing tree; accept the PUT so CRUD succeeds.
+	mux.HandleFunc("PUT /api/v1/provisioning/policies", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return NewGrafana(GrafanaConfig{URL: srv.URL})
+}
+
+func TestBuildNotificationTree(t *testing.T) {
+	t.Run("no org channels leaves the root single-receiver", func(t *testing.T) {
+		tree := buildNotificationTree([]GrafanaContactPoint{{Name: "shared-thing", Type: "webhook"}})
+		assert.Equal(t, rootDefaults.Receiver, tree.Receiver)
+		assert.Empty(t, tree.Routes)
+	})
+	t.Run("org channels get a route plus a history tee", func(t *testing.T) {
+		const transientUUID = "550e8400-e29b-41d4-a716-446655440000"
+		tree := buildNotificationTree([]GrafanaContactPoint{
+			{Name: "org-42-ops", Type: "slack"},
+			{Name: "org-42-ops", Type: "slack"},                   // duplicate receiver name (Grafana collapses these) — must yield one route
+			{Name: "org-42-test-pager", Type: "slack"},            // saved channel named "test-*" — must still route
+			{Name: "org-42-test-" + transientUUID, Type: "slack"}, // transient test-before-save receiver — excluded
+			{Name: "shared-thing", Type: "webhook"},               // not org-managed
+		})
+		require.Len(t, tree.Routes, 3) // two org routes (ops deduped) + trailing tee
+
+		var receivers []string
+		opsCount := 0
+		for _, r := range tree.Routes {
+			receivers = append(receivers, r.Receiver)
+			if r.Receiver == "org-42-ops" {
+				opsCount++
+			}
+		}
+		assert.Equal(t, 1, opsCount, "duplicate receiver names must collapse to a single route")
+		assert.Contains(t, receivers, "org-42-test-pager", "a saved channel named test-* must still route")
+		assert.NotContains(t, receivers, "org-42-test-"+transientUUID, "transient test receiver must be excluded")
+
+		org := tree.Routes[0]
+		assert.Equal(t, [][]string{
+			{"organization_id", "=", "42"},
+			{"proto_fleet_scope", "!=", "internal"},
+		}, org.ObjectMatchers, "org route must exclude operator-only internal alerts")
+		assert.Equal(t, []string{"organization_id"}, org.GroupBy)
+		assert.True(t, org.Continue, "org route must fall through to the history tee")
+
+		tee := tree.Routes[len(tree.Routes)-1]
+		assert.Equal(t, rootDefaults.Receiver, tee.Receiver)
+		assert.False(t, tee.Continue)
+		assert.Empty(t, tee.ObjectMatchers, "tee must match all so the webhook still sees every alert")
+	})
+}
+
+func TestValidateChannelNameRejectsTransientPattern(t *testing.T) {
+	require.NoError(t, validateChannelName("ops"))
+	require.NoError(t, validateChannelName("test-pager"), "a test-* name that isn't a transient UUID is user-allowed")
+
+	err := validateChannelName("test-550e8400-e29b-41d4-a716-446655440000")
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
 func TestUpdateChannelRejectsRenameToExistingName(t *testing.T) {

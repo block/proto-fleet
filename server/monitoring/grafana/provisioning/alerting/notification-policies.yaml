@@ -1,4 +1,4 @@
-# Notification policy tree.
+# Root defaults only; fleet-api owns the live tree at runtime (see alerts.rootDefaults / buildNotificationTree).
 apiVersion: 1
 
 policies:

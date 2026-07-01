@@ -125,6 +125,8 @@ import (
 
 const (
 	shutdownTimeout = 10 * time.Second
+	// How often to re-assert the org alert-routing tree against a Grafana-only restart.
+	alertsReconcileInterval = 5 * time.Minute
 )
 
 // version is overwritten at release build time via -ldflags "-X main.version=<tag>".
@@ -579,6 +581,12 @@ func start(config *Config) error {
 
 	grafanaClient := alertsDomain.NewGrafana(config.Metrics.Grafana)
 	alertsSvc := alertsDomain.NewService(grafanaClient, config.Metrics.AlertDestinations)
+	// Periodically re-assert the org alert-routing tree so it self-heals after a Grafana-only restart re-provisions the YAML root; gated on alerts being enabled so a default-disabled deployment never touches Grafana.
+	if config.Metrics.Enabled {
+		alertsReconcileCtx, alertsReconcileCancel := context.WithCancel(context.Background())
+		defer alertsReconcileCancel()
+		go alertsSvc.RunReconcileLoop(alertsReconcileCtx, alertsReconcileInterval)
+	}
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
