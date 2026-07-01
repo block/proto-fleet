@@ -124,9 +124,9 @@ type CatalogEntry struct {
 // catalog is the canonical list. Order is by resource group then by key,
 // chosen to match the order the admin UI renders.
 var catalog = []CatalogEntry{
-	{PermFleetRead, "View the dashboard, miner list, and live telemetry.", ResourceFleet},
+	{PermFleetRead, "View the dashboard, live telemetry, and fleet diagnostics.", ResourceFleet},
 
-	{PermMinerRead, "View a miner's details, status, and error history.", ResourceMiner},
+	{PermMinerRead, "View a miner's details, status, and the fleet-wide miner list. Required for every other miner action.", ResourceMiner},
 	{PermMinerBlinkLED, "Flash a miner's locator LED.", ResourceMiner},
 	{PermMinerReboot, "Reboot a miner.", ResourceMiner},
 	{PermMinerStartMining, "Start mining on a miner.", ResourceMiner},
@@ -134,48 +134,48 @@ var catalog = []CatalogEntry{
 	{PermMinerUpdatePools, "Change a miner's mining pool configuration.", ResourceMiner},
 	{PermMinerUpdateWorkerName, "Change a miner's worker names.", ResourceMiner},
 	{PermMinerRename, "Rename a miner.", ResourceMiner},
-	{PermMinerDelete, "Delete a miner.", ResourceMiner},
+	{PermMinerDelete, "Delete a miner from the fleet, unpairing the physical device.", ResourceMiner},
 	{PermMinerSetCoolingMode, "Change a miner's cooling mode.", ResourceMiner},
 	{PermMinerSetPowerTarget, "Change a miner's power target.", ResourceMiner},
-	{PermMinerFirmwareUpdate, "Install firmware updates on a miner. Installs can reboot the device, so this also needs reboot access.", ResourceMiner},
+	{PermMinerFirmwareUpdate, "Install firmware on a miner. Installs can reboot the device, so this also needs reboot access.", ResourceMiner},
 	{PermMinerDownloadLogs, "Download diagnostic logs from a miner.", ResourceMiner},
 	{PermMinerUpdatePassword, "Change a miner's local web interface password.", ResourceMiner},
 	{PermMinerUnpair, "Unpair a miner from the fleet.", ResourceMiner},
-	{PermMinerPair, "Pair a new miner into the fleet.", ResourceMiner},
-	{PermMinerExportCSV, "Export miner data as CSV.", ResourceMiner},
+	{PermMinerPair, "Discover, pair, and bulk-import miners into the fleet.", ResourceMiner},
+	{PermMinerExportCSV, "Export the miner list as CSV.", ResourceMiner},
 
-	{PermRackRead, "List racks at a site.", ResourceRack},
-	{PermRackManage, "Create, rename, delete racks and move miners between them.", ResourceRack},
+	{PermRackRead, "View racks and device groups, including their members and layout.", ResourceRack},
+	{PermRackManage, "Create, edit, and delete racks and device groups, and move miners between them.", ResourceRack},
 
 	{PermSiteRead, "View sites and buildings.", ResourceSite},
-	{PermSiteManage, "Create, edit, and delete sites and buildings.", ResourceSite},
+	{PermSiteManage, "Create, edit, and delete sites and buildings, and assign racks and miners to them.", ResourceSite},
 
 	{PermActivityRead, "View the organization-wide activity log and export it as CSV.", ResourceActivity},
 
-	{PermServerlogRead, "View server-side logs.", ResourceServerLog},
+	{PermServerlogRead, "View recent server logs across all organizations.", ResourceServerLog},
 
-	{PermCurtailmentRead, "View curtailment status, events, and policies.", ResourceCurtailment},
-	{PermCurtailmentManage, "Preview, start, stop, and manage curtailment policies.", ResourceCurtailment},
-	{PermCurtailmentIngest, "Accept curtailment dispatch signals from external providers.", ResourceCurtailment},
+	{PermCurtailmentRead, "View curtailment events and active status.", ResourceCurtailment},
+	{PermCurtailmentManage, "Preview, start, stop, and override curtailment events, and manage profiles, automation rules, and dispatch sources.", ResourceCurtailment},
+	{PermCurtailmentIngest, "Accept external curtailment dispatch signals. Not yet implemented.", ResourceCurtailment},
 
 	{PermPoolRead, "View saved mining pool configurations.", ResourcePool},
-	{PermPoolManage, "Create, edit, and delete saved mining pool configurations.", ResourcePool},
+	{PermPoolManage, "Create, edit, delete, and validate saved mining pool configurations. Validation makes the server connect to a supplied address.", ResourcePool},
 
 	{PermScheduleRead, "View scheduled miner actions.", ResourceSchedule},
-	{PermScheduleManage, "Create, edit, pause, resume, and delete scheduled miner actions. Scheduling an action also needs permission to perform that action.", ResourceSchedule},
+	{PermScheduleManage, "Create, edit, pause, resume, reorder, and delete scheduled miner actions. Scheduling an action also needs permission to perform it.", ResourceSchedule},
 
-	{PermFleetnodeRead, "View fleet-node state.", ResourceFleetNode},
-	{PermFleetnodeManage, "Perform fleet-node admin operations.", ResourceFleetNode},
+	{PermFleetnodeRead, "View fleet nodes, their paired miners, and discovered unpaired devices.", ResourceFleetNode},
+	{PermFleetnodeManage, "Enroll, confirm, and revoke fleet nodes, pair miners on them, and run network scans.", ResourceFleetNode},
 
-	{PermAlertRead, "View alert channels, alert rules, silences, and delivery history.", ResourceAlert},
-	{PermAlertManage, "Create, edit, test, and delete alert channels; pause and resume alert rules; create and lift silences.", ResourceAlert},
+	{PermAlertRead, "View alert channels, rules, maintenance windows, and alert history.", ResourceAlert},
+	{PermAlertManage, "Create, edit, test, and delete alert channels; pause and resume alert rules; create, edit, and delete maintenance windows.", ResourceAlert},
 
 	{PermAPIKeyManage, "List, create, and revoke API keys for the organization.", ResourceAPIKey},
 
 	{PermUserRead, "List users in the organization.", ResourceUser},
-	{PermUserManage, "Create, reset, and deactivate users in the organization.", ResourceUser},
+	{PermUserManage, "Create, deactivate, reset passwords, and reassign roles for users in the organization.", ResourceUser},
 
-	{PermRoleManage, "Create, edit, and delete custom roles. Built-in roles cannot be modified.", ResourceRole},
+	{PermRoleManage, "Create, edit, and delete custom roles, and view all roles and permissions. Built-in roles cannot be modified.", ResourceRole},
 }
 
 // AllPermissions returns the canonical permission keys in catalog order. The
