@@ -19,7 +19,8 @@ Options:
   --enable-beta-alerts   Layer in the beta alerts sidecar
                                 (Grafana, polling TimescaleDB and running
                                 the built-in Alertmanager). Off by
-                                default.
+                                default. Can also be enabled by setting
+                                ENABLE_BETA_ALERTS=true in the .env file.
   -h, --help                    Show this help and exit.
 EOF
 }
@@ -45,6 +46,11 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+# Also honor ENABLE_BETA_ALERTS=true from the .env file.
+if grep -Eqi "^ENABLE_BETA_ALERTS=true$" "$ENV_FILE" 2>/dev/null; then
+    ENABLE_BETA_ALERTS=true
+fi
 
 refresh_compose_files() {
     COMPOSE_FILES=(-f "$COMPOSE_FILE")
