@@ -398,6 +398,80 @@ func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesScopeByOrganizatio
 	}
 }
 
+func TestTelemetryStore_GetCombinedMetrics_HourlyAggregatesScopeByOrganization(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	orgAUser := dbSvc.CreateSuperAdminUser()
+	orgBUser := dbSvc.CreateSuperAdminUser2()
+	orgADevice := dbSvc.CreateDevice(orgAUser.OrganizationID, "proto").ID
+	orgBDevice := dbSvc.CreateDevice(orgBUser.OrganizationID, "proto").ID
+	t.Cleanup(func() {
+		cleanupDeviceMetrics(t, db, orgADevice)
+		cleanupDeviceMetrics(t, db, orgBDevice)
+	})
+
+	bucket := time.Now().UTC().Truncate(time.Hour).Add(-25 * time.Hour)
+	insertTestMetrics(t, db, orgADevice, bucket.Add(10*time.Minute), 100, 60)
+	insertTestMetrics(t, db, orgBDevice, bucket.Add(20*time.Minute), 900, 90)
+
+	_, err = db.ExecContext(ctx,
+		"CALL refresh_continuous_aggregate('device_metrics_hourly', $1::timestamptz, $2::timestamptz)",
+		bucket.Add(-time.Hour),
+		bucket.Add(2*time.Hour),
+	)
+	require.NoError(t, err)
+
+	endTime := time.Now().UTC().Truncate(time.Hour)
+	startTime := endTime.Add(-26 * time.Hour)
+	baseQuery := models.CombinedMetricsQuery{
+		OrganizationID:   orgAUser.OrganizationID,
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		AggregationTypes: []models.AggregationType{
+			models.AggregationTypeAverage,
+			models.AggregationTypeCount,
+		},
+		TimeRange: models.TimeRange{
+			StartTime: &startTime,
+			EndTime:   &endTime,
+		},
+	}
+
+	for _, tt := range []struct {
+		name      string
+		deviceIDs []models.DeviceIdentifier
+	}{
+		{name: "all devices"},
+		{
+			name: "explicit cross-org device list",
+			deviceIDs: []models.DeviceIdentifier{
+				models.DeviceIdentifier(orgADevice),
+				models.DeviceIdentifier(orgBDevice),
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			query := baseQuery
+			query.DeviceIDs = tt.deviceIDs
+			result, err := store.GetCombinedMetrics(ctx, query)
+			require.NoError(t, err)
+
+			hashrate := requireMetric(t, result, models.MeasurementTypeHashrate)
+			assert.Equal(t, int32(1), hashrate.DeviceCount)
+			hashrateValues := aggValues(hashrate.AggregatedValues)
+			assert.InDelta(t, 100.0, hashrateValues[models.AggregationTypeAverage], 0.001)
+			assert.InDelta(t, 1.0, hashrateValues[models.AggregationTypeCount], 0.001)
+		})
+	}
+}
+
 func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesDefaultInvalidSlideInterval(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

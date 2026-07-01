@@ -31,6 +31,7 @@ const (
 	hourlyBucketDuration = time.Hour
 	dailyBucketDuration  = 24 * time.Hour
 	maxRawMetricBuckets  = 10000
+	maxRawMetricWork     = 2000000
 
 	// Energy estimation constants.
 	// Each telemetry data point represents one polling interval of device uptime.
@@ -120,6 +121,16 @@ func rawMetricBucketCount(startTime, endTime time.Time, bucketDuration time.Dura
 		return 0
 	}
 	return int64(endTime.Sub(startTime)/bucketDuration) + 1
+}
+
+func rawMetricWorkCount(bucketCount, deviceCount int64) int64 {
+	if bucketCount <= 0 || deviceCount <= 0 {
+		return 0
+	}
+	if bucketCount > math.MaxInt64/deviceCount {
+		return math.MaxInt64
+	}
+	return bucketCount * deviceCount
 }
 
 // statusData holds a per-device temperature histogram for one bucket.
@@ -571,15 +582,19 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 	}
 
 	bucketDuration := rawMetricBucketDuration(query.SlideInterval, len(query.DeviceIDs) == 0)
-	if rawMetricBucketCount(startTime, endTime, bucketDuration) > maxRawMetricBuckets {
+	bucketCount := rawMetricBucketCount(startTime, endTime, bucketDuration)
+	if bucketCount > maxRawMetricBuckets {
 		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics bucket count exceeds %d", maxRawMetricBuckets)
 	}
-	bucketSeconds := safeInt64ToInt32(int64(bucketDuration / time.Second))
-	if bucketSeconds <= 0 {
-		bucketSeconds = safeInt64ToInt32(int64(DefaultBucketDuration / time.Second))
+	deviceCount, err := s.rawMetricDeviceCount(ctx, query)
+	if err != nil {
+		return models.CombinedMetric{}, fmt.Errorf("failed to count raw metric devices: %w", err)
 	}
+	if rawMetricWorkCount(bucketCount, deviceCount) > maxRawMetricWork {
+		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics work exceeds %d device-buckets", maxRawMetricWork)
+	}
+	bucketSeconds := bucketDuration.Seconds()
 	var buckets []rawMetricBucket
-	var err error
 
 	if len(query.DeviceIDs) == 0 {
 		var rows []sqlc.GetAllDeviceMetricsRawBucketAggregatesRow
@@ -620,6 +635,13 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 	return result, nil
 }
 
+func (s *TimescaleTelemetryStore) rawMetricDeviceCount(ctx context.Context, query models.CombinedMetricsQuery) (int64, error) {
+	if len(query.DeviceIDs) > 0 {
+		return int64(len(query.DeviceIDs)), nil
+	}
+	return s.queries.CountLiveDevicesForRawMetricAggregates(ctx, query.OrganizationID)
+}
+
 // getCombinedMetricsFromHourly queries device_metrics_hourly continuous aggregate.
 func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
@@ -636,15 +658,17 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 
 	if len(query.DeviceIDs) == 0 {
 		rows, err = s.queries.GetAllDeviceMetricsHourlyAggregates(ctx, sqlc.GetAllDeviceMetricsHourlyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
+			OrgID:       query.OrganizationID,
+			StartBucket: startTime,
+			EndBucket:   endTime,
 		})
 	} else {
 		identifiers := deviceIDsToStrings(query.DeviceIDs)
 		rows, err = s.queries.GetDeviceMetricsHourlyAggregates(ctx, sqlc.GetDeviceMetricsHourlyAggregatesParams{
 			DeviceIdentifiers: identifiers,
-			Bucket:            startTime,
-			Bucket_2:          endTime,
+			OrgID:             query.OrganizationID,
+			StartBucket:       startTime,
+			EndBucket:         endTime,
 		})
 	}
 
@@ -658,8 +682,11 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 
 	metrics := s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
-	tempCounts := s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration)
+	tempCounts := s.getTemperatureCountsFromHourlyAggregates(ctx, query, startTime, endTime)
+	var uptimeCounts []models.UptimeStatusCount
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+		uptimeCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration)
+	}
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -684,15 +711,17 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 
 	if len(query.DeviceIDs) == 0 {
 		rows, err = s.queries.GetAllDeviceMetricsDailyAggregates(ctx, sqlc.GetAllDeviceMetricsDailyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
+			OrgID:       query.OrganizationID,
+			StartBucket: startTime,
+			EndBucket:   endTime,
 		})
 	} else {
 		identifiers := deviceIDsToStrings(query.DeviceIDs)
 		rows, err = s.queries.GetDeviceMetricsDailyAggregates(ctx, sqlc.GetDeviceMetricsDailyAggregatesParams{
 			DeviceIdentifiers: identifiers,
-			Bucket:            startTime,
-			Bucket_2:          endTime,
+			OrgID:             query.OrganizationID,
+			StartBucket:       startTime,
+			EndBucket:         endTime,
 		})
 	}
 
@@ -706,8 +735,11 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 
 	metrics := s.aggregateDailyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
-	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration)
+	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query, startTime, endTime)
+	var uptimeCounts []models.UptimeStatusCount
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+		uptimeCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration)
+	}
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -753,23 +785,25 @@ func deviceIDsToStrings(ids []models.DeviceIdentifier) []string {
 
 func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
 	ctx context.Context,
-	deviceIDs []models.DeviceIdentifier,
+	query models.CombinedMetricsQuery,
 	startTime, endTime time.Time,
 ) []models.TemperatureStatusCount {
 	var rows []sqlc.DeviceStatusHourly
 	var err error
 
-	if len(deviceIDs) == 0 {
+	if len(query.DeviceIDs) == 0 {
 		rows, err = s.queries.GetAllDeviceStatusHourlyAggregates(ctx, sqlc.GetAllDeviceStatusHourlyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
+			OrgID:       query.OrganizationID,
+			StartBucket: startTime,
+			EndBucket:   endTime,
 		})
 	} else {
-		identifiers := deviceIDsToStrings(deviceIDs)
+		identifiers := deviceIDsToStrings(query.DeviceIDs)
 		rows, err = s.queries.GetDeviceStatusHourlyAggregates(ctx, sqlc.GetDeviceStatusHourlyAggregatesParams{
 			DeviceIdentifiers: identifiers,
-			Bucket:            startTime,
-			Bucket_2:          endTime,
+			OrgID:             query.OrganizationID,
+			StartBucket:       startTime,
+			EndBucket:         endTime,
 		})
 	}
 
@@ -787,23 +821,25 @@ func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
 
 func (s *TimescaleTelemetryStore) getTemperatureCountsFromDailyAggregates(
 	ctx context.Context,
-	deviceIDs []models.DeviceIdentifier,
+	query models.CombinedMetricsQuery,
 	startTime, endTime time.Time,
 ) []models.TemperatureStatusCount {
 	var rows []sqlc.DeviceStatusDaily
 	var err error
 
-	if len(deviceIDs) == 0 {
+	if len(query.DeviceIDs) == 0 {
 		rows, err = s.queries.GetAllDeviceStatusDailyAggregates(ctx, sqlc.GetAllDeviceStatusDailyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
+			OrgID:       query.OrganizationID,
+			StartBucket: startTime,
+			EndBucket:   endTime,
 		})
 	} else {
-		identifiers := deviceIDsToStrings(deviceIDs)
+		identifiers := deviceIDsToStrings(query.DeviceIDs)
 		rows, err = s.queries.GetDeviceStatusDailyAggregates(ctx, sqlc.GetDeviceStatusDailyAggregatesParams{
 			DeviceIdentifiers: identifiers,
-			Bucket:            startTime,
-			Bucket_2:          endTime,
+			OrgID:             query.OrganizationID,
+			StartBucket:       startTime,
+			EndBucket:         endTime,
 		})
 	}
 

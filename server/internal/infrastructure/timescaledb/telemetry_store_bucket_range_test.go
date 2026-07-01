@@ -1,6 +1,7 @@
 package timescaledb
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -44,4 +45,19 @@ func TestNormalizeCompleteBucketRange_NoCompleteBuckets(t *testing.T) {
 
 	_, _, ok := normalizeCompleteBucketRange(startTime, endTime, hourlyBucketDuration)
 	assert.False(t, ok)
+}
+
+func TestRawMetricBucketDuration_PreservesFractionalSeconds(t *testing.T) {
+	slideInterval := 1500 * time.Millisecond
+
+	got := rawMetricBucketDuration(&slideInterval, false)
+
+	assert.Equal(t, slideInterval, got)
+}
+
+func TestRawMetricWorkCount(t *testing.T) {
+	assert.Equal(t, int64(0), rawMetricWorkCount(0, 10))
+	assert.Equal(t, int64(0), rawMetricWorkCount(10, 0))
+	assert.Equal(t, int64(1200), rawMetricWorkCount(120, 10))
+	assert.Equal(t, int64(math.MaxInt64), rawMetricWorkCount(math.MaxInt64, 2))
 }

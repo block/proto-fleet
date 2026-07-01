@@ -174,6 +174,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countErrorsStmt, err = db.PrepareContext(ctx, countErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CountErrors: %w", err)
 	}
+	if q.countLiveDevicesForRawMetricAggregatesStmt, err = db.PrepareContext(ctx, countLiveDevicesForRawMetricAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query CountLiveDevicesForRawMetricAggregates: %w", err)
+	}
 	if q.countMinersByStateStmt, err = db.PrepareContext(ctx, countMinersByState); err != nil {
 		return nil, fmt.Errorf("error preparing query CountMinersByState: %w", err)
 	}
@@ -1618,6 +1621,11 @@ func (q *Queries) Close() error {
 	if q.countErrorsStmt != nil {
 		if cerr := q.countErrorsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countErrorsStmt: %w", cerr)
+		}
+	}
+	if q.countLiveDevicesForRawMetricAggregatesStmt != nil {
+		if cerr := q.countLiveDevicesForRawMetricAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countLiveDevicesForRawMetricAggregatesStmt: %w", cerr)
 		}
 	}
 	if q.countMinersByStateStmt != nil {
@@ -3694,6 +3702,7 @@ type Queries struct {
 	countCurtailmentScopeConflictsStmt                         *sql.Stmt
 	countDevicesWithErrorsStmt                                 *sql.Stmt
 	countErrorsStmt                                            *sql.Stmt
+	countLiveDevicesForRawMetricAggregatesStmt                 *sql.Stmt
 	countMinersByStateStmt                                     *sql.Stmt
 	countOrgScopeSuperAdminsExcludingUserStmt                  *sql.Stmt
 	countRacksBySiteStmt                                       *sql.Stmt
@@ -4147,6 +4156,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countCurtailmentScopeConflictsStmt:                         q.countCurtailmentScopeConflictsStmt,
 		countDevicesWithErrorsStmt:                                 q.countDevicesWithErrorsStmt,
 		countErrorsStmt:                                            q.countErrorsStmt,
+		countLiveDevicesForRawMetricAggregatesStmt:                 q.countLiveDevicesForRawMetricAggregatesStmt,
 		countMinersByStateStmt:                                     q.countMinersByStateStmt,
 		countOrgScopeSuperAdminsExcludingUserStmt:                  q.countOrgScopeSuperAdminsExcludingUserStmt,
 		countRacksBySiteStmt:                                       q.countRacksBySiteStmt,
