@@ -577,9 +577,11 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 		return models.CombinedMetric{}, fmt.Errorf("failed to query raw bucket aggregates: %w", err)
 	}
 
+	includeUptimeCounts := models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes)
 	result := aggregateRawMetricBuckets(buckets, query.MeasurementTypes, query.AggregationTypes)
-
-	result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration)
+	if includeUptimeCounts {
+		result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration)
+	}
 
 	return result, nil
 }
