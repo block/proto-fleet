@@ -110,7 +110,13 @@ interface UseMinerActionsParams {
   onRefetchMiners?: () => void;
   /** Allows callers to gate unsupported-miner continuation behind another confirmation. */
   onUnsupportedMinersContinue?: (continuation: UnsupportedMinersContinuation) => boolean;
+  /** Changes when the caller's action target changes; stale async continuations are ignored. */
+  actionLifecycleKey?: string;
 }
+
+type CancelOptions = {
+  notifyComplete?: boolean;
+};
 
 /**
  * Metadata for actions that require capability checking.
@@ -285,6 +291,7 @@ export const useMinerActions = ({
   onActionStart,
   onActionComplete,
   onUnsupportedMinersContinue,
+  actionLifecycleKey,
   startBatchOperation = noop as (batch: BatchOperationInput) => void,
   completeBatchOperation = noop as (batchIdentifier: string) => void,
   removeDevicesFromBatch = noop as (batchIdentifier: string, deviceIds: string[]) => void,
@@ -310,6 +317,14 @@ export const useMinerActions = ({
   const { fetchCoolingMode } = useMinerCoolingMode();
   const { getMinerModelGroups } = useMinerModelGroups();
   const { renameSingleMiner } = useRenameMiners();
+  const actionLifecycleKeyRef = useRef(actionLifecycleKey);
+  actionLifecycleKeyRef.current = actionLifecycleKey;
+
+  const getCurrentActionLifecycleKey = useCallback(() => actionLifecycleKeyRef.current, []);
+  const isActionLifecycleCurrent = useCallback(
+    (startedKey: string | undefined) => startedKey === undefined || actionLifecycleKeyRef.current === startedKey,
+    [],
+  );
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
@@ -367,7 +382,11 @@ export const useMinerActions = ({
   // Check for unsupported miners using server-side capability checking.
   // Returns a promise that resolves to true if the modal was shown.
   const checkAndShowUnsupportedMinersModal = useCallback(
-    async (action: SupportedAction, proceedAction: PendingActionCallback): Promise<boolean> => {
+    async (
+      action: SupportedAction,
+      proceedAction: PendingActionCallback,
+      lifecycleKey = getCurrentActionLifecycleKey(),
+    ): Promise<boolean> => {
       const metadata = actionCapabilityMetadata[action];
 
       if (!metadata || metadata.commandType === CommandType.UNSPECIFIED || !deviceSelector) {
@@ -379,6 +398,11 @@ export const useMinerActions = ({
           deviceSelector,
           commandType: metadata.commandType,
           onSuccess: (result) => {
+            if (!isActionLifecycleCurrent(lifecycleKey)) {
+              resolve(true);
+              return;
+            }
+
             if (result.allSupported) {
               resolve(false);
               return;
@@ -397,6 +421,11 @@ export const useMinerActions = ({
             resolve(true);
           },
           onError: () => {
+            if (!isActionLifecycleCurrent(lifecycleKey)) {
+              resolve(true);
+              return;
+            }
+
             if (action === deviceActions.firmwareUpdate) {
               pushToast({
                 message: "Unable to verify firmware update support for the selected miners. Please try again.",
@@ -415,7 +444,13 @@ export const useMinerActions = ({
         });
       });
     },
-    [deviceSelector, checkCommandCapabilities, onActionComplete],
+    [
+      deviceSelector,
+      checkCommandCapabilities,
+      getCurrentActionLifecycleKey,
+      isActionLifecycleCurrent,
+      onActionComplete,
+    ],
   );
 
   // Wraps checkAndShowUnsupportedMinersModal with the common proceed pattern:
@@ -427,12 +462,18 @@ export const useMinerActions = ({
       action: SupportedAction,
       onProceed: (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[]) => void,
     ): Promise<void> => {
-      const modalShown = await checkAndShowUnsupportedMinersModal(action, onProceed);
+      const lifecycleKey = getCurrentActionLifecycleKey();
+      const guardedOnProceed = (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[]) => {
+        if (!isActionLifecycleCurrent(lifecycleKey)) return;
+        onProceed(filteredSelector, filteredDeviceIds);
+      };
+      const modalShown = await checkAndShowUnsupportedMinersModal(action, guardedOnProceed, lifecycleKey);
+      if (!isActionLifecycleCurrent(lifecycleKey)) return;
       if (!modalShown) {
-        onProceed(undefined, undefined);
+        guardedOnProceed(undefined, undefined);
       }
     },
-    [checkAndShowUnsupportedMinersModal],
+    [checkAndShowUnsupportedMinersModal, getCurrentActionLifecycleKey, isActionLifecycleCurrent],
   );
 
   // Handle continuing from unsupported miners modal
@@ -658,8 +699,12 @@ export const useMinerActions = ({
             handleSuccess(action, toastId, batchIdentifier, undefined, (failedIds) => {
               execute(createDeviceSelector("subset", failedIds), failedIds, pushLoadingToast());
             });
+            onActionComplete?.();
           },
-          onError: (error) => handleError(toastId, error),
+          onError: (error) => {
+            handleError(toastId, error);
+            onActionComplete?.();
+          },
         });
       };
 
@@ -1200,12 +1245,31 @@ export const useMinerActions = ({
     ],
   );
 
-  const handleCancel = useCallback(() => {
-    setCurrentAction(null);
-    setShowPoolSelectionPage(false);
-    resetAuthState();
-    onActionComplete?.();
-  }, [resetAuthState, onActionComplete]);
+  const handleCancel = useCallback(
+    (options?: CancelOptions) => {
+      setCurrentAction(null);
+      setShowPoolSelectionPage(false);
+      setPoolFilteredDeviceIds(undefined);
+      setShowManagePowerModal(false);
+      setFilteredSelectorForPowerModal(undefined);
+      setManagePowerFilteredDeviceIds(undefined);
+      setShowCoolingModeModal(false);
+      setCoolingModeFilteredSelector(undefined);
+      setCoolingModeFilteredDeviceIds(undefined);
+      setCurrentCoolingMode(undefined);
+      setShowFirmwareUpdateModal(false);
+      setFirmwareUpdateFilteredSelector(undefined);
+      setFirmwareUpdateFilteredDeviceIds(undefined);
+      setShowAddToGroupModal(false);
+      setShowRenameDialog(false);
+      setUnsupportedMinersInfo(initialUnsupportedMinersState);
+      resetAuthState();
+      if (options?.notifyComplete !== false) {
+        onActionComplete?.();
+      }
+    },
+    [resetAuthState, onActionComplete],
+  );
 
   const popoverActions = useMemo(() => {
     // Device actions handlers
@@ -1321,6 +1385,7 @@ export const useMinerActions = ({
     };
 
     const handleReboot = async () => {
+      const lifecycleKey = getCurrentActionLifecycleKey();
       onActionStart?.();
       // Check for unsupported miners first - only show confirmation dialog if all supported
       const modalShown = await checkAndShowUnsupportedMinersModal(
@@ -1330,7 +1395,9 @@ export const useMinerActions = ({
           // The confirmation dialog will not be shown, action executes directly
           handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.reboot);
         },
+        lifecycleKey,
       );
+      if (!isActionLifecycleCurrent(lifecycleKey)) return;
       // Only show confirmation dialog if capability modal was not shown
       if (!modalShown) {
         setCurrentAction(deviceActions.reboot);
@@ -1338,26 +1405,32 @@ export const useMinerActions = ({
     };
 
     const handleShutDown = async () => {
+      const lifecycleKey = getCurrentActionLifecycleKey();
       onActionStart?.();
       const modalShown = await checkAndShowUnsupportedMinersModal(
         deviceActions.shutdown,
         (filteredSelector, filteredDeviceIds) => {
           handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.shutdown);
         },
+        lifecycleKey,
       );
+      if (!isActionLifecycleCurrent(lifecycleKey)) return;
       if (!modalShown) {
         setCurrentAction(deviceActions.shutdown);
       }
     };
 
     const handleWakeUp = async () => {
+      const lifecycleKey = getCurrentActionLifecycleKey();
       onActionStart?.();
       const modalShown = await checkAndShowUnsupportedMinersModal(
         deviceActions.wakeUp,
         (filteredSelector, filteredDeviceIds) => {
           handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.wakeUp);
         },
+        lifecycleKey,
       );
+      if (!isActionLifecycleCurrent(lifecycleKey)) return;
       if (!modalShown) {
         setCurrentAction(deviceActions.wakeUp);
       }
@@ -1390,13 +1463,16 @@ export const useMinerActions = ({
     };
 
     const handleCoolingMode = async () => {
+      const lifecycleKey = getCurrentActionLifecycleKey();
       onActionStart?.();
 
       // For single miner, fetch current cooling mode for prepopulation
       if (selectedMiners.length === 1) {
         const mode = await fetchCoolingMode(selectedMiners[0].deviceIdentifier);
+        if (!isActionLifecycleCurrent(lifecycleKey)) return;
         setCurrentCoolingMode(mode);
       } else {
+        if (!isActionLifecycleCurrent(lifecycleKey)) return;
         setCurrentCoolingMode(undefined);
       }
 
@@ -1628,9 +1704,11 @@ export const useMinerActions = ({
     onActionComplete,
     deviceSelector,
     deviceStatus,
+    getCurrentActionLifecycleKey,
     withCapabilityCheck,
     checkAndShowUnsupportedMinersModal,
     handleConfirmation,
+    isActionLifecycleCurrent,
     deviceIdentifiers,
     selectionMode,
     selectedMiners,
