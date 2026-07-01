@@ -138,6 +138,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	persistCtx, cancel := context.WithTimeout(r.Context(), insertsTimeout)
 	defer cancel()
 
+	// Only alerts whose history row landed are eligible for delivery, so a channel never
+	// receives an alert that isn't in history (Grafana won't retry after our 204).
+	delivered := make([]alertmanagerAlert, 0, len(payload.Alerts))
 	for i, alert := range payload.Alerts {
 		if remainingRows <= 0 {
 			slog.Warn("alertmanager webhook: per-request row cap reached; dropping remaining alerts",
@@ -150,6 +153,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		attempted, written := h.persistAlert(persistCtx, alert, remainingRows, orgIDs)
 		persisted += written
 		remainingRows -= attempted
+		if written > 0 {
+			delivered = append(delivered, alert)
+		}
 	}
 
 	slog.Debug("alertmanager webhook delivered",
@@ -165,9 +171,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fan out to org channels once history is stored. Delivery failures are logged inside the
-	// deliverer, never surfaced here, so a bad destination can't trigger a Grafana retry.
-	h.deliver(r.Context(), payload.Alerts)
+	// Fan out only the persisted alerts once history is stored. Delivery failures are logged
+	// inside the deliverer, never surfaced here, so a bad destination can't trigger a Grafana retry.
+	h.deliver(r.Context(), delivered)
 
 	w.WriteHeader(http.StatusNoContent)
 }

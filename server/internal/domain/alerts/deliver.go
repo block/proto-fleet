@@ -60,6 +60,9 @@ func newDeliveryHTTPClient(policy DestinationPolicy) *http.Client {
 	dialer := &net.Dialer{Timeout: perSendTimeout}
 	transport, _ := http.DefaultTransport.(*http.Transport)
 	transport = transport.Clone()
+	// No proxy: a proxy would resolve+connect the final host itself, bypassing the pinned dial
+	// below and reopening the DNS-rebind SSRF gap. This egress client must reach destinations directly.
+	transport.Proxy = nil
 	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil {

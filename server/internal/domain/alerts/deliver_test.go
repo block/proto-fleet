@@ -159,6 +159,14 @@ func TestDelivererRejectsRedirectToPrivate(t *testing.T) {
 	require.Error(t, d.httpClient.CheckRedirect(pub, deep))
 }
 
+func TestDelivererDisablesProxy(t *testing.T) {
+	// A proxy would resolve+connect the destination itself, bypassing the pinned dial.
+	d := NewDeliverer(newFakeChannelStore(), testCipher(t), fakeDeviceLookup{}, DestinationPolicy{}, "")
+	tr, ok := d.httpClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	assert.Nil(t, tr.Proxy, "egress client must not use an env proxy")
+}
+
 func TestDelivererDialRejectsPrivateAtConnect(t *testing.T) {
 	// The pinned-IP dialer must refuse internal addresses even if reached via DNS rebind or redirect.
 	d := NewDeliverer(newFakeChannelStore(), testCipher(t), fakeDeviceLookup{}, DestinationPolicy{}, "")
