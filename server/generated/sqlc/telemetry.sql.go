@@ -45,6 +45,7 @@ JOIN device d
   ON d.device_identifier = dmd.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
+ AND dmd.bucket >= d.created_at
 WHERE dmd.bucket >= $2
   AND dmd.bucket <= $3
 ORDER BY dmd.bucket ASC
@@ -113,6 +114,7 @@ JOIN device d
   ON d.device_identifier = dmh.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
+ AND dmh.bucket >= d.created_at
 WHERE dmh.bucket >= $2
   AND dmh.bucket <= $3
 ORDER BY dmh.bucket ASC
@@ -199,6 +201,7 @@ WITH per_device_bucket AS (
       ON d.device_identifier = dm.device_identifier
      AND d.org_id = $2
      AND d.deleted_at IS NULL
+     AND dm.time >= d.created_at
     WHERE dm.time >= $3
       AND dm.time <= $4
     GROUP BY bucket, dm.device_identifier
@@ -460,6 +463,7 @@ JOIN device d
   ON d.device_identifier = dsd.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
+ AND dsd.bucket >= d.created_at
 WHERE dsd.bucket >= $2
   AND dsd.bucket <= $3
 ORDER BY dsd.bucket ASC
@@ -537,6 +541,7 @@ JOIN device d
   ON d.device_identifier = dsh.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
+ AND dsh.bucket >= d.created_at
 WHERE dsh.bucket >= $2
   AND dsh.bucket <= $3
 ORDER BY dsh.bucket ASC
@@ -608,6 +613,7 @@ JOIN device d
   ON d.device_identifier = dmd.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
+ AND dmd.bucket >= d.created_at
 WHERE dmd.device_identifier = ANY($2::text[])
   AND dmd.bucket >= $3
   AND dmd.bucket <= $4
@@ -682,6 +688,7 @@ JOIN device d
   ON d.device_identifier = dmh.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
+ AND dmh.bucket >= d.created_at
 WHERE dmh.device_identifier = ANY($2::text[])
   AND dmh.bucket >= $3
   AND dmh.bucket <= $4
@@ -774,6 +781,7 @@ WITH per_device_bucket AS (
       ON d.device_identifier = dm.device_identifier
      AND d.org_id = $2
      AND d.deleted_at IS NULL
+     AND dm.time >= d.created_at
     WHERE dm.device_identifier = ANY($3::text[])
       AND dm.time >= $4
       AND dm.time <= $5
@@ -1043,6 +1051,7 @@ JOIN device d
   ON d.device_identifier = dsd.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
+ AND dsd.bucket >= d.created_at
 WHERE dsd.device_identifier = ANY($2::text[])
   AND dsd.bucket >= $3
   AND dsd.bucket <= $4
@@ -1128,6 +1137,7 @@ JOIN device d
   ON d.device_identifier = dsh.device_identifier
  AND d.org_id = $1
  AND d.deleted_at IS NULL
+ AND dsh.bucket >= d.created_at
 WHERE dsh.device_identifier = ANY($2::text[])
   AND dsh.bucket >= $3
   AND dsh.bucket <= $4

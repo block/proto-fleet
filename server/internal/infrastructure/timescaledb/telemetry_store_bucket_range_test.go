@@ -61,3 +61,15 @@ func TestRawMetricWorkCount(t *testing.T) {
 	assert.Equal(t, int64(1200), rawMetricWorkCount(120, 10))
 	assert.Equal(t, int64(math.MaxInt64), rawMetricWorkCount(math.MaxInt64, 2))
 }
+
+func TestRawMetricBucketDurationForWork_CoarsensLargeFleet(t *testing.T) {
+	endTime := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+	startTime := endTime.Add(-24 * time.Hour)
+	requestedBucketDuration := 10 * time.Second
+
+	got := rawMetricBucketDurationForWork(startTime, endTime, requestedBucketDuration, 5000)
+	gotBucketCount := rawMetricBucketCount(startTime, endTime, got)
+
+	assert.Greater(t, got, requestedBucketDuration)
+	assert.LessOrEqual(t, rawMetricWorkCount(gotBucketCount, 5000), int64(maxRawMetricWork))
+}

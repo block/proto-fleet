@@ -225,6 +225,7 @@ WITH per_device_bucket AS (
       ON d.device_identifier = dm.device_identifier
      AND d.org_id = sqlc.arg('org_id')
      AND d.deleted_at IS NULL
+     AND dm.time >= d.created_at
     WHERE dm.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
       AND dm.time >= sqlc.arg('start_time')
       AND dm.time <= sqlc.arg('end_time')
@@ -304,6 +305,7 @@ WITH per_device_bucket AS (
       ON d.device_identifier = dm.device_identifier
      AND d.org_id = sqlc.arg('org_id')
      AND d.deleted_at IS NULL
+     AND dm.time >= d.created_at
     WHERE dm.time >= sqlc.arg('start_time')
       AND dm.time <= sqlc.arg('end_time')
     GROUP BY bucket, dm.device_identifier
@@ -367,6 +369,7 @@ JOIN device d
   ON d.device_identifier = dmh.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
+ AND dmh.bucket >= d.created_at
 WHERE dmh.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND dmh.bucket >= sqlc.arg('start_bucket')
   AND dmh.bucket <= sqlc.arg('end_bucket')
@@ -391,6 +394,7 @@ JOIN device d
   ON d.device_identifier = dmd.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
+ AND dmd.bucket >= d.created_at
 WHERE dmd.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND dmd.bucket >= sqlc.arg('start_bucket')
   AND dmd.bucket <= sqlc.arg('end_bucket')
@@ -418,6 +422,7 @@ JOIN device d
   ON d.device_identifier = dmh.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
+ AND dmh.bucket >= d.created_at
 WHERE dmh.bucket >= sqlc.arg('start_bucket')
   AND dmh.bucket <= sqlc.arg('end_bucket')
 ORDER BY dmh.bucket ASC;
@@ -442,6 +447,7 @@ JOIN device d
   ON d.device_identifier = dmd.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
+ AND dmd.bucket >= d.created_at
 WHERE dmd.bucket >= sqlc.arg('start_bucket')
   AND dmd.bucket <= sqlc.arg('end_bucket')
 ORDER BY dmd.bucket ASC;
@@ -475,6 +481,7 @@ JOIN device d
   ON d.device_identifier = dsh.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
+ AND dsh.bucket >= d.created_at
 WHERE dsh.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND dsh.bucket >= sqlc.arg('start_bucket')
   AND dsh.bucket <= sqlc.arg('end_bucket')
@@ -505,6 +512,7 @@ JOIN device d
   ON d.device_identifier = dsh.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
+ AND dsh.bucket >= d.created_at
 WHERE dsh.bucket >= sqlc.arg('start_bucket')
   AND dsh.bucket <= sqlc.arg('end_bucket')
 ORDER BY dsh.bucket ASC;
@@ -534,6 +542,7 @@ JOIN device d
   ON d.device_identifier = dsd.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
+ AND dsd.bucket >= d.created_at
 WHERE dsd.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND dsd.bucket >= sqlc.arg('start_bucket')
   AND dsd.bucket <= sqlc.arg('end_bucket')
@@ -564,6 +573,7 @@ JOIN device d
   ON d.device_identifier = dsd.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND d.deleted_at IS NULL
+ AND dsd.bucket >= d.created_at
 WHERE dsd.bucket >= sqlc.arg('start_bucket')
   AND dsd.bucket <= sqlc.arg('end_bucket')
 ORDER BY dsd.bucket ASC;

@@ -123,6 +123,47 @@ func rawMetricBucketCount(startTime, endTime time.Time, bucketDuration time.Dura
 	return int64(endTime.Sub(startTime)/bucketDuration) + 1
 }
 
+func rawMetricBucketDurationForWork(startTime, endTime time.Time, bucketDuration time.Duration, deviceCount int64) time.Duration {
+	if bucketDuration <= 0 || deviceCount <= 0 || endTime.Before(startTime) {
+		return bucketDuration
+	}
+
+	bucketCount := rawMetricBucketCount(startTime, endTime, bucketDuration)
+	if rawMetricWorkCount(bucketCount, deviceCount) <= maxRawMetricWork {
+		return bucketDuration
+	}
+
+	maxBuckets := maxRawMetricWork / deviceCount
+	if maxBuckets <= 1 {
+		return roundUpDuration(endTime.Sub(startTime)+time.Nanosecond, time.Second)
+	}
+
+	adjusted := ceilDuration(endTime.Sub(startTime), maxBuckets-1)
+	adjusted = roundUpDuration(adjusted, time.Second)
+	if adjusted < bucketDuration {
+		return bucketDuration
+	}
+	return adjusted
+}
+
+func ceilDuration(duration time.Duration, divisor int64) time.Duration {
+	if divisor <= 0 {
+		return duration
+	}
+	return time.Duration((duration.Nanoseconds() + divisor - 1) / divisor)
+}
+
+func roundUpDuration(duration, unit time.Duration) time.Duration {
+	if duration <= 0 || unit <= 0 {
+		return duration
+	}
+	remainder := duration % unit
+	if remainder == 0 {
+		return duration
+	}
+	return duration + unit - remainder
+}
+
 func rawMetricWorkCount(bucketCount, deviceCount int64) int64 {
 	if bucketCount <= 0 || deviceCount <= 0 {
 		return 0
@@ -581,14 +622,15 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics range exceeds %s", rawDataMaxDuration)
 	}
 
-	bucketDuration := rawMetricBucketDuration(query.SlideInterval, len(query.DeviceIDs) == 0)
-	bucketCount := rawMetricBucketCount(startTime, endTime, bucketDuration)
-	if bucketCount > maxRawMetricBuckets {
-		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics bucket count exceeds %d", maxRawMetricBuckets)
-	}
 	deviceCount, err := s.rawMetricDeviceCount(ctx, query)
 	if err != nil {
 		return models.CombinedMetric{}, fmt.Errorf("failed to count raw metric devices: %w", err)
+	}
+	bucketDuration := rawMetricBucketDuration(query.SlideInterval, len(query.DeviceIDs) == 0)
+	bucketDuration = rawMetricBucketDurationForWork(startTime, endTime, bucketDuration, deviceCount)
+	bucketCount := rawMetricBucketCount(startTime, endTime, bucketDuration)
+	if bucketCount > maxRawMetricBuckets {
+		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics bucket count exceeds %d", maxRawMetricBuckets)
 	}
 	if rawMetricWorkCount(bucketCount, deviceCount) > maxRawMetricWork {
 		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics work exceeds %d device-buckets", maxRawMetricWork)

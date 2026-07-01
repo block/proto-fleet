@@ -398,6 +398,60 @@ func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesScopeByOrganizatio
 	}
 }
 
+func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesIgnoreTelemetryBeforeLiveDeviceCreated(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	orgAUser := dbSvc.CreateSuperAdminUser()
+	orgBUser := dbSvc.CreateSuperAdminUser2()
+	orgADevice := dbSvc.CreateDevice(orgAUser.OrganizationID, "proto")
+	orgBDevice := dbSvc.CreateDevice(orgBUser.OrganizationID, "proto")
+	reusedIdentifier := "reused-raw-telemetry-device"
+	t.Cleanup(func() {
+		cleanupDeviceMetrics(t, db, reusedIdentifier)
+	})
+
+	oldMetricTime := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Minute)
+	liveCreatedAt := oldMetricTime.Add(30 * time.Minute)
+	liveMetricTime := liveCreatedAt.Add(10 * time.Second)
+	setTelemetryTestDeviceIdentity(t, db, orgADevice.DatabaseID, reusedIdentifier, oldMetricTime.Add(-10*time.Minute), sql.NullTime{
+		Time:  liveCreatedAt.Add(-time.Minute),
+		Valid: true,
+	})
+	setTelemetryTestDeviceIdentity(t, db, orgBDevice.DatabaseID, reusedIdentifier, liveCreatedAt, sql.NullTime{})
+
+	insertTestMetrics(t, db, reusedIdentifier, oldMetricTime, 900, 90)
+	insertTestMetrics(t, db, reusedIdentifier, liveMetricTime, 100, 60)
+
+	startTime := oldMetricTime.Add(-time.Minute)
+	endTime := liveMetricTime.Add(time.Minute)
+	slideInterval := time.Hour
+	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+		OrganizationID:   orgBUser.OrganizationID,
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		AggregationTypes: []models.AggregationType{models.AggregationTypeAverage, models.AggregationTypeCount},
+		TimeRange: models.TimeRange{
+			StartTime: &startTime,
+			EndTime:   &endTime,
+		},
+		SlideInterval: &slideInterval,
+	})
+	require.NoError(t, err)
+
+	hashrate := requireMetric(t, result, models.MeasurementTypeHashrate)
+	assert.Equal(t, int32(1), hashrate.DeviceCount)
+	hashrateValues := aggValues(hashrate.AggregatedValues)
+	assert.InDelta(t, 100.0, hashrateValues[models.AggregationTypeAverage], 0.001)
+	assert.InDelta(t, 1.0, hashrateValues[models.AggregationTypeCount], 0.001)
+}
+
 func TestTelemetryStore_GetCombinedMetrics_HourlyAggregatesScopeByOrganization(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -470,6 +524,65 @@ func TestTelemetryStore_GetCombinedMetrics_HourlyAggregatesScopeByOrganization(t
 			assert.InDelta(t, 1.0, hashrateValues[models.AggregationTypeCount], 0.001)
 		})
 	}
+}
+
+func TestTelemetryStore_GetCombinedMetrics_HourlyAggregatesIgnoreTelemetryBeforeLiveDeviceCreated(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	orgAUser := dbSvc.CreateSuperAdminUser()
+	orgBUser := dbSvc.CreateSuperAdminUser2()
+	orgADevice := dbSvc.CreateDevice(orgAUser.OrganizationID, "proto")
+	orgBDevice := dbSvc.CreateDevice(orgBUser.OrganizationID, "proto")
+	reusedIdentifier := "reused-hourly-telemetry-device"
+	t.Cleanup(func() {
+		cleanupDeviceMetrics(t, db, reusedIdentifier)
+	})
+
+	oldBucket := time.Now().UTC().Truncate(time.Hour).Add(-26 * time.Hour)
+	liveCreatedAt := oldBucket.Add(2 * time.Hour)
+	liveMetricTime := liveCreatedAt.Add(10 * time.Minute)
+	setTelemetryTestDeviceIdentity(t, db, orgADevice.DatabaseID, reusedIdentifier, oldBucket.Add(-time.Hour), sql.NullTime{
+		Time:  liveCreatedAt.Add(-time.Minute),
+		Valid: true,
+	})
+	setTelemetryTestDeviceIdentity(t, db, orgBDevice.DatabaseID, reusedIdentifier, liveCreatedAt, sql.NullTime{})
+
+	insertTestMetrics(t, db, reusedIdentifier, oldBucket.Add(10*time.Minute), 900, 90)
+	insertTestMetrics(t, db, reusedIdentifier, liveMetricTime, 100, 60)
+
+	_, err = db.ExecContext(ctx,
+		"CALL refresh_continuous_aggregate('device_metrics_hourly', $1::timestamptz, $2::timestamptz)",
+		oldBucket.Add(-time.Hour),
+		liveMetricTime.Add(2*time.Hour),
+	)
+	require.NoError(t, err)
+
+	endTime := time.Now().UTC().Truncate(time.Hour)
+	startTime := endTime.Add(-27 * time.Hour)
+	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+		OrganizationID:   orgBUser.OrganizationID,
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		AggregationTypes: []models.AggregationType{models.AggregationTypeAverage, models.AggregationTypeCount},
+		TimeRange: models.TimeRange{
+			StartTime: &startTime,
+			EndTime:   &endTime,
+		},
+	})
+	require.NoError(t, err)
+
+	hashrate := requireMetric(t, result, models.MeasurementTypeHashrate)
+	assert.Equal(t, int32(1), hashrate.DeviceCount)
+	hashrateValues := aggValues(hashrate.AggregatedValues)
+	assert.InDelta(t, 100.0, hashrateValues[models.AggregationTypeAverage], 0.001)
+	assert.InDelta(t, 1.0, hashrateValues[models.AggregationTypeCount], 0.001)
 }
 
 func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesDefaultInvalidSlideInterval(t *testing.T) {
@@ -843,6 +956,21 @@ func cleanupDeviceMetrics(t *testing.T, db *sql.DB, deviceIdentifier string) {
 func insertTestMetrics(t *testing.T, db *sql.DB, deviceIdentifier string, ts time.Time, hashRate, temp float64) {
 	t.Helper()
 	_, err := db.ExecContext(context.Background(),
+		`UPDATE device
+		 SET created_at = LEAST(created_at, date_trunc('day', $2::timestamptz))
+		 WHERE device_identifier = $1
+		   AND deleted_at IS NULL
+		   AND NOT EXISTS (
+		     SELECT 1 FROM device old_device
+		     WHERE old_device.device_identifier = $1
+		       AND old_device.deleted_at IS NOT NULL
+		   )`,
+		deviceIdentifier,
+		ts,
+	)
+	require.NoError(t, err, "Failed to backdate test device creation time")
+
+	_, err = db.ExecContext(context.Background(),
 		`INSERT INTO device_metrics (time, device_identifier, hash_rate_hs, temp_c, fan_rpm, power_w, efficiency_jh)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 ON CONFLICT (time, device_identifier) DO UPDATE SET
@@ -906,6 +1034,32 @@ func renameTelemetryTestDevice(t *testing.T, db *sql.DB, deviceID int64, deviceI
 		 WHERE id = $4`,
 		deviceIdentifier,
 		siteID,
+		deletedAt,
+		deviceID,
+	)
+	require.NoError(t, err)
+}
+
+func setTelemetryTestDeviceIdentity(t *testing.T, db *sql.DB, deviceID int64, deviceIdentifier string, createdAt time.Time, deletedAt sql.NullTime) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(),
+		`UPDATE discovered_device dd
+		 SET device_identifier = $1, created_at = $2, deleted_at = $3
+		 FROM device d
+		 WHERE d.discovered_device_id = dd.id AND d.id = $4`,
+		deviceIdentifier,
+		createdAt,
+		deletedAt,
+		deviceID,
+	)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(context.Background(),
+		`UPDATE device
+		 SET device_identifier = $1, created_at = $2, deleted_at = $3
+		 WHERE id = $4`,
+		deviceIdentifier,
+		createdAt,
 		deletedAt,
 		deviceID,
 	)
