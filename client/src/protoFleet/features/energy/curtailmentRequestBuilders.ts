@@ -36,6 +36,7 @@ type CurtailmentRequestFields = Pick<
   | "modeParams"
   | "includeMaintenance"
   | "forceIncludeMaintenance"
+  | "forceIncludeAllPairedMiners"
 >;
 
 const maxDurationOptions: OptionalUint32FieldOptions = {
@@ -260,6 +261,7 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
     priority: getPriority(values.priority),
     includeMaintenance: values.includeMaintenance,
     forceIncludeMaintenance: values.includeMaintenance,
+    forceIncludeAllPairedMiners: values.curtailmentMode === "fullFleet" && values.forceIncludeAllPairedMiners,
   };
 }
 

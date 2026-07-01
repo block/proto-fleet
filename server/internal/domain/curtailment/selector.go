@@ -98,8 +98,10 @@ type Plan struct {
 	EffectiveBatchSize int32
 	// ReplayEvent is set only for idempotent Start replays. The handler uses
 	// the persisted row instead of rebuilding a response from the retry body.
-	ReplayEvent   *models.Event
-	ReplayTargets []*models.Target
+	ReplayEvent            *models.Event
+	ReplayTargets          []*models.Target
+	PolicyTargetCount      int
+	UnavailableTargetCount int
 }
 
 // SelectedDevice is a candidate the mode picked, carrying the snapshot
@@ -108,6 +110,8 @@ type SelectedDevice struct {
 	DeviceIdentifier string
 	PowerW           float64
 	EfficiencyJH     float64
+	TargetState      models.TargetState
+	LastError        string
 }
 
 // BuildPlan runs the selection pipeline (mode-specific eligibility filter, rank
@@ -233,5 +237,107 @@ func BuildPlan(
 		EstimatedRemainingPowerKW: remainingW / wPerKW,
 		Outcome:                   res.Outcome,
 		InsufficientLoadDetail:    res.InsufficientDetail,
+		PolicyTargetCount:         len(selected),
+	}
+}
+
+const (
+	allPairedUnavailableAuthenticationNeeded = "authentication_needed"
+	allPairedUnavailableNoDriver             = "no_driver"
+	allPairedUnavailableMissingStatus        = "missing_status"
+	allPairedUnavailableOffline              = "offline"
+	allPairedUnavailableUpdating             = "updating"
+	allPairedUnavailableRebootRequired       = "reboot_required"
+)
+
+// BuildAllPairedPolicyPlan creates a durable FULL_FLEET target list from every
+// paired-like miner in scope. It separates ownership from dispatch readiness:
+// unavailable targets are persisted but kept out of the dispatch queue until a
+// later reconciler tick marks them pending.
+func BuildAllPairedPolicyPlan(
+	candidates []*models.Candidate,
+	activeEventDevices map[string]struct{},
+	minPowerW int32,
+) Plan {
+	selected := make([]SelectedDevice, 0, len(candidates))
+	skipped := make([]SkippedDevice, 0, len(candidates))
+	var estimatedReductionW float64
+	unavailableCount := 0
+
+	for _, c := range candidates {
+		if c == nil {
+			continue
+		}
+		if _, locked := activeEventDevices[c.DeviceIdentifier]; locked {
+			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipActiveEvent})
+			continue
+		}
+		if !IsAllPairedPolicyPairingStatus(c.PairingStatus) {
+			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipPairing})
+			continue
+		}
+
+		state, reason := AllPairedPolicyTargetState(c)
+		powerW := 0.0
+		if state != models.TargetStateUnavailable && hasNonNegativeFiniteFloat(c.LatestPowerW) {
+			powerW = derefFloat(c.LatestPowerW)
+			estimatedReductionW += powerW
+		}
+		avgEff := c.AvgEfficiencyJH
+		if !isFiniteFloat(avgEff) {
+			avgEff = nil
+		}
+		if state == models.TargetStateUnavailable {
+			unavailableCount++
+		}
+		selected = append(selected, SelectedDevice{
+			DeviceIdentifier: c.DeviceIdentifier,
+			PowerW:           powerW,
+			EfficiencyJH:     derefFloat(avgEff),
+			TargetState:      state,
+			LastError:        reason,
+		})
+	}
+
+	return Plan{
+		Selected:               selected,
+		Skipped:                skipped,
+		EstimatedReductionKW:   estimatedReductionW / 1000.0,
+		Outcome:                modes.OutcomeTargetReached,
+		PolicyTargetCount:      len(selected),
+		UnavailableTargetCount: unavailableCount,
+	}
+}
+
+func AllPairedPolicyTargetState(c *models.Candidate) (models.TargetState, string) {
+	if c == nil {
+		return models.TargetStateUnavailable, allPairedUnavailableMissingStatus
+	}
+	if c.PairingStatus == "AUTHENTICATION_NEEDED" {
+		return models.TargetStateUnavailable, allPairedUnavailableAuthenticationNeeded
+	}
+	if c.DriverName == nil || *c.DriverName == "" {
+		return models.TargetStateUnavailable, allPairedUnavailableNoDriver
+	}
+	switch c.DeviceStatus {
+	case "":
+		return models.TargetStateUnavailable, allPairedUnavailableMissingStatus
+	case "OFFLINE":
+		return models.TargetStateUnavailable, allPairedUnavailableOffline
+	case "UPDATING":
+		return models.TargetStateUnavailable, allPairedUnavailableUpdating
+	case "REBOOT_REQUIRED":
+		return models.TargetStateUnavailable, allPairedUnavailableRebootRequired
+	default:
+		return models.TargetStatePending, ""
+	}
+}
+
+func IsAllPairedPolicyPairingStatus(status string) bool {
+	switch status {
+	case "PAIRED", "DEFAULT_PASSWORD", "AUTHENTICATION_NEEDED":
+		return true
+	default:
+		return false
 	}
 }

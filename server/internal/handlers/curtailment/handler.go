@@ -84,7 +84,7 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, err
 	}
-	if req.Msg.CandidateMinPowerWOverride != nil {
+	if req.Msg.CandidateMinPowerWOverride != nil || req.Msg.GetForceIncludeAllPairedMiners() {
 		if err := requireAdminFromContext(ctx, actionSupplyOverrideFields); err != nil {
 			return nil, err
 		}
@@ -123,7 +123,10 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
-	if req.Msg.CandidateMinPowerWOverride != nil || req.Msg.AllowUnbounded || req.Msg.ForceIncludeMaintenance {
+	if req.Msg.CandidateMinPowerWOverride != nil ||
+		req.Msg.AllowUnbounded ||
+		req.Msg.ForceIncludeMaintenance ||
+		req.Msg.GetForceIncludeAllPairedMiners() {
 		// force_include_maintenance is safety-critical (curtails miners
 		// under physical maintenance), so the same admin gate applies.
 		if err := requireAdminFromContext(ctx, actionSupplyOverrideFields); err != nil {

@@ -102,6 +102,7 @@ const baseSubmitValues: CurtailmentSubmitValues = {
   restoreIntervalSec: "60",
   reason: "Grid peak",
   includeMaintenance: false,
+  forceIncludeAllPairedMiners: false,
 };
 
 function timestamp(isoDate: string): Timestamp {

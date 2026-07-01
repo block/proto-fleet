@@ -291,6 +291,8 @@ func (f *fakeStore) GetTargetRollupByEvent(_ context.Context, _ int64, eventUUID
 			rollup.Confirmed++
 		case models.TargetStateDrifted:
 			rollup.Drifted++
+		case models.TargetStateUnavailable:
+			rollup.Unavailable++
 		case models.TargetStateResolved:
 			rollup.Resolved++
 		case models.TargetStateReleased:
@@ -568,6 +570,14 @@ func (f *fakeStore) ClaimClosedLoopFullFleetTargets(
 	[]models.InsertTargetParams,
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised")
+}
+
+func (f *fakeStore) ClaimAllPairedPolicyTargets(
+	context.Context,
+	int64,
+	[]models.InsertTargetParams,
+) ([]*models.Target, error) {
+	panic("ClaimAllPairedPolicyTargets not exercised")
 }
 
 // --- helpers ---

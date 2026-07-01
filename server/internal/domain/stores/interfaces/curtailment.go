@@ -242,6 +242,15 @@ type CurtailmentStore interface {
 		targets []models.InsertTargetParams,
 	) ([]*models.Target, error)
 
+	// ClaimAllPairedPolicyTargets inserts or reopens durable all-paired
+	// FULL_FLEET policy targets in their computed state. Unlike closed-loop
+	// dispatch claims, this does not pre-claim rows as DISPATCHING.
+	ClaimAllPairedPolicyTargets(
+		ctx context.Context,
+		eventID int64,
+		targets []models.InsertTargetParams,
+	) ([]*models.Target, error)
+
 	// Heartbeat singleton row used by liveness alerts.
 	GetHeartbeat(ctx context.Context) (*models.Heartbeat, error)
 

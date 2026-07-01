@@ -97,6 +97,13 @@ func (s *startStubStore) ClaimClosedLoopFullFleetTargets(
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by handler Start tests")
 }
+func (s *startStubStore) ClaimAllPairedPolicyTargets(
+	context.Context,
+	int64,
+	[]models.InsertTargetParams,
+) ([]*models.Target, error) {
+	panic("ClaimAllPairedPolicyTargets not exercised by handler Start tests")
+}
 
 // --- panic stubs for surface the handler-level tests don't reach ---
 
@@ -304,6 +311,45 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 	// echoed in the Start response. Two selected candidates with no caller
 	// preference means immediate restore of the full pending set.
 	assert.Equal(t, uint32(2), ev.EffectiveBatchSize)
+}
+
+func TestHandler_StartCurtailment_AllPairedPolicyEchoesUnavailableTargets(t *testing.T) {
+	t.Parallel()
+
+	store := newStartStubStore()
+	store.candidates = []*models.Candidate{
+		miner("online", "ACTIVE", "PAIRED", 3000, 100, 40),
+		miner("offline", "OFFLINE", "PAIRED", 0, 0, 0),
+	}
+	h := NewHandler(curtailment.NewService(store))
+
+	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "ADMIN",
+		SessionID:      "sess-admin",
+	}, authz.PermCurtailmentManage)
+
+	req := validStartRequestBuilder()
+	req.Mode = pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET
+	req.ModeParams = nil
+	req.ForceIncludeAllPairedMiners = true
+
+	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+
+	ev := resp.Msg.Event
+	assert.True(t, ev.GetForceIncludeAllPairedMiners())
+	assert.True(t, store.lastEvent.ForceIncludeAllPairedMiners)
+	require.Len(t, ev.Targets, 2)
+	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING, ev.Targets[0].State)
+	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNAVAILABLE, ev.Targets[1].State)
+	assert.Equal(t, "offline", ev.Targets[1].LastError)
+	assert.Equal(t, int32(1), ev.TargetRollup.Pending)
+	assert.Equal(t, int32(1), ev.TargetRollup.Unavailable)
+	assert.Equal(t, int32(2), ev.TargetRollup.Total)
 }
 
 func TestHandler_StartCurtailment_PersistsCurtailBatchControls(t *testing.T) {

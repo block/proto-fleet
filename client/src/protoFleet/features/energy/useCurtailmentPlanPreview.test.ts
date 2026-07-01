@@ -53,6 +53,7 @@ const baseValues: CurtailmentFormValues = {
   restoreIntervalSec: "120",
   reason: "Grid peak",
   includeMaintenance: true,
+  forceIncludeAllPairedMiners: false,
 };
 
 function previewResponse(candidateCount = 3) {
@@ -195,6 +196,23 @@ describe("useCurtailmentPlanPreview", () => {
     expect(request?.modeParams.case).toBeUndefined();
     expect(request?.includeMaintenance).toBe(true);
     expect(request?.forceIncludeMaintenance).toBe(true);
+    expect(request?.forceIncludeAllPairedMiners).toBe(false);
+  });
+
+  it("sends all-paired targeting only for full-fleet preview requests", () => {
+    const fixedKwRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(fixedKwRequest?.forceIncludeAllPairedMiners).toBe(false);
+
+    const fullFleetRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(fullFleetRequest?.forceIncludeAllPairedMiners).toBe(true);
   });
 
   it("does not build a request until target and scope are valid", () => {
@@ -396,6 +414,38 @@ describe("useCurtailmentPlanPreview", () => {
         signal: expect.any(AbortSignal),
       }),
     );
+  });
+
+  it("uses policy target counts when unavailable all-paired targets exist", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(
+      create(PreviewCurtailmentPlanResponseSchema, {
+        candidates: [],
+        estimatedReductionKw: 45,
+        mode: CurtailmentMode.FULL_FLEET,
+        policyTargetCount: 4,
+        unavailableTargetCount: 3,
+      }),
+    );
+
+    const { result } = renderPreviewHook({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      toleranceKw: "",
+      forceIncludeAllPairedMiners: true,
+    });
+
+    await waitFor(() => {
+      expect(result.current.preview).toEqual(
+        expect.objectContaining({
+          selectedMinerCount: 4,
+          unavailableMinerCount: 3,
+          targetKw: 45,
+          estimatedReductionKw: 45,
+        }),
+      );
+    });
+    expect(result.current.previewError).toBeUndefined();
   });
 
   it("treats blank restore fields as immediate in the local preview", () => {

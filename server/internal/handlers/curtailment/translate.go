@@ -73,17 +73,18 @@ func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curta
 	}
 
 	out := curtailment.PreviewRequest{
-		OrgID:                   orgID,
-		Scope:                   scope,
-		Mode:                    mode,
-		Strategy:                strategyName(msg.GetStrategy()),
-		Level:                   levelName(msg.GetLevel()),
-		Priority:                priorityName(msg.GetPriority()),
-		TargetKW:                fixedKw.GetTargetKw(),
-		ToleranceKW:             tolerance,
-		IncludeMaintenance:      msg.GetIncludeMaintenance(),
-		ForceIncludeMaintenance: msg.GetForceIncludeMaintenance(),
-		PostEventCooldownSec:    postEventCooldownSec,
+		OrgID:                       orgID,
+		Scope:                       scope,
+		Mode:                        mode,
+		Strategy:                    strategyName(msg.GetStrategy()),
+		Level:                       levelName(msg.GetLevel()),
+		Priority:                    priorityName(msg.GetPriority()),
+		TargetKW:                    fixedKw.GetTargetKw(),
+		ToleranceKW:                 tolerance,
+		IncludeMaintenance:          msg.GetIncludeMaintenance(),
+		ForceIncludeMaintenance:     msg.GetForceIncludeMaintenance(),
+		ForceIncludeAllPairedMiners: msg.GetForceIncludeAllPairedMiners(),
+		PostEventCooldownSec:        postEventCooldownSec,
 	}
 	if override := msg.CandidateMinPowerWOverride; override != nil {
 		// Defense-in-depth: proto validator already caps below MaxInt32,
@@ -150,17 +151,18 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	}
 
 	preview := curtailment.PreviewRequest{
-		OrgID:                   info.OrganizationID,
-		Scope:                   scope,
-		Mode:                    mode,
-		Strategy:                strategyName(msg.GetStrategy()),
-		Level:                   levelName(msg.GetLevel()),
-		Priority:                priorityName(msg.GetPriority()),
-		TargetKW:                fixedKw.GetTargetKw(),
-		ToleranceKW:             tolerance,
-		IncludeMaintenance:      msg.GetIncludeMaintenance(),
-		ForceIncludeMaintenance: msg.GetForceIncludeMaintenance(),
-		PostEventCooldownSec:    postEventCooldownSec,
+		OrgID:                       info.OrganizationID,
+		Scope:                       scope,
+		Mode:                        mode,
+		Strategy:                    strategyName(msg.GetStrategy()),
+		Level:                       levelName(msg.GetLevel()),
+		Priority:                    priorityName(msg.GetPriority()),
+		TargetKW:                    fixedKw.GetTargetKw(),
+		ToleranceKW:                 tolerance,
+		IncludeMaintenance:          msg.GetIncludeMaintenance(),
+		ForceIncludeMaintenance:     msg.GetForceIncludeMaintenance(),
+		ForceIncludeAllPairedMiners: msg.GetForceIncludeAllPairedMiners(),
+		PostEventCooldownSec:        postEventCooldownSec,
 	}
 	if override := msg.CandidateMinPowerWOverride; override != nil {
 		// Proto validator already bounds this; backstop for non-Connect callers.
@@ -366,24 +368,25 @@ func isClosedLoopFullFleetStartResponse(req *pb.StartCurtailmentRequest) bool {
 // response. Idempotent replays render from the persisted event row.
 func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *pb.StartCurtailmentResponse {
 	event := &pb.CurtailmentEvent{
-		State:                   startResponseState(req, len(plan.Selected)),
-		Mode:                    requestModeProto(req.GetMode()),
-		Strategy:                pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
-		Level:                   pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
-		Priority:                resolvePriority(req.GetPriority()),
-		MaxDurationSeconds:      effectiveMaxDurationSeconds(plan, req),
-		CurtailBatchSize:        int32PtrToUint32Ptr(plan.EffectiveCurtailBatchSize),
-		CurtailBatchIntervalSec: uint32Saturating(plan.EffectiveCurtailBatchIntervalSec),
-		RestoreBatchSize:        req.GetRestoreBatchSize(),
-		RestoreBatchIntervalSec: effectiveRestoreBatchIntervalSec(plan, req),
-		MinCurtailedDurationSec: req.GetMinCurtailedDurationSec(),
-		IncludeMaintenance:      req.GetIncludeMaintenance(),
-		ForceIncludeMaintenance: req.GetForceIncludeMaintenance(),
-		Reason:                  req.GetReason(),
-		ExternalSource:          req.GetExternalSource(),
-		ExternalReference:       req.GetExternalReference(),
-		IdempotencyKey:          req.GetIdempotencyKey(),
-		EffectiveBatchSize:      uint32Saturating(plan.EffectiveBatchSize),
+		State:                       startResponseState(req, len(plan.Selected)),
+		Mode:                        requestModeProto(req.GetMode()),
+		Strategy:                    pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
+		Level:                       pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
+		Priority:                    resolvePriority(req.GetPriority()),
+		MaxDurationSeconds:          effectiveMaxDurationSeconds(plan, req),
+		CurtailBatchSize:            int32PtrToUint32Ptr(plan.EffectiveCurtailBatchSize),
+		CurtailBatchIntervalSec:     uint32Saturating(plan.EffectiveCurtailBatchIntervalSec),
+		RestoreBatchSize:            req.GetRestoreBatchSize(),
+		RestoreBatchIntervalSec:     effectiveRestoreBatchIntervalSec(plan, req),
+		MinCurtailedDurationSec:     req.GetMinCurtailedDurationSec(),
+		IncludeMaintenance:          req.GetIncludeMaintenance(),
+		ForceIncludeMaintenance:     req.GetForceIncludeMaintenance(),
+		ForceIncludeAllPairedMiners: req.GetForceIncludeAllPairedMiners(),
+		Reason:                      req.GetReason(),
+		ExternalSource:              req.GetExternalSource(),
+		ExternalReference:           req.GetExternalReference(),
+		IdempotencyKey:              req.GetIdempotencyKey(),
+		EffectiveBatchSize:          uint32Saturating(plan.EffectiveBatchSize),
 	}
 	if plan.EventUUID != nil {
 		event.EventUuid = plan.EventUUID.String()
@@ -418,28 +421,53 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	}
 
 	var targets []*pb.CurtailmentTarget
-	if !isClosedLoopFullFleetStartResponse(req) {
+	if !isClosedLoopFullFleetStartResponse(req) || req.GetForceIncludeAllPairedMiners() {
 		// Open-loop starts persist targets immediately; reconciler updates them in-place.
 		targets = make([]*pb.CurtailmentTarget, len(plan.Selected))
 		for i, sel := range plan.Selected {
+			state := targetStateProto(sel.TargetState)
+			if state == pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNSPECIFIED {
+				state = pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING
+			}
 			t := &pb.CurtailmentTarget{
 				DeviceIdentifier: sel.DeviceIdentifier,
 				TargetType:       "miner",
-				State:            pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING,
+				State:            state,
 				DesiredState:     pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_CURTAILED,
 			}
 			if sel.PowerW > 0 {
 				v := sel.PowerW
 				t.BaselinePowerW = &v
 			}
+			if sel.LastError != "" {
+				t.LastError = sel.LastError
+			}
 			targets[i] = t
 		}
 	}
 	event.Targets = targets
-	rollup := lenToInt32Saturating(len(targets))
+	pendingCount := 0
+	unavailableCount := 0
+	for _, target := range targets {
+		switch target.GetState() {
+		case pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNAVAILABLE:
+			unavailableCount++
+		case pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNSPECIFIED,
+			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING,
+			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHING,
+			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHED,
+			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED,
+			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DRIFTED,
+			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESOLVED,
+			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RELEASED,
+			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESTORE_FAILED:
+			pendingCount++
+		}
+	}
 	event.TargetRollup = &pb.CurtailmentTargetRollup{
-		Pending: rollup,
-		Total:   rollup,
+		Pending:     lenToInt32Saturating(pendingCount),
+		Unavailable: lenToInt32Saturating(unavailableCount),
+		Total:       lenToInt32Saturating(len(targets)),
 	}
 
 	return &pb.StartCurtailmentResponse{Event: event}
@@ -582,6 +610,8 @@ func toPreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailmentPlanReq
 		EstimatedRemainingPowerKw: plan.EstimatedRemainingPowerKW,
 		Mode:                      requestModeProto(req.GetMode()),
 		SkippedCandidates:         skipped,
+		PolicyTargetCount:         uint32SaturatingInt(plan.PolicyTargetCount),
+		UnavailableTargetCount:    uint32SaturatingInt(plan.UnavailableTargetCount),
 	}
 	// Echo FIXED_KW params so the UI can render the undershoot delta.
 	if fk := req.GetFixedKw(); fk != nil {
@@ -848,20 +878,21 @@ func scrubListSensitiveFields(out *pb.CurtailmentEvent) {
 // use toEventProtoWithTargets for the full shape including targets.
 func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 	out := &pb.CurtailmentEvent{
-		EventUuid:               event.EventUUID.String(),
-		State:                   eventStateProto(event.State),
-		Mode:                    modeProto(event.Mode),
-		Strategy:                strategyProto(event.Strategy),
-		Level:                   levelProto(event.Level),
-		Priority:                priorityProto(event.Priority),
-		CurtailBatchSize:        int32PtrToUint32Ptr(event.CurtailBatchSize),
-		CurtailBatchIntervalSec: uint32Saturating(event.CurtailBatchIntervalSec),
-		RestoreBatchSize:        uint32Saturating(event.RestoreBatchSize),
-		RestoreBatchIntervalSec: uint32Saturating(event.RestoreBatchIntervalSec),
-		MinCurtailedDurationSec: uint32Saturating(event.MinCurtailedDurationSec),
-		IncludeMaintenance:      event.IncludeMaintenance,
-		ForceIncludeMaintenance: event.ForceIncludeMaintenance,
-		Reason:                  event.Reason,
+		EventUuid:                   event.EventUUID.String(),
+		State:                       eventStateProto(event.State),
+		Mode:                        modeProto(event.Mode),
+		Strategy:                    strategyProto(event.Strategy),
+		Level:                       levelProto(event.Level),
+		Priority:                    priorityProto(event.Priority),
+		CurtailBatchSize:            int32PtrToUint32Ptr(event.CurtailBatchSize),
+		CurtailBatchIntervalSec:     uint32Saturating(event.CurtailBatchIntervalSec),
+		RestoreBatchSize:            uint32Saturating(event.RestoreBatchSize),
+		RestoreBatchIntervalSec:     uint32Saturating(event.RestoreBatchIntervalSec),
+		MinCurtailedDurationSec:     uint32Saturating(event.MinCurtailedDurationSec),
+		IncludeMaintenance:          event.IncludeMaintenance,
+		ForceIncludeMaintenance:     event.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners: event.ForceIncludeAllPairedMiners,
+		Reason:                      event.Reason,
 	}
 	if event.MaxDurationSeconds != nil {
 		out.MaxDurationSeconds = uint32Saturating(*event.MaxDurationSeconds)
@@ -1034,6 +1065,8 @@ func populateEventTargets(out *pb.CurtailmentEvent, targets []*models.Target) {
 			pageRollup.Confirmed++
 		case models.TargetStateDrifted:
 			pageRollup.Drifted++
+		case models.TargetStateUnavailable:
+			pageRollup.Unavailable++
 		case models.TargetStateResolved:
 			pageRollup.Resolved++
 		case models.TargetStateReleased:
@@ -1074,6 +1107,7 @@ func targetRollupProto(rollup *models.TargetRollup) *pb.CurtailmentTargetRollup 
 		Resolved:      int64ToInt32Saturating(rollup.Resolved),
 		Released:      int64ToInt32Saturating(rollup.Released),
 		RestoreFailed: int64ToInt32Saturating(rollup.RestoreFailed),
+		Unavailable:   int64ToInt32Saturating(rollup.Unavailable),
 		Total:         int64ToInt32Saturating(rollup.Total),
 	}
 }
@@ -1172,6 +1206,16 @@ func uint32SaturatingInt64(v int64) uint32 {
 	return uint32(v) // #nosec G115 -- bounds-checked above
 }
 
+func uint32SaturatingInt(v int) uint32 {
+	if v < 0 {
+		return 0
+	}
+	if v > math.MaxUint32 {
+		return math.MaxUint32
+	}
+	return uint32(v) // #nosec G115 -- bounds-checked above
+}
+
 func int32PtrToUint32Ptr(v *int32) *uint32 {
 	if v == nil {
 		return nil
@@ -1255,6 +1299,8 @@ func targetStateProto(s models.TargetState) pb.CurtailmentTargetState {
 		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED
 	case models.TargetStateDrifted:
 		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DRIFTED
+	case models.TargetStateUnavailable:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNAVAILABLE
 	case models.TargetStateResolved:
 		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESOLVED
 	case models.TargetStateReleased:

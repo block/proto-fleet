@@ -338,6 +338,18 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 		return
 	}
 	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
+	if isAllPairedPolicyEvent(ev) {
+		cands, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{
+			OrgID:             ev.OrgID,
+			DeviceIdentifiers: targetDeviceIdentifiers(targets),
+		})
+		if err != nil {
+			slog.Error("curtailment reconciler: list candidates (all-paired pending refresh) failed",
+				"event_id", ev.ID, "error", err)
+		} else {
+			r.refreshAllPairedPolicyTargets(cmdCtx, ev, targets, candidatesByDeviceID(cands))
+		}
+	}
 	r.dispatchPendingCurtailBatches(cmdCtx, ev, targets)
 
 	// Confirm just-dispatched targets via current telemetry before deciding
@@ -678,6 +690,9 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 				"event_id", ev.ID, "error", err)
 		} else {
 			candByID := candidatesByDeviceID(cands)
+			if isAllPairedPolicyEvent(ev) {
+				r.refreshAllPairedPolicyTargets(cmdCtx, ev, targets, candByID)
+			}
 			for _, t := range targets {
 				switch t.State {
 				case models.TargetStateConfirmed:
@@ -707,7 +722,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 						continue
 					}
 					r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDrifted)
-				case models.TargetStatePending,
+				case models.TargetStatePending, models.TargetStateUnavailable,
 					models.TargetStateResolved, models.TargetStateReleased,
 					models.TargetStateRestoreFailed:
 					// Pending rows are handled by the active closed-loop dispatch pass
@@ -725,12 +740,6 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 	if !isClosedLoopFullFleet(ev) || (ev.State != models.EventStatePending && ev.State != models.EventStateActive) {
 		return nil
 	}
-	if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev, existingTargets) {
-		return nil
-	}
-	if hasInFlightCurtailDispatch(existingTargets) {
-		return nil
-	}
 	params, ok := listCandidatesParamsForEventScope(ev)
 	if !ok {
 		slog.Warn("curtailment reconciler: unsupported closed-loop full-fleet scope",
@@ -742,6 +751,15 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 	if err != nil {
 		slog.Error("curtailment reconciler: list candidates (full_fleet admission) failed",
 			"event_id", ev.ID, "error", err)
+		return nil
+	}
+	if isAllPairedPolicyEvent(ev) {
+		return r.claimAllPairedPolicyTargets(ctx, ev, existingTargets, candidates, params)
+	}
+	if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev, existingTargets) {
+		return nil
+	}
+	if hasInFlightCurtailDispatch(existingTargets) {
 		return nil
 	}
 	orgConfig, err := r.store.GetOrgConfig(ctx, ev.OrgID)
@@ -800,6 +818,130 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 	return claimed
 }
 
+func (r *Reconciler) claimAllPairedPolicyTargets(
+	ctx context.Context,
+	ev *models.Event,
+	existingTargets []*models.Target,
+	candidates []*models.Candidate,
+	params interfaces.ListCandidatesParams,
+) []*models.Target {
+	orgConfig, err := r.store.GetOrgConfig(ctx, ev.OrgID)
+	if err != nil {
+		slog.Error("curtailment reconciler: get org config (all-paired admission) failed",
+			"event_id", ev.ID, "error", err)
+		return nil
+	}
+	activeDevices, err := r.store.ListActiveCurtailmentTargetDevices(ctx, ev.OrgID)
+	if err != nil {
+		slog.Error("curtailment reconciler: list active devices (all-paired admission) failed",
+			"event_id", ev.ID, "error", err)
+		return nil
+	}
+	activeSet := toStringSet(activeDevices)
+	for _, target := range existingTargets {
+		delete(activeSet, target.DeviceIdentifier)
+	}
+	plan := curtailment.BuildAllPairedPolicyPlan(
+		candidates,
+		activeSet,
+		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
+	)
+	targets := curtailment.BuildInsertTargetParams(
+		plan.Selected,
+		models.ModeFullFleet,
+		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
+	)
+	targets = excludeNonReopenableExistingTargetParams(targets, existingTargets)
+	if len(targets) == 0 {
+		return nil
+	}
+	claimed, err := r.store.ClaimAllPairedPolicyTargets(ctx, ev.ID, targets)
+	if err != nil {
+		slog.Error("curtailment reconciler: claim all-paired policy targets failed",
+			"event_id", ev.ID, "candidate_count", len(targets),
+			"scope_device_count", len(params.DeviceIdentifiers),
+			"scope_site_count", len(params.SiteIDs),
+			"error", err)
+		return nil
+	}
+	if len(claimed) > 0 {
+		slog.Info("curtailment reconciler: claimed all-paired policy targets",
+			"event_id", ev.ID, "claimed", len(claimed))
+	}
+	return nil
+}
+
+func (r *Reconciler) refreshAllPairedPolicyTargets(
+	ctx context.Context,
+	ev *models.Event,
+	targets []*models.Target,
+	candidates map[string]*models.Candidate,
+) {
+	for _, target := range targets {
+		if target.DesiredState != models.DesiredStateCurtailed {
+			continue
+		}
+		if target.State != models.TargetStatePending && target.State != models.TargetStateUnavailable {
+			continue
+		}
+		candidate := candidates[target.DeviceIdentifier]
+		if candidate == nil || !curtailment.IsAllPairedPolicyPairingStatus(candidate.PairingStatus) {
+			r.releaseAllPairedPolicyTarget(ctx, ev, target, "released: device is no longer paired-like")
+			continue
+		}
+		nextState, reason := curtailment.AllPairedPolicyTargetState(candidate)
+		switch {
+		case nextState == target.State && reason == targetErrorString(target):
+			continue
+		case nextState == models.TargetStatePending:
+			empty := ""
+			params := interfaces.UpdateCurtailmentTargetStateParams{
+				State:     models.TargetStatePending,
+				LastError: &empty,
+			}
+			if err := r.writeTargetState(ctx, ev, target.DeviceIdentifier, params); err != nil {
+				if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+					slog.Error("curtailment reconciler: all-paired target pending update failed",
+						"event_id", ev.ID, "device", target.DeviceIdentifier, "error", err)
+				}
+				continue
+			}
+			target.State = models.TargetStatePending
+			target.LastError = nil
+		case nextState == models.TargetStateUnavailable:
+			params := interfaces.UpdateCurtailmentTargetStateParams{
+				State:     models.TargetStateUnavailable,
+				LastError: &reason,
+			}
+			if err := r.writeTargetState(ctx, ev, target.DeviceIdentifier, params); err != nil {
+				if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+					slog.Error("curtailment reconciler: all-paired target unavailable update failed",
+						"event_id", ev.ID, "device", target.DeviceIdentifier, "reason", reason, "error", err)
+				}
+				continue
+			}
+			target.State = models.TargetStateUnavailable
+			target.LastError = &reason
+		}
+	}
+}
+
+func (r *Reconciler) releaseAllPairedPolicyTarget(ctx context.Context, ev *models.Event, target *models.Target, reason string) {
+	params := interfaces.UpdateCurtailmentTargetStateParams{
+		State:     models.TargetStateReleased,
+		LastError: &reason,
+	}
+	if err := r.writeTargetState(ctx, ev, target.DeviceIdentifier, params); err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: all-paired target release failed",
+				"event_id", ev.ID, "device", target.DeviceIdentifier, "error", err)
+		}
+		return
+	}
+	target.State = models.TargetStateReleased
+	target.LastError = &reason
+}
+
 func hasInFlightCurtailDispatch(targets []*models.Target) bool {
 	for _, target := range targets {
 		if target.DesiredState == models.DesiredStateCurtailed && target.State == models.TargetStateDispatching {
@@ -853,6 +995,25 @@ func excludeExistingTargetParams(targets []models.InsertTargetParams, existingTa
 	return filtered
 }
 
+func excludeNonReopenableExistingTargetParams(targets []models.InsertTargetParams, existingTargets []*models.Target) []models.InsertTargetParams {
+	if len(targets) == 0 || len(existingTargets) == 0 {
+		return targets
+	}
+	existing := make(map[string]models.TargetState, len(existingTargets))
+	for _, target := range existingTargets {
+		existing[target.DeviceIdentifier] = target.State
+	}
+	filtered := targets[:0]
+	for _, target := range targets {
+		state, ok := existing[target.DeviceIdentifier]
+		if ok && state != models.TargetStateReleased {
+			continue
+		}
+		filtered = append(filtered, target)
+	}
+	return filtered
+}
+
 func excludeDeviceIdentifiers(targets []models.InsertTargetParams, deviceIdentifiers []string) []models.InsertTargetParams {
 	if len(targets) == 0 || len(deviceIdentifiers) == 0 {
 		return targets
@@ -875,11 +1036,53 @@ func (r *Reconciler) dispatchClaimedCurtailTargets(ctx context.Context, ev *mode
 	if len(claimed) == 0 {
 		return
 	}
-	_ = r.dispatchCurtailBatch(ctx, ev, claimed, models.TargetStateDispatching)
+	dispatchable := claimed[:0]
+	for _, target := range claimed {
+		if target.State == models.TargetStatePending || target.State == models.TargetStateDispatching {
+			dispatchable = append(dispatchable, target)
+		}
+	}
+	if len(dispatchable) == 0 {
+		return
+	}
+	_ = r.dispatchCurtailBatch(ctx, ev, dispatchable, models.TargetStateDispatching)
 }
 
 func isClosedLoopFullFleet(ev *models.Event) bool {
 	return ev != nil && ev.Mode == models.ModeFullFleet && ev.LoopType == models.LoopTypeClosed
+}
+
+func isAllPairedPolicyEvent(ev *models.Event) bool {
+	return ev != nil && ev.ForceIncludeAllPairedMiners
+}
+
+func targetErrorString(target *models.Target) string {
+	if target == nil || target.LastError == nil {
+		return ""
+	}
+	return *target.LastError
+}
+
+func targetDeviceIdentifiers(targets []*models.Target) []string {
+	if len(targets) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if target == nil || target.DeviceIdentifier == "" {
+			continue
+		}
+		out = append(out, target.DeviceIdentifier)
+	}
+	return out
+}
+
+func toStringSet(values []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		out[value] = struct{}{}
+	}
+	return out
 }
 
 func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandidatesParams, bool) {
@@ -911,6 +1114,10 @@ func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandida
 // shows curtailment, resetting retry_count. Missing candidate row goes
 // through recordDispatchFailure so a vanished device can't stall.
 func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate, nonTerminalState models.TargetState) {
+	if isAllPairedPolicyEvent(ev) && (c == nil || !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus)) {
+		r.releaseAllPairedPolicyTarget(ctx, ev, t, "released: device is no longer paired-like")
+		return
+	}
 	if c == nil {
 		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", nonTerminalState)
 		return
@@ -960,6 +1167,10 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 // checkDrift evaluates a confirmed target against telemetry. Uncurtailed
 // → Drifted, re-dispatch if budget remains.
 func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
+	if isAllPairedPolicyEvent(ev) && (c == nil || !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus)) {
+		r.releaseAllPairedPolicyTarget(ctx, ev, t, "released: device is no longer paired-like")
+		return
+	}
 	if c == nil {
 		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", models.TargetStateDrifted)
 		return
@@ -1028,8 +1239,14 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 			confirmed++
 		case models.TargetStateRestoreFailed:
 			terminalFailures++
-		case models.TargetStatePending, models.TargetStateDispatching,
-			models.TargetStateDispatched, models.TargetStateDrifted:
+		case models.TargetStateUnavailable:
+			if isAllPairedPolicyEvent(ev) {
+				// Policy ownership is held until the miner becomes commandable;
+				// it should not pause drift enforcement for confirmed targets.
+				continue
+			}
+			return
+		case models.TargetStatePending, models.TargetStateDispatching, models.TargetStateDispatched, models.TargetStateDrifted:
 			// In flight.
 			return
 		case models.TargetStateResolved, models.TargetStateReleased:

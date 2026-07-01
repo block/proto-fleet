@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 )
 
@@ -111,6 +112,65 @@ func TestBuildPlan_FixedKwStillAppliesDualSignalFilter(t *testing.T) {
 	require.Len(t, plan.Skipped, 2)
 	assert.Equal(t, SkipPowerTelemetryUnreliable, plan.Skipped[0].Reason)
 	assert.Equal(t, SkipPhantomLoadNoHash, plan.Skipped[1].Reason)
+}
+
+func TestBuildAllPairedPolicyPlan_TargetsPairedLikeMinersByDispatchReadiness(t *testing.T) {
+	t.Parallel()
+
+	driver := "antminer"
+	inputs := []*models.Candidate{
+		{
+			DeviceIdentifier: "online",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(3000),
+			AvgEfficiencyJH:  eff(40),
+		},
+		{
+			DeviceIdentifier: "default-password",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "DEFAULT_PASSWORD",
+			LatestPowerW:     eff(2000),
+		},
+		{
+			DeviceIdentifier: "auth-needed",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "AUTHENTICATION_NEEDED",
+			LatestPowerW:     eff(2000),
+		},
+		{
+			DeviceIdentifier: "offline",
+			DriverName:       &driver,
+			DeviceStatus:     "OFFLINE",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(2000),
+		},
+		{
+			DeviceIdentifier: "unpaired",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "UNPAIRED",
+			LatestPowerW:     eff(2000),
+		},
+	}
+
+	plan := BuildAllPairedPolicyPlan(inputs, map[string]struct{}{"already-owned": {}}, 1500)
+
+	require.Len(t, plan.Selected, 4)
+	assert.Equal(t, 4, plan.PolicyTargetCount)
+	assert.Equal(t, 2, plan.UnavailableTargetCount)
+	assert.InDelta(t, 5.0, plan.EstimatedReductionKW, 0.001)
+	assert.Equal(t, models.TargetStatePending, plan.Selected[0].TargetState)
+	assert.Equal(t, models.TargetStatePending, plan.Selected[1].TargetState)
+	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[2].TargetState)
+	assert.Equal(t, "authentication_needed", plan.Selected[2].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[3].TargetState)
+	assert.Equal(t, "offline", plan.Selected[3].LastError)
+	require.Len(t, plan.Skipped, 1)
+	assert.Equal(t, SkipPairing, plan.Skipped[0].Reason)
 }
 
 func TestBuildPlan_PreFilteredSkippedAreForwarded(t *testing.T) {

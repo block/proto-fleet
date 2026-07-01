@@ -94,6 +94,33 @@ func TestService_Start_RejectsNonAdminForceIncludeMaintenance(t *testing.T) {
 	assert.Contains(t, err.Error(), "force_include_maintenance")
 }
 
+func TestService_Start_RejectsNonAdminForceIncludeAllPairedMiners(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.Mode = models.ModeFullFleet
+	req.ForceIncludeAllPairedMiners = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err))
+	assert.Contains(t, err.Error(), "force_include_all_paired_miners")
+}
+
+func TestService_Start_RejectsForceIncludeAllPairedMinersOutsideFullFleet(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.Mode = models.ModeFixedKw
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "force_include_all_paired_miners")
+}
+
 func TestService_Start_RejectsCurtailIntervalWithoutBatchSize(t *testing.T) {
 	t.Parallel()
 

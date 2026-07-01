@@ -440,42 +440,43 @@ type CurtailmentAutomationRuleState struct {
 }
 
 type CurtailmentEvent struct {
-	ID                      int64
-	EventUuid               uuid.UUID
-	OrgID                   int64
-	State                   string
-	Mode                    string
-	Strategy                string
-	Level                   string
-	Priority                string
-	LoopType                string
-	ScopeType               string
-	ScopeJsonb              json.RawMessage
-	ModeParamsJsonb         json.RawMessage
-	RestoreBatchSize        int32
-	RestoreBatchIntervalSec int32
-	EffectiveBatchSize      sql.NullInt32
-	MinCurtailedDurationSec int32
-	MaxDurationSeconds      sql.NullInt32
-	AllowUnbounded          bool
-	IncludeMaintenance      bool
-	ForceIncludeMaintenance bool
-	DecisionSnapshotJsonb   json.RawMessage
-	SourceActorType         string
-	SourceActorID           sql.NullString
-	ExternalSource          sql.NullString
-	ExternalReference       sql.NullString
-	IdempotencyKey          sql.NullString
-	SupersedesEventID       sql.NullInt64
-	Reason                  string
-	ScheduledStartAt        sql.NullTime
-	StartedAt               sql.NullTime
-	EndedAt                 sql.NullTime
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
-	CreatedByUserID         int64
-	CurtailBatchSize        sql.NullInt32
-	CurtailBatchIntervalSec int32
+	ID                          int64
+	EventUuid                   uuid.UUID
+	OrgID                       int64
+	State                       string
+	Mode                        string
+	Strategy                    string
+	Level                       string
+	Priority                    string
+	LoopType                    string
+	ScopeType                   string
+	ScopeJsonb                  json.RawMessage
+	ModeParamsJsonb             json.RawMessage
+	RestoreBatchSize            int32
+	RestoreBatchIntervalSec     int32
+	EffectiveBatchSize          sql.NullInt32
+	MinCurtailedDurationSec     int32
+	MaxDurationSeconds          sql.NullInt32
+	AllowUnbounded              bool
+	IncludeMaintenance          bool
+	ForceIncludeMaintenance     bool
+	DecisionSnapshotJsonb       json.RawMessage
+	SourceActorType             string
+	SourceActorID               sql.NullString
+	ExternalSource              sql.NullString
+	ExternalReference           sql.NullString
+	IdempotencyKey              sql.NullString
+	SupersedesEventID           sql.NullInt64
+	Reason                      string
+	ScheduledStartAt            sql.NullTime
+	StartedAt                   sql.NullTime
+	EndedAt                     sql.NullTime
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+	CreatedByUserID             int64
+	CurtailBatchSize            sql.NullInt32
+	CurtailBatchIntervalSec     int32
+	ForceIncludeAllPairedMiners bool
 }
 
 type CurtailmentMqttSourceConfig struct {
@@ -534,26 +535,27 @@ type CurtailmentReconcilerHeartbeat struct {
 }
 
 type CurtailmentResponseProfile struct {
-	ID                      int64
-	OrgID                   int64
-	ProfileName             string
-	SiteID                  sql.NullInt64
-	Mode                    string
-	Strategy                string
-	Level                   string
-	Priority                string
-	TargetKw                sql.NullString
-	ToleranceKw             sql.NullString
-	CurtailBatchSize        sql.NullInt32
-	CurtailBatchIntervalSec int32
-	RestoreBatchSize        int32
-	RestoreBatchIntervalSec int32
-	IncludeMaintenance      bool
-	ForceIncludeMaintenance bool
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
-	PostEventCooldownSec    int32
-	ScopeJson               json.RawMessage
+	ID                          int64
+	OrgID                       int64
+	ProfileName                 string
+	SiteID                      sql.NullInt64
+	Mode                        string
+	Strategy                    string
+	Level                       string
+	Priority                    string
+	TargetKw                    sql.NullString
+	ToleranceKw                 sql.NullString
+	CurtailBatchSize            sql.NullInt32
+	CurtailBatchIntervalSec     int32
+	RestoreBatchSize            int32
+	RestoreBatchIntervalSec     int32
+	IncludeMaintenance          bool
+	ForceIncludeMaintenance     bool
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+	PostEventCooldownSec        int32
+	ScopeJson                   json.RawMessage
+	ForceIncludeAllPairedMiners bool
 }
 
 type CurtailmentTarget struct {

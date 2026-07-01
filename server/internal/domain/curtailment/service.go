@@ -35,18 +35,19 @@ type Scope struct {
 
 // PreviewRequest is the service-level shape of a Preview call.
 type PreviewRequest struct {
-	OrgID                      int64
-	Scope                      Scope
-	Mode                       models.Mode     // must be ModeFixedKw
-	Strategy                   models.Strategy // default StrategyLeastEfficientFirst
-	Level                      models.Level    // must be LevelFull
-	Priority                   models.Priority // PriorityNormal or PriorityEmergency
-	TargetKW                   float64
-	ToleranceKW                float64
-	IncludeMaintenance         bool
-	ForceIncludeMaintenance    bool
-	CandidateMinPowerWOverride *int32 // nil = use org default; admin-gated by handler
-	PostEventCooldownSec       int32
+	OrgID                       int64
+	Scope                       Scope
+	Mode                        models.Mode     // must be ModeFixedKw
+	Strategy                    models.Strategy // default StrategyLeastEfficientFirst
+	Level                       models.Level    // must be LevelFull
+	Priority                    models.Priority // PriorityNormal or PriorityEmergency
+	TargetKW                    float64
+	ToleranceKW                 float64
+	IncludeMaintenance          bool
+	ForceIncludeMaintenance     bool
+	ForceIncludeAllPairedMiners bool
+	CandidateMinPowerWOverride  *int32 // nil = use org default; admin-gated by handler
+	PostEventCooldownSec        int32
 }
 
 // StartRequest is the service-level shape of a Start call. Adds event-row
@@ -1106,6 +1107,10 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 
 	// TODO: registry-driven curtail_full capability check. classifyCandidates
 	// already skips devices missing driver metadata as defense-in-depth.
+	if req.ForceIncludeAllPairedMiners {
+		plan := BuildAllPairedPolicyPlan(candidates, activeSet, minPowerW)
+		return &plan, minPowerW, orgConfig, nil
+	}
 
 	eligible, preFiltered, summary := classifyCandidates(candidates, classifyOpts{
 		IncludeMaintenance: req.IncludeMaintenance && req.ForceIncludeMaintenance,
@@ -1244,6 +1249,9 @@ func validateStartRequest(req StartRequest) error {
 	if req.ForceIncludeMaintenance && !req.CanUseAdminControls {
 		return fleeterror.NewForbiddenError("only admins can set force_include_maintenance")
 	}
+	if req.ForceIncludeAllPairedMiners && !req.CanUseAdminControls {
+		return fleeterror.NewForbiddenError("only admins can set force_include_all_paired_miners")
+	}
 	if !req.AllowUnbounded && req.MaxDurationSeconds != nil && *req.MaxDurationSeconds <= 0 {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"max_duration_seconds must be > 0, got %d", *req.MaxDurationSeconds,
@@ -1285,6 +1293,9 @@ func validateStartRequest(req StartRequest) error {
 func validatePreviewRequest(req PreviewRequest) error {
 	if req.Mode != "" && req.Mode != models.ModeFixedKw && req.Mode != models.ModeFullFleet {
 		return fleeterror.NewInvalidArgumentErrorf("mode %q is not supported; only FIXED_KW and FULL_FLEET", req.Mode)
+	}
+	if req.ForceIncludeAllPairedMiners && req.Mode != models.ModeFullFleet {
+		return fleeterror.NewInvalidArgumentError("force_include_all_paired_miners requires FULL_FLEET")
 	}
 	if req.Level != "" && req.Level != models.LevelFull {
 		return fleeterror.NewInvalidArgumentErrorf("level %q is not supported; only FULL", req.Level)
@@ -1642,7 +1653,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 			)
 		}
 	}
-	decisionJSON, err := marshalDecisionSnapshot(plan, minPowerW, req.PostEventCooldownSec)
+	decisionJSON, err := marshalDecisionSnapshot(plan, minPowerW, req.PostEventCooldownSec, req.ForceIncludeAllPairedMiners)
 	if err != nil {
 		return models.InsertEventParams{}, nil, err
 	}
@@ -1650,35 +1661,36 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 	// effective_batch_size is non-null from Start so Stop / restorer /
 	// response paths just read the column.
 	event := models.InsertEventParams{
-		EventUUID:               uuid.New(),
-		OrgID:                   req.OrgID,
-		State:                   eventStartState(scope, mode, len(plan.Selected)),
-		Mode:                    mode,
-		Strategy:                models.StrategyLeastEfficientFirst,
-		Level:                   models.LevelFull,
-		Priority:                req.Priority,
-		LoopType:                models.LoopTypeOpen,
-		ScopeType:               scope.Type,
-		ScopeJSON:               scopeJSON,
-		ModeParamsJSON:          modeParamsJSON,
-		CurtailBatchSize:        req.CurtailBatchSize,
-		CurtailBatchIntervalSec: req.CurtailBatchIntervalSec,
-		RestoreBatchSize:        req.RestoreBatchSize,
-		RestoreBatchIntervalSec: req.RestoreBatchIntervalSec,
-		MinCurtailedDurationSec: req.MinCurtailedDurationSec,
-		MaxDurationSeconds:      req.MaxDurationSeconds,
-		AllowUnbounded:          req.AllowUnbounded,
-		IncludeMaintenance:      req.IncludeMaintenance,
-		ForceIncludeMaintenance: req.ForceIncludeMaintenance,
-		DecisionSnapshotJSON:    decisionJSON,
-		SourceActorType:         req.SourceActorType,
-		SourceActorID:           req.SourceActorID,
-		ExternalSource:          req.ExternalSource,
-		ExternalReference:       req.ExternalReference,
-		IdempotencyKey:          req.IdempotencyKey,
-		Reason:                  req.Reason,
-		CreatedByUserID:         req.CreatedByUserID,
-		EffectiveBatchSize:      plan.EffectiveBatchSize,
+		EventUUID:                   uuid.New(),
+		OrgID:                       req.OrgID,
+		State:                       eventStartState(scope, mode, len(plan.Selected)),
+		Mode:                        mode,
+		Strategy:                    models.StrategyLeastEfficientFirst,
+		Level:                       models.LevelFull,
+		Priority:                    req.Priority,
+		LoopType:                    models.LoopTypeOpen,
+		ScopeType:                   scope.Type,
+		ScopeJSON:                   scopeJSON,
+		ModeParamsJSON:              modeParamsJSON,
+		CurtailBatchSize:            req.CurtailBatchSize,
+		CurtailBatchIntervalSec:     req.CurtailBatchIntervalSec,
+		RestoreBatchSize:            req.RestoreBatchSize,
+		RestoreBatchIntervalSec:     req.RestoreBatchIntervalSec,
+		MinCurtailedDurationSec:     req.MinCurtailedDurationSec,
+		MaxDurationSeconds:          req.MaxDurationSeconds,
+		AllowUnbounded:              req.AllowUnbounded,
+		IncludeMaintenance:          req.IncludeMaintenance,
+		ForceIncludeMaintenance:     req.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners: req.ForceIncludeAllPairedMiners,
+		DecisionSnapshotJSON:        decisionJSON,
+		SourceActorType:             req.SourceActorType,
+		SourceActorID:               req.SourceActorID,
+		ExternalSource:              req.ExternalSource,
+		ExternalReference:           req.ExternalReference,
+		IdempotencyKey:              req.IdempotencyKey,
+		Reason:                      req.Reason,
+		CreatedByUserID:             req.CreatedByUserID,
+		EffectiveBatchSize:          plan.EffectiveBatchSize,
 	}
 	if event.Priority == "" {
 		event.Priority = models.PriorityNormal
@@ -1696,7 +1708,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 	}
 
 	var targets []models.InsertTargetParams
-	if !isClosedLoopFullFleetStart(scope, mode) {
+	if !isClosedLoopFullFleetStart(scope, mode) || req.ForceIncludeAllPairedMiners {
 		targets = BuildInsertTargetParams(plan.Selected, mode, minPowerW)
 	}
 	return event, targets, nil
@@ -1712,12 +1724,21 @@ func BuildInsertTargetParams(selected []SelectedDevice, mode models.Mode, minPow
 			v := sel.PowerW
 			baseline = &v
 		}
+		state := sel.TargetState
+		if state == "" {
+			state = models.TargetStatePending
+		}
+		var lastError *string
+		if sel.LastError != "" {
+			lastError = &sel.LastError
+		}
 		targets[i] = models.InsertTargetParams{
 			DeviceIdentifier: sel.DeviceIdentifier,
 			TargetType:       targetTypeMiner,
-			State:            models.TargetStatePending,
+			State:            state,
 			DesiredState:     models.DesiredStateCurtailed,
 			BaselinePowerW:   baseline,
+			LastError:        lastError,
 		}
 	}
 	return targets
@@ -2006,7 +2027,7 @@ func cloneInt32Ptr(v *int32) *int32 {
 // marshalDecisionSnapshot captures the selector outputs for the
 // decision_snapshot column (rejection counters, realized vs. requested
 // kW, resolved candidate floor).
-func marshalDecisionSnapshot(plan *Plan, minPowerW int32, postEventCooldownSec int32) ([]byte, error) {
+func marshalDecisionSnapshot(plan *Plan, minPowerW int32, postEventCooldownSec int32, forceIncludeAllPairedMiners bool) ([]byte, error) {
 	skipped := make([]map[string]string, len(plan.Skipped))
 	for i, s := range plan.Skipped {
 		skipped[i] = map[string]string{
@@ -2015,12 +2036,15 @@ func marshalDecisionSnapshot(plan *Plan, minPowerW int32, postEventCooldownSec i
 		}
 	}
 	snapshot := map[string]any{
-		"candidate_min_power_w":        minPowerW,
-		"post_event_cooldown_sec":      postEventCooldownSec,
-		"estimated_reduction_kw":       plan.EstimatedReductionKW,
-		"estimated_remaining_power_kw": plan.EstimatedRemainingPowerKW,
-		"selected_count":               len(plan.Selected),
-		"skipped":                      skipped,
+		"candidate_min_power_w":           minPowerW,
+		"post_event_cooldown_sec":         postEventCooldownSec,
+		"estimated_reduction_kw":          plan.EstimatedReductionKW,
+		"estimated_remaining_power_kw":    plan.EstimatedRemainingPowerKW,
+		"selected_count":                  len(plan.Selected),
+		"policy_target_count":             plan.PolicyTargetCount,
+		"unavailable_target_count":        plan.UnavailableTargetCount,
+		"force_include_all_paired_miners": forceIncludeAllPairedMiners,
+		"skipped":                         skipped,
 	}
 	b, err := json.Marshal(snapshot)
 	if err != nil {

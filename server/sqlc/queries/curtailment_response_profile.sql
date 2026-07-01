@@ -36,7 +36,8 @@ INSERT INTO curtailment_response_profile (
     restore_batch_interval_sec,
     include_maintenance,
     force_include_maintenance,
-    post_event_cooldown_sec
+    post_event_cooldown_sec,
+    force_include_all_paired_miners
 ) VALUES (
     sqlc.arg('org_id'),
     sqlc.arg('profile_name'),
@@ -54,7 +55,8 @@ INSERT INTO curtailment_response_profile (
     sqlc.arg('restore_batch_interval_sec'),
     sqlc.arg('include_maintenance'),
     sqlc.arg('force_include_maintenance'),
-    sqlc.arg('post_event_cooldown_sec')
+    sqlc.arg('post_event_cooldown_sec'),
+    sqlc.arg('force_include_all_paired_miners')
 )
 RETURNING *;
 
@@ -76,7 +78,8 @@ SET
     restore_batch_interval_sec = sqlc.arg('restore_batch_interval_sec'),
     include_maintenance = sqlc.arg('include_maintenance'),
     force_include_maintenance = sqlc.arg('force_include_maintenance'),
-    post_event_cooldown_sec = sqlc.arg('post_event_cooldown_sec')
+    post_event_cooldown_sec = sqlc.arg('post_event_cooldown_sec'),
+    force_include_all_paired_miners = sqlc.arg('force_include_all_paired_miners')
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND site_id IS NOT DISTINCT FROM sqlc.narg('expected_site_id')
