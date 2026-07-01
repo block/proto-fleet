@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -40,42 +39,17 @@ func marshalNotificationJSON(m map[string]string) (json.RawMessage, error) {
 }
 
 func (s *SQLNotificationHistoryStore) Insert(ctx context.Context, n *notificationhistory.Notification) error {
-	labels, err := marshalNotificationJSON(n.Labels)
+	params, err := insertNotificationParams(n)
 	if err != nil {
-		return fmt.Errorf("marshal notification labels: %w", err)
+		return err
 	}
-	annotations, err := marshalNotificationJSON(n.Annotations)
-	if err != nil {
-		return fmt.Errorf("marshal notification annotations: %w", err)
-	}
-
-	return s.GetQueries(ctx).InsertNotificationHistory(ctx, sqlc.InsertNotificationHistoryParams{
-		AlertName:      n.AlertName,
-		Status:         n.Status,
-		Severity:       n.Severity,
-		RuleGroup:      n.RuleGroup,
-		Fingerprint:    n.Fingerprint,
-		OrganizationID: ptrToNullInt64(n.OrganizationID),
-		DeviceID:       n.DeviceID,
-		Template:       n.Template,
-		Summary:        n.Summary,
-		StartsAt:       ptrToNullTime(n.StartsAt),
-		EndsAt:         ptrToNullTime(n.EndsAt),
-		Labels:         labels,
-		Annotations:    annotations,
-	})
+	return s.GetQueries(ctx).InsertNotificationHistory(ctx, params)
 }
 
-// maxBatchRows keeps each multi-row INSERT under PostgreSQL's 65535-parameter limit
-// (notificationHistoryColumns params per row); larger batches are chunked.
-const maxBatchRows = 4000
-
-const notificationHistoryColumns = 13
-
-// InsertBatch persists many notifications in one transaction using chunked multi-row INSERTs,
-// so a large outage (one org-grouped notification with thousands of alerts) lands quickly and
-// atomically instead of via thousands of sequential round trips. All-or-nothing: on any error
-// the whole batch rolls back, so the caller can treat success as "every alert persisted".
+// InsertBatch persists many notifications atomically in one transaction so a large outage (one
+// org-grouped notification with thousands of alerts) lands or rolls back as a unit; the caller can
+// then treat success as "every alert persisted". Each row goes through the generated sqlc query
+// (AGENTS.md: all DB access through sqlc), bound to the transaction.
 func (s *SQLNotificationHistoryStore) InsertBatch(ctx context.Context, notifs []*notificationhistory.Notification) error {
 	if len(notifs) == 0 {
 		return nil
@@ -91,14 +65,14 @@ func (s *SQLNotificationHistoryStore) InsertBatch(ctx context.Context, notifs []
 		}
 	}()
 
-	for start := 0; start < len(notifs); start += maxBatchRows {
-		end := min(start+maxBatchRows, len(notifs))
-		query, args, err := buildNotificationHistoryInsert(notifs[start:end])
+	q := sqlc.New(tx)
+	for _, n := range notifs {
+		params, err := insertNotificationParams(n)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
-			return fmt.Errorf("insert notification batch: %w", err)
+		if err := q.InsertNotificationHistory(ctx, params); err != nil {
+			return fmt.Errorf("insert notification batch row: %w", err)
 		}
 	}
 
@@ -109,40 +83,30 @@ func (s *SQLNotificationHistoryStore) InsertBatch(ctx context.Context, notifs []
 	return nil
 }
 
-func buildNotificationHistoryInsert(notifs []*notificationhistory.Notification) (string, []any, error) {
-	var b strings.Builder
-	b.WriteString(`INSERT INTO notification_history (alert_name, status, severity, rule_group, fingerprint, organization_id, device_id, template, summary, starts_at, ends_at, labels, annotations) VALUES `)
-	args := make([]any, 0, len(notifs)*notificationHistoryColumns)
-	p := 1
-	for i, n := range notifs {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteByte('(')
-		for j := range notificationHistoryColumns {
-			if j > 0 {
-				b.WriteByte(',')
-			}
-			fmt.Fprintf(&b, "$%d", p)
-			p++
-		}
-		b.WriteByte(')')
-
-		labels, err := marshalNotificationJSON(n.Labels)
-		if err != nil {
-			return "", nil, fmt.Errorf("marshal notification labels: %w", err)
-		}
-		annotations, err := marshalNotificationJSON(n.Annotations)
-		if err != nil {
-			return "", nil, fmt.Errorf("marshal notification annotations: %w", err)
-		}
-		args = append(args,
-			n.AlertName, n.Status, n.Severity, n.RuleGroup, n.Fingerprint,
-			ptrToNullInt64(n.OrganizationID), n.DeviceID, n.Template, n.Summary,
-			ptrToNullTime(n.StartsAt), ptrToNullTime(n.EndsAt), labels, annotations,
-		)
+func insertNotificationParams(n *notificationhistory.Notification) (sqlc.InsertNotificationHistoryParams, error) {
+	labels, err := marshalNotificationJSON(n.Labels)
+	if err != nil {
+		return sqlc.InsertNotificationHistoryParams{}, fmt.Errorf("marshal notification labels: %w", err)
 	}
-	return b.String(), args, nil
+	annotations, err := marshalNotificationJSON(n.Annotations)
+	if err != nil {
+		return sqlc.InsertNotificationHistoryParams{}, fmt.Errorf("marshal notification annotations: %w", err)
+	}
+	return sqlc.InsertNotificationHistoryParams{
+		AlertName:      n.AlertName,
+		Status:         n.Status,
+		Severity:       n.Severity,
+		RuleGroup:      n.RuleGroup,
+		Fingerprint:    n.Fingerprint,
+		OrganizationID: ptrToNullInt64(n.OrganizationID),
+		DeviceID:       n.DeviceID,
+		Template:       n.Template,
+		Summary:        n.Summary,
+		StartsAt:       ptrToNullTime(n.StartsAt),
+		EndsAt:         ptrToNullTime(n.EndsAt),
+		Labels:         labels,
+		Annotations:    annotations,
+	}, nil
 }
 
 func (s *SQLNotificationHistoryStore) List(ctx context.Context, organizationID int64, beforeID *int64, limit int32) ([]notificationhistory.StoredNotification, error) {

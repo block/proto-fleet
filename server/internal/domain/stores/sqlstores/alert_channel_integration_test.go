@@ -23,7 +23,7 @@ func newAlertChannelStore(t *testing.T) (*sqlstores.SQLAlertChannelStore, *sql.D
 }
 
 func TestAlertChannelStoreCRUD(t *testing.T) {
-	store, _ := newAlertChannelStore(t)
+	store, db := newAlertChannelStore(t)
 	ctx := context.Background()
 
 	created, err := store.Insert(ctx, alerts.ChannelRecord{
@@ -71,6 +71,11 @@ func TestAlertChannelStoreCRUD(t *testing.T) {
 	_, err = store.Get(ctx, 7, created.ID)
 	require.ErrorIs(t, err, alerts.ErrNotFound)
 	require.ErrorIs(t, store.SoftDelete(ctx, 7, created.ID), alerts.ErrNotFound)
+
+	// Soft-delete clears the encrypted secret, so a deleted channel retains no webhook URL/bearer.
+	var deletedConfig string
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT encrypted_config FROM alert_channel WHERE id = $1`, created.ID).Scan(&deletedConfig))
+	assert.Empty(t, deletedConfig)
 
 	// The soft-deleted name is free to reuse.
 	_, err = store.Insert(ctx, alerts.ChannelRecord{OrganizationID: 7, Name: "oncall-renamed", Kind: alerts.ChannelKindWebhook, EncryptedConfig: "c", ValidationState: alerts.ValidationPending})

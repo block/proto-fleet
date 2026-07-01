@@ -47,8 +47,11 @@ WHERE org_id = sqlc.arg('org_id')
 ORDER BY created_at, id;
 
 -- name: SoftDeleteAlertChannel :execrows
+-- Clear the encrypted secret on delete: a soft-deleted channel never delivers again, so there's
+-- no reason to retain its webhook URL / bearer.
 UPDATE alert_channel
-SET deleted_at = now()
+SET deleted_at = now(),
+    encrypted_config = ''
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;

@@ -152,6 +152,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// maxFanOutOrgs bounds how many orgs a single global self-monitoring alert expands to, so a huge
+// org count can't turn a tiny operator-only batch into an unbounded write. Org-scoped alerts (the
+// device-outage path) are not fanned out and stay bounded only by the request body size.
+const maxFanOutOrgs = 2000
+
 // buildRows converts a batch into history rows, expanding a global self-monitoring alert
 // (no organization_id) into one row per active org.
 func buildRows(alerts []alertmanagerAlert, orgIDs []int64) []*notificationhistory.Notification {
@@ -166,9 +171,18 @@ func buildRows(alerts []alertmanagerAlert, orgIDs []int64) []*notificationhistor
 			rows = append(rows, &row)
 			continue
 		}
-		for i := range orgIDs {
+		fanOut := orgIDs
+		if len(fanOut) > maxFanOutOrgs {
+			slog.Warn("alertmanager webhook: self-monitoring fan-out capped",
+				"alertname", alert.Labels[labelAlertName],
+				"active_orgs", len(fanOut),
+				"cap", maxFanOutOrgs,
+			)
+			fanOut = fanOut[:maxFanOutOrgs]
+		}
+		for i := range fanOut {
 			scoped := row
-			scoped.OrganizationID = &orgIDs[i]
+			scoped.OrganizationID = &fanOut[i]
 			rows = append(rows, &scoped)
 		}
 	}

@@ -56,11 +56,11 @@ func (h *Handler) authorizeActor(ctx context.Context, permission string) (int64,
 	return info.OrganizationID, info.Username, nil
 }
 
-// requireMinerRead gates channel mutations behind miner:read: a saved channel delivers device
-// identity (id/name/MAC), which is miner data, so configuring where it flows needs the same
-// permission the alert-history read path requires to surface those fields.
+// requireMinerRead gates channel mutations behind org-wide miner:read: a saved channel delivers
+// device identity (id/name/MAC) for the whole org, so a caller whose miner:read is narrowed to a
+// subset of sites must not be able to route other sites' device data to an external destination.
 func (h *Handler) requireMinerRead(ctx context.Context) error {
-	_, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{})
+	_, err := middleware.RequireOrgWidePermission(ctx, authz.PermMinerRead)
 	return err
 }
 

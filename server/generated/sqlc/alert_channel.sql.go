@@ -219,7 +219,8 @@ func (q *Queries) ListAlertChannels(ctx context.Context, orgID int64) ([]AlertCh
 
 const softDeleteAlertChannel = `-- name: SoftDeleteAlertChannel :execrows
 UPDATE alert_channel
-SET deleted_at = now()
+SET deleted_at = now(),
+    encrypted_config = ''
 WHERE id = $1
   AND org_id = $2
   AND deleted_at IS NULL
@@ -230,6 +231,8 @@ type SoftDeleteAlertChannelParams struct {
 	OrgID int64
 }
 
+// Clear the encrypted secret on delete: a soft-deleted channel never delivers again, so there's
+// no reason to retain its webhook URL / bearer.
 func (q *Queries) SoftDeleteAlertChannel(ctx context.Context, arg SoftDeleteAlertChannelParams) (int64, error) {
 	result, err := q.exec(ctx, q.softDeleteAlertChannelStmt, softDeleteAlertChannel, arg.ID, arg.OrgID)
 	if err != nil {
