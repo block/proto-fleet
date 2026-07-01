@@ -29,6 +29,11 @@ const authorizationScheme = "Bearer "
 // batched into one org-grouped notification (~tens of thousands of alerts).
 const maxBodyBytes = 32 << 20 // 32 MiB
 
+// maxAlertsPerRequest caps alerts per batch well above any real fleet-wide outage, so a
+// pathological or abusive payload of many tiny alert objects can't drive unbounded row-building,
+// long transactions, or an OOM even within the byte cap.
+const maxAlertsPerRequest = 100_000
+
 // insertsTimeout bounds the batch persist; chunked multi-row INSERTs stay well under this even
 // for a very large outage, with headroom for a slow database.
 const insertsTimeout = 30 * time.Second
@@ -118,6 +123,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(payload.Alerts) == 0 {
 		// Well-formed but uninteresting; ack so Grafana doesn't retry.
 		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if len(payload.Alerts) > maxAlertsPerRequest {
+		slog.Warn("alertmanager webhook: alert batch exceeds cap; rejecting",
+			"alerts", len(payload.Alerts),
+			"cap", maxAlertsPerRequest,
+		)
+		writeError(w, http.StatusRequestEntityTooLarge, "alert batch exceeds limit")
 		return
 	}
 

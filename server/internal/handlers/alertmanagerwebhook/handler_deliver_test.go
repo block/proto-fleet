@@ -2,6 +2,7 @@ package alertmanagerwebhook
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -69,6 +70,28 @@ func TestServeHTTP_BatchInsertFailureReturns500AndNoDelivery(t *testing.T) {
 
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.False(t, deliverer.called, "no delivery when nothing persisted")
+}
+
+// Batches over the alert-count cap are rejected before any row is built or persisted.
+func TestServeHTTP_OverCapBatchRejected(t *testing.T) {
+	store := &okStore{}
+	handler := NewHandler(store, testWebhookToken, nil, &captureDeliverer{})
+
+	alerts := make([]map[string]any, 0, maxAlertsPerRequest+1)
+	for range maxAlertsPerRequest + 1 {
+		alerts = append(alerts, map[string]any{
+			"status": "firing",
+			"labels": map[string]string{"alertname": "A", "organization_id": "1"},
+		})
+	}
+	body, err := json.Marshal(map[string]any{"version": "4", "status": "firing", "alerts": alerts})
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newAuthedRequest(t, body))
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	assert.Equal(t, 0, store.inserts, "over-cap batch must not persist anything")
 }
 
 // A nil deliverer must be tolerated (delivery simply skipped).
