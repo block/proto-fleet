@@ -689,25 +689,31 @@ func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, quer
 	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
 
 	rollupCounts := s.getUptimeStatusCountsFromDeviceRollups(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration, ds)
-	if complete, rawTailStart, canMergeTail := uptimeRollupCoverage(rollupCounts, startTime, endTime, bucketDuration); complete {
+	complete, rawTailStart, canMergeTail := uptimeRollupCoverage(rollupCounts, startTime, endTime, bucketDuration)
+	if complete {
 		return rollupCounts
-	} else if canMergeTail {
-		rawTail := s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, rawTailStart, endTime, bucketDuration)
-		if len(rawTail) == 0 {
-			return rollupCounts
-		}
-		return mergeUptimeStatusCounts(rollupCounts, rawTail)
 	}
-	if rawUptimeFallbackTooLarge(len(query.DeviceIDs), startTime, endTime) {
+	rawStart := startTime
+	if canMergeTail {
+		rawStart = rawTailStart
+	}
+	if rawUptimeFallbackTooLarge(len(query.DeviceIDs), rawStart, endTime) {
 		s.logger.Warn("uptime rollup coverage gap exceeds raw fallback budget, returning partial rollup counts",
 			slog.Int64("org_id", query.OrganizationID),
 			slog.Int("device_count", len(query.DeviceIDs)),
-			slog.Time("start_time", startTime),
+			slog.Time("start_time", rawStart),
 			slog.Time("end_time", endTime),
 			slog.Int("rollup_bucket_count", len(rollupCounts)))
 		return rollupCounts
 	}
-	return s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration)
+	rawCounts := s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, rawStart, endTime, bucketDuration)
+	if canMergeTail {
+		if len(rawCounts) == 0 {
+			return rollupCounts
+		}
+		return mergeUptimeStatusCounts(rollupCounts, rawCounts)
+	}
+	return rawCounts
 }
 
 // getTimeRange extracts start and end times from the query, using defaults if not set.

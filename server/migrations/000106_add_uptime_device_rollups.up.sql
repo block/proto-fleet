@@ -2,6 +2,17 @@
 -- populated by TimescaleDB policies outside the migration transaction, and raw
 -- snapshots remain the correctness fallback while the deployment proves rollup
 -- coverage in production.
+--
+-- Policy window design: the rollups are created WITH NO DATA and the writer
+-- only inserts at "now", so a region is materialized only if a refresh window
+-- ever covers it. Each start_offset therefore spans the full range its rollup
+-- serves (query source selection is duration-based, so historical ranges
+-- within retention hit the rollup), bounded by retention and the 1-year raw
+-- retention. The first policy runs backfill that history in day/week/month
+-- batches, newest first. Compression is configured only where compress_after
+-- can exceed the refresh window (daily); inside the window it forces refreshes
+-- to write into compressed chunks, and older TimescaleDB versions reject the
+-- overlap outright.
 SELECT set_chunk_time_interval('miner_state_snapshots', INTERVAL '1 day');
 
 CREATE MATERIALIZED VIEW miner_state_snapshot_device_1m
@@ -24,16 +35,9 @@ CREATE INDEX idx_miner_state_snapshot_device_1m_org_device_bucket
 SELECT add_continuous_aggregate_policy('miner_state_snapshot_device_1m',
     start_offset => INTERVAL '14 days',
     end_offset => INTERVAL '2 minutes',
-    schedule_interval => INTERVAL '5 minutes');
+    schedule_interval => INTERVAL '5 minutes',
+    buckets_per_batch => 1440);
 
-ALTER MATERIALIZED VIEW miner_state_snapshot_device_1m SET (
-    timescaledb.compress,
-    timescaledb.compress_segmentby = 'org_id, device_identifier',
-    timescaledb.compress_orderby = 'bucket DESC'
-);
-
-SELECT add_compression_policy('miner_state_snapshot_device_1m', INTERVAL '7 days',
-    schedule_interval => INTERVAL '1 hour');
 SELECT add_retention_policy('miner_state_snapshot_device_1m', INTERVAL '14 days',
     schedule_interval => INTERVAL '1 day');
 
@@ -54,18 +58,11 @@ CREATE INDEX idx_miner_state_snapshot_device_hourly_org_device_bucket
     ON miner_state_snapshot_device_hourly(org_id, device_identifier, bucket DESC);
 
 SELECT add_continuous_aggregate_policy('miner_state_snapshot_device_hourly',
-    start_offset => INTERVAL '14 days',
+    start_offset => INTERVAL '3 months',
     end_offset => INTERVAL '1 hour',
-    schedule_interval => INTERVAL '30 minutes');
+    schedule_interval => INTERVAL '30 minutes',
+    buckets_per_batch => 168);
 
-ALTER MATERIALIZED VIEW miner_state_snapshot_device_hourly SET (
-    timescaledb.compress,
-    timescaledb.compress_segmentby = 'org_id, device_identifier',
-    timescaledb.compress_orderby = 'bucket DESC'
-);
-
-SELECT add_compression_policy('miner_state_snapshot_device_hourly', INTERVAL '7 days',
-    schedule_interval => INTERVAL '1 hour');
 SELECT add_retention_policy('miner_state_snapshot_device_hourly', INTERVAL '3 months',
     schedule_interval => INTERVAL '1 day');
 
@@ -86,9 +83,10 @@ CREATE INDEX idx_miner_state_snapshot_device_daily_org_device_bucket
     ON miner_state_snapshot_device_daily(org_id, device_identifier, bucket DESC);
 
 SELECT add_continuous_aggregate_policy('miner_state_snapshot_device_daily',
-    start_offset => INTERVAL '14 days',
+    start_offset => INTERVAL '12 months',
     end_offset => INTERVAL '1 day',
-    schedule_interval => INTERVAL '6 hours');
+    schedule_interval => INTERVAL '6 hours',
+    buckets_per_batch => 30);
 
 ALTER MATERIALIZED VIEW miner_state_snapshot_device_daily SET (
     timescaledb.compress,
@@ -96,7 +94,7 @@ ALTER MATERIALIZED VIEW miner_state_snapshot_device_daily SET (
     timescaledb.compress_orderby = 'bucket DESC'
 );
 
-SELECT add_compression_policy('miner_state_snapshot_device_daily', INTERVAL '7 days',
+SELECT add_compression_policy('miner_state_snapshot_device_daily', INTERVAL '13 months',
     schedule_interval => INTERVAL '1 day');
 SELECT add_retention_policy('miner_state_snapshot_device_daily', INTERVAL '3 years',
     schedule_interval => INTERVAL '1 week');

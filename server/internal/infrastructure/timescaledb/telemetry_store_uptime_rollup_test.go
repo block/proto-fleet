@@ -321,6 +321,60 @@ func TestTelemetryStore_UptimeCountsBoundLargeRawFallbacks(t *testing.T) {
 	})
 }
 
+func TestTelemetryStore_UptimeCountsBoundLargeRawTailMerges(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := NewTelemetryStore(db, DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	deviceIdentifier := fmt.Sprintf("rollup-tail-bound-device-%d", time.Now().UnixNano())
+
+	// The rollup covers only the first bucket, leaving a ~5h unmaterialized
+	// tail with a raw-only snapshot in it; the tail row is never refreshed
+	// into the rollup so a merge is detectable.
+	start := time.Now().UTC().Add(-6 * time.Hour).Truncate(time.Minute)
+	end := start.Add(5 * time.Hour)
+	tail := start.Add(4 * time.Hour)
+
+	insertMinerStateSnapshotRow(t, db, start, orgID, sql.NullInt64{}, deviceIdentifier, 2)
+	insertMinerStateSnapshotRow(t, db, tail, orgID, sql.NullInt64{}, deviceIdentifier, 3)
+	refreshUptimeDeviceRollup(t, db, "miner_state_snapshot_device_1m", start.Add(-time.Minute), start.Add(time.Minute))
+
+	t.Run("all-devices tail past the range cap returns rollup counts only", func(t *testing.T) {
+		// Act
+		counts := store.uptimeCountsForQuery(ctx, models.CombinedMetricsQuery{
+			OrganizationID: orgID,
+		}, start, end, time.Minute, dataSourceRaw)
+
+		// Assert: only the rollup-covered bucket, not the raw-only tail one
+		require.Len(t, counts, 1)
+		assert.True(t, start.Equal(counts[0].Timestamp), "expected bucket %s, got %s", start, counts[0].Timestamp)
+		assert.Equal(t, int32(1), counts[0].BrokenCount)
+	})
+
+	t.Run("small device list with the same tail still merges raw", func(t *testing.T) {
+		// Act
+		counts := store.uptimeCountsForQuery(ctx, models.CombinedMetricsQuery{
+			OrganizationID: orgID,
+			DeviceIDs:      []models.DeviceIdentifier{models.DeviceIdentifier(deviceIdentifier)},
+		}, start, end, time.Minute, dataSourceRaw)
+
+		// Assert: rollup bucket plus the raw tail bucket
+		require.Len(t, counts, 2)
+		assert.True(t, start.Equal(counts[0].Timestamp), "expected bucket %s, got %s", start, counts[0].Timestamp)
+		assert.Equal(t, int32(1), counts[0].BrokenCount)
+		assert.True(t, tail.Equal(counts[1].Timestamp), "expected bucket %s, got %s", tail, counts[1].Timestamp)
+		assert.Equal(t, int32(1), counts[1].HashingCount)
+	})
+}
+
 func TestTelemetryStore_GetCombinedMetricsSkipsUptimeCountsWhenNotRequested(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
