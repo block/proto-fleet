@@ -13,6 +13,408 @@ import (
 	"github.com/lib/pq"
 )
 
+const getAllMinerStateSnapshotDeviceRollups1m = `-- name: GetAllMinerStateSnapshotDeviceRollups1m :many
+WITH per_device_bucket AS (
+    SELECT DISTINCT ON (time_bucket($1::text::interval, r.bucket), r.device_identifier)
+        time_bucket($1::text::interval, r.bucket)::timestamptz AS bucket,
+        r.device_identifier,
+        r.state
+    FROM miner_state_snapshot_device_1m r
+    WHERE r.org_id = $2
+      AND r.bucket >= $3
+      AND r.bucket <= $4
+    ORDER BY time_bucket($1::text::interval, r.bucket), r.device_identifier, r.bucket DESC
+)
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM per_device_bucket
+GROUP BY bucket
+ORDER BY bucket ASC
+`
+
+type GetAllMinerStateSnapshotDeviceRollups1mParams struct {
+	BucketInterval string
+	OrgID          int64
+	StartTime      time.Time
+	EndTime        time.Time
+}
+
+type GetAllMinerStateSnapshotDeviceRollups1mRow struct {
+	Bucket        time.Time
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
+func (q *Queries) GetAllMinerStateSnapshotDeviceRollups1m(ctx context.Context, arg GetAllMinerStateSnapshotDeviceRollups1mParams) ([]GetAllMinerStateSnapshotDeviceRollups1mRow, error) {
+	rows, err := q.query(ctx, q.getAllMinerStateSnapshotDeviceRollups1mStmt, getAllMinerStateSnapshotDeviceRollups1m,
+		arg.BucketInterval,
+		arg.OrgID,
+		arg.StartTime,
+		arg.EndTime,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAllMinerStateSnapshotDeviceRollups1mRow
+	for rows.Next() {
+		var i GetAllMinerStateSnapshotDeviceRollups1mRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAllMinerStateSnapshotDeviceRollupsDaily = `-- name: GetAllMinerStateSnapshotDeviceRollupsDaily :many
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM miner_state_snapshot_device_daily
+WHERE org_id = $1
+  AND bucket >= $2
+  AND bucket <= $3
+GROUP BY bucket
+ORDER BY bucket ASC
+`
+
+type GetAllMinerStateSnapshotDeviceRollupsDailyParams struct {
+	OrgID     int64
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+type GetAllMinerStateSnapshotDeviceRollupsDailyRow struct {
+	Bucket        time.Time
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
+func (q *Queries) GetAllMinerStateSnapshotDeviceRollupsDaily(ctx context.Context, arg GetAllMinerStateSnapshotDeviceRollupsDailyParams) ([]GetAllMinerStateSnapshotDeviceRollupsDailyRow, error) {
+	rows, err := q.query(ctx, q.getAllMinerStateSnapshotDeviceRollupsDailyStmt, getAllMinerStateSnapshotDeviceRollupsDaily, arg.OrgID, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAllMinerStateSnapshotDeviceRollupsDailyRow
+	for rows.Next() {
+		var i GetAllMinerStateSnapshotDeviceRollupsDailyRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAllMinerStateSnapshotDeviceRollupsHourly = `-- name: GetAllMinerStateSnapshotDeviceRollupsHourly :many
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM miner_state_snapshot_device_hourly
+WHERE org_id = $1
+  AND bucket >= $2
+  AND bucket <= $3
+GROUP BY bucket
+ORDER BY bucket ASC
+`
+
+type GetAllMinerStateSnapshotDeviceRollupsHourlyParams struct {
+	OrgID     int64
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+type GetAllMinerStateSnapshotDeviceRollupsHourlyRow struct {
+	Bucket        time.Time
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
+func (q *Queries) GetAllMinerStateSnapshotDeviceRollupsHourly(ctx context.Context, arg GetAllMinerStateSnapshotDeviceRollupsHourlyParams) ([]GetAllMinerStateSnapshotDeviceRollupsHourlyRow, error) {
+	rows, err := q.query(ctx, q.getAllMinerStateSnapshotDeviceRollupsHourlyStmt, getAllMinerStateSnapshotDeviceRollupsHourly, arg.OrgID, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAllMinerStateSnapshotDeviceRollupsHourlyRow
+	for rows.Next() {
+		var i GetAllMinerStateSnapshotDeviceRollupsHourlyRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getMinerStateSnapshotDeviceRollups1m = `-- name: GetMinerStateSnapshotDeviceRollups1m :many
+WITH selected_devices AS (
+    SELECT DISTINCT unnest($1::text[]) AS device_identifier
+),
+per_device_bucket AS (
+    SELECT DISTINCT ON (time_bucket($2::text::interval, r.bucket), r.device_identifier)
+        time_bucket($2::text::interval, r.bucket)::timestamptz AS bucket,
+        r.device_identifier,
+        r.state
+    FROM miner_state_snapshot_device_1m r
+    JOIN selected_devices sd ON sd.device_identifier = r.device_identifier
+    WHERE r.org_id = $3
+      AND r.bucket >= $4
+      AND r.bucket <= $5
+    ORDER BY time_bucket($2::text::interval, r.bucket), r.device_identifier, r.bucket DESC
+)
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM per_device_bucket
+GROUP BY bucket
+ORDER BY bucket ASC
+`
+
+type GetMinerStateSnapshotDeviceRollups1mParams struct {
+	DeviceIdentifierValues []string
+	BucketInterval         string
+	OrgID                  int64
+	StartTime              time.Time
+	EndTime                time.Time
+}
+
+type GetMinerStateSnapshotDeviceRollups1mRow struct {
+	Bucket        time.Time
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
+func (q *Queries) GetMinerStateSnapshotDeviceRollups1m(ctx context.Context, arg GetMinerStateSnapshotDeviceRollups1mParams) ([]GetMinerStateSnapshotDeviceRollups1mRow, error) {
+	rows, err := q.query(ctx, q.getMinerStateSnapshotDeviceRollups1mStmt, getMinerStateSnapshotDeviceRollups1m,
+		pq.Array(arg.DeviceIdentifierValues),
+		arg.BucketInterval,
+		arg.OrgID,
+		arg.StartTime,
+		arg.EndTime,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetMinerStateSnapshotDeviceRollups1mRow
+	for rows.Next() {
+		var i GetMinerStateSnapshotDeviceRollups1mRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getMinerStateSnapshotDeviceRollupsDaily = `-- name: GetMinerStateSnapshotDeviceRollupsDaily :many
+WITH selected_devices AS (
+    SELECT DISTINCT unnest($4::text[]) AS device_identifier
+)
+SELECT
+    r.bucket,
+    SUM(CASE WHEN r.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN r.state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN r.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN r.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM miner_state_snapshot_device_daily r
+JOIN selected_devices sd ON sd.device_identifier = r.device_identifier
+WHERE r.org_id = $1
+  AND r.bucket >= $2
+  AND r.bucket <= $3
+GROUP BY r.bucket
+ORDER BY r.bucket ASC
+`
+
+type GetMinerStateSnapshotDeviceRollupsDailyParams struct {
+	OrgID                  int64
+	StartTime              time.Time
+	EndTime                time.Time
+	DeviceIdentifierValues []string
+}
+
+type GetMinerStateSnapshotDeviceRollupsDailyRow struct {
+	Bucket        time.Time
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
+func (q *Queries) GetMinerStateSnapshotDeviceRollupsDaily(ctx context.Context, arg GetMinerStateSnapshotDeviceRollupsDailyParams) ([]GetMinerStateSnapshotDeviceRollupsDailyRow, error) {
+	rows, err := q.query(ctx, q.getMinerStateSnapshotDeviceRollupsDailyStmt, getMinerStateSnapshotDeviceRollupsDaily,
+		arg.OrgID,
+		arg.StartTime,
+		arg.EndTime,
+		pq.Array(arg.DeviceIdentifierValues),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetMinerStateSnapshotDeviceRollupsDailyRow
+	for rows.Next() {
+		var i GetMinerStateSnapshotDeviceRollupsDailyRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getMinerStateSnapshotDeviceRollupsHourly = `-- name: GetMinerStateSnapshotDeviceRollupsHourly :many
+WITH selected_devices AS (
+    SELECT DISTINCT unnest($4::text[]) AS device_identifier
+)
+SELECT
+    r.bucket,
+    SUM(CASE WHEN r.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN r.state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN r.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN r.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM miner_state_snapshot_device_hourly r
+JOIN selected_devices sd ON sd.device_identifier = r.device_identifier
+WHERE r.org_id = $1
+  AND r.bucket >= $2
+  AND r.bucket <= $3
+GROUP BY r.bucket
+ORDER BY r.bucket ASC
+`
+
+type GetMinerStateSnapshotDeviceRollupsHourlyParams struct {
+	OrgID                  int64
+	StartTime              time.Time
+	EndTime                time.Time
+	DeviceIdentifierValues []string
+}
+
+type GetMinerStateSnapshotDeviceRollupsHourlyRow struct {
+	Bucket        time.Time
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
+func (q *Queries) GetMinerStateSnapshotDeviceRollupsHourly(ctx context.Context, arg GetMinerStateSnapshotDeviceRollupsHourlyParams) ([]GetMinerStateSnapshotDeviceRollupsHourlyRow, error) {
+	rows, err := q.query(ctx, q.getMinerStateSnapshotDeviceRollupsHourlyStmt, getMinerStateSnapshotDeviceRollupsHourly,
+		arg.OrgID,
+		arg.StartTime,
+		arg.EndTime,
+		pq.Array(arg.DeviceIdentifierValues),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetMinerStateSnapshotDeviceRollupsHourlyRow
+	for rows.Next() {
+		var i GetMinerStateSnapshotDeviceRollupsHourlyRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getMinerStateSnapshots = `-- name: GetMinerStateSnapshots :many
 WITH per_device_bucket AS (
     SELECT DISTINCT ON (time_bucket($1::text::interval, time), device_identifier)
@@ -94,11 +496,12 @@ func (q *Queries) GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateS
 }
 
 const insertMinerStateSnapshot = `-- name: InsertMinerStateSnapshot :exec
-INSERT INTO miner_state_snapshots (time, org_id, site_id, device_identifier, state)
+INSERT INTO miner_state_snapshots (time, org_id, site_id, building_id, device_identifier, state)
 SELECT
     $1::timestamptz,
     d.org_id,
     d.site_id,
+    d.building_id,
     d.device_identifier,
     CASE
         WHEN ds.status = 'OFFLINE'

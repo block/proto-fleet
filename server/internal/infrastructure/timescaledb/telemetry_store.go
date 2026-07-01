@@ -553,9 +553,12 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 		bucketDuration = *query.SlideInterval
 	}
 
-	result := s.aggregateMetrics(data, query.MeasurementTypes, query.AggregationTypes, bucketDuration)
+	includeUptimeCounts := models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes)
+	result := s.aggregateMetrics(data, query.MeasurementTypes, query.AggregationTypes, bucketDuration, includeUptimeCounts)
 	startTime, endTime := s.getTimeRange(query.TimeRange)
-	result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration)
+	if includeUptimeCounts {
+		result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration, dataSourceRaw)
+	}
 
 	return result, nil
 }
@@ -599,7 +602,10 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 	metrics := s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
 	tempCounts := s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration)
+	var uptimeCounts []models.UptimeStatusCount
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+		uptimeCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration, dataSourceHourly)
+	}
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -647,7 +653,10 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 	metrics := s.aggregateDailyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
 	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration)
+	var uptimeCounts []models.UptimeStatusCount
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+		uptimeCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration, dataSourceDaily)
+	}
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -661,9 +670,12 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 // same start/end used for the surrounding metric query so uptime bars line up
 // with metric bars (notably: hourly/daily callers pass a range normalized to
 // complete buckets, not the raw request range).
-func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) []models.UptimeStatusCount {
+func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration, ds dataSource) []models.UptimeStatusCount {
 	if query.OrganizationID == 0 {
 		return nil
+	}
+	if counts := s.getUptimeStatusCountsFromDeviceRollups(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration, ds); len(counts) > 0 {
+		return counts
 	}
 	return s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration)
 }
@@ -1119,6 +1131,7 @@ func (s *TimescaleTelemetryStore) aggregateMetrics(
 	measurementTypes []models.MeasurementType,
 	aggregationTypes []models.AggregationType,
 	windowDuration time.Duration,
+	includeUptimeCounts bool,
 ) models.CombinedMetric {
 	if len(data) == 0 {
 		return models.CombinedMetric{}
@@ -1152,21 +1165,25 @@ func (s *TimescaleTelemetryStore) aggregateMetrics(
 
 	allMetrics := make([]models.Metric, 0, len(buckets)*len(measurementTypes))
 	tempCounts := make([]models.TemperatureStatusCount, 0, len(buckets))
-	uptimeCounts := make([]models.UptimeStatusCount, 0, len(buckets))
+	var uptimeCounts []models.UptimeStatusCount
+	if includeUptimeCounts {
+		uptimeCounts = make([]models.UptimeStatusCount, 0, len(buckets))
+	}
 
 	for _, bucketTime := range bucketTimes {
 		bucketData := buckets[bucketTime]
 
-		// Dedupe once per bucket — both status-count functions need a
-		// per-device latest sample, with temperature using the latest
-		// sample that actually has TempC populated.
-		uptimeLatest, tempLatest := latestSamplesForStatusCounts(bucketData)
+		// Dedupe once per bucket for the requested status counts. Temperature
+		// always uses the latest sample that actually has TempC populated.
+		uptimeLatest, tempLatest := latestSamplesForStatusCounts(bucketData, includeUptimeCounts)
 
 		tempCount := temperatureStatusCountFromLatest(tempLatest, bucketTime)
 		tempCounts = append(tempCounts, tempCount)
 
-		uptimeCount := uptimeStatusCountFromLatest(uptimeLatest, bucketTime)
-		uptimeCounts = append(uptimeCounts, uptimeCount)
+		if includeUptimeCounts {
+			uptimeCount := uptimeStatusCountFromLatest(uptimeLatest, bucketTime)
+			uptimeCounts = append(uptimeCounts, uptimeCount)
+		}
 
 		for _, measurementType := range measurementTypes {
 			var aggregatedValues []models.AggregatedValue
@@ -1226,6 +1243,148 @@ func (s *TimescaleTelemetryStore) InsertMinerStateSnapshot(ctx context.Context, 
 		return fmt.Errorf("insert miner state snapshot: %w", err)
 	}
 	return nil
+}
+
+func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromDeviceRollups(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []models.DeviceIdentifier,
+	startTime, endTime time.Time,
+	bucketDuration time.Duration,
+	ds dataSource,
+) []models.UptimeStatusCount {
+	if orgID == 0 {
+		return nil
+	}
+	if bucketDuration < time.Minute {
+		bucketDuration = time.Minute
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	switch ds {
+	case dataSourceRaw:
+		bucketInterval := fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds()))
+		if len(deviceIDs) == 0 {
+			rows, err := s.queries.GetAllMinerStateSnapshotDeviceRollups1m(ctx, sqlc.GetAllMinerStateSnapshotDeviceRollups1mParams{
+				BucketInterval: bucketInterval,
+				OrgID:          orgID,
+				StartTime:      startTime,
+				EndTime:        endTime,
+			})
+			if err != nil {
+				s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+				return nil
+			}
+			result := make([]models.UptimeStatusCount, 0, len(rows))
+			for _, row := range rows {
+				result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+			}
+			return result
+		}
+		rows, err := s.queries.GetMinerStateSnapshotDeviceRollups1m(ctx, sqlc.GetMinerStateSnapshotDeviceRollups1mParams{
+			BucketInterval:         bucketInterval,
+			DeviceIdentifierValues: deviceIDsToStrings(deviceIDs),
+			OrgID:                  orgID,
+			StartTime:              startTime,
+			EndTime:                endTime,
+		})
+		if err != nil {
+			s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+			return nil
+		}
+		result := make([]models.UptimeStatusCount, 0, len(rows))
+		for _, row := range rows {
+			result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+		}
+		return result
+
+	case dataSourceHourly:
+		if len(deviceIDs) == 0 {
+			rows, err := s.queries.GetAllMinerStateSnapshotDeviceRollupsHourly(ctx, sqlc.GetAllMinerStateSnapshotDeviceRollupsHourlyParams{
+				OrgID:     orgID,
+				StartTime: startTime,
+				EndTime:   endTime,
+			})
+			if err != nil {
+				s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+				return nil
+			}
+			result := make([]models.UptimeStatusCount, 0, len(rows))
+			for _, row := range rows {
+				result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+			}
+			return result
+		}
+		rows, err := s.queries.GetMinerStateSnapshotDeviceRollupsHourly(ctx, sqlc.GetMinerStateSnapshotDeviceRollupsHourlyParams{
+			DeviceIdentifierValues: deviceIDsToStrings(deviceIDs),
+			OrgID:                  orgID,
+			StartTime:              startTime,
+			EndTime:                endTime,
+		})
+		if err != nil {
+			s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+			return nil
+		}
+		result := make([]models.UptimeStatusCount, 0, len(rows))
+		for _, row := range rows {
+			result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+		}
+		return result
+
+	case dataSourceDaily:
+		if len(deviceIDs) == 0 {
+			rows, err := s.queries.GetAllMinerStateSnapshotDeviceRollupsDaily(ctx, sqlc.GetAllMinerStateSnapshotDeviceRollupsDailyParams{
+				OrgID:     orgID,
+				StartTime: startTime,
+				EndTime:   endTime,
+			})
+			if err != nil {
+				s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+				return nil
+			}
+			result := make([]models.UptimeStatusCount, 0, len(rows))
+			for _, row := range rows {
+				result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+			}
+			return result
+		}
+		rows, err := s.queries.GetMinerStateSnapshotDeviceRollupsDaily(ctx, sqlc.GetMinerStateSnapshotDeviceRollupsDailyParams{
+			DeviceIdentifierValues: deviceIDsToStrings(deviceIDs),
+			OrgID:                  orgID,
+			StartTime:              startTime,
+			EndTime:                endTime,
+		})
+		if err != nil {
+			s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+			return nil
+		}
+		result := make([]models.UptimeStatusCount, 0, len(rows))
+		for _, row := range rows {
+			result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func (s *TimescaleTelemetryStore) logUptimeRollupQueryError(orgID int64, deviceCount int, ds dataSource, err error) {
+	s.logger.Error("failed to query miner state snapshot device rollups",
+		slog.Int64("org_id", orgID),
+		slog.Int("device_count", deviceCount),
+		slog.String("source", ds.String()),
+		slog.String("error", err.Error()))
+}
+
+func appendUptimeStatusCount(result []models.UptimeStatusCount, bucket time.Time, hashing, broken, offline, sleeping int32) []models.UptimeStatusCount {
+	return append(result, models.UptimeStatusCount{
+		Timestamp:       bucket,
+		HashingCount:    hashing,
+		BrokenCount:     broken,
+		NotHashingCount: offline + sleeping,
+	})
 }
 
 func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
@@ -1370,21 +1529,25 @@ func latestSamplePerDevice(data []modelsV2.DeviceMetrics) []modelsV2.DeviceMetri
 	return out
 }
 
-// latestSamplesForStatusCounts walks the bucket once and returns two deduped
-// views: the latest sample per device (for uptime), and the latest sample per
-// device that has a TempC reading (for temperature). The TempC-aware view
-// avoids dropping a device just because its very latest sample happens to be
-// missing a temperature — TempC reporting can be intermittent, while Health
-// is set on every sample.
-func latestSamplesForStatusCounts(data []modelsV2.DeviceMetrics) (uptime, temperature []modelsV2.DeviceMetrics) {
+// latestSamplesForStatusCounts walks the bucket once and returns requested
+// deduped views: the latest sample per device (for uptime), and the latest
+// sample per device that has a TempC reading (for temperature). The TempC-aware
+// view avoids dropping a device just because its very latest sample happens to
+// be missing a temperature; TempC reporting can be intermittent.
+func latestSamplesForStatusCounts(data []modelsV2.DeviceMetrics, includeUptime bool) (uptime, temperature []modelsV2.DeviceMetrics) {
 	if len(data) == 0 {
 		return nil, nil
 	}
-	allLatest := make(map[string]modelsV2.DeviceMetrics, len(data))
+	var allLatest map[string]modelsV2.DeviceMetrics
+	if includeUptime {
+		allLatest = make(map[string]modelsV2.DeviceMetrics, len(data))
+	}
 	tempLatest := make(map[string]modelsV2.DeviceMetrics, len(data))
 	for _, m := range data {
-		if existing, ok := allLatest[m.DeviceIdentifier]; !ok || m.Timestamp.After(existing.Timestamp) {
-			allLatest[m.DeviceIdentifier] = m
+		if includeUptime {
+			if existing, ok := allLatest[m.DeviceIdentifier]; !ok || m.Timestamp.After(existing.Timestamp) {
+				allLatest[m.DeviceIdentifier] = m
+			}
 		}
 		if m.TempC == nil {
 			continue
@@ -1393,9 +1556,11 @@ func latestSamplesForStatusCounts(data []modelsV2.DeviceMetrics) (uptime, temper
 			tempLatest[m.DeviceIdentifier] = m
 		}
 	}
-	uptime = make([]modelsV2.DeviceMetrics, 0, len(allLatest))
-	for _, m := range allLatest {
-		uptime = append(uptime, m)
+	if includeUptime {
+		uptime = make([]modelsV2.DeviceMetrics, 0, len(allLatest))
+		for _, m := range allLatest {
+			uptime = append(uptime, m)
+		}
 	}
 	temperature = make([]modelsV2.DeviceMetrics, 0, len(tempLatest))
 	for _, m := range tempLatest {
@@ -1409,7 +1574,7 @@ func latestSamplesForStatusCounts(data []modelsV2.DeviceMetrics) (uptime, temper
 // temperatureStatusCountFromLatest in hot loops where the caller has already
 // deduped.
 func calculateTemperatureStatusCount(data []modelsV2.DeviceMetrics, timestamp time.Time) models.TemperatureStatusCount {
-	_, temp := latestSamplesForStatusCounts(data)
+	_, temp := latestSamplesForStatusCounts(data, false)
 	return temperatureStatusCountFromLatest(temp, timestamp)
 }
 
