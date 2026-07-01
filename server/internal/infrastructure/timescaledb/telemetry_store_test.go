@@ -212,12 +212,14 @@ func TestTelemetryStore_GetCombinedMetrics(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	db := testutil.GetTestDB(t)
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
 	require.NoError(t, err)
 	ctx := t.Context()
 
-	deviceIdentifier := "device-combined-1"
+	user := dbSvc.CreateSuperAdminUser()
+	deviceIdentifier := dbSvc.CreateDevice(user.OrganizationID, "proto").ID
 	t.Cleanup(func() {
 		cleanupDeviceMetrics(t, db, deviceIdentifier)
 	})
@@ -232,6 +234,7 @@ func TestTelemetryStore_GetCombinedMetrics(t *testing.T) {
 	startTime := now.Add(-15 * time.Minute)
 	endTime := now.Add(1 * time.Minute)
 	query := models.CombinedMetricsQuery{
+		OrganizationID:   user.OrganizationID,
 		DeviceIDs:        []models.DeviceIdentifier{models.DeviceIdentifier(deviceIdentifier)},
 		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate, models.MeasurementTypeTemperature},
 		TimeRange: models.TimeRange{
@@ -250,15 +253,17 @@ func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesIgnoreTimeSeriesRo
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	db := testutil.GetTestDB(t)
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	config := timescaledb.DefaultConfig()
 	config.MaxTimeSeriesRows = 1
 	store, err := timescaledb.NewTelemetryStore(db, config)
 	require.NoError(t, err)
 	ctx := t.Context()
 
-	deviceA := "raw-bucket-aggregate-a"
-	deviceB := "raw-bucket-aggregate-b"
+	user := dbSvc.CreateSuperAdminUser()
+	deviceA := dbSvc.CreateDevice(user.OrganizationID, "proto").ID
+	deviceB := dbSvc.CreateDevice(user.OrganizationID, "proto").ID
 	t.Cleanup(func() {
 		cleanupDeviceMetrics(t, db, deviceA)
 		cleanupDeviceMetrics(t, db, deviceB)
@@ -274,6 +279,7 @@ func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesIgnoreTimeSeriesRo
 	endTime := bucket.Add(time.Minute - time.Nanosecond)
 	slideInterval := time.Minute
 	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+		OrganizationID: user.OrganizationID,
 		DeviceIDs: []models.DeviceIdentifier{
 			models.DeviceIdentifier(deviceA),
 			models.DeviceIdentifier(deviceB),
@@ -323,17 +329,88 @@ func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesIgnoreTimeSeriesRo
 	assert.Equal(t, int32(1), result.TemperatureStatusCounts[0].CriticalCount)
 }
 
+func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesScopeByOrganization(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	orgAUser := dbSvc.CreateSuperAdminUser()
+	orgBUser := dbSvc.CreateSuperAdminUser2()
+	orgADevice := dbSvc.CreateDevice(orgAUser.OrganizationID, "proto").ID
+	orgBDevice := dbSvc.CreateDevice(orgBUser.OrganizationID, "proto").ID
+	t.Cleanup(func() {
+		cleanupDeviceMetrics(t, db, orgADevice)
+		cleanupDeviceMetrics(t, db, orgBDevice)
+	})
+
+	bucket := time.Now().UTC().Add(-time.Hour).Truncate(time.Minute)
+	insertTestMetrics(t, db, orgADevice, bucket.Add(10*time.Second), 100, 60)
+	insertTestMetrics(t, db, orgBDevice, bucket.Add(20*time.Second), 900, 90)
+
+	startTime := bucket
+	endTime := bucket.Add(time.Minute - time.Nanosecond)
+	slideInterval := time.Minute
+	baseQuery := models.CombinedMetricsQuery{
+		OrganizationID:   orgAUser.OrganizationID,
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		AggregationTypes: []models.AggregationType{
+			models.AggregationTypeAverage,
+			models.AggregationTypeCount,
+		},
+		TimeRange: models.TimeRange{
+			StartTime: &startTime,
+			EndTime:   &endTime,
+		},
+		SlideInterval: &slideInterval,
+	}
+
+	for _, tt := range []struct {
+		name      string
+		deviceIDs []models.DeviceIdentifier
+	}{
+		{name: "all devices"},
+		{
+			name: "explicit cross-org device list",
+			deviceIDs: []models.DeviceIdentifier{
+				models.DeviceIdentifier(orgADevice),
+				models.DeviceIdentifier(orgBDevice),
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			query := baseQuery
+			query.DeviceIDs = tt.deviceIDs
+			result, err := store.GetCombinedMetrics(ctx, query)
+			require.NoError(t, err)
+
+			hashrate := requireMetric(t, result, models.MeasurementTypeHashrate)
+			assert.Equal(t, int32(1), hashrate.DeviceCount)
+			hashrateValues := aggValues(hashrate.AggregatedValues)
+			assert.InDelta(t, 100.0, hashrateValues[models.AggregationTypeAverage], 0.001)
+			assert.InDelta(t, 1.0, hashrateValues[models.AggregationTypeCount], 0.001)
+		})
+	}
+}
+
 func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesDefaultInvalidSlideInterval(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	db := testutil.GetTestDB(t)
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
 	require.NoError(t, err)
 	ctx := t.Context()
 
-	deviceID := "raw-bucket-zero-slide"
+	user := dbSvc.CreateSuperAdminUser()
+	deviceID := dbSvc.CreateDevice(user.OrganizationID, "proto").ID
 	t.Cleanup(func() {
 		cleanupDeviceMetrics(t, db, deviceID)
 	})
@@ -360,6 +437,7 @@ func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesDefaultInvalidSlid
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+				OrganizationID: user.OrganizationID,
 				DeviceIDs: []models.DeviceIdentifier{
 					models.DeviceIdentifier(deviceID),
 				},
@@ -382,6 +460,44 @@ func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesDefaultInvalidSlid
 			assert.InDelta(t, 123.0, hashrateValues[models.AggregationTypeAverage], 0.001)
 		})
 	}
+}
+
+func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesRejectsTooManyBuckets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	deviceID := dbSvc.CreateDevice(user.OrganizationID, "proto").ID
+	t.Cleanup(func() {
+		cleanupDeviceMetrics(t, db, deviceID)
+	})
+
+	endTime := time.Now().UTC()
+	startTime := endTime.Add(-24 * time.Hour)
+	slideInterval := time.Second
+
+	_, err = store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+		OrganizationID: user.OrganizationID,
+		DeviceIDs: []models.DeviceIdentifier{
+			models.DeviceIdentifier(deviceID),
+		},
+		MeasurementTypes: []models.MeasurementType{
+			models.MeasurementTypeHashrate,
+		},
+		TimeRange: models.TimeRange{
+			StartTime: &startTime,
+			EndTime:   &endTime,
+		},
+		SlideInterval: &slideInterval,
+	})
+	require.ErrorContains(t, err, "bucket count exceeds")
 }
 
 // TestTelemetryStore_StreamTelemetryUpdates tests streaming telemetry updates.
@@ -526,12 +642,14 @@ func TestTelemetryStore_GetCombinedMetrics_DataSourceSelection(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
-			db := testutil.GetTestDB(t)
+			dbSvc := testutil.NewDatabaseService(t, nil)
+			db := dbSvc.DB
 			store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
 			require.NoError(t, err)
 			ctx := t.Context()
 
-			deviceIdentifier := "device-datasource-1"
+			user := dbSvc.CreateSuperAdminUser()
+			deviceIdentifier := dbSvc.CreateDevice(user.OrganizationID, "proto").ID
 			t.Cleanup(func() {
 				cleanupDeviceMetrics(t, db, deviceIdentifier)
 			})
@@ -542,6 +660,7 @@ func TestTelemetryStore_GetCombinedMetrics_DataSourceSelection(t *testing.T) {
 			startTime := now.Add(-tc.duration)
 			endTime := now.Add(1 * time.Minute)
 			query := models.CombinedMetricsQuery{
+				OrganizationID:   user.OrganizationID,
 				DeviceIDs:        []models.DeviceIdentifier{models.DeviceIdentifier(deviceIdentifier)},
 				MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
 				TimeRange: models.TimeRange{
@@ -571,20 +690,22 @@ func TestTelemetryStore_GetCombinedMetrics_TemperatureStatusCounts_Values(t *tes
 	}
 
 	// Arrange
-	db := testutil.GetTestDB(t)
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
 	require.NoError(t, err)
 	ctx := t.Context()
+	user := dbSvc.CreateSuperAdminUser()
 
 	devices := []struct {
 		id   string
 		temp float64
 	}{
-		{"device-status-cold", -5.0},     // temp < 0 → cold
-		{"device-status-ok1", 50.0},      // 0 <= temp < 70 → ok
-		{"device-status-ok2", 65.0},      // 0 <= temp < 70 → ok
-		{"device-status-hot", 85.0},      // 70 <= temp < 90 → hot
-		{"device-status-critical", 95.0}, // temp >= 90 → critical
+		{dbSvc.CreateDevice(user.OrganizationID, "proto").ID, -5.0}, // temp < 0 → cold
+		{dbSvc.CreateDevice(user.OrganizationID, "proto").ID, 50.0}, // 0 <= temp < 70 → ok
+		{dbSvc.CreateDevice(user.OrganizationID, "proto").ID, 65.0}, // 0 <= temp < 70 → ok
+		{dbSvc.CreateDevice(user.OrganizationID, "proto").ID, 85.0}, // 70 <= temp < 90 → hot
+		{dbSvc.CreateDevice(user.OrganizationID, "proto").ID, 95.0}, // temp >= 90 → critical
 	}
 
 	for _, d := range devices {
@@ -605,6 +726,7 @@ func TestTelemetryStore_GetCombinedMetrics_TemperatureStatusCounts_Values(t *tes
 		deviceIDs[i] = models.DeviceIdentifier(d.id)
 	}
 	query := models.CombinedMetricsQuery{
+		OrganizationID:   user.OrganizationID,
 		DeviceIDs:        deviceIDs,
 		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeTemperature},
 		TimeRange: models.TimeRange{

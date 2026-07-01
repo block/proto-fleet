@@ -30,6 +30,7 @@ const (
 	// Queries > 10 days use daily aggregates
 	hourlyBucketDuration = time.Hour
 	dailyBucketDuration  = 24 * time.Hour
+	maxRawMetricBuckets  = 10000
 
 	// Energy estimation constants.
 	// Each telemetry data point represents one polling interval of device uptime.
@@ -98,6 +99,27 @@ func normalizeCompleteBucketRange(startTime, endTime time.Time, bucketDuration t
 		return time.Time{}, time.Time{}, false
 	}
 	return startTime, completeEndTime, true
+}
+
+func rawMetricBucketDuration(slideInterval *time.Duration, allDevices bool) time.Duration {
+	bucketDuration := DefaultBucketDuration
+	if slideInterval != nil && *slideInterval > 0 {
+		bucketDuration = *slideInterval
+	}
+	if bucketDuration < time.Second {
+		return DefaultBucketDuration
+	}
+	if allDevices && bucketDuration < DefaultBucketDuration {
+		return DefaultBucketDuration
+	}
+	return bucketDuration
+}
+
+func rawMetricBucketCount(startTime, endTime time.Time, bucketDuration time.Duration) int64 {
+	if bucketDuration <= 0 || endTime.Before(startTime) {
+		return 0
+	}
+	return int64(endTime.Sub(startTime)/bucketDuration) + 1
 }
 
 // statusData holds a per-device temperature histogram for one bucket.
@@ -513,12 +535,13 @@ func (s *TimescaleTelemetryStore) StreamTelemetryUpdates(ctx context.Context, qu
 // - Hourly aggregates (device_metrics_hourly) for queries 24h-10d
 // - Daily aggregates (device_metrics_daily) for queries > 10d
 func (s *TimescaleTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
-	ds := selectDataSource(query.TimeRange.StartTime, query.TimeRange.EndTime)
+	startTime, endTime := s.getTimeRange(query.TimeRange)
+	ds := selectDataSource(&startTime, &endTime)
 
 	s.logger.Debug("selected data source for combined metrics",
 		slog.String("source", ds.String()),
-		slog.Any("start_time", query.TimeRange.StartTime),
-		slog.Any("end_time", query.TimeRange.EndTime))
+		slog.Time("start_time", startTime),
+		slog.Time("end_time", endTime))
 
 	switch ds {
 	case dataSourceRaw:
@@ -537,11 +560,20 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 	defer cancel()
 
 	startTime, endTime := s.getTimeRange(query.TimeRange)
-	bucketDuration := DefaultBucketDuration
-	if query.SlideInterval != nil && *query.SlideInterval > 0 {
-		bucketDuration = *query.SlideInterval
+	if query.OrganizationID == 0 {
+		return models.CombinedMetric{}, fmt.Errorf("organization ID is required for raw combined metrics")
+	}
+	if endTime.Before(startTime) {
+		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics end time must be after start time")
+	}
+	if endTime.Sub(startTime) > rawDataMaxDuration {
+		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics range exceeds %s", rawDataMaxDuration)
 	}
 
+	bucketDuration := rawMetricBucketDuration(query.SlideInterval, len(query.DeviceIDs) == 0)
+	if rawMetricBucketCount(startTime, endTime, bucketDuration) > maxRawMetricBuckets {
+		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics bucket count exceeds %d", maxRawMetricBuckets)
+	}
 	bucketSeconds := safeInt64ToInt32(int64(bucketDuration / time.Second))
 	if bucketSeconds <= 0 {
 		bucketSeconds = safeInt64ToInt32(int64(DefaultBucketDuration / time.Second))
@@ -553,6 +585,7 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 		var rows []sqlc.GetAllDeviceMetricsRawBucketAggregatesRow
 		rows, err = s.queries.GetAllDeviceMetricsRawBucketAggregates(ctx, sqlc.GetAllDeviceMetricsRawBucketAggregatesParams{
 			BucketSeconds: bucketSeconds,
+			OrgID:         query.OrganizationID,
 			StartTime:     startTime,
 			EndTime:       endTime,
 		})
@@ -565,6 +598,7 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 		rows, err = s.queries.GetDeviceMetricsRawBucketAggregates(ctx, sqlc.GetDeviceMetricsRawBucketAggregatesParams{
 			BucketSeconds:     bucketSeconds,
 			DeviceIdentifiers: deviceIDsToStrings(query.DeviceIDs),
+			OrgID:             query.OrganizationID,
 			StartTime:         startTime,
 			EndTime:           endTime,
 		})

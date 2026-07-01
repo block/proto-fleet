@@ -142,18 +142,18 @@ func (q *Queries) GetAllDeviceMetricsHourlyAggregates(ctx context.Context, arg G
 const getAllDeviceMetricsRawBucketAggregates = `-- name: GetAllDeviceMetricsRawBucketAggregates :many
 WITH per_device_bucket AS (
     SELECT
-        time_bucket(make_interval(secs => $1::int), time)::timestamptz AS bucket,
-        device_identifier,
+        time_bucket(make_interval(secs => $1::int), dm.time)::timestamptz AS bucket,
+        dm.device_identifier,
         AVG(hash_rate_hs) AS avg_hash_rate,
         MIN(hash_rate_hs) AS min_hash_rate,
         MAX(hash_rate_hs) AS max_hash_rate,
-        last(hash_rate_hs, time) FILTER (WHERE hash_rate_hs IS NOT NULL) AS latest_hash_rate,
+        last(hash_rate_hs, dm.time) FILTER (WHERE hash_rate_hs IS NOT NULL) AS latest_hash_rate,
         COUNT(hash_rate_hs)::bigint AS hash_rate_points,
         AVG(temp_c) AS avg_temp,
         MIN(temp_c) AS min_temp,
         MAX(temp_c) AS max_temp,
         SUM(temp_c) AS sum_temp,
-        last(temp_c, time) FILTER (WHERE temp_c IS NOT NULL) AS latest_temp,
+        last(temp_c, dm.time) FILTER (WHERE temp_c IS NOT NULL) AS latest_temp,
         COUNT(temp_c)::bigint AS temp_points,
         AVG(fan_rpm) AS avg_fan_rpm,
         MIN(fan_rpm) AS min_fan_rpm,
@@ -163,17 +163,21 @@ WITH per_device_bucket AS (
         AVG(power_w) AS avg_power,
         MIN(power_w) AS min_power,
         MAX(power_w) AS max_power,
-        last(power_w, time) FILTER (WHERE power_w IS NOT NULL) AS latest_power,
+        last(power_w, dm.time) FILTER (WHERE power_w IS NOT NULL) AS latest_power,
         COUNT(power_w)::bigint AS power_points,
         AVG(efficiency_jh) AS avg_efficiency,
         MIN(efficiency_jh) AS min_efficiency,
         MAX(efficiency_jh) AS max_efficiency,
         SUM(efficiency_jh) AS sum_efficiency,
         COUNT(efficiency_jh)::bigint AS efficiency_points
-    FROM device_metrics
-    WHERE time >= $2
-      AND time <= $3
-    GROUP BY bucket, device_identifier
+    FROM device_metrics dm
+    JOIN device d
+      ON d.device_identifier = dm.device_identifier
+     AND d.org_id = $2
+     AND d.deleted_at IS NULL
+    WHERE dm.time >= $3
+      AND dm.time <= $4
+    GROUP BY bucket, dm.device_identifier
 )
 SELECT
     bucket,
@@ -216,6 +220,7 @@ ORDER BY bucket ASC
 
 type GetAllDeviceMetricsRawBucketAggregatesParams struct {
 	BucketSeconds int32
+	OrgID         int64
 	StartTime     time.Time
 	EndTime       time.Time
 }
@@ -257,7 +262,12 @@ type GetAllDeviceMetricsRawBucketAggregatesRow struct {
 }
 
 func (q *Queries) GetAllDeviceMetricsRawBucketAggregates(ctx context.Context, arg GetAllDeviceMetricsRawBucketAggregatesParams) ([]GetAllDeviceMetricsRawBucketAggregatesRow, error) {
-	rows, err := q.query(ctx, q.getAllDeviceMetricsRawBucketAggregatesStmt, getAllDeviceMetricsRawBucketAggregates, arg.BucketSeconds, arg.StartTime, arg.EndTime)
+	rows, err := q.query(ctx, q.getAllDeviceMetricsRawBucketAggregatesStmt, getAllDeviceMetricsRawBucketAggregates,
+		arg.BucketSeconds,
+		arg.OrgID,
+		arg.StartTime,
+		arg.EndTime,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -677,18 +687,18 @@ func (q *Queries) GetDeviceMetricsHourlyAggregates(ctx context.Context, arg GetD
 const getDeviceMetricsRawBucketAggregates = `-- name: GetDeviceMetricsRawBucketAggregates :many
 WITH per_device_bucket AS (
     SELECT
-        time_bucket(make_interval(secs => $1::int), time)::timestamptz AS bucket,
-        device_identifier,
+        time_bucket(make_interval(secs => $1::int), dm.time)::timestamptz AS bucket,
+        dm.device_identifier,
         AVG(hash_rate_hs) AS avg_hash_rate,
         MIN(hash_rate_hs) AS min_hash_rate,
         MAX(hash_rate_hs) AS max_hash_rate,
-        last(hash_rate_hs, time) FILTER (WHERE hash_rate_hs IS NOT NULL) AS latest_hash_rate,
+        last(hash_rate_hs, dm.time) FILTER (WHERE hash_rate_hs IS NOT NULL) AS latest_hash_rate,
         COUNT(hash_rate_hs)::bigint AS hash_rate_points,
         AVG(temp_c) AS avg_temp,
         MIN(temp_c) AS min_temp,
         MAX(temp_c) AS max_temp,
         SUM(temp_c) AS sum_temp,
-        last(temp_c, time) FILTER (WHERE temp_c IS NOT NULL) AS latest_temp,
+        last(temp_c, dm.time) FILTER (WHERE temp_c IS NOT NULL) AS latest_temp,
         COUNT(temp_c)::bigint AS temp_points,
         AVG(fan_rpm) AS avg_fan_rpm,
         MIN(fan_rpm) AS min_fan_rpm,
@@ -698,18 +708,22 @@ WITH per_device_bucket AS (
         AVG(power_w) AS avg_power,
         MIN(power_w) AS min_power,
         MAX(power_w) AS max_power,
-        last(power_w, time) FILTER (WHERE power_w IS NOT NULL) AS latest_power,
+        last(power_w, dm.time) FILTER (WHERE power_w IS NOT NULL) AS latest_power,
         COUNT(power_w)::bigint AS power_points,
         AVG(efficiency_jh) AS avg_efficiency,
         MIN(efficiency_jh) AS min_efficiency,
         MAX(efficiency_jh) AS max_efficiency,
         SUM(efficiency_jh) AS sum_efficiency,
         COUNT(efficiency_jh)::bigint AS efficiency_points
-    FROM device_metrics
-    WHERE device_identifier = ANY($2::text[])
-      AND time >= $3
-      AND time <= $4
-    GROUP BY bucket, device_identifier
+    FROM device_metrics dm
+    JOIN device d
+      ON d.device_identifier = dm.device_identifier
+     AND d.org_id = $2
+     AND d.deleted_at IS NULL
+    WHERE dm.device_identifier = ANY($3::text[])
+      AND dm.time >= $4
+      AND dm.time <= $5
+    GROUP BY bucket, dm.device_identifier
 )
 SELECT
     bucket,
@@ -752,6 +766,7 @@ ORDER BY bucket ASC
 
 type GetDeviceMetricsRawBucketAggregatesParams struct {
 	BucketSeconds     int32
+	OrgID             int64
 	DeviceIdentifiers []string
 	StartTime         time.Time
 	EndTime           time.Time
@@ -796,6 +811,7 @@ type GetDeviceMetricsRawBucketAggregatesRow struct {
 func (q *Queries) GetDeviceMetricsRawBucketAggregates(ctx context.Context, arg GetDeviceMetricsRawBucketAggregatesParams) ([]GetDeviceMetricsRawBucketAggregatesRow, error) {
 	rows, err := q.query(ctx, q.getDeviceMetricsRawBucketAggregatesStmt, getDeviceMetricsRawBucketAggregates,
 		arg.BucketSeconds,
+		arg.OrgID,
 		pq.Array(arg.DeviceIdentifiers),
 		arg.StartTime,
 		arg.EndTime,
