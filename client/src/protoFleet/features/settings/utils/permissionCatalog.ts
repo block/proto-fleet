@@ -139,12 +139,15 @@ interface FunctionalDependency {
 // suggestion rather than auto-added, so handing a role miner-action authority
 // stays a deliberate choice.
 const FUNCTIONAL_DEPENDENCIES: Record<string, FunctionalDependency> = {
-  // schedule:manage opens the Schedules surface, but the create form's target
-  // picker lists miners (fleet:read + miner:read) plus groups and racks
-  // (rack:read), and the server gates creating or resuming a schedule on the
-  // miner action it performs (reboot / sleep / set power).
+  // schedule:manage lets a role open the Schedules surface, but a schedule is
+  // inert until it can perform an action: the server gates create / update /
+  // resume on the underlying miner action (reboot / sleep / set power).
+  // Selecting one of those actions pulls in its own read floor (miner:read +
+  // fleet:read) via withRequiredReads, and an empty target list already means
+  // "all miners" — so no read is a hard requirement here. rack/miner reads are
+  // only needed for optional rack/group/miner targeting, which the admin can
+  // add if they want it rather than being forced into broader access.
   "schedule:manage": {
-    requires: ["fleet:read", "miner:read", "rack:read"],
     oneOf: [["miner:reboot", "miner:stop_mining", "miner:set_power_target"]],
   },
   // Installing firmware can reboot the device, so the server gates the

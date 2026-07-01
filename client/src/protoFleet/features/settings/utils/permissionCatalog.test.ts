@@ -16,10 +16,11 @@ const catalog: CatalogEntry[] = [
 ];
 
 describe("dependencyGaps", () => {
-  it("splits schedule:manage gaps into hard reads and a choose-one-of action set", () => {
+  it("gives schedule:manage no hard requirements, only a choose-one-of action set", () => {
     const gaps = dependencyGaps(["schedule:manage"], catalog);
-    // Reads are hard requirements, safe for the one-click add.
-    expect(gaps.required.sort()).toEqual(["fleet:read", "miner:read", "rack:read"].sort());
+    // No forced reads: the chosen action pulls its own read floor via
+    // withRequiredReads, and rack/miner reads are only for optional targeting.
+    expect(gaps.required).toEqual([]);
     // The miner actions are a "choose at least one" set, never auto-added.
     expect(gaps.chooseOneOf).toEqual([["miner:reboot", "miner:stop_mining", "miner:set_power_target"]]);
   });
@@ -33,10 +34,10 @@ describe("dependencyGaps", () => {
 
   it("stops suggesting the action set once one member is held (oneOf)", () => {
     const selected = withRequiredReads(["schedule:manage", "miner:reboot"], catalog);
-    // miner:reboot satisfies the "at least one action" set and pulls in
-    // miner:read + fleet:read via required reads, leaving only rack:read.
+    // miner:reboot satisfies the "at least one action" set and pulls in its own
+    // read floor, so nothing is left to flag.
     const gaps = dependencyGaps(selected, catalog);
-    expect(gaps.required).toEqual(["rack:read"]);
+    expect(gaps.required).toEqual([]);
     expect(gaps.chooseOneOf).toEqual([]);
   });
 
