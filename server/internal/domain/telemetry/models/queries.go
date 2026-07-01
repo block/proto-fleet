@@ -48,6 +48,21 @@ type CombinedMetricsQuery struct {
 	IncludeUnassigned bool `json:"include_unassigned,omitempty"`
 }
 
+// ShouldIncludeUptimeStatusCounts reports whether a CombinedMetrics response
+// should include uptime status counts. Empty measurement filters preserve the
+// historical default response shape.
+func ShouldIncludeUptimeStatusCounts(measurementTypes []MeasurementType) bool {
+	if len(measurementTypes) == 0 {
+		return true
+	}
+	for _, measurementType := range measurementTypes {
+		if measurementType == MeasurementTypeUptime {
+			return true
+		}
+	}
+	return false
+}
+
 type StreamCombinedMetricsQuery struct {
 	DeviceIDs        []DeviceIdentifier `json:"device_ids,omitempty"`
 	MeasurementTypes []MeasurementType  `json:"measurement_types,omitempty"`

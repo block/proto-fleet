@@ -553,7 +553,7 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 		bucketDuration = *query.SlideInterval
 	}
 
-	includeUptimeCounts := shouldIncludeUptimeStatusCounts(query.MeasurementTypes)
+	includeUptimeCounts := models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes)
 	result := s.aggregateMetrics(data, query.MeasurementTypes, query.AggregationTypes, bucketDuration, includeUptimeCounts)
 	startTime, endTime := s.getTimeRange(query.TimeRange)
 	if includeUptimeCounts {
@@ -603,7 +603,7 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 
 	tempCounts := s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, startTime, endTime)
 	var uptimeCounts []models.UptimeStatusCount
-	if shouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
 		uptimeCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration)
 	}
 
@@ -654,7 +654,7 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 
 	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query.DeviceIDs, startTime, endTime)
 	var uptimeCounts []models.UptimeStatusCount
-	if shouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
 		uptimeCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration)
 	}
 
@@ -681,18 +681,6 @@ func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, quer
 		return nil
 	}
 	return s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration)
-}
-
-func shouldIncludeUptimeStatusCounts(measurementTypes []models.MeasurementType) bool {
-	if len(measurementTypes) == 0 {
-		return true
-	}
-	for _, measurementType := range measurementTypes {
-		if measurementType == models.MeasurementTypeUptime {
-			return true
-		}
-	}
-	return false
 }
 
 // getTimeRange extracts start and end times from the query, using defaults if not set.
