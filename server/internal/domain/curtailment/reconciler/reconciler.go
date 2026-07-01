@@ -339,15 +339,18 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 	}
 	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
 	if isAllPairedPolicyEvent(ev) {
-		cands, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{
-			OrgID:             ev.OrgID,
-			DeviceIdentifiers: targetDeviceIdentifiers(targets),
-		})
-		if err != nil {
-			slog.Error("curtailment reconciler: list candidates (all-paired pending refresh) failed",
-				"event_id", ev.ID, "error", err)
-		} else {
-			r.refreshAllPairedPolicyTargets(cmdCtx, ev, targets, candidatesByDeviceID(cands))
+		deviceIDs := allPairedPolicyRefreshDeviceIdentifiers(targets)
+		if len(deviceIDs) > 0 {
+			cands, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{
+				OrgID:             ev.OrgID,
+				DeviceIdentifiers: deviceIDs,
+			})
+			if err != nil {
+				slog.Error("curtailment reconciler: list candidates (all-paired pending refresh) failed",
+					"event_id", ev.ID, "error", err)
+			} else {
+				r.refreshAllPairedPolicyTargets(cmdCtx, ev, targets, candidatesByDeviceID(cands))
+			}
 		}
 	}
 	r.dispatchPendingCurtailBatches(cmdCtx, ev, targets)
@@ -1076,6 +1079,26 @@ func targetDeviceIdentifiers(targets []*models.Target) []string {
 	out := make([]string, 0, len(targets))
 	for _, target := range targets {
 		if target == nil || target.DeviceIdentifier == "" {
+			continue
+		}
+		out = append(out, target.DeviceIdentifier)
+	}
+	return out
+}
+
+func allPairedPolicyRefreshDeviceIdentifiers(targets []*models.Target) []string {
+	if len(targets) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if target == nil || target.DeviceIdentifier == "" {
+			continue
+		}
+		if target.DesiredState != models.DesiredStateCurtailed {
+			continue
+		}
+		if target.State != models.TargetStatePending && target.State != models.TargetStateUnavailable {
 			continue
 		}
 		out = append(out, target.DeviceIdentifier)

@@ -432,22 +432,6 @@ WHERE NOT EXISTS (
     WHERE existing.curtailment_event_id = locked_event.id
       AND existing.device_identifier = t.device_identifier
 )
-AND NOT EXISTS (
-    SELECT 1
-    FROM curtailment_target cooldown_target
-    JOIN curtailment_event cooldown_event
-        ON cooldown_event.id = cooldown_target.curtailment_event_id
-    WHERE cooldown_event.org_id = locked_event.org_id
-      AND cooldown_target.device_identifier = t.device_identifier
-      AND cooldown_target.state IN ('resolved', 'restore_failed')
-      AND COALESCE((locked_event.decision_snapshot_jsonb->>'post_event_cooldown_sec')::INT, 0) > 0
-      AND (
-        cooldown_event.state IN ('pending', 'active', 'restoring')
-        OR cooldown_event.ended_at >= CURRENT_TIMESTAMP - (
-            COALESCE((locked_event.decision_snapshot_jsonb->>'post_event_cooldown_sec')::INT, 0) * INTERVAL '1 second'
-        )
-      )
-)
 ON CONFLICT DO NOTHING
 RETURNING curtailment_target.curtailment_event_id, curtailment_target.device_identifier, curtailment_target.target_type, curtailment_target.state, curtailment_target.desired_state, curtailment_target.baseline_power_w, curtailment_target.added_at, curtailment_target.released_at, curtailment_target.last_dispatched_at, curtailment_target.last_batch_uuid, curtailment_target.observed_power_w, curtailment_target.observed_at, curtailment_target.confirmed_at, curtailment_target.retry_count, curtailment_target.last_error, curtailment_target.selector_rationale_jsonb, curtailment_target.curtail_state, curtailment_target.curtail_dispatched_at, curtailment_target.curtail_batch_uuid, curtailment_target.curtail_completed_at, curtailment_target.curtail_retry_count, curtailment_target.curtail_failure_count, curtailment_target.curtail_last_error, curtailment_target.restore_state, curtailment_target.restore_started_at, curtailment_target.restore_dispatched_at, curtailment_target.restore_batch_uuid, curtailment_target.restore_completed_at, curtailment_target.restore_retry_count, curtailment_target.restore_failure_count, curtailment_target.restore_last_error
 `

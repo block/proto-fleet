@@ -1088,6 +1088,19 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 		}
 	}
 
+	// All-paired policies intentionally own every paired-like miner in scope,
+	// including miners that were recently restored. Cooldown remains enforced
+	// for non-policy starts below.
+	if req.ForceIncludeAllPairedMiners {
+		plan := BuildAllPairedPolicyPlan(
+			candidates,
+			activeSet,
+			req.IncludeMaintenance && req.ForceIncludeMaintenance,
+			minPowerW,
+		)
+		return &plan, minPowerW, orgConfig, nil
+	}
+
 	cooldownSet := map[string]struct{}{}
 	if req.PostEventCooldownSec > 0 {
 		cooldownDevices, err := s.store.ListRecentlyResolvedCurtailedDevices(
@@ -1107,16 +1120,6 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 
 	// TODO: registry-driven curtail_full capability check. classifyCandidates
 	// already skips devices missing driver metadata as defense-in-depth.
-	if req.ForceIncludeAllPairedMiners {
-		plan := BuildAllPairedPolicyPlan(
-			candidates,
-			activeSet,
-			req.IncludeMaintenance && req.ForceIncludeMaintenance,
-			minPowerW,
-		)
-		return &plan, minPowerW, orgConfig, nil
-	}
-
 	eligible, preFiltered, summary := classifyCandidates(candidates, classifyOpts{
 		IncludeMaintenance: req.IncludeMaintenance && req.ForceIncludeMaintenance,
 		ActiveEventDevices: activeSet,

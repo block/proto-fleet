@@ -70,6 +70,7 @@ type fakeStore struct {
 	lastHeartbeatActive       int32
 	lastHeartbeatTickUUID     uuid.UUID
 	lastListCandidatesSiteIDs []int64
+	lastListCandidatesFilter  []string
 
 	// BeginRestoreTransition captures, exercised by max_duration tests.
 	beginRestoreCalls       int
@@ -258,6 +259,7 @@ func (f *fakeStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*
 func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
 	f.listCandidatesCalls++
 	f.lastListCandidatesSiteIDs = append([]int64(nil), params.SiteIDs...)
+	f.lastListCandidatesFilter = append([]string(nil), params.DeviceIdentifiers...)
 	if len(params.DeviceIdentifiers) == 0 {
 		return f.candidates, nil
 	}
@@ -1008,6 +1010,85 @@ func TestReconciler_AllPairedPolicyPendingTargetBecomesUnavailableWhenOffline(t 
 	assert.Equal(t, models.TargetStateUnavailable, final.State)
 	require.NotNil(t, final.LastError)
 	assert.Equal(t, "offline", *final.LastError)
+}
+
+func TestAllPairedPolicyRefreshDeviceIdentifiersOnlyIncludesRefreshableTargets(t *testing.T) {
+	t.Parallel()
+
+	targets := []*models.Target{
+		{DeviceIdentifier: "pending", State: models.TargetStatePending, DesiredState: models.DesiredStateCurtailed},
+		{DeviceIdentifier: "unavailable", State: models.TargetStateUnavailable, DesiredState: models.DesiredStateCurtailed},
+		{DeviceIdentifier: "confirmed", State: models.TargetStateConfirmed, DesiredState: models.DesiredStateCurtailed},
+		{DeviceIdentifier: "released", State: models.TargetStateReleased, DesiredState: models.DesiredStateCurtailed},
+		{DeviceIdentifier: "restore-pending", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+		nil,
+		{State: models.TargetStatePending, DesiredState: models.DesiredStateCurtailed},
+	}
+
+	assert.Equal(t, []string{"pending", "unavailable"}, allPairedPolicyRefreshDeviceIdentifiers(targets))
+}
+
+func TestReconciler_AllPairedPolicyRefreshQueriesOnlyRefreshableTargets(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	offlineReason := "offline"
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStatePending,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			CreatedByUserID:             99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "needs-refresh",
+			State:              models.TargetStateUnavailable,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &offlineReason,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "confirmed",
+			State:              models.TargetStateConfirmed,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "released",
+			State:              models.TargetStateReleased,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "restore-pending",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateActive,
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "needs-refresh", DriverName: &driver, DeviceStatus: "OFFLINE", PairingStatus: "PAIRED"},
+		{DeviceIdentifier: "confirmed", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED"},
+		{DeviceIdentifier: "released", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED"},
+		{DeviceIdentifier: "restore-pending", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED"},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.listCandidatesCalls)
+	assert.Equal(t, []string{"needs-refresh"}, store.lastListCandidatesFilter)
+	assert.Equal(t, 0, disp.curtailCalls)
 }
 
 func TestReconciler_PendingAllPairedPolicyUnavailableTargetsDoNotBlockActive(t *testing.T) {

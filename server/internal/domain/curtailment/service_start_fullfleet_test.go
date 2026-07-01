@@ -145,6 +145,43 @@ func TestService_Start_FullFleet_AllPairedPersistsPolicyTargetsImmediately(t *te
 	assert.Equal(t, 2, snapshot.UnavailableTargetCount)
 }
 
+func TestService_Start_FullFleet_AllPairedBypassesPostEventCooldown(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.cooldownDevicesByOrg[orgID] = []string{"recent"}
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		miner("recent", "ACTIVE", "PAIRED", 6000, 100),
+		miner("fresh", "ACTIVE", "PAIRED", 5000, 100),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+	req.PostEventCooldownSec = 600
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, store.cooldownCalls, "all-paired policies intentionally bypass post-event cooldown")
+	require.Len(t, plan.Selected, 2)
+	assert.Equal(t, 2, plan.PolicyTargetCount)
+	require.Len(t, store.lastInsertTargets, 2)
+	assert.Equal(t, "recent", store.lastInsertTargets[0].DeviceIdentifier)
+
+	var snapshot struct {
+		PostEventCooldownSec        int32 `json:"post_event_cooldown_sec"`
+		ForceIncludeAllPairedMiners bool  `json:"force_include_all_paired_miners"`
+	}
+	require.NoError(t, json.Unmarshal(store.lastInsertEvent.DecisionSnapshotJSON, &snapshot))
+	assert.Equal(t, int32(600), snapshot.PostEventCooldownSec)
+	assert.True(t, snapshot.ForceIncludeAllPairedMiners)
+}
+
 func TestService_Preview_FullFleet_SkipsMissingTelemetrySamples(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)

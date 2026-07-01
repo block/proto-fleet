@@ -770,22 +770,6 @@ WHERE NOT EXISTS (
     WHERE existing.curtailment_event_id = locked_event.id
       AND existing.device_identifier = t.device_identifier
 )
-AND NOT EXISTS (
-    SELECT 1
-    FROM curtailment_target cooldown_target
-    JOIN curtailment_event cooldown_event
-        ON cooldown_event.id = cooldown_target.curtailment_event_id
-    WHERE cooldown_event.org_id = locked_event.org_id
-      AND cooldown_target.device_identifier = t.device_identifier
-      AND cooldown_target.state IN ('resolved', 'restore_failed')
-      AND COALESCE((locked_event.decision_snapshot_jsonb->>'post_event_cooldown_sec')::INT, 0) > 0
-      AND (
-        cooldown_event.state IN ('pending', 'active', 'restoring')
-        OR cooldown_event.ended_at >= CURRENT_TIMESTAMP - (
-            COALESCE((locked_event.decision_snapshot_jsonb->>'post_event_cooldown_sec')::INT, 0) * INTERVAL '1 second'
-        )
-      )
-)
 ON CONFLICT DO NOTHING
 RETURNING curtailment_target.*;
 
