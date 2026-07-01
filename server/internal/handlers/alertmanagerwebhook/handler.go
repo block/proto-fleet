@@ -136,7 +136,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	orgIDs := h.fanOutOrgIDs(r.Context())
-	rows := buildRows(payload.Alerts, orgIDs)
+	rows, overflowed := buildRows(payload.Alerts, orgIDs)
+	if overflowed {
+		slog.Warn("alertmanager webhook: batch expands beyond row cap; rejecting",
+			"alerts", len(payload.Alerts),
+			"cap", maxPersistRows,
+		)
+		writeError(w, http.StatusRequestEntityTooLarge, "alert batch expands beyond limit")
+		return
+	}
 
 	persistCtx, cancel := context.WithTimeout(r.Context(), insertsTimeout)
 	defer cancel()
@@ -166,23 +174,39 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// maxFanOutOrgs bounds how many orgs a single global self-monitoring alert expands to, so a huge
-// org count can't turn a tiny operator-only batch into an unbounded write. Org-scoped alerts (the
-// device-outage path) are not fanned out and stay bounded only by the request body size.
+// maxFanOutOrgs bounds how many orgs a single global self-monitoring alert expands to, so one
+// alert can't fan out to an arbitrarily large org count.
 const maxFanOutOrgs = 2000
 
+// maxPersistRows caps the total rows a batch expands to (after fan-out), so many self-monitoring
+// alerts can't multiply into an unbounded write even under the per-request alert cap. Org-scoped
+// alerts are 1 row each, so a real device outage stays well under this.
+const maxPersistRows = 100_000
+
 // buildRows converts a batch into history rows, expanding a global self-monitoring alert
-// (no organization_id) into one row per active org.
-func buildRows(alerts []alertmanagerAlert, orgIDs []int64) []*notificationhistory.Notification {
-	rows := make([]*notificationhistory.Notification, 0, len(alerts))
+// (no organization_id) into one row per active org. Returns overflowed=true if expansion would
+// exceed maxPersistRows, in which case the returned rows are partial and the caller must reject.
+func buildRows(alerts []alertmanagerAlert, orgIDs []int64) (rows []*notificationhistory.Notification, overflowed bool) {
+	rows = make([]*notificationhistory.Notification, 0, len(alerts))
+	add := func(n *notificationhistory.Notification) bool {
+		if len(rows) >= maxPersistRows {
+			return false
+		}
+		rows = append(rows, n)
+		return true
+	}
 	for _, alert := range alerts {
 		row := alertToRow(alert)
 		if row.OrganizationID != nil {
-			rows = append(rows, &row)
+			if !add(&row) {
+				return rows, true
+			}
 			continue
 		}
 		if !isGlobalSelfMonitoringAlert(alert.Labels) || len(orgIDs) == 0 {
-			rows = append(rows, &row)
+			if !add(&row) {
+				return rows, true
+			}
 			continue
 		}
 		fanOut := orgIDs
@@ -197,10 +221,12 @@ func buildRows(alerts []alertmanagerAlert, orgIDs []int64) []*notificationhistor
 		for i := range fanOut {
 			scoped := row
 			scoped.OrganizationID = &fanOut[i]
-			rows = append(rows, &scoped)
+			if !add(&scoped) {
+				return rows, true
+			}
 		}
 	}
-	return rows
+	return rows, false
 }
 
 func (h *Handler) deliver(ctx context.Context, alerts []alertmanagerAlert) {

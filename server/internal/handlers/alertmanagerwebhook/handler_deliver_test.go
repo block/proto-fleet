@@ -72,6 +72,33 @@ func TestServeHTTP_BatchInsertFailureReturns500AndNoDelivery(t *testing.T) {
 	assert.False(t, deliverer.called, "no delivery when nothing persisted")
 }
 
+// buildRows bounds total expanded rows so many self-monitoring alerts can't amplify (via fan-out)
+// into an unbounded write.
+func TestBuildRowsCapsFanOutExpansion(t *testing.T) {
+	orgIDs := make([]int64, maxFanOutOrgs)
+	for i := range orgIDs {
+		orgIDs[i] = int64(i + 1)
+	}
+	selfMon := func() alertmanagerAlert {
+		return alertmanagerAlert{Labels: map[string]string{labelAlertName: "X", labelRuleGroup: ruleGroupSelfMonitoring}}
+	}
+
+	// One self-monitoring alert fans out to at most maxFanOutOrgs, without overflow.
+	rows, overflowed := buildRows([]alertmanagerAlert{selfMon()}, orgIDs)
+	require.False(t, overflowed)
+	assert.Len(t, rows, maxFanOutOrgs)
+
+	// Enough self-monitoring alerts to blow past maxPersistRows must overflow (→ handler rejects).
+	n := maxPersistRows/maxFanOutOrgs + 2
+	batch := make([]alertmanagerAlert, n)
+	for i := range batch {
+		batch[i] = selfMon()
+	}
+	rows, overflowed = buildRows(batch, orgIDs)
+	require.True(t, overflowed)
+	assert.LessOrEqual(t, len(rows), maxPersistRows)
+}
+
 // Batches over the alert-count cap are rejected before any row is built or persisted.
 func TestServeHTTP_OverCapBatchRejected(t *testing.T) {
 	store := &okStore{}
