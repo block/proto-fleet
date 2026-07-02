@@ -350,6 +350,20 @@ type ActivityLogSite struct {
 	SiteID        sql.NullInt64
 }
 
+type AlertChannel struct {
+	ID              int64
+	OrgID           int64
+	Name            string
+	Kind            string
+	EncryptedConfig string
+	ValidationState string
+	ValidatedAt     sql.NullTime
+	ValidationError string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       sql.NullTime
+}
+
 type ApiKey struct {
 	ID             int64
 	KeyID          string
