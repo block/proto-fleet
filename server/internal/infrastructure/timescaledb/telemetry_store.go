@@ -31,15 +31,11 @@ const (
 	hourlyBucketDuration = time.Hour
 	dailyBucketDuration  = 24 * time.Hour
 
-	// Raw miner_state_snapshots scans cost one row per device per minute, so a
-	// gapped-rollup fallback degenerates when devices x minutes is large (a 24h
-	// window at 5k devices is ~7M rows). Gapped rollups share any data gap with
-	// raw (both come from the same writer), so a huge raw re-scan recovers
-	// nothing the rollups don't already have. All-devices requests are bounded
-	// by range alone (the store doesn't know the fleet size); device lists,
-	// including large site scopes the service resolves into IDs, are bounded by
-	// estimated scanned rows using the budget the range cap implies at a
-	// 5k-device fleet.
+	// Raw snapshot scans cost one row per device per minute, and rollup gaps
+	// come from the same writer outages as raw gaps, so an oversized raw
+	// fallback pays a huge scan to recover nothing. All-devices requests are
+	// bounded by range alone (fleet size is unknown here); device lists by
+	// estimated scanned rows (600k ~ the 2h cap at a 5k-device fleet).
 	maxRawUptimeFallbackRange = 2 * time.Hour
 	maxRawUptimeFallbackRows  = 600_000
 

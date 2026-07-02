@@ -71,10 +71,8 @@ GROUP BY bucket
 ORDER BY bucket ASC;
 
 -- name: GetAllMinerStateSnapshotDeviceRollups1m :many
--- last(state, state_time) per (bucket, device) instead of DISTINCT ON: the
--- expression sort key has no index, so DISTINCT ON sorts one row per device
--- per minute for the whole range (spills work_mem on large fleets), while
--- GROUP BY hash-aggregates and parallelizes.
+-- last() per (bucket, device) rather than a sort-based latest-row pick: no
+-- index covers the derived bucket expression, so sorting spills on large fleets.
 WITH per_device_bucket AS (
     SELECT
         time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time)::timestamptz AS bucket,

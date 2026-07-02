@@ -1,18 +1,8 @@
--- Keep raw retention unchanged in this migration. The compact rollups are
--- populated by TimescaleDB policies outside the migration transaction, and raw
--- snapshots remain the correctness fallback while the deployment proves rollup
--- coverage in production.
---
--- Policy window design: the rollups are created WITH NO DATA and the writer
--- only inserts at "now", so a region is materialized only if a refresh window
--- ever covers it. Each start_offset therefore spans the full range its rollup
--- serves (query source selection is duration-based, so historical ranges
--- within retention hit the rollup), bounded by retention and the 1-year raw
--- retention. The first policy runs backfill that history in day/week/month
--- batches, newest first. Compression is configured only where compress_after
--- can exceed the refresh window (daily); inside the window it forces refreshes
--- to write into compressed chunks, and older TimescaleDB versions reject the
--- overlap outright.
+-- The writer only inserts at "now" and the rollups start WITH NO DATA, so a
+-- region is materialized only if a refresh window covers it: each start_offset
+-- must span the full range its rollup serves, and the first policy runs
+-- backfill that history in batches. compress_after must sit beyond the refresh
+-- window, which is why only the daily rollup is compressed.
 SELECT set_chunk_time_interval('miner_state_snapshots', INTERVAL '1 day');
 
 CREATE MATERIALIZED VIEW miner_state_snapshot_device_1m
