@@ -75,12 +75,12 @@ export class EnergyPage extends BasePage {
 
   async startCurtailment() {
     await this.page.getByTestId("full-screen-two-pane-modal").getByRole("button", { name: "Run curtailment" }).click();
-    const maintenanceConfirmation = this.page.getByTestId("curtailment-maintenance-confirmation");
+    const forceInclusionConfirmation = this.page.getByTestId("curtailment-force-inclusion-confirmation");
     const runConfirmation = this.page.getByTestId("curtailment-run-confirmation");
 
-    await expect(maintenanceConfirmation.or(runConfirmation)).toBeVisible();
-    if (await maintenanceConfirmation.isVisible()) {
-      await maintenanceConfirmation.getByRole("button", { name: "Force include" }).click();
+    await expect(forceInclusionConfirmation.or(runConfirmation)).toBeVisible();
+    if (await forceInclusionConfirmation.isVisible()) {
+      await forceInclusionConfirmation.getByRole("button", { name: "Force include" }).click();
     }
     await expect(runConfirmation).toBeVisible();
     await runConfirmation.getByRole("button", { name: "Run curtailment" }).click();

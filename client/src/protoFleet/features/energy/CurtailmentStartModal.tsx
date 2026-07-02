@@ -97,7 +97,7 @@ type PendingCurtailmentConfirmation = {
   values: CurtailmentSubmitValues;
 };
 
-type ForceInclusionFields = Pick<CurtailmentFormValues, "includeMaintenance" | "forceIncludeAllPairedMiners">;
+type ForceInclusionFields = Pick<CurtailmentFormValues, "forceIncludeAllPairedMiners">;
 
 interface CurtailmentStartModalProps {
   open: boolean;
@@ -570,9 +570,9 @@ function isCurtailmentMode(value: string): value is CurtailmentMode {
 }
 
 function getForceInclusionConfirmationKey(values: ForceInclusionFields): string {
-  return [values.includeMaintenance ? "maintenance" : "", values.forceIncludeAllPairedMiners ? "all-paired" : ""]
-    .filter(Boolean)
-    .join("|");
+  // Maintenance inclusion is no longer surfaced in the UI, so the only user-driven
+  // force-inclusion is targeting all paired miners.
+  return values.forceIncludeAllPairedMiners ? "all-paired" : "";
 }
 
 function getInitialValues(
@@ -986,26 +986,13 @@ function getCurtailmentConfirmationCopy(
   };
 }
 
-function getForceInclusionConfirmationCopy(values: ForceInclusionFields) {
-  if (values.includeMaintenance && values.forceIncludeAllPairedMiners) {
-    return {
-      title: "Force include miners?",
-      body: "This will run Curtail on miners flagged for maintenance and keep targeting all paired miners, including miners that are offline or waiting for authentication.",
-      confirmText: "Force include",
-    };
-  }
-
-  if (values.forceIncludeAllPairedMiners) {
-    return {
-      title: "Force include all paired miners?",
-      body: "This will keep targeting paired miners even when they are offline, sleeping, or waiting for authentication.",
-      confirmText: "Force include",
-    };
-  }
-
+// The maintenance-inclusion toggle is hidden from the UI (see the "Miners" section in the form),
+// so "Target all paired miners" is the only user-driven force-inclusion and the confirmation copy
+// always describes the all-paired case.
+function getForceInclusionConfirmationCopy() {
   return {
-    title: "Force include maintenance miners?",
-    body: "This will run Curtail on miners that are currently flagged for maintenance work.",
+    title: "Force include all paired miners?",
+    body: "This will keep targeting paired miners even when they are offline, sleeping, or waiting for authentication.",
     confirmText: "Force include",
   };
 }
@@ -1255,12 +1242,7 @@ function CurtailmentStartModalContent({
     pendingCurtailmentConfirmation,
     previewState.preview?.selectedMinerCount,
   );
-  const forceInclusionConfirmationValues = {
-    includeMaintenance: pendingForceInclusionValues?.includeMaintenance ?? values.includeMaintenance,
-    forceIncludeAllPairedMiners:
-      pendingForceInclusionValues?.forceIncludeAllPairedMiners ?? values.forceIncludeAllPairedMiners,
-  };
-  const forceInclusionConfirmationCopy = getForceInclusionConfirmationCopy(forceInclusionConfirmationValues);
+  const forceInclusionConfirmationCopy = getForceInclusionConfirmationCopy();
   const useSinglePaneLayout = isLiveCurtailmentEditMode && previewPane === null;
   const paneContainerClassName = useSinglePaneLayout
     ? "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:px-10"
@@ -1840,51 +1822,38 @@ function CurtailmentStartModalContent({
               </div>
             </Section>
 
-            <label
-              className={`flex items-start gap-3 text-left ${
-                isLiveCurtailmentEditMode ? "cursor-not-allowed" : "cursor-pointer"
-              }`}
-            >
-              <Checkbox
-                checked={values.includeMaintenance}
-                disabled={isLiveCurtailmentEditMode}
-                onChange={(event) => {
-                  if (!isResponseProfileVariant && event.currentTarget.checked) {
-                    requestForceInclusionConfirmation({ includeMaintenance: true });
-                    return;
-                  }
-
-                  setConfirmedForceInclusionKey("");
-                  updateValue("includeMaintenance", event.currentTarget.checked);
-                }}
-              />
-              <span>
-                <span className="block text-300 text-text-primary">Include miners in maintenance</span>
-              </span>
-            </label>
+            {/*
+              The "Include miners in maintenance" checkbox is intentionally hidden from the UI.
+              The includeMaintenance form value still defaults to true and is sent on the request
+              so maintenance-flagged miners keep being curtailed; "Target all paired miners" is now
+              the only operator-controllable inclusion option. Re-add the checkbox here if
+              maintenance ever needs to become togglable again.
+            */}
             {isFullFleetMode ? (
-              <label
-                className={`flex items-start gap-3 text-left ${
-                  isLiveCurtailmentEditMode ? "cursor-not-allowed" : "cursor-pointer"
-                }`}
-              >
-                <Checkbox
-                  checked={values.forceIncludeAllPairedMiners}
-                  disabled={isLiveCurtailmentEditMode}
-                  onChange={(event) => {
-                    if (!isResponseProfileVariant && event.currentTarget.checked) {
-                      requestForceInclusionConfirmation({ forceIncludeAllPairedMiners: true });
-                      return;
-                    }
+              <Section title="Miners">
+                <label
+                  className={`flex items-start gap-3 text-left ${
+                    isLiveCurtailmentEditMode ? "cursor-not-allowed" : "cursor-pointer"
+                  }`}
+                >
+                  <Checkbox
+                    checked={values.forceIncludeAllPairedMiners}
+                    disabled={isLiveCurtailmentEditMode}
+                    onChange={(event) => {
+                      if (!isResponseProfileVariant && event.currentTarget.checked) {
+                        requestForceInclusionConfirmation({ forceIncludeAllPairedMiners: true });
+                        return;
+                      }
 
-                    setConfirmedForceInclusionKey("");
-                    updateValue("forceIncludeAllPairedMiners", event.currentTarget.checked);
-                  }}
-                />
-                <span>
-                  <span className="block text-300 text-text-primary">Target all paired miners</span>
-                </span>
-              </label>
+                      setConfirmedForceInclusionKey("");
+                      updateValue("forceIncludeAllPairedMiners", event.currentTarget.checked);
+                    }}
+                  />
+                  <span>
+                    <span className="block text-300 text-text-primary">Target all paired miners</span>
+                  </span>
+                </label>
+              </Section>
             ) : null}
           </section>
         }
@@ -1896,7 +1865,7 @@ function CurtailmentStartModalContent({
       <Dialog
         open={showForceInclusionConfirmation}
         title={forceInclusionConfirmationCopy.title}
-        testId="curtailment-maintenance-confirmation"
+        testId="curtailment-force-inclusion-confirmation"
         onDismiss={closeForceInclusionConfirmation}
         icon={
           <DialogIcon intent="warning">
