@@ -38,6 +38,16 @@ const (
 	rawAllDevicesMaxDuration = 5 * time.Hour
 	maxRawDeviceList         = 500
 
+	// hourlyRawTailCoverage is how much of a raw-window request's right edge
+	// the hourly path serves from raw data instead of the aggregate. The
+	// hourly CAGG refresh policy (migration 000006) materializes on a
+	// 30 minute schedule with a 1 hour end_offset, so hour buckets starting
+	// within the last ~2.5h can be unmaterialized. A 2h tail whose start is
+	// truncated to the hour keeps the body at buckets starting >=3h before
+	// the request end, clear of that worst case. Must track those policy
+	// values.
+	hourlyRawTailCoverage = 2 * time.Hour
+
 	// Raw snapshot scans cost one row per device per minute, and rollup gaps
 	// come from the same writer outages as raw gaps, so an oversized raw
 	// fallback pays a huge scan to recover nothing. All-devices requests are
@@ -605,36 +615,9 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 	if rawMetricBucketCount(startTime, endTime, bucketDuration) > maxRawMetricBuckets {
 		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics bucket count exceeds %d", maxRawMetricBuckets)
 	}
-	bucketSeconds := bucketDuration.Seconds()
-	var buckets []rawMetricBucket
-	var err error
-
-	if len(query.DeviceIDs) == 0 {
-		var rows []sqlc.GetAllDeviceMetricsRawBucketAggregatesRow
-		rows, err = s.queries.GetAllDeviceMetricsRawBucketAggregates(ctx, sqlc.GetAllDeviceMetricsRawBucketAggregatesParams{
-			BucketSeconds: bucketSeconds,
-			StartTime:     startTime,
-			EndTime:       endTime,
-		})
-		buckets = make([]rawMetricBucket, 0, len(rows))
-		for _, row := range rows {
-			buckets = append(buckets, rawMetricBucketFromAllDevices(row))
-		}
-	} else {
-		var rows []sqlc.GetDeviceMetricsRawBucketAggregatesRow
-		rows, err = s.queries.GetDeviceMetricsRawBucketAggregates(ctx, sqlc.GetDeviceMetricsRawBucketAggregatesParams{
-			BucketSeconds:     bucketSeconds,
-			DeviceIdentifiers: deviceIDsToStrings(query.DeviceIDs),
-			StartTime:         startTime,
-			EndTime:           endTime,
-		})
-		buckets = make([]rawMetricBucket, 0, len(rows))
-		for _, row := range rows {
-			buckets = append(buckets, rawMetricBucketFromDevices(row))
-		}
-	}
+	buckets, err := s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	if err != nil {
-		return models.CombinedMetric{}, fmt.Errorf("failed to query raw bucket aggregates: %w", err)
+		return models.CombinedMetric{}, err
 	}
 
 	includeUptimeCounts := models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes)
@@ -646,54 +629,131 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 	return result, nil
 }
 
+// rawBucketAggregates runs the bucketed raw device_metrics query for the
+// selector in the query and returns the rows ordered by bucket ascending.
+func (s *TimescaleTelemetryStore) rawBucketAggregates(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) ([]rawMetricBucket, error) {
+	bucketSeconds := bucketDuration.Seconds()
+	if len(query.DeviceIDs) == 0 {
+		rows, err := s.queries.GetAllDeviceMetricsRawBucketAggregates(ctx, sqlc.GetAllDeviceMetricsRawBucketAggregatesParams{
+			BucketSeconds: bucketSeconds,
+			StartTime:     startTime,
+			EndTime:       endTime,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to query raw bucket aggregates: %w", err)
+		}
+		buckets := make([]rawMetricBucket, 0, len(rows))
+		for _, row := range rows {
+			buckets = append(buckets, rawMetricBucketFromAllDevices(row))
+		}
+		return buckets, nil
+	}
+
+	rows, err := s.queries.GetDeviceMetricsRawBucketAggregates(ctx, sqlc.GetDeviceMetricsRawBucketAggregatesParams{
+		BucketSeconds:     bucketSeconds,
+		DeviceIdentifiers: deviceIDsToStrings(query.DeviceIDs),
+		StartTime:         startTime,
+		EndTime:           endTime,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query raw bucket aggregates: %w", err)
+	}
+	buckets := make([]rawMetricBucket, 0, len(rows))
+	for _, row := range rows {
+		buckets = append(buckets, rawMetricBucketFromDevices(row))
+	}
+	return buckets, nil
+}
+
 // getCombinedMetricsFromHourly queries device_metrics_hourly continuous aggregate.
 func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) (models.CombinedMetric, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
-	startTime, endTime, hasCompleteBucket := normalizeCompleteBucketRange(startTime, endTime, hourlyBucketDuration)
-	if !hasCompleteBucket {
-		return models.CombinedMetric{}, nil
+	// Requests inside the raw window get their right edge served from raw
+	// data because the CAGG materializes on a delay (see
+	// hourlyRawTailCoverage). The body is normalized against the tail start
+	// so body buckets end exactly where the tail begins. Longer ranges keep
+	// the long-standing complete-bucket behavior with no tail.
+	bodyWindowEnd := endTime
+	var tailStart time.Time
+	hasTail := endTime.After(startTime) && endTime.Sub(startTime) <= rawDataMaxDuration
+	if hasTail {
+		tailStart = endTime.Add(-hourlyRawTailCoverage).Truncate(time.Hour)
+		if tailStart.Before(startTime) {
+			tailStart = startTime
+		}
+		bodyWindowEnd = tailStart
 	}
 
-	var rows []sqlc.DeviceMetricsHourly
-	var err error
+	var result models.CombinedMetric
+	bodyStart, bodyEnd, hasCompleteBucket := normalizeCompleteBucketRange(startTime, bodyWindowEnd, hourlyBucketDuration)
+	if hasCompleteBucket {
+		var rows []sqlc.DeviceMetricsHourly
+		var err error
 
-	if len(query.DeviceIDs) == 0 {
-		rows, err = s.queries.GetAllDeviceMetricsHourlyAggregates(ctx, sqlc.GetAllDeviceMetricsHourlyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
-		})
-	} else {
-		identifiers := deviceIDsToStrings(query.DeviceIDs)
-		rows, err = s.queries.GetDeviceMetricsHourlyAggregates(ctx, sqlc.GetDeviceMetricsHourlyAggregatesParams{
-			DeviceIdentifiers: identifiers,
-			Bucket:            startTime,
-			Bucket_2:          endTime,
-		})
+		if len(query.DeviceIDs) == 0 {
+			rows, err = s.queries.GetAllDeviceMetricsHourlyAggregates(ctx, sqlc.GetAllDeviceMetricsHourlyAggregatesParams{
+				Bucket:   bodyStart,
+				Bucket_2: bodyEnd,
+			})
+		} else {
+			identifiers := deviceIDsToStrings(query.DeviceIDs)
+			rows, err = s.queries.GetDeviceMetricsHourlyAggregates(ctx, sqlc.GetDeviceMetricsHourlyAggregatesParams{
+				DeviceIdentifiers: identifiers,
+				Bucket:            bodyStart,
+				Bucket_2:          bodyEnd,
+			})
+		}
+
+		if err != nil {
+			return models.CombinedMetric{}, fmt.Errorf("failed to query hourly aggregates: %w", err)
+		}
+
+		if len(rows) > 0 {
+			result.Metrics = s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
+			result.TemperatureStatusCounts = s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, bodyStart, bodyEnd)
+			if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+				// Uptime keeps the full normalized request range: it has its
+				// own rollup and raw tail merge and must not shrink with the
+				// metrics seam.
+				result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime.Add(-hourlyBucketDuration), hourlyBucketDuration, dataSourceHourly)
+			}
+		}
 	}
 
+	if hasTail {
+		s.appendHourlyRawTail(ctx, query, &result, tailStart, endTime)
+	}
+
+	return result, nil
+}
+
+// appendHourlyRawTail merges raw-granularity buckets over [tailStart, endTime]
+// onto the hourly aggregate body. The tail spans at most hourlyRawTailCoverage
+// plus one hour of alignment slack, so it is bounded by construction and skips
+// the maxRawMetricBuckets check. UptimeStatusCounts stay untouched:
+// uptimeCountsForQuery does its own raw tail merge. Tail failures degrade to
+// the body alone.
+func (s *TimescaleTelemetryStore) appendHourlyRawTail(ctx context.Context, query models.CombinedMetricsQuery, body *models.CombinedMetric, tailStart, endTime time.Time) {
+	bucketDuration := rawMetricBucketDuration(query.SlideInterval, len(query.DeviceIDs) == 0)
+	buckets, err := s.rawBucketAggregates(ctx, query, tailStart, endTime, bucketDuration)
 	if err != nil {
-		return models.CombinedMetric{}, fmt.Errorf("failed to query hourly aggregates: %w", err)
+		s.logger.Warn("failed to query raw tail for hourly combined metrics, returning aggregate body only",
+			slog.Int64("org_id", query.OrganizationID),
+			slog.Int("device_count", len(query.DeviceIDs)),
+			slog.Time("tail_start", tailStart),
+			slog.Time("tail_end", endTime),
+			slog.String("error", err.Error()))
+		return
 	}
 
-	if len(rows) == 0 {
-		return models.CombinedMetric{}, nil
-	}
-
-	metrics := s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
-
-	tempCounts := s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	var uptimeCounts []models.UptimeStatusCount
-	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
-		uptimeCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration, dataSourceHourly)
-	}
-
-	return models.CombinedMetric{
-		Metrics:                 metrics,
-		TemperatureStatusCounts: tempCounts,
-		UptimeStatusCounts:      uptimeCounts,
-	}, nil
+	tail := aggregateRawMetricBuckets(buckets, query.MeasurementTypes, query.AggregationTypes)
+	// Body buckets end at tailStart while tail buckets start at it, and both
+	// sides are bucket-ascending, so appending keeps the response ordered by
+	// OpenTime.
+	body.Metrics = append(body.Metrics, tail.Metrics...)
+	body.TemperatureStatusCounts = append(body.TemperatureStatusCounts, tail.TemperatureStatusCounts...)
 }
 
 // getCombinedMetricsFromDaily queries device_metrics_daily continuous aggregate.

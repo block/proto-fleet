@@ -700,29 +700,31 @@ func TestTelemetryStore_GetCombinedMetrics_DefaultRangeRoutesToAggregatesWithLar
 	assert.NotNil(t, result)
 }
 
-func TestTelemetryStore_GetCombinedMetrics_AllDevicesFullDayServesHourlyBuckets(t *testing.T) {
+func TestTelemetryStore_GetCombinedMetrics_AllDevicesFullDayMergesHourlyBodyWithRawTail(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	// Arrange: one metric materialized into the hourly aggregate, one raw-only
-	// metric outside the refreshed window; a 24h all-devices request must show
-	// only the materialized hourly bucket
-	dbSvc := testutil.NewDatabaseService(t, nil)
-	db := dbSvc.DB
+	// Arrange: one metric materialized into the hourly aggregate and older than
+	// the 2h tail coverage, one raw-only metric inside the in-progress hour; a
+	// 24h all-devices request must serve hour buckets for the body and
+	// raw-granularity buckets for the tail
+	db := testutil.GetTestDB(t)
 	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
 	require.NoError(t, err)
-	identifier := fmt.Sprintf("hourly-routing-device-%d", time.Now().UnixNano())
+	identifier := fmt.Sprintf("hourly-tail-device-%d", time.Now().UnixNano())
 	t.Cleanup(func() { cleanupDeviceMetrics(t, db, identifier) })
 
-	materialized := time.Now().UTC().Truncate(time.Hour).Add(-5 * time.Hour).Add(10 * time.Minute)
-	rawOnly := time.Now().UTC().Add(-10 * time.Minute)
+	hour := time.Now().UTC().Truncate(time.Hour)
+	end := hour.Add(30 * time.Minute)
+	start := end.Add(-24 * time.Hour)
+	tailBoundary := end.Add(-2 * time.Hour).Truncate(time.Hour)
+	materialized := hour.Add(-5 * time.Hour).Add(10 * time.Minute)
+	rawOnly := hour.Add(20 * time.Minute)
 	insertTestMetrics(t, db, identifier, materialized, 500, 60)
 	insertTestMetrics(t, db, identifier, rawOnly, 900, 90)
 	refreshMetricsHourlyAggregate(t, db, materialized.Add(-time.Hour), materialized.Add(time.Hour))
 
-	start := time.Now().UTC().Add(-24 * time.Hour)
-	end := time.Now().UTC()
 	slide := 90 * time.Second
 
 	// Act
@@ -732,17 +734,170 @@ func TestTelemetryStore_GetCombinedMetrics_AllDevicesFullDayServesHourlyBuckets(
 		SlideInterval:    &slide,
 	})
 
-	// Assert: hour-aligned buckets from the aggregate only, no raw-resolution
-	// buckets and no unmaterialized raw-only data
+	// Assert: hour-aligned aggregate buckets before the tail boundary, raw
+	// buckets at the requested granularity after it, ordered by OpenTime with
+	// no timestamp appearing twice
 	require.NoError(t, err)
 	require.NotEmpty(t, result.Metrics)
-	for _, m := range result.Metrics {
-		assert.True(t, m.OpenTime.Equal(m.OpenTime.Truncate(time.Hour)),
-			"expected hour-aligned bucket, got %s", m.OpenTime)
-		for _, v := range m.AggregatedValues {
-			assert.NotEqual(t, float64(900), v.Value, "raw-only metric must not appear")
+
+	var body, tail []models.Metric
+	seen := make(map[int64]bool)
+	for i, m := range result.Metrics {
+		assert.False(t, seen[m.OpenTime.UnixNano()], "duplicate bucket timestamp %s", m.OpenTime)
+		seen[m.OpenTime.UnixNano()] = true
+		if i > 0 {
+			assert.False(t, m.OpenTime.Before(result.Metrics[i-1].OpenTime),
+				"metrics must be ordered by OpenTime, got %s after %s", m.OpenTime, result.Metrics[i-1].OpenTime)
+		}
+		if m.OpenTime.Before(tailBoundary) {
+			body = append(body, m)
+		} else {
+			tail = append(tail, m)
 		}
 	}
+
+	require.Len(t, body, 1, "expected exactly the materialized hourly bucket in the body")
+	assert.True(t, body[0].OpenTime.Equal(materialized.Truncate(time.Hour)),
+		"expected hour-aligned body bucket, got %s", body[0].OpenTime)
+	assert.Equal(t, float64(500), aggValues(body[0].AggregatedValues)[models.AggregationTypeAverage])
+
+	require.Len(t, tail, 1, "expected exactly the raw-only bucket in the tail")
+	assert.True(t, tail[0].OpenTime.Equal(rawOnly.Truncate(slide)),
+		"expected tail bucket at the requested granularity, got %s", tail[0].OpenTime)
+	assert.Equal(t, float64(900), aggValues(tail[0].AggregatedValues)[models.AggregationTypeAverage])
+}
+
+func TestTelemetryStore_GetCombinedMetrics_RawTailCoversUnmaterializedCompletedHours(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange: the hourly aggregate is materialized only far behind the request
+	// end, and a raw-only metric sits in a completed but unmaterialized hour;
+	// the tail must cover it, an in-progress-hour tail would leave a hole
+	db := testutil.GetTestDB(t)
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	identifier := fmt.Sprintf("unmaterialized-hour-device-%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupDeviceMetrics(t, db, identifier) })
+
+	hour := time.Now().UTC().Truncate(time.Hour)
+	end := hour.Add(30 * time.Minute)
+	start := end.Add(-24 * time.Hour)
+	tailBoundary := end.Add(-2 * time.Hour).Truncate(time.Hour)
+	materialized := hour.Add(-5 * time.Hour).Add(10 * time.Minute)
+	rawOnly := end.Add(-80 * time.Minute)
+	insertTestMetrics(t, db, identifier, materialized, 500, 60)
+	insertTestMetrics(t, db, identifier, rawOnly, 900, 90)
+	refreshMetricsHourlyAggregate(t, db, materialized.Add(-time.Hour), materialized.Add(time.Hour))
+
+	slide := 90 * time.Second
+
+	// Act
+	result, err := store.GetCombinedMetrics(t.Context(), models.CombinedMetricsQuery{
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+		SlideInterval:    &slide,
+	})
+
+	// Assert: the materialized hourly bucket plus the raw-only point served
+	// from the tail at raw granularity
+	require.NoError(t, err)
+	require.Len(t, result.Metrics, 2)
+	assert.True(t, result.Metrics[0].OpenTime.Equal(materialized.Truncate(time.Hour)),
+		"expected hour-aligned body bucket, got %s", result.Metrics[0].OpenTime)
+	assert.Equal(t, float64(500), aggValues(result.Metrics[0].AggregatedValues)[models.AggregationTypeAverage])
+	assert.True(t, result.Metrics[1].OpenTime.Equal(rawOnly.Truncate(slide)),
+		"expected raw-granularity tail bucket, got %s", result.Metrics[1].OpenTime)
+	assert.False(t, result.Metrics[1].OpenTime.Before(tailBoundary),
+		"tail bucket must not precede the tail boundary %s, got %s", tailBoundary, result.Metrics[1].OpenTime)
+	assert.Equal(t, float64(900), aggValues(result.Metrics[1].AggregatedValues)[models.AggregationTypeAverage])
+}
+
+func TestTelemetryStore_GetCombinedMetrics_HourAlignedEndStillGetsRawTail(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange: a request ending exactly on an hour boundary still gets the
+	// last-2h raw tail; the seam metric is materialized into the aggregate AND
+	// inside the tail coverage, so a wrong seam would serve it twice
+	db := testutil.GetTestDB(t)
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	identifier := fmt.Sprintf("hour-aligned-tail-device-%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupDeviceMetrics(t, db, identifier) })
+
+	end := time.Now().UTC().Truncate(time.Hour)
+	start := end.Add(-24 * time.Hour)
+	tailBoundary := end.Add(-2 * time.Hour)
+	bodyPoint := end.Add(-3 * time.Hour).Add(10 * time.Minute)
+	seamPoint := tailBoundary.Add(10 * time.Minute)
+	insertTestMetrics(t, db, identifier, bodyPoint, 500, 60)
+	insertTestMetrics(t, db, identifier, seamPoint, 700, 65)
+	refreshMetricsHourlyAggregate(t, db, end.Add(-4*time.Hour), end.Add(-time.Hour))
+
+	slide := 90 * time.Second
+
+	// Act
+	result, err := store.GetCombinedMetrics(t.Context(), models.CombinedMetricsQuery{
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+		SlideInterval:    &slide,
+	})
+
+	// Assert: the body ends at the tail boundary and the seam metric appears
+	// exactly once, from the tail at raw granularity
+	require.NoError(t, err)
+	require.Len(t, result.Metrics, 2)
+	assert.True(t, result.Metrics[0].OpenTime.Equal(bodyPoint.Truncate(time.Hour)),
+		"expected hour-aligned body bucket, got %s", result.Metrics[0].OpenTime)
+	assert.Equal(t, float64(500), aggValues(result.Metrics[0].AggregatedValues)[models.AggregationTypeAverage])
+	assert.True(t, result.Metrics[1].OpenTime.Equal(seamPoint.Truncate(slide)),
+		"expected raw-granularity tail bucket, got %s", result.Metrics[1].OpenTime)
+	assert.False(t, result.Metrics[1].OpenTime.Before(tailBoundary),
+		"tail bucket must not precede the tail boundary %s, got %s", tailBoundary, result.Metrics[1].OpenTime)
+	assert.Equal(t, float64(700), aggValues(result.Metrics[1].AggregatedValues)[models.AggregationTypeAverage])
+}
+
+func TestTelemetryStore_GetCombinedMetrics_MultiDayRangeGetsNoRawTail(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange: a 3 day range is past the raw window, so even a mid-hour end
+	// keeps the complete-bucket hourly shape; the raw-only metric sits in the
+	// would-be tail window to catch any stray tail query
+	db := testutil.GetTestDB(t)
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	identifier := fmt.Sprintf("multiday-no-tail-device-%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupDeviceMetrics(t, db, identifier) })
+
+	hour := time.Now().UTC().Truncate(time.Hour)
+	end := hour.Add(30 * time.Minute)
+	start := end.Add(-3 * 24 * time.Hour)
+	materialized := hour.Add(-5 * time.Hour).Add(10 * time.Minute)
+	rawOnly := hour.Add(20 * time.Minute)
+	insertTestMetrics(t, db, identifier, materialized, 500, 60)
+	insertTestMetrics(t, db, identifier, rawOnly, 900, 90)
+	refreshMetricsHourlyAggregate(t, db, materialized.Add(-time.Hour), materialized.Add(time.Hour))
+
+	slide := 90 * time.Second
+
+	// Act
+	result, err := store.GetCombinedMetrics(t.Context(), models.CombinedMetricsQuery{
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+		SlideInterval:    &slide,
+	})
+
+	// Assert: only the materialized hourly bucket, no sub-hour tail buckets
+	require.NoError(t, err)
+	require.Len(t, result.Metrics, 1)
+	assert.True(t, result.Metrics[0].OpenTime.Equal(materialized.Truncate(time.Hour)),
+		"expected hour-aligned bucket, got %s", result.Metrics[0].OpenTime)
+	assert.Equal(t, float64(500), aggValues(result.Metrics[0].AggregatedValues)[models.AggregationTypeAverage])
 }
 
 // Helper functions
