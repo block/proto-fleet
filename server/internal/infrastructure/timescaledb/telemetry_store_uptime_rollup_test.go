@@ -164,6 +164,51 @@ func TestTelemetryStore_UptimeCountsMergeRawTailWhenRollupIsPartial(t *testing.T
 	assert.Equal(t, int32(1), counts[1].BrokenCount)
 }
 
+func TestTelemetryStore_UptimeCountsRecomputePartiallyMaterializedTailBucket(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := NewTelemetryStore(db, DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	deviceIdentifier := fmt.Sprintf("rollup-partial-bucket-device-%d", time.Now().UnixNano())
+
+	// Arrange: a 90s bucket spans two rollup minutes; only the first minute is
+	// materialized, so the rollup-built bucket carries the stale hashing state.
+	// The device turns broken in the unmaterialized minute and again later in
+	// the raw-only tail bucket.
+	bucketStart := time.Now().UTC().Add(-2 * time.Hour).Truncate(90 * time.Second)
+	materialized := bucketStart
+	unmaterialized := bucketStart.Add(time.Minute)
+	tailBucket := bucketStart.Add(90 * time.Second)
+	inTail := bucketStart.Add(150 * time.Second)
+	insertMinerStateSnapshotRow(t, db, materialized, orgID, sql.NullInt64{}, deviceIdentifier, 3)
+	insertMinerStateSnapshotRow(t, db, unmaterialized, orgID, sql.NullInt64{}, deviceIdentifier, 2)
+	insertMinerStateSnapshotRow(t, db, inTail, orgID, sql.NullInt64{}, deviceIdentifier, 2)
+	refreshUptimeDeviceRollup(t, db, "miner_state_snapshot_device_1m", bucketStart.Add(-time.Minute), unmaterialized.Add(-time.Nanosecond))
+
+	// Act
+	counts := store.uptimeCountsForQuery(ctx, models.CombinedMetricsQuery{
+		OrganizationID: orgID,
+		DeviceIDs:      []models.DeviceIdentifier{models.DeviceIdentifier(deviceIdentifier)},
+	}, bucketStart, inTail, 90*time.Second, dataSourceRaw)
+
+	// Assert: the overlapping bucket is recomputed from raw, so the state
+	// change in the unmaterialized minute wins over the stale rollup count
+	require.Len(t, counts, 2)
+	assert.True(t, bucketStart.Equal(counts[0].Timestamp), "expected bucket %s, got %s", bucketStart, counts[0].Timestamp)
+	assert.Equal(t, int32(0), counts[0].HashingCount)
+	assert.Equal(t, int32(1), counts[0].BrokenCount)
+	assert.True(t, tailBucket.Equal(counts[1].Timestamp), "expected bucket %s, got %s", tailBucket, counts[1].Timestamp)
+	assert.Equal(t, int32(1), counts[1].BrokenCount)
+}
+
 func TestTelemetryStore_UptimeRollup1mMatchesRawBucketingForNinetySecondBuckets(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

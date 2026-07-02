@@ -70,7 +70,9 @@ func TestUptimeRollupCoverage(t *testing.T) {
 
 		assert.False(t, complete)
 		assert.True(t, canMergeTail)
-		assert.Equal(t, start.Add(time.Minute), rawTailStart)
+		// The tail starts at the last rollup bucket so a partially
+		// materialized bucket is recomputed from raw
+		assert.Equal(t, start, rawTailStart)
 	})
 
 	t.Run("head or middle gaps need full raw fallback", func(t *testing.T) {

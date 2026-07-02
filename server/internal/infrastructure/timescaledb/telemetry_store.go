@@ -1457,7 +1457,11 @@ func uptimeRollupCoverage(counts []models.UptimeStatusCount, startTime, endTime 
 		return false, time.Time{}, false
 	}
 	if endTime.After(last) && endTime.Sub(last) >= bucketDuration {
-		return false, last.Add(bucketDuration), true
+		// The tail starts AT the last rollup bucket, not after it: with chart
+		// buckets wider than the 1m rollup cadence, refresh lag can leave that
+		// bucket built from only its first minute, so the raw merge must
+		// recompute it (the merge overwrites base entries by timestamp).
+		return false, last, true
 	}
 	return true, time.Time{}, false
 }
