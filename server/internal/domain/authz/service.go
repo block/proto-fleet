@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
@@ -38,15 +40,31 @@ const (
 // same transaction as the write so a concurrent UnassignRole or role-
 // permission edit can't slip in between the check and the persist.
 type Service struct {
-	conn *sql.DB
+	conn        *sql.DB
+	activitySvc *activity.Service
 }
 
 // NewService wires a Service to the connection pool. The per-request
 // permission resolver lives in the middleware layer; this service
 // re-loads effective permissions inside its own transaction via
 // LoadEffectiveTx so the parity check is consistent with the write.
-func NewService(conn *sql.DB) *Service {
-	return &Service{conn: conn}
+//
+// activitySvc records role-management audit events; it may be nil (its
+// Log method is a no-op on a nil receiver), which tests rely on.
+func NewService(conn *sql.DB, activitySvc *activity.Service) *Service {
+	return &Service{conn: conn, activitySvc: activitySvc}
+}
+
+// logActivity records a role-management event, stamping the acting user
+// from the request's session so the activity feed attributes it to the
+// caller. Role CRUD sits in the auth category alongside update_user_role
+// (role assignment), so the whole RBAC surface reads from one bucket.
+func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
+	if s.activitySvc == nil {
+		return
+	}
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
 }
 
 // RoleView is the domain-layer projection of a role row plus its
@@ -145,7 +163,7 @@ func (s *Service) CreateCustomRole(ctx context.Context, callerID, orgID int64, n
 		return RoleView{}, err
 	}
 	trimmedDescription := strings.TrimSpace(description)
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (RoleView, error) {
+	view, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (RoleView, error) {
 		if err := authorizeCallerCanGrant(ctx, q, callerID, orgID, normalized); err != nil {
 			return RoleView{}, err
 		}
@@ -162,6 +180,18 @@ func (s *Service) CreateCustomRole(ctx context.Context, callerID, orgID int64, n
 		}
 		return hydrateRole(ctx, q, role)
 	})
+	if err != nil {
+		return RoleView{}, err
+	}
+	// Logged after commit so a rolled-back attempt leaves no audit row.
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           "create_role",
+		Description:    fmt.Sprintf("Role created: %s", view.Name),
+		OrganizationID: &orgID,
+		Metadata:       map[string]any{"role_id": view.ID, "role_name": view.Name, "permission_keys": normalized},
+	})
+	return view, nil
 }
 
 // UpdateCustomRole replaces the name, description, and permission set
@@ -179,7 +209,7 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 		return RoleView{}, err
 	}
 	trimmedDescription := strings.TrimSpace(description)
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (RoleView, error) {
+	view, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (RoleView, error) {
 		existing, err := getRoleInOrg(ctx, q, orgID, roleID)
 		if err != nil {
 			return RoleView{}, err
@@ -217,6 +247,18 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 		}
 		return hydrateRole(ctx, q, updated)
 	})
+	if err != nil {
+		return RoleView{}, err
+	}
+	// Logged after commit so a rolled-back attempt leaves no audit row.
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           "update_role",
+		Description:    fmt.Sprintf("Role updated: %s", view.Name),
+		OrganizationID: &orgID,
+		Metadata:       map[string]any{"role_id": view.ID, "role_name": view.Name, "permission_keys": normalized},
+	})
+	return view, nil
 }
 
 // DeleteCustomRole soft-deletes a custom role. Refuses on any active
@@ -238,7 +280,8 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 // user_organization_role row) cannot slip an assignment in between the
 // count check and the soft delete.
 func (s *Service) DeleteCustomRole(ctx context.Context, callerID, orgID, roleID int64) error {
-	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+	var deletedName string
+	err := db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
 		if err := authorizeCallerCanGrant(ctx, q, callerID, orgID, nil); err != nil {
 			return err
 		}
@@ -259,8 +302,21 @@ func (s *Service) DeleteCustomRole(ctx context.Context, callerID, orgID, roleID 
 		if err := q.SoftDeleteCustomRole(ctx, roleID); err != nil {
 			return fleeterror.NewInternalErrorf("authz: soft delete role: %w", err)
 		}
+		deletedName = existing.Name
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	// Logged after commit so a rolled-back attempt leaves no audit row.
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           "delete_role",
+		Description:    fmt.Sprintf("Role deleted: %s", deletedName),
+		OrganizationID: &orgID,
+		Metadata:       map[string]any{"role_id": roleID, "role_name": deletedName},
+	})
+	return nil
 }
 
 // authorizeCallerCanGrant runs privilege-parity inside the active
