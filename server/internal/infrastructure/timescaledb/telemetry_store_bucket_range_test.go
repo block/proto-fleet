@@ -73,3 +73,18 @@ func TestRawMetricBucketDurationForWork_CoarsensLargeFleet(t *testing.T) {
 	assert.Greater(t, got, requestedBucketDuration)
 	assert.LessOrEqual(t, rawMetricWorkCount(gotBucketCount, 5000), int64(maxRawMetricWork))
 }
+
+func TestShouldUseHourlyForRawMetricSampleCost(t *testing.T) {
+	endTime := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+	startTime := endTime.Add(-24 * time.Hour)
+
+	assert.False(t, shouldUseHourlyForRawMetricSampleCost(startTime, endTime, 100))
+	assert.True(t, shouldUseHourlyForRawMetricSampleCost(startTime, endTime, 5000))
+}
+
+func TestShouldUseHourlyForRawMetricSampleCost_KeepsShortRangesRaw(t *testing.T) {
+	endTime := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+	startTime := endTime.Add(-15 * time.Minute)
+
+	assert.False(t, shouldUseHourlyForRawMetricSampleCost(startTime, endTime, 5000))
+}
