@@ -712,18 +712,27 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 
 		if len(rows) > 0 {
 			result.Metrics = s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
-			result.TemperatureStatusCounts = s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, bodyStart, bodyEnd)
-			if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
-				// Uptime keeps the full normalized request range: it has its
-				// own rollup and raw tail merge and must not shrink with the
-				// metrics seam.
-				result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime.Add(-hourlyBucketDuration), hourlyBucketDuration, dataSourceHourly)
-			}
 		}
+		result.TemperatureStatusCounts = s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, bodyStart, bodyEnd)
 	}
 
 	if hasTail {
-		s.appendHourlyRawTail(ctx, query, &result, tailStart, endTime)
+		if err := s.appendHourlyRawTail(ctx, query, &result, tailStart, endTime); err != nil {
+			return models.CombinedMetric{}, err
+		}
+	}
+
+	// Uptime is computed independently of the metric body: a lagging CAGG can
+	// leave the body empty while the raw tail still returns recent metrics.
+	// It has its own rollup and raw tail merge, so tail-enabled requests pass
+	// the true request end and the uptime series covers the same right edge
+	// as the metric series.
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+		uptimeEnd := endTime.Add(-hourlyBucketDuration)
+		if hasTail {
+			uptimeEnd = endTime
+		}
+		result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, uptimeEnd, hourlyBucketDuration, dataSourceHourly)
 	}
 
 	return result, nil
@@ -733,19 +742,14 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 // onto the hourly aggregate body. The tail spans at most hourlyRawTailCoverage
 // plus one hour of alignment slack, so it is bounded by construction and skips
 // the maxRawMetricBuckets check. UptimeStatusCounts stay untouched:
-// uptimeCountsForQuery does its own raw tail merge. Tail failures degrade to
-// the body alone.
-func (s *TimescaleTelemetryStore) appendHourlyRawTail(ctx context.Context, query models.CombinedMetricsQuery, body *models.CombinedMetric, tailStart, endTime time.Time) {
+// uptimeCountsForQuery does its own raw tail merge. Tail failures propagate:
+// the tail covers hours the materialized-only CAGG may not carry yet, so a
+// body-only success would present incomplete recent data as fresh.
+func (s *TimescaleTelemetryStore) appendHourlyRawTail(ctx context.Context, query models.CombinedMetricsQuery, body *models.CombinedMetric, tailStart, endTime time.Time) error {
 	bucketDuration := rawMetricBucketDuration(query.SlideInterval, len(query.DeviceIDs) == 0)
 	buckets, err := s.rawBucketAggregates(ctx, query, tailStart, endTime, bucketDuration)
 	if err != nil {
-		s.logger.Warn("failed to query raw tail for hourly combined metrics, returning aggregate body only",
-			slog.Int64("org_id", query.OrganizationID),
-			slog.Int("device_count", len(query.DeviceIDs)),
-			slog.Time("tail_start", tailStart),
-			slog.Time("tail_end", endTime),
-			slog.String("error", err.Error()))
-		return
+		return fmt.Errorf("failed to query raw tail for hourly combined metrics: %w", err)
 	}
 
 	tail := aggregateRawMetricBuckets(buckets, query.MeasurementTypes, query.AggregationTypes)
@@ -754,6 +758,7 @@ func (s *TimescaleTelemetryStore) appendHourlyRawTail(ctx context.Context, query
 	// OpenTime.
 	body.Metrics = append(body.Metrics, tail.Metrics...)
 	body.TemperatureStatusCounts = append(body.TemperatureStatusCounts, tail.TemperatureStatusCounts...)
+	return nil
 }
 
 // getCombinedMetricsFromDaily queries device_metrics_daily continuous aggregate.

@@ -900,7 +900,68 @@ func TestTelemetryStore_GetCombinedMetrics_MultiDayRangeGetsNoRawTail(t *testing
 	assert.Equal(t, float64(500), aggValues(result.Metrics[0].AggregatedValues)[models.AggregationTypeAverage])
 }
 
+func TestTelemetryStore_GetCombinedMetrics_UptimeSurvivesEmptyHourlyBodyAndCoversRequestEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange: a 501-device list over 6h routes to the hourly path; the metric
+	// CAGG is never refreshed (empty body) while raw metrics sit in the tail
+	// window and state snapshots include a change inside the final hour
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	identifier := fmt.Sprintf("uptime-empty-body-device-%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupDeviceMetrics(t, db, identifier) })
+
+	end := time.Now().UTC().Truncate(time.Minute)
+	start := end.Add(-6 * time.Hour)
+	insertTestMetrics(t, db, identifier, end.Add(-90*time.Minute), 700, 65)
+	insertTestMinerStateSnapshot(t, db, end.Add(-3*time.Hour), orgID, identifier, 3)
+	insertTestMinerStateSnapshot(t, db, end.Add(-30*time.Minute), orgID, identifier, 2)
+
+	deviceIDs := make([]models.DeviceIdentifier, 0, 501)
+	deviceIDs = append(deviceIDs, models.DeviceIdentifier(identifier))
+	for i := 1; i < 501; i++ {
+		deviceIDs = append(deviceIDs, models.DeviceIdentifier(fmt.Sprintf("uptime-empty-body-filler-%d", i)))
+	}
+	slide := 90 * time.Second
+
+	// Act
+	result, err := store.GetCombinedMetrics(t.Context(), models.CombinedMetricsQuery{
+		OrganizationID:   orgID,
+		DeviceIDs:        deviceIDs,
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate, models.MeasurementTypeUptime},
+		TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+		SlideInterval:    &slide,
+	})
+
+	// Assert: tail metrics present despite the empty body, uptime computed,
+	// and the uptime series reaches into the final hour of the request
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Metrics)
+	require.NotEmpty(t, result.UptimeStatusCounts)
+	lastUptime := result.UptimeStatusCounts[len(result.UptimeStatusCounts)-1]
+	assert.False(t, lastUptime.Timestamp.Before(end.Add(-time.Hour)),
+		"uptime series must cover the final hour, last bucket %s", lastUptime.Timestamp)
+	assert.Equal(t, int32(1), lastUptime.BrokenCount)
+}
+
 // Helper functions
+
+func insertTestMinerStateSnapshot(t *testing.T, db *sql.DB, at time.Time, orgID int64, deviceIdentifier string, state int16) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(),
+		`INSERT INTO miner_state_snapshots (time, org_id, device_identifier, state)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (time, device_identifier) DO UPDATE SET state = EXCLUDED.state`,
+		at, orgID, deviceIdentifier, state)
+	require.NoError(t, err)
+}
 
 func refreshMetricsHourlyAggregate(t *testing.T, db *sql.DB, start, end time.Time) {
 	t.Helper()
