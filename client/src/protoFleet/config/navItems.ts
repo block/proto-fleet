@@ -16,12 +16,8 @@ export interface NavItem {
   // filter via UserInfo.permissions. Entries without a requiredPermission
   // are visible to every authenticated user.
   requiredPermission?: string;
-  // OR-union of permission requirements: the entry shows if ANY element is
-  // satisfied. A string element is a single permission; a nested string[] is
-  // an AND-group (every key in it must be held). Use the AND-group for a page
-  // whose only reachable section needs more than one permission together —
-  // e.g. the Fleet miners tab needs miner:read AND fleet:read, and neither
-  // alone should advertise the page.
+  // OR-union: the entry shows if ANY element is satisfied. A string is one
+  // permission; a nested string[] is an AND-group (all its keys required).
   requiredAnyPermission?: (string | string[])[];
   scopable?: boolean;
 }
@@ -71,16 +67,11 @@ export const primaryNavItems: NavItem[] = [
     path: "/fleet",
     label: "Fleet",
     icon: Fleet,
-    // The Fleet shell hosts several tabs, each with its own gate (see
-    // FleetLayout's isTabReachable): racks needs rack:read, sites/buildings/
-    // infrastructure need site:read, and miners needs miner:read AND fleet:read
-    // (the list is miner:read, but the status/model filters call fleet:read
-    // RPCs). Gate the nav on the OR union of what independently makes a tab
-    // reachable. The miners tab uses an AND-group: neither miner:read nor
-    // fleet:read alone reaches it (read-pairing does NOT force fleet:read onto
-    // miner:read), so advertising on either alone would land the role on the
-    // empty "no permission" shell. Home stays ungated as the safe universal
-    // landing; its widgets already degrade per-permission.
+    // Show Fleet when at least one tab is reachable (see FleetLayout's
+    // isTabReachable): racks needs rack:read, sites/buildings need site:read,
+    // miners needs miner:read AND fleet:read. The miners AND-group matters
+    // because read-pairing does NOT force fleet:read onto miner:read, so either
+    // key alone would advertise a page that lands on the empty shell.
     requiredAnyPermission: ["rack:read", "site:read", ["miner:read", "fleet:read"]],
     scopable: true,
   },

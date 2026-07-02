@@ -282,11 +282,9 @@ const ScheduleModal = ({
   onResumeSchedule,
 }: ScheduleModalProps) => {
   const isEditMode = Boolean(schedule);
-  // "Apply to" target types are each gated on the read permission their
-  // selection modal (and its list RPC) requires: sites/buildings need
-  // site:read, racks/groups need rack:read (ListDeviceSets), miners need
-  // miner:read. A role without a given permission can't list those targets, so
-  // offering the button just leads to a permission-denied dead end — hide it.
+  // "Apply to" targets are gated on the read permission each picker's list RPC
+  // needs (sites/buildings: site:read, racks/groups: rack:read, miners:
+  // miner:read); without it the button is a permission-denied dead end, so hide.
   const canReadSites = useHasPermission("site:read");
   const canReadRacks = useHasPermission("rack:read");
   const canReadMiners = useHasPermission("miner:read");
@@ -306,9 +304,8 @@ const ScheduleModal = ({
   const { totalMiners: totalAvailableMiners, hasInitialLoadCompleted: hasLoadedAvailableMiners } = useFleet({
     pageSize: 1,
     pairingStatuses: [PairingStatus.PAIRED],
-    // ListMinerStateSnapshots is gated on miner:read; a schedule manager
-    // without it shouldn't fire a permission-denied miner-list RPC just by
-    // opening the modal (the Miners target button is hidden for them anyway).
+    // ListMinerStateSnapshots is miner:read-gated; skip it (and the hidden
+    // Miners target) for roles without it instead of firing permission-denied.
     enabled: canReadMiners,
   });
   const [values, setValues] = useState<ScheduleFormValues>(() => createDefaultScheduleFormValues());
@@ -361,10 +358,8 @@ const ScheduleModal = ({
     if (!open) {
       return;
     }
-    // ListDeviceSets (racks and groups) is gated on rack:read server-side;
-    // skip the fetch for roles without it so opening the modal doesn't fire
-    // permission-denied requests. The rack/group target buttons are hidden for
-    // those roles anyway.
+    // ListDeviceSets (racks + groups) is rack:read-gated; skip without it (the
+    // rack/group targets are hidden for those roles anyway).
     if (!canReadRacks) {
       return;
     }

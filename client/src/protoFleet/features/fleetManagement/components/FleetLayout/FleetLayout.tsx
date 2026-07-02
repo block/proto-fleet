@@ -118,11 +118,9 @@ const FleetLayout = () => {
   const sitesAccessBlocked = !canReadSites || sitesPermissionDenied;
   const siteCatalogAccessGranted = canReadSites && sitesLoaded && !sitesPermissionDenied;
   const canReadRacksTab = canReadRacks;
-  // The miner list only needs miner:read (ListMinerStateSnapshots) plus the
-  // catalog-paired fleet:read. rack:read is NOT required: the rack/group
-  // filters and assign-to-rack action degrade gracefully when the role can't
-  // read device sets (Fleet.tsx guards those calls), so a Fleet+Miner role
-  // must still reach its miner list.
+  // Miner list needs miner:read (ListMinerStateSnapshots) + fleet:read (status/
+  // model filter RPCs). NOT rack:read — the rack/group filters degrade to empty
+  // (Fleet.tsx guards those calls) rather than gating the tab.
   const canReadMinersTab = canReadMiners && canReadFleet;
   const canReadInfrastructureTab = !sitesAccessBlocked;
 

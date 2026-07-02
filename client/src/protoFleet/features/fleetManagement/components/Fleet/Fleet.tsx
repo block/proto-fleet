@@ -85,10 +85,8 @@ const applySiteScopeToMinerFilter = (
 
 const Fleet = () => {
   const navigate = useNavigate();
-  // ListDeviceSets (groups and racks alike) is gated on rack:read server-side.
-  // A Fleet+Miner role without rack:read can still open the miner list, so skip
-  // those fetches for it rather than firing permission-denied requests; the
-  // rack/group filters and assign-to-rack action degrade to empty.
+  // ListDeviceSets (racks + groups) is rack:read-gated; skip those fetches
+  // without it so the miner list opens cleanly (filters just degrade to empty).
   const canReadRacks = useHasPermission("rack:read");
   const { listGroups, listRacks } = useDeviceSets();
   const { listAllBuildings } = useBuildings();
