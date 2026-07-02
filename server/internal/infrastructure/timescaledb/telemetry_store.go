@@ -31,6 +31,14 @@ const (
 	hourlyBucketDuration = time.Hour
 	dailyBucketDuration  = 24 * time.Hour
 
+	// Raw snapshot scans cost one row per device per minute, and rollup gaps
+	// come from the same writer outages as raw gaps, so an oversized raw
+	// fallback pays a huge scan to recover nothing. All-devices requests are
+	// bounded by range alone (fleet size is unknown here); device lists by
+	// estimated scanned rows (600k ~ the 2h cap at a 5k-device fleet).
+	maxRawUptimeFallbackRange = 2 * time.Hour
+	maxRawUptimeFallbackRows  = 600_000
+
 	// Energy estimation constants.
 	// Each telemetry data point represents one polling interval of device uptime.
 	pollingIntervalSeconds = 10.0
@@ -553,9 +561,12 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 		bucketDuration = *query.SlideInterval
 	}
 
-	result := s.aggregateMetrics(data, query.MeasurementTypes, query.AggregationTypes, bucketDuration)
+	includeUptimeCounts := models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes)
+	result := s.aggregateMetrics(data, query.MeasurementTypes, query.AggregationTypes, bucketDuration, includeUptimeCounts)
 	startTime, endTime := s.getTimeRange(query.TimeRange)
-	result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration)
+	if includeUptimeCounts {
+		result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration, dataSourceRaw)
+	}
 
 	return result, nil
 }
@@ -599,7 +610,10 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 	metrics := s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
 	tempCounts := s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration)
+	var uptimeCounts []models.UptimeStatusCount
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+		uptimeCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration, dataSourceHourly)
+	}
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -647,7 +661,10 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 	metrics := s.aggregateDailyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
 	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration)
+	var uptimeCounts []models.UptimeStatusCount
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+		uptimeCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration, dataSourceDaily)
+	}
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -661,11 +678,38 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 // same start/end used for the surrounding metric query so uptime bars line up
 // with metric bars (notably: hourly/daily callers pass a range normalized to
 // complete buckets, not the raw request range).
-func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) []models.UptimeStatusCount {
+func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration, ds dataSource) []models.UptimeStatusCount {
 	if query.OrganizationID == 0 {
 		return nil
 	}
-	return s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration)
+	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
+
+	rollupCounts := s.getUptimeStatusCountsFromDeviceRollups(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration, ds)
+	complete, rawTailStart, canMergeTail := uptimeRollupCoverage(rollupCounts, startTime, endTime, bucketDuration)
+	if complete {
+		return rollupCounts
+	}
+	rawStart := startTime
+	if canMergeTail {
+		rawStart = rawTailStart
+	}
+	if rawUptimeFallbackTooLarge(len(query.DeviceIDs), rawStart, endTime) {
+		s.logger.Warn("uptime rollup coverage gap exceeds raw fallback budget, returning partial rollup counts",
+			slog.Int64("org_id", query.OrganizationID),
+			slog.Int("device_count", len(query.DeviceIDs)),
+			slog.Time("start_time", rawStart),
+			slog.Time("end_time", endTime),
+			slog.Int("rollup_bucket_count", len(rollupCounts)))
+		return rollupCounts
+	}
+	rawCounts := s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, rawStart, endTime, bucketDuration)
+	if canMergeTail {
+		if len(rawCounts) == 0 {
+			return rollupCounts
+		}
+		return mergeUptimeStatusCounts(rollupCounts, rawCounts)
+	}
+	return rawCounts
 }
 
 // getTimeRange extracts start and end times from the query, using defaults if not set.
@@ -1119,6 +1163,7 @@ func (s *TimescaleTelemetryStore) aggregateMetrics(
 	measurementTypes []models.MeasurementType,
 	aggregationTypes []models.AggregationType,
 	windowDuration time.Duration,
+	includeUptimeCounts bool,
 ) models.CombinedMetric {
 	if len(data) == 0 {
 		return models.CombinedMetric{}
@@ -1152,21 +1197,25 @@ func (s *TimescaleTelemetryStore) aggregateMetrics(
 
 	allMetrics := make([]models.Metric, 0, len(buckets)*len(measurementTypes))
 	tempCounts := make([]models.TemperatureStatusCount, 0, len(buckets))
-	uptimeCounts := make([]models.UptimeStatusCount, 0, len(buckets))
+	var uptimeCounts []models.UptimeStatusCount
+	if includeUptimeCounts {
+		uptimeCounts = make([]models.UptimeStatusCount, 0, len(buckets))
+	}
 
 	for _, bucketTime := range bucketTimes {
 		bucketData := buckets[bucketTime]
 
-		// Dedupe once per bucket — both status-count functions need a
-		// per-device latest sample, with temperature using the latest
-		// sample that actually has TempC populated.
-		uptimeLatest, tempLatest := latestSamplesForStatusCounts(bucketData)
+		// Dedupe once per bucket for the requested status counts. Temperature
+		// always uses the latest sample that actually has TempC populated.
+		uptimeLatest, tempLatest := latestSamplesForStatusCounts(bucketData, includeUptimeCounts)
 
 		tempCount := temperatureStatusCountFromLatest(tempLatest, bucketTime)
 		tempCounts = append(tempCounts, tempCount)
 
-		uptimeCount := uptimeStatusCountFromLatest(uptimeLatest, bucketTime)
-		uptimeCounts = append(uptimeCounts, uptimeCount)
+		if includeUptimeCounts {
+			uptimeCount := uptimeStatusCountFromLatest(uptimeLatest, bucketTime)
+			uptimeCounts = append(uptimeCounts, uptimeCount)
+		}
 
 		for _, measurementType := range measurementTypes {
 			var aggregatedValues []models.AggregatedValue
@@ -1228,6 +1277,221 @@ func (s *TimescaleTelemetryStore) InsertMinerStateSnapshot(ctx context.Context, 
 	return nil
 }
 
+func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromDeviceRollups(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []models.DeviceIdentifier,
+	startTime, endTime time.Time,
+	bucketDuration time.Duration,
+	ds dataSource,
+) []models.UptimeStatusCount {
+	if orgID == 0 {
+		return nil
+	}
+	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
+
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	switch ds {
+	case dataSourceRaw:
+		bucketInterval := fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds()))
+		if len(deviceIDs) == 0 {
+			rows, err := s.queries.GetAllMinerStateSnapshotDeviceRollups1m(ctx, sqlc.GetAllMinerStateSnapshotDeviceRollups1mParams{
+				BucketInterval: bucketInterval,
+				OrgID:          orgID,
+				StartTime:      startTime,
+				EndTime:        endTime,
+			})
+			if err != nil {
+				s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+				return nil
+			}
+			result := make([]models.UptimeStatusCount, 0, len(rows))
+			for _, row := range rows {
+				result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+			}
+			return result
+		}
+		rows, err := s.queries.GetMinerStateSnapshotDeviceRollups1m(ctx, sqlc.GetMinerStateSnapshotDeviceRollups1mParams{
+			BucketInterval:         bucketInterval,
+			DeviceIdentifierValues: deviceIDsToStrings(deviceIDs),
+			OrgID:                  orgID,
+			StartTime:              startTime,
+			EndTime:                endTime,
+		})
+		if err != nil {
+			s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+			return nil
+		}
+		result := make([]models.UptimeStatusCount, 0, len(rows))
+		for _, row := range rows {
+			result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+		}
+		return result
+
+	case dataSourceHourly:
+		if len(deviceIDs) == 0 {
+			rows, err := s.queries.GetAllMinerStateSnapshotDeviceRollupsHourly(ctx, sqlc.GetAllMinerStateSnapshotDeviceRollupsHourlyParams{
+				OrgID:     orgID,
+				StartTime: startTime,
+				EndTime:   endTime,
+			})
+			if err != nil {
+				s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+				return nil
+			}
+			result := make([]models.UptimeStatusCount, 0, len(rows))
+			for _, row := range rows {
+				result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+			}
+			return result
+		}
+		rows, err := s.queries.GetMinerStateSnapshotDeviceRollupsHourly(ctx, sqlc.GetMinerStateSnapshotDeviceRollupsHourlyParams{
+			DeviceIdentifierValues: deviceIDsToStrings(deviceIDs),
+			OrgID:                  orgID,
+			StartTime:              startTime,
+			EndTime:                endTime,
+		})
+		if err != nil {
+			s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+			return nil
+		}
+		result := make([]models.UptimeStatusCount, 0, len(rows))
+		for _, row := range rows {
+			result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+		}
+		return result
+
+	case dataSourceDaily:
+		if len(deviceIDs) == 0 {
+			rows, err := s.queries.GetAllMinerStateSnapshotDeviceRollupsDaily(ctx, sqlc.GetAllMinerStateSnapshotDeviceRollupsDailyParams{
+				OrgID:     orgID,
+				StartTime: startTime,
+				EndTime:   endTime,
+			})
+			if err != nil {
+				s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+				return nil
+			}
+			result := make([]models.UptimeStatusCount, 0, len(rows))
+			for _, row := range rows {
+				result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+			}
+			return result
+		}
+		rows, err := s.queries.GetMinerStateSnapshotDeviceRollupsDaily(ctx, sqlc.GetMinerStateSnapshotDeviceRollupsDailyParams{
+			DeviceIdentifierValues: deviceIDsToStrings(deviceIDs),
+			OrgID:                  orgID,
+			StartTime:              startTime,
+			EndTime:                endTime,
+		})
+		if err != nil {
+			s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+			return nil
+		}
+		result := make([]models.UptimeStatusCount, 0, len(rows))
+		for _, row := range rows {
+			result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func (s *TimescaleTelemetryStore) logUptimeRollupQueryError(orgID int64, deviceCount int, ds dataSource, err error) {
+	s.logger.Error("failed to query miner state snapshot device rollups",
+		slog.Int64("org_id", orgID),
+		slog.Int("device_count", deviceCount),
+		slog.String("source", ds.String()),
+		slog.String("error", err.Error()))
+}
+
+func appendUptimeStatusCount(result []models.UptimeStatusCount, bucket time.Time, hashing, broken, offline, sleeping int32) []models.UptimeStatusCount {
+	return append(result, models.UptimeStatusCount{
+		Timestamp:       bucket,
+		HashingCount:    hashing,
+		BrokenCount:     broken,
+		NotHashingCount: offline + sleeping,
+	})
+}
+
+func normalizedUptimeBucketDuration(bucketDuration time.Duration) time.Duration {
+	// Snapshot cadence is ~60s, so finer buckets would yield empty slots.
+	if bucketDuration < time.Minute {
+		return time.Minute
+	}
+	return bucketDuration
+}
+
+func rawUptimeFallbackTooLarge(deviceCount int, startTime, endTime time.Time) bool {
+	timeRange := endTime.Sub(startTime)
+	if deviceCount == 0 {
+		return timeRange > maxRawUptimeFallbackRange
+	}
+	estimatedRows := int64(deviceCount) * int64(timeRange/time.Minute)
+	return estimatedRows > maxRawUptimeFallbackRows
+}
+
+func uptimeRollupCoverage(counts []models.UptimeStatusCount, startTime, endTime time.Time, bucketDuration time.Duration) (complete bool, rawTailStart time.Time, canMergeTail bool) {
+	if len(counts) == 0 {
+		return false, time.Time{}, false
+	}
+
+	ordered := append([]models.UptimeStatusCount(nil), counts...)
+	sort.Slice(ordered, func(i, j int) bool {
+		return ordered[i].Timestamp.Before(ordered[j].Timestamp)
+	})
+
+	first := ordered[0].Timestamp
+	last := first
+	for i, count := range ordered {
+		if i > 0 && count.Timestamp.Sub(last) > bucketDuration {
+			return false, time.Time{}, false
+		}
+		last = count.Timestamp
+	}
+
+	if first.After(startTime) && first.Sub(startTime) >= bucketDuration {
+		return false, time.Time{}, false
+	}
+	if endTime.After(last) && endTime.Sub(last) >= bucketDuration {
+		// The tail starts AT the last rollup bucket, not after it: with chart
+		// buckets wider than the 1m rollup cadence, refresh lag can leave that
+		// bucket built from only its first minute, so the raw merge must
+		// recompute it (the merge overwrites base entries by timestamp).
+		return false, last, true
+	}
+	return true, time.Time{}, false
+}
+
+func mergeUptimeStatusCounts(base, tail []models.UptimeStatusCount) []models.UptimeStatusCount {
+	if len(base) == 0 {
+		return tail
+	}
+	if len(tail) == 0 {
+		return base
+	}
+
+	byTimestamp := make(map[time.Time]models.UptimeStatusCount, len(base)+len(tail))
+	for _, count := range base {
+		byTimestamp[count.Timestamp] = count
+	}
+	for _, count := range tail {
+		byTimestamp[count.Timestamp] = count
+	}
+
+	result := make([]models.UptimeStatusCount, 0, len(byTimestamp))
+	for _, count := range byTimestamp {
+		result = append(result, count)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp.Before(result[j].Timestamp)
+	})
+	return result
+}
+
 func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	ctx context.Context,
 	orgID int64,
@@ -1238,10 +1502,7 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	if orgID == 0 {
 		return nil
 	}
-	// Snapshot cadence is ~60s, so finer buckets would yield empty slots.
-	if bucketDuration < time.Minute {
-		bucketDuration = time.Minute
-	}
+	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
 
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
@@ -1370,21 +1631,25 @@ func latestSamplePerDevice(data []modelsV2.DeviceMetrics) []modelsV2.DeviceMetri
 	return out
 }
 
-// latestSamplesForStatusCounts walks the bucket once and returns two deduped
-// views: the latest sample per device (for uptime), and the latest sample per
-// device that has a TempC reading (for temperature). The TempC-aware view
-// avoids dropping a device just because its very latest sample happens to be
-// missing a temperature — TempC reporting can be intermittent, while Health
-// is set on every sample.
-func latestSamplesForStatusCounts(data []modelsV2.DeviceMetrics) (uptime, temperature []modelsV2.DeviceMetrics) {
+// latestSamplesForStatusCounts walks the bucket once and returns requested
+// deduped views: the latest sample per device (for uptime), and the latest
+// sample per device that has a TempC reading (for temperature). The TempC-aware
+// view avoids dropping a device just because its very latest sample happens to
+// be missing a temperature; TempC reporting can be intermittent.
+func latestSamplesForStatusCounts(data []modelsV2.DeviceMetrics, includeUptime bool) (uptime, temperature []modelsV2.DeviceMetrics) {
 	if len(data) == 0 {
 		return nil, nil
 	}
-	allLatest := make(map[string]modelsV2.DeviceMetrics, len(data))
+	var allLatest map[string]modelsV2.DeviceMetrics
+	if includeUptime {
+		allLatest = make(map[string]modelsV2.DeviceMetrics, len(data))
+	}
 	tempLatest := make(map[string]modelsV2.DeviceMetrics, len(data))
 	for _, m := range data {
-		if existing, ok := allLatest[m.DeviceIdentifier]; !ok || m.Timestamp.After(existing.Timestamp) {
-			allLatest[m.DeviceIdentifier] = m
+		if includeUptime {
+			if existing, ok := allLatest[m.DeviceIdentifier]; !ok || m.Timestamp.After(existing.Timestamp) {
+				allLatest[m.DeviceIdentifier] = m
+			}
 		}
 		if m.TempC == nil {
 			continue
@@ -1393,9 +1658,11 @@ func latestSamplesForStatusCounts(data []modelsV2.DeviceMetrics) (uptime, temper
 			tempLatest[m.DeviceIdentifier] = m
 		}
 	}
-	uptime = make([]modelsV2.DeviceMetrics, 0, len(allLatest))
-	for _, m := range allLatest {
-		uptime = append(uptime, m)
+	if includeUptime {
+		uptime = make([]modelsV2.DeviceMetrics, 0, len(allLatest))
+		for _, m := range allLatest {
+			uptime = append(uptime, m)
+		}
 	}
 	temperature = make([]modelsV2.DeviceMetrics, 0, len(tempLatest))
 	for _, m := range tempLatest {
@@ -1409,7 +1676,7 @@ func latestSamplesForStatusCounts(data []modelsV2.DeviceMetrics) (uptime, temper
 // temperatureStatusCountFromLatest in hot loops where the caller has already
 // deduped.
 func calculateTemperatureStatusCount(data []modelsV2.DeviceMetrics, timestamp time.Time) models.TemperatureStatusCount {
-	_, temp := latestSamplesForStatusCounts(data)
+	_, temp := latestSamplesForStatusCounts(data, false)
 	return temperatureStatusCountFromLatest(temp, timestamp)
 }
 

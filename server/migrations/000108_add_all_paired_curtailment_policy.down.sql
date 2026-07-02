@@ -16,7 +16,7 @@ UPDATE curtailment_target
 SET restore_state = 'released'
 WHERE restore_state = 'unavailable';
 
--- Re-add the pre-000106 constraints NOT VALID only. Existing rows were just
+-- Re-add the pre-000108 constraints NOT VALID only. Existing rows were just
 -- remapped above inside this same transaction, and new rows are checked on
 -- write; skipping VALIDATE avoids holding the ACCESS EXCLUSIVE lock across a
 -- full-table scan during a rollback (which typically runs mid-incident).

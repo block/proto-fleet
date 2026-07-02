@@ -38,7 +38,6 @@ const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
   MeasurementType.POWER,
   MeasurementType.TEMPERATURE,
   MeasurementType.EFFICIENCY,
-  MeasurementType.UPTIME,
 ];
 
 const ALL_AGGREGATION_TYPES: AggregationType[] = [AggregationType.AVERAGE, AggregationType.MIN, AggregationType.MAX];

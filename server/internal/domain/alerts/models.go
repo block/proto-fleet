@@ -22,6 +22,8 @@ const (
 type WebhookConfig struct {
 	URL          string
 	BearerHeader string
+	// ClearBearer is a write-only update flag: revoke the stored bearer even when the destination is unchanged.
+	ClearBearer bool
 }
 
 // WebhookURL is the secret and reads return it empty.

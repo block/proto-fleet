@@ -10,6 +10,8 @@ services:
       FLEET_ALERTS_GRAFANA_USER: "${FLEET_ALERTS_GRAFANA_USER:-admin}"
       FLEET_ALERTS_GRAFANA_PASSWORD: "${FLEET_ALERTS_GRAFANA_PASSWORD:-}"
       FLEET_ALERTS_WEBHOOK_TOKEN: "${FLEET_ALERTS_WEBHOOK_TOKEN}"
+      # Instance base URL used in alert notification links (e.g. the Slack message header).
+      FLEET_PUBLIC_URL: "${FLEET_PUBLIC_URL:-}"
     depends_on:
       grafana:
         condition: service_healthy

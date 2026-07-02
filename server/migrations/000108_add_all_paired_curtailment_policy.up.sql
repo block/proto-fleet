@@ -9,7 +9,7 @@ ALTER TABLE curtailment_response_profile
         CHECK (NOT force_include_all_paired_miners OR mode = 'FULL_FLEET');
 
 -- Widen the target phase-state vocabularies with 'unavailable'. VALIDATE is
--- deliberately deferred to migration 000107 (mirroring 000078/000079):
+-- deliberately deferred to migration 000109 (mirroring 000078/000079):
 -- golang-migrate runs each file as one implicit transaction, so validating
 -- here would hold the ACCESS EXCLUSIVE lock from ADD CONSTRAINT across the
 -- full curtailment_target scan.

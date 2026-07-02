@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 type TimeRange struct {
 	StartTime *time.Time `json:"start_time,omitempty"`
@@ -41,6 +44,16 @@ type CombinedMetricsQuery struct {
 	SiteIDs []int64 `json:"site_ids,omitempty"`
 	// IncludeUnassigned adds devices currently assigned to no site.
 	IncludeUnassigned bool `json:"include_unassigned,omitempty"`
+}
+
+// ShouldIncludeUptimeStatusCounts reports whether a CombinedMetrics response
+// should include uptime status counts. Empty measurement filters preserve the
+// historical default response shape.
+func ShouldIncludeUptimeStatusCounts(measurementTypes []MeasurementType) bool {
+	if len(measurementTypes) == 0 {
+		return true
+	}
+	return slices.Contains(measurementTypes, MeasurementTypeUptime)
 }
 
 type StreamCombinedMetricsQuery struct {

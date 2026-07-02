@@ -69,3 +69,114 @@ SELECT
 FROM per_device_bucket
 GROUP BY bucket
 ORDER BY bucket ASC;
+
+-- name: GetAllMinerStateSnapshotDeviceRollups1m :many
+-- last() per (bucket, device) rather than a sort-based latest-row pick: no
+-- index covers the derived bucket expression, so sorting spills on large fleets.
+WITH per_device_bucket AS (
+    SELECT
+        time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time)::timestamptz AS bucket,
+        r.device_identifier,
+        last(r.state, r.state_time) AS state
+    FROM miner_state_snapshot_device_1m r
+    WHERE r.org_id = sqlc.arg('org_id')
+      AND r.bucket >= time_bucket(INTERVAL '1 minute', sqlc.arg('start_time')::timestamptz)
+      AND r.bucket <= sqlc.arg('end_time')
+      AND r.state_time >= sqlc.arg('start_time')
+      AND r.state_time <= sqlc.arg('end_time')
+    -- The view has its own bucket column, so the output alias can't be used here.
+    GROUP BY time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time), r.device_identifier
+)
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM per_device_bucket
+GROUP BY bucket
+ORDER BY bucket ASC;
+
+-- name: GetMinerStateSnapshotDeviceRollups1m :many
+WITH per_device_bucket AS (
+    SELECT
+        time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time)::timestamptz AS bucket,
+        r.device_identifier,
+        last(r.state, r.state_time) AS state
+    FROM miner_state_snapshot_device_1m r
+    WHERE r.org_id = sqlc.arg('org_id')
+      AND r.bucket >= time_bucket(INTERVAL '1 minute', sqlc.arg('start_time')::timestamptz)
+      AND r.bucket <= sqlc.arg('end_time')
+      AND r.state_time >= sqlc.arg('start_time')
+      AND r.state_time <= sqlc.arg('end_time')
+      AND r.device_identifier = ANY(sqlc.arg('device_identifier_values')::text[])
+    -- The view has its own bucket column, so the output alias can't be used here.
+    GROUP BY time_bucket(sqlc.arg('bucket_interval')::text::interval, r.state_time), r.device_identifier
+)
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM per_device_bucket
+GROUP BY bucket
+ORDER BY bucket ASC;
+
+-- name: GetAllMinerStateSnapshotDeviceRollupsHourly :many
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM miner_state_snapshot_device_hourly
+WHERE org_id = sqlc.arg('org_id')
+  AND bucket >= sqlc.arg('start_time')
+  AND bucket <= sqlc.arg('end_time')
+GROUP BY bucket
+ORDER BY bucket ASC;
+
+-- name: GetMinerStateSnapshotDeviceRollupsHourly :many
+SELECT
+    r.bucket,
+    SUM(CASE WHEN r.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN r.state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN r.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN r.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM miner_state_snapshot_device_hourly r
+WHERE r.org_id = sqlc.arg('org_id')
+  AND r.bucket >= sqlc.arg('start_time')
+  AND r.bucket <= sqlc.arg('end_time')
+  AND r.device_identifier = ANY(sqlc.arg('device_identifier_values')::text[])
+GROUP BY r.bucket
+ORDER BY r.bucket ASC;
+
+-- name: GetAllMinerStateSnapshotDeviceRollupsDaily :many
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM miner_state_snapshot_device_daily
+WHERE org_id = sqlc.arg('org_id')
+  AND bucket >= sqlc.arg('start_time')
+  AND bucket <= sqlc.arg('end_time')
+GROUP BY bucket
+ORDER BY bucket ASC;
+
+-- name: GetMinerStateSnapshotDeviceRollupsDaily :many
+SELECT
+    r.bucket,
+    SUM(CASE WHEN r.state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN r.state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN r.state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN r.state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM miner_state_snapshot_device_daily r
+WHERE r.org_id = sqlc.arg('org_id')
+  AND r.bucket >= sqlc.arg('start_time')
+  AND r.bucket <= sqlc.arg('end_time')
+  AND r.device_identifier = ANY(sqlc.arg('device_identifier_values')::text[])
+GROUP BY r.bucket
+ORDER BY r.bucket ASC;

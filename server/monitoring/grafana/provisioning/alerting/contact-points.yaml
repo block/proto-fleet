@@ -12,5 +12,7 @@ contactPoints:
           httpMethod: POST
           authorization_scheme: Bearer
           authorization_credentials: ${FLEET_ALERTS_WEBHOOK_TOKEN}
-          maxAlerts: 50
+          # 0 = send every alert in a group: fleet-api batch-inserts and renders them, so a large
+          # outage must not be truncated (which would silently drop alerts from history + delivery).
+          maxAlerts: 0
         disableResolveMessage: false

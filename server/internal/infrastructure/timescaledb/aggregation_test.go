@@ -152,7 +152,7 @@ func TestAggregateMetrics_CumulativeVsNonCumulative(t *testing.T) {
 	}
 	aggTypes := []models.AggregationType{models.AggregationTypeAverage}
 
-	result := store.aggregateMetrics(data, measurementTypes, aggTypes, 10*time.Second)
+	result := store.aggregateMetrics(data, measurementTypes, aggTypes, 10*time.Second, true)
 
 	// Find hashrate and temperature metrics
 	var hashrateAvg, tempAvg float64
@@ -718,7 +718,7 @@ func TestCalculateTemperatureStatusCount_FallsBackToEarlierTempSample(t *testing
 }
 
 func TestLatestSamplesForStatusCounts_Empty(t *testing.T) {
-	uptime, temp := latestSamplesForStatusCounts(nil)
+	uptime, temp := latestSamplesForStatusCounts(nil, true)
 	assert.Nil(t, uptime)
 	assert.Nil(t, temp)
 }
@@ -734,7 +734,7 @@ func TestLatestSamplesForStatusCounts_DivergentLatest(t *testing.T) {
 		{DeviceIdentifier: "miner-a", Timestamp: now.Add(30 * time.Second), Health: modelsV2.HealthHealthyActive},
 	}
 
-	uptime, temp := latestSamplesForStatusCounts(data)
+	uptime, temp := latestSamplesForStatusCounts(data, true)
 
 	require.Len(t, uptime, 1)
 	assert.Equal(t, now.Add(30*time.Second), uptime[0].Timestamp, "uptime view uses absolute latest")
@@ -742,5 +742,19 @@ func TestLatestSamplesForStatusCounts_DivergentLatest(t *testing.T) {
 	require.Len(t, temp, 1)
 	require.NotNil(t, temp[0].TempC)
 	assert.Equal(t, 70.0, temp[0].TempC.Value, "temp view uses latest sample with TempC")
+	assert.Equal(t, now, temp[0].Timestamp)
+}
+
+func TestLatestSamplesForStatusCounts_SkipsUptimeWhenNotRequested(t *testing.T) {
+	now := time.Now()
+	data := []modelsV2.DeviceMetrics{
+		{DeviceIdentifier: "miner-a", Timestamp: now, Health: modelsV2.HealthHealthyActive, TempC: &modelsV2.MetricValue{Value: 70}},
+		{DeviceIdentifier: "miner-a", Timestamp: now.Add(30 * time.Second), Health: modelsV2.HealthWarning},
+	}
+
+	uptime, temp := latestSamplesForStatusCounts(data, false)
+
+	assert.Nil(t, uptime)
+	require.Len(t, temp, 1)
 	assert.Equal(t, now, temp[0].Timestamp)
 }

@@ -53,6 +53,8 @@ enum ValidationState {
 message WebhookConfig {
     string url = 1;
     string bearer_header = 2;
+    // Write-only: on update, revoke the stored bearer even when the destination is unchanged (an empty bearer_header alone means "keep").
+    bool clear_bearer_header = 3;
 }
 
 message SmtpConfig {

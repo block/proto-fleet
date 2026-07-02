@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -163,19 +164,31 @@ type errInjectingStore struct {
 	errs  []error
 }
 
-func (s *errInjectingStore) Insert(ctx context.Context, n *notificationhistory.Notification) error {
+func (s *errInjectingStore) nextErr() (error, bool) {
 	s.mu.Lock()
-	var injected error
-	hasInjected := false
-	if len(s.errs) > 0 {
-		injected, s.errs = s.errs[0], s.errs[1:]
-		hasInjected = true
+	defer s.mu.Unlock()
+	if len(s.errs) == 0 {
+		return nil, false
 	}
-	s.mu.Unlock()
-	if hasInjected && injected != nil {
+	var injected error
+	injected, s.errs = s.errs[0], s.errs[1:]
+	return injected, true
+}
+
+func (s *errInjectingStore) Insert(ctx context.Context, n *notificationhistory.Notification) error {
+	if injected, ok := s.nextErr(); ok && injected != nil {
 		return injected
 	}
 	return s.inner.Insert(ctx, n)
+}
+
+// InsertBatch is all-or-nothing: a queued error fails the whole batch (nothing persists),
+// otherwise it delegates to the real store.
+func (s *errInjectingStore) InsertBatch(ctx context.Context, notifs []*notificationhistory.Notification) error {
+	if injected, ok := s.nextErr(); ok && injected != nil {
+		return injected
+	}
+	return s.inner.InsertBatch(ctx, notifs)
 }
 
 // stubOrgLister is a deterministic OrgLister for tests.
@@ -208,7 +221,7 @@ func newAuthedRequest(t *testing.T, body []byte) *http.Request {
 // happy path: Grafana-shaped firing payload lands as one notification_history row.
 func TestServeHTTP_FiringPayloadPersistsNotification(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := newAuthedRequest(t, shapedPayload())
 	rec := httptest.NewRecorder()
@@ -233,7 +246,7 @@ func TestServeHTTP_FiringPayloadPersistsNotification(t *testing.T) {
 // resolved alerts persist with status=resolved.
 func TestServeHTTP_ResolvedPayloadRecordsStatus(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	resolved := strings.ReplaceAll(string(shapedPayload()), `"status": "firing"`, `"status": "resolved"`)
 
@@ -251,7 +264,7 @@ func TestServeHTTP_ResolvedPayloadRecordsStatus(t *testing.T) {
 // before auth so Grafana operators get a useful Allow header back.
 func TestServeHTTP_NonPostRejected(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, Path, nil)
 	req.Header.Set("Authorization", "Bearer "+testWebhookToken)
@@ -266,7 +279,7 @@ func TestServeHTTP_NonPostRejected(t *testing.T) {
 // missing Authorization → 401, no DB writes.
 func TestServeHTTP_MissingAuthorizationRejected(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
 	req.Header.Set("Content-Type", "application/json")
@@ -280,7 +293,7 @@ func TestServeHTTP_MissingAuthorizationRejected(t *testing.T) {
 // wrong Bearer credential → 401.
 func TestServeHTTP_WrongTokenRejected(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
 	req.Header.Set("Authorization", "Bearer not-the-secret")
@@ -294,7 +307,7 @@ func TestServeHTTP_WrongTokenRejected(t *testing.T) {
 // a non-Bearer scheme is rejected even when the credential matches.
 func TestServeHTTP_NonBearerSchemeRejected(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
 	req.Header.Set("Authorization", "Token "+testWebhookToken)
@@ -309,7 +322,7 @@ func TestServeHTTP_NonBearerSchemeRejected(t *testing.T) {
 // an "empty Bearer" — empty-equals-empty would otherwise round-trip true.
 func TestServeHTTP_UnconfiguredHandlerRejectsEverything(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, "", nil)
+	handler := NewHandler(h.store, "", nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
 	req.Header.Set("Authorization", "Bearer ")
@@ -323,7 +336,7 @@ func TestServeHTTP_UnconfiguredHandlerRejectsEverything(t *testing.T) {
 // malformed JSON → 400, no DB writes.
 func TestServeHTTP_InvalidJSONRejected(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := newAuthedRequest(t, []byte("not json"))
 	rec := httptest.NewRecorder()
@@ -336,7 +349,7 @@ func TestServeHTTP_InvalidJSONRejected(t *testing.T) {
 // empty batch is ack'd without writing.
 func TestServeHTTP_EmptyBatchAcked(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	req := newAuthedRequest(t, []byte(`{"version":"4","status":"firing","alerts":[]}`))
 	rec := httptest.NewRecorder()
@@ -347,38 +360,11 @@ func TestServeHTTP_EmptyBatchAcked(t *testing.T) {
 }
 
 // partial store failure within a batch must not block the rest — as long
-// as one row lands, the handler acks 204 so Grafana doesn't retry the
-// rows that did succeed.
-func TestServeHTTP_PartialStoreFailureKeepsBatchProgressing(t *testing.T) {
+// the batch persist is atomic: if it fails, nothing lands and the handler 5xxs so Grafana retries.
+func TestServeHTTP_BatchInsertFailureReturns5xx(t *testing.T) {
 	h := newDBHarness(t)
 	store := &errInjectingStore{inner: h.store, errs: []error{errors.New("transient db error")}}
-	handler := NewHandler(store, testWebhookToken, nil)
-
-	body := []byte(`{
-		"version": "4",
-		"status": "firing",
-		"alerts": [
-			{"status":"firing","labels":{"alertname":"A","organization_id":"1"}},
-			{"status":"firing","labels":{"alertname":"B","organization_id":"1"}}
-		]
-	}`)
-
-	req := newAuthedRequest(t, body)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusNoContent, rec.Code)
-	// Only the second alert reaches the DB — the first errored before insert.
-	rows := h.fetchRows(t)
-	require.Len(t, rows, 1)
-	require.Equal(t, "B", rows[0].AlertName)
-}
-
-// every alert in the batch failing to persist → 5xx so Grafana retries.
-func TestServeHTTP_AllStoreFailuresReturn5xx(t *testing.T) {
-	h := newDBHarness(t)
-	store := &errInjectingStore{inner: h.store, errs: []error{errors.New("transient db error"), errors.New("transient db error")}}
-	handler := NewHandler(store, testWebhookToken, nil)
+	handler := NewHandler(store, testWebhookToken, nil, nil)
 
 	body := []byte(`{
 		"version": "4",
@@ -401,7 +387,7 @@ func TestServeHTTP_AllStoreFailuresReturn5xx(t *testing.T) {
 // envelope keys doesn't break the receiver.
 func TestServeHTTP_AcceptsUnknownFields(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	body := []byte(`{
 		"version": "5-future",
@@ -427,7 +413,7 @@ func TestServeHTTP_AcceptsUnknownFields(t *testing.T) {
 // self-monitoring fan-out → one row per active org.
 func TestServeHTTP_SelfMonitoringFansOutToAllOrgs(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: []int64{1, 2, 5}})
+	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: []int64{1, 2, 5}}, nil)
 
 	req := newAuthedRequest(t, selfMonitoringPayload())
 	rec := httptest.NewRecorder()
@@ -450,7 +436,7 @@ func TestServeHTTP_SelfMonitoringFansOutToAllOrgs(t *testing.T) {
 // but the critical signal still lands.
 func TestServeHTTP_SelfMonitoringFallsBackOnListerError(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{err: errors.New("db down")})
+	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{err: errors.New("db down")}, nil)
 
 	req := newAuthedRequest(t, selfMonitoringPayload())
 	rec := httptest.NewRecorder()
@@ -466,7 +452,7 @@ func TestServeHTTP_SelfMonitoringFallsBackOnListerError(t *testing.T) {
 // no active orgs → single unscoped row.
 func TestServeHTTP_SelfMonitoringNoActiveOrgsFallsBackToUnscoped(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: nil})
+	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: nil}, nil)
 
 	req := newAuthedRequest(t, selfMonitoringPayload())
 	rec := httptest.NewRecorder()
@@ -482,7 +468,7 @@ func TestServeHTTP_SelfMonitoringNoActiveOrgsFallsBackToUnscoped(t *testing.T) {
 // fan-out is opt-in via rule_group.
 func TestServeHTTP_UnscopedNonSelfAlertDoesNotFanOut(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: []int64{1, 2, 3}})
+	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: []int64{1, 2, 3}}, nil)
 
 	body := []byte(`{
 		"version": "4",
@@ -503,155 +489,54 @@ func TestServeHTTP_UnscopedNonSelfAlertDoesNotFanOut(t *testing.T) {
 	require.Equal(t, 1, h.countRows(t))
 }
 
-// fan-out tolerates partial Insert failure the same way a regular batch does.
-func TestServeHTTP_SelfMonitoringFanOutToleratesPartialFailure(t *testing.T) {
+// A large org-grouped batch (fleet-wide outage) is accepted in full — no per-request alert cap.
+func TestServeHTTP_LargeBatchAccepted(t *testing.T) {
 	h := newDBHarness(t)
-	store := &errInjectingStore{inner: h.store, errs: []error{nil, errors.New("transient db error"), nil}}
-	handler := NewHandler(store, testWebhookToken, stubOrgLister{ids: []int64{1, 2, 3}})
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
-	req := newAuthedRequest(t, selfMonitoringPayload())
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusNoContent, rec.Code)
-	// 2 of the 3 fan-out rows landed: org 1 (nil → real insert), org 2
-	// (errored before insert), org 3 (nil → real insert).
-	rows := h.fetchRows(t)
-	require.Len(t, rows, 2)
-	got := []int64{rows[0].OrganizationID.Int64, rows[1].OrganizationID.Int64}
-	require.ElementsMatch(t, []int64{1, 3}, got)
-}
-
-// every fan-out Insert failing with no other alerts → 5xx so Grafana retries.
-func TestServeHTTP_SelfMonitoringFanOutAllFailuresReturn5xx(t *testing.T) {
-	h := newDBHarness(t)
-	store := &errInjectingStore{inner: h.store, errs: []error{errors.New("db down"), errors.New("db down")}}
-	handler := NewHandler(store, testWebhookToken, stubOrgLister{ids: []int64{1, 2}})
-
-	req := newAuthedRequest(t, selfMonitoringPayload())
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
-	require.Equal(t, 0, h.countRows(t))
-}
-
-// batches above the per-request alert cap are rejected with 413 and never
-// reach the DB.
-func TestServeHTTP_TooManyAlertsRejected(t *testing.T) {
-	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
-
-	alerts := make([]map[string]any, 0, maxAlertsPerRequest+1)
-	for i := 0; i <= maxAlertsPerRequest; i++ {
+	const n = 4500 // spans more than one INSERT chunk (maxBatchRows)
+	alerts := make([]map[string]any, 0, n)
+	for i := range n {
 		alerts = append(alerts, map[string]any{
 			"status": "firing",
-			"labels": map[string]string{"alertname": "A", "organization_id": "1"},
-		})
-	}
-	body, err := json.Marshal(map[string]any{
-		"version": "4",
-		"status":  "firing",
-		"alerts":  alerts,
-	})
-	require.NoError(t, err)
-
-	req := newAuthedRequest(t, body)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
-	require.Equal(t, 0, h.countRows(t))
-}
-
-// a batch sitting exactly at the per-request alert cap still passes.
-func TestServeHTTP_AtAlertCapStillAccepted(t *testing.T) {
-	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
-
-	alerts := make([]map[string]any, 0, maxAlertsPerRequest)
-	for range maxAlertsPerRequest {
-		alerts = append(alerts, map[string]any{
-			"status": "firing",
-			"labels": map[string]string{"alertname": "A", "organization_id": "1"},
-		})
-	}
-	body, err := json.Marshal(map[string]any{
-		"version": "4",
-		"status":  "firing",
-		"alerts":  alerts,
-	})
-	require.NoError(t, err)
-
-	req := newAuthedRequest(t, body)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusNoContent, rec.Code)
-	require.Equal(t, maxAlertsPerRequest, h.countRows(t))
-}
-
-// fan-out is capped at the per-request row budget; remaining orgs drop.
-// Grafana keeps re-firing the rule, so truncation isn't a permanent silence.
-func TestServeHTTP_SelfMonitoringFanOutTruncatesAtRowCap(t *testing.T) {
-	h := newDBHarness(t)
-	orgIDs := make([]int64, maxRowsPerRequest+5)
-	for i := range orgIDs {
-		orgIDs[i] = int64(i + 1)
-	}
-	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: orgIDs})
-
-	req := newAuthedRequest(t, selfMonitoringPayload())
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusNoContent, rec.Code)
-	require.Equal(t, maxRowsPerRequest, h.countRows(t))
-}
-
-// per-request row budget is shared across the whole batch: once an early
-// alert exhausts it via fan-out, later alerts contribute nothing.
-func TestServeHTTP_RowBudgetSharedAcrossBatch(t *testing.T) {
-	h := newDBHarness(t)
-	orgIDs := make([]int64, maxRowsPerRequest)
-	for i := range orgIDs {
-		orgIDs[i] = int64(i + 1)
-	}
-	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: orgIDs})
-
-	body := []byte(`{
-		"version": "4",
-		"status": "firing",
-		"alerts": [
-			{
-				"status": "firing",
-				"labels": {
-					"alertname": "Metric Ingest Stalled",
-					"rule_group": "proto-fleet-self"
-				}
+			"labels": map[string]string{
+				"alertname":       "Device Offline",
+				"organization_id": "1",
+				"device_id":       fmt.Sprintf("device-%d", i),
 			},
-			{
-				"status": "firing",
-				"labels": {
-					"alertname": "Metric Ingest Stalled 2",
-					"rule_group": "proto-fleet-self"
-				}
-			}
-		]
-	}`)
+		})
+	}
+	body, err := json.Marshal(map[string]any{"version": "4", "status": "firing", "alerts": alerts})
+	require.NoError(t, err)
 
-	req := newAuthedRequest(t, body)
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+	handler.ServeHTTP(rec, newAuthedRequest(t, body))
 
 	require.Equal(t, http.StatusNoContent, rec.Code)
-	require.Equal(t, maxRowsPerRequest, h.countRows(t))
+	require.Equal(t, n, h.countRows(t), "every alert in a large outage batch is persisted")
+}
+
+// Self-monitoring fans out to every active org with no row-cap truncation.
+func TestServeHTTP_SelfMonitoringFansOutToManyOrgsWithoutTruncation(t *testing.T) {
+	h := newDBHarness(t)
+	const orgs = 1500
+	orgIDs := make([]int64, orgs)
+	for i := range orgIDs {
+		orgIDs[i] = int64(i + 1)
+	}
+	handler := NewHandler(h.store, testWebhookToken, stubOrgLister{ids: orgIDs}, nil)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newAuthedRequest(t, selfMonitoringPayload()))
+
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Equal(t, orgs, h.countRows(t), "fan-out persists one row per org, untruncated")
 }
 
 // payloads larger than the body cap return 413 and never touch the DB.
 func TestServeHTTP_OversizedBodyRejected(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
 	junk := bytes.Repeat([]byte("a"), maxBodyBytes+1024)
 	body, err := json.Marshal(map[string]any{

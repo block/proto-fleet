@@ -15,6 +15,39 @@ describe("primaryNavItems", () => {
     });
     expect(labels.indexOf("Energy")).toBe(labels.indexOf("Activity") - 1);
   });
+
+  it("gates Fleet on the permissions that actually make a tab reachable", () => {
+    const fleet = primaryNavItems.find((item) => item.label === "Fleet");
+
+    expect(fleet?.requiredPermission).toBeUndefined();
+    expect(fleet?.requiredAnyPermission).toEqual(["rack:read", "site:read"]);
+
+    // Rack- and site-only readers can reach Fleet tabs (racks / sites), so the
+    // nav entry stays visible for them.
+    expect(isNavItemAllowedByPermissions(fleet!, ["rack:read"])).toBe(true);
+    expect(isNavItemAllowedByPermissions(fleet!, ["site:read"])).toBe(true);
+    // fleet:read alone unlocks no Fleet tab (the miners tab also needs
+    // miner:read + rack:read), so it must NOT advertise an unreachable page.
+    expect(isNavItemAllowedByPermissions(fleet!, ["fleet:read"])).toBe(false);
+    expect(isNavItemAllowedByPermissions(fleet!, ["miner:read"])).toBe(false);
+    expect(isNavItemAllowedByPermissions(fleet!, ["activity:read"])).toBe(false);
+  });
+
+  it("gates Groups on rack:read to match the server-side device-set read gate", () => {
+    const groups = primaryNavItems.find((item) => item.label === "Groups");
+
+    expect(groups?.requiredPermission).toBe("rack:read");
+    expect(groups?.requiredAnyPermission).toBeUndefined();
+    expect(isNavItemAllowedByPermissions(groups!, ["rack:read"])).toBe(true);
+    expect(isNavItemAllowedByPermissions(groups!, ["fleet:read"])).toBe(false);
+  });
+
+  it("leaves Home ungated as the universal landing", () => {
+    const home = primaryNavItems.find((item) => item.label === "Home");
+
+    expect(home?.requiredPermission).toBeUndefined();
+    expect(home?.requiredAnyPermission).toBeUndefined();
+  });
 });
 
 describe("secondaryNavItems", () => {

@@ -350,6 +350,20 @@ type ActivityLogSite struct {
 	SiteID        sql.NullInt64
 }
 
+type AlertChannel struct {
+	ID              int64
+	OrgID           int64
+	Name            string
+	Kind            string
+	EncryptedConfig string
+	ValidationState string
+	ValidatedAt     sql.NullTime
+	ValidationError string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       sql.NullTime
+}
+
 type ApiKey struct {
 	ID             int64
 	KeyID          string
@@ -867,6 +881,28 @@ type MinerStateSnapshot struct {
 	DeviceIdentifier string
 	State            int16
 	SiteID           sql.NullInt64
+}
+
+type MinerStateSnapshotDevice1m struct {
+	Bucket           time.Time
+	OrgID            int64
+	DeviceIdentifier string
+	StateTime        time.Time
+	State            int16
+}
+
+type MinerStateSnapshotDeviceDaily struct {
+	Bucket           time.Time
+	OrgID            int64
+	DeviceIdentifier string
+	State            int16
+}
+
+type MinerStateSnapshotDeviceHourly struct {
+	Bucket           time.Time
+	OrgID            int64
+	DeviceIdentifier string
+	State            int16
 }
 
 type NotificationActive struct {

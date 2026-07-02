@@ -6,7 +6,7 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useChannels } from "@/protoFleet/features/alerts/api/useChannels";
 import type { Channel } from "@/protoFleet/features/alerts/types";
 import { useHasPermission } from "@/protoFleet/store";
-import { Checkmark, Trash } from "@/shared/assets/icons";
+import { Checkmark, Lock, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
@@ -117,6 +117,28 @@ const ChannelsSection = () => {
     [testChannel],
   );
 
+  const handleClearBearer = useCallback(
+    async (channel: Channel) => {
+      try {
+        // Keep the destination (redacted URL maps back to the stored one) and revoke only the bearer.
+        await updateChannel({
+          id: channel.id,
+          name: channel.name,
+          kind: channel.kind,
+          webhook: { url: channel.webhook?.url ?? "", bearer_header: null, clear_bearer_header: true },
+          slack: null,
+        });
+        pushToast({ message: "Bearer token cleared", status: STATUSES.success });
+      } catch (error) {
+        pushToast({
+          message: getErrorMessage(error, "Failed to clear bearer token"),
+          status: STATUSES.error,
+        });
+      }
+    },
+    [updateChannel],
+  );
+
   const handleDelete = useCallback(
     async (channel: Channel) => {
       try {
@@ -140,13 +162,20 @@ const ChannelsSection = () => {
         actionHandler: handleTest,
       },
       {
+        title: "Clear bearer token",
+        icon: <Lock />,
+        actionHandler: handleClearBearer,
+        // Only webhook channels carry a bearer, and only when one is stored.
+        hidden: (channel) => channel.kind !== "webhook" || !channel.has_secret,
+      },
+      {
         title: "Delete",
         icon: <Trash />,
         variant: "destructive",
         actionHandler: handleDelete,
       },
     ],
-    [handleTest, handleDelete],
+    [handleTest, handleClearBearer, handleDelete],
   );
 
   const colConfig: ColConfig<Channel, string, ChannelColumns> = useMemo(

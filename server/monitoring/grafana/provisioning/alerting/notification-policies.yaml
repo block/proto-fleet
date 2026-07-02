@@ -1,13 +1,13 @@
-# Root defaults only; fleet-api owns the live tree at runtime (see alerts.rootDefaults / buildNotificationTree).
+# Root policy for the internal webhook; fleet-api reads this batch, writes history, and fans out to each org's channels (it no longer overrides Grafana's notification tree).
 apiVersion: 1
 
 policies:
   - orgId: 1
     receiver: protofleet-internal
+    # Group per org so one outage yields one consolidated notification (and one Slack message)
+    # per org, not one per device; fleet-api splits Firing/Resolved and caps the rendered list.
     group_by:
-      - alertname
       - organization_id
-      - device_id
     group_wait: 30s
     group_interval: 5m
     repeat_interval: 1h
