@@ -16,7 +16,13 @@ export interface NavItem {
   // filter via UserInfo.permissions. Entries without a requiredPermission
   // are visible to every authenticated user.
   requiredPermission?: string;
-  requiredAnyPermission?: string[];
+  // OR-union of permission requirements: the entry shows if ANY element is
+  // satisfied. A string element is a single permission; a nested string[] is
+  // an AND-group (every key in it must be held). Use the AND-group for a page
+  // whose only reachable section needs more than one permission together —
+  // e.g. the Fleet miners tab needs miner:read AND fleet:read, and neither
+  // alone should advertise the page.
+  requiredAnyPermission?: (string | string[])[];
   scopable?: boolean;
 }
 
@@ -26,7 +32,7 @@ export interface SecondaryNavItem {
   parent: string;
   section?: "Fleet" | "Automation" | "Admin" | "Account";
   requiredPermission?: string;
-  requiredAnyPermission?: string[];
+  requiredAnyPermission?: (string | string[])[];
   // When set, the entry is shown only if the server reports this feature enabled.
   requiredFeature?: NavFeature;
   // Whether the page honors the topbar SitePicker selection as a soft default
@@ -43,7 +49,12 @@ export const isNavItemAllowedByPermissions = (
 ) => {
   const hasRequiredPermission = !item.requiredPermission || permissions.includes(item.requiredPermission);
   const hasAnyPermission =
-    !item.requiredAnyPermission || item.requiredAnyPermission.some((permission) => permissions.includes(permission));
+    !item.requiredAnyPermission ||
+    item.requiredAnyPermission.some((requirement) =>
+      Array.isArray(requirement)
+        ? requirement.every((permission) => permissions.includes(permission))
+        : permissions.includes(requirement),
+    );
 
   return hasRequiredPermission && hasAnyPermission;
 };
@@ -62,16 +73,15 @@ export const primaryNavItems: NavItem[] = [
     icon: Fleet,
     // The Fleet shell hosts several tabs, each with its own gate (see
     // FleetLayout's isTabReachable): racks needs rack:read, sites/buildings/
-    // infrastructure need site:read, and miners needs miner:read + fleet:read.
-    // Gate the nav on the OR union of the permissions that independently make a
-    // tab reachable. miner:read stands in for the miners tab: the catalog's
-    // read-pairing rule guarantees any role with miner:read also holds
-    // fleet:read, so miner:read alone is a sufficient signal that the miners tab
-    // is reachable. fleet:read is still excluded on its own (a fleet:read-only
-    // role unlocks no tab and would land on the empty "no permission" shell).
-    // Home stays ungated as the safe universal landing; its widgets already
-    // degrade per-permission.
-    requiredAnyPermission: ["rack:read", "site:read", "miner:read"],
+    // infrastructure need site:read, and miners needs miner:read AND fleet:read
+    // (the list is miner:read, but the status/model filters call fleet:read
+    // RPCs). Gate the nav on the OR union of what independently makes a tab
+    // reachable. The miners tab uses an AND-group: neither miner:read nor
+    // fleet:read alone reaches it (read-pairing does NOT force fleet:read onto
+    // miner:read), so advertising on either alone would land the role on the
+    // empty "no permission" shell. Home stays ungated as the safe universal
+    // landing; its widgets already degrade per-permission.
+    requiredAnyPermission: ["rack:read", "site:read", ["miner:read", "fleet:read"]],
     scopable: true,
   },
   {
