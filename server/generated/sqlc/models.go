@@ -867,6 +867,28 @@ type MinerStateSnapshot struct {
 	SiteID           sql.NullInt64
 }
 
+type MinerStateSnapshotDevice1m struct {
+	Bucket           time.Time
+	OrgID            int64
+	DeviceIdentifier string
+	StateTime        time.Time
+	State            int16
+}
+
+type MinerStateSnapshotDeviceDaily struct {
+	Bucket           time.Time
+	OrgID            int64
+	DeviceIdentifier string
+	State            int16
+}
+
+type MinerStateSnapshotDeviceHourly struct {
+	Bucket           time.Time
+	OrgID            int64
+	DeviceIdentifier string
+	State            int16
+}
+
 type NotificationActive struct {
 	OrganizationID int64
 	AlertKey       string

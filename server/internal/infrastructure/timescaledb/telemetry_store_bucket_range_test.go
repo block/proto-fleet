@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -44,4 +45,53 @@ func TestNormalizeCompleteBucketRange_NoCompleteBuckets(t *testing.T) {
 
 	_, _, ok := normalizeCompleteBucketRange(startTime, endTime, hourlyBucketDuration)
 	assert.False(t, ok)
+}
+
+func TestUptimeRollupCoverage(t *testing.T) {
+	start := time.Date(2026, time.January, 10, 10, 0, 0, 0, time.UTC)
+
+	t.Run("complete contiguous rollup", func(t *testing.T) {
+		counts := []models.UptimeStatusCount{
+			{Timestamp: start},
+			{Timestamp: start.Add(time.Minute)},
+		}
+
+		complete, rawTailStart, canMergeTail := uptimeRollupCoverage(counts, start, start.Add(time.Minute), time.Minute)
+
+		assert.True(t, complete)
+		assert.False(t, canMergeTail)
+		assert.True(t, rawTailStart.IsZero())
+	})
+
+	t.Run("fresh tail can be merged from raw snapshots", func(t *testing.T) {
+		counts := []models.UptimeStatusCount{{Timestamp: start}}
+
+		complete, rawTailStart, canMergeTail := uptimeRollupCoverage(counts, start, start.Add(time.Minute), time.Minute)
+
+		assert.False(t, complete)
+		assert.True(t, canMergeTail)
+		// The tail starts at the last rollup bucket so a partially
+		// materialized bucket is recomputed from raw
+		assert.Equal(t, start, rawTailStart)
+	})
+
+	t.Run("head or middle gaps need full raw fallback", func(t *testing.T) {
+		headComplete, _, headTail := uptimeRollupCoverage(
+			[]models.UptimeStatusCount{{Timestamp: start.Add(time.Minute)}},
+			start,
+			start.Add(time.Minute),
+			time.Minute,
+		)
+		assert.False(t, headComplete)
+		assert.False(t, headTail)
+
+		middleComplete, _, middleTail := uptimeRollupCoverage(
+			[]models.UptimeStatusCount{{Timestamp: start}, {Timestamp: start.Add(2 * time.Minute)}},
+			start,
+			start.Add(2*time.Minute),
+			time.Minute,
+		)
+		assert.False(t, middleComplete)
+		assert.False(t, middleTail)
+	})
 }

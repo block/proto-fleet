@@ -57,6 +57,13 @@ sql:
             go_type: "time.Time"
           - column: "device_status_daily.bucket"
             go_type: "time.Time"
+          # Uptime rollup type overrides
+          - column: "miner_state_snapshot_device_1m.bucket"
+            go_type: "time.Time"
+          - column: "miner_state_snapshot_device_hourly.bucket"
+            go_type: "time.Time"
+          - column: "miner_state_snapshot_device_daily.bucket"
+            go_type: "time.Time"
           # Schedule TIME columns are read back as strings by the current DB driver.
           - column: "schedule.start_time"
             go_type: "string"
