@@ -56,7 +56,9 @@ func NewService(conn *sql.DB, activitySvc *activity.Service) *Service {
 }
 
 // auditWriteTimeout bounds the detached audit-log insert (see
-// logActivity) so a stuck write can't leak a goroutine.
+// logActivity). Because the insert runs synchronously on the request
+// path after WithoutCancel strips the caller's deadline, a hung DB write
+// would otherwise block the handler indefinitely; the timeout caps that.
 const auditWriteTimeout = 5 * time.Second
 
 // logActivity records a role-management event, stamping the acting user
@@ -68,7 +70,7 @@ const auditWriteTimeout = 5 * time.Second
 // audit write is detached from the request context via WithoutCancel: a
 // client that cancels or times out the moment the change lands must not
 // suppress the audit row for a security-sensitive RBAC change. A bounded
-// timeout keeps the detached write from hanging.
+// timeout keeps a hung insert from blocking the handler on that same path.
 func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
 	if s.activitySvc == nil {
 		return
