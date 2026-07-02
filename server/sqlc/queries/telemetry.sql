@@ -348,17 +348,11 @@ FROM per_device_bucket
 GROUP BY bucket
 ORDER BY bucket ASC;
 
--- =====================================================
--- Continuous aggregate queries (hourly/daily rollups)
--- Org scoping includes buckets that overlap the device lifetime
--- (bucket end > created_at). The creation bucket may blend samples a
--- previous registration of the identifier wrote in it and cannot be
--- split per sample, so it is included only when no earlier device row
--- ever used the identifier: isolation wins over inclusion. The device
--- table is the only durable evidence; probing device_metrics or the
--- hourly rollup instead would silently re-admit blended buckets once
--- retention (10 days / 3 months) expires the proof.
--- =====================================================
+-- Aggregate org scoping includes buckets overlapping the device lifetime
+-- (bucket end > created_at). The creation bucket may blend a previous
+-- registration's samples and cannot be split per sample, so it is included
+-- only when no earlier device row used the identifier; device rows are the
+-- only evidence that outlives telemetry retention.
 
 -- name: GetDeviceMetricsHourlyAggregates :many
 -- COALESCE handles NULL values from AVG() when all source values are NULL
