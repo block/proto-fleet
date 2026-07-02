@@ -32,6 +32,12 @@ const (
 	dailyBucketDuration  = 24 * time.Hour
 	maxRawMetricBuckets  = 10000
 
+	// Wide selectors scan one raw row per device per poll interval, so an
+	// org-wide 24h request at a 5k fleet reads ~43M rows; past these exact
+	// limits (no estimates) such requests serve from the hourly aggregates.
+	rawAllDevicesMaxDuration = 5 * time.Hour
+	maxRawDeviceList         = 500
+
 	// Raw snapshot scans cost one row per device per minute, and rollup gaps
 	// come from the same writer outages as raw gaps, so an oversized raw
 	// fallback pays a huge scan to recover nothing. All-devices requests are
@@ -83,13 +89,14 @@ func (ds dataSource) String() string {
 	}
 }
 
-// selectDataSource determines which table to query based on time range duration.
-func selectDataSource(startTime, endTime *time.Time) dataSource {
-	if startTime == nil || endTime == nil {
-		return dataSourceRaw
-	}
-	duration := endTime.Sub(*startTime)
-	if duration <= rawDataMaxDuration {
+// selectDataSource routes by resolved duration and selector width. Raw scan
+// cost grows with devices x duration, so wide selectors (all devices, or
+// device lists past maxRawDeviceList) serve raw only up to
+// rawAllDevicesMaxDuration and fall to the continuous aggregates beyond it.
+func selectDataSource(startTime, endTime time.Time, deviceCount int) dataSource {
+	duration := endTime.Sub(startTime)
+	narrow := deviceCount > 0 && deviceCount <= maxRawDeviceList
+	if duration <= rawDataMaxDuration && (narrow || duration <= rawAllDevicesMaxDuration) {
 		return dataSourceRaw
 	}
 	if duration <= hourlyMaxDuration {
@@ -543,30 +550,31 @@ func (s *TimescaleTelemetryStore) StreamTelemetryUpdates(ctx context.Context, qu
 // - Hourly aggregates (device_metrics_hourly) for queries 24h-10d
 // - Daily aggregates (device_metrics_daily) for queries > 10d
 func (s *TimescaleTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
-	ds := selectDataSource(query.TimeRange.StartTime, query.TimeRange.EndTime)
+	startTime, endTime := s.getTimeRange(query.TimeRange)
+	ds := selectDataSource(startTime, endTime, len(query.DeviceIDs))
 
 	s.logger.Debug("selected data source for combined metrics",
 		slog.String("source", ds.String()),
-		slog.Any("start_time", query.TimeRange.StartTime),
-		slog.Any("end_time", query.TimeRange.EndTime))
+		slog.Time("start_time", startTime),
+		slog.Time("end_time", endTime),
+		slog.Int("device_count", len(query.DeviceIDs)))
 
 	switch ds {
 	case dataSourceRaw:
-		return s.getCombinedMetricsFromRaw(ctx, query)
+		return s.getCombinedMetricsFromRaw(ctx, query, startTime, endTime)
 	case dataSourceHourly:
-		return s.getCombinedMetricsFromHourly(ctx, query)
+		return s.getCombinedMetricsFromHourly(ctx, query, startTime, endTime)
 	case dataSourceDaily:
-		return s.getCombinedMetricsFromDaily(ctx, query)
+		return s.getCombinedMetricsFromDaily(ctx, query, startTime, endTime)
 	}
-	return s.getCombinedMetricsFromRaw(ctx, query)
+	return s.getCombinedMetricsFromRaw(ctx, query, startTime, endTime)
 }
 
 // getCombinedMetricsFromRaw queries raw device_metrics table (for short time ranges).
-func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) (models.CombinedMetric, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
-	startTime, endTime := s.getTimeRange(query.TimeRange)
 	if endTime.Before(startTime) {
 		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics end time must be after start time")
 	}
@@ -620,11 +628,10 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 }
 
 // getCombinedMetricsFromHourly queries device_metrics_hourly continuous aggregate.
-func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) (models.CombinedMetric, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
-	startTime, endTime := s.getTimeRange(query.TimeRange)
 	startTime, endTime, hasCompleteBucket := normalizeCompleteBucketRange(startTime, endTime, hourlyBucketDuration)
 	if !hasCompleteBucket {
 		return models.CombinedMetric{}, nil
@@ -671,11 +678,10 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 }
 
 // getCombinedMetricsFromDaily queries device_metrics_daily continuous aggregate.
-func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) (models.CombinedMetric, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
-	startTime, endTime := s.getTimeRange(query.TimeRange)
 	startTime, endTime, hasCompleteBucket := normalizeCompleteBucketRange(startTime, endTime, dailyBucketDuration)
 	if !hasCompleteBucket {
 		return models.CombinedMetric{}, nil

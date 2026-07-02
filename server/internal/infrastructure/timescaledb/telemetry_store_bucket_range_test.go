@@ -96,6 +96,39 @@ func TestUptimeRollupCoverage(t *testing.T) {
 	})
 }
 
+func TestSelectDataSource(t *testing.T) {
+	// Arrange
+	end := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name        string
+		duration    time.Duration
+		deviceCount int
+		expected    dataSource
+	}{
+		{"all devices short range stays raw", time.Hour, 0, dataSourceRaw},
+		{"all devices at the wide-selector cap stays raw", rawAllDevicesMaxDuration, 0, dataSourceRaw},
+		{"all devices past the wide-selector cap routes hourly", rawAllDevicesMaxDuration + time.Second, 0, dataSourceHourly},
+		{"all devices full day routes hourly", 24 * time.Hour, 0, dataSourceHourly},
+		{"all devices beyond hourly window routes daily", 11 * 24 * time.Hour, 0, dataSourceDaily},
+		{"single device full day stays raw", 24 * time.Hour, 1, dataSourceRaw},
+		{"list at the size cap stays raw", 24 * time.Hour, maxRawDeviceList, dataSourceRaw},
+		{"list past the size cap routes hourly", 24 * time.Hour, maxRawDeviceList + 1, dataSourceHourly},
+		{"huge list short range stays raw", 4 * time.Hour, maxRawDeviceList + 1, dataSourceRaw},
+		{"narrow list past a day routes hourly", 25 * time.Hour, 1, dataSourceHourly},
+		{"narrow list past hourly window routes daily", 11 * 24 * time.Hour, 1, dataSourceDaily},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			got := selectDataSource(end.Add(-tt.duration), end, tt.deviceCount)
+
+			// Assert
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
 func TestRawMetricBucketDuration_PreservesFractionalSeconds(t *testing.T) {
 	slideInterval := 1500 * time.Millisecond
 

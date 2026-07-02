@@ -3,6 +3,7 @@ package timescaledb_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -676,7 +677,83 @@ func TestTelemetryStore_GetCombinedMetrics_TemperatureStatusCounts_Values(t *tes
 	assert.Equal(t, int32(1), totalCritical, "Expected 1 critical device (temp >= 90)")
 }
 
+func TestTelemetryStore_GetCombinedMetrics_DefaultRangeRoutesToAggregatesWithLargeMaxAge(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange: nil time bounds resolve to now-MaxAge..now; with MaxAge past
+	// the raw window this must route to aggregates instead of erroring
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	cfg := timescaledb.DefaultConfig()
+	cfg.MaxAge = 72 * time.Hour
+	store, err := timescaledb.NewTelemetryStore(dbSvc.DB, cfg)
+	require.NoError(t, err)
+
+	// Act
+	result, err := store.GetCombinedMetrics(t.Context(), models.CombinedMetricsQuery{
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+	})
+
+	// Assert
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+}
+
+func TestTelemetryStore_GetCombinedMetrics_AllDevicesFullDayServesHourlyBuckets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange: one metric materialized into the hourly aggregate, one raw-only
+	// metric outside the refreshed window; a 24h all-devices request must show
+	// only the materialized hourly bucket
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	identifier := fmt.Sprintf("hourly-routing-device-%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupDeviceMetrics(t, db, identifier) })
+
+	materialized := time.Now().UTC().Truncate(time.Hour).Add(-5 * time.Hour).Add(10 * time.Minute)
+	rawOnly := time.Now().UTC().Add(-10 * time.Minute)
+	insertTestMetrics(t, db, identifier, materialized, 500, 60)
+	insertTestMetrics(t, db, identifier, rawOnly, 900, 90)
+	refreshMetricsHourlyAggregate(t, db, materialized.Add(-time.Hour), materialized.Add(time.Hour))
+
+	start := time.Now().UTC().Add(-24 * time.Hour)
+	end := time.Now().UTC()
+	slide := 90 * time.Second
+
+	// Act
+	result, err := store.GetCombinedMetrics(t.Context(), models.CombinedMetricsQuery{
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+		SlideInterval:    &slide,
+	})
+
+	// Assert: hour-aligned buckets from the aggregate only, no raw-resolution
+	// buckets and no unmaterialized raw-only data
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Metrics)
+	for _, m := range result.Metrics {
+		assert.True(t, m.OpenTime.Equal(m.OpenTime.Truncate(time.Hour)),
+			"expected hour-aligned bucket, got %s", m.OpenTime)
+		for _, v := range m.AggregatedValues {
+			assert.NotEqual(t, float64(900), v.Value, "raw-only metric must not appear")
+		}
+	}
+}
+
 // Helper functions
+
+func refreshMetricsHourlyAggregate(t *testing.T, db *sql.DB, start, end time.Time) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(),
+		"CALL refresh_continuous_aggregate('device_metrics_hourly', $1::timestamptz, $2::timestamptz)",
+		start, end)
+	require.NoError(t, err)
+}
 
 func cleanupDeviceMetrics(t *testing.T, db *sql.DB, deviceIdentifier string) {
 	t.Helper()
