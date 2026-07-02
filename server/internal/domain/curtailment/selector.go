@@ -312,6 +312,13 @@ func BuildAllPairedPolicyPlan(
 	}
 }
 
+// AllPairedPolicyTargetState maps a paired-like candidate to its initial
+// policy target state. It deliberately diverges from classifyCandidates
+// (service.go) on ERROR/UNKNOWN: normal selection admits them when telemetry
+// is fresh, while this policy dispatches without telemetry gates and so holds
+// every non-commandable status unavailable until it clears. When adding a
+// device status, update both switches and the pinned matrix in
+// TestDeviceStatusClassifierMatrix.
 func AllPairedPolicyTargetState(c *models.Candidate, includeMaintenance bool) (models.TargetState, string) {
 	if c == nil {
 		return models.TargetStateUnavailable, allPairedUnavailableMissingStatus

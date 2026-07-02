@@ -71,6 +71,7 @@ type fakeStore struct {
 	lastHeartbeatTickUUID     uuid.UUID
 	lastListCandidatesSiteIDs []int64
 	lastListCandidatesFilter  []string
+	listCandidatesFilters     [][]string
 
 	// BeginRestoreTransition captures, exercised by max_duration tests.
 	beginRestoreCalls       int
@@ -260,6 +261,7 @@ func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCand
 	f.listCandidatesCalls++
 	f.lastListCandidatesSiteIDs = append([]int64(nil), params.SiteIDs...)
 	f.lastListCandidatesFilter = append([]string(nil), params.DeviceIdentifiers...)
+	f.listCandidatesFilters = append(f.listCandidatesFilters, append([]string(nil), params.DeviceIdentifiers...))
 	if len(params.DeviceIdentifiers) == 0 {
 		return f.candidates, nil
 	}
@@ -881,6 +883,61 @@ func TestReconciler_ActiveClosedLoopFullFleetSkipsCandidateScanWhenAdmissionInte
 	assert.Equal(t, 0, disp.curtailCalls)
 }
 
+func TestReconciler_ActiveAllPairedPolicySkipsAdmissionScanWhenIntervalBlocked(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	lastBatchAt := time.Now()
+	lastBatchUUID := "batch-recent"
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStateActive,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			CurtailBatchSize:            &batchSize,
+			CurtailBatchIntervalSec:     600,
+			CreatedByUserID:             99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "recently-dispatched",
+			State:              models.TargetStateConfirmed,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastDispatchedAt:   &lastBatchAt,
+			LastBatchUUID:      &lastBatchUUID,
+			CurtailPhase: models.TargetPhaseSummary{
+				Phase:        models.TargetPhaseCurtail,
+				State:        models.TargetStateConfirmed,
+				DispatchedAt: &lastBatchAt,
+				BatchUUID:    &lastBatchUUID,
+			},
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "recently-dispatched", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(100)},
+		{DeviceIdentifier: "miner-new", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.listCandidatesCalls,
+		"drift observation may read existing-target telemetry, but the interval gate must prevent the fleet-wide admission scan")
+	assert.Equal(t, 0, store.claimAllPairedCalls)
+	assert.Equal(t, 0, disp.curtailCalls)
+}
+
 func TestReconciler_ActiveAllPairedPolicyClaimsDispatchableAndUnavailableTargets(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -1139,8 +1196,12 @@ func TestReconciler_AllPairedPolicyRefreshQueriesOnlyRefreshableTargets(t *testi
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
 
-	assert.Equal(t, 1, store.listCandidatesCalls)
-	assert.Equal(t, []string{"needs-refresh"}, store.lastListCandidatesFilter)
+	// First call is the device-scoped readiness refresh; the second is the
+	// pending-phase admission scan (fleet-wide, no device filter).
+	require.Len(t, store.listCandidatesFilters, 2)
+	assert.Equal(t, []string{"needs-refresh"}, store.listCandidatesFilters[0],
+		"readiness refresh must query only pending/unavailable curtailed targets")
+	assert.Empty(t, store.listCandidatesFilters[1])
 	assert.Equal(t, 0, disp.curtailCalls)
 }
 
@@ -1193,7 +1254,11 @@ func TestReconciler_PendingAllPairedPolicyUnavailableTargetsDoNotBlockActive(t *
 	assert.Equal(t, 0, disp.curtailCalls)
 }
 
-func TestReconciler_PendingAllPairedPolicyReleasedTargetsReopenAfterActivation(t *testing.T) {
+// Durable ownership must not pause while an all-paired event is pending
+// (e.g. immediately after a recurtail transition): released policy rows are
+// reopened by the pending-phase admission pass, then dispatched by the next
+// tick's pending/active dispatch pass.
+func TestReconciler_PendingAllPairedPolicyReleasedTargetsReopenWhilePending(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
@@ -1253,16 +1318,19 @@ func TestReconciler_PendingAllPairedPolicyReleasedTargetsReopenAfterActivation(t
 
 	assert.Equal(t, models.EventStateActive, store.updateEventLast[eventID])
 	assert.Equal(t, models.EventStateActive, store.events[0].State)
-	assert.Equal(t, models.TargetStateReleased, store.targetsByEventID[eventID][1].State)
-	assert.Equal(t, 0, store.claimAllPairedCalls, "pending activation should not claim in the same tick")
-
-	r.runTick(context.Background())
-
-	assert.Equal(t, 1, store.claimAllPairedCalls)
+	assert.Equal(t, 1, store.claimAllPairedCalls, "pending-phase admission must reopen released policy rows")
 	require.Len(t, store.claimedAllPairedParams, 1)
 	assert.Equal(t, "released-policy-row", store.claimedAllPairedParams[0].DeviceIdentifier)
 	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][1].State)
 	assert.Nil(t, store.targetsByEventID[eventID][1].LastError)
+	assert.Equal(t, 0, disp.curtailCalls, "reopened rows dispatch on a later pending pass, not the claiming tick")
+
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.claimAllPairedCalls,
+		"no re-claim once every device holds a non-released row")
+	require.Equal(t, 1, disp.curtailCalls, "reopened row dispatches on the following tick")
+	assert.ElementsMatch(t, []string{"released-policy-row"}, disp.curtailLastIDs)
 }
 
 func TestReconciler_ActiveClosedLoopFullFleetUsesPersistedCandidateFloor(t *testing.T) {

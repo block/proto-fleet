@@ -218,6 +218,71 @@ func TestBuildAllPairedPolicyPlan_TargetsPairedLikeMinersByDispatchReadiness(t *
 	assert.Equal(t, SkipPairing, plan.Skipped[0].Reason)
 }
 
+// TestDeviceStatusClassifierMatrix pins every device_status_enum value
+// (migrations 000001 + 000029) against BOTH eligibility classifiers so a
+// status added to one switch cannot silently diverge in the other. The
+// ERROR/UNKNOWN rows differ on purpose: normal selection trusts fresh
+// telemetry over the coarse status, while the all-paired policy dispatches
+// without telemetry gates and holds them unavailable.
+func TestDeviceStatusClassifierMatrix(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		status string
+
+		normalEligible   bool
+		normalSkipReason SkipReason
+
+		allPairedPending           bool
+		allPairedUnavailableReason string
+	}{
+		{"ACTIVE", true, "", true, ""},
+		{"INACTIVE", false, SkipNonActionableStatus, false, "non_actionable_status"},
+		{"OFFLINE", false, SkipUnreachableResidualLoad, false, "offline"},
+		{"MAINTENANCE", false, SkipMaintenance, false, "maintenance"},
+		{"ERROR", true, "", false, "non_actionable_status"},   // intentional divergence
+		{"UNKNOWN", true, "", false, "non_actionable_status"}, // intentional divergence
+		{"NEEDS_MINING_POOL", false, SkipNonActionableStatus, false, "non_actionable_status"},
+		{"UPDATING", false, SkipUpdating, false, "updating"},
+		{"REBOOT_REQUIRED", false, SkipRebootRequired, false, "reboot_required"},
+		{"", false, SkipStaleTelemetry, false, "missing_status"}, // no device_status row
+	}
+
+	for _, tc := range cases {
+		name := tc.status
+		if name == "" {
+			name = "missing"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			candidate := miner("m", tc.status, "PAIRED", 3000, 100)
+
+			eligible, skipped, _ := classifyCandidates(
+				[]*models.Candidate{candidate},
+				classifyOpts{CandidateMinPowerW: 1500},
+			)
+			if tc.normalEligible {
+				require.Len(t, eligible, 1, "normal selection should admit %q", tc.status)
+				assert.Empty(t, skipped)
+			} else {
+				require.Len(t, skipped, 1, "normal selection should skip %q", tc.status)
+				assert.Equal(t, tc.normalSkipReason, skipped[0].Reason)
+				assert.Empty(t, eligible)
+			}
+
+			state, reason := AllPairedPolicyTargetState(candidate, false)
+			if tc.allPairedPending {
+				assert.Equal(t, models.TargetStatePending, state)
+				assert.Empty(t, reason)
+			} else {
+				assert.Equal(t, models.TargetStateUnavailable, state)
+				assert.Equal(t, tc.allPairedUnavailableReason, reason)
+			}
+		})
+	}
+}
+
 func TestBuildAllPairedPolicyPlan_MaintenanceOverrideMakesMaintenancePending(t *testing.T) {
 	t.Parallel()
 

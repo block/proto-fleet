@@ -359,6 +359,16 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 	// whether the event itself can flip to active.
 	r.confirmDispatched(ctx, ev, targets)
 	r.maybeMarkActive(ctx, ev, targets)
+
+	// Durable ownership must not pause while the event is pending: recurtail
+	// (restoring -> pending) leaves released policy rows dormant for the
+	// multi-tick re-confirmation window unless admission also runs here.
+	// Claimed/reopened rows enter as pending/unavailable and dispatch on the
+	// next tick's pending pass, mirroring the observeActive claim ordering.
+	if isAllPairedPolicyEvent(ev) {
+		claimed := r.claimClosedLoopFullFleetTargets(ctx, ev, targets)
+		r.dispatchClaimedCurtailTargets(cmdCtx, ev, claimed)
+	}
 }
 
 // dispatchPendingCurtailBatches drains retryable Curtail work in command
@@ -750,13 +760,15 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 		return nil
 	}
 	params.OrgID = ev.OrgID
-	if !isAllPairedPolicyEvent(ev) {
-		if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev, existingTargets) {
-			return nil
-		}
-		if hasInFlightCurtailDispatch(existingTargets) {
-			return nil
-		}
+	// Admission gates run before the fleet-scale candidate scan for both
+	// policies. For all-paired events this paces only the discovery of
+	// brand-new devices and reopens; readiness refresh of existing targets
+	// stays per-tick via the device-scoped refresh path.
+	if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev, existingTargets) {
+		return nil
+	}
+	if hasInFlightCurtailDispatch(existingTargets) {
+		return nil
 	}
 	candidates, err := r.store.ListCandidates(ctx, params)
 	if err != nil {
@@ -821,134 +833,6 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 			"event_id", ev.ID, "claimed", len(claimed))
 	}
 	return claimed
-}
-
-func (r *Reconciler) claimAllPairedPolicyTargets(
-	ctx context.Context,
-	ev *models.Event,
-	existingTargets []*models.Target,
-	candidates []*models.Candidate,
-	params interfaces.ListCandidatesParams,
-) []*models.Target {
-	orgConfig, err := r.store.GetOrgConfig(ctx, ev.OrgID)
-	if err != nil {
-		slog.Error("curtailment reconciler: get org config (all-paired admission) failed",
-			"event_id", ev.ID, "error", err)
-		return nil
-	}
-	activeDevices, err := r.store.ListActiveCurtailmentTargetDevices(ctx, ev.OrgID)
-	if err != nil {
-		slog.Error("curtailment reconciler: list active devices (all-paired admission) failed",
-			"event_id", ev.ID, "error", err)
-		return nil
-	}
-	activeSet := toStringSet(activeDevices)
-	for _, target := range existingTargets {
-		delete(activeSet, target.DeviceIdentifier)
-	}
-	plan := curtailment.BuildAllPairedPolicyPlan(
-		candidates,
-		activeSet,
-		ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
-		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
-	)
-	targets := curtailment.BuildInsertTargetParams(
-		plan.Selected,
-		models.ModeFullFleet,
-		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
-	)
-	targets = excludeNonReopenableExistingTargetParams(targets, existingTargets)
-	if len(targets) == 0 {
-		return nil
-	}
-	claimed, err := r.store.ClaimAllPairedPolicyTargets(ctx, ev.ID, targets)
-	if err != nil {
-		slog.Error("curtailment reconciler: claim all-paired policy targets failed",
-			"event_id", ev.ID, "candidate_count", len(targets),
-			"scope_device_count", len(params.DeviceIdentifiers),
-			"scope_site_count", len(params.SiteIDs),
-			"error", err)
-		return nil
-	}
-	if claimed > 0 {
-		slog.Info("curtailment reconciler: claimed all-paired policy targets",
-			"event_id", ev.ID, "claimed", claimed)
-	}
-	return nil
-}
-
-func (r *Reconciler) refreshAllPairedPolicyTargets(
-	ctx context.Context,
-	ev *models.Event,
-	targets []*models.Target,
-	candidates map[string]*models.Candidate,
-) {
-	for _, target := range targets {
-		if target.DesiredState != models.DesiredStateCurtailed {
-			continue
-		}
-		if target.State != models.TargetStatePending && target.State != models.TargetStateUnavailable {
-			continue
-		}
-		candidate := candidates[target.DeviceIdentifier]
-		if candidate == nil || !curtailment.IsAllPairedPolicyPairingStatus(candidate.PairingStatus) {
-			r.releaseAllPairedPolicyTarget(ctx, ev, target, "released: device is no longer paired-like")
-			continue
-		}
-		nextState, reason := curtailment.AllPairedPolicyTargetState(
-			candidate,
-			ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
-		)
-		switch {
-		case nextState == target.State && reason == targetErrorString(target):
-			continue
-		case nextState == models.TargetStatePending:
-			empty := ""
-			params := interfaces.UpdateCurtailmentTargetStateParams{
-				State:     models.TargetStatePending,
-				LastError: &empty,
-			}
-			if err := r.writeTargetState(ctx, ev, target.DeviceIdentifier, params); err != nil {
-				if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-					slog.Error("curtailment reconciler: all-paired target pending update failed",
-						"event_id", ev.ID, "device", target.DeviceIdentifier, "error", err)
-				}
-				continue
-			}
-			target.State = models.TargetStatePending
-			target.LastError = nil
-		case nextState == models.TargetStateUnavailable:
-			params := interfaces.UpdateCurtailmentTargetStateParams{
-				State:     models.TargetStateUnavailable,
-				LastError: &reason,
-			}
-			if err := r.writeTargetState(ctx, ev, target.DeviceIdentifier, params); err != nil {
-				if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-					slog.Error("curtailment reconciler: all-paired target unavailable update failed",
-						"event_id", ev.ID, "device", target.DeviceIdentifier, "reason", reason, "error", err)
-				}
-				continue
-			}
-			target.State = models.TargetStateUnavailable
-			target.LastError = &reason
-		}
-	}
-}
-
-func (r *Reconciler) releaseAllPairedPolicyTarget(ctx context.Context, ev *models.Event, target *models.Target, reason string) {
-	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:     models.TargetStateReleased,
-		LastError: &reason,
-	}
-	if err := r.writeTargetState(ctx, ev, target.DeviceIdentifier, params); err != nil {
-		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-			slog.Error("curtailment reconciler: all-paired target release failed",
-				"event_id", ev.ID, "device", target.DeviceIdentifier, "error", err)
-		}
-		return
-	}
-	target.State = models.TargetStateReleased
-	target.LastError = &reason
 }
 
 func hasInFlightCurtailDispatch(targets []*models.Target) bool {
@@ -1059,37 +943,6 @@ func (r *Reconciler) dispatchClaimedCurtailTargets(ctx context.Context, ev *mode
 
 func isClosedLoopFullFleet(ev *models.Event) bool {
 	return ev != nil && ev.Mode == models.ModeFullFleet && ev.LoopType == models.LoopTypeClosed
-}
-
-func isAllPairedPolicyEvent(ev *models.Event) bool {
-	return ev != nil && ev.ForceIncludeAllPairedMiners
-}
-
-func targetErrorString(target *models.Target) string {
-	if target == nil || target.LastError == nil {
-		return ""
-	}
-	return *target.LastError
-}
-
-func allPairedPolicyRefreshDeviceIdentifiers(targets []*models.Target) []string {
-	if len(targets) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(targets))
-	for _, target := range targets {
-		if target == nil || target.DeviceIdentifier == "" {
-			continue
-		}
-		if target.DesiredState != models.DesiredStateCurtailed {
-			continue
-		}
-		if target.State != models.TargetStatePending && target.State != models.TargetStateUnavailable {
-			continue
-		}
-		out = append(out, target.DeviceIdentifier)
-	}
-	return out
 }
 
 func toStringSet(values []string) map[string]struct{} {
@@ -1296,13 +1149,6 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 	if err := r.store.UpdateEventState(ctx, ev.ID, ev.State, models.EventStateActive, &now, nil); err != nil {
 		r.logEventStateUpdateError(ev, "pending→active", err)
 	}
-}
-
-func isAllPairedPolicyReleasedCurtailTarget(ev *models.Event, target *models.Target) bool {
-	return isAllPairedPolicyEvent(ev) &&
-		target != nil &&
-		target.State == models.TargetStateReleased &&
-		target.DesiredState == models.DesiredStateCurtailed
 }
 
 // logEventStateUpdateError buckets store.UpdateEventState errors:

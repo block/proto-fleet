@@ -1498,6 +1498,12 @@ type classifyOpts struct {
 // classifyCandidates partitions candidates into selector inputs vs. a
 // pre-filter skipped list with reasons; summary counts increment in lockstep
 // so insufficient-load can echo per-reason totals without re-walking.
+//
+// AllPairedPolicyTargetState (selector.go) classifies the same
+// device_status_enum vocabulary for the all-paired policy with deliberately
+// different outcomes (see the note on its ERROR/UNKNOWN arm). When adding a
+// device status, update both switches and the pinned matrix in
+// TestDeviceStatusClassifierMatrix.
 func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]CandidateInput, []SkippedDevice, modes.InsufficientLoadDetail) {
 	eligible := make([]CandidateInput, 0, len(cands))
 	skipped := make([]SkippedDevice, 0, len(cands))
@@ -1552,6 +1558,12 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 				continue
 			}
 			// Admitted via override pair; fall through to freshness check.
+		case "ERROR", "UNKNOWN":
+			// Intentionally admitted when telemetry is fresh: operator-sized
+			// selection trusts live power/hash samples over the coarse status.
+			// The all-paired policy holds these unavailable instead because it
+			// dispatches without the freshness gates below
+			// (AllPairedPolicyTargetState in selector.go).
 		}
 		if c.LatestMetricsAt == nil {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
