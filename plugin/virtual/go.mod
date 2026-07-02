@@ -32,3 +32,6 @@ require (
 )
 
 replace github.com/block/proto-fleet/server => ../../server
+
+// Transitive: the server module maps its generated stubs here.
+replace github.com/block/proto-fleet/server/generated/grpc => ../../server/generated/grpc

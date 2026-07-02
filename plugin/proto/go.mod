@@ -74,3 +74,6 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// Transitive: the server module maps its generated stubs here.
+replace github.com/block/proto-fleet/server/generated/grpc => ../../server/generated/grpc

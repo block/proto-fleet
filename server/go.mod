@@ -2,8 +2,11 @@ module github.com/block/proto-fleet/server
 
 go 1.25.4
 
+// Generated proto/connect stubs live in a nested module so the
+// rig-otlp-bridge sidecar can share them without duplicating codegen.
+replace github.com/block/proto-fleet/server/generated/grpc => ./generated/grpc
+
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1
 	buf.build/go/protovalidate v1.2.0
 	connectrpc.com/authn v0.2.0
 	connectrpc.com/connect v1.20.0
@@ -13,6 +16,7 @@ require (
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/alecthomas/kong v1.15.0
 	github.com/alecthomas/kong-yaml v0.2.0
+	github.com/block/proto-fleet/server/generated/grpc v0.0.0-00010101000000-000000000000
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.2.0
 	github.com/eclipse/paho.mqtt.golang v1.5.1
@@ -40,12 +44,14 @@ require (
 	golang.org/x/net v0.56.0
 	golang.org/x/sync v0.21.0
 	golang.org/x/term v0.44.0
+	golang.org/x/text v0.38.0
 	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1 // indirect
 	cel.dev/expr v0.25.2 // indirect
 	github.com/alecthomas/repr v0.5.2 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
@@ -89,7 +95,6 @@ require (
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/tools v0.46.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260610212136-7ab31c22f7ad // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260610212136-7ab31c22f7ad // indirect

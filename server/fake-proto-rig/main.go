@@ -13,6 +13,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"hash/crc32"
 	"log"
 	"net"
 	"net/http"
@@ -32,8 +33,9 @@ const (
 )
 
 func main() {
-	// Generate unique identifiers for this instance
-	instanceID := uuid.New().String()[:8]
+	// Identity derives from the container hostname so it survives restarts
+	// (real rigs keep their serial across reboots).
+	instanceID := stableInstanceID()
 	serialNumber := getEnv("SERIAL_NUMBER", "PROTO-SIM-"+instanceID)
 	macAddress := getEnv("MAC_ADDRESS", generateMACAddress(instanceID))
 
@@ -48,6 +50,23 @@ func main() {
 
 	// Set IP address based on outbound interface
 	state.IPAddress = getOutboundIP().String()
+
+	// Fake telemetry-service gRPC stream (consumed by the rig-otlp-bridge
+	// sidecar). TELEMETRY_GRPC_PORT=0 disables it.
+	telemetryPort := getEnvInt("TELEMETRY_GRPC_PORT", defaultTelemetryGRPCPort)
+	if telemetryPort != 0 {
+		publishSeconds := getEnvInt("TELEMETRY_PUBLISH_INTERVAL_S", defaultTelemetryPublishSeconds)
+		if publishSeconds <= 0 {
+			// time.NewTicker panics on non-positive intervals; only
+			// TELEMETRY_GRPC_PORT=0 disables telemetry.
+			log.Printf("TELEMETRY_PUBLISH_INTERVAL_S=%d is invalid; using default %ds", publishSeconds, defaultTelemetryPublishSeconds)
+			publishSeconds = defaultTelemetryPublishSeconds
+		}
+		publishInterval := time.Duration(publishSeconds) * time.Second
+		if err := startTelemetryGRPCServer(state, telemetryPort, publishInterval); err != nil {
+			log.Fatalf("Failed to start telemetry gRPC server: %v", err)
+		}
+	}
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -168,6 +187,14 @@ func applyErrorConfig(state *MinerState) {
 }
 
 // Helper functions for environment variables
+
+func stableInstanceID() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		return uuid.New().String()[:8]
+	}
+	return fmt.Sprintf("%08x", crc32.ChecksumIEEE([]byte(host)))
+}
 
 func getEnv(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {

@@ -4,6 +4,7 @@ WORKDIR /app
 
 # Copy go.mod files for dependency caching
 COPY server/go.mod server/go.sum ./server/
+COPY server/generated/grpc/go.mod server/generated/grpc/go.sum ./server/generated/grpc/
 COPY server/fake-proto-rig/go.mod ./server/fake-proto-rig/
 
 # Download dependencies
@@ -28,6 +29,6 @@ RUN apk add --no-cache ca-certificates wget
 
 COPY --from=builder /fake-proto-rig /fake-proto-rig
 
-EXPOSE 8080
+EXPOSE 8080 2123
 
 ENTRYPOINT ["/fake-proto-rig"]

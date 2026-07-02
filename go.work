@@ -5,5 +5,6 @@ use (
 	./plugin/proto
 	./plugin/virtual
 	./server
+	./server/generated/grpc
 	./tests/plugin-contract
 )

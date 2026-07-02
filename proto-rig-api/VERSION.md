@@ -55,13 +55,29 @@ To update these API specifications:
 6. Update this VERSION.md with the new commit SHA(s) and dates
 7. Regenerate the dependent generated code:
    - Client: `cd client && npm run generate-api-types` (TypeScript types from the OpenAPI spec)
+   - Rig telemetry stubs: in miner-firmware, run
+     `tools/telemetry/otlp-bridge/generate-fleet-stubs.sh` twice —
+     once with `<proto-fleet>/server/rig-otlp-bridge/internal/rigapi
+     github.com/block/proto-fleet/server/rig-otlp-bridge/internal/rigapi`
+     (the bridge sidecar's stubs) and once with
+     `<proto-fleet>/server/fake-proto-rig/internal/rigapi
+     github.com/block/proto-fleet/server/fake-proto-rig/internal/rigapi`
+     (the simulator's copy); verify each module with `GOWORK=off go build ./...`.
+     Also re-vendor the bridge's Go source into `server/rig-otlp-bridge/`
+     if the upstream otlp-bridge changed (fleet-local modifications are
+     documented in that directory's README).
 8. Update the simulator REST API if the OpenAPI spec changed
    (see `server/fake-proto-rig/README.md`)
 9. Run tests to verify compatibility
 10. Commit all changes together
 
-**Note**: The gRPC proto files are vendored as reference only — they document
-the on-rig gRPC surface and are not inputs to Proto Fleet code generation. The
+**Note**: The gRPC proto files are vendored as reference documentation of
+the on-rig gRPC surface and are not compiled by Proto Fleet's own codegen —
+with one exception: `miner_telemetry_api.proto` is compiled **in
+miner-firmware** by `generate-fleet-stubs.sh` and the resulting Go stubs
+are vendored at `server/rig-otlp-bridge/internal/rigapi/` (the rig
+telemetry bridge sidecar) and `server/fake-proto-rig/internal/rigapi/`
+(the simulator's copy); see each directory's README for provenance. The
 OpenAPI spec (`MDK-API.json`) is the source that drives generated code (the
 ProtoOS TypeScript client) and the hand-maintained fake-proto-rig simulator.
 

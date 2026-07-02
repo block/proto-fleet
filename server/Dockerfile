@@ -8,8 +8,10 @@ RUN go install github.com/go-delve/delve/cmd/dlv@v1.25.2
 # Set the working directory inside the container
 WORKDIR /app
 
-# Copy go module files
+# Copy go module files (incl. the nested generated-stubs module the
+# server replaces to ./generated/grpc)
 COPY server/go.mod server/go.sum ./
+COPY server/generated/grpc/go.mod server/generated/grpc/go.sum ./generated/grpc/
 
 # Download Go dependencies
 RUN go mod download

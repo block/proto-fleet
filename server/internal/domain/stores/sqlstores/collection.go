@@ -893,6 +893,7 @@ func (s *SQLCollectionStore) GetRackDetailsForDevices(ctx context.Context, orgID
 			Position:      row.Position,
 			BuildingID:    buildingID,
 			BuildingLabel: row.BuildingLabel,
+			Zone:          row.Zone,
 		}
 	}
 	return result, nil

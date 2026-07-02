@@ -169,6 +169,9 @@ jobs:
         run: |
           go mod download
           go build -v -ldflags "-X main.version=$VERSION" -o fleetd-${{ matrix.arch }} ./cmd/fleetd
+          # rig-otlp-bridge is a standalone module outside go.work; static
+          # binary so the alpine packaging image needs no gcompat.
+          (cd rig-otlp-bridge && GOWORK=off go mod download && GOWORK=off CGO_ENABLED=0 go build -ldflags="-s -w" -o ../rig-otlp-bridge-${{ matrix.arch }} .)
           echo "version: $VERSION" > version.txt
           echo "is_prerelease: $IS_PRERELEASE" >> version.txt
           echo "build_date: $BUILD_DATE" >> version.txt
@@ -204,6 +207,7 @@ jobs:
         run: |
           tar -czf "proto-fleet-server-${VERSION}-${{ matrix.arch }}.tar.gz" \
             fleetd-${{ matrix.arch }} \
+            rig-otlp-bridge-${{ matrix.arch }} \
             proto-plugin-${{ matrix.arch }} \
             antminer-plugin-${{ matrix.arch }} \
             virtual-plugin-${{ matrix.arch }} \
@@ -422,6 +426,7 @@ jobs:
           tar -xzf "/tmp/server-artifacts/proto-fleet-server-${VERSION}-${{ matrix.arch }}.tar.gz" -C deployment/server
           cd deployment/server
           mv fleetd-${{ matrix.arch }} fleetd
+          mv rig-otlp-bridge-${{ matrix.arch }} rig-otlp-bridge
           mv proto-plugin-${{ matrix.arch }} proto-plugin
           mv antminer-plugin-${{ matrix.arch }} antminer-plugin
           mv virtual-plugin-${{ matrix.arch }} virtual-plugin
@@ -445,8 +450,11 @@ jobs:
           cp deployment-files/client/nginx.http.conf deployment/client/
           cp deployment-files/client/nginx.https.conf deployment/client/
           cp deployment-files/server/Dockerfile deployment/server/
+          cp deployment-files/server/Dockerfile.rig-otlp-bridge deployment/server/
           cp deployment-files/docker-compose.yaml deployment/
+          cp deployment-files/docker-compose.grafana.yaml deployment/
           cp deployment-files/docker-compose.alerts.yaml deployment/
+          cp deployment-files/docker-compose.rig-telemetry.yaml deployment/
           cp -a server/monitoring deployment/server/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/

@@ -22,8 +22,12 @@ ALERTS_ENABLED=$([[ "${ENABLE_BETA_ALERTS:-}" = "true" ]] && echo "true" || echo
 echo "Client PID: $CLIENT_PID"
 
 function start_server() {
-  if [[ "${ENABLE_BETA_ALERTS:-}" = "true" ]]; then
+  if [[ "${ENABLE_BETA_ALERTS:-}" = "true" && "${ENABLE_RIG_TELEMETRY:-}" = "true" ]]; then
+    just dev-monitoring
+  elif [[ "${ENABLE_BETA_ALERTS:-}" = "true" ]]; then
     just dev-alerts
+  elif [[ "${ENABLE_RIG_TELEMETRY:-}" = "true" ]]; then
+    just dev-rig-telemetry
   else
     just dev
   fi

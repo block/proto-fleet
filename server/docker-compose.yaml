@@ -112,6 +112,7 @@ services:
       retries: 3
     expose:
       - 8080
+      - 2123 # fake telemetry-service gRPC stream
     deploy:
       replicas: 5 # Default is 5 instances, can be overridden with --scale
       resources:
@@ -285,6 +286,7 @@ services:
       retries: 3
     ports:
       - "8080:8080"
+      - "2123:2123" # fake telemetry-service gRPC stream
     deploy:
       resources:
         limits:

@@ -111,3 +111,11 @@ jobs:
 
       - name: Test
         run: just test
+
+      # Standalone modules nested under server/ are outside go.work, so
+      # `just test` (go test ./...) never reaches them.
+      - name: Test rig-otlp-bridge module
+        run: cd rig-otlp-bridge && GOWORK=off go test ./...
+
+      - name: Test fake-proto-rig module
+        run: cd fake-proto-rig && GOWORK=off go test ./...

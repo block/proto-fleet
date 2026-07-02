@@ -1,0 +1,11 @@
+# Packages the prebuilt rig-otlp-bridge binary (artifact workflow, CGO
+# disabled) for the rig telemetry compose overlay.
+FROM alpine:3.22.0
+
+RUN apk add --no-cache ca-certificates \
+ && addgroup -S bridge && adduser -S -G bridge bridge
+COPY rig-otlp-bridge /usr/local/bin/rig-otlp-bridge
+RUN chmod 755 /usr/local/bin/rig-otlp-bridge
+
+USER bridge
+ENTRYPOINT ["/usr/local/bin/rig-otlp-bridge"]

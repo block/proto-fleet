@@ -1,0 +1,63 @@
+# Rig telemetry overlay (run-fleet.sh --enable-rig-telemetry): rig-otlp-bridge
+# streams paired rigs' OTLP into Prometheus; requires the grafana overlay.
+services:
+  rig-otlp-bridge:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.rig-otlp-bridge
+    environment:
+      OTLP_BRIDGE_FLEET_API_URL: "http://127.0.0.1:4000"
+      # A fleet API key with miner read access, created in the fleet UI
+      # (Settings -> API Keys) and pasted into .env.
+      OTLP_BRIDGE_FLEET_API_TOKEN: "${RIG_TELEMETRY_BRIDGE_TOKEN:?RIG_TELEMETRY_BRIDGE_TOKEN is required (create an API key in the fleet UI)}"
+      # Site LAN CIDRs targets must fall within (empty = private ranges).
+      OTLP_BRIDGE_FLEET_TARGET_CIDRS: "${RIG_TELEMETRY_TARGET_CIDRS:-}"
+      # Rig REST endpoint; real proto rigs serve https on 443.
+      OTLP_BRIDGE_API_SCHEME: "${RIG_TELEMETRY_RIG_API_SCHEME:-https}"
+      OTLP_BRIDGE_API_PORT: "${RIG_TELEMETRY_RIG_API_PORT:-443}"
+      OTLP_BRIDGE_OTLP_ENDPOINT: "http://127.0.0.1:9090/api/v1/otlp/v1/metrics"
+    depends_on:
+      - fleet-api
+    restart: always
+    network_mode: host
+    read_only: true
+    mem_limit: 512m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+  prometheus:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: prometheus
+    volumes:
+      - ./server/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      # Loopback-only: the OTLP receiver is unauthenticated; the
+      # host-networked bridge pushes via this port.
+      - "127.0.0.1:9090:9090"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+  grafana:
+    volumes:
+      - ./server/monitoring/grafana/provisioning/datasources/prometheus.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro
+      - ./server/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+
+volumes:
+  prometheus-data:
+
+networks:
+  monitoring:
+    driver: bridge

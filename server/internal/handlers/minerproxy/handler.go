@@ -30,6 +30,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 )
 
 const (
@@ -751,14 +752,9 @@ func minerHost(addr netip.Addr, port string) (string, error) {
 }
 
 func parseRoutableMinerAddr(ipAddress string) (netip.Addr, error) {
-	addr, err := netip.ParseAddr(ipAddress)
+	addr, err := networking.ParseRoutableMinerAddr(ipAddress)
 	if err != nil {
-		return netip.Addr{}, fleeterror.NewFailedPreconditionErrorf("miner address %q is not a valid IP", ipAddress)
-	}
-	addr = addr.Unmap()
-	if addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() ||
-		addr.IsMulticast() || addr.IsInterfaceLocalMulticast() || addr.IsUnspecified() {
-		return netip.Addr{}, fleeterror.NewFailedPreconditionErrorf("miner address %q is not a routable miner address", ipAddress)
+		return netip.Addr{}, fleeterror.NewFailedPreconditionErrorf("%v", err)
 	}
 	return addr, nil
 }

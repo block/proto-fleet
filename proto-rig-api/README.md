@@ -14,8 +14,14 @@ proto-rig-api/
 ```
 
 The `grpc/` proto files are vendored as reference documentation of the on-rig
-gRPC surface; they are not inputs to Proto Fleet code generation. The OpenAPI
-spec is the source that drives generated code and the simulator (see below).
+gRPC surface and are not compiled by Proto Fleet's own codegen. One of them —
+`miner_telemetry_api.proto` — is additionally compiled in the miner-firmware
+repository (`tools/telemetry/otlp-bridge/generate-fleet-stubs.sh`) and the
+resulting Go stubs are vendored at `server/rig-otlp-bridge/internal/rigapi/`
+(the rig telemetry bridge sidecar, itself vendored from miner-firmware's
+otlp-bridge) and `server/fake-proto-rig/internal/rigapi/` (the simulator).
+The OpenAPI spec is the source that drives generated code and the simulator
+(see below).
 
 ## Usage
 

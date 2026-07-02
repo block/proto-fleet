@@ -1005,6 +1005,7 @@ func (s *Service) populateRackDetails(ctx context.Context, orgID int64, snapshot
 				Label: details.Label,
 			}
 			snapshot.RackPosition = details.Position
+			placement.Zone = details.Zone
 			if details.BuildingID != nil {
 				placement.Building = &commonpb.ResourceRef{
 					Id:    *details.BuildingID,

@@ -1,0 +1,14 @@
+apiVersion: 1
+
+# Rig telemetry dashboards vendored from miner-firmware (Loki panels
+# removed), stored as compact single-line JSON — re-vendor, don't hand-edit.
+providers:
+  - name: rig-telemetry
+    folder: Rig Telemetry
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards/rig-telemetry
+      foldersFromFilesStructure: false

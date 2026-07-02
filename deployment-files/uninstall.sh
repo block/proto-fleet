@@ -426,6 +426,19 @@ teardown_docker_stack() {
 
   cd "$DEPLOYMENT_PATH"
   docker_compose_cmd -f docker-compose.yaml down --rmi all --volumes --remove-orphans 2>/dev/null || true
+
+  # `down --volumes` only covers volumes declared in docker-compose.yaml;
+  # monitoring-overlay volumes are removed by exact project-scoped name
+  # (never pattern-matched: this deletes data).
+  local proj overlay_vol sep
+  proj=$(basename "$DEPLOYMENT_PATH")
+  for overlay_vol in grafana-data prometheus-data; do
+    for sep in _ -; do
+      docker volume ls -q 2>/dev/null \
+        | grep -Fx "${proj}${sep}${overlay_vol}" \
+        | xargs -r docker volume rm 2>/dev/null || true
+    done
+  done
   print_success "Containers, images, and volumes removed."
 }
 
