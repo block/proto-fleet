@@ -31,6 +31,12 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
   const permissions = usePermissions();
   const featureEnabled = useNavFeatureEnabled();
   const { activeSite } = useActiveSite({});
+  // Site-scoped links resolve the slug via ResolveSiteBySlug (site:read-gated),
+  // which bounces a role without site:read. Such a role has no meaningful site
+  // scope, so build unscoped links for it (e.g. Fleet reached via miner:read).
+  const canScopeToSite = permissions.includes("site:read");
+  const scopeLink = (item: Pick<NavItem, "path" | "scopable">) =>
+    item.scopable && canScopeToSite ? scopedPath(item.path, activeSite) : item.path;
   const [settingsManuallyToggled, setSettingsManuallyToggled] = useState(false);
   const visibleItems = useMemo(
     () => items.filter((item) => isNavItemAllowedByPermissions(item, permissions)),
@@ -116,7 +122,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
             })}
           >
             <Link
-              to={homeItem.scopable ? scopedPath(homeItem.path, activeSite) : homeItem.path}
+              to={scopeLink(homeItem)}
               aria-label="Home"
               className={clsx("flex items-center", {
                 "w-full": isPhone || isTablet,
@@ -148,7 +154,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
             return item.path ? (
               <li key={item.path} className="w-full">
                 <Link
-                  to={item.scopable ? scopedPath(item.path, activeSite) : item.path}
+                  to={scopeLink(item)}
                   onClick={() => closeMenu?.()}
                   aria-label={item.label}
                   aria-current={isCurrentPath(item) ? "page" : undefined}
