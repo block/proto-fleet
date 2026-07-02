@@ -42,6 +42,7 @@ import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetMa
 import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
 import { isPathScopable } from "@/protoFleet/routing/siteScope";
+import { useHasPermission } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
 
@@ -84,6 +85,11 @@ const applySiteScopeToMinerFilter = (
 
 const Fleet = () => {
   const navigate = useNavigate();
+  // ListDeviceSets (groups and racks alike) is gated on rack:read server-side.
+  // A Fleet+Miner role without rack:read can still open the miner list, so skip
+  // those fetches for it rather than firing permission-denied requests; the
+  // rack/group filters and assign-to-rack action degrade to empty.
+  const canReadRacks = useHasPermission("rack:read");
   const { listGroups, listRacks } = useDeviceSets();
   const { listAllBuildings } = useBuildings();
   const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
@@ -109,6 +115,7 @@ const Fleet = () => {
   );
 
   useEffect(() => {
+    if (!canReadRacks) return;
     listGroups({
       onSuccess: (deviceSets) => {
         setAvailableGroups(deviceSets);
@@ -119,7 +126,7 @@ const Fleet = () => {
         setAvailableRacks(deviceSets);
       },
     });
-  }, [listGroups, listRacks]);
+  }, [canReadRacks, listGroups, listRacks]);
 
   useEffect(() => {
     if (!siteCatalogAccessGranted) return;

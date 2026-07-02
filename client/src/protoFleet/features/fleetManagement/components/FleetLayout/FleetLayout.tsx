@@ -118,7 +118,12 @@ const FleetLayout = () => {
   const sitesAccessBlocked = !canReadSites || sitesPermissionDenied;
   const siteCatalogAccessGranted = canReadSites && sitesLoaded && !sitesPermissionDenied;
   const canReadRacksTab = canReadRacks;
-  const canReadMinersTab = canReadMiners && canReadRacks && canReadFleet;
+  // The miner list only needs miner:read (ListMinerStateSnapshots) plus the
+  // catalog-paired fleet:read. rack:read is NOT required: the rack/group
+  // filters and assign-to-rack action degrade gracefully when the role can't
+  // read device sets (Fleet.tsx guards those calls), so a Fleet+Miner role
+  // must still reach its miner list.
+  const canReadMinersTab = canReadMiners && canReadFleet;
   const canReadInfrastructureTab = !sitesAccessBlocked;
 
   // Permission source of truth for Fleet tabs. Feature flags can hide tab-strip

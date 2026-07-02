@@ -315,6 +315,20 @@ describe("FleetLayout scoped-permission fallback", () => {
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
     expect(screen.getByTestId("tab-content-miners")).toBeInTheDocument();
   });
+
+  test("mounts Miners for a Fleet+Miner role without rack:read", async () => {
+    // Regression: a role with all Fleet + Miner permissions but no rack:read
+    // (Sites/Buildings/Racks category) must still reach its miner list. The
+    // miner list only needs miner:read + fleet:read; rack-backed filters
+    // degrade rather than gate the tab.
+    hasPermissionMock.current = (key: string) => key === "miner:read" || key === "fleet:read";
+
+    renderAt("/fleet/miners");
+
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
+    expect(screen.getByTestId("tab-content-miners")).toBeInTheDocument();
+    expect(screen.queryByText("You do not have permission to view Fleet sections.")).not.toBeInTheDocument();
+  });
 });
 
 describe("FleetLayout CompleteSetup gate", () => {

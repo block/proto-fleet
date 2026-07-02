@@ -20,6 +20,15 @@ const { listRacksMock, listGroupsMock, pushToastMock } = vi.hoisted(() => ({
   pushToastMock: vi.fn(),
 }));
 
+// Apply-to target buttons are gated per read permission. Default to granting
+// all reads so existing target-visibility tests are unaffected; individual
+// tests narrow this to cover restricted roles.
+const hasPermissionMock = vi.hoisted(() => ({ current: (_key: string): boolean => true }));
+
+vi.mock("@/protoFleet/store", () => ({
+  useHasPermission: (key: string) => hasPermissionMock.current(key),
+}));
+
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: () => ({
     listRacks: listRacksMock,
@@ -344,6 +353,7 @@ describe("ScheduleModal Apply-to targets", () => {
     listGroupsMock.mockImplementation(() => undefined);
     pushToastMock.mockReset();
     activeSiteMock.current = { kind: "all" };
+    hasPermissionMock.current = () => true;
   });
 
   const renderCreateModal = () =>
@@ -380,5 +390,22 @@ describe("ScheduleModal Apply-to targets", () => {
     expect(screen.getByText("Racks")).toBeInTheDocument();
     expect(screen.getByText("Groups")).toBeInTheDocument();
     expect(screen.getByText("Miners")).toBeInTheDocument();
+  });
+
+  it("hides target types the role cannot read", () => {
+    // A Fleet+Miner+Schedules role (no site:read / rack:read) can only target
+    // miners; the site/building/rack/group pickers would hit permission-denied
+    // list RPCs, so their buttons must not be offered.
+    hasPermissionMock.current = (key: string) => key === "miner:read";
+    renderCreateModal();
+
+    expect(screen.getByText("Miners")).toBeInTheDocument();
+    expect(screen.queryByText("Sites")).not.toBeInTheDocument();
+    expect(screen.queryByText("Buildings")).not.toBeInTheDocument();
+    expect(screen.queryByText("Racks")).not.toBeInTheDocument();
+    expect(screen.queryByText("Groups")).not.toBeInTheDocument();
+    // No rack/group list RPC should fire without rack:read.
+    expect(listRacksMock).not.toHaveBeenCalled();
+    expect(listGroupsMock).not.toHaveBeenCalled();
   });
 });

@@ -42,6 +42,7 @@ import {
   formatDateValue,
   parseDate as parseScheduleDate,
 } from "@/protoFleet/features/settings/utils/scheduleDateUtils";
+import { useHasPermission } from "@/protoFleet/store";
 import { ChevronDown } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
@@ -281,6 +282,14 @@ const ScheduleModal = ({
   onResumeSchedule,
 }: ScheduleModalProps) => {
   const isEditMode = Boolean(schedule);
+  // "Apply to" target types are each gated on the read permission their
+  // selection modal (and its list RPC) requires: sites/buildings need
+  // site:read, racks/groups need rack:read (ListDeviceSets), miners need
+  // miner:read. A role without a given permission can't list those targets, so
+  // offering the button just leads to a permission-denied dead end — hide it.
+  const canReadSites = useHasPermission("site:read");
+  const canReadRacks = useHasPermission("rack:read");
+  const canReadMiners = useHasPermission("miner:read");
   const { listRacks, listGroups } = useDeviceSets();
   // Soft default from the topbar SitePicker (store-driven; settings routes are
   // unscoped, so this reads the stored selection). A single selected site
@@ -348,6 +357,13 @@ const ScheduleModal = ({
     if (!open) {
       return;
     }
+    // ListDeviceSets (racks and groups) is gated on rack:read server-side;
+    // skip the fetch for roles without it so opening the modal doesn't fire
+    // permission-denied requests. The rack/group target buttons are hidden for
+    // those roles anyway.
+    if (!canReadRacks) {
+      return;
+    }
 
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset available-target state and fetch racks/groups when modal opens
     setAvailableGroupIds(new Set());
@@ -374,7 +390,7 @@ const ScheduleModal = ({
         });
       },
     });
-  }, [listGroups, listRacks, open]);
+  }, [canReadRacks, listGroups, listRacks, open]);
 
   useEffect(() => {
     valuesRef.current = values;
@@ -851,31 +867,41 @@ const ScheduleModal = ({
             <div className={sectionBodyClassName}>
               <div className={sectionTitleClassName}>Apply to</div>
               <div className="grid">
-                <TargetSelectButton
-                  label="Sites"
-                  value={getTargetButtonLabel(values.siteTargetIds.length, "site")}
-                  onClick={() => setShowSiteSelectionModal(true)}
-                />
-                <TargetSelectButton
-                  label="Buildings"
-                  value={getTargetButtonLabel(values.buildingTargetIds.length, "building")}
-                  onClick={() => setShowBuildingSelectionModal(true)}
-                />
-                <TargetSelectButton
-                  label="Racks"
-                  value={getTargetButtonLabel(validRackTargetCount, "rack")}
-                  onClick={() => setShowRackSelectionModal(true)}
-                />
-                <TargetSelectButton
-                  label="Groups"
-                  value={getTargetButtonLabel(validGroupTargetCount, "group")}
-                  onClick={() => setShowGroupSelectionModal(true)}
-                />
-                <TargetSelectButton
-                  label="Miners"
-                  value={getTargetButtonLabel(validMinerTargetCount, "miner")}
-                  onClick={() => setShowMinerSelectionModal(true)}
-                />
+                {canReadSites ? (
+                  <TargetSelectButton
+                    label="Sites"
+                    value={getTargetButtonLabel(values.siteTargetIds.length, "site")}
+                    onClick={() => setShowSiteSelectionModal(true)}
+                  />
+                ) : null}
+                {canReadSites ? (
+                  <TargetSelectButton
+                    label="Buildings"
+                    value={getTargetButtonLabel(values.buildingTargetIds.length, "building")}
+                    onClick={() => setShowBuildingSelectionModal(true)}
+                  />
+                ) : null}
+                {canReadRacks ? (
+                  <TargetSelectButton
+                    label="Racks"
+                    value={getTargetButtonLabel(validRackTargetCount, "rack")}
+                    onClick={() => setShowRackSelectionModal(true)}
+                  />
+                ) : null}
+                {canReadRacks ? (
+                  <TargetSelectButton
+                    label="Groups"
+                    value={getTargetButtonLabel(validGroupTargetCount, "group")}
+                    onClick={() => setShowGroupSelectionModal(true)}
+                  />
+                ) : null}
+                {canReadMiners ? (
+                  <TargetSelectButton
+                    label="Miners"
+                    value={getTargetButtonLabel(validMinerTargetCount, "miner")}
+                    onClick={() => setShowMinerSelectionModal(true)}
+                  />
+                ) : null}
               </div>
             </div>
           </section>
