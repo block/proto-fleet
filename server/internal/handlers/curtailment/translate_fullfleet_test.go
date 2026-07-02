@@ -196,6 +196,36 @@ func TestToStartResponse_AllPairedFullFleetUsesBoundedTargetRollup(t *testing.T)
 	assert.Equal(t, int32(2), event.GetTargetRollup().GetTotal())
 }
 
+// Mirrors the persisted state: an all-paired start whose every paired miner
+// is unavailable holds in pending, so the synchronous response must not
+// claim the event is actively enforcing.
+func TestToStartResponse_AllPairedAllUnavailableReturnsPending(t *testing.T) {
+	t.Parallel()
+
+	plan := &curtailment.Plan{
+		Selected: []curtailment.SelectedDevice{
+			{DeviceIdentifier: "offline", TargetState: models.TargetStateUnavailable, LastError: "offline"},
+			{DeviceIdentifier: "auth-needed", TargetState: models.TargetStateUnavailable, LastError: "authentication_needed"},
+		},
+		PolicyTargetCount:      2,
+		UnavailableTargetCount: 2,
+	}
+	req := &pb.StartCurtailmentRequest{
+		Mode:                        pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+		Scope:                       &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+		ForceIncludeAllPairedMiners: true,
+	}
+
+	event := toStartResponse(plan, req).GetEvent()
+	require.NotNil(t, event)
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING, event.GetState())
+	assert.Nil(t, event.GetStartedAt())
+	assert.Empty(t, event.GetTargets())
+	assert.Equal(t, int32(0), event.GetTargetRollup().GetPending())
+	assert.Equal(t, int32(2), event.GetTargetRollup().GetUnavailable())
+	assert.Equal(t, int32(2), event.GetTargetRollup().GetTotal())
+}
+
 func TestToPreviewResponse_AllPairedUsesBoundedCounts(t *testing.T) {
 	t.Parallel()
 

@@ -122,6 +122,9 @@ func TestService_Start_FullFleet_AllPairedPersistsPolicyTargetsImmediately(t *te
 
 	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
 	assert.True(t, store.lastInsertEvent.ForceIncludeAllPairedMiners)
+	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State,
+		"a dispatchable target exists, so enforcement starts immediately")
+	assert.NotNil(t, store.lastInsertEvent.StartedAt)
 	assert.Equal(t, 3, plan.PolicyTargetCount)
 	assert.Equal(t, 2, plan.UnavailableTargetCount)
 	require.Len(t, store.lastInsertTargets, 3)
@@ -143,6 +146,42 @@ func TestService_Start_FullFleet_AllPairedPersistsPolicyTargetsImmediately(t *te
 	assert.True(t, snapshot.ForceIncludeAllPairedMiners)
 	assert.Equal(t, 3, snapshot.PolicyTargetCount)
 	assert.Equal(t, 2, snapshot.UnavailableTargetCount)
+}
+
+// An all-paired start whose every paired miner is currently unavailable
+// holds in pending with no started_at: inserting it ACTIVE would start
+// enforceMaxDuration's clock before a single Curtail could dispatch, and the
+// forced restore would then release the never-dispatched policy rows —
+// dropping durable ownership having curtailed nothing. The reconciler
+// promotes the event to active once a target confirms.
+func TestService_Start_FullFleet_AllPairedAllUnavailableHoldsPending(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		miner("offline", "OFFLINE", "PAIRED", 0, 0),
+		miner("auth-needed", "ACTIVE", "AUTHENTICATION_NEEDED", 0, 0),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, models.EventStatePending, store.lastInsertEvent.State,
+		"nothing dispatchable yet: the max-duration clock must not start")
+	assert.Nil(t, store.lastInsertEvent.StartedAt)
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	assert.Equal(t, 2, plan.UnavailableTargetCount)
+	require.Len(t, store.lastInsertTargets, 2)
+	assert.Equal(t, models.TargetStateUnavailable, store.lastInsertTargets[0].State)
+	assert.Equal(t, models.TargetStateUnavailable, store.lastInsertTargets[1].State)
 }
 
 func TestService_Start_FullFleet_AllPairedBypassesPostEventCooldown(t *testing.T) {

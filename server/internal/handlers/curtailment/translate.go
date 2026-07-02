@@ -326,7 +326,13 @@ func toCompositeScope(scopes []*pb.CurtailmentScope) (curtailment.Scope, error) 
 }
 
 // startResponseState mirrors the persisted state for the synchronous Start response.
-func startResponseState(req *pb.StartCurtailmentRequest, selected int) pb.CurtailmentEventState {
+func startResponseState(req *pb.StartCurtailmentRequest, selected, unavailable int) pb.CurtailmentEventState {
+	// Mirrors buildInsertParams: an all-paired start whose every paired
+	// miner is currently unavailable persists as PENDING (no started_at)
+	// so the max-duration clock does not run before anything dispatches.
+	if req.GetForceIncludeAllPairedMiners() && selected > 0 && unavailable == selected {
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING
+	}
 	if isClosedLoopFullFleetStartResponse(req) {
 		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE
 	}
@@ -368,7 +374,7 @@ func isClosedLoopFullFleetStartResponse(req *pb.StartCurtailmentRequest) bool {
 // response. Idempotent replays render from the persisted event row.
 func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *pb.StartCurtailmentResponse {
 	event := &pb.CurtailmentEvent{
-		State:                       startResponseState(req, len(plan.Selected)),
+		State:                       startResponseState(req, len(plan.Selected), plan.UnavailableTargetCount),
 		Mode:                        requestModeProto(req.GetMode()),
 		Strategy:                    pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
 		Level:                       pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,

@@ -1700,12 +1700,27 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		return models.InsertEventParams{}, nil, err
 	}
 
+	startState := eventStartState(scope, mode, len(plan.Selected))
+	// An all-paired start whose every paired miner is currently unavailable
+	// holds in pending: closed-loop full-fleet starts otherwise insert as
+	// ACTIVE with started_at stamped, so observeActive would enforce
+	// max_duration_seconds before a single Curtail could be dispatched and
+	// the forced restore would release the never-dispatched policy rows —
+	// dropping durable ownership having curtailed nothing. The reconciler
+	// promotes the event to active (stamping started_at) once a target
+	// confirms; readiness refresh and admission both run during pending.
+	if req.ForceIncludeAllPairedMiners &&
+		len(plan.Selected) > 0 &&
+		plan.UnavailableTargetCount == len(plan.Selected) {
+		startState = models.EventStatePending
+	}
+
 	// effective_batch_size is non-null from Start so Stop / restorer /
 	// response paths just read the column.
 	event := models.InsertEventParams{
 		EventUUID:                   uuid.New(),
 		OrgID:                       req.OrgID,
-		State:                       eventStartState(scope, mode, len(plan.Selected)),
+		State:                       startState,
 		Mode:                        mode,
 		Strategy:                    models.StrategyLeastEfficientFirst,
 		Level:                       models.LevelFull,

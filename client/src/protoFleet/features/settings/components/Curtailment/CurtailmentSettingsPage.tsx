@@ -173,7 +173,11 @@ const emptyResponseProfileFormValues: ResponseProfileFormValues = {
   restoreBatchSize: "",
   restoreIntervalSec: "",
   responseDeadlineMinutes: "15",
-  includeMaintenance: true,
+  // Maintenance-flagged miners are excluded by default: force_include_maintenance
+  // is admin-gated server-side, so defaulting it on would block non-admin
+  // operators with curtailment:manage from saving any profile. "Target all
+  // paired miners" opts the maintenance population in (admin-gated anyway).
+  includeMaintenance: false,
   forceIncludeAllPairedMiners: false,
 };
 

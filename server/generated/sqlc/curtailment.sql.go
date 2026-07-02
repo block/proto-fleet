@@ -1438,12 +1438,17 @@ WHERE ce.org_id = $1
     AND ce.loop_type = 'closed'
     -- All-paired policies keep the scope lock so miners that became
     -- paired-like between admission ticks stay owned before their target row
-    -- exists, but a RELEASED policy row is an explicit relinquishment (device
-    -- no longer paired-like, or released without dispatch at Stop) and must
-    -- let the device leave the suppression set while the event is still
-    -- non-terminal.
+    -- exists. RELEASED policy rows stay suppressed while the event is
+    -- pending/active: release-on-unpair is temporary — the admission pass
+    -- reopens the row when the miner is paired-like again, and exempting it
+    -- here would let a regular start claim the miner in the gap between
+    -- re-pairing and the next (batch-interval-gated) reopen. Only during the
+    -- restoring wind-down, when admission no longer runs and reopen is
+    -- impossible, does a released row (released without dispatch at Stop)
+    -- free the device for other events instead of holding it until terminal.
     AND NOT (
         ce.force_include_all_paired_miners
+        AND ce.state = 'restoring'
         AND EXISTS (
             SELECT 1
             FROM curtailment_target released_target

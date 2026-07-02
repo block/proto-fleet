@@ -135,8 +135,11 @@ func TestSQLCurtailmentStore_ClaimAllPairedPolicyTargets_InsertsReopensAndSkipsC
 // all-paired events: the scope watcher keeps devices locked before their
 // policy row exists (miners that became paired-like between admission ticks
 // must not be claimable by other selectors), concrete non-terminal rows lock
-// as usual, and an explicitly RELEASED policy row lets the device leave the
-// suppression set while the event is still active.
+// as usual, and RELEASED policy rows stay suppressed while the event is
+// pending/active (the admission pass will reopen them — exempting them would
+// let a regular start claim a re-paired miner in the gap before the next
+// reopen). Only during the restoring wind-down, when reopen is impossible,
+// does a released row free its device.
 func TestSQLCurtailmentStore_ListActiveCurtailedDevices_AllPairedScopeLockAndReleasedRows(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
@@ -144,17 +147,18 @@ func TestSQLCurtailmentStore_ListActiveCurtailedDevices_AllPairedScopeLockAndRel
 
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
 	user := testContext.DatabaseService.CreateSuperAdminUser()
+	db := testContext.DatabaseService.DB
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(db)
 
 	deviceIDs := testContext.DatabaseService.CreateTestMiners(user.OrganizationID, 3, "https://172.17.0.1:80")
 	unclaimed, released, unavailable := deviceIDs[0], deviceIDs[1], deviceIDs[2]
 
-	_, err := store.InsertEventWithTargets(
+	inserted, err := store.InsertEventWithTargets(
 		ctx,
 		curtailmentStoreAllPairedEvent(user.OrganizationID, user.DatabaseID, uuid.New(), "all-paired-scope-lock"),
 		[]models.InsertTargetParams{
-			curtailmentStoreAllPairedTarget(released, models.TargetStateReleased, "released without restore: no curtail command dispatched"),
+			curtailmentStoreAllPairedTarget(released, models.TargetStateReleased, "released: device is no longer paired-like"),
 			curtailmentStoreAllPairedTarget(unavailable, models.TargetStateUnavailable, "offline"),
 		},
 	)
@@ -164,7 +168,18 @@ func TestSQLCurtailmentStore_ListActiveCurtailedDevices_AllPairedScopeLockAndRel
 	require.NoError(t, err)
 	assert.Contains(t, got, unclaimed, "scope lock must hold for in-scope miners without a policy row yet")
 	assert.Contains(t, got, unavailable, "non-terminal policy rows lock their device")
-	assert.NotContains(t, got, released, "released policy rows relinquish the device")
+	assert.Contains(t, got, released,
+		"released rows stay suppressed while active: admission reopens them, so the device must not be claimable in the gap")
+
+	_, err = db.ExecContext(ctx, `UPDATE curtailment_event SET state = 'restoring' WHERE id = $1`, inserted.ID)
+	require.NoError(t, err)
+
+	got, err = store.ListActiveCurtailedDevices(ctx, user.OrganizationID)
+	require.NoError(t, err)
+	assert.Contains(t, got, unclaimed, "the scope lock holds through the restoring wind-down")
+	assert.Contains(t, got, unavailable)
+	assert.NotContains(t, got, released,
+		"during restoring, reopen is impossible: released rows free their device instead of holding it until terminal")
 }
 
 // Pins BulkRefreshAllPairedTargetReadiness' real SQL: pending/unavailable

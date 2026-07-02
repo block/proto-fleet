@@ -751,7 +751,7 @@ describe("CurtailmentSettingsPage", () => {
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
         responseDeadlineMinutes: "15",
-        includeMaintenance: true,
+        includeMaintenance: false,
       }),
     );
     expect(pushToast).toHaveBeenCalledWith({
@@ -921,7 +921,7 @@ describe("CurtailmentSettingsPage", () => {
           curtailBatchIntervalSec: "60",
           restoreBatchSize: "10",
           restoreIntervalSec: "120",
-          includeMaintenance: true,
+          includeMaintenance: false,
         }),
       ),
     );
@@ -998,6 +998,44 @@ describe("CurtailmentSettingsPage", () => {
       message: "Response profile deleted",
       status: "success",
     });
+  });
+
+  it("preserves the all-paired flag when editing and saving a profile", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    const allPairedProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "all-paired-shed",
+      name: "All-paired shed",
+      formValues: {
+        ...testResponseProfiles[0].formValues!,
+        name: "All-paired shed",
+        forceIncludeAllPairedMiners: true,
+      },
+    };
+    mockResponseProfilesApi({ responseProfiles: [allPairedProfile] });
+    updateResponseProfileMock.mockResolvedValue(allPairedProfile);
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(within(getResponseProfileCard("All-paired shed")).getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Edit response profile")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Target all paired miners" })).toBeChecked();
+
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "All-paired shed v2" } });
+    fireEvent.click(getEnabledButton("Save profile"));
+
+    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
+    expect(updateResponseProfileMock).toHaveBeenCalledWith(
+      "all-paired-shed",
+      expect.objectContaining({
+        name: "All-paired shed v2",
+        forceIncludeAllPairedMiners: true,
+      }),
+    );
   });
 
   it("preserves site scope when saving an API response profile", async () => {
