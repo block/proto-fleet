@@ -2340,12 +2340,17 @@ WHERE curtailment_event_id = $1
   AND last_dispatched_at IS NULL
   AND curtail_dispatched_at IS NULL
   AND retry_count = 0
-  AND curtail_failure_count = 0
 `
 
 // All-paired policy targets that never received a Curtail command do not need
 // Uncurtail. Release them before the restore reset so graceful Stop does not
 // enqueue no-op restore work for offline/auth-needed miners.
+//
+// "Never attempted" is retry_count = 0 plus NULL dispatch timestamps: every
+// dispatch attempt/failure bumps retry_count and every successful enqueue
+// stamps last_dispatched_at. curtail_failure_count is deliberately NOT
+// checked — readiness flaps (pending -> unavailable reason writes) inflate it
+// without any command ever being sent.
 func (q *Queries) ReleaseUndispatchedAllPairedTargetsForRestore(ctx context.Context, curtailmentEventID int64) (int64, error) {
 	result, err := q.exec(ctx, q.releaseUndispatchedAllPairedTargetsForRestoreStmt, releaseUndispatchedAllPairedTargetsForRestore, curtailmentEventID)
 	if err != nil {

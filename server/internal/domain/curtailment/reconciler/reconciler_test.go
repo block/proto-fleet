@@ -1012,6 +1012,59 @@ func TestReconciler_AllPairedPolicyPendingTargetBecomesUnavailableWhenOffline(t 
 	assert.Equal(t, "offline", *final.LastError)
 }
 
+func TestReconciler_AllPairedPolicyUnavailableTargetReleasedWhenNoLongerPairedLike(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	offlineReason := "offline"
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStateActive,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			CreatedByUserID:             99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "unpaired",
+			State:              models.TargetStateUnavailable,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &offlineReason,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "vanished",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		// "unpaired" is still a candidate row but no longer paired-like;
+		// "vanished" has no candidate row at all (deleted device).
+		{DeviceIdentifier: "unpaired", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "UNPAIRED"},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.curtailCalls)
+	for _, target := range store.targetsByEventID[eventID] {
+		assert.Equal(t, models.TargetStateReleased, target.State, target.DeviceIdentifier)
+		require.NotNil(t, target.LastError, target.DeviceIdentifier)
+		assert.Equal(t, "released: device is no longer paired-like", *target.LastError, target.DeviceIdentifier)
+	}
+}
+
 func TestAllPairedPolicyRefreshDeviceIdentifiersOnlyIncludesRefreshableTargets(t *testing.T) {
 	t.Parallel()
 

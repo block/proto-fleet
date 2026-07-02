@@ -982,6 +982,12 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
 -- All-paired policy targets that never received a Curtail command do not need
 -- Uncurtail. Release them before the restore reset so graceful Stop does not
 -- enqueue no-op restore work for offline/auth-needed miners.
+--
+-- "Never attempted" is retry_count = 0 plus NULL dispatch timestamps: every
+-- dispatch attempt/failure bumps retry_count and every successful enqueue
+-- stamps last_dispatched_at. curtail_failure_count is deliberately NOT
+-- checked — readiness flaps (pending -> unavailable reason writes) inflate it
+-- without any command ever being sent.
 UPDATE curtailment_target
 SET state              = 'released',
     last_error         = COALESCE(last_error, 'released without restore: no curtail command dispatched'),
@@ -993,8 +999,7 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND state IN ('pending', 'unavailable')
   AND last_dispatched_at IS NULL
   AND curtail_dispatched_at IS NULL
-  AND retry_count = 0
-  AND curtail_failure_count = 0;
+  AND retry_count = 0;
 
 -- name: ResumeCurtailmentFromRestoring :one
 -- Restore reversal: go back through pending so the curtail dispatcher picks

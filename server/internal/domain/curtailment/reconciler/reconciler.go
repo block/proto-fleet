@@ -1072,20 +1072,6 @@ func targetErrorString(target *models.Target) string {
 	return *target.LastError
 }
 
-func targetDeviceIdentifiers(targets []*models.Target) []string {
-	if len(targets) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(targets))
-	for _, target := range targets {
-		if target == nil || target.DeviceIdentifier == "" {
-			continue
-		}
-		out = append(out, target.DeviceIdentifier)
-	}
-	return out
-}
-
 func allPairedPolicyRefreshDeviceIdentifiers(targets []*models.Target) []string {
 	if len(targets) == 0 {
 		return nil

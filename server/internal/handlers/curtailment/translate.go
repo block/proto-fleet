@@ -446,25 +446,17 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 		}
 	}
 	event.Targets = targets
-	pendingCount := 0
 	unavailableCount := 0
 	totalCount := len(targets)
 	for _, target := range targets {
-		switch target.GetState() {
-		case pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNAVAILABLE:
+		if target.GetState() == pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNAVAILABLE {
 			unavailableCount++
-		case pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNSPECIFIED,
-			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING,
-			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHING,
-			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHED,
-			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED,
-			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DRIFTED,
-			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESOLVED,
-			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RELEASED,
-			pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESTORE_FAILED:
-			pendingCount++
 		}
 	}
+	// Non-unavailable targets in a synchronous Start response are all pending;
+	// deriving by subtraction keeps a future enum value from being dropped
+	// from both buckets.
+	pendingCount := totalCount - unavailableCount
 	if len(targets) == 0 && req.GetForceIncludeAllPairedMiners() {
 		pendingCount = len(plan.Selected) - plan.UnavailableTargetCount
 		unavailableCount = plan.UnavailableTargetCount
@@ -620,8 +612,8 @@ func toPreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailmentPlanReq
 		EstimatedRemainingPowerKw: plan.EstimatedRemainingPowerKW,
 		Mode:                      requestModeProto(req.GetMode()),
 		SkippedCandidates:         skipped,
-		PolicyTargetCount:         uint32SaturatingInt(plan.PolicyTargetCount),
-		UnavailableTargetCount:    uint32SaturatingInt(plan.UnavailableTargetCount),
+		PolicyTargetCount:         uint32SaturatingInt64(int64(plan.PolicyTargetCount)),
+		UnavailableTargetCount:    uint32SaturatingInt64(int64(plan.UnavailableTargetCount)),
 	}
 	// Echo FIXED_KW params so the UI can render the undershoot delta.
 	if fk := req.GetFixedKw(); fk != nil {
@@ -1207,16 +1199,6 @@ func uint32Saturating(v int32) uint32 {
 }
 
 func uint32SaturatingInt64(v int64) uint32 {
-	if v < 0 {
-		return 0
-	}
-	if v > math.MaxUint32 {
-		return math.MaxUint32
-	}
-	return uint32(v) // #nosec G115 -- bounds-checked above
-}
-
-func uint32SaturatingInt(v int) uint32 {
 	if v < 0 {
 		return 0
 	}
