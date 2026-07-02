@@ -4,6 +4,8 @@ export type ValidationState = "ok" | "failed" | "pending";
 export interface WebhookConfig {
   url: string;
   bearer_header: string | null;
+  // Write-only: on update, revoke the stored bearer even when the URL is unchanged (an empty bearer_header alone means "keep").
+  clear_bearer_header?: boolean;
 }
 
 export interface SlackConfig {
