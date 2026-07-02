@@ -306,6 +306,10 @@ const ScheduleModal = ({
   const { totalMiners: totalAvailableMiners, hasInitialLoadCompleted: hasLoadedAvailableMiners } = useFleet({
     pageSize: 1,
     pairingStatuses: [PairingStatus.PAIRED],
+    // ListMinerStateSnapshots is gated on miner:read; a schedule manager
+    // without it shouldn't fire a permission-denied miner-list RPC just by
+    // opening the modal (the Miners target button is hidden for them anyway).
+    enabled: canReadMiners,
   });
   const [values, setValues] = useState<ScheduleFormValues>(() => createDefaultScheduleFormValues());
   const [availableRackIds, setAvailableRackIds] = useState<Set<string>>(new Set());

@@ -14,10 +14,11 @@ import {
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import { getNextEndTimeAfterStart } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
 
-const { listRacksMock, listGroupsMock, pushToastMock } = vi.hoisted(() => ({
+const { listRacksMock, listGroupsMock, pushToastMock, useFleetMock } = vi.hoisted(() => ({
   listRacksMock: vi.fn(),
   listGroupsMock: vi.fn(),
   pushToastMock: vi.fn(),
+  useFleetMock: vi.fn(() => ({ totalMiners: 1, hasInitialLoadCompleted: true })),
 }));
 
 // Apply-to target buttons are gated per read permission. Default to granting
@@ -38,10 +39,7 @@ vi.mock("@/protoFleet/api/useDeviceSets", () => ({
 
 vi.mock("@/protoFleet/api/useFleet", () => ({
   __esModule: true,
-  default: () => ({
-    totalMiners: 1,
-    hasInitialLoadCompleted: true,
-  }),
+  default: useFleetMock,
 }));
 
 // The schedule modal reads the topbar SitePicker selection for soft scoping.
@@ -352,6 +350,7 @@ describe("ScheduleModal Apply-to targets", () => {
     listGroupsMock.mockReset();
     listGroupsMock.mockImplementation(() => undefined);
     pushToastMock.mockReset();
+    useFleetMock.mockClear();
     activeSiteMock.current = { kind: "all" };
     hasPermissionMock.current = () => true;
   });
@@ -407,5 +406,15 @@ describe("ScheduleModal Apply-to targets", () => {
     // No rack/group list RPC should fire without rack:read.
     expect(listRacksMock).not.toHaveBeenCalled();
     expect(listGroupsMock).not.toHaveBeenCalled();
+  });
+
+  it("does not fetch the miner list for a role without miner:read", () => {
+    // ListMinerStateSnapshots is gated on miner:read; opening the modal must
+    // not fire it (nor advertise the Miners target) for a role that lacks it.
+    hasPermissionMock.current = (key: string) => key === "site:read";
+    renderCreateModal();
+
+    expect(screen.queryByText("Miners")).not.toBeInTheDocument();
+    expect(useFleetMock).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
   });
 });
