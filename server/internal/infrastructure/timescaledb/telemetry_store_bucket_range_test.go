@@ -145,4 +145,14 @@ func TestRawMetricBucketCount(t *testing.T) {
 	assert.Equal(t, int64(0), rawMetricBucketCount(startTime, startTime.Add(-time.Second), time.Minute))
 	assert.Equal(t, int64(1), rawMetricBucketCount(startTime, startTime, time.Minute))
 	assert.Equal(t, int64(1441), rawMetricBucketCount(startTime, startTime.Add(24*time.Hour), time.Minute))
+
+	// An unaligned window straddles one more time_bucket boundary than its
+	// duration implies: 00:00:59..00:01:00 at 10s spans buckets :50 and :00
+	unaligned := time.Date(2026, time.January, 10, 0, 0, 59, 0, time.UTC)
+	assert.Equal(t, int64(2), rawMetricBucketCount(unaligned, unaligned.Add(time.Second), 10*time.Second))
+	assert.Equal(t, int64(1), rawMetricBucketCount(unaligned, unaligned.Add(time.Second-time.Nanosecond), 10*time.Second))
+
+	// Pre-origin timestamps still floor to the correct bucket index
+	preOrigin := time.Date(1999, time.December, 31, 23, 59, 59, 0, time.UTC)
+	assert.Equal(t, int64(2), rawMetricBucketCount(preOrigin, preOrigin.Add(time.Second), 10*time.Second))
 }

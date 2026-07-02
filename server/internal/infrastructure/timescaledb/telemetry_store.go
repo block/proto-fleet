@@ -130,11 +130,30 @@ func rawMetricBucketDuration(slideInterval *time.Duration, allDevices bool) time
 	return bucketDuration
 }
 
+// timeBucketOrigin is TimescaleDB's default time_bucket origin for
+// sub-month intervals. Bucket counting must use the same grid: an unaligned
+// window straddles one more boundary than its duration implies, so counting
+// duration/width+1 undercounts and can let a request past the bucket cap.
+var timeBucketOrigin = time.Date(2000, time.January, 3, 0, 0, 0, 0, time.UTC)
+
 func rawMetricBucketCount(startTime, endTime time.Time, bucketDuration time.Duration) int64 {
 	if bucketDuration <= 0 || endTime.Before(startTime) {
 		return 0
 	}
-	return int64(endTime.Sub(startTime)/bucketDuration) + 1
+	width := bucketDuration.Nanoseconds()
+	firstBucket := floorDiv(startTime.Sub(timeBucketOrigin).Nanoseconds(), width)
+	lastBucket := floorDiv(endTime.Sub(timeBucketOrigin).Nanoseconds(), width)
+	return lastBucket - firstBucket + 1
+}
+
+// floorDiv floors instead of truncating toward zero so pre-origin timestamps
+// still map to the correct bucket index.
+func floorDiv(a, b int64) int64 {
+	q := a / b
+	if a%b != 0 && (a < 0) != (b < 0) {
+		q--
+	}
+	return q
 }
 
 // statusData holds a per-device temperature histogram for one bucket.
