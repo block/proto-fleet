@@ -88,3 +88,47 @@ func TestShouldUseHourlyForRawMetricSampleCost_KeepsShortRangesRaw(t *testing.T)
 
 	assert.False(t, shouldUseHourlyForRawMetricSampleCost(startTime, endTime, 5000))
 }
+
+func TestShouldUseHourlyForRawMetricSampleCost_BucketAlignment(t *testing.T) {
+	tests := []struct {
+		name      string
+		startTime time.Time
+		endTime   time.Time
+		expected  bool
+	}{
+		{
+			name:      "unaligned one-hour window stays raw",
+			startTime: time.Date(2026, time.January, 10, 10, 15, 0, 0, time.UTC),
+			endTime:   time.Date(2026, time.January, 10, 11, 15, 0, 0, time.UTC),
+			expected:  false,
+		},
+		{
+			name:      "aligned one-hour window routes to hourly",
+			startTime: time.Date(2026, time.January, 10, 10, 0, 0, 0, time.UTC),
+			endTime:   time.Date(2026, time.January, 10, 11, 0, 0, 0, time.UTC),
+			expected:  true,
+		},
+		{
+			name:      "unaligned window ending on boundary routes to hourly",
+			startTime: time.Date(2026, time.January, 10, 10, 15, 0, 0, time.UTC),
+			endTime:   time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC),
+			expected:  true,
+		},
+		{
+			name:      "unaligned multi-hour window routes to hourly",
+			startTime: time.Date(2026, time.January, 10, 10, 15, 0, 0, time.UTC),
+			endTime:   time.Date(2026, time.January, 10, 13, 15, 0, 0, time.UTC),
+			expected:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			got := shouldUseHourlyForRawMetricSampleCost(tc.startTime, tc.endTime, 100000)
+
+			// Assert
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+}

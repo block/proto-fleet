@@ -44,13 +44,19 @@ FROM device_metrics_daily dmd
 JOIN device d
   ON d.device_identifier = dmd.device_identifier
  AND d.org_id = $1
- AND d.deleted_at IS NULL
  AND dmd.bucket + INTERVAL '1 day' > d.created_at
+ AND (d.deleted_at IS NULL OR dmd.bucket < d.deleted_at)
  AND (dmd.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
+ AND (d.deleted_at IS NULL
+      OR dmd.bucket + INTERVAL '1 day' <= d.deleted_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device nxt
+          WHERE nxt.device_identifier = d.device_identifier
+            AND nxt.created_at > d.created_at))
 WHERE dmd.bucket >= $2
   AND dmd.bucket <= $3
 ORDER BY dmd.bucket ASC
@@ -118,13 +124,19 @@ FROM device_metrics_hourly dmh
 JOIN device d
   ON d.device_identifier = dmh.device_identifier
  AND d.org_id = $1
- AND d.deleted_at IS NULL
  AND dmh.bucket + INTERVAL '1 hour' > d.created_at
+ AND (d.deleted_at IS NULL OR dmh.bucket < d.deleted_at)
  AND (dmh.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
+ AND (d.deleted_at IS NULL
+      OR dmh.bucket + INTERVAL '1 hour' <= d.deleted_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device nxt
+          WHERE nxt.device_identifier = d.device_identifier
+            AND nxt.created_at > d.created_at))
 WHERE dmh.bucket >= $2
   AND dmh.bucket <= $3
 ORDER BY dmh.bucket ASC
@@ -210,8 +222,8 @@ WITH per_device_bucket AS (
     JOIN device d
       ON d.device_identifier = dm.device_identifier
      AND d.org_id = $2
-     AND d.deleted_at IS NULL
      AND dm.time >= d.created_at
+     AND (d.deleted_at IS NULL OR dm.time < d.deleted_at)
     WHERE dm.time >= $3
       AND dm.time <= $4
     GROUP BY bucket, dm.device_identifier
@@ -472,13 +484,19 @@ FROM device_status_daily dsd
 JOIN device d
   ON d.device_identifier = dsd.device_identifier
  AND d.org_id = $1
- AND d.deleted_at IS NULL
  AND dsd.bucket + INTERVAL '1 day' > d.created_at
+ AND (d.deleted_at IS NULL OR dsd.bucket < d.deleted_at)
  AND (dsd.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
+ AND (d.deleted_at IS NULL
+      OR dsd.bucket + INTERVAL '1 day' <= d.deleted_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device nxt
+          WHERE nxt.device_identifier = d.device_identifier
+            AND nxt.created_at > d.created_at))
 WHERE dsd.bucket >= $2
   AND dsd.bucket <= $3
 ORDER BY dsd.bucket ASC
@@ -555,13 +573,19 @@ FROM device_status_hourly dsh
 JOIN device d
   ON d.device_identifier = dsh.device_identifier
  AND d.org_id = $1
- AND d.deleted_at IS NULL
  AND dsh.bucket + INTERVAL '1 hour' > d.created_at
+ AND (d.deleted_at IS NULL OR dsh.bucket < d.deleted_at)
  AND (dsh.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
+ AND (d.deleted_at IS NULL
+      OR dsh.bucket + INTERVAL '1 hour' <= d.deleted_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device nxt
+          WHERE nxt.device_identifier = d.device_identifier
+            AND nxt.created_at > d.created_at))
 WHERE dsh.bucket >= $2
   AND dsh.bucket <= $3
 ORDER BY dsh.bucket ASC
@@ -632,13 +656,19 @@ FROM device_metrics_daily dmd
 JOIN device d
   ON d.device_identifier = dmd.device_identifier
  AND d.org_id = $1
- AND d.deleted_at IS NULL
  AND dmd.bucket + INTERVAL '1 day' > d.created_at
+ AND (d.deleted_at IS NULL OR dmd.bucket < d.deleted_at)
  AND (dmd.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
+ AND (d.deleted_at IS NULL
+      OR dmd.bucket + INTERVAL '1 day' <= d.deleted_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device nxt
+          WHERE nxt.device_identifier = d.device_identifier
+            AND nxt.created_at > d.created_at))
 WHERE dmd.device_identifier = ANY($2::text[])
   AND dmd.bucket >= $3
   AND dmd.bucket <= $4
@@ -713,13 +743,19 @@ FROM device_metrics_hourly dmh
 JOIN device d
   ON d.device_identifier = dmh.device_identifier
  AND d.org_id = $1
- AND d.deleted_at IS NULL
  AND dmh.bucket + INTERVAL '1 hour' > d.created_at
+ AND (d.deleted_at IS NULL OR dmh.bucket < d.deleted_at)
  AND (dmh.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
+ AND (d.deleted_at IS NULL
+      OR dmh.bucket + INTERVAL '1 hour' <= d.deleted_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device nxt
+          WHERE nxt.device_identifier = d.device_identifier
+            AND nxt.created_at > d.created_at))
 WHERE dmh.device_identifier = ANY($2::text[])
   AND dmh.bucket >= $3
   AND dmh.bucket <= $4
@@ -734,10 +770,11 @@ type GetDeviceMetricsHourlyAggregatesParams struct {
 }
 
 // Aggregate org scoping includes buckets overlapping the device lifetime
-// (bucket end > created_at). The creation bucket may blend a previous
-// registration's samples and cannot be split per sample, so it is included
-// only when no earlier device row used the identifier; device rows are the
-// only evidence that outlives telemetry retention.
+// (bucket end > created_at, bucket start < deleted_at). Creation and
+// deletion buckets may blend a neighboring registration's samples and
+// cannot be split per sample, so each is included only when no earlier
+// (respectively later) device row used the identifier; device rows are
+// the only evidence that outlives telemetry retention.
 // COALESCE handles NULL values from AVG() when all source values are NULL
 func (q *Queries) GetDeviceMetricsHourlyAggregates(ctx context.Context, arg GetDeviceMetricsHourlyAggregatesParams) ([]DeviceMetricsHourly, error) {
 	rows, err := q.query(ctx, q.getDeviceMetricsHourlyAggregatesStmt, getDeviceMetricsHourlyAggregates,
@@ -816,8 +853,8 @@ WITH per_device_bucket AS (
     JOIN device d
       ON d.device_identifier = dm.device_identifier
      AND d.org_id = $2
-     AND d.deleted_at IS NULL
      AND dm.time >= d.created_at
+     AND (d.deleted_at IS NULL OR dm.time < d.deleted_at)
     WHERE dm.device_identifier = ANY($3::text[])
       AND dm.time >= $4
       AND dm.time <= $5
@@ -1086,13 +1123,19 @@ FROM device_status_daily dsd
 JOIN device d
   ON d.device_identifier = dsd.device_identifier
  AND d.org_id = $1
- AND d.deleted_at IS NULL
  AND dsd.bucket + INTERVAL '1 day' > d.created_at
+ AND (d.deleted_at IS NULL OR dsd.bucket < d.deleted_at)
  AND (dsd.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
+ AND (d.deleted_at IS NULL
+      OR dsd.bucket + INTERVAL '1 day' <= d.deleted_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device nxt
+          WHERE nxt.device_identifier = d.device_identifier
+            AND nxt.created_at > d.created_at))
 WHERE dsd.device_identifier = ANY($2::text[])
   AND dsd.bucket >= $3
   AND dsd.bucket <= $4
@@ -1177,13 +1220,19 @@ FROM device_status_hourly dsh
 JOIN device d
   ON d.device_identifier = dsh.device_identifier
  AND d.org_id = $1
- AND d.deleted_at IS NULL
  AND dsh.bucket + INTERVAL '1 hour' > d.created_at
+ AND (d.deleted_at IS NULL OR dsh.bucket < d.deleted_at)
  AND (dsh.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
+ AND (d.deleted_at IS NULL
+      OR dsh.bucket + INTERVAL '1 hour' <= d.deleted_at
+      OR NOT EXISTS (
+          SELECT 1 FROM device nxt
+          WHERE nxt.device_identifier = d.device_identifier
+            AND nxt.created_at > d.created_at))
 WHERE dsh.device_identifier = ANY($2::text[])
   AND dsh.bucket >= $3
   AND dsh.bucket <= $4
