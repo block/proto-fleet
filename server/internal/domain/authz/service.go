@@ -55,16 +55,28 @@ func NewService(conn *sql.DB, activitySvc *activity.Service) *Service {
 	return &Service{conn: conn, activitySvc: activitySvc}
 }
 
+// auditWriteTimeout bounds the detached audit-log insert (see
+// logActivity) so a stuck write can't leak a goroutine.
+const auditWriteTimeout = 5 * time.Second
+
 // logActivity records a role-management event, stamping the acting user
 // from the request's session so the activity feed attributes it to the
 // caller. Role CRUD sits in the auth category alongside update_user_role
 // (role assignment), so the whole RBAC surface reads from one bucket.
+//
+// Callers invoke this only after the role mutation has committed, so the
+// audit write is detached from the request context via WithoutCancel: a
+// client that cancels or times out the moment the change lands must not
+// suppress the audit row for a security-sensitive RBAC change. A bounded
+// timeout keeps the detached write from hanging.
 func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
 	if s.activitySvc == nil {
 		return
 	}
 	activity.StampActor(ctx, &event)
-	s.activitySvc.Log(ctx, event)
+	logCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), auditWriteTimeout)
+	defer cancel()
+	s.activitySvc.Log(logCtx, event)
 }
 
 // RoleView is the domain-layer projection of a role row plus its
