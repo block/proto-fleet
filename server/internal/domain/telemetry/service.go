@@ -153,6 +153,13 @@ const (
 	// follower sees data under 15s stale, invisible at dashboard granularity.
 	combinedMetricsQuantum = 15 * time.Second
 
+	// combinedMetricsQuantizeMinInterval gates quantization: only queries whose
+	// SlideInterval (bucket size) is at least this get coarsened, keeping the
+	// sub-quantum shift confined to partial edge buckets. Finer queries keep
+	// their exact bounds and coalesce only when identical. The dashboard's
+	// smallest granularity is 90s, so its queries always quantize.
+	combinedMetricsQuantizeMinInterval = time.Minute
+
 	// combinedMetricsFlightTimeout bounds the shared singleflight query, which
 	// runs detached from any individual caller's context. The store already
 	// caps each query at its QueryTimeout (60s default) but that config is not
@@ -346,24 +353,30 @@ type TelemetryService struct {
 	// combinedMetricsSingle collapses identical concurrent GetCombinedMetrics
 	// calls (N dashboard viewers polling the same org) into one execution.
 	combinedMetricsSingle singleflight.Group
+	// combinedMetricsFlights counts the callers waiting on each singleflight
+	// key so the detached shared query is cancelled as soon as the last
+	// waiter gives up, instead of running against the DB until its timeout.
+	combinedMetricsFlightsMu sync.Mutex
+	combinedMetricsFlights   map[string]*combinedMetricsFlight
 }
 
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager CachedMinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
 	return &TelemetryService{
-		config:               config,
-		telemetryDataStore:   telemetryDataStore,
-		minerManager:         minerManager,
-		updateScheduler:      scheduler,
-		deviceStore:          deviceStore,
-		errorPoller:          errorPoller,
-		tasks:                make(chan models.Device, config.ConcurrencyLimit),
-		statusTasks:          make(chan models.Device, config.ConcurrencyLimit),
-		statusResults:        make(chan statusResult, resultsChannelBuffer),
-		statusFlushRequests:  make(chan statusFlushRequest),
-		metricsResults:       make(chan metricsResult, resultsChannelBuffer),
-		metricsFlushRequests: make(chan metricsFlushRequest),
-		lookBackDuration:     -1 * (config.StalenessThreshold - config.FetchInterval),
-		metricsObserver:      newMetricsObserver(NoMetrics()),
+		config:                 config,
+		telemetryDataStore:     telemetryDataStore,
+		minerManager:           minerManager,
+		updateScheduler:        scheduler,
+		deviceStore:            deviceStore,
+		errorPoller:            errorPoller,
+		tasks:                  make(chan models.Device, config.ConcurrencyLimit),
+		statusTasks:            make(chan models.Device, config.ConcurrencyLimit),
+		statusResults:          make(chan statusResult, resultsChannelBuffer),
+		statusFlushRequests:    make(chan statusFlushRequest),
+		metricsResults:         make(chan metricsResult, resultsChannelBuffer),
+		metricsFlushRequests:   make(chan metricsFlushRequest),
+		lookBackDuration:       -1 * (config.StalenessThreshold - config.FetchInterval),
+		metricsObserver:        newMetricsObserver(NoMetrics()),
+		combinedMetricsFlights: make(map[string]*combinedMetricsFlight),
 	}
 }
 
@@ -1513,13 +1526,27 @@ func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query 
 // (context.WithoutCancel + a fixed timeout) so that a cancellation of
 // whichever caller raced into singleflight first does not poison the result
 // for siblings whose own contexts are still valid. Each caller then selects
-// between the shared result and its own ctx independently.
+// between the shared result and its own ctx independently. Waiters are
+// counted per flight; when the last one gives up the shared query is
+// cancelled rather than left burning the DB until its timeout.
 func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
-	query = quantizeCombinedMetricsWindow(query)
+	// The store resolves nil bounds against time.Now() at execution, so two
+	// concurrent nil-bound queries are not interchangeable: a follower could
+	// receive a window anchored to the leader's execution time. Run them
+	// without singleflight on the caller's own context.
+	if query.TimeRange.StartTime == nil || query.TimeRange.EndTime == nil {
+		return s.fetchCombinedMetrics(ctx, query)
+	}
 
-	ch := s.combinedMetricsSingle.DoChan(combinedMetricsFlightKey(query), func() (any, error) {
+	query = quantizeCombinedMetricsWindow(query)
+	key := combinedMetricsFlightKey(query)
+	flight := s.joinCombinedMetricsFlight(key)
+	defer s.leaveCombinedMetricsFlight(key, flight)
+
+	ch := s.combinedMetricsSingle.DoChan(key, func() (any, error) {
 		flightCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), combinedMetricsFlightTimeout)
 		defer cancel()
+		s.armCombinedMetricsFlight(flight, cancel)
 		return s.fetchCombinedMetrics(flightCtx, query)
 	})
 
@@ -1536,9 +1563,59 @@ func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.
 		}
 		return result, nil
 	case <-ctx.Done():
-		// This caller gave up; the detached query keeps running so siblings
-		// still in the flight get their result.
+		// This caller gave up. The deferred leave decrements the waiter count;
+		// siblings still in the flight keep the detached query alive, and the
+		// last one out cancels it.
 		return models.CombinedMetric{}, ctx.Err() //nolint:wrapcheck
+	}
+}
+
+// combinedMetricsFlight tracks how many callers are waiting on one
+// singleflight execution, plus the cancel func of the running flight.
+type combinedMetricsFlight struct {
+	waiters int
+	cancel  context.CancelFunc
+}
+
+func (s *TelemetryService) joinCombinedMetricsFlight(key string) *combinedMetricsFlight {
+	s.combinedMetricsFlightsMu.Lock()
+	defer s.combinedMetricsFlightsMu.Unlock()
+	flight := s.combinedMetricsFlights[key]
+	if flight == nil {
+		flight = &combinedMetricsFlight{}
+		s.combinedMetricsFlights[key] = flight
+	}
+	flight.waiters++
+	return flight
+}
+
+// leaveCombinedMetricsFlight is called once per caller on every exit path.
+// The last waiter out cancels the shared query and forgets the key so later
+// callers start a fresh flight instead of joining a cancelled one.
+func (s *TelemetryService) leaveCombinedMetricsFlight(key string, flight *combinedMetricsFlight) {
+	s.combinedMetricsFlightsMu.Lock()
+	defer s.combinedMetricsFlightsMu.Unlock()
+	flight.waiters--
+	if flight.waiters > 0 {
+		return
+	}
+	if flight.cancel != nil {
+		flight.cancel()
+	}
+	delete(s.combinedMetricsFlights, key)
+	s.combinedMetricsSingle.Forget(key)
+}
+
+// armCombinedMetricsFlight registers the running flight's cancel func so the
+// last departing waiter can stop it. If every waiter already left before the
+// flight got scheduled, cancel immediately.
+func (s *TelemetryService) armCombinedMetricsFlight(flight *combinedMetricsFlight, cancel context.CancelFunc) {
+	s.combinedMetricsFlightsMu.Lock()
+	flight.cancel = cancel
+	abandoned := flight.waiters == 0
+	s.combinedMetricsFlightsMu.Unlock()
+	if abandoned {
+		cancel()
 	}
 }
 
@@ -1642,10 +1719,16 @@ func intersectDeviceIDs(selected, inScope []models.DeviceIdentifier) []models.De
 // quantizeCombinedMetricsWindow rounds EndTime down to combinedMetricsQuantum
 // and shifts StartTime by the same delta, preserving duration. Applied before
 // keying and before executing so every follower's key matches the query the
-// leader actually ran. Nil bounds pass through untouched; the store resolves
-// their defaults.
+// leader actually ran. Queries requesting resolution finer than
+// combinedMetricsQuantizeMinInterval pass through untouched: the shift would
+// be visible at their bucket size, so they keep exact bounds and only
+// coalesce with identical queries. Nil bounds never get here;
+// GetCombinedMetrics runs them outside singleflight.
 func quantizeCombinedMetricsWindow(query models.CombinedMetricsQuery) models.CombinedMetricsQuery {
 	if query.TimeRange.EndTime == nil {
+		return query
+	}
+	if query.SlideInterval == nil || *query.SlideInterval < combinedMetricsQuantizeMinInterval {
 		return query
 	}
 	end := query.TimeRange.EndTime.Truncate(combinedMetricsQuantum)
@@ -1660,8 +1743,13 @@ func quantizeCombinedMetricsWindow(query models.CombinedMetricsQuery) models.Com
 
 // combinedMetricsFlightKey builds the singleflight key for a quantized query.
 // Every field of models.CombinedMetricsQuery that changes the result
-// participates. Slices are sorted on copies so set-equal queries collapse
-// regardless of caller ordering.
+// participates. MeasurementTypes and AggregationTypes keep caller order
+// because the store emits metrics and aggregated values in request slice
+// order, so only identically ordered requests may share a response. DeviceIDs
+// and SiteIDs are pure filters; they are sorted on copies so set-equal
+// selections collapse. PageSize and PaginationToken are excluded because the
+// combined-metrics path ignores them; add them back if pagination is ever
+// implemented.
 func combinedMetricsFlightKey(query models.CombinedMetricsQuery) string {
 	var b strings.Builder
 	b.WriteString(strconv.FormatInt(query.OrganizationID, 10))
@@ -1674,19 +1762,15 @@ func combinedMetricsFlightKey(query models.CombinedMetricsQuery) string {
 	b.WriteByte('|')
 	writeKeyDuration(&b, query.SlideInterval)
 	b.WriteByte('|')
-	writeSortedInts(&b, query.MeasurementTypes)
+	writeInts(&b, query.MeasurementTypes)
 	b.WriteByte('|')
-	writeSortedInts(&b, query.AggregationTypes)
+	writeInts(&b, query.AggregationTypes)
 	b.WriteByte('|')
 	b.WriteString(deviceIDsKeyHash(query.DeviceIDs))
 	b.WriteByte('|')
 	writeSortedInts(&b, query.SiteIDs)
 	b.WriteByte('|')
 	b.WriteString(strconv.FormatBool(query.IncludeUnassigned))
-	b.WriteByte('|')
-	b.WriteString(strconv.Itoa(query.PageSize))
-	b.WriteByte('|')
-	b.WriteString(query.PaginationToken)
 	return b.String()
 }
 
@@ -1706,15 +1790,19 @@ func writeKeyDuration(b *strings.Builder, d *time.Duration) {
 	b.WriteString(strconv.FormatInt(int64(*d), 10))
 }
 
-func writeSortedInts[T ~int | ~int64](b *strings.Builder, vals []T) {
-	sorted := slices.Clone(vals)
-	slices.Sort(sorted)
-	for i, v := range sorted {
+func writeInts[T ~int | ~int64](b *strings.Builder, vals []T) {
+	for i, v := range vals {
 		if i > 0 {
 			b.WriteByte(',')
 		}
 		b.WriteString(strconv.FormatInt(int64(v), 10))
 	}
+}
+
+func writeSortedInts[T ~int | ~int64](b *strings.Builder, vals []T) {
+	sorted := slices.Clone(vals)
+	slices.Sort(sorted)
+	writeInts(b, sorted)
 }
 
 // deviceIDsKeyHash hashes the sorted device list so keys stay bounded for
