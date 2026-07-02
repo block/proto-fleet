@@ -167,6 +167,91 @@ func TestSQLCurtailmentStore_ListActiveCurtailedDevices_AllPairedScopeLockAndRel
 	assert.NotContains(t, got, released, "released policy rows relinquish the device")
 }
 
+// Pins BulkRefreshAllPairedTargetReadiness' real SQL: pending/unavailable
+// curtail-phase rows flip in one statement, rows that advanced past the
+// refreshable states are skipped, and a stale expected event state applies
+// nothing.
+func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	db := testContext.DatabaseService.DB
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(db)
+
+	eventUUID := uuid.New()
+	inserted, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreAllPairedEvent(user.OrganizationID, user.DatabaseID, eventUUID, "all-paired-bulk-refresh"),
+		[]models.InsertTargetParams{
+			curtailmentStoreAllPairedTarget("bulk-promotes", models.TargetStateUnavailable, "offline"),
+			curtailmentStoreAllPairedTarget("bulk-demotes", models.TargetStatePending, ""),
+			curtailmentStoreAllPairedTarget("bulk-dispatched", models.TargetStateDispatched, ""),
+		},
+	)
+	require.NoError(t, err)
+
+	applied, err := store.BulkRefreshAllPairedTargetReadiness(ctx, inserted.ID, models.EventStatePending,
+		[]interfaces.AllPairedReadinessUpdate{
+			{DeviceIdentifier: "bulk-promotes", State: models.TargetStatePending},
+		})
+	require.NoError(t, err)
+	assert.Zero(t, applied, "stale expected event state must apply nothing")
+
+	applied, err = store.BulkRefreshAllPairedTargetReadiness(ctx, inserted.ID, models.EventStateActive,
+		[]interfaces.AllPairedReadinessUpdate{
+			{DeviceIdentifier: "bulk-promotes", State: models.TargetStatePending},
+			{DeviceIdentifier: "bulk-demotes", State: models.TargetStateUnavailable, Reason: "offline"},
+			{DeviceIdentifier: "bulk-dispatched", State: models.TargetStateUnavailable, Reason: "offline"},
+		})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), applied, "the dispatched row is past the refreshable states and must be skipped")
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT device_identifier, state, last_error, curtail_state, curtail_failure_count
+		FROM curtailment_target
+		WHERE curtailment_event_id = $1
+	`, inserted.ID)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	type refreshedRow struct {
+		state               string
+		lastError           sql.NullString
+		curtailState        sql.NullString
+		curtailFailureCount int32
+	}
+	got := map[string]refreshedRow{}
+	for rows.Next() {
+		var device string
+		var row refreshedRow
+		require.NoError(t, rows.Scan(&device, &row.state, &row.lastError, &row.curtailState, &row.curtailFailureCount))
+		got[device] = row
+	}
+	require.NoError(t, rows.Err())
+	require.Len(t, got, 3)
+
+	promoted := got["bulk-promotes"]
+	assert.Equal(t, string(models.TargetStatePending), promoted.state)
+	assert.False(t, promoted.lastError.Valid, "pending promotion clears last_error")
+	assert.Equal(t, string(models.TargetStatePending), promoted.curtailState.String)
+	assert.Equal(t, int32(0), promoted.curtailFailureCount, "clearing the error must not count as a failure")
+
+	demoted := got["bulk-demotes"]
+	assert.Equal(t, string(models.TargetStateUnavailable), demoted.state)
+	require.True(t, demoted.lastError.Valid)
+	assert.Equal(t, "offline", demoted.lastError.String)
+	assert.Equal(t, string(models.TargetStateUnavailable), demoted.curtailState.String)
+	assert.Equal(t, int32(1), demoted.curtailFailureCount, "demotion reasons count as curtail-phase failures, matching the per-row query")
+
+	dispatched := got["bulk-dispatched"]
+	assert.Equal(t, string(models.TargetStateDispatched), dispatched.state, "rows past pending/unavailable are skipped, not clobbered")
+	assert.False(t, dispatched.lastError.Valid)
+}
+
 // Pins the graceful-Stop release predicate against real SQL: only all-paired
 // targets with no dispatch attempt at all (NULL dispatch timestamps,
 // retry_count = 0, and no prior restore cycle) are released; anything with

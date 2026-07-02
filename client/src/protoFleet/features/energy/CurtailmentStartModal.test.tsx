@@ -1607,7 +1607,7 @@ describe("CurtailmentStartModal", () => {
       curtailBatchIntervalSec: "",
       restoreBatchSize: "10",
       restoreIntervalSec: "120",
-      includeMaintenance: true,
+      includeMaintenance: false,
     });
     expect(onDismiss).not.toHaveBeenCalled();
   });
@@ -1701,7 +1701,7 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("hides the maintenance option and keeps maintenance miners included by default", async () => {
+  it("hides the maintenance option and excludes maintenance miners by default", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({ initialValues: configuredValues });
 
@@ -1711,7 +1711,9 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByText("Force include all paired miners?")).not.toBeInTheDocument();
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     await confirmCurtailment(user);
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ includeMaintenance: true }));
+    // force_include_maintenance is admin-gated server-side; defaulting it off
+    // keeps non-admin operators with curtailment:manage able to start.
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ includeMaintenance: false }));
   });
 
   it("confirms targeting all paired miners in full-shutdown mode", async () => {
@@ -1726,7 +1728,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Force include all paired miners?")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "This will keep targeting paired miners even when they are offline, sleeping, or waiting for authentication.",
+        "This will keep targeting paired miners even when they are offline, sleeping, or waiting for authentication, and includes miners flagged for maintenance.",
       ),
     ).toBeInTheDocument();
     expect(getAllPairedCheckbox()).not.toBeChecked();
@@ -1738,13 +1740,31 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     await confirmCurtailment(user);
+    // The maintenance opt-in coupling happens in the request builders, not
+    // the form values: submitted values carry the raw checkbox state.
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         curtailmentMode: "fullFleet",
         forceIncludeAllPairedMiners: true,
-        includeMaintenance: true,
+        includeMaintenance: false,
       }),
     );
+  });
+
+  it("hides the all-paired option for explicit miner selections", () => {
+    renderModal({
+      initialValues: {
+        ...configuredValues,
+        curtailmentMode: "fullFleet",
+        targetKw: "",
+        scopeType: "explicitMiners",
+        deviceIdentifiers: ["miner-1"],
+      },
+    });
+
+    // Explicit miner selections map to an open-loop device-list scope, which
+    // the all-paired policy does not support (the server rejects it).
+    expect(screen.queryByText("Target all paired miners")).not.toBeInTheDocument();
   });
 
   it("opens target selectors and submits the selected target scope", async () => {

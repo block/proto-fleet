@@ -215,6 +215,32 @@ describe("useCurtailmentPlanPreview", () => {
     expect(fullFleetRequest?.forceIncludeAllPairedMiners).toBe(true);
   });
 
+  it("mirrors the start builder's all-paired scope gate and maintenance opt-in", () => {
+    const allPairedRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      includeMaintenance: false,
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(allPairedRequest?.forceIncludeAllPairedMiners).toBe(true);
+    expect(allPairedRequest?.includeMaintenance).toBe(true);
+    expect(allPairedRequest?.forceIncludeMaintenance).toBe(true);
+
+    const minerScopedRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      scopeType: "explicitMiners",
+      deviceIdentifiers: ["miner-1"],
+      includeMaintenance: false,
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(minerScopedRequest?.forceIncludeAllPairedMiners).toBe(false);
+    expect(minerScopedRequest?.includeMaintenance).toBe(false);
+    expect(minerScopedRequest?.forceIncludeMaintenance).toBe(false);
+  });
+
   it("does not build a request until target and scope are valid", () => {
     expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, targetKw: "" })).toBeUndefined();
     expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, targetKw: "0" })).toBeUndefined();

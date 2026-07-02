@@ -580,6 +580,15 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 	panic("ClaimAllPairedPolicyTargets not exercised")
 }
 
+func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
+	context.Context,
+	int64,
+	models.EventState,
+	[]interfaces.AllPairedReadinessUpdate,
+) (int64, error) {
+	panic("BulkRefreshAllPairedTargetReadiness not exercised")
+}
+
 // --- helpers ---
 
 func miner(id string, status, pairing string, powerW, hashRateHS float64) *models.Candidate {

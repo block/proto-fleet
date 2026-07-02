@@ -219,7 +219,7 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
       : "",
     restoreIntervalSec: "",
     responseDeadlineMinutes,
-    includeMaintenance: true,
+    includeMaintenance: false,
     forceIncludeAllPairedMiners: false,
   };
 }

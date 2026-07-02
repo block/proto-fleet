@@ -1318,6 +1318,15 @@ func validatePreviewRequest(req PreviewRequest) error {
 	if req.ForceIncludeAllPairedMiners && req.Mode != models.ModeFullFleet {
 		return fleeterror.NewInvalidArgumentError("force_include_all_paired_miners requires FULL_FLEET")
 	}
+	// The policy's durable-ownership loop (release on unpair, reopen on
+	// re-pair) only runs for closed-loop scopes; an open-loop (explicit
+	// miner / device-set) all-paired event would release unpaired miners
+	// and never reclaim them, silently breaking the policy's promise.
+	if req.ForceIncludeAllPairedMiners && !isClosedLoopFullFleetStart(req.Scope, req.Mode) {
+		return fleeterror.NewInvalidArgumentError(
+			"force_include_all_paired_miners requires a whole-org or site scope; explicit miner or device-set scopes are not supported",
+		)
+	}
 	if req.Level != "" && req.Level != models.LevelFull {
 		return fleeterror.NewInvalidArgumentErrorf("level %q is not supported; only FULL", req.Level)
 	}

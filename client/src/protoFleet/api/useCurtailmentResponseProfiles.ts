@@ -427,9 +427,19 @@ function getResponseProfileScopes(values: ResponseProfileFormValues): Curtailmen
 }
 
 function buildResponseProfilePayload(values: ResponseProfileFormValues) {
+  const scopes = getResponseProfileScopes(values);
+  // All-paired targeting requires a closed-loop scope (whole org or sites);
+  // the server rejects explicit-miner scopes. Enabling it also opts in
+  // maintenance-flagged miners, mirroring the Start request builders. The
+  // proto validator requires include_maintenance == force_include_maintenance.
+  const forceIncludeAllPairedMiners =
+    values.actionType === "fullFleet" &&
+    Boolean(values.forceIncludeAllPairedMiners) &&
+    (scopes?.every((scope) => scope.scope.case === "wholeOrg" || scope.scope.case === "site") ?? false);
+  const includeMaintenance = values.includeMaintenance || forceIncludeAllPairedMiners;
   return {
     profileName: values.name.trim(),
-    scopes: getResponseProfileScopes(values),
+    scopes,
     mode: values.actionType === "fixedKwReduction" ? CurtailmentMode.FIXED_KW : CurtailmentMode.FULL_FLEET,
     strategy: CurtailmentStrategy.LEAST_EFFICIENT_FIRST,
     level: CurtailmentLevel.FULL,
@@ -439,9 +449,9 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
     curtailBatchIntervalSec: getOptionalNonNegativeNumber(values.curtailBatchIntervalSec),
     restoreBatchSize: getRestoreBatchSize(values),
     restoreBatchIntervalSec: getRestoreBatchIntervalSec(values),
-    includeMaintenance: values.includeMaintenance,
-    forceIncludeMaintenance: values.includeMaintenance,
-    forceIncludeAllPairedMiners: values.actionType === "fullFleet" && Boolean(values.forceIncludeAllPairedMiners),
+    includeMaintenance,
+    forceIncludeMaintenance: includeMaintenance,
+    forceIncludeAllPairedMiners,
   };
 }
 

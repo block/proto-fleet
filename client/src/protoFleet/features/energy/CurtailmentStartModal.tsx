@@ -9,7 +9,10 @@ import {
   curtailmentNumericFieldLimits,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import { parseCurtailmentSiteId } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import {
+  parseCurtailmentSiteId,
+  supportsAllPairedTargeting,
+} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import {
   createCurtailmentPlanPreview,
   getUnsupportedDeviceSetPreviewError,
@@ -211,7 +214,11 @@ const defaultValues: CurtailmentFormValues = {
   restoreBatchSize: "",
   restoreIntervalSec: "",
   reason: "",
-  includeMaintenance: true,
+  // Maintenance-flagged miners are excluded by default: force_include_maintenance
+  // is admin-gated server-side, so sending it from every start would lock
+  // non-admin operators with curtailment:manage out of Start entirely. Admins
+  // opt the maintenance population in via "Target all paired miners".
+  includeMaintenance: false,
   forceIncludeAllPairedMiners: false,
 };
 const editableCurtailmentFields: EditableCurtailmentField[] = ["reason", "restoreIntervalSec"];
@@ -992,7 +999,7 @@ function getCurtailmentConfirmationCopy(
 function getForceInclusionConfirmationCopy() {
   return {
     title: "Force include all paired miners?",
-    body: "This will keep targeting paired miners even when they are offline, sleeping, or waiting for authentication.",
+    body: "This will keep targeting paired miners even when they are offline, sleeping, or waiting for authentication, and includes miners flagged for maintenance.",
     confirmText: "Force include",
   };
 }
@@ -1824,12 +1831,17 @@ function CurtailmentStartModalContent({
 
             {/*
               The "Include miners in maintenance" checkbox is intentionally hidden from the UI.
-              The includeMaintenance form value still defaults to true and is sent on the request
-              so maintenance-flagged miners keep being curtailed; "Target all paired miners" is now
-              the only operator-controllable inclusion option. Re-add the checkbox here if
-              maintenance ever needs to become togglable again.
+              includeMaintenance defaults to false so non-admin operators with curtailment:manage
+              can still start curtailments (force_include_maintenance is admin-gated server-side).
+              "Target all paired miners" is the only operator-controllable inclusion option, and
+              enabling it also opts in maintenance-flagged miners via the request builders.
+              Re-add the checkbox here if maintenance ever needs to become independently togglable.
+
+              The checkbox only renders for closed-loop scopes (whole org / sites): the all-paired
+              policy's release/reopen ownership loop does not run for explicit miner selections,
+              and the server rejects that combination.
             */}
-            {isFullFleetMode ? (
+            {isFullFleetMode && supportsAllPairedTargeting(values) ? (
               <Section title="Miners">
                 <label
                   className={`flex items-start gap-3 text-left ${

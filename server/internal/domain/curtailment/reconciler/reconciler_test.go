@@ -59,6 +59,9 @@ type fakeStore struct {
 	claimedTargetParams     []models.InsertTargetParams
 	claimAllPairedCalls     int
 	claimedAllPairedParams  []models.InsertTargetParams
+	bulkRefreshCalls        int
+	lastBulkRefreshUpdates  []interfaces.AllPairedReadinessUpdate
+	bulkRefreshErr          error
 	cooldownDevices         []string
 	cooldownCalls           int
 	lastCooldownOrgID       int64
@@ -219,6 +222,62 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 	}
 	return claimed, nil
 }
+
+// BulkRefreshAllPairedTargetReadiness: real-fake mirroring the SQL guards —
+// only pending/unavailable curtail-phase rows on an event still in the
+// expected state flip; everything else is skipped, not clobbered.
+func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
+	_ context.Context,
+	eventID int64,
+	expectedEventState models.EventState,
+	updates []interfaces.AllPairedReadinessUpdate,
+) (int64, error) {
+	f.bulkRefreshCalls++
+	f.lastBulkRefreshUpdates = append([]interfaces.AllPairedReadinessUpdate(nil), updates...)
+	if f.bulkRefreshErr != nil {
+		return 0, f.bulkRefreshErr
+	}
+	for _, ev := range f.events {
+		if ev.ID == eventID && ev.State != expectedEventState {
+			return 0, nil
+		}
+	}
+	var applied int64
+	byDevice := map[string]*models.Target{}
+	for _, t := range f.targetsByEventID[eventID] {
+		byDevice[t.DeviceIdentifier] = t
+	}
+	for _, update := range updates {
+		t, ok := byDevice[update.DeviceIdentifier]
+		if !ok {
+			continue
+		}
+		if t.DesiredState != "" && t.DesiredState != models.DesiredStateCurtailed {
+			continue
+		}
+		if t.State != models.TargetStatePending && t.State != models.TargetStateUnavailable {
+			continue
+		}
+		if update.State != models.TargetStatePending && update.State != models.TargetStateUnavailable {
+			continue
+		}
+		t.State = update.State
+		if update.Reason == "" {
+			t.LastError = nil
+		} else {
+			reason := update.Reason
+			t.LastError = &reason
+		}
+		reason := update.Reason
+		updateTargetPhaseSummary(t, interfaces.UpdateCurtailmentTargetStateParams{
+			State:     update.State,
+			LastError: &reason,
+		})
+		applied++
+	}
+	return applied, nil
+}
+
 func (f *fakeStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
 	panic("GetHeartbeat not exercised")
 }
@@ -1252,6 +1311,129 @@ func TestReconciler_PendingAllPairedPolicyUnavailableTargetsDoNotBlockActive(t *
 	assert.Equal(t, models.EventStateActive, store.updateEventLast[eventID])
 	assert.Equal(t, models.EventStateActive, store.events[0].State)
 	assert.Equal(t, 0, disp.curtailCalls)
+}
+
+// A bounded all-paired event whose entire scope is non-commandable must hold
+// in pending: transitioning to Active would stamp StartedAt and start
+// enforceMaxDuration's clock while nothing is curtailed, letting the event
+// burn its bounded window — then force-restore, releasing every
+// never-dispatched row — without a single dispatch having happened.
+func TestReconciler_PendingAllPairedPolicyAllUnavailableStaysPending(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	offlineReason := "offline"
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStatePending,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			CreatedByUserID:             99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "offline-1",
+			State:              models.TargetStateUnavailable,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &offlineReason,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "offline-2",
+			State:              models.TargetStateUnavailable,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &offlineReason,
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "offline-1", DriverName: &driver, DeviceStatus: "OFFLINE", PairingStatus: "PAIRED"},
+		{DeviceIdentifier: "offline-2", DriverName: &driver, DeviceStatus: "OFFLINE", PairingStatus: "PAIRED"},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, models.EventStatePending, store.events[0].State,
+		"all-unavailable policy event must hold in pending until something confirms")
+	assert.NotContains(t, store.updateEventLast, eventID)
+	assert.Equal(t, 0, disp.curtailCalls)
+}
+
+// Readiness flips are applied through one bulk statement per tick; a mass
+// readiness change must not become one UPDATE round trip per device.
+func TestReconciler_AllPairedPolicyReadinessRefreshBatchesFlipsIntoOneCall(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	offlineReason := "offline"
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStateActive,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			CreatedByUserID:             99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "wakes-1",
+			State:              models.TargetStateUnavailable,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &offlineReason,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "wakes-2",
+			State:              models.TargetStateUnavailable,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &offlineReason,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "sleeps",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "wakes-1", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(3000)},
+		{DeviceIdentifier: "wakes-2", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(3000)},
+		{DeviceIdentifier: "sleeps", DriverName: &driver, DeviceStatus: "OFFLINE", PairingStatus: "PAIRED"},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.bulkRefreshCalls, "one bulk statement per tick, not one write per device")
+	require.Len(t, store.lastBulkRefreshUpdates, 3)
+	byDevice := map[string]*models.Target{}
+	for _, target := range store.targetsByEventID[eventID] {
+		byDevice[target.DeviceIdentifier] = target
+	}
+	assert.Equal(t, models.TargetStateDispatched, byDevice["wakes-1"].State, "promoted rows dispatch in the same tick")
+	assert.Equal(t, models.TargetStateDispatched, byDevice["wakes-2"].State)
+	assert.Equal(t, models.TargetStateUnavailable, byDevice["sleeps"].State)
+	require.NotNil(t, byDevice["sleeps"].LastError)
+	assert.Equal(t, "offline", *byDevice["sleeps"].LastError)
 }
 
 // Durable ownership must not pause while an all-paired event is pending

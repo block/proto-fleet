@@ -106,6 +106,15 @@ func (s *startStubStore) ClaimAllPairedPolicyTargets(
 	panic("ClaimAllPairedPolicyTargets not exercised by handler Start tests")
 }
 
+func (s *startStubStore) BulkRefreshAllPairedTargetReadiness(
+	context.Context,
+	int64,
+	models.EventState,
+	[]interfaces.AllPairedReadinessUpdate,
+) (int64, error) {
+	panic("BulkRefreshAllPairedTargetReadiness not exercised by handler Start tests")
+}
+
 // --- panic stubs for surface the handler-level tests don't reach ---
 
 func (s *startStubStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {

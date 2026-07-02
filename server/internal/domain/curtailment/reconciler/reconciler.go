@@ -1100,7 +1100,7 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 // terminally failed. All-failed events skip past Active to
 // completed_with_failures so they can't sit indefinitely.
 func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targets []*models.Target) {
-	confirmed, terminalFailures := 0, 0
+	confirmed, terminalFailures, unavailable := 0, 0, 0
 	for _, t := range targets {
 		switch t.State {
 		case models.TargetStateConfirmed:
@@ -1111,6 +1111,7 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 			if isAllPairedPolicyEvent(ev) {
 				// Policy ownership is held until the miner becomes commandable;
 				// it should not pause drift enforcement for confirmed targets.
+				unavailable++
 				continue
 			}
 			return
@@ -1130,6 +1131,16 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 			// Unreachable on a pending event; hold for manual cleanup.
 			return
 		}
+	}
+	if confirmed == 0 && unavailable > 0 {
+		// All-paired policy event with nothing curtailed yet: hold it in
+		// pending so StartedAt (and enforceMaxDuration's clock) don't start
+		// until curtailment actually begins. The per-tick readiness refresh
+		// keeps promoting unavailable rows; a scope that starts entirely
+		// offline must not burn its bounded duration window — or be
+		// force-restored having curtailed nothing — before a single
+		// dispatch happens.
+		return
 	}
 	if confirmed == 0 && terminalFailures > 0 {
 		// All-failed: nothing curtailed → skip Active.

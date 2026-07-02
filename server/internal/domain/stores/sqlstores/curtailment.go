@@ -1875,6 +1875,46 @@ func (s *SQLCurtailmentStore) ClaimAllPairedPolicyTargets(
 	return claimed, nil
 }
 
+// bulkReadinessUpdateRow mirrors BulkRefreshAllPairedTargetReadiness's
+// jsonb_to_recordset column list.
+type bulkReadinessUpdateRow struct {
+	DeviceIdentifier string `json:"device_identifier"`
+	State            string `json:"state"`
+	LastError        string `json:"last_error"`
+}
+
+func (s *SQLCurtailmentStore) BulkRefreshAllPairedTargetReadiness(
+	ctx context.Context,
+	eventID int64,
+	expectedEventState models.EventState,
+	updates []interfaces.AllPairedReadinessUpdate,
+) (int64, error) {
+	if len(updates) == 0 {
+		return 0, nil
+	}
+	rows := make([]bulkReadinessUpdateRow, len(updates))
+	for i, u := range updates {
+		rows[i] = bulkReadinessUpdateRow{
+			DeviceIdentifier: u.DeviceIdentifier,
+			State:            string(u.State),
+			LastError:        u.Reason,
+		}
+	}
+	payload, err := json.Marshal(rows)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("encode all-paired readiness payload: %v", err)
+	}
+	updated, err := s.GetQueries(ctx).BulkRefreshAllPairedTargetReadiness(ctx, sqlc.BulkRefreshAllPairedTargetReadinessParams{
+		CurtailmentEventID: eventID,
+		ExpectedEventState: string(expectedEventState),
+		UpdatesJsonb:       payload,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to bulk refresh all-paired target readiness: %v", err)
+	}
+	return updated, nil
+}
+
 func ensureTargetsOutsideCooldown(
 	ctx context.Context,
 	q *sqlc.Queries,

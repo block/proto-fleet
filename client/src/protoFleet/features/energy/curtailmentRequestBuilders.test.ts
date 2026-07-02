@@ -71,6 +71,41 @@ describe("curtailmentRequestBuilders", () => {
     expect(fullFleetRequest.forceIncludeAllPairedMiners).toBe(true);
   });
 
+  it("excludes maintenance miners by default and opts them in with all-paired targeting", () => {
+    const defaultRequest = buildStartCurtailmentRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+    });
+    expect(defaultRequest.includeMaintenance).toBe(false);
+    expect(defaultRequest.forceIncludeMaintenance).toBe(false);
+
+    const allPairedRequest = buildStartCurtailmentRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(allPairedRequest.forceIncludeAllPairedMiners).toBe(true);
+    expect(allPairedRequest.includeMaintenance).toBe(true);
+    expect(allPairedRequest.forceIncludeMaintenance).toBe(true);
+  });
+
+  it("strips all-paired targeting for explicit miner scopes", () => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      scopeType: "explicitMiners",
+      deviceIdentifiers: ["miner-1"],
+      forceIncludeAllPairedMiners: true,
+    });
+
+    expect(request.forceIncludeAllPairedMiners).toBe(false);
+    expect(request.includeMaintenance).toBe(false);
+    expect(request.forceIncludeMaintenance).toBe(false);
+  });
+
   it("builds optional uint32-backed settings from valid whole-number inputs", () => {
     const request = buildStartCurtailmentRequest({
       ...baseValues,

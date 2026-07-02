@@ -77,6 +77,14 @@ func (s *stopStubStore) ClaimAllPairedPolicyTargets(
 ) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by Stop handler tests")
 }
+func (s *stopStubStore) BulkRefreshAllPairedTargetReadiness(
+	context.Context,
+	int64,
+	models.EventState,
+	[]interfaces.AllPairedReadinessUpdate,
+) (int64, error) {
+	panic("BulkRefreshAllPairedTargetReadiness not exercised by Stop handler tests")
+}
 func (s *stopStubStore) GetEventByUUID(_ context.Context, _ int64, _ uuid.UUID) (*models.Event, error) {
 	if s.getEventErr != nil {
 		return nil, s.getEventErr

@@ -126,6 +126,14 @@ func (s *adminTerminateStubStore) ClaimAllPairedPolicyTargets(
 ) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by AdminTerminate handler tests")
 }
+func (s *adminTerminateStubStore) BulkRefreshAllPairedTargetReadiness(
+	context.Context,
+	int64,
+	models.EventState,
+	[]interfaces.AllPairedReadinessUpdate,
+) (int64, error) {
+	panic("BulkRefreshAllPairedTargetReadiness not exercised by AdminTerminate handler tests")
+}
 func (s *adminTerminateStubStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	if s.authEvent != nil {
 		return s.authEvent, nil

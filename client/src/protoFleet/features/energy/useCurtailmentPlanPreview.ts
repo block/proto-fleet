@@ -12,7 +12,10 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { curtailmentNumericFieldLimits } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import { buildCurtailmentScopes } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import {
+  buildCurtailmentScopes,
+  buildForceInclusionFields,
+} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -133,13 +136,13 @@ export function buildPreviewCurtailmentPlanRequest(
     return undefined;
   }
   if (values.curtailmentMode === "fullFleet") {
+    // Mirror the Start request builder so preview counts match what a
+    // subsequent Start will actually target.
     return create(PreviewCurtailmentPlanRequestSchema, {
       scopes,
       mode: CurtailmentMode.FULL_FLEET,
       priority: toApiPriority(values.priority),
-      includeMaintenance: values.includeMaintenance,
-      forceIncludeMaintenance: values.includeMaintenance,
-      forceIncludeAllPairedMiners: values.forceIncludeAllPairedMiners,
+      ...buildForceInclusionFields(values),
     });
   }
 

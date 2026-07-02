@@ -186,10 +186,14 @@ describe("useCurtailmentResponseProfiles", () => {
       });
     });
 
+    // All-paired targeting also opts in maintenance-flagged miners,
+    // mirroring the Start request builders.
     expect(mockCreateCurtailmentResponseProfile).toHaveBeenLastCalledWith(
       expect.objectContaining({
         mode: CurtailmentMode.FULL_FLEET,
         forceIncludeAllPairedMiners: true,
+        includeMaintenance: true,
+        forceIncludeMaintenance: true,
       }),
     );
 
@@ -204,6 +208,33 @@ describe("useCurtailmentResponseProfiles", () => {
       expect.objectContaining({
         mode: CurtailmentMode.FIXED_KW,
         forceIncludeAllPairedMiners: false,
+        includeMaintenance: false,
+        forceIncludeMaintenance: false,
+      }),
+    );
+  });
+
+  it("strips all-paired targeting from miner-scoped response profiles", async () => {
+    mockCreateCurtailmentResponseProfile.mockResolvedValue({ profile: apiProfile({ site: undefined }) });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        actionType: "fullFleet",
+        deviceIdentifiers: ["miner-1"],
+        forceIncludeAllPairedMiners: true,
+      });
+    });
+
+    // Explicit-miner scopes are open loop; the server rejects the all-paired
+    // flag there, so the payload builder must not send it.
+    expect(mockCreateCurtailmentResponseProfile).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: CurtailmentMode.FULL_FLEET,
+        forceIncludeAllPairedMiners: false,
+        includeMaintenance: false,
+        forceIncludeMaintenance: false,
       }),
     );
   });

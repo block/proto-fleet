@@ -96,12 +96,19 @@ func (r *Reconciler) claimAllPairedPolicyTargets(
 // promotes unavailable rows whose miner became commandable, demotes pending
 // rows whose miner stopped being commandable, and releases rows whose miner
 // is no longer paired-like.
+//
+// Readiness flips are batched into one bulk UPDATE: a mass readiness change
+// (fleet-wide outage or recovery) must not issue one round trip per device
+// inside the shared tick budget, where it would starve every other event's
+// dispatch/drift/restore progress. Releases stay per-row — unpairing is rare.
 func (r *Reconciler) refreshAllPairedPolicyTargets(
 	ctx context.Context,
 	ev *models.Event,
 	targets []*models.Target,
 	candidates map[string]*models.Candidate,
 ) {
+	refreshable := make(map[string]*models.Target, len(targets))
+	updates := make([]interfaces.AllPairedReadinessUpdate, 0, len(targets))
 	for _, target := range targets {
 		if target.DesiredState != models.DesiredStateCurtailed {
 			continue
@@ -118,37 +125,46 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 			candidate,
 			ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
 		)
-		switch {
-		case nextState == target.State && reason == targetErrorString(target):
+		if nextState == target.State && reason == targetErrorString(target) {
 			continue
-		case nextState == models.TargetStatePending:
-			empty := ""
-			params := interfaces.UpdateCurtailmentTargetStateParams{
-				State:     models.TargetStatePending,
-				LastError: &empty,
-			}
-			if err := r.writeTargetState(ctx, ev, target.DeviceIdentifier, params); err != nil {
-				if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-					slog.Error("curtailment reconciler: all-paired target pending update failed",
-						"event_id", ev.ID, "device", target.DeviceIdentifier, "error", err)
-				}
-				continue
-			}
-			target.State = models.TargetStatePending
+		}
+		if nextState != models.TargetStatePending && nextState != models.TargetStateUnavailable {
+			continue
+		}
+		updates = append(updates, interfaces.AllPairedReadinessUpdate{
+			DeviceIdentifier: target.DeviceIdentifier,
+			State:            nextState,
+			Reason:           reason,
+		})
+		refreshable[target.DeviceIdentifier] = target
+	}
+	if len(updates) == 0 {
+		return
+	}
+	rows, err := r.store.BulkRefreshAllPairedTargetReadiness(ctx, ev.ID, ev.State, updates)
+	if err != nil {
+		r.metrics.IncTargetWriteFailure()
+		slog.Error("curtailment reconciler: all-paired readiness bulk refresh failed",
+			"event_id", ev.ID, "update_count", len(updates), "error", err)
+		return
+	}
+	if rows < int64(len(updates)) {
+		// Rows that advanced concurrently (dispatch claim, Stop reset,
+		// event phase change) are skipped by the SQL guards; the next tick
+		// re-reads them. Benign, but counted so sustained races surface.
+		r.metrics.IncEventStateRaceLoss()
+		slog.Warn("curtailment reconciler: all-paired readiness refresh skipped concurrently-advanced rows",
+			"event_id", ev.ID, "update_count", len(updates), "applied", rows)
+	}
+	// Mirror the write optimistically; a row the SQL skipped self-heals on
+	// the next tick, and same-tick dispatch writes are individually guarded.
+	for _, update := range updates {
+		target := refreshable[update.DeviceIdentifier]
+		target.State = update.State
+		if update.Reason == "" {
 			target.LastError = nil
-		case nextState == models.TargetStateUnavailable:
-			params := interfaces.UpdateCurtailmentTargetStateParams{
-				State:     models.TargetStateUnavailable,
-				LastError: &reason,
-			}
-			if err := r.writeTargetState(ctx, ev, target.DeviceIdentifier, params); err != nil {
-				if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-					slog.Error("curtailment reconciler: all-paired target unavailable update failed",
-						"event_id", ev.ID, "device", target.DeviceIdentifier, "reason", reason, "error", err)
-				}
-				continue
-			}
-			target.State = models.TargetStateUnavailable
+		} else {
+			reason := update.Reason
 			target.LastError = &reason
 		}
 	}

@@ -156,6 +156,14 @@ func (s *updateStubStore) ClaimAllPairedPolicyTargets(
 ) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by Update handler tests")
 }
+func (s *updateStubStore) BulkRefreshAllPairedTargetReadiness(
+	context.Context,
+	int64,
+	models.EventState,
+	[]interfaces.AllPairedReadinessUpdate,
+) (int64, error) {
+	panic("BulkRefreshAllPairedTargetReadiness not exercised by Update handler tests")
+}
 func (s *updateStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
 	panic("ListActiveEvents not exercised by Update handler tests")
 }

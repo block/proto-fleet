@@ -107,6 +107,14 @@ func (s *listStubStore) ClaimAllPairedPolicyTargets(
 ) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by List handler tests")
 }
+func (s *listStubStore) BulkRefreshAllPairedTargetReadiness(
+	context.Context,
+	int64,
+	models.EventState,
+	[]interfaces.AllPairedReadinessUpdate,
+) (int64, error) {
+	panic("BulkRefreshAllPairedTargetReadiness not exercised by List handler tests")
+}
 func (s *listStubStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
 	s.lastGetOrgID = orgID
 	s.lastGetUUID = eventUUID

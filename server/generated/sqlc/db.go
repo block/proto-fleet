@@ -72,6 +72,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.bulkInsertCurtailmentTargetsStmt, err = db.PrepareContext(ctx, bulkInsertCurtailmentTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query BulkInsertCurtailmentTargets: %w", err)
 	}
+	if q.bulkRefreshAllPairedTargetReadinessStmt, err = db.PrepareContext(ctx, bulkRefreshAllPairedTargetReadiness); err != nil {
+		return nil, fmt.Errorf("error preparing query BulkRefreshAllPairedTargetReadiness: %w", err)
+	}
 	if q.bumpCurtailmentTargetRetryStmt, err = db.PrepareContext(ctx, bumpCurtailmentTargetRetry); err != nil {
 		return nil, fmt.Errorf("error preparing query BumpCurtailmentTargetRetry: %w", err)
 	}
@@ -1448,6 +1451,11 @@ func (q *Queries) Close() error {
 	if q.bulkInsertCurtailmentTargetsStmt != nil {
 		if cerr := q.bulkInsertCurtailmentTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing bulkInsertCurtailmentTargetsStmt: %w", cerr)
+		}
+	}
+	if q.bulkRefreshAllPairedTargetReadinessStmt != nil {
+		if cerr := q.bulkRefreshAllPairedTargetReadinessStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bulkRefreshAllPairedTargetReadinessStmt: %w", cerr)
 		}
 	}
 	if q.bumpCurtailmentTargetRetryStmt != nil {
@@ -3660,6 +3668,7 @@ type Queries struct {
 	buildingBelongsToOrgStmt                                   *sql.Stmt
 	buildingsByIDsStmt                                         *sql.Stmt
 	bulkInsertCurtailmentTargetsStmt                           *sql.Stmt
+	bulkRefreshAllPairedTargetReadinessStmt                    *sql.Stmt
 	bumpCurtailmentTargetRetryStmt                             *sql.Stmt
 	cancelEnrollmentForFleetNodeStmt                           *sql.Stmt
 	cancelPendingEnrollmentStmt                                *sql.Stmt
@@ -4113,6 +4122,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		buildingBelongsToOrgStmt:                                   q.buildingBelongsToOrgStmt,
 		buildingsByIDsStmt:                                         q.buildingsByIDsStmt,
 		bulkInsertCurtailmentTargetsStmt:                           q.bulkInsertCurtailmentTargetsStmt,
+		bulkRefreshAllPairedTargetReadinessStmt:                    q.bulkRefreshAllPairedTargetReadinessStmt,
 		bumpCurtailmentTargetRetryStmt:                             q.bumpCurtailmentTargetRetryStmt,
 		cancelEnrollmentForFleetNodeStmt:                           q.cancelEnrollmentForFleetNodeStmt,
 		cancelPendingEnrollmentStmt:                                q.cancelPendingEnrollmentStmt,

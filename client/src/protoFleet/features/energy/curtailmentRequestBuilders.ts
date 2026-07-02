@@ -233,6 +233,38 @@ export function buildCurtailmentScopes(values: CurtailmentScopeValues): Curtailm
   return [create(CurtailmentScopeSchema, { scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) } })];
 }
 
+// All-paired targeting requires a closed-loop scope (whole org or sites).
+// The policy's durable-ownership loop (release on unpair, reopen on re-pair)
+// does not run for explicit miner selections, and the server rejects the
+// combination.
+export function supportsAllPairedTargeting(
+  values: CurtailmentScopeValues & Pick<CurtailmentSubmitValues, "curtailmentMode">,
+): boolean {
+  if (values.curtailmentMode !== "fullFleet") {
+    return false;
+  }
+  const scopes = buildCurtailmentScopes(values);
+  return scopes !== undefined && scopes.every((s) => s.scope.case === "wholeOrg" || s.scope.case === "site");
+}
+
+// Targeting all paired miners also opts in miners flagged for maintenance:
+// parking them as unavailable would contradict the operator's explicit
+// "all paired" choice, and both flags sit behind the same server-side admin
+// gate as the all-paired control itself.
+export function buildForceInclusionFields(
+  values: CurtailmentScopeValues &
+    Pick<CurtailmentSubmitValues, "curtailmentMode" | "includeMaintenance" | "forceIncludeAllPairedMiners">,
+): Pick<CurtailmentRequestFields, "includeMaintenance" | "forceIncludeMaintenance" | "forceIncludeAllPairedMiners"> {
+  const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedTargeting(values);
+  // The proto validator requires include_maintenance == force_include_maintenance.
+  const includeMaintenance = values.includeMaintenance || forceIncludeAllPairedMiners;
+  return {
+    includeMaintenance,
+    forceIncludeMaintenance: includeMaintenance,
+    forceIncludeAllPairedMiners,
+  };
+}
+
 function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): CurtailmentRequestFields {
   const scopes = buildCurtailmentScopes(values);
   if (scopes === undefined) {
@@ -259,9 +291,7 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
     strategy: ProtoCurtailmentStrategy.UNSPECIFIED,
     level: ProtoCurtailmentLevel.FULL,
     priority: getPriority(values.priority),
-    includeMaintenance: values.includeMaintenance,
-    forceIncludeMaintenance: values.includeMaintenance,
-    forceIncludeAllPairedMiners: values.curtailmentMode === "fullFleet" && values.forceIncludeAllPairedMiners,
+    ...buildForceInclusionFields(values),
   };
 }
 
