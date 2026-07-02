@@ -747,6 +747,13 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 // body-only success would present incomplete recent data as fresh.
 func (s *TimescaleTelemetryStore) appendHourlyRawTail(ctx context.Context, query models.CombinedMetricsQuery, body *models.CombinedMetric, tailStart, endTime time.Time) error {
 	bucketDuration := rawMetricBucketDuration(query.SlideInterval, len(query.DeviceIDs) == 0)
+	// Buckets wider than an hour get time_bucket grid labels that can precede
+	// the hour-truncated tailStart, colliding with or preceding the hourly
+	// body labels. Cap at the body granularity so OpenTime stays ascending
+	// across the seam.
+	if bucketDuration > hourlyBucketDuration {
+		bucketDuration = hourlyBucketDuration
+	}
 	buckets, err := s.rawBucketAggregates(ctx, query, tailStart, endTime, bucketDuration)
 	if err != nil {
 		return fmt.Errorf("failed to query raw tail for hourly combined metrics: %w", err)
