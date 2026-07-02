@@ -14,7 +14,9 @@ const {
   mockListGroupMembers,
   mockFetchAllMinerSnapshots,
   mockUnsupportedMinersModal,
+  mockPushToast,
 } = vi.hoisted(() => ({
+  mockPushToast: vi.fn(),
   mockUseMinerActions: vi.fn(),
   mockBulkActionsPopover: vi.fn(
     ({
@@ -170,6 +172,11 @@ vi.mock("@/shared/components/Popover", () => ({
 
 vi.mock("@/shared/hooks/useClickOutside", () => ({
   useClickOutside: vi.fn(),
+}));
+
+vi.mock("@/shared/features/toaster", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/shared/features/toaster")>()),
+  pushToast: mockPushToast,
 }));
 
 describe("DeviceSetActionsMenu", () => {
@@ -798,8 +805,8 @@ describe("DeviceSetActionsMenu", () => {
   });
 
   it("clears an open scoped confirmation when the target scope changes", async () => {
+    // Arrange
     const actionHandler = vi.fn();
-    const handleCancel = vi.fn();
     const actionActiveRef = { current: false };
     mockUseMinerActions.mockReturnValue({
       ...defaultMinerActions(),
@@ -811,7 +818,6 @@ describe("DeviceSetActionsMenu", () => {
           requiresConfirmation: false,
         },
       ],
-      handleCancel,
     });
 
     const { rerender } = render(
@@ -842,22 +848,17 @@ describe("DeviceSetActionsMenu", () => {
       />,
     );
 
+    // Assert
     await waitFor(() => {
       expect(screen.queryByTestId("group-actions-dialog")).not.toBeInTheDocument();
       expect(actionActiveRef.current).toBe(false);
     });
-    expect(handleCancel).toHaveBeenCalledWith({ notifyComplete: false });
     expect(actionHandler).not.toHaveBeenCalled();
   });
 
-  it("silently cancels local action state when an inactive row target changes", async () => {
-    const handleCancel = vi.fn();
+  it("does not notify completion when an inactive row target changes", () => {
+    // Arrange
     const onActionComplete = vi.fn();
-    mockUseMinerActions.mockReturnValue({
-      ...defaultMinerActions(),
-      handleCancel,
-    });
-
     const { rerender } = render(
       <DeviceSetActionsMenu
         memberDeviceIds={["site-1-miner"]}
@@ -868,6 +869,7 @@ describe("DeviceSetActionsMenu", () => {
       />,
     );
 
+    // Act
     rerender(
       <DeviceSetActionsMenu
         memberDeviceIds={["site-2-miner"]}
@@ -878,9 +880,8 @@ describe("DeviceSetActionsMenu", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(handleCancel).toHaveBeenCalledWith({ notifyComplete: false });
-    });
+    // Assert
+    expect(screen.getByLabelText("Device set actions")).toBeInTheDocument();
     expect(onActionComplete).not.toHaveBeenCalled();
   });
 
@@ -1082,18 +1083,22 @@ describe("DeviceSetActionsMenu", () => {
         expect.objectContaining({ deviceSetId: 1n, siteIds: [2n], includeUnassigned: false }),
       );
     });
+
+    // Assert: no replay, a toast explains why, and the action stays clickable
+    // on reopen since member data is fetched fresh on every attempt.
+    await waitFor(() => {
+      expect(mockPushToast).toHaveBeenCalledWith(expect.objectContaining({ message: "No miners in Site 2." }));
+    });
     expect(shutdownHandler).not.toHaveBeenCalled();
 
     fireEvent.click(menuButton);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("shutdown-popover-button")).toBeDisabled();
-    });
+    expect(screen.getByTestId("shutdown-popover-button")).toBeEnabled();
   });
 
-  it("revalidates an empty scoped member cache when reopening the same target", async () => {
+  it("runs a scoped action once a previously empty scope gains miners", async () => {
+    // Arrange
     const shutdownHandler = vi.fn();
-    const memberResponses = [[], ["new-miner"], ["new-miner"]];
+    const memberResponses = [[], ["new-miner"]];
     mockUseMinerActions.mockImplementation(() => ({
       ...defaultMinerActions(),
       popoverActions: [
@@ -1124,6 +1129,7 @@ describe("DeviceSetActionsMenu", () => {
       />,
     );
 
+    // Act: the first attempt hits an empty scope and does not replay
     const menuButton = screen.getByLabelText("Device set actions");
     fireEvent.click(menuButton);
     fireEvent.click(screen.getByTestId("shutdown-popover-button"));
@@ -1133,110 +1139,23 @@ describe("DeviceSetActionsMenu", () => {
     });
     expect(shutdownHandler).not.toHaveBeenCalled();
 
+    // Act: the second attempt fetches fresh data and finds the new miner
     fireEvent.click(menuButton);
-
-    await waitFor(() => {
-      expect(mockListGroupMembers).toHaveBeenCalledTimes(2);
-      expect(screen.getByTestId("shutdown-popover-button")).toBeEnabled();
-    });
-
+    expect(screen.getByTestId("shutdown-popover-button")).toBeEnabled();
     fireEvent.click(screen.getByTestId("shutdown-popover-button"));
 
     await waitFor(() => {
-      expect(mockListGroupMembers).toHaveBeenCalledTimes(3);
+      expect(mockListGroupMembers).toHaveBeenCalledTimes(2);
       expect(screen.getByTestId("group-actions-dialog")).toHaveTextContent("miners in Site 2");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
 
+    // Assert
     expect(shutdownHandler).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores stale empty-cache revalidation after an action fetch starts", async () => {
-    const shutdownHandler = vi.fn();
-    let refreshEmptyMembers: (() => void) | undefined;
-    let memberFetchCall = 0;
-    mockUseMinerActions.mockImplementation(() => ({
-      ...defaultMinerActions(),
-      popoverActions: [
-        {
-          action: "shutdown",
-          title: "Sleep",
-          actionHandler: shutdownHandler,
-          requiresConfirmation: false,
-        },
-      ],
-    }));
-    mockListGroupMembers.mockImplementation(
-      ({ onSuccess, onFinally }: { onSuccess?: (ids: string[]) => void; onFinally?: () => void }) => {
-        memberFetchCall += 1;
-        if (memberFetchCall === 1) {
-          onSuccess?.([]);
-          onFinally?.();
-          return;
-        }
-        if (memberFetchCall === 2) {
-          refreshEmptyMembers = () => {
-            onSuccess?.([]);
-            onFinally?.();
-          };
-          return;
-        }
-        onSuccess?.(["action-miner"]);
-        onFinally?.();
-      },
-    );
-    mockFetchAllMinerSnapshots.mockResolvedValue({
-      "action-miner": { deviceIdentifier: "action-miner" },
-    });
-
-    render(
-      <DeviceSetActionsMenu
-        deviceSetId={1n}
-        onEdit={vi.fn()}
-        activeSite={{ kind: "site", id: "2", slug: "site-2" }}
-        activeSiteLabel="Site 2"
-      />,
-    );
-
-    const menuButton = screen.getByLabelText("Device set actions");
-    fireEvent.click(menuButton);
-    fireEvent.click(screen.getByTestId("shutdown-popover-button"));
-
-    await waitFor(() => {
-      expect(mockListGroupMembers).toHaveBeenCalledTimes(1);
-    });
-    expect(shutdownHandler).not.toHaveBeenCalled();
-
-    fireEvent.click(menuButton);
-
-    await waitFor(() => {
-      expect(mockListGroupMembers).toHaveBeenCalledTimes(2);
-      expect(screen.getByTestId("shutdown-popover-button")).toBeEnabled();
-    });
-
-    fireEvent.click(screen.getByTestId("shutdown-popover-button"));
-
-    await waitFor(() => {
-      expect(mockListGroupMembers).toHaveBeenCalledTimes(3);
-      expect(screen.getByTestId("group-actions-dialog")).toHaveTextContent("miners in Site 2");
-    });
-
-    act(() => {
-      refreshEmptyMembers?.();
-    });
-
-    await waitFor(() => {
-      expect(mockUseMinerActions).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          selectedMiners: [{ deviceIdentifier: "action-miner" }],
-        }),
-      );
-      expect(screen.getByTestId("group-actions-dialog")).toBeInTheDocument();
-    });
-  });
-
-  it("does not reuse an empty scoped member cache after the target site changes", async () => {
+  it("fetches fresh members for the new site after the target site changes", async () => {
     const shutdownHandler = vi.fn();
     mockUseMinerActions.mockImplementation(() => ({
       ...defaultMinerActions(),
@@ -1276,6 +1195,7 @@ describe("DeviceSetActionsMenu", () => {
       />,
     );
 
+    // Act: an attempt in site 1 finds no scoped miners
     const menuButton = screen.getByLabelText("Device set actions");
     fireEvent.click(menuButton);
     fireEvent.click(screen.getByTestId("shutdown-popover-button"));
@@ -1285,13 +1205,9 @@ describe("DeviceSetActionsMenu", () => {
         expect.objectContaining({ deviceSetId: 1n, siteIds: [1n], includeUnassigned: false }),
       );
     });
+    expect(shutdownHandler).not.toHaveBeenCalled();
 
-    fireEvent.click(menuButton);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("shutdown-popover-button")).toBeDisabled();
-    });
-
+    // Act: the site scope changes and a new attempt targets the new site
     rerender(
       <DeviceSetActionsMenu
         deviceSetId={1n}
@@ -1301,10 +1217,7 @@ describe("DeviceSetActionsMenu", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(screen.getByTestId("shutdown-popover-button")).toBeEnabled();
-    });
-
+    fireEvent.click(screen.getByLabelText("Device set actions"));
     fireEvent.click(screen.getByTestId("shutdown-popover-button"));
 
     await waitFor(() => {

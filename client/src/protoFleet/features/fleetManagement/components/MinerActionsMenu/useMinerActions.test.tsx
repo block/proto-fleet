@@ -789,7 +789,8 @@ describe("useMinerActions", () => {
       expect(onActionStart).toHaveBeenCalled();
     });
 
-    it("ignores manage power capability continuations after the action lifecycle key changes", async () => {
+    it("ignores manage power capability continuations after cancel", async () => {
+      // Arrange
       let resolveCapabilityCheck: (() => void) | undefined;
       mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
         resolveCapabilityCheck = () =>
@@ -804,35 +805,73 @@ describe("useMinerActions", () => {
           });
       });
 
-      const { result, rerender } = renderHook(
-        ({ actionLifecycleKey }: { actionLifecycleKey: string }) =>
-          useMinerActions({
-            ...batchOpsParams(),
-            selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-            selectionMode: "subset",
-            actionLifecycleKey,
-          }),
-        {
-          initialProps: { actionLifecycleKey: "target-a:1" },
-        },
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
       );
 
       const managePowerAction = result.current.popoverActions.find((a) => a.action === performanceActions.managePower);
-      let actionPromise = Promise.resolve();
 
+      // Act
       act(() => {
-        actionPromise = Promise.resolve(managePowerAction?.actionHandler()).then(() => undefined);
+        managePowerAction?.actionHandler();
       });
-
-      rerender({ actionLifecycleKey: "target-b:2" });
-
+      act(() => {
+        result.current.handleCancel();
+      });
       await act(async () => {
         resolveCapabilityCheck?.();
-        await actionPromise;
       });
 
+      // Assert
       expect(result.current.showManagePowerModal).toBe(false);
       expect(result.current.currentAction).toBeNull();
+    });
+
+    it("ignores manage power capability continuations after another action starts", async () => {
+      // Arrange
+      let resolveCapabilityCheck: (() => void) | undefined;
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        resolveCapabilityCheck = () =>
+          onSuccess({
+            allSupported: true,
+            noneSupported: false,
+            supportedCount: 1,
+            unsupportedCount: 0,
+            totalCount: 1,
+            unsupportedGroups: [],
+            supportedDeviceIdentifiers: [],
+          });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const managePowerAction = result.current.popoverActions.find((a) => a.action === performanceActions.managePower);
+      const blinkAction = result.current.popoverActions.find((a) => a.action === deviceActions.blinkLEDs);
+
+      // Act
+      act(() => {
+        managePowerAction?.actionHandler();
+      });
+      act(() => {
+        blinkAction?.actionHandler();
+      });
+      await act(async () => {
+        resolveCapabilityCheck?.();
+      });
+
+      // Assert
+      expect(result.current.showManagePowerModal).toBe(false);
+      expect(result.current.currentAction).toBe(deviceActions.blinkLEDs);
     });
 
     it("should handle manage power confirm and call API", async () => {
@@ -1439,25 +1478,6 @@ describe("useMinerActions", () => {
       });
 
       expect(onActionComplete).toHaveBeenCalled();
-    });
-
-    it("should skip onActionComplete when handleCancel is internal-only", () => {
-      const onActionComplete = vi.fn();
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-          onActionComplete,
-        }),
-      );
-
-      act(() => {
-        result.current.handleCancel({ notifyComplete: false });
-      });
-
-      expect(onActionComplete).not.toHaveBeenCalled();
     });
   });
 
