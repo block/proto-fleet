@@ -265,7 +265,7 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	return &out, nil
 }
 
-// mergeChannelConfig folds an update onto the stored config, carrying the secret only when the destination is unchanged; returns whether the result still needs SSRF validation.
+// mergeChannelConfig folds an update onto the stored config, carrying the secret only when the destination is unchanged and the caller didn't ask to clear it; returns whether the result still needs SSRF validation.
 func mergeChannelConfig(c Channel, storedKind ChannelKind, stored channelConfig) (channelConfig, bool) {
 	switch c.Kind {
 	case ChannelKindWebhook:
@@ -281,8 +281,9 @@ func mergeChannelConfig(c Channel, storedKind ChannelKind, stored channelConfig)
 			req.URL = storedURL
 		}
 		destinationChanged := req.URL != storedURL
-		if req.Bearer == "" && !destinationChanged && storedKind == ChannelKindWebhook {
-			req.Bearer = stored.Bearer // carry the stored bearer when nothing else changed
+		clearBearer := c.Webhook != nil && c.Webhook.ClearBearer
+		if req.Bearer == "" && !clearBearer && !destinationChanged && storedKind == ChannelKindWebhook {
+			req.Bearer = stored.Bearer // carry the stored bearer unless the caller asked to revoke it
 		}
 		return req, true
 	case ChannelKindSlack:

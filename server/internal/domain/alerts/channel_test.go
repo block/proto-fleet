@@ -227,6 +227,29 @@ func TestUpdateChannelPreservesWebhookBearerWhenDestinationUnchanged(t *testing.
 	assert.Equal(t, "tok", cfg.Bearer, "unchanged destination carries the stored bearer")
 }
 
+func TestUpdateChannelClearsWebhookBearerWhenRequested(t *testing.T) {
+	svc, store, _ := newChannelService(t)
+	created, err := svc.CreateChannel(context.Background(), 7, Channel{
+		Name: "w", Kind: ChannelKindWebhook,
+		Webhook: &WebhookConfig{URL: "https://relay.example.com/hook", BearerHeader: "tok"},
+	})
+	require.NoError(t, err)
+
+	// Keep the destination but explicitly revoke the bearer (no URL change required).
+	updated, err := svc.UpdateChannel(context.Background(), 7, Channel{
+		ID: created.ID, Name: "w", Kind: ChannelKindWebhook,
+		Webhook: &WebhookConfig{URL: "https://relay.example.com", ClearBearer: true},
+	})
+	require.NoError(t, err)
+	assert.False(t, updated.HasSecret, "clearing the bearer drops the stored secret")
+
+	id, _ := parseChannelID(created.ID)
+	cfg, err := decodeChannelConfig(testCipher(t), store.rows[id].EncryptedConfig)
+	require.NoError(t, err)
+	assert.Equal(t, "https://relay.example.com/hook", cfg.URL, "destination is preserved")
+	assert.Empty(t, cfg.Bearer, "bearer is revoked")
+}
+
 func TestUpdateChannelDropsBearerOnDestinationChange(t *testing.T) {
 	svc, store, _ := newChannelService(t)
 	created, err := svc.CreateChannel(context.Background(), 7, Channel{

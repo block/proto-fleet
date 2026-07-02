@@ -345,7 +345,7 @@ func protoToChannel(id, name string, kind alertsv1.ChannelKind, wh *alertsv1.Web
 	}
 	dom := alerts.Channel{ID: id, Name: name, Kind: dk}
 	if wh != nil {
-		dom.Webhook = &alerts.WebhookConfig{URL: wh.GetUrl(), BearerHeader: wh.GetBearerHeader()}
+		dom.Webhook = &alerts.WebhookConfig{URL: wh.GetUrl(), BearerHeader: wh.GetBearerHeader(), ClearBearer: wh.GetClearBearerHeader()}
 	}
 	if slack != nil {
 		dom.Slack = &alerts.SlackConfig{WebhookURL: slack.GetWebhookUrl()}
