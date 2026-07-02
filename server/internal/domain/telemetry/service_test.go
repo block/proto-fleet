@@ -4113,3 +4113,190 @@ func TestWriteFleetStateSnapshot(t *testing.T) {
 		service.writeFleetStateSnapshot(t.Context(), tickTime)
 	})
 }
+
+// combinedMetricsQueryAt builds a query whose end time lands endOffset past a
+// fixed quantum-aligned base, with a 24h duration. Offsets within the same
+// 15s quantum must quantize (and therefore key) identically.
+func combinedMetricsQueryAt(org int64, endOffset time.Duration) models.CombinedMetricsQuery {
+	base := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	end := base.Add(endOffset)
+	start := end.Add(-24 * time.Hour)
+	return models.CombinedMetricsQuery{
+		OrganizationID:   org,
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+	}
+}
+
+func newCombinedMetricsTestService(t *testing.T) (*TelemetryService, *mock.MockTelemetryDataStore) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	dataStore := mock.NewMockTelemetryDataStore(ctrl)
+	svc := NewTelemetryService(Config{
+		StalenessThreshold: time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}, dataStore, nil, nil, storesMocks.NewMockDeviceStore(ctrl), mock.NewMockErrorPoller(ctrl))
+	return svc, dataStore
+}
+
+// TestGetCombinedMetrics_Singleflight verifies identical concurrent queries
+// collapse into one store execution, distinct queries do not, and a canceled
+// caller returns promptly without poisoning the shared flight.
+func TestGetCombinedMetrics_Singleflight(t *testing.T) {
+	quantumBase := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+
+	t.Run("identical concurrent queries share one store call", func(t *testing.T) {
+		// Arrange
+		svc, dataStore := newCombinedMetricsTestService(t)
+		started := make(chan struct{})
+		release := make(chan struct{})
+		want := models.CombinedMetric{Metrics: []models.Metric{{MeasurementType: models.MeasurementTypeHashrate}}}
+		dataStore.EXPECT().
+			GetCombinedMetrics(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, q models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+				// The executed query must carry the quantized bounds so the
+				// shared result matches what followers keyed on.
+				assert.Equal(t, quantumBase, *q.TimeRange.EndTime)
+				assert.Equal(t, quantumBase.Add(-24*time.Hour), *q.TimeRange.StartTime)
+				close(started)
+				<-release
+				return want, nil
+			})
+
+		results := make(chan models.CombinedMetric, 2)
+		errs := make(chan error, 2)
+		run := func(q models.CombinedMetricsQuery) {
+			res, err := svc.GetCombinedMetrics(t.Context(), q)
+			results <- res
+			errs <- err
+		}
+
+		// Act: end times 3s and 7s past the quantum boundary collapse to the
+		// same key. The store blocks until released, guaranteeing overlap.
+		go run(combinedMetricsQueryAt(42, 3*time.Second))
+		<-started
+		go run(combinedMetricsQueryAt(42, 7*time.Second))
+		// Let the second caller join the pending flight before the leader is
+		// released; if it misses and re-queries, the mock fails on call count.
+		time.Sleep(50 * time.Millisecond)
+		close(release)
+
+		// Assert
+		for range 2 {
+			require.NoError(t, <-errs)
+			assert.Equal(t, want, <-results)
+		}
+	})
+
+	t.Run("distinct queries do not collapse", func(t *testing.T) {
+		differentMeasurements := combinedMetricsQueryAt(1, 3*time.Second)
+		differentMeasurements.MeasurementTypes = []models.MeasurementType{models.MeasurementTypePower}
+
+		tests := []struct {
+			name   string
+			queryA models.CombinedMetricsQuery
+			queryB models.CombinedMetricsQuery
+		}{
+			{"different orgs", combinedMetricsQueryAt(1, 3*time.Second), combinedMetricsQueryAt(2, 3*time.Second)},
+			{"different measurement sets", combinedMetricsQueryAt(1, 3*time.Second), differentMeasurements},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				// Arrange
+				svc, dataStore := newCombinedMetricsTestService(t)
+				started := make(chan struct{}, 2)
+				release := make(chan struct{})
+				dataStore.EXPECT().
+					GetCombinedMetrics(gomock.Any(), gomock.Any()).
+					Times(2).
+					DoAndReturn(func(_ context.Context, _ models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+						started <- struct{}{}
+						<-release
+						return models.CombinedMetric{}, nil
+					})
+
+				errs := make(chan error, 2)
+
+				// Act
+				go func() {
+					_, err := svc.GetCombinedMetrics(t.Context(), tc.queryA)
+					errs <- err
+				}()
+				go func() {
+					_, err := svc.GetCombinedMetrics(t.Context(), tc.queryB)
+					errs <- err
+				}()
+
+				// Assert: both queries reach the store concurrently, proving
+				// they run as separate flights.
+				for range 2 {
+					select {
+					case <-started:
+					case <-time.After(5 * time.Second):
+						t.Fatal("expected two concurrent store calls")
+					}
+				}
+				close(release)
+				require.NoError(t, <-errs)
+				require.NoError(t, <-errs)
+			})
+		}
+	})
+
+	t.Run("canceled caller returns while sibling still gets the result", func(t *testing.T) {
+		// Arrange
+		svc, dataStore := newCombinedMetricsTestService(t)
+		started := make(chan struct{})
+		release := make(chan struct{})
+		want := models.CombinedMetric{Metrics: []models.Metric{{MeasurementType: models.MeasurementTypeHashrate}}}
+		dataStore.EXPECT().
+			GetCombinedMetrics(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, _ models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+				close(started)
+				// The flight context must be detached from the leader: if the
+				// leader's cancellation propagated here, this would error and
+				// poison the follower's result below.
+				select {
+				case <-release:
+					return want, nil
+				case <-ctx.Done():
+					return models.CombinedMetric{}, ctx.Err()
+				}
+			})
+
+		leaderCtx, cancelLeader := context.WithCancel(t.Context())
+		leaderErrs := make(chan error, 1)
+		go func() {
+			_, err := svc.GetCombinedMetrics(leaderCtx, combinedMetricsQueryAt(42, 3*time.Second))
+			leaderErrs <- err
+		}()
+		<-started
+
+		followerResults := make(chan models.CombinedMetric, 1)
+		followerErrs := make(chan error, 1)
+		go func() {
+			res, err := svc.GetCombinedMetrics(t.Context(), combinedMetricsQueryAt(42, 7*time.Second))
+			followerResults <- res
+			followerErrs <- err
+		}()
+		time.Sleep(50 * time.Millisecond) // let the follower join the pending flight
+
+		// Act
+		cancelLeader()
+
+		// Assert: the canceled caller returns promptly even though the store
+		// call is still blocked.
+		select {
+		case err := <-leaderErrs:
+			require.ErrorIs(t, err, context.Canceled)
+		case <-time.After(5 * time.Second):
+			t.Fatal("canceled caller did not return promptly")
+		}
+
+		close(release)
+		require.NoError(t, <-followerErrs)
+		assert.Equal(t, want, <-followerResults)
+	})
+}
