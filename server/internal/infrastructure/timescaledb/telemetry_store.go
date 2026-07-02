@@ -31,9 +31,6 @@ const (
 	hourlyBucketDuration = time.Hour
 	dailyBucketDuration  = 24 * time.Hour
 	maxRawMetricBuckets  = 10000
-	maxRawMetricWork     = 2000000
-	maxRawMetricSamples  = 2000000
-	rawMetricSampleRate  = 10 * time.Second
 
 	// Energy estimation constants.
 	// Each telemetry data point represents one polling interval of device uptime.
@@ -104,18 +101,6 @@ func normalizeCompleteBucketRange(startTime, endTime time.Time, bucketDuration t
 	return startTime, completeEndTime, true
 }
 
-// rangeContainsCompleteBucket reports whether [startTime, endTime] fully contains
-// at least one aligned bucket. Aggregate buckets start on aligned boundaries, so an
-// unaligned window can span a full bucketDuration without covering any complete bucket.
-func rangeContainsCompleteBucket(startTime, endTime time.Time, bucketDuration time.Duration) bool {
-	alignedStart := startTime.Truncate(bucketDuration)
-	if alignedStart.Before(startTime) {
-		alignedStart = alignedStart.Add(bucketDuration)
-	}
-	_, _, ok := normalizeCompleteBucketRange(alignedStart, endTime, bucketDuration)
-	return ok
-}
-
 func rawMetricBucketDuration(slideInterval *time.Duration, allDevices bool) time.Duration {
 	bucketDuration := DefaultBucketDuration
 	if slideInterval != nil && *slideInterval > 0 {
@@ -135,66 +120,6 @@ func rawMetricBucketCount(startTime, endTime time.Time, bucketDuration time.Dura
 		return 0
 	}
 	return int64(endTime.Sub(startTime)/bucketDuration) + 1
-}
-
-func rawMetricBucketDurationForWork(startTime, endTime time.Time, bucketDuration time.Duration, deviceCount int64) time.Duration {
-	if bucketDuration <= 0 || deviceCount <= 0 || endTime.Before(startTime) {
-		return bucketDuration
-	}
-
-	bucketCount := rawMetricBucketCount(startTime, endTime, bucketDuration)
-	if rawMetricWorkCount(bucketCount, deviceCount) <= maxRawMetricWork {
-		return bucketDuration
-	}
-
-	maxBuckets := maxRawMetricWork / deviceCount
-	if maxBuckets <= 1 {
-		return roundUpToSecond(endTime.Sub(startTime) + time.Nanosecond)
-	}
-
-	adjusted := ceilDuration(endTime.Sub(startTime), maxBuckets-1)
-	adjusted = roundUpToSecond(adjusted)
-	if adjusted < bucketDuration {
-		return bucketDuration
-	}
-	return adjusted
-}
-
-func shouldUseHourlyForRawMetricSampleCost(startTime, endTime time.Time, deviceCount int64) bool {
-	if deviceCount <= 0 || !rangeContainsCompleteBucket(startTime, endTime, hourlyBucketDuration) {
-		return false
-	}
-	return estimatedRawMetricSamples(startTime, endTime, deviceCount) > maxRawMetricSamples
-}
-
-func estimatedRawMetricSamples(startTime, endTime time.Time, deviceCount int64) int64 {
-	sampleCount := rawMetricBucketCount(startTime, endTime, rawMetricSampleRate)
-	return rawMetricWorkCount(sampleCount, deviceCount)
-}
-
-func ceilDuration(duration time.Duration, divisor int64) time.Duration {
-	if divisor <= 0 {
-		return duration
-	}
-	return time.Duration((duration.Nanoseconds() + divisor - 1) / divisor)
-}
-
-func roundUpToSecond(duration time.Duration) time.Duration {
-	truncated := duration.Truncate(time.Second)
-	if truncated == duration {
-		return duration
-	}
-	return truncated + time.Second
-}
-
-func rawMetricWorkCount(bucketCount, deviceCount int64) int64 {
-	if bucketCount <= 0 || deviceCount <= 0 {
-		return 0
-	}
-	if bucketCount > math.MaxInt64/deviceCount {
-		return math.MaxInt64
-	}
-	return bucketCount * deviceCount
 }
 
 // statusData holds a per-device temperature histogram for one bucket.
@@ -644,29 +569,13 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics range exceeds %s", rawDataMaxDuration)
 	}
 
-	deviceCount, err := s.rawMetricDeviceCount(ctx, query)
-	if err != nil {
-		return models.CombinedMetric{}, fmt.Errorf("failed to count raw metric devices: %w", err)
-	}
-	if shouldUseHourlyForRawMetricSampleCost(startTime, endTime, deviceCount) {
-		s.logger.Debug("routing combined metrics to hourly aggregates due to raw sample cost",
-			slog.Int64("device_count", deviceCount),
-			slog.Int64("estimated_samples", estimatedRawMetricSamples(startTime, endTime, deviceCount)),
-			slog.Time("start_time", startTime),
-			slog.Time("end_time", endTime))
-		return s.getCombinedMetricsFromHourly(ctx, query, startTime, endTime)
-	}
 	bucketDuration := rawMetricBucketDuration(query.SlideInterval, len(query.DeviceIDs) == 0)
-	bucketDuration = rawMetricBucketDurationForWork(startTime, endTime, bucketDuration, deviceCount)
-	bucketCount := rawMetricBucketCount(startTime, endTime, bucketDuration)
-	if bucketCount > maxRawMetricBuckets {
+	if rawMetricBucketCount(startTime, endTime, bucketDuration) > maxRawMetricBuckets {
 		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics bucket count exceeds %d", maxRawMetricBuckets)
-	}
-	if rawMetricWorkCount(bucketCount, deviceCount) > maxRawMetricWork {
-		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics work exceeds %d device-buckets", maxRawMetricWork)
 	}
 	bucketSeconds := bucketDuration.Seconds()
 	var buckets []rawMetricBucket
+	var err error
 
 	if len(query.DeviceIDs) == 0 {
 		var rows []sqlc.GetAllDeviceMetricsRawBucketAggregatesRow
@@ -705,13 +614,6 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 	}
 
 	return result, nil
-}
-
-func (s *TimescaleTelemetryStore) rawMetricDeviceCount(ctx context.Context, query models.CombinedMetricsQuery) (int64, error) {
-	if len(query.DeviceIDs) > 0 {
-		return int64(len(query.DeviceIDs)), nil
-	}
-	return s.queries.CountLiveDevicesForRawMetricAggregates(ctx, query.OrganizationID)
 }
 
 // getCombinedMetricsFromHourly queries device_metrics_hourly continuous aggregate.

@@ -183,12 +183,6 @@ WHERE time >= $1
 ORDER BY time ASC
 LIMIT sqlc.arg('max_rows')::int;
 
--- name: CountLiveDevicesForRawMetricAggregates :one
-SELECT COUNT(*)::bigint
-FROM device
-WHERE org_id = sqlc.arg('org_id')
-  AND deleted_at IS NULL;
-
 -- name: GetDeviceMetricsRawBucketAggregates :many
 WITH per_device_bucket AS (
     SELECT
@@ -348,12 +342,11 @@ FROM per_device_bucket
 GROUP BY bucket
 ORDER BY bucket ASC;
 
--- Aggregate org scoping includes buckets overlapping the device lifetime
--- (bucket end > created_at, bucket start < deleted_at). Creation and
--- deletion buckets may blend a neighboring registration's samples and
--- cannot be split per sample, so each is included only when no earlier
--- (respectively later) device row used the identifier; device rows are
--- the only evidence that outlives telemetry retention.
+-- Aggregate org scoping keeps buckets that end at or before deleted_at,
+-- plus the creation-overlap bucket when no earlier device row used the
+-- identifier. A deleted device's final partial bucket is excluded: it
+-- could blend a later registration's samples and cannot be split per
+-- sample. Device rows are the only reuse evidence outliving retention.
 
 -- name: GetDeviceMetricsHourlyAggregates :many
 -- COALESCE handles NULL values from AVG() when all source values are NULL
@@ -376,18 +369,12 @@ JOIN device d
   ON d.device_identifier = dmh.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND dmh.bucket + INTERVAL '1 hour' > d.created_at
- AND (d.deleted_at IS NULL OR dmh.bucket < d.deleted_at)
+ AND (d.deleted_at IS NULL OR dmh.bucket + INTERVAL '1 hour' <= d.deleted_at)
  AND (dmh.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
- AND (d.deleted_at IS NULL
-      OR dmh.bucket + INTERVAL '1 hour' <= d.deleted_at
-      OR NOT EXISTS (
-          SELECT 1 FROM device nxt
-          WHERE nxt.device_identifier = d.device_identifier
-            AND nxt.created_at > d.created_at))
 WHERE dmh.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND dmh.bucket >= sqlc.arg('start_bucket')
   AND dmh.bucket <= sqlc.arg('end_bucket')
@@ -412,18 +399,12 @@ JOIN device d
   ON d.device_identifier = dmd.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND dmd.bucket + INTERVAL '1 day' > d.created_at
- AND (d.deleted_at IS NULL OR dmd.bucket < d.deleted_at)
+ AND (d.deleted_at IS NULL OR dmd.bucket + INTERVAL '1 day' <= d.deleted_at)
  AND (dmd.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
- AND (d.deleted_at IS NULL
-      OR dmd.bucket + INTERVAL '1 day' <= d.deleted_at
-      OR NOT EXISTS (
-          SELECT 1 FROM device nxt
-          WHERE nxt.device_identifier = d.device_identifier
-            AND nxt.created_at > d.created_at))
 WHERE dmd.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND dmd.bucket >= sqlc.arg('start_bucket')
   AND dmd.bucket <= sqlc.arg('end_bucket')
@@ -451,18 +432,12 @@ JOIN device d
   ON d.device_identifier = dmh.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND dmh.bucket + INTERVAL '1 hour' > d.created_at
- AND (d.deleted_at IS NULL OR dmh.bucket < d.deleted_at)
+ AND (d.deleted_at IS NULL OR dmh.bucket + INTERVAL '1 hour' <= d.deleted_at)
  AND (dmh.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
- AND (d.deleted_at IS NULL
-      OR dmh.bucket + INTERVAL '1 hour' <= d.deleted_at
-      OR NOT EXISTS (
-          SELECT 1 FROM device nxt
-          WHERE nxt.device_identifier = d.device_identifier
-            AND nxt.created_at > d.created_at))
 WHERE dmh.bucket >= sqlc.arg('start_bucket')
   AND dmh.bucket <= sqlc.arg('end_bucket')
 ORDER BY dmh.bucket ASC;
@@ -487,25 +462,19 @@ JOIN device d
   ON d.device_identifier = dmd.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND dmd.bucket + INTERVAL '1 day' > d.created_at
- AND (d.deleted_at IS NULL OR dmd.bucket < d.deleted_at)
+ AND (d.deleted_at IS NULL OR dmd.bucket + INTERVAL '1 day' <= d.deleted_at)
  AND (dmd.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
- AND (d.deleted_at IS NULL
-      OR dmd.bucket + INTERVAL '1 day' <= d.deleted_at
-      OR NOT EXISTS (
-          SELECT 1 FROM device nxt
-          WHERE nxt.device_identifier = d.device_identifier
-            AND nxt.created_at > d.created_at))
 WHERE dmd.bucket >= sqlc.arg('start_bucket')
   AND dmd.bucket <= sqlc.arg('end_bucket')
 ORDER BY dmd.bucket ASC;
 
 -- =====================================================
 -- Status aggregate queries (temperature histogram + uptime)
--- Org scoping follows the bucket-overlap rule described above.
+-- Org scoping follows the lifetime bucket rule described above.
 -- =====================================================
 
 -- name: GetDeviceStatusHourlyAggregates :many
@@ -533,18 +502,12 @@ JOIN device d
   ON d.device_identifier = dsh.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND dsh.bucket + INTERVAL '1 hour' > d.created_at
- AND (d.deleted_at IS NULL OR dsh.bucket < d.deleted_at)
+ AND (d.deleted_at IS NULL OR dsh.bucket + INTERVAL '1 hour' <= d.deleted_at)
  AND (dsh.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
- AND (d.deleted_at IS NULL
-      OR dsh.bucket + INTERVAL '1 hour' <= d.deleted_at
-      OR NOT EXISTS (
-          SELECT 1 FROM device nxt
-          WHERE nxt.device_identifier = d.device_identifier
-            AND nxt.created_at > d.created_at))
 WHERE dsh.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND dsh.bucket >= sqlc.arg('start_bucket')
   AND dsh.bucket <= sqlc.arg('end_bucket')
@@ -575,18 +538,12 @@ JOIN device d
   ON d.device_identifier = dsh.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND dsh.bucket + INTERVAL '1 hour' > d.created_at
- AND (d.deleted_at IS NULL OR dsh.bucket < d.deleted_at)
+ AND (d.deleted_at IS NULL OR dsh.bucket + INTERVAL '1 hour' <= d.deleted_at)
  AND (dsh.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
- AND (d.deleted_at IS NULL
-      OR dsh.bucket + INTERVAL '1 hour' <= d.deleted_at
-      OR NOT EXISTS (
-          SELECT 1 FROM device nxt
-          WHERE nxt.device_identifier = d.device_identifier
-            AND nxt.created_at > d.created_at))
 WHERE dsh.bucket >= sqlc.arg('start_bucket')
   AND dsh.bucket <= sqlc.arg('end_bucket')
 ORDER BY dsh.bucket ASC;
@@ -616,18 +573,12 @@ JOIN device d
   ON d.device_identifier = dsd.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND dsd.bucket + INTERVAL '1 day' > d.created_at
- AND (d.deleted_at IS NULL OR dsd.bucket < d.deleted_at)
+ AND (d.deleted_at IS NULL OR dsd.bucket + INTERVAL '1 day' <= d.deleted_at)
  AND (dsd.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
- AND (d.deleted_at IS NULL
-      OR dsd.bucket + INTERVAL '1 day' <= d.deleted_at
-      OR NOT EXISTS (
-          SELECT 1 FROM device nxt
-          WHERE nxt.device_identifier = d.device_identifier
-            AND nxt.created_at > d.created_at))
 WHERE dsd.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND dsd.bucket >= sqlc.arg('start_bucket')
   AND dsd.bucket <= sqlc.arg('end_bucket')
@@ -658,18 +609,12 @@ JOIN device d
   ON d.device_identifier = dsd.device_identifier
  AND d.org_id = sqlc.arg('org_id')
  AND dsd.bucket + INTERVAL '1 day' > d.created_at
- AND (d.deleted_at IS NULL OR dsd.bucket < d.deleted_at)
+ AND (d.deleted_at IS NULL OR dsd.bucket + INTERVAL '1 day' <= d.deleted_at)
  AND (dsd.bucket >= d.created_at
       OR NOT EXISTS (
           SELECT 1 FROM device prev
           WHERE prev.device_identifier = d.device_identifier
             AND prev.created_at < d.created_at))
- AND (d.deleted_at IS NULL
-      OR dsd.bucket + INTERVAL '1 day' <= d.deleted_at
-      OR NOT EXISTS (
-          SELECT 1 FROM device nxt
-          WHERE nxt.device_identifier = d.device_identifier
-            AND nxt.created_at > d.created_at))
 WHERE dsd.bucket >= sqlc.arg('start_bucket')
   AND dsd.bucket <= sqlc.arg('end_bucket')
 ORDER BY dsd.bucket ASC;

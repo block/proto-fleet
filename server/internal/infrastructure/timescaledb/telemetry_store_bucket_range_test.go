@@ -1,7 +1,6 @@
 package timescaledb
 
 import (
-	"math"
 	"testing"
 	"time"
 
@@ -55,80 +54,12 @@ func TestRawMetricBucketDuration_PreservesFractionalSeconds(t *testing.T) {
 	assert.Equal(t, slideInterval, got)
 }
 
-func TestRawMetricWorkCount(t *testing.T) {
-	assert.Equal(t, int64(0), rawMetricWorkCount(0, 10))
-	assert.Equal(t, int64(0), rawMetricWorkCount(10, 0))
-	assert.Equal(t, int64(1200), rawMetricWorkCount(120, 10))
-	assert.Equal(t, int64(math.MaxInt64), rawMetricWorkCount(math.MaxInt64, 2))
-}
+func TestRawMetricBucketCount(t *testing.T) {
+	// Arrange
+	startTime := time.Date(2026, time.January, 10, 0, 0, 0, 0, time.UTC)
 
-func TestRawMetricBucketDurationForWork_CoarsensLargeFleet(t *testing.T) {
-	endTime := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
-	startTime := endTime.Add(-24 * time.Hour)
-	requestedBucketDuration := 10 * time.Second
-
-	got := rawMetricBucketDurationForWork(startTime, endTime, requestedBucketDuration, 5000)
-	gotBucketCount := rawMetricBucketCount(startTime, endTime, got)
-
-	assert.Greater(t, got, requestedBucketDuration)
-	assert.LessOrEqual(t, rawMetricWorkCount(gotBucketCount, 5000), int64(maxRawMetricWork))
-}
-
-func TestShouldUseHourlyForRawMetricSampleCost(t *testing.T) {
-	endTime := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
-	startTime := endTime.Add(-24 * time.Hour)
-
-	assert.False(t, shouldUseHourlyForRawMetricSampleCost(startTime, endTime, 100))
-	assert.True(t, shouldUseHourlyForRawMetricSampleCost(startTime, endTime, 5000))
-}
-
-func TestShouldUseHourlyForRawMetricSampleCost_KeepsShortRangesRaw(t *testing.T) {
-	endTime := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
-	startTime := endTime.Add(-15 * time.Minute)
-
-	assert.False(t, shouldUseHourlyForRawMetricSampleCost(startTime, endTime, 5000))
-}
-
-func TestShouldUseHourlyForRawMetricSampleCost_BucketAlignment(t *testing.T) {
-	tests := []struct {
-		name      string
-		startTime time.Time
-		endTime   time.Time
-		expected  bool
-	}{
-		{
-			name:      "unaligned one-hour window stays raw",
-			startTime: time.Date(2026, time.January, 10, 10, 15, 0, 0, time.UTC),
-			endTime:   time.Date(2026, time.January, 10, 11, 15, 0, 0, time.UTC),
-			expected:  false,
-		},
-		{
-			name:      "aligned one-hour window routes to hourly",
-			startTime: time.Date(2026, time.January, 10, 10, 0, 0, 0, time.UTC),
-			endTime:   time.Date(2026, time.January, 10, 11, 0, 0, 0, time.UTC),
-			expected:  true,
-		},
-		{
-			name:      "unaligned window ending on boundary routes to hourly",
-			startTime: time.Date(2026, time.January, 10, 10, 15, 0, 0, time.UTC),
-			endTime:   time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC),
-			expected:  true,
-		},
-		{
-			name:      "unaligned multi-hour window routes to hourly",
-			startTime: time.Date(2026, time.January, 10, 10, 15, 0, 0, time.UTC),
-			endTime:   time.Date(2026, time.January, 10, 13, 15, 0, 0, time.UTC),
-			expected:  true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// Act
-			got := shouldUseHourlyForRawMetricSampleCost(tc.startTime, tc.endTime, 100000)
-
-			// Assert
-			assert.Equal(t, tc.expected, got)
-		})
-	}
+	// Assert
+	assert.Equal(t, int64(0), rawMetricBucketCount(startTime, startTime.Add(-time.Second), time.Minute))
+	assert.Equal(t, int64(1), rawMetricBucketCount(startTime, startTime, time.Minute))
+	assert.Equal(t, int64(1441), rawMetricBucketCount(startTime, startTime.Add(24*time.Hour), time.Minute))
 }
