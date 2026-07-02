@@ -168,10 +168,14 @@ func TestSQLCurtailmentStore_ListActiveCurtailedDevices_AllPairedScopeLockAndRel
 }
 
 // Pins the graceful-Stop release predicate against real SQL: only all-paired
-// targets with no dispatch attempt at all (NULL dispatch timestamps and
-// retry_count = 0) are released; anything with attempt history routes through
-// the restore reset instead. curtail_failure_count is deliberately ignored —
-// readiness flaps inflate it without a command ever being sent.
+// targets with no dispatch attempt at all (NULL dispatch timestamps,
+// retry_count = 0, and no prior restore cycle) are released; anything with
+// attempt history routes through the restore reset instead.
+// curtail_failure_count is deliberately ignored — readiness flaps inflate it
+// without a command ever being sent. restore_started_at guards the
+// Stop -> Recurtail -> Stop cascade: the recurtail reset wipes retry_count and
+// dispatch timestamps, so the surviving restore stamp is the only evidence a
+// row was ever actually dispatched.
 func TestSQLCurtailmentStore_BeginRestoreTransition_ReleasesOnlyNeverAttemptedAllPairedTargets(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
@@ -193,6 +197,7 @@ func TestSQLCurtailmentStore_BeginRestoreTransition_ReleasesOnlyNeverAttemptedAl
 			curtailmentStoreAllPairedTarget("ap-restore-flapped", models.TargetStateUnavailable, "offline"),
 			curtailmentStoreAllPairedTarget("ap-restore-attempted", models.TargetStatePending, "curtail batch dispatch failed"),
 			curtailmentStoreAllPairedTarget("ap-restore-dispatched", models.TargetStateDispatched, ""),
+			curtailmentStoreAllPairedTarget("ap-restore-recurtailed", models.TargetStatePending, ""),
 		},
 	)
 	require.NoError(t, err)
@@ -213,6 +218,15 @@ func TestSQLCurtailmentStore_BeginRestoreTransition_ReleasesOnlyNeverAttemptedAl
 	_, err = db.ExecContext(ctx, `
 		UPDATE curtailment_target SET last_dispatched_at = CURRENT_TIMESTAMP, curtail_dispatched_at = CURRENT_TIMESTAMP
 		WHERE curtailment_event_id = $1 AND device_identifier = 'ap-restore-dispatched'
+	`, inserted.ID)
+	require.NoError(t, err)
+	// Recurtailed: a prior Stop stamped restore_started_at, then the
+	// recurtail reset wiped retry_count and both dispatch timestamps —
+	// the exact never-attempted signature. Only the restore stamp
+	// distinguishes it from a genuinely never-dispatched row.
+	_, err = db.ExecContext(ctx, `
+		UPDATE curtailment_target SET restore_started_at = CURRENT_TIMESTAMP
+		WHERE curtailment_event_id = $1 AND device_identifier = 'ap-restore-recurtailed'
 	`, inserted.ID)
 	require.NoError(t, err)
 
@@ -242,7 +256,7 @@ func TestSQLCurtailmentStore_BeginRestoreTransition_ReleasesOnlyNeverAttemptedAl
 		got[device] = row
 	}
 	require.NoError(t, rows.Err())
-	require.Len(t, got, 5)
+	require.Len(t, got, 6)
 
 	for _, device := range []string{"ap-restore-never-pending", "ap-restore-never-unavailable", "ap-restore-flapped"} {
 		row := got[device]
@@ -250,7 +264,7 @@ func TestSQLCurtailmentStore_BeginRestoreTransition_ReleasesOnlyNeverAttemptedAl
 		assert.Equal(t, models.DesiredStateCurtailed, row.desiredState, "%s: released rows are untouched by the restore reset", device)
 		assert.False(t, row.restoreState.Valid, "%s: no restore phase for released rows", device)
 	}
-	for _, device := range []string{"ap-restore-attempted", "ap-restore-dispatched"} {
+	for _, device := range []string{"ap-restore-attempted", "ap-restore-dispatched", "ap-restore-recurtailed"} {
 		row := got[device]
 		assert.Equal(t, string(models.TargetStatePending), row.state, "%s: attempt history routes through the restore queue", device)
 		assert.Equal(t, models.DesiredStateActive, row.desiredState, device)

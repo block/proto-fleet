@@ -819,9 +819,22 @@ func (s *Service) lookupIdempotentReplay(ctx context.Context, req StartRequest) 
 // idempotency replay; the retry body is ignored — the row is the source
 // of truth.
 func (s *Service) replayPlanFromPersistedEvent(ctx context.Context, orgID int64, event *models.Event) (*Plan, error) {
-	targets, err := s.store.ListTargetsByEvent(ctx, orgID, event.EventUUID)
-	if err != nil {
-		return nil, err
+	var targets []*models.Target
+	if event.ForceIncludeAllPairedMiners {
+		// All-paired starts persist one row per paired-like miner, so a
+		// replay must stay count-only like the first-time response —
+		// hydrating per-target rows would return a fleet-sized payload.
+		rollup, err := s.store.GetTargetRollupByEvent(ctx, orgID, event.EventUUID)
+		if err != nil {
+			return nil, err
+		}
+		event.TargetRollup = rollup
+	} else {
+		var err error
+		targets, err = s.store.ListTargetsByEvent(ctx, orgID, event.EventUUID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	eventUUID := event.EventUUID
 	plan := &Plan{

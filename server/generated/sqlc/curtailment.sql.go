@@ -2355,6 +2355,7 @@ WHERE curtailment_event_id = $1
   AND last_dispatched_at IS NULL
   AND curtail_dispatched_at IS NULL
   AND retry_count = 0
+  AND restore_started_at IS NULL
 `
 
 // All-paired policy targets that never received a Curtail command do not need
@@ -2366,6 +2367,14 @@ WHERE curtailment_event_id = $1
 // stamps last_dispatched_at. curtail_failure_count is deliberately NOT
 // checked — readiness flaps (pending -> unavailable reason writes) inflate it
 // without any command ever being sent.
+//
+// restore_started_at IS NULL guards the Stop -> Recurtail -> Stop cascade:
+// ResetCurtailmentTargetsForRecurtail wipes retry_count and both dispatch
+// timestamps, making a previously dispatched-and-confirmed (physically
+// powered-off) target indistinguishable from never-attempted. The restore
+// stamp survives that reset — any row that ever entered a restore cycle had
+// a real dispatch in its past and must route through the restore queue, not
+// be terminally released.
 func (q *Queries) ReleaseUndispatchedAllPairedTargetsForRestore(ctx context.Context, curtailmentEventID int64) (int64, error) {
 	result, err := q.exec(ctx, q.releaseUndispatchedAllPairedTargetsForRestoreStmt, releaseUndispatchedAllPairedTargetsForRestore, curtailmentEventID)
 	if err != nil {

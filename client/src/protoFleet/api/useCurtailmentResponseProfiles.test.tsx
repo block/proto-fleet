@@ -174,6 +174,40 @@ describe("useCurtailmentResponseProfiles", () => {
     expectWholeOrgScope(mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0]?.scopes);
   });
 
+  it("sends all-paired targeting only for full-fleet response profiles", async () => {
+    mockCreateCurtailmentResponseProfile.mockResolvedValue({ profile: apiProfile({ site: undefined }) });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        actionType: "fullFleet",
+        forceIncludeAllPairedMiners: true,
+      });
+    });
+
+    expect(mockCreateCurtailmentResponseProfile).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: CurtailmentMode.FULL_FLEET,
+        forceIncludeAllPairedMiners: true,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        forceIncludeAllPairedMiners: true,
+      });
+    });
+
+    expect(mockCreateCurtailmentResponseProfile).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: CurtailmentMode.FIXED_KW,
+        forceIncludeAllPairedMiners: false,
+      }),
+    );
+  });
+
   it("rejects batch restore profiles without a positive restore batch size", async () => {
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
 
