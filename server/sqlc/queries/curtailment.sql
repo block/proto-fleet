@@ -104,7 +104,22 @@ WHERE ce.org_id = sqlc.arg('org_id')
     AND ce.state IN ('pending', 'active', 'restoring')
     AND ce.mode = 'FULL_FLEET'
     AND ce.loop_type = 'closed'
-    AND NOT ce.force_include_all_paired_miners;
+    -- All-paired policies keep the scope lock so miners that became
+    -- paired-like between admission ticks stay owned before their target row
+    -- exists, but a RELEASED policy row is an explicit relinquishment (device
+    -- no longer paired-like, or released without dispatch at Stop) and must
+    -- let the device leave the suppression set while the event is still
+    -- non-terminal.
+    AND NOT (
+        ce.force_include_all_paired_miners
+        AND EXISTS (
+            SELECT 1
+            FROM curtailment_target released_target
+            WHERE released_target.curtailment_event_id = ce.id
+              AND released_target.device_identifier = d.device_identifier
+              AND released_target.state = 'released'
+        )
+    );
 
 -- name: ListActiveCurtailmentTargetDevicesByOrg :many
 -- Devices with concrete non-terminal target rows; used by closed-loop

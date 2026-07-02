@@ -131,6 +131,42 @@ func TestSQLCurtailmentStore_ClaimAllPairedPolicyTargets_InsertsReopensAndSkipsC
 	assert.Equal(t, string(models.TargetStateReleased), state)
 }
 
+// Pins the ownership-suppression semantics of ListActiveCurtailedDevices for
+// all-paired events: the scope watcher keeps devices locked before their
+// policy row exists (miners that became paired-like between admission ticks
+// must not be claimable by other selectors), concrete non-terminal rows lock
+// as usual, and an explicitly RELEASED policy row lets the device leave the
+// suppression set while the event is still active.
+func TestSQLCurtailmentStore_ListActiveCurtailedDevices_AllPairedScopeLockAndReleasedRows(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(user.OrganizationID, 3, "https://172.17.0.1:80")
+	unclaimed, released, unavailable := deviceIDs[0], deviceIDs[1], deviceIDs[2]
+
+	_, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreAllPairedEvent(user.OrganizationID, user.DatabaseID, uuid.New(), "all-paired-scope-lock"),
+		[]models.InsertTargetParams{
+			curtailmentStoreAllPairedTarget(released, models.TargetStateReleased, "released without restore: no curtail command dispatched"),
+			curtailmentStoreAllPairedTarget(unavailable, models.TargetStateUnavailable, "offline"),
+		},
+	)
+	require.NoError(t, err)
+
+	got, err := store.ListActiveCurtailedDevices(ctx, user.OrganizationID)
+	require.NoError(t, err)
+	assert.Contains(t, got, unclaimed, "scope lock must hold for in-scope miners without a policy row yet")
+	assert.Contains(t, got, unavailable, "non-terminal policy rows lock their device")
+	assert.NotContains(t, got, released, "released policy rows relinquish the device")
+}
+
 // Pins the graceful-Stop release predicate against real SQL: only all-paired
 // targets with no dispatch attempt at all (NULL dispatch timestamps and
 // retry_count = 0) are released; anything with attempt history routes through
