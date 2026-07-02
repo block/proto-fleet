@@ -243,10 +243,10 @@ function renderModal(props: Partial<ComponentProps<typeof CurtailmentStartModal>
   };
 }
 
-function getMaintenanceCheckbox(): HTMLInputElement {
-  const checkbox = screen.getByText("Include miners in maintenance").closest("label")?.querySelector("input");
+function getAllPairedCheckbox(): HTMLInputElement {
+  const checkbox = screen.getByText("Target all paired miners").closest("label")?.querySelector("input");
   if (!checkbox) {
-    throw new Error("Maintenance checkbox was not rendered");
+    throw new Error("All paired miners checkbox was not rendered");
   }
   return checkbox;
 }
@@ -710,9 +710,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
-    expect(screen.getByText("Force include maintenance miners?")).toBeInTheDocument();
     expect(onTestCurtailment).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Force include" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -1296,7 +1294,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByTestId("curtailment-curtail-batch-size")).toBeDisabled();
     expect(screen.getByTestId("curtailment-curtail-batch-interval")).toBeDisabled();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeDisabled();
-    expect(screen.getByText("Include miners in maintenance").closest("label")).toHaveClass("cursor-not-allowed");
+    expect(screen.queryByText("Include miners in maintenance")).not.toBeInTheDocument();
 
     const saveButton = screen.getByRole("button", { name: "Save" });
     expect(saveButton).toBeDisabled();
@@ -1584,10 +1582,7 @@ describe("CurtailmentStartModal", () => {
     await user.type(screen.getByLabelText("Reason"), "Grid response");
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
-    expect(screen.getByText("Force include maintenance miners?")).toBeInTheDocument();
     expect(onSubmit).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "Force include" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -1706,39 +1701,50 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("includes maintenance miners by default and confirms re-inclusion", async () => {
+  it("hides the maintenance option and keeps maintenance miners included by default", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({ initialValues: configuredValues });
 
-    expect(getMaintenanceCheckbox()).toBeChecked();
-    expect(screen.queryByText("Requires explicit force acknowledgement")).not.toBeInTheDocument();
+    expect(screen.queryByText("Include miners in maintenance")).not.toBeInTheDocument();
 
-    await user.click(screen.getByText("Include miners in maintenance"));
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.queryByText("Force include all paired miners?")).not.toBeInTheDocument();
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    await confirmCurtailment(user);
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ includeMaintenance: true }));
+  });
 
-    expect(getMaintenanceCheckbox()).not.toBeChecked();
-    expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument();
+  it("confirms targeting all paired miners in full-shutdown mode", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, curtailmentMode: "fullFleet", targetKw: "" },
+    });
 
-    await user.click(screen.getByText("Include miners in maintenance"));
+    expect(getAllPairedCheckbox()).not.toBeChecked();
 
-    expect(screen.getByText("Force include maintenance miners?")).toBeInTheDocument();
+    await user.click(screen.getByText("Target all paired miners"));
+    expect(screen.getByText("Force include all paired miners?")).toBeInTheDocument();
     expect(
-      screen.getByText("This will run Curtail on miners that are currently flagged for maintenance work."),
+      screen.getByText(
+        "This will keep targeting paired miners even when they are offline, sleeping, or waiting for authentication.",
+      ),
     ).toBeInTheDocument();
-    expect(getMaintenanceCheckbox()).not.toBeChecked();
+    expect(getAllPairedCheckbox()).not.toBeChecked();
 
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument());
-    expect(getMaintenanceCheckbox()).not.toBeChecked();
-
-    await user.click(screen.getByText("Include miners in maintenance"));
     await user.click(screen.getByRole("button", { name: "Force include" }));
-    await waitFor(() => expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument());
-    expect(getMaintenanceCheckbox()).toBeChecked();
+    await waitFor(() => expect(screen.queryByText("Force include all paired miners?")).not.toBeInTheDocument());
+    expect(getAllPairedCheckbox()).toBeChecked();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     await confirmCurtailment(user);
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ includeMaintenance: true }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        curtailmentMode: "fullFleet",
+        forceIncludeAllPairedMiners: true,
+        includeMaintenance: true,
+      }),
+    );
   });
 
   it("opens target selectors and submits the selected target scope", async () => {

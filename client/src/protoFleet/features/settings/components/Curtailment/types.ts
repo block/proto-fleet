@@ -62,6 +62,7 @@ export type ResponseProfileFormValues = {
   restoreIntervalSec: string;
   responseDeadlineMinutes: string;
   includeMaintenance: boolean;
+  forceIncludeAllPairedMiners?: boolean;
 };
 
 export type ResponseProfile = {

@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 )
 
@@ -111,6 +112,198 @@ func TestBuildPlan_FixedKwStillAppliesDualSignalFilter(t *testing.T) {
 	require.Len(t, plan.Skipped, 2)
 	assert.Equal(t, SkipPowerTelemetryUnreliable, plan.Skipped[0].Reason)
 	assert.Equal(t, SkipPhantomLoadNoHash, plan.Skipped[1].Reason)
+}
+
+func TestBuildAllPairedPolicyPlan_TargetsPairedLikeMinersByDispatchReadiness(t *testing.T) {
+	t.Parallel()
+
+	driver := "antminer"
+	inputs := []*models.Candidate{
+		{
+			DeviceIdentifier: "online",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(3000),
+			AvgEfficiencyJH:  eff(40),
+		},
+		{
+			DeviceIdentifier: "default-password",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "DEFAULT_PASSWORD",
+			LatestPowerW:     eff(2000),
+		},
+		{
+			DeviceIdentifier: "auth-needed",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "AUTHENTICATION_NEEDED",
+			LatestPowerW:     eff(2000),
+		},
+		{
+			DeviceIdentifier: "offline",
+			DriverName:       &driver,
+			DeviceStatus:     "OFFLINE",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(2000),
+		},
+		{
+			DeviceIdentifier: "inactive",
+			DriverName:       &driver,
+			DeviceStatus:     "INACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(2000),
+		},
+		{
+			DeviceIdentifier: "needs-pool",
+			DriverName:       &driver,
+			DeviceStatus:     "NEEDS_MINING_POOL",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(2000),
+		},
+		{
+			DeviceIdentifier: "maintenance",
+			DriverName:       &driver,
+			DeviceStatus:     "MAINTENANCE",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(2000),
+		},
+		{
+			DeviceIdentifier: "error",
+			DriverName:       &driver,
+			DeviceStatus:     "ERROR",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(2000),
+		},
+		{
+			DeviceIdentifier: "unknown",
+			DriverName:       &driver,
+			DeviceStatus:     "UNKNOWN",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(2000),
+		},
+		{
+			DeviceIdentifier: "unpaired",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "UNPAIRED",
+			LatestPowerW:     eff(2000),
+		},
+	}
+
+	plan := BuildAllPairedPolicyPlan(inputs, map[string]struct{}{"already-owned": {}}, false, 1500)
+
+	require.Len(t, plan.Selected, 9)
+	assert.Equal(t, 9, plan.PolicyTargetCount)
+	assert.Equal(t, 7, plan.UnavailableTargetCount)
+	assert.InDelta(t, 5.0, plan.EstimatedReductionKW, 0.001)
+	assert.Equal(t, models.TargetStatePending, plan.Selected[0].TargetState)
+	assert.Equal(t, models.TargetStatePending, plan.Selected[1].TargetState)
+	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[2].TargetState)
+	assert.Equal(t, "authentication_needed", plan.Selected[2].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[3].TargetState)
+	assert.Equal(t, "offline", plan.Selected[3].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[4].TargetState)
+	assert.Equal(t, "non_actionable_status", plan.Selected[4].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[5].TargetState)
+	assert.Equal(t, "non_actionable_status", plan.Selected[5].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[6].TargetState)
+	assert.Equal(t, "maintenance", plan.Selected[6].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[7].TargetState)
+	assert.Equal(t, "non_actionable_status", plan.Selected[7].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[8].TargetState)
+	assert.Equal(t, "non_actionable_status", plan.Selected[8].LastError)
+	require.Len(t, plan.Skipped, 1)
+	assert.Equal(t, SkipPairing, plan.Skipped[0].Reason)
+}
+
+// TestDeviceStatusClassifierMatrix pins every device_status_enum value
+// (migrations 000001 + 000029) against BOTH eligibility classifiers so a
+// status added to one switch cannot silently diverge in the other. The
+// ERROR/UNKNOWN rows differ on purpose: normal selection trusts fresh
+// telemetry over the coarse status, while the all-paired policy dispatches
+// without telemetry gates and holds them unavailable.
+func TestDeviceStatusClassifierMatrix(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		status string
+
+		normalEligible   bool
+		normalSkipReason SkipReason
+
+		allPairedPending           bool
+		allPairedUnavailableReason string
+	}{
+		{"ACTIVE", true, "", true, ""},
+		{"INACTIVE", false, SkipNonActionableStatus, false, "non_actionable_status"},
+		{"OFFLINE", false, SkipUnreachableResidualLoad, false, "offline"},
+		{"MAINTENANCE", false, SkipMaintenance, false, "maintenance"},
+		{"ERROR", true, "", false, "non_actionable_status"},   // intentional divergence
+		{"UNKNOWN", true, "", false, "non_actionable_status"}, // intentional divergence
+		{"NEEDS_MINING_POOL", false, SkipNonActionableStatus, false, "non_actionable_status"},
+		{"UPDATING", false, SkipUpdating, false, "updating"},
+		{"REBOOT_REQUIRED", false, SkipRebootRequired, false, "reboot_required"},
+		{"", false, SkipStaleTelemetry, false, "missing_status"}, // no device_status row
+	}
+
+	for _, tc := range cases {
+		name := tc.status
+		if name == "" {
+			name = "missing"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			candidate := miner("m", tc.status, "PAIRED", 3000, 100)
+
+			eligible, skipped, _ := classifyCandidates(
+				[]*models.Candidate{candidate},
+				classifyOpts{CandidateMinPowerW: 1500},
+			)
+			if tc.normalEligible {
+				require.Len(t, eligible, 1, "normal selection should admit %q", tc.status)
+				assert.Empty(t, skipped)
+			} else {
+				require.Len(t, skipped, 1, "normal selection should skip %q", tc.status)
+				assert.Equal(t, tc.normalSkipReason, skipped[0].Reason)
+				assert.Empty(t, eligible)
+			}
+
+			state, reason := AllPairedPolicyTargetState(candidate, false)
+			if tc.allPairedPending {
+				assert.Equal(t, models.TargetStatePending, state)
+				assert.Empty(t, reason)
+			} else {
+				assert.Equal(t, models.TargetStateUnavailable, state)
+				assert.Equal(t, tc.allPairedUnavailableReason, reason)
+			}
+		})
+	}
+}
+
+func TestBuildAllPairedPolicyPlan_MaintenanceOverrideMakesMaintenancePending(t *testing.T) {
+	t.Parallel()
+
+	driver := "antminer"
+	inputs := []*models.Candidate{
+		{
+			DeviceIdentifier: "maintenance",
+			DriverName:       &driver,
+			DeviceStatus:     "MAINTENANCE",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     eff(2000),
+		},
+	}
+
+	plan := BuildAllPairedPolicyPlan(inputs, nil, true, 1500)
+
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, models.TargetStatePending, plan.Selected[0].TargetState)
+	assert.Empty(t, plan.Selected[0].LastError)
+	assert.Equal(t, 0, plan.UnavailableTargetCount)
+	assert.InDelta(t, 2.0, plan.EstimatedReductionKW, 0.001)
 }
 
 func TestBuildPlan_PreFilteredSkippedAreForwarded(t *testing.T) {

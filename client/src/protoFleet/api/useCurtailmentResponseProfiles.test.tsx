@@ -66,6 +66,7 @@ const fixedKwFormValues: ResponseProfileFormValues = {
   restoreIntervalSec: "0",
   responseDeadlineMinutes: "15",
   includeMaintenance: false,
+  forceIncludeAllPairedMiners: false,
 };
 
 function apiProfile(overrides: Partial<CurtailmentResponseProfile> = {}): CurtailmentResponseProfile {

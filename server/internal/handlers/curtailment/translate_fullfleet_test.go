@@ -168,6 +168,64 @@ func TestToStartResponse_MultiSiteFullFleetReturnsActiveTargetlessEvent(t *testi
 	assert.Nil(t, event.GetEndedAt())
 }
 
+func TestToStartResponse_AllPairedFullFleetUsesBoundedTargetRollup(t *testing.T) {
+	t.Parallel()
+
+	startedAt := time.Date(2026, 6, 4, 11, 0, 0, 0, time.UTC)
+	plan := &curtailment.Plan{
+		StartedAt: &startedAt,
+		Selected: []curtailment.SelectedDevice{
+			{DeviceIdentifier: "online", PowerW: 3000},
+			{DeviceIdentifier: "offline", TargetState: models.TargetStateUnavailable, LastError: "offline"},
+		},
+		PolicyTargetCount:      2,
+		UnavailableTargetCount: 1,
+	}
+	req := &pb.StartCurtailmentRequest{
+		Mode:                        pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+		Scope:                       &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+		ForceIncludeAllPairedMiners: true,
+	}
+
+	event := toStartResponse(plan, req).GetEvent()
+	require.NotNil(t, event)
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, event.GetState())
+	assert.Empty(t, event.GetTargets())
+	assert.Equal(t, int32(1), event.GetTargetRollup().GetPending())
+	assert.Equal(t, int32(1), event.GetTargetRollup().GetUnavailable())
+	assert.Equal(t, int32(2), event.GetTargetRollup().GetTotal())
+}
+
+func TestToPreviewResponse_AllPairedUsesBoundedCounts(t *testing.T) {
+	t.Parallel()
+
+	plan := &curtailment.Plan{
+		Selected: []curtailment.SelectedDevice{
+			{DeviceIdentifier: "online", PowerW: 3000},
+			{DeviceIdentifier: "offline", TargetState: models.TargetStateUnavailable, LastError: "offline"},
+		},
+		Skipped: []curtailment.SkippedDevice{
+			{DeviceIdentifier: "unpaired", Reason: curtailment.SkipPairing},
+		},
+		EstimatedReductionKW:   3,
+		PolicyTargetCount:      2,
+		UnavailableTargetCount: 1,
+	}
+	req := &pb.PreviewCurtailmentPlanRequest{
+		Mode:                        pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+		Scope:                       &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+		ForceIncludeAllPairedMiners: true,
+	}
+
+	resp := toPreviewResponse(plan, req)
+	require.NotNil(t, resp)
+	assert.Empty(t, resp.GetCandidates())
+	assert.Empty(t, resp.GetSkippedCandidates())
+	assert.Equal(t, uint32(2), resp.GetPolicyTargetCount())
+	assert.Equal(t, uint32(1), resp.GetUnavailableTargetCount())
+	assert.Equal(t, 3.0, resp.GetEstimatedReductionKw())
+}
+
 // Device-list FULL_FLEET remains an open-loop snapshot. Empty snapshots complete
 // on arrival and the synchronous Start response must carry the completion time.
 func TestToStartResponse_DeviceListFullFleetEmptyCarriesEndedAt(t *testing.T) {

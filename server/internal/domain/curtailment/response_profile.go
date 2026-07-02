@@ -214,9 +214,10 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 		Priority: profile.Priority,
 		TargetKW: targetKW,
 		// nil tolerance is equivalent to Start's omitted/zero tolerance.
-		ToleranceKW:             toleranceKW,
-		IncludeMaintenance:      profile.IncludeMaintenance,
-		ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
+		ToleranceKW:                 toleranceKW,
+		IncludeMaintenance:          profile.IncludeMaintenance,
+		ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
 	}); err != nil {
 		return err
 	}
@@ -313,6 +314,9 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 	if profile.ForceIncludeMaintenance && !canUseAdminControls {
 		return fleeterror.NewForbiddenError("only admins can set force_include_maintenance")
 	}
+	if profile.ForceIncludeAllPairedMiners && !canUseAdminControls {
+		return fleeterror.NewForbiddenError("only admins can set force_include_all_paired_miners")
+	}
 	if err := validatePostEventCooldownSec(profile.PostEventCooldownSec); err != nil {
 		return err
 	}
@@ -336,6 +340,7 @@ func validatePostEventCooldownSec(value int32) error {
 func responseProfileRequiresAdminControls(profile models.ResponseProfile) bool {
 	return profile.Mode == models.ModeFullFleet ||
 		profile.ForceIncludeMaintenance ||
+		profile.ForceIncludeAllPairedMiners ||
 		profile.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
 		profile.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax
 }

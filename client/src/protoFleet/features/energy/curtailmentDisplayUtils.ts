@@ -60,6 +60,7 @@ export type CurtailmentTargetState =
   | "drifted"
   | "resolved"
   | "released"
+  | "unavailable"
   | "restoreFailed";
 
 export interface CurtailmentTargetRollup {
@@ -132,6 +133,7 @@ const countedTargetStates: CurtailmentTargetState[] = [
   "drifted",
   "resolved",
   "released",
+  "unavailable",
   "restoreFailed",
 ];
 const startedCurtailmentDispatchTargetStates: CurtailmentTargetState[] = [
@@ -216,6 +218,8 @@ export function mapCurtailmentTargetState(state: ProtoCurtailmentTargetState): C
       return "resolved";
     case ProtoCurtailmentTargetState.RELEASED:
       return "released";
+    case ProtoCurtailmentTargetState.UNAVAILABLE:
+      return "unavailable";
     case ProtoCurtailmentTargetState.RESTORE_FAILED:
       return "restoreFailed";
     case ProtoCurtailmentTargetState.PENDING:
@@ -249,6 +253,7 @@ export function getCurtailmentTargetRollups(event: ProtoCurtailmentEvent): Curta
     { state: "drifted", count: rollup.drifted },
     { state: "resolved", count: rollup.resolved },
     { state: "released", count: rollup.released },
+    { state: "unavailable", count: rollup.unavailable },
     { state: "restoreFailed", count: rollup.restoreFailed },
   ];
 

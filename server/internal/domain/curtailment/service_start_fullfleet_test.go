@@ -98,6 +98,90 @@ func TestService_Start_FullFleet_CurtailsLowPowerAndZeroHashrateMiners(t *testin
 		"closed-loop full_fleet claims per-miner rows at dispatch time")
 }
 
+func TestService_Start_FullFleet_AllPairedPersistsPolicyTargetsImmediately(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		miner("online", "ACTIVE", "PAIRED", 6000, 100),
+		miner("auth-needed", "ACTIVE", "AUTHENTICATION_NEEDED", 0, 0),
+		miner("offline", "OFFLINE", "PAIRED", 0, 0),
+		miner("unpaired", "ACTIVE", "UNPAIRED", 6000, 100),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	assert.True(t, store.lastInsertEvent.ForceIncludeAllPairedMiners)
+	assert.Equal(t, 3, plan.PolicyTargetCount)
+	assert.Equal(t, 2, plan.UnavailableTargetCount)
+	require.Len(t, store.lastInsertTargets, 3)
+	assert.Equal(t, models.TargetStatePending, store.lastInsertTargets[0].State)
+	assert.Nil(t, store.lastInsertTargets[0].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, store.lastInsertTargets[1].State)
+	require.NotNil(t, store.lastInsertTargets[1].LastError)
+	assert.Equal(t, "authentication_needed", *store.lastInsertTargets[1].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, store.lastInsertTargets[2].State)
+	require.NotNil(t, store.lastInsertTargets[2].LastError)
+	assert.Equal(t, "offline", *store.lastInsertTargets[2].LastError)
+
+	var snapshot struct {
+		ForceIncludeAllPairedMiners bool `json:"force_include_all_paired_miners"`
+		PolicyTargetCount           int  `json:"policy_target_count"`
+		UnavailableTargetCount      int  `json:"unavailable_target_count"`
+	}
+	require.NoError(t, json.Unmarshal(store.lastInsertEvent.DecisionSnapshotJSON, &snapshot))
+	assert.True(t, snapshot.ForceIncludeAllPairedMiners)
+	assert.Equal(t, 3, snapshot.PolicyTargetCount)
+	assert.Equal(t, 2, snapshot.UnavailableTargetCount)
+}
+
+func TestService_Start_FullFleet_AllPairedBypassesPostEventCooldown(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.cooldownDevicesByOrg[orgID] = []string{"recent"}
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		miner("recent", "ACTIVE", "PAIRED", 6000, 100),
+		miner("fresh", "ACTIVE", "PAIRED", 5000, 100),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+	req.PostEventCooldownSec = 600
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, store.cooldownCalls, "all-paired policies intentionally bypass post-event cooldown")
+	require.Len(t, plan.Selected, 2)
+	assert.Equal(t, 2, plan.PolicyTargetCount)
+	require.Len(t, store.lastInsertTargets, 2)
+	assert.Equal(t, "recent", store.lastInsertTargets[0].DeviceIdentifier)
+
+	var snapshot struct {
+		PostEventCooldownSec        int32 `json:"post_event_cooldown_sec"`
+		ForceIncludeAllPairedMiners bool  `json:"force_include_all_paired_miners"`
+	}
+	require.NoError(t, json.Unmarshal(store.lastInsertEvent.DecisionSnapshotJSON, &snapshot))
+	assert.Equal(t, int32(600), snapshot.PostEventCooldownSec)
+	assert.True(t, snapshot.ForceIncludeAllPairedMiners)
+}
+
 func TestService_Preview_FullFleet_SkipsMissingTelemetrySamples(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)

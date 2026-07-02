@@ -39,6 +39,7 @@ type CurtailmentPlanPreviewRequestValues = Pick<
   | "toleranceKw"
   | "priority"
   | "includeMaintenance"
+  | "forceIncludeAllPairedMiners"
 >;
 
 interface CurtailmentPlanPreviewResult {
@@ -73,6 +74,7 @@ const emptyPreviewState: CurtailmentPlanPreviewState = {
 
 interface CurtailmentPlanPreviewSource {
   selectedMinerCount: number;
+  unavailableMinerCount?: number;
   targetKw?: number;
   estimatedReductionKw: number;
 }
@@ -118,6 +120,10 @@ function cloneRequestValues(values: CurtailmentPlanPreviewRequestValues): Curtai
   };
 }
 
+function hasPreviewTargets(response: PreviewCurtailmentPlanResponse): boolean {
+  return response.candidates.length > 0 || response.policyTargetCount > 0;
+}
+
 export function buildPreviewCurtailmentPlanRequest(
   values: CurtailmentPlanPreviewRequestValues,
 ): PreviewCurtailmentPlanRequest | undefined {
@@ -133,6 +139,7 @@ export function buildPreviewCurtailmentPlanRequest(
       priority: toApiPriority(values.priority),
       includeMaintenance: values.includeMaintenance,
       forceIncludeMaintenance: values.includeMaintenance,
+      forceIncludeAllPairedMiners: values.forceIncludeAllPairedMiners,
     });
   }
 
@@ -155,6 +162,7 @@ export function buildPreviewCurtailmentPlanRequest(
     },
     includeMaintenance: values.includeMaintenance,
     forceIncludeMaintenance: values.includeMaintenance,
+    forceIncludeAllPairedMiners: false,
   });
 }
 
@@ -295,6 +303,10 @@ export function createCurtailmentPlanPreview(
 
   return {
     selectedMinerCount,
+    unavailableMinerCount:
+      source.unavailableMinerCount !== undefined && Number.isFinite(source.unavailableMinerCount)
+        ? source.unavailableMinerCount
+        : undefined,
     targetKw,
     estimatedReductionKw,
     curtailEstimate: estimateCurtailDuration(values, selectedMinerCount),
@@ -315,7 +327,8 @@ function toCurtailmentPlanPreview(
       : undefined);
 
   return createCurtailmentPlanPreview(values, {
-    selectedMinerCount: response.candidates.length,
+    selectedMinerCount: response.policyTargetCount > 0 ? response.policyTargetCount : response.candidates.length,
+    unavailableMinerCount: response.unavailableTargetCount,
     targetKw,
     estimatedReductionKw: response.estimatedReductionKw,
   });
@@ -346,6 +359,7 @@ export function useCurtailmentPlanPreview({
       toleranceKw: values.toleranceKw,
       priority: values.priority,
       includeMaintenance: values.includeMaintenance,
+      forceIncludeAllPairedMiners: values.forceIncludeAllPairedMiners,
     }),
     [
       values.deviceSetIds,
@@ -353,6 +367,7 @@ export function useCurtailmentPlanPreview({
       values.minerSelectionMode,
       values.curtailmentMode,
       values.includeMaintenance,
+      values.forceIncludeAllPairedMiners,
       values.priority,
       values.scopeId,
       values.siteSelection,
@@ -403,7 +418,7 @@ export function useCurtailmentPlanPreview({
             return;
           }
 
-          if (response.candidates.length === 0) {
+          if (!hasPreviewTargets(response)) {
             setState({
               response: undefined,
               responseRequestKey: undefined,
@@ -482,7 +497,7 @@ export function useCurtailmentPlanPreview({
             return;
           }
 
-          if (response.candidates.length === 0) {
+          if (!hasPreviewTargets(response)) {
             setState({
               response: undefined,
               responseRequestKey: undefined,

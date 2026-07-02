@@ -27,6 +27,7 @@ const baseValues: CurtailmentSubmitValues = {
   restoreIntervalSec: "",
   reason: "Grid peak",
   includeMaintenance: false,
+  forceIncludeAllPairedMiners: false,
 };
 
 describe("curtailmentRequestBuilders", () => {
@@ -51,6 +52,23 @@ describe("curtailmentRequestBuilders", () => {
 
     expect(request.mode).toBe(CurtailmentMode.FULL_FLEET);
     expect(request.modeParams.case).toBeUndefined();
+    expect(request.forceIncludeAllPairedMiners).toBe(false);
+  });
+
+  it("sends all-paired targeting only for full-fleet start requests", () => {
+    const fixedKwRequest = buildStartCurtailmentRequest({
+      ...baseValues,
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(fixedKwRequest.forceIncludeAllPairedMiners).toBe(false);
+
+    const fullFleetRequest = buildStartCurtailmentRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(fullFleetRequest.forceIncludeAllPairedMiners).toBe(true);
   });
 
   it("builds optional uint32-backed settings from valid whole-number inputs", () => {

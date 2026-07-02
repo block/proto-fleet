@@ -207,6 +207,10 @@ enum CurtailmentTargetState {
     CURTAILMENT_TARGET_STATE_DISPATCHED     = 2;
     CURTAILMENT_TARGET_STATE_CONFIRMED      = 3;
     CURTAILMENT_TARGET_STATE_DRIFTED        = 4;  // re-dispatching
+    // Policy-owned but not currently dispatchable. Used by all-paired
+    // durable targeting so the event owns miners that are offline or not yet
+    // commandable, then dispatches them once they become actionable.
+    CURTAILMENT_TARGET_STATE_UNAVAILABLE    = 9;
 
     // Terminal outcomes.
     CURTAILMENT_TARGET_STATE_RESOLVED       = 5;  // event ended cleanly for this target
@@ -325,6 +329,7 @@ message CurtailmentEvent {
     uint32 min_curtailed_duration_sec = 17;
     bool   include_maintenance        = 18;
     bool   force_include_maintenance  = 19;
+    bool   force_include_all_paired_miners = 44;
 
     // Server-resolved restore batch size stamped at Start. restore_batch_size=0
     // means restore all pending targets in one wave up to the server's explicit
@@ -378,6 +383,7 @@ message CurtailmentTargetRollup {
     int32 released       = 6;
     int32 restore_failed = 7;
     int32 total          = 8;
+    int32 unavailable    = 9;
 }
 
 // CurtailmentTarget is one event-scoped target.
@@ -460,6 +466,11 @@ message PreviewCurtailmentPlanRequest {
         message: "include_maintenance and force_include_maintenance must be set together"
         expression: "this.include_maintenance == this.force_include_maintenance"
     };
+    option (buf.validate.message).cel = {
+        id: "all_paired_requires_full_fleet"
+        message: "force_include_all_paired_miners requires FULL_FLEET"
+        expression: "!this.force_include_all_paired_miners || this.mode == 8"
+    };
 
     oneof scope {
         ScopeWholeOrg   whole_org           = 1;
@@ -508,6 +519,11 @@ message PreviewCurtailmentPlanRequest {
     // How long restored targets remain excluded from selection. Zero disables cooldown.
     uint32 post_event_cooldown_sec = 28 [(buf.validate.field).uint32 = {lte: 86400}];
 
+    // Admin-only FULL_FLEET override. When set, the event targets all
+    // paired-like miners in scope and holds unavailable miners until they
+    // become commandable.
+    bool force_include_all_paired_miners = 30;
+
     reserved 11 to 23;
 }
 
@@ -531,6 +547,11 @@ message PreviewCurtailmentPlanResponse {
 
     // Excluded candidates with canonical reasons.
     repeated SkippedCandidate skipped_candidates = 20;
+
+    // FULL_FLEET all-paired policy summary. For normal requests these echo the
+    // selected candidate count and zero unavailable targets.
+    uint32 policy_target_count = 21;
+    uint32 unavailable_target_count = 22;
 }
 
 // StartCurtailment
@@ -556,6 +577,11 @@ message StartCurtailmentRequest {
         id: "curtail_batch_interval_requires_size"
         message: "curtail_batch_interval_sec requires curtail_batch_size"
         expression: "!has(this.curtail_batch_interval_sec) || has(this.curtail_batch_size)"
+    };
+    option (buf.validate.message).cel = {
+        id: "all_paired_requires_full_fleet"
+        message: "force_include_all_paired_miners requires FULL_FLEET"
+        expression: "!this.force_include_all_paired_miners || this.mode == 8"
     };
 
     oneof scope {
@@ -620,6 +646,11 @@ message StartCurtailmentRequest {
 
     // How long restored targets remain excluded from selection. Zero disables cooldown.
     uint32 post_event_cooldown_sec = 29 [(buf.validate.field).uint32 = {lte: 86400}];
+
+    // Admin-only FULL_FLEET override. When set, the event targets all
+    // paired-like miners in scope and holds unavailable miners until they
+    // become commandable.
+    bool force_include_all_paired_miners = 37;
 
     // Idempotency and trigger attribution. max_len=256 matches DB varchar.
     string idempotency_key    = 30 [(buf.validate.field).string.max_len = 256];  // unique per (org, key) when non-empty
@@ -1026,6 +1057,7 @@ message CurtailmentResponseProfile {
     bool include_maintenance = 14;
     bool force_include_maintenance = 15;
     uint32 post_event_cooldown_sec = 16;
+    bool force_include_all_paired_miners = 18;
 
     google.protobuf.Timestamp created_at = 20;
     google.protobuf.Timestamp updated_at = 21;
@@ -1055,6 +1087,11 @@ message CreateCurtailmentResponseProfileRequest {
         id: "maintenance_force_required"
         message: "include_maintenance and force_include_maintenance must be set together"
         expression: "this.include_maintenance == this.force_include_maintenance"
+    };
+    option (buf.validate.message).cel = {
+        id: "all_paired_requires_full_fleet"
+        message: "force_include_all_paired_miners requires FULL_FLEET"
+        expression: "!this.force_include_all_paired_miners || this.mode == 8"
     };
 
     string profile_name = 1 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
@@ -1096,6 +1133,7 @@ message CreateCurtailmentResponseProfileRequest {
     bool include_maintenance = 14;
     bool force_include_maintenance = 15;
     uint32 post_event_cooldown_sec = 16 [(buf.validate.field).uint32 = {lte: 86400}];
+    bool force_include_all_paired_miners = 18;
 }
 
 message CreateCurtailmentResponseProfileResponse {
@@ -1112,6 +1150,11 @@ message UpdateCurtailmentResponseProfileRequest {
         id: "maintenance_force_required"
         message: "include_maintenance and force_include_maintenance must be set together"
         expression: "this.include_maintenance == this.force_include_maintenance"
+    };
+    option (buf.validate.message).cel = {
+        id: "all_paired_requires_full_fleet"
+        message: "force_include_all_paired_miners requires FULL_FLEET"
+        expression: "!this.force_include_all_paired_miners || this.mode == 8"
     };
 
     int64 profile_id = 1 [(buf.validate.field).int64.gt = 0];
@@ -1154,6 +1197,7 @@ message UpdateCurtailmentResponseProfileRequest {
     bool include_maintenance = 14;
     bool force_include_maintenance = 15;
     uint32 post_event_cooldown_sec = 16 [(buf.validate.field).uint32 = {lte: 86400}];
+    bool force_include_all_paired_miners = 18;
 }
 
 message UpdateCurtailmentResponseProfileResponse {

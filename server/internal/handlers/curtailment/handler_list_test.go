@@ -100,6 +100,13 @@ func (s *listStubStore) ClaimClosedLoopFullFleetTargets(
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by List handler tests")
 }
+func (s *listStubStore) ClaimAllPairedPolicyTargets(
+	context.Context,
+	int64,
+	[]models.InsertTargetParams,
+) (int64, error) {
+	panic("ClaimAllPairedPolicyTargets not exercised by List handler tests")
+}
 func (s *listStubStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
 	s.lastGetOrgID = orgID
 	s.lastGetUUID = eventUUID
@@ -194,6 +201,8 @@ func (s *listStubStore) GetTargetRollupByEvent(_ context.Context, _ int64, event
 			rollup.Confirmed++
 		case models.TargetStateDrifted:
 			rollup.Drifted++
+		case models.TargetStateUnavailable:
+			rollup.Unavailable++
 		case models.TargetStateResolved:
 			rollup.Resolved++
 		case models.TargetStateReleased:

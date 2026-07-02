@@ -103,7 +103,23 @@ JOIN device d ON d.org_id = ce.org_id
 WHERE ce.org_id = sqlc.arg('org_id')
     AND ce.state IN ('pending', 'active', 'restoring')
     AND ce.mode = 'FULL_FLEET'
-    AND ce.loop_type = 'closed';
+    AND ce.loop_type = 'closed'
+    -- All-paired policies keep the scope lock so miners that became
+    -- paired-like between admission ticks stay owned before their target row
+    -- exists, but a RELEASED policy row is an explicit relinquishment (device
+    -- no longer paired-like, or released without dispatch at Stop) and must
+    -- let the device leave the suppression set while the event is still
+    -- non-terminal.
+    AND NOT (
+        ce.force_include_all_paired_miners
+        AND EXISTS (
+            SELECT 1
+            FROM curtailment_target released_target
+            WHERE released_target.curtailment_event_id = ce.id
+              AND released_target.device_identifier = d.device_identifier
+              AND released_target.state = 'released'
+        )
+    );
 
 -- name: ListActiveCurtailmentTargetDevicesByOrg :many
 -- Devices with concrete non-terminal target rows; used by closed-loop
@@ -180,6 +196,7 @@ INSERT INTO curtailment_event (
     allow_unbounded,
     include_maintenance,
     force_include_maintenance,
+    force_include_all_paired_miners,
     decision_snapshot_jsonb,
     source_actor_type,
     source_actor_id,
@@ -213,6 +230,7 @@ INSERT INTO curtailment_event (
     sqlc.arg('allow_unbounded'),
     sqlc.arg('include_maintenance'),
     sqlc.arg('force_include_maintenance'),
+    sqlc.arg('force_include_all_paired_miners'),
     sqlc.arg('decision_snapshot_jsonb'),
     sqlc.arg('source_actor_type'),
     sqlc.narg('source_actor_id'),
@@ -245,7 +263,7 @@ SELECT
     curtail_batch_size, curtail_batch_interval_sec,
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
-    include_maintenance, force_include_maintenance,
+    include_maintenance, force_include_maintenance, force_include_all_paired_miners,
     CASE
         WHEN jsonb_typeof(decision_snapshot_jsonb->'skipped') = 'array' THEN
             jsonb_set(
@@ -449,7 +467,7 @@ SELECT
     curtail_batch_size, curtail_batch_interval_sec,
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
-    include_maintenance, force_include_maintenance,
+    include_maintenance, force_include_maintenance, force_include_all_paired_miners,
     CASE
         WHEN jsonb_typeof(decision_snapshot_jsonb->'skipped') = 'array' THEN
             jsonb_set(
@@ -499,7 +517,7 @@ SELECT
     curtail_batch_size, curtail_batch_interval_sec,
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
-    include_maintenance, force_include_maintenance,
+    include_maintenance, force_include_maintenance, force_include_all_paired_miners,
     '{}'::JSONB AS decision_snapshot_jsonb,
     source_actor_type, source_actor_id,
     external_source, external_reference, idempotency_key,
@@ -588,6 +606,9 @@ INSERT INTO curtailment_target (
     target_type,
     state,
     desired_state,
+    last_error,
+    curtail_state,
+    curtail_last_error,
     baseline_power_w,
     selector_rationale_jsonb
 )
@@ -597,6 +618,9 @@ SELECT
     t.target_type,
     t.state,
     t.desired_state,
+    t.last_error,
+    t.state,
+    t.last_error,
     t.baseline_power_w,
     t.selector_rationale_jsonb
 FROM jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
@@ -604,6 +628,7 @@ FROM jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
     target_type               TEXT,
     state                     TEXT,
     desired_state             TEXT,
+    last_error                TEXT,
     baseline_power_w          NUMERIC(12,3),
     selector_rationale_jsonb  JSONB
 )
@@ -727,6 +752,9 @@ INSERT INTO curtailment_target (
     target_type,
     state,
     desired_state,
+    last_error,
+    curtail_state,
+    curtail_last_error,
     baseline_power_w,
     selector_rationale_jsonb
 )
@@ -736,6 +764,9 @@ SELECT
     t.target_type,
     'dispatching',
     t.desired_state,
+    t.last_error,
+    'dispatching',
+    t.last_error,
     t.baseline_power_w,
     t.selector_rationale_jsonb
 FROM locked_event
@@ -744,6 +775,7 @@ JOIN jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
     target_type               TEXT,
     state                     TEXT,
     desired_state             TEXT,
+    last_error                TEXT,
     baseline_power_w          NUMERIC(12,3),
     selector_rationale_jsonb  JSONB
 ) ON TRUE
@@ -753,24 +785,113 @@ WHERE NOT EXISTS (
     WHERE existing.curtailment_event_id = locked_event.id
       AND existing.device_identifier = t.device_identifier
 )
-AND NOT EXISTS (
-    SELECT 1
-    FROM curtailment_target cooldown_target
-    JOIN curtailment_event cooldown_event
-        ON cooldown_event.id = cooldown_target.curtailment_event_id
-    WHERE cooldown_event.org_id = locked_event.org_id
-      AND cooldown_target.device_identifier = t.device_identifier
-      AND cooldown_target.state IN ('resolved', 'restore_failed')
-      AND COALESCE((locked_event.decision_snapshot_jsonb->>'post_event_cooldown_sec')::INT, 0) > 0
-      AND (
-        cooldown_event.state IN ('pending', 'active', 'restoring')
-        OR cooldown_event.ended_at >= CURRENT_TIMESTAMP - (
-            COALESCE((locked_event.decision_snapshot_jsonb->>'post_event_cooldown_sec')::INT, 0) * INTERVAL '1 second'
-        )
-      )
-)
 ON CONFLICT DO NOTHING
 RETURNING curtailment_target.*;
+
+-- name: ClaimAllPairedPolicyTargets :one
+-- Durable all-paired FULL_FLEET admission. Inserts targets in their computed
+-- policy state (pending or unavailable) instead of immediately claiming them
+-- as DISPATCHING. Same-event RELEASED rows may be reopened during a recurtail;
+-- other same-event rows and cross-event conflicts are no-ops.
+WITH locked_event AS MATERIALIZED (
+    SELECT
+        curtailment_event.id,
+        curtailment_event.org_id
+    FROM curtailment_event
+    WHERE curtailment_event.id = sqlc.arg('curtailment_event_id')
+      AND curtailment_event.state IN ('pending', 'active')
+      AND curtailment_event.mode = 'FULL_FLEET'
+      AND curtailment_event.loop_type = 'closed'
+      AND curtailment_event.force_include_all_paired_miners
+    FOR UPDATE
+),
+reopened AS (
+    UPDATE curtailment_target target
+    SET state                = t.state,
+        desired_state        = t.desired_state,
+        last_error           = t.last_error,
+        baseline_power_w     = t.baseline_power_w,
+        released_at          = NULL,
+        retry_count          = 0,
+        last_dispatched_at   = NULL,
+        last_batch_uuid      = NULL,
+        confirmed_at         = NULL,
+        curtail_state        = t.state,
+        curtail_dispatched_at = NULL,
+        curtail_batch_uuid    = NULL,
+        curtail_completed_at  = NULL,
+        curtail_retry_count   = 0,
+        curtail_failure_count = 0,
+        curtail_last_error    = t.last_error
+    FROM locked_event
+    JOIN jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
+        device_identifier         TEXT,
+        target_type               TEXT,
+        state                     TEXT,
+        desired_state             TEXT,
+        last_error                TEXT,
+        baseline_power_w          NUMERIC(12,3),
+        selector_rationale_jsonb  JSONB
+    ) ON TRUE
+    WHERE target.curtailment_event_id = locked_event.id
+      AND target.device_identifier = t.device_identifier
+      AND target.state = 'released'
+      AND NOT EXISTS (
+          SELECT 1
+          FROM curtailment_target other_target
+          JOIN curtailment_event other_event
+              ON other_event.id = other_target.curtailment_event_id
+          WHERE other_target.device_identifier = t.device_identifier
+            AND other_target.curtailment_event_id <> locked_event.id
+            AND other_event.state IN ('pending', 'active', 'restoring')
+            AND other_target.state NOT IN ('resolved', 'restore_failed', 'released')
+      )
+    RETURNING 1
+),
+inserted AS (
+INSERT INTO curtailment_target (
+    curtailment_event_id,
+    device_identifier,
+    target_type,
+    state,
+    desired_state,
+    last_error,
+    curtail_state,
+    curtail_last_error,
+    baseline_power_w,
+    selector_rationale_jsonb
+)
+SELECT
+    locked_event.id,
+    t.device_identifier,
+    t.target_type,
+    t.state,
+    t.desired_state,
+    t.last_error,
+    t.state,
+    t.last_error,
+    t.baseline_power_w,
+    t.selector_rationale_jsonb
+FROM locked_event
+JOIN jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
+    device_identifier         TEXT,
+    target_type               TEXT,
+    state                     TEXT,
+    desired_state             TEXT,
+    last_error                TEXT,
+    baseline_power_w          NUMERIC(12,3),
+    selector_rationale_jsonb  JSONB
+) ON TRUE
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM curtailment_target existing
+    WHERE existing.curtailment_event_id = locked_event.id
+      AND existing.device_identifier = t.device_identifier
+)
+ON CONFLICT DO NOTHING
+RETURNING 1
+)
+SELECT ((SELECT COUNT(*) FROM reopened) + (SELECT COUNT(*) FROM inserted))::BIGINT AS claimed_count;
 
 -- name: ListCurtailmentTargetsByEvent :many
 -- Org-scoped via the join.
@@ -806,6 +927,7 @@ SELECT
     COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'resolved')::BIGINT AS resolved,
     COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'released')::BIGINT AS released,
     COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'restore_failed')::BIGINT AS restore_failed,
+    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'unavailable')::BIGINT AS unavailable,
     COUNT(ct.device_identifier)::BIGINT AS total
 FROM curtailment_event ce
 LEFT JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
@@ -870,6 +992,29 @@ SET desired_state      = 'active',
     restore_last_error    = NULL
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND state NOT IN ('resolved', 'restore_failed', 'released');
+
+-- name: ReleaseUndispatchedAllPairedTargetsForRestore :execrows
+-- All-paired policy targets that never received a Curtail command do not need
+-- Uncurtail. Release them before the restore reset so graceful Stop does not
+-- enqueue no-op restore work for offline/auth-needed miners.
+--
+-- "Never attempted" is retry_count = 0 plus NULL dispatch timestamps: every
+-- dispatch attempt/failure bumps retry_count and every successful enqueue
+-- stamps last_dispatched_at. curtail_failure_count is deliberately NOT
+-- checked — readiness flaps (pending -> unavailable reason writes) inflate it
+-- without any command ever being sent.
+UPDATE curtailment_target
+SET state              = 'released',
+    last_error         = COALESCE(last_error, 'released without restore: no curtail command dispatched'),
+    curtail_state      = 'released',
+    curtail_completed_at = COALESCE(curtail_completed_at, CURRENT_TIMESTAMP),
+    curtail_last_error = COALESCE(curtail_last_error, last_error, 'released without restore: no curtail command dispatched')
+WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
+  AND desired_state = 'curtailed'
+  AND state IN ('pending', 'unavailable')
+  AND last_dispatched_at IS NULL
+  AND curtail_dispatched_at IS NULL
+  AND retry_count = 0;
 
 -- name: ResumeCurtailmentFromRestoring :one
 -- Restore reversal: go back through pending so the curtail dispatcher picks

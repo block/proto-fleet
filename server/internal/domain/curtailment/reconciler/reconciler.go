@@ -338,12 +338,37 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 		return
 	}
 	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
+	if isAllPairedPolicyEvent(ev) {
+		deviceIDs := allPairedPolicyRefreshDeviceIdentifiers(targets)
+		if len(deviceIDs) > 0 {
+			cands, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{
+				OrgID:             ev.OrgID,
+				DeviceIdentifiers: deviceIDs,
+			})
+			if err != nil {
+				slog.Error("curtailment reconciler: list candidates (all-paired pending refresh) failed",
+					"event_id", ev.ID, "error", err)
+			} else {
+				r.refreshAllPairedPolicyTargets(cmdCtx, ev, targets, candidatesByDeviceID(cands))
+			}
+		}
+	}
 	r.dispatchPendingCurtailBatches(cmdCtx, ev, targets)
 
 	// Confirm just-dispatched targets via current telemetry before deciding
 	// whether the event itself can flip to active.
 	r.confirmDispatched(ctx, ev, targets)
 	r.maybeMarkActive(ctx, ev, targets)
+
+	// Durable ownership must not pause while the event is pending: recurtail
+	// (restoring -> pending) leaves released policy rows dormant for the
+	// multi-tick re-confirmation window unless admission also runs here.
+	// Claimed/reopened rows enter as pending/unavailable and dispatch on the
+	// next tick's pending pass, mirroring the observeActive claim ordering.
+	if isAllPairedPolicyEvent(ev) {
+		claimed := r.claimClosedLoopFullFleetTargets(ctx, ev, targets)
+		r.dispatchClaimedCurtailTargets(cmdCtx, ev, claimed)
+	}
 }
 
 // dispatchPendingCurtailBatches drains retryable Curtail work in command
@@ -678,6 +703,9 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 				"event_id", ev.ID, "error", err)
 		} else {
 			candByID := candidatesByDeviceID(cands)
+			if isAllPairedPolicyEvent(ev) {
+				r.refreshAllPairedPolicyTargets(cmdCtx, ev, targets, candByID)
+			}
 			for _, t := range targets {
 				switch t.State {
 				case models.TargetStateConfirmed:
@@ -707,7 +735,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 						continue
 					}
 					r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDrifted)
-				case models.TargetStatePending,
+				case models.TargetStatePending, models.TargetStateUnavailable,
 					models.TargetStateResolved, models.TargetStateReleased,
 					models.TargetStateRestoreFailed:
 					// Pending rows are handled by the active closed-loop dispatch pass
@@ -725,12 +753,6 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 	if !isClosedLoopFullFleet(ev) || (ev.State != models.EventStatePending && ev.State != models.EventStateActive) {
 		return nil
 	}
-	if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev, existingTargets) {
-		return nil
-	}
-	if hasInFlightCurtailDispatch(existingTargets) {
-		return nil
-	}
 	params, ok := listCandidatesParamsForEventScope(ev)
 	if !ok {
 		slog.Warn("curtailment reconciler: unsupported closed-loop full-fleet scope",
@@ -738,11 +760,24 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 		return nil
 	}
 	params.OrgID = ev.OrgID
+	// Admission gates run before the fleet-scale candidate scan for both
+	// policies. For all-paired events this paces only the discovery of
+	// brand-new devices and reopens; readiness refresh of existing targets
+	// stays per-tick via the device-scoped refresh path.
+	if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev, existingTargets) {
+		return nil
+	}
+	if hasInFlightCurtailDispatch(existingTargets) {
+		return nil
+	}
 	candidates, err := r.store.ListCandidates(ctx, params)
 	if err != nil {
 		slog.Error("curtailment reconciler: list candidates (full_fleet admission) failed",
 			"event_id", ev.ID, "error", err)
 		return nil
+	}
+	if isAllPairedPolicyEvent(ev) {
+		return r.claimAllPairedPolicyTargets(ctx, ev, existingTargets, candidates, params)
 	}
 	orgConfig, err := r.store.GetOrgConfig(ctx, ev.OrgID)
 	if err != nil {
@@ -853,6 +888,25 @@ func excludeExistingTargetParams(targets []models.InsertTargetParams, existingTa
 	return filtered
 }
 
+func excludeNonReopenableExistingTargetParams(targets []models.InsertTargetParams, existingTargets []*models.Target) []models.InsertTargetParams {
+	if len(targets) == 0 || len(existingTargets) == 0 {
+		return targets
+	}
+	existing := make(map[string]models.TargetState, len(existingTargets))
+	for _, target := range existingTargets {
+		existing[target.DeviceIdentifier] = target.State
+	}
+	filtered := targets[:0]
+	for _, target := range targets {
+		state, ok := existing[target.DeviceIdentifier]
+		if ok && state != models.TargetStateReleased {
+			continue
+		}
+		filtered = append(filtered, target)
+	}
+	return filtered
+}
+
 func excludeDeviceIdentifiers(targets []models.InsertTargetParams, deviceIdentifiers []string) []models.InsertTargetParams {
 	if len(targets) == 0 || len(deviceIdentifiers) == 0 {
 		return targets
@@ -875,11 +929,28 @@ func (r *Reconciler) dispatchClaimedCurtailTargets(ctx context.Context, ev *mode
 	if len(claimed) == 0 {
 		return
 	}
-	_ = r.dispatchCurtailBatch(ctx, ev, claimed, models.TargetStateDispatching)
+	dispatchable := claimed[:0]
+	for _, target := range claimed {
+		if target.State == models.TargetStatePending || target.State == models.TargetStateDispatching {
+			dispatchable = append(dispatchable, target)
+		}
+	}
+	if len(dispatchable) == 0 {
+		return
+	}
+	_ = r.dispatchCurtailBatch(ctx, ev, dispatchable, models.TargetStateDispatching)
 }
 
 func isClosedLoopFullFleet(ev *models.Event) bool {
 	return ev != nil && ev.Mode == models.ModeFullFleet && ev.LoopType == models.LoopTypeClosed
+}
+
+func toStringSet(values []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		out[value] = struct{}{}
+	}
+	return out
 }
 
 func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandidatesParams, bool) {
@@ -913,6 +984,10 @@ func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandida
 func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate, nonTerminalState models.TargetState) {
 	if c == nil {
 		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", nonTerminalState)
+		return
+	}
+	if isAllPairedPolicyEvent(ev) && !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
+		r.recordDispatchFailure(ctx, ev, t, "device is no longer paired-like", nonTerminalState)
 		return
 	}
 	if !isCurtailed(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor, true) {
@@ -962,6 +1037,10 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
 	if c == nil {
 		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", models.TargetStateDrifted)
+		return
+	}
+	if isAllPairedPolicyEvent(ev) && !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
+		r.recordDispatchFailure(ctx, ev, t, "device is no longer paired-like", models.TargetStateDrifted)
 		return
 	}
 	if !isCurtailed(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor, false) {
@@ -1028,11 +1107,26 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 			confirmed++
 		case models.TargetStateRestoreFailed:
 			terminalFailures++
-		case models.TargetStatePending, models.TargetStateDispatching,
-			models.TargetStateDispatched, models.TargetStateDrifted:
+		case models.TargetStateUnavailable:
+			if isAllPairedPolicyEvent(ev) {
+				// Policy ownership is held until the miner becomes commandable;
+				// it should not pause drift enforcement for confirmed targets.
+				continue
+			}
+			return
+		case models.TargetStatePending, models.TargetStateDispatching, models.TargetStateDispatched, models.TargetStateDrifted:
 			// In flight.
 			return
-		case models.TargetStateResolved, models.TargetStateReleased:
+		case models.TargetStateReleased:
+			if isAllPairedPolicyReleasedCurtailTarget(ev, t) {
+				// Released all-paired policy rows are dormant placeholders.
+				// Active admission can reopen them when the miner is paired-like
+				// again, so they must not pin the parent event in pending.
+				continue
+			}
+			// Unreachable on a pending event; hold for manual cleanup.
+			return
+		case models.TargetStateResolved:
 			// Unreachable on a pending event; hold for manual cleanup.
 			return
 		}

@@ -513,6 +513,23 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		}))
 		return err
 	}
+	previewWithForceIncludeAllPaired := func(ctx context.Context) error {
+		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
+			Scope:                       &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			Mode:                        pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+			ForceIncludeAllPairedMiners: true,
+		}))
+		return err
+	}
+	startWithForceIncludeAllPaired := func(ctx context.Context) error {
+		_, err := h.StartCurtailment(ctx, connect.NewRequest(&pb.StartCurtailmentRequest{
+			Scope:                       &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			Mode:                        pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+			Reason:                      "override role-gate test",
+			ForceIncludeAllPairedMiners: true,
+		}))
+		return err
+	}
 
 	cases := []call{
 		// Non-admin role with override field set is rejected regardless of auth method.
@@ -529,6 +546,12 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		// under active physical maintenance.
 		{"Start force_include_maintenance + viewer session", startWithForceIncludeMaintenance, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
 		{"Start force_include_maintenance + viewer API key", startWithForceIncludeMaintenance, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
+		// force_include_all_paired_miners commands fleet-wide durable
+		// ownership and is admin-gated at both Preview and Start.
+		{"Preview force_include_all_paired + viewer session", previewWithForceIncludeAllPaired, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		{"Preview force_include_all_paired + viewer API key", previewWithForceIncludeAllPaired, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
+		{"Start force_include_all_paired + viewer session", startWithForceIncludeAllPaired, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		{"Start force_include_all_paired + viewer API key", startWithForceIncludeAllPaired, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 
 		// Admin role reaches Unimplemented regardless of auth method — admin
 		// API-key callers can drive override paths so external integrations
@@ -543,6 +566,10 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		{"Stop force + admin API key", stopWithForce, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 		{"Start force_include_maintenance + admin session", startWithForceIncludeMaintenance, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
 		{"Start force_include_maintenance + admin API key", startWithForceIncludeMaintenance, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
+		{"Preview force_include_all_paired + admin session", previewWithForceIncludeAllPaired, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
+		{"Preview force_include_all_paired + admin API key", previewWithForceIncludeAllPaired, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
+		{"Start force_include_all_paired + admin session", startWithForceIncludeAllPaired, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
+		{"Start force_include_all_paired + admin API key", startWithForceIncludeAllPaired, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 	}
 
 	for _, tc := range cases {

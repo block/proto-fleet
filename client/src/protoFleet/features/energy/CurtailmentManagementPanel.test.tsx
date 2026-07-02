@@ -291,6 +291,7 @@ const activeEventFormValues = {
   restoreBatchSize: "1",
   restoreIntervalSec: "60",
   includeMaintenance: true,
+  forceIncludeAllPairedMiners: false,
 } satisfies CurtailmentSubmitValues;
 const historyEvent = { id: "curt-1" } as CurtailmentHistoryEvent;
 

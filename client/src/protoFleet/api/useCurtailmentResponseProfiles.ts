@@ -201,6 +201,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     restoreIntervalSec: numberToNonNegativeInputValue(profile.restoreBatchIntervalSec),
     responseDeadlineMinutes,
     includeMaintenance: profile.includeMaintenance,
+    forceIncludeAllPairedMiners: profile.forceIncludeAllPairedMiners,
   };
   const mergedFormValues = cachedFormValues
     ? {
@@ -440,6 +441,7 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
     restoreBatchIntervalSec: getRestoreBatchIntervalSec(values),
     includeMaintenance: values.includeMaintenance,
     forceIncludeMaintenance: values.includeMaintenance,
+    forceIncludeAllPairedMiners: values.actionType === "fullFleet" && Boolean(values.forceIncludeAllPairedMiners),
   };
 }
 

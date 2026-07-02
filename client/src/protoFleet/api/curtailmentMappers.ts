@@ -217,6 +217,7 @@ export function mapCurtailmentEventToFormValues(
     restoreIntervalSec: formatPositiveNumberField(event.restoreBatchIntervalSec),
     reason: event.reason || "Curtailment",
     includeMaintenance: event.includeMaintenance,
+    forceIncludeAllPairedMiners: event.forceIncludeAllPairedMiners,
   };
 }
 
