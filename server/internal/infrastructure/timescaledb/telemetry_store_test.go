@@ -814,6 +814,64 @@ func TestTelemetryStore_GetCombinedMetrics_RawTailCoversUnmaterializedCompletedH
 	assert.Equal(t, float64(900), aggValues(result.Metrics[1].AggregatedValues)[models.AggregationTypeAverage])
 }
 
+func TestTelemetryStore_GetCombinedMetrics_CoarseSlideTailStaysAfterHourlyBody(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange: a 4h slide interval whose time_bucket grid is misaligned with
+	// the hour-truncated tail start. The request end sits in an hour that is
+	// 3h past a 4h grid boundary, so an uncapped tail would label the raw
+	// bucket 3h early, exactly on the body's last hourly bucket
+	db := testutil.GetTestDB(t)
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	identifier := fmt.Sprintf("coarse-slide-tail-device-%d", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupDeviceMetrics(t, db, identifier) })
+
+	hour := time.Now().UTC().Truncate(time.Hour)
+	hour = hour.Add(-time.Duration((hour.Hour()%4+1)%4) * time.Hour)
+	end := hour.Add(30 * time.Minute)
+	start := end.Add(-24 * time.Hour)
+	tailBoundary := end.Add(-2 * time.Hour).Truncate(time.Hour)
+	materialized := tailBoundary.Add(-time.Hour).Add(10 * time.Minute)
+	rawOnly := hour.Add(20 * time.Minute)
+	insertTestMetrics(t, db, identifier, materialized, 500, 60)
+	insertTestMetrics(t, db, identifier, rawOnly, 900, 90)
+	refreshMetricsHourlyAggregate(t, db, materialized.Add(-time.Hour), materialized.Add(time.Hour))
+
+	slide := 4 * time.Hour
+
+	// Act
+	result, err := store.GetCombinedMetrics(t.Context(), models.CombinedMetricsQuery{
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+		SlideInterval:    &slide,
+	})
+
+	// Assert: the tail bucket is capped to the hour grid so it lands after the
+	// body bucket instead of duplicating its OpenTime
+	require.NoError(t, err)
+	require.Len(t, result.Metrics, 2)
+	seen := make(map[int64]bool)
+	for i, m := range result.Metrics {
+		assert.False(t, seen[m.OpenTime.UnixNano()], "duplicate bucket timestamp %s", m.OpenTime)
+		seen[m.OpenTime.UnixNano()] = true
+		if i > 0 {
+			assert.False(t, m.OpenTime.Before(result.Metrics[i-1].OpenTime),
+				"metrics must be ordered by OpenTime, got %s after %s", m.OpenTime, result.Metrics[i-1].OpenTime)
+		}
+	}
+	assert.True(t, result.Metrics[0].OpenTime.Equal(materialized.Truncate(time.Hour)),
+		"expected hour-aligned body bucket, got %s", result.Metrics[0].OpenTime)
+	assert.Equal(t, float64(500), aggValues(result.Metrics[0].AggregatedValues)[models.AggregationTypeAverage])
+	assert.True(t, result.Metrics[1].OpenTime.Equal(rawOnly.Truncate(time.Hour)),
+		"expected hour-capped tail bucket, got %s", result.Metrics[1].OpenTime)
+	assert.False(t, result.Metrics[1].OpenTime.Before(tailBoundary),
+		"tail bucket must not precede the tail boundary %s, got %s", tailBoundary, result.Metrics[1].OpenTime)
+	assert.Equal(t, float64(900), aggValues(result.Metrics[1].AggregatedValues)[models.AggregationTypeAverage])
+}
+
 func TestTelemetryStore_GetCombinedMetrics_HourAlignedEndStillGetsRawTail(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -941,13 +999,15 @@ func TestTelemetryStore_GetCombinedMetrics_UptimeSurvivesEmptyHourlyBodyAndCover
 	})
 
 	// Assert: tail metrics present despite the empty body, uptime computed,
-	// and the uptime series reaches into the final hour of the request
+	// and the last uptime bucket is the one containing the final state change
+	// (the pre-fix hour-early end excluded that snapshot entirely)
 	require.NoError(t, err)
 	require.NotEmpty(t, result.Metrics)
 	require.NotEmpty(t, result.UptimeStatusCounts)
 	lastUptime := result.UptimeStatusCounts[len(result.UptimeStatusCounts)-1]
-	assert.False(t, lastUptime.Timestamp.Before(end.Add(-time.Hour)),
-		"uptime series must cover the final hour, last bucket %s", lastUptime.Timestamp)
+	lastChangeBucket := end.Add(-30 * time.Minute).Truncate(time.Hour)
+	assert.True(t, lastUptime.Timestamp.Equal(lastChangeBucket),
+		"expected last uptime bucket %s, got %s", lastChangeBucket, lastUptime.Timestamp)
 	assert.Equal(t, int32(1), lastUptime.BrokenCount)
 }
 
