@@ -82,7 +82,7 @@ func (s *stopStubStore) BulkRefreshAllPairedTargetReadiness(
 	int64,
 	models.EventState,
 	[]interfaces.AllPairedReadinessUpdate,
-) (int64, error) {
+) ([]string, error) {
 	panic("BulkRefreshAllPairedTargetReadiness not exercised by Stop handler tests")
 }
 func (s *stopStubStore) GetEventByUUID(_ context.Context, _ int64, _ uuid.UUID) (*models.Event, error) {

@@ -1878,9 +1878,10 @@ func (s *SQLCurtailmentStore) ClaimAllPairedPolicyTargets(
 // bulkReadinessUpdateRow mirrors BulkRefreshAllPairedTargetReadiness's
 // jsonb_to_recordset column list.
 type bulkReadinessUpdateRow struct {
-	DeviceIdentifier string `json:"device_identifier"`
-	State            string `json:"state"`
-	LastError        string `json:"last_error"`
+	DeviceIdentifier string   `json:"device_identifier"`
+	State            string   `json:"state"`
+	LastError        string   `json:"last_error"`
+	BaselinePowerW   *float64 `json:"baseline_power_w"`
 }
 
 func (s *SQLCurtailmentStore) BulkRefreshAllPairedTargetReadiness(
@@ -1888,9 +1889,9 @@ func (s *SQLCurtailmentStore) BulkRefreshAllPairedTargetReadiness(
 	eventID int64,
 	expectedEventState models.EventState,
 	updates []interfaces.AllPairedReadinessUpdate,
-) (int64, error) {
+) ([]string, error) {
 	if len(updates) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	rows := make([]bulkReadinessUpdateRow, len(updates))
 	for i, u := range updates {
@@ -1898,21 +1899,22 @@ func (s *SQLCurtailmentStore) BulkRefreshAllPairedTargetReadiness(
 			DeviceIdentifier: u.DeviceIdentifier,
 			State:            string(u.State),
 			LastError:        u.Reason,
+			BaselinePowerW:   u.BaselinePowerW,
 		}
 	}
 	payload, err := json.Marshal(rows)
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("encode all-paired readiness payload: %v", err)
+		return nil, fleeterror.NewInternalErrorf("encode all-paired readiness payload: %v", err)
 	}
-	updated, err := s.GetQueries(ctx).BulkRefreshAllPairedTargetReadiness(ctx, sqlc.BulkRefreshAllPairedTargetReadinessParams{
+	applied, err := s.GetQueries(ctx).BulkRefreshAllPairedTargetReadiness(ctx, sqlc.BulkRefreshAllPairedTargetReadinessParams{
 		CurtailmentEventID: eventID,
 		ExpectedEventState: string(expectedEventState),
 		UpdatesJsonb:       payload,
 	})
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to bulk refresh all-paired target readiness: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to bulk refresh all-paired target readiness: %v", err)
 	}
-	return updated, nil
+	return applied, nil
 }
 
 func ensureTargetsOutsideCooldown(

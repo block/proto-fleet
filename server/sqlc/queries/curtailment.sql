@@ -898,7 +898,7 @@ RETURNING 1
 )
 SELECT ((SELECT COUNT(*) FROM reopened) + (SELECT COUNT(*) FROM inserted))::BIGINT AS claimed_count;
 
--- name: BulkRefreshAllPairedTargetReadiness :execrows
+-- name: BulkRefreshAllPairedTargetReadiness :many
 -- Per-tick readiness refresh for all-paired policy rows, batched into one
 -- statement so a mass readiness flip (fleet-wide recovery or outage) does not
 -- issue one UPDATE round trip per device inside the shared tick budget.
@@ -908,9 +908,17 @@ SELECT ((SELECT COUNT(*) FROM reopened) + (SELECT COUNT(*) FROM inserted))::BIGI
 -- state, and each row must still be a refreshable policy row
 -- (desired_state='curtailed', state pending/unavailable). Rows that advanced
 -- concurrently (dispatch claim, Stop reset, release) are skipped; the next
--- tick re-reads them. Empty last_error is the explicit clear sentinel
--- (pending promotion); non-empty increments curtail_failure_count exactly
--- like the per-row query.
+-- tick re-reads them. RETURNING reports exactly which rows applied so the
+-- reconciler mirrors only those — a skipped row must not be treated as
+-- promoted and dispatched against stale state. Empty last_error is the
+-- explicit clear sentinel (pending promotion); non-empty increments
+-- curtail_failure_count exactly like the per-row query.
+--
+-- baseline_power_w backfills only NULL baselines: targets inserted while
+-- unavailable carry no pre-curtail baseline (power was unknown), so the
+-- promotion supplies current telemetry — without it, drift/confirm checks
+-- degrade to the hash-only fallback forever. An existing baseline is never
+-- overwritten; readiness flaps must not capture asleep-power as baseline.
 WITH locked_event AS MATERIALIZED (
     SELECT id
     FROM curtailment_event
@@ -922,6 +930,7 @@ WITH locked_event AS MATERIALIZED (
 UPDATE curtailment_target AS target
 SET state              = t.state,
     last_error         = NULLIF(t.last_error, ''),
+    baseline_power_w   = COALESCE(target.baseline_power_w, t.baseline_power_w),
     curtail_state      = t.state,
     curtail_failure_count = CASE
         WHEN NULLIF(t.last_error, '') IS NOT NULL THEN target.curtail_failure_count + 1
@@ -935,13 +944,15 @@ FROM locked_event
 JOIN jsonb_to_recordset(sqlc.arg('updates_jsonb')::JSONB) AS t(
     device_identifier TEXT,
     state             TEXT,
-    last_error        TEXT
+    last_error        TEXT,
+    baseline_power_w  NUMERIC(12,3)
 ) ON TRUE
 WHERE target.curtailment_event_id = locked_event.id
   AND target.device_identifier = t.device_identifier
   AND target.desired_state = 'curtailed'
   AND target.state IN ('pending', 'unavailable')
-  AND t.state IN ('pending', 'unavailable');
+  AND t.state IN ('pending', 'unavailable')
+RETURNING target.device_identifier;
 
 -- name: ListCurtailmentTargetsByEvent :many
 -- Org-scoped via the join.

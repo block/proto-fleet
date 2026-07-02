@@ -225,24 +225,25 @@ func (f *fakeStore) ClaimAllPairedPolicyTargets(
 
 // BulkRefreshAllPairedTargetReadiness: real-fake mirroring the SQL guards —
 // only pending/unavailable curtail-phase rows on an event still in the
-// expected state flip; everything else is skipped, not clobbered.
+// expected state flip; everything else is skipped, not clobbered. Returns
+// the applied device identifiers, mirroring the RETURNING clause.
 func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
 	_ context.Context,
 	eventID int64,
 	expectedEventState models.EventState,
 	updates []interfaces.AllPairedReadinessUpdate,
-) (int64, error) {
+) ([]string, error) {
 	f.bulkRefreshCalls++
 	f.lastBulkRefreshUpdates = append([]interfaces.AllPairedReadinessUpdate(nil), updates...)
 	if f.bulkRefreshErr != nil {
-		return 0, f.bulkRefreshErr
+		return nil, f.bulkRefreshErr
 	}
 	for _, ev := range f.events {
 		if ev.ID == eventID && ev.State != expectedEventState {
-			return 0, nil
+			return nil, nil
 		}
 	}
-	var applied int64
+	var applied []string
 	byDevice := map[string]*models.Target{}
 	for _, t := range f.targetsByEventID[eventID] {
 		byDevice[t.DeviceIdentifier] = t
@@ -268,12 +269,16 @@ func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
 			reason := update.Reason
 			t.LastError = &reason
 		}
+		if update.BaselinePowerW != nil && t.BaselinePowerW == nil {
+			baseline := *update.BaselinePowerW
+			t.BaselinePowerW = &baseline
+		}
 		reason := update.Reason
 		updateTargetPhaseSummary(t, interfaces.UpdateCurtailmentTargetStateParams{
 			State:     update.State,
 			LastError: &reason,
 		})
-		applied++
+		applied = append(applied, update.DeviceIdentifier)
 	}
 	return applied, nil
 }
@@ -1084,6 +1089,9 @@ func TestReconciler_AllPairedPolicyUnavailableTargetBecomesPendingAndDispatches(
 	final := store.targetsByEventID[eventID][0]
 	assert.Equal(t, models.TargetStateDispatched, final.State)
 	assert.Nil(t, final.LastError)
+	require.NotNil(t, final.BaselinePowerW,
+		"promotion must backfill the missing pre-curtail baseline so confirm/drift checks don't fall back to hash-only")
+	assert.InDelta(t, 3000.0, *final.BaselinePowerW, 0.001)
 }
 
 func TestReconciler_AllPairedPolicyPendingTargetBecomesUnavailableWhenOffline(t *testing.T) {

@@ -224,7 +224,7 @@ func (q *Queries) BulkInsertCurtailmentTargets(ctx context.Context, arg BulkInse
 	return result.RowsAffected()
 }
 
-const bulkRefreshAllPairedTargetReadiness = `-- name: BulkRefreshAllPairedTargetReadiness :execrows
+const bulkRefreshAllPairedTargetReadiness = `-- name: BulkRefreshAllPairedTargetReadiness :many
 WITH locked_event AS MATERIALIZED (
     SELECT id
     FROM curtailment_event
@@ -236,6 +236,7 @@ WITH locked_event AS MATERIALIZED (
 UPDATE curtailment_target AS target
 SET state              = t.state,
     last_error         = NULLIF(t.last_error, ''),
+    baseline_power_w   = COALESCE(target.baseline_power_w, t.baseline_power_w),
     curtail_state      = t.state,
     curtail_failure_count = CASE
         WHEN NULLIF(t.last_error, '') IS NOT NULL THEN target.curtail_failure_count + 1
@@ -249,13 +250,15 @@ FROM locked_event
 JOIN jsonb_to_recordset($1::JSONB) AS t(
     device_identifier TEXT,
     state             TEXT,
-    last_error        TEXT
+    last_error        TEXT,
+    baseline_power_w  NUMERIC(12,3)
 ) ON TRUE
 WHERE target.curtailment_event_id = locked_event.id
   AND target.device_identifier = t.device_identifier
   AND target.desired_state = 'curtailed'
   AND target.state IN ('pending', 'unavailable')
   AND t.state IN ('pending', 'unavailable')
+RETURNING target.device_identifier
 `
 
 type BulkRefreshAllPairedTargetReadinessParams struct {
@@ -273,15 +276,38 @@ type BulkRefreshAllPairedTargetReadinessParams struct {
 // state, and each row must still be a refreshable policy row
 // (desired_state='curtailed', state pending/unavailable). Rows that advanced
 // concurrently (dispatch claim, Stop reset, release) are skipped; the next
-// tick re-reads them. Empty last_error is the explicit clear sentinel
-// (pending promotion); non-empty increments curtail_failure_count exactly
-// like the per-row query.
-func (q *Queries) BulkRefreshAllPairedTargetReadiness(ctx context.Context, arg BulkRefreshAllPairedTargetReadinessParams) (int64, error) {
-	result, err := q.exec(ctx, q.bulkRefreshAllPairedTargetReadinessStmt, bulkRefreshAllPairedTargetReadiness, arg.UpdatesJsonb, arg.CurtailmentEventID, arg.ExpectedEventState)
+// tick re-reads them. RETURNING reports exactly which rows applied so the
+// reconciler mirrors only those — a skipped row must not be treated as
+// promoted and dispatched against stale state. Empty last_error is the
+// explicit clear sentinel (pending promotion); non-empty increments
+// curtail_failure_count exactly like the per-row query.
+//
+// baseline_power_w backfills only NULL baselines: targets inserted while
+// unavailable carry no pre-curtail baseline (power was unknown), so the
+// promotion supplies current telemetry — without it, drift/confirm checks
+// degrade to the hash-only fallback forever. An existing baseline is never
+// overwritten; readiness flaps must not capture asleep-power as baseline.
+func (q *Queries) BulkRefreshAllPairedTargetReadiness(ctx context.Context, arg BulkRefreshAllPairedTargetReadinessParams) ([]string, error) {
+	rows, err := q.query(ctx, q.bulkRefreshAllPairedTargetReadinessStmt, bulkRefreshAllPairedTargetReadiness, arg.UpdatesJsonb, arg.CurtailmentEventID, arg.ExpectedEventState)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected()
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const bumpCurtailmentTargetRetry = `-- name: BumpCurtailmentTargetRetry :execrows

@@ -57,10 +57,14 @@ type UpdateCurtailmentTargetStateParams struct {
 // AllPairedReadinessUpdate is one pending/unavailable readiness flip in the
 // bulk all-paired refresh. Reason is the unavailable reason; empty clears
 // last_error (the pending-promotion sentinel, matching the per-row query).
+// BaselinePowerW, when set on a promotion, backfills a NULL baseline from
+// current telemetry (targets inserted while unavailable have none); the SQL
+// never overwrites an existing baseline.
 type AllPairedReadinessUpdate struct {
 	DeviceIdentifier string
 	State            models.TargetState
 	Reason           string
+	BaselinePowerW   *float64
 }
 
 // UpsertCurtailmentHeartbeatParams describes the singleton liveness row
@@ -264,14 +268,15 @@ type CurtailmentStore interface {
 	// readiness flips for all-paired policy rows in one statement. Rows
 	// whose state or desired_state advanced concurrently — and every row
 	// when the parent event left expectedEventState — are skipped, not
-	// clobbered; the reconciler re-reads them next tick. Returns the number
-	// of rows actually updated.
+	// clobbered; the reconciler re-reads them next tick. Returns the
+	// device identifiers of the rows actually updated so callers mirror
+	// only applied flips.
 	BulkRefreshAllPairedTargetReadiness(
 		ctx context.Context,
 		eventID int64,
 		expectedEventState models.EventState,
 		updates []AllPairedReadinessUpdate,
-	) (int64, error)
+	) ([]string, error)
 
 	// Heartbeat singleton row used by liveness alerts.
 	GetHeartbeat(ctx context.Context) (*models.Heartbeat, error)

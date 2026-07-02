@@ -107,6 +107,7 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 	targets []*models.Target,
 	candidates map[string]*models.Candidate,
 ) {
+	minPowerW := candidateMinPowerWForEvent(ev, 0)
 	refreshable := make(map[string]*models.Target, len(targets))
 	updates := make([]interfaces.AllPairedReadinessUpdate, 0, len(targets))
 	for _, target := range targets {
@@ -131,34 +132,48 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 		if nextState != models.TargetStatePending && nextState != models.TargetStateUnavailable {
 			continue
 		}
-		updates = append(updates, interfaces.AllPairedReadinessUpdate{
+		update := interfaces.AllPairedReadinessUpdate{
 			DeviceIdentifier: target.DeviceIdentifier,
 			State:            nextState,
 			Reason:           reason,
-		})
+		}
+		// Rows inserted while unavailable carry no pre-curtail baseline;
+		// backfill it from current telemetry at promotion so confirm/drift
+		// checks don't degrade to the hash-only fallback. The SQL never
+		// overwrites an existing baseline.
+		if nextState == models.TargetStatePending && target.BaselinePowerW == nil {
+			update.BaselinePowerW = curtailment.AllPairedPromotionBaselinePowerW(candidate, minPowerW)
+		}
+		updates = append(updates, update)
 		refreshable[target.DeviceIdentifier] = target
 	}
 	if len(updates) == 0 {
 		return
 	}
-	rows, err := r.store.BulkRefreshAllPairedTargetReadiness(ctx, ev.ID, ev.State, updates)
+	appliedDevices, err := r.store.BulkRefreshAllPairedTargetReadiness(ctx, ev.ID, ev.State, updates)
 	if err != nil {
 		r.metrics.IncTargetWriteFailure()
 		slog.Error("curtailment reconciler: all-paired readiness bulk refresh failed",
 			"event_id", ev.ID, "update_count", len(updates), "error", err)
 		return
 	}
-	if rows < int64(len(updates)) {
+	applied := toStringSet(appliedDevices)
+	if len(applied) < len(updates) {
 		// Rows that advanced concurrently (dispatch claim, Stop reset,
 		// event phase change) are skipped by the SQL guards; the next tick
 		// re-reads them. Benign, but counted so sustained races surface.
 		r.metrics.IncEventStateRaceLoss()
 		slog.Warn("curtailment reconciler: all-paired readiness refresh skipped concurrently-advanced rows",
-			"event_id", ev.ID, "update_count", len(updates), "applied", rows)
+			"event_id", ev.ID, "update_count", len(updates), "applied", len(applied))
 	}
-	// Mirror the write optimistically; a row the SQL skipped self-heals on
-	// the next tick, and same-tick dispatch writes are individually guarded.
+	// Mirror only rows the SQL reports as applied: a skipped row's stale
+	// in-memory state must not feed the same-tick dispatch pass (a row
+	// another actor already advanced could otherwise be flipped back to
+	// dispatching and receive a duplicate Curtail).
 	for _, update := range updates {
+		if _, ok := applied[update.DeviceIdentifier]; !ok {
+			continue
+		}
 		target := refreshable[update.DeviceIdentifier]
 		target.State = update.State
 		if update.Reason == "" {
@@ -166,6 +181,10 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 		} else {
 			reason := update.Reason
 			target.LastError = &reason
+		}
+		if update.BaselinePowerW != nil && target.BaselinePowerW == nil {
+			baseline := *update.BaselinePowerW
+			target.BaselinePowerW = &baseline
 		}
 	}
 }

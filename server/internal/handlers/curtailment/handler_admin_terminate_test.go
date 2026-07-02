@@ -131,7 +131,7 @@ func (s *adminTerminateStubStore) BulkRefreshAllPairedTargetReadiness(
 	int64,
 	models.EventState,
 	[]interfaces.AllPairedReadinessUpdate,
-) (int64, error) {
+) ([]string, error) {
 	panic("BulkRefreshAllPairedTargetReadiness not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {

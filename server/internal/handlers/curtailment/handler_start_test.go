@@ -111,7 +111,7 @@ func (s *startStubStore) BulkRefreshAllPairedTargetReadiness(
 	int64,
 	models.EventState,
 	[]interfaces.AllPairedReadinessUpdate,
-) (int64, error) {
+) ([]string, error) {
 	panic("BulkRefreshAllPairedTargetReadiness not exercised by handler Start tests")
 }
 

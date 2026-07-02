@@ -358,3 +358,20 @@ func IsAllPairedPolicyPairingStatus(status string) bool {
 		return false
 	}
 }
+
+// AllPairedPromotionBaselinePowerW returns the pre-curtail baseline to
+// backfill when an unavailable policy row becomes dispatchable, or nil when
+// current telemetry does not meet the same bar the insert path applies.
+// Rows inserted while a miner was unavailable carry no baseline (power was
+// unknown); without a backfill at promotion, drift/confirm checks degrade to
+// the hash-only fallback for the row's whole lifetime.
+func AllPairedPromotionBaselinePowerW(c *models.Candidate, minPowerW int32) *float64 {
+	if c == nil || !hasNonNegativeFiniteFloat(c.LatestPowerW) {
+		return nil
+	}
+	power := *c.LatestPowerW
+	if !shouldPersistBaselinePowerW(models.ModeFullFleet, power, minPowerW) {
+		return nil
+	}
+	return &power
+}

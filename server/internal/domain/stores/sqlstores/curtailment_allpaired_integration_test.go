@@ -184,8 +184,10 @@ func TestSQLCurtailmentStore_ListActiveCurtailedDevices_AllPairedScopeLockAndRel
 
 // Pins BulkRefreshAllPairedTargetReadiness' real SQL: pending/unavailable
 // curtail-phase rows flip in one statement, rows that advanced past the
-// refreshable states are skipped, and a stale expected event state applies
-// nothing.
+// refreshable states are skipped (and reported via RETURNING so the caller
+// mirrors only applied rows), a stale expected event state applies nothing,
+// and promotion baselines backfill NULL only — an existing pre-curtail
+// baseline is never overwritten.
 func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
@@ -197,6 +199,10 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 
+	existingBaseline := 2500.0
+	seededBaselineTarget := curtailmentStoreAllPairedTarget("bulk-keeps-baseline", models.TargetStateUnavailable, "offline")
+	seededBaselineTarget.BaselinePowerW = &existingBaseline
+
 	eventUUID := uuid.New()
 	inserted, err := store.InsertEventWithTargets(
 		ctx,
@@ -205,28 +211,34 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 			curtailmentStoreAllPairedTarget("bulk-promotes", models.TargetStateUnavailable, "offline"),
 			curtailmentStoreAllPairedTarget("bulk-demotes", models.TargetStatePending, ""),
 			curtailmentStoreAllPairedTarget("bulk-dispatched", models.TargetStateDispatched, ""),
+			seededBaselineTarget,
 		},
 	)
 	require.NoError(t, err)
+
+	promotionBaseline := 3000.0
+	overwriteAttempt := 9999.0
 
 	applied, err := store.BulkRefreshAllPairedTargetReadiness(ctx, inserted.ID, models.EventStatePending,
 		[]interfaces.AllPairedReadinessUpdate{
 			{DeviceIdentifier: "bulk-promotes", State: models.TargetStatePending},
 		})
 	require.NoError(t, err)
-	assert.Zero(t, applied, "stale expected event state must apply nothing")
+	assert.Empty(t, applied, "stale expected event state must apply nothing")
 
 	applied, err = store.BulkRefreshAllPairedTargetReadiness(ctx, inserted.ID, models.EventStateActive,
 		[]interfaces.AllPairedReadinessUpdate{
-			{DeviceIdentifier: "bulk-promotes", State: models.TargetStatePending},
+			{DeviceIdentifier: "bulk-promotes", State: models.TargetStatePending, BaselinePowerW: &promotionBaseline},
 			{DeviceIdentifier: "bulk-demotes", State: models.TargetStateUnavailable, Reason: "offline"},
 			{DeviceIdentifier: "bulk-dispatched", State: models.TargetStateUnavailable, Reason: "offline"},
+			{DeviceIdentifier: "bulk-keeps-baseline", State: models.TargetStatePending, BaselinePowerW: &overwriteAttempt},
 		})
 	require.NoError(t, err)
-	assert.Equal(t, int64(2), applied, "the dispatched row is past the refreshable states and must be skipped")
+	assert.ElementsMatch(t, []string{"bulk-promotes", "bulk-demotes", "bulk-keeps-baseline"}, applied,
+		"the dispatched row is past the refreshable states and must be skipped — and not reported as applied")
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT device_identifier, state, last_error, curtail_state, curtail_failure_count
+		SELECT device_identifier, state, last_error, curtail_state, curtail_failure_count, baseline_power_w
 		FROM curtailment_target
 		WHERE curtailment_event_id = $1
 	`, inserted.ID)
@@ -238,22 +250,25 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 		lastError           sql.NullString
 		curtailState        sql.NullString
 		curtailFailureCount int32
+		baselinePowerW      sql.NullFloat64
 	}
 	got := map[string]refreshedRow{}
 	for rows.Next() {
 		var device string
 		var row refreshedRow
-		require.NoError(t, rows.Scan(&device, &row.state, &row.lastError, &row.curtailState, &row.curtailFailureCount))
+		require.NoError(t, rows.Scan(&device, &row.state, &row.lastError, &row.curtailState, &row.curtailFailureCount, &row.baselinePowerW))
 		got[device] = row
 	}
 	require.NoError(t, rows.Err())
-	require.Len(t, got, 3)
+	require.Len(t, got, 4)
 
 	promoted := got["bulk-promotes"]
 	assert.Equal(t, string(models.TargetStatePending), promoted.state)
 	assert.False(t, promoted.lastError.Valid, "pending promotion clears last_error")
 	assert.Equal(t, string(models.TargetStatePending), promoted.curtailState.String)
 	assert.Equal(t, int32(0), promoted.curtailFailureCount, "clearing the error must not count as a failure")
+	require.True(t, promoted.baselinePowerW.Valid, "promotion backfills the missing pre-curtail baseline")
+	assert.InDelta(t, promotionBaseline, promoted.baselinePowerW.Float64, 0.001)
 
 	demoted := got["bulk-demotes"]
 	assert.Equal(t, string(models.TargetStateUnavailable), demoted.state)
@@ -265,6 +280,12 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 	dispatched := got["bulk-dispatched"]
 	assert.Equal(t, string(models.TargetStateDispatched), dispatched.state, "rows past pending/unavailable are skipped, not clobbered")
 	assert.False(t, dispatched.lastError.Valid)
+
+	keepsBaseline := got["bulk-keeps-baseline"]
+	assert.Equal(t, string(models.TargetStatePending), keepsBaseline.state)
+	require.True(t, keepsBaseline.baselinePowerW.Valid)
+	assert.InDelta(t, existingBaseline, keepsBaseline.baselinePowerW.Float64, 0.001,
+		"an existing pre-curtail baseline is never overwritten by promotion telemetry")
 }
 
 // Pins the graceful-Stop release predicate against real SQL: only all-paired

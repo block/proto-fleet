@@ -112,7 +112,7 @@ func (s *listStubStore) BulkRefreshAllPairedTargetReadiness(
 	int64,
 	models.EventState,
 	[]interfaces.AllPairedReadinessUpdate,
-) (int64, error) {
+) ([]string, error) {
 	panic("BulkRefreshAllPairedTargetReadiness not exercised by List handler tests")
 }
 func (s *listStubStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {

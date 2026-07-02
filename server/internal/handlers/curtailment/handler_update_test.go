@@ -161,7 +161,7 @@ func (s *updateStubStore) BulkRefreshAllPairedTargetReadiness(
 	int64,
 	models.EventState,
 	[]interfaces.AllPairedReadinessUpdate,
-) (int64, error) {
+) ([]string, error) {
 	panic("BulkRefreshAllPairedTargetReadiness not exercised by Update handler tests")
 }
 func (s *updateStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
