@@ -46,10 +46,10 @@ func (s *SQLNotificationHistoryStore) Insert(ctx context.Context, n *notificatio
 	return s.GetQueries(ctx).InsertNotificationHistory(ctx, params)
 }
 
-// InsertBatch persists many notifications atomically in one transaction so a large outage (one
-// org-grouped notification with thousands of alerts) lands or rolls back as a unit; the caller can
-// then treat success as "every alert persisted". Each row goes through the generated sqlc query
-// (AGENTS.md: all DB access through sqlc), bound to the transaction.
+// maxBatchRows caps rows per bulk INSERT so a huge outage splits into a few bounded round trips, not one enormous JSONB payload.
+const maxBatchRows = 1000
+
+// InsertBatch persists every notification in one transaction (all-or-nothing), chunked through the sqlc bulk query.
 func (s *SQLNotificationHistoryStore) InsertBatch(ctx context.Context, notifs []*notificationhistory.Notification) error {
 	if len(notifs) == 0 {
 		return nil
@@ -58,29 +58,72 @@ func (s *SQLNotificationHistoryStore) InsertBatch(ctx context.Context, notifs []
 	if err != nil {
 		return fmt.Errorf("begin notification batch tx: %w", err)
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
+	defer func() { _ = tx.Rollback() }() // no-op once committed
 
 	q := sqlc.New(tx)
-	for _, n := range notifs {
-		params, err := insertNotificationParams(n)
+	for start := 0; start < len(notifs); start += maxBatchRows {
+		end := min(start+maxBatchRows, len(notifs))
+		chunk := notifs[start:end]
+		payload, err := marshalBulkNotificationRows(chunk)
 		if err != nil {
-			return err
+			return fmt.Errorf("marshal notification batch chunk: %w", err)
 		}
-		if err := q.InsertNotificationHistory(ctx, params); err != nil {
-			return fmt.Errorf("insert notification batch row: %w", err)
+		inserted, err := q.BulkInsertNotificationHistory(ctx, payload)
+		if err != nil {
+			return fmt.Errorf("insert notification batch chunk: %w", err)
+		}
+		if inserted != int64(len(chunk)) {
+			return fmt.Errorf("insert notification batch chunk: inserted %d of %d rows", inserted, len(chunk))
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit notification batch: %w", err)
 	}
-	committed = true
 	return nil
+}
+
+// bulkNotificationRow is the per-row JSON shape for BulkInsertNotificationHistory's jsonb_to_recordset; tags match its column names.
+type bulkNotificationRow struct {
+	AlertName      string            `json:"alert_name"`
+	Status         string            `json:"status"`
+	Severity       string            `json:"severity"`
+	RuleGroup      string            `json:"rule_group"`
+	Fingerprint    string            `json:"fingerprint"`
+	OrganizationID *int64            `json:"organization_id"`
+	DeviceID       string            `json:"device_id"`
+	Template       string            `json:"template"`
+	Summary        string            `json:"summary"`
+	StartsAt       *time.Time        `json:"starts_at"`
+	EndsAt         *time.Time        `json:"ends_at"`
+	Labels         map[string]string `json:"labels"`
+	Annotations    map[string]string `json:"annotations"`
+}
+
+func marshalBulkNotificationRows(notifs []*notificationhistory.Notification) (json.RawMessage, error) {
+	rows := make([]bulkNotificationRow, len(notifs))
+	for i, n := range notifs {
+		rows[i] = bulkNotificationRow{
+			AlertName:      n.AlertName,
+			Status:         n.Status,
+			Severity:       n.Severity,
+			RuleGroup:      n.RuleGroup,
+			Fingerprint:    n.Fingerprint,
+			OrganizationID: n.OrganizationID,
+			DeviceID:       n.DeviceID,
+			Template:       n.Template,
+			Summary:        n.Summary,
+			StartsAt:       n.StartsAt,
+			EndsAt:         n.EndsAt,
+			Labels:         n.Labels,
+			Annotations:    n.Annotations,
+		}
+	}
+	payload, err := json.Marshal(rows)
+	if err != nil {
+		return nil, fmt.Errorf("marshal notification batch payload: %w", err)
+	}
+	return payload, nil
 }
 
 func insertNotificationParams(n *notificationhistory.Notification) (sqlc.InsertNotificationHistoryParams, error) {
