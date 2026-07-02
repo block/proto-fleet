@@ -436,6 +436,20 @@ func TestTelemetryStore_GetCombinedMetricsSkipsUptimeCountsWhenNotRequested(t *t
 	orgID := user.OrganizationID
 	deviceIdentifier := "skip-uptime-counts-device"
 	now := time.Now().UTC().Truncate(time.Minute)
+	// The raw metrics query joins device on identifier, org, and lifetime, so
+	// the metric needs a device row created before the sample time.
+	device := dbSvc.CreateDevice(orgID, "proto")
+	_, err = db.ExecContext(ctx,
+		`UPDATE discovered_device dd
+		 SET device_identifier = $1, created_at = $2
+		 FROM device d
+		 WHERE d.discovered_device_id = dd.id AND d.id = $3`,
+		deviceIdentifier, now.Add(-time.Hour), device.DatabaseID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`UPDATE device SET device_identifier = $1, created_at = $2 WHERE id = $3`,
+		deviceIdentifier, now.Add(-time.Hour), device.DatabaseID)
+	require.NoError(t, err)
 	insertDeviceMetricForUptimeRequest(t, db, now, deviceIdentifier)
 	insertMinerStateSnapshotRow(t, db, now, orgID, sql.NullInt64{}, deviceIdentifier, 3)
 

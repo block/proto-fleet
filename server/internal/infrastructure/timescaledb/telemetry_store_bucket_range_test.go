@@ -95,3 +95,21 @@ func TestUptimeRollupCoverage(t *testing.T) {
 		assert.False(t, middleTail)
 	})
 }
+
+func TestRawMetricBucketDuration_PreservesFractionalSeconds(t *testing.T) {
+	slideInterval := 1500 * time.Millisecond
+
+	got := rawMetricBucketDuration(&slideInterval, false)
+
+	assert.Equal(t, slideInterval, got)
+}
+
+func TestRawMetricBucketCount(t *testing.T) {
+	// Arrange
+	startTime := time.Date(2026, time.January, 10, 0, 0, 0, 0, time.UTC)
+
+	// Assert
+	assert.Equal(t, int64(0), rawMetricBucketCount(startTime, startTime.Add(-time.Second), time.Minute))
+	assert.Equal(t, int64(1), rawMetricBucketCount(startTime, startTime, time.Minute))
+	assert.Equal(t, int64(1441), rawMetricBucketCount(startTime, startTime.Add(24*time.Hour), time.Minute))
+}
