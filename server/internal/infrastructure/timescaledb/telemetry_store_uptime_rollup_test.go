@@ -3,6 +3,7 @@ package timescaledb
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -461,9 +462,19 @@ func ptrDuration(d time.Duration) *time.Duration {
 
 func refreshUptimeDeviceRollup(t *testing.T, db *sql.DB, view string, start, end time.Time) {
 	t.Helper()
-	_, err := db.ExecContext(context.Background(),
-		fmt.Sprintf("CALL refresh_continuous_aggregate('%s', $1::timestamptz, $2::timestamptz)", view),
-		start, end,
-	)
-	require.NoError(t, err)
+	const maxAttempts = 10
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		_, err := db.ExecContext(context.Background(),
+			fmt.Sprintf("CALL refresh_continuous_aggregate('%s', $1::timestamptz, $2::timestamptz)", view),
+			start, end,
+		)
+		if err == nil {
+			return
+		}
+		var pqErr *pq.Error
+		if !errors.As(err, &pqErr) || pqErr.Code != "55P03" || attempt == maxAttempts {
+			require.NoError(t, err)
+		}
+		time.Sleep(time.Duration(attempt) * 100 * time.Millisecond)
+	}
 }
