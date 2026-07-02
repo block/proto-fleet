@@ -30,6 +30,7 @@ const (
 	// Queries > 10 days use daily aggregates
 	hourlyBucketDuration = time.Hour
 	dailyBucketDuration  = 24 * time.Hour
+	maxRawMetricBuckets  = 10000
 
 	// Energy estimation constants.
 	// Each telemetry data point represents one polling interval of device uptime.
@@ -100,6 +101,27 @@ func normalizeCompleteBucketRange(startTime, endTime time.Time, bucketDuration t
 	return startTime, completeEndTime, true
 }
 
+func rawMetricBucketDuration(slideInterval *time.Duration, allDevices bool) time.Duration {
+	bucketDuration := DefaultBucketDuration
+	if slideInterval != nil && *slideInterval > 0 {
+		bucketDuration = *slideInterval
+	}
+	if bucketDuration < time.Second {
+		return DefaultBucketDuration
+	}
+	if allDevices && bucketDuration < DefaultBucketDuration {
+		return DefaultBucketDuration
+	}
+	return bucketDuration
+}
+
+func rawMetricBucketCount(startTime, endTime time.Time, bucketDuration time.Duration) int64 {
+	if bucketDuration <= 0 || endTime.Before(startTime) {
+		return 0
+	}
+	return int64(endTime.Sub(startTime)/bucketDuration) + 1
+}
+
 // statusData holds a per-device temperature histogram for one bucket.
 type statusData struct {
 	bucket      time.Time
@@ -119,7 +141,7 @@ type statusData struct {
 
 // toStatusCounts converts temperature histogram data to status counts.
 // Maps histogram buckets to status categories using the same thresholds as
-// calculateTemperatureStatusCount (tempThresholdCold=0, tempThresholdHot=70, tempThresholdCritical=90):
+// tempThresholdCold=0, tempThresholdHot=70, tempThresholdCritical=90:
 //   - Cold: temp < 0 → tempBelow0 bucket
 //   - Ok: 0 <= temp < 70 → buckets 0-10 through 60-70
 //   - Hot: 70 <= temp < 90 → buckets 70-80 and 80-90
@@ -513,59 +535,92 @@ func (s *TimescaleTelemetryStore) StreamTelemetryUpdates(ctx context.Context, qu
 // - Hourly aggregates (device_metrics_hourly) for queries 24h-10d
 // - Daily aggregates (device_metrics_daily) for queries > 10d
 func (s *TimescaleTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
-	ds := selectDataSource(query.TimeRange.StartTime, query.TimeRange.EndTime)
+	startTime, endTime := s.getTimeRange(query.TimeRange)
+	ds := selectDataSource(&startTime, &endTime)
 
 	s.logger.Debug("selected data source for combined metrics",
 		slog.String("source", ds.String()),
-		slog.Any("start_time", query.TimeRange.StartTime),
-		slog.Any("end_time", query.TimeRange.EndTime))
+		slog.Time("start_time", startTime),
+		slog.Time("end_time", endTime))
 
 	switch ds {
 	case dataSourceRaw:
-		return s.getCombinedMetricsFromRaw(ctx, query)
+		return s.getCombinedMetricsFromRaw(ctx, query, startTime, endTime)
 	case dataSourceHourly:
-		return s.getCombinedMetricsFromHourly(ctx, query)
+		return s.getCombinedMetricsFromHourly(ctx, query, startTime, endTime)
 	case dataSourceDaily:
-		return s.getCombinedMetricsFromDaily(ctx, query)
+		return s.getCombinedMetricsFromDaily(ctx, query, startTime, endTime)
 	}
-	return s.getCombinedMetricsFromRaw(ctx, query)
+	return s.getCombinedMetricsFromRaw(ctx, query, startTime, endTime)
 }
 
 // getCombinedMetricsFromRaw queries raw device_metrics table (for short time ranges).
-func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
-	tsQuery := models.TimeSeriesTelemetryQuery{
-		DeviceIDs:        query.DeviceIDs,
-		MeasurementTypes: query.MeasurementTypes,
-		TimeRange:        query.TimeRange,
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) (models.CombinedMetric, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	if query.OrganizationID == 0 {
+		return models.CombinedMetric{}, fmt.Errorf("organization ID is required for raw combined metrics")
+	}
+	if endTime.Before(startTime) {
+		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics end time must be after start time")
+	}
+	if endTime.Sub(startTime) > rawDataMaxDuration {
+		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics range exceeds %s", rawDataMaxDuration)
 	}
 
-	data, err := s.GetTimeSeriesTelemetry(ctx, tsQuery)
+	bucketDuration := rawMetricBucketDuration(query.SlideInterval, len(query.DeviceIDs) == 0)
+	if rawMetricBucketCount(startTime, endTime, bucketDuration) > maxRawMetricBuckets {
+		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics bucket count exceeds %d", maxRawMetricBuckets)
+	}
+	bucketSeconds := bucketDuration.Seconds()
+	var buckets []rawMetricBucket
+	var err error
+
+	if len(query.DeviceIDs) == 0 {
+		var rows []sqlc.GetAllDeviceMetricsRawBucketAggregatesRow
+		rows, err = s.queries.GetAllDeviceMetricsRawBucketAggregates(ctx, sqlc.GetAllDeviceMetricsRawBucketAggregatesParams{
+			BucketSeconds: bucketSeconds,
+			OrgID:         query.OrganizationID,
+			StartTime:     startTime,
+			EndTime:       endTime,
+		})
+		buckets = make([]rawMetricBucket, 0, len(rows))
+		for _, row := range rows {
+			buckets = append(buckets, rawMetricBucketFromAllDevices(row))
+		}
+	} else {
+		var rows []sqlc.GetDeviceMetricsRawBucketAggregatesRow
+		rows, err = s.queries.GetDeviceMetricsRawBucketAggregates(ctx, sqlc.GetDeviceMetricsRawBucketAggregatesParams{
+			BucketSeconds:     bucketSeconds,
+			DeviceIdentifiers: deviceIDsToStrings(query.DeviceIDs),
+			OrgID:             query.OrganizationID,
+			StartTime:         startTime,
+			EndTime:           endTime,
+		})
+		buckets = make([]rawMetricBucket, 0, len(rows))
+		for _, row := range rows {
+			buckets = append(buckets, rawMetricBucketFromDevices(row))
+		}
+	}
 	if err != nil {
-		return models.CombinedMetric{}, err
+		return models.CombinedMetric{}, fmt.Errorf("failed to query raw bucket aggregates: %w", err)
 	}
 
-	if len(data) == 0 {
-		return models.CombinedMetric{}, nil
+	includeUptimeCounts := models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes)
+	result := aggregateRawMetricBuckets(buckets, query.MeasurementTypes, query.AggregationTypes)
+	if includeUptimeCounts {
+		result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration)
 	}
-
-	bucketDuration := DefaultBucketDuration
-	if query.SlideInterval != nil {
-		bucketDuration = *query.SlideInterval
-	}
-
-	result := s.aggregateMetrics(data, query.MeasurementTypes, query.AggregationTypes, bucketDuration)
-	startTime, endTime := s.getTimeRange(query.TimeRange)
-	result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration)
 
 	return result, nil
 }
 
 // getCombinedMetricsFromHourly queries device_metrics_hourly continuous aggregate.
-func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) (models.CombinedMetric, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
-	startTime, endTime := s.getTimeRange(query.TimeRange)
 	startTime, endTime, hasCompleteBucket := normalizeCompleteBucketRange(startTime, endTime, hourlyBucketDuration)
 	if !hasCompleteBucket {
 		return models.CombinedMetric{}, nil
@@ -576,15 +631,17 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 
 	if len(query.DeviceIDs) == 0 {
 		rows, err = s.queries.GetAllDeviceMetricsHourlyAggregates(ctx, sqlc.GetAllDeviceMetricsHourlyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
+			OrgID:       query.OrganizationID,
+			StartBucket: startTime,
+			EndBucket:   endTime,
 		})
 	} else {
 		identifiers := deviceIDsToStrings(query.DeviceIDs)
 		rows, err = s.queries.GetDeviceMetricsHourlyAggregates(ctx, sqlc.GetDeviceMetricsHourlyAggregatesParams{
 			DeviceIdentifiers: identifiers,
-			Bucket:            startTime,
-			Bucket_2:          endTime,
+			OrgID:             query.OrganizationID,
+			StartBucket:       startTime,
+			EndBucket:         endTime,
 		})
 	}
 
@@ -598,8 +655,11 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 
 	metrics := s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
-	tempCounts := s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration)
+	tempCounts := s.getTemperatureCountsFromHourlyAggregates(ctx, query, startTime, endTime)
+	var uptimeCounts []models.UptimeStatusCount
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+		uptimeCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration)
+	}
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -609,11 +669,10 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 }
 
 // getCombinedMetricsFromDaily queries device_metrics_daily continuous aggregate.
-func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) (models.CombinedMetric, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
-	startTime, endTime := s.getTimeRange(query.TimeRange)
 	startTime, endTime, hasCompleteBucket := normalizeCompleteBucketRange(startTime, endTime, dailyBucketDuration)
 	if !hasCompleteBucket {
 		return models.CombinedMetric{}, nil
@@ -624,15 +683,17 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 
 	if len(query.DeviceIDs) == 0 {
 		rows, err = s.queries.GetAllDeviceMetricsDailyAggregates(ctx, sqlc.GetAllDeviceMetricsDailyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
+			OrgID:       query.OrganizationID,
+			StartBucket: startTime,
+			EndBucket:   endTime,
 		})
 	} else {
 		identifiers := deviceIDsToStrings(query.DeviceIDs)
 		rows, err = s.queries.GetDeviceMetricsDailyAggregates(ctx, sqlc.GetDeviceMetricsDailyAggregatesParams{
 			DeviceIdentifiers: identifiers,
-			Bucket:            startTime,
-			Bucket_2:          endTime,
+			OrgID:             query.OrganizationID,
+			StartBucket:       startTime,
+			EndBucket:         endTime,
 		})
 	}
 
@@ -646,8 +707,11 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 
 	metrics := s.aggregateDailyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
-	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration)
+	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query, startTime, endTime)
+	var uptimeCounts []models.UptimeStatusCount
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+		uptimeCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration)
+	}
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -693,23 +757,25 @@ func deviceIDsToStrings(ids []models.DeviceIdentifier) []string {
 
 func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
 	ctx context.Context,
-	deviceIDs []models.DeviceIdentifier,
+	query models.CombinedMetricsQuery,
 	startTime, endTime time.Time,
 ) []models.TemperatureStatusCount {
 	var rows []sqlc.DeviceStatusHourly
 	var err error
 
-	if len(deviceIDs) == 0 {
+	if len(query.DeviceIDs) == 0 {
 		rows, err = s.queries.GetAllDeviceStatusHourlyAggregates(ctx, sqlc.GetAllDeviceStatusHourlyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
+			OrgID:       query.OrganizationID,
+			StartBucket: startTime,
+			EndBucket:   endTime,
 		})
 	} else {
-		identifiers := deviceIDsToStrings(deviceIDs)
+		identifiers := deviceIDsToStrings(query.DeviceIDs)
 		rows, err = s.queries.GetDeviceStatusHourlyAggregates(ctx, sqlc.GetDeviceStatusHourlyAggregatesParams{
 			DeviceIdentifiers: identifiers,
-			Bucket:            startTime,
-			Bucket_2:          endTime,
+			OrgID:             query.OrganizationID,
+			StartBucket:       startTime,
+			EndBucket:         endTime,
 		})
 	}
 
@@ -727,23 +793,25 @@ func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
 
 func (s *TimescaleTelemetryStore) getTemperatureCountsFromDailyAggregates(
 	ctx context.Context,
-	deviceIDs []models.DeviceIdentifier,
+	query models.CombinedMetricsQuery,
 	startTime, endTime time.Time,
 ) []models.TemperatureStatusCount {
 	var rows []sqlc.DeviceStatusDaily
 	var err error
 
-	if len(deviceIDs) == 0 {
+	if len(query.DeviceIDs) == 0 {
 		rows, err = s.queries.GetAllDeviceStatusDailyAggregates(ctx, sqlc.GetAllDeviceStatusDailyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
+			OrgID:       query.OrganizationID,
+			StartBucket: startTime,
+			EndBucket:   endTime,
 		})
 	} else {
-		identifiers := deviceIDsToStrings(deviceIDs)
+		identifiers := deviceIDsToStrings(query.DeviceIDs)
 		rows, err = s.queries.GetDeviceStatusDailyAggregates(ctx, sqlc.GetDeviceStatusDailyAggregatesParams{
 			DeviceIdentifiers: identifiers,
-			Bucket:            startTime,
-			Bucket_2:          endTime,
+			OrgID:             query.OrganizationID,
+			StartBucket:       startTime,
+			EndBucket:         endTime,
 		})
 	}
 
@@ -1113,101 +1181,258 @@ func extractDailyValues(row sqlc.DeviceMetricsDaily, mt models.MeasurementType) 
 	return 0, 0, 0, false, false
 }
 
-// aggregateMetrics performs aggregations on the metrics data.
-func (s *TimescaleTelemetryStore) aggregateMetrics(
-	data []modelsV2.DeviceMetrics,
-	measurementTypes []models.MeasurementType,
-	aggregationTypes []models.AggregationType,
-	windowDuration time.Duration,
-) models.CombinedMetric {
-	if len(data) == 0 {
+type rawMetricBucket struct {
+	bucket                time.Time
+	avgHashRate           float64
+	minHashRate           float64
+	maxHashRate           float64
+	latestHashRate        float64
+	hashRateDeviceCount   int64
+	avgTemp               float64
+	minTemp               float64
+	maxTemp               float64
+	sumTemp               float64
+	tempPoints            int64
+	tempDeviceCount       int64
+	tempColdCount         int32
+	tempOkCount           int32
+	tempHotCount          int32
+	tempCriticalCount     int32
+	avgFanRpm             float64
+	minFanRpm             float64
+	maxFanRpm             float64
+	sumFanRpm             float64
+	fanRpmPoints          int64
+	fanRpmDeviceCount     int64
+	avgPower              float64
+	minPower              float64
+	maxPower              float64
+	latestPower           float64
+	powerDeviceCount      int64
+	avgEfficiency         float64
+	minEfficiency         float64
+	maxEfficiency         float64
+	sumEfficiency         float64
+	efficiencyPoints      int64
+	efficiencyDeviceCount int64
+}
+
+func rawMetricBucketFromAllDevices(row sqlc.GetAllDeviceMetricsRawBucketAggregatesRow) rawMetricBucket {
+	return rawMetricBucket{
+		bucket:                row.Bucket,
+		avgHashRate:           row.AvgHashRate,
+		minHashRate:           row.MinHashRate,
+		maxHashRate:           row.MaxHashRate,
+		latestHashRate:        row.LatestHashRate,
+		hashRateDeviceCount:   row.HashRateDeviceCount,
+		avgTemp:               row.AvgTemp,
+		minTemp:               row.MinTemp,
+		maxTemp:               row.MaxTemp,
+		sumTemp:               row.SumTemp,
+		tempPoints:            row.TempPoints,
+		tempDeviceCount:       row.TempDeviceCount,
+		tempColdCount:         row.TempColdCount,
+		tempOkCount:           row.TempOkCount,
+		tempHotCount:          row.TempHotCount,
+		tempCriticalCount:     row.TempCriticalCount,
+		avgFanRpm:             row.AvgFanRpm,
+		minFanRpm:             row.MinFanRpm,
+		maxFanRpm:             row.MaxFanRpm,
+		sumFanRpm:             row.SumFanRpm,
+		fanRpmPoints:          row.FanRpmPoints,
+		fanRpmDeviceCount:     row.FanRpmDeviceCount,
+		avgPower:              row.AvgPower,
+		minPower:              row.MinPower,
+		maxPower:              row.MaxPower,
+		latestPower:           row.LatestPower,
+		powerDeviceCount:      row.PowerDeviceCount,
+		avgEfficiency:         row.AvgEfficiency,
+		minEfficiency:         row.MinEfficiency,
+		maxEfficiency:         row.MaxEfficiency,
+		sumEfficiency:         row.SumEfficiency,
+		efficiencyPoints:      row.EfficiencyPoints,
+		efficiencyDeviceCount: row.EfficiencyDeviceCount,
+	}
+}
+
+func rawMetricBucketFromDevices(row sqlc.GetDeviceMetricsRawBucketAggregatesRow) rawMetricBucket {
+	return rawMetricBucket{
+		bucket:                row.Bucket,
+		avgHashRate:           row.AvgHashRate,
+		minHashRate:           row.MinHashRate,
+		maxHashRate:           row.MaxHashRate,
+		latestHashRate:        row.LatestHashRate,
+		hashRateDeviceCount:   row.HashRateDeviceCount,
+		avgTemp:               row.AvgTemp,
+		minTemp:               row.MinTemp,
+		maxTemp:               row.MaxTemp,
+		sumTemp:               row.SumTemp,
+		tempPoints:            row.TempPoints,
+		tempDeviceCount:       row.TempDeviceCount,
+		tempColdCount:         row.TempColdCount,
+		tempOkCount:           row.TempOkCount,
+		tempHotCount:          row.TempHotCount,
+		tempCriticalCount:     row.TempCriticalCount,
+		avgFanRpm:             row.AvgFanRpm,
+		minFanRpm:             row.MinFanRpm,
+		maxFanRpm:             row.MaxFanRpm,
+		sumFanRpm:             row.SumFanRpm,
+		fanRpmPoints:          row.FanRpmPoints,
+		fanRpmDeviceCount:     row.FanRpmDeviceCount,
+		avgPower:              row.AvgPower,
+		minPower:              row.MinPower,
+		maxPower:              row.MaxPower,
+		latestPower:           row.LatestPower,
+		powerDeviceCount:      row.PowerDeviceCount,
+		avgEfficiency:         row.AvgEfficiency,
+		minEfficiency:         row.MinEfficiency,
+		maxEfficiency:         row.MaxEfficiency,
+		sumEfficiency:         row.SumEfficiency,
+		efficiencyPoints:      row.EfficiencyPoints,
+		efficiencyDeviceCount: row.EfficiencyDeviceCount,
+	}
+}
+
+type rawMetricValues struct {
+	avg         float64
+	min         float64
+	max         float64
+	sum         float64
+	count       int64
+	deviceCount int64
+}
+
+func aggregateRawMetricBuckets(rows []rawMetricBucket, measurementTypes []models.MeasurementType, aggregationTypes []models.AggregationType) models.CombinedMetric {
+	if len(rows) == 0 {
 		return models.CombinedMetric{}
 	}
-
-	sort.Slice(data, func(i, j int) bool {
-		return data[i].Timestamp.Before(data[j].Timestamp)
-	})
-
-	buckets := make(map[time.Time][]modelsV2.DeviceMetrics)
-	for _, m := range data {
-		bucket := m.Timestamp.Truncate(windowDuration)
-		buckets[bucket] = append(buckets[bucket], m)
-	}
-
-	bucketTimes := make([]time.Time, 0, len(buckets))
-	for t := range buckets {
-		bucketTimes = append(bucketTimes, t)
-	}
-	sort.Slice(bucketTimes, func(i, j int) bool {
-		return bucketTimes[i].Before(bucketTimes[j])
-	})
-
 	if len(measurementTypes) == 0 {
 		measurementTypes = modelsV2.DefaultMeasurementTypes
 	}
-
 	if len(aggregationTypes) == 0 {
 		aggregationTypes = []models.AggregationType{models.AggregationTypeAverage}
 	}
 
-	allMetrics := make([]models.Metric, 0, len(buckets)*len(measurementTypes))
-	tempCounts := make([]models.TemperatureStatusCount, 0, len(buckets))
-	uptimeCounts := make([]models.UptimeStatusCount, 0, len(buckets))
+	metrics := make([]models.Metric, 0, len(rows)*len(measurementTypes))
+	tempCounts := make([]models.TemperatureStatusCount, 0, len(rows))
 
-	for _, bucketTime := range bucketTimes {
-		bucketData := buckets[bucketTime]
-
-		// Dedupe once per bucket — both status-count functions need a
-		// per-device latest sample, with temperature using the latest
-		// sample that actually has TempC populated.
-		uptimeLatest, tempLatest := latestSamplesForStatusCounts(bucketData)
-
-		tempCount := temperatureStatusCountFromLatest(tempLatest, bucketTime)
-		tempCounts = append(tempCounts, tempCount)
-
-		uptimeCount := uptimeStatusCountFromLatest(uptimeLatest, bucketTime)
-		uptimeCounts = append(uptimeCounts, uptimeCount)
+	for _, row := range rows {
+		tempCounts = append(tempCounts, models.TemperatureStatusCount{
+			Timestamp:     row.bucket,
+			ColdCount:     row.tempColdCount,
+			OkCount:       row.tempOkCount,
+			HotCount:      row.tempHotCount,
+			CriticalCount: row.tempCriticalCount,
+		})
 
 		for _, measurementType := range measurementTypes {
-			var aggregatedValues []models.AggregatedValue
-			var metricDeviceCount int
-
-			if isCumulativeMetric(measurementType) {
-				aggregatedValues, metricDeviceCount = calculateCumulativeAggregations(bucketData, measurementType, aggregationTypes)
-			} else {
-				values := extractValues(bucketData, measurementType)
-				if len(values) == 0 {
-					continue
-				}
-				metricDeviceCount = countUniqueDevicesWithMeasurement(bucketData, measurementType)
-				aggregatedValues = make([]models.AggregatedValue, 0, len(aggregationTypes))
-				for _, aggType := range aggregationTypes {
-					aggValue := calculateAggregation(values, aggType)
-					aggregatedValues = append(aggregatedValues, models.AggregatedValue{
-						Type:  aggType,
-						Value: aggValue,
-					})
-				}
-			}
-
-			if len(aggregatedValues) == 0 {
+			values, ok := rawMetricValuesForMeasurement(row, measurementType)
+			if !ok {
 				continue
 			}
 
-			allMetrics = append(allMetrics, models.Metric{
+			aggregatedValues := make([]models.AggregatedValue, 0, len(aggregationTypes))
+			for _, aggType := range aggregationTypes {
+				value, ok := rawMetricAggregationValue(values, aggType)
+				if !ok {
+					continue
+				}
+				aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+					Type:  aggType,
+					Value: value,
+				})
+			}
+			if len(aggregatedValues) == 0 {
+				continue
+			}
+			metrics = append(metrics, models.Metric{
 				MeasurementType:  measurementType,
 				AggregatedValues: aggregatedValues,
-				OpenTime:         bucketTime,
-				DeviceCount:      safeIntToInt32(metricDeviceCount),
+				OpenTime:         row.bucket,
+				DeviceCount:      safeInt64ToInt32(values.deviceCount),
 			})
 		}
 	}
 
 	return models.CombinedMetric{
-		Metrics:                 allMetrics,
+		Metrics:                 metrics,
 		TemperatureStatusCounts: tempCounts,
-		UptimeStatusCounts:      uptimeCounts,
 	}
+}
+
+func rawMetricValuesForMeasurement(row rawMetricBucket, mt models.MeasurementType) (rawMetricValues, bool) {
+	switch mt {
+	case models.MeasurementTypeHashrate:
+		return rawMetricValues{
+			avg:         row.avgHashRate,
+			min:         row.minHashRate,
+			max:         row.maxHashRate,
+			sum:         row.latestHashRate,
+			count:       row.hashRateDeviceCount,
+			deviceCount: row.hashRateDeviceCount,
+		}, row.hashRateDeviceCount > 0
+	case models.MeasurementTypeTemperature:
+		return rawMetricValues{
+			avg:         row.avgTemp,
+			min:         row.minTemp,
+			max:         row.maxTemp,
+			sum:         row.sumTemp,
+			count:       row.tempPoints,
+			deviceCount: row.tempDeviceCount,
+		}, row.tempPoints > 0
+	case models.MeasurementTypePower:
+		return rawMetricValues{
+			avg:         row.avgPower,
+			min:         row.minPower,
+			max:         row.maxPower,
+			sum:         row.latestPower,
+			count:       row.powerDeviceCount,
+			deviceCount: row.powerDeviceCount,
+		}, row.powerDeviceCount > 0
+	case models.MeasurementTypeEfficiency:
+		return rawMetricValues{
+			avg:         row.avgEfficiency,
+			min:         row.minEfficiency,
+			max:         row.maxEfficiency,
+			sum:         row.sumEfficiency,
+			count:       row.efficiencyPoints,
+			deviceCount: row.efficiencyDeviceCount,
+		}, row.efficiencyPoints > 0
+	case models.MeasurementTypeFanSpeed:
+		return rawMetricValues{
+			avg:         row.avgFanRpm,
+			min:         row.minFanRpm,
+			max:         row.maxFanRpm,
+			sum:         row.sumFanRpm,
+			count:       row.fanRpmPoints,
+			deviceCount: row.fanRpmDeviceCount,
+		}, row.fanRpmPoints > 0
+	case models.MeasurementTypeUnknown,
+		models.MeasurementTypeVoltage,
+		models.MeasurementTypeCurrent,
+		models.MeasurementTypeUptime,
+		models.MeasurementTypeErrorRate:
+		return rawMetricValues{}, false
+	}
+	return rawMetricValues{}, false
+}
+
+func rawMetricAggregationValue(values rawMetricValues, aggType models.AggregationType) (float64, bool) {
+	switch aggType {
+	case models.AggregationTypeAverage:
+		return values.avg, true
+	case models.AggregationTypeMin:
+		return values.min, true
+	case models.AggregationTypeMax:
+		return values.max, true
+	case models.AggregationTypeSum:
+		return values.sum, true
+	case models.AggregationTypeCount:
+		return float64(values.count), true
+	case models.AggregationTypeUnknown, models.AggregationTypeTotal, models.AggregationTypeMeanChange:
+		return 0, false
+	}
+	return 0, false
 }
 
 // Ping checks if the database connection is alive.
@@ -1348,277 +1573,15 @@ func parseMetricKindOrDefault(s string) modelsV2.MetricKind {
 	return kind
 }
 
-// latestSamplePerDevice returns one DeviceMetrics per device — the sample with
-// the latest Timestamp. Raw buckets contain many samples per device (~10s
-// polling cadence), so callers that classify devices into status categories
-// must dedupe first to avoid counting one device multiple times.
-func latestSamplePerDevice(data []modelsV2.DeviceMetrics) []modelsV2.DeviceMetrics {
-	if len(data) == 0 {
-		return nil
-	}
-	latest := make(map[string]modelsV2.DeviceMetrics, len(data))
-	for _, m := range data {
-		existing, ok := latest[m.DeviceIdentifier]
-		if !ok || m.Timestamp.After(existing.Timestamp) {
-			latest[m.DeviceIdentifier] = m
-		}
-	}
-	out := make([]modelsV2.DeviceMetrics, 0, len(latest))
-	for _, m := range latest {
-		out = append(out, m)
-	}
-	return out
-}
-
-// latestSamplesForStatusCounts walks the bucket once and returns two deduped
-// views: the latest sample per device (for uptime), and the latest sample per
-// device that has a TempC reading (for temperature). The TempC-aware view
-// avoids dropping a device just because its very latest sample happens to be
-// missing a temperature — TempC reporting can be intermittent, while Health
-// is set on every sample.
-func latestSamplesForStatusCounts(data []modelsV2.DeviceMetrics) (uptime, temperature []modelsV2.DeviceMetrics) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-	allLatest := make(map[string]modelsV2.DeviceMetrics, len(data))
-	tempLatest := make(map[string]modelsV2.DeviceMetrics, len(data))
-	for _, m := range data {
-		if existing, ok := allLatest[m.DeviceIdentifier]; !ok || m.Timestamp.After(existing.Timestamp) {
-			allLatest[m.DeviceIdentifier] = m
-		}
-		if m.TempC == nil {
-			continue
-		}
-		if existing, ok := tempLatest[m.DeviceIdentifier]; !ok || m.Timestamp.After(existing.Timestamp) {
-			tempLatest[m.DeviceIdentifier] = m
-		}
-	}
-	uptime = make([]modelsV2.DeviceMetrics, 0, len(allLatest))
-	for _, m := range allLatest {
-		uptime = append(uptime, m)
-	}
-	temperature = make([]modelsV2.DeviceMetrics, 0, len(tempLatest))
-	for _, m := range tempLatest {
-		temperature = append(temperature, m)
-	}
-	return uptime, temperature
-}
-
-// calculateTemperatureStatusCount dedupes the bucket and counts each device
-// once, using its latest sample that has a TempC reading. Prefer
-// temperatureStatusCountFromLatest in hot loops where the caller has already
-// deduped.
-func calculateTemperatureStatusCount(data []modelsV2.DeviceMetrics, timestamp time.Time) models.TemperatureStatusCount {
-	_, temp := latestSamplesForStatusCounts(data)
-	return temperatureStatusCountFromLatest(temp, timestamp)
-}
-
-// temperatureStatusCountFromLatest classifies an already-deduped slice (one
-// DeviceMetrics per device, latest sample with TempC populated).
-func temperatureStatusCountFromLatest(latestPerDevice []modelsV2.DeviceMetrics, timestamp time.Time) models.TemperatureStatusCount {
-	var cold, ok, hot, critical int32
-
-	for _, m := range latestPerDevice {
-		if m.TempC == nil {
-			continue
-		}
-		temp := m.TempC.Value
-		switch {
-		case temp < tempThresholdCold:
-			cold++
-		case temp < tempThresholdHot:
-			ok++
-		case temp < tempThresholdCritical:
-			hot++
-		default:
-			critical++
-		}
-	}
-
-	return models.TemperatureStatusCount{
-		Timestamp:     timestamp,
-		ColdCount:     cold,
-		OkCount:       ok,
-		HotCount:      hot,
-		CriticalCount: critical,
-	}
-}
-
-// calculateUptimeStatusCount dedupes the bucket and counts each device once.
-// Prefer uptimeStatusCountFromLatest in hot loops where the caller has
-// already deduped.
-func calculateUptimeStatusCount(data []modelsV2.DeviceMetrics, timestamp time.Time) models.UptimeStatusCount {
-	return uptimeStatusCountFromLatest(latestSamplePerDevice(data), timestamp)
-}
-
-// uptimeStatusCountFromLatest classifies an already-deduped slice (one
-// DeviceMetrics per device, latest sample in the bucket).
-func uptimeStatusCountFromLatest(latestPerDevice []modelsV2.DeviceMetrics, timestamp time.Time) models.UptimeStatusCount {
-	var hashing, notHashing int32
-
-	for _, m := range latestPerDevice {
-		if m.Health == modelsV2.HealthHealthyActive {
-			hashing++
-		} else {
-			notHashing++
-		}
-	}
-
-	return models.UptimeStatusCount{
-		Timestamp:       timestamp,
-		HashingCount:    hashing,
-		NotHashingCount: notHashing,
-	}
-}
-
-func extractValues(data []modelsV2.DeviceMetrics, measurementType models.MeasurementType) []float64 {
-	var values []float64
-	for _, m := range data {
-		if value, _, ok := m.ExtractRawMeasurement(measurementType); ok {
-			values = append(values, value)
-		}
-	}
-	return values
-}
-
-// countUniqueDevicesWithMeasurement returns the number of distinct devices that
-// have data for the given measurement type. Raw data may contain multiple
-// readings per device per bucket, so a simple len(extractValues) overcounts.
-func countUniqueDevicesWithMeasurement(data []modelsV2.DeviceMetrics, mt models.MeasurementType) int {
-	seen := make(map[string]struct{})
-	for _, m := range data {
-		if _, _, ok := m.ExtractRawMeasurement(mt); ok {
-			seen[m.DeviceIdentifier] = struct{}{}
-		}
-	}
-	return len(seen)
-}
-
-// calculateCumulativeAggregations handles cumulative metrics (hashrate, power) by:
-// 1. Grouping values by device
-// 2. Calculating per-device aggregates (avg, min, max, latest)
-// 3. Summing across all devices for fleet totals
-func calculateCumulativeAggregations(
-	data []modelsV2.DeviceMetrics,
-	measurementType models.MeasurementType,
-	aggregationTypes []models.AggregationType,
-) ([]models.AggregatedValue, int) {
-	deviceValues := make(map[string][]float64)
-	for _, m := range data {
-		if value, _, ok := m.ExtractRawMeasurement(measurementType); ok {
-			deviceValues[m.DeviceIdentifier] = append(deviceValues[m.DeviceIdentifier], value)
-		}
-	}
-
-	if len(deviceValues) == 0 {
-		return nil, 0
-	}
-
-	type perDeviceAggs struct {
-		avg, min, max, latest float64
-	}
-	deviceAggs := make([]perDeviceAggs, 0, len(deviceValues))
-
-	for _, values := range deviceValues {
-		if len(values) == 0 {
-			continue
-		}
-
-		var sum float64
-		minVal := values[0]
-		maxVal := values[0]
-		for _, v := range values {
-			sum += v
-			if v < minVal {
-				minVal = v
-			}
-			if v > maxVal {
-				maxVal = v
-			}
-		}
-
-		deviceAggs = append(deviceAggs, perDeviceAggs{
-			avg:    sum / float64(len(values)),
-			min:    minVal,
-			max:    maxVal,
-			latest: values[len(values)-1],
-		})
-	}
-
-	// Sum across all devices for fleet totals
-	var totalAvg, totalMin, totalMax, totalSum float64
-	for _, agg := range deviceAggs {
-		totalAvg += agg.avg
-		totalMin += agg.min
-		totalMax += agg.max
-		totalSum += agg.latest
-	}
-
-	result := make([]models.AggregatedValue, 0, len(aggregationTypes))
-	for _, aggType := range aggregationTypes {
-		var value float64
-		switch aggType {
-		case models.AggregationTypeAverage:
-			value = totalAvg
-		case models.AggregationTypeMin:
-			value = totalMin
-		case models.AggregationTypeMax:
-			value = totalMax
-		case models.AggregationTypeSum:
-			value = totalSum
-		case models.AggregationTypeCount:
-			value = float64(len(deviceAggs))
-		case models.AggregationTypeUnknown, models.AggregationTypeTotal, models.AggregationTypeMeanChange:
-			continue
-		}
-		result = append(result, models.AggregatedValue{
-			Type:  aggType,
-			Value: value,
-		})
-	}
-
-	return result, len(deviceAggs)
-}
-
-func calculateAggregation(values []float64, aggType models.AggregationType) float64 {
-	if len(values) == 0 {
-		return 0
-	}
-
-	// Pre-calculate all aggregates in a single pass for efficiency
-	sum := values[0]
-	minVal := values[0]
-	maxVal := values[0]
-	for _, v := range values[1:] {
-		sum += v
-		if v < minVal {
-			minVal = v
-		}
-		if v > maxVal {
-			maxVal = v
-		}
-	}
-
-	switch aggType {
-	case models.AggregationTypeAverage:
-		return sum / float64(len(values))
-	case models.AggregationTypeSum:
-		return sum
-	case models.AggregationTypeMin:
-		return minVal
-	case models.AggregationTypeMax:
-		return maxVal
-	case models.AggregationTypeCount:
-		return float64(len(values))
-	case models.AggregationTypeUnknown, models.AggregationTypeTotal, models.AggregationTypeMeanChange:
-		return 0
-	default:
-		return 0
-	}
-}
-
 // safeIntToInt32 converts an int to int32, clamping to math.MaxInt32 if needed.
 func safeIntToInt32(n int) int32 {
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(n) // #nosec G115 -- bounds checked above
+}
+
+func safeInt64ToInt32(n int64) int32 {
 	if n > math.MaxInt32 {
 		return math.MaxInt32
 	}

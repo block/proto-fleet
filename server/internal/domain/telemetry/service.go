@@ -1518,7 +1518,9 @@ func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.
 	if err != nil {
 		return result, err
 	}
-	s.appendLiveUptimeBar(ctx, query.OrganizationID, query.DeviceIDs, &result)
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+		s.appendLiveUptimeBar(ctx, query.OrganizationID, query.DeviceIDs, &result)
+	}
 	return result, nil
 }
 
@@ -1701,7 +1703,9 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 		}
 	}
 
-	s.appendLiveUptimeBar(ctx, query.OrganizationID, query.DeviceIDs, &combinedMetrics)
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+		s.appendLiveUptimeBar(ctx, query.OrganizationID, query.DeviceIDs, &combinedMetrics)
+	}
 
 	select {
 	case updateChan <- combinedMetrics:
