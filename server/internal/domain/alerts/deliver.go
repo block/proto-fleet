@@ -19,9 +19,6 @@ import (
 // perSendTimeout bounds a single destination POST so one slow channel can't stall the whole batch.
 const perSendTimeout = 10 * time.Second
 
-// maxRedirects caps redirect hops per send; each hop is re-validated against the SSRF policy.
-const maxRedirects = 5
-
 // maxDeliveryConcurrency bounds in-flight sends per org so one slow channel can't starve the rest.
 const maxDeliveryConcurrency = 8
 
@@ -54,8 +51,9 @@ func NewDeliverer(channels ChannelStore, crypto Cipher, devices DeviceIdentityLo
 }
 
 // newDeliveryHTTPClient pins the resolved+validated IP into the dial so a DNS rebind between
-// the preflight check and the actual connection can't reach an internal address, and re-checks
-// each redirect target so a public webhook can't 3xx us onto one either.
+// the preflight check and the actual connection can't reach an internal address, and refuses to
+// follow redirects so a 3xx can't leak the secret-bearing channel URL (via Referer/Authorization)
+// to another host or bounce the request onto an internal one.
 func newDeliveryHTTPClient(policy DestinationPolicy) *http.Client {
 	dialer := &net.Dialer{Timeout: perSendTimeout}
 	transport, _ := http.DefaultTransport.(*http.Transport)
@@ -91,11 +89,10 @@ func newDeliveryHTTPClient(policy DestinationPolicy) *http.Client {
 	return &http.Client{
 		Timeout:   perSendTimeout,
 		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= maxRedirects {
-				return fmt.Errorf("stopped after %d redirects", maxRedirects)
-			}
-			return checkDestinationURL(req.Context(), policy, req.URL.String(), "redirect")
+		// Don't follow redirects: an alert destination is an exact endpoint, and following a 3xx
+		// would forward the secret channel URL to the redirect target. Surface the 3xx as a failed send.
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
 		},
 	}
 }
