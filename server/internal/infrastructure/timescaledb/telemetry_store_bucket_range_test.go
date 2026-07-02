@@ -6,6 +6,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNormalizeCompleteBucketRange_Hourly(t *testing.T) {
@@ -135,6 +136,35 @@ func TestRawMetricBucketDuration_PreservesFractionalSeconds(t *testing.T) {
 	got := rawMetricBucketDuration(&slideInterval, false)
 
 	assert.Equal(t, slideInterval, got)
+}
+
+func TestCompleteRawBucketWindow(t *testing.T) {
+	// Arrange: grid-aligned reference on the 90s time_bucket grid
+	aligned := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+
+	t.Run("unaligned edges shrink to whole buckets", func(t *testing.T) {
+		// Act: window starts 10s into a bucket and ends 30s into another
+		start, end, ok := completeRawBucketWindow(aligned.Add(10*time.Second), aligned.Add(4*90*time.Second+30*time.Second), 90*time.Second)
+
+		// Assert: first partial and in-progress final buckets are excluded
+		require.True(t, ok)
+		assert.True(t, start.Equal(aligned.Add(90*time.Second)))
+		assert.True(t, end.Equal(aligned.Add(4*90*time.Second-time.Nanosecond)))
+	})
+
+	t.Run("aligned end keeps its final complete bucket", func(t *testing.T) {
+		start, end, ok := completeRawBucketWindow(aligned, aligned.Add(2*90*time.Second), 90*time.Second)
+
+		require.True(t, ok)
+		assert.True(t, start.Equal(aligned))
+		assert.True(t, end.Equal(aligned.Add(2*90*time.Second-time.Nanosecond)))
+	})
+
+	t.Run("window smaller than one bucket has no complete bucket", func(t *testing.T) {
+		_, _, ok := completeRawBucketWindow(aligned.Add(10*time.Second), aligned.Add(80*time.Second), 90*time.Second)
+
+		assert.False(t, ok)
+	})
 }
 
 func TestRawMetricBucketCount(t *testing.T) {

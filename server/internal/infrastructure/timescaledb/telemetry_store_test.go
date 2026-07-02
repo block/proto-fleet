@@ -348,8 +348,9 @@ func TestTelemetryStore_GetCombinedMetrics_RawBucketAggregatesDefaultInvalidSlid
 	ts := time.Now().UTC().Add(-time.Hour).Truncate(10 * time.Second)
 	insertTestMetrics(t, db, deviceID, ts, 123, 55)
 
-	startTime := ts.Add(-time.Second)
-	endTime := ts.Add(time.Second)
+	// The window covers exactly one complete default-granularity bucket
+	startTime := ts
+	endTime := ts.Add(10*time.Second - time.Nanosecond)
 	zeroSlideInterval := time.Duration(0)
 	negativeSlideInterval := -time.Second
 	subSecondSlideInterval := 500 * time.Millisecond
@@ -835,7 +836,9 @@ func TestTelemetryStore_GetCombinedMetrics_CoarseSlideTailStaysAfterHourlyBody(t
 	start := end.Add(-24 * time.Hour)
 	tailBoundary := end.Add(-2 * time.Hour).Truncate(time.Hour)
 	materialized := tailBoundary.Add(-time.Hour).Add(10 * time.Minute)
-	rawOnly := hour.Add(20 * time.Minute)
+	// Inside the tail but in a complete hour: the in-progress final hour is
+	// excluded from the response
+	rawOnly := hour.Add(-time.Hour).Add(20 * time.Minute)
 	insertTestMetrics(t, db, identifier, materialized, 500, 60)
 	insertTestMetrics(t, db, identifier, rawOnly, 900, 90)
 	refreshMetricsHourlyAggregate(t, db, materialized.Add(-time.Hour), materialized.Add(time.Hour))

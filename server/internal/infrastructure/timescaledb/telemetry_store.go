@@ -166,6 +166,35 @@ func floorDiv(a, b int64) int64 {
 	return q
 }
 
+// completeRawBucketWindow shrinks a window to whole time_bucket cells: the
+// start rounds up and the end rounds down to the grid. Partial edge buckets
+// only contain devices sampled inside the clipped fragment, so fleet sums sag
+// at both window edges and the newest point rewrites itself as the bucket
+// fills. ok is false when no complete bucket fits.
+func completeRawBucketWindow(startTime, endTime time.Time, bucketDuration time.Duration) (time.Time, time.Time, bool) {
+	if bucketDuration <= 0 || endTime.Before(startTime) {
+		return time.Time{}, time.Time{}, false
+	}
+	width := bucketDuration.Nanoseconds()
+	startOffset := startTime.Sub(timeBucketOrigin).Nanoseconds()
+	firstBucket := floorDiv(startOffset, width)
+	if startOffset%width != 0 {
+		firstBucket++
+	}
+	// The queries filter time <= end, so a cell is fully covered once end
+	// reaches its last representable instant, one nanosecond short of the
+	// next boundary
+	lastBucket := floorDiv(endTime.Sub(timeBucketOrigin).Nanoseconds()+1, width) - 1
+	if lastBucket < firstBucket {
+		return time.Time{}, time.Time{}, false
+	}
+	alignedStart := timeBucketOrigin.Add(time.Duration(firstBucket * width))
+	// The queries filter time <= end, so the end lands just inside the last
+	// complete bucket
+	alignedEnd := timeBucketOrigin.Add(time.Duration((lastBucket+1)*width) - time.Nanosecond)
+	return alignedStart, alignedEnd, true
+}
+
 // statusData holds a per-device temperature histogram for one bucket.
 type statusData struct {
 	bucket      time.Time
@@ -615,6 +644,10 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 	if rawMetricBucketCount(startTime, endTime, bucketDuration) > maxRawMetricBuckets {
 		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics bucket count exceeds %d", maxRawMetricBuckets)
 	}
+	startTime, endTime, hasCompleteBucket := completeRawBucketWindow(startTime, endTime, bucketDuration)
+	if !hasCompleteBucket {
+		return models.CombinedMetric{}, nil
+	}
 	buckets, err := s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	if err != nil {
 		return models.CombinedMetric{}, err
@@ -754,7 +787,14 @@ func (s *TimescaleTelemetryStore) appendHourlyRawTail(ctx context.Context, query
 	if bucketDuration > hourlyBucketDuration {
 		bucketDuration = hourlyBucketDuration
 	}
-	buckets, err := s.rawBucketAggregates(ctx, query, tailStart, endTime, bucketDuration)
+	// Drop the in-progress final bucket (keep the seam start so the tail
+	// stays contiguous with the body): a partial bucket undercounts the fleet
+	// and rewrites itself on the next poll.
+	_, alignedEnd, hasCompleteBucket := completeRawBucketWindow(tailStart, endTime, bucketDuration)
+	if !hasCompleteBucket {
+		return nil
+	}
+	buckets, err := s.rawBucketAggregates(ctx, query, tailStart, alignedEnd, bucketDuration)
 	if err != nil {
 		return fmt.Errorf("failed to query raw tail for hourly combined metrics: %w", err)
 	}
