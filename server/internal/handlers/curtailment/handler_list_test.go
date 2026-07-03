@@ -322,8 +322,9 @@ func TestHandler_ListCurtailmentEvents_HappyPath(t *testing.T) {
 }
 
 // TestHandler_ListActiveCurtailments_ReturnsActiveEvents: multiple concurrent
-// non-terminal events round-trip through the handler, and the per-target heavy
-// payload is intentionally absent (use GetCurtailmentEvent for detail).
+// non-terminal events round-trip through the handler with their live target
+// rollups, and the per-target heavy payload and decision snapshot are
+// intentionally absent (use GetCurtailmentEvent for detail).
 func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 	t.Parallel()
 	source, reference, key := "opensearch", "alert-1", "retry-key"
@@ -344,6 +345,18 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 				ExternalSource:          &source,
 				ExternalReference:       &reference,
 				IdempotencyKey:          &key,
+				DecisionSnapshotJSON:    []byte(`{"selected_count":10}`),
+				TargetRollup: &models.TargetRollup{
+					Pending:       1,
+					Dispatched:    2,
+					Confirmed:     4990,
+					Drifted:       1,
+					Resolved:      2,
+					Released:      1,
+					RestoreFailed: 1,
+					Unavailable:   2,
+					Total:         5000,
+				},
 			},
 			{
 				ID:                      2,
@@ -357,6 +370,7 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 				RestoreBatchSize:        10,
 				RestoreBatchIntervalSec: 120,
 				Reason:                  "site-b",
+				TargetRollup:            &models.TargetRollup{},
 			},
 		},
 	}
@@ -368,6 +382,16 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 	assert.Equal(t, store.activeEvents[0].EventUUID.String(), resp.Msg.Events[0].EventUuid)
 	assert.Equal(t, store.activeEvents[1].EventUUID.String(), resp.Msg.Events[1].EventUuid)
 	assert.Empty(t, resp.Msg.Events[0].Targets, "list-active response must not include per-target rows")
+	assert.Nil(t, resp.Msg.Events[0].DecisionSnapshot, "list-active response must not include the decision snapshot")
+	// Live rollups ride along so active displays can show the event's current
+	// target set instead of the event-start snapshot count.
+	require.NotNil(t, resp.Msg.Events[0].TargetRollup)
+	assert.Equal(t, int32(5000), resp.Msg.Events[0].TargetRollup.Total)
+	assert.Equal(t, int32(4990), resp.Msg.Events[0].TargetRollup.Confirmed)
+	assert.Equal(t, int32(2), resp.Msg.Events[0].TargetRollup.Unavailable)
+	assert.Equal(t, int32(1), resp.Msg.Events[0].TargetRollup.RestoreFailed)
+	require.NotNil(t, resp.Msg.Events[1].TargetRollup, "target-less events carry a zeroed rollup")
+	assert.Equal(t, int32(0), resp.Msg.Events[1].TargetRollup.Total)
 	// Replay handles are scrubbed from the list view, like the history list.
 	assert.Empty(t, resp.Msg.Events[0].ExternalSource)
 	assert.Empty(t, resp.Msg.Events[0].ExternalReference)

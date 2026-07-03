@@ -2111,7 +2111,7 @@ func convertEventListRow(row sqlc.ListCurtailmentEventsForOrgRow) *models.Event 
 }
 
 func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Event {
-	return convertEventFields(
+	event := convertEventFields(
 		row.ID,
 		row.EventUuid,
 		row.OrgID,
@@ -2150,6 +2150,21 @@ func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Even
 		row.CreatedAt,
 		row.UpdatedAt,
 	)
+	// The active-list query aggregates target counts per row; events with no
+	// target rows carry a zeroed (non-nil) rollup so active displays can trust
+	// it as the live target set.
+	event.TargetRollup = &models.TargetRollup{
+		Pending:       row.RollupPending,
+		Dispatched:    row.RollupDispatched,
+		Confirmed:     row.RollupConfirmed,
+		Drifted:       row.RollupDrifted,
+		Resolved:      row.RollupResolved,
+		Released:      row.RollupReleased,
+		RestoreFailed: row.RollupRestoreFailed,
+		Unavailable:   row.RollupUnavailable,
+		Total:         row.RollupTotal,
+	}
+	return event
 }
 
 func convertEventFields(

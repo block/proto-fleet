@@ -1363,9 +1363,11 @@ export const StopCurtailmentResponseSchema: GenMessage<StopCurtailmentResponse> 
 /**
  * ListActiveCurtailments returns every non-terminal event for the caller's
  * org. Multiple can be active when they target disjoint device scopes (e.g.
- * one per site). Each event carries its metadata, scope, and mode params but
+ * one per site). Each event carries its metadata, scope, mode params,
+ * target-site coverage, and a live `target_rollup` (per-state counts of the
+ * event's current target set, the operational truth for active displays) but
  * omits per-device targets and the decision snapshot; use GetCurtailmentEvent
- * for full per-target detail.
+ * for full per-target detail and event-start snapshot context.
  *
  * @generated from message curtailment.v1.ListActiveCurtailmentsRequest
  */

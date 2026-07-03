@@ -844,9 +844,12 @@ func toListEventsResponse(events []*models.Event, nextPageToken string) *pb.List
 }
 
 // toListActiveCurtailmentsResponse builds the active-events response: event
-// metadata + scope, no per-device targets or decision snapshot (use
-// GetCurtailmentEvent for detail). Replay handles are scrubbed as in the
-// history list — a list view doesn't expose webhook trigger metadata.
+// metadata + scope + mode params + target-site coverage + live target rollup,
+// no per-device targets or decision snapshot (use GetCurtailmentEvent for
+// detail). The rollup describes the event's current target set so active
+// polling reflects closed-loop claims and all-paired policy changes. Replay
+// handles are scrubbed as in the history list — a list view doesn't expose
+// webhook trigger metadata.
 func toListActiveCurtailmentsResponse(events []*models.Event) *pb.ListActiveCurtailmentsResponse {
 	out := &pb.ListActiveCurtailmentsResponse{
 		Events: make([]*pb.CurtailmentEvent, len(events)),
@@ -855,6 +858,7 @@ func toListActiveCurtailmentsResponse(events []*models.Event) *pb.ListActiveCurt
 		e := toEventProto(ev)
 		populateEventScope(e, ev)
 		populateEventModeParams(e, ev)
+		populateEventTargetRollup(e, ev)
 		populateEventTargetSiteCoverage(e, ev)
 		scrubListSensitiveFields(e)
 		out.Events[i] = e

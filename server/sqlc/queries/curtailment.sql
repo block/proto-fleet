@@ -516,22 +516,52 @@ LIMIT sqlc.arg('row_limit')::BIGINT;
 -- Active summaries intentionally omit the persisted decision snapshot. Polling
 -- runs frequently and the response shape never exposes the snapshot; detail
 -- callers use GetCurtailmentEventDetailByUUID instead.
+--
+-- Each row carries a live per-state target rollup so active polling reflects
+-- the event's current target set (closed-loop claims and all-paired policy
+-- changes grow it past the event-start snapshot) without hydrating per-target
+-- rows. Events with no target rows aggregate to a zeroed rollup.
 SELECT
-    id, event_uuid, org_id, state, mode, strategy, level, priority,
-    loop_type, scope_type, scope_jsonb, mode_params_jsonb,
-    curtail_batch_size, curtail_batch_interval_sec,
-    restore_batch_size, restore_batch_interval_sec, effective_batch_size,
-    min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
-    include_maintenance, force_include_maintenance, force_include_all_paired_miners,
+    ce.id, ce.event_uuid, ce.org_id, ce.state, ce.mode, ce.strategy, ce.level, ce.priority,
+    ce.loop_type, ce.scope_type, ce.scope_jsonb, ce.mode_params_jsonb,
+    ce.curtail_batch_size, ce.curtail_batch_interval_sec,
+    ce.restore_batch_size, ce.restore_batch_interval_sec, ce.effective_batch_size,
+    ce.min_curtailed_duration_sec, ce.max_duration_seconds, ce.allow_unbounded,
+    ce.include_maintenance, ce.force_include_maintenance, ce.force_include_all_paired_miners,
     '{}'::JSONB AS decision_snapshot_jsonb,
-    source_actor_type, source_actor_id,
-    external_source, external_reference, idempotency_key,
-    supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
-    created_at, updated_at, created_by_user_id
-FROM curtailment_event
-WHERE org_id = sqlc.arg('org_id')
-    AND state IN ('pending', 'active', 'restoring')
-ORDER BY COALESCE(started_at, created_at) DESC, id DESC;
+    ce.source_actor_type, ce.source_actor_id,
+    ce.external_source, ce.external_reference, ce.idempotency_key,
+    ce.supersedes_event_id, ce.reason, ce.scheduled_start_at, ce.started_at, ce.ended_at,
+    ce.created_at, ce.updated_at, ce.created_by_user_id,
+    COALESCE(rollup.pending, 0)::BIGINT AS rollup_pending,
+    COALESCE(rollup.dispatched, 0)::BIGINT AS rollup_dispatched,
+    COALESCE(rollup.confirmed, 0)::BIGINT AS rollup_confirmed,
+    COALESCE(rollup.drifted, 0)::BIGINT AS rollup_drifted,
+    COALESCE(rollup.resolved, 0)::BIGINT AS rollup_resolved,
+    COALESCE(rollup.released, 0)::BIGINT AS rollup_released,
+    COALESCE(rollup.restore_failed, 0)::BIGINT AS rollup_restore_failed,
+    COALESCE(rollup.unavailable, 0)::BIGINT AS rollup_unavailable,
+    COALESCE(rollup.total, 0)::BIGINT AS rollup_total
+FROM curtailment_event ce
+LEFT JOIN LATERAL (
+    -- State buckets mirror GetCurtailmentTargetRollupByEvent below; keep the
+    -- two aggregates' bucketing rules in sync (dispatching/dispatched conflate).
+    SELECT
+        COUNT(*) FILTER (WHERE ct.state = 'pending') AS pending,
+        COUNT(*) FILTER (WHERE ct.state IN ('dispatching', 'dispatched')) AS dispatched,
+        COUNT(*) FILTER (WHERE ct.state = 'confirmed') AS confirmed,
+        COUNT(*) FILTER (WHERE ct.state = 'drifted') AS drifted,
+        COUNT(*) FILTER (WHERE ct.state = 'resolved') AS resolved,
+        COUNT(*) FILTER (WHERE ct.state = 'released') AS released,
+        COUNT(*) FILTER (WHERE ct.state = 'restore_failed') AS restore_failed,
+        COUNT(*) FILTER (WHERE ct.state = 'unavailable') AS unavailable,
+        COUNT(*) AS total
+    FROM curtailment_target ct
+    WHERE ct.curtailment_event_id = ce.id
+) rollup ON true
+WHERE ce.org_id = sqlc.arg('org_id')
+    AND ce.state IN ('pending', 'active', 'restoring')
+ORDER BY COALESCE(ce.started_at, ce.created_at) DESC, ce.id DESC;
 
 -- name: ListCurtailmentTargetSiteCoverageByEvent :many
 -- Coverage for explicit-device event authorization. target_count is every
@@ -980,16 +1010,22 @@ LIMIT sqlc.arg('row_limit')::BIGINT;
 -- name: GetCurtailmentTargetRollupByEvent :one
 -- Org-scoped aggregate for paginated event detail. Target pages can be
 -- partial, but the rollup must describe the whole event.
+--
+-- Counts ct.curtailment_event_id (NULL exactly on the LEFT JOIN's no-target
+-- row, like any ct column) so the aggregate only touches index columns of
+-- idx_curtailment_target_event_state and stays index-only-scannable. State
+-- buckets mirror the ListActiveCurtailmentEvents lateral rollup above; keep
+-- the bucketing rules in sync (dispatching/dispatched conflate).
 SELECT
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'pending')::BIGINT AS pending,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state IN ('dispatching', 'dispatched'))::BIGINT AS dispatched,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'confirmed')::BIGINT AS confirmed,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'drifted')::BIGINT AS drifted,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'resolved')::BIGINT AS resolved,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'released')::BIGINT AS released,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'restore_failed')::BIGINT AS restore_failed,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'unavailable')::BIGINT AS unavailable,
-    COUNT(ct.device_identifier)::BIGINT AS total
+    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'pending')::BIGINT AS pending,
+    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state IN ('dispatching', 'dispatched'))::BIGINT AS dispatched,
+    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'confirmed')::BIGINT AS confirmed,
+    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'drifted')::BIGINT AS drifted,
+    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'resolved')::BIGINT AS resolved,
+    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'released')::BIGINT AS released,
+    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'restore_failed')::BIGINT AS restore_failed,
+    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'unavailable')::BIGINT AS unavailable,
+    COUNT(ct.curtailment_event_id)::BIGINT AS total
 FROM curtailment_event ce
 LEFT JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
 WHERE ce.org_id = sqlc.arg('org_id')
