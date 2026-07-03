@@ -203,7 +203,7 @@ const InfraDeviceDetailModal = ({
           <Row compact>
             <div className="flex w-full items-center justify-between gap-4">
               <span className="text-text-primary-70">Unit ID</span>
-              <span className="truncate text-300 text-text-primary-70">{device.id}</span>
+              <span className="truncate text-300 text-text-primary-70">{device.unitId}</span>
             </div>
           </Row>
           <Row compact>

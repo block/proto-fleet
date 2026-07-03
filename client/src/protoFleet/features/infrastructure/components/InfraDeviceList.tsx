@@ -78,7 +78,7 @@ const CONFIGURABLE_COLS: InfraColumn[] = [
 
 const SORT_FIELD_TO_DEVICE_KEY: Partial<Record<InfraColumn, keyof InfraDeviceItem>> = {
   name: "name",
-  id: "id",
+  id: "unitId",
   site: "siteName",
   building: "buildingName",
   endpoint: "endpoint",
@@ -172,6 +172,8 @@ const formatDeviceType = (device: InfraDeviceItem) => {
   return "";
 };
 
+const formatUnitId = (device: InfraDeviceItem) => String(device.unitId);
+
 const getSortValue = (device: InfraDeviceItem, field: InfraColumn) => {
   if (field === "lastSeen") return getLastSeenSortValue(device.lastSeen);
   if (field === "type") return formatDeviceType(device);
@@ -223,8 +225,7 @@ const slugify = (value: string) =>
 
 const buildDeviceId = (draft: InfraDeviceDraft, devices: InfraDeviceItem[]) => {
   const existingIds = new Set(devices.map((device) => device.id));
-  const baseId =
-    draft.id.trim() || slugify(`${draft.siteName}-${draft.buildingName}-${draft.name}`) || "infrastructure-device";
+  const baseId = slugify(`${draft.siteName}-${draft.buildingName}-${draft.name}`) || "infrastructure-device";
   let id = baseId;
   let suffix = 2;
 
@@ -347,7 +348,7 @@ const InfraDeviceList = ({
         width: "w-[260px]",
       },
       [infraCols.id]: {
-        component: (device) => <span className="text-300 text-text-primary">{device.id}</span>,
+        component: (device) => <span className="text-300 text-text-primary">{formatUnitId(device)}</span>,
         width: "w-[180px]",
       },
       [infraCols.type]: {

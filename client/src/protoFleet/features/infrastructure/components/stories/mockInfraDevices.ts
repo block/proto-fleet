@@ -3,6 +3,7 @@ import type { InfraDeviceItem } from "../../types";
 export const mockInfraDevices: InfraDeviceItem[] = [
   {
     id: "aus-b1-plc-01-zone-a",
+    unitId: 1,
     name: "Building 1 exhaust fans - Zone A",
     endpointKind: "fan_group",
     fanCount: 12,
@@ -17,6 +18,7 @@ export const mockInfraDevices: InfraDeviceItem[] = [
   },
   {
     id: "aus-b1-plc-01-zone-b",
+    unitId: 2,
     name: "Building 1 exhaust fans - Zone B",
     endpointKind: "fan_group",
     fanCount: 10,
@@ -31,6 +33,7 @@ export const mockInfraDevices: InfraDeviceItem[] = [
   },
   {
     id: "aus-b2-bridge-07",
+    unitId: 1,
     name: "North wall fan group",
     endpointKind: "fan_group",
     fanCount: 8,
@@ -45,6 +48,7 @@ export const mockInfraDevices: InfraDeviceItem[] = [
   },
   {
     id: "den-b1-fan-03",
+    unitId: 3,
     name: "Rack row 3 intake fan",
     endpointKind: "single_fan",
     fanCount: 1,
@@ -59,6 +63,7 @@ export const mockInfraDevices: InfraDeviceItem[] = [
   },
   {
     id: "den-b1-plc-02-zone-c",
+    unitId: 4,
     name: "Building 1 exhaust fans - Zone C",
     endpointKind: "fan_group",
     fanCount: 16,
@@ -73,6 +78,7 @@ export const mockInfraDevices: InfraDeviceItem[] = [
   },
   {
     id: "den-b5-bridge-11",
+    unitId: 1,
     name: "Evaporative cooling fan bank",
     endpointKind: "fan_group",
     fanCount: 20,
@@ -87,6 +93,7 @@ export const mockInfraDevices: InfraDeviceItem[] = [
   },
   {
     id: "mia-b2-fan-01",
+    unitId: 5,
     name: "South aisle booster fan",
     endpointKind: "single_fan",
     fanCount: 1,
@@ -101,6 +108,7 @@ export const mockInfraDevices: InfraDeviceItem[] = [
   },
   {
     id: "mia-b10-plc-04-zone-d",
+    unitId: 6,
     name: "Building 10 roof exhaust fans",
     endpointKind: "fan_group",
     fanCount: 14,

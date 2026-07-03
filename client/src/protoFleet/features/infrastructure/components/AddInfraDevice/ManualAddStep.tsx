@@ -43,9 +43,10 @@ const ManualAddStep = ({ siteOptions = [], buildingOptions = [], onSuccess, onSt
   const [port, setPort] = useState("");
 
   const unitIdValue = unitId.trim();
+  const unitIdNumber = Number(unitIdValue);
   const portNumber = Number(port);
   const fanCountNumber = endpointKind === "single_fan" ? 1 : Number(fanCount);
-  const isUnitIdValid = /^\d+$/.test(unitIdValue) && Number(unitIdValue) > 0;
+  const isUnitIdValid = /^\d+$/.test(unitIdValue) && unitIdNumber > 0;
   const isPortValid = Number.isInteger(portNumber) && portNumber > 0 && portNumber <= 65535;
   const isFanCountValid = endpointKind === "single_fan" || (Number.isInteger(fanCountNumber) && fanCountNumber > 1);
   const isValid =
@@ -65,7 +66,7 @@ const ManualAddStep = ({ siteOptions = [], buildingOptions = [], onSuccess, onSt
   const handleAdd = useCallback(() => {
     if (!isValid) return;
     onSuccess({
-      id: unitIdValue,
+      unitId: unitIdNumber,
       name: name.trim(),
       siteName: site.trim(),
       buildingName: building.trim(),
@@ -75,7 +76,7 @@ const ManualAddStep = ({ siteOptions = [], buildingOptions = [], onSuccess, onSt
       endpoint: endpoint.trim(),
       port: portNumber,
     });
-  }, [building, endpoint, endpointKind, fanCountNumber, isValid, name, onSuccess, portNumber, site, unitIdValue]);
+  }, [building, endpoint, endpointKind, fanCountNumber, isValid, name, onSuccess, portNumber, site, unitIdNumber]);
 
   useEffect(() => {
     onStateChange({ canAdd: isValid, addHandler: handleAdd });
@@ -91,6 +92,7 @@ const ManualAddStep = ({ siteOptions = [], buildingOptions = [], onSuccess, onSt
         buildingOptions={buildingOptions}
         onSiteChange={setSite}
         onBuildingChange={setBuilding}
+        allowCustomValues
       />
       <div className="grid grid-cols-2 gap-3">
         <Select

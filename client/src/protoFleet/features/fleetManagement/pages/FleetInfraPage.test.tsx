@@ -21,6 +21,7 @@ vi.mock("@/protoFleet/store", () => ({
 
 const device: InfraDeviceItem = {
   id: "aus-b1-roof-exhaust",
+  unitId: 17,
   name: "Roof exhaust",
   buildingName: "Building 1",
   siteName: "Austin",

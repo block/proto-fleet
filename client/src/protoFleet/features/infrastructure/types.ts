@@ -5,6 +5,7 @@ export type InfraDeviceEndpointKind = "single_fan" | "fan_group";
 
 export interface InfraDeviceItem {
   id: string;
+  unitId: number;
   name: string;
   buildingName: string;
   siteName: string;
@@ -25,7 +26,7 @@ export interface InfraBuildingOption {
 
 export type InfraDeviceDraft = Pick<
   InfraDeviceItem,
-  "id" | "name" | "buildingName" | "siteName" | "connectionType" | "endpoint" | "port"
+  "unitId" | "name" | "buildingName" | "siteName" | "connectionType" | "endpoint" | "port"
 > & {
   endpointKind: InfraDeviceEndpointKind;
   fanCount?: number;
