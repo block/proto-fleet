@@ -60,19 +60,20 @@ const renderManualAddStep = () => {
 };
 
 describe("ManualAddStep", () => {
-  test("submits device identifier, selected device kind, and fan count", async () => {
+  test("submits unit ID, selected target type, and fan count with Modbus TCP", async () => {
     const user = userEvent.setup();
     const { getState, onSuccess } = renderManualAddStep();
 
     await user.type(screen.getByLabelText("Name"), "Roof exhaust");
-    expect(screen.getByRole("button", { name: "About device identifier" })).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Device identifier"), "fan-zone-a");
+    expect(screen.getByRole("button", { name: "About Unit ID" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Unit ID"), "17");
     await user.selectOptions(screen.getByLabelText("Site"), "Austin");
     await user.selectOptions(screen.getByLabelText("Building"), "Building 1");
-    await user.selectOptions(screen.getByLabelText("Device type"), "fan_group");
+    await user.selectOptions(screen.getByLabelText("Target type"), "fan_group");
     await user.clear(screen.getByLabelText("Fans"));
     await user.type(screen.getByLabelText("Fans"), "12");
-    await user.selectOptions(screen.getByLabelText("Connection type"), "modbus_tcp");
+    expect(screen.getByLabelText("Connection type")).toHaveValue("Modbus TCP");
+    expect(screen.getByLabelText("Connection type")).toHaveAttribute("readonly");
     await user.type(screen.getByLabelText("Endpoint"), "10.12.1.21");
     await user.type(screen.getByLabelText("Port"), "502");
 
@@ -80,7 +81,7 @@ describe("ManualAddStep", () => {
     getState()?.addHandler();
 
     expect(onSuccess).toHaveBeenCalledWith({
-      id: "fan-zone-a",
+      id: "17",
       name: "Roof exhaust",
       siteName: "Austin",
       buildingName: "Building 1",

@@ -1,14 +1,13 @@
 import { useCallback, useState } from "react";
 
 import InfraLocationFields from "@/protoFleet/features/infrastructure/components/InfraLocationFields";
-import { infraDeviceConnectionTypeOptions } from "@/protoFleet/features/infrastructure/connectionTypes";
+import {
+  MODBUS_TCP_CONNECTION_TYPE,
+  MODBUS_TCP_CONNECTION_TYPE_LABEL,
+} from "@/protoFleet/features/infrastructure/connectionTypes";
 import { FieldHelpPopover } from "@/protoFleet/features/infrastructure/fieldHelp";
 import { infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelpContent";
-import type {
-  InfraBuildingOption,
-  InfraDeviceConnectionType,
-  InfraDeviceItem,
-} from "@/protoFleet/features/infrastructure/types";
+import type { InfraBuildingOption, InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
 import { Alert, Success } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { DialogIcon } from "@/shared/components/Dialog";
@@ -16,7 +15,6 @@ import Divider from "@/shared/components/Divider";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import Row from "@/shared/components/Row";
-import Select from "@/shared/components/Select";
 import StatusCircle from "@/shared/components/StatusCircle";
 import Switch from "@/shared/components/Switch";
 
@@ -61,22 +59,20 @@ const InfraDeviceDetailModal = ({
 }: InfraDeviceDetailModalProps) => {
   const [site, setSite] = useState(device.siteName);
   const [name, setName] = useState(device.name);
-  const [connectionType, setConnectionType] = useState(device.connectionType);
   const [endpoint, setEndpoint] = useState(device.endpoint);
   const [port, setPort] = useState(String(device.port));
   const [building, setBuilding] = useState(device.buildingName);
   const [enabled, setEnabled] = useState(device.enabled);
   const portNumber = Number(port);
   const isPortValid = Number.isInteger(portNumber) && portNumber > 0 && portNumber <= 65535;
-  const canSave =
-    [name, site, building, connectionType, endpoint].every((value) => value.trim().length > 0) && isPortValid;
+  const canSave = [name, site, building, endpoint].every((value) => value.trim().length > 0) && isPortValid;
 
   const handleSave = useCallback(() => {
     if (!canSave) return;
     onSave({
       ...device,
       name: name.trim(),
-      connectionType,
+      connectionType: MODBUS_TCP_CONNECTION_TYPE,
       endpoint: endpoint.trim(),
       port: portNumber,
       siteName: site.trim(),
@@ -84,7 +80,7 @@ const InfraDeviceDetailModal = ({
       enabled,
     });
     onDismiss();
-  }, [building, canSave, connectionType, device, enabled, endpoint, name, onDismiss, onSave, portNumber, site]);
+  }, [building, canSave, device, enabled, endpoint, name, onDismiss, onSave, portNumber, site]);
 
   const handleDelete = useCallback(() => {
     onDelete(device.id);
@@ -159,15 +155,12 @@ const InfraDeviceDetailModal = ({
             onBuildingChange={setBuilding}
             disabled={!canManage}
           />
-          <Select
+          <Input
             id="device-connection-type"
             label="Connection type"
-            options={infraDeviceConnectionTypeOptions}
-            value={connectionType}
-            onChange={(value) => setConnectionType(value as InfraDeviceConnectionType)}
+            initValue={MODBUS_TCP_CONNECTION_TYPE_LABEL}
+            readOnly
             suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.connectionType} />}
-            disabled={!canManage}
-            forceBelow
           />
           <div className="grid grid-cols-2 gap-3">
             <Input
@@ -209,7 +202,7 @@ const InfraDeviceDetailModal = ({
         <div className="flex flex-col">
           <Row compact>
             <div className="flex w-full items-center justify-between gap-4">
-              <span className="text-text-primary-70">Device identifier</span>
+              <span className="text-text-primary-70">Unit ID</span>
               <span className="truncate text-300 text-text-primary-70">{device.id}</span>
             </div>
           </Row>

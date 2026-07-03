@@ -41,12 +41,12 @@ type InfraColumn = (typeof infraCols)[keyof typeof infraCols];
 
 const infraColTitles: ColTitles<InfraColumn> = {
   name: "Name",
-  id: "Device identifier",
+  id: "Unit ID",
   endpoint: "Endpoint",
   port: "Port",
   site: "Site",
   building: "Building",
-  type: "Type",
+  type: "Target type",
   enabled: "Enabled",
   status: "Status",
   lastSeen: "Last seen",
@@ -429,7 +429,7 @@ const InfraDeviceList = ({
           },
           {
             type: "dropdown",
-            title: "Type",
+            title: "Target type",
             value: "type",
             options: TYPE_OPTIONS,
             defaultOptionIds: [],

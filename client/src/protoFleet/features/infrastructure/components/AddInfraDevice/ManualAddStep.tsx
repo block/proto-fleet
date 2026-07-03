@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 
 import InfraLocationFields from "@/protoFleet/features/infrastructure/components/InfraLocationFields";
-import { infraDeviceConnectionTypeOptions } from "@/protoFleet/features/infrastructure/connectionTypes";
+import {
+  MODBUS_TCP_CONNECTION_TYPE,
+  MODBUS_TCP_CONNECTION_TYPE_LABEL,
+} from "@/protoFleet/features/infrastructure/connectionTypes";
 import { FieldHelpPopover } from "@/protoFleet/features/infrastructure/fieldHelp";
 import { infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelpContent";
 import type {
   InfraBuildingOption,
-  InfraDeviceConnectionType,
   InfraDeviceDraft,
   InfraDeviceEndpointKind,
 } from "@/protoFleet/features/infrastructure/types";
@@ -32,21 +34,23 @@ interface ManualAddStepProps {
 
 const ManualAddStep = ({ siteOptions = [], buildingOptions = [], onSuccess, onStateChange }: ManualAddStepProps) => {
   const [name, setName] = useState("");
-  const [deviceIdentifier, setDeviceIdentifier] = useState("");
+  const [unitId, setUnitId] = useState("");
   const [site, setSite] = useState("");
   const [building, setBuilding] = useState("");
   const [endpointKind, setEndpointKind] = useState<InfraDeviceEndpointKind>("single_fan");
   const [fanCount, setFanCount] = useState("1");
-  const [connectionType, setConnectionType] = useState<InfraDeviceConnectionType | "">("");
   const [endpoint, setEndpoint] = useState("");
   const [port, setPort] = useState("");
 
+  const unitIdValue = unitId.trim();
   const portNumber = Number(port);
   const fanCountNumber = endpointKind === "single_fan" ? 1 : Number(fanCount);
+  const isUnitIdValid = /^\d+$/.test(unitIdValue) && Number(unitIdValue) > 0;
   const isPortValid = Number.isInteger(portNumber) && portNumber > 0 && portNumber <= 65535;
   const isFanCountValid = endpointKind === "single_fan" || (Number.isInteger(fanCountNumber) && fanCountNumber > 1);
   const isValid =
-    [name, deviceIdentifier, site, building, connectionType, endpoint].every((value) => value.trim().length > 0) &&
+    [name, unitIdValue, site, building, endpoint].every((value) => value.trim().length > 0) &&
+    isUnitIdValid &&
     isPortValid &&
     isFanCountValid;
 
@@ -59,31 +63,19 @@ const ManualAddStep = ({ siteOptions = [], buildingOptions = [], onSuccess, onSt
   }, []);
 
   const handleAdd = useCallback(() => {
-    if (!isValid || !connectionType) return;
+    if (!isValid) return;
     onSuccess({
-      id: deviceIdentifier.trim(),
+      id: unitIdValue,
       name: name.trim(),
       siteName: site.trim(),
       buildingName: building.trim(),
       endpointKind,
       fanCount: fanCountNumber,
-      connectionType,
+      connectionType: MODBUS_TCP_CONNECTION_TYPE,
       endpoint: endpoint.trim(),
       port: portNumber,
     });
-  }, [
-    building,
-    connectionType,
-    endpoint,
-    endpointKind,
-    fanCountNumber,
-    deviceIdentifier,
-    isValid,
-    name,
-    onSuccess,
-    portNumber,
-    site,
-  ]);
+  }, [building, endpoint, endpointKind, fanCountNumber, isValid, name, onSuccess, portNumber, site, unitIdValue]);
 
   useEffect(() => {
     onStateChange({ canAdd: isValid, addHandler: handleAdd });
@@ -103,7 +95,7 @@ const ManualAddStep = ({ siteOptions = [], buildingOptions = [], onSuccess, onSt
       <div className="grid grid-cols-2 gap-3">
         <Select
           id="manual-endpoint-kind"
-          label="Device type"
+          label="Target type"
           options={endpointKindOptions}
           value={endpointKind}
           onChange={handleEndpointKindChange}
@@ -120,19 +112,19 @@ const ManualAddStep = ({ siteOptions = [], buildingOptions = [], onSuccess, onSt
         />
       </div>
       <Input
-        id="manual-device-identifier"
-        label="Device identifier"
-        suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.deviceIdentifier} />}
-        onChange={(v) => setDeviceIdentifier(v)}
+        id="manual-unit-id"
+        label="Unit ID"
+        type="number"
+        inputMode="numeric"
+        suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.unitId} />}
+        onChange={(v) => setUnitId(v)}
       />
-      <Select
+      <Input
         id="manual-connection-type"
         label="Connection type"
-        options={infraDeviceConnectionTypeOptions}
-        value={connectionType}
-        onChange={(value) => setConnectionType(value as InfraDeviceConnectionType)}
+        initValue={MODBUS_TCP_CONNECTION_TYPE_LABEL}
+        readOnly
         suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.connectionType} />}
-        forceBelow
       />
       <div className="grid grid-cols-2 gap-3">
         <Input

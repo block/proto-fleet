@@ -1,6 +1,6 @@
 export type InfraDeviceStatus = "online" | "offline";
 export type InfraDeviceEnabledMode = "off" | "auto";
-export type InfraDeviceConnectionType = "modbus_tcp" | "mqtt_bridge" | "http_api";
+export type InfraDeviceConnectionType = "modbus_tcp";
 export type InfraDeviceEndpointKind = "single_fan" | "fan_group";
 
 export interface InfraDeviceItem {
