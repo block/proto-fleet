@@ -160,9 +160,12 @@ function hasSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]
   return keys.some((key) => typeof event.decisionSnapshot?.[key] === "number");
 }
 
+// Live rollups now ride on every active-list row, so rollup presence no
+// longer distinguishes hydrated detail from a summary row; auto-selection
+// still requires snapshot numbers or target rows so the active card never
+// renders a fabricated 0.0 kW estimate from a summary-only event.
 function hasActiveCurtailmentDetail(event: ProtoCurtailmentEvent): boolean {
   return (
-    Boolean(event.targetRollup) ||
     event.targets.length > 0 ||
     hasSnapshotNumber(event, detailReductionSnapshotKeys) ||
     hasSnapshotNumber(event, detailSelectedCountSnapshotKeys)
@@ -407,10 +410,14 @@ function getSelectedActiveCurtailmentWithCurrentDetail(
     return undefined;
   }
 
+  // The active-list row is fresher than the current detail, so its live
+  // target rollup wins; current detail only backfills fields the list row
+  // never provides (decision snapshot, targets) or lacks (older servers'
+  // rollup-less list rows).
   return createMessage(CurtailmentEventSchema, {
     ...selectedEvent,
     decisionSnapshot: currentEvent.decisionSnapshot,
-    targetRollup: currentEvent.targetRollup,
+    targetRollup: selectedEvent.targetRollup ?? currentEvent.targetRollup,
     targets: currentEvent.targets,
   });
 }

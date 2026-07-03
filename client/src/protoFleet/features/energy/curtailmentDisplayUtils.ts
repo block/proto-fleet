@@ -260,9 +260,27 @@ export function getCurtailmentTargetRollups(event: ProtoCurtailmentEvent): Curta
   return rollups.filter((targetRollup) => targetRollup.count > 0);
 }
 
+// Audit-context count: prefers the event-start decision snapshot, so
+// history rows keep describing the original selection. Active surfaces
+// should use getCurtailmentEventLiveTargetCount instead.
 export function getCurtailmentEventSelectedMinerCount(event: ProtoCurtailmentEvent): number {
   const snapshotSelectedCount = getSnapshotNumber(event, selectedCountSnapshotKeys);
   return snapshotSelectedCount ?? event.targetRollup?.total ?? event.targets.length;
+}
+
+// Live operational count for active surfaces: the target rollup describes the
+// event's current target set, which closed-loop claims and all-paired policy
+// changes can grow far past the event-start snapshot count. When no rollup is
+// available the legacy fallbacks apply: hydrated target rows, then the
+// event-start snapshot count.
+export function getCurtailmentEventLiveTargetCount(event: ProtoCurtailmentEvent): number {
+  if (event.targetRollup) {
+    return event.targetRollup.total;
+  }
+  if (event.targets.length > 0) {
+    return event.targets.length;
+  }
+  return getSnapshotNumber(event, selectedCountSnapshotKeys) ?? 0;
 }
 
 export function getCurtailmentEventEstimatedReductionKw(event: ProtoCurtailmentEvent): number {
@@ -284,7 +302,10 @@ function getConfirmedTargetCount(event: ProtoCurtailmentEvent): number {
 }
 
 function getEstimatedObservedReductionKw(event: ProtoCurtailmentEvent, estimatedReductionKw: number): number {
-  const selectedCount = getCurtailmentEventSelectedMinerCount(event);
+  // The confirmed numerator is rollup-derived, so pair it with the live
+  // rollup total; a stale snapshot denominator would push progress past 100%
+  // once the live target set outgrows the event-start selection.
+  const selectedCount = getCurtailmentEventLiveTargetCount(event);
   if (selectedCount <= 0) {
     return 0;
   }

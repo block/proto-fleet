@@ -359,6 +359,57 @@ describe("activeCurtailmentData", () => {
     ]);
   });
 
+  it("keeps a fresh active-list rollup over stale current detail when active detail hydration fails", async () => {
+    const staleDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
+      reason: "Current Detail A",
+      decisionSnapshot: {
+        estimated_reduction_kw: 5,
+        selected_count: 10,
+      },
+      targetRollup: create(CurtailmentTargetRollupSchema, { confirmed: 10, total: 10 }),
+      targets: [create(CurtailmentTargetSchema, { deviceIdentifier: "miner-1" })],
+    });
+    const refreshedSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
+      reason: "Summary A",
+      targetRollup: create(CurtailmentTargetRollupSchema, { confirmed: 4000, pending: 1000, total: 5000 }),
+    });
+    applyActiveCurtailmentEvent(staleDetail, { mergeActiveEvents: true });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [refreshedSummary] });
+    mockGetCurtailmentEvent.mockRejectedValueOnce(new Error("detail unavailable"));
+
+    await refreshActiveCurtailmentData();
+
+    const snapshot = getActiveCurtailmentSnapshot();
+    expect(snapshot.event?.targetRollup).toEqual(
+      create(CurtailmentTargetRollupSchema, { confirmed: 4000, pending: 1000, total: 5000 }),
+    );
+    // Detail-only fields the list row never provides are retained.
+    expect(snapshot.event?.decisionSnapshot).toEqual({
+      estimated_reduction_kw: 5,
+      selected_count: 10,
+    });
+    expect(snapshot.event?.targets.map((target) => target.deviceIdentifier)).toEqual(["miner-1"]);
+  });
+
+  it("retains the current detail rollup when a rollup-less active-list row arrives and hydration fails", async () => {
+    const staleDetail = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
+      reason: "Current Detail A",
+      targetRollup: create(CurtailmentTargetRollupSchema, { confirmed: 10, total: 10 }),
+    });
+    const rollupLessSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, {
+      reason: "Summary A",
+    });
+    applyActiveCurtailmentEvent(staleDetail, { mergeActiveEvents: true });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [rollupLessSummary] });
+    mockGetCurtailmentEvent.mockRejectedValueOnce(new Error("detail unavailable"));
+
+    await refreshActiveCurtailmentData();
+
+    expect(getActiveCurtailmentSnapshot().event?.targetRollup).toEqual(
+      create(CurtailmentTargetRollupSchema, { confirmed: 10, total: 10 }),
+    );
+  });
+
   it("does not select an unhydrated active summary when active detail hydration fails", async () => {
     const activeSummary = curtailmentEvent("active-a", CurtailmentEventState.ACTIVE, { reason: "Summary A" });
     const otherSummary = curtailmentEvent("active-b", CurtailmentEventState.ACTIVE, { reason: "Summary B" });
@@ -370,6 +421,31 @@ describe("activeCurtailmentData", () => {
     const snapshot = getActiveCurtailmentSnapshot();
     expect(snapshot.event).toBeUndefined();
     expect(snapshot.events.map((event) => event.reason)).toEqual(["Summary A", "Summary B"]);
+  });
+
+  it("does not auto-select a rollup-only active summary after dismissal", () => {
+    // Active-list rows now always carry a live rollup; a rollup alone is not
+    // hydrated detail, so dismissal must not promote a summary-only row into
+    // the active card (its kW estimate would render as a fabricated zero).
+    const detailedEvent = curtailmentEvent("active-detailed", CurtailmentEventState.ACTIVE, {
+      decisionSnapshot: {
+        estimated_reduction_kw: 5,
+        selected_count: 2,
+      },
+      targetRollup: create(CurtailmentTargetRollupSchema, { confirmed: 2, total: 2 }),
+    });
+    const summaryOnlyEvent = curtailmentEvent("active-summary", CurtailmentEventState.ACTIVE, {
+      targetRollup: create(CurtailmentTargetRollupSchema, { confirmed: 4000, pending: 1000, total: 5000 }),
+    });
+
+    applyActiveCurtailmentEvent(detailedEvent, { mergeActiveEvents: true });
+    applyActiveCurtailmentEvent(summaryOnlyEvent, { mergeActiveEvents: true });
+    applyActiveCurtailmentEvent(detailedEvent, { mergeActiveEvents: true });
+
+    const snapshot = dismissActiveCurtailmentEvent(detailedEvent.eventUuid);
+
+    expect(snapshot.event).toBeUndefined();
+    expect(snapshot.events.map((event) => event.eventUuid)).toEqual(["active-summary"]);
   });
 
   it("surfaces auth failures from selected active detail hydration", async () => {

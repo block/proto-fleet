@@ -227,6 +227,201 @@ describe("useCurtailmentApi", () => {
     );
   });
 
+  it("prefers the live rollup total over the snapshot count for active events", async () => {
+    // Closed-loop claims / all-paired policy changes can grow the live target
+    // set far past the event-start snapshot; active surfaces show the live
+    // rollup as the operational truth.
+    const activeEvent = curtailmentEvent({
+      decisionSnapshot: {
+        estimated_reduction_kw: 6.2,
+        selected_count: 10,
+      },
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 4000,
+        pending: 1000,
+        total: 5000,
+      }),
+      targets: [],
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent?.selectedMiners).toBe(5000);
+    // The estimate-derived observed reduction scales by the live total
+    // (6.2 * 4000/5000), not the stale snapshot count (6.2 * 4000/10).
+    expect(result.current.activeEvent?.observedReductionKw).toBeCloseTo(4.96);
+    // The injected active history row is a live surface too.
+    expect(result.current.activeEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-1",
+        selectedMiners: 5000,
+        displayState: "curtailing",
+      }),
+    );
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-1",
+        selectedMiners: 5000,
+      }),
+    );
+  });
+
+  it("keeps live counts while marking summary-only active rows as missing a kW estimate", async () => {
+    // Non-selected active-list rows carry a live rollup but a scrubbed
+    // decision snapshot and no targets; the injected history row must not
+    // fabricate a 0.0 kW estimate from that shape.
+    const selectedEvent = curtailmentEvent();
+    const summaryOnlyEvent = curtailmentEvent({
+      eventUuid: "curt-summary-only",
+      decisionSnapshot: undefined,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 4000,
+        pending: 1000,
+        total: 5000,
+      }),
+      targets: [],
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [selectedEvent, summaryOnlyEvent] });
+    mockGetCurtailmentEvent.mockResolvedValueOnce({ event: selectedEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvents[1]).toEqual(
+      expect.objectContaining({
+        id: "curt-summary-only",
+        selectedMiners: 5000,
+        targetMetricsAvailable: true,
+        estimatedReductionAvailable: false,
+        estimatedReductionKw: 0,
+      }),
+    );
+  });
+
+  it("backfills the kW estimate for summary-only active rows from matching history", async () => {
+    const selectedEvent = curtailmentEvent();
+    const summaryOnlyEvent = curtailmentEvent({
+      eventUuid: "curt-summary-backfill",
+      decisionSnapshot: undefined,
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 4000,
+        pending: 1000,
+        total: 5000,
+      }),
+      targets: [],
+    });
+    const historyEvent = curtailmentEvent({
+      eventUuid: "curt-summary-backfill",
+      decisionSnapshot: {
+        estimated_reduction_kw: 8.4,
+        selected_count: 10,
+      },
+      targetRollup: undefined,
+      targets: [],
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ events: [selectedEvent, summaryOnlyEvent] });
+    mockGetCurtailmentEvent.mockResolvedValueOnce({ event: selectedEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [historyEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvents[1]).toEqual(
+      expect.objectContaining({
+        id: "curt-summary-backfill",
+        selectedMiners: 5000,
+        estimatedReductionKw: 8.4,
+        estimatedReductionAvailable: true,
+      }),
+    );
+  });
+
+  it("keeps the snapshot count as audit context for completed history events", async () => {
+    const completedEvent = curtailmentEvent({
+      eventUuid: "curt-history-audit",
+      state: CurtailmentEventState.COMPLETED,
+      endedAt: timestamp("2026-05-01T13:00:00Z"),
+      decisionSnapshot: {
+        estimated_reduction_kw: 6.2,
+        selected_count: 10,
+      },
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        resolved: 5000,
+        total: 5000,
+      }),
+      targets: [],
+    });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [completedEvent], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-history-audit",
+        selectedMiners: 10,
+      }),
+    );
+  });
+
+  it("updates active target counts from active polling", async () => {
+    const initialEvent = curtailmentEvent({
+      decisionSnapshot: {
+        estimated_reduction_kw: 6.2,
+        selected_count: 10,
+      },
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        pending: 10,
+        total: 10,
+      }),
+      targets: [],
+    });
+    const grownEvent = curtailmentEvent({
+      decisionSnapshot: {
+        estimated_reduction_kw: 6.2,
+        selected_count: 10,
+      },
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 4000,
+        pending: 1000,
+        total: 5000,
+      }),
+      targets: [],
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: initialEvent });
+    mockListCurtailmentEvents.mockResolvedValue({ events: [], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+    expect(result.current.activeEvent?.selectedMiners).toBe(10);
+
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: grownEvent });
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent?.selectedMiners).toBe(5000);
+  });
+
   it("maps MQTT automation ownership onto active and history events", async () => {
     const activeEvent = curtailmentEvent({
       externalSource: "curtailment_automation",
@@ -812,6 +1007,39 @@ describe("useCurtailmentApi", () => {
       expect.objectContaining({
         reason: "Pending active event",
         state: "pending",
+      }),
+    );
+  });
+
+  it("uses live rollup totals for injected active rows in filtered history", async () => {
+    const activeEvent = curtailmentEvent({
+      eventUuid: "curt-live-injected",
+      state: CurtailmentEventState.ACTIVE,
+      decisionSnapshot: {
+        estimated_reduction_kw: 6.2,
+        selected_count: 10,
+      },
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 4990,
+        dispatched: 10,
+        total: 5000,
+      }),
+      targets: [],
+    });
+    mockListActiveCurtailments.mockResolvedValue({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValue({ events: [], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.setHistoryStatusFilters(["active"]);
+    });
+
+    expect(result.current.historyEvents[0]).toEqual(
+      expect.objectContaining({
+        id: "curt-live-injected",
+        state: "active",
+        selectedMiners: 5000,
       }),
     );
   });
