@@ -126,7 +126,6 @@ const ManualAddStep = ({ siteOptions = [], buildingOptions = [], onSuccess, onSt
         label="Connection type"
         initValue={MODBUS_TCP_CONNECTION_TYPE_LABEL}
         readOnly
-        suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.connectionType} />}
       />
       <div className="grid grid-cols-2 gap-3">
         <Input

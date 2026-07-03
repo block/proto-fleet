@@ -1,12 +1,6 @@
 import type { FieldHelpPopoverProps } from "@/protoFleet/features/infrastructure/fieldHelp";
 
-export const infraDeviceFieldHelp: Record<"connectionType" | "unitId" | "endpoint" | "port", FieldHelpPopoverProps> = {
-  connectionType: {
-    ariaLabel: "About connection type",
-    header: "Connection type",
-    body: "Modbus TCP is the only infrastructure device connection type supported in v1.",
-    testId: "infra-device-connection-type-help",
-  },
+export const infraDeviceFieldHelp: Record<"unitId" | "endpoint" | "port", FieldHelpPopoverProps> = {
   unitId: {
     ariaLabel: "About Unit ID",
     header: "Unit ID",
