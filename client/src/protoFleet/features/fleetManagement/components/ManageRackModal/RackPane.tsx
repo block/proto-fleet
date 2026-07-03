@@ -20,6 +20,7 @@ interface RackPaneProps {
   onCellClick: (row: number, col: number) => void;
   onSelectFromList: () => void;
   onSearchMiners: () => void;
+  onScanQr: () => void;
   onPopoverDismiss: () => void;
   onHoverMiner: (minerId: string | null) => void;
 }
@@ -35,11 +36,13 @@ function SlotPopover({
   selectFromListDisabled,
   onSelectFromList,
   onSearchMiners,
+  onScanQr,
   onDismiss,
 }: {
   selectFromListDisabled: boolean;
   onSelectFromList: () => void;
   onSearchMiners: () => void;
+  onScanQr: () => void;
   onDismiss: () => void;
 }) {
   useEscapeDismiss(onDismiss);
@@ -84,6 +87,17 @@ function SlotPopover({
         >
           Search miners
         </button>
+        <button
+          type="button"
+          role="menuitem"
+          className="w-full px-4 py-2 text-left text-300 text-text-primary hover:bg-surface-5"
+          onClick={(e) => {
+            e.stopPropagation();
+            onScanQr();
+          }}
+        >
+          Scan QR code
+        </button>
       </div>
     </>
   );
@@ -101,6 +115,7 @@ function RackSlotCell({
   onCellClick,
   onSelectFromList,
   onSearchMiners,
+  onScanQr,
   onPopoverDismiss,
   onHoverMiner,
 }: {
@@ -115,6 +130,7 @@ function RackSlotCell({
   onCellClick: (row: number, col: number) => void;
   onSelectFromList: () => void;
   onSearchMiners: () => void;
+  onScanQr: () => void;
   onPopoverDismiss: () => void;
   onHoverMiner: (minerId: string | null) => void;
 }) {
@@ -155,6 +171,7 @@ function RackSlotCell({
           selectFromListDisabled={!hasMiners}
           onSelectFromList={onSelectFromList}
           onSearchMiners={onSearchMiners}
+          onScanQr={onScanQr}
           onDismiss={onPopoverDismiss}
         />
       ) : null}
@@ -177,6 +194,7 @@ export default function RackPane({
   onCellClick,
   onSelectFromList,
   onSearchMiners,
+  onScanQr,
   onPopoverDismiss,
   onHoverMiner,
 }: RackPaneProps) {
@@ -236,6 +254,7 @@ export default function RackPane({
                 onCellClick={onCellClick}
                 onSelectFromList={onSelectFromList}
                 onSearchMiners={onSearchMiners}
+                onScanQr={onScanQr}
                 onPopoverDismiss={onPopoverDismiss}
                 onHoverMiner={onHoverMiner}
               />

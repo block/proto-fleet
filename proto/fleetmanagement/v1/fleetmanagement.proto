@@ -25,6 +25,15 @@ service FleetManagementService {
   // Force an immediate telemetry/status collection for explicit devices and return fresh snapshots.
   rpc RefreshMiners(RefreshMinersRequest) returns (RefreshMinersResponse);
 
+  // Resolve a single paired miner from its manufacturer serial number.
+  // Backs the rack-assignment QR scan flow: an operator scans a miner's
+  // serial-number label and the client uses the returned snapshot to
+  // confirm the device before dropping it into a rack slot. Returns
+  // NotFound when no paired device in the caller's organization carries
+  // the serial. Exact match only — the serial must equal the stored value
+  // after the client strips any label prefix (e.g. "SN:").
+  rpc LookupMinerBySerialNumber(LookupMinerBySerialNumberRequest) returns (LookupMinerBySerialNumberResponse);
+
   // Export the paired miner list as a CSV snapshot using the provided filter.
   // Rows are always emitted in default name-ascending order for cross-page consistency.
   // The server paginates internally and streams CSV data in chunks.
@@ -419,6 +428,27 @@ message RefreshMinersResponse {
 
   // Per-device failures. Devices that succeeded do not appear here.
   map<string, string> errors = 2;
+}
+
+// Request to resolve a paired miner by its serial number.
+message LookupMinerBySerialNumberRequest {
+  // Exact manufacturer serial number to resolve. The client is
+  // responsible for stripping any scanned-label prefix (e.g. "SN:")
+  // and surrounding whitespace before sending; the server matches the
+  // stored device.serial_number verbatim.
+  string serial_number = 1 [(buf.validate.field) = {
+    string: { min_len: 1, max_len: 255 }
+    required: true
+  }];
+}
+
+// Response carrying the resolved miner.
+message LookupMinerBySerialNumberResponse {
+  // Snapshot of the matched paired miner, hydrated the same way as
+  // ListMinerStateSnapshots entries (telemetry, group, and rack refs)
+  // so the client can render name/model/status and current placement
+  // for operator confirmation.
+  MinerStateSnapshot snapshot = 1;
 }
 
 enum CsvTemperatureUnit {

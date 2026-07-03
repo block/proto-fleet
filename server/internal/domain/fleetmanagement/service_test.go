@@ -293,6 +293,130 @@ func TestService_RefreshMiners_ShouldRejectWhitespaceOnlyDeviceID(t *testing.T) 
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
+func TestService_LookupMinerBySerialNumber_ShouldRejectEmptySerial(t *testing.T) {
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
+	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	resp, err := service.LookupMinerBySerialNumber(ctx, &pb.LookupMinerBySerialNumberRequest{SerialNumber: ""})
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestService_LookupMinerBySerialNumber_ShouldRejectWhitespaceOnlySerial(t *testing.T) {
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
+	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	resp, err := service.LookupMinerBySerialNumber(ctx, &pb.LookupMinerBySerialNumberRequest{SerialNumber: "   "})
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestService_LookupMinerBySerialNumber_ShouldPropagateStoreNotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		serial = "UNKNOWN-SERIAL"
+		orgID  = int64(123)
+	)
+
+	deviceStore.EXPECT().
+		GetPairedDeviceBySerialNumber(gomock.Any(), serial, orgID).
+		Return(nil, fleeterror.NewNotFoundErrorf("no paired device found with serial_number=%s org_id=%d", serial, orgID))
+
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.LookupMinerBySerialNumber(ctx, &pb.LookupMinerBySerialNumberRequest{SerialNumber: serial})
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.True(t, fleeterror.IsNotFoundError(err))
+}
+
+func TestService_LookupMinerBySerialNumber_ShouldTrimSerialBeforeLookup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		serial   = "TRIMMED-SERIAL"
+		deviceID = "device-abc"
+		orgID    = int64(123)
+	)
+
+	// The trailing/leading whitespace must be stripped before the store call.
+	deviceStore.EXPECT().
+		GetPairedDeviceBySerialNumber(gomock.Any(), serial, orgID).
+		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, SerialNumber: serial}, nil)
+	deviceStore.EXPECT().
+		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
+		DoAndReturn(func(_ context.Context, _ int64, _ string, _ int32, filter *interfaces.MinerFilter, _ *interfaces.SortConfig) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {
+			assert.Equal(t, []string{deviceID}, filter.DeviceIdentifiers)
+			return []sqlc.ListMinerStateSnapshotsRow{{
+				DeviceIdentifier: deviceID,
+				PairingStatus:    "UNPAIRED", // keep hydration light; populators early-return
+			}}, "", 1, nil
+		})
+
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.LookupMinerBySerialNumber(ctx, &pb.LookupMinerBySerialNumberRequest{SerialNumber: "  " + serial + "\n"})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Snapshot)
+	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
+}
+
+func TestService_LookupMinerBySerialNumber_ShouldReturnHydratedSnapshot(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	collectionStore := storemocks.NewMockCollectionStore(ctrl)
+
+	const (
+		serial   = "SN123456"
+		deviceID = "device-xyz"
+		orgID    = int64(123)
+		rackID   = int64(77)
+	)
+
+	deviceStore.EXPECT().
+		GetPairedDeviceBySerialNumber(gomock.Any(), serial, orgID).
+		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, SerialNumber: serial}, nil)
+	deviceStore.EXPECT().
+		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
+		Return([]sqlc.ListMinerStateSnapshotsRow{{
+			DeviceIdentifier: deviceID,
+			PairingStatus:    "PAIRED",
+			SerialNumber:     sql.NullString{String: serial, Valid: true},
+			Model:            sql.NullString{String: "S21 XP", Valid: true},
+		}}, "", int64(1), nil)
+	// Paired snapshot triggers hydration; return empty placement data.
+	collectionStore.EXPECT().
+		GetGroupRefsForDevices(gomock.Any(), orgID, []string{deviceID}).
+		Return(map[string][]interfaces.DeviceGroupRef{}, nil)
+	collectionStore.EXPECT().
+		GetRackDetailsForDevices(gomock.Any(), orgID, []string{deviceID}).
+		Return(map[string]interfaces.DeviceRackDetails{}, nil)
+
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, collectionStore, nil, nil, nil)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.LookupMinerBySerialNumber(ctx, &pb.LookupMinerBySerialNumberRequest{SerialNumber: serial})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Snapshot)
+	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
+	assert.Equal(t, serial, resp.Snapshot.SerialNumber)
+	assert.Equal(t, pb.PairingStatus_PAIRING_STATUS_PAIRED, resp.Snapshot.PairingStatus)
+}
+
 func TestService_RefreshMiners_ShouldReturnUnsupportedForFleetNodeOwnedMiner(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	deviceStore := storemocks.NewMockDeviceStore(ctrl)

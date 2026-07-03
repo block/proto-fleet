@@ -489,6 +489,45 @@ func refreshMinersRequestTimeout(deviceCount int, refreshDeviceTimeout time.Dura
 	return time.Duration(waves) * perWaveTimeout
 }
 
+// LookupMinerBySerialNumber resolves a single paired miner from its exact
+// serial number and returns a fully hydrated snapshot. Backs the rack QR
+// scan flow. The caller must strip any scanned-label prefix (e.g. "SN:")
+// and whitespace before invoking; matching is verbatim against
+// device.serial_number. Returns NotFound when no paired device in the
+// caller's organization carries the serial.
+func (s *Service) LookupMinerBySerialNumber(ctx context.Context, req *pb.LookupMinerBySerialNumberRequest) (*pb.LookupMinerBySerialNumberResponse, error) {
+	serial := strings.TrimSpace(req.GetSerialNumber())
+	if serial == "" {
+		return nil, fleeterror.NewInvalidArgumentError("serial_number must not be empty")
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// The store returns a NotFound fleeterror when no paired device carries
+	// the serial, which surfaces to the client as connect.CodeNotFound.
+	device, err := s.deviceStore.GetPairedDeviceBySerialNumber(ctx, serial, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reuse the shared hydration path so the returned snapshot matches
+	// ListMinerStateSnapshots entries (telemetry + group/rack refs).
+	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, []string{device.DeviceIdentifier})
+	if err != nil {
+		return nil, err
+	}
+	if len(snapshots) == 0 {
+		// The device row resolved but the unified snapshot query returned
+		// nothing (e.g. the device was soft-deleted between the two reads).
+		return nil, fleeterror.NewNotFoundErrorf("no paired miner found with serial number %q", serial)
+	}
+
+	return &pb.LookupMinerBySerialNumberResponse{Snapshot: snapshots[0]}, nil
+}
+
 // GetMinerStateCounts returns counts of miners in different states without fetching miner data
 func (s *Service) GetMinerStateCounts(ctx context.Context, req *pb.GetMinerStateCountsRequest) (*pb.GetMinerStateCountsResponse, error) {
 	info, err := session.GetInfo(ctx)
