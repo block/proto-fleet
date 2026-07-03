@@ -24,7 +24,8 @@
     "upload": "scp -Crp dist/* admin@$npm_config_host:/home/admin/",
     "format": "prettier --list-different --write \"./**/*.{js,jsx,ts,tsx,css,md}\"",
     "format:check": "prettier --check \"./**/*.{js,jsx,ts,tsx,css,md}\"",
-    "bootstrap": "npx tsx ./scripts/auth_discover_pair.ts"
+    "bootstrap": "npx tsx ./scripts/auth_discover_pair.ts",
+    "setup:https": "node ./scripts/generate-dev-certs.mjs"
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.12.0",

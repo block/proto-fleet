@@ -111,8 +111,8 @@ export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
   // Opt-in HTTPS for the local dev server. Defaults to HTTP so CI, E2E, and
-  // other devs are unaffected. Generate locally-trusted certs with:
-  //   mkcert -key-file certs/localhost-key.pem -cert-file certs/localhost.pem localhost 127.0.0.1 ::1
+  // other devs are unaffected. Generate locally-trusted certs once with:
+  //   npm run setup:https
   // then run: VITE_HTTPS=true npm run dev:protoFleet  (or npm run dev for protoOS)
   //
   // Only honored for `vite serve` — `server.https` is irrelevant to `vite build`,
@@ -124,8 +124,7 @@ export default defineConfig(({ mode, command }) => {
       return fs.readFileSync(certPath);
     } catch {
       throw new Error(
-        `VITE_HTTPS=true but ${certPath} is missing. Generate locally-trusted certs with:\n` +
-          `  cd client && mkcert -key-file certs/localhost-key.pem -cert-file certs/localhost.pem localhost 127.0.0.1 ::1`,
+        `VITE_HTTPS=true but ${certPath} is missing. Generate locally-trusted certs with:\n  npm run setup:https`,
       );
     }
   };
