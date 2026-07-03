@@ -14,11 +14,12 @@ import {
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import { getNextEndTimeAfterStart } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
 
-const { listRacksMock, listGroupsMock, pushToastMock, useFleetMock } = vi.hoisted(() => ({
+const { listRacksMock, listGroupsMock, pushToastMock, useFleetMock, minerSelectionModalMock } = vi.hoisted(() => ({
   listRacksMock: vi.fn(),
   listGroupsMock: vi.fn(),
   pushToastMock: vi.fn(),
   useFleetMock: vi.fn(() => ({ totalMiners: 1, hasInitialLoadCompleted: true })),
+  minerSelectionModalMock: vi.fn((_props: Record<string, unknown>) => null),
 }));
 
 // Apply-to target buttons are gated per read permission. Default to granting
@@ -63,7 +64,7 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/SchedulePreview", (
 
 vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal", () => ({
   __esModule: true,
-  default: () => null,
+  default: minerSelectionModalMock,
 }));
 
 vi.mock("@/protoFleet/features/settings/components/Schedules/SiteSelectionModal", () => ({
@@ -351,6 +352,7 @@ describe("ScheduleModal Apply-to targets", () => {
     listGroupsMock.mockImplementation(() => undefined);
     pushToastMock.mockReset();
     useFleetMock.mockClear();
+    minerSelectionModalMock.mockClear();
     activeSiteMock.current = { kind: "all" };
     hasPermissionMock.current = () => true;
   });
@@ -416,5 +418,24 @@ describe("ScheduleModal Apply-to targets", () => {
 
     expect(screen.queryByText("Miners")).not.toBeInTheDocument();
     expect(useFleetMock).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
+  });
+
+  it("disables rack/group facets in the miner picker without rack:read", () => {
+    // The miner picker's rack/group filters call ListDeviceSets (rack:read); a
+    // miner:read-only manager must be able to pick miners without them.
+    hasPermissionMock.current = (key: string) => key === "miner:read";
+    renderCreateModal();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Miners/ }));
+    expect(minerSelectionModalMock.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({ filterConfig: { showRackFilter: false, showGroupFilter: false } }),
+    );
+  });
+
+  it("leaves miner-picker facets on when the role can read racks", () => {
+    renderCreateModal();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Miners/ }));
+    expect(minerSelectionModalMock.mock.lastCall?.[0]).toEqual(expect.objectContaining({ filterConfig: undefined }));
   });
 });

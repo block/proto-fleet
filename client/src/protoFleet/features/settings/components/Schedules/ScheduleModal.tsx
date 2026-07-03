@@ -970,6 +970,9 @@ const ScheduleModal = ({
           open={showMinerSelectionModal}
           selectedMinerIds={values.minerTargetIds}
           scope={scope}
+          // The rack/group facets call ListDeviceSets (rack:read); hide them so
+          // a miner:read-only manager can pick miners without permission-denied.
+          filterConfig={canReadRacks ? undefined : { showRackFilter: false, showGroupFilter: false }}
           onDismiss={() => setShowMinerSelectionModal(false)}
           onSave={(selection) => {
             setNextValues((current) => ({ ...current, minerTargetIds: selection.selectedMinerIds }));
