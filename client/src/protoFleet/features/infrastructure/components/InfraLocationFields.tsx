@@ -10,12 +10,13 @@ const buildOptions = (values: string[], currentValue: string) =>
 interface CustomLocationInputProps {
   id: string;
   label: string;
+  value: string;
   disabled: boolean;
   onChange: (value: string) => void;
 }
 
-const CustomLocationInput = ({ id, label, disabled, onChange }: CustomLocationInputProps) => (
-  <Input id={id} label={label} disabled={disabled} onChange={onChange} />
+const CustomLocationInput = ({ id, label, value, disabled, onChange }: CustomLocationInputProps) => (
+  <Input id={id} label={label} initValue={value} disabled={disabled} onChange={onChange} />
 );
 
 interface InfraLocationFieldsProps {
@@ -69,7 +70,13 @@ const InfraLocationFields = ({
   return (
     <div className="grid grid-cols-2 gap-3">
       {useCustomSiteInput ? (
-        <CustomLocationInput id="infra-location-site" label="Site" disabled={disabled} onChange={onSiteChange} />
+        <CustomLocationInput
+          id="infra-location-site"
+          label="Site"
+          value={site}
+          disabled={disabled}
+          onChange={onSiteChange}
+        />
       ) : (
         <Select
           id="infra-location-site"
@@ -86,6 +93,7 @@ const InfraLocationFields = ({
           key={useCustomSiteInput ? "custom-site-building" : site}
           id="infra-location-building"
           label="Building"
+          value={building}
           disabled={disabled}
           onChange={onBuildingChange}
         />
