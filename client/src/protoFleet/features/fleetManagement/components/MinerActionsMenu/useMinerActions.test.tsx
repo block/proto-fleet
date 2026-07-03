@@ -891,6 +891,91 @@ describe("useMinerActions", () => {
       expect(onActionStart).toHaveBeenCalled();
     });
 
+    it("ignores manage power capability continuations after cancel", async () => {
+      // Arrange
+      let resolveCapabilityCheck: (() => void) | undefined;
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        resolveCapabilityCheck = () =>
+          onSuccess({
+            allSupported: true,
+            noneSupported: false,
+            supportedCount: 1,
+            unsupportedCount: 0,
+            totalCount: 1,
+            unsupportedGroups: [],
+            supportedDeviceIdentifiers: [],
+          });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const managePowerAction = result.current.popoverActions.find((a) => a.action === performanceActions.managePower);
+
+      // Act
+      act(() => {
+        managePowerAction?.actionHandler();
+      });
+      act(() => {
+        result.current.handleCancel();
+      });
+      await act(async () => {
+        resolveCapabilityCheck?.();
+      });
+
+      // Assert
+      expect(result.current.showManagePowerModal).toBe(false);
+      expect(result.current.currentAction).toBeNull();
+    });
+
+    it("ignores manage power capability continuations after another action starts", async () => {
+      // Arrange
+      let resolveCapabilityCheck: (() => void) | undefined;
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        resolveCapabilityCheck = () =>
+          onSuccess({
+            allSupported: true,
+            noneSupported: false,
+            supportedCount: 1,
+            unsupportedCount: 0,
+            totalCount: 1,
+            unsupportedGroups: [],
+            supportedDeviceIdentifiers: [],
+          });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const managePowerAction = result.current.popoverActions.find((a) => a.action === performanceActions.managePower);
+      const blinkAction = result.current.popoverActions.find((a) => a.action === deviceActions.blinkLEDs);
+
+      // Act
+      act(() => {
+        managePowerAction?.actionHandler();
+      });
+      act(() => {
+        blinkAction?.actionHandler();
+      });
+      await act(async () => {
+        resolveCapabilityCheck?.();
+      });
+
+      // Assert
+      expect(result.current.showManagePowerModal).toBe(false);
+      expect(result.current.currentAction).toBe(deviceActions.blinkLEDs);
+    });
+
     it("should handle manage power confirm and call API", async () => {
       mockSetPowerTarget.mockImplementation(({ onSuccess }: any) => {
         onSuccess({ batchIdentifier: "batch-power" });

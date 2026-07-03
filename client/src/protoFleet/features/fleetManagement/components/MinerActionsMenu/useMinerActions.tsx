@@ -310,6 +310,11 @@ export const useMinerActions = ({
   const { fetchCoolingMode } = useMinerCoolingMode();
   const { getMinerModelGroups } = useMinerModelGroups();
   const { renameSingleMiner } = useRenameMiners();
+  // Incremented whenever a new action starts or the current one is cancelled.
+  // Async continuations (capability checks, cooling-mode fetches) capture the
+  // epoch when their action starts and bail if it has moved on, so a
+  // superseded action cannot mutate state that belongs to a newer one.
+  const actionEpochRef = useRef(0);
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
@@ -374,11 +379,17 @@ export const useMinerActions = ({
         return false;
       }
 
+      const epoch = actionEpochRef.current;
       return new Promise((resolve) => {
         checkCommandCapabilities({
           deviceSelector,
           commandType: metadata.commandType,
           onSuccess: (result) => {
+            if (epoch !== actionEpochRef.current) {
+              resolve(true);
+              return;
+            }
+
             if (result.allSupported) {
               resolve(false);
               return;
@@ -397,6 +408,11 @@ export const useMinerActions = ({
             resolve(true);
           },
           onError: () => {
+            if (epoch !== actionEpochRef.current) {
+              resolve(true);
+              return;
+            }
+
             if (action === deviceActions.firmwareUpdate) {
               pushToast({
                 message: "Unable to verify firmware update support for the selected miners. Please try again.",
@@ -427,9 +443,15 @@ export const useMinerActions = ({
       action: SupportedAction,
       onProceed: (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[]) => void,
     ): Promise<void> => {
-      const modalShown = await checkAndShowUnsupportedMinersModal(action, onProceed);
+      const epoch = actionEpochRef.current;
+      const guardedOnProceed = (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[]) => {
+        if (epoch !== actionEpochRef.current) return;
+        onProceed(filteredSelector, filteredDeviceIds);
+      };
+      const modalShown = await checkAndShowUnsupportedMinersModal(action, guardedOnProceed);
+      if (epoch !== actionEpochRef.current) return;
       if (!modalShown) {
-        onProceed(undefined, undefined);
+        guardedOnProceed(undefined, undefined);
       }
     },
     [checkAndShowUnsupportedMinersModal],
@@ -658,8 +680,12 @@ export const useMinerActions = ({
             handleSuccess(action, toastId, batchIdentifier, undefined, (failedIds) => {
               execute(createDeviceSelector("subset", failedIds), failedIds, pushLoadingToast());
             });
+            onActionComplete?.();
           },
-          onError: (error) => handleError(toastId, error),
+          onError: (error) => {
+            handleError(toastId, error);
+            onActionComplete?.();
+          },
         });
       };
 
@@ -1201,8 +1227,23 @@ export const useMinerActions = ({
   );
 
   const handleCancel = useCallback(() => {
+    ++actionEpochRef.current;
     setCurrentAction(null);
     setShowPoolSelectionPage(false);
+    setPoolFilteredDeviceIds(undefined);
+    setShowManagePowerModal(false);
+    setFilteredSelectorForPowerModal(undefined);
+    setManagePowerFilteredDeviceIds(undefined);
+    setShowCoolingModeModal(false);
+    setCoolingModeFilteredSelector(undefined);
+    setCoolingModeFilteredDeviceIds(undefined);
+    setCurrentCoolingMode(undefined);
+    setShowFirmwareUpdateModal(false);
+    setFirmwareUpdateFilteredSelector(undefined);
+    setFirmwareUpdateFilteredDeviceIds(undefined);
+    setShowAddToGroupModal(false);
+    setShowRenameDialog(false);
+    setUnsupportedMinersInfo(initialUnsupportedMinersState);
     resetAuthState();
     onActionComplete?.();
   }, [resetAuthState, onActionComplete]);
@@ -1321,6 +1362,7 @@ export const useMinerActions = ({
     };
 
     const handleReboot = async () => {
+      const epoch = actionEpochRef.current;
       onActionStart?.();
       // Check for unsupported miners first - only show confirmation dialog if all supported
       const modalShown = await checkAndShowUnsupportedMinersModal(
@@ -1331,6 +1373,7 @@ export const useMinerActions = ({
           handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.reboot);
         },
       );
+      if (epoch !== actionEpochRef.current) return;
       // Only show confirmation dialog if capability modal was not shown
       if (!modalShown) {
         setCurrentAction(deviceActions.reboot);
@@ -1338,6 +1381,7 @@ export const useMinerActions = ({
     };
 
     const handleShutDown = async () => {
+      const epoch = actionEpochRef.current;
       onActionStart?.();
       const modalShown = await checkAndShowUnsupportedMinersModal(
         deviceActions.shutdown,
@@ -1345,12 +1389,14 @@ export const useMinerActions = ({
           handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.shutdown);
         },
       );
+      if (epoch !== actionEpochRef.current) return;
       if (!modalShown) {
         setCurrentAction(deviceActions.shutdown);
       }
     };
 
     const handleWakeUp = async () => {
+      const epoch = actionEpochRef.current;
       onActionStart?.();
       const modalShown = await checkAndShowUnsupportedMinersModal(
         deviceActions.wakeUp,
@@ -1358,6 +1404,7 @@ export const useMinerActions = ({
           handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.wakeUp);
         },
       );
+      if (epoch !== actionEpochRef.current) return;
       if (!modalShown) {
         setCurrentAction(deviceActions.wakeUp);
       }
@@ -1390,11 +1437,13 @@ export const useMinerActions = ({
     };
 
     const handleCoolingMode = async () => {
+      const epoch = actionEpochRef.current;
       onActionStart?.();
 
       // For single miner, fetch current cooling mode for prepopulation
       if (selectedMiners.length === 1) {
         const mode = await fetchCoolingMode(selectedMiners[0].deviceIdentifier);
+        if (epoch !== actionEpochRef.current) return;
         setCurrentCoolingMode(mode);
       } else {
         setCurrentCoolingMode(undefined);
@@ -1515,7 +1564,7 @@ export const useMinerActions = ({
           ? [wakeUpAction] // Single miner asleep: show wake up only
           : [sleepAction]; // Single miner active: show sleep only
 
-    return [
+    const actions: BulkAction<SupportedAction>[] = [
       // Device actions - ordered per design specifications
       ...powerStateActions, // Sleep/Wake up at top
       {
@@ -1616,7 +1665,17 @@ export const useMinerActions = ({
           testId: "unpair-confirm-button",
         },
       },
-    ] as BulkAction<SupportedAction>[];
+    ];
+
+    // Every action starts a new epoch so async continuations of a superseded
+    // action bail instead of mutating the newer flow's state.
+    return actions.map((action) => ({
+      ...action,
+      actionHandler: () => {
+        ++actionEpochRef.current;
+        action.actionHandler();
+      },
+    }));
   }, [
     blinkLED,
     downloadLogs,
