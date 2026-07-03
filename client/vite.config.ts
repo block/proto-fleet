@@ -110,15 +110,29 @@ export default defineConfig(({ mode, command }) => {
 
   const env = loadEnv(mode, process.cwd(), "");
 
-  // Opt-in HTTPS for local dev. Defaults to HTTP so CI, E2E, and other devs are
-  // unaffected. Generate locally-trusted certs with:
+  // Opt-in HTTPS for the local dev server. Defaults to HTTP so CI, E2E, and
+  // other devs are unaffected. Generate locally-trusted certs with:
   //   mkcert -key-file certs/localhost-key.pem -cert-file certs/localhost.pem localhost 127.0.0.1 ::1
   // then run: VITE_HTTPS=true npm run dev:protoFleet  (or npm run dev for protoOS)
-  const useHttps = env.VITE_HTTPS === "true" || process.env.VITE_HTTPS === "true";
+  //
+  // Only honored for `vite serve` — `server.https` is irrelevant to `vite build`,
+  // and reading certs there would fail builds for no reason.
+  const useHttps = command === "serve" && (env.VITE_HTTPS === "true" || process.env.VITE_HTTPS === "true");
+  const readCert = (file: string) => {
+    const certPath = resolve(_dirname, "certs", file);
+    try {
+      return fs.readFileSync(certPath);
+    } catch {
+      throw new Error(
+        `VITE_HTTPS=true but ${certPath} is missing. Generate locally-trusted certs with:\n` +
+          `  cd client && mkcert -key-file certs/localhost-key.pem -cert-file certs/localhost.pem localhost 127.0.0.1 ::1`,
+      );
+    }
+  };
   const httpsConfig = useHttps
     ? {
-        key: fs.readFileSync(resolve(_dirname, "certs/localhost-key.pem")),
-        cert: fs.readFileSync(resolve(_dirname, "certs/localhost.pem")),
+        key: readCert("localhost-key.pem"),
+        cert: readCert("localhost.pem"),
       }
     : undefined;
 
