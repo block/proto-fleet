@@ -122,8 +122,9 @@ export class FleetLocationsPage extends BasePage {
     }
 
     if (expected.totalMiners !== undefined) {
+      const formattedTotal = expected.totalMiners.toLocaleString();
       await expect(metricsRow.getByTestId("building-metric-online-value")).toHaveText(
-        new RegExp(`^\\d+\\s/\\s${expected.totalMiners}$`),
+        new RegExp(`^[\\d,]+\\s/\\s${formattedTotal}$`),
       );
     }
   }
