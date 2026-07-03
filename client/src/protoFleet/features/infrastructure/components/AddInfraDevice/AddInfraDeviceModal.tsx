@@ -31,7 +31,7 @@ const AddInfraDeviceModal = ({
       open
       onDismiss={onDismiss}
       title="Add infrastructure device"
-      description="Add a single fan or fan group controlled through a bridge or PLC."
+      description="Add a single fan or fan group controlled through a drive, bridge, or PLC."
       buttons={[
         {
           text: "Add device",
