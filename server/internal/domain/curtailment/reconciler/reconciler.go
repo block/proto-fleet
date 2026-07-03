@@ -734,6 +734,22 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 							models.TargetStateDrifted)
 						continue
 					}
+					// Mirror the confirm/drift paired-like guards: a drifted
+					// all-paired row whose device unpaired must not receive
+					// re-curtail commands every tick.
+					if isAllPairedPolicyEvent(ev) {
+						if c := candByID[t.DeviceIdentifier]; c == nil {
+							r.recordDispatchFailure(cmdCtx, ev, t,
+								"candidate row missing (device unpaired or deleted)",
+								models.TargetStateDrifted)
+							continue
+						} else if !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
+							r.recordDispatchFailure(cmdCtx, ev, t,
+								"device is no longer paired-like",
+								models.TargetStateDrifted)
+							continue
+						}
+					}
 					r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDrifted)
 				case models.TargetStatePending, models.TargetStateUnavailable,
 					models.TargetStateResolved, models.TargetStateReleased,

@@ -194,8 +194,11 @@ describe("useCurtailmentPlanPreview", () => {
     expect(request?.scopes[0]?.scope.case).toBe("wholeOrg");
     expect(request?.mode).toBe(CurtailmentMode.FULL_FLEET);
     expect(request?.modeParams.case).toBeUndefined();
-    expect(request?.includeMaintenance).toBe(true);
-    expect(request?.forceIncludeMaintenance).toBe(true);
+    // baseValues carries a stale includeMaintenance: true (as hydrated from a
+    // pre-change profile/event); the maintenance pair derives solely from the
+    // all-paired flag, so it must not leak into the preview request.
+    expect(request?.includeMaintenance).toBe(false);
+    expect(request?.forceIncludeMaintenance).toBe(false);
     expect(request?.forceIncludeAllPairedMiners).toBe(false);
   });
 

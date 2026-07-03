@@ -127,6 +127,22 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 			ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
 		)
 		if nextState == target.State && reason == targetErrorString(target) {
+			// No readiness flip, but a pending row that promoted while its
+			// telemetry was still missing carries no pre-curtail baseline.
+			// Keep offering a backfill until one lands — otherwise the
+			// promotion tick is the only attempt and confirm/drift checks
+			// degrade to the hash-only fallback for the row's lifetime.
+			if nextState == models.TargetStatePending && target.BaselinePowerW == nil {
+				if baseline := curtailment.AllPairedPromotionBaselinePowerW(candidate, minPowerW); baseline != nil {
+					updates = append(updates, interfaces.AllPairedReadinessUpdate{
+						DeviceIdentifier: target.DeviceIdentifier,
+						State:            nextState,
+						Reason:           reason,
+						BaselinePowerW:   baseline,
+					})
+					refreshable[target.DeviceIdentifier] = target
+				}
+			}
 			continue
 		}
 		if nextState != models.TargetStatePending && nextState != models.TargetStateUnavailable {

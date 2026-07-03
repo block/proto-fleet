@@ -62,12 +62,16 @@ type fakeStore struct {
 	bulkRefreshCalls        int
 	lastBulkRefreshUpdates  []interfaces.AllPairedReadinessUpdate
 	bulkRefreshErr          error
-	cooldownDevices         []string
-	cooldownCalls           int
-	lastCooldownOrgID       int64
-	lastCooldownSec         int32
-	lastCooldownFilter      []string
-	lastCooldownSiteIDs     []int64
+	// bulkRefreshSkipDevices simulates rows another actor advanced between
+	// the reconciler's read and the bulk UPDATE: the SQL guards skip them,
+	// so they are neither mutated nor reported in RETURNING.
+	bulkRefreshSkipDevices map[string]bool
+	cooldownDevices        []string
+	cooldownCalls          int
+	lastCooldownOrgID      int64
+	lastCooldownSec        int32
+	lastCooldownFilter     []string
+	lastCooldownSiteIDs    []int64
 
 	heartbeatCalls            int
 	lastHeartbeatActive       int32
@@ -249,6 +253,9 @@ func (f *fakeStore) BulkRefreshAllPairedTargetReadiness(
 		byDevice[t.DeviceIdentifier] = t
 	}
 	for _, update := range updates {
+		if f.bulkRefreshSkipDevices[update.DeviceIdentifier] {
+			continue
+		}
 		t, ok := byDevice[update.DeviceIdentifier]
 		if !ok {
 			continue
@@ -1092,6 +1099,116 @@ func TestReconciler_AllPairedPolicyUnavailableTargetBecomesPendingAndDispatches(
 	require.NotNil(t, final.BaselinePowerW,
 		"promotion must backfill the missing pre-curtail baseline so confirm/drift checks don't fall back to hash-only")
 	assert.InDelta(t, 3000.0, *final.BaselinePowerW, 0.001)
+}
+
+// A readiness flip the bulk UPDATE skips (row advanced concurrently, so it is
+// absent from RETURNING) must not be mirrored in memory: an optimistic mirror
+// would feed the same-tick dispatch pass and re-issue a duplicate Curtail
+// against a row another actor already advanced.
+func TestReconciler_AllPairedPolicyRefreshSkippedRowNotMirroredOrDispatched(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	metrics := newRecordingMetrics()
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	offlineReason := "offline"
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStateActive,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			CreatedByUserID:             99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStateUnavailable,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &offlineReason,
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(3000)},
+	}
+	// The SQL guards skip miner-1 (concurrently-advanced row): no mutation,
+	// no RETURNING entry.
+	store.bulkRefreshSkipDevices = map[string]bool{"miner-1": true}
+
+	r := newReconcilerForTest(store, disp)
+	r.metrics = metrics
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.bulkRefreshCalls)
+	assert.Equal(t, 0, disp.curtailCalls,
+		"a skipped readiness flip must not feed the same-tick dispatch pass")
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateUnavailable, final.State,
+		"in-memory mirror must not advance for rows the bulk UPDATE skipped")
+	assert.GreaterOrEqual(t, metrics.EventStateRaceLossCount(), 1,
+		"partial apply must surface as a race-loss metric so sustained races are visible")
+	assert.Equal(t, 0, metrics.TargetWriteFailureCount(),
+		"a skipped row is benign concurrency, not a write failure")
+}
+
+// A row promoted to pending while its telemetry was still missing carries no
+// pre-curtail baseline. Later ticks with no state flip must keep offering the
+// backfill once telemetry qualifies; otherwise the promotion tick is the only
+// attempt and confirm/drift checks degrade to hash-only for the row's life.
+func TestReconciler_AllPairedPolicyStablePendingTargetBackfillsMissingBaseline(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStateActive,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			CreatedByUserID:             99,
+		},
+	}
+	// Already pending (promoted on an earlier tick while telemetry was
+	// missing), baseline never captured.
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	require.Len(t, store.lastBulkRefreshUpdates, 1,
+		"a stable pending row with a missing baseline must still get a backfill update")
+	require.NotNil(t, store.lastBulkRefreshUpdates[0].BaselinePowerW)
+	final := store.targetsByEventID[eventID][0]
+	require.NotNil(t, final.BaselinePowerW,
+		"late backfill must land once telemetry qualifies")
+	assert.InDelta(t, 3000.0, *final.BaselinePowerW, 0.001)
+	assert.Equal(t, models.TargetStateDispatched, final.State,
+		"the pending row still dispatches this tick")
 }
 
 func TestReconciler_AllPairedPolicyPendingTargetBecomesUnavailableWhenOffline(t *testing.T) {
@@ -2885,6 +3002,60 @@ func TestReconciler_AllPairedConfirmedTargetUnpairedDoesNotRelease(t *testing.T)
 	final := store.targetsByEventID[eventID][0]
 	assert.Equal(t, models.TargetStateDrifted, final.State)
 	assert.Equal(t, int32(1), final.RetryCount)
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "device is no longer paired-like")
+}
+
+// The tick after a confirmed all-paired target drifts on pairing loss, the
+// Drifted arm must apply the same paired-like guard as confirm/drift: the row
+// keeps policy ownership, but no re-curtail command may be dispatched to a
+// device that is no longer paired-like.
+func TestReconciler_AllPairedDriftedTargetUnpairedDoesNotDispatch(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStateActive,
+			ForceIncludeAllPairedMiners: true,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "unpaired",
+			State:              models.TargetStateDrifted,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+			RetryCount:         1,
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{
+			DeviceIdentifier: "unpaired",
+			DriverName:       &driver,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "UNPAIRED",
+			LatestPowerW:     ptrFloat64(3000),
+			LatestHashRateHS: ptrFloat64(100),
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.curtailCalls,
+		"no Curtail command may be dispatched to a device that is no longer paired-like")
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDrifted, final.State,
+		"the row keeps policy ownership (not released) while unpaired")
+	assert.Equal(t, int32(2), final.RetryCount)
 	require.NotNil(t, final.LastError)
 	assert.Contains(t, *final.LastError, "device is no longer paired-like")
 }

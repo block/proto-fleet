@@ -239,6 +239,36 @@ describe("useCurtailmentResponseProfiles", () => {
     );
   });
 
+  it("drops stale maintenance inclusion when all-paired targeting is unchecked", async () => {
+    mockUpdateCurtailmentResponseProfile.mockResolvedValue({
+      profile: apiProfile({ profileName: "Formerly all-paired", site: undefined }),
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    // A profile previously saved with all-paired enabled hydrates
+    // includeMaintenance: true into the edit form. Unchecking "Target all
+    // paired miners" must clear the admin-gated maintenance pair on save —
+    // the maintenance toggle no longer exists in the UI, so nothing else can.
+    await act(async () => {
+      await result.current.updateResponseProfile("7", {
+        ...fixedKwFormValues,
+        name: "Formerly all-paired",
+        actionType: "fullFleet",
+        includeMaintenance: true,
+        forceIncludeAllPairedMiners: false,
+      });
+    });
+
+    expect(mockUpdateCurtailmentResponseProfile).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: CurtailmentMode.FULL_FLEET,
+        forceIncludeAllPairedMiners: false,
+        includeMaintenance: false,
+        forceIncludeMaintenance: false,
+      }),
+    );
+  });
+
   it("rejects batch restore profiles without a positive restore batch size", async () => {
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
 

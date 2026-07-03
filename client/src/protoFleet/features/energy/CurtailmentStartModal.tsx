@@ -576,10 +576,13 @@ function isCurtailmentMode(value: string): value is CurtailmentMode {
   return value === "fixedKwReduction" || value === "fullFleet";
 }
 
-function getForceInclusionConfirmationKey(values: ForceInclusionFields): string {
+function getForceInclusionConfirmationKey(values: CurtailmentFormValues): string {
   // Maintenance inclusion is no longer surfaced in the UI, so the only user-driven
-  // force-inclusion is targeting all paired miners.
-  return values.forceIncludeAllPairedMiners ? "all-paired" : "";
+  // force-inclusion is targeting all paired miners. Mirror the request builders'
+  // predicate: a stale flag that the builders will strip (wrong mode or a
+  // non-closed-loop scope) must not prompt a force-inclusion confirmation for a
+  // request that won't force-include anything.
+  return values.forceIncludeAllPairedMiners && supportsAllPairedTargeting(values) ? "all-paired" : "";
 }
 
 function getInitialValues(

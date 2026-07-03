@@ -251,16 +251,21 @@ export function supportsAllPairedTargeting(
 // parking them as unavailable would contradict the operator's explicit
 // "all paired" choice, and both flags sit behind the same server-side admin
 // gate as the all-paired control itself.
+//
+// The maintenance pair derives SOLELY from the all-paired flag: the UI no
+// longer exposes an independent maintenance toggle, so a stale
+// values.includeMaintenance (hydrated from a profile or past event saved when
+// the pair was coupled) must not survive unchecking "Target all paired
+// miners" — it would silently keep the admin-gated maintenance inclusion with
+// nothing in the UI showing it.
 export function buildForceInclusionFields(
-  values: CurtailmentScopeValues &
-    Pick<CurtailmentSubmitValues, "curtailmentMode" | "includeMaintenance" | "forceIncludeAllPairedMiners">,
+  values: CurtailmentScopeValues & Pick<CurtailmentSubmitValues, "curtailmentMode" | "forceIncludeAllPairedMiners">,
 ): Pick<CurtailmentRequestFields, "includeMaintenance" | "forceIncludeMaintenance" | "forceIncludeAllPairedMiners"> {
   const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedTargeting(values);
   // The proto validator requires include_maintenance == force_include_maintenance.
-  const includeMaintenance = values.includeMaintenance || forceIncludeAllPairedMiners;
   return {
-    includeMaintenance,
-    forceIncludeMaintenance: includeMaintenance,
+    includeMaintenance: forceIncludeAllPairedMiners,
+    forceIncludeMaintenance: forceIncludeAllPairedMiners,
     forceIncludeAllPairedMiners,
   };
 }

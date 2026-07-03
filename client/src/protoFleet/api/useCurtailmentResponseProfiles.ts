@@ -432,11 +432,17 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
   // the server rejects explicit-miner scopes. Enabling it also opts in
   // maintenance-flagged miners, mirroring the Start request builders. The
   // proto validator requires include_maintenance == force_include_maintenance.
+  //
+  // The maintenance pair derives SOLELY from the all-paired flag: the form
+  // hydrates includeMaintenance from previously saved profiles (where the
+  // coupling wrote it as true), and with the maintenance toggle gone from the
+  // UI, unchecking "Target all paired miners" must also drop the admin-gated
+  // maintenance inclusion instead of silently carrying it forward.
   const forceIncludeAllPairedMiners =
     values.actionType === "fullFleet" &&
     Boolean(values.forceIncludeAllPairedMiners) &&
     (scopes?.every((scope) => scope.scope.case === "wholeOrg" || scope.scope.case === "site") ?? false);
-  const includeMaintenance = values.includeMaintenance || forceIncludeAllPairedMiners;
+  const includeMaintenance = forceIncludeAllPairedMiners;
   return {
     profileName: values.name.trim(),
     scopes,

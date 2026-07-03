@@ -828,7 +828,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				CurtailmentEventID: row.ID,
 				TargetsJsonb:       payload,
 				OrgID:              event.OrgID,
-				CooldownSec:        cooldownSecFromDecisionSnapshot(event.DecisionSnapshotJSON),
+				CooldownSec:        cooldownSecForInsert(event),
 			})
 			if err != nil {
 				var pgErr *pgconn.PgError
@@ -855,7 +855,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				ctx,
 				q,
 				event.OrgID,
-				cooldownSecFromDecisionSnapshot(event.DecisionSnapshotJSON),
+				cooldownSecForInsert(event),
 				insertTargetDeviceIdentifiers(targets),
 			); err != nil {
 				return nil, err
@@ -878,17 +878,22 @@ func isClosedLoopFullFleetInsert(event models.InsertEventParams) bool {
 	return event.Mode == models.ModeFullFleet && event.LoopType == models.LoopTypeClosed
 }
 
-func cooldownSecFromDecisionSnapshot(snapshotJSON []byte) int32 {
-	if len(snapshotJSON) == 0 {
+func cooldownSecForInsert(event models.InsertEventParams) int32 {
+	// All-paired policies intentionally own recently-restored miners, so
+	// cooldown filtering is disabled at insert. Read the flag from the typed
+	// field rather than re-deriving it from the decision snapshot: the JSON
+	// key is written independently by marshalDecisionSnapshot (service.go),
+	// and a silent key drift here would re-enable cooldown for policy starts.
+	if event.ForceIncludeAllPairedMiners {
+		return 0
+	}
+	if len(event.DecisionSnapshotJSON) == 0 {
 		return 0
 	}
 	var snapshot struct {
-		PostEventCooldownSec        int32 `json:"post_event_cooldown_sec"`
-		ForceIncludeAllPairedMiners bool  `json:"force_include_all_paired_miners"`
+		PostEventCooldownSec int32 `json:"post_event_cooldown_sec"`
 	}
-	if err := json.Unmarshal(snapshotJSON, &snapshot); err != nil ||
-		snapshot.PostEventCooldownSec <= 0 ||
-		snapshot.ForceIncludeAllPairedMiners {
+	if err := json.Unmarshal(event.DecisionSnapshotJSON, &snapshot); err != nil || snapshot.PostEventCooldownSec <= 0 {
 		return 0
 	}
 	return snapshot.PostEventCooldownSec
