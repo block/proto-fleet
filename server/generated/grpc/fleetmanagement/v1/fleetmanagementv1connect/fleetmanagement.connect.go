@@ -40,9 +40,9 @@ const (
 	// FleetManagementServiceRefreshMinersProcedure is the fully-qualified name of the
 	// FleetManagementService's RefreshMiners RPC.
 	FleetManagementServiceRefreshMinersProcedure = "/fleetmanagement.v1.FleetManagementService/RefreshMiners"
-	// FleetManagementServiceLookupMinerBySerialNumberProcedure is the fully-qualified name of the
-	// FleetManagementService's LookupMinerBySerialNumber RPC.
-	FleetManagementServiceLookupMinerBySerialNumberProcedure = "/fleetmanagement.v1.FleetManagementService/LookupMinerBySerialNumber"
+	// FleetManagementServiceLookupMinerByIdentifierProcedure is the fully-qualified name of the
+	// FleetManagementService's LookupMinerByIdentifier RPC.
+	FleetManagementServiceLookupMinerByIdentifierProcedure = "/fleetmanagement.v1.FleetManagementService/LookupMinerByIdentifier"
 	// FleetManagementServiceExportMinerListCsvProcedure is the fully-qualified name of the
 	// FleetManagementService's ExportMinerListCsv RPC.
 	FleetManagementServiceExportMinerListCsvProcedure = "/fleetmanagement.v1.FleetManagementService/ExportMinerListCsv"
@@ -78,14 +78,14 @@ type FleetManagementServiceClient interface {
 	ListMinerStateSnapshots(context.Context, *connect.Request[v1.ListMinerStateSnapshotsRequest]) (*connect.Response[v1.ListMinerStateSnapshotsResponse], error)
 	// Force an immediate telemetry/status collection for explicit devices and return fresh snapshots.
 	RefreshMiners(context.Context, *connect.Request[v1.RefreshMinersRequest]) (*connect.Response[v1.RefreshMinersResponse], error)
-	// Resolve a single paired miner from its manufacturer serial number.
-	// Backs the rack-assignment QR scan flow: an operator scans a miner's
-	// serial-number label and the client uses the returned snapshot to
-	// confirm the device before dropping it into a rack slot. Returns
-	// NotFound when no paired device in the caller's organization carries
-	// the serial. Exact match only — the serial must equal the stored value
-	// after the client strips any label prefix (e.g. "SN:").
-	LookupMinerBySerialNumber(context.Context, *connect.Request[v1.LookupMinerBySerialNumberRequest]) (*connect.Response[v1.LookupMinerBySerialNumberResponse], error)
+	// Resolve a single paired miner from a scanned identifier — either a MAC
+	// address or a manufacturer serial number. Backs the rack-assignment QR
+	// scan flow: an operator scans a miner's sticker and the client uses the
+	// returned snapshot to confirm the device before dropping it into a rack
+	// slot. Returns NotFound when no paired device in the caller's
+	// organization matches. MAC values are normalized (separators/case)
+	// before matching; serials match device.serial_number verbatim.
+	LookupMinerByIdentifier(context.Context, *connect.Request[v1.LookupMinerByIdentifierRequest]) (*connect.Response[v1.LookupMinerByIdentifierResponse], error)
 	// Export the paired miner list as a CSV snapshot using the provided filter.
 	// Rows are always emitted in default name-ascending order for cross-page consistency.
 	// The server paginates internally and streams CSV data in chunks.
@@ -138,9 +138,9 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceRefreshMinersProcedure,
 			opts...,
 		),
-		lookupMinerBySerialNumber: connect.NewClient[v1.LookupMinerBySerialNumberRequest, v1.LookupMinerBySerialNumberResponse](
+		lookupMinerByIdentifier: connect.NewClient[v1.LookupMinerByIdentifierRequest, v1.LookupMinerByIdentifierResponse](
 			httpClient,
-			baseURL+FleetManagementServiceLookupMinerBySerialNumberProcedure,
+			baseURL+FleetManagementServiceLookupMinerByIdentifierProcedure,
 			opts...,
 		),
 		exportMinerListCsv: connect.NewClient[v1.ExportMinerListCsvRequest, v1.ExportMinerListCsvResponse](
@@ -188,17 +188,17 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 
 // fleetManagementServiceClient implements FleetManagementServiceClient.
 type fleetManagementServiceClient struct {
-	listMinerStateSnapshots   *connect.Client[v1.ListMinerStateSnapshotsRequest, v1.ListMinerStateSnapshotsResponse]
-	refreshMiners             *connect.Client[v1.RefreshMinersRequest, v1.RefreshMinersResponse]
-	lookupMinerBySerialNumber *connect.Client[v1.LookupMinerBySerialNumberRequest, v1.LookupMinerBySerialNumberResponse]
-	exportMinerListCsv        *connect.Client[v1.ExportMinerListCsvRequest, v1.ExportMinerListCsvResponse]
-	getMinerStateCounts       *connect.Client[v1.GetMinerStateCountsRequest, v1.GetMinerStateCountsResponse]
-	getMinerPoolAssignments   *connect.Client[v1.GetMinerPoolAssignmentsRequest, v1.GetMinerPoolAssignmentsResponse]
-	getMinerCoolingMode       *connect.Client[v1.GetMinerCoolingModeRequest, v1.GetMinerCoolingModeResponse]
-	deleteMiners              *connect.Client[v1.DeleteMinersRequest, v1.DeleteMinersResponse]
-	getMinerModelGroups       *connect.Client[v1.GetMinerModelGroupsRequest, v1.GetMinerModelGroupsResponse]
-	renameMiners              *connect.Client[v1.RenameMinersRequest, v1.RenameMinersResponse]
-	updateWorkerNames         *connect.Client[v1.UpdateWorkerNamesRequest, v1.UpdateWorkerNamesResponse]
+	listMinerStateSnapshots *connect.Client[v1.ListMinerStateSnapshotsRequest, v1.ListMinerStateSnapshotsResponse]
+	refreshMiners           *connect.Client[v1.RefreshMinersRequest, v1.RefreshMinersResponse]
+	lookupMinerByIdentifier *connect.Client[v1.LookupMinerByIdentifierRequest, v1.LookupMinerByIdentifierResponse]
+	exportMinerListCsv      *connect.Client[v1.ExportMinerListCsvRequest, v1.ExportMinerListCsvResponse]
+	getMinerStateCounts     *connect.Client[v1.GetMinerStateCountsRequest, v1.GetMinerStateCountsResponse]
+	getMinerPoolAssignments *connect.Client[v1.GetMinerPoolAssignmentsRequest, v1.GetMinerPoolAssignmentsResponse]
+	getMinerCoolingMode     *connect.Client[v1.GetMinerCoolingModeRequest, v1.GetMinerCoolingModeResponse]
+	deleteMiners            *connect.Client[v1.DeleteMinersRequest, v1.DeleteMinersResponse]
+	getMinerModelGroups     *connect.Client[v1.GetMinerModelGroupsRequest, v1.GetMinerModelGroupsResponse]
+	renameMiners            *connect.Client[v1.RenameMinersRequest, v1.RenameMinersResponse]
+	updateWorkerNames       *connect.Client[v1.UpdateWorkerNamesRequest, v1.UpdateWorkerNamesResponse]
 }
 
 // ListMinerStateSnapshots calls fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots.
@@ -211,10 +211,9 @@ func (c *fleetManagementServiceClient) RefreshMiners(ctx context.Context, req *c
 	return c.refreshMiners.CallUnary(ctx, req)
 }
 
-// LookupMinerBySerialNumber calls
-// fleetmanagement.v1.FleetManagementService.LookupMinerBySerialNumber.
-func (c *fleetManagementServiceClient) LookupMinerBySerialNumber(ctx context.Context, req *connect.Request[v1.LookupMinerBySerialNumberRequest]) (*connect.Response[v1.LookupMinerBySerialNumberResponse], error) {
-	return c.lookupMinerBySerialNumber.CallUnary(ctx, req)
+// LookupMinerByIdentifier calls fleetmanagement.v1.FleetManagementService.LookupMinerByIdentifier.
+func (c *fleetManagementServiceClient) LookupMinerByIdentifier(ctx context.Context, req *connect.Request[v1.LookupMinerByIdentifierRequest]) (*connect.Response[v1.LookupMinerByIdentifierResponse], error) {
+	return c.lookupMinerByIdentifier.CallUnary(ctx, req)
 }
 
 // ExportMinerListCsv calls fleetmanagement.v1.FleetManagementService.ExportMinerListCsv.
@@ -266,14 +265,14 @@ type FleetManagementServiceHandler interface {
 	ListMinerStateSnapshots(context.Context, *connect.Request[v1.ListMinerStateSnapshotsRequest]) (*connect.Response[v1.ListMinerStateSnapshotsResponse], error)
 	// Force an immediate telemetry/status collection for explicit devices and return fresh snapshots.
 	RefreshMiners(context.Context, *connect.Request[v1.RefreshMinersRequest]) (*connect.Response[v1.RefreshMinersResponse], error)
-	// Resolve a single paired miner from its manufacturer serial number.
-	// Backs the rack-assignment QR scan flow: an operator scans a miner's
-	// serial-number label and the client uses the returned snapshot to
-	// confirm the device before dropping it into a rack slot. Returns
-	// NotFound when no paired device in the caller's organization carries
-	// the serial. Exact match only — the serial must equal the stored value
-	// after the client strips any label prefix (e.g. "SN:").
-	LookupMinerBySerialNumber(context.Context, *connect.Request[v1.LookupMinerBySerialNumberRequest]) (*connect.Response[v1.LookupMinerBySerialNumberResponse], error)
+	// Resolve a single paired miner from a scanned identifier — either a MAC
+	// address or a manufacturer serial number. Backs the rack-assignment QR
+	// scan flow: an operator scans a miner's sticker and the client uses the
+	// returned snapshot to confirm the device before dropping it into a rack
+	// slot. Returns NotFound when no paired device in the caller's
+	// organization matches. MAC values are normalized (separators/case)
+	// before matching; serials match device.serial_number verbatim.
+	LookupMinerByIdentifier(context.Context, *connect.Request[v1.LookupMinerByIdentifierRequest]) (*connect.Response[v1.LookupMinerByIdentifierResponse], error)
 	// Export the paired miner list as a CSV snapshot using the provided filter.
 	// Rows are always emitted in default name-ascending order for cross-page consistency.
 	// The server paginates internally and streams CSV data in chunks.
@@ -322,9 +321,9 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		svc.RefreshMiners,
 		opts...,
 	)
-	fleetManagementServiceLookupMinerBySerialNumberHandler := connect.NewUnaryHandler(
-		FleetManagementServiceLookupMinerBySerialNumberProcedure,
-		svc.LookupMinerBySerialNumber,
+	fleetManagementServiceLookupMinerByIdentifierHandler := connect.NewUnaryHandler(
+		FleetManagementServiceLookupMinerByIdentifierProcedure,
+		svc.LookupMinerByIdentifier,
 		opts...,
 	)
 	fleetManagementServiceExportMinerListCsvHandler := connect.NewServerStreamHandler(
@@ -373,8 +372,8 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 			fleetManagementServiceListMinerStateSnapshotsHandler.ServeHTTP(w, r)
 		case FleetManagementServiceRefreshMinersProcedure:
 			fleetManagementServiceRefreshMinersHandler.ServeHTTP(w, r)
-		case FleetManagementServiceLookupMinerBySerialNumberProcedure:
-			fleetManagementServiceLookupMinerBySerialNumberHandler.ServeHTTP(w, r)
+		case FleetManagementServiceLookupMinerByIdentifierProcedure:
+			fleetManagementServiceLookupMinerByIdentifierHandler.ServeHTTP(w, r)
 		case FleetManagementServiceExportMinerListCsvProcedure:
 			fleetManagementServiceExportMinerListCsvHandler.ServeHTTP(w, r)
 		case FleetManagementServiceGetMinerStateCountsProcedure:
@@ -408,8 +407,8 @@ func (UnimplementedFleetManagementServiceHandler) RefreshMiners(context.Context,
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.RefreshMiners is not implemented"))
 }
 
-func (UnimplementedFleetManagementServiceHandler) LookupMinerBySerialNumber(context.Context, *connect.Request[v1.LookupMinerBySerialNumberRequest]) (*connect.Response[v1.LookupMinerBySerialNumberResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.LookupMinerBySerialNumber is not implemented"))
+func (UnimplementedFleetManagementServiceHandler) LookupMinerByIdentifier(context.Context, *connect.Request[v1.LookupMinerByIdentifierRequest]) (*connect.Response[v1.LookupMinerByIdentifierResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.LookupMinerByIdentifier is not implemented"))
 }
 
 func (UnimplementedFleetManagementServiceHandler) ExportMinerListCsv(context.Context, *connect.Request[v1.ExportMinerListCsvRequest], *connect.ServerStream[v1.ExportMinerListCsvResponse]) error {

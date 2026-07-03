@@ -293,29 +293,29 @@ func TestService_RefreshMiners_ShouldRejectWhitespaceOnlyDeviceID(t *testing.T) 
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-func TestService_LookupMinerBySerialNumber_ShouldRejectEmptySerial(t *testing.T) {
+func TestService_LookupMinerByIdentifier_ShouldRejectEmptyIdentifier(t *testing.T) {
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
 	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
 
-	resp, err := service.LookupMinerBySerialNumber(ctx, &pb.LookupMinerBySerialNumberRequest{SerialNumber: ""})
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{Identifier: ""})
 
 	require.Error(t, err)
 	assert.Nil(t, resp)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-func TestService_LookupMinerBySerialNumber_ShouldRejectWhitespaceOnlySerial(t *testing.T) {
+func TestService_LookupMinerByIdentifier_ShouldRejectWhitespaceOnlyIdentifier(t *testing.T) {
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
 	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
 
-	resp, err := service.LookupMinerBySerialNumber(ctx, &pb.LookupMinerBySerialNumberRequest{SerialNumber: "   "})
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{Identifier: "   "})
 
 	require.Error(t, err)
 	assert.Nil(t, resp)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-func TestService_LookupMinerBySerialNumber_ShouldPropagateStoreNotFound(t *testing.T) {
+func TestService_LookupMinerByIdentifier_ShouldPropagateStoreNotFound(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	deviceStore := storemocks.NewMockDeviceStore(ctrl)
 
@@ -331,14 +331,17 @@ func TestService_LookupMinerBySerialNumber_ShouldPropagateStoreNotFound(t *testi
 	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
-	resp, err := service.LookupMinerBySerialNumber(ctx, &pb.LookupMinerBySerialNumberRequest{SerialNumber: serial})
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
+		Identifier:     serial,
+		IdentifierType: pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER,
+	})
 
 	require.Error(t, err)
 	assert.Nil(t, resp)
 	assert.True(t, fleeterror.IsNotFoundError(err))
 }
 
-func TestService_LookupMinerBySerialNumber_ShouldTrimSerialBeforeLookup(t *testing.T) {
+func TestService_LookupMinerByIdentifier_ShouldTrimIdentifierBeforeLookup(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	deviceStore := storemocks.NewMockDeviceStore(ctrl)
 
@@ -359,13 +362,16 @@ func TestService_LookupMinerBySerialNumber_ShouldTrimSerialBeforeLookup(t *testi
 			return []sqlc.ListMinerStateSnapshotsRow{{
 				DeviceIdentifier: deviceID,
 				PairingStatus:    "UNPAIRED", // keep hydration light; populators early-return
-			}}, "", 1, nil
+			}}, "", int64(1), nil
 		})
 
 	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
-	resp, err := service.LookupMinerBySerialNumber(ctx, &pb.LookupMinerBySerialNumberRequest{SerialNumber: "  " + serial + "\n"})
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
+		Identifier:     "  " + serial + "\n",
+		IdentifierType: pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER,
+	})
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)
@@ -373,7 +379,104 @@ func TestService_LookupMinerBySerialNumber_ShouldTrimSerialBeforeLookup(t *testi
 	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
 }
 
-func TestService_LookupMinerBySerialNumber_ShouldReturnHydratedSnapshot(t *testing.T) {
+func TestService_LookupMinerByIdentifier_ShouldLookupByMACWhenTypeIsMAC(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		mac      = "00:1A:2B:3C:4D:5E"
+		deviceID = "device-mac"
+		orgID    = int64(123)
+	)
+
+	deviceStore.EXPECT().
+		GetPairedDeviceByMACAddress(gomock.Any(), mac, orgID).
+		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, MacAddress: mac}, nil)
+	deviceStore.EXPECT().
+		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
+		Return([]sqlc.ListMinerStateSnapshotsRow{{
+			DeviceIdentifier: deviceID,
+			PairingStatus:    "UNPAIRED",
+		}}, "", int64(1), nil)
+
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
+		Identifier:     mac,
+		IdentifierType: pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_MAC_ADDRESS,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
+}
+
+func TestService_LookupMinerByIdentifier_ShouldInferMACWhenTypeUnspecified(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		mac      = "00:1A:2B:3C:4D:5E" // MAC-shaped → inferred as MAC
+		deviceID = "device-mac"
+		orgID    = int64(123)
+	)
+
+	deviceStore.EXPECT().
+		GetPairedDeviceByMACAddress(gomock.Any(), mac, orgID).
+		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, MacAddress: mac}, nil)
+	deviceStore.EXPECT().
+		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
+		Return([]sqlc.ListMinerStateSnapshotsRow{{
+			DeviceIdentifier: deviceID,
+			PairingStatus:    "UNPAIRED",
+		}}, "", int64(1), nil)
+
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
+		Identifier: mac, // no explicit type
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
+}
+
+func TestService_LookupMinerByIdentifier_ShouldInferSerialWhenTypeUnspecified(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+
+	const (
+		serial   = "1234567890123456" // not MAC-shaped → inferred as serial
+		deviceID = "device-serial"
+		orgID    = int64(123)
+	)
+
+	deviceStore.EXPECT().
+		GetPairedDeviceBySerialNumber(gomock.Any(), serial, orgID).
+		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, SerialNumber: serial}, nil)
+	deviceStore.EXPECT().
+		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
+		Return([]sqlc.ListMinerStateSnapshotsRow{{
+			DeviceIdentifier: deviceID,
+			PairingStatus:    "UNPAIRED",
+		}}, "", int64(1), nil)
+
+	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
+		Identifier: serial, // no explicit type
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
+}
+
+func TestService_LookupMinerByIdentifier_ShouldReturnHydratedSnapshot(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	deviceStore := storemocks.NewMockDeviceStore(ctrl)
 	collectionStore := storemocks.NewMockCollectionStore(ctrl)
@@ -382,7 +485,6 @@ func TestService_LookupMinerBySerialNumber_ShouldReturnHydratedSnapshot(t *testi
 		serial   = "SN123456"
 		deviceID = "device-xyz"
 		orgID    = int64(123)
-		rackID   = int64(77)
 	)
 
 	deviceStore.EXPECT().
@@ -407,7 +509,10 @@ func TestService_LookupMinerBySerialNumber_ShouldReturnHydratedSnapshot(t *testi
 	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, collectionStore, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
-	resp, err := service.LookupMinerBySerialNumber(ctx, &pb.LookupMinerBySerialNumberRequest{SerialNumber: serial})
+	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
+		Identifier:     serial,
+		IdentifierType: pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER,
+	})
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)

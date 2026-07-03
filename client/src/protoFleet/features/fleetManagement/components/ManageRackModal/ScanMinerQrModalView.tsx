@@ -13,9 +13,9 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 /** Discriminated state of the scan flow, owned by the container. */
 export type ScanPhase =
   | { kind: "scanning" }
-  | { kind: "looking-up"; serial: string }
+  | { kind: "looking-up"; identifier: string }
   | { kind: "found"; snapshot: MinerStateSnapshot }
-  | { kind: "not-found"; serial: string }
+  | { kind: "not-found"; identifier: string }
   | { kind: "error"; message: string };
 
 export interface ScanMinerQrModalViewProps {
@@ -39,9 +39,9 @@ export interface ScanMinerQrModalViewProps {
 
 /**
  * Presentational shell for the scan-a-miner-QR flow. Renders purely from
- * `phase` and camera bindings — all camera access, decoding, and the serial
- * lookup live in the ScanMinerQrModal container. Kept separate so the visual
- * states are storyable without a camera or backend.
+ * `phase` and camera bindings — all camera access, decoding, and the
+ * identifier lookup live in the ScanMinerQrModal container. Kept separate so
+ * the visual states are storyable without a camera or backend.
  */
 export default function ScanMinerQrModalView({
   show,
@@ -114,7 +114,7 @@ export default function ScanMinerQrModalView({
           <div className="flex flex-col items-center gap-3 py-10">
             <ProgressCircular indeterminate />
             <span className="text-300 text-text-primary-70">
-              {phase.serial ? `Looking up ${phase.serial}…` : "Reading code…"}
+              {phase.identifier ? `Looking up ${phase.identifier}…` : "Reading code…"}
             </span>
           </div>
         ) : null}
@@ -131,9 +131,9 @@ export default function ScanMinerQrModalView({
           <Callout
             intent="warning"
             prefixIcon={<Alert />}
-            title={phase.serial ? `No paired miner found for "${phase.serial}"` : "No QR code detected"}
+            title={phase.identifier ? `No paired miner found for "${phase.identifier}"` : "No QR code detected"}
             subtitle={
-              phase.serial
+              phase.identifier
                 ? "Check that the miner is paired to this Fleet, or scan a different code."
                 : "Make sure the whole QR code is visible and try again."
             }

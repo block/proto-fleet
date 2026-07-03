@@ -78,7 +78,7 @@ export const PhotoCaptureFallback: Story = {
 
 /** Resolving a scanned serial against the fleet. */
 export const LookingUp: Story = {
-  args: { phase: { kind: "looking-up", serial: "1234567890123456" } },
+  args: { phase: { kind: "looking-up", identifier: "1234567890123456" } },
 };
 
 /** A paired miner was resolved and is ready to assign. */
@@ -98,12 +98,12 @@ export const FoundInAnotherRack: Story = {
 
 /** The serial did not match any paired miner. */
 export const NotFound: Story = {
-  args: { phase: { kind: "not-found", serial: "9999999999999999" } },
+  args: { phase: { kind: "not-found", identifier: "9999999999999999" } },
 };
 
 /** A QR code was read but no serial could be parsed from it. */
 export const NoCodeDetected: Story = {
-  args: { phase: { kind: "not-found", serial: "" } },
+  args: { phase: { kind: "not-found", identifier: "" } },
 };
 
 /** An unexpected lookup/transport error. */

@@ -76,11 +76,11 @@ func (h *Handler) ExportMinerListCsv(ctx context.Context, r *connect.Request[pb.
 	})
 }
 
-func (h *Handler) LookupMinerBySerialNumber(ctx context.Context, r *connect.Request[pb.LookupMinerBySerialNumberRequest]) (*connect.Response[pb.LookupMinerBySerialNumberResponse], error) {
+func (h *Handler) LookupMinerByIdentifier(ctx context.Context, r *connect.Request[pb.LookupMinerByIdentifierRequest]) (*connect.Response[pb.LookupMinerByIdentifierResponse], error) {
 	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	result, err := h.fleetMgmtSvc.LookupMinerBySerialNumber(ctx, r.Msg)
+	result, err := h.fleetMgmtSvc.LookupMinerByIdentifier(ctx, r.Msg)
 	if err != nil {
 		return nil, err
 	}

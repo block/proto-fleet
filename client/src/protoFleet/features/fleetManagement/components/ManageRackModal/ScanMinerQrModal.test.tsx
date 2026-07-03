@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ScanMinerQrModal from "./ScanMinerQrModal";
+import { MinerIdentifierType } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 // --- Mock the scanner hook so tests never touch real camera/WASM APIs. ---
 const mockUseQrScanner = vi.fn();
@@ -18,8 +19,8 @@ vi.mock("@/protoFleet/features/fleetManagement/hooks/useQrScanner", () => ({
 
 // --- Mock the serial lookup so we control found / notFound / error. ---
 const mockLookup = vi.fn();
-vi.mock("@/protoFleet/api/lookupMinerBySerial", () => ({
-  lookupMinerBySerial: (...args: unknown[]) => mockLookup(...args),
+vi.mock("@/protoFleet/api/lookupMinerByIdentifier", () => ({
+  lookupMinerByIdentifier: (...args: unknown[]) => mockLookup(...args),
 }));
 
 // Lightweight Modal stub that renders children + buttons.
@@ -76,8 +77,8 @@ describe("ScanMinerQrModal", () => {
     });
 
     await waitFor(() => expect(screen.getByText("Miner One")).toBeInTheDocument());
-    // The parsed (prefix-stripped) serial is sent to the lookup.
-    expect(mockLookup).toHaveBeenCalledWith("SN123");
+    // The parsed (prefix-stripped) serial + detected type are sent to the lookup.
+    expect(mockLookup).toHaveBeenCalledWith("SN123", MinerIdentifierType.SERIAL_NUMBER);
 
     fireEvent.click(screen.getByText("Assign to slot"));
     expect(onConfirm).toHaveBeenCalledWith("dev-1");

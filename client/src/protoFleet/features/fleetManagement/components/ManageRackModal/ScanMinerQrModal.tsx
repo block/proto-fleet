@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import ScanMinerQrModalView, { type ScanPhase } from "./ScanMinerQrModalView";
-import { lookupMinerBySerial } from "@/protoFleet/api/lookupMinerBySerial";
+import { lookupMinerByIdentifier } from "@/protoFleet/api/lookupMinerByIdentifier";
 import { canUseLiveCamera, useQrScanner } from "@/protoFleet/features/fleetManagement/hooks/useQrScanner";
-import { parseScannedSerial } from "@/protoFleet/features/fleetManagement/utils/parseScannedSerial";
+import { parseScannedIdentifier } from "@/protoFleet/features/fleetManagement/utils/parseScannedIdentifier";
 
 interface ScanMinerQrModalProps {
   show: boolean;
@@ -15,7 +15,7 @@ interface ScanMinerQrModalProps {
 
 /**
  * Container for the scan-a-miner-QR flow: owns camera access (via useQrScanner),
- * decoding, and the serial → miner lookup, driving the presentational
+ * decoding, and the identifier → miner lookup, driving the presentational
  * ScanMinerQrModalView through a `ScanPhase` state machine.
  */
 export default function ScanMinerQrModal({ show, currentRackLabel, onDismiss, onConfirm }: ScanMinerQrModalProps) {
@@ -30,21 +30,21 @@ export default function ScanMinerQrModal({ show, currentRackLabel, onDismiss, on
   const cameraActive = show && liveCamera && phase.kind === "scanning";
 
   const runLookup = useCallback(async (rawValue: string) => {
-    const serial = parseScannedSerial(rawValue);
-    if (!serial) {
-      setPhase({ kind: "not-found", serial: rawValue.trim() });
+    const { value, type } = parseScannedIdentifier(rawValue);
+    if (!value) {
+      setPhase({ kind: "not-found", identifier: rawValue.trim() });
       return;
     }
     const seq = ++lookupSeq.current;
-    setPhase({ kind: "looking-up", serial });
-    const result = await lookupMinerBySerial(serial);
+    setPhase({ kind: "looking-up", identifier: value });
+    const result = await lookupMinerByIdentifier(value, type);
     if (seq !== lookupSeq.current) return; // superseded
     switch (result.status) {
       case "found":
         setPhase({ kind: "found", snapshot: result.snapshot });
         break;
       case "notFound":
-        setPhase({ kind: "not-found", serial });
+        setPhase({ kind: "not-found", identifier: value });
         break;
       case "error":
         setPhase({ kind: "error", message: result.message });
@@ -74,13 +74,13 @@ export default function ScanMinerQrModal({ show, currentRackLabel, onDismiss, on
   const handleFile = useCallback(
     async (file: File | undefined) => {
       if (!file) return;
-      setPhase({ kind: "looking-up", serial: "" });
+      setPhase({ kind: "looking-up", identifier: "" });
       try {
         const rawValue = await detectFromBlob(file);
         if (rawValue) {
           await runLookup(rawValue);
         } else {
-          setPhase({ kind: "not-found", serial: "" });
+          setPhase({ kind: "not-found", identifier: "" });
         }
       } catch {
         setPhase({ kind: "error", message: "Could not read the photo. Try again with the QR code centered." });
