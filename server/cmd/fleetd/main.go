@@ -656,7 +656,7 @@ func start(config *Config) error {
 	mux.Handle(foremanimportv1connect.NewForemanImportServiceHandler(foremanImportHandler.NewHandler(foremanImportSvc), li))
 	mux.Handle(activityv1connect.NewActivityServiceHandler(activityHandler.NewHandler(activitySvc), li))
 	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apikeyHandler.NewHandler(apiKeySvc), li))
-	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn)), li))
+	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn, activitySvc)), li))
 	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))
 
 	alertHandler := alertsHandler.NewHandler(alertsSvc, notificationHistoryStore)

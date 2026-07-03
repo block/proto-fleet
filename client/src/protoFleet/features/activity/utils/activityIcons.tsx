@@ -33,6 +33,7 @@ const iconMap: Record<string, (props: IconProps) => ReactNode> = {
   deactivate_user: Trash,
   reset_password: Lock,
   create_admin_user: Lock,
+  update_user_role: Lock,
 
   stop_mining: Power,
   start_mining: Power,
@@ -61,6 +62,10 @@ const iconMap: Record<string, (props: IconProps) => ReactNode> = {
   create_pool: MiningPools,
   update_pool: MiningPools,
   delete_pool: Trash,
+
+  create_role: Lock,
+  update_role: Edit,
+  delete_role: Trash,
 };
 
 export function getActivityIcon(eventType: string): (props: IconProps) => ReactNode {

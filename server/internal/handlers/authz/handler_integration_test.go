@@ -42,7 +42,7 @@ func TestHandler_ListRoles_AcceptsUserManageOnlyCaller(t *testing.T) {
 		`SELECT id FROM organization WHERE org_id = $1`, "listroles-gate-org").Scan(&orgID))
 	require.NoError(t, authzDomain.Reconcile(ctx, db))
 
-	svc := authzDomain.NewService(db)
+	svc := authzDomain.NewService(db, nil)
 	handler := authz.NewHandler(svc)
 
 	resp, err := handler.ListRoles(
@@ -72,7 +72,7 @@ func TestHandler_ListRoles_DeniesWhenNeitherKeyHeld(t *testing.T) {
 		`SELECT id FROM organization WHERE org_id = $1`, "listroles-deny-org").Scan(&orgID))
 	require.NoError(t, authzDomain.Reconcile(ctx, db))
 
-	svc := authzDomain.NewService(db)
+	svc := authzDomain.NewService(db, nil)
 	handler := authz.NewHandler(svc)
 
 	_, err = handler.ListRoles(
