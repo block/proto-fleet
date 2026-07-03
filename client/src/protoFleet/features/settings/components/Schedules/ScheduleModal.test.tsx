@@ -14,10 +14,21 @@ import {
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import { getNextEndTimeAfterStart } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
 
-const { listRacksMock, listGroupsMock, pushToastMock } = vi.hoisted(() => ({
+const { listRacksMock, listGroupsMock, pushToastMock, useFleetMock, minerSelectionModalMock } = vi.hoisted(() => ({
   listRacksMock: vi.fn(),
   listGroupsMock: vi.fn(),
   pushToastMock: vi.fn(),
+  useFleetMock: vi.fn(() => ({ totalMiners: 1, hasInitialLoadCompleted: true })),
+  minerSelectionModalMock: vi.fn((_props: Record<string, unknown>) => null),
+}));
+
+// Apply-to target buttons are gated per read permission. Default to granting
+// all reads so existing target-visibility tests are unaffected; individual
+// tests narrow this to cover restricted roles.
+const hasPermissionMock = vi.hoisted(() => ({ current: (_key: string): boolean => true }));
+
+vi.mock("@/protoFleet/store", () => ({
+  useHasPermission: (key: string) => hasPermissionMock.current(key),
 }));
 
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
@@ -29,10 +40,7 @@ vi.mock("@/protoFleet/api/useDeviceSets", () => ({
 
 vi.mock("@/protoFleet/api/useFleet", () => ({
   __esModule: true,
-  default: () => ({
-    totalMiners: 1,
-    hasInitialLoadCompleted: true,
-  }),
+  default: useFleetMock,
 }));
 
 // The schedule modal reads the topbar SitePicker selection for soft scoping.
@@ -56,7 +64,7 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/SchedulePreview", (
 
 vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal", () => ({
   __esModule: true,
-  default: () => null,
+  default: minerSelectionModalMock,
 }));
 
 vi.mock("@/protoFleet/features/settings/components/Schedules/SiteSelectionModal", () => ({
@@ -343,7 +351,10 @@ describe("ScheduleModal Apply-to targets", () => {
     listGroupsMock.mockReset();
     listGroupsMock.mockImplementation(() => undefined);
     pushToastMock.mockReset();
+    useFleetMock.mockClear();
+    minerSelectionModalMock.mockClear();
     activeSiteMock.current = { kind: "all" };
+    hasPermissionMock.current = () => true;
   });
 
   const renderCreateModal = () =>
@@ -380,5 +391,51 @@ describe("ScheduleModal Apply-to targets", () => {
     expect(screen.getByText("Racks")).toBeInTheDocument();
     expect(screen.getByText("Groups")).toBeInTheDocument();
     expect(screen.getByText("Miners")).toBeInTheDocument();
+  });
+
+  it("hides target types the role cannot read", () => {
+    // A Fleet+Miner+Schedules role (no site:read / rack:read) can only target
+    // miners; the site/building/rack/group pickers would hit permission-denied
+    // list RPCs, so their buttons must not be offered.
+    hasPermissionMock.current = (key: string) => key === "miner:read";
+    renderCreateModal();
+
+    expect(screen.getByText("Miners")).toBeInTheDocument();
+    expect(screen.queryByText("Sites")).not.toBeInTheDocument();
+    expect(screen.queryByText("Buildings")).not.toBeInTheDocument();
+    expect(screen.queryByText("Racks")).not.toBeInTheDocument();
+    expect(screen.queryByText("Groups")).not.toBeInTheDocument();
+    // No rack/group list RPC should fire without rack:read.
+    expect(listRacksMock).not.toHaveBeenCalled();
+    expect(listGroupsMock).not.toHaveBeenCalled();
+  });
+
+  it("does not fetch the miner list for a role without miner:read", () => {
+    // ListMinerStateSnapshots is gated on miner:read; opening the modal must
+    // not fire it (nor advertise the Miners target) for a role that lacks it.
+    hasPermissionMock.current = (key: string) => key === "site:read";
+    renderCreateModal();
+
+    expect(screen.queryByText("Miners")).not.toBeInTheDocument();
+    expect(useFleetMock).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
+  });
+
+  it("disables rack/group facets in the miner picker without rack:read", () => {
+    // The miner picker's rack/group filters call ListDeviceSets (rack:read); a
+    // miner:read-only manager must be able to pick miners without them.
+    hasPermissionMock.current = (key: string) => key === "miner:read";
+    renderCreateModal();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Miners/ }));
+    expect(minerSelectionModalMock.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({ filterConfig: { showRackFilter: false, showGroupFilter: false } }),
+    );
+  });
+
+  it("leaves miner-picker facets on when the role can read racks", () => {
+    renderCreateModal();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Miners/ }));
+    expect(minerSelectionModalMock.mock.lastCall?.[0]).toEqual(expect.objectContaining({ filterConfig: undefined }));
   });
 });

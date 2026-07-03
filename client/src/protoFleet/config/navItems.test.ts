@@ -20,16 +20,19 @@ describe("primaryNavItems", () => {
     const fleet = primaryNavItems.find((item) => item.label === "Fleet");
 
     expect(fleet?.requiredPermission).toBeUndefined();
-    expect(fleet?.requiredAnyPermission).toEqual(["rack:read", "site:read"]);
+    expect(fleet?.requiredAnyPermission).toEqual(["rack:read", "site:read", ["miner:read", "fleet:read"]]);
 
     // Rack- and site-only readers can reach Fleet tabs (racks / sites), so the
     // nav entry stays visible for them.
     expect(isNavItemAllowedByPermissions(fleet!, ["rack:read"])).toBe(true);
     expect(isNavItemAllowedByPermissions(fleet!, ["site:read"])).toBe(true);
-    // fleet:read alone unlocks no Fleet tab (the miners tab also needs
-    // miner:read + rack:read), so it must NOT advertise an unreachable page.
-    expect(isNavItemAllowedByPermissions(fleet!, ["fleet:read"])).toBe(false);
+    // The miners tab needs miner:read AND fleet:read together, so only the pair
+    // makes the nav entry visible via the miners path.
+    expect(isNavItemAllowedByPermissions(fleet!, ["miner:read", "fleet:read"])).toBe(true);
+    // Neither half alone reaches a tab (read-pairing does not force fleet:read
+    // onto miner:read), so neither may advertise the page.
     expect(isNavItemAllowedByPermissions(fleet!, ["miner:read"])).toBe(false);
+    expect(isNavItemAllowedByPermissions(fleet!, ["fleet:read"])).toBe(false);
     expect(isNavItemAllowedByPermissions(fleet!, ["activity:read"])).toBe(false);
   });
 

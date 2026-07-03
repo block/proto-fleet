@@ -16,7 +16,9 @@ export interface NavItem {
   // filter via UserInfo.permissions. Entries without a requiredPermission
   // are visible to every authenticated user.
   requiredPermission?: string;
-  requiredAnyPermission?: string[];
+  // OR-union: the entry shows if ANY element is satisfied. A string is one
+  // permission; a nested string[] is an AND-group (all its keys required).
+  requiredAnyPermission?: (string | string[])[];
   scopable?: boolean;
 }
 
@@ -26,7 +28,7 @@ export interface SecondaryNavItem {
   parent: string;
   section?: "Fleet" | "Automation" | "Admin" | "Account";
   requiredPermission?: string;
-  requiredAnyPermission?: string[];
+  requiredAnyPermission?: (string | string[])[];
   // When set, the entry is shown only if the server reports this feature enabled.
   requiredFeature?: NavFeature;
   // Whether the page honors the topbar SitePicker selection as a soft default
@@ -43,7 +45,12 @@ export const isNavItemAllowedByPermissions = (
 ) => {
   const hasRequiredPermission = !item.requiredPermission || permissions.includes(item.requiredPermission);
   const hasAnyPermission =
-    !item.requiredAnyPermission || item.requiredAnyPermission.some((permission) => permissions.includes(permission));
+    !item.requiredAnyPermission ||
+    item.requiredAnyPermission.some((requirement) =>
+      Array.isArray(requirement)
+        ? requirement.every((permission) => permissions.includes(permission))
+        : permissions.includes(requirement),
+    );
 
   return hasRequiredPermission && hasAnyPermission;
 };
@@ -60,16 +67,12 @@ export const primaryNavItems: NavItem[] = [
     path: "/fleet",
     label: "Fleet",
     icon: Fleet,
-    // The Fleet shell hosts several tabs, each with its own gate (see
-    // FleetLayout's isTabReachable): racks needs rack:read, sites/buildings/
-    // infrastructure need site:read, and miners needs miner:read + rack:read +
-    // fleet:read. rack:read and site:read are the only permissions that
-    // independently make a tab reachable, so gate on their OR union. fleet:read
-    // and miner:read are deliberately excluded: neither unlocks a tab on its
-    // own (a fleet:read-only role would land on the empty "no permission"
-    // shell), and the miners tab already requires rack:read. Home stays ungated
-    // as the safe universal landing; its widgets already degrade per-permission.
-    requiredAnyPermission: ["rack:read", "site:read"],
+    // Show Fleet when at least one tab is reachable (see FleetLayout's
+    // isTabReachable): racks needs rack:read, sites/buildings need site:read,
+    // miners needs miner:read AND fleet:read. The miners AND-group matters
+    // because read-pairing does NOT force fleet:read onto miner:read, so either
+    // key alone would advertise a page that lands on the empty shell.
+    requiredAnyPermission: ["rack:read", "site:read", ["miner:read", "fleet:read"]],
     scopable: true,
   },
   {

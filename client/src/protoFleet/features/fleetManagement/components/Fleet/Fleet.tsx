@@ -42,6 +42,7 @@ import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetMa
 import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
 import { isPathScopable } from "@/protoFleet/routing/siteScope";
+import { useHasPermission } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
 
@@ -84,6 +85,9 @@ const applySiteScopeToMinerFilter = (
 
 const Fleet = () => {
   const navigate = useNavigate();
+  // ListDeviceSets (racks + groups) is rack:read-gated; skip those fetches
+  // without it so the miner list opens cleanly (filters just degrade to empty).
+  const canReadRacks = useHasPermission("rack:read");
   const { listGroups, listRacks } = useDeviceSets();
   const { listAllBuildings } = useBuildings();
   const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
@@ -109,6 +113,7 @@ const Fleet = () => {
   );
 
   useEffect(() => {
+    if (!canReadRacks) return;
     listGroups({
       onSuccess: (deviceSets) => {
         setAvailableGroups(deviceSets);
@@ -119,7 +124,7 @@ const Fleet = () => {
         setAvailableRacks(deviceSets);
       },
     });
-  }, [listGroups, listRacks]);
+  }, [canReadRacks, listGroups, listRacks]);
 
   useEffect(() => {
     if (!siteCatalogAccessGranted) return;

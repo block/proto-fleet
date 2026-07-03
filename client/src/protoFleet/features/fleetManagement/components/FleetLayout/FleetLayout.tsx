@@ -118,7 +118,10 @@ const FleetLayout = () => {
   const sitesAccessBlocked = !canReadSites || sitesPermissionDenied;
   const siteCatalogAccessGranted = canReadSites && sitesLoaded && !sitesPermissionDenied;
   const canReadRacksTab = canReadRacks;
-  const canReadMinersTab = canReadMiners && canReadRacks && canReadFleet;
+  // Miner list needs miner:read (ListMinerStateSnapshots) + fleet:read (status/
+  // model filter RPCs). NOT rack:read — the rack/group filters degrade to empty
+  // (Fleet.tsx guards those calls) rather than gating the tab.
+  const canReadMinersTab = canReadMiners && canReadFleet;
   const canReadInfrastructureTab = !sitesAccessBlocked;
 
   // Permission source of truth for Fleet tabs. Feature flags can hide tab-strip
