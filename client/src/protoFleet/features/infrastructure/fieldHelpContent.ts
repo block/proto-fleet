@@ -4,7 +4,7 @@ export const infraDeviceFieldHelp: Record<"unitId" | "endpoint" | "port", FieldH
   unitId: {
     ariaLabel: "About Unit ID",
     header: "Unit ID",
-    body: "Numeric Modbus unit/slave address for this device at the configured endpoint.",
+    body: "Numeric Modbus unit/slave address from 1 to 247 for this device at the configured endpoint.",
     testId: "infra-device-unit-id-help",
   },
   endpoint: {

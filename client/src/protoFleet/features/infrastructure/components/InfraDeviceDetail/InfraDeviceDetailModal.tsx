@@ -1,10 +1,7 @@
 import { useCallback, useState } from "react";
 
 import InfraLocationFields from "@/protoFleet/features/infrastructure/components/InfraLocationFields";
-import {
-  MODBUS_TCP_CONNECTION_TYPE,
-  MODBUS_TCP_CONNECTION_TYPE_LABEL,
-} from "@/protoFleet/features/infrastructure/connectionTypes";
+import { getInfraDeviceConnectionTypeLabel } from "@/protoFleet/features/infrastructure/connectionTypes";
 import { FieldHelpPopover } from "@/protoFleet/features/infrastructure/fieldHelp";
 import { infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelpContent";
 import type { InfraBuildingOption, InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
@@ -66,13 +63,14 @@ const InfraDeviceDetailModal = ({
   const portNumber = Number(port);
   const isPortValid = Number.isInteger(portNumber) && portNumber > 0 && portNumber <= 65535;
   const canSave = [name, site, building, endpoint].every((value) => value.trim().length > 0) && isPortValid;
+  const connectionTypeLabel = getInfraDeviceConnectionTypeLabel(device.connectionType);
 
   const handleSave = useCallback(() => {
     if (!canSave) return;
     onSave({
       ...device,
       name: name.trim(),
-      connectionType: MODBUS_TCP_CONNECTION_TYPE,
+      connectionType: device.connectionType,
       endpoint: endpoint.trim(),
       port: portNumber,
       siteName: site.trim(),
@@ -155,12 +153,7 @@ const InfraDeviceDetailModal = ({
             onBuildingChange={setBuilding}
             disabled={!canManage}
           />
-          <Input
-            id="device-connection-type"
-            label="Connection type"
-            initValue={MODBUS_TCP_CONNECTION_TYPE_LABEL}
-            readOnly
-          />
+          <Input id="device-connection-type" label="Connection type" initValue={connectionTypeLabel} readOnly />
           <div className="grid grid-cols-2 gap-3">
             <Input
               id="device-endpoint"
