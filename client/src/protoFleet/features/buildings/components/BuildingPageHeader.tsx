@@ -45,7 +45,7 @@ const BuildingPageHeader = ({
   return (
     <div className="flex flex-col gap-3">
       <Breadcrumb segments={breadcrumbSegments} testId="building-page-breadcrumb" />
-      <Header title={label} titleSize="text-heading-300" inline>
+      <Header title={label} titleSize="text-heading-300" inline testId="building-page-title">
         <div className="ml-3 flex items-center gap-3">
           <Button
             variant={variants.secondary}

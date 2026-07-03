@@ -6,6 +6,7 @@ import { FleetLocationsPage } from "../pages/fleetLocations";
 import { MinersPage } from "../pages/miners";
 import { RacksPage } from "../pages/racks";
 import { CommonSteps } from "./commonSteps";
+import { installAllSitesInitScript } from "./fleetLocationsSetup";
 import { addSelectableMinersToSlots } from "./racksHelpers";
 import { generateRandomText } from "./testDataHelper";
 
@@ -16,8 +17,6 @@ const AUTOMATION_RACK_PREFIX = "automation_buildings_rack";
 const TEMP_ZONE = "AutomationBuildingsZone";
 const RACK_COLUMNS = 2;
 const RACK_ROWS = 2;
-const ACTIVE_SITE_STORAGE_KEY = "proto-fleet-multi-site";
-
 type BuildingsCleanupFleetLocationsPage = Pick<
   FleetLocationsPage,
   "deleteBuildingByNameIfVisible" | "deleteSiteByNameIfVisible" | "listBuildingNames" | "listSiteNames"
@@ -45,25 +44,6 @@ export function createBuildingsScenarioData(): BuildingsScenarioData {
     buildingName: generateRandomText(AUTOMATION_BUILDING_PREFIX),
     rackLabel: generateRandomText(AUTOMATION_RACK_PREFIX),
   };
-}
-
-async function installAllSitesInitScript(page: Page) {
-  await page.addInitScript(
-    ({ storageKey }) => {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({
-          state: {
-            ui: {
-              activeSite: { kind: "all" },
-            },
-          },
-          version: 0,
-        }),
-      );
-    },
-    { storageKey: ACTIVE_SITE_STORAGE_KEY },
-  );
 }
 
 async function cleanupAutomationFixtures(

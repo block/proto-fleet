@@ -68,6 +68,17 @@ export class FleetLocationsPage extends BasePage {
     return siteId;
   }
 
+  async openBuildingDetail(name: string): Promise<bigint> {
+    await this.navigateToBuildingsPage();
+    const buildingId = await this.getScopeIdFromRowName(name, "building");
+    const row = this.getListRowByName(name);
+    await expect(row).toBeVisible();
+    await row.getByTestId("name").click();
+    await expect(this.page).toHaveURL(new RegExp(`/buildings/${buildingId.toString()}(?:[?#].*)?$`));
+    await expect(this.page.getByTestId("building-page")).toBeVisible();
+    return buildingId;
+  }
+
   async validateSitesPageOpened() {
     await expect(this.page).toHaveURL(/\/fleet\/sites(?:[?#].*)?$/);
     await this.validateSitesListVisible();
@@ -84,6 +95,11 @@ export class FleetLocationsPage extends BasePage {
     await expect(this.page.getByTestId("site-detail-title")).toHaveText(siteName);
   }
 
+  async validateBuildingDetailOpened(buildingName: string) {
+    await expect(this.page.getByTestId("building-page")).toBeVisible();
+    await expect(this.page.getByTestId("building-page-title")).toHaveText(buildingName);
+  }
+
   async validateSiteDetailMetrics(expected: { location?: string; buildings?: number }) {
     const metricsRow = this.page.getByTestId("site-detail-metrics-row");
     await expect(metricsRow).toBeVisible();
@@ -94,6 +110,21 @@ export class FleetLocationsPage extends BasePage {
 
     if (expected.buildings !== undefined) {
       await expect(metricsRow.getByTestId("site-metric-buildings-value")).toHaveText(String(expected.buildings));
+    }
+  }
+
+  async validateBuildingDetailMetrics(expected: { minersOnline?: string; totalMiners?: number }) {
+    const metricsRow = this.page.getByTestId("building-metrics-row");
+    await expect(metricsRow).toBeVisible();
+
+    if (expected.minersOnline !== undefined) {
+      await expect(metricsRow.getByTestId("building-metric-online-value")).toHaveText(expected.minersOnline);
+    }
+
+    if (expected.totalMiners !== undefined) {
+      await expect(metricsRow.getByTestId("building-metric-online-value")).toHaveText(
+        new RegExp(`^\\d+\\s/\\s${expected.totalMiners}$`),
+      );
     }
   }
 
@@ -124,6 +155,29 @@ export class FleetLocationsPage extends BasePage {
     await this.closeFullScreenModalIfVisible();
   }
 
+  async editBuildingDetailsFromDetail(updates: { name?: string; powerCapacityMw?: string }) {
+    await expect(this.page.getByTestId("building-page-edit")).toBeVisible();
+    await this.page.getByTestId("building-page-edit").click();
+    const fullScreenModal = this.page.getByTestId("full-screen-two-pane-modal");
+    await expect(fullScreenModal).toBeVisible();
+    await this.clickManageBuildingEditDetails(fullScreenModal);
+
+    const settingsModal = this.page.getByTestId("building-settings-modal");
+    await expect(settingsModal).toBeVisible();
+
+    if (updates.name !== undefined) {
+      await settingsModal.getByTestId("building-settings-name-input").fill(updates.name);
+    }
+
+    if (updates.powerCapacityMw !== undefined) {
+      await settingsModal.getByTestId("building-settings-power-input").fill(updates.powerCapacityMw);
+    }
+
+    await settingsModal.getByTestId("building-settings-modal-save").click();
+    await this.waitForModalToClose("building-settings-modal");
+    await this.closeFullScreenModalIfVisible();
+  }
+
   async addBuildingFromSiteDetail(buildingName: string) {
     await expect(this.page.getByTestId("site-detail-add-building")).toBeVisible();
     await this.page.getByTestId("site-detail-add-building").click();
@@ -148,6 +202,15 @@ export class FleetLocationsPage extends BasePage {
     await expect(this.page.getByTestId("site-detail-title")).toHaveText(siteName);
   }
 
+  async switchBuildingDetailBreadcrumbTo(buildingName: string) {
+    const switcher = this.page.getByTestId("building-page-breadcrumb-switcher");
+    await expect(switcher).toBeVisible();
+    await switcher.click();
+    await this.page.getByTestId(`building-page-breadcrumb-menu-item-${buildingName}`).click();
+    await expect(this.page.getByTestId("building-page-breadcrumb-switcher")).toContainText(buildingName);
+    await expect(this.page.getByTestId("building-page-title")).toHaveText(buildingName);
+  }
+
   async deleteSiteFromDetail() {
     await expect(this.page.getByTestId("site-detail-edit")).toBeVisible();
     await this.page.getByTestId("site-detail-edit").click();
@@ -162,8 +225,38 @@ export class FleetLocationsPage extends BasePage {
     await expect(this.page.getByTestId("full-screen-two-pane-modal")).toHaveCount(0);
   }
 
+  async openRacksFromBuildingDetail() {
+    await expect(this.page.getByTestId("building-page-view-racks")).toBeVisible();
+    await this.page.getByTestId("building-page-view-racks").click();
+    await expect(this.page).toHaveURL(/\/fleet\/racks\?building=\d+/);
+  }
+
+  async openMinersFromBuildingDetail() {
+    await expect(this.page.getByTestId("building-page-view-miners")).toBeVisible();
+    await this.page.getByTestId("building-page-view-miners").click();
+    await expect(this.page).toHaveURL(/\/fleet\/miners\?building=\d+/);
+  }
+
+  async deleteBuildingFromDetail() {
+    await expect(this.page.getByTestId("building-page-edit")).toBeVisible();
+    await this.page.getByTestId("building-page-edit").click();
+    await this.clickManageBuildingDelete();
+
+    const confirmDeleteButton = this.page.getByTestId("building-delete-dialog-confirm");
+    await expect(confirmDeleteButton).toBeVisible();
+    await confirmDeleteButton.click({ trial: true });
+    await confirmDeleteButton.click();
+    await expect(this.page.getByTestId("building-delete-dialog")).toHaveCount(0);
+    await this.validateSitesPageOpened();
+  }
+
   async validateSiteNotVisible(name: string) {
     await this.navigateToSitesPage();
+    await expect(this.getListRowByName(name)).toHaveCount(0);
+  }
+
+  async validateBuildingNotVisible(name: string) {
+    await this.navigateToBuildingsPage();
     await expect(this.getListRowByName(name)).toHaveCount(0);
   }
 
