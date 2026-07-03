@@ -19,6 +19,8 @@ const endpointKindOptions: { value: InfraDeviceEndpointKind; label: string }[] =
   { value: "single_fan", label: "Single fan" },
   { value: "fan_group", label: "Fan group" },
 ];
+const MIN_MODBUS_UNIT_ID = 1;
+const MAX_MODBUS_UNIT_ID = 247;
 
 export interface ManualAddStepState {
   canAdd: boolean;
@@ -46,7 +48,11 @@ const ManualAddStep = ({ siteOptions = [], buildingOptions = [], onSuccess, onSt
   const unitIdNumber = Number(unitIdValue);
   const portNumber = Number(port);
   const fanCountNumber = endpointKind === "single_fan" ? 1 : Number(fanCount);
-  const isUnitIdValid = /^\d+$/.test(unitIdValue) && unitIdNumber > 0;
+  const isUnitIdValid =
+    /^\d+$/.test(unitIdValue) &&
+    Number.isSafeInteger(unitIdNumber) &&
+    unitIdNumber >= MIN_MODBUS_UNIT_ID &&
+    unitIdNumber <= MAX_MODBUS_UNIT_ID;
   const isPortValid = Number.isInteger(portNumber) && portNumber > 0 && portNumber <= 65535;
   const isFanCountValid = endpointKind === "single_fan" || (Number.isInteger(fanCountNumber) && fanCountNumber > 1);
   const isValid =

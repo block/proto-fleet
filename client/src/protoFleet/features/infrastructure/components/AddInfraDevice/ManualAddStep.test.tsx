@@ -127,4 +127,23 @@ describe("ManualAddStep", () => {
       );
     });
   });
+
+  test("requires Unit ID to be within the Modbus unit address range", async () => {
+    const user = userEvent.setup();
+    const { getState } = renderManualAddStep();
+
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust");
+    await user.selectOptions(screen.getByLabelText("Site"), "Austin");
+    await user.selectOptions(screen.getByLabelText("Building"), "Building 1");
+    await user.type(screen.getByLabelText("Endpoint"), "10.12.1.21");
+    await user.type(screen.getByLabelText("Port"), "502");
+
+    await user.type(screen.getByLabelText("Unit ID"), "248");
+    expect(getState()?.canAdd).toBe(false);
+
+    await user.clear(screen.getByLabelText("Unit ID"));
+    await user.type(screen.getByLabelText("Unit ID"), "247");
+
+    await waitFor(() => expect(getState()?.canAdd).toBe(true));
+  });
 });
