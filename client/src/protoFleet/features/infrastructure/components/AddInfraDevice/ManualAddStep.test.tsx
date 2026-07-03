@@ -40,6 +40,12 @@ const renderManualAddStep = () => {
 
   render(
     <ManualAddStep
+      siteOptions={["Austin", "Denver"]}
+      buildingOptions={[
+        { siteName: "Austin", buildingName: "Building 1" },
+        { siteName: "Austin", buildingName: "Building 10" },
+        { siteName: "Denver", buildingName: "Denver Plant" },
+      ]}
       onSuccess={onSuccess}
       onStateChange={(state) => {
         currentState = state;
@@ -54,13 +60,15 @@ const renderManualAddStep = () => {
 };
 
 describe("ManualAddStep", () => {
-  test("submits selected device kind and fan count", async () => {
+  test("submits device identifier, selected device kind, and fan count", async () => {
     const user = userEvent.setup();
     const { getState, onSuccess } = renderManualAddStep();
 
     await user.type(screen.getByLabelText("Name"), "Roof exhaust");
-    await user.type(screen.getByLabelText("Site"), "Austin");
-    await user.type(screen.getByLabelText("Building"), "Building 1");
+    expect(screen.getByRole("button", { name: "About device identifier" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Device identifier"), "fan-zone-a");
+    await user.selectOptions(screen.getByLabelText("Site"), "Austin");
+    await user.selectOptions(screen.getByLabelText("Building"), "Building 1");
     await user.selectOptions(screen.getByLabelText("Device type"), "fan_group");
     await user.clear(screen.getByLabelText("Fans"));
     await user.type(screen.getByLabelText("Fans"), "12");
@@ -72,6 +80,7 @@ describe("ManualAddStep", () => {
     getState()?.addHandler();
 
     expect(onSuccess).toHaveBeenCalledWith({
+      id: "fan-zone-a",
       name: "Roof exhaust",
       siteName: "Austin",
       buildingName: "Building 1",

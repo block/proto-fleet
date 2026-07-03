@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 
+import InfraLocationFields from "@/protoFleet/features/infrastructure/components/InfraLocationFields";
 import { infraDeviceConnectionTypeOptions } from "@/protoFleet/features/infrastructure/connectionTypes";
 import { FieldHelpPopover } from "@/protoFleet/features/infrastructure/fieldHelp";
 import { infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelpContent";
 import type {
+  InfraBuildingOption,
   InfraDeviceConnectionType,
   InfraDeviceDraft,
   InfraDeviceEndpointKind,
@@ -22,12 +24,15 @@ export interface ManualAddStepState {
 }
 
 interface ManualAddStepProps {
+  siteOptions?: string[];
+  buildingOptions?: InfraBuildingOption[];
   onSuccess: (device: InfraDeviceDraft) => void;
   onStateChange: (state: ManualAddStepState) => void;
 }
 
-const ManualAddStep = ({ onSuccess, onStateChange }: ManualAddStepProps) => {
+const ManualAddStep = ({ siteOptions = [], buildingOptions = [], onSuccess, onStateChange }: ManualAddStepProps) => {
   const [name, setName] = useState("");
+  const [deviceIdentifier, setDeviceIdentifier] = useState("");
   const [site, setSite] = useState("");
   const [building, setBuilding] = useState("");
   const [endpointKind, setEndpointKind] = useState<InfraDeviceEndpointKind>("single_fan");
@@ -41,13 +46,9 @@ const ManualAddStep = ({ onSuccess, onStateChange }: ManualAddStepProps) => {
   const isPortValid = Number.isInteger(portNumber) && portNumber > 0 && portNumber <= 65535;
   const isFanCountValid = endpointKind === "single_fan" || (Number.isInteger(fanCountNumber) && fanCountNumber > 1);
   const isValid =
-    [name, site, building, connectionType, endpoint].every((value) => value.trim().length > 0) &&
+    [name, deviceIdentifier, site, building, connectionType, endpoint].every((value) => value.trim().length > 0) &&
     isPortValid &&
     isFanCountValid;
-
-  const handleSiteChange = useCallback((value: string) => {
-    setSite(value);
-  }, []);
 
   const handleEndpointKindChange = useCallback((value: string) => {
     const nextEndpointKind = value as InfraDeviceEndpointKind;
@@ -60,6 +61,7 @@ const ManualAddStep = ({ onSuccess, onStateChange }: ManualAddStepProps) => {
   const handleAdd = useCallback(() => {
     if (!isValid || !connectionType) return;
     onSuccess({
+      id: deviceIdentifier.trim(),
       name: name.trim(),
       siteName: site.trim(),
       buildingName: building.trim(),
@@ -69,7 +71,19 @@ const ManualAddStep = ({ onSuccess, onStateChange }: ManualAddStepProps) => {
       endpoint: endpoint.trim(),
       port: portNumber,
     });
-  }, [building, connectionType, endpoint, endpointKind, fanCountNumber, isValid, name, onSuccess, portNumber, site]);
+  }, [
+    building,
+    connectionType,
+    endpoint,
+    endpointKind,
+    fanCountNumber,
+    deviceIdentifier,
+    isValid,
+    name,
+    onSuccess,
+    portNumber,
+    site,
+  ]);
 
   useEffect(() => {
     onStateChange({ canAdd: isValid, addHandler: handleAdd });
@@ -78,10 +92,14 @@ const ManualAddStep = ({ onSuccess, onStateChange }: ManualAddStepProps) => {
   return (
     <div className="flex flex-col gap-4 pb-2">
       <Input id="manual-name" label="Name" onChange={(v) => setName(v)} />
-      <div className="grid grid-cols-2 gap-3">
-        <Input id="manual-site" label="Site" onChange={handleSiteChange} />
-        <Input id="manual-building" label="Building" onChange={setBuilding} />
-      </div>
+      <InfraLocationFields
+        site={site}
+        building={building}
+        siteOptions={siteOptions}
+        buildingOptions={buildingOptions}
+        onSiteChange={setSite}
+        onBuildingChange={setBuilding}
+      />
       <div className="grid grid-cols-2 gap-3">
         <Select
           id="manual-endpoint-kind"
@@ -101,6 +119,12 @@ const ManualAddStep = ({ onSuccess, onStateChange }: ManualAddStepProps) => {
           onChange={(v) => setFanCount(v)}
         />
       </div>
+      <Input
+        id="manual-device-identifier"
+        label="Device identifier"
+        suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.deviceIdentifier} />}
+        onChange={(v) => setDeviceIdentifier(v)}
+      />
       <Select
         id="manual-connection-type"
         label="Connection type"

@@ -1,16 +1,23 @@
 import { useCallback, useState } from "react";
 
 import ManualAddStep, { type ManualAddStepState } from "./ManualAddStep";
-import type { InfraDeviceDraft } from "@/protoFleet/features/infrastructure/types";
+import type { InfraBuildingOption, InfraDeviceDraft } from "@/protoFleet/features/infrastructure/types";
 import { variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 
 interface AddInfraDeviceModalProps {
+  siteOptions?: string[];
+  buildingOptions?: InfraBuildingOption[];
   onDismiss: () => void;
   onSuccess: (device: InfraDeviceDraft) => void;
 }
 
-const AddInfraDeviceModal = ({ onDismiss, onSuccess }: AddInfraDeviceModalProps) => {
+const AddInfraDeviceModal = ({
+  siteOptions = [],
+  buildingOptions = [],
+  onDismiss,
+  onSuccess,
+}: AddInfraDeviceModalProps) => {
   const [canAdd, setCanAdd] = useState(false);
   const [addHandler, setAddHandler] = useState<(() => void) | null>(null);
 
@@ -35,7 +42,12 @@ const AddInfraDeviceModal = ({ onDismiss, onSuccess }: AddInfraDeviceModalProps)
         },
       ]}
     >
-      <ManualAddStep onSuccess={onSuccess} onStateChange={handleManualStateChange} />
+      <ManualAddStep
+        siteOptions={siteOptions}
+        buildingOptions={buildingOptions}
+        onSuccess={onSuccess}
+        onStateChange={handleManualStateChange}
+      />
     </Modal>
   );
 };

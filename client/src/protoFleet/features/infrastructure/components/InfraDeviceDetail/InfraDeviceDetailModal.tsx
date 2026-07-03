@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
+import InfraLocationFields from "@/protoFleet/features/infrastructure/components/InfraLocationFields";
 import { infraDeviceConnectionTypeOptions } from "@/protoFleet/features/infrastructure/connectionTypes";
 import { FieldHelpPopover } from "@/protoFleet/features/infrastructure/fieldHelp";
 import { infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelpContent";
@@ -18,9 +19,6 @@ import Row from "@/shared/components/Row";
 import Select from "@/shared/components/Select";
 import StatusCircle from "@/shared/components/StatusCircle";
 import Switch from "@/shared/components/Switch";
-
-const buildOptions = (values: string[], currentValue: string) =>
-  [...new Set([currentValue, ...values].filter(Boolean))].sort().map((value) => ({ value, label: value }));
 
 const statusToCircle = (status: InfraDeviceItem["status"]) => {
   switch (status) {
@@ -61,16 +59,7 @@ const InfraDeviceDetailModal = ({
   onDelete,
   onDismiss,
 }: InfraDeviceDetailModalProps) => {
-  const siteSelectOptions = useMemo(() => buildOptions(siteOptions, device.siteName), [siteOptions, device.siteName]);
   const [site, setSite] = useState(device.siteName);
-  const buildingSelectOptions = useMemo(
-    () =>
-      buildOptions(
-        buildingOptions.filter((option) => option.siteName === site).map((option) => option.buildingName),
-        site === device.siteName ? device.buildingName : "",
-      ),
-    [buildingOptions, device.buildingName, device.siteName, site],
-  );
   const [name, setName] = useState(device.name);
   const [connectionType, setConnectionType] = useState(device.connectionType);
   const [endpoint, setEndpoint] = useState(device.endpoint);
@@ -100,22 +89,6 @@ const InfraDeviceDetailModal = ({
   const handleDelete = useCallback(() => {
     onDelete(device.id);
   }, [device.id, onDelete]);
-
-  const handleSiteChange = useCallback(
-    (nextSite: string) => {
-      setSite(nextSite);
-      setBuilding((currentBuilding) => {
-        const currentBuildingIsValid = buildingOptions.some(
-          (option) => option.siteName === nextSite && option.buildingName === currentBuilding,
-        );
-        if (currentBuildingIsValid) {
-          return currentBuilding;
-        }
-        return buildingOptions.find((option) => option.siteName === nextSite)?.buildingName ?? "";
-      });
-    },
-    [buildingOptions],
-  );
 
   const statusIcon = (() => {
     if (device.status === "offline")
@@ -177,26 +150,15 @@ const InfraDeviceDetailModal = ({
         {/* Editable fields */}
         <div className="flex flex-col gap-4">
           <Input id="device-name" label="Name" initValue={name} readOnly={!canManage} onChange={(v) => setName(v)} />
-          <div className="grid grid-cols-2 gap-3">
-            <Select
-              id="device-site"
-              label="Site"
-              options={siteSelectOptions}
-              value={site}
-              onChange={handleSiteChange}
-              disabled={!canManage}
-              forceBelow
-            />
-            <Select
-              id="device-building"
-              label="Building"
-              options={buildingSelectOptions}
-              value={building}
-              onChange={setBuilding}
-              disabled={!canManage}
-              forceBelow
-            />
-          </div>
+          <InfraLocationFields
+            site={site}
+            building={building}
+            siteOptions={siteOptions}
+            buildingOptions={buildingOptions}
+            onSiteChange={setSite}
+            onBuildingChange={setBuilding}
+            disabled={!canManage}
+          />
           <Select
             id="device-connection-type"
             label="Connection type"
@@ -247,7 +209,7 @@ const InfraDeviceDetailModal = ({
         <div className="flex flex-col">
           <Row compact>
             <div className="flex w-full items-center justify-between gap-4">
-              <span className="text-text-primary-70">ID</span>
+              <span className="text-text-primary-70">Device identifier</span>
               <span className="truncate text-300 text-text-primary-70">{device.id}</span>
             </div>
           </Row>

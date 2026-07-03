@@ -16,7 +16,7 @@ const defaultColumns: InfraColumnPreference[] = [
   { id: "enabled", label: "Enabled", visible: true },
   { id: "endpoint", label: "Endpoint", visible: true },
   { id: "port", label: "Port", visible: true },
-  { id: "id", label: "ID", visible: true },
+  { id: "id", label: "Device identifier", visible: true },
 ];
 
 export const Default = () => {

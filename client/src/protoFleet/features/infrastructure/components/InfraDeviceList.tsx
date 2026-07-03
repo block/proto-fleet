@@ -41,7 +41,7 @@ type InfraColumn = (typeof infraCols)[keyof typeof infraCols];
 
 const infraColTitles: ColTitles<InfraColumn> = {
   name: "Name",
-  id: "ID",
+  id: "Device identifier",
   endpoint: "Endpoint",
   port: "Port",
   site: "Site",
@@ -223,7 +223,8 @@ const slugify = (value: string) =>
 
 const buildDeviceId = (draft: InfraDeviceDraft, devices: InfraDeviceItem[]) => {
   const existingIds = new Set(devices.map((device) => device.id));
-  const baseId = slugify(`${draft.siteName}-${draft.buildingName}-${draft.name}`) || "infrastructure-device";
+  const baseId =
+    draft.id.trim() || slugify(`${draft.siteName}-${draft.buildingName}-${draft.name}`) || "infrastructure-device";
   let id = baseId;
   let suffix = 2;
 
@@ -615,7 +616,14 @@ const InfraDeviceList = ({
         />
       ) : null}
 
-      {showAddModal ? <AddInfraDeviceModal onDismiss={() => setShowAddModal(false)} onSuccess={addDevice} /> : null}
+      {showAddModal ? (
+        <AddInfraDeviceModal
+          siteOptions={resolvedSiteOptions}
+          buildingOptions={resolvedBuildingOptions}
+          onDismiss={() => setShowAddModal(false)}
+          onSuccess={addDevice}
+        />
+      ) : null}
 
       {showManageColumns ? (
         <ManageColumnsModal

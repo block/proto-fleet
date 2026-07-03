@@ -25,7 +25,7 @@ export interface InfraBuildingOption {
 
 export type InfraDeviceDraft = Pick<
   InfraDeviceItem,
-  "name" | "buildingName" | "siteName" | "connectionType" | "endpoint" | "port"
+  "id" | "name" | "buildingName" | "siteName" | "connectionType" | "endpoint" | "port"
 > & {
   endpointKind: InfraDeviceEndpointKind;
   fanCount?: number;
