@@ -109,6 +109,19 @@ export default defineConfig(({ mode, command }) => {
   }
 
   const env = loadEnv(mode, process.cwd(), "");
+
+  // Opt-in HTTPS for local dev. Defaults to HTTP so CI, E2E, and other devs are
+  // unaffected. Generate locally-trusted certs with:
+  //   mkcert -key-file certs/localhost-key.pem -cert-file certs/localhost.pem localhost 127.0.0.1 ::1
+  // then run: VITE_HTTPS=true npm run dev:protoFleet  (or npm run dev for protoOS)
+  const useHttps = env.VITE_HTTPS === "true" || process.env.VITE_HTTPS === "true";
+  const httpsConfig = useHttps
+    ? {
+        key: fs.readFileSync(resolve(_dirname, "certs/localhost-key.pem")),
+        cert: fs.readFileSync(resolve(_dirname, "certs/localhost.pem")),
+      }
+    : undefined;
+
   let proxies;
   if (mode === "protoFleet") {
     const proxyUrl = env.FLEET_PROXY_URL || process.env.FLEET_PROXY_URL || "http://localhost:4000";
@@ -171,6 +184,7 @@ export default defineConfig(({ mode, command }) => {
     server: {
       proxy: proxies,
       historyApiFallback: true,
+      https: httpsConfig,
     },
     preview: {
       proxy: proxies,
