@@ -1116,7 +1116,7 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 // terminally failed. All-failed events skip past Active to
 // completed_with_failures so they can't sit indefinitely.
 func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targets []*models.Target) {
-	confirmed, terminalFailures, unavailable := 0, 0, 0
+	confirmed, terminalFailures, unavailable, releasedPolicy := 0, 0, 0, 0
 	for _, t := range targets {
 		switch t.State {
 		case models.TargetStateConfirmed:
@@ -1137,8 +1137,11 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 		case models.TargetStateReleased:
 			if isAllPairedPolicyReleasedCurtailTarget(ev, t) {
 				// Released all-paired policy rows are dormant placeholders.
-				// Active admission can reopen them when the miner is paired-like
-				// again, so they must not pin the parent event in pending.
+				// Admission can reopen them when the miner is paired-like
+				// again, so they must not pin the parent event in pending —
+				// but with nothing confirmed they must not activate it
+				// either (see the hold below).
+				releasedPolicy++
 				continue
 			}
 			// Unreachable on a pending event; hold for manual cleanup.
@@ -1148,14 +1151,16 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 			return
 		}
 	}
-	if confirmed == 0 && unavailable > 0 {
+	if confirmed == 0 && (unavailable > 0 || releasedPolicy > 0) {
 		// All-paired policy event with nothing curtailed yet: hold it in
 		// pending so StartedAt (and enforceMaxDuration's clock) don't start
 		// until curtailment actually begins. The per-tick readiness refresh
-		// keeps promoting unavailable rows; a scope that starts entirely
-		// offline must not burn its bounded duration window — or be
-		// force-restored having curtailed nothing — before a single
-		// dispatch happens.
+		// keeps promoting unavailable rows, and admission reopens released
+		// rows on re-pair; a scope that starts entirely offline — or whose
+		// every row was released on unpair — must not burn its bounded
+		// duration window (or be force-restored having curtailed nothing)
+		// before a single dispatch happens.
+		r.warnIfAllPairedPendingStalled(ev, unavailable, releasedPolicy)
 		return
 	}
 	if confirmed == 0 && terminalFailures > 0 {
@@ -1176,6 +1181,33 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 	if err := r.store.UpdateEventState(ctx, ev.ID, ev.State, models.EventStateActive, &now, nil); err != nil {
 		r.logEventStateUpdateError(ev, "pending→active", err)
 	}
+}
+
+// allPairedPendingStallWarnAfter is how long an all-paired event may hold in
+// pending (started_at unset, nothing confirmed) before the reconciler starts
+// flagging it each tick. The hold itself is deliberate and open-ended: the
+// event owns its scope — blocking every other curtailment start for that
+// scope via the hierarchy conflict check and scope watcher — until a target
+// confirms or an operator stops it, so a sustained stall (fleet-wide outage,
+// auth-needed population) must surface on dashboards, not only in the UI.
+const allPairedPendingStallWarnAfter = 15 * time.Minute
+
+// warnIfAllPairedPendingStalled emits the stall signal for a held pending
+// all-paired event. StartedAt is checked so recurtailed events (restoring →
+// pending with started_at already stamped) don't count: their clock ran.
+func (r *Reconciler) warnIfAllPairedPendingStalled(ev *models.Event, unavailable, releasedPolicy int) {
+	if !isAllPairedPolicyEvent(ev) || ev.StartedAt != nil {
+		return
+	}
+	stalledFor := r.now().Sub(ev.CreatedAt)
+	if stalledFor < allPairedPendingStallWarnAfter {
+		return
+	}
+	r.metrics.IncAllPairedPendingStall()
+	slog.Warn("curtailment reconciler: all-paired event pending with nothing confirmed; scope stays locked until a target confirms or the event is stopped",
+		"event_id", ev.ID, "event_uuid", ev.EventUUID,
+		"pending_for", stalledFor.Truncate(time.Second).String(),
+		"unavailable_targets", unavailable, "released_targets", releasedPolicy)
 }
 
 // logEventStateUpdateError buckets store.UpdateEventState errors:

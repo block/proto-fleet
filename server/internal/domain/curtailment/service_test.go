@@ -641,14 +641,15 @@ func defaultOrgConfig(orgID int64) *models.OrgConfig {
 var _ Metrics = (*recordingMetrics)(nil)
 
 type recordingMetrics struct {
-	mu                  sync.Mutex
-	tickDurations       []time.Duration
-	tickFailures        int
-	candidateExcluded   map[string]int
-	maintenance         int
-	eventStateRaces     int
-	targetWriteFailures int
-	auditWriteFailures  map[string]int
+	mu                     sync.Mutex
+	tickDurations          []time.Duration
+	tickFailures           int
+	candidateExcluded      map[string]int
+	maintenance            int
+	eventStateRaces        int
+	targetWriteFailures    int
+	auditWriteFailures     map[string]int
+	allPairedPendingStalls int
 }
 
 func newRecordingMetrics() *recordingMetrics {
@@ -692,6 +693,12 @@ func (m *recordingMetrics) IncTargetWriteFailure() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.targetWriteFailures++
+}
+
+func (m *recordingMetrics) IncAllPairedPendingStall() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.allPairedPendingStalls++
 }
 
 func (m *recordingMetrics) IncAuditWriteFailure(activityType string) {

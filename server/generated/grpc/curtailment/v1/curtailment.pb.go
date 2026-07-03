@@ -2092,9 +2092,15 @@ type PreviewCurtailmentPlanRequest struct {
 	CandidateMinPowerWOverride *uint32 `protobuf:"varint,26,opt,name=candidate_min_power_w_override,json=candidateMinPowerWOverride,proto3,oneof" json:"candidate_min_power_w_override,omitempty"`
 	// How long restored targets remain excluded from selection. Zero disables cooldown.
 	PostEventCooldownSec uint32 `protobuf:"varint,28,opt,name=post_event_cooldown_sec,json=postEventCooldownSec,proto3" json:"post_event_cooldown_sec,omitempty"`
-	// Admin-only FULL_FLEET override. When set, the event targets all
-	// paired-like miners in scope and holds unavailable miners until they
-	// become commandable.
+	// Admin-only FULL_FLEET override (whole-org or site scopes only). When
+	// set, the event targets all paired-like miners in scope and holds
+	// unavailable miners until they become commandable.
+	//
+	// Maintenance interaction: MAINTENANCE-status miners are curtailed only
+	// when include_maintenance/force_include_maintenance are also set (the
+	// ProtoFleet UI always couples them). Without the maintenance pair, the
+	// event still owns maintenance-flagged miners but holds them in the
+	// UNAVAILABLE state until maintenance clears.
 	ForceIncludeAllPairedMiners bool `protobuf:"varint,30,opt,name=force_include_all_paired_miners,json=forceIncludeAllPairedMiners,proto3" json:"force_include_all_paired_miners,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
@@ -2535,9 +2541,15 @@ type StartCurtailmentRequest struct {
 	AllowUnbounded bool `protobuf:"varint,27,opt,name=allow_unbounded,json=allowUnbounded,proto3" json:"allow_unbounded,omitempty"`
 	// How long restored targets remain excluded from selection. Zero disables cooldown.
 	PostEventCooldownSec uint32 `protobuf:"varint,29,opt,name=post_event_cooldown_sec,json=postEventCooldownSec,proto3" json:"post_event_cooldown_sec,omitempty"`
-	// Admin-only FULL_FLEET override. When set, the event targets all
-	// paired-like miners in scope and holds unavailable miners until they
-	// become commandable.
+	// Admin-only FULL_FLEET override (whole-org or site scopes only). When
+	// set, the event targets all paired-like miners in scope and holds
+	// unavailable miners until they become commandable.
+	//
+	// Maintenance interaction: MAINTENANCE-status miners are curtailed only
+	// when include_maintenance/force_include_maintenance are also set (the
+	// ProtoFleet UI always couples them). Without the maintenance pair, the
+	// event still owns maintenance-flagged miners but holds them in the
+	// UNAVAILABLE state until maintenance clears.
 	ForceIncludeAllPairedMiners bool `protobuf:"varint,37,opt,name=force_include_all_paired_miners,json=forceIncludeAllPairedMiners,proto3" json:"force_include_all_paired_miners,omitempty"`
 	// Idempotency and trigger attribution. max_len=256 matches DB varchar.
 	IdempotencyKey    string `protobuf:"bytes,30,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // unique per (org, key) when non-empty
@@ -5152,10 +5164,12 @@ type CurtailmentResponseProfile struct {
 	// max restore wave size.
 	RestoreBatchSize uint32 `protobuf:"varint,12,opt,name=restore_batch_size,json=restoreBatchSize,proto3" json:"restore_batch_size,omitempty"`
 	// 0 = no wait between restore waves.
-	RestoreBatchIntervalSec     uint32                 `protobuf:"varint,13,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3" json:"restore_batch_interval_sec,omitempty"`
-	IncludeMaintenance          bool                   `protobuf:"varint,14,opt,name=include_maintenance,json=includeMaintenance,proto3" json:"include_maintenance,omitempty"`
-	ForceIncludeMaintenance     bool                   `protobuf:"varint,15,opt,name=force_include_maintenance,json=forceIncludeMaintenance,proto3" json:"force_include_maintenance,omitempty"`
-	PostEventCooldownSec        uint32                 `protobuf:"varint,16,opt,name=post_event_cooldown_sec,json=postEventCooldownSec,proto3" json:"post_event_cooldown_sec,omitempty"`
+	RestoreBatchIntervalSec uint32 `protobuf:"varint,13,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3" json:"restore_batch_interval_sec,omitempty"`
+	IncludeMaintenance      bool   `protobuf:"varint,14,opt,name=include_maintenance,json=includeMaintenance,proto3" json:"include_maintenance,omitempty"`
+	ForceIncludeMaintenance bool   `protobuf:"varint,15,opt,name=force_include_maintenance,json=forceIncludeMaintenance,proto3" json:"force_include_maintenance,omitempty"`
+	PostEventCooldownSec    uint32 `protobuf:"varint,16,opt,name=post_event_cooldown_sec,json=postEventCooldownSec,proto3" json:"post_event_cooldown_sec,omitempty"`
+	// Same semantics as StartCurtailmentRequest.force_include_all_paired_miners,
+	// applied when the profile executes (manual start or MQTT automation).
 	ForceIncludeAllPairedMiners bool                   `protobuf:"varint,18,opt,name=force_include_all_paired_miners,json=forceIncludeAllPairedMiners,proto3" json:"force_include_all_paired_miners,omitempty"`
 	CreatedAt                   *timestamppb.Timestamp `protobuf:"bytes,20,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt                   *timestamppb.Timestamp `protobuf:"bytes,21,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
@@ -5536,11 +5550,13 @@ type CreateCurtailmentResponseProfileRequest struct {
 	// explicit max restore wave size.
 	RestoreBatchSize *uint32 `protobuf:"varint,12,opt,name=restore_batch_size,json=restoreBatchSize,proto3,oneof" json:"restore_batch_size,omitempty"`
 	// Omitted or 0 = no wait between restore waves.
-	RestoreBatchIntervalSec     *uint32 `protobuf:"varint,13,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3,oneof" json:"restore_batch_interval_sec,omitempty"`
-	IncludeMaintenance          bool    `protobuf:"varint,14,opt,name=include_maintenance,json=includeMaintenance,proto3" json:"include_maintenance,omitempty"`
-	ForceIncludeMaintenance     bool    `protobuf:"varint,15,opt,name=force_include_maintenance,json=forceIncludeMaintenance,proto3" json:"force_include_maintenance,omitempty"`
-	PostEventCooldownSec        uint32  `protobuf:"varint,16,opt,name=post_event_cooldown_sec,json=postEventCooldownSec,proto3" json:"post_event_cooldown_sec,omitempty"`
-	ForceIncludeAllPairedMiners bool    `protobuf:"varint,18,opt,name=force_include_all_paired_miners,json=forceIncludeAllPairedMiners,proto3" json:"force_include_all_paired_miners,omitempty"`
+	RestoreBatchIntervalSec *uint32 `protobuf:"varint,13,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3,oneof" json:"restore_batch_interval_sec,omitempty"`
+	IncludeMaintenance      bool    `protobuf:"varint,14,opt,name=include_maintenance,json=includeMaintenance,proto3" json:"include_maintenance,omitempty"`
+	ForceIncludeMaintenance bool    `protobuf:"varint,15,opt,name=force_include_maintenance,json=forceIncludeMaintenance,proto3" json:"force_include_maintenance,omitempty"`
+	PostEventCooldownSec    uint32  `protobuf:"varint,16,opt,name=post_event_cooldown_sec,json=postEventCooldownSec,proto3" json:"post_event_cooldown_sec,omitempty"`
+	// Same semantics as StartCurtailmentRequest.force_include_all_paired_miners,
+	// applied when the profile executes (manual start or MQTT automation).
+	ForceIncludeAllPairedMiners bool `protobuf:"varint,18,opt,name=force_include_all_paired_miners,json=forceIncludeAllPairedMiners,proto3" json:"force_include_all_paired_miners,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
 }
@@ -5775,11 +5791,13 @@ type UpdateCurtailmentResponseProfileRequest struct {
 	// explicit max restore wave size.
 	RestoreBatchSize *uint32 `protobuf:"varint,12,opt,name=restore_batch_size,json=restoreBatchSize,proto3,oneof" json:"restore_batch_size,omitempty"`
 	// Omitted or 0 = no wait between restore waves.
-	RestoreBatchIntervalSec     *uint32 `protobuf:"varint,13,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3,oneof" json:"restore_batch_interval_sec,omitempty"`
-	IncludeMaintenance          bool    `protobuf:"varint,14,opt,name=include_maintenance,json=includeMaintenance,proto3" json:"include_maintenance,omitempty"`
-	ForceIncludeMaintenance     bool    `protobuf:"varint,15,opt,name=force_include_maintenance,json=forceIncludeMaintenance,proto3" json:"force_include_maintenance,omitempty"`
-	PostEventCooldownSec        uint32  `protobuf:"varint,16,opt,name=post_event_cooldown_sec,json=postEventCooldownSec,proto3" json:"post_event_cooldown_sec,omitempty"`
-	ForceIncludeAllPairedMiners bool    `protobuf:"varint,18,opt,name=force_include_all_paired_miners,json=forceIncludeAllPairedMiners,proto3" json:"force_include_all_paired_miners,omitempty"`
+	RestoreBatchIntervalSec *uint32 `protobuf:"varint,13,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3,oneof" json:"restore_batch_interval_sec,omitempty"`
+	IncludeMaintenance      bool    `protobuf:"varint,14,opt,name=include_maintenance,json=includeMaintenance,proto3" json:"include_maintenance,omitempty"`
+	ForceIncludeMaintenance bool    `protobuf:"varint,15,opt,name=force_include_maintenance,json=forceIncludeMaintenance,proto3" json:"force_include_maintenance,omitempty"`
+	PostEventCooldownSec    uint32  `protobuf:"varint,16,opt,name=post_event_cooldown_sec,json=postEventCooldownSec,proto3" json:"post_event_cooldown_sec,omitempty"`
+	// Same semantics as StartCurtailmentRequest.force_include_all_paired_miners,
+	// applied when the profile executes (manual start or MQTT automation).
+	ForceIncludeAllPairedMiners bool `protobuf:"varint,18,opt,name=force_include_all_paired_miners,json=forceIncludeAllPairedMiners,proto3" json:"force_include_all_paired_miners,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
 }

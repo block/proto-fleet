@@ -892,9 +892,15 @@ export type PreviewCurtailmentPlanRequest = Message<"curtailment.v1.PreviewCurta
   postEventCooldownSec: number;
 
   /**
-   * Admin-only FULL_FLEET override. When set, the event targets all
-   * paired-like miners in scope and holds unavailable miners until they
-   * become commandable.
+   * Admin-only FULL_FLEET override (whole-org or site scopes only). When
+   * set, the event targets all paired-like miners in scope and holds
+   * unavailable miners until they become commandable.
+   *
+   * Maintenance interaction: MAINTENANCE-status miners are curtailed only
+   * when include_maintenance/force_include_maintenance are also set (the
+   * ProtoFleet UI always couples them). Without the maintenance pair, the
+   * event still owns maintenance-flagged miners but holds them in the
+   * UNAVAILABLE state until maintenance clears.
    *
    * @generated from field: bool force_include_all_paired_miners = 30;
    */
@@ -1172,9 +1178,15 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   postEventCooldownSec: number;
 
   /**
-   * Admin-only FULL_FLEET override. When set, the event targets all
-   * paired-like miners in scope and holds unavailable miners until they
-   * become commandable.
+   * Admin-only FULL_FLEET override (whole-org or site scopes only). When
+   * set, the event targets all paired-like miners in scope and holds
+   * unavailable miners until they become commandable.
+   *
+   * Maintenance interaction: MAINTENANCE-status miners are curtailed only
+   * when include_maintenance/force_include_maintenance are also set (the
+   * ProtoFleet UI always couples them). Without the maintenance pair, the
+   * event still owns maintenance-flagged miners but holds them in the
+   * UNAVAILABLE state until maintenance clears.
    *
    * @generated from field: bool force_include_all_paired_miners = 37;
    */
@@ -2456,6 +2468,9 @@ export type CurtailmentResponseProfile = Message<"curtailment.v1.CurtailmentResp
   postEventCooldownSec: number;
 
   /**
+   * Same semantics as StartCurtailmentRequest.force_include_all_paired_miners,
+   * applied when the profile executes (manual start or MQTT automation).
+   *
    * @generated from field: bool force_include_all_paired_miners = 18;
    */
   forceIncludeAllPairedMiners: boolean;
@@ -2649,6 +2664,9 @@ export type CreateCurtailmentResponseProfileRequest =
     postEventCooldownSec: number;
 
     /**
+     * Same semantics as StartCurtailmentRequest.force_include_all_paired_miners,
+     * applied when the profile executes (manual start or MQTT automation).
+     *
      * @generated from field: bool force_include_all_paired_miners = 18;
      */
     forceIncludeAllPairedMiners: boolean;
@@ -2787,6 +2805,9 @@ export type UpdateCurtailmentResponseProfileRequest =
     postEventCooldownSec: number;
 
     /**
+     * Same semantics as StartCurtailmentRequest.force_include_all_paired_miners,
+     * applied when the profile executes (manual start or MQTT automation).
+     *
      * @generated from field: bool force_include_all_paired_miners = 18;
      */
     forceIncludeAllPairedMiners: boolean;

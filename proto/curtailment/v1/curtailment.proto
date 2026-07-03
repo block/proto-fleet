@@ -519,9 +519,15 @@ message PreviewCurtailmentPlanRequest {
     // How long restored targets remain excluded from selection. Zero disables cooldown.
     uint32 post_event_cooldown_sec = 28 [(buf.validate.field).uint32 = {lte: 86400}];
 
-    // Admin-only FULL_FLEET override. When set, the event targets all
-    // paired-like miners in scope and holds unavailable miners until they
-    // become commandable.
+    // Admin-only FULL_FLEET override (whole-org or site scopes only). When
+    // set, the event targets all paired-like miners in scope and holds
+    // unavailable miners until they become commandable.
+    //
+    // Maintenance interaction: MAINTENANCE-status miners are curtailed only
+    // when include_maintenance/force_include_maintenance are also set (the
+    // ProtoFleet UI always couples them). Without the maintenance pair, the
+    // event still owns maintenance-flagged miners but holds them in the
+    // UNAVAILABLE state until maintenance clears.
     bool force_include_all_paired_miners = 30;
 
     reserved 11 to 23;
@@ -647,9 +653,15 @@ message StartCurtailmentRequest {
     // How long restored targets remain excluded from selection. Zero disables cooldown.
     uint32 post_event_cooldown_sec = 29 [(buf.validate.field).uint32 = {lte: 86400}];
 
-    // Admin-only FULL_FLEET override. When set, the event targets all
-    // paired-like miners in scope and holds unavailable miners until they
-    // become commandable.
+    // Admin-only FULL_FLEET override (whole-org or site scopes only). When
+    // set, the event targets all paired-like miners in scope and holds
+    // unavailable miners until they become commandable.
+    //
+    // Maintenance interaction: MAINTENANCE-status miners are curtailed only
+    // when include_maintenance/force_include_maintenance are also set (the
+    // ProtoFleet UI always couples them). Without the maintenance pair, the
+    // event still owns maintenance-flagged miners but holds them in the
+    // UNAVAILABLE state until maintenance clears.
     bool force_include_all_paired_miners = 37;
 
     // Idempotency and trigger attribution. max_len=256 matches DB varchar.
@@ -1057,6 +1069,8 @@ message CurtailmentResponseProfile {
     bool include_maintenance = 14;
     bool force_include_maintenance = 15;
     uint32 post_event_cooldown_sec = 16;
+    // Same semantics as StartCurtailmentRequest.force_include_all_paired_miners,
+    // applied when the profile executes (manual start or MQTT automation).
     bool force_include_all_paired_miners = 18;
 
     google.protobuf.Timestamp created_at = 20;
@@ -1133,6 +1147,8 @@ message CreateCurtailmentResponseProfileRequest {
     bool include_maintenance = 14;
     bool force_include_maintenance = 15;
     uint32 post_event_cooldown_sec = 16 [(buf.validate.field).uint32 = {lte: 86400}];
+    // Same semantics as StartCurtailmentRequest.force_include_all_paired_miners,
+    // applied when the profile executes (manual start or MQTT automation).
     bool force_include_all_paired_miners = 18;
 }
 
@@ -1197,6 +1213,8 @@ message UpdateCurtailmentResponseProfileRequest {
     bool include_maintenance = 14;
     bool force_include_maintenance = 15;
     uint32 post_event_cooldown_sec = 16 [(buf.validate.field).uint32 = {lte: 86400}];
+    // Same semantics as StartCurtailmentRequest.force_include_all_paired_miners,
+    // applied when the profile executes (manual start or MQTT automation).
     bool force_include_all_paired_miners = 18;
 }
 

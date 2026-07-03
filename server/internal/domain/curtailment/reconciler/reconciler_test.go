@@ -1494,6 +1494,118 @@ func TestReconciler_PendingAllPairedPolicyAllUnavailableStaysPending(t *testing.
 	assert.Equal(t, 0, disp.curtailCalls)
 }
 
+// A pending all-paired event whose every row is a released policy placeholder
+// (e.g. the whole scope unpaired between admission ticks) must also hold:
+// released rows are reopenable, so flipping to Active would stamp StartedAt
+// and burn the bounded window as an empty watcher with nothing curtailed.
+func TestReconciler_PendingAllPairedPolicyAllReleasedStaysPending(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	metrics := newRecordingMetrics()
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	releasedReason := "released: device is no longer paired-like"
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStatePending,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			CreatedByUserID:             99,
+			// Fresh event: held, but not yet stalled long enough to warn.
+			CreatedAt: time.Date(2026, 5, 7, 11, 59, 0, 0, time.UTC),
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "unpaired-1",
+			State:              models.TargetStateReleased,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &releasedReason,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "unpaired-2",
+			State:              models.TargetStateReleased,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &releasedReason,
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		// Still unpaired: nothing for admission to reopen this tick.
+		{DeviceIdentifier: "unpaired-1", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "UNPAIRED"},
+		{DeviceIdentifier: "unpaired-2", DriverName: &driver, DeviceStatus: "ACTIVE", PairingStatus: "UNPAIRED"},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.metrics = metrics
+	r.runTick(context.Background())
+
+	assert.Equal(t, models.EventStatePending, store.events[0].State,
+		"all-released policy event must hold in pending; released rows are reopenable placeholders")
+	assert.NotContains(t, store.updateEventLast, eventID)
+	assert.Equal(t, 0, disp.curtailCalls)
+	assert.Equal(t, 0, metrics.AllPairedPendingStallCount(),
+		"a freshly created hold must not count as stalled")
+}
+
+// A held pending all-paired event older than the stall threshold must emit
+// the stall metric and warning each tick: the hold blocks every other
+// curtailment start for the scope, so a sustained stall (fleet-wide outage)
+// needs a dashboard signal, not just a paused UI.
+func TestReconciler_PendingAllPairedPolicyStallEmitsMetricAfterThreshold(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	metrics := newRecordingMetrics()
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	offlineReason := "offline"
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStatePending,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			CreatedByUserID:             99,
+			// Pending for an hour against the fixed test clock (12:00).
+			CreatedAt: time.Date(2026, 5, 7, 11, 0, 0, 0, time.UTC),
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "offline-1",
+			State:              models.TargetStateUnavailable,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &offlineReason,
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "offline-1", DriverName: &driver, DeviceStatus: "OFFLINE", PairingStatus: "PAIRED"},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.metrics = metrics
+	r.runTick(context.Background())
+
+	assert.Equal(t, models.EventStatePending, store.events[0].State)
+	assert.Equal(t, 1, metrics.AllPairedPendingStallCount(),
+		"a hold past the stall threshold must surface on the stall counter")
+}
+
 // Readiness flips are applied through one bulk statement per tick; a mass
 // readiness change must not become one UPDATE round trip per device.
 func TestReconciler_AllPairedPolicyReadinessRefreshBatchesFlipsIntoOneCall(t *testing.T) {
@@ -3746,14 +3858,15 @@ func (p *panickyDispatcher) Uncurtail(ctx context.Context, selector *pb.DeviceSe
 // goroutine-safe via a single mutex; the reconciler emits from the tick
 // goroutine but tests poke from the test goroutine.
 type recordingMetrics struct {
-	mu                  sync.Mutex
-	tickDurations       []time.Duration
-	tickFailures        int
-	candidateExcluded   map[string]int
-	maintenance         int
-	eventStateRaces     int
-	targetWriteFailures int
-	auditWriteFailures  map[string]int
+	mu                     sync.Mutex
+	tickDurations          []time.Duration
+	tickFailures           int
+	candidateExcluded      map[string]int
+	maintenance            int
+	eventStateRaces        int
+	targetWriteFailures    int
+	auditWriteFailures     map[string]int
+	allPairedPendingStalls int
 }
 
 func newRecordingMetrics() *recordingMetrics {
@@ -3806,6 +3919,18 @@ func (m *recordingMetrics) IncAuditWriteFailure(activityType string) {
 		m.auditWriteFailures = map[string]int{}
 	}
 	m.auditWriteFailures[activityType]++
+}
+
+func (m *recordingMetrics) IncAllPairedPendingStall() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.allPairedPendingStalls++
+}
+
+func (m *recordingMetrics) AllPairedPendingStallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.allPairedPendingStalls
 }
 
 func (m *recordingMetrics) EventStateRaceLossCount() int {

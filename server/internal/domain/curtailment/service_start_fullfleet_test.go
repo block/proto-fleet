@@ -184,6 +184,47 @@ func TestService_Start_FullFleet_AllPairedAllUnavailableHoldsPending(t *testing.
 	assert.Equal(t, models.TargetStateUnavailable, store.lastInsertTargets[1].State)
 }
 
+// The maintenance coupling is a client convention, not a server rule: an API
+// caller may set force_include_all_paired_miners without the maintenance
+// pair. The decoupled combination is valid and means "own maintenance-flagged
+// miners durably but hold them unavailable (not curtailed) until maintenance
+// clears" — pinned here so the API semantics cannot drift silently. The
+// ProtoFleet UI always couples the flags; see buildForceInclusionFields.
+func TestService_Start_FullFleet_AllPairedWithoutMaintenancePairParksMaintenanceUnavailable(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		miner("online", "ACTIVE", "PAIRED", 6000, 100),
+		miner("in-maintenance", "MAINTENANCE", "PAIRED", 5000, 100),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+	// Decoupled: the maintenance pair stays unset.
+	req.IncludeMaintenance = false
+	req.ForceIncludeMaintenance = false
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err, "all-paired without the maintenance pair is a valid API combination")
+
+	assert.Equal(t, 2, plan.PolicyTargetCount, "maintenance miner is owned, not skipped")
+	assert.Equal(t, 1, plan.UnavailableTargetCount)
+	require.Len(t, store.lastInsertTargets, 2)
+	assert.Equal(t, "online", store.lastInsertTargets[0].DeviceIdentifier)
+	assert.Equal(t, models.TargetStatePending, store.lastInsertTargets[0].State)
+	assert.Equal(t, "in-maintenance", store.lastInsertTargets[1].DeviceIdentifier)
+	assert.Equal(t, models.TargetStateUnavailable, store.lastInsertTargets[1].State,
+		"without the maintenance pair, maintenance miners are held unavailable until the flag clears")
+	require.NotNil(t, store.lastInsertTargets[1].LastError)
+	assert.Equal(t, "maintenance", *store.lastInsertTargets[1].LastError)
+}
+
 func TestService_Start_FullFleet_AllPairedBypassesPostEventCooldown(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
