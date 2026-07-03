@@ -70,8 +70,12 @@ test.describe("Proto Fleet - Curtailment", () => {
         expect(requestBody.mode).toBe("CURTAILMENT_MODE_FIXED_KW");
         expect(requestBody.fixedKw?.targetKw).toBe(Number(targetKw));
         expect(requestBody.scopes).toEqual([{ wholeOrg: {} }]);
-        expect(requestBody.includeMaintenance).toBe(true);
-        expect(requestBody.forceIncludeMaintenance).toBe(true);
+        // Maintenance-flagged miners are excluded by default; the admin-gated
+        // force_include_maintenance pair is only sent when "Target all paired
+        // miners" opts them in. Proto3 JSON omits false booleans, so assert
+        // falsy rather than an explicit false.
+        expect(requestBody.includeMaintenance).toBeFalsy();
+        expect(requestBody.forceIncludeMaintenance).toBeFalsy();
         expect(requestBody.restoreBatchIntervalSec).toBe(Number(restoreBatchIntervalSec));
         expect(startResponse.status()).toBe(200);
         expect(responseBody.event?.eventUuid).toEqual(expect.any(String));

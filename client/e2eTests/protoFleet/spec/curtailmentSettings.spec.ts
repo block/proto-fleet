@@ -208,8 +208,12 @@ test.describe("Proto Fleet - Curtailment Settings", () => {
       expect(requestBody.curtailBatchIntervalSec).toBe(60);
       expect(requestBody.restoreBatchSize).toBe(10);
       expect(requestBody.restoreBatchIntervalSec).toBe(120);
-      expect(requestBody.includeMaintenance).toBe(true);
-      expect(requestBody.forceIncludeMaintenance).toBe(true);
+      // Maintenance-flagged miners are excluded by default; the admin-gated
+      // force_include_maintenance pair is only sent when "Target all paired
+      // miners" opts them in. Proto3 JSON omits false booleans, so assert
+      // falsy rather than an explicit false.
+      expect(requestBody.includeMaintenance).toBeFalsy();
+      expect(requestBody.forceIncludeMaintenance).toBeFalsy();
       await settingsCurtailmentPage.validateResponseProfileVisible(responseProfileName);
     });
 
