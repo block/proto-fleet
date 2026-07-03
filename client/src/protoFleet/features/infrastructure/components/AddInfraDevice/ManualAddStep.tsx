@@ -105,7 +105,6 @@ const ManualAddStep = ({
         buildingOptions={buildingOptions}
         onSiteChange={setSite}
         onBuildingChange={setBuilding}
-        allowCustomValues
       />
       <div className="grid grid-cols-2 gap-3">
         <Select

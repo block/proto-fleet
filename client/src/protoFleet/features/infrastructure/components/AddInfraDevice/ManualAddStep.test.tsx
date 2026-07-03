@@ -95,7 +95,7 @@ describe("ManualAddStep", () => {
     });
   });
 
-  test("allows free-text location entry when catalog options are unavailable", async () => {
+  test("requires catalog-backed location selections", async () => {
     const user = userEvent.setup();
     const onSuccess = vi.fn();
     let currentState: ManualAddStepState | undefined;
@@ -109,25 +109,17 @@ describe("ManualAddStep", () => {
       />,
     );
 
+    expect(screen.getByLabelText("Site")).toBeDisabled();
+    expect(screen.getByLabelText("Building")).toBeDisabled();
+
     await user.type(screen.getByLabelText("Name"), "Roof exhaust");
     await user.type(screen.getByLabelText("Unit ID"), "17");
-    await user.type(screen.getByLabelText("Site"), "Austin");
-    await user.type(screen.getByLabelText("Building"), "Building 1");
     await user.type(screen.getByLabelText("Endpoint"), "10.12.1.21");
     await user.type(screen.getByLabelText("Port"), "502");
 
-    await waitFor(() => expect(currentState?.canAdd).toBe(true));
-    onSuccess.mockClear();
-    await waitFor(() => {
-      currentState?.addHandler();
-      expect(onSuccess).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          siteName: "Austin",
-          buildingName: "Building 1",
-          unitId: 17,
-        }),
-      );
-    });
+    await waitFor(() => expect(currentState?.canAdd).toBe(false));
+    currentState?.addHandler();
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 
   test("requires Unit ID to be within the Modbus unit address range", async () => {

@@ -1,7 +1,5 @@
-import { useState } from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-import userEvent from "@testing-library/user-event";
 
 import InfraLocationFields from "./InfraLocationFields";
 
@@ -34,35 +32,36 @@ vi.mock("@/shared/components/Select", () => ({
   ),
 }));
 
-const LocationFieldsHarness = ({ catalogReady }: { catalogReady: boolean }) => {
-  const [site, setSite] = useState("");
-  const [building, setBuilding] = useState("");
-
-  return (
-    <InfraLocationFields
-      site={site}
-      building={building}
-      siteOptions={catalogReady ? ["Austin"] : []}
-      buildingOptions={[]}
-      onSiteChange={setSite}
-      onBuildingChange={setBuilding}
-      allowCustomValues
-    />
-  );
-};
-
 describe("InfraLocationFields", () => {
-  test("preserves custom building text when catalog options arrive", async () => {
-    const user = userEvent.setup();
-    const { rerender } = render(<LocationFieldsHarness catalogReady={false} />);
+  test("disables selectors when no location options are available", () => {
+    render(
+      <InfraLocationFields
+        site=""
+        building=""
+        siteOptions={[]}
+        buildingOptions={[]}
+        onSiteChange={vi.fn()}
+        onBuildingChange={vi.fn()}
+      />,
+    );
 
-    await user.type(screen.getByLabelText("Site"), "Austin");
-    await user.type(screen.getByLabelText("Building"), "Warehouse X");
+    expect(screen.getByRole("combobox", { name: "Site" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Building" })).toBeDisabled();
+  });
 
-    expect(screen.getByLabelText("Building")).toHaveValue("Warehouse X");
+  test("preserves existing location values as selector options", () => {
+    render(
+      <InfraLocationFields
+        site="Legacy site"
+        building="Legacy building"
+        siteOptions={[]}
+        buildingOptions={[]}
+        onSiteChange={vi.fn()}
+        onBuildingChange={vi.fn()}
+      />,
+    );
 
-    rerender(<LocationFieldsHarness catalogReady />);
-
-    expect(screen.getByLabelText("Building")).toHaveValue("Warehouse X");
+    expect(screen.getByRole("combobox", { name: "Site" })).toHaveValue("Legacy site");
+    expect(screen.getByRole("combobox", { name: "Building" })).toHaveValue("Legacy building");
   });
 });
