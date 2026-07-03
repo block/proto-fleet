@@ -8,6 +8,7 @@ import Modal from "@/shared/components/Modal";
 interface AddInfraDeviceModalProps {
   siteOptions?: string[];
   buildingOptions?: InfraBuildingOption[];
+  initialSiteName?: string;
   onDismiss: () => void;
   onSuccess: (device: InfraDeviceDraft) => void;
 }
@@ -15,6 +16,7 @@ interface AddInfraDeviceModalProps {
 const AddInfraDeviceModal = ({
   siteOptions = [],
   buildingOptions = [],
+  initialSiteName,
   onDismiss,
   onSuccess,
 }: AddInfraDeviceModalProps) => {
@@ -45,6 +47,7 @@ const AddInfraDeviceModal = ({
       <ManualAddStep
         siteOptions={siteOptions}
         buildingOptions={buildingOptions}
+        initialSiteName={initialSiteName}
         onSuccess={onSuccess}
         onStateChange={handleManualStateChange}
       />

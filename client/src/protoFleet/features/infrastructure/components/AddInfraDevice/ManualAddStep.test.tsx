@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
@@ -34,7 +35,7 @@ vi.mock("@/shared/components/Select", () => ({
   ),
 }));
 
-const renderManualAddStep = () => {
+const renderManualAddStep = (props: Partial<ComponentProps<typeof ManualAddStep>> = {}) => {
   const onSuccess = vi.fn();
   let currentState: ManualAddStepState | undefined;
 
@@ -50,6 +51,7 @@ const renderManualAddStep = () => {
       onStateChange={(state) => {
         currentState = state;
       }}
+      {...props}
     />,
   );
 
@@ -145,5 +147,11 @@ describe("ManualAddStep", () => {
     await user.type(screen.getByLabelText("Unit ID"), "247");
 
     await waitFor(() => expect(getState()?.canAdd).toBe(true));
+  });
+
+  test("preselects the initial site", () => {
+    renderManualAddStep({ initialSiteName: "Denver" });
+
+    expect(screen.getByLabelText("Site")).toHaveValue("Denver");
   });
 });

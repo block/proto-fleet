@@ -205,6 +205,7 @@ interface InfraDeviceListProps {
   canManage?: boolean;
   siteOptions?: string[];
   buildingOptions?: InfraBuildingOption[];
+  initialSiteName?: string;
 }
 
 const buildDefaultColumnPrefs = () =>
@@ -242,6 +243,7 @@ const InfraDeviceList = ({
   canManage = true,
   siteOptions,
   buildingOptions,
+  initialSiteName,
 }: InfraDeviceListProps) => {
   const [devicesPropSnapshot, setDevicesPropSnapshot] = useState(devices);
   const [localDevices, setLocalDevices] = useState<InfraDeviceItem[]>(() => devices);
@@ -621,6 +623,7 @@ const InfraDeviceList = ({
         <AddInfraDeviceModal
           siteOptions={resolvedSiteOptions}
           buildingOptions={resolvedBuildingOptions}
+          initialSiteName={initialSiteName}
           onDismiss={() => setShowAddModal(false)}
           onSuccess={addDevice}
         />

@@ -30,14 +30,21 @@ export interface ManualAddStepState {
 interface ManualAddStepProps {
   siteOptions?: string[];
   buildingOptions?: InfraBuildingOption[];
+  initialSiteName?: string;
   onSuccess: (device: InfraDeviceDraft) => void;
   onStateChange: (state: ManualAddStepState) => void;
 }
 
-const ManualAddStep = ({ siteOptions = [], buildingOptions = [], onSuccess, onStateChange }: ManualAddStepProps) => {
+const ManualAddStep = ({
+  siteOptions = [],
+  buildingOptions = [],
+  initialSiteName,
+  onSuccess,
+  onStateChange,
+}: ManualAddStepProps) => {
   const [name, setName] = useState("");
   const [unitId, setUnitId] = useState("");
-  const [site, setSite] = useState("");
+  const [site, setSite] = useState(initialSiteName ?? "");
   const [building, setBuilding] = useState("");
   const [endpointKind, setEndpointKind] = useState<InfraDeviceEndpointKind>("single_fan");
   const [fanCount, setFanCount] = useState("1");

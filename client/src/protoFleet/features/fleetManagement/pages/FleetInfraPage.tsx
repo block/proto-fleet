@@ -3,6 +3,8 @@ import { Navigate } from "react-router-dom";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
 import type { BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { buildKnownSiteIds } from "@/protoFleet/api/sites";
+import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { useOptionalFleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout/outletContext";
 import InfraDeviceList from "@/protoFleet/features/infrastructure/components/InfraDeviceList";
 import {
@@ -29,6 +31,9 @@ const FleetInfraPage = ({ devices = EMPTY_DEVICES, canRead, canManage }: FleetIn
   const canReadInfrastructure = canRead ?? canReadSites;
   const canManageInfrastructure = canManage ?? canManageSites;
   const sites = fleetContext?.sites;
+  const sitesLoaded = fleetContext?.sitesLoaded ?? false;
+  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
+  const { activeSite } = useActiveSite({ knownSiteIds });
   const catalogSiteOptions = useMemo(() => {
     if (!sites) return undefined;
     return uniqueSortedLocationNames(sites.map((siteWithCounts) => siteWithCounts.site?.name ?? ""));
@@ -43,6 +48,10 @@ const FleetInfraPage = ({ devices = EMPTY_DEVICES, canRead, canManage }: FleetIn
     }
     return next;
   }, [sites]);
+  const selectedSiteName = useMemo(
+    () => (activeSite.kind === "site" ? siteNameById.get(activeSite.id) : undefined),
+    [activeSite, siteNameById],
+  );
   const catalogBuildingOptions = useMemo(() => {
     if (!buildingCatalog) return undefined;
     return uniqueInfraBuildingOptions(
@@ -81,6 +90,7 @@ const FleetInfraPage = ({ devices = EMPTY_DEVICES, canRead, canManage }: FleetIn
       canManage={canManageInfrastructure}
       siteOptions={catalogSiteOptions}
       buildingOptions={catalogBuildingOptions}
+      initialSiteName={selectedSiteName}
     />
   );
 };
