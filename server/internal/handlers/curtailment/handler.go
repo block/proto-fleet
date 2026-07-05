@@ -247,7 +247,29 @@ func (h *Handler) ListActiveCurtailments(ctx context.Context, _ *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(toListActiveCurtailmentsResponse(events)), nil
+	// Whole-org events stay visible on the plain org grant so narrowed
+	// operators still learn their sites are curtailed, but their live rollup
+	// aggregates target counts across every site — including narrowed ones —
+	// so it requires the same unnarrowed org-wide read that whole-org writes
+	// and incomplete-coverage reads already demand.
+	orgWideRead, err := hasOrgWidePermission(ctx, authz.PermCurtailmentRead)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(toListActiveCurtailmentsResponse(events, orgWideRead)), nil
+}
+
+// hasOrgWidePermission reports whether the caller holds permission at org
+// scope without site narrowing; Forbidden maps to false rather than failing
+// the request.
+func hasOrgWidePermission(ctx context.Context, permission string) (bool, error) {
+	if _, err := middleware.RequireOrgWidePermission(ctx, permission); err != nil {
+		if fleeterror.IsForbiddenError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Request[pb.ListCurtailmentEventsRequest]) (*connect.Response[pb.ListCurtailmentEventsResponse], error) {

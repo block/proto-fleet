@@ -3142,6 +3142,10 @@ func (x *StopCurtailmentResponse) GetEvent() *CurtailmentEvent {
 // event's current target set, the operational truth for active displays) but
 // omits per-device targets and the decision snapshot; use GetCurtailmentEvent
 // for full per-target detail and event-start snapshot context.
+//
+// Whole-org events omit `target_rollup` when the caller's curtailment:read
+// grant is narrowed at any site: the rollup aggregates target counts across
+// every site, so it requires unnarrowed org-wide read.
 type ListActiveCurtailmentsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields

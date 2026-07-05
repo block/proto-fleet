@@ -1369,6 +1369,10 @@ export const StopCurtailmentResponseSchema: GenMessage<StopCurtailmentResponse> 
  * omits per-device targets and the decision snapshot; use GetCurtailmentEvent
  * for full per-target detail and event-start snapshot context.
  *
+ * Whole-org events omit `target_rollup` when the caller's curtailment:read
+ * grant is narrowed at any site: the rollup aggregates target counts across
+ * every site, so it requires unnarrowed org-wide read.
+ *
  * @generated from message curtailment.v1.ListActiveCurtailmentsRequest
  */
 export type ListActiveCurtailmentsRequest = Message<"curtailment.v1.ListActiveCurtailmentsRequest"> & {};

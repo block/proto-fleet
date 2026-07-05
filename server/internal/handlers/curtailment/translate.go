@@ -847,10 +847,12 @@ func toListEventsResponse(events []*models.Event, nextPageToken string) *pb.List
 // metadata + scope + mode params + target-site coverage + live target rollup,
 // no per-device targets or decision snapshot (use GetCurtailmentEvent for
 // detail). The rollup describes the event's current target set so active
-// polling reflects closed-loop claims and all-paired policy changes. Replay
-// handles are scrubbed as in the history list — a list view doesn't expose
-// webhook trigger metadata.
-func toListActiveCurtailmentsResponse(events []*models.Event) *pb.ListActiveCurtailmentsResponse {
+// polling reflects closed-loop claims and all-paired policy changes; on
+// whole-org events it aggregates across every site, so it is omitted unless
+// the caller's read permission is org-wide (unnarrowed). Replay handles are
+// scrubbed as in the history list — a list view doesn't expose webhook
+// trigger metadata.
+func toListActiveCurtailmentsResponse(events []*models.Event, orgWideRead bool) *pb.ListActiveCurtailmentsResponse {
 	out := &pb.ListActiveCurtailmentsResponse{
 		Events: make([]*pb.CurtailmentEvent, len(events)),
 	}
@@ -858,12 +860,21 @@ func toListActiveCurtailmentsResponse(events []*models.Event) *pb.ListActiveCurt
 		e := toEventProto(ev)
 		populateEventScope(e, ev)
 		populateEventModeParams(e, ev)
-		populateEventTargetRollup(e, ev)
+		if orgWideRead || !isWholeOrgScopedEvent(ev) {
+			populateEventTargetRollup(e, ev)
+		}
 		populateEventTargetSiteCoverage(e, ev)
 		scrubListSensitiveFields(e)
 		out.Events[i] = e
 	}
 	return out
+}
+
+// isWholeOrgScopedEvent mirrors populateEventScope's whole-org handling: an
+// empty scope type renders as whole-org on the wire, so it is treated as
+// whole-org for rollup exposure too.
+func isWholeOrgScopedEvent(event *models.Event) bool {
+	return event.ScopeType == models.ScopeTypeWholeOrg || event.ScopeType == ""
 }
 
 // toEventProtoListItem populates the list-view shape (no targets).
