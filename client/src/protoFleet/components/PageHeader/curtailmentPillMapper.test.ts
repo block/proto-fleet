@@ -136,6 +136,54 @@ describe("mapCurtailmentPillEvent", () => {
     );
   });
 
+  it("does not treat baseline-less targets as proof of a kW estimate", () => {
+    // baseline_power_w is optional (telemetry gap at selection); without a
+    // snapshot estimate, baseline-less targets would sum to a fabricated
+    // 0.0 kW, so the estimate must report unavailable.
+    const baselessTargets = [
+      create(CurtailmentTargetSchema, { deviceIdentifier: "miner-1", state: CurtailmentTargetState.CONFIRMED }),
+      create(CurtailmentTargetSchema, { deviceIdentifier: "miner-2", state: CurtailmentTargetState.PENDING }),
+    ];
+    expect(
+      mapCurtailmentPillEvent(
+        curtailmentEvent({
+          state: CurtailmentEventState.ACTIVE,
+          decisionSnapshot: {},
+          targetRollup: undefined,
+          targets: baselessTargets,
+        }),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        selectedMiners: 2,
+        estimatedReductionAvailable: false,
+      }),
+    );
+
+    expect(
+      mapCurtailmentPillEvent(
+        curtailmentEvent({
+          state: CurtailmentEventState.ACTIVE,
+          decisionSnapshot: {},
+          targetRollup: undefined,
+          targets: [
+            ...baselessTargets,
+            create(CurtailmentTargetSchema, {
+              deviceIdentifier: "miner-3",
+              state: CurtailmentTargetState.CONFIRMED,
+              baselinePowerW: 3000,
+            }),
+          ],
+        }),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        selectedMiners: 3,
+        estimatedReductionAvailable: true,
+      }),
+    );
+  });
+
   it("marks rollup-only summary rows as counts-only so no zero estimate renders", () => {
     expect(
       mapCurtailmentPillEvent(

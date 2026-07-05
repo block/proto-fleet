@@ -276,9 +276,14 @@ export function hasCurtailmentTargetMetrics(event: ProtoCurtailmentEvent): boole
 
 // A live rollup proves target counts but not estimated kW: active-list rows
 // carry rollups while their decision snapshot stays scrubbed, so kW estimates
-// need a snapshot number or hydrated target baselines.
+// need a snapshot number or hydrated target baselines. Target rows alone are
+// not enough — baseline_power_w is optional (telemetry gaps at selection), so
+// baseline-less targets would sum to a fabricated 0.0 kW estimate.
 export function hasCurtailmentEstimatedReductionKw(event: ProtoCurtailmentEvent): boolean {
-  return hasSnapshotNumber(event, estimatedReductionKwSnapshotKeys) || event.targets.length > 0;
+  return (
+    hasSnapshotNumber(event, estimatedReductionKwSnapshotKeys) ||
+    event.targets.some((target) => target.baselinePowerW !== undefined)
+  );
 }
 
 function getObservedPowerSummary(event: ProtoCurtailmentEvent, estimatedReductionKw: number): ObservedPowerSummary {
