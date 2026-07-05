@@ -324,7 +324,12 @@ export function mapActiveCurtailmentEvent(
     targetKw: getFixedKwTarget(event),
     observedReductionKw: observedPowerSummary.observedReductionKw,
     remainingPowerKw: observedPowerSummary.remainingPowerKw,
-    restoreBatchSize: event.effectiveBatchSize || event.restoreBatchSize,
+    // Restore displays follow the configured restore_batch_size, which is
+    // what the reconciler's restore claims obey (0 = up to the safety limit
+    // per wave). effective_batch_size is a start-time stamp of the selected
+    // count; all-paired and closed-loop growth leaves it stale, so it must
+    // not masquerade as the restore wave size.
+    restoreBatchSize: event.restoreBatchSize,
     restoreBatchIntervalSec: event.restoreBatchIntervalSec,
     rollups: getCurtailmentTargetRollups(event),
   };

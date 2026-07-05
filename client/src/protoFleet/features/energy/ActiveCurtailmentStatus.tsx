@@ -29,6 +29,8 @@ export interface ActiveCurtailmentEvent {
   targetKw?: number;
   observedReductionKw: number;
   remainingPowerKw?: number;
+  // Configured restore wave size; 0 means "up to the safety limit" per wave,
+  // matching the reconciler's restore claim sizing.
   restoreBatchSize: number;
   restoreBatchIntervalSec: number;
   rollups: CurtailmentTargetRollup[];

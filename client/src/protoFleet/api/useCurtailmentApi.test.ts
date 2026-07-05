@@ -21,6 +21,7 @@ import {
   CurtailmentTargetSchema,
   CurtailmentTargetState,
   FixedKwParamsSchema,
+  FullFleetParamsSchema,
   ScopeDeviceListSchema,
   ScopeSiteSchema,
   ScopeWholeOrgSchema,
@@ -686,7 +687,10 @@ describe("useCurtailmentApi", () => {
     expect(result.current.activeEvent?.observedReductionKw).toBeCloseTo(2.07);
   });
 
-  it("shows the effective restore batch size while preserving the configured form value", async () => {
+  it("shows the configured restore batch size, not the stale start-time stamp", async () => {
+    // effective_batch_size snapshots the selected count at Start; all-paired
+    // and closed-loop growth leaves it stale, and the reconciler's restore
+    // claims follow restore_batch_size anyway.
     const activeEvent = curtailmentEvent({
       effectiveBatchSize: 10,
       restoreBatchSize: 1,
@@ -700,8 +704,44 @@ describe("useCurtailmentApi", () => {
       await result.current.refreshCurtailment();
     });
 
-    expect(result.current.activeEvent?.restoreBatchSize).toBe(10);
+    expect(result.current.activeEvent?.restoreBatchSize).toBe(1);
     expect(result.current.activeEventFormValues?.restoreBatchSize).toBe("1");
+  });
+
+  it("keeps safety-limit restore semantics when the target set outgrows the start stamp", async () => {
+    // Full-shutdown all-paired repro: restore_batch_size=0 stamps
+    // effective_batch_size with the paired count at Start (3). Miners paired
+    // after the start grow the live target set (50); the restore display must
+    // keep the configured "up to safety limit" semantics instead of showing
+    // the stale 3-miner stamp as the restore wave size.
+    const activeEvent = curtailmentEvent({
+      mode: CurtailmentMode.FULL_FLEET,
+      forceIncludeAllPairedMiners: true,
+      modeParams: { case: "fullFleet", value: create(FullFleetParamsSchema, {}) },
+      restoreBatchSize: 0,
+      effectiveBatchSize: 3,
+      decisionSnapshot: {
+        selected_count: 3,
+      },
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        confirmed: 45,
+        pending: 5,
+        total: 50,
+      }),
+      targets: [],
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [], nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent?.selectedMiners).toBe(50);
+    expect(result.current.activeEvent?.restoreBatchSize).toBe(0);
+    expect(result.current.activeEventFormValues?.restoreBatchSize).toBe("");
   });
 
   it("maps configured curtail batch controls into active event form values", async () => {
