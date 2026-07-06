@@ -341,6 +341,7 @@ const curtailProgressColorMap: Record<Segment["status"], string> = {
 const restoreProgressColorMap: Record<Segment["status"], string> = {
   ...curtailProgressColorMap,
   OK: "bg-intent-success-fill",
+  NA: "bg-core-primary-fill",
 };
 
 // Ticks once per second so the SLA-facing elapsed readout moves even when
@@ -462,7 +463,7 @@ function getRestoreProgressSummary(progress: ActiveCurtailmentRestoreProgress): 
 function getRestoreProgressSegments(progress: ActiveCurtailmentRestoreProgress): Segment[] {
   return [
     { name: "Restored", status: "OK", count: progress.restoredCount },
-    { name: "Restoring", status: "WARNING", count: progress.awaitingCount },
+    { name: "Curtailed", status: "NA", count: progress.awaitingCount },
     { name: "Failed to restore", status: "CRITICAL", count: progress.failedCount },
   ];
 }
