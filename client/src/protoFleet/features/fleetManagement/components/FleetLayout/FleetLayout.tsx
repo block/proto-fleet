@@ -5,7 +5,7 @@ import clsx from "clsx";
 import { type FleetOutletContext } from "./outletContext";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
-import { useSitesContext } from "@/protoFleet/api/SitesContext";
+import { useSitesContext, useSitesPolling } from "@/protoFleet/api/SitesContext";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { INFRASTRUCTURE_DEVICES_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
@@ -70,6 +70,10 @@ const FleetLayout = () => {
   // tab children through the outlet context below.
   const { sites, sitesError, sitesLoaded, sitesPermissionDenied, siteCatalogAccessGranted, refetchSites } =
     useSitesContext();
+  // Fleet tabs render live site tables/cards, so keep the shared catalog on the
+  // 15s poll while any Fleet route is mounted. Header-only routes don't opt in,
+  // so the catalog stays a one-shot fetch there.
+  useSitesPolling();
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   // Key scope validation off catalog *access* (authoritative now), not

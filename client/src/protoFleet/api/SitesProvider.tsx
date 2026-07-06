@@ -71,10 +71,22 @@ export const SitesProvider = ({ children }: { children: ReactNode }) => {
   // Abort any in-flight request on unmount to avoid setState-after-unmount.
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  // Ref-counted opt-in polling. The catalog is one-shot by default (initial
+  // fetch on mount + refetch when sitesRevision bumps), so header-only routes
+  // like /settings/* don't run the ListSites count/telemetry rollups every
+  // 15s. Pages that render live site tables/cards call useSitesPolling() to
+  // register while mounted; the shared fetch polls while at least one is
+  // active, keeping the single-fetch guarantee.
+  const [activePollers, setActivePollers] = useState(0);
+  const registerSitesPoll = useCallback(() => {
+    setActivePollers((n) => n + 1);
+    return () => setActivePollers((n) => Math.max(0, n - 1));
+  }, []);
+
   usePoll({
     fetchData: fetchSites,
     params: sitesRevision,
-    poll: true,
+    poll: activePollers > 0,
     pollIntervalMs: POLL_INTERVAL_MS,
     enabled: canReadSites,
   });
@@ -88,8 +100,9 @@ export const SitesProvider = ({ children }: { children: ReactNode }) => {
       sitesPermissionDenied,
       siteCatalogAccessGranted: canReadSites && sitesLoaded && !sitesPermissionDenied,
       refetchSites: fetchSites,
+      registerSitesPoll,
     }),
-    [sites, sitesError, sitesLoaded, sitesSettled, sitesPermissionDenied, canReadSites, fetchSites],
+    [sites, sitesError, sitesLoaded, sitesSettled, sitesPermissionDenied, canReadSites, fetchSites, registerSitesPoll],
   );
 
   return <SitesContext.Provider value={value}>{children}</SitesContext.Provider>;

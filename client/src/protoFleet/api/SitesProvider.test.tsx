@@ -4,8 +4,9 @@ import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
 
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { useSitesContext } from "@/protoFleet/api/SitesContext";
+import { useSitesContext, useSitesPolling } from "@/protoFleet/api/SitesContext";
 import { SitesProvider } from "@/protoFleet/api/SitesProvider";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
 const listSitesMock = vi.hoisted(() => vi.fn());
@@ -149,5 +150,52 @@ describe("SitesProvider", () => {
     // The superseded request is aborted; a late response from it is ignored.
     expect(signals[0].aborted).toBe(true);
     expect(signals[1].aborted).toBe(false);
+  });
+});
+
+// A consumer that opts into live polling for as long as it's mounted.
+const Poller = () => {
+  useSitesPolling();
+  return null;
+};
+
+describe("SitesProvider polling", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    listSitesMock.mockImplementation(async ({ onSuccess }) => onSuccess?.([makeSite(1)]));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("is one-shot (no recurring poll) when no consumer opts in — e.g. header-only routes", async () => {
+    render(
+      <SitesProvider>
+        <Probe />
+      </SitesProvider>,
+    );
+
+    await vi.advanceTimersByTimeAsync(0); // flush the initial mount fetch
+    expect(listSitesMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3);
+    // Still one call: the catalog does not poll without a registered consumer.
+    expect(listSitesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("polls on the interval while a consumer registers via useSitesPolling", async () => {
+    render(
+      <SitesProvider>
+        <Poller />
+        <Probe />
+      </SitesProvider>,
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    const afterMount = listSitesMock.mock.calls.length;
+
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(listSitesMock.mock.calls.length).toBeGreaterThan(afterMount);
   });
 });

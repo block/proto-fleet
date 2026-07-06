@@ -225,6 +225,7 @@ const storySitesContext: SitesContextValue = {
   sitesPermissionDenied: false,
   siteCatalogAccessGranted: true,
   refetchSites: () => {},
+  registerSitesPoll: () => () => {},
 };
 
 export const PageHeader = () => {

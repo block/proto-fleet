@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
 
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 
@@ -36,6 +36,13 @@ export interface SitesContextValue {
   // tabs for denied sessions.
   siteCatalogAccessGranted: boolean;
   refetchSites: () => void;
+  // Register interest in *live* (polled) site data for as long as the caller
+  // stays mounted; returns an unregister cleanup. The shared fetch is one-shot
+  // by default (mount + sitesRevision) so header-only routes (e.g. settings)
+  // don't run the ListSites count/telemetry rollups every 15s. Pages that
+  // render live site tables/cards opt in, and the provider polls while at least
+  // one is mounted.
+  registerSitesPoll: () => () => void;
 }
 
 export const SitesContext = createContext<SitesContextValue | undefined>(undefined);
@@ -46,4 +53,12 @@ export const useSitesContext = (): SitesContextValue => {
     throw new Error("useSitesContext must be used within a SitesProvider");
   }
   return ctx;
+};
+
+// Opt this route into polling the shared site catalog while mounted. Use from
+// pages that show live site tables/cards (e.g. the Fleet shell); header-only
+// routes should not call it so the catalog stays a one-shot fetch there.
+export const useSitesPolling = (): void => {
+  const { registerSitesPoll } = useSitesContext();
+  useEffect(() => registerSitesPoll(), [registerSitesPoll]);
 };
