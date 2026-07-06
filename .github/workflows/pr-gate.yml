@@ -18,6 +18,7 @@ jobs:
     name: Detect changed areas
     runs-on: ubuntu-latest
     outputs:
+      deployment_config: ${{ github.event_name != 'pull_request' || steps.filter.outputs.deployment_config == 'true' }}
       proto: ${{ github.event_name != 'pull_request' || steps.filter.outputs.proto == 'true' }}
       client: ${{ github.event_name != 'pull_request' || steps.filter.outputs.client == 'true' }}
       server: ${{ github.event_name != 'pull_request' || steps.filter.outputs.server == 'true' }}
@@ -55,6 +56,13 @@ jobs:
     needs: changes
     if: github.event_name == 'pull_request'
     uses: ./.github/workflows/dependency-review.yml
+    secrets: inherit
+
+  deployment-config-checks:
+    name: Deployment Config Checks
+    needs: changes
+    if: needs.changes.outputs.deployment_config == 'true'
+    uses: ./.github/workflows/deployment-config-checks.yml
     secrets: inherit
 
   proto-checks:
@@ -176,6 +184,7 @@ jobs:
       - changes
       - generated-code
       - dependency-review
+      - deployment-config-checks
       - proto-checks
       - client-checks
       - server-checks
