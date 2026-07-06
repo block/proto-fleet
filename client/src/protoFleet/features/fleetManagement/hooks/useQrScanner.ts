@@ -54,6 +54,10 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
   const detectorRef = useRef<BarcodeDetector | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const detectedRef = useRef(false);
+  // Guards against overlapping decodes: detect() can take longer than
+  // SCAN_INTERVAL_MS (notably the WASM fallback on mobile), and without this a
+  // slow frame would let interval ticks stack up and spike CPU/battery.
+  const detectingRef = useRef(false);
   const onDetectedRef = useRef(onDetected);
 
   const [status, setStatus] = useState<ScanStatus>("idle");
@@ -131,7 +135,8 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
 
         intervalRef.current = setInterval(async () => {
           const el = videoRef.current;
-          if (!el || detectedRef.current || el.readyState < 2) return;
+          if (!el || detectedRef.current || detectingRef.current || el.readyState < 2) return;
+          detectingRef.current = true;
           try {
             const results = await detector.detect(el);
             const value = results[0]?.rawValue;
@@ -142,6 +147,8 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
           } catch {
             // Transient decode failures (e.g. a blurry frame) are expected;
             // keep polling.
+          } finally {
+            detectingRef.current = false;
           }
         }, SCAN_INTERVAL_MS);
       } catch (err) {

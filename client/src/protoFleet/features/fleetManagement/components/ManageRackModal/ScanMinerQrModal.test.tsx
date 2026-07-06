@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ScanMinerQrModal from "./ScanMinerQrModal";
-import { MinerIdentifierType } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { MinerIdentifierType, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 // --- Mock the scanner hook so tests never touch real camera/WASM APIs. ---
 const mockUseQrScanner = vi.fn();
@@ -46,6 +46,7 @@ function snapshot(overrides: Record<string, unknown> = {}) {
     model: "S21",
     ipAddress: "10.0.0.5",
     placement: undefined,
+    pairingStatus: PairingStatus.PAIRED,
     ...overrides,
   };
 }
@@ -112,6 +113,25 @@ describe("ScanMinerQrModal", () => {
     });
 
     await waitFor(() => expect(screen.getByText(/Already assigned to rack "Rack B"/i)).toBeInTheDocument());
+    const assignBtn = screen.getByText("Assign to slot") as HTMLButtonElement;
+    expect(assignBtn.disabled).toBe(true);
+  });
+
+  it("blocks assigning a miner that isn't fully paired", async () => {
+    mockCanUseLiveCamera.mockReturnValue(true);
+    mockLookup.mockResolvedValueOnce({
+      status: "found",
+      snapshot: snapshot({ pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }),
+    });
+    const onConfirm = vi.fn();
+
+    render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={onConfirm} />);
+
+    await act(async () => {
+      capturedOnDetected?.("SN123");
+    });
+
+    await waitFor(() => expect(screen.getByText(/isn't fully paired/i)).toBeInTheDocument());
     const assignBtn = screen.getByText("Assign to slot") as HTMLButtonElement;
     expect(assignBtn.disabled).toBe(true);
   });

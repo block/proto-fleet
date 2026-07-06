@@ -2,6 +2,7 @@ import { type RefObject } from "react";
 
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { INACTIVE_PLACEHOLDER } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
+import { FLEET_SELECTABLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import { getMinerRackLabel } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 
 import { Alert, Checkmark, Info } from "@/shared/assets/icons";
@@ -65,6 +66,14 @@ export default function ScanMinerQrModalView({
     !!getMinerRackLabel(phase.snapshot) &&
     getMinerRackLabel(phase.snapshot) !== currentRackLabel;
 
+  // Enforce the same eligibility rule as the list/search assignment flows
+  // (FLEET_SELECTABLE_PAIRING_STATUSES = PAIRED only). LookupMinerByIdentifier
+  // also resolves AUTHENTICATION_NEEDED / DEFAULT_PASSWORD miners, so without
+  // this guard the scan flow would let operators rack not-fully-paired miners
+  // that the rest of the UI excludes.
+  const notPairedForAssignment =
+    phase.kind === "found" && !FLEET_SELECTABLE_PAIRING_STATUSES.includes(phase.snapshot.pairingStatus);
+
   return (
     <Modal
       open={show}
@@ -84,7 +93,7 @@ export default function ScanMinerQrModalView({
               {
                 text: "Assign to slot",
                 variant: variants.primary,
-                disabled: foundInOtherRack,
+                disabled: foundInOtherRack || notPairedForAssignment,
                 onClick: onConfirm,
                 dismissModalOnClick: false,
               },
@@ -124,6 +133,7 @@ export default function ScanMinerQrModalView({
             snapshot={phase.snapshot}
             inOtherRack={foundInOtherRack}
             otherRackLabel={getMinerRackLabel(phase.snapshot)}
+            notPaired={notPairedForAssignment}
           />
         ) : null}
 
@@ -226,10 +236,12 @@ function FoundMiner({
   snapshot,
   inOtherRack,
   otherRackLabel,
+  notPaired,
 }: {
   snapshot: MinerStateSnapshot;
   inOtherRack: boolean;
   otherRackLabel: string;
+  notPaired: boolean;
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -253,6 +265,13 @@ function FoundMiner({
           prefixIcon={<Alert />}
           title={`Already assigned to rack "${otherRackLabel}"`}
           subtitle="Remove it from that rack before assigning it here."
+        />
+      ) : notPaired ? (
+        <Callout
+          intent="warning"
+          prefixIcon={<Alert />}
+          title="This miner isn't fully paired yet"
+          subtitle="Only paired miners can be assigned to a rack. Finish pairing this miner, then scan it again."
         />
       ) : null}
     </div>
