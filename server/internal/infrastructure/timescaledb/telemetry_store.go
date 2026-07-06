@@ -376,6 +376,12 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 		}
 	}()
 
+	if s.config.AsyncMetricCommit {
+		if _, err := tx.ExecContext(ctx, "SET LOCAL synchronous_commit = off"); err != nil {
+			return fmt.Errorf("failed to set async commit: %w", err)
+		}
+	}
+
 	qtx := s.queries.WithTx(tx)
 
 	for _, metrics := range data {

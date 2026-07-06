@@ -63,6 +63,43 @@ func TestTelemetryStore_StoreDeviceMetrics(t *testing.T) {
 	assert.Equal(t, 1500.0, power)
 }
 
+func TestTelemetryStore_StoreDeviceMetricsWithAsyncCommit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange
+	db := testutil.GetTestDB(t)
+	config := timescaledb.DefaultConfig()
+	config.AsyncMetricCommit = true
+	store, err := timescaledb.NewTelemetryStore(db, config)
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	deviceIdentifier := "device-async-commit-1"
+	t.Cleanup(func() {
+		cleanupDeviceMetrics(t, db, deviceIdentifier)
+	})
+
+	// Act
+	err = store.StoreDeviceMetrics(ctx, modelsV2.DeviceMetrics{
+		DeviceIdentifier: deviceIdentifier,
+		Timestamp:        time.Now().Truncate(time.Millisecond),
+		Health:           modelsV2.HealthHealthyActive,
+		HashrateHS:       &modelsV2.MetricValue{Value: 50_000_000},
+	})
+
+	// Assert
+	require.NoError(t, err)
+	var hashRate float64
+	err = db.QueryRowContext(ctx,
+		"SELECT hash_rate_hs FROM device_metrics WHERE device_identifier = $1 ORDER BY time DESC LIMIT 1",
+		deviceIdentifier,
+	).Scan(&hashRate)
+	require.NoError(t, err)
+	assert.Equal(t, 50_000_000.0, hashRate)
+}
+
 func TestTelemetryStore_StoreDeviceMetricsStampsSiteWithDuplicateHistoricalDeviceIdentifier(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
