@@ -58,7 +58,7 @@ const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_K
 }));
 
 const FleetBuildingsPage = () => {
-  const { sites, sitesError, sitesLoaded, refetchSites } = useFleetOutletContext();
+  const { sites, sitesError, siteCatalogAccessGranted, refetchSites } = useFleetOutletContext();
 
   const { listBuildings } = useBuildings();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -82,7 +82,13 @@ const FleetBuildingsPage = () => {
   const [selectedBuildingIds, setSelectedBuildingIds] = useState<string[]>([]);
   const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
 
-  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
+  // Validate scope against catalog access (authoritative now), not sitesLoaded:
+  // a mid-session PermissionDenied clears `sites` to [] with sitesLoaded still
+  // true, which would otherwise strip a reachable scoped route.
+  const knownSiteIds = useMemo(
+    () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
+    [siteCatalogAccessGranted, sites],
+  );
   const { activeSite } = useActiveSite({ knownSiteIds });
 
   // `?site=<id>` deep links filter the list without changing the path

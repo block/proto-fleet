@@ -92,15 +92,16 @@ const Fleet = () => {
   const { listAllBuildings } = useBuildings();
   const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
   const [availableRacks, setAvailableRacks] = useState<DeviceSet[]>([]);
-  const {
-    sites,
-    sitesLoaded,
-    siteCatalogAccessGranted,
-    notifyPairingCompleted,
-    minersChangedAt,
-    publishViewFilterContext,
-  } = useFleetOutletContext();
-  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
+  const { sites, siteCatalogAccessGranted, notifyPairingCompleted, minersChangedAt, publishViewFilterContext } =
+    useFleetOutletContext();
+  // Validate scope against catalog *access* (authoritative now), not
+  // sitesLoaded — a mid-session PermissionDenied clears `sites` to [] while
+  // sitesLoaded stays true, which would otherwise strip a reachable scoped
+  // route.
+  const knownSiteIds = useMemo(
+    () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
+    [siteCatalogAccessGranted, sites],
+  );
   const { activeSite } = useActiveSite({ knownSiteIds });
   const { siteIds: activeSiteIds, includeUnassigned: activeIncludeUnassigned } = useMemo(
     () => siteFilterFromActive(activeSite),

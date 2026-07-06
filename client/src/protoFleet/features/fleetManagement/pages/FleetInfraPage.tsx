@@ -31,8 +31,14 @@ const FleetInfraPage = ({ devices = EMPTY_DEVICES, canRead, canManage }: FleetIn
   const canReadInfrastructure = canRead ?? canReadSites;
   const canManageInfrastructure = canManage ?? canManageSites;
   const sites = fleetContext?.sites;
-  const sitesLoaded = fleetContext?.sitesLoaded ?? false;
-  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
+  // Validate scope against catalog access (authoritative now), not sitesLoaded:
+  // a mid-session PermissionDenied clears `sites` to [] with sitesLoaded still
+  // true, which would otherwise strip a reachable scoped route.
+  const siteCatalogAccessGranted = fleetContext?.siteCatalogAccessGranted ?? false;
+  const knownSiteIds = useMemo(
+    () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
+    [siteCatalogAccessGranted, sites],
+  );
   const { activeSite } = useActiveSite({ knownSiteIds });
   const catalogSiteOptions = useMemo(() => {
     if (!sites) return undefined;

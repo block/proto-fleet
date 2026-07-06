@@ -45,7 +45,7 @@ const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_K
 }));
 
 const FleetSitesPage = () => {
-  const { sites, sitesError, sitesLoaded, refetchSites } = useFleetOutletContext();
+  const { sites, sitesError, sitesLoaded, siteCatalogAccessGranted, refetchSites } = useFleetOutletContext();
   const { listSites } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();
   const errorComponentTypes = useMemo(() => issueComponentTypesFromURL(searchParams), [searchParams]);
@@ -70,7 +70,13 @@ const FleetSitesPage = () => {
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
   const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
 
-  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
+  // Scope validation keys off catalog access (authoritative now), not
+  // sitesLoaded — which stays true after a mid-session PermissionDenied clears
+  // `sites` to []. (sitesLoaded still drives the table loading state below.)
+  const knownSiteIds = useMemo(
+    () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
+    [siteCatalogAccessGranted, sites],
+  );
   const { activeSite } = useActiveSite({ knownSiteIds });
   // Filtered sites use the same site:read gate as FleetLayout's unfiltered
   // cache, but keep their own cache because the request shape is URL-driven.
