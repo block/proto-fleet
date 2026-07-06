@@ -186,7 +186,7 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("Power to shed")).toBeVisible();
     expect(screen.getByText("60.0 kW")).toBeVisible();
     expect(screen.getAllByText("Curtailed")[0]).toBeVisible();
-    expectProgressSummary("18 of 18 miners curtailed (100%)");
+    expectProgressSummary("18 miners curtailed (100%)");
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Restore now");
 
@@ -446,7 +446,7 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getAllByText("Restored")[0]).toBeVisible();
     expect(screen.getByText("Time to restore")).toBeVisible();
     expect(screen.getByText("2 minutes")).toBeVisible();
-    expectProgressSummary("18 of 18 miners restored (100%)");
+    expectProgressSummary("18 miners restored (100%)");
     expect(within(screen.getByTestId("active-curtailment-progress")).getByText("23s elapsed")).toBeVisible();
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Abort curtailment");
@@ -585,7 +585,7 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expectProgressSummary("10 of 10 miners curtailed (100%)");
+    expectProgressSummary("10 miners curtailed (100%)");
   });
 
   it("hides curtail progress when no live rollup data exists", () => {
@@ -611,7 +611,7 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expectProgressSummary("1 of 1 miner curtailed (100%)");
+    expectProgressSummary("1 miner curtailed (100%)");
   });
 
   it("floors the curtailed percentage so completion is never overstated", () => {

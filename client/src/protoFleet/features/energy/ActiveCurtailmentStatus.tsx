@@ -453,9 +453,23 @@ function getCurtailProgressSummary(progress: ActiveCurtailmentCurtailProgress): 
   const curtailedPercent = Math.floor(
     getCurtailmentProgressPercent(progress.confirmedCount, progress.dispatchableCount),
   );
+  if (curtailedPercent >= 100) {
+    return `${formatMinerCount(progress.confirmedCount)} curtailed (${curtailedPercent}%)`;
+  }
+
   return `${progress.confirmedCount.toLocaleString()} of ${formatMinerCount(
     progress.dispatchableCount,
   )} curtailed (${curtailedPercent}%)`;
+}
+
+function getRestoreProgressSummary(progress: ActiveCurtailmentRestoreProgress): string {
+  if (progress.percent >= 100) {
+    return `${formatMinerCount(progress.restoredCount)} restored (${progress.percent}%)`;
+  }
+
+  return `${progress.restoredCount.toLocaleString()} of ${formatMinerCount(
+    progress.restorableCount,
+  )} restored (${progress.percent}%)`;
 }
 
 function getRestoreProgressSegments(progress: ActiveCurtailmentRestoreProgress): ProgressSegment[] {
@@ -805,9 +819,7 @@ export default function ActiveCurtailmentStatus({
 
         {showRestoreProgress ? (
           <ProgressSection
-            summary={`${restoreProgress.restoredCount.toLocaleString()} of ${formatMinerCount(
-              restoreProgress.restorableCount,
-            )} restored (${restoreProgress.percent}%)`}
+            summary={getRestoreProgressSummary(restoreProgress)}
             segments={getRestoreProgressSegments(restoreProgress)}
             colorMap={restoreProgressColorMap}
             elapsedAnchor={elapsedAnchor}
