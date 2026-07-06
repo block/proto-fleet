@@ -200,6 +200,8 @@ describe("useCurtailmentApi", () => {
         targetKw: 5,
         observedReductionKw: 5,
         remainingPowerKw: 1,
+        // Live-progress inputs (issue #660): elapsed derives from startedAt.
+        startedAt: "2026-05-01T12:00:00.000Z",
       }),
     );
     expect(result.current.activeEventFormValues).toEqual(
@@ -762,6 +764,13 @@ describe("useCurtailmentApi", () => {
       expect.objectContaining({
         curtailBatchSize: "20",
         curtailBatchIntervalSec: "0",
+      }),
+    );
+    // The active card's time-to-curtail estimate reads the raw pacing values.
+    expect(result.current.activeEvent).toEqual(
+      expect.objectContaining({
+        curtailBatchSize: 20,
+        curtailBatchIntervalSec: 0,
       }),
     );
   });

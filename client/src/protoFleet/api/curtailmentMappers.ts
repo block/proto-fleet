@@ -318,12 +318,15 @@ export function mapActiveCurtailmentEvent(
     sourceLabel: getSourceLabel(externalSource),
     isAutomationOwned: isAutomationExternalSource(externalSource),
     targetSiteCoverage: mapTargetSiteCoverage(event),
+    startedAt: timestampToIsoString(event.startedAt),
     endedAt: timestampToIsoString(event.endedAt),
     selectedMiners: getCurtailmentEventLiveTargetCount(event),
     estimatedReductionKw,
     targetKw: getFixedKwTarget(event),
     observedReductionKw: observedPowerSummary.observedReductionKw,
     remainingPowerKw: observedPowerSummary.remainingPowerKw,
+    curtailBatchSize: event.curtailBatchSize,
+    curtailBatchIntervalSec: event.curtailBatchIntervalSec,
     // Restore displays follow the configured restore_batch_size, which is
     // what the reconciler's restore claims obey (0 = up to the safety limit
     // per wave). effective_batch_size is a start-time stamp of the selected

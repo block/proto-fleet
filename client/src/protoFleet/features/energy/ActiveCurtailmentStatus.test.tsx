@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
@@ -17,6 +17,11 @@ function expectActionButtonHidden(name: string): void {
 
 function expectProgressHidden(): void {
   expect(screen.queryByTestId("active-curtailment-progress")).not.toBeInTheDocument();
+}
+
+function expectProgressSummary(summary: string): void {
+  const progress = within(screen.getByTestId("active-curtailment-progress"));
+  expect(progress.getByText(summary)).toBeVisible();
 }
 
 function expectPrimaryLockup(value: string): void {
@@ -49,7 +54,8 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("60.0 kW")).toBeVisible();
     expect(screen.getAllByText("Curtailing")[0]).toBeVisible();
     expect(screen.getByText("10 miners every 120s")).toBeVisible();
-    expectProgressHidden();
+    // 16 confirmed + 2 sent (dispatched + drifted) of 18 dispatchable.
+    expectProgressSummary("18 of 18 miners reached (100%)");
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Restore");
 
@@ -107,7 +113,7 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("60.0 kW")).toBeVisible();
     expect(screen.getAllByText("Pending")[0]).toBeVisible();
     expect(screen.queryByText("Curtailing")).not.toBeInTheDocument();
-    expectProgressHidden();
+    expectProgressSummary("0 of 18 miners reached (0%)");
     expectActionButtonHidden("Restore");
 
     await user.click(screen.getByRole("button", { name: "Stop" }));
@@ -176,7 +182,7 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("Power to shed")).toBeVisible();
     expect(screen.getByText("60.0 kW")).toBeVisible();
     expect(screen.getAllByText("Curtailed")[0]).toBeVisible();
-    expectProgressHidden();
+    expectProgressSummary("18 of 18 miners reached (100%)");
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Stop");
 
@@ -473,6 +479,190 @@ describe("ActiveCurtailmentStatus", () => {
     expect(onDismissRestored).toHaveBeenCalledOnce();
   });
 
+  it("renders curtail progress with segment legend and unavailable annotation", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          selectedMiners: 505,
+          rollups: [
+            { state: "confirmed", count: 300 },
+            { state: "dispatched", count: 100 },
+            { state: "drifted", count: 20 },
+            { state: "pending", count: 80 },
+            { state: "unavailable", count: 5 },
+          ],
+        }}
+      />,
+    );
+
+    expectProgressSummary("420 of 500 miners reached (84%)");
+    const progress = within(screen.getByTestId("active-curtailment-progress"));
+    expect(progress.getByText("Confirmed quiet (300)")).toBeVisible();
+    expect(progress.getByText("Command sent (120)")).toBeVisible();
+    expect(progress.getByText("Pending (80)")).toBeVisible();
+    expect(progress.getByText("5 unavailable (excluded)")).toBeVisible();
+  });
+
+  it("reaches full progress when only unavailable targets remain unreached", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          rollups: [
+            { state: "confirmed", count: 9 },
+            { state: "dispatched", count: 1 },
+            { state: "unavailable", count: 40 },
+          ],
+        }}
+      />,
+    );
+
+    expectProgressSummary("10 of 10 miners reached (100%)");
+  });
+
+  it("hides curtail progress when no live rollup data exists", () => {
+    // startedAt is set so the absent Elapsed stat proves the live-data gate,
+    // not just a missing timestamp.
+    render(
+      <ActiveCurtailmentStatus
+        event={{ ...curtailingCurtailmentEvent, rollups: [], startedAt: "2026-05-01T10:00:00-04:00" }}
+      />,
+    );
+
+    expectProgressHidden();
+    expect(screen.queryByText("Elapsed")).not.toBeInTheDocument();
+  });
+
+  it("uses the singular miner label when one target is dispatchable", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          rollups: [{ state: "confirmed", count: 1 }],
+        }}
+      />,
+    );
+
+    expectProgressSummary("1 of 1 miner reached (100%)");
+  });
+
+  it("floors the reached percentage so completion is never overstated", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          rollups: [
+            { state: "confirmed", count: 997 },
+            { state: "pending", count: 3 },
+          ],
+        }}
+      />,
+    );
+
+    // 997/1000 = 99.7% must not round up to 100% while targets are pending.
+    expectProgressSummary("997 of 1,000 miners reached (99%)");
+  });
+
+  it("shows elapsed time from the event start and ticks it forward", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-01T10:03:12-04:00"));
+
+    try {
+      render(
+        <ActiveCurtailmentStatus
+          event={{
+            ...curtailingCurtailmentEvent,
+            startedAt: "2026-05-01T10:00:00-04:00",
+          }}
+        />,
+      );
+
+      expect(screen.getByText("Elapsed")).toBeVisible();
+      expect(screen.getByText("3m 12s")).toBeVisible();
+
+      act(() => {
+        vi.advanceTimersByTime(3_000);
+      });
+
+      expect(screen.getByText("3m 15s")).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("omits elapsed time for events that have not started", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          startedAt: undefined,
+          rollups: [{ state: "pending", count: 18 }],
+          state: "pending",
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("active-curtailment-progress")).toBeInTheDocument();
+    expect(screen.queryByText("Elapsed")).not.toBeInTheDocument();
+  });
+
+  it("estimates remaining time to curtail from pending targets and batch pacing", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          curtailBatchSize: 10,
+          curtailBatchIntervalSec: 60,
+          rollups: [
+            { state: "confirmed", count: 10 },
+            { state: "pending", count: 25 },
+          ],
+        }}
+      />,
+    );
+
+    // ceil(25 / 10) = 3 waves of 60s (issue #660's rough formula).
+    expect(screen.getByText("Est. time to curtail")).toBeVisible();
+    expect(screen.getByText("3 minutes")).toBeVisible();
+  });
+
+  it.each([
+    ["absent", undefined, undefined],
+    ["zero-valued (proto3 unset)", 0, 0],
+    ["partial (no interval)", 10, 0],
+  ])("hides the curtail estimate when batch pacing is %s", (_label, curtailBatchSize, curtailBatchIntervalSec) => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          curtailBatchSize,
+          curtailBatchIntervalSec,
+          rollups: [
+            { state: "confirmed", count: 10 },
+            { state: "pending", count: 25 },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("Est. time to curtail")).not.toBeInTheDocument();
+  });
+
+  it("hides the curtail estimate once every target has been reached", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          curtailBatchSize: 10,
+          curtailBatchIntervalSec: 60,
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("Est. time to curtail")).not.toBeInTheDocument();
+  });
+
   it("renders failed and cancelled events without active controls", () => {
     const onDismissRestored = vi.fn();
     const onRequestRestore = vi.fn();
@@ -488,6 +678,7 @@ describe("ActiveCurtailmentStatus", () => {
     );
 
     expect(screen.getByText("Failed")).toBeVisible();
+    expectProgressHidden();
     expectActionButtonHidden("Dismiss");
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
@@ -502,6 +693,7 @@ describe("ActiveCurtailmentStatus", () => {
     );
 
     expect(screen.getByText("Cancelled")).toBeVisible();
+    expectProgressHidden();
     expectActionButtonHidden("Dismiss");
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
