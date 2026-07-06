@@ -26,6 +26,28 @@ MIGRATION_TABLES=(
 )
 
 # ============================================================================
+# Docker Compose Helpers
+# ============================================================================
+
+# Layered compose interpolation args: host profile file first, operator
+# .env last (last wins). Mirrors refresh_compose_env_args in run-fleet.sh.
+# Requires PROJECT_ROOT and ENV_FILE; populates COMPOSE_ENV_ARGS.
+refresh_compose_env_args() {
+    COMPOSE_ENV_ARGS=()
+    local profile profile_file
+    profile=$(grep -E '^FLEET_PROFILE=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
+    if [ -n "$profile" ]; then
+        profile_file="$PROJECT_ROOT/profiles/${profile}.env"
+        if [[ "$profile" =~ ^[a-z]+$ ]] && [ -f "$profile_file" ]; then
+            COMPOSE_ENV_ARGS+=(--env-file "$profile_file")
+        fi
+    fi
+    if [ -f "$ENV_FILE" ]; then
+        COMPOSE_ENV_ARGS+=(--env-file "$ENV_FILE")
+    fi
+}
+
+# ============================================================================
 # Error Handling Helpers
 # ============================================================================
 

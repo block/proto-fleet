@@ -59,6 +59,28 @@ refresh_compose_files() {
     fi
 }
 refresh_compose_files
+
+# Layered compose interpolation: host profile file first, operator .env
+# last so any key set in .env overrides the profile. Passing --env-file
+# disables compose's automatic ./.env loading, so .env must be passed
+# explicitly whenever it exists.
+refresh_compose_env_args() {
+    COMPOSE_ENV_ARGS=()
+    local profile profile_file
+    profile=$(grep -E '^FLEET_PROFILE=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
+    if [ -n "$profile" ]; then
+        profile_file="$PROJECT_ROOT/profiles/${profile}.env"
+        if [[ "$profile" =~ ^[a-z]+$ ]] && [ -f "$profile_file" ]; then
+            COMPOSE_ENV_ARGS+=(--env-file "$profile_file")
+        else
+            echo "Warning: FLEET_PROFILE='$profile' does not match a profile in $PROJECT_ROOT/profiles/; using default configuration." >&2
+        fi
+    fi
+    if [ -f "$ENV_FILE" ]; then
+        COMPOSE_ENV_ARGS+=(--env-file "$ENV_FILE")
+    fi
+}
+refresh_compose_env_args
 SSL_DIR="$PROJECT_ROOT/ssl"
 SSL_CERT="$SSL_DIR/cert.pem"
 SSL_KEY="$SSL_DIR/key.pem"
@@ -425,7 +447,7 @@ prompt_store_reinit() {
     read -p "   Remove & reinitialize this volume now? ALL DATA WILL BE LOST (y/N): " answer
     if [[ $answer =~ ^[Yy]$ ]]; then
       echo "   Shutting down containers…"
-      docker compose "${COMPOSE_FILES[@]}" down --remove-orphans
+      docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" down --remove-orphans
       echo "   Removing volume $vol…"
       docker volume rm "$vol"
       echo "   Volume removed; new credentials will apply next startup."
@@ -439,6 +461,24 @@ prompt_store_reinit() {
 # ----------------------------------------------------------------------------
 # Environment File Validation and Setup
 # ----------------------------------------------------------------------------
+
+prompt_fleet_profile() {
+    local choice
+    echo ""
+    echo "Select a host profile (tunes the database and poller for this hardware):"
+    echo "  1) standard - Raspberry Pi 5 class host, 16GB RAM with SSD; up to ~5000 miners (default)"
+    echo "  2) mini     - low-power or SD-card host, <=4GB RAM; up to ~200 miners"
+    echo "  3) max      - dedicated server, 32GB+ RAM, 8+ cores, NVMe; 5000+ miners"
+    echo -n "Profile [1]: "
+    read profile_choice
+    case "$profile_choice" in
+        2|mini) choice="mini" ;;
+        3|max) choice="max" ;;
+        *) choice="standard" ;;
+    esac
+    echo "FLEET_PROFILE=$choice" >> "$ENV_FILE"
+    echo "Host profile '$choice' saved to $ENV_FILE (edit FLEET_PROFILE there to change it)."
+}
 
 use_existing="no"
 
@@ -466,6 +506,15 @@ if [ -f "$ENV_FILE" ]; then
         if [[ -z "$use_existing_creds" || $use_existing_creds =~ ^[Yy]$ ]]; then
             use_existing="yes"
             echo "Using existing environment file."
+            # Pre-profile installs upgrading: ask once, interactively only,
+            # so unattended upgrades never silently retune a running system
+            if ! grep -q "^FLEET_PROFILE=" "$ENV_FILE"; then
+                if [ -t 0 ]; then
+                    prompt_fleet_profile
+                else
+                    echo "Hint: host profiles are available; set FLEET_PROFILE=standard|mini|max in $ENV_FILE and re-run to tune for this hardware."
+                fi
+            fi
         else
             prompt_store_reinit || { echo "Aborting due to existing data volume."; exit 1; }
         fi
@@ -545,6 +594,8 @@ if [ "$use_existing" == "no" ]; then
         done
     fi
     echo "ENCRYPT_SERVICE_MASTER_KEY=$ENCRYPT_SERVICE_MASTER_KEY" >> "$ENV_FILE"
+
+    prompt_fleet_profile
 
     # Secure the env file
     chmod 600 "$ENV_FILE"
@@ -697,12 +748,15 @@ fi
 
 chmod 600 "$ENV_FILE"
 
+# Pick up FLEET_PROFILE written during env setup
+refresh_compose_env_args
+
 # ----------------------------------------------------------------------------
 # Docker Image Preparation
 # ----------------------------------------------------------------------------
 
 echo "Pulling latest Docker images..."
-docker compose "${COMPOSE_FILES[@]}" pull
+docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" pull
 
 # Load pre-built TimescaleDB image if available (built in CI for the target architecture)
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
@@ -720,20 +774,20 @@ else
 fi
 
 # Build Docker images (fleet-api and fleet-client only; TimescaleDB uses pre-built image)
-docker compose "${COMPOSE_FILES[@]}" build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
+docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
 
 # ----------------------------------------------------------------------------
 # Service Management
 # ----------------------------------------------------------------------------
 
 echo "Stopping any running services..."
-docker compose "${COMPOSE_FILES[@]}" down --remove-orphans
+docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" down --remove-orphans
 
 echo "Starting services..."
 # --wait blocks until every service is running (or healthy, when a healthcheck is defined).
 # Without it, `up -d` can exit 0 while containers stay in Created (e.g. port conflicts under
 # host networking), producing a false "Proto Fleet is now running!" banner.
-if ! docker compose "${COMPOSE_FILES[@]}" up --remove-orphans -d --wait --wait-timeout 300; then
+if ! docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" up --remove-orphans -d --wait --wait-timeout 300; then
     echo "Error: services failed to reach running state."
     echo "Check logs with: docker compose ${COMPOSE_FILES[*]} logs"
     exit 1
@@ -792,7 +846,7 @@ provision_grafana_db_role() {
     # rule queries.
     echo "Waiting for notification_metric_sample, fleet_telemetry_poll_heartbeat and fleet_pollable_device_presence to be available…"
     for attempt in $(seq 1 60); do
-        objects_check=$(docker compose "${COMPOSE_FILES[@]}" exec -T timescaledb \
+        objects_check=$(docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" exec -T timescaledb \
             bash -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL AND to_regclass('public.fleet_pollable_device_presence') IS NOT NULL\"" \
             2>/dev/null | tr -d '[:space:]')
         if [ "$objects_check" = "t" ]; then
@@ -806,7 +860,7 @@ provision_grafana_db_role() {
     done
 
     echo "Provisioning Grafana read-only DB role (${grafana_user})…"
-    docker compose "${COMPOSE_FILES[@]}" exec -T timescaledb \
+    docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" exec -T timescaledb \
         bash -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<SQL
 -- Create or rotate the Grafana DB role.
 DO \$do\$
@@ -974,7 +1028,7 @@ provision_grafana_service_account_token() {
     echo "Provisioned Grafana service-account token for fleet-api (stored in $ENV_FILE)."
 
     echo "Restarting fleet-api to pick up the Grafana token…"
-    if ! docker compose "${COMPOSE_FILES[@]}" up -d --no-deps --force-recreate fleet-api; then
+    if ! docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" up -d --no-deps --force-recreate fleet-api; then
         echo "Error: wrote the Grafana token to $ENV_FILE but failed to restart fleet-api; it is still" >&2
         echo "       running with the pre-token environment and will 401 against Grafana. Restart it with:" >&2
         echo "         docker compose ${COMPOSE_FILES[*]} up -d --force-recreate fleet-api" >&2

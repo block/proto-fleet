@@ -58,6 +58,7 @@ echo ""
 # Check for old volumes
 # Derive from directory name to match docker compose default behavior
 PROJECT_NAME="${PROJECT_NAME:-$(basename "$PROJECT_ROOT")}"
+refresh_compose_env_args
 MYSQL_VOL=$(docker volume ls -q | grep -E "^${PROJECT_NAME}[-_]mysql$" || true)
 INFLUXDB_VOL=$(docker volume ls -q | grep -E "^${PROJECT_NAME}[-_]influxdb" | head -1 || true)
 
@@ -116,7 +117,7 @@ fi
 # Stop current services
 log_info "Stopping current services..."
 stop_output=""
-if ! stop_output=$(docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" down 2>&1); then
+if ! stop_output=$(docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} -p "$PROJECT_NAME" -f "$COMPOSE_FILE" down 2>&1); then
     log_warn "docker compose down had issues: $stop_output"
 fi
 
@@ -152,12 +153,12 @@ fi
 
 # Start old services
 log_info "Starting MySQL/InfluxDB services..."
-if docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d; then
+if docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d; then
     # Wait and verify services are healthy
     log_info "Waiting for services to be healthy..."
     sleep 10
     ps_output=""
-    if ps_output=$(docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" ps 2>&1); then
+    if ps_output=$(docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} -p "$PROJECT_NAME" -f "$COMPOSE_FILE" ps 2>&1); then
         if echo "$ps_output" | grep -qE "unhealthy|Exit"; then
             log_warn "Some services may not be healthy. Check with: docker compose ps"
         else

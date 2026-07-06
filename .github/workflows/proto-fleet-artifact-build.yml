@@ -452,6 +452,7 @@ jobs:
           cp deployment-files/run-fleet.sh deployment/
           cp deployment-files/uninstall.sh deployment/
           cp -r deployment-files/scripts deployment/
+          cp -r deployment-files/profiles deployment/
           chmod +x deployment/run-fleet.sh deployment/uninstall.sh deployment/scripts/*.sh
 
           mkdir -p deployment/images
