@@ -42,6 +42,13 @@ const Dashboard = () => {
   const duration = useDuration();
   const setDuration = useSetDuration();
   // Gate on both the read permission and the runtime feature probe so the card is hidden when the alerts sidecar is disabled.
+  // ListSites is org-gated on site:read. Without it the shared catalog is
+  // skipped (empty, never loaded), so — like the topbar picker in PageHeader —
+  // the heading SitePicker is hidden. Mounting it with an empty catalog would
+  // let its internal useActiveSite treat a `/:site/dashboard` route as stale
+  // and strip the authorized scope. The page-level knownSiteIds guard below is
+  // not enough because SitePicker recomputes its own from the `sites` prop.
+  const canReadSites = useHasPermission("site:read");
   const hasAlertRead = useHasPermission("alert:read");
   const alertsEnabled = useAlertsEnabled();
   const canViewAlerts = hasAlertRead && alertsEnabled;
@@ -164,7 +171,14 @@ const Dashboard = () => {
             {/* Heading-style site selector — stands in for the (hidden) global
                 topbar picker and replaces the former "Overview" title. */}
             <div className="-ml-2">
-              <SitePicker sites={sites} error={sitesError} onRetry={refetchSites} triggerClassName="text-heading-300" />
+              {canReadSites ? (
+                <SitePicker
+                  sites={sites}
+                  error={sitesError}
+                  onRetry={refetchSites}
+                  triggerClassName="text-heading-300"
+                />
+              ) : null}
             </div>
             <div className="mt-6">
               {activeSite.kind === "site" ? (
