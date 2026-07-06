@@ -430,7 +430,11 @@ describe("ActiveCurtailmentStatus", () => {
 
     render(
       <ActiveCurtailmentStatus
-        event={restoredCurtailmentEvent}
+        event={{
+          ...restoredCurtailmentEvent,
+          startedAt: "2026-04-30T14:07:37-04:00",
+          endedAt: "2026-04-30T14:08:00-04:00",
+        }}
         onDismissRestored={onDismissRestored}
         onRequestForceRelease={onRequestForceRelease}
       />,
@@ -443,6 +447,7 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("Time to restore")).toBeVisible();
     expect(screen.getByText("2 minutes")).toBeVisible();
     expectProgressSummary("18 of 18 miners restored (100%)");
+    expect(within(screen.getByTestId("active-curtailment-progress")).getByText("23s elapsed")).toBeVisible();
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Abort curtailment");
     expectActionButtonHidden("Restore now");
@@ -584,7 +589,7 @@ describe("ActiveCurtailmentStatus", () => {
   });
 
   it("hides curtail progress when no live rollup data exists", () => {
-    // startedAt is set so the absent Elapsed stat proves the live-data gate,
+    // startedAt is set so the absent elapsed readout proves the live-data gate,
     // not just a missing timestamp.
     render(
       <ActiveCurtailmentStatus
@@ -593,7 +598,7 @@ describe("ActiveCurtailmentStatus", () => {
     );
 
     expectProgressHidden();
-    expect(screen.queryByText("Elapsed")).not.toBeInTheDocument();
+    expect(screen.queryByText(/elapsed/)).not.toBeInTheDocument();
   });
 
   it("uses the singular miner label when one target is dispatchable", () => {
@@ -640,14 +645,15 @@ describe("ActiveCurtailmentStatus", () => {
         />,
       );
 
-      expect(screen.getByText("Elapsed")).toBeVisible();
-      expect(screen.getByText("3m 12s")).toBeVisible();
+      const progress = within(screen.getByTestId("active-curtailment-progress"));
+      expect(progress.getByText("3m 12s elapsed")).toBeVisible();
+      expect(screen.queryByText("Elapsed")).not.toBeInTheDocument();
 
       act(() => {
         vi.advanceTimersByTime(3_000);
       });
 
-      expect(screen.getByText("3m 15s")).toBeVisible();
+      expect(progress.getByText("3m 15s elapsed")).toBeVisible();
     } finally {
       vi.useRealTimers();
     }
@@ -676,8 +682,9 @@ describe("ActiveCurtailmentStatus", () => {
         />,
       );
 
-      expect(screen.getByText("Elapsed")).toBeVisible();
-      expect(screen.getByText("1m 30s")).toBeVisible();
+      const progress = within(screen.getByTestId("active-curtailment-progress"));
+      expect(progress.getByText("1m 30s elapsed")).toBeVisible();
+      expect(screen.queryByText("Elapsed")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -696,7 +703,7 @@ describe("ActiveCurtailmentStatus", () => {
     );
 
     expect(screen.getByTestId("active-curtailment-progress")).toBeInTheDocument();
-    expect(screen.queryByText("Elapsed")).not.toBeInTheDocument();
+    expect(screen.queryByText(/elapsed/)).not.toBeInTheDocument();
   });
 
   it("estimates remaining time to curtail from pending targets and batch pacing", () => {
@@ -798,6 +805,7 @@ describe("ActiveCurtailmentStatus", () => {
     const restoringLegend = progress.getByText("Restoring (80)");
     const failedLegend = progress.getByText("Failed to restore (20)");
     expect(restoredLegend).toBeVisible();
+    expect(restoredLegend.firstElementChild).toHaveClass("bg-intent-success-fill");
     expect(restoringLegend).toBeVisible();
     expect(restoringLegend.firstElementChild).toHaveClass("bg-core-accent-fill");
     expect(failedLegend).toBeVisible();

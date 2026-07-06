@@ -332,11 +332,15 @@ const restoreProgressDisplayStates = new Set<ActiveCurtailmentDisplayState>([
   "restored",
   "restoreIncomplete",
 ]);
-const progressColorMap: Record<Segment["status"], string> = {
+const curtailProgressColorMap: Record<Segment["status"], string> = {
   OK: "bg-core-primary-fill",
   WARNING: "bg-core-accent-fill",
   CRITICAL: "bg-intent-critical-fill",
   NA: "bg-core-primary-10",
+};
+const restoreProgressColorMap: Record<Segment["status"], string> = {
+  ...curtailProgressColorMap,
+  OK: "bg-intent-success-fill",
 };
 
 interface ProgressSegment extends Segment {
@@ -345,23 +349,33 @@ interface ProgressSegment extends Segment {
 
 // Ticks once per second so the SLA-facing elapsed readout moves even when
 // polling snapshots are unchanged (equal snapshots skip re-renders). Lives in
-// its own component so the per-second tick re-renders only this stat block,
-// not the whole card.
-function ElapsedStatBlock({ since }: { since: string }): ReactElement | null {
+// its own component so the per-second tick re-renders only this progress
+// header value, not the whole card.
+function ElapsedProgressValue({ since, until }: { since: string; until?: string }): ReactElement | null {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
+    if (until) {
+      return undefined;
+    }
+
     const intervalId = setInterval(() => setNowMs(Date.now()), millisecondsPerSecond);
     return () => clearInterval(intervalId);
-  }, []);
+  }, [until]);
 
   const sinceDate = getDateTime(since);
   if (!sinceDate) {
     return null;
   }
 
-  const elapsedSeconds = Math.max((nowMs - sinceDate.getTime()) / millisecondsPerSecond, 0);
-  return <StatBlock label="Elapsed" value={formatCurtailmentElapsedDuration(elapsedSeconds)} />;
+  const untilDate = until ? getDateTime(until) : undefined;
+  const endMs = untilDate?.getTime() ?? nowMs;
+  const elapsedSeconds = Math.max((endMs - sinceDate.getTime()) / millisecondsPerSecond, 0);
+  return (
+    <div className="text-right text-200 text-text-primary">
+      {formatCurtailmentElapsedDuration(elapsedSeconds)} elapsed
+    </div>
+  );
 }
 
 // SLA clock anchor. started_at is only stamped at the pending -> active
@@ -455,6 +469,9 @@ function getRestoreProgressSegments(progress: ActiveCurtailmentRestoreProgress):
 interface ProgressSectionProps {
   summary: string;
   segments: ProgressSegment[];
+  colorMap: Record<Segment["status"], string>;
+  elapsedAnchor?: string;
+  elapsedUntil?: string;
   unavailableCount: number;
   unavailableReasonCounts?: ActiveCurtailmentUnavailableReasonCount[];
 }
@@ -481,6 +498,9 @@ function formatUnavailableAnnotation(
 function ProgressSection({
   summary,
   segments,
+  colorMap,
+  elapsedAnchor,
+  elapsedUntil,
   unavailableCount,
   unavailableReasonCounts,
 }: ProgressSectionProps): ReactElement {
@@ -488,13 +508,16 @@ function ProgressSection({
 
   return (
     <div className="mt-8 grid gap-3" data-testid="active-curtailment-progress">
-      <div className="text-200 text-text-primary-50">{summary}</div>
-      <CompositionBar segments={segments} height={12} colorMap={progressColorMap} />
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+        <div className="text-200 text-text-primary-50">{summary}</div>
+        {elapsedAnchor ? <ElapsedProgressValue since={elapsedAnchor} until={elapsedUntil} /> : null}
+      </div>
+      <CompositionBar segments={segments} height={12} colorMap={colorMap} />
       <div className="flex flex-wrap items-start gap-x-5 gap-y-1 text-200 text-text-primary-70">
         {segments.map((segment) => (
           <span key={segment.name} className="flex items-start gap-2">
             <span
-              className={clsx("mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full", progressColorMap[segment.status])}
+              className={clsx("mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full", colorMap[segment.status])}
             />
             {segment.detail ? (
               <span className="grid gap-0.5">
@@ -671,7 +694,7 @@ export default function ActiveCurtailmentStatus({
   const showCurtailProgress = shouldShowCurtailProgress(displayState, curtailProgress);
   const restoreProgress = getActiveCurtailmentRestoreProgress(event);
   const showRestoreProgress = shouldShowRestoreProgress(displayState, restoreProgress);
-  const elapsedAnchor = showCurtailProgress ? getElapsedAnchor(event) : undefined;
+  const elapsedAnchor = showCurtailProgress || showRestoreProgress ? getElapsedAnchor(event) : undefined;
   // "Curtailed" means the shed goal is met, so pairing it with a time-to-
   // curtail estimate would contradict the headline state.
   const curtailRemainingSeconds =
@@ -761,7 +784,6 @@ export default function ActiveCurtailmentStatus({
             <>
               <StatBlock label="Applies to" value={formatMinerCount(event.selectedMiners)} />
               <StatBlock label="Restore" value={formatRestoreProfile(event)} />
-              {elapsedAnchor ? <ElapsedStatBlock since={elapsedAnchor} /> : null}
               {curtailRemainingSeconds > 0 ? (
                 <StatBlock label="Est. time to curtail" value={formatDurationLong(curtailRemainingSeconds)} />
               ) : null}
@@ -773,6 +795,9 @@ export default function ActiveCurtailmentStatus({
           <ProgressSection
             summary={getCurtailProgressSummary(curtailProgress)}
             segments={getCurtailProgressSegments(curtailProgress)}
+            colorMap={curtailProgressColorMap}
+            elapsedAnchor={elapsedAnchor}
+            elapsedUntil={event.endedAt}
             unavailableCount={curtailProgress.unavailableCount}
             unavailableReasonCounts={event.unavailableReasonCounts}
           />
@@ -784,6 +809,9 @@ export default function ActiveCurtailmentStatus({
               restoreProgress.restorableCount,
             )} restored (${restoreProgress.percent}%)`}
             segments={getRestoreProgressSegments(restoreProgress)}
+            colorMap={restoreProgressColorMap}
+            elapsedAnchor={elapsedAnchor}
+            elapsedUntil={event.endedAt}
             unavailableCount={restoreProgress.unavailableCount}
             unavailableReasonCounts={event.unavailableReasonCounts}
           />
