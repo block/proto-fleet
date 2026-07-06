@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import clsx from "clsx";
 
 import BuildingList from "../components/BuildingList";
 import FilterRow from "../components/FilterRow";
@@ -18,6 +19,7 @@ import {
   useActiveSite,
 } from "@/protoFleet/components/PageHeader/SitePicker";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
@@ -540,6 +542,7 @@ const FleetBuildingsPage = () => {
       <>
         {inlineErrors}
         <NullState
+          className={clsx("sticky left-0", PAGE_SCROLL_CHROME_WIDTH)}
           icon={<Building width="w-5" />}
           title="No buildings yet"
           description={
