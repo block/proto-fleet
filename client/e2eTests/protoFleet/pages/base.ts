@@ -30,12 +30,32 @@ export class BasePage {
   }
 
   async clearActiveFilter(filterValue: string) {
-    const clearButton = await this.visibleTestIdLocator(`active-filter-${filterValue}-clear`);
-    await clearButton.evaluate((element) => {
-      const target = element as HTMLElement;
-      target.scrollIntoView({ block: "center", inline: "center" });
-      target.click();
-    });
+    if (!this.isMobile) {
+      const clearButton = await this.visibleTestIdLocator(`active-filter-${filterValue}-clear`);
+      await clearButton.scrollIntoViewIfNeeded();
+      await clearButton.click();
+      return;
+    }
+
+    const editButton = await this.visibleTestIdLocator(`active-filter-${filterValue}-edit`);
+    await editButton.click();
+
+    const popover = this.page.getByTestId("dropdown-filter-popover");
+    await expect(popover).toBeVisible();
+
+    const options = popover.locator('[data-testid^="filter-option-"]');
+    const count = await options.count();
+
+    for (let i = 0; i < count; i++) {
+      const option = options.nth(i);
+      const checkbox = option.locator('input[type="checkbox"]');
+      if (await checkbox.isChecked().catch(() => false)) {
+        await option.click();
+      }
+    }
+
+    await this.page.mouse.click(1, 1);
+    await expect(popover).toBeHidden();
   }
 
   async clickNewSavedViewButton() {
@@ -496,26 +516,35 @@ export class BasePage {
 
   private async visibleTestIdLocator(testId: string): Promise<Locator> {
     const matches = this.page.getByTestId(testId);
-    const count = await matches.count();
-    let visibleMatch: Locator | null = null;
+    let visibleIndex = -1;
 
-    for (let i = 0; i < count; i++) {
-      const candidate = matches.nth(i);
-      if (!(await candidate.isVisible().catch(() => false))) {
-        continue;
-      }
+    await expect
+      .poll(
+        async () => {
+          const count = await matches.count();
+          const visibleIndexes: number[] = [];
 
-      if (visibleMatch) {
-        throw new Error(`Expected a single visible ${testId} locator, but found multiple visible matches.`);
-      }
+          for (let i = 0; i < count; i++) {
+            const candidate = matches.nth(i);
+            if (await candidate.isVisible().catch(() => false)) {
+              visibleIndexes.push(i);
+            }
+          }
 
-      visibleMatch = candidate;
-    }
+          if (visibleIndexes.length === 1) {
+            [visibleIndex] = visibleIndexes;
+            return `single:${visibleIndex}`;
+          }
 
-    if (!visibleMatch) {
-      throw new Error(`Could not find a visible locator for test id "${testId}".`);
-    }
+          return visibleIndexes.length === 0 ? "none" : `multiple:${visibleIndexes.join(",")}`;
+        },
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message: `Expected a single visible locator for test id "${testId}".`,
+        },
+      )
+      .toMatch(/^single:\d+$/);
 
-    return visibleMatch;
+    return matches.nth(visibleIndex);
   }
 }

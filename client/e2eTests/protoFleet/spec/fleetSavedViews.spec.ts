@@ -143,5 +143,17 @@ test.describe("Proto Fleet - Fleet saved views", () => {
       test.expect(searchParams.get("display")).toBe("grid");
       test.expect(searchParams.get("view")).not.toBeNull();
     });
+
+    await test.step("Delete the saved view to leave the fleet state clean", async () => {
+      await racksPage.clickDeleteViewAction(viewName);
+      await racksPage.validateDeleteViewDialogOpened(viewName);
+      await racksPage.confirmDeleteView();
+      await racksPage.validateViewTabNotVisible(viewName);
+
+      const searchParams = new URL(page.url()).searchParams;
+      test.expect(searchParams.getAll("building")).toEqual([buildingId.toString()]);
+      test.expect(searchParams.get("display")).toBe("grid");
+      test.expect(searchParams.get("view")).toBeNull();
+    });
   });
 });
