@@ -25,6 +25,7 @@ deployment_config:
   - server/internal/infrastructure/db/config.go
   - server/internal/infrastructure/timescaledb/config.go
   - server/internal/domain/telemetry/config.go
+  - server/internal/domain/command/config.go
 
 proto:
   - *global

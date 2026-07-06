@@ -42,6 +42,8 @@ refresh_compose_env_args() {
         profile_file="$PROJECT_ROOT/profiles/${profile}.env"
         if [[ "$profile" =~ ^[a-z]+$ ]] && [ -f "$profile_file" ]; then
             COMPOSE_ENV_ARGS+=(--env-file "$profile_file")
+        else
+            echo "Warning: FLEET_PROFILE='$profile' does not match a profile in $PROJECT_ROOT/profiles/; using default configuration." >&2
         fi
     fi
     if [ -f "$ENV_FILE" ]; then

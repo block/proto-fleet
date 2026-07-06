@@ -143,6 +143,7 @@ check_go_default TELEMETRY_METRIC_TIMEOUT server/internal/domain/telemetry/confi
 check_go_default TIMESCALEDB_QUERY_TIMEOUT server/internal/infrastructure/timescaledb/config.go QUERY_TIMEOUT
 check_go_default TIMESCALEDB_MAX_TIME_SERIES_ROWS server/internal/infrastructure/timescaledb/config.go MAX_TIME_SERIES_ROWS
 check_go_default TIMESCALEDB_ASYNC_METRIC_COMMIT server/internal/infrastructure/timescaledb/config.go ASYNC_METRIC_COMMIT
+check_go_default FLEET_COMMAND_MAX_WORKERS server/internal/domain/command/config.go MAX_WORKERS
 pass "compose defaults checked against Go config defaults"
 
 # ----------------------------------------------------------------------------
@@ -152,6 +153,7 @@ pass "compose defaults checked against Go config defaults"
 # migrate-data.sh and rollback-migration.sh run under set -euo pipefail and
 # call this on pre-profile .env files (no FLEET_PROFILE line)
 STRICT_TMP=$(mktemp -d)
+trap 'rm -rf "$STRICT_TMP"' EXIT
 printf 'DB_USERNAME=fleet\n' > "$STRICT_TMP/.env"
 if (
     set -euo pipefail
@@ -165,7 +167,21 @@ if (
 else
     fail "refresh_compose_env_args breaks under set -euo pipefail when FLEET_PROFILE is missing"
 fi
-rm -rf "$STRICT_TMP"
+
+# An unresolvable profile must fall back to .env only, warn, and not abort
+printf 'FLEET_PROFILE=bogus\n' > "$STRICT_TMP/.env"
+if (
+    set -euo pipefail
+    PROJECT_ROOT="$STRICT_TMP"
+    ENV_FILE="$STRICT_TMP/.env"
+    source "$REPO_ROOT/deployment-files/scripts/lib.sh"
+    refresh_compose_env_args 2>"$STRICT_TMP/warn.out"
+    [ "${#COMPOSE_ENV_ARGS[@]}" -eq 2 ] && grep -q "FLEET_PROFILE='bogus'" "$STRICT_TMP/warn.out"
+) >/dev/null 2>&1; then
+    pass "invalid FLEET_PROFILE warns and falls back to defaults"
+else
+    fail "invalid FLEET_PROFILE handling: expected .env-only args plus a warning"
+fi
 
 # ----------------------------------------------------------------------------
 # 5. Compose render smoke test (staged tarball layout)
@@ -178,7 +194,7 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 STAGE=$(mktemp -d)
-trap 'rm -rf "$STAGE"' EXIT
+trap 'rm -rf "$STRICT_TMP" "$STAGE"' EXIT
 mkdir -p "$STAGE/server" "$STAGE/client"
 cp "$PROD_COMPOSE" "$STAGE/"
 cp "$BASE_COMPOSE" "$STAGE/server/"
@@ -189,7 +205,7 @@ printf 'DB_USERNAME=fleet\nDB_PASSWORD=test\nAUTH_CLIENT_SECRET_KEY=test\nENCRYP
 printf 'DB_USERNAME=fleet\nDB_PASSWORD=test\nAUTH_CLIENT_SECRET_KEY=test\nENCRYPT_SERVICE_MASTER_KEY=test\nPG_SHARED_BUFFERS=999MB\n' > "$STAGE/override.env"
 
 render() { # env-file args...
-    (cd "$STAGE" && docker compose "$@" -f docker-compose.yaml config 2>/dev/null)
+    (cd "$STAGE" && docker compose "$@" -f docker-compose.yaml config 2>"$STAGE/render.err")
 }
 
 assert_rendered() { # description rendered_output expected...
@@ -199,6 +215,9 @@ assert_rendered() { # description rendered_output expected...
     for expected in "$@"; do
         if ! printf '%s\n' "$out" | grep -qF "$expected"; then
             fail "$desc: expected '$expected' in rendered compose"
+            if [ -s "$STAGE/render.err" ]; then
+                sed 's/^/    compose: /' "$STAGE/render.err" >&2
+            fi
             return
         fi
     done
@@ -208,19 +227,24 @@ assert_rendered() { # description rendered_output expected...
 out=$(render --env-file base-secrets.env)
 assert_rendered "no-profile render keeps defaults" "$out" \
     "shared_buffers=256MB" "max_worker_processes=19" "wal_compression=off" \
-    "shared_preload_libraries=timescaledb,pg_stat_statements"
+    "shared_preload_libraries=timescaledb,pg_stat_statements" \
+    "track_io_timing=on" "log_min_duration_statement=1000" \
+    'shm_size: "268435456"'
 
 out=$(render --env-file profiles/mini.env --env-file base-secrets.env)
 assert_rendered "mini render" "$out" \
-    "max_connections=100" "max_worker_processes=9" "random_page_cost=2.0"
+    "max_connections=100" "max_worker_processes=9" "random_page_cost=2.0" \
+    'shm_size: "134217728"'
 
 out=$(render --env-file profiles/standard.env --env-file base-secrets.env)
 assert_rendered "standard render" "$out" \
-    "shared_buffers=4GB" "max_worker_processes=13" "wal_compression=lz4"
+    "shared_buffers=4GB" "max_worker_processes=13" "wal_compression=lz4" \
+    "FLEET_COMMAND_MAX_WORKERS: \"250\"" 'shm_size: "536870912"'
 
 out=$(render --env-file profiles/max.env --env-file base-secrets.env)
 assert_rendered "max render" "$out" \
-    "shared_buffers=8GB" "max_worker_processes=23" "max_connections=300"
+    "shared_buffers=8GB" "max_worker_processes=23" "max_connections=300" \
+    'shm_size: "2147483648"'
 
 out=$(render --env-file profiles/standard.env --env-file override.env)
 assert_rendered "operator .env overrides the profile" "$out" \

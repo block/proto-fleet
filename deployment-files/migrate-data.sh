@@ -28,6 +28,9 @@ ENV_FILE="$PROJECT_ROOT/.env"
 # Derive from directory name to match docker compose default behavior
 PROJECT_NAME="${PROJECT_NAME:-$(basename "$PROJECT_ROOT")}"
 refresh_compose_env_args
+compose() {
+    docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} -p "$PROJECT_NAME" -f "$COMPOSE_FILE" "$@"
+}
 MYSQL_CONTAINER="${PROJECT_NAME}-mysql-1"
 INFLUXDB_CONTAINER="${PROJECT_NAME}-influxdb-1"
 TIMESCALEDB_CONTAINER="${PROJECT_NAME}-timescaledb-1"
@@ -224,7 +227,7 @@ export_data() {
         # Ensure MySQL container is running
         if ! docker ps --format '{{.Names}}' | grep -q "^${MYSQL_CONTAINER}$"; then
             log_info "Starting MySQL container..."
-            docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d mysql
+            compose up -d mysql
             # Wait for MySQL to be ready using mysqladmin ping
             log_info "Waiting for MySQL to be ready..."
             local retries=30
@@ -257,7 +260,7 @@ export_data() {
             # Ensure InfluxDB container is running
             if ! docker ps --format '{{.Names}}' | grep -q "^${INFLUXDB_CONTAINER}$"; then
                 log_info "Starting InfluxDB container..."
-                docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d influxdb
+                compose up -d influxdb
                 sleep 5  # Wait for InfluxDB to be ready
             fi
 
@@ -288,12 +291,12 @@ transition_to_new_stack() {
     # Stop old database containers (not the entire stack, to avoid disrupting other services)
     # Use docker compose stop to properly handle network cleanup
     log_info "Stopping old database containers..."
-    docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} -p "$PROJECT_NAME" -f "$COMPOSE_FILE" stop mysql influxdb 2>/dev/null || true
+    compose stop mysql influxdb 2>/dev/null || true
 
     # The docker-compose.yaml should already be updated for TimescaleDB
     # Start new TimescaleDB container (uses migration profile since it's not started by default)
     log_info "Starting TimescaleDB container..."
-    docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} -p "$PROJECT_NAME" -f "$COMPOSE_FILE" --profile migration up -d timescaledb
+    compose --profile migration up -d timescaledb
 
     # Wait for TimescaleDB to be healthy
     # pg_isready only checks if PostgreSQL accepts connections, not if it's fully initialized

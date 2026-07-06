@@ -78,6 +78,32 @@ Virtual miners simulate both network latency and miner processing latency. The
 default miner-internal latency is 200-500ms, with occasional 5-8s outliers.
 Generation is capped at 50,000 virtual miners per plugin process.
 
+## Host Profiles
+
+The installer tunes the database and poller for the host hardware via a
+profile, chosen once during an interactive `./run-fleet.sh` run and stored as
+`FLEET_PROFILE` in the deployment `.env`:
+
+- `standard` (default): Raspberry Pi 5 class host, 16GB RAM with SSD; up to
+  ~5000 miners
+- `mini`: low-power or SD-card host, <=4GB RAM; up to ~200 miners
+- `max`: dedicated server, 32GB+ RAM, 8+ cores, NVMe; 5000+ miners with
+  maximum performance and durability
+
+Non-interactive installs skip the prompt and keep conservative defaults; set
+the profile directly in `.env` and rerun:
+
+```bash
+FLEET_PROFILE=standard
+```
+
+The full key list and per-value rationale live in `profiles/*.env`. Any single
+key set in `.env` overrides the profile value (operator values win). Remove
+the `FLEET_PROFILE` line to return to the untuned defaults. Because profiles
+only apply through `run-fleet.sh`'s env-file layering, always restart the
+stack with `./run-fleet.sh` rather than a bare `docker compose up`, which
+would recreate the containers untuned.
+
 ## Uninstalling Proto Fleet
 
 ```bash

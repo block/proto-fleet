@@ -83,6 +83,25 @@ refresh_compose_env_args() {
     fi
 }
 refresh_compose_env_args
+
+compose() {
+    docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" "$@"
+}
+
+# Poll psql (60 x 2s) until the query returns true; caller owns the warning
+wait_for_psql_true() {
+    local query="$1" attempt result
+    for attempt in $(seq 1 60); do
+        result=$(compose exec -T timescaledb \
+            bash -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"$query\"" \
+            2>/dev/null | tr -d '[:space:]')
+        if [ "$result" = "t" ]; then
+            return 0
+        fi
+        sleep 2
+    done
+    return 1
+}
 SSL_DIR="$PROJECT_ROOT/ssl"
 SSL_CERT="$SSL_DIR/cert.pem"
 SSL_KEY="$SSL_DIR/key.pem"
@@ -449,7 +468,7 @@ prompt_store_reinit() {
     read -p "   Remove & reinitialize this volume now? ALL DATA WILL BE LOST (y/N): " answer
     if [[ $answer =~ ^[Yy]$ ]]; then
       echo "   Shutting down containers…"
-      docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" down --remove-orphans
+      compose down --remove-orphans
       echo "   Removing volume $vol…"
       docker volume rm "$vol"
       echo "   Volume removed; new credentials will apply next startup."
@@ -482,6 +501,16 @@ prompt_fleet_profile() {
     echo "Host profile '$choice' saved to $ENV_FILE (edit FLEET_PROFILE there to change it)."
 }
 
+# curl | bash installs reach prompts with stdin at EOF; never let an
+# unanswered prompt persist a profile
+maybe_prompt_fleet_profile() {
+    if [ -t 0 ]; then
+        prompt_fleet_profile
+    else
+        echo "Hint: host profiles are available; set FLEET_PROFILE=standard|mini|max in $ENV_FILE and re-run to tune for this hardware."
+    fi
+}
+
 use_existing="no"
 
 # Check if environment file exists and validate its contents
@@ -508,14 +537,9 @@ if [ -f "$ENV_FILE" ]; then
         if [[ -z "$use_existing_creds" || $use_existing_creds =~ ^[Yy]$ ]]; then
             use_existing="yes"
             echo "Using existing environment file."
-            # Pre-profile installs upgrading: ask once, interactively only,
-            # so unattended upgrades never silently retune a running system
+            # Pre-profile installs upgrading: ask once
             if ! grep -q "^FLEET_PROFILE=" "$ENV_FILE"; then
-                if [ -t 0 ]; then
-                    prompt_fleet_profile
-                else
-                    echo "Hint: host profiles are available; set FLEET_PROFILE=standard|mini|max in $ENV_FILE and re-run to tune for this hardware."
-                fi
+                maybe_prompt_fleet_profile
             fi
         else
             prompt_store_reinit || { echo "Aborting due to existing data volume."; exit 1; }
@@ -597,13 +621,7 @@ if [ "$use_existing" == "no" ]; then
     fi
     echo "ENCRYPT_SERVICE_MASTER_KEY=$ENCRYPT_SERVICE_MASTER_KEY" >> "$ENV_FILE"
 
-    # curl | bash installs reach here with stdin at EOF; never let an
-    # unanswered prompt persist a profile
-    if [ -t 0 ]; then
-        prompt_fleet_profile
-    else
-        echo "Hint: host profiles are available; set FLEET_PROFILE=standard|mini|max in $ENV_FILE and re-run to tune for this hardware."
-    fi
+    maybe_prompt_fleet_profile
 
     # Secure the env file
     chmod 600 "$ENV_FILE"
@@ -764,7 +782,7 @@ refresh_compose_env_args
 # ----------------------------------------------------------------------------
 
 echo "Pulling latest Docker images..."
-docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" pull
+compose pull
 
 # Load pre-built TimescaleDB image if available (built in CI for the target architecture)
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
@@ -782,20 +800,20 @@ else
 fi
 
 # Build Docker images (fleet-api and fleet-client only; TimescaleDB uses pre-built image)
-docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
+compose build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
 
 # ----------------------------------------------------------------------------
 # Service Management
 # ----------------------------------------------------------------------------
 
 echo "Stopping any running services..."
-docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" down --remove-orphans
+compose down --remove-orphans
 
 echo "Starting services..."
 # --wait blocks until every service is running (or healthy, when a healthcheck is defined).
 # Without it, `up -d` can exit 0 while containers stay in Created (e.g. port conflicts under
 # host networking), producing a false "Proto Fleet is now running!" banner.
-if ! docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" up --remove-orphans -d --wait --wait-timeout 300; then
+if ! compose up --remove-orphans -d --wait --wait-timeout 300; then
     echo "Error: services failed to reach running state."
     echo "Check logs with: docker compose ${COMPOSE_FILES[*]} logs"
     exit 1
@@ -811,23 +829,13 @@ fi
 # re-applied on every run so jobs added by new migrations get staggered on
 # the next upgrade.
 apply_database_tuning() {
-    local attempt migrated
     echo "Waiting for database migrations to complete before applying tuning…"
-    for attempt in $(seq 1 60); do
-        migrated=$(docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" exec -T timescaledb \
-            bash -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"SELECT NOT dirty FROM schema_migrations LIMIT 1\"" \
-            2>/dev/null | tr -d '[:space:]')
-        if [ "$migrated" = "t" ]; then
-            break
-        fi
-        if [ "$attempt" -eq 60 ]; then
-            echo "Warning: migrations did not complete within 120s; skipping database tuning." >&2
-            return 1
-        fi
-        sleep 2
-    done
+    if ! wait_for_psql_true "SELECT NOT dirty FROM schema_migrations LIMIT 1"; then
+        echo "Warning: migrations did not complete within 120s; skipping database tuning." >&2
+        return 1
+    fi
 
-    docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" exec -T timescaledb \
+    compose exec -T timescaledb \
         bash -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 DO $$
@@ -863,7 +871,7 @@ fi
 # migration) so the password never has to be committed to source and
 # can be rotated just by editing $ENV_FILE and re-running this script.
 provision_grafana_db_role() {
-    local grafana_user grafana_pass db_name app_user pw_escaped attempt objects_check
+    local grafana_user grafana_pass db_name app_user pw_escaped
 
     grafana_user=$(grep -E '^GRAFANA_DB_USERNAME=' "$ENV_FILE" | head -1 | cut -d= -f2-)
     grafana_pass=$(grep -E '^GRAFANA_DB_PASSWORD=' "$ENV_FILE" | head -1 | cut -d= -f2-)
@@ -906,22 +914,13 @@ provision_grafana_db_role() {
     # fleet_pollable_device_presence view the protofleet-ingest-stalled
     # rule queries.
     echo "Waiting for notification_metric_sample, fleet_telemetry_poll_heartbeat and fleet_pollable_device_presence to be available…"
-    for attempt in $(seq 1 60); do
-        objects_check=$(docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" exec -T timescaledb \
-            bash -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL AND to_regclass('public.fleet_pollable_device_presence') IS NOT NULL\"" \
-            2>/dev/null | tr -d '[:space:]')
-        if [ "$objects_check" = "t" ]; then
-            break
-        fi
-        if [ "$attempt" -eq 60 ]; then
-            echo "Warning: notification_metric_sample / fleet_telemetry_poll_heartbeat / fleet_pollable_device_presence did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2
-            return 1
-        fi
-        sleep 2
-    done
+    if ! wait_for_psql_true "SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL AND to_regclass('public.fleet_pollable_device_presence') IS NOT NULL"; then
+        echo "Warning: notification_metric_sample / fleet_telemetry_poll_heartbeat / fleet_pollable_device_presence did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2
+        return 1
+    fi
 
     echo "Provisioning Grafana read-only DB role (${grafana_user})…"
-    docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" exec -T timescaledb \
+    compose exec -T timescaledb \
         bash -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<SQL
 -- Create or rotate the Grafana DB role.
 DO \$do\$
@@ -1089,7 +1088,7 @@ provision_grafana_service_account_token() {
     echo "Provisioned Grafana service-account token for fleet-api (stored in $ENV_FILE)."
 
     echo "Restarting fleet-api to pick up the Grafana token…"
-    if ! docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" up -d --no-deps --force-recreate fleet-api; then
+    if ! compose up -d --no-deps --force-recreate fleet-api; then
         echo "Error: wrote the Grafana token to $ENV_FILE but failed to restart fleet-api; it is still" >&2
         echo "       running with the pre-token environment and will 401 against Grafana. Restart it with:" >&2
         echo "         docker compose ${COMPOSE_ENV_ARGS[*]} ${COMPOSE_FILES[*]} up -d --no-deps --force-recreate fleet-api" >&2
