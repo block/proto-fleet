@@ -89,7 +89,12 @@ const DatePickerInput = ({
   );
 
   const inputClasses = clsx(
-    "w-full rounded-lg border border-border-5 bg-surface-base px-3 py-2 text-300 text-text-primary outline-hidden",
+    // pointer-coarse:text-400 = 16px on touch devices. iOS auto-zooms a focused field whose
+    // font is under 16px and never zooms back out, leaving later views zoomed/overflowing.
+    // It's a WebKit behavior affecting every iOS browser (Safari, Chrome, Brave, ...) at any
+    // width/orientation — so target the coarse pointer, not a width breakpoint (which would
+    // miss landscape phones and iPads); desktop keeps 14px.
+    "w-full rounded-lg border border-border-5 bg-surface-base px-3 py-2 text-300 pointer-coarse:text-400 text-text-primary outline-hidden",
     "transition duration-200 ease-in-out",
     "focus:border-border-20 focus:ring-4 focus:ring-surface-10",
     { "cursor-not-allowed bg-core-primary-5": disabled },
