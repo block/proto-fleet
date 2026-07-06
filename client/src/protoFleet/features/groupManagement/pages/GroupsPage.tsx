@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import clsx from "clsx";
 
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
@@ -12,6 +13,7 @@ import {
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
 import { type SiteFilterFields, siteFilterFromActive } from "@/protoFleet/components/PageHeader/SitePicker";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { useOptionalFleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout/outletContext";
 import {
   FILTER_URL_PARAM_KEYS,
@@ -260,6 +262,7 @@ const GroupsPage = () => {
     <>
       {!hasGroups ? (
         <NullState
+          className={clsx("sticky left-0", PAGE_SCROLL_CHROME_WIDTH)}
           icon={<Groups width="w-5" />}
           title="Groups"
           description="Organize your miners into groups."

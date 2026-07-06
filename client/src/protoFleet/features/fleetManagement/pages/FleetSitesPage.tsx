@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import clsx from "clsx";
 
 import FilterRow from "../components/FilterRow";
 import FleetGroupListActionBar from "../components/FleetGroupActionsMenu/FleetGroupListActionBar";
@@ -10,6 +11,7 @@ import { issueOptions } from "@/protoFleet/components/DeviceSetList";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import {
   FILTER_URL_PARAM_KEYS,
@@ -340,6 +342,7 @@ const FleetSitesPage = () => {
       <>
         {inlineError}
         <NullState
+          className={clsx("sticky left-0", PAGE_SCROLL_CHROME_WIDTH)}
           icon={<Site width="w-5" />}
           title="No sites yet"
           description="Create your first site to organize miners by location."

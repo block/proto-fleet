@@ -1103,6 +1103,7 @@ const RacksPage = () => {
     return (
       <>
         <NullState
+          className={clsx("sticky left-0", PAGE_SCROLL_CHROME_WIDTH)}
           icon={<Racks width="w-5" />}
           title="You haven't set up any racks"
           description="Add a rack and assign miners to rack positions to get started."
