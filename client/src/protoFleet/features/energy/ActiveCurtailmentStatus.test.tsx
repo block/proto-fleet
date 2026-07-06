@@ -588,6 +588,29 @@ describe("ActiveCurtailmentStatus", () => {
     expectProgressSummary("10 miners curtailed (100%)");
   });
 
+  it("renders unavailable reasons when no targets are dispatchable", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          selectedMiners: 18,
+          rollups: [{ state: "unavailable", count: 18 }],
+          unavailableReasonCounts: [
+            { label: "offline", count: 10 },
+            { label: "needs authentication", count: 8 },
+          ],
+        }}
+      />,
+    );
+
+    const progress = within(screen.getByTestId("active-curtailment-progress"));
+    expect(progress.getByText("No dispatchable miners")).toBeVisible();
+    expect(progress.getByText("18 unavailable (10 offline, 8 needs authentication)")).toBeVisible();
+    expect(progress.queryByText(/Curtailed \(/)).not.toBeInTheDocument();
+    expect(progress.queryByText(/Curtailing \(/)).not.toBeInTheDocument();
+    expect(progress.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
   it("hides curtail progress when no live rollup data exists", () => {
     // startedAt is set so the absent elapsed readout proves the live-data gate,
     // not just a missing timestamp.

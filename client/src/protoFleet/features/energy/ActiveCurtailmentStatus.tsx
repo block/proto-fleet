@@ -391,10 +391,11 @@ function shouldShowCurtailProgress(
   displayState: ActiveCurtailmentDisplayState,
   progress: ActiveCurtailmentCurtailProgress,
 ): boolean {
-  // dispatchableCount > 0 doubles as the live-data gate: rollup-less events
-  // (old servers, narrowed whole-org reads) and zeroed rollups derive an
-  // all-zero progress shape and keep today's card unchanged.
-  return curtailProgressDisplayStates.has(displayState) && progress.dispatchableCount > 0;
+  // dispatchableCount keeps rollup-less events hidden, while unavailableCount
+  // lets all-unavailable live rollups still explain why no targets can move.
+  return (
+    curtailProgressDisplayStates.has(displayState) && (progress.dispatchableCount > 0 || progress.unavailableCount > 0)
+  );
 }
 
 function shouldShowRestoreProgress(
@@ -427,6 +428,10 @@ function getCurtailRemainingSeconds(
 }
 
 function getCurtailProgressSegments(progress: ActiveCurtailmentCurtailProgress): Segment[] {
+  if (progress.dispatchableCount <= 0) {
+    return [];
+  }
+
   return [
     { name: "Curtailed", status: "OK", count: progress.confirmedCount },
     {
@@ -438,6 +443,10 @@ function getCurtailProgressSegments(progress: ActiveCurtailmentCurtailProgress):
 }
 
 function getCurtailProgressSummary(progress: ActiveCurtailmentCurtailProgress): string {
+  if (progress.dispatchableCount <= 0 && progress.unavailableCount > 0) {
+    return "No dispatchable miners";
+  }
+
   const curtailedPercent = Math.floor(
     getCurtailmentProgressPercent(progress.confirmedCount, progress.dispatchableCount),
   );
@@ -512,6 +521,7 @@ function ProgressSection({
   unavailableReasonCounts,
 }: ProgressSectionProps): ReactElement {
   const unavailableAnnotation = formatUnavailableAnnotation(unavailableCount, unavailableReasonCounts);
+  const hasPositiveSegments = segments.some((segment) => (segment.count ?? 0) > 0);
 
   return (
     <div className="mt-8 grid gap-3" data-testid="active-curtailment-progress">
@@ -519,13 +529,11 @@ function ProgressSection({
         <div className="text-200 text-text-primary-50">{summary}</div>
         {elapsedAnchor ? <ElapsedProgressValue since={elapsedAnchor} until={elapsedUntil} /> : null}
       </div>
-      <CompositionBar segments={segments} height={12} colorMap={colorMap} />
+      {hasPositiveSegments ? <CompositionBar segments={segments} height={12} colorMap={colorMap} /> : null}
       <div className="flex flex-wrap items-start gap-x-5 gap-y-1 text-200 text-text-primary-70">
         {segments.map((segment) => (
           <span key={segment.name} className="flex items-start gap-2">
-            <span
-              className={clsx("mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full", colorMap[segment.status])}
-            />
+            <span className={clsx("mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full", colorMap[segment.status])} />
             {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
           </span>
         ))}

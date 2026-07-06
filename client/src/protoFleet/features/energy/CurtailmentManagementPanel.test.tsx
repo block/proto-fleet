@@ -1285,9 +1285,7 @@ describe("CurtailmentManagementPanel", () => {
       activeEventFormValues: secondaryFormValues,
     });
 
-    await waitFor(() =>
-      expect(screen.getByRole("dialog", { name: "restore confirmation" })).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "restore confirmation" })).toBeInTheDocument());
     expect(screen.queryByRole("dialog", { name: "Manage curtailment" })).not.toBeInTheDocument();
   });
 
