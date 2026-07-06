@@ -839,11 +839,27 @@ fi
 # re-applied on every run so jobs added by new migrations get staggered on
 # the next upgrade.
 apply_database_tuning() {
-    echo "Waiting for database migrations to complete before applying tuning…"
-    if ! wait_for_psql_true "SELECT NOT dirty FROM schema_migrations LIMIT 1"; then
-        echo "Warning: migrations did not complete within 120s; skipping database tuning." >&2
-        return 1
-    fi
+    # fleetd binds its HTTP listener only after applying every pending
+    # migration (cmd/fleetd/main.go), so a responding API is the reliable
+    # all-migrations-applied signal. schema_migrations.dirty=false is not:
+    # during an upgrade the previous deploy's row already reads clean while
+    # migrations (and the policy jobs they create) are still pending.
+    local api_addr api_port attempt
+    api_addr=$(grep -E '^HTTP_LISTEN_ADDRESS=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+    api_port="${api_addr##*:}"
+    case "$api_port" in *[!0-9]*|"") api_port=4000 ;; esac
+
+    echo "Waiting for fleet-api to finish database migrations before applying tuning…"
+    for attempt in $(seq 1 120); do
+        if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:${api_port}/"; then
+            break
+        fi
+        if [ "$attempt" -eq 120 ]; then
+            echo "Warning: fleet-api did not come up within 240s; skipping database tuning." >&2
+            return 1
+        fi
+        sleep 2
+    done
 
     compose exec -T timescaledb \
         bash -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
