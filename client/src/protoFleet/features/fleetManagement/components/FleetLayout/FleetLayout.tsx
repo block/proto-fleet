@@ -72,7 +72,13 @@ const FleetLayout = () => {
     useSitesContext();
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
-  const validatedKnownSiteIds = sitesLoaded ? knownSiteIds : undefined;
+  // Key scope validation off catalog *access* (authoritative now), not
+  // sitesLoaded (ever-loaded, stays true). Otherwise a mid-session
+  // PermissionDenied clears `sites` to [] while sitesLoaded stays true,
+  // yielding an empty-but-authoritative set that would strip a scoped
+  // `/:site/fleet/...` route instead of preserving it while the org catalog
+  // is denied.
+  const validatedKnownSiteIds = siteCatalogAccessGranted ? knownSiteIds : undefined;
   const { activeSite } = useActiveSite({ knownSiteIds: validatedKnownSiteIds });
   // A stale "single site" selection pointing at a deleted site must keep the
   // tab visible so the operator can still create a new site.

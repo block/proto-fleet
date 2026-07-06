@@ -109,6 +109,10 @@ describe("SitesProvider", () => {
     await waitFor(() => expect(screen.getByTestId("denied").textContent).toBe("true"));
     // Last-good list is dropped (not preserved) on PermissionDenied.
     expect(screen.getByTestId("count").textContent).toBe("0");
+    // sitesLoaded stays true (ever-loaded), but siteCatalogAccessGranted flips
+    // false — so scope validators must key off `granted`, not `sitesLoaded`,
+    // to avoid stripping a scoped route while the org catalog is denied.
+    expect(screen.getByTestId("loaded").textContent).toBe("true");
     expect(screen.getByTestId("granted").textContent).toBe("false");
   });
 
