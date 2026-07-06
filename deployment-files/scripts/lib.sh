@@ -35,7 +35,9 @@ MIGRATION_TABLES=(
 refresh_compose_env_args() {
     COMPOSE_ENV_ARGS=()
     local profile profile_file
-    profile=$(grep -E '^FLEET_PROFILE=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
+    # `|| true` keeps a missing FLEET_PROFILE line from killing set -euo
+    # pipefail callers; tail -1 matches compose's last-wins env semantics
+    profile=$(grep -E '^FLEET_PROFILE=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)
     if [ -n "$profile" ]; then
         profile_file="$PROJECT_ROOT/profiles/${profile}.env"
         if [[ "$profile" =~ ^[a-z]+$ ]] && [ -f "$profile_file" ]; then

@@ -67,7 +67,9 @@ refresh_compose_files
 refresh_compose_env_args() {
     COMPOSE_ENV_ARGS=()
     local profile profile_file
-    profile=$(grep -E '^FLEET_PROFILE=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
+    # `|| true` keeps a missing FLEET_PROFILE line from killing set -euo
+    # pipefail callers; tail -1 matches compose's last-wins env semantics
+    profile=$(grep -E '^FLEET_PROFILE=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)
     if [ -n "$profile" ]; then
         profile_file="$PROJECT_ROOT/profiles/${profile}.env"
         if [[ "$profile" =~ ^[a-z]+$ ]] && [ -f "$profile_file" ]; then
@@ -595,7 +597,13 @@ if [ "$use_existing" == "no" ]; then
     fi
     echo "ENCRYPT_SERVICE_MASTER_KEY=$ENCRYPT_SERVICE_MASTER_KEY" >> "$ENV_FILE"
 
-    prompt_fleet_profile
+    # curl | bash installs reach here with stdin at EOF; never let an
+    # unanswered prompt persist a profile
+    if [ -t 0 ]; then
+        prompt_fleet_profile
+    else
+        echo "Hint: host profiles are available; set FLEET_PROFILE=standard|mini|max in $ENV_FILE and re-run to tune for this hardware."
+    fi
 
     # Secure the env file
     chmod 600 "$ENV_FILE"
@@ -1084,7 +1092,7 @@ provision_grafana_service_account_token() {
     if ! docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" up -d --no-deps --force-recreate fleet-api; then
         echo "Error: wrote the Grafana token to $ENV_FILE but failed to restart fleet-api; it is still" >&2
         echo "       running with the pre-token environment and will 401 against Grafana. Restart it with:" >&2
-        echo "         docker compose ${COMPOSE_FILES[*]} up -d --force-recreate fleet-api" >&2
+        echo "         docker compose ${COMPOSE_ENV_ARGS[*]} ${COMPOSE_FILES[*]} up -d --no-deps --force-recreate fleet-api" >&2
         return 1
     fi
 }

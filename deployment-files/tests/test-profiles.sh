@@ -41,6 +41,10 @@ secs() { # 10s -> 10
     echo "${1%s}"
 }
 
+is_int() {
+    case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac
+}
+
 # ----------------------------------------------------------------------------
 # 1. Every profile key must be interpolated by a compose file
 # ----------------------------------------------------------------------------
@@ -71,25 +75,35 @@ check_profile() { # name assumed_ram_mb
     bg=$(profile_get "$p" PG_TS_MAX_BACKGROUND_WORKERS 8)
     par=$(profile_get "$p" PG_MAX_PARALLEL_WORKERS 8)
     workers=$(profile_get "$p" PG_MAX_WORKER_PROCESSES 19)
+    conns=$(profile_get "$p" PG_MAX_CONNECTIONS 300)
+    pool=$(profile_get "$p" DB_MAX_OPEN_CONNS 250)
+    fetch=$(secs "$(profile_get "$p" TELEMETRY_FETCH_INTERVAL 5s)")
+    staleness=$(secs "$(profile_get "$p" TELEMETRY_STALENESS_THRESHOLD 20s)")
+    shared=$(profile_get "$p" PG_SHARED_BUFFERS 256MB)
+    shared_mb=$(to_mb "$shared")
+
+    # A malformed value would otherwise error inside [ ] and fail open
+    local v
+    for v in "$bg" "$par" "$workers" "$conns" "$pool" "$fetch" "$staleness" "$shared_mb"; do
+        if ! is_int "$v"; then
+            fail "$name: tunable value '$v' is not a plain integer"
+            return
+        fi
+    done
+
     if [ "$workers" -ne $((bg + par + 3)) ]; then
         fail "$name: max_worker_processes=$workers != background($bg) + parallel($par) + 3"
     fi
 
-    conns=$(profile_get "$p" PG_MAX_CONNECTIONS 300)
-    pool=$(profile_get "$p" DB_MAX_OPEN_CONNS 250)
     # ~20 connections reserved for grafana_ro, psql sessions, and superuser
     if [ $((pool + 20)) -ge "$conns" ]; then
         fail "$name: DB_MAX_OPEN_CONNS=$pool + 20 must stay below PG_MAX_CONNECTIONS=$conns"
     fi
 
-    fetch=$(secs "$(profile_get "$p" TELEMETRY_FETCH_INTERVAL 5s)")
-    staleness=$(secs "$(profile_get "$p" TELEMETRY_STALENESS_THRESHOLD 20s)")
     if [ "$staleness" -le "$fetch" ]; then
         fail "$name: STALENESS_THRESHOLD=${staleness}s must exceed FETCH_INTERVAL=${fetch}s"
     fi
 
-    shared=$(profile_get "$p" PG_SHARED_BUFFERS 256MB)
-    shared_mb=$(to_mb "$shared")
     # The database shares the host with fleet-api, nginx, otel, and grafana
     if [ $((shared_mb * 4)) -gt "$ram_mb" ]; then
         fail "$name: shared_buffers=$shared exceeds 25% of the assumed ${ram_mb}MB host RAM"
@@ -132,7 +146,29 @@ check_go_default TIMESCALEDB_ASYNC_METRIC_COMMIT server/internal/infrastructure/
 pass "compose defaults checked against Go config defaults"
 
 # ----------------------------------------------------------------------------
-# 4. Compose render smoke test (staged tarball layout)
+# 4. refresh_compose_env_args must survive strict-mode callers
+# ----------------------------------------------------------------------------
+
+# migrate-data.sh and rollback-migration.sh run under set -euo pipefail and
+# call this on pre-profile .env files (no FLEET_PROFILE line)
+STRICT_TMP=$(mktemp -d)
+printf 'DB_USERNAME=fleet\n' > "$STRICT_TMP/.env"
+if (
+    set -euo pipefail
+    PROJECT_ROOT="$STRICT_TMP"
+    ENV_FILE="$STRICT_TMP/.env"
+    source "$REPO_ROOT/deployment-files/scripts/lib.sh"
+    refresh_compose_env_args
+    [ "${#COMPOSE_ENV_ARGS[@]}" -eq 2 ] && [ "${COMPOSE_ENV_ARGS[1]}" = "$STRICT_TMP/.env" ]
+) >/dev/null 2>&1; then
+    pass "refresh_compose_env_args survives set -euo pipefail without FLEET_PROFILE"
+else
+    fail "refresh_compose_env_args breaks under set -euo pipefail when FLEET_PROFILE is missing"
+fi
+rm -rf "$STRICT_TMP"
+
+# ----------------------------------------------------------------------------
+# 5. Compose render smoke test (staged tarball layout)
 # ----------------------------------------------------------------------------
 
 if ! docker compose version >/dev/null 2>&1; then
