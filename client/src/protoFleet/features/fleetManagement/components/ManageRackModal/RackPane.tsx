@@ -32,13 +32,17 @@ interface SlotInfo {
   key: string;
 }
 
+type PopoverAnchorX = "left" | "center" | "right";
+
 function SlotPopover({
+  anchorX,
   selectFromListDisabled,
   onSelectFromList,
   onSearchMiners,
   onScanQr,
   onDismiss,
 }: {
+  anchorX: PopoverAnchorX;
   selectFromListDisabled: boolean;
   onSelectFromList: () => void;
   onSearchMiners: () => void;
@@ -58,7 +62,14 @@ function SlotPopover({
         }}
       />
       <div
-        className="absolute top-full left-1/2 z-30 mt-1 w-44 -translate-x-1/2 rounded-xl border border-border-5 bg-surface-elevated-base py-1 shadow-300"
+        className={clsx(
+          "absolute top-full z-30 mt-1 w-44 rounded-xl border border-border-5 bg-surface-elevated-base py-1 shadow-300",
+          // The menu is wider than a slot, so anchor it toward the grid interior:
+          // edge-column slots would otherwise spill off the viewport when centered.
+          anchorX === "left" && "left-0",
+          anchorX === "right" && "right-0",
+          anchorX === "center" && "left-1/2 -translate-x-1/2",
+        )}
         role="menu"
       >
         <button
@@ -109,6 +120,7 @@ function RackSlotCell({
   isManualMode,
   isSelected,
   showPopover,
+  popoverAnchorX,
   hasMiners,
   slotSize,
   padWidth,
@@ -124,6 +136,7 @@ function RackSlotCell({
   isManualMode: boolean;
   isSelected: boolean;
   showPopover: boolean;
+  popoverAnchorX: PopoverAnchorX;
   hasMiners: boolean;
   slotSize: number;
   padWidth: number;
@@ -168,6 +181,7 @@ function RackSlotCell({
       </button>
       {isSelected && showPopover ? (
         <SlotPopover
+          anchorX={popoverAnchorX}
           selectFromListDisabled={!hasMiners}
           onSelectFromList={onSelectFromList}
           onSearchMiners={onSearchMiners}
@@ -248,6 +262,7 @@ export default function RackPane({
                 isManualMode={assignmentMode === "manual"}
                 isSelected={selectedSlotKey === slot.key}
                 showPopover={showPopover ? selectedSlotKey === slot.key : false}
+                popoverAnchorX={slot.col === 0 ? "left" : slot.col === cols - 1 ? "right" : "center"}
                 hasMiners={hasMiners}
                 slotSize={slotSize}
                 padWidth={padWidth}
