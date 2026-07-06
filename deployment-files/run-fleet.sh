@@ -794,6 +794,59 @@ if ! docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_F
 fi
 
 # ----------------------------------------------------------------------------
+# Database Post-Start Tuning
+# ----------------------------------------------------------------------------
+
+# Needs a running, migrated database: pg_stat_statements for query
+# diagnostics, and staggered Timescale policy job starts so compression and
+# rollup refreshes don't all wake at once on small hosts. Idempotent;
+# re-applied on every run so jobs added by new migrations get staggered on
+# the next upgrade.
+apply_database_tuning() {
+    local attempt migrated
+    echo "Waiting for database migrations to complete before applying tuning…"
+    for attempt in $(seq 1 60); do
+        migrated=$(docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" exec -T timescaledb \
+            bash -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"SELECT NOT dirty FROM schema_migrations LIMIT 1\"" \
+            2>/dev/null | tr -d '[:space:]')
+        if [ "$migrated" = "t" ]; then
+            break
+        fi
+        if [ "$attempt" -eq 60 ]; then
+            echo "Warning: migrations did not complete within 120s; skipping database tuning." >&2
+            return 1
+        fi
+        sleep 2
+    done
+
+    docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" exec -T timescaledb \
+        bash -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+DO $$
+DECLARE
+    r RECORD;
+    n integer := 0;
+BEGIN
+    FOR r IN SELECT job_id FROM timescaledb_information.jobs
+             WHERE proc_name IN ('policy_compression',
+                                 'policy_refresh_continuous_aggregate',
+                                 'policy_retention')
+             ORDER BY job_id
+    LOOP
+        -- initial_start (not next_start) re-phases fixed-schedule jobs so
+        -- the stagger survives future scheduled runs
+        PERFORM public.alter_job(r.job_id, initial_start => now() + (n * interval '45 seconds'));
+        n := n + 1;
+    END LOOP;
+END $$;
+SQL
+}
+
+if ! apply_database_tuning; then
+    echo "Warning: database tuning step failed; the stack is running, but pg_stat_statements and policy staggering are not applied. Re-run this script to retry." >&2
+fi
+
+# ----------------------------------------------------------------------------
 # Grafana Read-Only DB Role Provisioning
 # ----------------------------------------------------------------------------
 
