@@ -55,19 +55,27 @@ const Dashboard = () => {
   // dashboard is the only selector now that the topbar picker is hidden here,
   // so a transient ListSites failure surfaces a retry via the heading picker
   // rather than stranding it in a loading skeleton.
-  const { sites, sitesError, sitesSettled: siteValidationSettled, refetchSites } = useSitesContext();
+  const {
+    sites,
+    sitesError,
+    sitesSettled: siteValidationSettled,
+    siteCatalogAccessGranted,
+    refetchSites,
+  } = useSitesContext();
 
   // Active site comes from the route path (`/`, `/:site`, `/unassigned`),
   // validated against knownSiteIds. All-sites yields an empty filter, so
-  // `/dashboard` stays org-wide. On a ListSites error we keep the set
-  // *unknown* (not an empty loaded set) — mirroring the picker — so a
-  // transient failure on `/:site/dashboard` doesn't make useActiveSite treat
-  // the route site as stale and silently fall back to all-sites.
-  const knownSiteIds = useMemo(() => {
-    if (sites === undefined) return undefined;
-    if (sites.length === 0 && sitesError != null) return undefined;
-    return buildKnownSiteIds(sites);
-  }, [sites, sitesError]);
+  // `/dashboard` stays org-wide. Only treat the catalog as authoritative once
+  // it has actually loaded via org-scoped site:read — otherwise `undefined`
+  // keeps the set *unknown*. A site-scoped operator (who can reach
+  // `/:site/dashboard` via ResolveSiteBySlug but can't org-list sites) would
+  // otherwise get an empty-but-loaded set, making useActiveSite treat the
+  // route site as stale and silently strip the scope to all-sites. Unknown
+  // also covers the initial-load / transient-failure window.
+  const knownSiteIds = useMemo(
+    () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
+    [siteCatalogAccessGranted, sites],
+  );
   const { activeSite } = useActiveSite({ knownSiteIds });
   const siteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
   const routeScope = useRouteSiteScope();
