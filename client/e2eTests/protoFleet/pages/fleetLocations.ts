@@ -371,11 +371,41 @@ export class FleetLocationsPage extends BasePage {
     },
   ) {
     await this.navigateToBuildingsPage();
+    await this.validateCurrentBuildingRowCounts(buildingName, expected);
+  }
+
+  async validateCurrentBuildingRowCounts(
+    buildingName: string,
+    expected: {
+      siteName: string;
+      racks: number;
+      miners: number;
+    },
+  ) {
     const row = this.getListRowByName(buildingName);
     await expect(row).toBeVisible();
     await expect(row.getByTestId("site")).toHaveText(expected.siteName);
     await expect(row.getByTestId("racks")).toHaveText(String(expected.racks));
     await expect(row.getByTestId("miners")).toHaveText(String(expected.miners));
+  }
+
+  async openBuildingsForSite(siteName: string): Promise<bigint> {
+    await this.navigateToSitesPage();
+    const siteId = await this.getScopeIdFromRowName(siteName, "site");
+    await this.openRowActions(siteName);
+    await this.clickRowAction("View buildings");
+    await expect(this.page).toHaveURL(new RegExp(`/fleet/buildings\\?site=${siteId.toString()}(?:[&#].*)?$`));
+    await expect(this.page.getByTestId("fleet-buildings-page")).toBeVisible();
+    return siteId;
+  }
+
+  async openRacksForBuilding(buildingName: string): Promise<bigint> {
+    await this.navigateToBuildingsPage();
+    const buildingId = await this.getScopeIdFromRowName(buildingName, "building");
+    await this.openRowActions(buildingName);
+    await this.clickRowAction("View racks");
+    await expect(this.page).toHaveURL(new RegExp(`/fleet/racks\\?building=${buildingId.toString()}(?:[&#].*)?$`));
+    return buildingId;
   }
 
   private getListRowByName(name: string) {

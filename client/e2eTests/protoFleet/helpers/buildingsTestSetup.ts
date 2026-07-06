@@ -14,7 +14,7 @@ const ASSIGN_RACKS_TO_BUILDING = "AssignRacksToBuilding";
 const AUTOMATION_SITE_PREFIX = "automation_buildings_site";
 const AUTOMATION_BUILDING_PREFIX = "automation_buildings_building";
 const AUTOMATION_RACK_PREFIX = "automation_buildings_rack";
-const TEMP_ZONE = "AutomationBuildingsZone";
+export const AUTOMATION_BUILDINGS_ZONE = "AutomationBuildingsZone";
 const RACK_COLUMNS = 2;
 const RACK_ROWS = 2;
 type BuildingsCleanupFleetLocationsPage = Pick<
@@ -129,7 +129,7 @@ export async function createRackWithAssignedMiners(
   return await test.step("Create a rack with two miners assigned", async () => {
     await racksPage.navigateToRacksPage();
     await racksPage.clickAddRackButton();
-    await racksPage.inputZone(TEMP_ZONE);
+    await racksPage.inputZone(AUTOMATION_BUILDINGS_ZONE);
     await racksPage.inputRackLabel(rackLabel);
     await racksPage.enableCustomRackLayout();
     await racksPage.inputColumns(RACK_COLUMNS);
@@ -177,6 +177,20 @@ export async function assignRackToBuilding(
     test.expect(String(body.racks[0]?.rackId)).toBe(rackId.toString());
     test.expect(response.status()).toBe(200);
   });
+}
+
+export async function setupRackAssignedToBuilding(
+  page: Page,
+  fleetLocationsPage: FleetLocationsPage,
+  racksPage: RacksPage,
+  scenario: BuildingsScenarioData,
+) {
+  const buildingId = await createSiteAndBuilding(fleetLocationsPage, scenario);
+  const { rackId, selectedMinerIps } = await createRackWithAssignedMiners(racksPage, scenario.rackLabel);
+
+  await assignRackToBuilding(page, racksPage, scenario.rackLabel, rackId, scenario.buildingName, buildingId);
+
+  return { buildingId, rackId, selectedMinerIps };
 }
 
 export async function removeRackFromBuilding(

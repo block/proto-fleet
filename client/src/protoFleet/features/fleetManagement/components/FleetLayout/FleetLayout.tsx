@@ -296,7 +296,9 @@ const FleetLayout = () => {
       >
         <div className="flex items-baseline justify-between gap-4">
           <h1 className="text-heading-300 text-text-primary">Fleet</h1>
-          <div className="laptop:hidden">{viewTabs}</div>
+          <div className="laptop:hidden" data-testid="fleet-view-tabs-mobile">
+            {viewTabs}
+          </div>
         </div>
         {canReadMiners ? (
           <CompleteSetup
@@ -309,7 +311,11 @@ const FleetLayout = () => {
           activeId={currentTab}
           onSelect={onSelect}
           ariaLabel="Fleet sections"
-          trailing={<div className="hidden pb-2 laptop:block">{viewTabs}</div>}
+          trailing={
+            <div className="hidden pb-2 laptop:block" data-testid="fleet-view-tabs-desktop">
+              {viewTabs}
+            </div>
+          }
         >
           {visibleTabs.map((tab) => (
             <TabStripItem key={tab} id={tab} label={tabLabel[tab]} testId={`fleet-tab-${tab}`} />

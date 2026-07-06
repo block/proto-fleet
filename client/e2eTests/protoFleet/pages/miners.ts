@@ -1132,35 +1132,6 @@ export class MinersPage extends BasePage {
     await this.validateTemperatureUnit("°C");
   }
 
-  async validateActiveFilter(filterLabel: string) {
-    // Match the chip's editable summary button only — the outer chip wrapper also carries
-    // an `active-filter-*` testid, which would otherwise resolve two elements with the
-    // same text and trip Playwright's strict mode.
-    const activeFilterButton = this.page.locator('button[data-testid^="active-filter-"][data-testid$="-edit"]', {
-      hasText: filterLabel,
-    });
-    await expect(activeFilterButton).toBeVisible();
-  }
-
-  async validateActiveFilterSummary(filterValue: string, expectedSummary: string) {
-    await expect(this.page.getByTestId(`active-filter-${filterValue}-edit`)).toHaveText(expectedSummary);
-  }
-
-  async validateActiveFilterNotVisible(filterLabel: string) {
-    const activeFilterButton = this.page.locator('button[data-testid^="active-filter-"][data-testid$="-edit"]', {
-      hasText: filterLabel,
-    });
-    await expect(activeFilterButton).toHaveCount(0);
-  }
-
-  async clickClearAllFilters() {
-    await this.page.getByRole("button", { name: "Clear all filters", exact: true }).click();
-  }
-
-  async clearActiveFilter(filterValue: string) {
-    await this.page.getByTestId(`active-filter-${filterValue}-clear`).click();
-  }
-
   async validateNoResultsEmptyState() {
     await this.page.getByText("No results", { exact: true }).waitFor();
     await expect(this.page.getByText("No results", { exact: true })).toBeVisible();
@@ -1246,29 +1217,6 @@ export class MinersPage extends BasePage {
     await this.clickButton("Get started");
   }
 
-  // FleetViewTabs is mounted twice (mobile and desktop layout slots); only one
-  // is interactive at a time. Filter to `:visible` so locators don't trip
-  // Playwright strict mode by matching both copies.
-  private viewsTrigger(): Locator {
-    return this.page.locator('[data-testid="fleet-view-tabs-trigger"]:visible');
-  }
-
-  private viewsEmptyStateNewButton(): Locator {
-    return this.page.locator('[data-testid="fleet-view-tabs-new-view-button"]:visible');
-  }
-
-  private viewsPopover(): Locator {
-    return this.page.getByTestId("fleet-view-tabs-views-popover");
-  }
-
-  private kebabButton(): Locator {
-    return this.page.locator('[data-testid="fleet-view-tabs-kebab"]:visible');
-  }
-
-  private kebabPopover(): Locator {
-    return this.page.getByTestId("fleet-view-tabs-kebab-popover");
-  }
-
   private bulkWorkerNameSaveButton(): Locator {
     return this.page.getByTestId(
       this.isMobile ? "bulk-worker-name-save-button-mobile" : "bulk-worker-name-save-button",
@@ -1277,136 +1225,6 @@ export class MinersPage extends BasePage {
 
   private bulkRenameSaveButton(): Locator {
     return this.page.getByTestId(this.isMobile ? "bulk-rename-save-button-mobile" : "bulk-rename-save-button");
-  }
-
-  private async openViewsPopover() {
-    const trigger = this.viewsTrigger();
-    await trigger.click();
-    await expect(this.viewsPopover()).toBeVisible();
-  }
-
-  private async openKebabPopover() {
-    await this.kebabButton().click();
-    await expect(this.kebabPopover()).toBeVisible();
-  }
-
-  async clickNewSavedViewButton() {
-    // Empty state (no saved views yet) renders the "+ New view" trigger
-    // directly; with views present it lives inside the dropdown popover.
-    const emptyState = this.viewsEmptyStateNewButton();
-    if (await emptyState.isVisible().catch(() => false)) {
-      await emptyState.click();
-      return;
-    }
-    await this.openViewsPopover();
-    await this.page.getByTestId("fleet-view-tabs-popover-new-view").click();
-  }
-
-  async clickClearActiveView() {
-    await this.openViewsPopover();
-    await this.page.getByTestId("fleet-view-tabs-popover-clear-view").click();
-  }
-
-  async validateViewModalOpened(title: "New view" | "Update view" | "Rename view") {
-    const modal = this.page.getByTestId("view-modal");
-    await expect(modal).toBeVisible();
-    await expect(modal).toContainText(title);
-  }
-
-  async inputViewName(name: string) {
-    await this.page.locator("#view-name").fill(name);
-  }
-
-  async saveNewView() {
-    await this.page.getByTestId("view-modal").getByRole("button", { name: "Save", exact: true }).click();
-    await expect(this.page.getByTestId("view-modal")).toBeHidden();
-  }
-
-  async updateSavedView() {
-    await this.page.getByTestId("view-modal").getByRole("button", { name: "Update", exact: true }).click();
-    await expect(this.page.getByTestId("view-modal")).toBeHidden();
-  }
-
-  async confirmRenameView() {
-    await this.page.getByTestId("view-modal").getByRole("button", { name: "Rename", exact: true }).click();
-    await expect(this.page.getByTestId("view-modal")).toBeHidden();
-  }
-
-  private viewRow(viewName: string): Locator {
-    return this.viewsPopover().locator('[data-testid^="fleet-view-row-"]').filter({ hasText: viewName });
-  }
-
-  async validateViewTabVisible(viewName: string) {
-    await this.openViewsPopover();
-    await expect(this.viewRow(viewName)).toBeVisible();
-    // Close the popover so subsequent helpers start from a clean state.
-    await this.viewsTrigger().click();
-    await expect(this.viewsPopover()).toBeHidden();
-  }
-
-  async validateViewTabActive(viewName: string) {
-    // When a view is active the trigger label is the view's name.
-    await expect(this.viewsTrigger()).toContainText(viewName);
-  }
-
-  async clickViewTab(viewName: string) {
-    await this.openViewsPopover();
-    await this.viewRow(viewName).click();
-  }
-
-  async clickResetViewAction(viewName: string) {
-    await this.validateViewTabActive(viewName);
-    await this.openKebabPopover();
-    await this.page.getByTestId("fleet-view-tabs-reset-action").click();
-  }
-
-  async clickUpdateViewAction(viewName: string) {
-    await this.validateViewTabActive(viewName);
-    await this.openKebabPopover();
-    await this.page.getByTestId("fleet-view-tabs-update-action").click();
-  }
-
-  async clickRenameViewAction(viewName: string) {
-    await this.validateViewTabActive(viewName);
-    await this.openKebabPopover();
-    await this.page.getByTestId("fleet-view-tabs-rename-action").click();
-  }
-
-  async clickDeleteViewAction(viewName: string) {
-    await this.validateViewTabActive(viewName);
-    await this.openKebabPopover();
-    await this.page.getByTestId("fleet-view-tabs-delete-action").click();
-  }
-
-  async validateViewTabNotVisible(viewName: string) {
-    // After deleting the last (or only) view, the trigger collapses to the
-    // empty-state "+ New view" button; otherwise the trigger remains but the
-    // popover no longer lists this view.
-    const trigger = this.viewsTrigger();
-    if (await trigger.isVisible().catch(() => false)) {
-      await expect(trigger).not.toContainText(viewName);
-      await trigger.click();
-      const popover = this.viewsPopover();
-      if (await popover.isVisible().catch(() => false)) {
-        await expect(this.viewRow(viewName)).toHaveCount(0);
-        await trigger.click();
-        await expect(popover).toBeHidden();
-      }
-      return;
-    }
-    await expect(this.viewsEmptyStateNewButton()).toBeVisible();
-  }
-
-  async validateDeleteViewDialogOpened(viewName: string) {
-    const dialog = this.page.getByTestId("fleet-view-tabs-delete-dialog");
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText(`Delete the view "${viewName}"? This can't be undone.`);
-  }
-
-  async confirmDeleteView() {
-    const dialog = this.page.getByTestId("fleet-view-tabs-delete-dialog");
-    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
-    await expect(dialog).toBeHidden();
   }
 
   async clickMinerElementByTestId(ipAddress: string, testId: string) {
