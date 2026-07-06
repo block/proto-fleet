@@ -131,6 +131,14 @@ export interface ActiveCurtailmentMinerCompliance {
 // denominator excludes unavailable targets (can't be commanded) and
 // released/resolved rows (no longer curtail-targeted), so events with
 // unavailable targets can still present as fully dispatched.
+//
+// Known precision bound: the server's wire rollup deliberately folds the
+// DISPATCHING pre-command transient into the `dispatched` bucket (see
+// populateEventTargets in server/internal/handlers/curtailment/translate.go),
+// so a just-claimed batch counts as sent for the sub-tick window between
+// claim and command send. The client cannot split the bucket, and counting
+// it as pending instead would understate progress for the far longer
+// sent-awaiting-confirmation phase.
 export interface ActiveCurtailmentCurtailProgress {
   confirmedCount: number;
   sentCount: number;

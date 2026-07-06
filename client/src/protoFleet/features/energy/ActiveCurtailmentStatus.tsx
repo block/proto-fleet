@@ -364,10 +364,12 @@ function shouldShowRestoreProgress(
 }
 
 // Rough time to finish dispatching sleep commands: remaining pending targets
-// paced by the event's curtail batch settings (issue #660's approximation,
-// ceil(pending / batch) x interval). Deliberately not the restore-estimate
-// gap math: pending batches all wait on future reconciler waves, so the
-// estimate must stay non-zero while any target is pending.
+// paced by the event's curtail batch settings. Before anything has been
+// reached, the reconciler sends the first wave without waiting on the
+// interval clock (curtailBatchIntervalElapsed is vacuously true), so that
+// wave is free — matching the plan preview's (batches - 1) x interval math.
+// Once a wave is out, every pending wave waits on the interval from the
+// previous dispatch, so all of them are charged.
 function getCurtailRemainingSeconds(
   event: Pick<ActiveCurtailmentEvent, "curtailBatchSize" | "curtailBatchIntervalSec">,
   progress: ActiveCurtailmentCurtailProgress,
@@ -377,7 +379,9 @@ function getCurtailRemainingSeconds(
   if (progress.pendingCount <= 0 || batchSize <= 0 || intervalSec <= 0) {
     return 0;
   }
-  return Math.ceil(progress.pendingCount / batchSize) * intervalSec;
+  const pendingWaves = Math.ceil(progress.pendingCount / batchSize);
+  const chargedWaves = progress.reachedCount > 0 ? pendingWaves : pendingWaves - 1;
+  return Math.max(chargedWaves, 0) * intervalSec;
 }
 
 function getCurtailProgressSegments(progress: ActiveCurtailmentCurtailProgress): Segment[] {
