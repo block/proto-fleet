@@ -779,7 +779,7 @@ export default function ActiveCurtailmentStatus({
               <StatBlock label="Applies to" value={formatMinerCount(event.selectedMiners)} />
               <StatBlock label="Restore" value={formatRestoreProfile(event)} />
               {curtailRemainingSeconds > 0 ? (
-                <StatBlock label="Est. time to curtail" value={formatDurationLong(curtailRemainingSeconds)} />
+                <StatBlock label="Estimated time to curtail" value={formatDurationLong(curtailRemainingSeconds)} />
               ) : null}
             </>
           )}

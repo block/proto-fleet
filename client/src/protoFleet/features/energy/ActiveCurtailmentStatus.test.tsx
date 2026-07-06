@@ -723,7 +723,7 @@ describe("ActiveCurtailmentStatus", () => {
 
     // 10 confirmed already reached, so a wave is in flight: all 3 pending
     // waves (ceil(25 / 10)) wait on the 60s interval clock.
-    expect(screen.getByText("Est. time to curtail")).toBeVisible();
+    expect(screen.getByText("Estimated time to curtail")).toBeVisible();
     expect(screen.getByText("3 minutes")).toBeVisible();
   });
 
@@ -742,7 +742,7 @@ describe("ActiveCurtailmentStatus", () => {
 
     // Nothing dispatched yet: the reconciler sends the first wave without
     // waiting on the interval clock, so only 2 of the 3 waves cost 60s.
-    expect(screen.getByText("Est. time to curtail")).toBeVisible();
+    expect(screen.getByText("Estimated time to curtail")).toBeVisible();
     expect(screen.getByText("2 minutes")).toBeVisible();
   });
 
@@ -765,7 +765,7 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expect(screen.queryByText("Est. time to curtail")).not.toBeInTheDocument();
+    expect(screen.queryByText("Estimated time to curtail")).not.toBeInTheDocument();
   });
 
   it("hides the curtail estimate once every target has been reached", () => {
@@ -779,7 +779,7 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expect(screen.queryByText("Est. time to curtail")).not.toBeInTheDocument();
+    expect(screen.queryByText("Estimated time to curtail")).not.toBeInTheDocument();
   });
 
   it("renders restore progress with segment legend and unavailable annotation", () => {
