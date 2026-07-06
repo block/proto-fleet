@@ -1,8 +1,10 @@
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { getErrorCause } from "@/protoFleet/api/requestErrors";
 import { buildSiteNameById } from "@/protoFleet/api/siteNames";
 import { useSites } from "@/protoFleet/api/sites";
 import {
@@ -95,6 +97,30 @@ const terminateRecoveryStateOptions: { label: string; value: TerminateRecoverySt
   { label: "Failed", value: "failed" },
 ];
 const automationRestoreBlockedErrorPrefix = "cannot restore automation-owned curtailment event";
+const transientTerminateRecoveryErrorCodes = new Set<Code>([
+  Code.Aborted,
+  Code.Canceled,
+  Code.DeadlineExceeded,
+  Code.Unavailable,
+]);
+
+function getConnectError(error: unknown): ConnectError | null {
+  if (error instanceof ConnectError) {
+    return error;
+  }
+
+  const cause = getErrorCause(error);
+  return cause instanceof ConnectError ? cause : null;
+}
+
+function shouldOfferForceReleaseAfterTerminateRecoveryError(error: unknown): boolean {
+  if (error instanceof Error && error.message === adminTerminateReasonRequiredMessage) {
+    return false;
+  }
+
+  const connectError = getConnectError(error);
+  return !connectError || !transientTerminateRecoveryErrorCodes.has(connectError.code);
+}
 
 function getRecoveryStopErrorMessage(
   stopError: string | null,
@@ -917,7 +943,11 @@ function CurtailmentManagementPanel({
           setPendingTerminateRecoveryEventId(null);
           setFailedTerminateRecoveryEventId((currentEventId) => (currentEventId === eventId ? null : currentEventId));
         })
-        .catch(() => setFailedTerminateRecoveryEventId(eventId));
+        .catch((error: unknown) => {
+          if (shouldOfferForceReleaseAfterTerminateRecoveryError(error)) {
+            setFailedTerminateRecoveryEventId(eventId);
+          }
+        });
     },
     [activeEvent, activeEventId, adminTerminateCurtailment, canUseRecovery, pendingTerminateRecoveryEventId],
   );

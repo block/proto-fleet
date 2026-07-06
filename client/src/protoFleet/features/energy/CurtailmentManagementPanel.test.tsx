@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Code, ConnectError } from "@connectrpc/connect";
 import userEvent from "@testing-library/user-event";
 
 import type { UseCurtailmentApiResult } from "@/protoFleet/api/useCurtailmentApi";
@@ -786,6 +787,56 @@ describe("CurtailmentManagementPanel", () => {
 
     expect(screen.queryByRole("button", { name: "Request stop restore" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Request abort" })).toBeInTheDocument();
+  });
+
+  it("keeps stop restore available after terminate recovery validation failures", async () => {
+    const user = userEvent.setup();
+    mocks.adminTerminateCurtailment.mockRejectedValueOnce(new Error("Enter a reason before terminating the event."));
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request stop restore" }));
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Recovery cannot complete");
+    await user.click(screen.getByRole("button", { name: "Stop restore" }));
+
+    await waitFor(() => expect(mocks.adminTerminateCurtailment).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("button", { name: "Request stop restore" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
+  });
+
+  it("keeps stop restore available after transient terminate recovery failures", async () => {
+    const user = userEvent.setup();
+    mocks.adminTerminateCurtailment.mockRejectedValueOnce(
+      new ConnectError("temporarily unavailable", Code.Unavailable),
+    );
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request stop restore" }));
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Recovery cannot complete");
+    await user.click(screen.getByRole("button", { name: "Stop restore" }));
+
+    await waitFor(() => expect(mocks.adminTerminateCurtailment).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("button", { name: "Request stop restore" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
   });
 
   it("hides stop restore for non-automation restoring events", () => {
