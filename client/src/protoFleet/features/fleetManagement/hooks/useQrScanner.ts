@@ -35,6 +35,11 @@ interface UseQrScannerResult {
 }
 
 const SCAN_INTERVAL_MS = 250;
+// A blurry/empty frame *resolves* with no results; only a genuinely broken
+// decoder (e.g. the WASM asset can't be fetched/instantiated on-prem) *throws*.
+// After this many consecutive throws (~4s) we give up the live loop and surface
+// an error so the photo-capture fallback appears instead of an endless viewfinder.
+const MAX_CONSECUTIVE_DECODE_FAILURES = 16;
 
 /**
  * Drive a live QR/barcode scan session against the device camera.
@@ -58,6 +63,9 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
   // SCAN_INTERVAL_MS (notably the WASM fallback on mobile), and without this a
   // slow frame would let interval ticks stack up and spike CPU/battery.
   const detectingRef = useRef(false);
+  // Consecutive decode *throws* (reset on any resolve). Trips the error state
+  // when the decoder is persistently broken rather than just seeing no code.
+  const decodeFailuresRef = useRef(0);
   const onDetectedRef = useRef(onDetected);
 
   const [status, setStatus] = useState<ScanStatus>("idle");
@@ -103,6 +111,7 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
 
     let cancelled = false;
     detectedRef.current = false;
+    decodeFailuresRef.current = 0;
     // Resetting scan status is the effect's purpose: it synchronizes React
     // state with the freshly-(re)started camera stream (an external system).
     /* eslint-disable react-hooks/set-state-in-effect -- initialize UI state for a new camera session */
@@ -139,14 +148,26 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
           detectingRef.current = true;
           try {
             const results = await detector.detect(el);
+            // The effect may have torn down while detect() was in flight; don't
+            // fire onDetected (a lookup + state update) after teardown.
+            if (cancelled) return;
+            decodeFailuresRef.current = 0;
             const value = results[0]?.rawValue;
             if (value && !detectedRef.current) {
               detectedRef.current = true;
               onDetectedRef.current(value);
             }
           } catch {
-            // Transient decode failures (e.g. a blurry frame) are expected;
-            // keep polling.
+            // A blurry frame resolves empty; a *throw* means the decoder itself
+            // failed. Tolerate a few (transient), but stop and surface an error
+            // on persistent failure so the photo fallback becomes reachable.
+            if (cancelled) return;
+            decodeFailuresRef.current += 1;
+            if (decodeFailuresRef.current >= MAX_CONSECUTIVE_DECODE_FAILURES) {
+              stop();
+              setStatus("error");
+              setErrorMessage("Couldn't read the camera feed. Try taking a photo instead.");
+            }
           } finally {
             detectingRef.current = false;
           }
