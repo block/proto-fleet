@@ -239,7 +239,8 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("Estimated time to restore")).toBeVisible();
     expect(screen.getByText("Immediate")).toBeVisible();
     expect(screen.queryByText("Estimated completion")).not.toBeInTheDocument();
-    expectProgressHidden();
+    // 8 resolved of 18 restorable (9 confirmed awaiting + 1 restore-failed).
+    expectProgressSummary("8 of 18 miners restored (44%)");
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
@@ -313,7 +314,8 @@ describe("ActiveCurtailmentStatus", () => {
 
     expect(screen.getByText("Power to restore")).toBeVisible();
     expect(screen.getByText("60.0 kW")).toBeVisible();
-    expectProgressHidden();
+    // 8 resolved + 2 released of 18 restorable.
+    expectProgressSummary("10 of 18 miners restored (55%)");
   });
 
   it("estimates restoring completion from the current time", () => {
@@ -359,7 +361,7 @@ describe("ActiveCurtailmentStatus", () => {
       );
 
       expect(screen.getByText(formatExpectedDateTime("2026-05-01T10:02:00-04:00"))).toBeVisible();
-      expectProgressHidden();
+      expectProgressSummary("10 of 25 miners restored (40%)");
     } finally {
       vi.useRealTimers();
     }
@@ -425,7 +427,7 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getAllByText("Restored")[0]).toBeVisible();
     expect(screen.getByText("Time to restore")).toBeVisible();
     expect(screen.getByText("2 minutes")).toBeVisible();
-    expectProgressHidden();
+    expectProgressSummary("18 of 18 miners restored (100%)");
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
@@ -470,7 +472,7 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("Failed to restore")).toBeVisible();
     expect(screen.getByText("1 miner")).toBeVisible();
     expect(screen.queryByText("60.0 kW restored")).not.toBeInTheDocument();
-    expectProgressHidden();
+    expectProgressSummary("17 of 18 miners restored (94%)");
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
 
@@ -661,6 +663,37 @@ describe("ActiveCurtailmentStatus", () => {
     );
 
     expect(screen.queryByText("Est. time to curtail")).not.toBeInTheDocument();
+  });
+
+  it("renders restore progress with segment legend and unavailable annotation", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...restoringCurtailmentEvent,
+          rollups: [
+            { state: "resolved", count: 300 },
+            { state: "released", count: 100 },
+            { state: "restoreFailed", count: 20 },
+            { state: "dispatched", count: 30 },
+            { state: "confirmed", count: 50 },
+            { state: "unavailable", count: 5 },
+          ],
+        }}
+      />,
+    );
+
+    expectProgressSummary("400 of 500 miners restored (80%)");
+    const progress = within(screen.getByTestId("active-curtailment-progress"));
+    expect(progress.getByText("Restored (400)")).toBeVisible();
+    expect(progress.getByText("Failed to restore (20)")).toBeVisible();
+    expect(progress.getByText("Awaiting restore (80)")).toBeVisible();
+    expect(progress.getByText("5 unavailable (excluded)")).toBeVisible();
+  });
+
+  it("hides restore progress when no live rollup data exists", () => {
+    render(<ActiveCurtailmentStatus event={{ ...restoringCurtailmentEvent, rollups: [] }} />);
+
+    expectProgressHidden();
   });
 
   it("renders failed and cancelled events without active controls", () => {

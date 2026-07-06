@@ -4,6 +4,7 @@ import {
   type CurtailmentTargetRollup,
   formatCurtailmentElapsedDuration,
   getActiveCurtailmentCurtailProgress,
+  getActiveCurtailmentRestoreProgress,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 
 function rollups(counts: Partial<Record<CurtailmentTargetRollup["state"], number>>): CurtailmentTargetRollup[] {
@@ -95,6 +96,73 @@ describe("getActiveCurtailmentCurtailProgress", () => {
       unavailableCount: 0,
       dispatchableCount: 0,
       reachedCount: 0,
+      percent: 0,
+    });
+  });
+});
+
+describe("getActiveCurtailmentRestoreProgress", () => {
+  it("counts resolved and released targets as restored out of the restorable total", () => {
+    const progress = getActiveCurtailmentRestoreProgress({
+      rollups: rollups({ resolved: 8, released: 2, confirmed: 6, pending: 2 }),
+    });
+
+    expect(progress).toEqual({
+      restoredCount: 10,
+      failedCount: 0,
+      awaitingCount: 8,
+      unavailableCount: 0,
+      restorableCount: 18,
+      percent: 55,
+    });
+  });
+
+  it("treats in-flight restore dispatches as awaiting", () => {
+    const progress = getActiveCurtailmentRestoreProgress({
+      rollups: rollups({ resolved: 5, dispatched: 3, drifted: 1, confirmed: 1 }),
+    });
+
+    expect(progress.awaitingCount).toBe(5);
+    expect(progress.restorableCount).toBe(10);
+    expect(progress.percent).toBe(50);
+  });
+
+  it("reports restore failures separately without counting them as restored", () => {
+    const progress = getActiveCurtailmentRestoreProgress({
+      rollups: rollups({ resolved: 17, restoreFailed: 1 }),
+    });
+
+    expect(progress.restoredCount).toBe(17);
+    expect(progress.failedCount).toBe(1);
+    expect(progress.restorableCount).toBe(18);
+    expect(progress.percent).toBe(94);
+  });
+
+  it("excludes unavailable targets from the restorable denominator but reports them", () => {
+    const progress = getActiveCurtailmentRestoreProgress({
+      rollups: rollups({ resolved: 9, pending: 1, unavailable: 5 }),
+    });
+
+    expect(progress.restorableCount).toBe(10);
+    expect(progress.unavailableCount).toBe(5);
+    expect(progress.percent).toBe(90);
+  });
+
+  it("floors the percentage so completion is never overstated", () => {
+    const progress = getActiveCurtailmentRestoreProgress({
+      rollups: rollups({ resolved: 997, pending: 3 }),
+    });
+
+    expect(progress.percent).toBe(99);
+  });
+
+  it("returns a zeroed shape for empty rollups so callers can hide the section", () => {
+    expect(getActiveCurtailmentRestoreProgress({ rollups: [] })).toEqual({
+      restoredCount: 0,
+      failedCount: 0,
+      awaitingCount: 0,
+      unavailableCount: 0,
+      restorableCount: 0,
       percent: 0,
     });
   });
