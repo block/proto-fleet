@@ -125,6 +125,22 @@ export interface ActiveCurtailmentMinerCompliance {
   totalCount: number;
 }
 
+// Curtail-phase dispatch progress derived from live rollups (issue #660).
+// "Reached" means the sleep command went out (sent or already confirmed);
+// confirmed is the stronger telemetry-backed signal. The dispatchable
+// denominator excludes unavailable targets (can't be commanded) and
+// released/resolved rows (no longer curtail-targeted), so events with
+// unavailable targets can still present as fully dispatched.
+export interface ActiveCurtailmentCurtailProgress {
+  confirmedCount: number;
+  sentCount: number;
+  pendingCount: number;
+  unavailableCount: number;
+  dispatchableCount: number;
+  reachedCount: number;
+  percent: number;
+}
+
 const activeCurtailmentEventStateSet = new Set<CurtailmentEventState>(activeCurtailmentEventStates);
 const countedTargetStates: CurtailmentTargetState[] = [
   "pending",
@@ -405,7 +421,7 @@ export function getCurtailmentProgressPercent(value: number, total: number): num
 }
 
 export function getActiveCurtailmentRollupCount(
-  event: ActiveCurtailmentDisplayEvent,
+  event: Pick<ActiveCurtailmentDisplayEvent, "rollups">,
   states: CurtailmentTargetState[],
 ): number {
   return event.rollups.reduce((total, rollup) => {
@@ -415,6 +431,54 @@ export function getActiveCurtailmentRollupCount(
 
     return total + rollup.count;
   }, 0);
+}
+
+const sentCurtailTargetStates: CurtailmentTargetState[] = ["dispatched", "drifted"];
+const confirmedCurtailTargetStates: CurtailmentTargetState[] = ["confirmed"];
+const pendingCurtailTargetStates: CurtailmentTargetState[] = ["pending"];
+const unavailableCurtailTargetStates: CurtailmentTargetState[] = ["unavailable"];
+
+export function getActiveCurtailmentCurtailProgress(
+  event: Pick<ActiveCurtailmentDisplayEvent, "rollups">,
+): ActiveCurtailmentCurtailProgress {
+  const confirmedCount = getActiveCurtailmentRollupCount(event, confirmedCurtailTargetStates);
+  const sentCount = getActiveCurtailmentRollupCount(event, sentCurtailTargetStates);
+  const pendingCount = getActiveCurtailmentRollupCount(event, pendingCurtailTargetStates);
+  const unavailableCount = getActiveCurtailmentRollupCount(event, unavailableCurtailTargetStates);
+  const dispatchableCount = confirmedCount + sentCount + pendingCount;
+  const reachedCount = confirmedCount + sentCount;
+
+  return {
+    confirmedCount,
+    sentCount,
+    pendingCount,
+    unavailableCount,
+    dispatchableCount,
+    reachedCount,
+    // Floor so 100% is only reported when every dispatchable target has been
+    // reached; rounding 99.6% up would claim completion with targets pending.
+    percent: Math.floor(getCurtailmentProgressPercent(reachedCount, dispatchableCount)),
+  };
+}
+
+// Compact duration for the SLA-facing elapsed readout ("3m 12s"); zero units
+// are omitted except the bare-seconds case.
+export function formatCurtailmentElapsedDuration(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
+    return "0s";
+  }
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+
+  if (hours > 0) {
+    return minutes > 0 ? `${hours.toLocaleString()}h ${minutes}m` : `${hours.toLocaleString()}h`;
+  }
+  if (minutes > 0) {
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  }
+  return `${seconds}s`;
 }
 
 export function getActiveCurtailmentMinerCompliance(

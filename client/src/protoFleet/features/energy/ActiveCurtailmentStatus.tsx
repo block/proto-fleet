@@ -1,18 +1,22 @@
-import { type ReactElement, type ReactNode } from "react";
+import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 import clsx from "clsx";
 
 import {
+  type ActiveCurtailmentCurtailProgress,
   type ActiveCurtailmentDisplayState,
   type CurtailmentEventState,
   type CurtailmentTargetRollup,
+  formatCurtailmentElapsedDuration,
   formatCurtailmentKw as formatKw,
   formatCurtailmentMinerCount as formatMinerCount,
+  getActiveCurtailmentCurtailProgress,
   getActiveCurtailmentDisplayState,
   getActiveCurtailmentMinerCompliance,
   getCurtailmentTargetKw as getTargetKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
@@ -23,12 +27,17 @@ export interface ActiveCurtailmentEvent {
   sourceLabel: string;
   isAutomationOwned: boolean;
   targetSiteCoverage?: ActiveCurtailmentTargetSiteCoverage;
+  startedAt?: string;
   endedAt?: string;
   selectedMiners: number;
   estimatedReductionKw: number;
   targetKw?: number;
   observedReductionKw: number;
   remainingPowerKw?: number;
+  // Curtail dispatch pacing for the rough time-to-curtail estimate; absent
+  // when the event has no explicit batch size (reconciler-side defaults).
+  curtailBatchSize?: number;
+  curtailBatchIntervalSec?: number;
   // Configured restore wave size; 0 means "up to the safety limit" per wave,
   // matching the reconciler's restore claim sizing.
   restoreBatchSize: number;
@@ -300,6 +309,108 @@ function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCur
   };
 }
 
+const curtailProgressDisplayStates = new Set<ActiveCurtailmentDisplayState>(["pending", "curtailing", "curtailed"]);
+const curtailProgressColorMap = {
+  OK: "bg-core-primary-fill",
+  WARNING: "bg-core-accent-fill",
+  NA: "bg-core-primary-10",
+} as const;
+
+// Ticks once per second so the SLA-facing elapsed readout moves even when
+// polling snapshots are unchanged (equal snapshots skip re-renders). Lives in
+// its own component so the per-second tick re-renders only this stat block,
+// not the whole card.
+function ElapsedStatBlock({ startedAt }: { startedAt: string }): ReactElement | null {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const intervalId = setInterval(() => setNowMs(Date.now()), millisecondsPerSecond);
+    return () => clearInterval(intervalId);
+  }, []);
+
+  const startedDate = getDateTime(startedAt);
+  if (!startedDate) {
+    return null;
+  }
+
+  const elapsedSeconds = Math.max((nowMs - startedDate.getTime()) / millisecondsPerSecond, 0);
+  return <StatBlock label="Elapsed" value={formatCurtailmentElapsedDuration(elapsedSeconds)} />;
+}
+
+function shouldShowCurtailProgress(
+  displayState: ActiveCurtailmentDisplayState,
+  progress: ActiveCurtailmentCurtailProgress,
+): boolean {
+  // dispatchableCount > 0 doubles as the live-data gate: rollup-less events
+  // (old servers, narrowed whole-org reads) and zeroed rollups derive an
+  // all-zero progress shape and keep today's card unchanged.
+  return curtailProgressDisplayStates.has(displayState) && progress.dispatchableCount > 0;
+}
+
+// Rough time to finish dispatching sleep commands: remaining pending targets
+// paced by the event's curtail batch settings (issue #660's approximation,
+// ceil(pending / batch) x interval). Deliberately not the restore-estimate
+// gap math: pending batches all wait on future reconciler waves, so the
+// estimate must stay non-zero while any target is pending.
+function getCurtailRemainingSeconds(
+  event: Pick<ActiveCurtailmentEvent, "curtailBatchSize" | "curtailBatchIntervalSec">,
+  progress: ActiveCurtailmentCurtailProgress,
+): number {
+  const batchSize = event.curtailBatchSize ?? 0;
+  const intervalSec = event.curtailBatchIntervalSec ?? 0;
+  if (progress.pendingCount <= 0 || batchSize <= 0 || intervalSec <= 0) {
+    return 0;
+  }
+  return Math.ceil(progress.pendingCount / batchSize) * intervalSec;
+}
+
+function getCurtailProgressSegments(progress: ActiveCurtailmentCurtailProgress): Segment[] {
+  return [
+    { name: "Confirmed quiet", status: "OK", count: progress.confirmedCount },
+    { name: "Command sent", status: "WARNING", count: progress.sentCount },
+    { name: "Pending", status: "NA", count: progress.pendingCount },
+  ];
+}
+
+interface CurtailProgressSectionProps {
+  progress: ActiveCurtailmentCurtailProgress;
+}
+
+function CurtailProgressSection({ progress }: CurtailProgressSectionProps): ReactElement {
+  const segments = getCurtailProgressSegments(progress);
+  const reachedSummary = `${progress.reachedCount.toLocaleString()} of ${formatMinerCount(
+    progress.dispatchableCount,
+  )} reached (${progress.percent}%)`;
+
+  return (
+    <div className="mt-8 grid gap-3" data-testid="active-curtailment-progress">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <div className="text-200 text-text-primary-50">Curtail progress</div>
+        <div className="text-emphasis-200 text-text-primary">{reachedSummary}</div>
+      </div>
+      <CompositionBar segments={segments} height={12} colorMap={curtailProgressColorMap} />
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-200 text-text-primary-70">
+        {segments.map((segment) => (
+          <span key={segment.name} className="flex items-center gap-2">
+            <span
+              className={clsx(
+                "inline-block h-2 w-2 shrink-0 rounded-full",
+                curtailProgressColorMap[segment.status as keyof typeof curtailProgressColorMap],
+              )}
+            />
+            {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
+          </span>
+        ))}
+        {progress.unavailableCount > 0 ? (
+          <span className="text-text-primary-50">
+            {progress.unavailableCount.toLocaleString()} unavailable (excluded)
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function formatRestoreProfile(
   event: Pick<ActiveCurtailmentEvent, "restoreBatchSize" | "restoreBatchIntervalSec">,
 ): string {
@@ -450,6 +561,12 @@ export default function ActiveCurtailmentStatus({
   const compliance = getActiveCurtailmentMinerCompliance(event);
   const displayState = getActiveCurtailmentDisplayState(event, { dispatchStartedAsCurtailing: true });
   const displayFlags = getDisplayFlags(displayState);
+  const curtailProgress = getActiveCurtailmentCurtailProgress(event);
+  const showCurtailProgress = shouldShowCurtailProgress(displayState, curtailProgress);
+  // "Curtailed" means the shed goal is met, so pairing it with a time-to-
+  // curtail estimate would contradict the headline state.
+  const curtailRemainingSeconds =
+    showCurtailProgress && displayState !== "curtailed" ? getCurtailRemainingSeconds(event, curtailProgress) : 0;
   const remainingRestoreSeconds = getRestoreRemainingSeconds(
     event,
     compliance.restoredCount,
@@ -535,9 +652,15 @@ export default function ActiveCurtailmentStatus({
             <>
               <StatBlock label="Applies to" value={formatMinerCount(event.selectedMiners)} />
               <StatBlock label="Restore" value={formatRestoreProfile(event)} />
+              {showCurtailProgress && event.startedAt ? <ElapsedStatBlock startedAt={event.startedAt} /> : null}
+              {curtailRemainingSeconds > 0 ? (
+                <StatBlock label="Est. time to curtail" value={formatDurationLong(curtailRemainingSeconds)} />
+              ) : null}
             </>
           )}
         </div>
+
+        {showCurtailProgress ? <CurtailProgressSection progress={curtailProgress} /> : null}
 
         {event.isAutomationOwned ? (
           <div className="mt-6 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">

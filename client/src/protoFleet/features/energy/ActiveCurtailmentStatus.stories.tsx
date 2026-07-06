@@ -239,6 +239,28 @@ export const Curtailing: Story = {
   render: (args) => <ActiveCurtailmentStatusStory {...args} />,
 };
 
+export const CurtailingLargeFleet: Story = {
+  name: "Curtailing large fleet (progress + ETA)",
+  args: {
+    event: {
+      ...curtailingCurtailmentEvent,
+      scopeLabel: "Whole fleet",
+      selectedMiners: 5005,
+      startedAt: new Date(Date.now() - 95_000).toISOString(),
+      curtailBatchSize: 500,
+      curtailBatchIntervalSec: 30,
+      rollups: [
+        { state: "confirmed", count: 3000 },
+        { state: "dispatched", count: 1000 },
+        { state: "drifted", count: 200 },
+        { state: "pending", count: 800 },
+        { state: "unavailable", count: 5 },
+      ],
+    },
+  },
+  render: (args) => <ActiveCurtailmentStatusStory {...args} />,
+};
+
 export const Curtailed: Story = {
   args: {
     event: curtailedCurtailmentEvent,
