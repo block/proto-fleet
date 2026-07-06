@@ -193,9 +193,12 @@ describe("SitesProvider polling", () => {
     );
 
     await vi.advanceTimersByTimeAsync(0);
-    const afterMount = listSitesMock.mock.calls.length;
+    // Registering a poller must NOT trigger a second fetch on entry — only the
+    // one-shot mount fetch has run so far.
+    expect(listSitesMock).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
-    expect(listSitesMock.mock.calls.length).toBeGreaterThan(afterMount);
+    // The recurring refresh lands one interval later.
+    expect(listSitesMock).toHaveBeenCalledTimes(2);
   });
 });

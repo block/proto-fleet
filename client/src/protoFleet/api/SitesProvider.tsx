@@ -83,13 +83,40 @@ export const SitesProvider = ({ children }: { children: ReactNode }) => {
     return () => setActivePollers((n) => Math.max(0, n - 1));
   }, []);
 
+  // One-shot fetch: on mount and whenever a mutation bumps sitesRevision.
+  // `poll: false` means usePoll never schedules recurring work — critically,
+  // `poll` is a constant, so registering/unregistering a poller below can't
+  // change this hook's deps and retrigger an immediate refetch.
   usePoll({
     fetchData: fetchSites,
     params: sitesRevision,
-    poll: activePollers > 0,
+    poll: false,
     pollIntervalMs: POLL_INTERVAL_MS,
     enabled: canReadSites,
   });
+
+  // Recurring refresh while a consumer has opted in. Deliberately does NOT lead
+  // with an immediate fetch (usePoll would): the one-shot above already owns
+  // mount/revision loads, so re-fetching the moment a Fleet route registers
+  // would fire a second ListSites rollup on entry — the duplicate work this
+  // refactor removes. The first poll lands one interval later.
+  useEffect(() => {
+    if (!canReadSites || activePollers === 0) return undefined;
+    let alive = true;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const scheduleNext = () => {
+      timeoutId = setTimeout(async () => {
+        if (!alive) return;
+        await fetchSites();
+        if (alive) scheduleNext();
+      }, POLL_INTERVAL_MS);
+    };
+    scheduleNext();
+    return () => {
+      alive = false;
+      if (timeoutId !== null) clearTimeout(timeoutId);
+    };
+  }, [canReadSites, activePollers, fetchSites]);
 
   const value = useMemo<SitesContextValue>(
     () => ({
