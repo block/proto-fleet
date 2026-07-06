@@ -4,6 +4,7 @@ import clsx from "clsx";
 import {
   type ActiveCurtailmentCurtailProgress,
   type ActiveCurtailmentDisplayState,
+  type ActiveCurtailmentRestoreProgress,
   type CurtailmentEventState,
   type CurtailmentTargetRollup,
   formatCurtailmentElapsedDuration,
@@ -12,6 +13,7 @@ import {
   getActiveCurtailmentCurtailProgress,
   getActiveCurtailmentDisplayState,
   getActiveCurtailmentMinerCompliance,
+  getActiveCurtailmentRestoreProgress,
   getCurtailmentTargetKw as getTargetKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { Alert, Success } from "@/shared/assets/icons";
@@ -310,11 +312,17 @@ function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCur
 }
 
 const curtailProgressDisplayStates = new Set<ActiveCurtailmentDisplayState>(["pending", "curtailing", "curtailed"]);
-const curtailProgressColorMap = {
+const restoreProgressDisplayStates = new Set<ActiveCurtailmentDisplayState>([
+  "restoring",
+  "restored",
+  "restoreIncomplete",
+]);
+const progressColorMap: Record<Segment["status"], string> = {
   OK: "bg-core-primary-fill",
   WARNING: "bg-core-accent-fill",
+  CRITICAL: "bg-intent-critical-fill",
   NA: "bg-core-primary-10",
-} as const;
+};
 
 // Ticks once per second so the SLA-facing elapsed readout moves even when
 // polling snapshots are unchanged (equal snapshots skip re-renders). Lives in
@@ -347,6 +355,14 @@ function shouldShowCurtailProgress(
   return curtailProgressDisplayStates.has(displayState) && progress.dispatchableCount > 0;
 }
 
+function shouldShowRestoreProgress(
+  displayState: ActiveCurtailmentDisplayState,
+  progress: ActiveCurtailmentRestoreProgress,
+): boolean {
+  // Same live-data gate as the curtail bar, keyed on the restorable total.
+  return restoreProgressDisplayStates.has(displayState) && progress.restorableCount > 0;
+}
+
 // Rough time to finish dispatching sleep commands: remaining pending targets
 // paced by the event's curtail batch settings (issue #660's approximation,
 // ceil(pending / batch) x interval). Deliberately not the restore-estimate
@@ -372,39 +388,38 @@ function getCurtailProgressSegments(progress: ActiveCurtailmentCurtailProgress):
   ];
 }
 
-interface CurtailProgressSectionProps {
-  progress: ActiveCurtailmentCurtailProgress;
+function getRestoreProgressSegments(progress: ActiveCurtailmentRestoreProgress): Segment[] {
+  return [
+    { name: "Restored", status: "OK", count: progress.restoredCount },
+    { name: "Failed to restore", status: "CRITICAL", count: progress.failedCount },
+    { name: "Awaiting restore", status: "NA", count: progress.awaitingCount },
+  ];
 }
 
-function CurtailProgressSection({ progress }: CurtailProgressSectionProps): ReactElement {
-  const segments = getCurtailProgressSegments(progress);
-  const reachedSummary = `${progress.reachedCount.toLocaleString()} of ${formatMinerCount(
-    progress.dispatchableCount,
-  )} reached (${progress.percent}%)`;
+interface ProgressSectionProps {
+  title: string;
+  summary: string;
+  segments: Segment[];
+  unavailableCount: number;
+}
 
+function ProgressSection({ title, summary, segments, unavailableCount }: ProgressSectionProps): ReactElement {
   return (
     <div className="mt-8 grid gap-3" data-testid="active-curtailment-progress">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <div className="text-200 text-text-primary-50">Curtail progress</div>
-        <div className="text-emphasis-200 text-text-primary">{reachedSummary}</div>
+        <div className="text-200 text-text-primary-50">{title}</div>
+        <div className="text-emphasis-200 text-text-primary">{summary}</div>
       </div>
-      <CompositionBar segments={segments} height={12} colorMap={curtailProgressColorMap} />
+      <CompositionBar segments={segments} height={12} colorMap={progressColorMap} />
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-200 text-text-primary-70">
         {segments.map((segment) => (
           <span key={segment.name} className="flex items-center gap-2">
-            <span
-              className={clsx(
-                "inline-block h-2 w-2 shrink-0 rounded-full",
-                curtailProgressColorMap[segment.status as keyof typeof curtailProgressColorMap],
-              )}
-            />
+            <span className={clsx("inline-block h-2 w-2 shrink-0 rounded-full", progressColorMap[segment.status])} />
             {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
           </span>
         ))}
-        {progress.unavailableCount > 0 ? (
-          <span className="text-text-primary-50">
-            {progress.unavailableCount.toLocaleString()} unavailable (excluded)
-          </span>
+        {unavailableCount > 0 ? (
+          <span className="text-text-primary-50">{unavailableCount.toLocaleString()} unavailable (excluded)</span>
         ) : null}
       </div>
     </div>
@@ -563,6 +578,8 @@ export default function ActiveCurtailmentStatus({
   const displayFlags = getDisplayFlags(displayState);
   const curtailProgress = getActiveCurtailmentCurtailProgress(event);
   const showCurtailProgress = shouldShowCurtailProgress(displayState, curtailProgress);
+  const restoreProgress = getActiveCurtailmentRestoreProgress(event);
+  const showRestoreProgress = shouldShowRestoreProgress(displayState, restoreProgress);
   // "Curtailed" means the shed goal is met, so pairing it with a time-to-
   // curtail estimate would contradict the headline state.
   const curtailRemainingSeconds =
@@ -660,7 +677,27 @@ export default function ActiveCurtailmentStatus({
           )}
         </div>
 
-        {showCurtailProgress ? <CurtailProgressSection progress={curtailProgress} /> : null}
+        {showCurtailProgress ? (
+          <ProgressSection
+            title="Curtail progress"
+            summary={`${curtailProgress.reachedCount.toLocaleString()} of ${formatMinerCount(
+              curtailProgress.dispatchableCount,
+            )} reached (${curtailProgress.percent}%)`}
+            segments={getCurtailProgressSegments(curtailProgress)}
+            unavailableCount={curtailProgress.unavailableCount}
+          />
+        ) : null}
+
+        {showRestoreProgress ? (
+          <ProgressSection
+            title="Restore progress"
+            summary={`${restoreProgress.restoredCount.toLocaleString()} of ${formatMinerCount(
+              restoreProgress.restorableCount,
+            )} restored (${restoreProgress.percent}%)`}
+            segments={getRestoreProgressSegments(restoreProgress)}
+            unavailableCount={restoreProgress.unavailableCount}
+          />
+        ) : null}
 
         {event.isAutomationOwned ? (
           <div className="mt-6 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">

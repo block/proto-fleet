@@ -461,6 +461,43 @@ export function getActiveCurtailmentCurtailProgress(
   };
 }
 
+// Restore-phase progress derived from live rollups: resolved and released
+// targets are back online; restore failures are terminal and reported
+// separately (they never count as restored); everything still curtailed or
+// in-flight is awaiting. The restorable denominator excludes unavailable
+// targets, mirroring the curtail-phase progress semantics.
+export interface ActiveCurtailmentRestoreProgress {
+  restoredCount: number;
+  failedCount: number;
+  awaitingCount: number;
+  unavailableCount: number;
+  restorableCount: number;
+  percent: number;
+}
+
+const awaitingRestoreTargetStates: CurtailmentTargetState[] = ["pending", "dispatched", "drifted", "confirmed"];
+
+export function getActiveCurtailmentRestoreProgress(
+  event: Pick<ActiveCurtailmentDisplayEvent, "rollups">,
+): ActiveCurtailmentRestoreProgress {
+  const restoredCount = getActiveCurtailmentRollupCount(event, restoredTargetStates);
+  const failedCount = getActiveCurtailmentRollupCount(event, restoreFailedTargetStates);
+  const awaitingCount = getActiveCurtailmentRollupCount(event, awaitingRestoreTargetStates);
+  const unavailableCount = getActiveCurtailmentRollupCount(event, unavailableCurtailTargetStates);
+  const restorableCount = restoredCount + failedCount + awaitingCount;
+
+  return {
+    restoredCount,
+    failedCount,
+    awaitingCount,
+    unavailableCount,
+    restorableCount,
+    // Floored for the same reason as the curtail percent: never overstate
+    // completion on an SLA surface.
+    percent: Math.floor(getCurtailmentProgressPercent(restoredCount, restorableCount)),
+  };
+}
+
 // Compact duration for the SLA-facing elapsed readout ("3m 12s"); zero units
 // are omitted except the bare-seconds case.
 export function formatCurtailmentElapsedDuration(totalSeconds: number): string {
