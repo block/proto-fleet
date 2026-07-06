@@ -624,9 +624,29 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    // ceil(25 / 10) = 3 waves of 60s (issue #660's rough formula).
+    // 10 confirmed already reached, so a wave is in flight: all 3 pending
+    // waves (ceil(25 / 10)) wait on the 60s interval clock.
     expect(screen.getByText("Est. time to curtail")).toBeVisible();
     expect(screen.getByText("3 minutes")).toBeVisible();
+  });
+
+  it("does not charge an interval for the immediately dispatchable first wave", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          curtailBatchSize: 10,
+          curtailBatchIntervalSec: 60,
+          state: "pending",
+          rollups: [{ state: "pending", count: 25 }],
+        }}
+      />,
+    );
+
+    // Nothing dispatched yet: the reconciler sends the first wave without
+    // waiting on the interval clock, so only 2 of the 3 waves cost 60s.
+    expect(screen.getByText("Est. time to curtail")).toBeVisible();
+    expect(screen.getByText("2 minutes")).toBeVisible();
   });
 
   it.each([
