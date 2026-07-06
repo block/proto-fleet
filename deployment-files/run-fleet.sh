@@ -493,7 +493,8 @@ prompt_fleet_profile() {
     echo "  2) mini     - low-power or SD-card host, <=4GB RAM; up to ~200 miners"
     echo "  3) max      - dedicated server, 32GB+ RAM, 8+ cores, NVMe; 5000+ miners"
     echo -n "Profile [1]: "
-    read profile_choice
+    read -r profile_choice
+    profile_choice=$(printf '%s' "$profile_choice" | tr '[:upper:]' '[:lower:]')
     case "$profile_choice" in
         2|mini) choice="mini" ;;
         3|max) choice="max" ;;
@@ -931,6 +932,10 @@ provision_grafana_db_role() {
     echo "Provisioning Grafana read-only DB role (${grafana_user})…"
     compose exec -T timescaledb \
         bash -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<SQL
+-- The DO block below inlines the role password; keep this session out of
+-- the slow-statement log (pg_stat_statements.track_utility=off does not
+-- cover duration logging)
+SET log_min_duration_statement = -1;
 -- Create or rotate the Grafana DB role.
 DO \$do\$
 DECLARE
