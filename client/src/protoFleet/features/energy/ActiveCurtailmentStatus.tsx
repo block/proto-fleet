@@ -343,10 +343,6 @@ const restoreProgressColorMap: Record<Segment["status"], string> = {
   OK: "bg-intent-success-fill",
 };
 
-interface ProgressSegment extends Segment {
-  detail?: string;
-}
-
 // Ticks once per second so the SLA-facing elapsed readout moves even when
 // polling snapshots are unchanged (equal snapshots skip re-renders). Lives in
 // its own component so the per-second tick re-renders only this progress
@@ -429,22 +425,13 @@ function getCurtailRemainingSeconds(
   return Math.max(chargedWaves, 0) * intervalSec;
 }
 
-function formatCurtailProgressDetail(progress: ActiveCurtailmentCurtailProgress): string {
-  return [
-    `${progress.pendingCount.toLocaleString()} pending`,
-    `${progress.driftedCount.toLocaleString()} retrying`,
-    `${progress.sentCount.toLocaleString()} awaiting confirmation`,
-  ].join(", ");
-}
-
-function getCurtailProgressSegments(progress: ActiveCurtailmentCurtailProgress): ProgressSegment[] {
+function getCurtailProgressSegments(progress: ActiveCurtailmentCurtailProgress): Segment[] {
   return [
     { name: "Curtailed", status: "OK", count: progress.confirmedCount },
     {
       name: "Curtailing",
       status: "WARNING",
       count: progress.sentCount + progress.pendingCount + progress.driftedCount,
-      detail: formatCurtailProgressDetail(progress),
     },
   ];
 }
@@ -472,7 +459,7 @@ function getRestoreProgressSummary(progress: ActiveCurtailmentRestoreProgress): 
   )} restored (${progress.percent}%)`;
 }
 
-function getRestoreProgressSegments(progress: ActiveCurtailmentRestoreProgress): ProgressSegment[] {
+function getRestoreProgressSegments(progress: ActiveCurtailmentRestoreProgress): Segment[] {
   return [
     { name: "Restored", status: "OK", count: progress.restoredCount },
     { name: "Restoring", status: "WARNING", count: progress.awaitingCount },
@@ -482,7 +469,7 @@ function getRestoreProgressSegments(progress: ActiveCurtailmentRestoreProgress):
 
 interface ProgressSectionProps {
   summary: string;
-  segments: ProgressSegment[];
+  segments: Segment[];
   colorMap: Record<Segment["status"], string>;
   elapsedAnchor?: string;
   elapsedUntil?: string;
@@ -533,14 +520,7 @@ function ProgressSection({
             <span
               className={clsx("mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full", colorMap[segment.status])}
             />
-            {segment.detail ? (
-              <span className="grid gap-0.5">
-                <span>{`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}</span>
-                <span className="text-100 text-text-primary-50">{segment.detail}</span>
-              </span>
-            ) : (
-              `${segment.name} (${(segment.count ?? 0).toLocaleString()})`
-            )}
+            {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
           </span>
         ))}
         {unavailableAnnotation ? (

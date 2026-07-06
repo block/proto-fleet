@@ -539,7 +539,7 @@ describe("ActiveCurtailmentStatus", () => {
     expect(progress.queryByText("Curtail progress")).not.toBeInTheDocument();
     expect(progress.getByText("Curtailed (300)")).toBeVisible();
     expect(progress.getByText("Curtailing (200)")).toBeVisible();
-    expect(progress.getByText("80 pending, 20 retrying, 100 awaiting confirmation")).toBeVisible();
+    expect(progress.queryByText("80 pending, 20 retrying, 100 awaiting confirmation")).not.toBeInTheDocument();
     expect(progress.queryByText("Needs redispatch (20)")).not.toBeInTheDocument();
     expect(progress.queryByText("Retrying (20)")).not.toBeInTheDocument();
     expect(progress.queryByText("In progress (180)")).not.toBeInTheDocument();
