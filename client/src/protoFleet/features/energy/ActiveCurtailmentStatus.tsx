@@ -461,11 +461,16 @@ function getRestoreProgressSummary(progress: ActiveCurtailmentRestoreProgress): 
 }
 
 function getRestoreProgressSegments(progress: ActiveCurtailmentRestoreProgress): Segment[] {
-  return [
+  const segments: Segment[] = [
     { name: "Restored", status: "OK", count: progress.restoredCount },
     { name: "Curtailed", status: "NA", count: progress.awaitingCount },
-    { name: "Failed to restore", status: "CRITICAL", count: progress.failedCount },
   ];
+
+  if (progress.failedCount > 0) {
+    segments.push({ name: "Failed to restore", status: "CRITICAL", count: progress.failedCount });
+  }
+
+  return segments;
 }
 
 interface ProgressSectionProps {

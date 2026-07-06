@@ -817,6 +817,27 @@ describe("ActiveCurtailmentStatus", () => {
     expect(progress.queryByText("Restore progress")).not.toBeInTheDocument();
   });
 
+  it("hides the failed restore legend entry when no restore failures exist", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...restoringCurtailmentEvent,
+          rollups: [
+            { state: "resolved", count: 300 },
+            { state: "released", count: 100 },
+            { state: "dispatched", count: 30 },
+            { state: "confirmed", count: 50 },
+          ],
+        }}
+      />,
+    );
+
+    const progress = within(screen.getByTestId("active-curtailment-progress"));
+    expect(progress.getByText("Restored (400)")).toBeVisible();
+    expect(progress.getByText("Curtailed (80)")).toBeVisible();
+    expect(progress.queryByText(/Failed to restore/)).not.toBeInTheDocument();
+  });
+
   it("hides restore progress when no live rollup data exists", () => {
     render(<ActiveCurtailmentStatus event={{ ...restoringCurtailmentEvent, rollups: [] }} />);
 
