@@ -247,6 +247,7 @@ assert_rendered "no-profile render keeps defaults" "$out" \
     "shared_preload_libraries=timescaledb,pg_stat_statements" \
     "pg_stat_statements.track_utility=off" \
     "track_io_timing=on" "log_min_duration_statement=1000" \
+    "log_parameter_max_length=0" "log_parameter_max_length_on_error=0" \
     'shm_size: "268435456"'
 
 out=$(render --env-file profiles/mini.env --env-file base-secrets.env)

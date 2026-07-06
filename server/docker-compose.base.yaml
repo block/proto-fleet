@@ -94,6 +94,12 @@ services:
       - "track_io_timing=${PG_TRACK_IO_TIMING:-on}"
       - "-c"
       - "log_min_duration_statement=${PG_LOG_MIN_DURATION_STATEMENT:-1000}"
+      # Never log bind parameter values with slow statements: fleet-api binds
+      # session tokens, password hashes, and credential ciphertext
+      - "-c"
+      - "log_parameter_max_length=0"
+      - "-c"
+      - "log_parameter_max_length_on_error=0"
     volumes:
       - timescaledb-data:/home/postgres/pgdata/data
     healthcheck:
