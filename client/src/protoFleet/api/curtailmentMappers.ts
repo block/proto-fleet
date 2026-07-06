@@ -9,6 +9,7 @@ import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteName
 import type {
   ActiveCurtailmentEvent,
   ActiveCurtailmentTargetSiteCoverage,
+  ActiveCurtailmentUnavailableReasonCount,
 } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
   getActiveCurtailmentDisplayState,
@@ -29,6 +30,25 @@ const automationExternalSource = "curtailment_automation";
 const automationSourceLabel = "Curtailment automation";
 const estimatedReductionKwSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
 const selectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
+const unavailableReasonLabels: Record<string, string> = {
+  active_event: "in another event",
+  authentication_needed: "needs authentication",
+  below_candidate_min_power_w: "below power threshold",
+  cooldown: "in cooldown",
+  curtail_full_unsupported: "full curtailment unsupported",
+  maintenance: "in maintenance",
+  missing_status: "missing status",
+  non_actionable_status: "not ready",
+  offline: "offline",
+  pairing: "not paired",
+  phantom_load_no_hash: "not hashing",
+  power_telemetry_unreliable: "unreliable power telemetry",
+  reboot_required: "reboot required",
+  stale_telemetry: "stale telemetry",
+  unreachable_residual_load: "offline",
+  unknown: "reason unknown",
+  updating: "updating",
+};
 
 interface ObservedPowerSummary {
   observedReductionKw: number;
@@ -303,6 +323,32 @@ function getObservedPowerSummary(event: ProtoCurtailmentEvent, estimatedReductio
   };
 }
 
+function getUnavailableReasonLabel(reason: string): string {
+  const normalizedReason = reason.trim().toLowerCase();
+  if (!normalizedReason) {
+    return "reason unknown";
+  }
+
+  return unavailableReasonLabels[normalizedReason] ?? normalizedReason.replace(/[_-]+/g, " ");
+}
+
+function getUnavailableReasonCounts(
+  event: ProtoCurtailmentEvent,
+): ActiveCurtailmentUnavailableReasonCount[] | undefined {
+  const unavailableReasons = event.targetRollup?.unavailableReasons;
+  if (!unavailableReasons?.length) {
+    return undefined;
+  }
+
+  return unavailableReasons
+    .filter((reason) => reason.count > 0)
+    .map(({ reason, count }) => ({
+      label: getUnavailableReasonLabel(reason),
+      count,
+    }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+}
+
 export function mapActiveCurtailmentEvent(
   event: ProtoCurtailmentEvent,
   options: CurtailmentMapperOptions = {},
@@ -337,6 +383,7 @@ export function mapActiveCurtailmentEvent(
     restoreBatchSize: event.restoreBatchSize,
     restoreBatchIntervalSec: event.restoreBatchIntervalSec,
     rollups: getCurtailmentTargetRollups(event),
+    unavailableReasonCounts: getUnavailableReasonCounts(event),
   };
 }
 

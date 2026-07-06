@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_curtailment_target_unavailable_reason;

@@ -1475,15 +1475,16 @@ func (s *SQLCurtailmentStore) GetTargetRollupByEvent(ctx context.Context, orgID 
 		return nil, fleeterror.NewInternalErrorf("failed to get curtailment target rollup: %v", err)
 	}
 	return &models.TargetRollup{
-		Pending:       row.Pending,
-		Dispatched:    row.Dispatched,
-		Confirmed:     row.Confirmed,
-		Drifted:       row.Drifted,
-		Resolved:      row.Resolved,
-		Released:      row.Released,
-		RestoreFailed: row.RestoreFailed,
-		Unavailable:   row.Unavailable,
-		Total:         row.Total,
+		Pending:            row.Pending,
+		Dispatched:         row.Dispatched,
+		Confirmed:          row.Confirmed,
+		Drifted:            row.Drifted,
+		Resolved:           row.Resolved,
+		Released:           row.Released,
+		RestoreFailed:      row.RestoreFailed,
+		Unavailable:        row.Unavailable,
+		Total:              row.Total,
+		UnavailableReasons: parseTargetUnavailableReasonCounts(row.UnavailableReasons),
 	}, nil
 }
 
@@ -2154,17 +2155,48 @@ func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Even
 	// target rows carry a zeroed (non-nil) rollup so active displays can trust
 	// it as the live target set.
 	event.TargetRollup = &models.TargetRollup{
-		Pending:       row.RollupPending,
-		Dispatched:    row.RollupDispatched,
-		Confirmed:     row.RollupConfirmed,
-		Drifted:       row.RollupDrifted,
-		Resolved:      row.RollupResolved,
-		Released:      row.RollupReleased,
-		RestoreFailed: row.RollupRestoreFailed,
-		Unavailable:   row.RollupUnavailable,
-		Total:         row.RollupTotal,
+		Pending:            row.RollupPending,
+		Dispatched:         row.RollupDispatched,
+		Confirmed:          row.RollupConfirmed,
+		Drifted:            row.RollupDrifted,
+		Resolved:           row.RollupResolved,
+		Released:           row.RollupReleased,
+		RestoreFailed:      row.RollupRestoreFailed,
+		Unavailable:        row.RollupUnavailable,
+		Total:              row.RollupTotal,
+		UnavailableReasons: parseTargetUnavailableReasonCounts(row.RollupUnavailableReasons),
 	}
 	return event
+}
+
+func parseTargetUnavailableReasonCounts(raw json.RawMessage) []models.TargetUnavailableReasonCount {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+
+	var countsByReason map[string]int64
+	if err := json.Unmarshal(raw, &countsByReason); err != nil || len(countsByReason) == 0 {
+		return nil
+	}
+
+	counts := make([]models.TargetUnavailableReasonCount, 0, len(countsByReason))
+	for reason, count := range countsByReason {
+		if count <= 0 {
+			continue
+		}
+		counts = append(counts, models.TargetUnavailableReasonCount{
+			Reason: reason,
+			Count:  count,
+		})
+	}
+
+	sort.Slice(counts, func(i, j int) bool {
+		if counts[i].Count != counts[j].Count {
+			return counts[i].Count > counts[j].Count
+		}
+		return counts[i].Reason < counts[j].Reason
+	})
+	return counts
 }
 
 func convertEventFields(

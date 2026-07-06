@@ -20,6 +20,7 @@ import {
   CurtailmentTargetRollupSchema,
   CurtailmentTargetSchema,
   CurtailmentTargetState,
+  CurtailmentUnavailableReasonSchema,
   FixedKwParamsSchema,
   FullFleetParamsSchema,
   ScopeDeviceListSchema,
@@ -231,6 +232,33 @@ describe("useCurtailmentApi", () => {
         startedAt: "2026-05-01T12:00:00.000Z",
       }),
     );
+  });
+
+  it("maps unavailable target reasons for active curtailment progress", async () => {
+    const activeEvent = curtailmentEvent({
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        unavailable: 5,
+        total: 5,
+        unavailableReasons: [
+          create(CurtailmentUnavailableReasonSchema, { reason: "offline", count: 3 }),
+          create(CurtailmentUnavailableReasonSchema, { reason: "authentication_needed", count: 1 }),
+          create(CurtailmentUnavailableReasonSchema, { reason: "maintenance", count: 1 }),
+        ],
+      }),
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: activeEvent });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent?.unavailableReasonCounts).toEqual([
+      { label: "offline", count: 3 },
+      { label: "in maintenance", count: 1 },
+      { label: "needs authentication", count: 1 },
+    ]);
   });
 
   it("prefers the live rollup total over the snapshot count for active events", async () => {

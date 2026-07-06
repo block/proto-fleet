@@ -14,6 +14,7 @@ import {
   getActiveCurtailmentDisplayState,
   getActiveCurtailmentMinerCompliance,
   getActiveCurtailmentRestoreProgress,
+  getCurtailmentProgressPercent,
   getCurtailmentTargetKw as getTargetKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { Alert, Success } from "@/shared/assets/icons";
@@ -47,6 +48,7 @@ export interface ActiveCurtailmentEvent {
   restoreBatchSize: number;
   restoreBatchIntervalSec: number;
   rollups: CurtailmentTargetRollup[];
+  unavailableReasonCounts?: ActiveCurtailmentUnavailableReasonCount[];
 }
 
 export interface ActiveCurtailmentTargetSiteCoverage {
@@ -54,6 +56,11 @@ export interface ActiveCurtailmentTargetSiteCoverage {
   targetCount: number;
   mappedTargetCount: number;
   unknownTargetCount: number;
+}
+
+export interface ActiveCurtailmentUnavailableReasonCount {
+  label: string;
+  count: number;
 }
 
 interface ActiveCurtailmentStatusProps {
@@ -143,6 +150,12 @@ const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
 };
 
 const manageableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
+const forceReleaseDisplayStates = new Set<ActiveCurtailmentDisplayState>([
+  "curtailed",
+  "curtailing",
+  "pending",
+  "restoring",
+]);
 function SectionHeader({ title, children }: SectionHeaderProps): ReactElement {
   return (
     <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
@@ -326,6 +339,10 @@ const progressColorMap: Record<Segment["status"], string> = {
   NA: "bg-core-primary-10",
 };
 
+interface ProgressSegment extends Segment {
+  detail?: string;
+}
+
 // Ticks once per second so the SLA-facing elapsed readout moves even when
 // polling snapshots are unchanged (equal snapshots skip re-renders). Lives in
 // its own component so the per-second tick re-renders only this stat block,
@@ -398,47 +415,99 @@ function getCurtailRemainingSeconds(
   return Math.max(chargedWaves, 0) * intervalSec;
 }
 
-function getCurtailProgressSegments(progress: ActiveCurtailmentCurtailProgress): Segment[] {
+function formatCurtailProgressDetail(progress: ActiveCurtailmentCurtailProgress): string {
   return [
-    { name: "Confirmed quiet", status: "OK", count: progress.confirmedCount },
-    { name: "Command sent", status: "WARNING", count: progress.sentCount },
-    { name: "Drifted", status: "CRITICAL", count: progress.driftedCount },
-    { name: "Pending", status: "NA", count: progress.pendingCount },
+    `${progress.pendingCount.toLocaleString()} pending`,
+    `${progress.driftedCount.toLocaleString()} retrying`,
+    `${progress.sentCount.toLocaleString()} awaiting confirmation`,
+  ].join(", ");
+}
+
+function getCurtailProgressSegments(progress: ActiveCurtailmentCurtailProgress): ProgressSegment[] {
+  return [
+    { name: "Curtailed", status: "OK", count: progress.confirmedCount },
+    {
+      name: "Curtailing",
+      status: "WARNING",
+      count: progress.sentCount + progress.pendingCount + progress.driftedCount,
+      detail: formatCurtailProgressDetail(progress),
+    },
   ];
 }
 
-function getRestoreProgressSegments(progress: ActiveCurtailmentRestoreProgress): Segment[] {
+function getCurtailProgressSummary(progress: ActiveCurtailmentCurtailProgress): string {
+  const curtailedPercent = Math.floor(
+    getCurtailmentProgressPercent(progress.confirmedCount, progress.dispatchableCount),
+  );
+  return `${progress.confirmedCount.toLocaleString()} of ${formatMinerCount(
+    progress.dispatchableCount,
+  )} curtailed (${curtailedPercent}%)`;
+}
+
+function getRestoreProgressSegments(progress: ActiveCurtailmentRestoreProgress): ProgressSegment[] {
   return [
     { name: "Restored", status: "OK", count: progress.restoredCount },
+    { name: "Restoring", status: "WARNING", count: progress.awaitingCount },
     { name: "Failed to restore", status: "CRITICAL", count: progress.failedCount },
-    { name: "Awaiting restore", status: "NA", count: progress.awaitingCount },
   ];
 }
 
 interface ProgressSectionProps {
-  title: string;
   summary: string;
-  segments: Segment[];
+  segments: ProgressSegment[];
   unavailableCount: number;
+  unavailableReasonCounts?: ActiveCurtailmentUnavailableReasonCount[];
 }
 
-function ProgressSection({ title, summary, segments, unavailableCount }: ProgressSectionProps): ReactElement {
+function formatUnavailableAnnotation(
+  unavailableCount: number,
+  unavailableReasonCounts?: ActiveCurtailmentUnavailableReasonCount[],
+): string | null {
+  if (unavailableCount <= 0) {
+    return null;
+  }
+
+  const reasonTotal = unavailableReasonCounts?.reduce((total, reason) => total + reason.count, 0) ?? 0;
+  if (unavailableReasonCounts?.length && reasonTotal === unavailableCount) {
+    const reasonSummary = unavailableReasonCounts
+      .map((reason) => `${reason.count.toLocaleString()} ${reason.label}`)
+      .join(", ");
+    return `${unavailableCount.toLocaleString()} unavailable (${reasonSummary})`;
+  }
+
+  return `${unavailableCount.toLocaleString()} unavailable (details unavailable)`;
+}
+
+function ProgressSection({
+  summary,
+  segments,
+  unavailableCount,
+  unavailableReasonCounts,
+}: ProgressSectionProps): ReactElement {
+  const unavailableAnnotation = formatUnavailableAnnotation(unavailableCount, unavailableReasonCounts);
+
   return (
     <div className="mt-8 grid gap-3" data-testid="active-curtailment-progress">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <div className="text-200 text-text-primary-50">{title}</div>
-        <div className="text-emphasis-200 text-text-primary">{summary}</div>
-      </div>
+      <div className="text-200 text-text-primary-50">{summary}</div>
       <CompositionBar segments={segments} height={12} colorMap={progressColorMap} />
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-200 text-text-primary-70">
+      <div className="flex flex-wrap items-start gap-x-5 gap-y-1 text-200 text-text-primary-70">
         {segments.map((segment) => (
-          <span key={segment.name} className="flex items-center gap-2">
-            <span className={clsx("inline-block h-2 w-2 shrink-0 rounded-full", progressColorMap[segment.status])} />
-            {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
+          <span key={segment.name} className="flex items-start gap-2">
+            <span
+              className={clsx("mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full", progressColorMap[segment.status])}
+            />
+            {segment.detail ? (
+              <span className="grid gap-0.5">
+                <span>{`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}</span>
+                <span className="text-100 text-text-primary-50">{segment.detail}</span>
+              </span>
+            ) : (
+              `${segment.name} (${(segment.count ?? 0).toLocaleString()})`
+            )}
           </span>
         ))}
-        {unavailableCount > 0 ? (
-          <span className="text-text-primary-50">{unavailableCount.toLocaleString()} unavailable (excluded)</span>
+        {unavailableAnnotation ? (
+          <span className="ml-auto text-right text-text-primary-50">{unavailableAnnotation}</span>
         ) : null}
       </div>
     </div>
@@ -473,10 +542,10 @@ function formatIncompleteSiteCoverageWarning(coverage?: ActiveCurtailmentTargetS
   const targetLabel = unknownCount === 1 ? "target" : "targets";
   const verb = unknownCount === 1 ? "maps" : "map";
   if (unknownCount > 0) {
-    return `${unknownCount.toLocaleString()} ${targetLabel} no longer ${verb} to a known site. Org admins can still stop or abort this event.`;
+    return `${unknownCount.toLocaleString()} ${targetLabel} no longer ${verb} to a known site. Org admins can still restore or abort this event.`;
   }
 
-  return "Some targets no longer map to a known site. Org admins can still stop or abort this event.";
+  return "Some targets no longer map to a known site. Org admins can still restore or abort this event.";
 }
 
 function getForceReleaseButton(
@@ -512,14 +581,14 @@ function getActiveCurtailmentActionButton({
     case "pending":
     case "curtailing":
       return onRequestStop ? (
-        <Button variant={variants.danger} size={sizes.compact} text="Stop" onClick={onRequestStop} />
+        <Button variant={variants.secondary} size={sizes.compact} text="Restore now" onClick={onRequestStop} />
       ) : null;
     case "restoring":
       return onRequestTerminateRecovery ? (
         <Button
           variant={variants.secondaryDanger}
           size={sizes.compact}
-          text="Terminate recovery"
+          text="Stop restore"
           onClick={onRequestTerminateRecovery}
         />
       ) : null;
@@ -543,7 +612,10 @@ function ActiveCurtailmentActionButtons({
     onRequestTerminateRecovery,
   });
   const showManageButton = Boolean(onRequestEdit && manageableDisplayStates.has(displayState));
-  const forceReleaseButton = getForceReleaseButton(displayState, onRequestForceRelease);
+  const forceReleaseButton =
+    !forceReleaseDisplayStates.has(displayState) || (displayState === "restoring" && onRequestTerminateRecovery)
+      ? null
+      : getForceReleaseButton(displayState, onRequestForceRelease);
 
   if (!actionButton && !forceReleaseButton && !showManageButton) {
     return null;
@@ -699,23 +771,21 @@ export default function ActiveCurtailmentStatus({
 
         {showCurtailProgress ? (
           <ProgressSection
-            title="Curtail progress"
-            summary={`${curtailProgress.reachedCount.toLocaleString()} of ${formatMinerCount(
-              curtailProgress.dispatchableCount,
-            )} reached (${curtailProgress.percent}%)`}
+            summary={getCurtailProgressSummary(curtailProgress)}
             segments={getCurtailProgressSegments(curtailProgress)}
             unavailableCount={curtailProgress.unavailableCount}
+            unavailableReasonCounts={event.unavailableReasonCounts}
           />
         ) : null}
 
         {showRestoreProgress ? (
           <ProgressSection
-            title="Restore progress"
             summary={`${restoreProgress.restoredCount.toLocaleString()} of ${formatMinerCount(
               restoreProgress.restorableCount,
             )} restored (${restoreProgress.percent}%)`}
             segments={getRestoreProgressSegments(restoreProgress)}
             unavailableCount={restoreProgress.unavailableCount}
+            unavailableReasonCounts={event.unavailableReasonCounts}
           />
         ) : null}
 

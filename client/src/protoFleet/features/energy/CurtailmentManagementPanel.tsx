@@ -319,7 +319,7 @@ function CurtailmentRecoveryTerminateDialog({
   return (
     <Dialog
       open={open}
-      title="Terminate recovery event?"
+      title="Stop restore?"
       onDismiss={dismissDialog}
       icon={
         <DialogIcon intent="critical">
@@ -334,7 +334,7 @@ function CurtailmentRecoveryTerminateDialog({
           disabled: isSubmitting,
         },
         {
-          text: "Terminate event",
+          text: "Stop restore",
           variant: variants.danger,
           onClick: confirmTerminate,
           loading: isSubmitting,
@@ -343,7 +343,7 @@ function CurtailmentRecoveryTerminateDialog({
     >
       <div className="grid gap-4 text-300 text-text-primary">
         <p className="text-text-primary-70">
-          Only terminate after restore has started. This closes the event audit trail as cancelled or failed.
+          Use this after restore has started. This closes the event audit trail as cancelled or failed.
         </p>
         <fieldset className="grid gap-2">
           <legend className="text-emphasis-300">Target state</legend>
@@ -582,6 +582,7 @@ function CurtailmentManagementPanel({
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
   const [pendingTerminateRecoveryEventId, setPendingTerminateRecoveryEventId] = useState<string | null>(null);
   const [pendingForceReleaseEventId, setPendingForceReleaseEventId] = useState<string | null>(null);
+  const [failedTerminateRecoveryEventId, setFailedTerminateRecoveryEventId] = useState<string | null>(null);
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const activeRefreshAbortControllerRef = useRef<AbortController | null>(null);
   const manageSelectionAbortControllerRef = useRef<AbortController | null>(null);
@@ -609,6 +610,33 @@ function CurtailmentManagementPanel({
         ? activeEvent
         : activeEvents.find((event) => event.id === pendingForceReleaseEventId);
   const pendingForceReleaseMode = pendingForceReleaseEvent?.state === "restoring" ? "restore" : "curtailment";
+  const canTerminateActiveRecovery = Boolean(
+    canUseRecovery && activeEvent && canTerminateRecoveryCurtailmentEvent(activeEvent),
+  );
+  const didActiveTerminateRecoveryFail = Boolean(
+    activeEventId && failedTerminateRecoveryEventId === activeEventId,
+  );
+  const canForceReleaseActiveEvent = Boolean(
+    canUseRecovery &&
+      activeEventId &&
+      activeEvent &&
+      canAbortCurtailmentOwnership(activeEvent) &&
+      (!canTerminateActiveRecovery || didActiveTerminateRecoveryFail),
+  );
+
+  useEffect(() => {
+    if (!failedTerminateRecoveryEventId) {
+      return;
+    }
+
+    if (
+      failedTerminateRecoveryEventId !== activeEventId ||
+      !activeEvent ||
+      !canTerminateRecoveryCurtailmentEvent(activeEvent)
+    ) {
+      setFailedTerminateRecoveryEventId(null);
+    }
+  }, [activeEvent, activeEventId, failedTerminateRecoveryEventId]);
 
   const runAbortableRefresh = useCallback(<T,>(operation: (signal: AbortSignal) => Promise<T>) => {
     activeRefreshAbortControllerRef.current?.abort();
@@ -889,8 +917,9 @@ function CurtailmentManagementPanel({
         return;
       }
 
+      const eventId = pendingTerminateRecoveryEventId;
       if (
-        pendingTerminateRecoveryEventId !== activeEventId ||
+        eventId !== activeEventId ||
         !activeEvent ||
         !canTerminateRecoveryCurtailmentEvent(activeEvent)
       ) {
@@ -898,9 +927,12 @@ function CurtailmentManagementPanel({
         return;
       }
 
-      void adminTerminateCurtailment(pendingTerminateRecoveryEventId, options)
-        .then(() => setPendingTerminateRecoveryEventId(null))
-        .catch(() => {});
+      void adminTerminateCurtailment(eventId, options)
+        .then(() => {
+          setPendingTerminateRecoveryEventId(null);
+          setFailedTerminateRecoveryEventId((currentEventId) => (currentEventId === eventId ? null : currentEventId));
+        })
+        .catch(() => setFailedTerminateRecoveryEventId(eventId));
     },
     [activeEvent, activeEventId, adminTerminateCurtailment, canUseRecovery, pendingTerminateRecoveryEventId],
   );
@@ -911,13 +943,17 @@ function CurtailmentManagementPanel({
         return;
       }
 
-      if (pendingForceReleaseEventId !== activeEventId || !activeEvent || !canAbortCurtailmentOwnership(activeEvent)) {
+      const eventId = pendingForceReleaseEventId;
+      if (eventId !== activeEventId || !activeEvent || !canAbortCurtailmentOwnership(activeEvent)) {
         setPendingForceReleaseEventId(null);
         return;
       }
 
-      void forceReleaseCurtailment(pendingForceReleaseEventId, options)
-        .then(() => setPendingForceReleaseEventId(null))
+      void forceReleaseCurtailment(eventId, options)
+        .then(() => {
+          setPendingForceReleaseEventId(null);
+          setFailedTerminateRecoveryEventId((currentEventId) => (currentEventId === eventId ? null : currentEventId));
+        })
         .catch(() => {});
     },
     [activeEvent, activeEventId, canUseRecovery, forceReleaseCurtailment, pendingForceReleaseEventId],
@@ -971,22 +1007,18 @@ function CurtailmentManagementPanel({
               event={activeEvent}
               onDismissRestored={dismissTerminalCurtailment}
               onRequestTerminateRecovery={
-                canUseRecovery &&
-                canTerminateRecoveryCurtailmentEvent(activeEvent) &&
-                !canAbortCurtailmentOwnership(activeEvent)
+                canTerminateActiveRecovery && !didActiveTerminateRecoveryFail
                   ? openTerminateRecoveryConfirmation
                   : undefined
               }
               onRequestForceRelease={
-                canUseRecovery && activeEventId && canAbortCurtailmentOwnership(activeEvent)
-                  ? () => setPendingForceReleaseEventId(activeEventId)
-                  : undefined
+                canForceReleaseActiveEvent ? () => setPendingForceReleaseEventId(activeEventId) : undefined
               }
               onRequestEdit={enableManage ? openEditModal : undefined}
               onRequestRestore={enableManage ? () => openStopConfirmation("restore") : undefined}
               onRequestStop={
                 enableManage && !activeEvent.isAutomationOwned
-                  ? () => openStopConfirmation("stopCurtailment")
+                  ? () => openStopConfirmation("restore")
                   : undefined
               }
             />

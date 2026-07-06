@@ -1122,16 +1122,25 @@ func populateEventTargetSiteCoverage(out *pb.CurtailmentEvent, event *models.Eve
 }
 
 func targetRollupProto(rollup *models.TargetRollup) *pb.CurtailmentTargetRollup {
+	unavailableReasons := make([]*pb.CurtailmentUnavailableReason, 0, len(rollup.UnavailableReasons))
+	for _, reason := range rollup.UnavailableReasons {
+		unavailableReasons = append(unavailableReasons, &pb.CurtailmentUnavailableReason{
+			Reason: reason.Reason,
+			Count:  int64ToInt32Saturating(reason.Count),
+		})
+	}
+
 	return &pb.CurtailmentTargetRollup{
-		Pending:       int64ToInt32Saturating(rollup.Pending),
-		Dispatched:    int64ToInt32Saturating(rollup.Dispatched),
-		Confirmed:     int64ToInt32Saturating(rollup.Confirmed),
-		Drifted:       int64ToInt32Saturating(rollup.Drifted),
-		Resolved:      int64ToInt32Saturating(rollup.Resolved),
-		Released:      int64ToInt32Saturating(rollup.Released),
-		RestoreFailed: int64ToInt32Saturating(rollup.RestoreFailed),
-		Unavailable:   int64ToInt32Saturating(rollup.Unavailable),
-		Total:         int64ToInt32Saturating(rollup.Total),
+		Pending:            int64ToInt32Saturating(rollup.Pending),
+		Dispatched:         int64ToInt32Saturating(rollup.Dispatched),
+		Confirmed:          int64ToInt32Saturating(rollup.Confirmed),
+		Drifted:            int64ToInt32Saturating(rollup.Drifted),
+		Resolved:           int64ToInt32Saturating(rollup.Resolved),
+		Released:           int64ToInt32Saturating(rollup.Released),
+		RestoreFailed:      int64ToInt32Saturating(rollup.RestoreFailed),
+		Unavailable:        int64ToInt32Saturating(rollup.Unavailable),
+		Total:              int64ToInt32Saturating(rollup.Total),
+		UnavailableReasons: unavailableReasons,
 	}
 }
 
