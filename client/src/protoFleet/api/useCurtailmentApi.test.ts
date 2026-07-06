@@ -200,8 +200,11 @@ describe("useCurtailmentApi", () => {
         targetKw: 5,
         observedReductionKw: 5,
         remainingPowerKw: 1,
-        // Live-progress inputs (issue #660): elapsed derives from startedAt.
+        // Live-progress inputs (issue #660): elapsed anchors on startedAt,
+        // falling back to createdAt for open-loop events that stamp
+        // started_at only after confirmation.
         startedAt: "2026-05-01T12:00:00.000Z",
+        createdAt: "2026-05-01T11:58:00.000Z",
       }),
     );
     expect(result.current.activeEventFormValues).toEqual(

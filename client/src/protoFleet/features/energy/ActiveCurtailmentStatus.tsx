@@ -29,6 +29,8 @@ export interface ActiveCurtailmentEvent {
   sourceLabel: string;
   isAutomationOwned: boolean;
   targetSiteCoverage?: ActiveCurtailmentTargetSiteCoverage;
+  createdAt?: string;
+  scheduledStartAt?: string;
   startedAt?: string;
   endedAt?: string;
   selectedMiners: number;
@@ -328,7 +330,7 @@ const progressColorMap: Record<Segment["status"], string> = {
 // polling snapshots are unchanged (equal snapshots skip re-renders). Lives in
 // its own component so the per-second tick re-renders only this stat block,
 // not the whole card.
-function ElapsedStatBlock({ startedAt }: { startedAt: string }): ReactElement | null {
+function ElapsedStatBlock({ since }: { since: string }): ReactElement | null {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
@@ -336,13 +338,25 @@ function ElapsedStatBlock({ startedAt }: { startedAt: string }): ReactElement | 
     return () => clearInterval(intervalId);
   }, []);
 
-  const startedDate = getDateTime(startedAt);
-  if (!startedDate) {
+  const sinceDate = getDateTime(since);
+  if (!sinceDate) {
     return null;
   }
 
-  const elapsedSeconds = Math.max((nowMs - startedDate.getTime()) / millisecondsPerSecond, 0);
+  const elapsedSeconds = Math.max((nowMs - sinceDate.getTime()) / millisecondsPerSecond, 0);
   return <StatBlock label="Elapsed" value={formatCurtailmentElapsedDuration(elapsedSeconds)} />;
+}
+
+// SLA clock anchor. started_at is only stamped at the pending -> active
+// transition — after targets confirm for open-loop events — which is too
+// late for a timer covering the dispatch window. Fall back to the scheduled
+// window start, then creation time ("when the operator pressed go"). The
+// progress gate keeps this from rendering before any targets exist, so a
+// scheduled event's pre-window wait never shows as elapsed time.
+function getElapsedAnchor(
+  event: Pick<ActiveCurtailmentEvent, "startedAt" | "scheduledStartAt" | "createdAt">,
+): string | undefined {
+  return event.startedAt ?? event.scheduledStartAt ?? event.createdAt;
 }
 
 function shouldShowCurtailProgress(
@@ -388,6 +402,7 @@ function getCurtailProgressSegments(progress: ActiveCurtailmentCurtailProgress):
   return [
     { name: "Confirmed quiet", status: "OK", count: progress.confirmedCount },
     { name: "Command sent", status: "WARNING", count: progress.sentCount },
+    { name: "Drifted", status: "CRITICAL", count: progress.driftedCount },
     { name: "Pending", status: "NA", count: progress.pendingCount },
   ];
 }
@@ -584,6 +599,7 @@ export default function ActiveCurtailmentStatus({
   const showCurtailProgress = shouldShowCurtailProgress(displayState, curtailProgress);
   const restoreProgress = getActiveCurtailmentRestoreProgress(event);
   const showRestoreProgress = shouldShowRestoreProgress(displayState, restoreProgress);
+  const elapsedAnchor = showCurtailProgress ? getElapsedAnchor(event) : undefined;
   // "Curtailed" means the shed goal is met, so pairing it with a time-to-
   // curtail estimate would contradict the headline state.
   const curtailRemainingSeconds =
@@ -673,7 +689,7 @@ export default function ActiveCurtailmentStatus({
             <>
               <StatBlock label="Applies to" value={formatMinerCount(event.selectedMiners)} />
               <StatBlock label="Restore" value={formatRestoreProfile(event)} />
-              {showCurtailProgress && event.startedAt ? <ElapsedStatBlock startedAt={event.startedAt} /> : null}
+              {elapsedAnchor ? <ElapsedStatBlock since={elapsedAnchor} /> : null}
               {curtailRemainingSeconds > 0 ? (
                 <StatBlock label="Est. time to curtail" value={formatDurationLong(curtailRemainingSeconds)} />
               ) : null}

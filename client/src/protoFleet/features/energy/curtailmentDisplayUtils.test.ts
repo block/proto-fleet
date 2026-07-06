@@ -25,6 +25,7 @@ describe("getActiveCurtailmentCurtailProgress", () => {
     expect(progress).toEqual({
       confirmedCount: 300,
       sentCount: 120,
+      driftedCount: 0,
       pendingCount: 80,
       unavailableCount: 0,
       dispatchableCount: 500,
@@ -33,15 +34,29 @@ describe("getActiveCurtailmentCurtailProgress", () => {
     });
   });
 
-  it("treats drifted targets as sent-awaiting-confirmation", () => {
+  it("counts drifted targets separately, never as reached", () => {
+    // DRIFTED means telemetry observed the miner uncurtailed and it awaits a
+    // successful redispatch — reporting it as reached would overstate live
+    // curtailment during an SLA obligation.
     const progress = getActiveCurtailmentCurtailProgress({
       rollups: rollups({ confirmed: 10, dispatched: 4, drifted: 2, pending: 4 }),
     });
 
-    expect(progress.sentCount).toBe(6);
-    expect(progress.reachedCount).toBe(16);
+    expect(progress.sentCount).toBe(4);
+    expect(progress.driftedCount).toBe(2);
+    expect(progress.reachedCount).toBe(14);
     expect(progress.dispatchableCount).toBe(20);
-    expect(progress.percent).toBe(80);
+    expect(progress.percent).toBe(70);
+  });
+
+  it("never reports 100% while drifted targets remain", () => {
+    const progress = getActiveCurtailmentCurtailProgress({
+      rollups: rollups({ confirmed: 18, drifted: 2 }),
+    });
+
+    expect(progress.reachedCount).toBe(18);
+    expect(progress.dispatchableCount).toBe(20);
+    expect(progress.percent).toBe(90);
   });
 
   it("excludes unavailable targets from the dispatchable denominator but reports them", () => {
@@ -92,6 +107,7 @@ describe("getActiveCurtailmentCurtailProgress", () => {
     expect(getActiveCurtailmentCurtailProgress({ rollups: [] })).toEqual({
       confirmedCount: 0,
       sentCount: 0,
+      driftedCount: 0,
       pendingCount: 0,
       unavailableCount: 0,
       dispatchableCount: 0,

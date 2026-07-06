@@ -54,8 +54,9 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("60.0 kW")).toBeVisible();
     expect(screen.getAllByText("Curtailing")[0]).toBeVisible();
     expect(screen.getByText("10 miners every 120s")).toBeVisible();
-    // 16 confirmed + 2 sent (dispatched + drifted) of 18 dispatchable.
-    expectProgressSummary("18 of 18 miners reached (100%)");
+    // 16 confirmed + 1 dispatched of 18 dispatchable; the drifted miner is
+    // observed uncurtailed and must not count as reached.
+    expectProgressSummary("17 of 18 miners reached (94%)");
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Restore");
 
@@ -498,10 +499,11 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expectProgressSummary("420 of 500 miners reached (84%)");
+    expectProgressSummary("400 of 500 miners reached (80%)");
     const progress = within(screen.getByTestId("active-curtailment-progress"));
     expect(progress.getByText("Confirmed quiet (300)")).toBeVisible();
-    expect(progress.getByText("Command sent (120)")).toBeVisible();
+    expect(progress.getByText("Command sent (100)")).toBeVisible();
+    expect(progress.getByText("Drifted (20)")).toBeVisible();
     expect(progress.getByText("Pending (80)")).toBeVisible();
     expect(progress.getByText("5 unavailable (excluded)")).toBeVisible();
   });
@@ -593,7 +595,37 @@ describe("ActiveCurtailmentStatus", () => {
     }
   });
 
-  it("omits elapsed time for events that have not started", () => {
+  it("anchors elapsed time on creation when started_at is not yet stamped", () => {
+    // Open-loop events only stamp started_at at the pending -> active
+    // transition, after targets confirm — too late for a dispatch-window
+    // timer. The clock falls back to when the operator started the event.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-01T10:01:30-04:00"));
+
+    try {
+      render(
+        <ActiveCurtailmentStatus
+          event={{
+            ...curtailingCurtailmentEvent,
+            startedAt: undefined,
+            createdAt: "2026-05-01T10:00:00-04:00",
+            rollups: [
+              { state: "dispatched", count: 6 },
+              { state: "pending", count: 12 },
+            ],
+            state: "pending",
+          }}
+        />,
+      );
+
+      expect(screen.getByText("Elapsed")).toBeVisible();
+      expect(screen.getByText("1m 30s")).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("omits elapsed time when no clock anchor exists", () => {
     render(
       <ActiveCurtailmentStatus
         event={{

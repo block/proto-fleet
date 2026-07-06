@@ -318,6 +318,8 @@ export function mapActiveCurtailmentEvent(
     sourceLabel: getSourceLabel(externalSource),
     isAutomationOwned: isAutomationExternalSource(externalSource),
     targetSiteCoverage: mapTargetSiteCoverage(event),
+    createdAt: timestampToIsoString(event.createdAt),
+    scheduledStartAt: timestampToIsoString(event.scheduledStartAt),
     startedAt: timestampToIsoString(event.startedAt),
     endedAt: timestampToIsoString(event.endedAt),
     selectedMiners: getCurtailmentEventLiveTargetCount(event),

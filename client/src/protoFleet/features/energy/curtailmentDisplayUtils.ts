@@ -127,7 +127,10 @@ export interface ActiveCurtailmentMinerCompliance {
 
 // Curtail-phase dispatch progress derived from live rollups (issue #660).
 // "Reached" means the sleep command went out (sent or already confirmed);
-// confirmed is the stronger telemetry-backed signal. The dispatchable
+// confirmed is the stronger telemetry-backed signal. DRIFTED targets —
+// observed uncurtailed after confirmation, awaiting a successful redispatch —
+// count toward the denominator but never as reached, so under-curtailment is
+// never masked as progress during an SLA obligation. The dispatchable
 // denominator excludes unavailable targets (can't be commanded) and
 // released/resolved rows (no longer curtail-targeted), so events with
 // unavailable targets can still present as fully dispatched.
@@ -142,6 +145,7 @@ export interface ActiveCurtailmentMinerCompliance {
 export interface ActiveCurtailmentCurtailProgress {
   confirmedCount: number;
   sentCount: number;
+  driftedCount: number;
   pendingCount: number;
   unavailableCount: number;
   dispatchableCount: number;
@@ -441,8 +445,9 @@ export function getActiveCurtailmentRollupCount(
   }, 0);
 }
 
-const sentCurtailTargetStates: CurtailmentTargetState[] = ["dispatched", "drifted"];
+const sentCurtailTargetStates: CurtailmentTargetState[] = ["dispatched"];
 const confirmedCurtailTargetStates: CurtailmentTargetState[] = ["confirmed"];
+const driftedCurtailTargetStates: CurtailmentTargetState[] = ["drifted"];
 const pendingCurtailTargetStates: CurtailmentTargetState[] = ["pending"];
 const unavailableCurtailTargetStates: CurtailmentTargetState[] = ["unavailable"];
 
@@ -451,14 +456,16 @@ export function getActiveCurtailmentCurtailProgress(
 ): ActiveCurtailmentCurtailProgress {
   const confirmedCount = getActiveCurtailmentRollupCount(event, confirmedCurtailTargetStates);
   const sentCount = getActiveCurtailmentRollupCount(event, sentCurtailTargetStates);
+  const driftedCount = getActiveCurtailmentRollupCount(event, driftedCurtailTargetStates);
   const pendingCount = getActiveCurtailmentRollupCount(event, pendingCurtailTargetStates);
   const unavailableCount = getActiveCurtailmentRollupCount(event, unavailableCurtailTargetStates);
-  const dispatchableCount = confirmedCount + sentCount + pendingCount;
+  const dispatchableCount = confirmedCount + sentCount + driftedCount + pendingCount;
   const reachedCount = confirmedCount + sentCount;
 
   return {
     confirmedCount,
     sentCount,
+    driftedCount,
     pendingCount,
     unavailableCount,
     dispatchableCount,
