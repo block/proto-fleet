@@ -13,6 +13,15 @@ import (
 	"github.com/lib/pq"
 )
 
+const disableSyncCommit = `-- name: DisableSyncCommit :exec
+SET LOCAL synchronous_commit = off
+`
+
+func (q *Queries) DisableSyncCommit(ctx context.Context) error {
+	_, err := q.exec(ctx, q.disableSyncCommitStmt, disableSyncCommit)
+	return err
+}
+
 const getAllDeviceMetricsDailyAggregates = `-- name: GetAllDeviceMetricsDailyAggregates :many
 SELECT
     bucket,

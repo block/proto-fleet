@@ -521,3 +521,6 @@ FROM device_status_daily
 WHERE bucket >= $1
   AND bucket <= $2
 ORDER BY bucket ASC;
+
+-- name: DisableSyncCommit :exec
+SET LOCAL synchronous_commit = off;

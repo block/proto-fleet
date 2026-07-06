@@ -168,6 +168,23 @@ else
     fail "refresh_compose_env_args breaks under set -euo pipefail when FLEET_PROFILE is missing"
 fi
 
+# Compose-accepted .env syntax (CRLF, quotes, case) must still resolve
+mkdir -p "$STRICT_TMP/profiles"
+: > "$STRICT_TMP/profiles/mini.env"
+printf 'FLEET_PROFILE="MINI" \r\n' > "$STRICT_TMP/.env"
+if (
+    set -euo pipefail
+    PROJECT_ROOT="$STRICT_TMP"
+    ENV_FILE="$STRICT_TMP/.env"
+    source "$REPO_ROOT/deployment-files/scripts/lib.sh"
+    refresh_compose_env_args
+    [ "${#COMPOSE_ENV_ARGS[@]}" -eq 4 ] && [ "${COMPOSE_ENV_ARGS[1]}" = "$STRICT_TMP/profiles/mini.env" ]
+) >/dev/null 2>&1; then
+    pass "quoted/CRLF/uppercase FLEET_PROFILE values normalize and resolve"
+else
+    fail "FLEET_PROFILE normalization: quoted/CRLF/uppercase value did not resolve to the profile"
+fi
+
 # An unresolvable profile must fall back to .env only, warn, and not abort
 printf 'FLEET_PROFILE=bogus\n' > "$STRICT_TMP/.env"
 if (
@@ -228,6 +245,7 @@ out=$(render --env-file base-secrets.env)
 assert_rendered "no-profile render keeps defaults" "$out" \
     "shared_buffers=256MB" "max_worker_processes=19" "wal_compression=off" \
     "shared_preload_libraries=timescaledb,pg_stat_statements" \
+    "pg_stat_statements.track_utility=off" \
     "track_io_timing=on" "log_min_duration_statement=1000" \
     'shm_size: "268435456"'
 

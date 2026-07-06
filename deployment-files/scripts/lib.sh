@@ -36,8 +36,10 @@ refresh_compose_env_args() {
     COMPOSE_ENV_ARGS=()
     local profile profile_file
     # `|| true` keeps a missing FLEET_PROFILE line from killing set -euo
-    # pipefail callers; tail -1 matches compose's last-wins env semantics
-    profile=$(grep -E '^FLEET_PROFILE=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+    # pipefail callers; tail -1 matches compose's last-wins env semantics.
+    # Normalize whitespace/CR/quotes and case: compose accepts .env syntax
+    # (CRLF edits on WSL, quoted values) that the filename match would reject
+    profile=$(grep -E '^FLEET_PROFILE=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]"'"'" | tr '[:upper:]' '[:lower:]' || true)
     if [ -n "$profile" ]; then
         profile_file="$PROJECT_ROOT/profiles/${profile}.env"
         if [[ "$profile" =~ ^[a-z]+$ ]] && [ -f "$profile_file" ]; then

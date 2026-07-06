@@ -162,10 +162,11 @@ const (
 
 	// combinedMetricsFlightTimeout bounds the shared singleflight query, which
 	// runs detached from any individual caller's context. The store already
-	// caps each query at its QueryTimeout (60s default) but that config is not
-	// visible at this layer, so mirror it plus headroom; this exists only to
-	// avoid leaking the flight goroutine if a connection wedges.
-	combinedMetricsFlightTimeout = 65 * time.Second
+	// caps each query at its QueryTimeout but that config is not visible at
+	// this layer, so mirror the largest configured value (90s in the Pi-class
+	// host profiles) plus headroom; this exists only to avoid leaking the
+	// flight goroutine if a connection wedges.
+	combinedMetricsFlightTimeout = 95 * time.Second
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=service.go -destination=mocks/mock_service.go -package=mock UpdateScheduler,TelemetryDataStore,MinerGetter,CachedMinerGetter

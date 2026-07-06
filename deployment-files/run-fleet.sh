@@ -68,8 +68,10 @@ refresh_compose_env_args() {
     COMPOSE_ENV_ARGS=()
     local profile profile_file
     # `|| true` keeps a missing FLEET_PROFILE line from killing set -euo
-    # pipefail callers; tail -1 matches compose's last-wins env semantics
-    profile=$(grep -E '^FLEET_PROFILE=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+    # pipefail callers; tail -1 matches compose's last-wins env semantics.
+    # Normalize whitespace/CR/quotes and case: compose accepts .env syntax
+    # (CRLF edits on WSL, quoted values) that the filename match would reject
+    profile=$(grep -E '^FLEET_PROFILE=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]"'"'" | tr '[:upper:]' '[:lower:]' || true)
     if [ -n "$profile" ]; then
         profile_file="$PROJECT_ROOT/profiles/${profile}.env"
         if [[ "$profile" =~ ^[a-z]+$ ]] && [ -f "$profile_file" ]; then
@@ -497,6 +499,11 @@ prompt_fleet_profile() {
         3|max) choice="max" ;;
         *) choice="standard" ;;
     esac
+    # A hand-edited .env may lack a trailing newline; a bare append would
+    # glue FLEET_PROFILE onto the last line and corrupt that key
+    if [ -s "$ENV_FILE" ] && [ -n "$(tail -c1 "$ENV_FILE")" ]; then
+        echo >> "$ENV_FILE"
+    fi
     echo "FLEET_PROFILE=$choice" >> "$ENV_FILE"
     echo "Host profile '$choice' saved to $ENV_FILE (edit FLEET_PROFILE there to change it)."
 }
@@ -555,8 +562,10 @@ fi
 # ----------------------------------------------------------------------------
 
 if [ "$use_existing" == "no" ]; then
-    # Initialize empty env file
-    > "$ENV_FILE"
+    # Create with 0600 from birth; secrets land in this file before the
+    # final chmod, and umask perms would expose them in the interim
+    rm -f "$ENV_FILE"
+    (umask 077; : > "$ENV_FILE")
 
     # Database user configuration
     echo -n "Enter username for the Database user [fleet]: "

@@ -303,6 +303,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.disableCurtailmentAutomationRuleByActiveEventStmt, err = db.PrepareContext(ctx, disableCurtailmentAutomationRuleByActiveEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query DisableCurtailmentAutomationRuleByActiveEvent: %w", err)
 	}
+	if q.disableSyncCommitStmt, err = db.PrepareContext(ctx, disableSyncCommit); err != nil {
+		return nil, fmt.Errorf("error preparing query DisableSyncCommit: %w", err)
+	}
 	if q.ensureCurtailmentOrgConfigStmt, err = db.PrepareContext(ctx, ensureCurtailmentOrgConfig); err != nil {
 		return nil, fmt.Errorf("error preparing query EnsureCurtailmentOrgConfig: %w", err)
 	}
@@ -1884,6 +1887,11 @@ func (q *Queries) Close() error {
 	if q.disableCurtailmentAutomationRuleByActiveEventStmt != nil {
 		if cerr := q.disableCurtailmentAutomationRuleByActiveEventStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing disableCurtailmentAutomationRuleByActiveEventStmt: %w", cerr)
+		}
+	}
+	if q.disableSyncCommitStmt != nil {
+		if cerr := q.disableSyncCommitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing disableSyncCommitStmt: %w", cerr)
 		}
 	}
 	if q.ensureCurtailmentOrgConfigStmt != nil {
@@ -3873,6 +3881,7 @@ type Queries struct {
 	deviceHasActivePairingStmt                                 *sql.Stmt
 	deviceSetBelongsToOrgStmt                                  *sql.Stmt
 	disableCurtailmentAutomationRuleByActiveEventStmt          *sql.Stmt
+	disableSyncCommitStmt                                      *sql.Stmt
 	ensureCurtailmentOrgConfigStmt                             *sql.Stmt
 	findDeviceBuildingConflictsStmt                            *sql.Stmt
 	findDeviceSiteConflictsStmt                                *sql.Stmt
@@ -4343,6 +4352,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deviceHasActivePairingStmt:                                 q.deviceHasActivePairingStmt,
 		deviceSetBelongsToOrgStmt:                                  q.deviceSetBelongsToOrgStmt,
 		disableCurtailmentAutomationRuleByActiveEventStmt:          q.disableCurtailmentAutomationRuleByActiveEventStmt,
+		disableSyncCommitStmt:                                      q.disableSyncCommitStmt,
 		ensureCurtailmentOrgConfigStmt:                             q.ensureCurtailmentOrgConfigStmt,
 		findDeviceBuildingConflictsStmt:                            q.findDeviceBuildingConflictsStmt,
 		findDeviceSiteConflictsStmt:                                q.findDeviceSiteConflictsStmt,
