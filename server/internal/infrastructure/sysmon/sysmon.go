@@ -28,19 +28,18 @@ type Emitter interface {
 	EmitSystemHeartbeat(ctx context.Context)
 }
 
-// hostStats carries one tick's readings; nil means that read failed and the
-// previous sample should stand rather than be clobbered by a bogus value.
-type hostStats struct {
-	cpuPercent  *float64
-	memPercent  *float64
-	diskPercent *float64
-}
-
+// The read funcs return nil when a read failed: the previous sample should
+// stand rather than be clobbered by a bogus value.
 type Collector struct {
-	cfg     Config
-	emitter Emitter
-	read    func(ctx context.Context, diskPath string) hostStats
-	reading atomic.Bool
+	cfg      Config
+	emitter  Emitter
+	readCPU  func(ctx context.Context) *float64
+	readMem  func(ctx context.Context) *float64
+	readDisk func(ctx context.Context, diskPath string) *float64
+
+	cpuBusy  atomic.Bool
+	memBusy  atomic.Bool
+	diskBusy atomic.Bool
 }
 
 // The Fleet Heartbeat Stale rule's staleness threshold is 120s, so the
@@ -58,7 +57,13 @@ func New(cfg Config, emitter Emitter) *Collector {
 			"configured", cfg.Interval, "clamped", clamped)
 		cfg.Interval = clamped
 	}
-	return &Collector{cfg: cfg, emitter: emitter, read: readHostStats}
+	return &Collector{
+		cfg:      cfg,
+		emitter:  emitter,
+		readCPU:  readCPU,
+		readMem:  readMem,
+		readDisk: readDisk,
+	}
 }
 
 // Run samples immediately — the heartbeat-staleness rule budgets for a fresh
@@ -77,51 +82,68 @@ func (c *Collector) Run(ctx context.Context) {
 	}
 }
 
-// collectOnce emits the heartbeat synchronously and gathers host stats in a
-// single-flight goroutine. Heartbeat means "fleet-api and its metrics writer
-// are alive", not "host stats are readable" — a statfs wedged on a dead
-// mount must not stop it, both because a false Fleet Heartbeat Stale page is
-// wrong and because the Host Disk Monitoring Stalled rule (which owns that
-// condition) only fires while heartbeats keep flowing.
+// collectOnce emits the heartbeat synchronously and gathers each host gauge
+// in its own single-flight goroutine. Heartbeat means "fleet-api and its
+// metrics writer are alive", not "host stats are readable" — a statfs wedged
+// on a dead mount must not stop it, and per-probe isolation keeps a hung
+// disk read from also blinding the CPU and memory gauges: only the disk
+// series goes stale, which is exactly what the Host Disk Monitoring Stalled
+// rule reports.
 func (c *Collector) collectOnce(ctx context.Context) {
 	c.emitter.EmitSystemHeartbeat(ctx)
-	if !c.reading.CompareAndSwap(false, true) {
-		slog.Warn("sysmon: previous host stats read still in flight, skipping this tick")
+	c.launch(&c.cpuBusy, "cpu", func() {
+		if v := c.readCPU(ctx); v != nil {
+			c.emitter.EmitSystemCPUUsedPercent(ctx, *v)
+		}
+	})
+	c.launch(&c.memBusy, "memory", func() {
+		if v := c.readMem(ctx); v != nil {
+			c.emitter.EmitSystemMemoryUsedPercent(ctx, *v)
+		}
+	})
+	c.launch(&c.diskBusy, "disk", func() {
+		if v := c.readDisk(ctx, c.cfg.DiskPath); v != nil {
+			c.emitter.EmitSystemDiskUsedPercent(ctx, *v)
+		}
+	})
+}
+
+func (c *Collector) launch(busy *atomic.Bool, probe string, work func()) {
+	if !busy.CompareAndSwap(false, true) {
+		slog.Warn("sysmon: previous read still in flight, skipping this tick", "probe", probe)
 		return
 	}
 	go func() {
-		defer c.reading.Store(false)
-		stats := c.read(ctx, c.cfg.DiskPath)
-		if stats.cpuPercent != nil {
-			c.emitter.EmitSystemCPUUsedPercent(ctx, *stats.cpuPercent)
-		}
-		if stats.memPercent != nil {
-			c.emitter.EmitSystemMemoryUsedPercent(ctx, *stats.memPercent)
-		}
-		if stats.diskPercent != nil {
-			c.emitter.EmitSystemDiskUsedPercent(ctx, *stats.diskPercent)
-		}
+		defer busy.Store(false)
+		work()
 	}()
 }
 
-func readHostStats(ctx context.Context, diskPath string) hostStats {
-	var stats hostStats
+func readCPU(ctx context.Context) *float64 {
 	// interval=0 diffs against the previous call, so each tick reports
 	// utilization over the last interval (since process start on the first).
-	if percents, err := cpu.PercentWithContext(ctx, 0, false); err != nil || len(percents) == 0 {
+	percents, err := cpu.PercentWithContext(ctx, 0, false)
+	if err != nil || len(percents) == 0 {
 		slog.Warn("sysmon: cpu read failed", "error", err)
-	} else {
-		stats.cpuPercent = &percents[0]
+		return nil
 	}
-	if vm, err := mem.VirtualMemoryWithContext(ctx); err != nil {
+	return &percents[0]
+}
+
+func readMem(ctx context.Context) *float64 {
+	vm, err := mem.VirtualMemoryWithContext(ctx)
+	if err != nil {
 		slog.Warn("sysmon: memory read failed", "error", err)
-	} else {
-		stats.memPercent = &vm.UsedPercent
+		return nil
 	}
-	if usage, err := disk.UsageWithContext(ctx, diskPath); err != nil {
+	return &vm.UsedPercent
+}
+
+func readDisk(ctx context.Context, diskPath string) *float64 {
+	usage, err := disk.UsageWithContext(ctx, diskPath)
+	if err != nil {
 		slog.Warn("sysmon: disk read failed", "path", diskPath, "error", err)
-	} else {
-		stats.diskPercent = &usage.UsedPercent
+		return nil
 	}
-	return stats
+	return &usage.UsedPercent
 }

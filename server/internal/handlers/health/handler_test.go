@@ -52,6 +52,31 @@ func TestReadyHandlerServiceUnavailableWhenPingFails(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 }
 
+type countingPinger struct {
+	pings int
+}
+
+func (c *countingPinger) PingContext(context.Context) error {
+	c.pings++
+	return nil
+}
+
+func TestReadyHandlerCachesPingResults(t *testing.T) {
+	// Arrange
+	pinger := &countingPinger{}
+	handler := NewReadyHandler(pinger)
+
+	// Act
+	for range 3 {
+		recorder := httptest.NewRecorder()
+		handler(recorder, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
+		require.Equal(t, http.StatusOK, recorder.Code)
+	}
+
+	// Assert
+	require.Equal(t, 1, pinger.pings, "a request flood must not amplify into per-request DB pings")
+}
+
 func TestReadyHandlerRejectsNonGet(t *testing.T) {
 	// Arrange
 	recorder := httptest.NewRecorder()
