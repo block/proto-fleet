@@ -3,6 +3,7 @@ package sysmon
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -47,15 +48,21 @@ func (f *fakeEmitter) heartbeatCount() int {
 	return f.heartbeats
 }
 
+func (f *fakeEmitter) gauges() (cpu, mem, disk []float64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]float64{}, f.cpu...), append([]float64{}, f.mem...), append([]float64{}, f.disk...)
+}
+
 func ptr(v float64) *float64 { return &v }
 
 func TestCollectOnceEmitsAllGauges(t *testing.T) {
 	// Arrange
 	emitter := &fakeEmitter{}
 	collector := New(Config{Interval: 30 * time.Second, DiskPath: "/data"}, emitter)
-	var gotPath string
+	var gotPath atomic.Value
 	collector.read = func(_ context.Context, diskPath string) hostStats {
-		gotPath = diskPath
+		gotPath.Store(diskPath)
 		return hostStats{cpuPercent: ptr(12.5), memPercent: ptr(40), diskPercent: ptr(63)}
 	}
 
@@ -63,11 +70,16 @@ func TestCollectOnceEmitsAllGauges(t *testing.T) {
 	collector.collectOnce(context.Background())
 
 	// Assert
-	require.Equal(t, "/data", gotPath)
-	require.Equal(t, []float64{12.5}, emitter.cpu)
-	require.Equal(t, []float64{40}, emitter.mem)
-	require.Equal(t, []float64{63}, emitter.disk)
-	require.Equal(t, 1, emitter.heartbeats)
+	require.Equal(t, 1, emitter.heartbeatCount())
+	require.Eventually(t, func() bool {
+		cpu, mem, disk := emitter.gauges()
+		return len(cpu) == 1 && len(mem) == 1 && len(disk) == 1
+	}, time.Second, 5*time.Millisecond)
+	cpu, mem, disk := emitter.gauges()
+	require.Equal(t, []float64{12.5}, cpu)
+	require.Equal(t, []float64{40}, mem)
+	require.Equal(t, []float64{63}, disk)
+	require.Equal(t, "/data", gotPath.Load())
 }
 
 func TestCollectOnceEmitsHeartbeatWhenReadsFail(t *testing.T) {
@@ -80,10 +92,40 @@ func TestCollectOnceEmitsHeartbeatWhenReadsFail(t *testing.T) {
 	collector.collectOnce(context.Background())
 
 	// Assert
-	require.Empty(t, emitter.cpu)
-	require.Empty(t, emitter.mem)
-	require.Empty(t, emitter.disk)
-	require.Equal(t, 1, emitter.heartbeats)
+	require.Equal(t, 1, emitter.heartbeatCount())
+	require.Eventually(t, func() bool { return !collector.reading.Load() },
+		time.Second, 5*time.Millisecond)
+	cpu, mem, disk := emitter.gauges()
+	require.Empty(t, cpu)
+	require.Empty(t, mem)
+	require.Empty(t, disk)
+}
+
+func TestHungReadDoesNotBlockHeartbeat(t *testing.T) {
+	// Arrange
+	emitter := &fakeEmitter{}
+	collector := New(Config{Interval: 30 * time.Second, DiskPath: "/"}, emitter)
+	release := make(chan struct{})
+	var reads atomic.Int32
+	collector.read = func(context.Context, string) hostStats {
+		reads.Add(1)
+		<-release
+		return hostStats{diskPercent: ptr(63)}
+	}
+
+	// Act
+	collector.collectOnce(context.Background())
+	require.Eventually(t, func() bool { return reads.Load() == 1 }, time.Second, 5*time.Millisecond)
+	collector.collectOnce(context.Background())
+
+	// Assert
+	require.Equal(t, 2, emitter.heartbeatCount(), "heartbeats must keep flowing while a read hangs")
+	require.Equal(t, int32(1), reads.Load(), "hung read must be single-flight, not stacked")
+	close(release)
+	require.Eventually(t, func() bool {
+		_, _, disk := emitter.gauges()
+		return len(disk) == 1
+	}, time.Second, 5*time.Millisecond)
 }
 
 func TestRunEmitsImmediatelyAndStopsOnCancel(t *testing.T) {

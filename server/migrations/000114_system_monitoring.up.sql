@@ -14,3 +14,30 @@ CREATE VIEW fleet_active_organization AS
 SELECT id::text AS organization_id
 FROM organization
 WHERE deleted_at IS NULL;
+
+-- Slow-query surface for the system-monitoring dashboard. SECURITY DEFINER
+-- (owned by the migration superuser) so grafana_ro can read normalized
+-- statement stats for THIS database without pg_read_all_stats, which would
+-- also expose cluster-wide pg_stat_activity query text. Execute is revoked
+-- from PUBLIC; run-fleet.sh grants it to the Grafana role only while system
+-- monitoring is enabled.
+CREATE FUNCTION fleet_slow_statements()
+RETURNS TABLE (
+    query text,
+    calls bigint,
+    total_exec_time double precision,
+    mean_exec_time double precision,
+    max_exec_time double precision,
+    rows bigint
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+    SELECT s.query, s.calls, s.total_exec_time, s.mean_exec_time,
+           s.max_exec_time, s.rows
+    FROM pg_stat_statements s
+    WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+$$;
+
+REVOKE EXECUTE ON FUNCTION fleet_slow_statements() FROM PUBLIC;

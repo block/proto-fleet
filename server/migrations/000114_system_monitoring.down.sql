@@ -1,3 +1,4 @@
+DROP FUNCTION IF EXISTS fleet_slow_statements();
 DROP VIEW IF EXISTS fleet_active_organization;
 -- pg_stat_statements is intentionally left in place: run-fleet.sh's
 -- apply_database_tuning step owns it in production and recreates it on every

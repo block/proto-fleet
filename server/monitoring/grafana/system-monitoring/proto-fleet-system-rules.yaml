@@ -275,13 +275,18 @@ groups:
             model:
               refId: B
               type: math
-              # The collector heartbeats every 30s; 300s of silence means
-              # fleet-api is down or its metrics writer is wedged.
-              expression: $A > 300
+              # The collector heartbeats every 30s; 120s of silence means
+              # fleet-api is down or its metrics writer is wedged. The `for`
+              # pending period stacks ON TOP of this threshold, so 120s + 3m
+              # delivers the documented ~5-minute page; a 300s threshold with
+              # for: 5m would silently double it to ten.
+              expression: $A > 120
         noDataState: OK
         # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
         execErrState: Error
-        for: 5m
+        # Also the cold-start grace: a fresh enable starts at 1e9 staleness and
+        # must not page before fleet-api's first boot heartbeat lands.
+        for: 3m
         labels:
           proto_fleet_scope: shared
           severity: critical

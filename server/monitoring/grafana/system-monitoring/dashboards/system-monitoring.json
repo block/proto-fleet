@@ -112,7 +112,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT left(query, 200) AS query, calls, round(mean_exec_time::numeric, 2) AS mean_ms, round(max_exec_time::numeric, 2) AS max_ms, rows AS total_rows FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 20"
+          "rawSql": "SELECT left(query, 200) AS query, calls, round(mean_exec_time::numeric, 2) AS mean_ms, round(max_exec_time::numeric, 2) AS max_ms, rows AS total_rows FROM fleet_slow_statements() ORDER BY mean_exec_time DESC LIMIT 20"
         }
       ]
     },
@@ -136,7 +136,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT left(query, 200) AS query, calls, round(total_exec_time::numeric, 2) AS total_ms, round(mean_exec_time::numeric, 2) AS mean_ms FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 20"
+          "rawSql": "SELECT left(query, 200) AS query, calls, round(total_exec_time::numeric, 2) AS total_ms, round(mean_exec_time::numeric, 2) AS mean_ms FROM fleet_slow_statements() ORDER BY total_exec_time DESC LIMIT 20"
         }
       ]
     }
