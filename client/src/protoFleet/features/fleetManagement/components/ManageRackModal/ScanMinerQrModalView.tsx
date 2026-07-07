@@ -77,7 +77,7 @@ export default function ScanMinerQrModalView({
   return (
     <Modal
       open={show}
-      title="Scan miner QR code"
+      title="Scan miner barcode"
       size="standard"
       phoneSheet
       onDismiss={onDismiss}
@@ -141,11 +141,11 @@ export default function ScanMinerQrModalView({
           <Callout
             intent="warning"
             prefixIcon={<Alert />}
-            title={phase.identifier ? `No paired miner found for "${phase.identifier}"` : "No QR code detected"}
+            title={phase.identifier ? `No paired miner found for "${phase.identifier}"` : "No code detected"}
             subtitle={
               phase.identifier
                 ? "Check that the miner is paired to this Fleet, or scan a different code."
-                : "Make sure the whole QR code is visible and try again."
+                : "Make sure the whole code is visible and try again."
             }
           />
         ) : null}
@@ -188,7 +188,9 @@ function LiveCameraView({
       {errorMessage ? (
         <Callout intent="danger" prefixIcon={<Alert />} title={errorMessage} />
       ) : (
-        <span className="text-center text-300 text-text-primary-50">Point the camera at the miner's QR label.</span>
+        <span className="text-center text-300 text-text-primary-50">
+          Point the camera at the QR code or barcode on the miner's label.
+        </span>
       )}
     </div>
   );
@@ -209,8 +211,8 @@ function PhotoCapturePrompt({
         <Callout
           intent="information"
           prefixIcon={<Info />}
-          title="Take a photo of the QR code"
-          subtitle="Live scanning needs a secure (HTTPS) connection. Tap below to capture the miner's QR label with your camera."
+          title="Take a photo of the code"
+          subtitle="Live scanning needs a secure (HTTPS) connection. Tap below to capture the code on the miner's label with your camera."
         />
       ) : null}
       <button

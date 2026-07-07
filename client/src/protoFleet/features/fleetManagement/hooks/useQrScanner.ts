@@ -19,8 +19,14 @@ export function canUseLiveCamera(): boolean {
 type ScanStatus = "idle" | "starting" | "scanning" | "error";
 
 interface UseQrScannerOptions {
-  /** Called with the raw decoded text when a code is found. */
-  onDetected: (rawValue: string) => void;
+  /**
+   * Called with every raw decoded value in the frame when at least one code is
+   * found. A single label or rack shot can carry more than one barcode (e.g. a
+   * serial and a model/asset code), and the detector's ordering isn't
+   * guaranteed — so the caller should try each value rather than assume the
+   * first is the one to resolve.
+   */
+  onDetected: (rawValues: string[]) => void;
   /** When false, the scanner stays torn down (e.g. modal closed). */
   active: boolean;
 }
@@ -30,8 +36,9 @@ interface UseQrScannerResult {
   status: ScanStatus;
   /** Populated when status === "error"; a user-facing message. */
   errorMessage: string;
-  /** Decode a still image (File/Blob) from the photo-capture fallback. */
-  detectFromBlob: (blob: Blob) => Promise<string | null>;
+  /** Decode a still image (File/Blob) from the photo-capture fallback; returns
+   *  every decoded value (see onDetected). */
+  detectFromBlob: (blob: Blob) => Promise<string[]>;
 }
 
 const SCAN_INTERVAL_MS = 250;
@@ -58,6 +65,9 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
   const streamRef = useRef<MediaStream | null>(null);
   const detectorRef = useRef<BarcodeDetector | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Offscreen canvas used to crop each frame to the visible preview square
+  // before decoding (see detectionFrame).
+  const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const detectedRef = useRef(false);
   // Guards against overlapping decodes: detect() can take longer than
   // SCAN_INTERVAL_MS (notably the WASM fallback on mobile), and without this a
@@ -79,15 +89,21 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
   const getDetector = useCallback((): BarcodeDetector => {
     if (!detectorRef.current) {
       initBarcodeScanner();
-      detectorRef.current = new BarcodeDetector({ formats: ["qr_code"] });
+      // QR is the common case, but some vendors (e.g. Bitmain) print the serial
+      // on a 1D barcode, so accept the alphanumeric linear symbologies used on
+      // equipment labels alongside the 2D formats. The decoded value flows
+      // through parseScannedIdentifier the same way regardless of symbology.
+      detectorRef.current = new BarcodeDetector({
+        formats: ["qr_code", "data_matrix", "code_128", "code_39", "code_93"],
+      });
     }
     return detectorRef.current;
   }, []);
 
   const detectFromBlob = useCallback(
-    async (blob: Blob): Promise<string | null> => {
+    async (blob: Blob): Promise<string[]> => {
       const results = await getDetector().detect(blob);
-      return results[0]?.rawValue ?? null;
+      return results.map((r) => r.rawValue).filter(Boolean);
     },
     [getDetector],
   );
@@ -122,7 +138,11 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
     const start = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
+          // Request a high resolution: a dense 1D barcode (e.g. an Antminer
+          // serial in Code 128) needs enough horizontal pixels across its bars
+          // to decode, where a QR would survive a lower-res frame. `ideal` so
+          // devices without a 1080p camera gracefully fall back.
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
           audio: false,
         });
         if (cancelled) {
@@ -152,15 +172,15 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
           if (!el || detectedRef.current || detectingRef.current || el.readyState < 2) return;
           detectingRef.current = true;
           try {
-            const results = await detector.detect(el);
+            const results = await detector.detect(detectionFrame(el, cropCanvasRef));
             // The effect may have torn down while detect() was in flight; don't
             // fire onDetected (a lookup + state update) after teardown.
             if (cancelled) return;
             decodeFailuresRef.current = 0;
-            const value = results[0]?.rawValue;
-            if (value && !detectedRef.current) {
+            const values = results.map((r) => r.rawValue).filter(Boolean);
+            if (values.length && !detectedRef.current) {
               detectedRef.current = true;
-              onDetectedRef.current(value);
+              onDetectedRef.current(values);
             }
           } catch {
             // A blurry frame resolves empty; a *throw* means the decoder itself
@@ -194,6 +214,39 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
   }, [active, getDetector, stop]);
 
   return { videoRef, status, errorMessage, detectFromBlob };
+}
+
+/**
+ * The live preview shows an `aspect-square`, `object-cover` crop of the (often
+ * 16:9) camera stream, but `detect()` reads the full frame. Decode only the
+ * visible center square so a barcode sitting in the hidden side margins — an
+ * adjacent label in a dense rack row — can't be scanned and assigned while the
+ * operator is aiming at a different, visible label. Returns the video unchanged
+ * when there's nothing to crop (a square or not-yet-sized frame).
+ */
+function detectionFrame(
+  video: HTMLVideoElement,
+  canvasRef: RefObject<HTMLCanvasElement | null>,
+): HTMLVideoElement | HTMLCanvasElement {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh || vw === vh) return video;
+
+  const side = Math.min(vw, vh);
+  const sx = (vw - side) / 2;
+  const sy = (vh - side) / 2;
+
+  let canvas = canvasRef.current;
+  if (!canvas) {
+    canvas = document.createElement("canvas");
+    canvasRef.current = canvas;
+  }
+  canvas.width = side;
+  canvas.height = side;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return video;
+  ctx.drawImage(video, sx, sy, side, side, 0, 0, side, side);
+  return canvas;
 }
 
 /** Map a getUserMedia rejection to a short, actionable message. */
