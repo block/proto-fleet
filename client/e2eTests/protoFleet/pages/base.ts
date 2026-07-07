@@ -25,6 +25,11 @@ export class BasePage {
     await expect(this.activeFilterEditButton(filterLabel)).toHaveCount(0);
   }
 
+  async validateNoResultsEmptyState() {
+    await expect(this.page.getByText("No results", { exact: true })).toBeVisible();
+    await expect(this.page.getByRole("button", { name: "Clear all filters", exact: true })).toBeVisible();
+  }
+
   async clickClearAllFilters() {
     await this.page.getByRole("button", { name: "Clear all filters", exact: true }).click();
   }
@@ -166,6 +171,118 @@ export class BasePage {
     const dialog = this.page.getByTestId("fleet-view-tabs-delete-dialog");
     await dialog.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(dialog).toBeHidden();
+  }
+
+  protected async setNestedCheckboxFilterSelection(categoryKey: string, targetLabels: string[]) {
+    if (targetLabels.length !== 1) {
+      throw new Error(
+        `Expected exactly one target label for "${categoryKey}" filter, received ${targetLabels.length}.`,
+      );
+    }
+
+    const [targetLabel] = targetLabels;
+    const activeEditButton = await this.findVisibleTestIdLocator(`active-filter-${categoryKey}-edit`);
+    if (activeEditButton) {
+      const currentSummary = ((await activeEditButton.textContent()) ?? "").replace(/\s+/g, " ").trim();
+      if (currentSummary === targetLabel) {
+        return;
+      }
+
+      await this.clearActiveFilter(categoryKey);
+    }
+
+    const addFilterPopover = await this.openVisibleAddFilter();
+    await this.openNestedFilterSubmenu(addFilterPopover, categoryKey);
+    const targetOption = (await this.readVisibleCheckboxFilterOptionStates()).find(
+      ({ label }) => label === targetLabel,
+    );
+    if (!targetOption) {
+      throw new Error(`Could not find "${targetLabel}" in the visible "${categoryKey}" filter options.`);
+    }
+
+    await (await this.visibleTestIdLocator(`filter-option-${targetOption.id}`)).click();
+
+    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
+    if (await popover.isVisible().catch(() => false)) {
+      await this.dismissAddFilterPopover();
+    }
+  }
+
+  protected async toggleAllNestedCheckboxFilterOptions(categoryKey: string) {
+    const activeEditButton = await this.findVisibleTestIdLocator(`active-filter-${categoryKey}-edit`);
+    if (activeEditButton) {
+      const popover = await this.openActiveFilterPopover(categoryKey);
+      await this.toggleVisibleCheckboxFilterOptions();
+      await activeEditButton.click();
+      await expect(popover).toBeHidden();
+      return;
+    }
+
+    const addFilterPopover = await this.openVisibleAddFilter();
+    await this.openNestedFilterSubmenu(addFilterPopover, categoryKey);
+    await this.toggleVisibleCheckboxFilterOptions();
+    await this.dismissAddFilterPopover();
+  }
+
+  private async toggleVisibleCheckboxFilterOptions() {
+    const initialOptions = await this.readVisibleCheckboxFilterOptionStates();
+    if (initialOptions.length === 0) {
+      return;
+    }
+
+    const anyChecked = initialOptions.some(({ checked }) => checked);
+
+    while (true) {
+      const visibleOptions = await this.readVisibleCheckboxFilterOptionStates();
+      if (visibleOptions.length === 0) {
+        return;
+      }
+
+      const nextOption = visibleOptions.find(({ checked }) => checked === anyChecked);
+      if (!nextOption) {
+        return;
+      }
+
+      await (await this.visibleTestIdLocator(`filter-option-${nextOption.id}`)).click();
+    }
+  }
+
+  private async readVisibleCheckboxFilterOptionStates() {
+    return await this.page.locator('[data-testid^="filter-option-"]').evaluateAll((elements) =>
+      elements.flatMap((element) => {
+        const option = element as HTMLElement;
+        const rect = option.getBoundingClientRect();
+        const style = window.getComputedStyle(option);
+        const checkVisibility = (
+          option as HTMLElement & {
+            checkVisibility?: (options?: { checkOpacity?: boolean; checkVisibilityCSS?: boolean }) => boolean;
+          }
+        ).checkVisibility;
+        const visible =
+          (typeof checkVisibility === "function"
+            ? checkVisibility.call(option, { checkOpacity: true, checkVisibilityCSS: true })
+            : true) &&
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.visibility !== "hidden" &&
+          style.display !== "none" &&
+          option.offsetParent !== null &&
+          option.getAttribute("aria-hidden") !== "true";
+
+        if (!visible) {
+          return [];
+        }
+
+        const checkbox = option.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+        return [
+          {
+            id: (option.dataset.testid ?? "").replace(/^filter-option-/, ""),
+            label: (option.textContent ?? "").replace(/\s+/g, " ").trim(),
+            checked: checkbox?.checked ?? false,
+          },
+        ];
+      }),
+    );
   }
 
   async validateLoggedIn(timeout: number = DEFAULT_TIMEOUT) {
@@ -514,37 +631,117 @@ export class BasePage {
     await expect(this.kebabPopover()).toBeVisible();
   }
 
-  private async visibleTestIdLocator(testId: string): Promise<Locator> {
-    const matches = this.page.getByTestId(testId);
+  private async getVisibleAddFilterTrigger(): Promise<Locator> {
+    const triggers = this.page.getByTestId("filter-nested-add-filter");
     let visibleIndex = -1;
 
     await expect
       .poll(
         async () => {
-          const count = await matches.count();
-          const visibleIndexes: number[] = [];
+          const count = await triggers.count();
 
           for (let i = 0; i < count; i++) {
-            const candidate = matches.nth(i);
-            if (await candidate.isVisible().catch(() => false)) {
-              visibleIndexes.push(i);
+            const trigger = triggers.nth(i);
+            if (await trigger.isVisible().catch(() => false)) {
+              visibleIndex = i;
+              return "visible";
             }
           }
 
-          if (visibleIndexes.length === 1) {
-            [visibleIndex] = visibleIndexes;
-            return `single:${visibleIndex}`;
-          }
-
-          return visibleIndexes.length === 0 ? "none" : `multiple:${visibleIndexes.join(",")}`;
+          return "hidden";
         },
         {
           timeout: DEFAULT_TIMEOUT,
-          message: `Expected a single visible locator for test id "${testId}".`,
+          message: "Expected a visible Add Filter trigger.",
         },
       )
-      .toMatch(/^single:\d+$/);
+      .toBe("visible");
 
-    return matches.nth(visibleIndex);
+    return triggers.nth(visibleIndex);
+  }
+
+  private async openVisibleAddFilter() {
+    const trigger = await this.getVisibleAddFilterTrigger();
+    await trigger.click();
+    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
+    await expect(popover).toBeVisible();
+    return popover;
+  }
+
+  private async openActiveFilterPopover(categoryKey: string) {
+    const editButton = await this.visibleTestIdLocator(`active-filter-${categoryKey}-edit`);
+    await editButton.click();
+    const popover = this.page.getByTestId("dropdown-filter-popover");
+    await expect(popover).toBeVisible();
+    return popover;
+  }
+
+  private async openNestedFilterSubmenu(popover: Locator, categoryKey: string) {
+    await popover.getByTestId(`nested-dropdown-filter-row-${categoryKey}`).click();
+    const desktopSubmenu = this.page.getByTestId(`nested-dropdown-filter-submenu-${categoryKey}`);
+    const mobileBack = popover.getByTestId("nested-dropdown-filter-back");
+    await expect(desktopSubmenu.or(mobileBack)).toBeVisible();
+
+    if (await desktopSubmenu.isVisible().catch(() => false)) {
+      return desktopSubmenu;
+    }
+
+    return popover;
+  }
+
+  private async dismissAddFilterPopover() {
+    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
+    if (!(await popover.isVisible().catch(() => false))) {
+      return;
+    }
+
+    if (this.isMobile) {
+      await this.page.mouse.click(1, 1);
+      await expect(popover).toBeHidden();
+      return;
+    }
+
+    const trigger = await this.getVisibleAddFilterTrigger();
+    await trigger.click();
+    await expect(popover).toBeHidden();
+  }
+
+  private async findVisibleTestIdLocator(testId: string): Promise<Locator | null> {
+    const matches = this.page.getByTestId(testId);
+    const count = await matches.count();
+    const visibleIndexes: number[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const candidate = matches.nth(i);
+      if (await candidate.isVisible().catch(() => false)) {
+        visibleIndexes.push(i);
+      }
+    }
+
+    if (visibleIndexes.length === 0) {
+      return null;
+    }
+
+    if (visibleIndexes.length > 1) {
+      throw new Error(`Expected a single visible locator for test id "${testId}", found ${visibleIndexes.length}.`);
+    }
+
+    return matches.nth(visibleIndexes[0]);
+  }
+
+  private async visibleTestIdLocator(testId: string): Promise<Locator> {
+    await expect
+      .poll(async () => ((await this.findVisibleTestIdLocator(testId)) ? "single" : "none"), {
+        timeout: DEFAULT_TIMEOUT,
+        message: `Expected a single visible locator for test id "${testId}".`,
+      })
+      .toBe("single");
+
+    const match = await this.findVisibleTestIdLocator(testId);
+    if (!match) {
+      throw new Error(`Expected a visible locator for test id "${testId}".`);
+    }
+
+    return match;
   }
 }

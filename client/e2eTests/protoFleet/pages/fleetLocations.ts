@@ -261,6 +261,28 @@ export class FleetLocationsPage extends BasePage {
     await expect(this.getListRowByName(name)).toHaveCount(0);
   }
 
+  async getSiteIdByName(name: string): Promise<bigint> {
+    await this.navigateToSitesPage();
+    return await this.getScopeIdFromRowName(name, "site");
+  }
+
+  async getBuildingIdByName(name: string): Promise<bigint> {
+    await this.navigateToBuildingsPage();
+    return await this.getScopeIdFromRowName(name, "building");
+  }
+
+  async applySiteFilter(siteNames: string[]) {
+    await this.setNestedCheckboxFilterSelection("site", siteNames);
+  }
+
+  async validateCurrentBuildingVisible(name: string) {
+    await expect(this.getListRowByName(name)).toBeVisible();
+  }
+
+  async validateCurrentBuildingNotVisible(name: string) {
+    await expect(this.getListRowByName(name)).toHaveCount(0);
+  }
+
   async deleteSite(name: string) {
     await this.navigateToSitesPage();
     await this.openRowActions(name);
