@@ -194,19 +194,6 @@ def classifier_allows_low_risk(classifier: dict[str, Any] | None, minimum_confid
     return True, reasons
 
 
-def latest_reviews(reviews: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    latest: dict[str, dict[str, Any]] = {}
-    for review in reviews:
-        user = review.get("user") or {}
-        login = user.get("login")
-        if not login:
-            continue
-        current = latest.get(login)
-        if current is None or str(review.get("submitted_at") or "") >= str(current.get("submitted_at") or ""):
-            latest[login] = review
-    return latest
-
-
 def human_review_state(
     reviews: list[dict[str, Any]],
     head_sha: str,
@@ -216,24 +203,39 @@ def human_review_state(
     repo: str,
     token: str,
 ) -> tuple[bool, list[str], list[str]]:
-    latest = latest_reviews(reviews)
-    requested_changes = []
-    approvals = []
+    reviewer_states: dict[str, dict[str, bool]] = {}
     ignored = []
 
-    for login, review in latest.items():
+    sorted_reviews = sorted(reviews, key=lambda item: str(item.get("submitted_at") or ""))
+    for review in sorted_reviews:
+        user = review.get("user") or {}
+        login = user.get("login")
+        if not login:
+            continue
         state = review.get("state")
-        commit_id = review.get("commit_id")
-        user_type = (review.get("user") or {}).get("type")
+        user_type = user.get("type")
         is_bot = login.endswith(BOT_SUFFIX) or user_type == "Bot"
+        if is_bot:
+            continue
+
         authorized = reviewer_has_authority(owner, repo, login, review.get("author_association"), token)
-        if state in {"APPROVED", "CHANGES_REQUESTED"} and not is_bot and not authorized:
+        if state in {"APPROVED", "CHANGES_REQUESTED"} and not authorized:
             ignored.append(login)
             continue
-        if state == "CHANGES_REQUESTED" and not is_bot:
-            requested_changes.append(login)
-        if state == "APPROVED" and commit_id == head_sha and login != author and not is_bot:
-            approvals.append(login)
+
+        reviewer_state = reviewer_states.setdefault(login, {"approved": False, "changes_requested": False})
+        if state == "DISMISSED":
+            reviewer_state["approved"] = False
+            reviewer_state["changes_requested"] = False
+        elif state == "CHANGES_REQUESTED":
+            reviewer_state["approved"] = False
+            reviewer_state["changes_requested"] = True
+        elif state == "APPROVED" and review.get("commit_id") == head_sha and login != author:
+            reviewer_state["approved"] = True
+            reviewer_state["changes_requested"] = False
+
+    requested_changes = sorted(login for login, state in reviewer_states.items() if state["changes_requested"])
+    approvals = sorted(login for login, state in reviewer_states.items() if state["approved"])
 
     blockers: list[str] = []
     if requested_changes:
@@ -390,6 +392,7 @@ def evaluate_policy(
     low_config = config["low_risk"]
     low_reasons: list[str] = []
     low_blockers: list[str] = []
+    low_blockers.extend(blocker for blocker in human_blockers if blocker.startswith("changes requested by "))
 
     trusted, trust_reasons = trusted_author_reasons(author, config.get("trusted_authors", []), owner, token)
     (low_reasons if trusted else low_blockers).extend(trust_reasons)
@@ -435,18 +438,6 @@ def evaluate_policy(
         low_reasons.extend("AI: " + reason for reason in ai_reasons)
     else:
         low_blockers.extend(ai_reasons)
-
-    if latest_reviews(reviews):
-        latest = latest_reviews(reviews)
-        changers = sorted(
-            login
-            for login, review in latest.items()
-            if review.get("state") == "CHANGES_REQUESTED"
-            and not ((review.get("user") or {}).get("login", "").endswith(BOT_SUFFIX))
-            and reviewer_has_authority(owner, repo, login, review.get("author_association"), token)
-        )
-        if changers:
-            low_blockers.append(f"changes requested by {', '.join(changers)}")
 
     if human_ok:
         return PolicyResult(

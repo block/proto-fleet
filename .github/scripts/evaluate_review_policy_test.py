@@ -105,6 +105,79 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("current authorized human approvals: member", reasons)
         self.assertIn("ignored unauthorized review states from: outsider", reasons)
 
+    def test_human_review_state_keeps_change_request_after_comment(self):
+        original = policy.reviewer_has_authority
+        try:
+            policy.reviewer_has_authority = lambda owner, repo, username, association, token: True
+            reviews = [
+                {
+                    "user": {"login": "reviewer", "type": "User"},
+                    "state": "CHANGES_REQUESTED",
+                    "commit_id": "abc123",
+                    "submitted_at": "2026-01-01T00:00:00Z",
+                },
+                {
+                    "user": {"login": "reviewer", "type": "User"},
+                    "state": "COMMENTED",
+                    "commit_id": "abc123",
+                    "submitted_at": "2026-01-01T00:00:01Z",
+                },
+            ]
+            ok, _reasons, blockers = policy.human_review_state(
+                reviews, "abc123", "author", 1, "block", "proto-fleet", "token"
+            )
+        finally:
+            policy.reviewer_has_authority = original
+
+        self.assertFalse(ok)
+        self.assertIn("changes requested by reviewer", blockers)
+
+    def test_human_review_state_clears_change_request_on_approval_or_dismissal(self):
+        original = policy.reviewer_has_authority
+        try:
+            policy.reviewer_has_authority = lambda owner, repo, username, association, token: True
+            approved_reviews = [
+                {
+                    "user": {"login": "reviewer", "type": "User"},
+                    "state": "CHANGES_REQUESTED",
+                    "commit_id": "abc123",
+                    "submitted_at": "2026-01-01T00:00:00Z",
+                },
+                {
+                    "user": {"login": "reviewer", "type": "User"},
+                    "state": "APPROVED",
+                    "commit_id": "abc123",
+                    "submitted_at": "2026-01-01T00:00:01Z",
+                },
+            ]
+            dismissed_reviews = [
+                {
+                    "user": {"login": "reviewer", "type": "User"},
+                    "state": "CHANGES_REQUESTED",
+                    "commit_id": "abc123",
+                    "submitted_at": "2026-01-01T00:00:00Z",
+                },
+                {
+                    "user": {"login": "reviewer", "type": "User"},
+                    "state": "DISMISSED",
+                    "commit_id": "abc123",
+                    "submitted_at": "2026-01-01T00:00:01Z",
+                },
+            ]
+            approved_ok, _approved_reasons, approved_blockers = policy.human_review_state(
+                approved_reviews, "abc123", "author", 1, "block", "proto-fleet", "token"
+            )
+            dismissed_ok, _dismissed_reasons, dismissed_blockers = policy.human_review_state(
+                dismissed_reviews, "abc123", "author", 1, "block", "proto-fleet", "token"
+            )
+        finally:
+            policy.reviewer_has_authority = original
+
+        self.assertTrue(approved_ok)
+        self.assertEqual(approved_blockers, [])
+        self.assertFalse(dismissed_ok)
+        self.assertNotIn("changes requested by reviewer", dismissed_blockers)
+
     def test_write_result(self):
         result = policy.PolicyResult(
             passed=True,
