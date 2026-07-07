@@ -187,9 +187,15 @@ groups:
               refId: A
               format: table
               rawSql: |
+                -- The no-disk-samples fallback is the heartbeat-history age, not a
+                -- huge sentinel: a DISK_PATH that is broken from first boot then
+                -- accrues staleness at the same rate as a path that stops working,
+                -- so both reach the threshold on the documented schedule instead
+                -- of the sentinel firing the pending timer immediately.
                 SELECT
                     o.organization_id,
-                    COALESCE(EXTRACT(EPOCH FROM (NOW() - s.last_disk))::float8, 1e9) AS value
+                    COALESCE(EXTRACT(EPOCH FROM (NOW() - s.last_disk))::float8,
+                             EXTRACT(EPOCH FROM (NOW() - h.first_beat))::float8) AS value
                 FROM fleet_active_organization o
                 CROSS JOIN (
                     -- 1h, not the heartbeat rule's 24h: wide enough to show real
@@ -201,7 +207,7 @@ groups:
                       AND time > NOW() - INTERVAL '1 hour'
                 ) s
                 CROSS JOIN (
-                    SELECT max(time) AS last_beat
+                    SELECT max(time) AS last_beat, min(time) AS first_beat
                     FROM notification_metric_sample
                     WHERE metric = 'fleet_system_heartbeat'
                       AND time > NOW() - INTERVAL '15 minutes'
@@ -212,11 +218,14 @@ groups:
             model:
               refId: B
               type: math
-              expression: $A > 900
+              # 720s staleness + the 3m pending period pages at the documented
+              # ~15 minutes; like the heartbeat rule, `for` stacks ON TOP of the
+              # threshold and must not double the advertised delay.
+              expression: $A > 720
         noDataState: OK
         # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
         execErrState: Error
-        for: 10m
+        for: 3m
         labels:
           proto_fleet_scope: shared
           severity: warning
