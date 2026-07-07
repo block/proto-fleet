@@ -116,10 +116,19 @@ class ReviewPolicyTest(unittest.TestCase):
         original_paginate = policy.github_paginate
         original_trusted_author_reasons = policy.trusted_author_reasons
         try:
-            policy.github_paginate = lambda path, token: [
-                {"filename": ".github/workflows/review-policy.yml", "additions": 2, "deletions": 1},
-                {"filename": "docs/readme.md", "additions": 300, "deletions": 0},
-            ]
+            def fake_paginate(path, token):
+                if path.endswith("/files"):
+                    return [
+                        {"filename": ".github/workflows/review-policy.yml", "additions": 2, "deletions": 1},
+                        {"filename": "docs/readme.md", "additions": 300, "deletions": 0},
+                    ]
+                if path.endswith("/commits"):
+                    return [{"sha": "abc123", "author": {"login": "author"}, "committer": {"login": "author"}}]
+                if path.endswith("/commits/abc123/pulls"):
+                    return [{"number": 123, "state": "open", "head": {"sha": "abc123"}}]
+                return []
+
+            policy.github_paginate = fake_paginate
             policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
                 False,
                 [f"author @{author} is not in trusted_authors"],
@@ -137,6 +146,7 @@ class ReviewPolicyTest(unittest.TestCase):
                 repo="proto-fleet",
                 pr_number=123,
                 author="author",
+                head_sha="abc123",
                 token="token",
             )
         finally:
@@ -147,6 +157,20 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("author @author is not in trusted_authors", result["blockers"])
         self.assertIn("303 changed lines exceeds limit 200", result["blockers"])
         self.assertIn("denied paths changed: .github/workflows/review-policy.yml", result["blockers"])
+
+    def test_shared_head_pr_blockers_fail_closed_for_multiple_open_prs(self):
+        original = policy.github_paginate
+        try:
+            policy.github_paginate = lambda path, token: [
+                {"number": 123, "state": "open", "head": {"sha": "abc123"}},
+                {"number": 456, "state": "open", "head": {"sha": "abc123"}},
+                {"number": 789, "state": "closed", "head": {"sha": "abc123"}},
+            ]
+            blockers = policy.shared_head_pr_blockers("block", "proto-fleet", 123, "abc123", "token")
+        finally:
+            policy.github_paginate = original
+
+        self.assertEqual(blockers, ["current head SHA is shared by multiple open PRs: #123, #456"])
 
     def test_trusted_author_reasons_accepts_team_membership(self):
         original = policy.is_team_member
@@ -416,6 +440,8 @@ class ReviewPolicyTest(unittest.TestCase):
         original_extract_security_risk = policy.extract_security_risk
         try:
             def fake_paginate(path, token):
+                if path.endswith("/commits/abc123/pulls"):
+                    return [{"number": 123, "state": "open", "head": {"sha": "abc123"}}]
                 if path.endswith("/files"):
                     return [
                         {

@@ -364,6 +364,25 @@ def trusted_head_contributor_reasons(
     return not blockers, reasons, blockers
 
 
+def shared_head_pr_blockers(owner: str, repo: str, pr_number: int, head_sha: str, token: str) -> list[str]:
+    pulls = github_paginate(f"/repos/{owner}/{repo}/commits/{head_sha}/pulls", token)
+    open_pr_numbers = sorted(
+        int(item["number"])
+        for item in pulls
+        if item.get("state") == "open"
+        and (item.get("head") or {}).get("sha") == head_sha
+        and item.get("number") is not None
+    )
+    if len(open_pr_numbers) <= 1:
+        return []
+    if pr_number not in open_pr_numbers:
+        return [f"current head SHA is shared by open PRs: {', '.join(f'#{number}' for number in open_pr_numbers)}"]
+    return [
+        "current head SHA is shared by multiple open PRs: "
+        + ", ".join(f"#{number}" for number in open_pr_numbers)
+    ]
+
+
 def evaluate_low_risk_preflight(
     *,
     config: dict[str, Any],
@@ -371,6 +390,7 @@ def evaluate_low_risk_preflight(
     repo: str,
     pr_number: int,
     author: str,
+    head_sha: str,
     token: str,
 ) -> dict[str, Any]:
     files = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/files", token)
@@ -378,6 +398,8 @@ def evaluate_low_risk_preflight(
     low_config = config["low_risk"]
     reasons: list[str] = []
     blockers: list[str] = []
+
+    blockers.extend(shared_head_pr_blockers(owner, repo, pr_number, head_sha, token))
 
     trusted, trust_reasons = trusted_author_reasons(author, config.get("trusted_authors", []), owner, token)
     (reasons if trusted else blockers).extend(trust_reasons)
@@ -573,6 +595,7 @@ def evaluate_policy(
     low_config = config["low_risk"]
     low_reasons: list[str] = []
     low_blockers: list[str] = []
+    shared_head_blockers = shared_head_pr_blockers(owner, repo, pr_number, head_sha, token)
     low_blockers.extend(blocker for blocker in human_blockers if blocker.startswith("changes requested by "))
 
     trusted, trust_reasons = trusted_author_reasons(author, config.get("trusted_authors", []), owner, token)
@@ -641,6 +664,15 @@ def evaluate_policy(
         low_reasons.extend("AI: " + reason for reason in ai_reasons)
     else:
         low_blockers.extend(ai_reasons)
+
+    if shared_head_blockers:
+        return PolicyResult(
+            passed=False,
+            decision="needs-human-review",
+            reasons=shared_head_blockers + human_blockers + low_blockers,
+            low_risk_reasons=low_reasons,
+            human_review_reasons=human_reasons,
+        )
 
     if human_ok:
         return PolicyResult(
@@ -754,6 +786,7 @@ def main() -> int:
             repo=args.repo,
             pr_number=args.pr_number,
             author=args.author,
+            head_sha=args.head_sha,
             token=token,
         )
         write_preflight(preflight, args.preflight_json)

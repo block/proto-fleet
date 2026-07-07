@@ -323,7 +323,7 @@ jobs:
             const enforced = '${{ needs.evaluate.outputs.enforced }}' !== 'false';
             const evaluateResult = '${{ needs.evaluate.result }}';
 
-            const state = evaluateResult === 'success' && (passed || !enforced)
+            const state = evaluateResult === 'success' && passed
               ? 'success'
               : evaluateResult === 'cancelled'
                 ? 'error'
