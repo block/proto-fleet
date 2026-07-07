@@ -972,16 +972,17 @@ provision_grafana_db_role() {
     # parses regardless of what openssl rand produced.
     pw_escaped="${grafana_pass//\'/\'\'}"
 
-    # pg_stat_statements masks other roles' query text without
-    # pg_read_all_stats. The role is NOINHERIT, so the membership needs
-    # INHERIT TRUE or queries would still read <insufficient privilege>.
-    # The smoke count() forces the function scan to execute (LIMIT 0 would
-    # not), so it doubles as end-to-end preload verification.
+    # fleet_slow_statements() is SECURITY DEFINER (migration 000113), so the
+    # Grafana role reads this database's normalized statement stats without
+    # pg_read_all_stats (which would also expose cluster-wide query text).
+    # The reuse path's REVOKE-ALL-ON-ALL-FUNCTIONS wipes the grant each run;
+    # it is re-granted here only while the feature is on. The smoke count()
+    # executes the function, so it doubles as end-to-end preload verification.
     stats_grant=""
     stats_smoke=""
     if [ "$ENABLE_SYSTEM_MONITORING" = "true" ]; then
-        stats_grant="GRANT pg_read_all_stats TO \"${grafana_user}\" WITH INHERIT TRUE;"
-        stats_smoke="SELECT count(*) FROM pg_stat_statements;"
+        stats_grant="GRANT EXECUTE ON FUNCTION fleet_slow_statements() TO \"${grafana_user}\";"
+        stats_smoke="SELECT count(*) FROM fleet_slow_statements();"
     fi
 
     # `up --wait` only confirms containers are running, not that
@@ -1047,12 +1048,9 @@ BEGIN
                 target_role;
         END IF;
 
-        -- pg_read_all_stats is exempt: this script grants it itself when
-        -- system monitoring is enabled, so it must not poison reuse.
         SELECT count(*) INTO member_count
           FROM pg_auth_members
-         WHERE member = target_oid
-           AND roleid <> 'pg_read_all_stats'::regrole;
+         WHERE member = target_oid;
         IF member_count > 0 THEN
             RAISE EXCEPTION
                 'Refusing to reuse role % for Grafana: existing role is a member of other roles, which could grant inherited privileges. Pick a different GRAFANA_DB_USERNAME or drop the existing role first.',
@@ -1083,10 +1081,6 @@ BEGIN
         EXECUTE format('REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM %I', target_role);
         EXECUTE format('REVOKE ALL PRIVILEGES ON SCHEMA public FROM %I', target_role);
         EXECUTE format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM %I', target_db, target_role);
-        -- The REVOKE-ALL wipe above does not touch role memberships; drop the
-        -- stats grant explicitly so it never outlives system monitoring (it
-        -- is re-granted below when the feature is on).
-        EXECUTE format('REVOKE pg_read_all_stats FROM %I', target_role);
 
         -- Known-safe: rotate the password.
         EXECUTE format(

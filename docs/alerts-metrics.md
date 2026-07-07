@@ -64,8 +64,10 @@ carry no `organization_id`, user-authored PromQL rules (which get an
 injected `organization_id="<caller-org>"` matcher) match nothing on
 these series — they are alertable only through the provisioned rules.
 
-The `Fleet Heartbeat Stale` rule fires when the newest
-`fleet_system_heartbeat` sample is older than five minutes. If
+The `Fleet Heartbeat Stale` rule pages after roughly five minutes of
+silence: it fires once the newest `fleet_system_heartbeat` sample has
+been older than two minutes for three minutes straight (Grafana's
+pending period stacks on top of the staleness threshold). If
 fleet-api itself is down, Grafana cannot deliver through the fleet-api
 webhook until it recovers — the notification arrives retroactively, and
 the Grafana UI plus the operator-only ingest-stalled rule are the

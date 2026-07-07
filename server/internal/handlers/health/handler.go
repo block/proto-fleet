@@ -34,7 +34,11 @@ func NewReadyHandler(db Pinger) func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
 		defer cancel()
 		if err := db.PingContext(ctx); err != nil {
-			slog.Error("Readiness check failed to ping database", "error", err)
+			slog.Error("Readiness check failed to ping database",
+				"error", err,
+				"handler", "health-ready",
+				"path", r.URL.Path,
+			)
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return

@@ -229,9 +229,10 @@ This layers in `docker-compose.system-monitoring.yaml`, which:
   deliver to each organization's configured alert channels like any
   other rule, and can be paused per-org from the alerts settings page;
 - provisions a "System Monitoring" Grafana dashboard with host gauges
-  and slow-query tables backed by `pg_stat_statements`, and grants the
-  Grafana read-only role `pg_read_all_stats` so query text is visible
-  there.
+  and slow-query tables backed by `pg_stat_statements`, read through a
+  narrow `fleet_slow_statements()` definer function so the Grafana role
+  sees this database's normalized statement stats without cluster-wide
+  statistics privileges.
 
 If fleet-api itself goes down, Grafana keeps evaluating the heartbeat
 rule but can only deliver the notification once fleet-api is back; use

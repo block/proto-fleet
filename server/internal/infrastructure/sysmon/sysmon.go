@@ -6,6 +6,7 @@ package sysmon
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -39,9 +40,10 @@ type Collector struct {
 	cfg     Config
 	emitter Emitter
 	read    func(ctx context.Context, diskPath string) hostStats
+	reading atomic.Bool
 }
 
-// The Fleet Heartbeat Stale rule fires at 300s without a sample, so the
+// The Fleet Heartbeat Stale rule's staleness threshold is 120s, so the
 // interval must stay well under that no matter what an operator hand-sets:
 // above the max, every gap between ticks would read as a fleet outage.
 const (
@@ -75,20 +77,31 @@ func (c *Collector) Run(ctx context.Context) {
 	}
 }
 
+// collectOnce emits the heartbeat synchronously and gathers host stats in a
+// single-flight goroutine. Heartbeat means "fleet-api and its metrics writer
+// are alive", not "host stats are readable" — a statfs wedged on a dead
+// mount must not stop it, both because a false Fleet Heartbeat Stale page is
+// wrong and because the Host Disk Monitoring Stalled rule (which owns that
+// condition) only fires while heartbeats keep flowing.
 func (c *Collector) collectOnce(ctx context.Context) {
-	stats := c.read(ctx, c.cfg.DiskPath)
-	if stats.cpuPercent != nil {
-		c.emitter.EmitSystemCPUUsedPercent(ctx, *stats.cpuPercent)
-	}
-	if stats.memPercent != nil {
-		c.emitter.EmitSystemMemoryUsedPercent(ctx, *stats.memPercent)
-	}
-	if stats.diskPercent != nil {
-		c.emitter.EmitSystemDiskUsedPercent(ctx, *stats.diskPercent)
-	}
-	// Heartbeat means "fleet-api and its metrics writer are alive", not
-	// "host stats are readable" — emit it even when every read failed.
 	c.emitter.EmitSystemHeartbeat(ctx)
+	if !c.reading.CompareAndSwap(false, true) {
+		slog.Warn("sysmon: previous host stats read still in flight, skipping this tick")
+		return
+	}
+	go func() {
+		defer c.reading.Store(false)
+		stats := c.read(ctx, c.cfg.DiskPath)
+		if stats.cpuPercent != nil {
+			c.emitter.EmitSystemCPUUsedPercent(ctx, *stats.cpuPercent)
+		}
+		if stats.memPercent != nil {
+			c.emitter.EmitSystemMemoryUsedPercent(ctx, *stats.memPercent)
+		}
+		if stats.diskPercent != nil {
+			c.emitter.EmitSystemDiskUsedPercent(ctx, *stats.diskPercent)
+		}
+	}()
 }
 
 func readHostStats(ctx context.Context, diskPath string) hostStats {
