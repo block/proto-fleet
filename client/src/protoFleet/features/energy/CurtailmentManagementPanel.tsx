@@ -102,6 +102,11 @@ const transientTerminateRecoveryErrorCodes = new Set<Code>([
   Code.Canceled,
   Code.DeadlineExceeded,
   Code.Unavailable,
+  // connect-web assigns Code.Unknown to raw transport failures it cannot
+  // classify (ConnectError.from's default code), so a network blip must not
+  // unlock the destructive Abort escalation. Server-side rejections arrive
+  // with definitive codes via the fleeterror mapping interceptor.
+  Code.Unknown,
 ]);
 
 function getConnectError(error: unknown): ConnectError | null {
@@ -609,6 +614,18 @@ function CurtailmentManagementPanel({
   const [pendingTerminateRecoveryEventId, setPendingTerminateRecoveryEventId] = useState<string | null>(null);
   const [pendingForceReleaseEventId, setPendingForceReleaseEventId] = useState<string | null>(null);
   const [failedTerminateRecoveryEventId, setFailedTerminateRecoveryEventId] = useState<string | null>(null);
+  // Abort restore is unlocked per restore cycle: once the active event leaves
+  // the restoring state (restore completed, or a recurtail cycle flipped it
+  // back to pending/active), a fresh Stop-restore failure is required before
+  // the destructive escalation is offered again. Render-time adjustment per
+  // react.dev's "adjusting state when a prop changes" pattern.
+  const [prevActiveEventState, setPrevActiveEventState] = useState(activeEvent?.state);
+  if (activeEvent?.state !== prevActiveEventState) {
+    setPrevActiveEventState(activeEvent?.state);
+    if (activeEvent && activeEvent.state !== "restoring" && failedTerminateRecoveryEventId === activeEventId) {
+      setFailedTerminateRecoveryEventId(null);
+    }
+  }
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const activeRefreshAbortControllerRef = useRef<AbortController | null>(null);
   const manageSelectionAbortControllerRef = useRef<AbortController | null>(null);

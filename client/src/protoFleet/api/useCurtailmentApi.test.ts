@@ -261,6 +261,33 @@ describe("useCurtailmentApi", () => {
     ]);
   });
 
+  it("falls back to humanized raw codes for unmapped or blank unavailable reasons", async () => {
+    // Servers can grow new canonical reason codes ahead of the client's label
+    // map; the raw code (underscores humanized) must render rather than break.
+    const activeEvent = curtailmentEvent({
+      targetRollup: create(CurtailmentTargetRollupSchema, {
+        unavailable: 5,
+        total: 5,
+        unavailableReasons: [
+          create(CurtailmentUnavailableReasonSchema, { reason: "some_new_code", count: 3 }),
+          create(CurtailmentUnavailableReasonSchema, { reason: "   ", count: 2 }),
+        ],
+      }),
+    });
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: activeEvent });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent?.unavailableReasonCounts).toEqual([
+      { label: "some new code", count: 3 },
+      { label: "reason unknown", count: 2 },
+    ]);
+  });
+
   it("prefers the live rollup total over the snapshot count for active events", async () => {
     // Closed-loop claims / all-paired policy changes can grow the live target
     // set far past the event-start snapshot; active surfaces show the live

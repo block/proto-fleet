@@ -2175,7 +2175,14 @@ func parseTargetUnavailableReasonCounts(raw json.RawMessage) []models.TargetUnav
 	}
 
 	var countsByReason map[string]int64
-	if err := json.Unmarshal(raw, &countsByReason); err != nil || len(countsByReason) == 0 {
+	if err := json.Unmarshal(raw, &countsByReason); err != nil {
+		// Fail open (the client renders "details unavailable"), but leave a
+		// signal so a broken aggregation pipeline is distinguishable from
+		// normal rollup lag.
+		slog.Error("failed to parse curtailment unavailable reason rollup", "error", err, "raw_len", len(raw))
+		return nil
+	}
+	if len(countsByReason) == 0 {
 		return nil
 	}
 

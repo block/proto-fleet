@@ -789,6 +789,50 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByRole("button", { name: "Request abort" })).toBeInTheDocument();
   });
 
+  it("requires a fresh stop restore failure to re-offer abort in a new restore cycle", async () => {
+    const user = userEvent.setup();
+    mocks.adminTerminateCurtailment.mockRejectedValueOnce(new Error("terminate failed"));
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    const { rerender } = render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request stop restore" }));
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Recovery cannot complete");
+    await user.click(screen.getByRole("button", { name: "Stop restore" }));
+    await waitFor(() => expect(mocks.adminTerminateCurtailment).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("button", { name: "Request abort" })).toBeInTheDocument();
+
+    // Recurtail cycle: the same event leaves restoring and later re-enters it.
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "active" },
+        activeEvents: [{ ...historyEvent, state: "active" }],
+        activeEventId: "curt-1",
+      }),
+    );
+    rerender(<CurtailmentManagementPanel enableRecover />);
+
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+    rerender(<CurtailmentManagementPanel enableRecover />);
+
+    expect(screen.getByRole("button", { name: "Request stop restore" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
+  });
+
   it("keeps stop restore available after terminate recovery validation failures", async () => {
     const user = userEvent.setup();
     mocks.adminTerminateCurtailment.mockRejectedValueOnce(new Error("Enter a reason before terminating the event."));
@@ -815,8 +859,44 @@ describe("CurtailmentManagementPanel", () => {
 
   it("keeps stop restore available after transient terminate recovery failures", async () => {
     const user = userEvent.setup();
+    // Match the production error shape: useCurtailmentApi's handleFailure/toError
+    // wraps the ConnectError in a plain Error carrying it as `cause`, so this
+    // exercises the cause-unwrapping branch of the panel's transient detection.
     mocks.adminTerminateCurtailment.mockRejectedValueOnce(
-      new ConnectError("temporarily unavailable", Code.Unavailable),
+      Object.assign(new Error("temporarily unavailable"), {
+        cause: new ConnectError("temporarily unavailable", Code.Unavailable),
+      }),
+    );
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request stop restore" }));
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Recovery cannot complete");
+    await user.click(screen.getByRole("button", { name: "Stop restore" }));
+
+    await waitFor(() => expect(mocks.adminTerminateCurtailment).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("button", { name: "Request stop restore" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
+  });
+
+  it("treats unclassified network failures as transient and keeps stop restore available", async () => {
+    const user = userEvent.setup();
+    // connect-web wraps raw transport failures (fetch TypeError, connection
+    // reset) as ConnectError with Code.Unknown; a network blip must not swap
+    // Stop restore for the destructive Abort restore escalation.
+    mocks.adminTerminateCurtailment.mockRejectedValueOnce(
+      Object.assign(new Error("network error"), {
+        cause: new ConnectError("network error", Code.Unknown),
+      }),
     );
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
