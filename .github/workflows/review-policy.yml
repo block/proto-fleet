@@ -221,7 +221,11 @@ jobs:
 
       - name: Run low-risk AI classifier
         id: ai_classifier
-        if: steps.pr.outputs.found == 'true' && steps.pr.outputs.same_repo == 'true' && steps.preflight.outputs.eligible == 'true'
+        if: >-
+          steps.pr.outputs.found == 'true' &&
+          steps.pr.outputs.same_repo == 'true' &&
+          steps.preflight.outputs.eligible == 'true' &&
+          github.event_name != 'pull_request_review'
         continue-on-error: true
         uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
         with:
