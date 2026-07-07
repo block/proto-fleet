@@ -3,15 +3,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ScanMinerQrModalView, { type ScanPhase } from "./ScanMinerQrModalView";
 import { MinerIdentifierType } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { lookupMinerByIdentifier } from "@/protoFleet/api/lookupMinerByIdentifier";
+import type { MinerEligibility } from "@/protoFleet/components/MinerSelectionList";
 import { canUseLiveCamera, useQrScanner } from "@/protoFleet/features/fleetManagement/hooks/useQrScanner";
+import { isMinerSnapshotIneligible } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { parseScannedIdentifier } from "@/protoFleet/features/fleetManagement/utils/parseScannedIdentifier";
 
 interface ScanMinerQrModalProps {
   show: boolean;
   /** Label of the rack being edited; a miner already in a *different* rack is blocked. */
   currentRackLabel: string;
+  /** Target rack placement, used to flag whether the scanned miner is a reparent. */
+  eligibility: MinerEligibility;
   onDismiss: () => void;
-  onConfirm: (deviceIdentifier: string) => void;
+  /** `isReassignment` is true when the scanned miner is currently assigned to a
+   *  different rack/building/site, so the caller can confirm the reparent. */
+  onConfirm: (deviceIdentifier: string, isReassignment: boolean) => void;
 }
 
 /**
@@ -19,7 +25,13 @@ interface ScanMinerQrModalProps {
  * decoding, and the identifier → miner lookup, driving the presentational
  * ScanMinerQrModalView through a `ScanPhase` state machine.
  */
-export default function ScanMinerQrModal({ show, currentRackLabel, onDismiss, onConfirm }: ScanMinerQrModalProps) {
+export default function ScanMinerQrModal({
+  show,
+  currentRackLabel,
+  eligibility,
+  onDismiss,
+  onConfirm,
+}: ScanMinerQrModalProps) {
   const [phase, setPhase] = useState<ScanPhase>({ kind: "scanning" });
   const liveCamera = canUseLiveCamera();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -126,8 +138,10 @@ export default function ScanMinerQrModal({ show, currentRackLabel, onDismiss, on
   );
 
   const handleConfirm = useCallback(() => {
-    if (phase.kind === "found") onConfirm(phase.snapshot.deviceIdentifier);
-  }, [phase, onConfirm]);
+    if (phase.kind === "found") {
+      onConfirm(phase.snapshot.deviceIdentifier, isMinerSnapshotIneligible(phase.snapshot, eligibility));
+    }
+  }, [phase, onConfirm, eligibility]);
 
   return (
     <ScanMinerQrModalView

@@ -9,6 +9,7 @@ const mockGetSelection = vi.fn(() => ({
   selectedItems: [] as string[],
   allSelected: false,
   totalMiners: 0,
+  reassignedItems: [] as string[],
 }));
 
 vi.mock("@/protoFleet/components/MinerSelectionList", () => ({
@@ -99,12 +100,13 @@ describe("ManageMinersModal", () => {
       selectedItems: ["miner-1", "miner-2"],
       allSelected: false,
       totalMiners: 10,
+      reassignedItems: [],
     });
 
     render(<ManageMinersModal {...defaultProps} onConfirm={onConfirm} />);
     fireEvent.click(screen.getByText(/Continue/));
 
-    expect(onConfirm).toHaveBeenCalledWith(["miner-1", "miner-2"], false, undefined);
+    expect(onConfirm).toHaveBeenCalledWith(["miner-1", "miner-2"], false, undefined, []);
   });
 
   it("shows overflow error when selection exceeds maxSlots", () => {
@@ -112,6 +114,7 @@ describe("ManageMinersModal", () => {
       selectedItems: ["m1", "m2", "m3"],
       allSelected: false,
       totalMiners: 10,
+      reassignedItems: [],
     });
 
     render(<ManageMinersModal {...defaultProps} maxSlots={2} />);
@@ -126,6 +129,7 @@ describe("ManageMinersModal", () => {
       selectedItems: ["m1", "m2", "m3"],
       allSelected: false,
       totalMiners: 10,
+      reassignedItems: [],
     });
 
     render(<ManageMinersModal {...defaultProps} maxSlots={2} onConfirm={onConfirm} />);

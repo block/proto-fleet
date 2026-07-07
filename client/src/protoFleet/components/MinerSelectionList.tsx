@@ -79,8 +79,9 @@ export interface MinerSelectionListHandle {
     totalMiners: number | undefined;
     filter: MinerListFilter;
     // Selected ids that are currently assigned to a different rack/building/site
-    // (reassigning them moves them). Computed from the loaded pages, so it's
-    // exact for single-select and current-page multi-select.
+    // (reassigning them moves them). Covers off-page selections — placement is
+    // tracked for every item seen across pages, and a miner can only be selected
+    // from a page it appeared on.
     reassignedItems: string[];
   };
 }
@@ -313,12 +314,12 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         merged.includeUnassigned = scopeIncludeUnassigned;
       }
       if (!showAssigned && eligibilityEnabled) {
-        // Rack: always admit unracked miners; also admit the target rack's own
-        // members when it exists. Excludes miners in any other rack.
+        // Rack: admit unracked miners plus the target rack's own members.
+        // Override (not append) any user-selected Rack facet — while
+        // assignable-only is enforced, filtering to a *different* rack would
+        // otherwise pull that rack's members back in.
         merged.includeNoRack = true;
-        if (eligRackId !== undefined && !merged.rackIds.includes(eligRackId)) {
-          merged.rackIds.push(eligRackId);
-        }
+        merged.rackIds = eligRackId !== undefined ? [eligRackId] : [];
         if (eligBuildingId !== undefined) {
           merged.buildingIds = [eligBuildingId];
           merged.includeNoBuilding = true;
@@ -420,8 +421,14 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const currentPageItemsRef = useRef(currentPageItems);
+    // Accumulates every item seen across pages so reassignment detection covers
+    // off-page selections. A miner can only be selected from a page it appeared
+    // on, so this map holds placement for every selectable id — unlike the
+    // parent's first-page-only snapshot cache.
+    const seenItemsRef = useRef<Map<string, DeviceListItem>>(new Map());
     useEffect(() => {
       currentPageItemsRef.current = currentPageItems;
+      for (const item of currentPageItems) seenItemsRef.current.set(item.deviceIdentifier, item);
     }, [currentPageItems]);
 
     const scrollToTop = useCallback(() => {
@@ -458,15 +465,14 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       ref,
       () => ({
         getSelection: () => {
-          const byId = new Map(currentPageItems.map((item) => [item.deviceIdentifier, item]));
           const reassignedItems = selectedItems.filter((id) => {
-            const item = byId.get(id);
+            const item = seenItemsRef.current.get(id);
             return item !== undefined && isReassignment(item);
           });
           return { selectedItems, allSelected, totalMiners, filter, reassignedItems };
         },
       }),
-      [selectedItems, allSelected, totalMiners, filter, currentPageItems, isReassignment],
+      [selectedItems, allSelected, totalMiners, filter, isReassignment],
     );
 
     const handleSetSelectedItems = useCallback(

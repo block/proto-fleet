@@ -18,7 +18,15 @@ interface ManageMinersModalProps {
   eligibility: MinerEligibility;
   maxSlots: number;
   onDismiss: () => void;
-  onConfirm: (selectedIds: string[], allSelected: boolean, filter?: MinerListFilter) => void;
+  /** `reassignedItems` is the subset of the explicit selection that is currently
+   *  assigned elsewhere, so the caller can confirm the reparent (empty when
+   *  `allSelected`, since that path is pre-filtered to assignable miners). */
+  onConfirm: (
+    selectedIds: string[],
+    allSelected: boolean,
+    filter: MinerListFilter | undefined,
+    reassignedItems: string[],
+  ) => void;
 }
 
 export default function ManageMinersModal({
@@ -36,7 +44,7 @@ export default function ManageMinersModal({
     const selection = selectionRef.current?.getSelection();
     if (!selection) return;
 
-    const { selectedItems, allSelected, filter } = selection;
+    const { selectedItems, allSelected, filter, reassignedItems } = selection;
 
     // Only validate overflow for explicit selections. When allSelected is true,
     // the parent resolves the full selectable list via server pagination and
@@ -48,7 +56,7 @@ export default function ManageMinersModal({
       return;
     }
 
-    onConfirm(selectedItems, allSelected, allSelected ? filter : undefined);
+    onConfirm(selectedItems, allSelected, allSelected ? filter : undefined, reassignedItems);
   }, [maxSlots, onConfirm]);
 
   if (!show) return null;

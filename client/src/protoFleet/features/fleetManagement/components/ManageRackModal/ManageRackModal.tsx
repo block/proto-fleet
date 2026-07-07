@@ -326,7 +326,11 @@ export default function ManageRackModal({
   }, []);
 
   // Show the reparent warning (#672) when `count` > 0, else run `proceed`
-  // directly. `proceed` runs once the operator accepts the warning.
+  // directly. `proceed` runs once the operator accepts the warning. Callers pass
+  // the reassignment count from a reliable source (the selection list's
+  // per-row placement, or the scanned miner's snapshot) rather than the parent's
+  // first-page-only `allMiners` cache, so the warning isn't missed for miners
+  // outside that page.
   const promptReparent = useCallback((count: number, proceed: () => void) => {
     if (count === 0) {
       proceed();
@@ -334,20 +338,6 @@ export default function ManageRackModal({
     }
     setReparentConfirm({ count, onConfirm: proceed });
   }, []);
-
-  // Guard by looking up placement in the display snapshots. Used where the
-  // caller only has ids (bulk select, scan). Select-all is pre-filtered to
-  // eligible ids, so reparents only arise from explicit picks.
-  const guardReparent = useCallback(
-    (ids: string[], proceed: () => void) => {
-      const reassignedCount = ids.filter((id) => {
-        const miner = allMiners[id];
-        return miner !== undefined && isMinerSnapshotIneligible(miner, eligibility);
-      }).length;
-      promptReparent(reassignedCount, proceed);
-    },
-    [allMiners, eligibility, promptReparent],
-  );
 
   // SearchMinersModal confirm — add miner to rack and assign to selected slot.
   // The modal reports the reassignment flag from the row it selected (exact even
@@ -373,13 +363,13 @@ export default function ManageRackModal({
   );
 
   // ScanMinerQrModal confirm — identical placement to search, but keyed off
-  // the resolved device identifier from the scanned serial. Kept separate so
-  // it closes the scan modal (not the search modal).
+  // the resolved device identifier from the scanned serial. The scan modal
+  // computes the reassignment flag from the resolved snapshot's placement.
   const handleScanMinerConfirm = useCallback(
-    (minerId: string) => {
+    (minerId: string, isReassignment: boolean) => {
       if (!selectedSlot) return;
       const slotKey = selectedSlot.key;
-      guardReparent([minerId], () => {
+      promptReparent(isReassignment ? 1 : 0, () => {
         setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
         setSlotAssignments((prev) => {
           const next = removeAssignmentByValue(prev, minerId);
@@ -390,7 +380,7 @@ export default function ManageRackModal({
         setShowScanQr(false);
       });
     },
-    [selectedSlot, guardReparent],
+    [selectedSlot, promptReparent],
   );
 
   // Miner selection handler — when a slot is awaiting, assign miner to it
@@ -443,8 +433,18 @@ export default function ManageRackModal({
 
   // ManageMinersModal confirm handler
   const handleManageMinersConfirm = useCallback(
-    async (selectedIds: string[], allSelected: boolean, listFilter?: MinerListFilter) => {
+    async (
+      selectedIds: string[],
+      allSelected: boolean,
+      listFilter: MinerListFilter | undefined,
+      reassignedItems: string[],
+    ) => {
       let finalIds = selectedIds;
+      // "Select all" resolves to the assignable set server-side (ineligible
+      // miners already excluded), so it can never reparent. An explicit
+      // selection can, and `reassignedItems` reports exactly which picks are
+      // assigned elsewhere.
+      let reassignedCount = reassignedItems.length;
 
       if (allSelected) {
         // When "select all" is active, selectedIds only contains the current page.
@@ -460,6 +460,7 @@ export default function ManageRackModal({
         } finally {
           setIsLoading(false);
         }
+        reassignedCount = 0;
       }
 
       if (finalIds.length > totalSlots) {
@@ -469,7 +470,7 @@ export default function ManageRackModal({
         return;
       }
 
-      guardReparent(finalIds, () => {
+      promptReparent(reassignedCount, () => {
         setRackMiners(finalIds);
         setShowManageMiners(false);
 
@@ -479,7 +480,7 @@ export default function ManageRackModal({
         setManualAssignmentCache((prev) => filterAssignmentsByValues(prev, keepSet));
       });
     },
-    [eligibility, totalSlots, guardReparent],
+    [eligibility, totalSlots, promptReparent],
   );
 
   // RackSettingsModal edit handler
@@ -676,6 +677,7 @@ export default function ManageRackModal({
         <ScanMinerQrModal
           show={showScanQr}
           currentRackLabel={initialRackSettings.label}
+          eligibility={eligibility}
           onDismiss={() => {
             setShowScanQr(false);
             setSelectedSlot(null);

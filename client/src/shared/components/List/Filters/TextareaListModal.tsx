@@ -110,6 +110,10 @@ const TextareaListModalContent = ({
           onClick: handleApply,
           variant: variants.primary,
           disabled: !isValid,
+          // handleApply closes the modal itself on success; keep it open so an
+          // invalid draft (validated only on click) surfaces errors instead of
+          // dismissing and dropping the user's edits.
+          dismissModalOnClick: false,
         },
       ]}
     >

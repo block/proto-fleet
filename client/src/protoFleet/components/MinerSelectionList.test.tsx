@@ -193,6 +193,31 @@ describe("MinerSelectionList eligibility", () => {
     expect(filter.siteIds).toEqual([]);
   });
 
+  it("overrides a user-selected Rack facet with the target rack while assignable-only is on", async () => {
+    render(<MinerSelectionList eligibility={{ rackId: 1n }} filterConfig={{ showRackFilter: true }} />);
+
+    const listProps = lastListProps() as {
+      onServerFilter: (filters: {
+        buttonFilters: string[];
+        dropdownFilters: Record<string, string[]>;
+        numericFilters: Record<string, unknown>;
+        textareaListFilters: Record<string, string[]>;
+      }) => Promise<void>;
+    };
+    await act(async () => {
+      await listProps.onServerFilter({
+        buttonFilters: [],
+        dropdownFilters: { rack: ["9"] },
+        numericFilters: {},
+        textareaListFilters: {},
+      });
+    });
+
+    // The other rack (9) is dropped; only the target rack + unracked are admitted.
+    expect(lastFleetFilter().rackIds).toEqual([1n]);
+    expect(lastFleetFilter().includeNoRack).toBe(true);
+  });
+
   it("renders the assignable-only toggle only when eligibility is provided", () => {
     const { rerender } = render(<MinerSelectionList />);
     expect(lastListProps()?.headerControls).toBeFalsy();

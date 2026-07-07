@@ -94,6 +94,18 @@ describe("TextareaListModal", () => {
     expect(onApply).toHaveBeenCalledWith([]);
   });
 
+  it("keeps the modal open and surfaces errors when Apply is clicked with an invalid draft", () => {
+    const onApply = vi.fn();
+    const onClose = vi.fn();
+    renderModal({ onApply, onClose });
+    // Type an invalid line but don't blur, so the Apply button isn't disabled yet.
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "BAD" } });
+    fireEvent.click(screen.getByRole("button", { name: /apply/i }));
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText(/rejected by stub/i)).toBeInTheDocument();
+  });
+
   it("caps at maxLines with a 'Showing first N' notice", () => {
     const onApply = vi.fn();
     const lines = Array.from({ length: 5 }, (_, i) => `entry-${i}`);
