@@ -51,6 +51,16 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("AI classifier requires human review", reasons)
         self.assertIn("AI classifier confidence 0.84 is below 0.85", reasons)
 
+    def test_classifier_rejects_embedded_json(self):
+        with self.assertRaisesRegex(policy.PolicyError, "exactly one JSON object"):
+            policy.load_classifier('warning\n{"risk":"low","confidence":0.9,"requires_human_review":false,"reasons":[]}')
+
+    def test_classifier_rejects_non_finite_confidence(self):
+        classifier = policy.load_classifier('{"risk":"low","confidence":NaN,"requires_human_review":false,"reasons":[]}')
+        allowed, reasons = policy.classifier_allows_low_risk(classifier, 0.85)
+        self.assertFalse(allowed)
+        self.assertIn("AI classifier confidence must be a finite number", reasons)
+
     def test_extract_run_id(self):
         self.assertEqual(
             policy.extract_run_id("https://github.com/block/proto-fleet/actions/runs/123/job/456"),

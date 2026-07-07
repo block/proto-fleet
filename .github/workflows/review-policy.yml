@@ -66,6 +66,7 @@ jobs:
             core.setOutput('head_sha', pr.head.sha);
             core.setOutput('head_repo', pr.head.repo.full_name);
             core.setOutput('base_repo', pr.base.repo.full_name);
+            core.setOutput('same_repo', String(pr.head.repo.full_name === pr.base.repo.full_name));
 
       - name: Checkout PR head commit
         if: steps.pr.outputs.found == 'true'
@@ -108,7 +109,7 @@ jobs:
 
       - name: Run low-risk AI classifier
         id: ai_classifier
-        if: steps.pr.outputs.found == 'true'
+        if: steps.pr.outputs.found == 'true' && steps.pr.outputs.same_repo == 'true'
         uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
@@ -146,12 +147,22 @@ jobs:
               "reasons": ["short reason"]
             }
 
+      - name: Mark fork PR classifier skipped
+        id: fork_classifier
+        if: steps.pr.outputs.found == 'true' && steps.pr.outputs.same_repo != 'true'
+        run: |
+          {
+            echo 'final-message<<EOF'
+            echo '{"risk":"high","confidence":1.0,"requires_human_review":true,"reasons":["Fork PRs are not evaluated by the secret-backed AI classifier"]}'
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
       - name: Evaluate review policy
         id: evaluate_policy
         if: steps.pr.outputs.found == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          CLASSIFIER_OUTPUT: ${{ steps.ai_classifier.outputs.final-message }}
+          CLASSIFIER_OUTPUT: ${{ steps.ai_classifier.outputs.final-message || steps.fork_classifier.outputs.final-message }}
           RESULT_JSON: ${{ runner.temp }}/review-policy-result.json
           POLICY_ROOT: ${{ steps.policy_source.outputs.path }}
           OWNER: ${{ github.repository_owner }}

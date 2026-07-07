@@ -7,8 +7,8 @@ import argparse
 import fnmatch
 import io
 import json
+import math
 import os
-import re
 import sys
 import urllib.error
 import urllib.parse
@@ -20,7 +20,6 @@ from typing import Any
 
 API_VERSION = "2022-11-28"
 BOT_SUFFIX = "[bot]"
-AUTHORIZED_REVIEW_ASSOCIATIONS = {"COLLABORATOR", "MEMBER", "OWNER"}
 AUTHORIZED_REVIEW_PERMISSIONS = {"admin", "maintain", "write"}
 
 
@@ -63,6 +62,17 @@ def github_request(method: str, path: str, token: str, body: dict[str, Any] | No
 
 
 def github_download(path: str, token: str) -> bytes:
+    class DropAuthOnRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+            if redirected is None:
+                return None
+            old_host = urllib.parse.urlparse(req.full_url).netloc
+            new_host = urllib.parse.urlparse(newurl).netloc
+            if old_host != new_host:
+                redirected.remove_header("Authorization")
+            return redirected
+
     request = urllib.request.Request(
         f"https://api.github.com{path}",
         method="GET",
@@ -73,7 +83,8 @@ def github_download(path: str, token: str) -> bytes:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        opener = urllib.request.build_opener(DropAuthOnRedirect)
+        with opener.open(request, timeout=30) as response:
             return response.read()
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")
@@ -140,47 +151,47 @@ def load_classifier(raw_output: str) -> dict[str, Any] | None:
     if not text:
         return None
     try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-    if fenced:
-        return json.loads(fenced.group(1))
-
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end > start:
-        return json.loads(text[start : end + 1])
-    raise PolicyError("AI classifier output did not contain a JSON object")
+        classifier = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise PolicyError("AI classifier output must be exactly one JSON object") from error
+    if not isinstance(classifier, dict):
+        raise PolicyError("AI classifier output must be a JSON object")
+    return classifier
 
 
 def classifier_allows_low_risk(classifier: dict[str, Any] | None, minimum_confidence: float) -> tuple[bool, list[str]]:
     if classifier is None:
         return False, ["AI classifier output is missing"]
 
-    risk = str(classifier.get("risk", "")).lower()
-    requires_human_review = bool(classifier.get("requires_human_review", True))
-    try:
-        confidence = float(classifier.get("confidence", 0))
-    except (TypeError, ValueError):
-        confidence = 0
-
+    risk = classifier.get("risk")
+    requires_human_review = classifier.get("requires_human_review")
+    confidence = classifier.get("confidence")
     reasons = classifier.get("reasons", [])
-    if not isinstance(reasons, list):
-        reasons = [str(reasons)]
 
     blockers: list[str] = []
-    if risk != "low":
+    if risk not in {"low", "medium", "high"}:
+        blockers.append(f"AI classifier risk is invalid: {risk!r}")
+    elif risk != "low":
         blockers.append(f"AI classifier risk is {risk or 'missing'}, not low")
+    if not isinstance(requires_human_review, bool):
+        blockers.append("AI classifier requires_human_review must be boolean")
+        requires_human_review = True
     if requires_human_review:
         blockers.append("AI classifier requires human review")
+    if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not math.isfinite(confidence):
+        blockers.append("AI classifier confidence must be a finite number")
+        confidence = 0
+    elif confidence < 0 or confidence > 1:
+        blockers.append(f"AI classifier confidence {confidence:.2f} is outside 0.00..1.00")
     if confidence < minimum_confidence:
         blockers.append(f"AI classifier confidence {confidence:.2f} is below {minimum_confidence:.2f}")
+    if not isinstance(reasons, list) or not all(isinstance(reason, str) for reason in reasons):
+        blockers.append("AI classifier reasons must be a list of strings")
+        reasons = []
 
     if blockers:
         return False, blockers
-    return True, [str(reason) for reason in reasons]
+    return True, reasons
 
 
 def latest_reviews(reviews: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -237,8 +248,6 @@ def human_review_state(
 
 
 def reviewer_has_authority(owner: str, repo: str, username: str, association: str | None, token: str) -> bool:
-    if association in AUTHORIZED_REVIEW_ASSOCIATIONS:
-        return True
     quoted_user = urllib.parse.quote(username, safe="")
     try:
         permission = github_request("GET", f"/repos/{owner}/{repo}/collaborators/{quoted_user}/permission", token)
@@ -304,8 +313,12 @@ def check_statuses(owner: str, repo: str, head_sha: str, required_checks: list[s
 def extract_run_id(details_url: str | None) -> str | None:
     if not details_url:
         return None
-    match = re.search(r"/actions/runs/(\d+)", details_url)
-    return match.group(1) if match else None
+    marker = "/actions/runs/"
+    if marker not in details_url:
+        return None
+    tail = details_url.split(marker, 1)[1]
+    run_id = tail.split("/", 1)[0]
+    return run_id if run_id.isdigit() else None
 
 
 def extract_security_risk(owner: str, repo: str, head_sha: str, token: str) -> tuple[str | None, list[str]]:

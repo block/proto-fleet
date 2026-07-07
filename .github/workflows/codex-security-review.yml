@@ -106,7 +106,15 @@ jobs:
 
             ## Output Format
 
-            Provide a structured review with:
+            Return exactly one JSON object and no Markdown outside the JSON object.
+            The JSON schema is:
+
+            {
+              "overall_risk": "CRITICAL|HIGH|MEDIUM|LOW|NONE",
+              "review_markdown": "## Review Summary\\n\\n**Overall Risk**: HIGH\\n\\n..."
+            }
+
+            The `review_markdown` string must contain the structured review with:
 
             ## Review Summary
 
@@ -127,7 +135,7 @@ jobs:
             ### Notes
 
             [Any other relevant security, correctness, or reliability considerations]
-            Do not wrap the review in Markdown code fences.
+            Do not wrap the JSON in Markdown code fences.
 
             ## Important Constraints
 
@@ -147,12 +155,17 @@ jobs:
           python3 - <<'PY'
           import json
           import os
-          import re
           from pathlib import Path
 
-          review = os.environ["REVIEW_OUTPUT"]
-          match = re.search(r"\*\*Overall Risk\*\*:\s*\[?([A-Z]+)\]?", review)
-          risk = match.group(1).upper() if match else "UNKNOWN"
+          allowed = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"}
+          raw = os.environ["REVIEW_OUTPUT"].strip()
+          parsed = json.loads(raw)
+          risk = parsed.get("overall_risk")
+          review_markdown = parsed.get("review_markdown")
+          if risk not in allowed:
+              raise ValueError(f"Invalid overall_risk: {risk!r}")
+          if not isinstance(review_markdown, str) or not review_markdown.strip():
+              raise ValueError("review_markdown must be a non-empty string")
           result = {
               "head_sha": os.environ["REVIEW_HEAD_SHA"],
               "commit_range": os.environ["REVIEW_COMMIT_RANGE"],
@@ -161,6 +174,7 @@ jobs:
           }
           output = Path("codex-security-review-result.json")
           output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+          Path("codex-security-review.md").write_text(review_markdown, encoding="utf-8")
           PY
 
       - name: Upload security review result
@@ -175,11 +189,12 @@ jobs:
         if: steps.run_codex.outputs.final-message != ''
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
+          REVIEW_MARKDOWN_FILE: codex-security-review.md
         with:
           github-token: ${{ github.token }}
           script: |
-            const review = process.env.REVIEW_OUTPUT;
+            const fs = require('fs');
+            const review = fs.readFileSync(process.env.REVIEW_MARKDOWN_FILE, 'utf8');
             const commitRange = process.env.REVIEW_COMMIT_RANGE || `${context.sha}..${context.sha}`;
             const modelName = process.env.CODEX_MODEL || 'unknown';
             const scopeSummaryLine = `Reviewed pull request diff only (\`${commitRange}\`, exact PR three-dot diff)`;
