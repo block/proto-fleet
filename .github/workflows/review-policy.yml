@@ -1,0 +1,234 @@
+name: Review Policy
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  pull_request_review:
+    types: [submitted, dismissed]
+  workflow_run:
+    workflows: ["PR Gate", "Codex Security Review"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to evaluate
+        required: true
+        type: number
+
+permissions:
+  checks: read
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  evaluate:
+    name: Evaluate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      CODEX_MODEL: gpt-5.5
+      CODEX_REASONING_EFFORT: high
+      REVIEW_POLICY_DIFF_FILE: .git/review-policy.diff
+    steps:
+      - name: Resolve pull request
+        id: pr
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            let pr;
+            if (context.eventName === 'workflow_dispatch') {
+              const { data } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: Number(context.payload.inputs.pr),
+              });
+              pr = data;
+            } else if (context.payload.pull_request) {
+              pr = context.payload.pull_request;
+            } else if (context.payload.workflow_run?.pull_requests?.length) {
+              const candidate = context.payload.workflow_run.pull_requests[0];
+              const { data } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: candidate.number,
+              });
+              pr = data;
+            }
+
+            if (!pr) {
+              core.notice('No pull request was associated with this event.');
+              core.setOutput('found', 'false');
+              return;
+            }
+
+            core.setOutput('found', 'true');
+            core.setOutput('number', String(pr.number));
+            core.setOutput('author', pr.user.login);
+            core.setOutput('base_sha', pr.base.sha);
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('head_repo', pr.head.repo.full_name);
+            core.setOutput('base_repo', pr.base.repo.full_name);
+
+      - name: Checkout base commit
+        if: steps.pr.outputs.found == 'true'
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ steps.pr.outputs.base_sha }}
+          fetch-depth: 0
+
+      - name: Write review policy diff
+        if: steps.pr.outputs.found == 'true'
+        env:
+          REVIEW_BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          REVIEW_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          REVIEW_HEAD_REPO: ${{ steps.pr.outputs.head_repo }}
+          REVIEW_POLICY_DIFF_FILE: ${{ env.REVIEW_POLICY_DIFF_FILE }}
+        run: |
+          git -c protocol.version=2 fetch --no-tags origin "$REVIEW_BASE_SHA"
+          git -c protocol.version=2 fetch --no-tags "https://github.com/${REVIEW_HEAD_REPO}.git" "$REVIEW_HEAD_SHA"
+          git diff --find-renames --submodule=diff --unified=40 "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA" > "$REVIEW_POLICY_DIFF_FILE"
+
+      - name: Run low-risk AI classifier
+        id: ai_classifier
+        if: steps.pr.outputs.found == 'true' && env.OPENAI_API_KEY != ''
+        uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
+        with:
+          openai-api-key: ${{ env.OPENAI_API_KEY }}
+          model: ${{ env.CODEX_MODEL }}
+          codex-args: '["-c","model_reasoning_effort=${{ env.CODEX_REASONING_EFFORT }}","-c","service_tier=fast"]'
+          safety-strategy: drop-sudo
+          sandbox: read-only
+          prompt: |
+            # Proto Fleet Low-Risk Review Policy Classifier
+
+            Decide whether this pull request is safe to merge without human approval if
+            all deterministic policy gates also pass.
+
+            Read `${{ env.REVIEW_POLICY_DIFF_FILE }}` and treat it as the authoritative
+            PR diff. Review only this diff, not unrelated repository code.
+
+            Return `low` risk only when all of these are true:
+            - The change is mechanically simple and localized.
+            - The behavior change is absent or trivial to reason about.
+            - Tests were added or updated when behavior changes.
+            - No auth, authorization, persistence, migrations, networking, dependency,
+              build, deployment, generated-code, GitHub Actions, secret handling, mining
+              pool/wallet, plugin, protobuf, or infrastructure behavior changed.
+            - No product judgment, rollout judgment, or ambiguous user-visible semantics
+              require a human reviewer.
+
+            If uncertain, set `risk` to `medium` or `high`, set
+            `requires_human_review` to `true`, and explain why.
+
+            Output exactly one JSON object and no Markdown:
+            {
+              "risk": "low|medium|high",
+              "confidence": 0.0,
+              "requires_human_review": true,
+              "reasons": ["short reason"]
+            }
+
+      - name: Evaluate review policy
+        id: evaluate_policy
+        if: steps.pr.outputs.found == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLASSIFIER_OUTPUT: ${{ steps.ai_classifier.outputs.final-message }}
+          RESULT_JSON: ${{ runner.temp }}/review-policy-result.json
+        run: |
+          set +e
+          .github/scripts/evaluate_review_policy.py \
+            --config .github/review-policy.json \
+            --result-json "$RESULT_JSON" \
+            --classifier-output "$CLASSIFIER_OUTPUT" \
+            --owner "${{ github.repository_owner }}" \
+            --repo "${{ github.event.repository.name }}" \
+            --pr-number "${{ steps.pr.outputs.number }}" \
+            --author "${{ steps.pr.outputs.author }}" \
+            --head-sha "${{ steps.pr.outputs.head_sha }}"
+          status=$?
+          decision="$(python3 -c 'import json, os; print(json.load(open(os.environ["RESULT_JSON"]))["decision"])' 2>/dev/null || echo error)"
+          echo "decision=${decision}" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Sync review policy label
+        if: steps.pr.outputs.found == 'true' && always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const labels = {
+              'trusted-author-low-risk': 'review-policy: low-risk',
+              'human-approved': 'review-policy: human-approved',
+              'needs-human-review': 'review-policy: needs-review',
+            };
+            const managedLabels = Object.values(labels);
+            const decision = '${{ steps.evaluate_policy.outputs.decision }}';
+            const desired = labels[decision] || labels['needs-human-review'];
+            const issue_number = Number('${{ steps.pr.outputs.number }}');
+            const colors = {
+              'review-policy: low-risk': '0e8a16',
+              'review-policy: human-approved': '1d76db',
+              'review-policy: needs-review': 'd93f0b',
+            };
+
+            async function ensureLabel(name) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name,
+                  color: colors[name],
+                  description: 'Managed by the Review Policy workflow.',
+                });
+              }
+            }
+
+            try {
+              for (const label of managedLabels) {
+                await ensureLabel(label);
+              }
+
+              const { data: existingLabels } = await github.rest.issues.listLabelsOnIssue({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                per_page: 100,
+              });
+
+              for (const label of existingLabels) {
+                if (managedLabels.includes(label.name) && label.name !== desired) {
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number,
+                    name: label.name,
+                  }).catch((error) => {
+                    if (error.status !== 404) throw error;
+                  });
+                }
+              }
+
+              if (!existingLabels.some((label) => label.name === desired)) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number,
+                  labels: [desired],
+                });
+              }
+            } catch (error) {
+              core.warning(`Unable to sync review policy label: ${error.message}`);
+            }
+
+      - name: Skip non-PR event
+        if: steps.pr.outputs.found != 'true'
+        run: echo "No pull request to evaluate."

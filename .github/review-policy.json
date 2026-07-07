@@ -1,0 +1,61 @@
+{
+  "trusted_authors": [
+    "@block/proto-fleet-dev",
+    "ankitgoswami",
+    "calebjohnston",
+    "edgars-avotins",
+    "flesher",
+    "hadi-alam",
+    "illegalprime",
+    "jmarrxyz",
+    "mcharles-square",
+    "negarn",
+    "rongxin-liu"
+  ],
+  "minimum_human_approvals": 1,
+  "low_risk": {
+    "max_changed_files": 10,
+    "max_total_changes": 200,
+    "minimum_ai_confidence": 0.85,
+    "allowed_security_risks": [
+      "NONE",
+      "LOW"
+    ],
+    "required_checks": [
+      "Gate",
+      "security-review",
+      "DCO Check",
+      "Semgrep OSS",
+      "zizmor"
+    ],
+    "deny_paths": [
+      ".github/**",
+      "CODEOWNERS",
+      "bin/**",
+      "hermit-packages/**",
+      "just/**",
+      "justfile",
+      "scripts/**",
+      "deployment-files/**",
+      "server/**",
+      "plugin/**",
+      "proto/**",
+      "proto-rig-api/**",
+      "sdk/**",
+      "packages/proto-python-gen/**",
+      "**/generated/**",
+      "**/*.pb.go",
+      "**/*.pb.ts",
+      "**/migrations/**",
+      "**/package.json",
+      "**/package-lock.json",
+      "**/go.mod",
+      "**/go.sum",
+      "**/Cargo.toml",
+      "**/Cargo.lock",
+      "**/pyproject.toml",
+      "**/requirements*.txt",
+      "**/uv.lock"
+    ]
+  }
+}
