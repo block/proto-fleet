@@ -333,7 +333,19 @@ GROUP BY bucket
 ORDER BY bucket ASC;
 
 -- name: GetOrgDeviceMetricsRawBucketAggregates :many
-WITH per_device_bucket AS (
+WITH latest_device AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+),
+org_device AS (
+    SELECT device_identifier
+    FROM latest_device
+    WHERE org_id = sqlc.arg('org_id')
+),
+per_device_bucket AS (
     SELECT
         time_bucket(make_interval(secs => sqlc.arg('bucket_seconds')::double precision), dm.time)::timestamptz AS bucket,
         dm.device_identifier,
@@ -364,20 +376,10 @@ WITH per_device_bucket AS (
         SUM(efficiency_jh) AS sum_efficiency,
         COUNT(efficiency_jh)::bigint AS efficiency_points
     FROM device_metrics dm
+    JOIN org_device USING (device_identifier)
     WHERE dm.time >= sqlc.arg('start_time')
       AND dm.time <= sqlc.arg('end_time')
     GROUP BY bucket, dm.device_identifier
-),
-device_org AS (
-    SELECT DISTINCT ON (d.device_identifier)
-        d.device_identifier,
-        d.org_id
-    FROM device d
-    JOIN (
-        SELECT DISTINCT device_identifier
-        FROM per_device_bucket
-    ) ids ON ids.device_identifier = d.device_identifier
-    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
 )
 SELECT
     p.bucket,
@@ -414,8 +416,6 @@ SELECT
     SUM(p.efficiency_points)::bigint AS efficiency_points,
     COUNT(*) FILTER (WHERE p.efficiency_points > 0)::bigint AS efficiency_device_count
 FROM per_device_bucket p
-JOIN device_org USING (device_identifier)
-WHERE org_id = sqlc.arg('org_id')
 GROUP BY p.bucket
 ORDER BY p.bucket ASC;
 

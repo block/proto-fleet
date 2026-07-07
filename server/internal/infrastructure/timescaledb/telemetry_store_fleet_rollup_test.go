@@ -159,6 +159,55 @@ func TestTelemetryStore_FleetMetricRollupServesSparseCompletedBody(t *testing.T)
 	assert.Equal(t, float64(123), result.Metrics[0].AggregatedValues[0].Value)
 }
 
+func TestTelemetryStore_FleetMetricRollupRewriteDeletesStaleKeys(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := NewTelemetryStore(db, DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	siteA := createUptimeTestSite(t, db, orgID, "fleet-rollup-rewrite-site-a")
+	siteB := createUptimeTestSite(t, db, orgID, "fleet-rollup-rewrite-site-b")
+	device := dbSvc.CreateDevice(orgID, "proto")
+	setFleetRollupTestDeviceSite(t, db, device.DatabaseID, siteA)
+	t.Cleanup(func() {
+		cleanupFleetMetricRollupTestRows(t, db, orgID, device.ID)
+	})
+
+	start := fleetRollupTestStartTime().Add(72 * time.Hour)
+	require.NoError(t, store.StoreDeviceMetrics(ctx, modelsV2.DeviceMetrics{
+		DeviceIdentifier: device.ID,
+		Timestamp:        start.Add(10 * time.Second),
+		HashrateHS:       &modelsV2.MetricValue{Value: 500},
+	}))
+	bodyEnd := start.Add(3 * models.FleetMetricRollupBucketDuration)
+	require.NoError(t, store.UpsertFleetMetricRollups(ctx, start, bodyEnd))
+
+	setFleetRollupTestDeviceSite(t, db, device.DatabaseID, siteB)
+	require.NoError(t, store.UpsertFleetMetricRollups(ctx, start, bodyEnd))
+
+	end := start.Add(5*models.FleetMetricRollupBucketDuration - time.Nanosecond)
+	slide := models.FleetMetricRollupBucketDuration
+	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+		OrganizationID:   orgID,
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		AggregationTypes: []models.AggregationType{models.AggregationTypeAverage},
+		TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+		SlideInterval:    &slide,
+	})
+	require.NoError(t, err)
+	require.Len(t, result.Metrics, 1)
+	require.Len(t, result.Metrics[0].AggregatedValues, 1)
+	assert.Equal(t, float64(500), result.Metrics[0].AggregatedValues[0].Value)
+	assert.Equal(t, int32(1), result.Metrics[0].DeviceCount)
+}
+
 func setFleetRollupTestDeviceSite(t *testing.T, db *sql.DB, deviceID int64, siteID sql.NullInt64) {
 	t.Helper()
 	_, err := db.ExecContext(context.Background(), "UPDATE device SET site_id = $1 WHERE id = $2", siteID, deviceID)

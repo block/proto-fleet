@@ -739,17 +739,6 @@ func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Conte
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
 
-	body, err := s.readFleetMetricRollupBuckets(ctx, query, bodyStart, bodyEndExclusive)
-	if err != nil {
-		s.logger.Warn("fleet metric rollup read failed, falling back to raw",
-			slog.Int64("org_id", query.OrganizationID),
-			slog.Bool("site_scoped", query.DeviceListFromSiteScope),
-			slog.Time("start_time", bodyStart),
-			slog.Time("end_time", bodyEndExclusive),
-			slog.String("error", err.Error()))
-		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
-	}
-
 	completeThrough, err := s.queries.GetLatestFleetMetricRollupBucket(ctx)
 	if err != nil {
 		s.logger.Warn("fleet metric rollup coverage lookup failed, falling back to raw",
@@ -768,6 +757,17 @@ func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Conte
 			slog.Time("end_time", bodyEndExclusive),
 			slog.Time("complete_through", completeThrough),
 			slog.Time("required_latest_bucket", requiredLatest))
+		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
+	}
+
+	body, err := s.readFleetMetricRollupBuckets(ctx, query, bodyStart, bodyEndExclusive)
+	if err != nil {
+		s.logger.Warn("fleet metric rollup read failed, falling back to raw",
+			slog.Int64("org_id", query.OrganizationID),
+			slog.Bool("site_scoped", query.DeviceListFromSiteScope),
+			slog.Time("start_time", bodyStart),
+			slog.Time("end_time", bodyEndExclusive),
+			slog.String("error", err.Error()))
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
 
@@ -1833,6 +1833,12 @@ func (s *TimescaleTelemetryStore) UpsertFleetMetricRollups(ctx context.Context, 
 	}()
 
 	qtx := s.queries.WithTx(tx)
+	if err := qtx.DeleteFleetMetricRollupsForWindow(ctx, sqlc.DeleteFleetMetricRollupsForWindowParams{
+		StartTime: startTime,
+		EndTime:   endTime,
+	}); err != nil {
+		return fmt.Errorf("delete fleet metric rollups for window: %w", err)
+	}
 	if err := qtx.UpsertFleetMetricRollups(ctx, sqlc.UpsertFleetMetricRollupsParams{
 		StartTime: startTime,
 		EndTime:   endTime,

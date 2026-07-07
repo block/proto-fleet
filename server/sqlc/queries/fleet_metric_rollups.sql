@@ -2,6 +2,11 @@
 -- models.FleetMetricRollupBucketDuration and the client dashboard's shortest
 -- fleet granularity.
 
+-- name: DeleteFleetMetricRollupsForWindow :exec
+DELETE FROM fleet_metric_rollup_90s
+WHERE bucket >= sqlc.arg('start_time')::timestamptz
+  AND bucket < sqlc.arg('end_time')::timestamptz;
+
 -- name: UpsertFleetMetricRollups :exec
 WITH per_device_bucket AS (
     SELECT

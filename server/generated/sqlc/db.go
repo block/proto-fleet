@@ -270,6 +270,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
 	}
+	if q.deleteFleetMetricRollupsForWindowStmt, err = db.PrepareContext(ctx, deleteFleetMetricRollupsForWindow); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteFleetMetricRollupsForWindow: %w", err)
+	}
 	if q.deleteFleetNodeDevicePairingsStmt, err = db.PrepareContext(ctx, deleteFleetNodeDevicePairings); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteFleetNodeDevicePairings: %w", err)
 	}
@@ -1847,6 +1850,11 @@ func (q *Queries) Close() error {
 	if q.deleteExpiredSessionsStmt != nil {
 		if cerr := q.deleteExpiredSessionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteExpiredSessionsStmt: %w", cerr)
+		}
+	}
+	if q.deleteFleetMetricRollupsForWindowStmt != nil {
+		if cerr := q.deleteFleetMetricRollupsForWindowStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteFleetMetricRollupsForWindowStmt: %w", cerr)
 		}
 	}
 	if q.deleteFleetNodeDevicePairingsStmt != nil {
@@ -3910,6 +3918,7 @@ type Queries struct {
 	deleteCurtailmentResponseProfilesBySiteStmt                *sql.Stmt
 	deleteDisabledMQTTSourceConfigByOrgStmt                    *sql.Stmt
 	deleteExpiredSessionsStmt                                  *sql.Stmt
+	deleteFleetMetricRollupsForWindowStmt                      *sql.Stmt
 	deleteFleetNodeDevicePairingsStmt                          *sql.Stmt
 	deleteMinerCredentialsByDeviceIDAndOrgIDStmt               *sql.Stmt
 	deleteMinerCredentialsForDeviceIdentifiersStmt             *sql.Stmt
@@ -4386,6 +4395,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteCurtailmentResponseProfilesBySiteStmt:                q.deleteCurtailmentResponseProfilesBySiteStmt,
 		deleteDisabledMQTTSourceConfigByOrgStmt:                    q.deleteDisabledMQTTSourceConfigByOrgStmt,
 		deleteExpiredSessionsStmt:                                  q.deleteExpiredSessionsStmt,
+		deleteFleetMetricRollupsForWindowStmt:                      q.deleteFleetMetricRollupsForWindowStmt,
 		deleteFleetNodeDevicePairingsStmt:                          q.deleteFleetNodeDevicePairingsStmt,
 		deleteMinerCredentialsByDeviceIDAndOrgIDStmt:               q.deleteMinerCredentialsByDeviceIDAndOrgIDStmt,
 		deleteMinerCredentialsForDeviceIdentifiersStmt:             q.deleteMinerCredentialsForDeviceIdentifiersStmt,

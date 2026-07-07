@@ -23,6 +23,26 @@ func (q *Queries) AdvanceFleetMetricRollupProgress(ctx context.Context, latestBu
 	return err
 }
 
+const deleteFleetMetricRollupsForWindow = `-- name: DeleteFleetMetricRollupsForWindow :exec
+
+DELETE FROM fleet_metric_rollup_90s
+WHERE bucket >= $1::timestamptz
+  AND bucket < $2::timestamptz
+`
+
+type DeleteFleetMetricRollupsForWindowParams struct {
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+// Fleet dashboard metric rollups. The 90 second bucket width must match
+// models.FleetMetricRollupBucketDuration and the client dashboard's shortest
+// fleet granularity.
+func (q *Queries) DeleteFleetMetricRollupsForWindow(ctx context.Context, arg DeleteFleetMetricRollupsForWindowParams) error {
+	_, err := q.exec(ctx, q.deleteFleetMetricRollupsForWindowStmt, deleteFleetMetricRollupsForWindow, arg.StartTime, arg.EndTime)
+	return err
+}
+
 const getLatestFleetMetricRollupBucket = `-- name: GetLatestFleetMetricRollupBucket :one
 SELECT COALESCE(
     (
@@ -184,7 +204,6 @@ func (q *Queries) GetOrgFleetMetricRollups(ctx context.Context, arg GetOrgFleetM
 }
 
 const upsertFleetMetricRollups = `-- name: UpsertFleetMetricRollups :exec
-
 WITH per_device_bucket AS (
     SELECT
         time_bucket(INTERVAL '90 seconds', dm.time)::timestamptz AS bucket,
@@ -323,9 +342,6 @@ type UpsertFleetMetricRollupsParams struct {
 	EndTime   time.Time
 }
 
-// Fleet dashboard metric rollups. The 90 second bucket width must match
-// models.FleetMetricRollupBucketDuration and the client dashboard's shortest
-// fleet granularity.
 func (q *Queries) UpsertFleetMetricRollups(ctx context.Context, arg UpsertFleetMetricRollupsParams) error {
 	_, err := q.exec(ctx, q.upsertFleetMetricRollupsStmt, upsertFleetMetricRollups, arg.StartTime, arg.EndTime)
 	return err
