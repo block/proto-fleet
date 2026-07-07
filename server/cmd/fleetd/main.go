@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -194,8 +195,12 @@ func start(config *Config) error {
 		}
 	}()
 
+	// Fail fast rather than warn: this state is only reachable through
+	// contradictory hand-edited env (run-fleet.sh already couples the flags),
+	// and continuing would leave provisioned heartbeat rules firing forever
+	// with no collector and no webhook receiver to deliver them.
 	if config.SystemMonitoring.Enabled && !metricsProvider.Enabled() {
-		slog.Warn("system monitoring is enabled but the metrics provider is disabled (FLEET_ALERTS_ENABLED=false); host stats will not be collected")
+		return errors.New("FLEET_SYSTEM_MONITORING_ENABLED requires FLEET_ALERTS_ENABLED (the metrics writer feeds the system-monitoring rules)")
 	}
 
 	// Cap the reconcile at 60s. The advisory lock inside Reconcile makes
@@ -717,7 +722,7 @@ func start(config *Config) error {
 	// Started only once the listener is accepting: the first heartbeat is what
 	// clears the Fleet Heartbeat Stale alert, so a crash-looping boot must not
 	// keep refreshing it and mask a down fleet-api.
-	if config.SystemMonitoring.Enabled && metricsProvider.Enabled() {
+	if config.SystemMonitoring.Enabled {
 		sysmonCtx, sysmonCancel := context.WithCancel(context.Background())
 		defer sysmonCancel()
 		go sysmon.New(config.SystemMonitoring, metricsProvider).Run(sysmonCtx)

@@ -192,16 +192,19 @@ groups:
                     COALESCE(EXTRACT(EPOCH FROM (NOW() - s.last_disk))::float8, 1e9) AS value
                 FROM fleet_active_organization o
                 CROSS JOIN (
+                    -- 1h, not the heartbeat rule's 24h: wide enough to show real
+                    -- staleness while firing, tight enough that the stalled-state
+                    -- index scan stays small on every 30s evaluation.
                     SELECT max(time) AS last_disk
                     FROM notification_metric_sample
                     WHERE metric = 'fleet_system_disk_used_percent'
-                      AND time > NOW() - INTERVAL '24 hours'
+                      AND time > NOW() - INTERVAL '1 hour'
                 ) s
                 CROSS JOIN (
                     SELECT max(time) AS last_beat
                     FROM notification_metric_sample
                     WHERE metric = 'fleet_system_heartbeat'
-                      AND time > NOW() - INTERVAL '24 hours'
+                      AND time > NOW() - INTERVAL '15 minutes'
                 ) h
                 WHERE h.last_beat > NOW() - INTERVAL '5 minutes'
           - refId: B
