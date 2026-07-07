@@ -27,7 +27,7 @@ jobs:
       REVIEW_DIFF_FILE: .git/codex-review.diff
     steps:
       - name: Checkout PR head commit
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
@@ -53,7 +53,7 @@ jobs:
       - name: Run Codex Security Review
         id: run_codex
         if: ${{ env.OPENAI_API_KEY != '' }}
-        uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
+        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1.11
         with:
           openai-api-key: ${{ env.OPENAI_API_KEY }}
           model: ${{ env.CODEX_MODEL }}
