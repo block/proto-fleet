@@ -13,6 +13,7 @@ jobs:
       group: codex-security-review-${{ github.ref }}
       cancel-in-progress: true
     permissions:
+      actions: write
       contents: read
       issues: write
       pull-requests: write
@@ -134,6 +135,41 @@ jobs:
             - Review ONLY the exact PR diff `${{ env.REVIEW_COMMIT_RANGE }}`, not the merge commit, not the base branch tip, and not the entire codebase
             - Be specific: cite file paths and line numbers from the diff
             - Prioritize high-impact issues; avoid stylistic or low-risk nits
+
+      - name: Write security review result
+        if: steps.run_codex.outputs.final-message != ''
+        env:
+          REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
+          REVIEW_HEAD_SHA: ${{ env.REVIEW_HEAD_SHA }}
+          REVIEW_COMMIT_RANGE: ${{ env.REVIEW_COMMIT_RANGE }}
+          REVIEW_RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          review = os.environ["REVIEW_OUTPUT"]
+          match = re.search(r"\*\*Overall Risk\*\*:\s*\[?([A-Z]+)\]?", review)
+          risk = match.group(1).upper() if match else "UNKNOWN"
+          result = {
+              "head_sha": os.environ["REVIEW_HEAD_SHA"],
+              "commit_range": os.environ["REVIEW_COMMIT_RANGE"],
+              "run_id": os.environ["REVIEW_RUN_ID"],
+              "overall_risk": risk,
+          }
+          output = Path("codex-security-review-result.json")
+          output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload security review result
+        if: steps.run_codex.outputs.final-message != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: codex-security-review-result
+          path: codex-security-review-result.json
+          if-no-files-found: error
 
       - name: Post Codex security review
         if: steps.run_codex.outputs.final-message != ''

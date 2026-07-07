@@ -51,20 +51,49 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("AI classifier requires human review", reasons)
         self.assertIn("AI classifier confidence 0.84 is below 0.85", reasons)
 
-    def test_extract_security_risk_requires_current_head(self):
-        comments = [
-            {
-                "user": {"login": "github-actions[bot]"},
-                "body": "<!-- codex-security-review -->\nabc123\n**Overall Risk**: LOW",
-            }
-        ]
-        risk, blockers = policy.extract_security_risk(comments, "abc123")
-        self.assertEqual(risk, "LOW")
-        self.assertEqual(blockers, [])
+    def test_extract_run_id(self):
+        self.assertEqual(
+            policy.extract_run_id("https://github.com/block/proto-fleet/actions/runs/123/job/456"),
+            "123",
+        )
+        self.assertIsNone(policy.extract_run_id("https://github.com/block/proto-fleet/runs/123"))
 
-        risk, blockers = policy.extract_security_risk(comments, "def456")
-        self.assertIsNone(risk)
-        self.assertEqual(blockers, ["Codex security review comment is stale for this PR head"])
+    def test_human_review_state_ignores_unauthorized_approvals(self):
+        original = policy.reviewer_has_authority
+        try:
+            policy.reviewer_has_authority = lambda owner, repo, username, association, token: username == "member"
+            reviews = [
+                {
+                    "user": {"login": "outsider", "type": "User"},
+                    "state": "APPROVED",
+                    "commit_id": "abc123",
+                    "submitted_at": "2026-01-01T00:00:00Z",
+                    "author_association": "NONE",
+                },
+                {
+                    "user": {"login": "member", "type": "User"},
+                    "state": "APPROVED",
+                    "commit_id": "abc123",
+                    "submitted_at": "2026-01-01T00:00:01Z",
+                    "author_association": "MEMBER",
+                },
+            ]
+            ok, reasons, blockers = policy.human_review_state(
+                reviews,
+                "abc123",
+                "author",
+                1,
+                "block",
+                "proto-fleet",
+                "token",
+            )
+        finally:
+            policy.reviewer_has_authority = original
+
+        self.assertTrue(ok)
+        self.assertEqual(blockers, [])
+        self.assertIn("current authorized human approvals: member", reasons)
+        self.assertIn("ignored unauthorized review states from: outsider", reasons)
 
     def test_write_result(self):
         result = policy.PolicyResult(

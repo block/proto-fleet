@@ -1,10 +1,6 @@
 name: Review Policy
 
-on: # zizmor: ignore[dangerous-triggers] review policy re-evaluates after trusted PR Gate and Codex Security Review workflow completions
-  pull_request:
-    types: [opened, reopened, ready_for_review, synchronize]
-  pull_request_review:
-    types: [submitted, dismissed]
+on:
   workflow_run:
     workflows: ["PR Gate", "Codex Security Review"]
     types: [completed]
@@ -16,6 +12,7 @@ on: # zizmor: ignore[dangerous-triggers] review policy re-evaluates after truste
         type: number
 
 permissions:
+  actions: read
   checks: read
   contents: read
   issues: write
@@ -27,7 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       CODEX_MODEL: gpt-5.5
       CODEX_REASONING_EFFORT: high
       REVIEW_POLICY_DIFF_FILE: .git/review-policy.diff
@@ -94,8 +90,8 @@ jobs:
             echo "path=trusted-policy-base" >> "$GITHUB_OUTPUT"
             echo "Using review policy code from the trusted base commit."
           else
-            echo "path=$GITHUB_WORKSPACE" >> "$GITHUB_OUTPUT"
-            echo "Trusted base commit does not contain review policy code; using PR code for bootstrap."
+            echo "Trusted base commit does not contain review policy code." >&2
+            exit 1
           fi
 
       - name: Write review policy diff
@@ -112,10 +108,10 @@ jobs:
 
       - name: Run low-risk AI classifier
         id: ai_classifier
-        if: steps.pr.outputs.found == 'true' && env.OPENAI_API_KEY != ''
+        if: steps.pr.outputs.found == 'true'
         uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
         with:
-          openai-api-key: ${{ env.OPENAI_API_KEY }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           model: ${{ env.CODEX_MODEL }}
           codex-args: '["-c","model_reasoning_effort=${{ env.CODEX_REASONING_EFFORT }}","-c","service_tier=fast"]'
           safety-strategy: drop-sudo

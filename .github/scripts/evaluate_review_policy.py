@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import io
 import json
 import os
 import re
@@ -12,12 +13,15 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from dataclasses import dataclass, field
 from typing import Any
 
 
 API_VERSION = "2022-11-28"
 BOT_SUFFIX = "[bot]"
+AUTHORIZED_REVIEW_ASSOCIATIONS = {"COLLABORATOR", "MEMBER", "OWNER"}
+AUTHORIZED_REVIEW_PERMISSIONS = {"admin", "maintain", "write"}
 
 
 class PolicyError(RuntimeError):
@@ -56,6 +60,24 @@ def github_request(method: str, path: str, token: str, body: dict[str, Any] | No
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")
         raise PolicyError(f"GitHub API {method} {path} failed: {error.code} {detail}") from error
+
+
+def github_download(path: str, token: str) -> bytes:
+    request = urllib.request.Request(
+        f"https://api.github.com{path}",
+        method="GET",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": API_VERSION,
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read()
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        raise PolicyError(f"GitHub API download {path} failed: {error.code} {detail}") from error
 
 
 def github_paginate(path: str, token: str) -> list[Any]:
@@ -179,17 +201,25 @@ def human_review_state(
     head_sha: str,
     author: str,
     minimum_approvals: int,
+    owner: str,
+    repo: str,
+    token: str,
 ) -> tuple[bool, list[str], list[str]]:
     latest = latest_reviews(reviews)
     requested_changes = []
     approvals = []
+    ignored = []
 
     for login, review in latest.items():
         state = review.get("state")
         commit_id = review.get("commit_id")
         user_type = (review.get("user") or {}).get("type")
         is_bot = login.endswith(BOT_SUFFIX) or user_type == "Bot"
-        if state == "CHANGES_REQUESTED":
+        authorized = reviewer_has_authority(owner, repo, login, review.get("author_association"), token)
+        if state in {"APPROVED", "CHANGES_REQUESTED"} and not is_bot and not authorized:
+            ignored.append(login)
+            continue
+        if state == "CHANGES_REQUESTED" and not is_bot:
             requested_changes.append(login)
         if state == "APPROVED" and commit_id == head_sha and login != author and not is_bot:
             approvals.append(login)
@@ -200,8 +230,23 @@ def human_review_state(
     if len(approvals) < minimum_approvals:
         blockers.append(f"{len(approvals)} current human approval(s), need {minimum_approvals}")
 
-    reasons = [f"current human approvals: {', '.join(sorted(approvals)) or 'none'}"]
+    reasons = [f"current authorized human approvals: {', '.join(sorted(approvals)) or 'none'}"]
+    if ignored:
+        reasons.append(f"ignored unauthorized review states from: {', '.join(sorted(set(ignored)))}")
     return not blockers, reasons, blockers
+
+
+def reviewer_has_authority(owner: str, repo: str, username: str, association: str | None, token: str) -> bool:
+    if association in AUTHORIZED_REVIEW_ASSOCIATIONS:
+        return True
+    quoted_user = urllib.parse.quote(username, safe="")
+    try:
+        permission = github_request("GET", f"/repos/{owner}/{repo}/collaborators/{quoted_user}/permission", token)
+    except PolicyError as error:
+        if " 403 " in str(error) or " 404 " in str(error):
+            return False
+        raise
+    return permission.get("permission") in AUTHORIZED_REVIEW_PERMISSIONS
 
 
 def is_team_member(owner: str, team_slug: str, username: str, token: str) -> bool:
@@ -228,7 +273,7 @@ def trusted_author_reasons(author: str, trusted_authors: list[str], owner: str, 
     return False, [f"author @{author} is not in trusted_authors"]
 
 
-def check_statuses(owner: str, repo: str, head_sha: str, required_checks: list[str], token: str) -> tuple[bool, list[str]]:
+def latest_check_runs(owner: str, repo: str, head_sha: str, token: str) -> dict[str, dict[str, Any]]:
     runs = github_paginate_key(f"/repos/{owner}/{repo}/commits/{head_sha}/check-runs", token, "check_runs")
     latest_by_name: dict[str, dict[str, Any]] = {}
     for run in runs:
@@ -238,7 +283,11 @@ def check_statuses(owner: str, repo: str, head_sha: str, required_checks: list[s
         current = latest_by_name.get(name)
         if current is None or str(run.get("started_at") or "") >= str(current.get("started_at") or ""):
             latest_by_name[name] = run
+    return latest_by_name
 
+
+def check_statuses(owner: str, repo: str, head_sha: str, required_checks: list[str], token: str) -> tuple[bool, list[str]]:
+    latest_by_name = latest_check_runs(owner, repo, head_sha, token)
     blockers: list[str] = []
     for name in required_checks:
         run = latest_by_name.get(name)
@@ -252,25 +301,53 @@ def check_statuses(owner: str, repo: str, head_sha: str, required_checks: list[s
     return not blockers, blockers
 
 
-def extract_security_risk(comments: list[dict[str, Any]], head_sha: str) -> tuple[str | None, list[str]]:
-    marker = "<!-- codex-security-review -->"
-    matching = [
-        comment
-        for comment in comments
-        if comment.get("user", {}).get("login") == "github-actions[bot]" and marker in (comment.get("body") or "")
-    ]
-    if not matching:
-        return None, ["Codex security review comment is missing"]
+def extract_run_id(details_url: str | None) -> str | None:
+    if not details_url:
+        return None
+    match = re.search(r"/actions/runs/(\d+)", details_url)
+    return match.group(1) if match else None
 
-    comment = matching[-1]
-    body = comment.get("body") or ""
-    if head_sha not in body:
-        return None, ["Codex security review comment is stale for this PR head"]
 
-    risk_match = re.search(r"\*\*Overall Risk\*\*:\s*\[?([A-Z]+)\]?", body)
-    if not risk_match:
-        return None, ["Codex security review Overall Risk was not found"]
-    return risk_match.group(1).upper(), []
+def extract_security_risk(owner: str, repo: str, head_sha: str, token: str) -> tuple[str | None, list[str]]:
+    security_run = latest_check_runs(owner, repo, head_sha, token).get("security-review")
+    if not security_run:
+        return None, ["Codex security-review check is missing"]
+
+    run_id = extract_run_id(security_run.get("details_url") or security_run.get("html_url"))
+    if not run_id:
+        return None, ["Codex security-review run id was not found"]
+
+    artifacts = github_paginate_key(f"/repos/{owner}/{repo}/actions/runs/{run_id}/artifacts", token, "artifacts")
+    artifact = next(
+        (
+            item
+            for item in artifacts
+            if item.get("name") == "codex-security-review-result" and not item.get("expired", False)
+        ),
+        None,
+    )
+    if artifact is None:
+        return None, ["Codex security-review result artifact is missing"]
+
+    archive = github_download(
+        f"/repos/{owner}/{repo}/actions/artifacts/{artifact['id']}/zip",
+        token,
+    )
+    with zipfile.ZipFile(io.BytesIO(archive)) as archive_file:
+        try:
+            with archive_file.open("codex-security-review-result.json") as result_file:
+                result = json.loads(result_file.read().decode("utf-8"))
+        except KeyError as error:
+            raise PolicyError("Codex security-review result artifact did not contain JSON") from error
+
+    if result.get("head_sha") != head_sha:
+        return None, ["Codex security-review result artifact is stale for this PR head"]
+    if str(result.get("run_id")) != str(run_id):
+        return None, ["Codex security-review result artifact does not match the workflow run"]
+    risk = str(result.get("overall_risk", "")).upper()
+    if not risk:
+        return None, ["Codex security-review result artifact is missing overall_risk"]
+    return risk, []
 
 
 def evaluate_policy(
@@ -286,13 +363,15 @@ def evaluate_policy(
 ) -> PolicyResult:
     files = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/files", token)
     reviews = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews", token)
-    comments = github_paginate(f"/repos/{owner}/{repo}/issues/{pr_number}/comments", token)
 
     human_ok, human_reasons, human_blockers = human_review_state(
         reviews,
         head_sha,
         author,
         int(config.get("minimum_human_approvals", 1)),
+        owner,
+        repo,
+        token,
     )
 
     low_config = config["low_risk"]
@@ -325,7 +404,7 @@ def evaluate_policy(
     else:
         low_blockers.extend(check_blockers)
 
-    security_risk, security_blockers = extract_security_risk(comments, head_sha)
+    security_risk, security_blockers = extract_security_risk(owner, repo, head_sha, token)
     allowed_security_risks = {risk.upper() for risk in low_config.get("allowed_security_risks", [])}
     if security_blockers:
         low_blockers.extend(security_blockers)
@@ -346,7 +425,13 @@ def evaluate_policy(
 
     if latest_reviews(reviews):
         latest = latest_reviews(reviews)
-        changers = sorted(login for login, review in latest.items() if review.get("state") == "CHANGES_REQUESTED")
+        changers = sorted(
+            login
+            for login, review in latest.items()
+            if review.get("state") == "CHANGES_REQUESTED"
+            and not ((review.get("user") or {}).get("login", "").endswith(BOT_SUFFIX))
+            and reviewer_has_authority(owner, repo, login, review.get("author_association"), token)
+        )
         if changers:
             low_blockers.append(f"changes requested by {', '.join(changers)}")
 
