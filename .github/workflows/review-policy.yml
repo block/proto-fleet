@@ -124,10 +124,12 @@ jobs:
             core.setOutput('number', String(pr.number));
             core.setOutput('author', pr.user.login);
             core.setOutput('base_sha', pr.base.sha);
+            core.setOutput('base_ref', pr.base.ref);
             core.setOutput('head_sha', pr.head.sha);
             core.setOutput('head_repo', pr.head.repo.full_name);
             core.setOutput('base_repo', pr.base.repo.full_name);
             core.setOutput('same_repo', String(pr.head.repo.full_name === pr.base.repo.full_name));
+            core.setOutput('trusted_base', String(pr.base.ref === pr.base.repo.default_branch));
 
       - name: Checkout trusted base policy
         if: steps.pr.outputs.found == 'true'
@@ -140,7 +142,14 @@ jobs:
       - name: Select policy source
         id: policy_source
         if: steps.pr.outputs.found == 'true'
+        env:
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          TRUSTED_BASE: ${{ steps.pr.outputs.trusted_base }}
         run: |
+          if [ "$TRUSTED_BASE" != "true" ]; then
+            echo "Review policy only evaluates PRs based on the repository default branch; got base ref ${BASE_REF}." >&2
+            exit 1
+          fi
           if [ -x .github/scripts/evaluate_review_policy.py ] && [ -f .github/review-policy.json ]; then
             echo "path=." >> "$GITHUB_OUTPUT"
             echo "Using review policy code from the trusted base commit."
