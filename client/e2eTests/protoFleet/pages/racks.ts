@@ -528,13 +528,28 @@ export class RacksPage extends BasePage {
   }
 
   private async clickDropdownFilterOption(popover: Locator, optionName: string) {
-    const optionByTestId = popover.getByTestId(`filter-option-${optionName}`).first();
-    if (await optionByTestId.isVisible().catch(() => false)) {
-      await optionByTestId.click();
-      return;
+    const optionByTestId = popover.getByTestId(`filter-option-${optionName}`);
+    const optionByTestIdCount = await optionByTestId.count();
+    for (let i = 0; i < optionByTestIdCount; i++) {
+      const option = optionByTestId.nth(i);
+      if (await option.isVisible().catch(() => false)) {
+        await option.click();
+        return;
+      }
     }
 
-    await popover.getByText(optionName, { exact: true }).first().click();
+    const optionRows = popover.locator('[data-testid^="filter-option-"]').filter({ hasText: optionName });
+    const optionRowCount = await optionRows.count();
+    for (let i = 0; i < optionRowCount; i++) {
+      const option = optionRows.nth(i);
+      const label = ((await option.textContent()) ?? "").replace(/\s+/g, " ").trim();
+      if (label === optionName && (await option.isVisible().catch(() => false))) {
+        await option.click();
+        return;
+      }
+    }
+
+    throw new Error(`Could not find a visible dropdown filter option named "${optionName}".`);
   }
 
   private async clickVisibleFilterDropdown(title: string) {

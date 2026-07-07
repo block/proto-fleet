@@ -45,12 +45,7 @@ export class FleetLocationsPage extends BasePage {
     await this.page.getByTestId("building-settings-modal-save").click();
 
     await expect(this.page.getByTestId("building-settings-modal")).toHaveCount(0);
-
-    const fullScreenModal = this.page.getByTestId("full-screen-two-pane-modal");
-    if (await fullScreenModal.isVisible().catch(() => false)) {
-      await fullScreenModal.getByTestId("header-icon-button").click();
-      await expect(fullScreenModal).toHaveCount(0);
-    }
+    await this.closeFullScreenModalIfVisible();
 
     const row = this.getListRowByName(buildingName);
     await expect(row).toBeVisible();
@@ -547,7 +542,7 @@ export class FleetLocationsPage extends BasePage {
       return;
     }
 
-    await fullScreenModal.getByTestId("header-icon-button").click();
+    await this.tryAction(() => fullScreenModal.getByTestId("header-icon-button").click());
     await expect(fullScreenModal).toHaveCount(0);
   }
 
