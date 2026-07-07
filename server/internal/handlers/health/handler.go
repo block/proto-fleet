@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -22,18 +23,37 @@ type Pinger interface {
 	PingContext(ctx context.Context) error
 }
 
+// How long a ping result is served from cache. The endpoint is
+// unauthenticated on the public listener, so per-request pings would let a
+// request flood consume DB pool slots; the cache bounds DB work to one ping
+// per interval no matter the request rate.
+const readyCacheInterval = 2 * time.Second
+
 // NewReadyHandler reports readiness: 200 when the database answers a ping,
 // 503 otherwise. /health stays a static liveness check.
 func NewReadyHandler(db Pinger) func(w http.ResponseWriter, r *http.Request) {
+	var mu sync.Mutex
+	var lastCheck time.Time
+	var lastErr error
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
-		defer cancel()
-		if err := db.PingContext(ctx); err != nil {
+		mu.Lock()
+		if time.Since(lastCheck) >= readyCacheInterval {
+			// Background, not the request context: the result is shared, so
+			// one disconnecting client must not poison the cache.
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			lastErr = db.PingContext(ctx)
+			cancel()
+			lastCheck = time.Now()
+		}
+		err := lastErr
+		mu.Unlock()
+
+		if err != nil {
 			slog.Error("Readiness check failed to ping database",
 				"error", err,
 				"handler", "health-ready",
