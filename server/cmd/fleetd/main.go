@@ -23,6 +23,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/health"
 
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/infrastructure/sysmon"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 
 	"connectrpc.com/connect"
@@ -192,6 +193,10 @@ func start(config *Config) error {
 			slog.Error("Failed to shutdown metrics provider", "error", err)
 		}
 	}()
+
+	if config.SystemMonitoring.Enabled && !metricsProvider.Enabled() {
+		slog.Warn("system monitoring is enabled but the metrics provider is disabled (FLEET_ALERTS_ENABLED=false); host stats will not be collected")
+	}
 
 	// Cap the reconcile at 60s. The advisory lock inside Reconcile makes
 	// concurrent boots serialize, so a non-winner during a rolling
@@ -601,6 +606,7 @@ func start(config *Config) error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", health.NewHandler())
+	mux.HandleFunc("/health/ready", health.NewReadyHandler(conn))
 	if config.Metrics.Enabled {
 		if config.Metrics.WebhookToken == "" {
 			slog.Warn("FLEET_ALERTS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
@@ -703,7 +709,21 @@ func start(config *Config) error {
 		Handler:           handler,
 		ReadHeaderTimeout: config.HTTP.ReadHeaderTimeout,
 	}
-	err = httpServer.ListenAndServe()
+	listener, err := net.Listen("tcp", config.HTTP.Address)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", config.HTTP.Address, err)
+	}
+
+	// Started only once the listener is accepting: the first heartbeat is what
+	// clears the Fleet Heartbeat Stale alert, so a crash-looping boot must not
+	// keep refreshing it and mask a down fleet-api.
+	if config.SystemMonitoring.Enabled && metricsProvider.Enabled() {
+		sysmonCtx, sysmonCancel := context.WithCancel(context.Background())
+		defer sysmonCancel()
+		go sysmon.New(config.SystemMonitoring, metricsProvider).Run(sysmonCtx)
+	}
+
+	err = httpServer.Serve(listener)
 	if err != nil {
 		return fmt.Errorf("server shutting down: %+v", err)
 	}

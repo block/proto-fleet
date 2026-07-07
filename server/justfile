@@ -26,6 +26,11 @@ dev-alerts: _build-plugins-docker
   docker compose -f docker-compose.yaml -f docker-compose.alerts.yaml up --wait
   docker compose -f docker-compose.yaml -f docker-compose.alerts.yaml up --watch fleet-api --remove-orphans --no-deps
 
+# run fleet with the alerts stack plus host system monitoring (CPU/RAM/disk alerts, slow-query dashboard)
+dev-system-monitoring: _build-plugins-docker
+  docker compose -f docker-compose.yaml -f docker-compose.alerts.yaml -f docker-compose.system-monitoring.yaml up --wait
+  docker compose -f docker-compose.yaml -f docker-compose.alerts.yaml -f docker-compose.system-monitoring.yaml up --watch fleet-api --remove-orphans --no-deps
+
 # start services in docker compose
 start:
   docker compose up --wait

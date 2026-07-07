@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 )
 
 // DeviceLabels is the canonical label set for per-device gauges.
@@ -143,6 +144,43 @@ func (p *Provider) EmitTelemetryPoll(_ context.Context, labels TelemetryPollLabe
 			Result:         labels.Result,
 		},
 		Value: 1,
+	})
+}
+
+// EmitSystemCPUUsedPercent records the fleet_system_cpu_used_percent gauge.
+func (p *Provider) EmitSystemCPUUsedPercent(_ context.Context, percent float64) {
+	p.emitSystemPercent(MetricSystemCPUUsedPercent, percent)
+}
+
+// EmitSystemMemoryUsedPercent records the fleet_system_memory_used_percent gauge.
+func (p *Provider) EmitSystemMemoryUsedPercent(_ context.Context, percent float64) {
+	p.emitSystemPercent(MetricSystemMemoryUsedPercent, percent)
+}
+
+// EmitSystemDiskUsedPercent records the fleet_system_disk_used_percent gauge
+// for the collector's configured filesystem path.
+func (p *Provider) EmitSystemDiskUsedPercent(_ context.Context, percent float64) {
+	p.emitSystemPercent(MetricSystemDiskUsedPercent, percent)
+}
+
+// EmitSystemHeartbeat records the fleet_system_heartbeat gauge; the Fleet
+// Heartbeat Stale rule alerts when these samples stop landing.
+func (p *Provider) EmitSystemHeartbeat(_ context.Context) {
+	p.record(Sample{
+		Metric: MetricSystemHeartbeat,
+		Value:  1,
+	})
+}
+
+func (p *Provider) emitSystemPercent(metric string, percent float64) {
+	if math.IsNaN(percent) || math.IsInf(percent, 0) || percent < 0 {
+		slog.Error("metrics: non-finite or negative percent, dropping emit",
+			"metric", metric, "value", percent)
+		return
+	}
+	p.record(Sample{
+		Metric: metric,
+		Value:  min(percent, 100),
 	})
 }
 

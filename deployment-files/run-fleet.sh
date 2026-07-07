@@ -7,9 +7,11 @@
 PROJECT_ROOT="$(pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
 COMPOSE_ALERTS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
+COMPOSE_SYSTEM_MONITORING_FILE="$PROJECT_ROOT/docker-compose.system-monitoring.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
 
 ENABLE_BETA_ALERTS=false
+ENABLE_SYSTEM_MONITORING=false
 
 usage() {
     cat <<'EOF'
@@ -21,6 +23,12 @@ Options:
                                 the built-in Alertmanager). Off by
                                 default. Can also be enabled by setting
                                 ENABLE_BETA_ALERTS=true in the .env file.
+  --enable-system-monitoring   Layer in host system monitoring (CPU/RAM/disk
+                                alert rules and a slow-query dashboard).
+                                Requires --enable-beta-alerts. Off by
+                                default. Can also be enabled by setting
+                                ENABLE_SYSTEM_MONITORING=true in the .env
+                                file.
   -h, --help                    Show this help and exit.
 EOF
 }
@@ -29,6 +37,10 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --enable-beta-alerts)
             ENABLE_BETA_ALERTS=true
+            shift
+            ;;
+        --enable-system-monitoring)
+            ENABLE_SYSTEM_MONITORING=true
             shift
             ;;
         -h|--help)
@@ -51,11 +63,28 @@ done
 if grep -Eqi "^ENABLE_BETA_ALERTS=true$" "$ENV_FILE" 2>/dev/null; then
     ENABLE_BETA_ALERTS=true
 fi
+if grep -Eqi "^ENABLE_SYSTEM_MONITORING=true$" "$ENV_FILE" 2>/dev/null; then
+    ENABLE_SYSTEM_MONITORING=true
+fi
+
+# System monitoring rides the alerts stack (the in-process metrics writer,
+# Grafana rule evaluation, and webhook delivery are all alerts-gated), so it
+# cannot run alone.
+if [ "$ENABLE_SYSTEM_MONITORING" = "true" ] && [ "$ENABLE_BETA_ALERTS" != "true" ]; then
+    echo "Error: --enable-system-monitoring requires the beta alerts stack." >&2
+    echo "       Pass --enable-beta-alerts as well, or set ENABLE_BETA_ALERTS=true in $ENV_FILE." >&2
+    exit 1
+fi
 
 refresh_compose_files() {
     COMPOSE_FILES=(-f "$COMPOSE_FILE")
     if [ "$ENABLE_BETA_ALERTS" = "true" ] && [ -f "$COMPOSE_ALERTS_FILE" ]; then
         COMPOSE_FILES+=(-f "$COMPOSE_ALERTS_FILE")
+    fi
+    # After alerts so its grafana mounts shadow the rules tombstone and the
+    # dashboards placeholder inside the alerts overlay's provisioning mount.
+    if [ "$ENABLE_SYSTEM_MONITORING" = "true" ] && [ -f "$COMPOSE_SYSTEM_MONITORING_FILE" ]; then
+        COMPOSE_FILES+=(-f "$COMPOSE_SYSTEM_MONITORING_FILE")
     fi
 }
 refresh_compose_files
@@ -700,6 +729,16 @@ else
     echo "Alerts stack: disabled (pass --enable-beta-alerts to turn on the beta alerts sidecars)"
 fi
 
+if [ "$ENABLE_SYSTEM_MONITORING" = "true" ]; then
+    if [ ! -f "$COMPOSE_SYSTEM_MONITORING_FILE" ]; then
+        echo "Error: --enable-system-monitoring was passed but $COMPOSE_SYSTEM_MONITORING_FILE is missing."
+        exit 1
+    fi
+    echo "System monitoring: enabled (host CPU/RAM/disk alerts + slow-query dashboard)"
+else
+    echo "System monitoring: disabled (pass --enable-system-monitoring alongside --enable-beta-alerts to turn it on)"
+fi
+
 # ----------------------------------------------------------------------------
 # SSL/TLS Configuration
 # ----------------------------------------------------------------------------
@@ -897,7 +936,7 @@ fi
 # migration) so the password never has to be committed to source and
 # can be rotated just by editing $ENV_FILE and re-running this script.
 provision_grafana_db_role() {
-    local grafana_user grafana_pass db_name app_user pw_escaped
+    local grafana_user grafana_pass db_name app_user pw_escaped stats_grant stats_smoke
 
     grafana_user=$(grep -E '^GRAFANA_DB_USERNAME=' "$ENV_FILE" | head -1 | cut -d= -f2-)
     grafana_pass=$(grep -E '^GRAFANA_DB_PASSWORD=' "$ENV_FILE" | head -1 | cut -d= -f2-)
@@ -933,15 +972,27 @@ provision_grafana_db_role() {
     # parses regardless of what openssl rand produced.
     pw_escaped="${grafana_pass//\'/\'\'}"
 
+    # pg_stat_statements masks other roles' query text without
+    # pg_read_all_stats. The role is NOINHERIT, so the membership needs
+    # INHERIT TRUE or queries would still read <insufficient privilege>.
+    # The smoke count() forces the function scan to execute (LIMIT 0 would
+    # not), so it doubles as end-to-end preload verification.
+    stats_grant=""
+    stats_smoke=""
+    if [ "$ENABLE_SYSTEM_MONITORING" = "true" ]; then
+        stats_grant="GRANT pg_read_all_stats TO \"${grafana_user}\" WITH INHERIT TRUE;"
+        stats_smoke="SELECT count(*) FROM pg_stat_statements;"
+    fi
+
     # `up --wait` only confirms containers are running, not that
     # fleet-api has finished its migration pass. Poll for every object
     # the Grafana alert rules read — the raw hypertable, the
     # fleet_telemetry_poll_heartbeat continuous aggregate, and the
-    # fleet_pollable_device_presence view the protofleet-ingest-stalled
-    # rule queries.
-    echo "Waiting for notification_metric_sample, fleet_telemetry_poll_heartbeat and fleet_pollable_device_presence to be available…"
-    if ! wait_for_psql_true "SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL AND to_regclass('public.fleet_pollable_device_presence') IS NOT NULL"; then
-        echo "Warning: notification_metric_sample / fleet_telemetry_poll_heartbeat / fleet_pollable_device_presence did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2
+    # fleet_pollable_device_presence / fleet_active_organization views
+    # the protofleet-ingest-stalled and proto-fleet-system rules query.
+    echo "Waiting for notification_metric_sample, fleet_telemetry_poll_heartbeat, fleet_pollable_device_presence and fleet_active_organization to be available…"
+    if ! wait_for_psql_true "SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL AND to_regclass('public.fleet_pollable_device_presence') IS NOT NULL AND to_regclass('public.fleet_active_organization') IS NOT NULL"; then
+        echo "Warning: notification_metric_sample / fleet_telemetry_poll_heartbeat / fleet_pollable_device_presence / fleet_active_organization did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2
         return 1
     fi
 
@@ -996,9 +1047,12 @@ BEGIN
                 target_role;
         END IF;
 
+        -- pg_read_all_stats is exempt: this script grants it itself when
+        -- system monitoring is enabled, so it must not poison reuse.
         SELECT count(*) INTO member_count
           FROM pg_auth_members
-         WHERE member = target_oid;
+         WHERE member = target_oid
+           AND roleid <> 'pg_read_all_stats'::regrole;
         IF member_count > 0 THEN
             RAISE EXCEPTION
                 'Refusing to reuse role % for Grafana: existing role is a member of other roles, which could grant inherited privileges. Pick a different GRAFANA_DB_USERNAME or drop the existing role first.',
@@ -1029,6 +1083,10 @@ BEGIN
         EXECUTE format('REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM %I', target_role);
         EXECUTE format('REVOKE ALL PRIVILEGES ON SCHEMA public FROM %I', target_role);
         EXECUTE format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM %I', target_db, target_role);
+        -- The REVOKE-ALL wipe above does not touch role memberships; drop the
+        -- stats grant explicitly so it never outlives system monitoring (it
+        -- is re-granted below when the feature is on).
+        EXECUTE format('REVOKE pg_read_all_stats FROM %I', target_role);
 
         -- Known-safe: rotate the password.
         EXECUTE format(
@@ -1045,12 +1103,17 @@ GRANT SELECT ON notification_metric_sample TO "${grafana_user}";
 GRANT SELECT ON fleet_telemetry_poll_heartbeat TO "${grafana_user}";
 -- Owner-privilege view: grafana_ro reads the boolean without grants on device/device_pairing.
 GRANT SELECT ON fleet_pollable_device_presence TO "${grafana_user}";
+-- Owner-privilege view: grafana_ro reads live org ids without grants on organization (miner_auth_private_key).
+GRANT SELECT ON fleet_active_organization TO "${grafana_user}";
+${stats_grant}
 
 -- smoke check
 SET ROLE "${grafana_user}";
 SELECT 1 FROM notification_metric_sample LIMIT 0;
 SELECT 1 FROM fleet_telemetry_poll_heartbeat LIMIT 0;
 SELECT 1 FROM fleet_pollable_device_presence LIMIT 0;
+SELECT 1 FROM fleet_active_organization LIMIT 0;
+${stats_smoke}
 RESET ROLE;
 SQL
 }

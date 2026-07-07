@@ -821,6 +821,10 @@ type Error struct {
 	SiteID            sql.NullInt64
 }
 
+type FleetActiveOrganization struct {
+	OrganizationID string
+}
+
 type FleetMetricRollup90 struct {
 	Bucket                time.Time
 	OrgID                 int64

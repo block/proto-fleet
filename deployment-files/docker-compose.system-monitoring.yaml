@@ -1,0 +1,34 @@
+# System-monitoring overlay (run-fleet.sh --enable-system-monitoring): the
+# in-process host CPU/RAM/disk collector, the proto-fleet-system alert rules,
+# and the slow-query dashboard. Requires the beta alerts overlay (metrics
+# writer, Grafana, and webhook delivery are all alerts-gated); run-fleet.sh
+# enforces that and layers this file after docker-compose.alerts.yaml.
+services:
+  fleet-api:
+    environment:
+      # Hard-coded on: the overlay is the feature toggle. A collector switched
+      # off while these rules stay provisioned would page every org with a
+      # false Fleet Heartbeat Stale.
+      FLEET_SYSTEM_MONITORING_ENABLED: "true"
+      FLEET_SYSTEM_MONITORING_INTERVAL: "${FLEET_SYSTEM_MONITORING_INTERVAL:-30s}"
+      # fleet-api is host-networked, so /proc CPU and memory stats already
+      # reflect the host; disk usage must be stat'ed through the read-only
+      # host mount below because the container rootfs is not the host disk.
+      FLEET_SYSTEM_MONITORING_DISK_PATH: "${FLEET_SYSTEM_MONITORING_DISK_PATH:-/hostfs}"
+    volumes:
+      # statfs only needs some path on the watched filesystem, so mount the
+      # docker-volumes dir (where the TimescaleDB data volume lives — the disk
+      # that filling up kills fleet) rather than the whole host root: fleet-api
+      # runs as root with host networking, and a file-read bug must not expose
+      # /etc, home dirs, or host keys. Change the source to watch a different
+      # filesystem.
+      - /var/lib/docker/volumes:/hostfs:ro
+
+  grafana:
+    volumes:
+      # Shadow the tombstone and the empty dashboards placeholder inside the
+      # read-only provisioning mount from docker-compose.alerts.yaml with the
+      # real files (a more specific bind mount wins over the directory mount).
+      - ./server/monitoring/grafana/system-monitoring/proto-fleet-system-rules.yaml:/etc/grafana/provisioning/alerting/proto-fleet-system-rules.yaml:ro
+      - ./server/monitoring/grafana/system-monitoring/dashboards.yaml:/etc/grafana/provisioning/dashboards/system-monitoring.yaml:ro
+      - ./server/monitoring/grafana/system-monitoring/dashboards:/etc/grafana/dashboards/system-monitoring:ro
