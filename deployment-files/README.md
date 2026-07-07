@@ -217,10 +217,10 @@ This layers in `docker-compose.system-monitoring.yaml`, which:
 - starts an in-process collector in fleet-api that samples host CPU,
   memory, and disk usage every 30 seconds into
   `notification_metric_sample`;
-- bind-mounts `/var/lib/docker/volumes` **read-only** at `/hostfs`
+- mounts the `timescaledb-data` volume **read-only** at `/hostfs`
   inside fleet-api, so the disk gauge reports the filesystem holding
-  the TimescaleDB data volume (the disk that filling up takes fleet
-  down). To watch a different filesystem, change the mount source in
+  the TimescaleDB data (the disk that filling up takes fleet down).
+  To watch a different filesystem, change the mount source in
   `docker-compose.system-monitoring.yaml`;
 - provisions the `proto-fleet-system` alert rules (Host CPU High,
   Host Memory High, Host Disk Space Low, Fleet Heartbeat Stale). They
