@@ -76,20 +76,22 @@ const CategoryRowButton = ({ category, onClick, isActive = false }: CategoryRowB
       aria-expanded={isActive}
       data-testid={`nested-dropdown-filter-row-${category.key}`}
     >
-      <span className="truncate text-emphasis-300">{category.label}</span>
-      {!isEmpty && selectedCount > 0 ? (
-        <span
-          className={clsx(
-            "relative inline-flex h-5 w-5 shrink-0 items-center justify-center text-200 text-intent-warning-fill",
-            "before:absolute before:inset-0 before:-z-10 before:rounded-full before:bg-intent-warning-10 before:content-['']",
-          )}
-        >
-          {selectedCount}
-        </span>
-      ) : null}
-      <span className="grow" />
-      {isEmpty ? <span className="text-300 text-text-primary-70">{categoryEmptyLabel(category)}</span> : null}
-      {!isEmpty ? <ChevronDown width="w-3" className="-rotate-90 opacity-60" /> : null}
+      <span className="min-w-0 grow truncate text-emphasis-300">{category.label}</span>
+      <span className="flex shrink-0 items-center gap-2">
+        {!isEmpty && selectedCount > 0 ? (
+          <span
+            className={clsx(
+              "relative inline-flex h-5 w-5 shrink-0 items-center justify-center text-200 text-intent-warning-fill",
+              "before:absolute before:inset-0 before:-z-10 before:rounded-full before:bg-intent-warning-10 before:content-['']",
+            )}
+            data-testid={`nested-dropdown-filter-row-${category.key}-count`}
+          >
+            {selectedCount}
+          </span>
+        ) : null}
+        {isEmpty ? <span className="text-300 text-text-primary-70">{categoryEmptyLabel(category)}</span> : null}
+        {!isEmpty ? <ChevronDown width="w-3" className="-rotate-90 opacity-60" /> : null}
+      </span>
     </button>
   );
 };
@@ -238,7 +240,9 @@ const MobileOptionList = ({ category, onBack, onToggleOption }: MobileOptionList
             checked={category.selectedValues.includes(option.id)}
             onToggle={(id) => onToggleOption(category.key, id)}
           />
-          {index < category.options.length - 1 ? <Divider className="px-0" /> : null}
+          {index < category.options.length - 1 ? (
+            <Divider className="px-0" dividerStyle={option.showGroupDivider ? "thick" : "normal"} />
+          ) : null}
         </div>
       ))}
     </>
@@ -358,22 +362,7 @@ const NestedDropdownFilterContent = ({
           offset={8}
           freezePosition
           size={popoverSizes.small}
-          className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
-          buttons={
-            activeCount > 0
-              ? [
-                  {
-                    text: "Clear all",
-                    variant: variants.secondary,
-                    className: "mx-2",
-                    onClick: () => {
-                      onClearAll();
-                      closeAll();
-                    },
-                  },
-                ]
-              : undefined
-          }
+          className="!space-y-0 !rounded-2xl px-0 py-2"
         >
           <div
             ref={(node) => {
@@ -434,6 +423,21 @@ const NestedDropdownFilterContent = ({
               ))
             )}
           </div>
+          {activeCount > 0 ? (
+            <div className="px-2 pt-2">
+              <Button
+                variant={variants.secondary}
+                size={sizes.base}
+                className="w-full"
+                onClick={() => {
+                  onClearAll();
+                  closeAll();
+                }}
+              >
+                Clear all
+              </Button>
+            </div>
+          ) : null}
         </Popover>
       ) : null}
     </div>

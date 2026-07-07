@@ -46,15 +46,15 @@ export class ActivityPage extends BasePage {
   }
 
   async validateFilterPillVisible(label: string) {
-    await expect(this.filterPillsContainer().getByRole("button", { name: label, exact: true })).toBeVisible();
+    await expect(this.activeFilterChipByLabel(label)).toBeVisible();
   }
 
   async validateFilterPillNotVisible(label: string) {
-    await expect(this.filterPillsContainer().getByRole("button", { name: label, exact: true })).toHaveCount(0);
+    await expect(this.activeFilterChipByLabel(label)).toHaveCount(0);
   }
 
   async removeFilterPill(label: string) {
-    await this.filterPillsContainer().getByRole("button", { name: label, exact: true }).click();
+    await this.activeFilterChipByLabel(label).locator('[data-testid$="-clear"]').click();
     await this.waitForActivityListToLoad();
   }
 
@@ -85,11 +85,11 @@ export class ActivityPage extends BasePage {
   }
 
   async validateLatestActivityMarkedFailed() {
-    await expect(this.latestActivityRow().getByText("Failed", { exact: true })).toBeVisible();
+    await expect(this.latestActivityRow().getByText("Couldn't complete", { exact: true })).toHaveCount(1);
   }
 
   async validateLatestActivityNotMarkedFailed() {
-    await expect(this.latestActivityRow().getByText("Failed", { exact: true })).toHaveCount(0);
+    await expect(this.latestActivityRow().getByText("Couldn't complete", { exact: true })).toHaveCount(0);
   }
 
   async validateActivityDescriptionVisible(description: string) {
@@ -97,7 +97,9 @@ export class ActivityPage extends BasePage {
   }
 
   async validateActivityDescriptionMarkedFailed(description: string) {
-    await expect(this.activityRowByDescription(description).getByText("Failed", { exact: true })).toBeVisible();
+    await expect(
+      this.activityRowByDescription(description).getByText("Couldn't complete", { exact: true }),
+    ).toHaveCount(1);
   }
 
   async openLatestActivityDetails() {
@@ -106,7 +108,6 @@ export class ActivityPage extends BasePage {
 
   async validateActivityDetailModalOpened() {
     await expect(this.activityDetailModal()).toBeVisible();
-    await expect(this.activityDetailModal()).toContainText("Actions");
   }
 
   async validateActivityDetailContainsText(text: string) {
@@ -139,17 +140,37 @@ export class ActivityPage extends BasePage {
   }
 
   private async selectDropdownFilter(title: string, optionLabel: string) {
-    await this.page.getByTestId(`filter-dropdown-${title}`).click();
-    const popover = this.page.getByTestId("dropdown-filter-popover");
+    const filterKey = title === "Users" ? "users" : title.toLowerCase();
+    const trigger = this.page.getByTestId("filter-nested-add-filter");
+    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
+
+    if (await popover.isVisible().catch(() => false)) {
+      await this.page.mouse.click(1, 1);
+      await expect(popover).toBeHidden();
+    }
+
+    await trigger.click();
     await expect(popover).toBeVisible();
-    await popover.getByText(optionLabel, { exact: true }).click();
-    await popover.getByRole("button", { name: "Apply", exact: true }).click();
+
+    await popover.getByTestId(`nested-dropdown-filter-row-${filterKey}`).click();
+
+    if (this.isMobile) {
+      await popover.getByText(optionLabel, { exact: true }).click();
+    } else {
+      const submenu = this.page.getByTestId(`nested-dropdown-filter-submenu-${filterKey}`);
+      await expect(submenu).toBeVisible();
+      await submenu.getByText(optionLabel, { exact: true }).click();
+    }
+
+    await this.page.mouse.click(1, 1);
     await expect(popover).toBeHidden();
     await this.waitForActivityListToLoad();
   }
 
-  private filterPillsContainer(): Locator {
-    return this.page.getByTestId("activity-filter-pills");
+  private activeFilterChipByLabel(label: string): Locator {
+    return this.page
+      .locator('[data-testid^="active-filter-"]:not([data-testid$="-edit"]):not([data-testid$="-clear"])')
+      .filter({ has: this.page.getByRole("button", { name: label, exact: true }) });
   }
 
   private activityDetailModal(): Locator {

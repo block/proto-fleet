@@ -55,11 +55,13 @@ import Logs from "./Logs";
 import Menu from "./Menu";
 import MiningPools from "./MiningPools";
 import Minus from "./Minus";
+import MinusFilled from "./MinusFilled";
 import Notification from "./Notification";
 import PartialCheckmark from "./PartialCheckmark";
 import Pause from "./Pause";
 import Play from "./Play";
 import Plus from "./Plus";
+import PlusFilled from "./PlusFilled";
 import Power from "./Power";
 import PsuIndicator from "./PsuIndicator";
 import PsuIndicatorV2 from "./PsuIndicatorV2";
@@ -143,11 +145,13 @@ export {
   Menu,
   MiningPools,
   Minus,
+  MinusFilled,
   Notification,
   PartialCheckmark,
   Pause,
   Play,
   Plus,
+  PlusFilled,
   Power,
   PsuIndicator,
   PsuIndicatorV2,

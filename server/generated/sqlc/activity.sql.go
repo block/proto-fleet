@@ -23,7 +23,96 @@ WHERE a.organization_id = $1
     AND ($3::text[] IS NULL OR a.event_type = ANY($3::text[]))
     AND ($4::text[] IS NULL OR a.user_id = ANY($4::text[]))
     AND ($5::text[] IS NULL OR a.scope_type = ANY($5::text[]))
-    AND ($6::text IS NULL OR a.description ILIKE $6 ESCAPE '\')
+    AND (
+        $6::text IS NULL
+        OR CONCAT_WS(' ', a.description,
+            CASE
+                WHEN a.event_type = 'login' THEN 'Logged in'
+                WHEN a.event_type = 'login_failed' THEN 'Couldn''t log in'
+                WHEN a.event_type = 'logout' THEN 'Logged out'
+                WHEN a.event_type = 'create_admin_user' THEN 'Created admin account'
+                WHEN a.event_type = 'create_user' THEN CONCAT('Created user', COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'update_username' THEN 'Updated username'
+                WHEN a.event_type = 'step_up_auth_failed' THEN 'Couldn''t verify authentication'
+                WHEN a.event_type = 'update_password' THEN 'Updated password'
+                WHEN a.event_type = 'reset_password' THEN 'Reset password'
+                WHEN a.event_type = 'deactivate_user' THEN 'Deactivated user'
+                WHEN a.event_type = 'update_user_role' THEN 'Updated user role'
+                WHEN a.event_type = 'create_api_key' THEN 'Created API key'
+                WHEN a.event_type = 'revoke_api_key' THEN 'Revoked API key'
+
+                WHEN a.event_type = 'start_mining.completed' THEN 'Started mining'
+                WHEN a.event_type = 'stop_mining.completed' THEN 'Stopped mining'
+                WHEN a.event_type = 'reboot.completed' THEN 'Rebooted miners'
+                WHEN a.event_type = 'blink_led.completed' THEN 'Blinked LEDs'
+                WHEN a.event_type = 'download_logs.completed' THEN 'Downloaded logs'
+                WHEN a.event_type = 'set_power_target.completed' THEN 'Updated power target'
+                WHEN a.event_type = 'set_cooling_mode.completed' THEN 'Updated cooling mode'
+                WHEN a.event_type = 'update_mining_pools.completed' THEN 'Updated mining pools'
+                WHEN a.event_type = 'update_miner_password.completed' THEN 'Updated miner password'
+                WHEN a.event_type = 'firmware_update.completed' THEN 'Updated firmware'
+                WHEN a.event_type = 'unpair.completed' THEN 'Unpaired miners'
+                WHEN a.event_type = 'curtail.completed' THEN 'Started curtailment'
+                WHEN a.event_type = 'uncurtail.completed' THEN 'Ended curtailment'
+
+                WHEN a.event_type = 'start_mining' THEN 'Starting mining'
+                WHEN a.event_type = 'stop_mining' THEN 'Stopping mining'
+                WHEN a.event_type = 'reboot' THEN 'Rebooting miners'
+                WHEN a.event_type = 'blink_led' THEN 'Blinking LEDs'
+                WHEN a.event_type = 'download_logs' THEN 'Downloading logs'
+                WHEN a.event_type = 'set_power_target' THEN 'Updating power target'
+                WHEN a.event_type = 'set_cooling_mode' THEN 'Updating cooling mode'
+                WHEN a.event_type = 'update_mining_pools' THEN 'Updating mining pools'
+                WHEN a.event_type = 'update_miner_password' THEN 'Updating miner password'
+                WHEN a.event_type = 'firmware_update' THEN 'Updating firmware'
+                WHEN a.event_type = 'unpair' THEN 'Unpairing miners'
+                WHEN a.event_type = 'curtail' THEN 'Starting curtailment'
+                WHEN a.event_type = 'uncurtail' THEN 'Ending curtailment'
+
+                WHEN a.event_type = 'create_collection' THEN CONCAT('Created ', COALESCE(a.scope_type, 'collection'), COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'update_collection' THEN CONCAT('Updated ', COALESCE(a.scope_type, 'collection'), COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'delete_collection' THEN CONCAT('Deleted ', COALESCE(a.scope_type, 'collection'), COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'add_devices' THEN CONCAT('Added miners to group', COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'remove_devices' THEN CONCAT('Removed miners from group', COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'assign_devices_to_rack' THEN CONCAT('Assigned miners to rack', COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type IN ('set_rack_slot', 'clear_rack_slot') THEN CONCAT('Updated rack position', COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'save_rack' THEN CONCAT('Saved rack', COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'unpair_miners' THEN 'Unpaired miners'
+                WHEN a.event_type = 'rename_miners' THEN 'Renamed miners'
+
+                WHEN a.event_type = 'create_pool' THEN 'Created pool'
+                WHEN a.event_type = 'update_pool' THEN 'Updated pool'
+                WHEN a.event_type = 'delete_pool' THEN 'Deleted pool'
+                WHEN a.event_type = 'create_role' THEN 'Created role'
+                WHEN a.event_type = 'update_role' THEN 'Updated role'
+                WHEN a.event_type = 'delete_role' THEN 'Deleted role'
+                WHEN a.event_type = 'site.created' THEN 'Created site'
+                WHEN a.event_type = 'site.updated' THEN 'Updated site'
+                WHEN a.event_type = 'site.deleted' THEN 'Deleted site'
+                WHEN a.event_type = 'building.created' THEN 'Created building'
+                WHEN a.event_type = 'building.updated' THEN 'Updated building'
+                WHEN a.event_type = 'building.deleted' THEN 'Deleted building'
+                WHEN a.event_type = 'building.assigned_to_site' THEN 'Assigned building to site'
+                WHEN a.event_type = 'racks.assigned_to_site' THEN 'Assigned racks to site'
+                WHEN a.event_type = 'building.rack_assigned' THEN 'Assigned racks to building'
+                WHEN a.event_type = 'devices.reassigned_to_site' THEN 'Reassigned miners to site'
+                WHEN a.event_type = 'devices.reassigned_to_building' THEN 'Reassigned miners to building'
+
+                WHEN a.event_type = 'schedule_executed' THEN 'Ran schedule'
+                WHEN a.event_type = 'schedule_window_ended' THEN 'Ended schedule window'
+                WHEN a.event_type = 'schedule_completed' THEN 'Completed schedule'
+                WHEN a.event_type = 'schedule_conflict_skip' THEN 'Skipped schedule conflict'
+                WHEN a.event_type = 'schedule_skipped_due_to_curtailment' THEN 'Skipped schedule during curtailment'
+                WHEN a.event_type = 'curtailment_started' THEN 'Started curtailment'
+                WHEN a.event_type = 'curtailment_admin_terminated' THEN 'Stopped curtailment'
+                WHEN a.event_type = 'curtailment_admin_terminated_replay' THEN 'Curtailment already stopped'
+                WHEN a.event_type = 'curtailment_updated' THEN 'Updated curtailment'
+                WHEN a.event_type = 'curtailment_force_released' THEN 'Released curtailment ownership'
+                WHEN a.event_type = 'command_preflight_blocked' THEN 'Command couldn''t run'
+                WHEN a.event_type = 'command_filter_skip' THEN 'Command ran with skipped miners'
+            END
+        ) ILIKE $6 ESCAPE '\'
+    )
     AND ($7::timestamptz IS NULL OR a.created_at >= $7)
     AND ($8::timestamptz IS NULL OR a.created_at <= $8)
     AND (
@@ -307,7 +396,96 @@ WHERE a.organization_id = $1
     AND ($3::text[] IS NULL OR a.event_type = ANY($3::text[]))
     AND ($4::text[] IS NULL OR a.user_id = ANY($4::text[]))
     AND ($5::text[] IS NULL OR a.scope_type = ANY($5::text[]))
-    AND ($6::text IS NULL OR a.description ILIKE $6 ESCAPE '\')
+    AND (
+        $6::text IS NULL
+        OR CONCAT_WS(' ', a.description,
+            CASE
+                WHEN a.event_type = 'login' THEN 'Logged in'
+                WHEN a.event_type = 'login_failed' THEN 'Couldn''t log in'
+                WHEN a.event_type = 'logout' THEN 'Logged out'
+                WHEN a.event_type = 'create_admin_user' THEN 'Created admin account'
+                WHEN a.event_type = 'create_user' THEN CONCAT('Created user', COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'update_username' THEN 'Updated username'
+                WHEN a.event_type = 'step_up_auth_failed' THEN 'Couldn''t verify authentication'
+                WHEN a.event_type = 'update_password' THEN 'Updated password'
+                WHEN a.event_type = 'reset_password' THEN 'Reset password'
+                WHEN a.event_type = 'deactivate_user' THEN 'Deactivated user'
+                WHEN a.event_type = 'update_user_role' THEN 'Updated user role'
+                WHEN a.event_type = 'create_api_key' THEN 'Created API key'
+                WHEN a.event_type = 'revoke_api_key' THEN 'Revoked API key'
+
+                WHEN a.event_type = 'start_mining.completed' THEN 'Started mining'
+                WHEN a.event_type = 'stop_mining.completed' THEN 'Stopped mining'
+                WHEN a.event_type = 'reboot.completed' THEN 'Rebooted miners'
+                WHEN a.event_type = 'blink_led.completed' THEN 'Blinked LEDs'
+                WHEN a.event_type = 'download_logs.completed' THEN 'Downloaded logs'
+                WHEN a.event_type = 'set_power_target.completed' THEN 'Updated power target'
+                WHEN a.event_type = 'set_cooling_mode.completed' THEN 'Updated cooling mode'
+                WHEN a.event_type = 'update_mining_pools.completed' THEN 'Updated mining pools'
+                WHEN a.event_type = 'update_miner_password.completed' THEN 'Updated miner password'
+                WHEN a.event_type = 'firmware_update.completed' THEN 'Updated firmware'
+                WHEN a.event_type = 'unpair.completed' THEN 'Unpaired miners'
+                WHEN a.event_type = 'curtail.completed' THEN 'Started curtailment'
+                WHEN a.event_type = 'uncurtail.completed' THEN 'Ended curtailment'
+
+                WHEN a.event_type = 'start_mining' THEN 'Starting mining'
+                WHEN a.event_type = 'stop_mining' THEN 'Stopping mining'
+                WHEN a.event_type = 'reboot' THEN 'Rebooting miners'
+                WHEN a.event_type = 'blink_led' THEN 'Blinking LEDs'
+                WHEN a.event_type = 'download_logs' THEN 'Downloading logs'
+                WHEN a.event_type = 'set_power_target' THEN 'Updating power target'
+                WHEN a.event_type = 'set_cooling_mode' THEN 'Updating cooling mode'
+                WHEN a.event_type = 'update_mining_pools' THEN 'Updating mining pools'
+                WHEN a.event_type = 'update_miner_password' THEN 'Updating miner password'
+                WHEN a.event_type = 'firmware_update' THEN 'Updating firmware'
+                WHEN a.event_type = 'unpair' THEN 'Unpairing miners'
+                WHEN a.event_type = 'curtail' THEN 'Starting curtailment'
+                WHEN a.event_type = 'uncurtail' THEN 'Ending curtailment'
+
+                WHEN a.event_type = 'create_collection' THEN CONCAT('Created ', COALESCE(a.scope_type, 'collection'), COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'update_collection' THEN CONCAT('Updated ', COALESCE(a.scope_type, 'collection'), COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'delete_collection' THEN CONCAT('Deleted ', COALESCE(a.scope_type, 'collection'), COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'add_devices' THEN CONCAT('Added miners to group', COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'remove_devices' THEN CONCAT('Removed miners from group', COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'assign_devices_to_rack' THEN CONCAT('Assigned miners to rack', COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type IN ('set_rack_slot', 'clear_rack_slot') THEN CONCAT('Updated rack position', COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'save_rack' THEN CONCAT('Saved rack', COALESCE(': ' || a.scope_label, ''))
+                WHEN a.event_type = 'unpair_miners' THEN 'Unpaired miners'
+                WHEN a.event_type = 'rename_miners' THEN 'Renamed miners'
+
+                WHEN a.event_type = 'create_pool' THEN 'Created pool'
+                WHEN a.event_type = 'update_pool' THEN 'Updated pool'
+                WHEN a.event_type = 'delete_pool' THEN 'Deleted pool'
+                WHEN a.event_type = 'create_role' THEN 'Created role'
+                WHEN a.event_type = 'update_role' THEN 'Updated role'
+                WHEN a.event_type = 'delete_role' THEN 'Deleted role'
+                WHEN a.event_type = 'site.created' THEN 'Created site'
+                WHEN a.event_type = 'site.updated' THEN 'Updated site'
+                WHEN a.event_type = 'site.deleted' THEN 'Deleted site'
+                WHEN a.event_type = 'building.created' THEN 'Created building'
+                WHEN a.event_type = 'building.updated' THEN 'Updated building'
+                WHEN a.event_type = 'building.deleted' THEN 'Deleted building'
+                WHEN a.event_type = 'building.assigned_to_site' THEN 'Assigned building to site'
+                WHEN a.event_type = 'racks.assigned_to_site' THEN 'Assigned racks to site'
+                WHEN a.event_type = 'building.rack_assigned' THEN 'Assigned racks to building'
+                WHEN a.event_type = 'devices.reassigned_to_site' THEN 'Reassigned miners to site'
+                WHEN a.event_type = 'devices.reassigned_to_building' THEN 'Reassigned miners to building'
+
+                WHEN a.event_type = 'schedule_executed' THEN 'Ran schedule'
+                WHEN a.event_type = 'schedule_window_ended' THEN 'Ended schedule window'
+                WHEN a.event_type = 'schedule_completed' THEN 'Completed schedule'
+                WHEN a.event_type = 'schedule_conflict_skip' THEN 'Skipped schedule conflict'
+                WHEN a.event_type = 'schedule_skipped_due_to_curtailment' THEN 'Skipped schedule during curtailment'
+                WHEN a.event_type = 'curtailment_started' THEN 'Started curtailment'
+                WHEN a.event_type = 'curtailment_admin_terminated' THEN 'Stopped curtailment'
+                WHEN a.event_type = 'curtailment_admin_terminated_replay' THEN 'Curtailment already stopped'
+                WHEN a.event_type = 'curtailment_updated' THEN 'Updated curtailment'
+                WHEN a.event_type = 'curtailment_force_released' THEN 'Released curtailment ownership'
+                WHEN a.event_type = 'command_preflight_blocked' THEN 'Command couldn''t run'
+                WHEN a.event_type = 'command_filter_skip' THEN 'Command ran with skipped miners'
+            END
+        ) ILIKE $6 ESCAPE '\'
+    )
     AND ($7::timestamptz IS NULL OR a.created_at >= $7)
     AND ($8::timestamptz IS NULL OR a.created_at <= $8)
     AND ($9::timestamptz IS NULL OR (a.created_at, a.id) < ($9::timestamptz, $10::bigint))

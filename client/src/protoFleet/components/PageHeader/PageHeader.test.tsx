@@ -73,7 +73,11 @@ vi.mock("@/shared/assets/icons", async (importOriginal) => {
     ...actual,
     // Override the menu button; the SitePicker trigger + Modal pull in other
     // icons (ChevronDown, Dismiss, …) which stay real via the spread above.
-    Pause: ({ ariaLabel }: { ariaLabel?: string }) => <button aria-label={ariaLabel}>menu</button>,
+    Menu: ({ ariaLabel, testId }: { ariaLabel?: string; testId?: string }) => (
+      <button aria-label={ariaLabel} data-testid={testId}>
+        menu
+      </button>
+    ),
   };
 });
 const createPillSchedule = (name: string): ScheduleListItem =>

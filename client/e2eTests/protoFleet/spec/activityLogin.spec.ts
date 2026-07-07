@@ -22,9 +22,9 @@ test.describe("Proto Fleet - Activity Login", () => {
     await test.step("Confirm the successful login activity is present before testing a failed login", async () => {
       await activityPage.navigateToActivityPage();
       await activityPage.waitForActivityListToLoad();
-      await activityPage.selectTypeFilter("Login");
+      await activityPage.selectTypeFilter("Log in");
       await activityPage.selectUserFilter(testConfig.users.admin.username);
-      await activityPage.validateLatestActivityDescription("Login");
+      await activityPage.validateLatestActivityDescription("Logged in");
       await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
       await activityPage.validateLatestActivityNotMarkedFailed();
     });
@@ -56,7 +56,7 @@ test.describe("Proto Fleet - Activity Login", () => {
       await activityPage.waitForActivityListToLoad();
       await activityPage.searchActivity("Login failed");
       await activityPage.selectUserFilter(testConfig.users.admin.username);
-      await activityPage.validateLatestActivityDescription("Login failed");
+      await activityPage.validateLatestActivityDescription("Couldn't log in");
       await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
       await activityPage.validateLatestActivityMarkedFailed();
     });
