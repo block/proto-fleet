@@ -33,7 +33,7 @@ permissions:
 
 jobs:
   evaluate:
-    name: Evaluate
+    name: Review Policy
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -213,6 +213,7 @@ jobs:
       - name: Run low-risk AI classifier
         id: ai_classifier
         if: steps.pr.outputs.found == 'true' && steps.pr.outputs.same_repo == 'true' && steps.preflight.outputs.eligible == 'true'
+        continue-on-error: true
         uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
@@ -266,12 +267,46 @@ jobs:
               "reasons": ["short reason"]
             }
 
+      - name: Select classifier output
+        id: classifier_output
+        if: always() && steps.pr.outputs.found == 'true'
+        env:
+          AI_OUTCOME: ${{ steps.ai_classifier.outcome }}
+          AI_OUTPUT: ${{ steps.ai_classifier.outputs.final-message }}
+          PREFLIGHT_OUTPUT: ${{ steps.preflight.outputs.skipped_classifier_output }}
+        run: |
+          if [ "$AI_OUTCOME" = "success" ] && [ -n "$AI_OUTPUT" ]; then
+            payload="$AI_OUTPUT"
+          elif [ "$AI_OUTCOME" != "skipped" ]; then
+            payload="$(python3 - <<'PY'
+          import json
+          import os
+
+          outcome = os.environ.get("AI_OUTCOME") or "unknown"
+          print(json.dumps({
+              "risk": "high",
+              "confidence": 1.0,
+              "requires_human_review": True,
+              "reasons": [f"Low-risk AI classifier did not complete successfully: {outcome}"],
+          }))
+          PY
+          )"
+          else
+            payload="$PREFLIGHT_OUTPUT"
+          fi
+
+          {
+            echo 'value<<EOF'
+            printf '%s\n' "$payload"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
       - name: Evaluate review policy
         id: evaluate_policy
-        if: steps.pr.outputs.found == 'true'
+        if: always() && steps.pr.outputs.found == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          CLASSIFIER_OUTPUT: ${{ steps.ai_classifier.outputs.final-message || steps.preflight.outputs.skipped_classifier_output }}
+          CLASSIFIER_OUTPUT: ${{ steps.classifier_output.outputs.value }}
           RESULT_JSON: ${{ runner.temp }}/review-policy-result.json
           POLICY_ROOT: ${{ steps.policy_source.outputs.path }}
           OWNER: ${{ github.repository_owner }}
@@ -304,43 +339,6 @@ jobs:
       - name: Skip non-PR event
         if: steps.pr.outputs.found != 'true'
         run: echo "No pull request to evaluate."
-
-  publish-status:
-    name: Publish Status
-    needs: evaluate
-    if: always() && needs.evaluate.outputs.found == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      statuses: write
-    steps:
-      - name: Publish review policy status
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        with:
-          script: |
-            const decision = '${{ needs.evaluate.outputs.decision }}' || 'needs-human-review';
-            const passed = '${{ needs.evaluate.outputs.passed }}' === 'true';
-            const enforced = '${{ needs.evaluate.outputs.enforced }}' !== 'false';
-            const evaluateResult = '${{ needs.evaluate.result }}';
-
-            const state = evaluateResult === 'success' && (passed || !enforced)
-              ? 'success'
-              : evaluateResult === 'cancelled'
-                ? 'error'
-                : 'failure';
-            const mode = enforced ? 'enforced' : 'advisory';
-            const description = `Review Policy ${mode}: ${decision}`.slice(0, 140);
-            const target_url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: '${{ needs.evaluate.outputs.head_sha }}',
-              state,
-              context: 'Review Policy',
-              description,
-              target_url,
-            });
 
   sync-label:
     name: Sync Label
