@@ -2,7 +2,7 @@ name: Review Policy
 
 on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflow_run completions instead of PR-head events
   workflow_run:
-    workflows: ["PR Gate", "Codex Security Review"]
+    workflows: ["PR Gate", "Codex Security Review", "Semgrep OSS", "zizmor"]
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -10,6 +10,10 @@ on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflo
         description: Pull request number to evaluate
         required: true
         type: number
+
+concurrency:
+  group: review-policy-${{ github.event.workflow_run.pull_requests[0].number || inputs.pr || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   actions: read
@@ -86,11 +90,11 @@ jobs:
         id: policy_source
         if: steps.pr.outputs.found == 'true'
         run: |
-          if [ -x .github/scripts/evaluate_review_policy.py ]; then
+          if [ -x .github/scripts/evaluate_review_policy.py ] && [ -f .github/review-policy.json ]; then
             echo "path=." >> "$GITHUB_OUTPUT"
             echo "Using review policy code from the trusted base commit."
           else
-            echo "Trusted base commit does not contain review policy code." >&2
+            echo "Trusted base commit does not contain review policy code and config." >&2
             exit 1
           fi
 

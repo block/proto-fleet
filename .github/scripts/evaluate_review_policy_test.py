@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
+import io
+import json
 import unittest
 import tempfile
+import zipfile
 from pathlib import Path
 
 import evaluate_review_policy as policy
@@ -77,6 +80,38 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertFalse(allowed)
         self.assertIn("AI classifier confidence must be a finite number", reasons)
 
+    def test_deterministic_content_blockers_catch_shellouts_and_file_size(self):
+        files = [
+            {
+                "filename": "client/src/foo.ts",
+                "additions": 81,
+                "deletions": 0,
+                "patch": "@@\n+import child_process from 'child_process'\n+child_process.exec('npm run surprise')",
+            },
+            {
+                "filename": "client/src/bar.ts",
+                "additions": 1,
+                "deletions": 0,
+                "patch": "@@\n+console.log('boring')",
+            },
+        ]
+        blockers = policy.deterministic_content_blockers(
+            files,
+            {
+                "max_file_changes": 80,
+                "content_deny_added_patterns": [
+                    {
+                        "pattern": "\\b(child_process\\.|exec\\s*\\()",
+                        "reason": "adds process execution or shell-out code",
+                    }
+                ],
+            },
+        )
+
+        self.assertIn("client/src/foo.ts has 81 changed lines, exceeds per-file limit 80", blockers)
+        self.assertIn("client/src/foo.ts adds blocked content: adds process execution or shell-out code", blockers)
+        self.assertEqual(len(blockers), 2)
+
     def test_low_risk_preflight_blocks_before_classifier(self):
         original_paginate = policy.github_paginate
         original_trusted_author_reasons = policy.trusted_author_reasons
@@ -113,12 +148,209 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("303 changed lines exceeds limit 200", result["blockers"])
         self.assertIn("denied paths changed: .github/workflows/review-policy.yml", result["blockers"])
 
+    def test_trusted_author_reasons_accepts_team_membership(self):
+        original = policy.is_team_member
+        try:
+            policy.is_team_member = lambda owner, team_slug, username, token: (
+                owner == "block" and team_slug == "proto-fleet-dev" and username == "member"
+            )
+            trusted, reasons = policy.trusted_author_reasons("member", ["@block/proto-fleet-dev"], "block", "token")
+        finally:
+            policy.is_team_member = original
+
+        self.assertTrue(trusted)
+        self.assertEqual(reasons, ["author @member is a member of @block/proto-fleet-dev"])
+
+    def test_latest_check_runs_tie_breaks_on_id(self):
+        original = policy.github_paginate_key
+        try:
+            policy.github_paginate_key = lambda path, token, key: [
+                {"name": "Gate", "started_at": "2026-01-01T00:00:00Z", "id": 1, "conclusion": "failure"},
+                {"name": "Gate", "started_at": "2026-01-01T00:00:00Z", "id": 2, "conclusion": "success"},
+            ]
+            latest = policy.latest_check_runs("block", "proto-fleet", "abc123", "token")
+        finally:
+            policy.github_paginate_key = original
+
+        self.assertEqual(latest["Gate"]["id"], 2)
+
+    def test_check_statuses_requires_successful_completed_runs(self):
+        original = policy.latest_check_runs
+        try:
+            policy.latest_check_runs = lambda owner, repo, head_sha, token: {
+                "Gate": {"status": "completed", "conclusion": "success"},
+                "security-review": {"status": "completed", "conclusion": "failure"},
+            }
+            ok, blockers = policy.check_statuses(
+                "block", "proto-fleet", "abc123", ["Gate", "security-review", "missing"], "token"
+            )
+        finally:
+            policy.latest_check_runs = original
+
+        self.assertFalse(ok)
+        self.assertIn("required check 'security-review' is completed/failure", blockers)
+        self.assertIn("required check 'missing' is missing", blockers)
+
     def test_extract_run_id(self):
         self.assertEqual(
             policy.extract_run_id("https://github.com/block/proto-fleet/actions/runs/123/job/456"),
             "123",
         )
         self.assertIsNone(policy.extract_run_id("https://github.com/block/proto-fleet/runs/123"))
+
+    def test_extract_security_risk_validates_workflow_run_identity(self):
+        original_paginate_key = policy.github_paginate_key
+        original_request = policy.github_request
+        original_download = policy.github_download
+        archive_bytes = io.BytesIO()
+        with zipfile.ZipFile(archive_bytes, "w") as archive:
+            archive.writestr(
+                "codex-security-review-result.json",
+                json.dumps({"head_sha": "abc123", "run_id": "123", "overall_risk": "LOW"}),
+            )
+        try:
+            def fake_paginate_key(path, token, key):
+                if "/commits/" in path:
+                    return [
+                        {
+                            "name": "security-review",
+                            "started_at": "2026-01-01T00:00:00Z",
+                            "details_url": "https://github.com/block/proto-fleet/actions/runs/123/job/456",
+                        }
+                    ]
+                if "/actions/runs/123/artifacts" in path:
+                    return [{"id": 999, "name": "codex-security-review-result", "expired": False}]
+                return []
+
+            policy.github_paginate_key = fake_paginate_key
+            policy.github_request = lambda method, path, token, body=None: {
+                "path": ".github/workflows/codex-security-review.yml",
+                "head_sha": "abc123",
+                "event": "pull_request",
+            }
+            policy.github_download = lambda path, token: archive_bytes.getvalue()
+            risk, blockers = policy.extract_security_risk(
+                "block",
+                "proto-fleet",
+                "abc123",
+                "token",
+                "security-review",
+                ".github/workflows/codex-security-review.yml",
+                "codex-security-review-result",
+            )
+        finally:
+            policy.github_paginate_key = original_paginate_key
+            policy.github_request = original_request
+            policy.github_download = original_download
+
+        self.assertEqual(risk, "LOW")
+        self.assertEqual(blockers, [])
+
+    def test_extract_security_risk_rejects_forged_workflow_run(self):
+        original_paginate_key = policy.github_paginate_key
+        original_request = policy.github_request
+        try:
+            def fake_paginate_key(path, token, key):
+                if "/commits/" in path:
+                    return [
+                        {
+                            "name": "security-review",
+                            "started_at": "2026-01-01T00:00:00Z",
+                            "details_url": "https://github.com/block/proto-fleet/actions/runs/123/job/456",
+                        }
+                    ]
+                return []
+
+            policy.github_paginate_key = fake_paginate_key
+            policy.github_request = lambda method, path, token, body=None: {
+                "path": ".github/workflows/attacker.yml",
+                "head_sha": "abc123",
+                "event": "pull_request",
+            }
+            risk, blockers = policy.extract_security_risk(
+                "block",
+                "proto-fleet",
+                "abc123",
+                "token",
+                "security-review",
+                ".github/workflows/codex-security-review.yml",
+                "codex-security-review-result",
+            )
+        finally:
+            policy.github_paginate_key = original_paginate_key
+            policy.github_request = original_request
+
+        self.assertIsNone(risk)
+        self.assertIn(
+            "Codex security-review run path is '.github/workflows/attacker.yml', expected '.github/workflows/codex-security-review.yml'",
+            blockers,
+        )
+
+    def test_evaluate_policy_allows_trusted_low_risk_pr(self):
+        original_paginate = policy.github_paginate
+        original_trusted_author_reasons = policy.trusted_author_reasons
+        original_check_statuses = policy.check_statuses
+        original_extract_security_risk = policy.extract_security_risk
+        try:
+            def fake_paginate(path, token):
+                if path.endswith("/files"):
+                    return [
+                        {
+                            "filename": "client/src/foo.ts",
+                            "additions": 2,
+                            "deletions": 1,
+                            "patch": "@@\n+const x = 1",
+                        }
+                    ]
+                if path.endswith("/reviews"):
+                    return []
+                return []
+
+            policy.github_paginate = fake_paginate
+            policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
+                True,
+                [f"author @{author} is explicitly trusted"],
+            )
+            policy.check_statuses = lambda owner, repo, head_sha, required_checks, token: (True, [])
+            policy.extract_security_risk = lambda owner, repo, head_sha, token, check_name, workflow_path, artifact_name: (
+                "LOW",
+                [],
+            )
+            result = policy.evaluate_policy(
+                config={
+                    "trusted_authors": ["author"],
+                    "minimum_human_approvals": 1,
+                    "security_review_check": "security-review",
+                    "security_review_workflow_path": ".github/workflows/codex-security-review.yml",
+                    "security_review_artifact": "codex-security-review-result",
+                    "low_risk": {
+                        "max_changed_files": 10,
+                        "max_file_changes": 80,
+                        "max_total_changes": 200,
+                        "minimum_ai_confidence": 0.85,
+                        "allowed_security_risks": ["LOW", "NONE"],
+                        "required_checks": ["Gate"],
+                        "deny_paths": [".github/**"],
+                        "content_deny_added_patterns": [],
+                    },
+                },
+                owner="block",
+                repo="proto-fleet",
+                pr_number=123,
+                author="author",
+                head_sha="abc123",
+                token="token",
+                classifier_output='{"risk":"low","confidence":0.95,"requires_human_review":false,"reasons":["small"]}',
+            )
+        finally:
+            policy.github_paginate = original_paginate
+            policy.trusted_author_reasons = original_trusted_author_reasons
+            policy.check_statuses = original_check_statuses
+            policy.extract_security_risk = original_extract_security_risk
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.decision, "trusted-author-low-risk")
+        self.assertEqual(result.reasons, [])
 
     def test_human_review_state_ignores_unauthorized_approvals(self):
         original = policy.reviewer_has_authority

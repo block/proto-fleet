@@ -9,6 +9,7 @@ import io
 import json
 import math
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -145,6 +146,46 @@ def denied_paths(files: list[dict[str, Any]], deny_patterns: list[str]) -> list[
             if any(path_matches(path, pattern) for pattern in deny_patterns):
                 denied.append(path)
     return sorted(set(denied))
+
+
+def deterministic_content_blockers(files: list[dict[str, Any]], low_config: dict[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    max_file_changes = int(low_config.get("max_file_changes", 0) or 0)
+    pattern_rules = low_config.get("content_deny_added_patterns", [])
+
+    compiled_rules: list[tuple[re.Pattern[str], str]] = []
+    for rule in pattern_rules:
+        if not isinstance(rule, dict):
+            continue
+        pattern = rule.get("pattern")
+        reason = rule.get("reason")
+        if isinstance(pattern, str) and isinstance(reason, str):
+            compiled_rules.append((re.compile(pattern), reason))
+
+    for item in files:
+        path = item.get("filename", "<unknown>")
+        additions = int(item.get("additions", 0))
+        deletions = int(item.get("deletions", 0))
+        changed_lines = additions + deletions
+        if max_file_changes and changed_lines > max_file_changes:
+            blockers.append(f"{path} has {changed_lines} changed lines, exceeds per-file limit {max_file_changes}")
+
+        patch = item.get("patch")
+        if patch is None and changed_lines:
+            blockers.append(f"{path} diff content is unavailable for deterministic content checks")
+            continue
+
+        matched_reasons: set[str] = set()
+        for line in str(patch or "").splitlines():
+            if not line.startswith("+") or line.startswith("+++"):
+                continue
+            added_line = line[1:]
+            for pattern, reason in compiled_rules:
+                if reason not in matched_reasons and pattern.search(added_line):
+                    blockers.append(f"{path} adds blocked content: {reason}")
+                    matched_reasons.add(reason)
+
+    return sorted(set(blockers))
 
 
 def load_classifier(raw_output: str) -> dict[str, Any] | None:
@@ -319,6 +360,12 @@ def evaluate_low_risk_preflight(
     else:
         reasons.append("no denied paths changed")
 
+    content_blockers = deterministic_content_blockers(files, low_config)
+    if content_blockers:
+        blockers.extend(content_blockers)
+    else:
+        reasons.append("deterministic content checks passed")
+
     return {
         "eligible": not blockers,
         "reasons": reasons,
@@ -334,7 +381,9 @@ def latest_check_runs(owner: str, repo: str, head_sha: str, token: str) -> dict[
         if not name:
             continue
         current = latest_by_name.get(name)
-        if current is None or str(run.get("started_at") or "") >= str(current.get("started_at") or ""):
+        run_key = (str(run.get("started_at") or ""), int(run.get("id", 0) or 0))
+        current_key = (str(current.get("started_at") or ""), int(current.get("id", 0) or 0)) if current else ("", 0)
+        if current is None or run_key > current_key:
             latest_by_name[name] = run
     return latest_by_name
 
@@ -365,21 +414,37 @@ def extract_run_id(details_url: str | None) -> str | None:
     return run_id if run_id.isdigit() else None
 
 
-def extract_security_risk(owner: str, repo: str, head_sha: str, token: str) -> tuple[str | None, list[str]]:
-    security_run = latest_check_runs(owner, repo, head_sha, token).get("security-review")
+def extract_security_risk(
+    owner: str,
+    repo: str,
+    head_sha: str,
+    token: str,
+    check_name: str,
+    workflow_path: str,
+    artifact_name: str,
+) -> tuple[str | None, list[str]]:
+    security_run = latest_check_runs(owner, repo, head_sha, token).get(check_name)
     if not security_run:
-        return None, ["Codex security-review check is missing"]
+        return None, [f"Codex security-review check {check_name!r} is missing"]
 
     run_id = extract_run_id(security_run.get("details_url") or security_run.get("html_url"))
     if not run_id:
         return None, ["Codex security-review run id was not found"]
+
+    workflow_run = github_request("GET", f"/repos/{owner}/{repo}/actions/runs/{run_id}", token)
+    if workflow_run.get("path") != workflow_path:
+        return None, [f"Codex security-review run path is {workflow_run.get('path')!r}, expected {workflow_path!r}"]
+    if workflow_run.get("head_sha") != head_sha:
+        return None, ["Codex security-review workflow run is stale for this PR head"]
+    if workflow_run.get("event") != "pull_request":
+        return None, [f"Codex security-review workflow event is {workflow_run.get('event')!r}, expected 'pull_request'"]
 
     artifacts = github_paginate_key(f"/repos/{owner}/{repo}/actions/runs/{run_id}/artifacts", token, "artifacts")
     artifact = next(
         (
             item
             for item in artifacts
-            if item.get("name") == "codex-security-review-result" and not item.get("expired", False)
+            if item.get("name") == artifact_name and not item.get("expired", False)
         ),
         None,
     )
@@ -456,13 +521,27 @@ def evaluate_policy(
     else:
         low_reasons.append("no denied paths changed")
 
+    content_blockers = deterministic_content_blockers(files, low_config)
+    if content_blockers:
+        low_blockers.extend(content_blockers)
+    else:
+        low_reasons.append("deterministic content checks passed")
+
     checks_ok, check_blockers = check_statuses(owner, repo, head_sha, low_config.get("required_checks", []), token)
     if checks_ok:
         low_reasons.append("required checks are successful")
     else:
         low_blockers.extend(check_blockers)
 
-    security_risk, security_blockers = extract_security_risk(owner, repo, head_sha, token)
+    security_risk, security_blockers = extract_security_risk(
+        owner,
+        repo,
+        head_sha,
+        token,
+        str(config.get("security_review_check", "security-review")),
+        str(config.get("security_review_workflow_path", ".github/workflows/codex-security-review.yml")),
+        str(config.get("security_review_artifact", "codex-security-review-result")),
+    )
     allowed_security_risks = {risk.upper() for risk in low_config.get("allowed_security_risks", [])}
     if security_blockers:
         low_blockers.extend(security_blockers)
