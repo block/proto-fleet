@@ -1,6 +1,6 @@
 name: Review Policy
 
-on:
+on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflow_run completions instead of PR-head events
   workflow_run:
     workflows: ["PR Gate", "Codex Security Review"]
     types: [completed]
