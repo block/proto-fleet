@@ -275,31 +275,37 @@ jobs:
           AI_OUTPUT: ${{ steps.ai_classifier.outputs.final-message }}
           PREFLIGHT_OUTPUT: ${{ steps.preflight.outputs.skipped_classifier_output }}
         run: |
-          if [ "$AI_OUTCOME" = "success" ] && [ -n "$AI_OUTPUT" ]; then
-            payload="$AI_OUTPUT"
-          elif [ "$AI_OUTCOME" != "skipped" ]; then
-            payload="$(python3 - <<'PY'
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           import os
 
-          outcome = os.environ.get("AI_OUTCOME") or "unknown"
-          print(json.dumps({
-              "risk": "high",
-              "confidence": 1.0,
-              "requires_human_review": True,
-              "reasons": [f"Low-risk AI classifier did not complete successfully: {outcome}"],
-          }))
-          PY
-          )"
-          else
-            payload="$PREFLIGHT_OUTPUT"
-          fi
+          def fallback(reason):
+              return {
+                  "risk": "high",
+                  "confidence": 1.0,
+                  "requires_human_review": True,
+                  "reasons": [reason],
+              }
 
-          {
-            echo 'value<<EOF'
-            printf '%s\n' "$payload"
-            echo EOF
-          } >> "$GITHUB_OUTPUT"
+          ai_outcome = os.environ.get("AI_OUTCOME") or "unknown"
+          ai_output = os.environ.get("AI_OUTPUT") or ""
+          preflight_output = os.environ.get("PREFLIGHT_OUTPUT") or ""
+
+          if ai_outcome == "success" and ai_output:
+              try:
+                  payload = json.loads(ai_output)
+              except json.JSONDecodeError:
+                  payload = fallback("Low-risk AI classifier output was not valid JSON")
+          elif ai_outcome != "skipped":
+              payload = fallback(f"Low-risk AI classifier did not complete successfully: {ai_outcome}")
+          else:
+              try:
+                  payload = json.loads(preflight_output)
+              except json.JSONDecodeError:
+                  payload = fallback("Low-risk classifier fallback output was not valid JSON")
+
+          print("value=" + json.dumps(payload, separators=(",", ":")))
+          PY
 
       - name: Evaluate review policy
         id: evaluate_policy
