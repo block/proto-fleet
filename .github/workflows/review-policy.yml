@@ -1,6 +1,6 @@
 name: Review Policy
 
-on:
+on: # zizmor: ignore[dangerous-triggers] review policy re-evaluates after trusted PR Gate and Codex Security Review workflow completions
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
   pull_request_review:
@@ -158,17 +158,22 @@ jobs:
           CLASSIFIER_OUTPUT: ${{ steps.ai_classifier.outputs.final-message }}
           RESULT_JSON: ${{ runner.temp }}/review-policy-result.json
           POLICY_ROOT: ${{ steps.policy_source.outputs.path }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          AUTHOR: ${{ steps.pr.outputs.author }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           set +e
           "$POLICY_ROOT/.github/scripts/evaluate_review_policy.py" \
             --config "$POLICY_ROOT/.github/review-policy.json" \
             --result-json "$RESULT_JSON" \
             --classifier-output "$CLASSIFIER_OUTPUT" \
-            --owner "${{ github.repository_owner }}" \
-            --repo "${{ github.event.repository.name }}" \
-            --pr-number "${{ steps.pr.outputs.number }}" \
-            --author "${{ steps.pr.outputs.author }}" \
-            --head-sha "${{ steps.pr.outputs.head_sha }}"
+            --owner "$OWNER" \
+            --repo "$REPO" \
+            --pr-number "$PR_NUMBER" \
+            --author "$AUTHOR" \
+            --head-sha "$HEAD_SHA"
           status=$?
           decision="$(python3 -c 'import json, os; print(json.load(open(os.environ["RESULT_JSON"]))["decision"])' 2>/dev/null || echo error)"
           echo "decision=${decision}" >> "$GITHUB_OUTPUT"
