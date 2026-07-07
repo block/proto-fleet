@@ -142,6 +142,7 @@ func TestTelemetryStore_UptimeCountsMergeRawTailWhenRollupIsPartial(t *testing.T
 
 	user := dbSvc.CreateSuperAdminUser()
 	orgID := user.OrganizationID
+	disableUptimeRollupPolicies(t, db)
 	deviceIdentifier := fmt.Sprintf("rollup-tail-device-%d", time.Now().UnixNano())
 	first := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Minute)
 	second := first.Add(time.Minute)
@@ -177,6 +178,7 @@ func TestTelemetryStore_UptimeCountsRecomputePartiallyMaterializedTailBucket(t *
 
 	user := dbSvc.CreateSuperAdminUser()
 	orgID := user.OrganizationID
+	disableUptimeRollupPolicies(t, db)
 	deviceIdentifier := fmt.Sprintf("rollup-partial-bucket-device-%d", time.Now().UnixNano())
 
 	// Arrange: a 90s bucket spans two rollup minutes; only the first minute is
@@ -295,6 +297,7 @@ func TestTelemetryStore_UptimeCountsBoundLargeRawFallbacks(t *testing.T) {
 
 	user := dbSvc.CreateSuperAdminUser()
 	orgID := user.OrganizationID
+	disableUptimeRollupPolicies(t, db)
 	deviceIdentifier := fmt.Sprintf("rollup-fallback-bound-device-%d", time.Now().UnixNano())
 
 	// A snapshot in the head of the range is never refreshed into the rollup,
@@ -353,16 +356,6 @@ func TestTelemetryStore_UptimeCountsBoundLargeRawFallbacks(t *testing.T) {
 		for i := 1; i < 3500; i++ {
 			deviceIDs = append(deviceIDs, models.DeviceIdentifier(fmt.Sprintf("rollup-fallback-bound-filler-%d", i)))
 		}
-		rollupOnlyCounts := store.getUptimeStatusCountsFromDeviceRollups(
-			ctx,
-			orgID,
-			deviceIDs,
-			start,
-			end,
-			time.Minute,
-			dataSourceRaw,
-		)
-		require.NotEmpty(t, rollupOnlyCounts)
 
 		// Act
 		counts := store.uptimeCountsForQuery(ctx, models.CombinedMetricsQuery{
@@ -370,9 +363,10 @@ func TestTelemetryStore_UptimeCountsBoundLargeRawFallbacks(t *testing.T) {
 			DeviceIDs:      deviceIDs,
 		}, start, end, time.Minute, dataSourceRaw)
 
-		// Assert: the large scoped query returns the rollup-only result instead
-		// of widening to an expensive raw fallback.
-		assert.Equal(t, rollupOnlyCounts, counts)
+		// Assert: only the rollup-covered bucket, not the raw-only gapped one
+		require.Len(t, counts, 1)
+		assert.True(t, covered.Equal(counts[0].Timestamp), "expected bucket %s, got %s", covered, counts[0].Timestamp)
+		assert.Equal(t, int32(1), counts[0].BrokenCount)
 	})
 }
 
@@ -389,6 +383,7 @@ func TestTelemetryStore_UptimeCountsBoundLargeRawTailMerges(t *testing.T) {
 
 	user := dbSvc.CreateSuperAdminUser()
 	orgID := user.OrganizationID
+	disableUptimeRollupPolicies(t, db)
 	deviceIdentifier := fmt.Sprintf("rollup-tail-bound-device-%d", time.Now().UnixNano())
 
 	// The rollup covers only the first bucket, leaving a ~5h unmaterialized
@@ -512,6 +507,23 @@ func insertDeviceMetricForUptimeRequest(t *testing.T, db *sql.DB, at time.Time, 
 
 func ptrDuration(d time.Duration) *time.Duration {
 	return &d
+}
+
+// disableUptimeRollupPolicies unschedules the continuous-aggregate background
+// refresh jobs in this test's throwaway database. Fixtures in this file
+// deliberately leave regions unmaterialized ("never refreshed into the
+// rollup") and only materialize via explicit refreshUptimeDeviceRollup calls;
+// a scheduled policy run landing mid-test materializes those regions and
+// flips rollup-coverage decisions, which is a wall-clock-dependent flake
+// (it is also why refreshUptimeDeviceRollup retries on lock contention).
+func disableUptimeRollupPolicies(t *testing.T, db *sql.DB) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(), `
+		SELECT alter_job(job_id, scheduled => false)
+		FROM timescaledb_information.jobs
+		WHERE proc_name = 'policy_refresh_continuous_aggregate'
+	`)
+	require.NoError(t, err)
 }
 
 func refreshUptimeDeviceRollup(t *testing.T, db *sql.DB, view string, start, end time.Time) {
