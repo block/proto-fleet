@@ -157,7 +157,7 @@ describe("ScanMinerQrModal", () => {
     await waitFor(() => expect(screen.getByText(/No paired miner found/i)).toBeInTheDocument());
   });
 
-  it("blocks assigning a miner already in a different rack", async () => {
+  it("allows reassigning a miner already in a different rack and reports it as a reassignment", async () => {
     mockCanUseLiveCamera.mockReturnValue(true);
     mockLookup.mockResolvedValueOnce({
       status: "found",
@@ -173,9 +173,13 @@ describe("ScanMinerQrModal", () => {
       capturedOnDetected?.(["SN123"]);
     });
 
-    await waitFor(() => expect(screen.getByText(/Already assigned to rack "Rack B"/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Currently assigned to rack "Rack B"/i)).toBeInTheDocument());
     const assignBtn = screen.getByText("Assign to slot") as HTMLButtonElement;
-    expect(assignBtn.disabled).toBe(true);
+    // Not blocked — the reparent is confirmed in ManageRackModal.
+    expect(assignBtn.disabled).toBe(false);
+
+    fireEvent.click(assignBtn);
+    expect(onConfirm).toHaveBeenCalledWith("dev-1", true);
   });
 
   it("blocks assigning a miner that isn't fully paired", async () => {
