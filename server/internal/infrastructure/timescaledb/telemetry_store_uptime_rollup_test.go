@@ -10,6 +10,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,6 +29,7 @@ func TestTelemetryStore_UptimeCountsUseCurrentMembershipDeviceRollups(t *testing
 
 	user := dbSvc.CreateSuperAdminUser()
 	orgID := user.OrganizationID
+	disableUptimeRollupPolicies(t, db)
 	siteA := createUptimeTestSite(t, db, orgID, "rollup-site-a")
 	siteB := createUptimeTestSite(t, db, orgID, "rollup-site-b")
 
@@ -66,6 +68,7 @@ func TestTelemetryStore_UptimeCountsUseHourlyAndDailyDeviceRollups(t *testing.T)
 
 	user := dbSvc.CreateSuperAdminUser()
 	orgID := user.OrganizationID
+	disableUptimeRollupPolicies(t, db)
 
 	tests := []struct {
 		name           string
@@ -224,6 +227,7 @@ func TestTelemetryStore_UptimeRollup1mMatchesRawBucketingForNinetySecondBuckets(
 
 	user := dbSvc.CreateSuperAdminUser()
 	orgID := user.OrganizationID
+	disableUptimeRollupPolicies(t, db)
 	deviceIdentifier := fmt.Sprintf("rollup-90s-device-%d", time.Now().UnixNano())
 	at := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Minute).Add(50 * time.Second)
 	start := at.Add(-time.Minute)
@@ -256,6 +260,7 @@ func TestTelemetryStore_UptimeRollup1mPicksLatestStateWhenBucketSpansMinutes(t *
 
 	user := dbSvc.CreateSuperAdminUser()
 	orgID := user.OrganizationID
+	disableUptimeRollupPolicies(t, db)
 	deviceIdentifier := fmt.Sprintf("rollup-latest-state-device-%d", time.Now().UnixNano())
 
 	// Two snapshots one minute apart inside a single 90s bucket: the bucket
@@ -537,8 +542,10 @@ func refreshUptimeDeviceRollup(t *testing.T, db *sql.DB, view string, start, end
 		if err == nil {
 			return
 		}
-		var pqErr *pq.Error
-		if !errors.As(err, &pqErr) || pqErr.Code != "55P03" || attempt == maxAttempts {
+		// The test DB connects via the pgx driver (db.ConnectToDatabase), so
+		// lock-contention errors surface as *pgconn.PgError, not *pq.Error.
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "55P03" || attempt == maxAttempts {
 			require.NoError(t, err)
 		}
 		time.Sleep(time.Duration(attempt) * 100 * time.Millisecond)
