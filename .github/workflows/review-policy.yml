@@ -1,6 +1,10 @@
 name: Review Policy
 
 on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflow/review events instead of PR-head code
+  check_run:
+    types: [completed, rerequested]
+  check_suite:
+    types: [completed, rerequested]
   workflow_run:
     workflows: ["PR Gate", "Codex Security Review", "Semgrep OSS", "zizmor"]
     types: [completed]
@@ -49,6 +53,26 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
+            async function findOpenPrForSha(sha) {
+              if (!sha) return undefined;
+              const { data: candidates } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: sha,
+              });
+              const candidate = candidates.find((item) =>
+                item.state === 'open' && item.head.sha === sha
+              );
+              if (!candidate) return undefined;
+
+              const { data } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: candidate.number,
+              });
+              return data;
+            }
+
             let pr;
             if (context.eventName === 'workflow_dispatch') {
               const { data } = await github.rest.pulls.get({
@@ -65,22 +89,21 @@ jobs:
                 core.setOutput('found', 'false');
                 return;
               }
-              const { data: candidates } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                commit_sha: context.payload.sha,
-              });
-              const candidate = candidates.find((item) =>
-                item.state === 'open' && item.head.sha === context.payload.sha
-              );
-              if (candidate) {
-                const { data } = await github.rest.pulls.get({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  pull_number: candidate.number,
-                });
-                pr = data;
+              pr = await findOpenPrForSha(context.payload.sha);
+            } else if (context.eventName === 'check_run') {
+              if (context.payload.check_run?.app?.slug === 'github-actions') {
+                core.notice('Ignoring GitHub Actions check_run event; workflow_run handles in-repo workflows.');
+                core.setOutput('found', 'false');
+                return;
               }
+              pr = await findOpenPrForSha(context.payload.check_run?.head_sha);
+            } else if (context.eventName === 'check_suite') {
+              if (context.payload.check_suite?.app?.slug === 'github-actions') {
+                core.notice('Ignoring GitHub Actions check_suite event; workflow_run handles in-repo workflows.');
+                core.setOutput('found', 'false');
+                return;
+              }
+              pr = await findOpenPrForSha(context.payload.check_suite?.head_sha);
             } else if (context.payload.workflow_run?.pull_requests?.length) {
               const candidate = context.payload.workflow_run.pull_requests[0];
               const { data } = await github.rest.pulls.get({
