@@ -353,6 +353,16 @@ func TestTelemetryStore_UptimeCountsBoundLargeRawFallbacks(t *testing.T) {
 		for i := 1; i < 3500; i++ {
 			deviceIDs = append(deviceIDs, models.DeviceIdentifier(fmt.Sprintf("rollup-fallback-bound-filler-%d", i)))
 		}
+		rollupOnlyCounts := store.getUptimeStatusCountsFromDeviceRollups(
+			ctx,
+			orgID,
+			deviceIDs,
+			start,
+			end,
+			time.Minute,
+			dataSourceRaw,
+		)
+		require.NotEmpty(t, rollupOnlyCounts)
 
 		// Act
 		counts := store.uptimeCountsForQuery(ctx, models.CombinedMetricsQuery{
@@ -360,10 +370,9 @@ func TestTelemetryStore_UptimeCountsBoundLargeRawFallbacks(t *testing.T) {
 			DeviceIDs:      deviceIDs,
 		}, start, end, time.Minute, dataSourceRaw)
 
-		// Assert: only the rollup-covered bucket, not the raw-only gapped one
-		require.Len(t, counts, 1)
-		assert.True(t, covered.Equal(counts[0].Timestamp), "expected bucket %s, got %s", covered, counts[0].Timestamp)
-		assert.Equal(t, int32(1), counts[0].BrokenCount)
+		// Assert: the large scoped query returns the rollup-only result instead
+		// of widening to an expensive raw fallback.
+		assert.Equal(t, rollupOnlyCounts, counts)
 	})
 }
 

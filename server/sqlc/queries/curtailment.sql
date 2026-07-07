@@ -541,7 +541,8 @@ SELECT
     COALESCE(rollup.released, 0)::BIGINT AS rollup_released,
     COALESCE(rollup.restore_failed, 0)::BIGINT AS rollup_restore_failed,
     COALESCE(rollup.unavailable, 0)::BIGINT AS rollup_unavailable,
-    COALESCE(rollup.total, 0)::BIGINT AS rollup_total
+    COALESCE(rollup.total, 0)::BIGINT AS rollup_total,
+    COALESCE(unavailable_reason_rollup.reasons, '{}'::JSONB) AS rollup_unavailable_reasons
 FROM curtailment_event ce
 LEFT JOIN LATERAL (
     -- State buckets mirror GetCurtailmentTargetRollupByEvent below; keep the
@@ -559,6 +560,21 @@ LEFT JOIN LATERAL (
     FROM curtailment_target ct
     WHERE ct.curtailment_event_id = ce.id
 ) rollup ON true
+LEFT JOIN LATERAL (
+    -- Reason buckets are split from the state rollup so the state counts stay
+    -- index-only on idx_curtailment_target_event_state; this aggregate is
+    -- covered by idx_curtailment_target_unavailable_reason.
+    SELECT jsonb_object_agg(reason, reason_count) AS reasons
+    FROM (
+        SELECT
+            COALESCE(NULLIF(ct.last_error, ''), 'unknown') AS reason,
+            COUNT(*)::BIGINT AS reason_count
+        FROM curtailment_target ct
+        WHERE ct.curtailment_event_id = ce.id
+            AND ct.state = 'unavailable'
+        GROUP BY reason
+    ) reason_counts
+) unavailable_reason_rollup ON true
 WHERE ce.org_id = sqlc.arg('org_id')
     AND ce.state IN ('pending', 'active', 'restoring')
 ORDER BY COALESCE(ce.started_at, ce.created_at) DESC, ce.id DESC;
@@ -1012,10 +1028,12 @@ LIMIT sqlc.arg('row_limit')::BIGINT;
 -- partial, but the rollup must describe the whole event.
 --
 -- Counts ct.curtailment_event_id (NULL exactly on the LEFT JOIN's no-target
--- row, like any ct column) so the aggregate only touches index columns of
--- idx_curtailment_target_event_state and stays index-only-scannable. State
+-- row, like any ct column) so the state aggregate only touches index columns
+-- of idx_curtailment_target_event_state and stays index-only-scannable. State
 -- buckets mirror the ListActiveCurtailmentEvents lateral rollup above; keep
--- the bucketing rules in sync (dispatching/dispatched conflate).
+-- the bucketing rules in sync (dispatching/dispatched conflate). Unavailable
+-- reason buckets are aggregated separately and covered by
+-- idx_curtailment_target_unavailable_reason.
 SELECT
     COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'pending')::BIGINT AS pending,
     COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state IN ('dispatching', 'dispatched'))::BIGINT AS dispatched,
@@ -1025,12 +1043,25 @@ SELECT
     COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'released')::BIGINT AS released,
     COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'restore_failed')::BIGINT AS restore_failed,
     COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'unavailable')::BIGINT AS unavailable,
-    COUNT(ct.curtailment_event_id)::BIGINT AS total
+    COUNT(ct.curtailment_event_id)::BIGINT AS total,
+    COALESCE(unavailable_reason_rollup.reasons, '{}'::JSONB) AS unavailable_reasons
 FROM curtailment_event ce
 LEFT JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
+LEFT JOIN LATERAL (
+    SELECT jsonb_object_agg(reason, reason_count) AS reasons
+    FROM (
+        SELECT
+            COALESCE(NULLIF(ct.last_error, ''), 'unknown') AS reason,
+            COUNT(*)::BIGINT AS reason_count
+        FROM curtailment_target ct
+        WHERE ct.curtailment_event_id = ce.id
+            AND ct.state = 'unavailable'
+        GROUP BY reason
+    ) reason_counts
+) unavailable_reason_rollup ON true
 WHERE ce.org_id = sqlc.arg('org_id')
     AND ce.event_uuid = sqlc.arg('event_uuid')
-GROUP BY ce.id;
+GROUP BY ce.id, unavailable_reason_rollup.reasons;
 
 -- name: GetCurtailmentReconcilerHeartbeat :one
 SELECT id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_count

@@ -384,6 +384,13 @@ message CurtailmentTargetRollup {
     int32 restore_failed = 7;
     int32 total          = 8;
     int32 unavailable    = 9;
+    repeated CurtailmentUnavailableReason unavailable_reasons = 10;
+}
+
+// CurtailmentUnavailableReason summarizes why targets are unavailable.
+message CurtailmentUnavailableReason {
+    string reason = 1;  // canonical reason code, e.g. "offline"
+    int32  count  = 2;
 }
 
 // CurtailmentTarget is one event-scoped target.

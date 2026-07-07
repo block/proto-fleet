@@ -14,6 +14,7 @@ import {
   getActiveCurtailmentDisplayState,
   getActiveCurtailmentMinerCompliance,
   getActiveCurtailmentRestoreProgress,
+  getCurtailmentProgressPercent,
   getCurtailmentTargetKw as getTargetKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { Alert, Success } from "@/shared/assets/icons";
@@ -47,6 +48,7 @@ export interface ActiveCurtailmentEvent {
   restoreBatchSize: number;
   restoreBatchIntervalSec: number;
   rollups: CurtailmentTargetRollup[];
+  unavailableReasonCounts?: ActiveCurtailmentUnavailableReasonCount[];
 }
 
 export interface ActiveCurtailmentTargetSiteCoverage {
@@ -54,6 +56,11 @@ export interface ActiveCurtailmentTargetSiteCoverage {
   targetCount: number;
   mappedTargetCount: number;
   unknownTargetCount: number;
+}
+
+export interface ActiveCurtailmentUnavailableReasonCount {
+  label: string;
+  count: number;
 }
 
 interface ActiveCurtailmentStatusProps {
@@ -143,6 +150,12 @@ const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
 };
 
 const manageableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
+const forceReleaseDisplayStates = new Set<ActiveCurtailmentDisplayState>([
+  "curtailed",
+  "curtailing",
+  "pending",
+  "restoring",
+]);
 function SectionHeader({ title, children }: SectionHeaderProps): ReactElement {
   return (
     <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
@@ -319,32 +332,47 @@ const restoreProgressDisplayStates = new Set<ActiveCurtailmentDisplayState>([
   "restored",
   "restoreIncomplete",
 ]);
-const progressColorMap: Record<Segment["status"], string> = {
+const curtailProgressColorMap: Record<Segment["status"], string> = {
   OK: "bg-core-primary-fill",
   WARNING: "bg-core-accent-fill",
   CRITICAL: "bg-intent-critical-fill",
   NA: "bg-core-primary-10",
 };
+const restoreProgressColorMap: Record<Segment["status"], string> = {
+  ...curtailProgressColorMap,
+  OK: "bg-intent-success-fill",
+  NA: "bg-core-primary-fill",
+};
 
 // Ticks once per second so the SLA-facing elapsed readout moves even when
 // polling snapshots are unchanged (equal snapshots skip re-renders). Lives in
-// its own component so the per-second tick re-renders only this stat block,
-// not the whole card.
-function ElapsedStatBlock({ since }: { since: string }): ReactElement | null {
+// its own component so the per-second tick re-renders only this progress
+// header value, not the whole card.
+function ElapsedProgressValue({ since, until }: { since: string; until?: string }): ReactElement | null {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
+    if (until) {
+      return undefined;
+    }
+
     const intervalId = setInterval(() => setNowMs(Date.now()), millisecondsPerSecond);
     return () => clearInterval(intervalId);
-  }, []);
+  }, [until]);
 
   const sinceDate = getDateTime(since);
   if (!sinceDate) {
     return null;
   }
 
-  const elapsedSeconds = Math.max((nowMs - sinceDate.getTime()) / millisecondsPerSecond, 0);
-  return <StatBlock label="Elapsed" value={formatCurtailmentElapsedDuration(elapsedSeconds)} />;
+  const untilDate = until ? getDateTime(until) : undefined;
+  const endMs = untilDate?.getTime() ?? nowMs;
+  const elapsedSeconds = Math.max((endMs - sinceDate.getTime()) / millisecondsPerSecond, 0);
+  return (
+    <div className="text-right text-200 text-text-primary">
+      {formatCurtailmentElapsedDuration(elapsedSeconds)} elapsed
+    </div>
+  );
 }
 
 // SLA clock anchor. started_at is only stamped at the pending -> active
@@ -363,10 +391,11 @@ function shouldShowCurtailProgress(
   displayState: ActiveCurtailmentDisplayState,
   progress: ActiveCurtailmentCurtailProgress,
 ): boolean {
-  // dispatchableCount > 0 doubles as the live-data gate: rollup-less events
-  // (old servers, narrowed whole-org reads) and zeroed rollups derive an
-  // all-zero progress shape and keep today's card unchanged.
-  return curtailProgressDisplayStates.has(displayState) && progress.dispatchableCount > 0;
+  // dispatchableCount keeps rollup-less events hidden, while unavailableCount
+  // lets all-unavailable live rollups still explain why no targets can move.
+  return (
+    curtailProgressDisplayStates.has(displayState) && (progress.dispatchableCount > 0 || progress.unavailableCount > 0)
+  );
 }
 
 function shouldShowRestoreProgress(
@@ -399,46 +428,117 @@ function getCurtailRemainingSeconds(
 }
 
 function getCurtailProgressSegments(progress: ActiveCurtailmentCurtailProgress): Segment[] {
+  if (progress.dispatchableCount <= 0) {
+    return [];
+  }
+
   return [
-    { name: "Confirmed quiet", status: "OK", count: progress.confirmedCount },
-    { name: "Command sent", status: "WARNING", count: progress.sentCount },
-    { name: "Drifted", status: "CRITICAL", count: progress.driftedCount },
-    { name: "Pending", status: "NA", count: progress.pendingCount },
+    { name: "Curtailed", status: "OK", count: progress.confirmedCount },
+    {
+      name: "Curtailing",
+      status: "WARNING",
+      count: progress.sentCount + progress.pendingCount + progress.driftedCount,
+    },
   ];
+}
+
+function getCurtailProgressSummary(progress: ActiveCurtailmentCurtailProgress): string {
+  if (progress.dispatchableCount <= 0 && progress.unavailableCount > 0) {
+    return "No dispatchable miners";
+  }
+
+  const curtailedPercent = Math.floor(
+    getCurtailmentProgressPercent(progress.confirmedCount, progress.dispatchableCount),
+  );
+  if (curtailedPercent >= 100) {
+    return `${formatMinerCount(progress.confirmedCount)} curtailed (${curtailedPercent}%)`;
+  }
+
+  return `${progress.confirmedCount.toLocaleString()} of ${formatMinerCount(
+    progress.dispatchableCount,
+  )} curtailed (${curtailedPercent}%)`;
+}
+
+function getRestoreProgressSummary(progress: ActiveCurtailmentRestoreProgress): string {
+  if (progress.percent >= 100) {
+    return `${formatMinerCount(progress.restoredCount)} restored (${progress.percent}%)`;
+  }
+
+  return `${progress.restoredCount.toLocaleString()} of ${formatMinerCount(
+    progress.restorableCount,
+  )} restored (${progress.percent}%)`;
 }
 
 function getRestoreProgressSegments(progress: ActiveCurtailmentRestoreProgress): Segment[] {
-  return [
+  const segments: Segment[] = [
     { name: "Restored", status: "OK", count: progress.restoredCount },
-    { name: "Failed to restore", status: "CRITICAL", count: progress.failedCount },
-    { name: "Awaiting restore", status: "NA", count: progress.awaitingCount },
+    { name: "Curtailed", status: "NA", count: progress.awaitingCount },
   ];
+
+  if (progress.failedCount > 0) {
+    segments.push({ name: "Failed to restore", status: "CRITICAL", count: progress.failedCount });
+  }
+
+  return segments;
 }
 
 interface ProgressSectionProps {
-  title: string;
   summary: string;
   segments: Segment[];
+  colorMap: Record<Segment["status"], string>;
+  elapsedAnchor?: string;
+  elapsedUntil?: string;
   unavailableCount: number;
+  unavailableReasonCounts?: ActiveCurtailmentUnavailableReasonCount[];
 }
 
-function ProgressSection({ title, summary, segments, unavailableCount }: ProgressSectionProps): ReactElement {
+function formatUnavailableAnnotation(
+  unavailableCount: number,
+  unavailableReasonCounts?: ActiveCurtailmentUnavailableReasonCount[],
+): string | null {
+  if (unavailableCount <= 0) {
+    return null;
+  }
+
+  const reasonTotal = unavailableReasonCounts?.reduce((total, reason) => total + reason.count, 0) ?? 0;
+  if (unavailableReasonCounts?.length && reasonTotal === unavailableCount) {
+    const reasonSummary = unavailableReasonCounts
+      .map((reason) => `${reason.count.toLocaleString()} ${reason.label}`)
+      .join(", ");
+    return `${unavailableCount.toLocaleString()} unavailable (${reasonSummary})`;
+  }
+
+  return `${unavailableCount.toLocaleString()} unavailable (details unavailable)`;
+}
+
+function ProgressSection({
+  summary,
+  segments,
+  colorMap,
+  elapsedAnchor,
+  elapsedUntil,
+  unavailableCount,
+  unavailableReasonCounts,
+}: ProgressSectionProps): ReactElement {
+  const unavailableAnnotation = formatUnavailableAnnotation(unavailableCount, unavailableReasonCounts);
+  const hasPositiveSegments = segments.some((segment) => (segment.count ?? 0) > 0);
+
   return (
     <div className="mt-8 grid gap-3" data-testid="active-curtailment-progress">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <div className="text-200 text-text-primary-50">{title}</div>
-        <div className="text-emphasis-200 text-text-primary">{summary}</div>
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+        <div className="text-200 text-text-primary-50">{summary}</div>
+        {elapsedAnchor ? <ElapsedProgressValue since={elapsedAnchor} until={elapsedUntil} /> : null}
       </div>
-      <CompositionBar segments={segments} height={12} colorMap={progressColorMap} />
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-200 text-text-primary-70">
+      {hasPositiveSegments ? <CompositionBar segments={segments} height={12} colorMap={colorMap} /> : null}
+      <div className="flex flex-wrap items-start gap-x-5 gap-y-1 text-200 text-text-primary-70">
         {segments.map((segment) => (
-          <span key={segment.name} className="flex items-center gap-2">
-            <span className={clsx("inline-block h-2 w-2 shrink-0 rounded-full", progressColorMap[segment.status])} />
+          <span key={segment.name} className="flex items-start gap-2">
+            <span className={clsx("mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full", colorMap[segment.status])} />
             {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
           </span>
         ))}
-        {unavailableCount > 0 ? (
-          <span className="text-text-primary-50">{unavailableCount.toLocaleString()} unavailable (excluded)</span>
+        {unavailableAnnotation ? (
+          <span className="ml-auto text-right text-text-primary-50">{unavailableAnnotation}</span>
         ) : null}
       </div>
     </div>
@@ -473,10 +573,10 @@ function formatIncompleteSiteCoverageWarning(coverage?: ActiveCurtailmentTargetS
   const targetLabel = unknownCount === 1 ? "target" : "targets";
   const verb = unknownCount === 1 ? "maps" : "map";
   if (unknownCount > 0) {
-    return `${unknownCount.toLocaleString()} ${targetLabel} no longer ${verb} to a known site. Org admins can still stop or abort this event.`;
+    return `${unknownCount.toLocaleString()} ${targetLabel} no longer ${verb} to a known site. Org admins can still restore or abort this event.`;
   }
 
-  return "Some targets no longer map to a known site. Org admins can still stop or abort this event.";
+  return "Some targets no longer map to a known site. Org admins can still restore or abort this event.";
 }
 
 function getForceReleaseButton(
@@ -512,14 +612,14 @@ function getActiveCurtailmentActionButton({
     case "pending":
     case "curtailing":
       return onRequestStop ? (
-        <Button variant={variants.danger} size={sizes.compact} text="Stop" onClick={onRequestStop} />
+        <Button variant={variants.secondary} size={sizes.compact} text="Restore now" onClick={onRequestStop} />
       ) : null;
     case "restoring":
       return onRequestTerminateRecovery ? (
         <Button
           variant={variants.secondaryDanger}
           size={sizes.compact}
-          text="Terminate recovery"
+          text="Stop restore"
           onClick={onRequestTerminateRecovery}
         />
       ) : null;
@@ -543,7 +643,10 @@ function ActiveCurtailmentActionButtons({
     onRequestTerminateRecovery,
   });
   const showManageButton = Boolean(onRequestEdit && manageableDisplayStates.has(displayState));
-  const forceReleaseButton = getForceReleaseButton(displayState, onRequestForceRelease);
+  const forceReleaseButton =
+    !forceReleaseDisplayStates.has(displayState) || (displayState === "restoring" && onRequestTerminateRecovery)
+      ? null
+      : getForceReleaseButton(displayState, onRequestForceRelease);
 
   if (!actionButton && !forceReleaseButton && !showManageButton) {
     return null;
@@ -599,7 +702,7 @@ export default function ActiveCurtailmentStatus({
   const showCurtailProgress = shouldShowCurtailProgress(displayState, curtailProgress);
   const restoreProgress = getActiveCurtailmentRestoreProgress(event);
   const showRestoreProgress = shouldShowRestoreProgress(displayState, restoreProgress);
-  const elapsedAnchor = showCurtailProgress ? getElapsedAnchor(event) : undefined;
+  const elapsedAnchor = showCurtailProgress || showRestoreProgress ? getElapsedAnchor(event) : undefined;
   // "Curtailed" means the shed goal is met, so pairing it with a time-to-
   // curtail estimate would contradict the headline state.
   const curtailRemainingSeconds =
@@ -689,9 +792,8 @@ export default function ActiveCurtailmentStatus({
             <>
               <StatBlock label="Applies to" value={formatMinerCount(event.selectedMiners)} />
               <StatBlock label="Restore" value={formatRestoreProfile(event)} />
-              {elapsedAnchor ? <ElapsedStatBlock since={elapsedAnchor} /> : null}
               {curtailRemainingSeconds > 0 ? (
-                <StatBlock label="Est. time to curtail" value={formatDurationLong(curtailRemainingSeconds)} />
+                <StatBlock label="Estimated time to curtail" value={formatDurationLong(curtailRemainingSeconds)} />
               ) : null}
             </>
           )}
@@ -699,23 +801,25 @@ export default function ActiveCurtailmentStatus({
 
         {showCurtailProgress ? (
           <ProgressSection
-            title="Curtail progress"
-            summary={`${curtailProgress.reachedCount.toLocaleString()} of ${formatMinerCount(
-              curtailProgress.dispatchableCount,
-            )} reached (${curtailProgress.percent}%)`}
+            summary={getCurtailProgressSummary(curtailProgress)}
             segments={getCurtailProgressSegments(curtailProgress)}
+            colorMap={curtailProgressColorMap}
+            elapsedAnchor={elapsedAnchor}
+            elapsedUntil={event.endedAt}
             unavailableCount={curtailProgress.unavailableCount}
+            unavailableReasonCounts={event.unavailableReasonCounts}
           />
         ) : null}
 
         {showRestoreProgress ? (
           <ProgressSection
-            title="Restore progress"
-            summary={`${restoreProgress.restoredCount.toLocaleString()} of ${formatMinerCount(
-              restoreProgress.restorableCount,
-            )} restored (${restoreProgress.percent}%)`}
+            summary={getRestoreProgressSummary(restoreProgress)}
             segments={getRestoreProgressSegments(restoreProgress)}
+            colorMap={restoreProgressColorMap}
+            elapsedAnchor={elapsedAnchor}
+            elapsedUntil={event.endedAt}
             unavailableCount={restoreProgress.unavailableCount}
+            unavailableReasonCounts={event.unavailableReasonCounts}
           />
         ) : null}
 

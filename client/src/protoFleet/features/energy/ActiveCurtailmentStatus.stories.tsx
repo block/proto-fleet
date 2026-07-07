@@ -70,7 +70,7 @@ function ActiveCurtailmentStatusStory(props: ComponentProps<typeof ActiveCurtail
         onDismissRestored={() => undefined}
         onRequestEdit={() => undefined}
         onRequestRestore={() => setDialogAction("restore")}
-        onRequestStop={() => setDialogAction("stopCurtailment")}
+        onRequestStop={() => setDialogAction("restore")}
       />
       <CurtailmentStopConfirmationDialog
         open={dialogAction !== undefined}
@@ -220,7 +220,7 @@ function AnimatedCurtailmentLifecycleStory(): ReactElement {
         onDismissRestored={resetAnimation}
         onRequestEdit={() => undefined}
         onRequestRestore={() => setDialogAction("restore")}
-        onRequestStop={() => setDialogAction("stopCurtailment")}
+        onRequestStop={() => setDialogAction("restore")}
       />
       <CurtailmentStopConfirmationDialog
         open={dialogAction !== undefined}
@@ -255,6 +255,11 @@ export const CurtailingLargeFleet: Story = {
         { state: "drifted", count: 200 },
         { state: "pending", count: 800 },
         { state: "unavailable", count: 5 },
+      ],
+      unavailableReasonCounts: [
+        { label: "offline", count: 3 },
+        { label: "needs authentication", count: 1 },
+        { label: "in maintenance", count: 1 },
       ],
     },
   },

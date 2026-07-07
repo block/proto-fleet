@@ -356,6 +356,10 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 					RestoreFailed: 1,
 					Unavailable:   2,
 					Total:         5000,
+					UnavailableReasons: []models.TargetUnavailableReasonCount{
+						{Reason: "offline", Count: 1},
+						{Reason: "authentication_needed", Count: 1},
+					},
 				},
 			},
 			{
@@ -390,6 +394,10 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 	assert.Equal(t, int32(4990), resp.Msg.Events[0].TargetRollup.Confirmed)
 	assert.Equal(t, int32(2), resp.Msg.Events[0].TargetRollup.Unavailable)
 	assert.Equal(t, int32(1), resp.Msg.Events[0].TargetRollup.RestoreFailed)
+	assert.Equal(t, []*pb.CurtailmentUnavailableReason{
+		{Reason: "offline", Count: 1},
+		{Reason: "authentication_needed", Count: 1},
+	}, resp.Msg.Events[0].TargetRollup.UnavailableReasons)
 	require.NotNil(t, resp.Msg.Events[1].TargetRollup, "target-less events carry a zeroed rollup")
 	assert.Equal(t, int32(0), resp.Msg.Events[1].TargetRollup.Total)
 	// Replay handles are scrubbed from the list view, like the history list.

@@ -248,15 +248,22 @@ type Event struct {
 // the domain boundary because SQL COUNT returns int64; handlers clamp to the
 // proto int32 fields when rendering.
 type TargetRollup struct {
-	Pending       int64
-	Dispatched    int64
-	Confirmed     int64
-	Drifted       int64
-	Resolved      int64
-	Released      int64
-	RestoreFailed int64
-	Unavailable   int64
-	Total         int64
+	Pending            int64
+	Dispatched         int64
+	Confirmed          int64
+	Drifted            int64
+	Resolved           int64
+	Released           int64
+	RestoreFailed      int64
+	Unavailable        int64
+	Total              int64
+	UnavailableReasons []TargetUnavailableReasonCount
+}
+
+// TargetUnavailableReasonCount summarizes unavailable target reasons.
+type TargetUnavailableReasonCount struct {
+	Reason string
+	Count  int64
 }
 
 // TargetSiteCoverage summarizes how persisted target rows map back to current

@@ -27,6 +27,12 @@ func TestSQLCurtailmentStore_ListActiveEvents_ReturnsLiveTargetRollups(t *testin
 	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
 
 	targetedUUID := uuid.New()
+	offlineReason := "offline"
+	authNeededReason := "authentication_needed"
+	unavailableOfflineTarget := curtailmentStoreTestTarget("rollup-unavailable-offline", models.TargetStateUnavailable, models.DesiredStateCurtailed)
+	unavailableOfflineTarget.LastError = &offlineReason
+	unavailableAuthNeededTarget := curtailmentStoreTestTarget("rollup-unavailable-auth-needed", models.TargetStateUnavailable, models.DesiredStateCurtailed)
+	unavailableAuthNeededTarget.LastError = &authNeededReason
 	_, err := store.InsertEventWithTargets(
 		ctx,
 		curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, targetedUUID, models.EventStateActive, "active-rollup-targeted"),
@@ -37,7 +43,8 @@ func TestSQLCurtailmentStore_ListActiveEvents_ReturnsLiveTargetRollups(t *testin
 			curtailmentStoreTestTarget("rollup-confirmed-a", models.TargetStateConfirmed, models.DesiredStateCurtailed),
 			curtailmentStoreTestTarget("rollup-confirmed-b", models.TargetStateConfirmed, models.DesiredStateCurtailed),
 			curtailmentStoreTestTarget("rollup-drifted", models.TargetStateDrifted, models.DesiredStateCurtailed),
-			curtailmentStoreTestTarget("rollup-unavailable", models.TargetStateUnavailable, models.DesiredStateCurtailed),
+			unavailableOfflineTarget,
+			unavailableAuthNeededTarget,
 			curtailmentStoreTestTarget("rollup-resolved", models.TargetStateResolved, models.DesiredStateActive),
 			curtailmentStoreTestTarget("rollup-released", models.TargetStateReleased, models.DesiredStateActive),
 			curtailmentStoreTestTarget("rollup-restore-failed", models.TargetStateRestoreFailed, models.DesiredStateActive),
@@ -72,12 +79,20 @@ func TestSQLCurtailmentStore_ListActiveEvents_ReturnsLiveTargetRollups(t *testin
 		Resolved:      1,
 		Released:      1,
 		RestoreFailed: 1,
-		Unavailable:   1,
-		Total:         10,
+		Unavailable:   2,
+		Total:         11,
+		UnavailableReasons: []models.TargetUnavailableReasonCount{
+			{Reason: "authentication_needed", Count: 1},
+			{Reason: "offline", Count: 1},
+		},
 	}, targeted.TargetRollup)
 
 	targetless := byUUID[targetlessUUID]
 	require.NotNil(t, targetless)
 	require.NotNil(t, targetless.TargetRollup, "target-less events must carry a zeroed rollup, not nil")
 	assert.Equal(t, &models.TargetRollup{}, targetless.TargetRollup)
+
+	detailRollup, err := store.GetTargetRollupByEvent(ctx, user.OrganizationID, targetedUUID)
+	require.NoError(t, err)
+	assert.Equal(t, targeted.TargetRollup, detailRollup)
 }
