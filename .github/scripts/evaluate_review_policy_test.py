@@ -742,6 +742,44 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("current authorized human approvals: member", reasons)
         self.assertIn("ignored unauthorized review states from: outsider", reasons)
 
+    def test_human_review_state_ignores_head_contributor_approvals(self):
+        original = policy.reviewer_has_authority
+        try:
+            policy.reviewer_has_authority = lambda owner, repo, username, association, token: True
+            reviews = [
+                {
+                    "user": {"login": "contributor", "type": "User"},
+                    "state": "APPROVED",
+                    "commit_id": "abc123",
+                    "submitted_at": "2026-01-01T00:00:00Z",
+                    "author_association": "MEMBER",
+                },
+                {
+                    "user": {"login": "independent", "type": "User"},
+                    "state": "APPROVED",
+                    "commit_id": "abc123",
+                    "submitted_at": "2026-01-01T00:00:01Z",
+                    "author_association": "MEMBER",
+                },
+            ]
+            ok, reasons, blockers = policy.human_review_state(
+                reviews,
+                "abc123",
+                "author",
+                1,
+                "block",
+                "proto-fleet",
+                "token",
+                {"contributor"},
+            )
+        finally:
+            policy.reviewer_has_authority = original
+
+        self.assertTrue(ok)
+        self.assertEqual(blockers, [])
+        self.assertIn("current authorized human approvals: independent", reasons)
+        self.assertIn("ignored approvals from PR contributors: contributor", reasons)
+
     def test_human_review_state_keeps_change_request_after_comment(self):
         original = policy.reviewer_has_authority
         try:

@@ -244,9 +244,13 @@ def human_review_state(
     owner: str,
     repo: str,
     token: str,
+    ineligible_reviewers: set[str] | None = None,
 ) -> tuple[bool, list[str], list[str]]:
     reviewer_states: dict[str, dict[str, bool]] = {}
     ignored = []
+    ignored_contributors = []
+    ineligible_approvers = {author.lower()}
+    ineligible_approvers.update(login.lower() for login in (ineligible_reviewers or set()))
 
     sorted_reviews = sorted(reviews, key=lambda item: str(item.get("submitted_at") or ""))
     for review in sorted_reviews:
@@ -272,7 +276,10 @@ def human_review_state(
         elif state == "CHANGES_REQUESTED":
             reviewer_state["approved"] = False
             reviewer_state["changes_requested"] = True
-        elif state == "APPROVED" and review.get("commit_id") == head_sha and login != author:
+        elif state == "APPROVED" and review.get("commit_id") == head_sha:
+            if login.lower() in ineligible_approvers:
+                ignored_contributors.append(login)
+                continue
             reviewer_state["approved"] = True
             reviewer_state["changes_requested"] = False
 
@@ -288,6 +295,8 @@ def human_review_state(
     reasons = [f"current authorized human approvals: {', '.join(sorted(approvals)) or 'none'}"]
     if ignored:
         reasons.append(f"ignored unauthorized review states from: {', '.join(sorted(set(ignored)))}")
+    if ignored_contributors:
+        reasons.append(f"ignored approvals from PR contributors: {', '.join(sorted(set(ignored_contributors)))}")
     return not blockers, reasons, blockers
 
 
@@ -332,6 +341,26 @@ def trusted_head_contributor_reasons(
     owner: str,
     token: str,
 ) -> tuple[bool, list[str], list[str]]:
+    contributors, unknown_commits = head_contributors(commits)
+    reasons: list[str] = []
+    blockers: list[str] = []
+
+    if unknown_commits:
+        blockers.append("current head has commits without GitHub-linked authors or committers: " + ", ".join(unknown_commits))
+    if not contributors:
+        blockers.append("current head has no GitHub-linked commit authors or committers")
+
+    for contributor in sorted(contributors):
+        trusted, _trust_reasons = trusted_author_reasons(contributor, trusted_authors, owner, token)
+        if trusted:
+            reasons.append(f"head contributor @{contributor} is trusted")
+        else:
+            blockers.append(f"head contributor @{contributor} is not in trusted_authors")
+
+    return not blockers, reasons, blockers
+
+
+def head_contributors(commits: list[dict[str, Any]]) -> tuple[set[str], list[str]]:
     contributors: set[str] = set()
     unknown_commits: list[str] = []
 
@@ -347,21 +376,7 @@ def trusted_head_contributor_reasons(
         if not linked:
             unknown_commits.append(sha)
 
-    reasons: list[str] = []
-    blockers: list[str] = []
-    if unknown_commits:
-        blockers.append("current head has commits without GitHub-linked authors or committers: " + ", ".join(unknown_commits))
-    if not contributors:
-        blockers.append("current head has no GitHub-linked commit authors or committers")
-
-    for contributor in sorted(contributors):
-        trusted, _trust_reasons = trusted_author_reasons(contributor, trusted_authors, owner, token)
-        if trusted:
-            reasons.append(f"head contributor @{contributor} is trusted")
-        else:
-            blockers.append(f"head contributor @{contributor} is not in trusted_authors")
-
-    return not blockers, reasons, blockers
+    return contributors, unknown_commits
 
 
 def shared_head_pr_blockers(owner: str, repo: str, pr_number: int, head_sha: str, token: str) -> list[str]:
@@ -719,6 +734,7 @@ def evaluate_policy(
     files = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/files", token)
     commits = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/commits", token)
     reviews = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews", token)
+    contributors, _unknown_commits = head_contributors(commits)
 
     human_ok, human_reasons, human_blockers = human_review_state(
         reviews,
@@ -728,6 +744,7 @@ def evaluate_policy(
         owner,
         repo,
         token,
+        contributors,
     )
 
     low_config = config["low_risk"]
