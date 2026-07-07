@@ -88,7 +88,15 @@ export type NestedFilterDropdownItem = BaseFilterItem & {
 
 export type NestedFilterChildItem = DropdownFilterItem | NumericRangeFilterItem | TextareaListFilterItem;
 
-export type FilterItem = ButtonFilterItem | DropdownFilterItem | NestedFilterDropdownItem;
+// Standalone (top-level) filters. Dropdown/button render as inline controls;
+// textareaList renders as a trigger that opens the shared modal (the same
+// component the nestedFilterDropdown uses for its children).
+export type FilterItem =
+  | ButtonFilterItem
+  | DropdownFilterItem
+  | NestedFilterDropdownItem
+  | NumericRangeFilterItem
+  | TextareaListFilterItem;
 
 /**
  * Submenu category passed into `NestedDropdownFilter`. Discriminated by

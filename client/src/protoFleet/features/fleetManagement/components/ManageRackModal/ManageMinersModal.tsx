@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 
 import { type MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import MinerSelectionList, {
-  type DeviceListItem,
+  type MinerEligibility,
   type MinerSelectionListHandle,
 } from "@/protoFleet/components/MinerSelectionList";
 
@@ -13,7 +13,9 @@ import Modal from "@/shared/components/Modal";
 interface ManageMinersModalProps {
   show: boolean;
   currentRackMiners: string[];
-  currentRackLabel: string;
+  /** Target rack placement. Drives the "Show assignable only" toggle and the
+   *  id-based eligibility filter. */
+  eligibility: MinerEligibility;
   maxSlots: number;
   onDismiss: () => void;
   onConfirm: (selectedIds: string[], allSelected: boolean, filter?: MinerListFilter) => void;
@@ -22,18 +24,13 @@ interface ManageMinersModalProps {
 export default function ManageMinersModal({
   show,
   currentRackMiners,
-  currentRackLabel,
+  eligibility,
   maxSlots,
   onDismiss,
   onConfirm,
 }: ManageMinersModalProps) {
   const selectionRef = useRef<MinerSelectionListHandle>(null);
   const [overflowError, setOverflowError] = useState("");
-
-  const isRowDisabled = useCallback(
-    (item: DeviceListItem) => !!(item.rackLabel && item.rackLabel !== currentRackLabel),
-    [currentRackLabel],
-  );
 
   const handleContinue = useCallback(() => {
     const selection = selectionRef.current?.getSelection();
@@ -81,9 +78,16 @@ export default function ManageMinersModal({
 
         <MinerSelectionList
           ref={selectionRef}
-          filterConfig={{ showTypeFilter: true, showRackFilter: false, showGroupFilter: false }}
+          filterConfig={{
+            showTypeFilter: true,
+            showSubnetFilter: true,
+            showSiteFilter: true,
+            showBuildingFilter: true,
+            showRackFilter: true,
+            showGroupFilter: true,
+          }}
           initialSelectedItems={currentRackMiners}
-          isRowDisabled={isRowDisabled}
+          eligibility={eligibility}
         />
       </div>
     </Modal>

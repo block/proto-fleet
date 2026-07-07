@@ -1,4 +1,12 @@
-import { isValidCidr, isValidIpv4, isValidIpv6 } from "./networkDiscovery";
+import {
+  ipv4RangeToCidrs,
+  isValidCidr,
+  isValidHostname,
+  isValidIpv4,
+  isValidIpv6,
+  looksLikeIpRange,
+  parseIpRange,
+} from "./networkDiscovery";
 
 export type NumericRangeValue = {
   min?: number;
@@ -122,4 +130,62 @@ export const normalizeCidrLine = (line: string): string => {
   const network = ipInt & maskInt;
   const networkOctets = [(network >>> 24) & 0xff, (network >>> 16) & 0xff, (network >>> 8) & 0xff, network & 0xff];
   return `${networkOctets.join(".")}/${mask}`;
+};
+
+/**
+ * Validates a subnet-filter line. Superset of {@link validateCidrLine}: also
+ * accepts an IPv4 range in the same syntax the onboarding discovery flow uses —
+ * short (`10.0.0.10-20`) or full (`10.0.0.10-10.0.0.20`), optional spaces around
+ * the dash. Hostnames are intentionally not accepted here (the fleet filter
+ * matches by IP, not name). Returns null when valid, else an error string.
+ */
+export const validateSubnetLine = (line: string): string | null => {
+  const trimmed = line.trim();
+  if (trimmed === "") return "Empty value";
+  if (looksLikeIpRange(trimmed)) {
+    return parseIpRange(trimmed) ? null : "Not a valid IP range (e.g. 10.0.0.10-10.0.0.20)";
+  }
+  const cidrError = validateCidrLine(trimmed);
+  if (cidrError === null) return null;
+  // Hostnames are valid discovery targets but can't be filtered on (the fleet
+  // list matches by IP, not name). Give a targeted hint instead of the generic
+  // CIDR error. Gate on an alphabetic char so an all-numeric malformed IP like
+  // "999.1.1.1" — which isValidHostname would also accept — still gets the CIDR
+  // error, not the hostname hint.
+  if (/[a-z]/i.test(trimmed) && isValidHostname(trimmed)) {
+    return "Hostnames aren't supported here — use an IP, CIDR, or range";
+  }
+  return cidrError;
+};
+
+/**
+ * Normalizes a subnet-filter line for display/dedup. Ranges canonicalize to
+ * their full `start-end` form (so short and full inputs dedup together);
+ * CIDRs/IPs defer to {@link normalizeCidrLine}. Assumes the line already passed
+ * {@link validateSubnetLine}.
+ */
+export const normalizeSubnetLine = (line: string): string => {
+  const trimmed = line.trim();
+  if (looksLikeIpRange(trimmed)) {
+    const range = parseIpRange(trimmed);
+    if (range) return `${range.startIp}-${range.endIp}`;
+  }
+  return normalizeCidrLine(trimmed);
+};
+
+/**
+ * Expands one subnet-filter line into the CIDR entries the server understands.
+ * A range decomposes to the minimal covering CIDR set; a CIDR/IP yields itself
+ * (normalized). The fleet filter (`ip_cidrs`) has no range field, so this is
+ * where ranges become server-expressible.
+ */
+export const expandSubnetLineToCidrs = (line: string): string[] => {
+  const trimmed = line.trim();
+  if (looksLikeIpRange(trimmed)) {
+    const range = parseIpRange(trimmed);
+    if (range) return ipv4RangeToCidrs(range.startIp, range.endIp);
+    return [];
+  }
+  const normalized = normalizeCidrLine(trimmed);
+  return normalized ? [normalized] : [];
 };

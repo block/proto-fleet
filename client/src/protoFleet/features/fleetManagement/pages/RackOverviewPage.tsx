@@ -547,7 +547,11 @@ const RackOverviewPage = () => {
       {searchMinerSlot && rack ? (
         <SearchMinersModal
           show
-          currentRackLabel={rack.label}
+          eligibility={{
+            rackId: rack.id,
+            siteId: rack.placement?.site?.id || undefined,
+            buildingId: rack.placement?.building?.id || undefined,
+          }}
           onDismiss={() => setSearchMinerSlot(null)}
           onConfirm={(minerId) => {
             const slot = searchMinerSlot;

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  expandSubnetLineToCidrs,
   normalizeCidrLine,
+  normalizeSubnetLine,
   type NumericRangeBounds,
   type NumericRangeValue,
   validateCidrLine,
   validateNumericRange,
+  validateSubnetLine,
 } from "./filterValidation";
 
 const bounds: NumericRangeBounds = { min: 0, max: 100, unit: "TH/s" };
@@ -128,5 +131,61 @@ describe("normalizeCidrLine", () => {
 
   it("preserves host == network for /32", () => {
     expect(normalizeCidrLine("192.168.1.5/32")).toBe("192.168.1.5/32");
+  });
+});
+
+describe("validateSubnetLine", () => {
+  it("accepts CIDRs and bare IPs like validateCidrLine", () => {
+    expect(validateSubnetLine("192.168.1.0/24")).toBeNull();
+    expect(validateSubnetLine("10.0.0.5")).toBeNull();
+  });
+
+  it("accepts short and full IPv4 ranges (discovery syntax)", () => {
+    expect(validateSubnetLine("10.0.0.10-20")).toBeNull();
+    expect(validateSubnetLine("10.0.0.10-10.0.0.20")).toBeNull();
+    expect(validateSubnetLine("10.0.0.10 - 10.0.0.20")).toBeNull();
+  });
+
+  it("rejects an inverted or malformed range", () => {
+    expect(validateSubnetLine("10.0.0.20-10")).not.toBeNull();
+    expect(validateSubnetLine("10.0.0.10-999")).not.toBeNull();
+  });
+
+  it("rejects hostnames with a targeted message (filter matches by IP, not name)", () => {
+    expect(validateSubnetLine("miner01")).toBe("Hostnames aren't supported here — use an IP, CIDR, or range");
+    expect(validateSubnetLine("rack3-unit.local")).toBe("Hostnames aren't supported here — use an IP, CIDR, or range");
+  });
+
+  it("gives the generic CIDR error (not the hostname hint) for an all-numeric malformed IP", () => {
+    const error = validateSubnetLine("999.1.1.1");
+    expect(error).not.toBeNull();
+    expect(error).not.toContain("Hostnames");
+  });
+});
+
+describe("normalizeSubnetLine", () => {
+  it("canonicalizes a short range to its full form so it dedups with the full form", () => {
+    expect(normalizeSubnetLine("10.0.0.10-20")).toBe("10.0.0.10-10.0.0.20");
+    expect(normalizeSubnetLine("10.0.0.10 - 10.0.0.20")).toBe("10.0.0.10-10.0.0.20");
+  });
+
+  it("defers to CIDR normalization for non-ranges", () => {
+    expect(normalizeSubnetLine("10.0.0.5")).toBe("10.0.0.5/32");
+  });
+});
+
+describe("expandSubnetLineToCidrs", () => {
+  it("expands a range into its covering CIDRs", () => {
+    expect(expandSubnetLineToCidrs("10.0.0.10-10.0.0.21")).toEqual([
+      "10.0.0.10/31",
+      "10.0.0.12/30",
+      "10.0.0.16/30",
+      "10.0.0.20/31",
+    ]);
+  });
+
+  it("passes a CIDR/IP through as a single normalized entry", () => {
+    expect(expandSubnetLineToCidrs("192.168.1.0/24")).toEqual(["192.168.1.0/24"]);
+    expect(expandSubnetLineToCidrs("10.0.0.5")).toEqual(["10.0.0.5/32"]);
   });
 });

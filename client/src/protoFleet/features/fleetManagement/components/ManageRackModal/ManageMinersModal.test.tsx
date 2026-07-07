@@ -52,7 +52,7 @@ vi.mock("@/shared/assets/icons", () => ({
 const defaultProps = {
   show: true,
   currentRackMiners: [] as string[],
-  currentRackLabel: "Rack-01",
+  eligibility: { rackId: 1n, siteId: 10n, buildingId: 100n },
   maxSlots: 25,
   onDismiss: vi.fn(),
   onConfirm: vi.fn(),
@@ -75,8 +75,11 @@ describe("ManageMinersModal", () => {
     expect(screen.getByTestId("miner-selection-list")).toBeInTheDocument();
     expect(latestProps.current.filterConfig).toEqual({
       showTypeFilter: true,
-      showRackFilter: false,
-      showGroupFilter: false,
+      showSubnetFilter: true,
+      showSiteFilter: true,
+      showBuildingFilter: true,
+      showRackFilter: true,
+      showGroupFilter: true,
     });
   });
 
@@ -85,13 +88,9 @@ describe("ManageMinersModal", () => {
     expect(latestProps.current.initialSelectedItems).toEqual(["miner-1", "miner-2"]);
   });
 
-  it("disables miners in other racks via isRowDisabled", () => {
-    render(<ManageMinersModal {...defaultProps} currentRackLabel="Rack-01" />);
-
-    const isRowDisabled = latestProps.current.isRowDisabled;
-    expect(isRowDisabled({ rackLabel: "Other-Rack", deviceIdentifier: "m1" })).toBe(true);
-    expect(isRowDisabled({ rackLabel: "Rack-01", deviceIdentifier: "m2" })).toBe(false);
-    expect(isRowDisabled({ rackLabel: "", deviceIdentifier: "m3" })).toBe(false);
+  it("passes the target rack eligibility to the selection list", () => {
+    render(<ManageMinersModal {...defaultProps} eligibility={{ rackId: 5n, siteId: 2n, buildingId: 3n }} />);
+    expect(latestProps.current.eligibility).toEqual({ rackId: 5n, siteId: 2n, buildingId: 3n });
   });
 
   it("calls onConfirm with selected IDs on continue", () => {

@@ -1,25 +1,23 @@
 import { useCallback, useRef, useState } from "react";
 
-import type { DeviceListItem, MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
+import type { MinerEligibility, MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
 import MinerSelectionList from "@/protoFleet/components/MinerSelectionList";
 
 import Modal from "@/shared/components/Modal";
 
 interface SearchMinersModalProps {
   show: boolean;
-  currentRackLabel: string;
+  /** Target rack placement. Drives the "Show assignable only" toggle and the
+   *  id-based eligibility filter (miners in another rack/building/site drop out
+   *  or render disabled). */
+  eligibility: MinerEligibility;
   onDismiss: () => void;
   onConfirm: (selectedMinerId: string) => void;
 }
 
-export default function SearchMinersModal({ show, currentRackLabel, onDismiss, onConfirm }: SearchMinersModalProps) {
+export default function SearchMinersModal({ show, eligibility, onDismiss, onConfirm }: SearchMinersModalProps) {
   const selectionRef = useRef<MinerSelectionListHandle>(null);
   const [hasSelection, setHasSelection] = useState(false);
-
-  const isRowDisabled = useCallback(
-    (item: DeviceListItem) => !!(item.rackLabel && item.rackLabel !== currentRackLabel),
-    [currentRackLabel],
-  );
 
   const handleConfirm = useCallback(() => {
     const selection = selectionRef.current?.getSelection();
@@ -48,8 +46,15 @@ export default function SearchMinersModal({ show, currentRackLabel, onDismiss, o
     >
       <MinerSelectionList
         ref={selectionRef}
-        filterConfig={{ showTypeFilter: true, showRackFilter: false, showGroupFilter: false }}
-        isRowDisabled={isRowDisabled}
+        filterConfig={{
+          showTypeFilter: true,
+          showSubnetFilter: true,
+          showSiteFilter: true,
+          showBuildingFilter: true,
+          showRackFilter: true,
+          showGroupFilter: true,
+        }}
+        eligibility={eligibility}
         singleSelect
         onSelectionChange={({ selectedItems }) => setHasSelection(selectedItems.length > 0)}
       />

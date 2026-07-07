@@ -17,8 +17,9 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
+import type { MinerEligibility } from "@/protoFleet/components/MinerSelectionList";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
-import { getMinerRackLabel } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
+import { isMinerSnapshotIneligible } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { slotNumberToRowCol } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
 
 import { DismissCircle } from "@/shared/assets/icons";
@@ -30,17 +31,19 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 /** Fetch all miner IDs eligible for a rack by paginating through the fleet API.
  *  Applies the same filter the user had active in MinerSelectionList so "select all"
- *  respects model/type filters. Miners in other racks are excluded. */
-async function fetchAllSelectableMinerIds(rackLabel: string, listFilter?: MinerListFilter): Promise<string[]> {
+ *  respects model/subnet filters. Miners in a different rack/building/site are
+ *  excluded id-based (matches the list's eligibility predicate) so "select all"
+ *  can't pull in ineligible miners even if the assignable-only toggle was off. */
+async function fetchAllSelectableMinerIds(
+  eligibility: MinerEligibility,
+  listFilter?: MinerListFilter,
+): Promise<string[]> {
   const filter = listFilter
     ? { ...listFilter, pairingStatuses: [PairingStatus.PAIRED] }
     : { pairingStatuses: [PairingStatus.PAIRED] };
   const snapshots = await fetchAllMinerSnapshots(filter);
   return Object.values(snapshots)
-    .filter((m) => {
-      const currentRackLabel = getMinerRackLabel(m);
-      return !currentRackLabel || currentRackLabel === rackLabel;
-    })
+    .filter((m) => !isMinerSnapshotIneligible(m, eligibility))
     .map((m) => m.deviceIdentifier);
 }
 
@@ -99,6 +102,23 @@ export default function ManageRackModal({
   const [rackSettings, setRackSettings] = useState<RackFormData>(initialRackSettings);
   const totalSlots = rackSettings.rows * rackSettings.columns;
   const numberingOrigin = orderIndexToOrigin(rackSettings.orderIndex);
+
+  // Target-rack placement for the selection modals' eligibility filter. Read
+  // from the rack's own DeviceSet (id-based; site derives from building). A new
+  // rack has no id/placement yet, so eligibility only excludes already-racked
+  // miners. `|| undefined` collapses the proto default (0) to unassigned.
+  const currentRack = useMemo(
+    () => (existingRackId !== undefined ? existingRacks.find((r) => r.id === existingRackId) : undefined),
+    [existingRackId, existingRacks],
+  );
+  const eligibility = useMemo<MinerEligibility>(
+    () => ({
+      rackId: existingRackId,
+      siteId: currentRack?.placement?.site?.id || undefined,
+      buildingId: currentRack?.placement?.building?.id || undefined,
+    }),
+    [existingRackId, currentRack],
+  );
 
   // Core assignment state. A new rack (no existingRackId) can be seeded
   // with miners from a bulk "Add to rack → New rack" flow; edit mode
@@ -396,12 +416,11 @@ export default function ManageRackModal({
       if (allSelected) {
         // When "select all" is active, selectedIds only contains the current page.
         // Paginate through all miners server-side to get the complete list, applying
-        // the same filters the user had active (e.g. model/type) and excluding miners
-        // in other racks. Use initialRackSettings.label because fleet data still
-        // carries the original label even if the user edited it locally.
+        // the same filters the user had active (e.g. model/subnet) and excluding
+        // miners in a different rack/building/site (id-based).
         try {
           setIsLoading(true);
-          finalIds = await fetchAllSelectableMinerIds(initialRackSettings.label, listFilter);
+          finalIds = await fetchAllSelectableMinerIds(eligibility, listFilter);
         } catch {
           setErrorMsg("Failed to load all miners. Please try again.");
           return;
@@ -425,7 +444,7 @@ export default function ManageRackModal({
       setSlotAssignments((prev) => filterAssignmentsByValues(prev, keepSet));
       setManualAssignmentCache((prev) => filterAssignmentsByValues(prev, keepSet));
     },
-    [initialRackSettings.label, totalSlots],
+    [eligibility, totalSlots],
   );
 
   // RackSettingsModal edit handler
@@ -599,7 +618,7 @@ export default function ManageRackModal({
         <ManageMinersModal
           show={showManageMiners}
           currentRackMiners={rackMiners}
-          currentRackLabel={initialRackSettings.label}
+          eligibility={eligibility}
           maxSlots={totalSlots}
           onDismiss={() => setShowManageMiners(false)}
           onConfirm={handleManageMinersConfirm}
@@ -609,7 +628,7 @@ export default function ManageRackModal({
       {showSearchMiners ? (
         <SearchMinersModal
           show={showSearchMiners}
-          currentRackLabel={initialRackSettings.label}
+          eligibility={eligibility}
           onDismiss={() => {
             setShowSearchMiners(false);
             setSelectedSlot(null);

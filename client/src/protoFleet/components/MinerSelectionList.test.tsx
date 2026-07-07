@@ -1,4 +1,5 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import MinerSelectionList from "./MinerSelectionList";
@@ -43,11 +44,20 @@ vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   }),
 }));
 
+vi.mock("@/protoFleet/api/sites", () => ({
+  useSites: () => ({ listSites: vi.fn() }),
+}));
+
+vi.mock("@/protoFleet/api/buildings", () => ({
+  useBuildings: () => ({ listBuildings: vi.fn() }),
+}));
+
 vi.mock("@/shared/components/List", () => ({
   __esModule: true,
-  default: (props: unknown) => {
+  default: (props: { headerControls?: ReactNode }) => {
     listPropsSpy(props);
-    return <div data-testid="list-stub" />;
+    // Render headerControls so the assignable-only toggle is interactive in tests.
+    return <div data-testid="list-stub">{props.headerControls}</div>;
   },
 }));
 
@@ -142,5 +152,83 @@ describe("MinerSelectionList site scope", () => {
     });
 
     expect(screen.getByText("Select all")).toBeInTheDocument();
+  });
+});
+
+describe("MinerSelectionList eligibility", () => {
+  beforeEach(() => {
+    fleetArgsSpy.mockReset();
+    listPropsSpy.mockReset();
+    listRacksMock.mockReset();
+    listGroupsMock.mockReset();
+  });
+
+  const lastFleetFilter = () => {
+    const calls = fleetArgsSpy.mock.calls;
+    return calls[calls.length - 1]?.[0]?.filter;
+  };
+
+  const lastListProps = () => listPropsSpy.mock.calls[listPropsSpy.mock.calls.length - 1]?.[0];
+
+  it("folds the target rack's rack/building/site into the filter when assignable-only is on (default)", () => {
+    render(<MinerSelectionList eligibility={{ rackId: 1n, siteId: 2n, buildingId: 3n }} />);
+
+    const filter = lastFleetFilter();
+    expect(filter.includeNoRack).toBe(true);
+    expect(filter.rackIds).toEqual([1n]);
+    expect(filter.includeNoBuilding).toBe(true);
+    expect(filter.buildingIds).toEqual([3n]);
+    expect(filter.includeUnassigned).toBe(true);
+    expect(filter.siteIds).toEqual([2n]);
+  });
+
+  it("excludes all racked miners for a new rack (no rack id) but adds no rack/site/building ids", () => {
+    render(<MinerSelectionList eligibility={{}} />);
+
+    const filter = lastFleetFilter();
+    expect(filter.includeNoRack).toBe(true);
+    expect(filter.rackIds).toEqual([]);
+    expect(filter.buildingIds).toEqual([]);
+    expect(filter.includeNoBuilding).toBe(false);
+    expect(filter.siteIds).toEqual([]);
+  });
+
+  it("renders the assignable-only toggle only when eligibility is provided", () => {
+    const { rerender } = render(<MinerSelectionList />);
+    expect(lastListProps()?.headerControls).toBeFalsy();
+
+    rerender(<MinerSelectionList eligibility={{ rackId: 1n }} />);
+    expect(lastListProps()?.headerControls).toBeTruthy();
+  });
+
+  it("re-requests server-side (drops the eligibility constraints) when the toggle is turned off", () => {
+    render(<MinerSelectionList eligibility={{ rackId: 1n, siteId: 2n, buildingId: 3n }} />);
+
+    // Default on: eligibility folded into the fetch.
+    expect(lastFleetFilter().includeNoRack).toBe(true);
+    expect(lastFleetFilter().rackIds).toEqual([1n]);
+
+    // Toggle off → a fresh fetch with the constraints removed (server request,
+    // not a client-side row filter).
+    fireEvent.click(screen.getByLabelText("Show assignable only"));
+
+    expect(lastFleetFilter().includeNoRack).toBe(false);
+    expect(lastFleetFilter().rackIds).toEqual([]);
+    expect(lastFleetFilter().buildingIds).toEqual([]);
+    expect(lastFleetFilter().siteIds).toEqual([]);
+  });
+
+  it("disables ineligible rows (id-based) via isRowDisabled", () => {
+    render(<MinerSelectionList eligibility={{ rackId: 1n, siteId: 2n, buildingId: 3n }} />);
+
+    const isRowDisabled = lastListProps()?.isRowDisabled as (item: unknown) => boolean;
+    // In the target rack — eligible.
+    expect(isRowDisabled({ deviceIdentifier: "a", rackId: 1n, siteId: 2n, buildingId: 3n })).toBe(false);
+    // In another rack — ineligible.
+    expect(isRowDisabled({ deviceIdentifier: "b", rackId: 9n, siteId: 2n, buildingId: 3n })).toBe(true);
+    // Different building — ineligible.
+    expect(isRowDisabled({ deviceIdentifier: "c", siteId: 2n, buildingId: 8n })).toBe(true);
+    // Unplaced — eligible.
+    expect(isRowDisabled({ deviceIdentifier: "d" })).toBe(false);
   });
 });

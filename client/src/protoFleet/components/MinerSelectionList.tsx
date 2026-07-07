@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { clone, create } from "@bufbuild/protobuf";
 
+import { useBuildings } from "@/protoFleet/api/buildings";
 import {
   SortConfigSchema,
   SortDirection as SortDirectionProto,
@@ -13,19 +14,32 @@ import {
   MinerListFilterSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import { INACTIVE_PLACEHOLDER } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
-import { getMinerGroupLabels, getMinerRackLabel } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
+import {
+  getMinerBuildingId,
+  getMinerBuildingLabel,
+  getMinerGroupLabels,
+  getMinerRackId,
+  getMinerRackLabel,
+  getMinerSiteId,
+  getMinerSiteLabel,
+  isPlacementIneligible,
+  type MinerEligibility,
+} from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 
-import { ChevronDown } from "@/shared/assets/icons";
+import { ChevronDown, Plus } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
-import type { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
+import type { ActiveFilters, FilterItem, NestedFilterChildItem } from "@/shared/components/List/Filters/types";
 import type { ColConfig, ColTitles, SortDirection } from "@/shared/components/List/types";
 import { ModalSelectAllFooter } from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import Switch from "@/shared/components/Switch";
+import { expandSubnetLineToCidrs, normalizeSubnetLine, validateSubnetLine } from "@/shared/utils/filterValidation";
 
 // --- Exported types ---
 
@@ -35,14 +49,27 @@ export type DeviceListItem = {
   model: string;
   ipAddress: string;
   rackLabel: string;
+  siteLabel: string;
+  buildingLabel: string;
   groupLabels: string[];
+  // Placement identity (id-based), undefined when the miner is unassigned at
+  // that level. Drives eligibility checks that can't rely on labels (a
+  // same-named rack in another building would otherwise slip past).
+  rackId?: bigint;
+  siteId?: bigint;
+  buildingId?: bigint;
 };
 
 export type FilterConfig = {
   showTypeFilter?: boolean;
   showRackFilter?: boolean;
   showGroupFilter?: boolean;
+  showSubnetFilter?: boolean;
+  showSiteFilter?: boolean;
+  showBuildingFilter?: boolean;
 };
+
+export type { MinerEligibility };
 
 export interface MinerSelectionListHandle {
   getSelection: () => {
@@ -69,6 +96,12 @@ export interface MinerSelectionListProps {
   // MinerListFilter (AND with the user's model/rack/group facets) so applying a
   // facet never drops the site scope.
   scope?: SiteFilterFields;
+  // Target rack placement. When set, renders a "Show assignable only" toggle
+  // (default on) that folds rack/building/site eligibility into the server
+  // filter so miners in another rack/building/site drop out of the list
+  // entirely. When the toggle is off, ineligible miners are shown but disabled
+  // (id-based), so a cross-site pick can't happen silently.
+  eligibility?: MinerEligibility;
   onSelectionChange?: (state: {
     selectedItems: string[];
     allSelected: boolean;
@@ -81,8 +114,10 @@ export interface MinerSelectionListProps {
 const modalCols = {
   name: "name",
   type: "type",
-  rack: "rack",
   ipAddress: "ipAddress",
+  site: "site",
+  building: "building",
+  rack: "rack",
   group: "group",
 } as const;
 
@@ -91,16 +126,20 @@ type ModalColumn = (typeof modalCols)[keyof typeof modalCols];
 const modalColTitles: ColTitles<ModalColumn> = {
   name: "Name",
   type: "Model",
-  rack: "Rack",
   ipAddress: "IP address",
+  site: "Site",
+  building: "Building",
+  rack: "Rack",
   group: "Group",
 };
 
 const activeCols: ModalColumn[] = [
   modalCols.name,
   modalCols.type,
-  modalCols.rack,
   modalCols.ipAddress,
+  modalCols.site,
+  modalCols.building,
+  modalCols.rack,
   modalCols.group,
 ];
 
@@ -113,13 +152,21 @@ const modalColConfig: ColConfig<DeviceListItem, string, ModalColumn> = {
     component: (device: DeviceListItem) => <span>{device.model || INACTIVE_PLACEHOLDER}</span>,
     width: "min-w-20",
   },
-  [modalCols.rack]: {
-    component: (device: DeviceListItem) => <span>{device.rackLabel || INACTIVE_PLACEHOLDER}</span>,
-    width: "min-w-28",
-  },
   [modalCols.ipAddress]: {
     component: (device: DeviceListItem) => <span>{device.ipAddress || INACTIVE_PLACEHOLDER}</span>,
     width: "min-w-24",
+  },
+  [modalCols.site]: {
+    component: (device: DeviceListItem) => <span>{device.siteLabel || INACTIVE_PLACEHOLDER}</span>,
+    width: "min-w-24",
+  },
+  [modalCols.building]: {
+    component: (device: DeviceListItem) => <span>{device.buildingLabel || INACTIVE_PLACEHOLDER}</span>,
+    width: "min-w-24",
+  },
+  [modalCols.rack]: {
+    component: (device: DeviceListItem) => <span>{device.rackLabel || INACTIVE_PLACEHOLDER}</span>,
+    width: "min-w-28",
   },
   [modalCols.group]: {
     component: (device: DeviceListItem) => {
@@ -146,6 +193,8 @@ const hasUnsupportedAllSelectionFilter = (filter: MinerListFilter): boolean =>
   filter.rackIds.length > 0 ||
   filter.groupIds.length > 0 ||
   filter.siteIds.length > 0 ||
+  filter.buildingIds.length > 0 ||
+  filter.ipCidrs.length > 0 ||
   filter.includeUnassigned;
 
 const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
@@ -154,7 +203,12 @@ const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
   model: miner.model,
   ipAddress: miner.ipAddress,
   rackLabel: getMinerRackLabel(miner),
+  siteLabel: getMinerSiteLabel(miner),
+  buildingLabel: getMinerBuildingLabel(miner),
   groupLabels: getMinerGroupLabels(miner),
+  rackId: getMinerRackId(miner),
+  siteId: getMinerSiteId(miner),
+  buildingId: getMinerBuildingId(miner),
 });
 
 // --- Component ---
@@ -171,11 +225,19 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       disableFilteredSelectAll = false,
       showSelectAllFooter = true,
       scope,
+      eligibility,
       onSelectionChange,
     },
     ref,
   ) => {
-    const { showTypeFilter = true, showRackFilter = true, showGroupFilter = true } = filterConfig ?? {};
+    const {
+      showTypeFilter = true,
+      showRackFilter = true,
+      showGroupFilter = true,
+      showSubnetFilter = false,
+      showSiteFilter = false,
+      showBuildingFilter = false,
+    } = filterConfig ?? {};
 
     const scopeSiteIds = useMemo(() => scope?.siteIds ?? [], [scope]);
     const scopeIncludeUnassigned = scope?.includeUnassigned ?? false;
@@ -183,14 +245,31 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // actually changes (siteIds is a fresh bigint[] each render otherwise).
     const scopeKey = `${scopeSiteIds.map(String).join(",")}|${scopeIncludeUnassigned}`;
 
+    // Eligibility ids destructured to primitives so the derived filter memo has
+    // stable deps (the object prop is a fresh reference each render). Presence of
+    // the prop — not whether any id is set — enables the toggle and the rack
+    // exclusion, so a not-yet-placed new rack still filters out already-racked
+    // miners.
+    const eligibilityEnabled = eligibility !== undefined;
+    const eligRackId = eligibility?.rackId;
+    const eligSiteId = eligibility?.siteId;
+    const eligBuildingId = eligibility?.buildingId;
+    // "Show assignable only" — default on when a target rack is provided.
+    const [assignableOnly, setAssignableOnly] = useState(true);
+
     const { listGroups, listRacks } = useDeviceSets();
-    const [filter, setFilter] = useState(() =>
-      create(MinerListFilterSchema, { siteIds: scopeSiteIds, includeUnassigned: scopeIncludeUnassigned }),
-    );
+    const { listSites } = useSites();
+    const { listBuildings } = useBuildings();
+    // The user's facet selections (model / subnet / site / building / rack /
+    // group). Site scope and eligibility are layered on top in the derived
+    // `filter` below so applying a facet never drops those constraints.
+    const [userFilter, setUserFilter] = useState(() => create(MinerListFilterSchema, {}));
     const [selectedItems, setSelectedItems] = useState<string[]>(initialSelectedItems ?? []);
     const [allSelected, setAllSelected] = useState(initialAllSelected && !singleSelect);
     const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
     const [availableRacks, setAvailableRacks] = useState<DeviceSet[]>([]);
+    const [availableSites, setAvailableSites] = useState<{ id: string; label: string }[]>([]);
+    const [availableBuildings, setAvailableBuildings] = useState<{ id: string; label: string }[]>([]);
     const [hasInitialSynced, setHasInitialSynced] = useState(!initialSelectedItems || initialSelectedItems.length > 0);
     const [currentSort, setCurrentSort] = useState<{ field: ModalColumn; direction: SortDirection } | undefined>(
       undefined,
@@ -206,6 +285,49 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         direction: currentSort.direction === "asc" ? SortDirectionProto.ASC : SortDirectionProto.DESC,
       });
     }, [currentSort]);
+
+    // Effective server filter: the user's facets + the active site scope +,
+    // when "assignable only" is on, the target rack's eligibility. Each
+    // eligibility dimension is null-permissive (in-rack-or-none, in-building-or
+    // -none, in-site-or-none), so the result excludes miners in a *different*
+    // rack/building/site while keeping unplaced and current-rack miners.
+    // useFleet dedupes by protobuf value equality, so a fresh object per render
+    // only triggers a refetch when the contents actually change.
+    const filter = useMemo(() => {
+      const merged = clone(MinerListFilterSchema, userFilter);
+      // Site scope is the soft baseline; a user-selected Site facet
+      // (userFilter.siteIds) is more specific and takes precedence.
+      if (merged.siteIds.length === 0) {
+        merged.siteIds = scopeSiteIds;
+        merged.includeUnassigned = scopeIncludeUnassigned;
+      }
+      if (assignableOnly && eligibilityEnabled) {
+        // Rack: always admit unracked miners; also admit the target rack's own
+        // members when it exists. Excludes miners in any other rack.
+        merged.includeNoRack = true;
+        if (eligRackId !== undefined && !merged.rackIds.includes(eligRackId)) {
+          merged.rackIds.push(eligRackId);
+        }
+        if (eligBuildingId !== undefined) {
+          merged.buildingIds = [eligBuildingId];
+          merged.includeNoBuilding = true;
+        }
+        if (eligSiteId !== undefined) {
+          merged.siteIds = [eligSiteId];
+          merged.includeUnassigned = true;
+        }
+      }
+      return merged;
+    }, [
+      userFilter,
+      scopeSiteIds,
+      scopeIncludeUnassigned,
+      assignableOnly,
+      eligibilityEnabled,
+      eligRackId,
+      eligBuildingId,
+      eligSiteId,
+    ]);
 
     const {
       minerIds,
@@ -232,12 +354,25 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         .filter((snapshot): snapshot is ProtoMinerStateSnapshot => Boolean(snapshot))
         .map(toDeviceListItem);
     }, [minerIds, miners]);
+
+    // A caller-supplied predicate wins; otherwise, when a target rack is set,
+    // disable ineligible rows. With "assignable only" on they're already
+    // filtered out server-side; with it off they render disabled so a
+    // cross-rack/site pick can't happen silently.
+    const effectiveIsRowDisabled = useMemo(() => {
+      if (isRowDisabled) return isRowDisabled;
+      if (!eligibilityEnabled) return undefined;
+      const target: MinerEligibility = { rackId: eligRackId, siteId: eligSiteId, buildingId: eligBuildingId };
+      return (item: DeviceListItem) => isPlacementIneligible(item, target);
+    }, [isRowDisabled, eligibilityEnabled, eligRackId, eligSiteId, eligBuildingId]);
+
     const currentSelectableItemIds = useMemo(
       () =>
-        (isRowDisabled ? currentPageItems.filter((device) => !isRowDisabled(device)) : currentPageItems).map(
-          (device) => device.deviceIdentifier,
-        ),
-      [currentPageItems, isRowDisabled],
+        (effectiveIsRowDisabled
+          ? currentPageItems.filter((device) => !effectiveIsRowDisabled(device))
+          : currentPageItems
+        ).map((device) => device.deviceIdentifier),
+      [currentPageItems, effectiveIsRowDisabled],
     );
     const displayedSelectedItems = allSelected && !singleSelect ? currentSelectableItemIds : selectedItems;
     const canSelectAll = !singleSelect && (!disableFilteredSelectAll || !hasUnsupportedAllSelectionFilter(filter));
@@ -323,41 +458,52 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       goToPrevPage();
     }, [scrollToTop, goToPrevPage]);
 
-    // Keep the active site scope folded into the filter when the selection
-    // changes mid-modal. Preserves the user's model/rack/group facets and only
-    // swaps the site fields.
-    useEffect(() => {
-      setFilter((current) => {
-        if (
-          current.siteIds.map(String).join(",") === scopeSiteIds.map(String).join(",") &&
-          current.includeUnassigned === scopeIncludeUnassigned
-        ) {
-          return current;
-        }
-        // Clone to preserve the user's model/rack/group facets, swapping only
-        // the site fields.
-        const next = clone(MinerListFilterSchema, current);
-        next.siteIds = scopeSiteIds;
-        next.includeUnassigned = scopeIncludeUnassigned;
-        return next;
-      });
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [scopeKey]);
-
-    // Fetch filter options only for enabled filters. Rack facet options scope
-    // to the active site so the dropdown lists only the site's racks; group
-    // options stay org-wide until ListGroups gains site filtering (issue #520).
+    // Fetch filter options only for enabled filters. Rack/building facet options
+    // scope to the active site so the dropdowns list only the site's members;
+    // group and site options stay org-wide until ListGroups gains site filtering
+    // (issue #520).
     useEffect(() => {
       if (showGroupFilter) listGroups({ onSuccess: setAvailableGroups });
       if (showRackFilter)
         listRacks({ siteIds: scopeSiteIds, includeUnassigned: scopeIncludeUnassigned, onSuccess: setAvailableRacks });
+      if (showSiteFilter)
+        listSites({
+          onSuccess: (sites) =>
+            setAvailableSites(
+              sites.filter((s) => s.site !== undefined).map((s) => ({ id: String(s.site!.id), label: s.site!.name })),
+            ),
+        });
+      if (showBuildingFilter)
+        listBuildings({
+          siteIds: scopeSiteIds,
+          includeUnassigned: scopeIncludeUnassigned,
+          onSuccess: (buildings) =>
+            setAvailableBuildings(
+              buildings
+                .filter((b) => b.building !== undefined)
+                .map((b) => ({ id: String(b.building!.id), label: b.building!.name })),
+            ),
+        });
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showGroupFilter, showRackFilter, listGroups, listRacks, scopeKey]);
+    }, [
+      showGroupFilter,
+      showRackFilter,
+      showSiteFilter,
+      showBuildingFilter,
+      listGroups,
+      listRacks,
+      listSites,
+      listBuildings,
+      scopeKey,
+    ]);
 
+    // A single "Add filter" popover (matching the fleet miner list) whose
+    // children mirror the displayed columns: Model, Subnet (IP), Site, Building,
+    // Rack, Group. Only enabled facets are offered.
     const filters = useMemo((): FilterItem[] => {
-      const items: FilterItem[] = [];
+      const children: NestedFilterChildItem[] = [];
       if (showTypeFilter) {
-        items.push({
+        children.push({
           type: "dropdown",
           title: "Model",
           value: "type",
@@ -365,8 +511,39 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
           defaultOptionIds: [],
         });
       }
+      if (showSubnetFilter) {
+        children.push({
+          type: "textareaList",
+          title: "Subnet",
+          value: "subnet",
+          validate: validateSubnetLine,
+          normalize: normalizeSubnetLine,
+          // Mirrors the onboarding discovery input: CIDR, bare IP, or IP range
+          // (short or full form).
+          placeholder: "192.168.1.0/24\n10.0.0.10-10.0.0.20\n10.0.0.42",
+          noun: "subnet",
+        });
+      }
+      if (showSiteFilter) {
+        children.push({
+          type: "dropdown",
+          title: "Site",
+          value: "site",
+          options: availableSites,
+          defaultOptionIds: [],
+        });
+      }
+      if (showBuildingFilter) {
+        children.push({
+          type: "dropdown",
+          title: "Building",
+          value: "building",
+          options: availableBuildings,
+          defaultOptionIds: [],
+        });
+      }
       if (showRackFilter) {
-        items.push({
+        children.push({
           type: "dropdown",
           title: "Rack",
           value: "rack",
@@ -375,7 +552,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         });
       }
       if (showGroupFilter) {
-        items.push({
+        children.push({
           type: "dropdown",
           title: "Group",
           value: "group",
@@ -383,40 +560,82 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
           defaultOptionIds: [],
         });
       }
-      return items;
-    }, [showTypeFilter, showRackFilter, showGroupFilter, availableModels, availableRacks, availableGroups]);
+      if (children.length === 0) return [];
+      return [
+        {
+          type: "nestedFilterDropdown",
+          title: "Add filter",
+          value: "filters-meta",
+          prefixIcon: <Plus width="w-3" />,
+          children,
+        },
+      ];
+    }, [
+      showTypeFilter,
+      showSubnetFilter,
+      showSiteFilter,
+      showBuildingFilter,
+      showRackFilter,
+      showGroupFilter,
+      availableModels,
+      availableSites,
+      availableBuildings,
+      availableRacks,
+      availableGroups,
+    ]);
 
+    // Build the user's facet filter (model / rack / group / subnet). Site scope
+    // and eligibility are layered on in the derived `filter` memo, so they're
+    // deliberately omitted here.
     const handleServerFilter = useCallback(
       async (activeFilters: ActiveFilters) => {
-        const minerFilter = create(MinerListFilterSchema, {
-          errorComponentTypes: [],
-          siteIds: scopeSiteIds,
-          includeUnassigned: scopeIncludeUnassigned,
-        });
+        const next = create(MinerListFilterSchema, { errorComponentTypes: [] });
 
         const typeFilters = activeFilters.dropdownFilters.type;
         if (typeFilters && typeFilters.length > 0) {
-          minerFilter.models.push(...typeFilters);
+          next.models.push(...typeFilters);
         }
 
         if (showRackFilter) {
           const rackFilters = activeFilters.dropdownFilters.rack;
           if (rackFilters && rackFilters.length > 0) {
-            minerFilter.rackIds.push(...rackFilters.map((id) => BigInt(id)));
+            next.rackIds.push(...rackFilters.map((id) => BigInt(id)));
           }
         }
 
         if (showGroupFilter) {
           const groupFilters = activeFilters.dropdownFilters.group;
           if (groupFilters && groupFilters.length > 0) {
-            minerFilter.groupIds.push(...groupFilters.map((id) => BigInt(id)));
+            next.groupIds.push(...groupFilters.map((id) => BigInt(id)));
           }
         }
 
-        setFilter(minerFilter);
+        if (showSiteFilter) {
+          const siteFilters = activeFilters.dropdownFilters.site;
+          if (siteFilters && siteFilters.length > 0) {
+            next.siteIds.push(...siteFilters.map((id) => BigInt(id)));
+          }
+        }
+
+        if (showBuildingFilter) {
+          const buildingFilters = activeFilters.dropdownFilters.building;
+          if (buildingFilters && buildingFilters.length > 0) {
+            next.buildingIds.push(...buildingFilters.map((id) => BigInt(id)));
+          }
+        }
+
+        if (showSubnetFilter) {
+          const subnetFilters = activeFilters.textareaListFilters.subnet;
+          if (subnetFilters && subnetFilters.length > 0) {
+            // Ranges expand to their covering CIDRs; CIDRs/IPs pass through. The
+            // server ORs all ip_cidrs and matches by containment.
+            next.ipCidrs.push(...subnetFilters.flatMap(expandSubnetLineToCidrs));
+          }
+        }
+
+        setUserFilter(next);
       },
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      [showRackFilter, showGroupFilter, scopeSiteIds, scopeIncludeUnassigned],
+      [showRackFilter, showGroupFilter, showSiteFilter, showBuildingFilter, showSubnetFilter],
     );
 
     const showSpinner = (isLoading || isMembersLoading) && currentPageItems.length === 0;
@@ -438,6 +657,21 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             colConfig={modalColConfig}
             filters={filters}
             onServerFilter={handleServerFilter}
+            headerControls={
+              eligibilityEnabled ? (
+                // px-1 gives the toggle's hover scale-up room so it doesn't
+                // paint past the filter row's right edge and trigger horizontal
+                // scroll in the modal.
+                <div className="px-1">
+                  <Switch
+                    label="Show assignable only"
+                    ariaLabel="Show assignable only"
+                    checked={assignableOnly}
+                    setChecked={setAssignableOnly}
+                  />
+                </div>
+              ) : undefined
+            }
             items={currentPageItems}
             itemKey="deviceIdentifier"
             itemSelectable
@@ -448,7 +682,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             customSelectedItems={displayedSelectedItems}
             customSetSelectedItems={handleSetSelectedItems}
             preserveOffPageSelection
-            isRowDisabled={isRowDisabled}
+            isRowDisabled={effectiveIsRowDisabled}
             total={totalMiners}
             hideTotal
             itemName={{ singular: "miner", plural: "miners" }}
@@ -497,8 +731,8 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
                 canSelectAll
                   ? () => {
                       setAllSelected(true);
-                      const selectableItems = isRowDisabled
-                        ? currentPageItems.filter((d) => !isRowDisabled(d))
+                      const selectableItems = effectiveIsRowDisabled
+                        ? currentPageItems.filter((d) => !effectiveIsRowDisabled(d))
                         : currentPageItems;
                       setSelectedItems(selectableItems.map((d) => d.deviceIdentifier));
                     }
