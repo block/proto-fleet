@@ -801,6 +801,90 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(result.decision, "trusted-author-low-risk")
         self.assertEqual(result.reasons, [])
 
+    def test_evaluate_policy_blocks_human_approval_with_unknown_commit_identity(self):
+        original_paginate = policy.github_paginate
+        original_reviewer_has_authority = policy.reviewer_has_authority
+        original_trusted_author_reasons = policy.trusted_author_reasons
+        original_check_statuses = policy.check_statuses
+        original_extract_security_risk = policy.extract_security_risk
+        original_workflow_runs = policy.latest_workflow_runs
+        try:
+            def fake_paginate(path, token):
+                if path.endswith("/commits/abc123/pulls"):
+                    return [{"number": 123, "state": "open", "head": {"sha": "abc123"}}]
+                if path.endswith("/files"):
+                    return [{"filename": "client/src/foo.ts", "additions": 1, "deletions": 0, "patch": "@@\n+const x = 1"}]
+                if path.endswith("/commits"):
+                    return [{"sha": "def456", "author": None, "committer": None}]
+                if path.endswith("/reviews"):
+                    return [
+                        {
+                            "user": {"login": "reviewer", "type": "User"},
+                            "state": "APPROVED",
+                            "commit_id": "abc123",
+                            "submitted_at": "2026-01-01T00:00:00Z",
+                            "author_association": "MEMBER",
+                        }
+                    ]
+                return []
+
+            policy.github_paginate = fake_paginate
+            policy.reviewer_has_authority = lambda owner, repo, username, association, token: True
+            policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
+                True,
+                [f"author @{author} is explicitly trusted"],
+            )
+            policy.check_statuses = lambda owner, repo, head_sha, required_checks, token: (True, [])
+            policy.extract_security_risk = lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name: (
+                "LOW",
+                [],
+            )
+            policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
+                ".github/workflows/pr-gate.yml": {"actor": {"login": "author"}},
+            }
+            result = policy.evaluate_policy(
+                config={
+                    "trusted_authors": ["author"],
+                    "minimum_human_approvals": 1,
+                    "security_review_check": "security-review",
+                    "security_review_workflow_path": ".github/workflows/codex-security-review.yml",
+                    "security_review_artifact": "codex-security-review-result",
+                    "low_risk": {
+                        "max_changed_files": 10,
+                        "max_file_changes": 80,
+                        "max_total_changes": 200,
+                        "minimum_ai_confidence": 0.85,
+                        "trusted_actor_workflow": {
+                            "workflow_path": ".github/workflows/pr-gate.yml",
+                            "event": "pull_request",
+                        },
+                        "allowed_security_risks": ["LOW", "NONE"],
+                        "required_checks": [],
+                        "deny_paths": [],
+                        "content_deny_added_patterns": [],
+                    },
+                },
+                owner="block",
+                repo="proto-fleet",
+                pr_number=123,
+                author="author",
+                base_sha="base123",
+                head_sha="abc123",
+                token="token",
+                classifier_output='{"risk":"low","confidence":0.95,"requires_human_review":false,"reasons":["small"]}',
+            )
+        finally:
+            policy.github_paginate = original_paginate
+            policy.reviewer_has_authority = original_reviewer_has_authority
+            policy.trusted_author_reasons = original_trusted_author_reasons
+            policy.check_statuses = original_check_statuses
+            policy.extract_security_risk = original_extract_security_risk
+            policy.latest_workflow_runs = original_workflow_runs
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.decision, "needs-human-review")
+        self.assertIn("current head has commits without GitHub-linked authors or committers: def456", result.reasons)
+
     def test_human_review_state_ignores_unauthorized_approvals(self):
         original = policy.reviewer_has_authority
         try:

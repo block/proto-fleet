@@ -776,7 +776,7 @@ def evaluate_policy(
     files = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/files", token)
     commits = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/commits", token)
     reviews = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews", token)
-    contributors, _unknown_commits = head_contributors(commits)
+    contributors, unknown_commits = head_contributors(commits)
 
     human_ok, human_reasons, human_blockers = human_review_state(
         reviews,
@@ -788,6 +788,11 @@ def evaluate_policy(
         token,
         contributors,
     )
+    if unknown_commits:
+        human_ok = False
+        human_blockers.append(
+            "current head has commits without GitHub-linked authors or committers: " + ", ".join(unknown_commits)
+        )
 
     low_config = config["low_risk"]
     low_reasons: list[str] = []
