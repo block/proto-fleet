@@ -16,14 +16,13 @@ services:
       # host mount below because the container rootfs is not the host disk.
       FLEET_SYSTEM_MONITORING_DISK_PATH: "${FLEET_SYSTEM_MONITORING_DISK_PATH:-/hostfs}"
     volumes:
-      # statfs only needs some path on the watched filesystem, so mount the
-      # TimescaleDB data volume itself (the disk that filling up kills fleet)
-      # read-only rather than a host path: fleet-api already has full access
-      # to this data through its DB credentials, no other volumes or host
-      # files are exposed, and named-volume resolution works regardless of a
-      # custom docker data-root. Change the source to watch a different
-      # filesystem.
-      - timescaledb-data:/hostfs:ro
+      # statfs only needs some path on the watched filesystem, so mount an
+      # empty sentinel volume: with the local volume driver every named
+      # volume shares one backing filesystem, so this reports the disk
+      # holding the TimescaleDB data (the one that filling up kills fleet)
+      # without exposing database files, other volumes, or host paths, and
+      # independent of a custom docker data-root.
+      - fleet-disk-sentinel:/hostfs:ro
 
   grafana:
     volumes:
@@ -33,3 +32,6 @@ services:
       - ./server/monitoring/grafana/system-monitoring/proto-fleet-system-rules.yaml:/etc/grafana/provisioning/alerting/proto-fleet-system-rules.yaml:ro
       - ./server/monitoring/grafana/system-monitoring/dashboards.yaml:/etc/grafana/provisioning/dashboards/system-monitoring.yaml:ro
       - ./server/monitoring/grafana/system-monitoring/dashboards:/etc/grafana/dashboards/system-monitoring:ro
+
+volumes:
+  fleet-disk-sentinel:
