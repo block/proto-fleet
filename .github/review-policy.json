@@ -22,6 +22,10 @@
     "max_file_changes": 80,
     "max_total_changes": 200,
     "minimum_ai_confidence": 0.85,
+    "trusted_actor_workflow": {
+      "workflow_path": ".github/workflows/pr-gate.yml",
+      "event": "pull_request"
+    },
     "allowed_security_risks": [
       "NONE",
       "LOW"

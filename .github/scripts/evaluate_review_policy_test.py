@@ -215,6 +215,33 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("head contributor @untrusted is not in trusted_authors", blockers)
         self.assertIn("current head has commits without GitHub-linked authors or committers: def456", blockers)
 
+    def test_trusted_workflow_actor_reasons_requires_trusted_authenticated_actor(self):
+        original_workflow_runs = policy.latest_workflow_runs
+        original_trusted_author_reasons = policy.trusted_author_reasons
+        try:
+            policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
+                ".github/workflows/pr-gate.yml": {"actor": {"login": "untrusted"}},
+            }
+            policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
+                author == "trusted",
+                [f"author @{author} trust checked"],
+            )
+            ok, reasons, blockers = policy.trusted_workflow_actor_reasons(
+                "block",
+                "proto-fleet",
+                "abc123",
+                ["trusted"],
+                {"workflow_path": ".github/workflows/pr-gate.yml", "event": "pull_request"},
+                "token",
+            )
+        finally:
+            policy.latest_workflow_runs = original_workflow_runs
+            policy.trusted_author_reasons = original_trusted_author_reasons
+
+        self.assertFalse(ok)
+        self.assertEqual(reasons, [])
+        self.assertEqual(blockers, ["authenticated workflow actor @untrusted is not in trusted_authors"])
+
     def test_latest_check_runs_tie_breaks_on_id(self):
         original = policy.github_paginate_key
         try:
@@ -699,6 +726,7 @@ class ReviewPolicyTest(unittest.TestCase):
         original_trusted_author_reasons = policy.trusted_author_reasons
         original_check_statuses = policy.check_statuses
         original_extract_security_risk = policy.extract_security_risk
+        original_workflow_runs = policy.latest_workflow_runs
         try:
             def fake_paginate(path, token):
                 if path.endswith("/commits/abc123/pulls"):
@@ -728,6 +756,9 @@ class ReviewPolicyTest(unittest.TestCase):
                 "LOW",
                 [],
             )
+            policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
+                ".github/workflows/pr-gate.yml": {"actor": {"login": "author"}},
+            }
             result = policy.evaluate_policy(
                 config={
                     "trusted_authors": ["author"],
@@ -740,6 +771,10 @@ class ReviewPolicyTest(unittest.TestCase):
                         "max_file_changes": 80,
                         "max_total_changes": 200,
                         "minimum_ai_confidence": 0.85,
+                        "trusted_actor_workflow": {
+                            "workflow_path": ".github/workflows/pr-gate.yml",
+                            "event": "pull_request",
+                        },
                         "allowed_security_risks": ["LOW", "NONE"],
                         "required_checks": ["Gate"],
                         "deny_paths": [".github/**"],
@@ -760,6 +795,7 @@ class ReviewPolicyTest(unittest.TestCase):
             policy.trusted_author_reasons = original_trusted_author_reasons
             policy.check_statuses = original_check_statuses
             policy.extract_security_risk = original_extract_security_risk
+            policy.latest_workflow_runs = original_workflow_runs
 
         self.assertTrue(result.passed)
         self.assertEqual(result.decision, "trusted-author-low-risk")
