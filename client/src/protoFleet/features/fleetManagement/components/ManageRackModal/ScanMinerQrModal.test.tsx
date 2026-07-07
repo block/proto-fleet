@@ -79,16 +79,16 @@ describe("ScanMinerQrModal", () => {
 
     await waitFor(() => expect(screen.getByText("Miner One")).toBeInTheDocument());
     // The parsed (prefix-stripped) serial + detected type are sent to the lookup.
-    expect(mockLookup).toHaveBeenCalledWith("SN123", MinerIdentifierType.SERIAL_NUMBER);
+    expect(mockLookup).toHaveBeenCalledWith("SN123", MinerIdentifierType.SERIAL_NUMBER, expect.any(AbortSignal));
 
     fireEvent.click(screen.getByText("Assign to slot"));
     expect(onConfirm).toHaveBeenCalledWith("dev-1");
   });
 
-  it("tries every decoded barcode and resolves the one that matches", async () => {
+  it("tries every decoded barcode until one resolves", async () => {
     mockCanUseLiveCamera.mockReturnValue(true);
-    // A frame can decode multiple codes; the first (e.g. a model/asset code)
-    // doesn't resolve, the serial does. It must not stop at the first miss.
+    // Two same-typed candidates: the first misses, the second resolves — it
+    // must not stop at the first miss.
     mockLookup
       .mockResolvedValueOnce({ status: "notFound" })
       .mockResolvedValueOnce({ status: "found", snapshot: snapshot() });
@@ -96,11 +96,41 @@ describe("ScanMinerQrModal", () => {
     render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={vi.fn()} />);
 
     await act(async () => {
-      capturedOnDetected?.(["MODEL234T", "SN:SN123"]);
+      capturedOnDetected?.(["FIRSTMISS111", "SECONDHIT222"]);
     });
 
     await waitFor(() => expect(screen.getByText("Miner One")).toBeInTheDocument());
     expect(mockLookup).toHaveBeenCalledTimes(2);
+  });
+
+  it("tries an explicitly-typed candidate before an unspecified one", async () => {
+    mockCanUseLiveCamera.mockReturnValue(true);
+    mockLookup.mockResolvedValue({ status: "found", snapshot: snapshot() });
+
+    render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={vi.fn()} />);
+
+    // Model/asset code listed first, SN:-prefixed serial second — the serial
+    // must be looked up first so a stray code can't out-race it.
+    await act(async () => {
+      capturedOnDetected?.(["MODEL234T", "SN:REALSN"]);
+    });
+
+    await waitFor(() => expect(screen.getByText("Miner One")).toBeInTheDocument());
+    expect(mockLookup.mock.calls[0][0]).toBe("REALSN");
+  });
+
+  it("de-dupes a value decoded more than once in the same frame", async () => {
+    mockCanUseLiveCamera.mockReturnValue(true);
+    mockLookup.mockResolvedValue({ status: "found", snapshot: snapshot() });
+
+    render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={vi.fn()} />);
+
+    await act(async () => {
+      capturedOnDetected?.(["SN:DUP", "SN:DUP"]);
+    });
+
+    await waitFor(() => expect(screen.getByText("Miner One")).toBeInTheDocument());
+    expect(mockLookup).toHaveBeenCalledTimes(1);
   });
 
   it("shows a not-found message when the serial has no paired miner", async () => {
