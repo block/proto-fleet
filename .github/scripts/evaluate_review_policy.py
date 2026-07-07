@@ -285,6 +285,47 @@ def trusted_author_reasons(author: str, trusted_authors: list[str], owner: str, 
     return False, [f"author @{author} is not in trusted_authors"]
 
 
+def evaluate_low_risk_preflight(
+    *,
+    config: dict[str, Any],
+    owner: str,
+    repo: str,
+    pr_number: int,
+    author: str,
+    token: str,
+) -> dict[str, Any]:
+    files = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/files", token)
+    low_config = config["low_risk"]
+    reasons: list[str] = []
+    blockers: list[str] = []
+
+    trusted, trust_reasons = trusted_author_reasons(author, config.get("trusted_authors", []), owner, token)
+    (reasons if trusted else blockers).extend(trust_reasons)
+
+    changed_files = len(files)
+    total_changes = sum(int(item.get("additions", 0)) + int(item.get("deletions", 0)) for item in files)
+    if changed_files > int(low_config["max_changed_files"]):
+        blockers.append(f"{changed_files} changed files exceeds limit {low_config['max_changed_files']}")
+    else:
+        reasons.append(f"{changed_files} changed files within limit")
+    if total_changes > int(low_config["max_total_changes"]):
+        blockers.append(f"{total_changes} changed lines exceeds limit {low_config['max_total_changes']}")
+    else:
+        reasons.append(f"{total_changes} changed lines within limit")
+
+    denied = denied_paths(files, low_config.get("deny_paths", []))
+    if denied:
+        blockers.append("denied paths changed: " + ", ".join(denied))
+    else:
+        reasons.append("no denied paths changed")
+
+    return {
+        "eligible": not blockers,
+        "reasons": reasons,
+        "blockers": blockers,
+    }
+
+
 def latest_check_runs(owner: str, repo: str, head_sha: str, token: str) -> dict[str, dict[str, Any]]:
     runs = github_paginate_key(f"/repos/{owner}/{repo}/commits/{head_sha}/check-runs", token, "check_runs")
     latest_by_name: dict[str, dict[str, Any]] = {}
@@ -513,11 +554,20 @@ def write_result(result: PolicyResult, path: str | None) -> None:
         handle.write("\n")
 
 
+def write_preflight(preflight: dict[str, Any], path: str | None) -> None:
+    if not path:
+        return
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(preflight, handle, indent=2)
+        handle.write("\n")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--classifier-output", default="")
     parser.add_argument("--result-json")
+    parser.add_argument("--preflight-json")
     parser.add_argument("--owner", required=True)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--pr-number", required=True, type=int)
@@ -534,6 +584,24 @@ def main() -> int:
 
     with open(args.config, encoding="utf-8") as handle:
         config = json.load(handle)
+
+    if args.preflight_json:
+        preflight = evaluate_low_risk_preflight(
+            config=config,
+            owner=args.owner,
+            repo=args.repo,
+            pr_number=args.pr_number,
+            author=args.author,
+            token=token,
+        )
+        write_preflight(preflight, args.preflight_json)
+        status = "eligible" if preflight["eligible"] else "ineligible"
+        print(f"review-policy preflight: {status}")
+        for reason in preflight["reasons"]:
+            print(f"- {reason}")
+        for blocker in preflight["blockers"]:
+            print(f"- {blocker}")
+        return 0
 
     enforced = bool(config.get("enforce", True))
     result = evaluate_policy(

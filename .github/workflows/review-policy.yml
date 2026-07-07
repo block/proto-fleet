@@ -71,37 +71,77 @@ jobs:
             core.setOutput('base_repo', pr.base.repo.full_name);
             core.setOutput('same_repo', String(pr.head.repo.full_name === pr.base.repo.full_name));
 
-      - name: Checkout PR head commit
-        if: steps.pr.outputs.found == 'true'
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-        with:
-          ref: ${{ steps.pr.outputs.head_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
       - name: Checkout trusted base policy
         if: steps.pr.outputs.found == 'true'
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ steps.pr.outputs.base_sha }}
           fetch-depth: 1
-          path: trusted-policy-base
           persist-credentials: false
 
       - name: Select policy source
         id: policy_source
         if: steps.pr.outputs.found == 'true'
         run: |
-          if [ -x trusted-policy-base/.github/scripts/evaluate_review_policy.py ]; then
-            echo "path=trusted-policy-base" >> "$GITHUB_OUTPUT"
+          if [ -x .github/scripts/evaluate_review_policy.py ]; then
+            echo "path=." >> "$GITHUB_OUTPUT"
             echo "Using review policy code from the trusted base commit."
           else
             echo "Trusted base commit does not contain review policy code." >&2
             exit 1
           fi
 
-      - name: Write review policy diff
+      - name: Run deterministic low-risk preflight
+        id: preflight
         if: steps.pr.outputs.found == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PREFLIGHT_JSON: ${{ runner.temp }}/review-policy-preflight.json
+          POLICY_ROOT: ${{ steps.policy_source.outputs.path }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          AUTHOR: ${{ steps.pr.outputs.author }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          SAME_REPO: ${{ steps.pr.outputs.same_repo }}
+        run: |
+          "$POLICY_ROOT/.github/scripts/evaluate_review_policy.py" \
+            --config "$POLICY_ROOT/.github/review-policy.json" \
+            --preflight-json "$PREFLIGHT_JSON" \
+            --owner "$OWNER" \
+            --repo "$REPO" \
+            --pr-number "$PR_NUMBER" \
+            --author "$AUTHOR" \
+            --head-sha "$HEAD_SHA"
+          eligible="$(python3 -c 'import json, os; print(str(json.load(open(os.environ["PREFLIGHT_JSON"]))["eligible"]).lower())')"
+          echo "eligible=${eligible}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'skipped_classifier_output<<EOF'
+            python3 - <<'PY'
+          import json
+          import os
+
+          with open(os.environ["PREFLIGHT_JSON"], encoding="utf-8") as handle:
+              preflight = json.load(handle)
+
+          reasons = list(preflight.get("blockers") or [])
+          if os.environ["SAME_REPO"] != "true":
+              reasons.insert(0, "Fork PRs are not evaluated by the secret-backed AI classifier")
+          if not reasons:
+              reasons.append("Low-risk classifier was skipped by deterministic preflight")
+
+          print(json.dumps({
+              "risk": "high",
+              "confidence": 1.0,
+              "requires_human_review": True,
+              "reasons": reasons,
+          }))
+          PY
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write review policy diff
+        if: steps.pr.outputs.found == 'true' && steps.pr.outputs.same_repo == 'true' && steps.preflight.outputs.eligible == 'true'
         env:
           REVIEW_BASE_SHA: ${{ steps.pr.outputs.base_sha }}
           REVIEW_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
@@ -114,7 +154,7 @@ jobs:
 
       - name: Run low-risk AI classifier
         id: ai_classifier
-        if: steps.pr.outputs.found == 'true' && steps.pr.outputs.same_repo == 'true'
+        if: steps.pr.outputs.found == 'true' && steps.pr.outputs.same_repo == 'true' && steps.preflight.outputs.eligible == 'true'
         uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
@@ -152,22 +192,12 @@ jobs:
               "reasons": ["short reason"]
             }
 
-      - name: Mark fork PR classifier skipped
-        id: fork_classifier
-        if: steps.pr.outputs.found == 'true' && steps.pr.outputs.same_repo != 'true'
-        run: |
-          {
-            echo 'final-message<<EOF'
-            echo '{"risk":"high","confidence":1.0,"requires_human_review":true,"reasons":["Fork PRs are not evaluated by the secret-backed AI classifier"]}'
-            echo EOF
-          } >> "$GITHUB_OUTPUT"
-
       - name: Evaluate review policy
         id: evaluate_policy
         if: steps.pr.outputs.found == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          CLASSIFIER_OUTPUT: ${{ steps.ai_classifier.outputs.final-message || steps.fork_classifier.outputs.final-message }}
+          CLASSIFIER_OUTPUT: ${{ steps.ai_classifier.outputs.final-message || steps.preflight.outputs.skipped_classifier_output }}
           RESULT_JSON: ${{ runner.temp }}/review-policy-result.json
           POLICY_ROOT: ${{ steps.policy_source.outputs.path }}
           OWNER: ${{ github.repository_owner }}

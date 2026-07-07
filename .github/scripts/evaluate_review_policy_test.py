@@ -77,6 +77,42 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertFalse(allowed)
         self.assertIn("AI classifier confidence must be a finite number", reasons)
 
+    def test_low_risk_preflight_blocks_before_classifier(self):
+        original_paginate = policy.github_paginate
+        original_trusted_author_reasons = policy.trusted_author_reasons
+        try:
+            policy.github_paginate = lambda path, token: [
+                {"filename": ".github/workflows/review-policy.yml", "additions": 2, "deletions": 1},
+                {"filename": "docs/readme.md", "additions": 300, "deletions": 0},
+            ]
+            policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
+                False,
+                [f"author @{author} is not in trusted_authors"],
+            )
+            result = policy.evaluate_low_risk_preflight(
+                config={
+                    "trusted_authors": ["trusted"],
+                    "low_risk": {
+                        "max_changed_files": 10,
+                        "max_total_changes": 200,
+                        "deny_paths": [".github/**"],
+                    },
+                },
+                owner="block",
+                repo="proto-fleet",
+                pr_number=123,
+                author="author",
+                token="token",
+            )
+        finally:
+            policy.github_paginate = original_paginate
+            policy.trusted_author_reasons = original_trusted_author_reasons
+
+        self.assertFalse(result["eligible"])
+        self.assertIn("author @author is not in trusted_authors", result["blockers"])
+        self.assertIn("303 changed lines exceeds limit 200", result["blockers"])
+        self.assertIn("denied paths changed: .github/workflows/review-policy.yml", result["blockers"])
+
     def test_extract_run_id(self):
         self.assertEqual(
             policy.extract_run_id("https://github.com/block/proto-fleet/actions/runs/123/job/456"),
