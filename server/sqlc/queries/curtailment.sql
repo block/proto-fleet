@@ -1027,26 +1027,42 @@ LIMIT sqlc.arg('row_limit')::BIGINT;
 -- Org-scoped aggregate for paginated event detail. Target pages can be
 -- partial, but the rollup must describe the whole event.
 --
--- Counts ct.curtailment_event_id (NULL exactly on the LEFT JOIN's no-target
--- row, like any ct column) so the state aggregate only touches index columns
--- of idx_curtailment_target_event_state and stays index-only-scannable. State
--- buckets mirror the ListActiveCurtailmentEvents lateral rollup above; keep
--- the bucketing rules in sync (dispatching/dispatched conflate). Unavailable
--- reason buckets are aggregated separately and covered by
--- idx_curtailment_target_unavailable_reason.
+-- Both aggregates are lateral subqueries correlated only on ce.id — the same
+-- shape as the ListActiveCurtailmentEvents rollup above — so each executes
+-- exactly once for the single matched event instead of joining the per-target
+-- row stream (which lets the planner rescan a lateral per target row on
+-- fleet-sized events; this query sits on the polled event-detail path). The
+-- state aggregate touches only index columns of
+-- idx_curtailment_target_event_state and stays index-only-scannable; keep the
+-- state bucketing rules in sync with the active-list rollup
+-- (dispatching/dispatched conflate). Unavailable reason buckets are covered
+-- by idx_curtailment_target_unavailable_reason.
 SELECT
-    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'pending')::BIGINT AS pending,
-    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state IN ('dispatching', 'dispatched'))::BIGINT AS dispatched,
-    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'confirmed')::BIGINT AS confirmed,
-    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'drifted')::BIGINT AS drifted,
-    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'resolved')::BIGINT AS resolved,
-    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'released')::BIGINT AS released,
-    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'restore_failed')::BIGINT AS restore_failed,
-    COUNT(ct.curtailment_event_id) FILTER (WHERE ct.state = 'unavailable')::BIGINT AS unavailable,
-    COUNT(ct.curtailment_event_id)::BIGINT AS total,
+    COALESCE(state_rollup.pending, 0)::BIGINT AS pending,
+    COALESCE(state_rollup.dispatched, 0)::BIGINT AS dispatched,
+    COALESCE(state_rollup.confirmed, 0)::BIGINT AS confirmed,
+    COALESCE(state_rollup.drifted, 0)::BIGINT AS drifted,
+    COALESCE(state_rollup.resolved, 0)::BIGINT AS resolved,
+    COALESCE(state_rollup.released, 0)::BIGINT AS released,
+    COALESCE(state_rollup.restore_failed, 0)::BIGINT AS restore_failed,
+    COALESCE(state_rollup.unavailable, 0)::BIGINT AS unavailable,
+    COALESCE(state_rollup.total, 0)::BIGINT AS total,
     COALESCE(unavailable_reason_rollup.reasons, '{}'::JSONB) AS unavailable_reasons
 FROM curtailment_event ce
-LEFT JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
+LEFT JOIN LATERAL (
+    SELECT
+        COUNT(*) FILTER (WHERE ct.state = 'pending') AS pending,
+        COUNT(*) FILTER (WHERE ct.state IN ('dispatching', 'dispatched')) AS dispatched,
+        COUNT(*) FILTER (WHERE ct.state = 'confirmed') AS confirmed,
+        COUNT(*) FILTER (WHERE ct.state = 'drifted') AS drifted,
+        COUNT(*) FILTER (WHERE ct.state = 'resolved') AS resolved,
+        COUNT(*) FILTER (WHERE ct.state = 'released') AS released,
+        COUNT(*) FILTER (WHERE ct.state = 'restore_failed') AS restore_failed,
+        COUNT(*) FILTER (WHERE ct.state = 'unavailable') AS unavailable,
+        COUNT(*) AS total
+    FROM curtailment_target ct
+    WHERE ct.curtailment_event_id = ce.id
+) state_rollup ON true
 LEFT JOIN LATERAL (
     SELECT jsonb_object_agg(reason, reason_count) AS reasons
     FROM (
@@ -1060,8 +1076,7 @@ LEFT JOIN LATERAL (
     ) reason_counts
 ) unavailable_reason_rollup ON true
 WHERE ce.org_id = sqlc.arg('org_id')
-    AND ce.event_uuid = sqlc.arg('event_uuid')
-GROUP BY ce.id, unavailable_reason_rollup.reasons;
+    AND ce.event_uuid = sqlc.arg('event_uuid');
 
 -- name: GetCurtailmentReconcilerHeartbeat :one
 SELECT id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_count
