@@ -15,9 +15,12 @@ function rollups(counts: Partial<Record<CurtailmentTargetRollup["state"], number
 }
 
 describe("getActiveCurtailmentCurtailProgress", () => {
-  it("counts sent and confirmed targets as reached out of the dispatchable total", () => {
-    // Issue #660 acceptance case: total 500 = confirmed 300 + dispatched 120
-    // + pending 80 -> reached 420 of 500 (84%).
+  it("counts sent and confirmed targets as reached, but only confirmed toward the percent", () => {
+    // Issue #660's fixture: total 500 = confirmed 300 + dispatched 120 +
+    // pending 80 -> reached 420 of 500. The percent is confirmed-based per
+    // #670's design pass (the card shows the telemetry-verified curtailed
+    // share; in-flight work stays visible as the Curtailing segment), so the
+    // exported percent matches the rendered "300 of 500 (60%)" summary.
     const progress = getActiveCurtailmentCurtailProgress({
       rollups: rollups({ confirmed: 300, dispatched: 120, pending: 80 }),
     });
@@ -30,7 +33,7 @@ describe("getActiveCurtailmentCurtailProgress", () => {
       unavailableCount: 0,
       dispatchableCount: 500,
       reachedCount: 420,
-      percent: 84,
+      percent: 60,
     });
   });
 
@@ -46,7 +49,7 @@ describe("getActiveCurtailmentCurtailProgress", () => {
     expect(progress.driftedCount).toBe(2);
     expect(progress.reachedCount).toBe(14);
     expect(progress.dispatchableCount).toBe(20);
-    expect(progress.percent).toBe(70);
+    expect(progress.percent).toBe(50);
   });
 
   it("never reports 100% while drifted targets remain", () => {
@@ -69,14 +72,24 @@ describe("getActiveCurtailmentCurtailProgress", () => {
     expect(progress.percent).toBe(80);
   });
 
-  it("reaches 100% when every dispatchable target is sent or confirmed despite unavailable targets", () => {
+  it("reaches 100% when every dispatchable target is confirmed despite unavailable targets", () => {
+    const progress = getActiveCurtailmentCurtailProgress({
+      rollups: rollups({ confirmed: 10, unavailable: 40 }),
+    });
+
+    expect(progress.reachedCount).toBe(10);
+    expect(progress.dispatchableCount).toBe(10);
+    expect(progress.percent).toBe(100);
+  });
+
+  it("keeps the percent below 100 while sent targets await confirmation", () => {
     const progress = getActiveCurtailmentCurtailProgress({
       rollups: rollups({ confirmed: 9, dispatched: 1, unavailable: 40 }),
     });
 
     expect(progress.reachedCount).toBe(10);
     expect(progress.dispatchableCount).toBe(10);
-    expect(progress.percent).toBe(100);
+    expect(progress.percent).toBe(90);
   });
 
   it("excludes released and resolved targets, which are no longer curtail-targeted", () => {

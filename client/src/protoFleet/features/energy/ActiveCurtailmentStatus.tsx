@@ -14,7 +14,6 @@ import {
   getActiveCurtailmentDisplayState,
   getActiveCurtailmentMinerCompliance,
   getActiveCurtailmentRestoreProgress,
-  getCurtailmentProgressPercent,
   getCurtailmentTargetKw as getTargetKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { Alert, Success } from "@/shared/assets/icons";
@@ -450,16 +449,13 @@ function getCurtailProgressSummary(progress: ActiveCurtailmentCurtailProgress): 
     return "No dispatchable miners";
   }
 
-  const curtailedPercent = Math.floor(
-    getCurtailmentProgressPercent(progress.confirmedCount, progress.dispatchableCount),
-  );
-  if (curtailedPercent >= 100) {
-    return `${formatMinerCount(progress.confirmedCount)} curtailed (${curtailedPercent}%)`;
+  if (progress.percent >= 100) {
+    return `${formatMinerCount(progress.confirmedCount)} curtailed (${progress.percent}%)`;
   }
 
   return `${progress.confirmedCount.toLocaleString()} of ${formatMinerCount(
     progress.dispatchableCount,
-  )} curtailed (${curtailedPercent}%)`;
+  )} curtailed (${progress.percent}%)`;
 }
 
 function getRestoreProgressSummary(progress: ActiveCurtailmentRestoreProgress): string {

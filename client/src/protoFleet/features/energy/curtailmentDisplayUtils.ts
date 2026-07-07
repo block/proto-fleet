@@ -135,6 +135,13 @@ export interface ActiveCurtailmentMinerCompliance {
 // released/resolved rows (no longer curtail-targeted), so events with
 // unavailable targets can still present as fully dispatched.
 //
+// `percent` is the operator-facing completion number: confirmed-based
+// (telemetry-verified curtailed share), matching the rendered summary and the
+// restore shape's percent. Issue #660 originally framed progress reached-based;
+// #670's design pass consolidated the display to confirmed vs a single
+// "Curtailing" bucket, so the confirmed share is the number that must never
+// overstate. Reached-based pacing signals stay available via reachedCount.
+//
 // Known precision bound: the server's wire rollup deliberately folds the
 // DISPATCHING pre-command transient into the `dispatched` bucket (see
 // populateEventTargets in server/internal/handlers/curtailment/translate.go),
@@ -470,9 +477,9 @@ export function getActiveCurtailmentCurtailProgress(
     unavailableCount,
     dispatchableCount,
     reachedCount,
-    // Floor so 100% is only reported when every dispatchable target has been
-    // reached; rounding 99.6% up would claim completion with targets pending.
-    percent: Math.floor(getCurtailmentProgressPercent(reachedCount, dispatchableCount)),
+    // Floor so 100% is only reported when every dispatchable target has
+    // confirmed; rounding 99.6% up would claim completion with targets pending.
+    percent: Math.floor(getCurtailmentProgressPercent(confirmedCount, dispatchableCount)),
   };
 }
 
