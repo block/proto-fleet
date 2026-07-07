@@ -128,7 +128,11 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
     const start = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
+          // Request a high resolution: a dense 1D barcode (e.g. an Antminer
+          // serial in Code 128) needs enough horizontal pixels across its bars
+          // to decode, where a QR would survive a lower-res frame. `ideal` so
+          // devices without a 1080p camera gracefully fall back.
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
           audio: false,
         });
         if (cancelled) {
