@@ -107,7 +107,7 @@ function SlotPopover({
             onScanQr();
           }}
         >
-          Scan QR code
+          Scan barcode
         </button>
       </div>
     </>

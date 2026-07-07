@@ -79,7 +79,13 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
   const getDetector = useCallback((): BarcodeDetector => {
     if (!detectorRef.current) {
       initBarcodeScanner();
-      detectorRef.current = new BarcodeDetector({ formats: ["qr_code"] });
+      // QR is the common case, but some vendors (e.g. Bitmain) print the serial
+      // on a 1D barcode, so accept the alphanumeric linear symbologies used on
+      // equipment labels alongside the 2D formats. The decoded value flows
+      // through parseScannedIdentifier the same way regardless of symbology.
+      detectorRef.current = new BarcodeDetector({
+        formats: ["qr_code", "data_matrix", "code_128", "code_39", "code_93"],
+      });
     }
     return detectorRef.current;
   }, []);

@@ -141,7 +141,7 @@ describe("ScanMinerQrModal", () => {
 
     render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={vi.fn()} />);
 
-    expect(screen.getByText(/Take a photo of the QR code/i)).toBeInTheDocument();
+    expect(screen.getByText(/Take a photo of the code/i)).toBeInTheDocument();
     expect(screen.getByText("Open camera")).toBeInTheDocument();
   });
 
