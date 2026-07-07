@@ -3,21 +3,7 @@
 -- fleet granularity.
 
 -- name: UpsertFleetMetricRollups :exec
-WITH device_org AS (
-    SELECT DISTINCT ON (d.device_identifier)
-        d.device_identifier,
-        d.org_id,
-        COALESCE(d.site_id, 0)::bigint AS site_id
-    FROM device d
-    JOIN (
-        SELECT DISTINCT device_identifier
-        FROM device_metrics
-        WHERE time >= sqlc.arg('start_time')::timestamptz
-          AND time < sqlc.arg('end_time')::timestamptz
-    ) ids ON ids.device_identifier = d.device_identifier
-    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
-),
-per_device_bucket AS (
+WITH per_device_bucket AS (
     SELECT
         time_bucket(INTERVAL '90 seconds', dm.time)::timestamptz AS bucket,
         dm.device_identifier,
@@ -48,6 +34,18 @@ per_device_bucket AS (
     WHERE dm.time >= sqlc.arg('start_time')::timestamptz
       AND dm.time < sqlc.arg('end_time')::timestamptz
     GROUP BY bucket, dm.device_identifier
+),
+device_org AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id,
+        COALESCE(d.site_id, 0)::bigint AS site_id
+    FROM device d
+    JOIN (
+        SELECT DISTINCT device_identifier
+        FROM per_device_bucket
+    ) ids ON ids.device_identifier = d.device_identifier
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
 ),
 rollup AS (
     SELECT

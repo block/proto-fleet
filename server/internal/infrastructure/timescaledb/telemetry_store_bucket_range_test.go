@@ -214,15 +214,14 @@ func TestFleetMetricRollupWindows(t *testing.T) {
 	aligned := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
 	end := aligned.Add(4*models.FleetMetricRollupBucketDuration - time.Nanosecond)
 
-	bodyStart, bodyEndExclusive, tailStart, ok := fleetMetricRollupWindows(aligned, end)
+	bodyStart, bodyEndExclusive, ok := fleetMetricRollupWindows(aligned, end)
 
 	require.True(t, ok)
 	assert.Equal(t, aligned, bodyStart)
 	assert.Equal(t, aligned.Add(2*models.FleetMetricRollupBucketDuration), bodyEndExclusive)
-	assert.Equal(t, aligned.Add(2*models.FleetMetricRollupBucketDuration), tailStart)
 	assert.Equal(t, int64(2), fleetRollupBucketCountExclusive(bodyStart, bodyEndExclusive))
 
-	_, _, _, ok = fleetMetricRollupWindows(aligned, aligned.Add(2*models.FleetMetricRollupBucketDuration-time.Nanosecond))
+	_, _, ok = fleetMetricRollupWindows(aligned, aligned.Add(2*models.FleetMetricRollupBucketDuration-time.Nanosecond))
 	assert.False(t, ok, "two-bucket windows are served entirely from raw tail")
 }
 

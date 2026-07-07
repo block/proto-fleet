@@ -807,9 +807,6 @@ func fleetMetricRollupWriteWindow(now, latest time.Time) (startTime, endTime tim
 	if endTime.After(maxEnd) {
 		endTime = maxEnd
 	}
-	if !startTime.Before(endTime) {
-		return time.Time{}, time.Time{}, false
-	}
 	return startTime, endTime, true
 }
 

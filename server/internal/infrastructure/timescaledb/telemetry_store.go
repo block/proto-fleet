@@ -717,7 +717,7 @@ func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Conte
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
 
-	bodyStart, bodyEndExclusive, tailStart, ok := fleetMetricRollupWindows(startTime, endTime)
+	bodyStart, bodyEndExclusive, ok := fleetMetricRollupWindows(startTime, endTime)
 	if !ok {
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
@@ -744,7 +744,7 @@ func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Conte
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
 
-	tail, err := s.rawBucketAggregates(ctx, query, tailStart, endTime, bucketDuration)
+	tail, err := s.rawBucketAggregates(ctx, query, bodyEndExclusive, endTime, bucketDuration)
 	if err != nil {
 		return nil, err
 	}
@@ -764,23 +764,20 @@ func fleetMetricRollupEligible(query models.CombinedMetricsQuery, startTime, end
 	return len(query.DeviceIDs) == 0 || query.DeviceListFromSiteScope
 }
 
-func fleetMetricRollupWindows(startTime, endTime time.Time) (bodyStart, bodyEndExclusive, tailStart time.Time, ok bool) {
+func fleetMetricRollupWindows(startTime, endTime time.Time) (bodyStart, bodyEndExclusive time.Time, ok bool) {
 	lastBucketStart := models.TruncateToFleetRollupBucket(endTime)
-	tailStart = lastBucketStart.Add(-time.Duration(models.FleetMetricRollupRawTailBuckets-1) * models.FleetMetricRollupBucketDuration)
-	if !tailStart.After(startTime) {
-		return time.Time{}, time.Time{}, time.Time{}, false
+	bodyEndExclusive = lastBucketStart.Add(-time.Duration(models.FleetMetricRollupRawTailBuckets-1) * models.FleetMetricRollupBucketDuration)
+	if !bodyEndExclusive.After(startTime) {
+		return time.Time{}, time.Time{}, false
 	}
-	return startTime, tailStart, tailStart, true
+	return startTime, bodyEndExclusive, true
 }
 
 func fleetRollupBucketCountExclusive(startTime, endTime time.Time) int64 {
 	if !endTime.After(startTime) {
 		return 0
 	}
-	width := models.FleetMetricRollupBucketDuration.Nanoseconds()
-	firstBucket := floorDiv(startTime.Sub(timeBucketOrigin).Nanoseconds(), width)
-	endBucket := floorDiv(endTime.Sub(timeBucketOrigin).Nanoseconds(), width)
-	return endBucket - firstBucket
+	return rawMetricBucketCount(startTime, endTime.Add(-time.Nanosecond), models.FleetMetricRollupBucketDuration)
 }
 
 func (s *TimescaleTelemetryStore) readFleetMetricRollupBuckets(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) ([]rawMetricBucket, error) {
