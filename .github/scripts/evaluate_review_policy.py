@@ -436,17 +436,39 @@ def latest_check_runs(owner: str, repo: str, head_sha: str, token: str) -> dict[
 
 def check_statuses(owner: str, repo: str, head_sha: str, required_checks: list[str], token: str) -> tuple[bool, list[str]]:
     latest_by_name = latest_check_runs(owner, repo, head_sha, token)
+    latest_by_context = latest_commit_statuses(owner, repo, head_sha, token)
     blockers: list[str] = []
     for name in required_checks:
         run = latest_by_name.get(name)
-        if run is None:
+        status_context = latest_by_context.get(name)
+        if run is None and status_context is None:
             blockers.append(f"required check {name!r} is missing")
             continue
-        status = run.get("status")
-        conclusion = run.get("conclusion")
-        if status != "completed" or conclusion != "success":
-            blockers.append(f"required check {name!r} is {status}/{conclusion}")
+        if run is not None:
+            status = run.get("status")
+            conclusion = run.get("conclusion")
+            if status != "completed" or conclusion != "success":
+                blockers.append(f"required check {name!r} is {status}/{conclusion}")
+        if status_context is not None:
+            state = status_context.get("state")
+            if state != "success":
+                blockers.append(f"required status {name!r} is {state}")
     return not blockers, blockers
+
+
+def latest_commit_statuses(owner: str, repo: str, head_sha: str, token: str) -> dict[str, dict[str, Any]]:
+    statuses = github_paginate(f"/repos/{owner}/{repo}/commits/{head_sha}/statuses", token)
+    latest_by_context: dict[str, dict[str, Any]] = {}
+    for status in statuses:
+        context = status.get("context")
+        if not context:
+            continue
+        current = latest_by_context.get(context)
+        status_key = (str(status.get("created_at") or ""), int(status.get("id", 0) or 0))
+        current_key = (str(current.get("created_at") or ""), int(current.get("id", 0) or 0)) if current else ("", 0)
+        if current is None or status_key > current_key:
+            latest_by_context[context] = status
+    return latest_by_context
 
 
 def extract_run_id(details_url: str | None) -> str | None:
@@ -463,6 +485,7 @@ def extract_run_id(details_url: str | None) -> str | None:
 def extract_security_risk(
     owner: str,
     repo: str,
+    base_sha: str,
     head_sha: str,
     token: str,
     check_name: str,
@@ -510,6 +533,9 @@ def extract_security_risk(
 
     if result.get("head_sha") != head_sha:
         return None, ["Codex security-review result artifact is stale for this PR head"]
+    expected_commit_range = f"{base_sha}...{head_sha}"
+    if result.get("commit_range") != expected_commit_range:
+        return None, ["Codex security-review result artifact is stale for this PR base/head range"]
     if str(result.get("run_id")) != str(run_id):
         return None, ["Codex security-review result artifact does not match the workflow run"]
     risk = str(result.get("overall_risk", "")).upper()
@@ -525,6 +551,7 @@ def evaluate_policy(
     repo: str,
     pr_number: int,
     author: str,
+    base_sha: str,
     head_sha: str,
     token: str,
     classifier_output: str,
@@ -590,6 +617,7 @@ def evaluate_policy(
     security_risk, security_blockers = extract_security_risk(
         owner,
         repo,
+        base_sha,
         head_sha,
         token,
         str(config.get("security_review_check", "security-review")),
@@ -705,6 +733,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repo", required=True)
     parser.add_argument("--pr-number", required=True, type=int)
     parser.add_argument("--author", required=True)
+    parser.add_argument("--base-sha")
     parser.add_argument("--head-sha", required=True)
     return parser.parse_args()
 
@@ -737,12 +766,16 @@ def main() -> int:
         return 0
 
     enforced = bool(config.get("enforce", True))
+    if not args.base_sha:
+        raise PolicyError("--base-sha is required when evaluating review policy")
+
     result = evaluate_policy(
         config=config,
         owner=args.owner,
         repo=args.repo,
         pr_number=args.pr_number,
         author=args.author,
+        base_sha=args.base_sha,
         head_sha=args.head_sha,
         token=token,
         classifier_output=args.classifier_output,

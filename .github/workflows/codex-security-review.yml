@@ -2,7 +2,7 @@ name: Codex Security Review
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, synchronize]
+    types: [edited, opened, reopened, ready_for_review, synchronize]
 
 jobs:
   security-review:

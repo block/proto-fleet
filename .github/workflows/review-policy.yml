@@ -4,8 +4,11 @@ on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflo
   workflow_run:
     workflows: ["PR Gate", "Codex Security Review", "Semgrep OSS", "zizmor"]
     types: [completed]
+  pull_request:
+    types: [edited]
   pull_request_review:
     types: [submitted, dismissed]
+  status:
   workflow_dispatch:
     inputs:
       pr:
@@ -14,7 +17,7 @@ on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflo
         type: number
 
 concurrency:
-  group: review-policy-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || inputs.pr || github.run_id }}
+  group: review-policy-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || inputs.pr || github.event.sha || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -22,6 +25,7 @@ permissions:
   checks: read
   contents: read
   pull-requests: read
+  statuses: read
 
 jobs:
   evaluate:
@@ -55,6 +59,28 @@ jobs:
               pr = data;
             } else if (context.payload.pull_request) {
               pr = context.payload.pull_request;
+            } else if (context.eventName === 'status') {
+              if (context.payload.context === 'Review Policy') {
+                core.notice('Ignoring Review Policy status event to avoid self-triggering.');
+                core.setOutput('found', 'false');
+                return;
+              }
+              const { data: candidates } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: context.payload.sha,
+              });
+              const candidate = candidates.find((item) =>
+                item.state === 'open' && item.head.sha === context.payload.sha
+              );
+              if (candidate) {
+                const { data } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: candidate.number,
+                });
+                pr = data;
+              }
             } else if (context.payload.workflow_run?.pull_requests?.length) {
               const candidate = context.payload.workflow_run.pull_requests[0];
               const { data } = await github.rest.pulls.get({
@@ -229,6 +255,7 @@ jobs:
           REPO: ${{ github.event.repository.name }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           AUTHOR: ${{ steps.pr.outputs.author }}
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           set +e
@@ -240,6 +267,7 @@ jobs:
             --repo "$REPO" \
             --pr-number "$PR_NUMBER" \
             --author "$AUTHOR" \
+            --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA"
           status=$?
           decision="$(python3 -c 'import json, os; print(json.load(open(os.environ["RESULT_JSON"]))["decision"])' 2>/dev/null || echo error)"

@@ -200,20 +200,58 @@ class ReviewPolicyTest(unittest.TestCase):
 
     def test_check_statuses_requires_successful_completed_runs(self):
         original = policy.latest_check_runs
+        original_statuses = policy.latest_commit_statuses
         try:
             policy.latest_check_runs = lambda owner, repo, head_sha, token: {
                 "Gate": {"status": "completed", "conclusion": "success"},
                 "security-review": {"status": "completed", "conclusion": "failure"},
             }
+            policy.latest_commit_statuses = lambda owner, repo, head_sha, token: {}
             ok, blockers = policy.check_statuses(
                 "block", "proto-fleet", "abc123", ["Gate", "security-review", "missing"], "token"
             )
         finally:
             policy.latest_check_runs = original
+            policy.latest_commit_statuses = original_statuses
 
         self.assertFalse(ok)
         self.assertIn("required check 'security-review' is completed/failure", blockers)
         self.assertIn("required check 'missing' is missing", blockers)
+
+    def test_check_statuses_accepts_legacy_commit_statuses(self):
+        original = policy.latest_check_runs
+        original_statuses = policy.latest_commit_statuses
+        try:
+            policy.latest_check_runs = lambda owner, repo, head_sha, token: {
+                "Gate": {"status": "completed", "conclusion": "success"},
+            }
+            policy.latest_commit_statuses = lambda owner, repo, head_sha, token: {
+                "DCO Check": {"state": "success"},
+                "External": {"state": "pending"},
+            }
+            ok, blockers = policy.check_statuses(
+                "block", "proto-fleet", "abc123", ["Gate", "DCO Check", "External"], "token"
+            )
+        finally:
+            policy.latest_check_runs = original
+            policy.latest_commit_statuses = original_statuses
+
+        self.assertFalse(ok)
+        self.assertIn("required status 'External' is pending", blockers)
+        self.assertNotIn("required check 'DCO Check' is missing", blockers)
+
+    def test_latest_commit_statuses_tie_breaks_on_id(self):
+        original = policy.github_paginate
+        try:
+            policy.github_paginate = lambda path, token: [
+                {"context": "DCO Check", "created_at": "2026-01-01T00:00:00Z", "id": 1, "state": "failure"},
+                {"context": "DCO Check", "created_at": "2026-01-01T00:00:00Z", "id": 2, "state": "success"},
+            ]
+            latest = policy.latest_commit_statuses("block", "proto-fleet", "abc123", "token")
+        finally:
+            policy.github_paginate = original
+
+        self.assertEqual(latest["DCO Check"]["id"], 2)
 
     def test_extract_run_id(self):
         self.assertEqual(
@@ -230,7 +268,12 @@ class ReviewPolicyTest(unittest.TestCase):
         with zipfile.ZipFile(archive_bytes, "w") as archive:
             archive.writestr(
                 "codex-security-review-result.json",
-                json.dumps({"head_sha": "abc123", "run_id": "123", "overall_risk": "LOW"}),
+                json.dumps({
+                    "head_sha": "abc123",
+                    "commit_range": "base123...abc123",
+                    "run_id": "123",
+                    "overall_risk": "LOW",
+                }),
             )
         try:
             def fake_paginate_key(path, token, key):
@@ -256,6 +299,7 @@ class ReviewPolicyTest(unittest.TestCase):
             risk, blockers = policy.extract_security_risk(
                 "block",
                 "proto-fleet",
+                "base123",
                 "abc123",
                 "token",
                 "security-review",
@@ -269,6 +313,60 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertEqual(risk, "LOW")
         self.assertEqual(blockers, [])
+
+    def test_extract_security_risk_rejects_stale_commit_range(self):
+        original_paginate_key = policy.github_paginate_key
+        original_request = policy.github_request
+        original_download = policy.github_download
+        archive_bytes = io.BytesIO()
+        with zipfile.ZipFile(archive_bytes, "w") as archive:
+            archive.writestr(
+                "codex-security-review-result.json",
+                json.dumps({
+                    "head_sha": "abc123",
+                    "commit_range": "oldbase...abc123",
+                    "run_id": "123",
+                    "overall_risk": "LOW",
+                }),
+            )
+        try:
+            def fake_paginate_key(path, token, key):
+                if "/commits/" in path:
+                    return [
+                        {
+                            "name": "security-review",
+                            "started_at": "2026-01-01T00:00:00Z",
+                            "details_url": "https://github.com/block/proto-fleet/actions/runs/123/job/456",
+                        }
+                    ]
+                if "/actions/runs/123/artifacts" in path:
+                    return [{"id": 999, "name": "codex-security-review-result", "expired": False}]
+                return []
+
+            policy.github_paginate_key = fake_paginate_key
+            policy.github_request = lambda method, path, token, body=None: {
+                "path": ".github/workflows/codex-security-review.yml",
+                "head_sha": "abc123",
+                "event": "pull_request",
+            }
+            policy.github_download = lambda path, token: archive_bytes.getvalue()
+            risk, blockers = policy.extract_security_risk(
+                "block",
+                "proto-fleet",
+                "base123",
+                "abc123",
+                "token",
+                "security-review",
+                ".github/workflows/codex-security-review.yml",
+                "codex-security-review-result",
+            )
+        finally:
+            policy.github_paginate_key = original_paginate_key
+            policy.github_request = original_request
+            policy.github_download = original_download
+
+        self.assertIsNone(risk)
+        self.assertIn("Codex security-review result artifact is stale for this PR base/head range", blockers)
 
     def test_extract_security_risk_rejects_forged_workflow_run(self):
         original_paginate_key = policy.github_paginate_key
@@ -294,6 +392,7 @@ class ReviewPolicyTest(unittest.TestCase):
             risk, blockers = policy.extract_security_risk(
                 "block",
                 "proto-fleet",
+                "base123",
                 "abc123",
                 "token",
                 "security-review",
@@ -338,7 +437,7 @@ class ReviewPolicyTest(unittest.TestCase):
                 [f"author @{author} is explicitly trusted"],
             )
             policy.check_statuses = lambda owner, repo, head_sha, required_checks, token: (True, [])
-            policy.extract_security_risk = lambda owner, repo, head_sha, token, check_name, workflow_path, artifact_name: (
+            policy.extract_security_risk = lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name: (
                 "LOW",
                 [],
             )
@@ -364,6 +463,7 @@ class ReviewPolicyTest(unittest.TestCase):
                 repo="proto-fleet",
                 pr_number=123,
                 author="author",
+                base_sha="base123",
                 head_sha="abc123",
                 token="token",
                 classifier_output='{"risk":"low","confidence":0.95,"requires_human_review":false,"reasons":["small"]}',
