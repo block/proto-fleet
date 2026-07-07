@@ -636,8 +636,7 @@ describe("MinerActionsMenu", () => {
     });
 
     const capabilityCheckCallback = mockWithCapabilityCheck.mock.calls[0]?.[1] as
-      | ((filteredSelector?: unknown, filteredDeviceIds?: string[]) => void)
-      | undefined;
+      ((filteredSelector?: unknown, filteredDeviceIds?: string[]) => void) | undefined;
 
     await act(async () => {
       capabilityCheckCallback?.(

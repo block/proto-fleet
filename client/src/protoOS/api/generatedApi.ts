@@ -974,14 +974,7 @@ export interface MiningStatusMiningstatus {
    * @example "Mining"
    */
   status?:
-    | "Uninitialized"
-    | "PoweringOn"
-    | "Mining"
-    | "DegradedMining"
-    | "PoweringOff"
-    | "Stopped"
-    | "NoPools"
-    | "Error";
+    "Uninitialized" | "PoweringOn" | "Mining" | "DegradedMining" | "PoweringOff" | "Stopped" | "NoPools" | "Error";
 }
 
 /** Mining target configuration for power and performance settings */

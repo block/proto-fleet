@@ -54,14 +54,7 @@ export const activeCurtailmentEventStates = [
 
 export type ActiveCurtailmentEventState = (typeof activeCurtailmentEventStates)[number];
 export type CurtailmentTargetState =
-  | "pending"
-  | "dispatched"
-  | "confirmed"
-  | "drifted"
-  | "resolved"
-  | "released"
-  | "unavailable"
-  | "restoreFailed";
+  "pending" | "dispatched" | "confirmed" | "drifted" | "resolved" | "released" | "unavailable" | "restoreFailed";
 
 export interface CurtailmentTargetRollup {
   state: CurtailmentTargetState;
