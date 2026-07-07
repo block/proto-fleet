@@ -182,6 +182,7 @@ export class BasePage {
 
     const [targetLabel] = targetLabels;
     const activeEditButton = await this.findVisibleTestIdLocator(`active-filter-${categoryKey}-edit`);
+    let clearedExistingSelection = false;
     if (activeEditButton) {
       const currentSummary = ((await activeEditButton.textContent()) ?? "").replace(/\s+/g, " ").trim();
       if (currentSummary === targetLabel) {
@@ -189,11 +190,16 @@ export class BasePage {
       }
 
       await this.clearActiveFilter(categoryKey);
+      await this.waitForActiveFilterToClear(categoryKey);
+      clearedExistingSelection = true;
     }
 
     const addFilterPopover = await this.openVisibleAddFilter();
     const submenu = await this.openNestedFilterSubmenu(addFilterPopover, categoryKey);
     await this.waitForCheckboxFilterOptions(submenu, categoryKey, targetLabels);
+    if (clearedExistingSelection) {
+      await this.waitForCheckboxFilterSelectionState(submenu, categoryKey, []);
+    }
     const targetOption = (await this.readCheckboxFilterOptionStates(submenu)).find(
       ({ label }) => label === targetLabel,
     );
@@ -265,6 +271,27 @@ export class BasePage {
         },
       )
       .toEqual([]);
+  }
+
+  private async waitForCheckboxFilterSelectionState(
+    container: Locator,
+    categoryKey: string,
+    expectedCheckedLabels: string[],
+  ) {
+    const expected = [...expectedCheckedLabels].sort();
+    await expect
+      .poll(
+        async () =>
+          (await this.readCheckboxFilterOptionStates(container))
+            .filter(({ checked }) => checked)
+            .map(({ label }) => label)
+            .sort(),
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message: `Expected the visible "${categoryKey}" filter selection to be ${expected.join(", ") || "empty"}.`,
+        },
+      )
+      .toEqual(expected);
   }
 
   private async readCheckboxFilterOptionStates(container: Locator) {
@@ -708,6 +735,18 @@ export class BasePage {
     const trigger = await this.getVisibleAddFilterTrigger();
     await trigger.click();
     await expect(popover).toBeHidden();
+  }
+
+  private async waitForActiveFilterToClear(categoryKey: string) {
+    await expect
+      .poll(
+        async () => ((await this.findVisibleTestIdLocator(`active-filter-${categoryKey}-edit`)) ? "visible" : "hidden"),
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message: `Expected active "${categoryKey}" filter chip to clear.`,
+        },
+      )
+      .toBe("hidden");
   }
 
   private async findVisibleTestIdLocator(testId: string): Promise<Locator | null> {
