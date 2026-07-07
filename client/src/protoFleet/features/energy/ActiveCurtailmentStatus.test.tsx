@@ -769,6 +769,27 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("2 minutes")).toBeVisible();
   });
 
+  it("charges every pending wave when drifted targets prove a wave already dispatched", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          curtailBatchSize: 10,
+          curtailBatchIntervalSec: 60,
+          rollups: [
+            { state: "drifted", count: 2 },
+            { state: "pending", count: 25 },
+          ],
+        }}
+      />,
+    );
+
+    // Drifted targets carry a prior dispatch, so the reconciler's interval
+    // gate makes even the next pending wave wait: all 3 waves cost 60s.
+    expect(screen.getByText("Estimated time to curtail")).toBeVisible();
+    expect(screen.getByText("3 minutes")).toBeVisible();
+  });
+
   it.each([
     ["absent", undefined, undefined],
     ["zero-valued (proto3 unset)", 0, 0],
