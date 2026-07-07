@@ -25,7 +25,10 @@ jobs:
     outputs:
       found: ${{ steps.pr.outputs.found }}
       number: ${{ steps.pr.outputs.number }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
       decision: ${{ steps.evaluate_policy.outputs.decision || 'needs-human-review' }}
+      passed: ${{ steps.evaluate_policy.outputs.passed || 'false' }}
+      enforced: ${{ steps.evaluate_policy.outputs.enforced || 'true' }}
     env:
       CODEX_MODEL: gpt-5.5
       CODEX_REASONING_EFFORT: high
@@ -234,12 +237,53 @@ jobs:
             --head-sha "$HEAD_SHA"
           status=$?
           decision="$(python3 -c 'import json, os; print(json.load(open(os.environ["RESULT_JSON"]))["decision"])' 2>/dev/null || echo error)"
+          passed="$(python3 -c 'import json, os; print(str(json.load(open(os.environ["RESULT_JSON"]))["passed"]).lower())' 2>/dev/null || echo false)"
+          enforced="$(python3 -c 'import json, os; print(str(json.load(open(os.environ["RESULT_JSON"]))["enforced"]).lower())' 2>/dev/null || echo true)"
           echo "decision=${decision}" >> "$GITHUB_OUTPUT"
+          echo "passed=${passed}" >> "$GITHUB_OUTPUT"
+          echo "enforced=${enforced}" >> "$GITHUB_OUTPUT"
           exit "$status"
 
       - name: Skip non-PR event
         if: steps.pr.outputs.found != 'true'
         run: echo "No pull request to evaluate."
+
+  publish-status:
+    name: Publish Status
+    needs: evaluate
+    if: always() && needs.evaluate.outputs.found == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      statuses: write
+    steps:
+      - name: Publish review policy status
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const decision = '${{ needs.evaluate.outputs.decision }}' || 'needs-human-review';
+            const passed = '${{ needs.evaluate.outputs.passed }}' === 'true';
+            const enforced = '${{ needs.evaluate.outputs.enforced }}' !== 'false';
+            const evaluateResult = '${{ needs.evaluate.result }}';
+
+            const state = evaluateResult === 'success' && (passed || !enforced)
+              ? 'success'
+              : evaluateResult === 'cancelled'
+                ? 'error'
+                : 'failure';
+            const mode = enforced ? 'enforced' : 'advisory';
+            const description = `Review Policy ${mode}: ${decision}`.slice(0, 140);
+            const target_url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: '${{ needs.evaluate.outputs.head_sha }}',
+              state,
+              context: 'Review Policy',
+              description,
+              target_url,
+            });
 
   sync-label:
     name: Sync Label
