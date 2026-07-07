@@ -58,6 +58,29 @@ const (
 	// poll attempt against a device. Labelled with result (success or
 	// failure — see ResultSuccess / ResultFailure).
 	MetricTelemetryPollTotal = "fleet_telemetry_poll_total"
+
+	// Host system gauges emitted by the optional system-monitoring collector.
+	// All four are host-scoped: every label column stays empty (like the
+	// ingest-stalled sentinel), and the provisioned Grafana rules fan alerts
+	// out per organization by joining fleet_active_organization in SQL.
+	// User-authored PromQL gets an injected organization_id="<caller-org>"
+	// matcher, so these series match nothing there.
+
+	// MetricSystemCPUUsedPercent is the host CPU utilization (0-100) over the
+	// collector's poll interval.
+	MetricSystemCPUUsedPercent = "fleet_system_cpu_used_percent"
+
+	// MetricSystemMemoryUsedPercent is the host RAM used percent (0-100).
+	MetricSystemMemoryUsedPercent = "fleet_system_memory_used_percent"
+
+	// MetricSystemDiskUsedPercent is the used percent (0-100) of the
+	// filesystem at the collector's configured path.
+	MetricSystemDiskUsedPercent = "fleet_system_disk_used_percent"
+
+	// MetricSystemHeartbeat is always 1; a fresh sample lands every collector
+	// tick, so staleness means fleet-api is down or the metrics writer is
+	// wedged. The Fleet Heartbeat Stale rule alerts on it.
+	MetricSystemHeartbeat = "fleet_system_heartbeat"
 )
 
 // Label keys. User-authored PromQL may aggregate by any of these.
@@ -120,6 +143,10 @@ var AllMetricNames = []string{
 	MetricDevicePoolConnected,
 	MetricCommandTotal,
 	MetricTelemetryPollTotal,
+	MetricSystemCPUUsedPercent,
+	MetricSystemMemoryUsedPercent,
+	MetricSystemDiskUsedPercent,
+	MetricSystemHeartbeat,
 }
 
 // AllLabelKeys is the canonical list of label keys Proto Fleet attaches to its metrics.

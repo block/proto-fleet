@@ -198,3 +198,42 @@ The configs live under `server/monitoring/grafana/`:
   `/internal/alertmanager-webhook` endpoint.
 - `provisioning/alerting/notification-policies.yaml` — root routing
   tree (grouping + repeat interval).
+
+### Enabling system monitoring
+
+Host system monitoring is **off by default** and requires the alerts
+stack, since it reuses the same metrics pipeline, Grafana rule engine,
+and notification channels:
+
+```bash
+./run-fleet.sh --enable-beta-alerts --enable-system-monitoring
+```
+
+(or set `ENABLE_BETA_ALERTS=true` and `ENABLE_SYSTEM_MONITORING=true`
+in `.env` so upgrades keep it on).
+
+This layers in `docker-compose.system-monitoring.yaml`, which:
+
+- starts an in-process collector in fleet-api that samples host CPU,
+  memory, and disk usage every 30 seconds into
+  `notification_metric_sample`;
+- bind-mounts `/var/lib/docker/volumes` **read-only** at `/hostfs`
+  inside fleet-api, so the disk gauge reports the filesystem holding
+  the TimescaleDB data volume (the disk that filling up takes fleet
+  down). To watch a different filesystem, change the mount source in
+  `docker-compose.system-monitoring.yaml`;
+- provisions the `proto-fleet-system` alert rules (Host CPU High,
+  Host Memory High, Host Disk Space Low, Fleet Heartbeat Stale). They
+  deliver to each organization's configured alert channels like any
+  other rule, and can be paused per-org from the alerts settings page;
+- provisions a "System Monitoring" Grafana dashboard with host gauges
+  and slow-query tables backed by `pg_stat_statements`, and grants the
+  Grafana read-only role `pg_read_all_stats` so query text is visible
+  there.
+
+If fleet-api itself goes down, Grafana keeps evaluating the heartbeat
+rule but can only deliver the notification once fleet-api is back; use
+the Grafana UI at `127.0.0.1:3030` during an outage. fleet-api also
+serves `GET /health/ready` (200 only when its database answers a ping)
+for external uptime monitors, alongside the always-static liveness
+check at `GET /health`.

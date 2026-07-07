@@ -1,0 +1,238 @@
+# Proto Fleet system-monitoring alert rules — provisioned only by the
+# system-monitoring overlays, which bind-mount this file over the deleteRules
+# tombstone at provisioning/alerting/proto-fleet-system-rules.yaml. Host
+# metrics carry no org label (see docs/alerts-metrics.md), so every rule
+# CROSS JOINs fleet_active_organization to fan one host condition out to
+# per-org instances: delivery, pause, and history stay org-scoped.
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: proto-fleet-system
+    folder: Proto Fleet
+    interval: 30s
+    rules:
+      - uid: protofleet-system-cpu-high
+        title: Host CPU High
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                -- Threshold lives here so it can be retuned without redeploying fleet-api.
+                -- Plain ORDER BY/LIMIT instead of last(value, time): TimescaleDB's custom
+                -- aggregate trips "Aggref found in non-Agg plan node" when the planner pushes
+                -- the join filter into this subquery.
+                SELECT
+                    o.organization_id,
+                    s.value
+                FROM fleet_active_organization o
+                CROSS JOIN (
+                    SELECT value
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_system_cpu_used_percent'
+                      AND time > NOW() - INTERVAL '10 minutes'
+                    ORDER BY time DESC
+                    LIMIT 1
+                ) s
+                WHERE s.value > 90
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        # Collector off or stale means no rows: the Fleet Heartbeat Stale rule
+        # owns that case, so noData must not page.
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        for: 10m
+        labels:
+          # Shared: visible to every org (a pause stays org-scoped). Instances
+          # always carry organization_id via the SQL fan-out.
+          proto_fleet_scope: shared
+          severity: warning
+          rule_group: proto-fleet-system
+          template: system-cpu
+        annotations:
+          summary: "Host CPU usage has been above 90% for at least ten minutes."
+          description: |
+            CPU on the machine running Proto Fleet has been above 90% for at
+            least ten minutes. Telemetry polling, command dispatch, and the
+            database all compete for that CPU; check for runaway processes on
+            the host.
+
+      - uid: protofleet-system-memory-high
+        title: Host Memory High
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                SELECT
+                    o.organization_id,
+                    s.value
+                FROM fleet_active_organization o
+                CROSS JOIN (
+                    SELECT value
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_system_memory_used_percent'
+                      AND time > NOW() - INTERVAL '10 minutes'
+                    ORDER BY time DESC
+                    LIMIT 1
+                ) s
+                WHERE s.value > 90
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        for: 10m
+        labels:
+          proto_fleet_scope: shared
+          severity: warning
+          rule_group: proto-fleet-system
+          template: system-memory
+        annotations:
+          summary: "Host memory usage has been above 90% for at least ten minutes."
+          description: |
+            RAM on the machine running Proto Fleet has been above 90% for at
+            least ten minutes. If it keeps climbing, the kernel OOM killer may
+            take out fleet-api or TimescaleDB.
+
+      - uid: protofleet-system-disk-low
+        title: Host Disk Space Low
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                SELECT
+                    o.organization_id,
+                    s.value
+                FROM fleet_active_organization o
+                CROSS JOIN (
+                    SELECT value
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_system_disk_used_percent'
+                      AND time > NOW() - INTERVAL '15 minutes'
+                    ORDER BY time DESC
+                    LIMIT 1
+                ) s
+                WHERE s.value > 85
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        # Disk moves slowly; the wider window avoids flapping on temp files.
+        for: 15m
+        labels:
+          proto_fleet_scope: shared
+          # Critical, not warning: a full disk stops TimescaleDB and with it
+          # every other alert in this file.
+          severity: critical
+          rule_group: proto-fleet-system
+          template: system-disk
+        annotations:
+          summary: "Host disk usage has been above 85% for at least fifteen minutes."
+          description: |
+            The filesystem Proto Fleet monitors is more than 85% full. A full
+            disk halts TimescaleDB, which stops telemetry ingest and all
+            alerting. Free up space or grow the volume soon.
+
+  - orgId: 1
+    name: proto-fleet-system-self
+    folder: Proto Fleet
+    interval: 30s
+    rules:
+      - uid: protofleet-system-heartbeat-stale
+        title: Fleet Heartbeat Stale
+        condition: B
+        # Unlike protofleet-ingest-stalled (operator-only: its noData path
+        # emits an unscoped instance no org pause can match), this rule never
+        # relies on noData to fire: the org CROSS JOIN returns a staleness row
+        # per live org on every evaluation, with COALESCE covering the
+        # no-samples case, so instances always carry organization_id and can
+        # be shared. noData is reachable only with zero live orgs — nobody to
+        # notify — so noDataState: OK is safe. It also covers the empty fleet
+        # that ingest-stalled's no-miners sentinel intentionally reads as
+        # healthy.
+        #
+        # Delivery paradox, documented honestly: if fleet-api itself is down,
+        # Grafana cannot POST the webhook; its Alertmanager retries and the
+        # notification lands when fleet-api recovers. During the outage the
+        # Grafana UI and the operator-only ingest-stalled rule are the
+        # fallback.
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                SELECT
+                    o.organization_id,
+                    COALESCE(EXTRACT(EPOCH FROM (NOW() - s.last_beat))::float8, 1e9) AS value
+                FROM fleet_active_organization o
+                CROSS JOIN (
+                    SELECT max(time) AS last_beat
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_system_heartbeat'
+                      AND time > NOW() - INTERVAL '24 hours'
+                ) s
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              # The collector heartbeats every 30s; 300s of silence means
+              # fleet-api is down or its metrics writer is wedged.
+              expression: $A > 300
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        for: 5m
+        labels:
+          proto_fleet_scope: shared
+          severity: critical
+          rule_group: proto-fleet-system
+          template: system-heartbeat
+        annotations:
+          summary: "Proto Fleet has not reported a system heartbeat for over five minutes."
+          description: |
+            The fleet server's system-monitoring heartbeat has gone stale.
+            Either fleet-api is down, or its metrics writer is wedged. Device
+            alerts cannot be evaluated or delivered until it recovers — check
+            the host and `docker compose ps` on the fleet server.

@@ -95,6 +95,72 @@ logging:
 	require.False(t, config.Log.JSON)
 }
 
+func TestFleetdSystemMonitoringConfig(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	configPath := writeFleetdConfigFile(t, `
+auth:
+  client:
+    expiration-period: "1h"
+    secret-key: "test-client-secret"
+  miner-token-expiration-period: "30m"
+encrypt:
+  service-master-key: "test-master-key"
+`)
+	config := &Config{}
+	parser, err := kong.New(
+		config,
+		kong.Name("fleetd"),
+		kong.Configuration(kongyaml.Loader, configPath),
+	)
+	require.NoError(t, err)
+
+	// Act
+	_, err = parser.Parse([]string{
+		"--system-monitoring-enabled",
+		"--system-monitoring-interval=15s",
+		"--system-monitoring-disk-path=/hostfs",
+	})
+
+	// Assert
+	require.NoError(t, err)
+	require.True(t, config.SystemMonitoring.Enabled)
+	require.Equal(t, 15*time.Second, config.SystemMonitoring.Interval)
+	require.Equal(t, "/hostfs", config.SystemMonitoring.DiskPath)
+}
+
+func TestFleetdSystemMonitoringDefaultsOff(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	configPath := writeFleetdConfigFile(t, `
+auth:
+  client:
+    expiration-period: "1h"
+    secret-key: "test-client-secret"
+  miner-token-expiration-period: "30m"
+encrypt:
+  service-master-key: "test-master-key"
+`)
+	config := &Config{}
+	parser, err := kong.New(
+		config,
+		kong.Name("fleetd"),
+		kong.Configuration(kongyaml.Loader, configPath),
+	)
+	require.NoError(t, err)
+
+	// Act
+	_, err = parser.Parse(nil)
+
+	// Assert
+	require.NoError(t, err)
+	require.False(t, config.SystemMonitoring.Enabled)
+	require.Equal(t, 30*time.Second, config.SystemMonitoring.Interval)
+	require.Equal(t, "/", config.SystemMonitoring.DiskPath)
+}
+
 func TestHTTP2WriteByteTimeoutStopsNonReadingClient(t *testing.T) {
 	t.Parallel()
 
