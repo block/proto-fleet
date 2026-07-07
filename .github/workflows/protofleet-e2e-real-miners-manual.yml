@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Activate hermit
-        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+        uses: cashapp/activate-hermit@cea9af7913204a965fd488637a8d1811bba2e616 # v1.1.5
 
       - name: Cleanup
         shell: bash
