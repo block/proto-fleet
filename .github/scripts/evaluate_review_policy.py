@@ -140,9 +140,10 @@ def path_matches(path: str, pattern: str) -> bool:
 def denied_paths(files: list[dict[str, Any]], deny_patterns: list[str]) -> list[str]:
     denied: list[str] = []
     for item in files:
-        path = item["filename"]
-        if any(path_matches(path, pattern) for pattern in deny_patterns):
-            denied.append(path)
+        paths = [item.get("filename"), item.get("previous_filename")]
+        for path in (value for value in paths if value):
+            if any(path_matches(path, pattern) for pattern in deny_patterns):
+                denied.append(path)
     return sorted(set(denied))
 
 

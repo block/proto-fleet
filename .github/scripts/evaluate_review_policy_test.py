@@ -28,6 +28,22 @@ class ReviewPolicyTest(unittest.TestCase):
             ["client/package.json", "server/main.go"],
         )
 
+    def test_denied_paths_checks_previous_filename_for_renames(self):
+        files = [
+            {
+                "filename": "docs/workflows/review-policy.yml",
+                "previous_filename": ".github/workflows/review-policy.yml",
+            },
+            {
+                "filename": "server/main.go",
+                "previous_filename": "docs/main.go",
+            },
+        ]
+        self.assertEqual(
+            policy.denied_paths(files, [".github/**", "server/**"]),
+            [".github/workflows/review-policy.yml", "server/main.go"],
+        )
+
     def test_classifier_allows_low_risk(self):
         classifier = {
             "risk": "low",
