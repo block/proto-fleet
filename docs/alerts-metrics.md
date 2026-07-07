@@ -52,7 +52,7 @@ that samples the host every `FLEET_SYSTEM_MONITORING_INTERVAL`
 | --- | --- | --- | --- | --- |
 | `fleet_system_cpu_used_percent` | gauge | `%` | *(none)* | Host CPU utilization over the collector's poll interval. |
 | `fleet_system_memory_used_percent` | gauge | `%` | *(none)* | Host RAM used percent. |
-| `fleet_system_disk_used_percent` | gauge | `%` | *(none)* | Used percent of the filesystem at `FLEET_SYSTEM_MONITORING_DISK_PATH` (production mounts the host root read-only at `/hostfs`). |
+| `fleet_system_disk_used_percent` | gauge | `%` | *(none)* | Used percent of the filesystem at `FLEET_SYSTEM_MONITORING_DISK_PATH` (production mounts the docker-volumes directory, where the TimescaleDB data lives, read-only at `/hostfs`). |
 | `fleet_system_heartbeat` | gauge (1) | `1` | *(none)* | Always 1. Emitted every collector tick even when stat reads fail — a fresh sample means "fleet-api and its metrics writer are alive", so staleness is the alert signal. |
 
 These samples are host-scoped: every label column stays empty, like the

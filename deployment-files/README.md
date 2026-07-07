@@ -233,7 +233,11 @@ This layers in `docker-compose.system-monitoring.yaml`, which:
 
 If fleet-api itself goes down, Grafana keeps evaluating the heartbeat
 rule but can only deliver the notification once fleet-api is back; use
-the Grafana UI at `127.0.0.1:3030` during an outage. fleet-api also
+the Grafana UI at `127.0.0.1:3030` during an outage.
+
+Disabling the feature removes the alert rules on the next start (via a
+provisioned tombstone) but leaves the System Monitoring dashboard in
+Grafana; delete it from the UI if it bothers you. fleet-api also
 serves `GET /health/ready` (200 only when its database answers a ping)
 for external uptime monitors, alongside the always-static liveness
 check at `GET /health`.

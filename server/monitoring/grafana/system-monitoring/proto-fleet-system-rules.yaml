@@ -169,11 +169,6 @@ groups:
             disk halts TimescaleDB, which stops telemetry ingest and all
             alerting. Free up space or grow the volume soon.
 
-  - orgId: 1
-    name: proto-fleet-system-self
-    folder: Proto Fleet
-    interval: 30s
-    rules:
       - uid: protofleet-system-heartbeat-stale
         title: Fleet Heartbeat Stale
         condition: B
