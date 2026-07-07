@@ -29,27 +29,32 @@ export default function ScanMinerQrModal({ show, currentRackLabel, onDismiss, on
   // a result). Toggling this tears the stream down between scans.
   const cameraActive = show && liveCamera && phase.kind === "scanning";
 
-  const runLookup = useCallback(async (rawValue: string) => {
-    const { value, type } = parseScannedIdentifier(rawValue);
-    if (!value) {
-      setPhase({ kind: "not-found", identifier: rawValue.trim() });
+  // A single frame/photo can decode more than one barcode (e.g. a serial plus a
+  // model/asset code), and the detector's ordering isn't guaranteed — so try
+  // each decoded value against the lookup and only report not-found once none
+  // resolve, rather than committing to the first.
+  const runLookup = useCallback(async (rawValues: string[]) => {
+    const seq = ++lookupSeq.current;
+    const candidates = rawValues.map((raw) => ({ raw, ...parseScannedIdentifier(raw) })).filter((c) => c.value);
+    if (candidates.length === 0) {
+      setPhase({ kind: "not-found", identifier: rawValues[0]?.trim() ?? "" });
       return;
     }
-    const seq = ++lookupSeq.current;
-    setPhase({ kind: "looking-up", identifier: value });
-    const result = await lookupMinerByIdentifier(value, type);
-    if (seq !== lookupSeq.current) return; // superseded
-    switch (result.status) {
-      case "found":
+    setPhase({ kind: "looking-up", identifier: candidates[0].value });
+    let lastError: string | null = null;
+    for (const { value, type } of candidates) {
+      const result = await lookupMinerByIdentifier(value, type);
+      if (seq !== lookupSeq.current) return; // superseded by a newer scan / close
+      if (result.status === "found") {
         setPhase({ kind: "found", snapshot: result.snapshot });
-        break;
-      case "notFound":
-        setPhase({ kind: "not-found", identifier: value });
-        break;
-      case "error":
-        setPhase({ kind: "error", message: result.message });
-        break;
+        return;
+      }
+      if (result.status === "error") lastError = result.message;
+      // notFound → keep trying the remaining decoded values
     }
+    setPhase(
+      lastError ? { kind: "error", message: lastError } : { kind: "not-found", identifier: candidates[0].value },
+    );
   }, []);
 
   const { videoRef, status, errorMessage, detectFromBlob } = useQrScanner({
@@ -76,9 +81,9 @@ export default function ScanMinerQrModal({ show, currentRackLabel, onDismiss, on
       if (!file) return;
       setPhase({ kind: "looking-up", identifier: "" });
       try {
-        const rawValue = await detectFromBlob(file);
-        if (rawValue) {
-          await runLookup(rawValue);
+        const rawValues = await detectFromBlob(file);
+        if (rawValues.length) {
+          await runLookup(rawValues);
         } else {
           setPhase({ kind: "not-found", identifier: "" });
         }

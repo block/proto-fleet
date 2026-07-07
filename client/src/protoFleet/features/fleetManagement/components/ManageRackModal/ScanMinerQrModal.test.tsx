@@ -7,11 +7,11 @@ import { MinerIdentifierType, PairingStatus } from "@/protoFleet/api/generated/f
 // --- Mock the scanner hook so tests never touch real camera/WASM APIs. ---
 const mockUseQrScanner = vi.fn();
 const mockCanUseLiveCamera = vi.fn();
-let capturedOnDetected: ((raw: string) => void) | undefined;
+let capturedOnDetected: ((raws: string[]) => void) | undefined;
 
 vi.mock("@/protoFleet/features/fleetManagement/hooks/useQrScanner", () => ({
   canUseLiveCamera: () => mockCanUseLiveCamera(),
-  useQrScanner: (opts: { onDetected: (raw: string) => void; active: boolean }) => {
+  useQrScanner: (opts: { onDetected: (raws: string[]) => void; active: boolean }) => {
     capturedOnDetected = opts.onDetected;
     return mockUseQrScanner(opts);
   },
@@ -74,7 +74,7 @@ describe("ScanMinerQrModal", () => {
 
     // Simulate the camera hook detecting a prefixed QR payload.
     await act(async () => {
-      capturedOnDetected?.("SN:SN123");
+      capturedOnDetected?.(["SN:SN123"]);
     });
 
     await waitFor(() => expect(screen.getByText("Miner One")).toBeInTheDocument());
@@ -85,6 +85,24 @@ describe("ScanMinerQrModal", () => {
     expect(onConfirm).toHaveBeenCalledWith("dev-1");
   });
 
+  it("tries every decoded barcode and resolves the one that matches", async () => {
+    mockCanUseLiveCamera.mockReturnValue(true);
+    // A frame can decode multiple codes; the first (e.g. a model/asset code)
+    // doesn't resolve, the serial does. It must not stop at the first miss.
+    mockLookup
+      .mockResolvedValueOnce({ status: "notFound" })
+      .mockResolvedValueOnce({ status: "found", snapshot: snapshot() });
+
+    render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={vi.fn()} />);
+
+    await act(async () => {
+      capturedOnDetected?.(["MODEL234T", "SN:SN123"]);
+    });
+
+    await waitFor(() => expect(screen.getByText("Miner One")).toBeInTheDocument());
+    expect(mockLookup).toHaveBeenCalledTimes(2);
+  });
+
   it("shows a not-found message when the serial has no paired miner", async () => {
     mockCanUseLiveCamera.mockReturnValue(true);
     mockLookup.mockResolvedValueOnce({ status: "notFound" });
@@ -92,7 +110,7 @@ describe("ScanMinerQrModal", () => {
     render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={vi.fn()} />);
 
     await act(async () => {
-      capturedOnDetected?.("SN:NOPE");
+      capturedOnDetected?.(["SN:NOPE"]);
     });
 
     await waitFor(() => expect(screen.getByText(/No paired miner found/i)).toBeInTheDocument());
@@ -109,7 +127,7 @@ describe("ScanMinerQrModal", () => {
     render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={onConfirm} />);
 
     await act(async () => {
-      capturedOnDetected?.("SN123");
+      capturedOnDetected?.(["SN123"]);
     });
 
     await waitFor(() => expect(screen.getByText(/Already assigned to rack "Rack B"/i)).toBeInTheDocument());
@@ -128,7 +146,7 @@ describe("ScanMinerQrModal", () => {
     render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={onConfirm} />);
 
     await act(async () => {
-      capturedOnDetected?.("SN123");
+      capturedOnDetected?.(["SN123"]);
     });
 
     await waitFor(() => expect(screen.getByText(/isn't fully paired/i)).toBeInTheDocument());
@@ -152,7 +170,7 @@ describe("ScanMinerQrModal", () => {
     render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={vi.fn()} />);
 
     await act(async () => {
-      capturedOnDetected?.("SN123");
+      capturedOnDetected?.(["SN123"]);
     });
 
     await waitFor(() => expect(screen.getByText("server exploded")).toBeInTheDocument());

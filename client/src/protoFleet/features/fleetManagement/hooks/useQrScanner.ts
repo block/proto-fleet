@@ -19,8 +19,14 @@ export function canUseLiveCamera(): boolean {
 type ScanStatus = "idle" | "starting" | "scanning" | "error";
 
 interface UseQrScannerOptions {
-  /** Called with the raw decoded text when a code is found. */
-  onDetected: (rawValue: string) => void;
+  /**
+   * Called with every raw decoded value in the frame when at least one code is
+   * found. A single label or rack shot can carry more than one barcode (e.g. a
+   * serial and a model/asset code), and the detector's ordering isn't
+   * guaranteed — so the caller should try each value rather than assume the
+   * first is the one to resolve.
+   */
+  onDetected: (rawValues: string[]) => void;
   /** When false, the scanner stays torn down (e.g. modal closed). */
   active: boolean;
 }
@@ -30,8 +36,9 @@ interface UseQrScannerResult {
   status: ScanStatus;
   /** Populated when status === "error"; a user-facing message. */
   errorMessage: string;
-  /** Decode a still image (File/Blob) from the photo-capture fallback. */
-  detectFromBlob: (blob: Blob) => Promise<string | null>;
+  /** Decode a still image (File/Blob) from the photo-capture fallback; returns
+   *  every decoded value (see onDetected). */
+  detectFromBlob: (blob: Blob) => Promise<string[]>;
 }
 
 const SCAN_INTERVAL_MS = 250;
@@ -94,9 +101,9 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
   }, []);
 
   const detectFromBlob = useCallback(
-    async (blob: Blob): Promise<string | null> => {
+    async (blob: Blob): Promise<string[]> => {
       const results = await getDetector().detect(blob);
-      return results[0]?.rawValue ?? null;
+      return results.map((r) => r.rawValue).filter(Boolean);
     },
     [getDetector],
   );
@@ -170,10 +177,10 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
             // fire onDetected (a lookup + state update) after teardown.
             if (cancelled) return;
             decodeFailuresRef.current = 0;
-            const value = results[0]?.rawValue;
-            if (value && !detectedRef.current) {
+            const values = results.map((r) => r.rawValue).filter(Boolean);
+            if (values.length && !detectedRef.current) {
               detectedRef.current = true;
-              onDetectedRef.current(value);
+              onDetectedRef.current(values);
             }
           } catch {
             // A blurry frame resolves empty; a *throw* means the decoder itself
