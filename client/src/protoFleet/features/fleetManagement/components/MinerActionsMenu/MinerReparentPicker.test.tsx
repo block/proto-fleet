@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import MinerReparentPicker from "./MinerReparentPicker";
 import { PerDeviceBuildingConflictReason } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 // Building-reparent flow only. The two-step force-clear confirm is the
 // part with branching logic: the server enumerates per-device conflicts,
@@ -13,15 +14,19 @@ import { PerDeviceBuildingConflictReason } from "@/protoFleet/api/generated/buil
 // open the dialog or retry.
 
 const {
+  mockAssignDevicesToSite,
   mockAssignDevicesToBuilding,
   mockAssignDevicesToRack,
   mockGetDeviceSet,
+  mockListRacks,
   mockListMinerStateSnapshots,
   mockPushToast,
 } = vi.hoisted(() => ({
+  mockAssignDevicesToSite: vi.fn(),
   mockAssignDevicesToBuilding: vi.fn(),
   mockAssignDevicesToRack: vi.fn(),
   mockGetDeviceSet: vi.fn(),
+  mockListRacks: vi.fn(),
   mockListMinerStateSnapshots: vi.fn(),
   mockPushToast: vi.fn(() => 1),
 }));
@@ -30,13 +35,13 @@ vi.mock("@/protoFleet/api/buildings", () => ({
   useBuildings: () => ({ assignDevicesToBuilding: mockAssignDevicesToBuilding }),
 }));
 vi.mock("@/protoFleet/api/sites", () => ({
-  useSites: () => ({ assignDevicesToSite: vi.fn() }),
+  useSites: () => ({ assignDevicesToSite: mockAssignDevicesToSite }),
 }));
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: () => ({
     assignDevicesToRack: mockAssignDevicesToRack,
     getDeviceSet: mockGetDeviceSet,
-    listRacks: vi.fn(),
+    listRacks: mockListRacks,
   }),
 }));
 vi.mock("@/protoFleet/api/clients", () => ({
@@ -88,6 +93,58 @@ const renderPicker = () =>
   );
 
 const DIALOG_TITLE = "Move miners between buildings?";
+
+const renderAllSitePicker = () =>
+  render(
+    <MinerReparentPicker
+      kind="site"
+      deviceIdentifiers={[]}
+      selectionMode="all"
+      totalCount={2}
+      sourceLabel="All miners"
+      successMessage={(count) => `Moved ${count} miner(s).`}
+      onClose={vi.fn()}
+    />,
+  );
+
+describe("MinerReparentPicker — all-mode placement selection", () => {
+  beforeEach(() => {
+    mockAssignDevicesToSite.mockReset();
+    mockListRacks.mockReset();
+    mockListMinerStateSnapshots.mockReset();
+    mockPushToast.mockReset();
+    mockPushToast.mockReturnValue(1);
+  });
+
+  it("resolves all selected miners with the same visible pairing-status scope as the miner table", async () => {
+    mockListRacks.mockImplementation(({ onSuccess }) => onSuccess([]));
+    mockListMinerStateSnapshots
+      .mockResolvedValueOnce({
+        miners: [{ deviceIdentifier: "d1", pairingStatus: PairingStatus.PAIRED }],
+        cursor: "next",
+      })
+      .mockResolvedValueOnce({
+        miners: [{ deviceIdentifier: "d2", pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }],
+        cursor: "",
+      });
+    mockAssignDevicesToSite.mockImplementationOnce(({ onSuccess }) => {
+      onSuccess(2n);
+    });
+
+    renderAllSitePicker();
+    fireEvent.click(screen.getByText("pick-target"));
+
+    await waitFor(() => expect(mockAssignDevicesToSite).toHaveBeenCalledTimes(1));
+
+    expect(mockListMinerStateSnapshots.mock.calls[0][0].filter.pairingStatuses).toEqual([
+      PairingStatus.PAIRED,
+      PairingStatus.AUTHENTICATION_NEEDED,
+      PairingStatus.DEFAULT_PASSWORD,
+    ]);
+    expect(mockListMinerStateSnapshots.mock.calls[1][0].cursor).toBe("next");
+    expect(mockAssignDevicesToSite.mock.calls[0][0].deviceIdentifiers).toEqual(["d1", "d2"]);
+  });
+});
 
 describe("MinerReparentPicker — building force-clear flow", () => {
   beforeEach(() => {
