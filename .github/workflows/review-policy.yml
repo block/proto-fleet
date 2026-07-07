@@ -1,9 +1,11 @@
 name: Review Policy
 
-on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflow_run completions instead of PR-head events
+on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflow/review events instead of PR-head code
   workflow_run:
     workflows: ["PR Gate", "Codex Security Review", "Semgrep OSS", "zizmor"]
     types: [completed]
+  pull_request_review:
+    types: [submitted, dismissed]
   workflow_dispatch:
     inputs:
       pr:
@@ -12,7 +14,7 @@ on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflo
         type: number
 
 concurrency:
-  group: review-policy-${{ github.event.workflow_run.pull_requests[0].number || inputs.pr || github.run_id }}
+  group: review-policy-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || inputs.pr || github.run_id }}
   cancel-in-progress: true
 
 permissions:

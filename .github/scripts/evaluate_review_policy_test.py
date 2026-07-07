@@ -161,6 +161,30 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertTrue(trusted)
         self.assertEqual(reasons, ["author @member is a member of @block/proto-fleet-dev"])
 
+    def test_trusted_head_contributor_reasons_blocks_untrusted_committers(self):
+        original = policy.trusted_author_reasons
+        try:
+            policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
+                author == "trusted",
+                [f"author @{author} is explicitly trusted"] if author == "trusted" else [f"author @{author} is not in trusted_authors"],
+            )
+            ok, reasons, blockers = policy.trusted_head_contributor_reasons(
+                [
+                    {"sha": "abc123", "author": {"login": "trusted"}, "committer": {"login": "untrusted"}},
+                    {"sha": "def456", "author": None, "committer": None},
+                ],
+                ["trusted"],
+                "block",
+                "token",
+            )
+        finally:
+            policy.trusted_author_reasons = original
+
+        self.assertFalse(ok)
+        self.assertEqual(reasons, ["head contributor @trusted is trusted"])
+        self.assertIn("head contributor @untrusted is not in trusted_authors", blockers)
+        self.assertIn("current head has commits without GitHub-linked authors or committers: def456", blockers)
+
     def test_latest_check_runs_tie_breaks_on_id(self):
         original = policy.github_paginate_key
         try:
@@ -302,6 +326,8 @@ class ReviewPolicyTest(unittest.TestCase):
                             "patch": "@@\n+const x = 1",
                         }
                     ]
+                if path.endswith("/commits"):
+                    return [{"sha": "abc123", "author": {"login": "author"}, "committer": {"login": "author"}}]
                 if path.endswith("/reviews"):
                     return []
                 return []

@@ -326,6 +326,44 @@ def trusted_author_reasons(author: str, trusted_authors: list[str], owner: str, 
     return False, [f"author @{author} is not in trusted_authors"]
 
 
+def trusted_head_contributor_reasons(
+    commits: list[dict[str, Any]],
+    trusted_authors: list[str],
+    owner: str,
+    token: str,
+) -> tuple[bool, list[str], list[str]]:
+    contributors: set[str] = set()
+    unknown_commits: list[str] = []
+
+    for commit in commits:
+        sha = str(commit.get("sha") or "")[:12] or "<unknown>"
+        linked = False
+        for role in ("author", "committer"):
+            user = commit.get(role)
+            login = user.get("login") if isinstance(user, dict) else None
+            if login:
+                contributors.add(login)
+                linked = True
+        if not linked:
+            unknown_commits.append(sha)
+
+    reasons: list[str] = []
+    blockers: list[str] = []
+    if unknown_commits:
+        blockers.append("current head has commits without GitHub-linked authors or committers: " + ", ".join(unknown_commits))
+    if not contributors:
+        blockers.append("current head has no GitHub-linked commit authors or committers")
+
+    for contributor in sorted(contributors):
+        trusted, _trust_reasons = trusted_author_reasons(contributor, trusted_authors, owner, token)
+        if trusted:
+            reasons.append(f"head contributor @{contributor} is trusted")
+        else:
+            blockers.append(f"head contributor @{contributor} is not in trusted_authors")
+
+    return not blockers, reasons, blockers
+
+
 def evaluate_low_risk_preflight(
     *,
     config: dict[str, Any],
@@ -336,12 +374,20 @@ def evaluate_low_risk_preflight(
     token: str,
 ) -> dict[str, Any]:
     files = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/files", token)
+    commits = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/commits", token)
     low_config = config["low_risk"]
     reasons: list[str] = []
     blockers: list[str] = []
 
     trusted, trust_reasons = trusted_author_reasons(author, config.get("trusted_authors", []), owner, token)
     (reasons if trusted else blockers).extend(trust_reasons)
+    head_trusted, head_trust_reasons, head_trust_blockers = trusted_head_contributor_reasons(
+        commits,
+        config.get("trusted_authors", []),
+        owner,
+        token,
+    )
+    (reasons if head_trusted else blockers).extend(head_trust_reasons if head_trusted else head_trust_blockers)
 
     changed_files = len(files)
     total_changes = sum(int(item.get("additions", 0)) + int(item.get("deletions", 0)) for item in files)
@@ -484,6 +530,7 @@ def evaluate_policy(
     classifier_output: str,
 ) -> PolicyResult:
     files = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/files", token)
+    commits = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/commits", token)
     reviews = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews", token)
 
     human_ok, human_reasons, human_blockers = human_review_state(
@@ -503,6 +550,13 @@ def evaluate_policy(
 
     trusted, trust_reasons = trusted_author_reasons(author, config.get("trusted_authors", []), owner, token)
     (low_reasons if trusted else low_blockers).extend(trust_reasons)
+    head_trusted, head_trust_reasons, head_trust_blockers = trusted_head_contributor_reasons(
+        commits,
+        config.get("trusted_authors", []),
+        owner,
+        token,
+    )
+    (low_reasons if head_trusted else low_blockers).extend(head_trust_reasons if head_trusted else head_trust_blockers)
 
     changed_files = len(files)
     total_changes = sum(int(item.get("additions", 0)) + int(item.get("deletions", 0)) for item in files)
