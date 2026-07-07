@@ -12,7 +12,9 @@ interface SearchMinersModalProps {
    *  or render disabled). */
   eligibility: MinerEligibility;
   onDismiss: () => void;
-  onConfirm: (selectedMinerId: string) => void;
+  /** `isReassignment` is true when the picked miner is currently assigned to a
+   *  different rack/building/site, so the caller can confirm the reparent. */
+  onConfirm: (selectedMinerId: string, isReassignment: boolean) => void;
 }
 
 export default function SearchMinersModal({ show, eligibility, onDismiss, onConfirm }: SearchMinersModalProps) {
@@ -22,7 +24,8 @@ export default function SearchMinersModal({ show, eligibility, onDismiss, onConf
   const handleConfirm = useCallback(() => {
     const selection = selectionRef.current?.getSelection();
     if (!selection || selection.selectedItems.length === 0) return;
-    onConfirm(selection.selectedItems[0]);
+    const minerId = selection.selectedItems[0];
+    onConfirm(minerId, selection.reassignedItems.includes(minerId));
   }, [onConfirm]);
 
   if (!show) return null;

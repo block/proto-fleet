@@ -145,17 +145,20 @@ export const validateSubnetLine = (line: string): string | null => {
   if (looksLikeIpRange(trimmed)) {
     return parseIpRange(trimmed) ? null : "Not a valid IP range (e.g. 10.0.0.10-10.0.0.20)";
   }
-  const cidrError = validateCidrLine(trimmed);
-  if (cidrError === null) return null;
+  if (trimmed.includes("/")) {
+    return isValidCidr(trimmed) || isValidIpv6Cidr(trimmed)
+      ? null
+      : "Not a valid CIDR (e.g. 255.255.255.0/24 or 2001:db8::/64)";
+  }
+  if (isValidIpv4(trimmed) || isValidIpv6(trimmed)) return null;
   // Hostnames are valid discovery targets but can't be filtered on (the fleet
-  // list matches by IP, not name). Give a targeted hint instead of the generic
-  // CIDR error. Gate on an alphabetic char so an all-numeric malformed IP like
-  // "999.1.1.1" — which isValidHostname would also accept — still gets the CIDR
-  // error, not the hostname hint.
+  // list matches by IP, not name). Give a targeted hint. Gate on an alphabetic
+  // char so an all-numeric malformed IP like "999.1.1.1" — which isValidHostname
+  // would also accept — still gets the generic error.
   if (/[a-z]/i.test(trimmed) && isValidHostname(trimmed)) {
     return "Hostnames aren't supported here — use an IP, CIDR, or range";
   }
-  return cidrError;
+  return "Not a valid IP address, range, or CIDR";
 };
 
 /**

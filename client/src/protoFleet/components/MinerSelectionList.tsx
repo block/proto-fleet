@@ -31,8 +31,9 @@ import {
   type MinerEligibility,
 } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 
-import { ChevronDown, Plus } from "@/shared/assets/icons";
+import { ChevronDown, Info, Plus } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Dialog from "@/shared/components/Dialog";
 import List from "@/shared/components/List";
 import type { ActiveFilters, FilterItem, NestedFilterChildItem } from "@/shared/components/List/Filters/types";
 import type { ColConfig, ColTitles, SortDirection } from "@/shared/components/List/types";
@@ -77,6 +78,10 @@ export interface MinerSelectionListHandle {
     allSelected: boolean;
     totalMiners: number | undefined;
     filter: MinerListFilter;
+    // Selected ids that are currently assigned to a different rack/building/site
+    // (reassigning them moves them). Computed from the loaded pages, so it's
+    // exact for single-select and current-page multi-select.
+    reassignedItems: string[];
   };
 }
 
@@ -96,11 +101,12 @@ export interface MinerSelectionListProps {
   // MinerListFilter (AND with the user's model/rack/group facets) so applying a
   // facet never drops the site scope.
   scope?: SiteFilterFields;
-  // Target rack placement. When set, renders a "Show assignable only" toggle
-  // (default on) that folds rack/building/site eligibility into the server
-  // filter so miners in another rack/building/site drop out of the list
-  // entirely. When the toggle is off, ineligible miners are shown but disabled
-  // (id-based), so a cross-site pick can't happen silently.
+  // Target rack placement. When set, renders a "Show assigned miners" toggle
+  // (default off) that folds rack/building/site eligibility into the server
+  // filter, so miners already assigned to another rack/building/site drop out.
+  // Turning it on surfaces those miners — still selectable (reassigning moves
+  // them, behind a caller confirm) and flagged in orange to show the existing
+  // placement.
   eligibility?: MinerEligibility;
   onSelectionChange?: (state: {
     selectedItems: string[];
@@ -254,8 +260,13 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     const eligRackId = eligibility?.rackId;
     const eligSiteId = eligibility?.siteId;
     const eligBuildingId = eligibility?.buildingId;
-    // "Show assignable only" — default on when a target rack is provided.
-    const [assignableOnly, setAssignableOnly] = useState(true);
+    const [showAssignedInfo, setShowAssignedInfo] = useState(false);
+    // "Show assigned miners" — default off, so the list starts with only
+    // assignable (unassigned + this-rack) miners. Turning it on also surfaces
+    // miners currently assigned to another rack/building/site; they stay
+    // selectable (reassigning moves them, behind a confirm) and render in orange
+    // to flag the existing placement.
+    const [showAssigned, setShowAssigned] = useState(false);
 
     const { listGroups, listRacks } = useDeviceSets();
     const { listSites } = useSites();
@@ -301,7 +312,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         merged.siteIds = scopeSiteIds;
         merged.includeUnassigned = scopeIncludeUnassigned;
       }
-      if (assignableOnly && eligibilityEnabled) {
+      if (!showAssigned && eligibilityEnabled) {
         // Rack: always admit unracked miners; also admit the target rack's own
         // members when it exists. Excludes miners in any other rack.
         merged.includeNoRack = true;
@@ -322,7 +333,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       userFilter,
       scopeSiteIds,
       scopeIncludeUnassigned,
-      assignableOnly,
+      showAssigned,
       eligibilityEnabled,
       eligRackId,
       eligBuildingId,
@@ -355,25 +366,45 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         .map(toDeviceListItem);
     }, [minerIds, miners]);
 
-    // A caller-supplied predicate wins; otherwise, when a target rack is set,
-    // disable ineligible rows. With "assignable only" on they're already
-    // filtered out server-side; with it off they render disabled so a
-    // cross-rack/site pick can't happen silently.
-    const effectiveIsRowDisabled = useMemo(() => {
-      if (isRowDisabled) return isRowDisabled;
-      if (!eligibilityEnabled) return undefined;
-      const target: MinerEligibility = { rackId: eligRackId, siteId: eligSiteId, buildingId: eligBuildingId };
-      return (item: DeviceListItem) => isPlacementIneligible(item, target);
-    }, [isRowDisabled, eligibilityEnabled, eligRackId, eligSiteId, eligBuildingId]);
+    // Miners assigned to a different rack/building/site are still selectable
+    // (reassigning moves them, behind a confirm), but are flagged in orange so
+    // the operator sees the existing placement. Only meaningful when "Show
+    // assigned miners" is on; otherwise they're filtered out server-side.
+    const isReassignment = useCallback(
+      (item: DeviceListItem) =>
+        eligibilityEnabled &&
+        isPlacementIneligible(item, { rackId: eligRackId, siteId: eligSiteId, buildingId: eligBuildingId }),
+      [eligibilityEnabled, eligRackId, eligSiteId, eligBuildingId],
+    );
 
     const currentSelectableItemIds = useMemo(
       () =>
-        (effectiveIsRowDisabled
-          ? currentPageItems.filter((device) => !effectiveIsRowDisabled(device))
-          : currentPageItems
-        ).map((device) => device.deviceIdentifier),
-      [currentPageItems, effectiveIsRowDisabled],
+        (isRowDisabled ? currentPageItems.filter((device) => !isRowDisabled(device)) : currentPageItems).map(
+          (device) => device.deviceIdentifier,
+        ),
+      [currentPageItems, isRowDisabled],
     );
+
+    // Wrap the base column renderers so a reassignment row's text is orange.
+    // Wrapping (rather than editing each cell) keeps the placement flag in one
+    // place and lets the inner cells inherit the color.
+    const colConfig = useMemo<ColConfig<DeviceListItem, string, ModalColumn>>(() => {
+      const wrapped: ColConfig<DeviceListItem, string, ModalColumn> = {};
+      (Object.keys(modalColConfig) as ModalColumn[]).forEach((col) => {
+        const base = modalColConfig[col];
+        if (!base) return;
+        const baseComponent = base.component;
+        wrapped[col] = {
+          ...base,
+          component: (device: DeviceListItem, selectedItems: string[]) => (
+            <span className={isReassignment(device) ? "text-text-emphasis" : undefined}>
+              {baseComponent ? baseComponent(device, selectedItems) : null}
+            </span>
+          ),
+        };
+      });
+      return wrapped;
+    }, [isReassignment]);
     const displayedSelectedItems = allSelected && !singleSelect ? currentSelectableItemIds : selectedItems;
     const canSelectAll = !singleSelect && (!disableFilteredSelectAll || !hasUnsupportedAllSelectionFilter(filter));
     const shouldShowSelectionFooter =
@@ -426,9 +457,16 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     useImperativeHandle(
       ref,
       () => ({
-        getSelection: () => ({ selectedItems, allSelected, totalMiners, filter }),
+        getSelection: () => {
+          const byId = new Map(currentPageItems.map((item) => [item.deviceIdentifier, item]));
+          const reassignedItems = selectedItems.filter((id) => {
+            const item = byId.get(id);
+            return item !== undefined && isReassignment(item);
+          });
+          return { selectedItems, allSelected, totalMiners, filter, reassignedItems };
+        },
       }),
-      [selectedItems, allSelected, totalMiners, filter],
+      [selectedItems, allSelected, totalMiners, filter, currentPageItems, isReassignment],
     );
 
     const handleSetSelectedItems = useCallback(
@@ -500,6 +538,8 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // A single "Add filter" popover (matching the fleet miner list) whose
     // children mirror the displayed columns: Model, Subnet (IP), Site, Building,
     // Rack, Group. Only enabled facets are offered.
+    // Order and grouping mirror the fleet miner list:
+    // Model | Site, Building, Rack, Group | Subnet.
     const filters = useMemo((): FilterItem[] => {
       const children: NestedFilterChildItem[] = [];
       if (showTypeFilter) {
@@ -509,19 +549,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
           value: "type",
           options: availableModels.map((model) => ({ id: model, label: model })),
           defaultOptionIds: [],
-        });
-      }
-      if (showSubnetFilter) {
-        children.push({
-          type: "textareaList",
-          title: "Subnet",
-          value: "subnet",
-          validate: validateSubnetLine,
-          normalize: normalizeSubnetLine,
-          // Mirrors the onboarding discovery input: CIDR, bare IP, or IP range
-          // (short or full form).
-          placeholder: "192.168.1.0/24\n10.0.0.10-10.0.0.20\n10.0.0.42",
-          noun: "subnet",
+          showGroupDivider: true,
         });
       }
       if (showSiteFilter) {
@@ -558,6 +586,20 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
           value: "group",
           options: availableGroups.map((g) => ({ id: String(g.id), label: g.label })),
           defaultOptionIds: [],
+          showGroupDivider: true,
+        });
+      }
+      if (showSubnetFilter) {
+        children.push({
+          type: "textareaList",
+          title: "Subnet",
+          value: "subnet",
+          validate: validateSubnetLine,
+          normalize: normalizeSubnetLine,
+          // Mirrors the onboarding discovery input, one example per accepted
+          // form: explicit IP, IP range (short or full), and CIDR.
+          placeholder: "10.0.0.42\n10.0.0.10-10.0.0.20\n192.168.1.0/24",
+          noun: "subnet",
         });
       }
       if (children.length === 0) return [];
@@ -654,7 +696,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
           <List<DeviceListItem, string, ModalColumn>
             activeCols={activeCols}
             colTitles={modalColTitles}
-            colConfig={modalColConfig}
+            colConfig={colConfig}
             filters={filters}
             onServerFilter={handleServerFilter}
             headerControls={
@@ -662,12 +704,19 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
                 // px-1 gives the toggle's hover scale-up room so it doesn't
                 // paint past the filter row's right edge and trigger horizontal
                 // scroll in the modal.
-                <div className="px-1">
+                <div className="flex items-center gap-1 px-1">
+                  <Button
+                    variant={variants.textOnly}
+                    textOnlyUnderlineOnHover={false}
+                    ariaLabel="About “Show assigned miners”"
+                    prefixIcon={<Info className="text-text-primary-70" />}
+                    onClick={() => setShowAssignedInfo(true)}
+                  />
                   <Switch
-                    label="Show assignable only"
-                    ariaLabel="Show assignable only"
-                    checked={assignableOnly}
-                    setChecked={setAssignableOnly}
+                    label="Show assigned miners"
+                    ariaLabel="Show assigned miners"
+                    checked={showAssigned}
+                    setChecked={setShowAssigned}
                   />
                 </div>
               ) : undefined
@@ -682,7 +731,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             customSelectedItems={displayedSelectedItems}
             customSetSelectedItems={handleSetSelectedItems}
             preserveOffPageSelection
-            isRowDisabled={effectiveIsRowDisabled}
+            isRowDisabled={isRowDisabled}
             total={totalMiners}
             hideTotal
             itemName={{ singular: "miner", plural: "miners" }}
@@ -731,8 +780,8 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
                 canSelectAll
                   ? () => {
                       setAllSelected(true);
-                      const selectableItems = effectiveIsRowDisabled
-                        ? currentPageItems.filter((d) => !effectiveIsRowDisabled(d))
+                      const selectableItems = isRowDisabled
+                        ? currentPageItems.filter((d) => !isRowDisabled(d))
                         : currentPageItems;
                       setSelectedItems(selectableItems.map((d) => d.deviceIdentifier));
                     }
@@ -748,6 +797,15 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
               }
             />
           </div>
+        ) : null}
+        {showAssignedInfo ? (
+          <Dialog
+            icon={<Info />}
+            title="Show assigned miners"
+            subtitle="Shows or hides miners that are already assigned to another rack, or to a building or site that this rack is not assigned to. Assigning these miners to this rack will unassign them from their current placement."
+            onDismiss={() => setShowAssignedInfo(false)}
+            buttons={[{ text: "Got it", variant: variants.primary, onClick: () => setShowAssignedInfo(false) }]}
+          />
         ) : null}
       </div>
     );

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import ManageMinersModal from "./ManageMinersModal";
 import MinersPane from "./MinersPane";
 import RackPane from "./RackPane";
+import ReparentWarningDialog from "./ReparentWarningDialog";
 import ScanMinerQrModal from "./ScanMinerQrModal";
 import SearchMinersModal from "./SearchMinersModal";
 import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData, type SelectedSlot } from "./types";
@@ -141,6 +142,11 @@ export default function ManageRackModal({
   const [showScanQr, setShowScanQr] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Pending reparent confirmation. Set when a confirm action would pull miners
+  // out of a rack/building/site they're currently assigned to; `onConfirm`
+  // runs the deferred action once the operator accepts the warning (#672).
+  const [reparentConfirm, setReparentConfirm] = useState<{ count: number; onConfirm: () => void } | null>(null);
 
   // Loading / error state
   const [isLoading, setIsLoading] = useState(!!existingRackId);
@@ -319,25 +325,51 @@ export default function ManageRackModal({
     setShowSlotPopover(false);
   }, []);
 
-  // SearchMinersModal confirm — add miner to rack and assign to selected slot
-  const handleSearchMinerConfirm = useCallback(
-    (minerId: string) => {
-      if (!selectedSlot) return;
+  // Show the reparent warning (#672) when `count` > 0, else run `proceed`
+  // directly. `proceed` runs once the operator accepts the warning.
+  const promptReparent = useCallback((count: number, proceed: () => void) => {
+    if (count === 0) {
+      proceed();
+      return;
+    }
+    setReparentConfirm({ count, onConfirm: proceed });
+  }, []);
 
-      // Add miner to rack if not already present
-      setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
-
-      // Remove any existing assignment for this miner, then assign to selected slot
-      setSlotAssignments((prev) => {
-        const next = removeAssignmentByValue(prev, minerId);
-        next[selectedSlot.key] = minerId;
-        return next;
-      });
-
-      setSelectedSlot(null);
-      setShowSearchMiners(false);
+  // Guard by looking up placement in the display snapshots. Used where the
+  // caller only has ids (bulk select, scan). Select-all is pre-filtered to
+  // eligible ids, so reparents only arise from explicit picks.
+  const guardReparent = useCallback(
+    (ids: string[], proceed: () => void) => {
+      const reassignedCount = ids.filter((id) => {
+        const miner = allMiners[id];
+        return miner !== undefined && isMinerSnapshotIneligible(miner, eligibility);
+      }).length;
+      promptReparent(reassignedCount, proceed);
     },
-    [selectedSlot],
+    [allMiners, eligibility, promptReparent],
+  );
+
+  // SearchMinersModal confirm — add miner to rack and assign to selected slot.
+  // The modal reports the reassignment flag from the row it selected (exact even
+  // for fleets larger than the display page).
+  const handleSearchMinerConfirm = useCallback(
+    (minerId: string, isReassignment: boolean) => {
+      if (!selectedSlot) return;
+      const slotKey = selectedSlot.key;
+      promptReparent(isReassignment ? 1 : 0, () => {
+        // Add miner to rack if not already present
+        setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
+        // Remove any existing assignment for this miner, then assign to selected slot
+        setSlotAssignments((prev) => {
+          const next = removeAssignmentByValue(prev, minerId);
+          next[slotKey] = minerId;
+          return next;
+        });
+        setSelectedSlot(null);
+        setShowSearchMiners(false);
+      });
+    },
+    [selectedSlot, promptReparent],
   );
 
   // ScanMinerQrModal confirm — identical placement to search, but keyed off
@@ -346,18 +378,19 @@ export default function ManageRackModal({
   const handleScanMinerConfirm = useCallback(
     (minerId: string) => {
       if (!selectedSlot) return;
-
-      setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
-      setSlotAssignments((prev) => {
-        const next = removeAssignmentByValue(prev, minerId);
-        next[selectedSlot.key] = minerId;
-        return next;
+      const slotKey = selectedSlot.key;
+      guardReparent([minerId], () => {
+        setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
+        setSlotAssignments((prev) => {
+          const next = removeAssignmentByValue(prev, minerId);
+          next[slotKey] = minerId;
+          return next;
+        });
+        setSelectedSlot(null);
+        setShowScanQr(false);
       });
-
-      setSelectedSlot(null);
-      setShowScanQr(false);
     },
-    [selectedSlot],
+    [selectedSlot, guardReparent],
   );
 
   // Miner selection handler — when a slot is awaiting, assign miner to it
@@ -436,15 +469,17 @@ export default function ManageRackModal({
         return;
       }
 
-      setRackMiners(finalIds);
-      setShowManageMiners(false);
+      guardReparent(finalIds, () => {
+        setRackMiners(finalIds);
+        setShowManageMiners(false);
 
-      // Remove assignments for miners no longer in rack
-      const keepSet = new Set(finalIds);
-      setSlotAssignments((prev) => filterAssignmentsByValues(prev, keepSet));
-      setManualAssignmentCache((prev) => filterAssignmentsByValues(prev, keepSet));
+        // Remove assignments for miners no longer in rack
+        const keepSet = new Set(finalIds);
+        setSlotAssignments((prev) => filterAssignmentsByValues(prev, keepSet));
+        setManualAssignmentCache((prev) => filterAssignmentsByValues(prev, keepSet));
+      });
     },
-    [eligibility, totalSlots],
+    [eligibility, totalSlots, guardReparent],
   );
 
   // RackSettingsModal edit handler
@@ -646,6 +681,19 @@ export default function ManageRackModal({
             setSelectedSlot(null);
           }}
           onConfirm={handleScanMinerConfirm}
+        />
+      ) : null}
+
+      {reparentConfirm ? (
+        <ReparentWarningDialog
+          count={reparentConfirm.count}
+          rackLabel={rackSettings.label}
+          onCancel={() => setReparentConfirm(null)}
+          onConfirm={() => {
+            const proceed = reparentConfirm.onConfirm;
+            setReparentConfirm(null);
+            proceed();
+          }}
         />
       ) : null}
 

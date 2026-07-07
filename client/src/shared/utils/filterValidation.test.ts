@@ -156,9 +156,9 @@ describe("validateSubnetLine", () => {
     expect(validateSubnetLine("rack3-unit.local")).toBe("Hostnames aren't supported here — use an IP, CIDR, or range");
   });
 
-  it("gives the generic CIDR error (not the hostname hint) for an all-numeric malformed IP", () => {
+  it("gives a generic error mentioning IP, range, and CIDR for an all-numeric malformed IP", () => {
     const error = validateSubnetLine("999.1.1.1");
-    expect(error).not.toBeNull();
+    expect(error).toBe("Not a valid IP address, range, or CIDR");
     expect(error).not.toContain("Hostnames");
   });
 });

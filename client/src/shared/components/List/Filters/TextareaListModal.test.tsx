@@ -49,11 +49,39 @@ describe("TextareaListModal", () => {
     expect(onApply).toHaveBeenCalledWith(["ABC", "DEF"]);
   });
 
-  it("disables Apply when any line is invalid", () => {
+  it("validates on blur, not on keystroke", () => {
     renderModal();
-    fireEvent.change(screen.getByRole("textbox"), {
-      target: { value: "ok\nBAD\nok2" },
-    });
+    const textbox = screen.getByRole("textbox");
+    fireEvent.change(textbox, { target: { value: "BAD" } });
+    // No error while typing.
+    expect(screen.queryByText(/rejected by stub/i)).not.toBeInTheDocument();
+    fireEvent.blur(textbox);
+    // Error surfaces on blur.
+    expect(screen.getByText(/rejected by stub/i)).toBeInTheDocument();
+  });
+
+  it("clears the error on focus and re-validates on the next blur", () => {
+    renderModal();
+    const textbox = screen.getByRole("textbox");
+    fireEvent.change(textbox, { target: { value: "BAD" } });
+    fireEvent.blur(textbox);
+    expect(screen.getByText(/rejected by stub/i)).toBeInTheDocument();
+
+    // Focus clears the stale error.
+    fireEvent.focus(textbox);
+    expect(screen.queryByText(/rejected by stub/i)).not.toBeInTheDocument();
+
+    // Correcting the value and blurring again leaves no error.
+    fireEvent.change(textbox, { target: { value: "ok" } });
+    fireEvent.blur(textbox);
+    expect(screen.queryByText(/rejected by stub/i)).not.toBeInTheDocument();
+  });
+
+  it("disables Apply when any line is invalid (after blur)", () => {
+    renderModal();
+    const textbox = screen.getByRole("textbox");
+    fireEvent.change(textbox, { target: { value: "ok\nBAD\nok2" } });
+    fireEvent.blur(textbox);
     expect(screen.getByText(/Line 2/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /apply/i })).toBeDisabled();
   });
@@ -70,9 +98,11 @@ describe("TextareaListModal", () => {
     const onApply = vi.fn();
     const lines = Array.from({ length: 5 }, (_, i) => `entry-${i}`);
     renderModal({ onApply, maxLines: 3 });
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: lines.join("\n") } });
+    const textbox = screen.getByRole("textbox");
+    fireEvent.change(textbox, { target: { value: lines.join("\n") } });
+    fireEvent.blur(textbox);
+    expect(screen.getByText(/Showing first 3/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /apply/i }));
     expect(onApply).toHaveBeenCalledWith(["entry-0", "entry-1", "entry-2"]);
-    expect(screen.getByText(/Showing first 3/i)).toBeInTheDocument();
   });
 });

@@ -201,16 +201,17 @@ describe("MinerSelectionList eligibility", () => {
     expect(lastListProps()?.headerControls).toBeTruthy();
   });
 
-  it("re-requests server-side (drops the eligibility constraints) when the toggle is turned off", () => {
+  it("applies eligibility server-side by default and drops it when 'Show assigned miners' is on", () => {
     render(<MinerSelectionList eligibility={{ rackId: 1n, siteId: 2n, buildingId: 3n }} />);
 
-    // Default on: eligibility folded into the fetch.
+    // Default (toggle off): eligibility folded into the fetch so assigned-elsewhere
+    // miners are excluded server-side.
     expect(lastFleetFilter().includeNoRack).toBe(true);
     expect(lastFleetFilter().rackIds).toEqual([1n]);
 
-    // Toggle off → a fresh fetch with the constraints removed (server request,
-    // not a client-side row filter).
-    fireEvent.click(screen.getByLabelText("Show assignable only"));
+    // Turning "Show assigned miners" on → a fresh fetch with the constraints
+    // removed (server request, not a client-side row filter).
+    fireEvent.click(screen.getByLabelText("Show assigned miners"));
 
     expect(lastFleetFilter().includeNoRack).toBe(false);
     expect(lastFleetFilter().rackIds).toEqual([]);
@@ -218,17 +219,39 @@ describe("MinerSelectionList eligibility", () => {
     expect(lastFleetFilter().siteIds).toEqual([]);
   });
 
-  it("disables ineligible rows (id-based) via isRowDisabled", () => {
+  it("keeps ineligible rows selectable (does not disable them)", () => {
     render(<MinerSelectionList eligibility={{ rackId: 1n, siteId: 2n, buildingId: 3n }} />);
+    // Reassignment is allowed (with a confirm at continue), so eligibility no
+    // longer disables rows — no isRowDisabled predicate is passed.
+    expect(lastListProps()?.isRowDisabled).toBeUndefined();
+  });
 
-    const isRowDisabled = lastListProps()?.isRowDisabled as (item: unknown) => boolean;
-    // In the target rack — eligible.
-    expect(isRowDisabled({ deviceIdentifier: "a", rackId: 1n, siteId: 2n, buildingId: 3n })).toBe(false);
-    // In another rack — ineligible.
-    expect(isRowDisabled({ deviceIdentifier: "b", rackId: 9n, siteId: 2n, buildingId: 3n })).toBe(true);
-    // Different building — ineligible.
-    expect(isRowDisabled({ deviceIdentifier: "c", siteId: 2n, buildingId: 8n })).toBe(true);
-    // Unplaced — eligible.
-    expect(isRowDisabled({ deviceIdentifier: "d" })).toBe(false);
+  it("flags reassignment rows with orange text via colConfig", () => {
+    render(<MinerSelectionList eligibility={{ rackId: 1n, siteId: 2n, buildingId: 3n }} />);
+    const colConfig = lastListProps()?.colConfig as Record<
+      string,
+      { component: (item: Record<string, unknown>, selected: string[]) => ReactNode }
+    >;
+    const base = {
+      name: "n",
+      model: "m",
+      ipAddress: "",
+      rackLabel: "",
+      siteLabel: "",
+      buildingLabel: "",
+      groupLabels: [],
+    };
+
+    // In the target rack — not a reassignment, no orange.
+    const eligible = render(
+      <>{colConfig.name.component({ deviceIdentifier: "a", rackId: 1n, siteId: 2n, buildingId: 3n, ...base }, [])}</>,
+    );
+    expect(eligible.container.querySelector(".text-text-emphasis")).toBeNull();
+
+    // In another rack — reassignment, orange.
+    const ineligible = render(
+      <>{colConfig.name.component({ deviceIdentifier: "b", rackId: 9n, siteId: 2n, buildingId: 3n, ...base }, [])}</>,
+    );
+    expect(ineligible.container.querySelector(".text-text-emphasis")).not.toBeNull();
   });
 });
