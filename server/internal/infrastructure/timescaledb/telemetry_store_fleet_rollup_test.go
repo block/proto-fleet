@@ -212,6 +212,38 @@ func TestTelemetryStore_FleetMetricRollupFallsBackBeforeCoverageStart(t *testing
 	}
 }
 
+func TestTelemetryStore_FleetMetricRollupProgressResetsSkippedGap(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := NewTelemetryStore(db, DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+	t.Cleanup(func() {
+		_, err := db.ExecContext(context.Background(), "DELETE FROM fleet_metric_rollup_progress")
+		require.NoError(t, err)
+	})
+
+	start := fleetRollupTestStartTime().Add(84 * time.Hour)
+	firstEnd := start.Add(3 * models.FleetMetricRollupBucketDuration)
+	require.NoError(t, store.UpsertFleetMetricRollups(ctx, start, firstEnd))
+
+	gapStart := firstEnd.Add(10 * models.FleetMetricRollupBucketDuration)
+	gapEnd := gapStart.Add(3 * models.FleetMetricRollupBucketDuration)
+	require.NoError(t, store.UpsertFleetMetricRollups(ctx, gapStart, gapEnd))
+
+	var earliest, latest time.Time
+	require.NoError(t, db.QueryRowContext(
+		context.Background(),
+		"SELECT earliest_bucket, latest_bucket FROM fleet_metric_rollup_progress WHERE id = TRUE",
+	).Scan(&earliest, &latest))
+	assert.True(t, gapStart.Equal(earliest), "expected earliest %s, got %s", gapStart, earliest)
+	assert.True(t, gapEnd.Add(-models.FleetMetricRollupBucketDuration).Equal(latest), "expected latest %s, got %s", gapEnd.Add(-models.FleetMetricRollupBucketDuration), latest)
+}
+
 func TestTelemetryStore_FleetMetricRollupRewriteDeletesStaleKeys(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

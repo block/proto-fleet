@@ -483,6 +483,37 @@ WHERE bucket >= $1
   AND bucket <= $2
 ORDER BY bucket ASC;
 
+-- name: GetOrgDeviceMetricsHourlyAggregates :many
+-- Returns hourly aggregates for the current devices in an org.
+-- COALESCE handles NULL values from AVG() when all source values are NULL
+WITH latest_device AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+)
+SELECT
+    dmh.bucket,
+    dmh.device_identifier,
+    COALESCE(dmh.avg_hash_rate, 0) AS avg_hash_rate,
+    dmh.max_hash_rate,
+    dmh.min_hash_rate,
+    COALESCE(dmh.avg_temp, 0) AS avg_temp,
+    dmh.max_temp,
+    dmh.min_temp,
+    COALESCE(dmh.avg_fan_rpm, 0) AS avg_fan_rpm,
+    COALESCE(dmh.avg_power, 0) AS avg_power,
+    dmh.total_power,
+    COALESCE(dmh.avg_efficiency, 0) AS avg_efficiency,
+    dmh.data_points
+FROM device_metrics_hourly dmh
+JOIN latest_device d USING (device_identifier)
+WHERE d.org_id = sqlc.arg('org_id')
+  AND dmh.bucket >= sqlc.arg('start_time')
+  AND dmh.bucket <= sqlc.arg('end_time')
+ORDER BY dmh.bucket ASC;
+
 -- name: GetAllDeviceMetricsDailyAggregates :many
 -- Returns daily aggregates for ALL devices within a time range.
 -- COALESCE handles NULL values from AVG() when all source values are NULL
@@ -557,6 +588,40 @@ FROM device_status_hourly
 WHERE bucket >= $1
   AND bucket <= $2
 ORDER BY bucket ASC;
+
+-- name: GetOrgDeviceStatusHourlyAggregates :many
+-- Returns hourly status aggregates for the current devices in an org.
+WITH latest_device AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+)
+SELECT
+    dsh.bucket,
+    dsh.device_identifier,
+    dsh.temp_below_0,
+    dsh.temp_0_10,
+    dsh.temp_10_20,
+    dsh.temp_20_30,
+    dsh.temp_30_40,
+    dsh.temp_40_50,
+    dsh.temp_50_60,
+    dsh.temp_60_70,
+    dsh.temp_70_80,
+    dsh.temp_80_90,
+    dsh.temp_90_100,
+    dsh.temp_100_plus,
+    dsh.hashing_count,
+    dsh.not_hashing_count,
+    dsh.data_points
+FROM device_status_hourly dsh
+JOIN latest_device d USING (device_identifier)
+WHERE d.org_id = sqlc.arg('org_id')
+  AND dsh.bucket >= sqlc.arg('start_time')
+  AND dsh.bucket <= sqlc.arg('end_time')
+ORDER BY dsh.bucket ASC;
 
 -- name: GetDeviceStatusDailyAggregates :many
 -- Returns daily status aggregates for specific devices within a time range.

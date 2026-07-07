@@ -855,10 +855,18 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 		var err error
 
 		if len(query.DeviceIDs) == 0 {
-			rows, err = s.queries.GetAllDeviceMetricsHourlyAggregates(ctx, sqlc.GetAllDeviceMetricsHourlyAggregatesParams{
-				Bucket:   bodyStart,
-				Bucket_2: bodyEnd,
-			})
+			if query.OrganizationID != 0 {
+				rows, err = s.queries.GetOrgDeviceMetricsHourlyAggregates(ctx, sqlc.GetOrgDeviceMetricsHourlyAggregatesParams{
+					OrgID:     query.OrganizationID,
+					StartTime: bodyStart,
+					EndTime:   bodyEnd,
+				})
+			} else {
+				rows, err = s.queries.GetAllDeviceMetricsHourlyAggregates(ctx, sqlc.GetAllDeviceMetricsHourlyAggregatesParams{
+					Bucket:   bodyStart,
+					Bucket_2: bodyEnd,
+				})
+			}
 		} else {
 			identifiers := deviceIDsToStrings(query.DeviceIDs)
 			rows, err = s.queries.GetDeviceMetricsHourlyAggregates(ctx, sqlc.GetDeviceMetricsHourlyAggregatesParams{
@@ -875,7 +883,7 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 		if len(rows) > 0 {
 			result.Metrics = s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 		}
-		result.TemperatureStatusCounts = s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, bodyStart, bodyEnd)
+		result.TemperatureStatusCounts = s.getTemperatureCountsFromHourlyAggregates(ctx, query.OrganizationID, query.DeviceIDs, bodyStart, bodyEnd)
 	}
 
 	if hasTail {
@@ -1051,6 +1059,7 @@ func deviceIDsToStrings(ids []models.DeviceIdentifier) []string {
 
 func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
 	ctx context.Context,
+	orgID int64,
 	deviceIDs []models.DeviceIdentifier,
 	startTime, endTime time.Time,
 ) []models.TemperatureStatusCount {
@@ -1058,10 +1067,18 @@ func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
 	var err error
 
 	if len(deviceIDs) == 0 {
-		rows, err = s.queries.GetAllDeviceStatusHourlyAggregates(ctx, sqlc.GetAllDeviceStatusHourlyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
-		})
+		if orgID != 0 {
+			rows, err = s.queries.GetOrgDeviceStatusHourlyAggregates(ctx, sqlc.GetOrgDeviceStatusHourlyAggregatesParams{
+				OrgID:     orgID,
+				StartTime: startTime,
+				EndTime:   endTime,
+			})
+		} else {
+			rows, err = s.queries.GetAllDeviceStatusHourlyAggregates(ctx, sqlc.GetAllDeviceStatusHourlyAggregatesParams{
+				Bucket:   startTime,
+				Bucket_2: endTime,
+			})
+		}
 	} else {
 		identifiers := deviceIDsToStrings(deviceIDs)
 		rows, err = s.queries.GetDeviceStatusHourlyAggregates(ctx, sqlc.GetDeviceStatusHourlyAggregatesParams{

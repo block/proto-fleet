@@ -805,6 +805,100 @@ func TestTelemetryStore_GetCombinedMetrics_AllDevicesFullDayMergesHourlyBodyWith
 	assert.Equal(t, float64(900), aggValues(tail[0].AggregatedValues)[models.AggregationTypeAverage])
 }
 
+func TestTelemetryStore_GetCombinedMetrics_OrgHourlyBodyMatchesRawTailScope(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	// Arrange: all-device org query over six hours routes to hourly body plus
+	// raw tail. Both halves must use the same org scope.
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	otherUser := dbSvc.CreateSuperAdminUser2()
+	otherOrgID := otherUser.OrganizationID
+	device := dbSvc.CreateDevice(orgID, "proto")
+	otherDevice := dbSvc.CreateDevice(otherOrgID, "proto")
+	t.Cleanup(func() {
+		cleanupDeviceMetrics(t, db, device.ID)
+		cleanupDeviceMetrics(t, db, otherDevice.ID)
+	})
+
+	hour := time.Now().UTC().Truncate(time.Hour)
+	end := hour.Add(30 * time.Minute)
+	start := end.Add(-6 * time.Hour)
+	tailBoundary := end.Add(-2 * time.Hour).Truncate(time.Hour)
+	bodyPoint := tailBoundary.Add(-2*time.Hour + 10*time.Minute)
+	rawOnly := tailBoundary.Add(time.Hour + 10*time.Minute)
+	require.NoError(t, store.StoreDeviceMetrics(ctx,
+		modelsV2.DeviceMetrics{
+			DeviceIdentifier: device.ID,
+			Timestamp:        bodyPoint,
+			HashrateHS:       &modelsV2.MetricValue{Value: 500},
+			TempC:            &modelsV2.MetricValue{Value: 60},
+		},
+		modelsV2.DeviceMetrics{
+			DeviceIdentifier: otherDevice.ID,
+			Timestamp:        bodyPoint,
+			HashrateHS:       &modelsV2.MetricValue{Value: 10_000},
+			TempC:            &modelsV2.MetricValue{Value: 95},
+		},
+		modelsV2.DeviceMetrics{
+			DeviceIdentifier: device.ID,
+			Timestamp:        rawOnly,
+			HashrateHS:       &modelsV2.MetricValue{Value: 900},
+			TempC:            &modelsV2.MetricValue{Value: 62},
+		},
+		modelsV2.DeviceMetrics{
+			DeviceIdentifier: otherDevice.ID,
+			Timestamp:        rawOnly,
+			HashrateHS:       &modelsV2.MetricValue{Value: 20_000},
+			TempC:            &modelsV2.MetricValue{Value: 96},
+		},
+	))
+	refreshMetricsHourlyAggregate(t, db, bodyPoint.Add(-time.Hour), bodyPoint.Add(time.Hour))
+	refreshStatusHourlyAggregate(t, db, bodyPoint.Add(-time.Hour), bodyPoint.Add(time.Hour))
+
+	slide := 90 * time.Second
+
+	// Act
+	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+		OrganizationID:   orgID,
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		AggregationTypes: []models.AggregationType{models.AggregationTypeAverage},
+		TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+		SlideInterval:    &slide,
+	})
+
+	// Assert: neither the hourly body nor the raw tail includes the peer org.
+	require.NoError(t, err)
+	require.Len(t, result.Metrics, 2)
+	assert.True(t, result.Metrics[0].OpenTime.Equal(bodyPoint.Truncate(time.Hour)),
+		"expected org-scoped hourly body bucket, got %s", result.Metrics[0].OpenTime)
+	assert.Equal(t, float64(500), aggValues(result.Metrics[0].AggregatedValues)[models.AggregationTypeAverage])
+	assert.Equal(t, int32(1), result.Metrics[0].DeviceCount)
+	assert.True(t, result.Metrics[1].OpenTime.Equal(rawOnly.Truncate(slide)),
+		"expected org-scoped raw tail bucket, got %s", result.Metrics[1].OpenTime)
+	assert.Equal(t, float64(900), aggValues(result.Metrics[1].AggregatedValues)[models.AggregationTypeAverage])
+	assert.Equal(t, int32(1), result.Metrics[1].DeviceCount)
+
+	var bodyTemp *models.TemperatureStatusCount
+	for i := range result.TemperatureStatusCounts {
+		if result.TemperatureStatusCounts[i].Timestamp.Equal(bodyPoint.Truncate(time.Hour)) {
+			bodyTemp = &result.TemperatureStatusCounts[i]
+			break
+		}
+	}
+	require.NotNil(t, bodyTemp, "expected body temperature status count")
+	assert.Equal(t, int32(1), bodyTemp.OkCount)
+	assert.Equal(t, int32(0), bodyTemp.CriticalCount)
+}
+
 func TestTelemetryStore_GetCombinedMetrics_RawTailCoversUnmaterializedCompletedHours(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -1067,6 +1161,14 @@ func refreshMetricsHourlyAggregate(t *testing.T, db *sql.DB, start, end time.Tim
 	t.Helper()
 	_, err := db.ExecContext(context.Background(),
 		"CALL refresh_continuous_aggregate('device_metrics_hourly', $1::timestamptz, $2::timestamptz)",
+		start, end)
+	require.NoError(t, err)
+}
+
+func refreshStatusHourlyAggregate(t *testing.T, db *sql.DB, start, end time.Time) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(),
+		"CALL refresh_continuous_aggregate('device_status_hourly', $1::timestamptz, $2::timestamptz)",
 		start, end)
 	require.NoError(t, err)
 }

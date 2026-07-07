@@ -642,8 +642,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getOpenErrorByDedupKeyStmt, err = db.PrepareContext(ctx, getOpenErrorByDedupKey); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOpenErrorByDedupKey: %w", err)
 	}
+	if q.getOrgDeviceMetricsHourlyAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceMetricsHourlyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrgDeviceMetricsHourlyAggregates: %w", err)
+	}
 	if q.getOrgDeviceMetricsRawBucketAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceMetricsRawBucketAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgDeviceMetricsRawBucketAggregates: %w", err)
+	}
+	if q.getOrgDeviceStatusHourlyAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceStatusHourlyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrgDeviceStatusHourlyAggregates: %w", err)
 	}
 	if q.getOrgFleetMetricRollupsStmt, err = db.PrepareContext(ctx, getOrgFleetMetricRollups); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgFleetMetricRollups: %w", err)
@@ -2475,9 +2481,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getOpenErrorByDedupKeyStmt: %w", cerr)
 		}
 	}
+	if q.getOrgDeviceMetricsHourlyAggregatesStmt != nil {
+		if cerr := q.getOrgDeviceMetricsHourlyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrgDeviceMetricsHourlyAggregatesStmt: %w", cerr)
+		}
+	}
 	if q.getOrgDeviceMetricsRawBucketAggregatesStmt != nil {
 		if cerr := q.getOrgDeviceMetricsRawBucketAggregatesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOrgDeviceMetricsRawBucketAggregatesStmt: %w", cerr)
+		}
+	}
+	if q.getOrgDeviceStatusHourlyAggregatesStmt != nil {
+		if cerr := q.getOrgDeviceStatusHourlyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrgDeviceStatusHourlyAggregatesStmt: %w", cerr)
 		}
 	}
 	if q.getOrgFleetMetricRollupsStmt != nil {
@@ -4050,7 +4066,9 @@ type Queries struct {
 	getMinerStateSnapshotsStmt                                 *sql.Stmt
 	getOfflineDevicesStmt                                      *sql.Stmt
 	getOpenErrorByDedupKeyStmt                                 *sql.Stmt
+	getOrgDeviceMetricsHourlyAggregatesStmt                    *sql.Stmt
 	getOrgDeviceMetricsRawBucketAggregatesStmt                 *sql.Stmt
+	getOrgDeviceStatusHourlyAggregatesStmt                     *sql.Stmt
 	getOrgFleetMetricRollupsStmt                               *sql.Stmt
 	getOrgScopeAssignmentForUserStmt                           *sql.Stmt
 	getOrganizationByIDStmt                                    *sql.Stmt
@@ -4528,7 +4546,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMinerStateSnapshotsStmt:                                 q.getMinerStateSnapshotsStmt,
 		getOfflineDevicesStmt:                                      q.getOfflineDevicesStmt,
 		getOpenErrorByDedupKeyStmt:                                 q.getOpenErrorByDedupKeyStmt,
+		getOrgDeviceMetricsHourlyAggregatesStmt:                    q.getOrgDeviceMetricsHourlyAggregatesStmt,
 		getOrgDeviceMetricsRawBucketAggregatesStmt:                 q.getOrgDeviceMetricsRawBucketAggregatesStmt,
+		getOrgDeviceStatusHourlyAggregatesStmt:                     q.getOrgDeviceStatusHourlyAggregatesStmt,
 		getOrgFleetMetricRollupsStmt:                               q.getOrgFleetMetricRollupsStmt,
 		getOrgScopeAssignmentForUserStmt:                           q.getOrgScopeAssignmentForUserStmt,
 		getOrganizationByIDStmt:                                    q.getOrganizationByIDStmt,

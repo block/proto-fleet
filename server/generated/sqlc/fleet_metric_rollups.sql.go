@@ -19,8 +19,18 @@ VALUES (
     NOW()
 )
 ON CONFLICT (id) DO UPDATE SET
-    earliest_bucket = LEAST(fleet_metric_rollup_progress.earliest_bucket, EXCLUDED.earliest_bucket),
-    latest_bucket = GREATEST(fleet_metric_rollup_progress.latest_bucket, EXCLUDED.latest_bucket),
+    earliest_bucket = CASE
+        WHEN EXCLUDED.earliest_bucket <= fleet_metric_rollup_progress.latest_bucket + INTERVAL '90 seconds'
+         AND fleet_metric_rollup_progress.earliest_bucket <= EXCLUDED.latest_bucket + INTERVAL '90 seconds'
+            THEN LEAST(fleet_metric_rollup_progress.earliest_bucket, EXCLUDED.earliest_bucket)
+        ELSE EXCLUDED.earliest_bucket
+    END,
+    latest_bucket = CASE
+        WHEN EXCLUDED.earliest_bucket <= fleet_metric_rollup_progress.latest_bucket + INTERVAL '90 seconds'
+         AND fleet_metric_rollup_progress.earliest_bucket <= EXCLUDED.latest_bucket + INTERVAL '90 seconds'
+            THEN GREATEST(fleet_metric_rollup_progress.latest_bucket, EXCLUDED.latest_bucket)
+        ELSE EXCLUDED.latest_bucket
+    END,
     updated_at = NOW()
 `
 

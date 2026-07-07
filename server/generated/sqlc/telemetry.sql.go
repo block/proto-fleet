@@ -1279,6 +1279,81 @@ func (q *Queries) GetLatestDeviceMetrics(ctx context.Context, arg GetLatestDevic
 	return items, nil
 }
 
+const getOrgDeviceMetricsHourlyAggregates = `-- name: GetOrgDeviceMetricsHourlyAggregates :many
+WITH latest_device AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+)
+SELECT
+    dmh.bucket,
+    dmh.device_identifier,
+    COALESCE(dmh.avg_hash_rate, 0) AS avg_hash_rate,
+    dmh.max_hash_rate,
+    dmh.min_hash_rate,
+    COALESCE(dmh.avg_temp, 0) AS avg_temp,
+    dmh.max_temp,
+    dmh.min_temp,
+    COALESCE(dmh.avg_fan_rpm, 0) AS avg_fan_rpm,
+    COALESCE(dmh.avg_power, 0) AS avg_power,
+    dmh.total_power,
+    COALESCE(dmh.avg_efficiency, 0) AS avg_efficiency,
+    dmh.data_points
+FROM device_metrics_hourly dmh
+JOIN latest_device d USING (device_identifier)
+WHERE d.org_id = $1
+  AND dmh.bucket >= $2
+  AND dmh.bucket <= $3
+ORDER BY dmh.bucket ASC
+`
+
+type GetOrgDeviceMetricsHourlyAggregatesParams struct {
+	OrgID     int64
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+// Returns hourly aggregates for the current devices in an org.
+// COALESCE handles NULL values from AVG() when all source values are NULL
+func (q *Queries) GetOrgDeviceMetricsHourlyAggregates(ctx context.Context, arg GetOrgDeviceMetricsHourlyAggregatesParams) ([]DeviceMetricsHourly, error) {
+	rows, err := q.query(ctx, q.getOrgDeviceMetricsHourlyAggregatesStmt, getOrgDeviceMetricsHourlyAggregates, arg.OrgID, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceMetricsHourly
+	for rows.Next() {
+		var i DeviceMetricsHourly
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.DeviceIdentifier,
+			&i.AvgHashRate,
+			&i.MaxHashRate,
+			&i.MinHashRate,
+			&i.AvgTemp,
+			&i.MaxTemp,
+			&i.MinTemp,
+			&i.AvgFanRpm,
+			&i.AvgPower,
+			&i.TotalPower,
+			&i.AvgEfficiency,
+			&i.DataPoints,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getOrgDeviceMetricsRawBucketAggregates = `-- name: GetOrgDeviceMetricsRawBucketAggregates :many
 WITH latest_device AS (
     SELECT DISTINCT ON (d.device_identifier)
@@ -1458,6 +1533,88 @@ func (q *Queries) GetOrgDeviceMetricsRawBucketAggregates(ctx context.Context, ar
 			&i.SumEfficiency,
 			&i.EfficiencyPoints,
 			&i.EfficiencyDeviceCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getOrgDeviceStatusHourlyAggregates = `-- name: GetOrgDeviceStatusHourlyAggregates :many
+WITH latest_device AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+)
+SELECT
+    dsh.bucket,
+    dsh.device_identifier,
+    dsh.temp_below_0,
+    dsh.temp_0_10,
+    dsh.temp_10_20,
+    dsh.temp_20_30,
+    dsh.temp_30_40,
+    dsh.temp_40_50,
+    dsh.temp_50_60,
+    dsh.temp_60_70,
+    dsh.temp_70_80,
+    dsh.temp_80_90,
+    dsh.temp_90_100,
+    dsh.temp_100_plus,
+    dsh.hashing_count,
+    dsh.not_hashing_count,
+    dsh.data_points
+FROM device_status_hourly dsh
+JOIN latest_device d USING (device_identifier)
+WHERE d.org_id = $1
+  AND dsh.bucket >= $2
+  AND dsh.bucket <= $3
+ORDER BY dsh.bucket ASC
+`
+
+type GetOrgDeviceStatusHourlyAggregatesParams struct {
+	OrgID     int64
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+// Returns hourly status aggregates for the current devices in an org.
+func (q *Queries) GetOrgDeviceStatusHourlyAggregates(ctx context.Context, arg GetOrgDeviceStatusHourlyAggregatesParams) ([]DeviceStatusHourly, error) {
+	rows, err := q.query(ctx, q.getOrgDeviceStatusHourlyAggregatesStmt, getOrgDeviceStatusHourlyAggregates, arg.OrgID, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceStatusHourly
+	for rows.Next() {
+		var i DeviceStatusHourly
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.DeviceIdentifier,
+			&i.TempBelow0,
+			&i.Temp010,
+			&i.Temp1020,
+			&i.Temp2030,
+			&i.Temp3040,
+			&i.Temp4050,
+			&i.Temp5060,
+			&i.Temp6070,
+			&i.Temp7080,
+			&i.Temp8090,
+			&i.Temp90100,
+			&i.Temp100Plus,
+			&i.HashingCount,
+			&i.NotHashingCount,
+			&i.DataPoints,
 		); err != nil {
 			return nil, err
 		}
