@@ -189,7 +189,22 @@ func TestSystemMonitoringHostDiskStaleRule(t *testing.T) {
 	orgA := seedActiveOrg(t, db, 0)
 	orgB := seedActiveOrg(t, db, 1)
 
-	t.Run("fresh heartbeat with no disk samples reads 1e9 per org", func(t *testing.T) {
+	t.Run("no disk samples accrue staleness from heartbeat history", func(t *testing.T) {
+		// Arrange
+		clearSystemSamples(t, db)
+		writeSystemSample(t, db, heartbeatMetric, 1, 14*time.Minute)
+		writeSystemSample(t, db, heartbeatMetric, 1, time.Minute)
+
+		// Act
+		got := runRule(t, db, rawSQL)
+
+		// Assert
+		require.Len(t, got, 2)
+		require.InDelta(t, 840, got[orgA], 30, "a never-reporting disk gauge must age from the first in-window heartbeat, not jump to a sentinel")
+		require.InDelta(t, 840, got[orgB], 30)
+	})
+
+	t.Run("no disk samples on a fresh boot stay below the condition", func(t *testing.T) {
 		// Arrange
 		clearSystemSamples(t, db)
 		writeSystemSample(t, db, heartbeatMetric, 1, time.Minute)
@@ -198,7 +213,9 @@ func TestSystemMonitoringHostDiskStaleRule(t *testing.T) {
 		got := runRule(t, db, rawSQL)
 
 		// Assert
-		require.Equal(t, map[string]float64{orgA: 1e9, orgB: 1e9}, got, "COALESCE must cover a disk gauge that never reported")
+		require.Len(t, got, 2)
+		require.Less(t, got[orgA], 720.0, "a just-booted collector must not start the pending timer immediately")
+		require.Less(t, got[orgB], 720.0)
 	})
 
 	t.Run("fresh heartbeat with a stale disk sample fires per org", func(t *testing.T) {
@@ -212,9 +229,8 @@ func TestSystemMonitoringHostDiskStaleRule(t *testing.T) {
 
 		// Assert
 		require.Len(t, got, 2)
-		require.Greater(t, got[orgA], 900.0, "a half-hour-old disk reading must breach the staleness condition")
-		require.Greater(t, got[orgB], 900.0)
-		require.Less(t, got[orgA], 1e9, "a real reading must report its age, not the COALESCE fallback")
+		require.InDelta(t, 1800, got[orgA], 30, "a real reading must report its age, not the heartbeat-history fallback")
+		require.Greater(t, got[orgB], 720.0)
 	})
 
 	t.Run("stale heartbeat suppresses the rule", func(t *testing.T) {
@@ -241,7 +257,7 @@ func TestSystemMonitoringHostDiskStaleRule(t *testing.T) {
 
 		// Assert
 		require.Len(t, got, 2)
-		require.Less(t, got[orgA], 900.0)
-		require.Less(t, got[orgB], 900.0)
+		require.Less(t, got[orgA], 720.0)
+		require.Less(t, got[orgB], 720.0)
 	})
 }
