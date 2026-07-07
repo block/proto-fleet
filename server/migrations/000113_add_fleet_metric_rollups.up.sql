@@ -42,6 +42,12 @@ CREATE TABLE fleet_metric_rollup_90s (
     PRIMARY KEY (org_id, site_id, bucket)
 );
 
+CREATE TABLE fleet_metric_rollup_progress (
+    id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+    latest_bucket TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 SELECT create_hypertable(
     'fleet_metric_rollup_90s',
     by_range('bucket', INTERVAL '1 day'),

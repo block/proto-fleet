@@ -332,6 +332,93 @@ FROM per_device_bucket
 GROUP BY bucket
 ORDER BY bucket ASC;
 
+-- name: GetOrgDeviceMetricsRawBucketAggregates :many
+WITH per_device_bucket AS (
+    SELECT
+        time_bucket(make_interval(secs => sqlc.arg('bucket_seconds')::double precision), dm.time)::timestamptz AS bucket,
+        dm.device_identifier,
+        AVG(hash_rate_hs) AS avg_hash_rate,
+        MIN(hash_rate_hs) AS min_hash_rate,
+        MAX(hash_rate_hs) AS max_hash_rate,
+        last(hash_rate_hs, dm.time) FILTER (WHERE hash_rate_hs IS NOT NULL) AS latest_hash_rate,
+        COUNT(hash_rate_hs)::bigint AS hash_rate_points,
+        AVG(temp_c) AS avg_temp,
+        MIN(temp_c) AS min_temp,
+        MAX(temp_c) AS max_temp,
+        SUM(temp_c) AS sum_temp,
+        last(temp_c, dm.time) FILTER (WHERE temp_c IS NOT NULL) AS latest_temp,
+        COUNT(temp_c)::bigint AS temp_points,
+        AVG(fan_rpm) AS avg_fan_rpm,
+        MIN(fan_rpm) AS min_fan_rpm,
+        MAX(fan_rpm) AS max_fan_rpm,
+        SUM(fan_rpm) AS sum_fan_rpm,
+        COUNT(fan_rpm)::bigint AS fan_rpm_points,
+        AVG(power_w) AS avg_power,
+        MIN(power_w) AS min_power,
+        MAX(power_w) AS max_power,
+        last(power_w, dm.time) FILTER (WHERE power_w IS NOT NULL) AS latest_power,
+        COUNT(power_w)::bigint AS power_points,
+        AVG(efficiency_jh) AS avg_efficiency,
+        MIN(efficiency_jh) AS min_efficiency,
+        MAX(efficiency_jh) AS max_efficiency,
+        SUM(efficiency_jh) AS sum_efficiency,
+        COUNT(efficiency_jh)::bigint AS efficiency_points
+    FROM device_metrics dm
+    WHERE dm.time >= sqlc.arg('start_time')
+      AND dm.time <= sqlc.arg('end_time')
+    GROUP BY bucket, dm.device_identifier
+),
+device_org AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    JOIN (
+        SELECT DISTINCT device_identifier
+        FROM per_device_bucket
+    ) ids ON ids.device_identifier = d.device_identifier
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+)
+SELECT
+    p.bucket,
+    COALESCE(SUM(p.avg_hash_rate), 0)::float8 AS avg_hash_rate,
+    COALESCE(SUM(p.min_hash_rate), 0)::float8 AS min_hash_rate,
+    COALESCE(SUM(p.max_hash_rate), 0)::float8 AS max_hash_rate,
+    COALESCE(SUM(p.latest_hash_rate), 0)::float8 AS latest_hash_rate,
+    COUNT(*) FILTER (WHERE p.hash_rate_points > 0)::bigint AS hash_rate_device_count,
+    CASE WHEN SUM(p.temp_points) > 0 THEN (SUM(p.sum_temp) / SUM(p.temp_points)) ELSE 0 END::float8 AS avg_temp,
+    COALESCE(MIN(p.min_temp), 0)::float8 AS min_temp,
+    COALESCE(MAX(p.max_temp), 0)::float8 AS max_temp,
+    COALESCE(SUM(p.sum_temp), 0)::float8 AS sum_temp,
+    SUM(p.temp_points)::bigint AS temp_points,
+    COUNT(*) FILTER (WHERE p.temp_points > 0)::bigint AS temp_device_count,
+    COUNT(*) FILTER (WHERE p.latest_temp < 0)::int AS temp_cold_count,
+    COUNT(*) FILTER (WHERE p.latest_temp >= 0 AND p.latest_temp < 70)::int AS temp_ok_count,
+    COUNT(*) FILTER (WHERE p.latest_temp >= 70 AND p.latest_temp < 90)::int AS temp_hot_count,
+    COUNT(*) FILTER (WHERE p.latest_temp >= 90)::int AS temp_critical_count,
+    CASE WHEN SUM(p.fan_rpm_points) > 0 THEN (SUM(p.sum_fan_rpm) / SUM(p.fan_rpm_points)) ELSE 0 END::float8 AS avg_fan_rpm,
+    COALESCE(MIN(p.min_fan_rpm), 0)::float8 AS min_fan_rpm,
+    COALESCE(MAX(p.max_fan_rpm), 0)::float8 AS max_fan_rpm,
+    COALESCE(SUM(p.sum_fan_rpm), 0)::float8 AS sum_fan_rpm,
+    SUM(p.fan_rpm_points)::bigint AS fan_rpm_points,
+    COUNT(*) FILTER (WHERE p.fan_rpm_points > 0)::bigint AS fan_rpm_device_count,
+    COALESCE(SUM(p.avg_power), 0)::float8 AS avg_power,
+    COALESCE(SUM(p.min_power), 0)::float8 AS min_power,
+    COALESCE(SUM(p.max_power), 0)::float8 AS max_power,
+    COALESCE(SUM(p.latest_power), 0)::float8 AS latest_power,
+    COUNT(*) FILTER (WHERE p.power_points > 0)::bigint AS power_device_count,
+    CASE WHEN SUM(p.efficiency_points) > 0 THEN (SUM(p.sum_efficiency) / SUM(p.efficiency_points)) ELSE 0 END::float8 AS avg_efficiency,
+    COALESCE(MIN(p.min_efficiency), 0)::float8 AS min_efficiency,
+    COALESCE(MAX(p.max_efficiency), 0)::float8 AS max_efficiency,
+    COALESCE(SUM(p.sum_efficiency), 0)::float8 AS sum_efficiency,
+    SUM(p.efficiency_points)::bigint AS efficiency_points,
+    COUNT(*) FILTER (WHERE p.efficiency_points > 0)::bigint AS efficiency_device_count
+FROM per_device_bucket p
+JOIN device_org USING (device_identifier)
+WHERE org_id = sqlc.arg('org_id')
+GROUP BY p.bucket
+ORDER BY p.bucket ASC;
+
 -- name: GetDeviceMetricsHourlyAggregates :many
 -- COALESCE handles NULL values from AVG() when all source values are NULL
 SELECT

@@ -38,8 +38,8 @@ type CombinedMetricsQuery struct {
 	OrganizationID   int64              `json:"organization_id,omitempty"`
 	// DeviceListFromSiteScope is true when the service populated DeviceIDs
 	// from SiteIDs/IncludeUnassigned rather than from an explicit device
-	// selector. It lets storage use org/site rollups for dashboard scopes while
-	// preserving explicit-device-list semantics. Internal only.
+	// selector. It lets storage preserve site-scope semantics even when other
+	// dashboard queries are eligible for org-wide rollups. Internal only.
 	DeviceListFromSiteScope bool `json:"-"`
 	// SiteIDs scopes metrics to devices assigned to ANY of these sites (OR),
 	// AND'd with DeviceIDs. Empty + IncludeUnassigned=false applies no site

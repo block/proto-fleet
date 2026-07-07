@@ -138,6 +138,7 @@ const (
 	fleetRollupInterval          = 30 * time.Second
 	fleetRollupMaxBucketsPerTick = 40
 	fleetRollupBackfillFloor     = 6 * time.Hour
+	fleetRollupRewriteBuckets    = models.FleetMetricRollupRawTailBuckets
 
 	// Context timeouts
 	shutdownFlushTimeout = 5 * time.Second
@@ -794,6 +795,12 @@ func (s *TelemetryService) writeFleetMetricRollups(ctx context.Context, at time.
 func fleetMetricRollupWriteWindow(now, latest time.Time) (startTime, endTime time.Time, ok bool) {
 	endTime = models.TruncateToFleetRollupBucket(now).Add(-time.Duration(models.FleetMetricRollupRawTailBuckets) * models.FleetMetricRollupBucketDuration)
 	startTime = latest.Add(models.FleetMetricRollupBucketDuration)
+	if !startTime.Before(endTime) {
+		return time.Time{}, time.Time{}, false
+	}
+	if !latest.Equal(time.Unix(0, 0).UTC()) {
+		startTime = startTime.Add(-time.Duration(fleetRollupRewriteBuckets) * models.FleetMetricRollupBucketDuration)
+	}
 
 	floor := endTime.Add(-fleetRollupBackfillFloor)
 	if startTime.Before(floor) {

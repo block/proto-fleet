@@ -157,7 +157,7 @@ func TestFleetMetricRollupEligible(t *testing.T) {
 			want:           true,
 		},
 		{
-			name: "site scope resolved by service uses rollup",
+			name: "site scope resolved by service stays raw",
 			query: models.CombinedMetricsQuery{
 				OrganizationID:          42,
 				DeviceIDs:               []models.DeviceIdentifier{"device-a", "device-b"},
@@ -166,7 +166,7 @@ func TestFleetMetricRollupEligible(t *testing.T) {
 			},
 			bucketDuration: models.FleetMetricRollupBucketDuration,
 			end:            end,
-			want:           true,
+			want:           false,
 		},
 		{
 			name: "explicit device list stays raw",

@@ -8,13 +8,30 @@ package sqlc
 import (
 	"context"
 	"time"
-
-	"github.com/lib/pq"
 )
 
+const advanceFleetMetricRollupProgress = `-- name: AdvanceFleetMetricRollupProgress :exec
+INSERT INTO fleet_metric_rollup_progress (id, latest_bucket, updated_at)
+VALUES (TRUE, $1::timestamptz, NOW())
+ON CONFLICT (id) DO UPDATE SET
+    latest_bucket = GREATEST(fleet_metric_rollup_progress.latest_bucket, EXCLUDED.latest_bucket),
+    updated_at = NOW()
+`
+
+func (q *Queries) AdvanceFleetMetricRollupProgress(ctx context.Context, latestBucket time.Time) error {
+	_, err := q.exec(ctx, q.advanceFleetMetricRollupProgressStmt, advanceFleetMetricRollupProgress, latestBucket)
+	return err
+}
+
 const getLatestFleetMetricRollupBucket = `-- name: GetLatestFleetMetricRollupBucket :one
-SELECT COALESCE(MAX(bucket), 'epoch'::timestamptz)::timestamptz AS bucket
-FROM fleet_metric_rollup_90s
+SELECT COALESCE(
+    (
+        SELECT latest_bucket
+        FROM fleet_metric_rollup_progress
+        WHERE id = TRUE
+    ),
+    'epoch'::timestamptz
+)::timestamptz AS bucket
 `
 
 func (q *Queries) GetLatestFleetMetricRollupBucket(ctx context.Context) (time.Time, error) {
@@ -118,160 +135,6 @@ func (q *Queries) GetOrgFleetMetricRollups(ctx context.Context, arg GetOrgFleetM
 	var items []GetOrgFleetMetricRollupsRow
 	for rows.Next() {
 		var i GetOrgFleetMetricRollupsRow
-		if err := rows.Scan(
-			&i.Bucket,
-			&i.AvgHashRate,
-			&i.MinHashRate,
-			&i.MaxHashRate,
-			&i.LatestHashRate,
-			&i.HashRateDeviceCount,
-			&i.AvgTemp,
-			&i.MinTemp,
-			&i.MaxTemp,
-			&i.SumTemp,
-			&i.TempPoints,
-			&i.TempDeviceCount,
-			&i.TempColdCount,
-			&i.TempOkCount,
-			&i.TempHotCount,
-			&i.TempCriticalCount,
-			&i.AvgFanRpm,
-			&i.MinFanRpm,
-			&i.MaxFanRpm,
-			&i.SumFanRpm,
-			&i.FanRpmPoints,
-			&i.FanRpmDeviceCount,
-			&i.AvgPower,
-			&i.MinPower,
-			&i.MaxPower,
-			&i.LatestPower,
-			&i.PowerDeviceCount,
-			&i.AvgEfficiency,
-			&i.MinEfficiency,
-			&i.MaxEfficiency,
-			&i.SumEfficiency,
-			&i.EfficiencyPoints,
-			&i.EfficiencyDeviceCount,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getSiteFleetMetricRollups = `-- name: GetSiteFleetMetricRollups :many
-SELECT
-    bucket,
-    COALESCE(SUM(avg_hash_rate), 0)::float8 AS avg_hash_rate,
-    COALESCE(SUM(min_hash_rate), 0)::float8 AS min_hash_rate,
-    COALESCE(SUM(max_hash_rate), 0)::float8 AS max_hash_rate,
-    COALESCE(SUM(latest_hash_rate), 0)::float8 AS latest_hash_rate,
-    SUM(hash_rate_device_count)::bigint AS hash_rate_device_count,
-    CASE WHEN SUM(temp_points) > 0 THEN (SUM(sum_temp) / SUM(temp_points)) ELSE 0 END::float8 AS avg_temp,
-    COALESCE(MIN(min_temp), 0)::float8 AS min_temp,
-    COALESCE(MAX(max_temp), 0)::float8 AS max_temp,
-    COALESCE(SUM(sum_temp), 0)::float8 AS sum_temp,
-    SUM(temp_points)::bigint AS temp_points,
-    SUM(temp_device_count)::bigint AS temp_device_count,
-    SUM(temp_cold_count)::int AS temp_cold_count,
-    SUM(temp_ok_count)::int AS temp_ok_count,
-    SUM(temp_hot_count)::int AS temp_hot_count,
-    SUM(temp_critical_count)::int AS temp_critical_count,
-    CASE WHEN SUM(fan_rpm_points) > 0 THEN (SUM(sum_fan_rpm) / SUM(fan_rpm_points)) ELSE 0 END::float8 AS avg_fan_rpm,
-    COALESCE(MIN(min_fan_rpm), 0)::float8 AS min_fan_rpm,
-    COALESCE(MAX(max_fan_rpm), 0)::float8 AS max_fan_rpm,
-    COALESCE(SUM(sum_fan_rpm), 0)::float8 AS sum_fan_rpm,
-    SUM(fan_rpm_points)::bigint AS fan_rpm_points,
-    SUM(fan_rpm_device_count)::bigint AS fan_rpm_device_count,
-    COALESCE(SUM(avg_power), 0)::float8 AS avg_power,
-    COALESCE(SUM(min_power), 0)::float8 AS min_power,
-    COALESCE(SUM(max_power), 0)::float8 AS max_power,
-    COALESCE(SUM(latest_power), 0)::float8 AS latest_power,
-    SUM(power_device_count)::bigint AS power_device_count,
-    CASE WHEN SUM(efficiency_points) > 0 THEN (SUM(sum_efficiency) / SUM(efficiency_points)) ELSE 0 END::float8 AS avg_efficiency,
-    COALESCE(MIN(min_efficiency), 0)::float8 AS min_efficiency,
-    COALESCE(MAX(max_efficiency), 0)::float8 AS max_efficiency,
-    COALESCE(SUM(sum_efficiency), 0)::float8 AS sum_efficiency,
-    SUM(efficiency_points)::bigint AS efficiency_points,
-    SUM(efficiency_device_count)::bigint AS efficiency_device_count
-FROM fleet_metric_rollup_90s
-WHERE org_id = $1
-  AND bucket >= $2::timestamptz
-  AND bucket < $3::timestamptz
-  AND (
-      site_id = ANY($4::bigint[])
-      OR ($5::bool AND site_id = 0)
-  )
-GROUP BY bucket
-ORDER BY bucket ASC
-`
-
-type GetSiteFleetMetricRollupsParams struct {
-	OrgID             int64
-	StartTime         time.Time
-	EndTime           time.Time
-	SiteIds           []int64
-	IncludeUnassigned bool
-}
-
-type GetSiteFleetMetricRollupsRow struct {
-	Bucket                time.Time
-	AvgHashRate           float64
-	MinHashRate           float64
-	MaxHashRate           float64
-	LatestHashRate        float64
-	HashRateDeviceCount   int64
-	AvgTemp               float64
-	MinTemp               float64
-	MaxTemp               float64
-	SumTemp               float64
-	TempPoints            int64
-	TempDeviceCount       int64
-	TempColdCount         int32
-	TempOkCount           int32
-	TempHotCount          int32
-	TempCriticalCount     int32
-	AvgFanRpm             float64
-	MinFanRpm             float64
-	MaxFanRpm             float64
-	SumFanRpm             float64
-	FanRpmPoints          int64
-	FanRpmDeviceCount     int64
-	AvgPower              float64
-	MinPower              float64
-	MaxPower              float64
-	LatestPower           float64
-	PowerDeviceCount      int64
-	AvgEfficiency         float64
-	MinEfficiency         float64
-	MaxEfficiency         float64
-	SumEfficiency         float64
-	EfficiencyPoints      int64
-	EfficiencyDeviceCount int64
-}
-
-func (q *Queries) GetSiteFleetMetricRollups(ctx context.Context, arg GetSiteFleetMetricRollupsParams) ([]GetSiteFleetMetricRollupsRow, error) {
-	rows, err := q.query(ctx, q.getSiteFleetMetricRollupsStmt, getSiteFleetMetricRollups,
-		arg.OrgID,
-		arg.StartTime,
-		arg.EndTime,
-		pq.Array(arg.SiteIds),
-		arg.IncludeUnassigned,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetSiteFleetMetricRollupsRow
-	for rows.Next() {
-		var i GetSiteFleetMetricRollupsRow
 		if err := rows.Scan(
 			&i.Bucket,
 			&i.AvgHashRate,

@@ -856,6 +856,12 @@ type FleetMetricRollup90 struct {
 	EfficiencyDeviceCount int64
 }
 
+type FleetMetricRollupProgress struct {
+	ID           bool
+	LatestBucket time.Time
+	UpdatedAt    time.Time
+}
+
 type FleetNode struct {
 	ID               int64
 	OrgID            int64

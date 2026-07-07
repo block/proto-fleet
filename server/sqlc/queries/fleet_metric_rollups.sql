@@ -177,52 +177,19 @@ WHERE org_id = sqlc.arg('org_id')
 GROUP BY bucket
 ORDER BY bucket ASC;
 
--- name: GetSiteFleetMetricRollups :many
-SELECT
-    bucket,
-    COALESCE(SUM(avg_hash_rate), 0)::float8 AS avg_hash_rate,
-    COALESCE(SUM(min_hash_rate), 0)::float8 AS min_hash_rate,
-    COALESCE(SUM(max_hash_rate), 0)::float8 AS max_hash_rate,
-    COALESCE(SUM(latest_hash_rate), 0)::float8 AS latest_hash_rate,
-    SUM(hash_rate_device_count)::bigint AS hash_rate_device_count,
-    CASE WHEN SUM(temp_points) > 0 THEN (SUM(sum_temp) / SUM(temp_points)) ELSE 0 END::float8 AS avg_temp,
-    COALESCE(MIN(min_temp), 0)::float8 AS min_temp,
-    COALESCE(MAX(max_temp), 0)::float8 AS max_temp,
-    COALESCE(SUM(sum_temp), 0)::float8 AS sum_temp,
-    SUM(temp_points)::bigint AS temp_points,
-    SUM(temp_device_count)::bigint AS temp_device_count,
-    SUM(temp_cold_count)::int AS temp_cold_count,
-    SUM(temp_ok_count)::int AS temp_ok_count,
-    SUM(temp_hot_count)::int AS temp_hot_count,
-    SUM(temp_critical_count)::int AS temp_critical_count,
-    CASE WHEN SUM(fan_rpm_points) > 0 THEN (SUM(sum_fan_rpm) / SUM(fan_rpm_points)) ELSE 0 END::float8 AS avg_fan_rpm,
-    COALESCE(MIN(min_fan_rpm), 0)::float8 AS min_fan_rpm,
-    COALESCE(MAX(max_fan_rpm), 0)::float8 AS max_fan_rpm,
-    COALESCE(SUM(sum_fan_rpm), 0)::float8 AS sum_fan_rpm,
-    SUM(fan_rpm_points)::bigint AS fan_rpm_points,
-    SUM(fan_rpm_device_count)::bigint AS fan_rpm_device_count,
-    COALESCE(SUM(avg_power), 0)::float8 AS avg_power,
-    COALESCE(SUM(min_power), 0)::float8 AS min_power,
-    COALESCE(SUM(max_power), 0)::float8 AS max_power,
-    COALESCE(SUM(latest_power), 0)::float8 AS latest_power,
-    SUM(power_device_count)::bigint AS power_device_count,
-    CASE WHEN SUM(efficiency_points) > 0 THEN (SUM(sum_efficiency) / SUM(efficiency_points)) ELSE 0 END::float8 AS avg_efficiency,
-    COALESCE(MIN(min_efficiency), 0)::float8 AS min_efficiency,
-    COALESCE(MAX(max_efficiency), 0)::float8 AS max_efficiency,
-    COALESCE(SUM(sum_efficiency), 0)::float8 AS sum_efficiency,
-    SUM(efficiency_points)::bigint AS efficiency_points,
-    SUM(efficiency_device_count)::bigint AS efficiency_device_count
-FROM fleet_metric_rollup_90s
-WHERE org_id = sqlc.arg('org_id')
-  AND bucket >= sqlc.arg('start_time')::timestamptz
-  AND bucket < sqlc.arg('end_time')::timestamptz
-  AND (
-      site_id = ANY(sqlc.arg('site_ids')::bigint[])
-      OR (sqlc.arg('include_unassigned')::bool AND site_id = 0)
-  )
-GROUP BY bucket
-ORDER BY bucket ASC;
-
 -- name: GetLatestFleetMetricRollupBucket :one
-SELECT COALESCE(MAX(bucket), 'epoch'::timestamptz)::timestamptz AS bucket
-FROM fleet_metric_rollup_90s;
+SELECT COALESCE(
+    (
+        SELECT latest_bucket
+        FROM fleet_metric_rollup_progress
+        WHERE id = TRUE
+    ),
+    'epoch'::timestamptz
+)::timestamptz AS bucket;
+
+-- name: AdvanceFleetMetricRollupProgress :exec
+INSERT INTO fleet_metric_rollup_progress (id, latest_bucket, updated_at)
+VALUES (TRUE, sqlc.arg('latest_bucket')::timestamptz, NOW())
+ON CONFLICT (id) DO UPDATE SET
+    latest_bucket = GREATEST(fleet_metric_rollup_progress.latest_bucket, EXCLUDED.latest_bucket),
+    updated_at = NOW();
