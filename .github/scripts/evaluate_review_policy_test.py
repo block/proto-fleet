@@ -77,7 +77,7 @@ class ReviewPolicyTest(unittest.TestCase):
             policy.write_result(result, str(path))
             self.assertEqual(
                 path.read_text(encoding="utf-8"),
-                '{\n  "passed": true,\n  "decision": "trusted-author-low-risk",\n  "reasons": [],\n  "low_risk_reasons": [\n    "small change"\n  ],\n  "human_review_reasons": []\n}\n',
+                '{\n  "passed": true,\n  "decision": "trusted-author-low-risk",\n  "enforced": true,\n  "reasons": [],\n  "low_risk_reasons": [\n    "small change"\n  ],\n  "human_review_reasons": []\n}\n',
             )
 
 

@@ -71,12 +71,32 @@ jobs:
             core.setOutput('head_repo', pr.head.repo.full_name);
             core.setOutput('base_repo', pr.base.repo.full_name);
 
-      - name: Checkout base commit
+      - name: Checkout PR head commit
+        if: steps.pr.outputs.found == 'true'
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ steps.pr.outputs.head_sha }}
+          fetch-depth: 0
+
+      - name: Checkout trusted base policy
         if: steps.pr.outputs.found == 'true'
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ steps.pr.outputs.base_sha }}
-          fetch-depth: 0
+          fetch-depth: 1
+          path: trusted-policy-base
+
+      - name: Select policy source
+        id: policy_source
+        if: steps.pr.outputs.found == 'true'
+        run: |
+          if [ -x trusted-policy-base/.github/scripts/evaluate_review_policy.py ]; then
+            echo "path=trusted-policy-base" >> "$GITHUB_OUTPUT"
+            echo "Using review policy code from the trusted base commit."
+          else
+            echo "path=$GITHUB_WORKSPACE" >> "$GITHUB_OUTPUT"
+            echo "Trusted base commit does not contain review policy code; using PR code for bootstrap."
+          fi
 
       - name: Write review policy diff
         if: steps.pr.outputs.found == 'true'
@@ -137,10 +157,11 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           CLASSIFIER_OUTPUT: ${{ steps.ai_classifier.outputs.final-message }}
           RESULT_JSON: ${{ runner.temp }}/review-policy-result.json
+          POLICY_ROOT: ${{ steps.policy_source.outputs.path }}
         run: |
           set +e
-          .github/scripts/evaluate_review_policy.py \
-            --config .github/review-policy.json \
+          "$POLICY_ROOT/.github/scripts/evaluate_review_policy.py" \
+            --config "$POLICY_ROOT/.github/review-policy.json" \
             --result-json "$RESULT_JSON" \
             --classifier-output "$CLASSIFIER_OUTPUT" \
             --owner "${{ github.repository_owner }}" \

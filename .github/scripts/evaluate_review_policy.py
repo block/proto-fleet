@@ -28,6 +28,7 @@ class PolicyError(RuntimeError):
 class PolicyResult:
     passed: bool
     decision: str
+    enforced: bool = True
     reasons: list[str] = field(default_factory=list)
     low_risk_reasons: list[str] = field(default_factory=list)
     human_review_reasons: list[str] = field(default_factory=list)
@@ -350,17 +351,29 @@ def evaluate_policy(
             low_blockers.append(f"changes requested by {', '.join(changers)}")
 
     if human_ok:
-        return PolicyResult(True, "human-approved", [], low_reasons, human_reasons)
+        return PolicyResult(
+            passed=True,
+            decision="human-approved",
+            reasons=[],
+            low_risk_reasons=low_reasons,
+            human_review_reasons=human_reasons,
+        )
 
     if not low_blockers:
-        return PolicyResult(True, "trusted-author-low-risk", [], low_reasons, human_reasons)
+        return PolicyResult(
+            passed=True,
+            decision="trusted-author-low-risk",
+            reasons=[],
+            low_risk_reasons=low_reasons,
+            human_review_reasons=human_reasons,
+        )
 
     return PolicyResult(
-        False,
-        "needs-human-review",
-        human_blockers + low_blockers,
-        low_reasons,
-        human_reasons,
+        passed=False,
+        decision="needs-human-review",
+        reasons=human_blockers + low_blockers,
+        low_risk_reasons=low_reasons,
+        human_review_reasons=human_reasons,
     )
 
 
@@ -370,6 +383,7 @@ def write_summary(result: PolicyResult) -> None:
         "",
         f"**Decision:** `{result.decision}`",
         f"**Status:** {'pass' if result.passed else 'fail'}",
+        f"**Mode:** {'enforced' if result.enforced else 'advisory'}",
         "",
     ]
     if result.low_risk_reasons:
@@ -399,6 +413,7 @@ def write_result(result: PolicyResult, path: str | None) -> None:
     payload = {
         "passed": result.passed,
         "decision": result.decision,
+        "enforced": result.enforced,
         "reasons": result.reasons,
         "low_risk_reasons": result.low_risk_reasons,
         "human_review_reasons": result.human_review_reasons,
@@ -430,6 +445,7 @@ def main() -> int:
     with open(args.config, encoding="utf-8") as handle:
         config = json.load(handle)
 
+    enforced = bool(config.get("enforce", True))
     result = evaluate_policy(
         config=config,
         owner=args.owner,
@@ -440,9 +456,10 @@ def main() -> int:
         token=token,
         classifier_output=args.classifier_output,
     )
+    result.enforced = enforced
     write_summary(result)
     write_result(result, args.result_json)
-    return 0 if result.passed else 1
+    return 0 if result.passed or not enforced else 1
 
 
 if __name__ == "__main__":
