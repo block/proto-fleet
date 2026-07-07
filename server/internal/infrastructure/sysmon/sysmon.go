@@ -16,7 +16,7 @@ import (
 type Config struct {
 	Enabled  bool          `help:"Collect host CPU/memory/disk gauges into the alerts metric store (requires FLEET_ALERTS_ENABLED)" default:"false" env:"ENABLED"`
 	Interval time.Duration `help:"How often host stats are sampled" default:"30s" env:"INTERVAL"`
-	DiskPath string        `help:"Filesystem path whose usage is reported; production mounts the host root read-only at /hostfs" default:"/" env:"DISK_PATH"`
+	DiskPath string        `help:"Filesystem path whose usage is reported; production mounts the docker-volumes directory read-only at /hostfs" default:"/" env:"DISK_PATH"`
 }
 
 // Emitter is the subset of *metrics.Provider the collector depends on.
