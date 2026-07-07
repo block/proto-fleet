@@ -204,7 +204,7 @@ export class BasePage {
 
     const popover = this.page.getByTestId("nested-dropdown-filter-popover");
     if (await popover.isVisible().catch(() => false)) {
-      await this.dismissAddFilterPopover();
+      await this.dismissNestedAddFilterPopover();
     }
   }
 
@@ -221,7 +221,7 @@ export class BasePage {
     const addFilterPopover = await this.openVisibleAddFilter();
     await this.openNestedFilterSubmenu(addFilterPopover, categoryKey);
     await this.toggleVisibleCheckboxFilterOptions();
-    await this.dismissAddFilterPopover();
+    await this.dismissNestedAddFilterPopover();
   }
 
   private async toggleVisibleCheckboxFilterOptions() {
@@ -689,7 +689,7 @@ export class BasePage {
     return popover;
   }
 
-  private async dismissAddFilterPopover() {
+  private async dismissNestedAddFilterPopover() {
     const popover = this.page.getByTestId("nested-dropdown-filter-popover");
     if (!(await popover.isVisible().catch(() => false))) {
       return;
