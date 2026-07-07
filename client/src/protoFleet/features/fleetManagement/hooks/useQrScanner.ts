@@ -139,6 +139,11 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
           });
         }
 
+        // Cleanup may have run while getUserMedia/play() were pending — its
+        // clearInterval saw no interval yet. Bail before installing one so we
+        // don't leave an orphaned scan loop running after teardown.
+        if (cancelled) return;
+
         const detector = getDetector();
         setStatus("scanning");
 
