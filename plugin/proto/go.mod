@@ -5,11 +5,11 @@ go 1.25.4
 require (
 	github.com/block/proto-fleet/server v0.0.0-20260612045813-75933fce45c2
 	github.com/hashicorp/go-plugin v1.8.0
-	github.com/moby/moby/api v1.54.2
-	github.com/moby/moby/client v0.4.1
+	github.com/moby/moby/api v1.55.0
+	github.com/moby/moby/client v0.5.0
 	github.com/stretchr/testify v1.11.1
-	github.com/testcontainers/testcontainers-go v0.42.0
-	google.golang.org/grpc v1.81.1
+	github.com/testcontainers/testcontainers-go v0.43.0
+	google.golang.org/grpc v1.82.0
 )
 
 replace github.com/block/proto-fleet/server => ../../server
