@@ -44,9 +44,22 @@ describe("isPlacementIneligible", () => {
       expect(isPlacementIneligible({ rackId: 5n }, NEW_RACK)).toBe(true);
     });
 
-    it("keeps unracked miners regardless of building/site", () => {
-      expect(isPlacementIneligible({ buildingId: 7n, siteId: 8n }, NEW_RACK)).toBe(false);
+    it("flags an unracked-but-placed miner (an unplaced rack strips its building/site on assign)", () => {
+      expect(isPlacementIneligible({ buildingId: 7n }, NEW_RACK)).toBe(true);
+      expect(isPlacementIneligible({ siteId: 8n }, NEW_RACK)).toBe(true);
     });
+
+    it("keeps a fully unplaced miner", () => {
+      expect(isPlacementIneligible({}, NEW_RACK)).toBe(false);
+    });
+  });
+
+  it("flags a miner whose site the target lacks (rack placed under a site with no building)", () => {
+    // Target under site 10, no building. A miner directly in building 200 (same
+    // site) has its building stripped on assign, so it's a reassignment.
+    const SITE_ONLY: MinerEligibility = { rackId: 1n, siteId: 10n };
+    expect(isPlacementIneligible({ buildingId: 200n, siteId: 10n }, SITE_ONLY)).toBe(true);
+    expect(isPlacementIneligible({ siteId: 10n }, SITE_ONLY)).toBe(false);
   });
 });
 

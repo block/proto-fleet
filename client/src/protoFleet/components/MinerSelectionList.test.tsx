@@ -218,6 +218,14 @@ describe("MinerSelectionList eligibility", () => {
     expect(lastFleetFilter().includeNoRack).toBe(true);
   });
 
+  it("hides Select all while 'Show assigned miners' is on (avoids silently dropping reparent picks)", () => {
+    render(<MinerSelectionList eligibility={{ rackId: 1n }} />);
+    expect(screen.getByText("Select all")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Show assigned miners"));
+    expect(screen.queryByText("Select all")).not.toBeInTheDocument();
+  });
+
   it("renders the assignable-only toggle only when eligibility is provided", () => {
     const { rerender } = render(<MinerSelectionList />);
     expect(lastListProps()?.headerControls).toBeFalsy();

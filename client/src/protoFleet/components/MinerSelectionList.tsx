@@ -407,7 +407,14 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       return wrapped;
     }, [isReassignment]);
     const displayedSelectedItems = allSelected && !singleSelect ? currentSelectableItemIds : selectedItems;
-    const canSelectAll = !singleSelect && (!disableFilteredSelectAll || !hasUnsupportedAllSelectionFilter(filter));
+    // While "Show assigned miners" is on, the list mixes assignable and
+    // assigned-elsewhere rows, so "select all" is ambiguous (and the assignable
+    // resolver would silently drop the reassignment picks). Only offer it in the
+    // assignable-only view.
+    const canSelectAll =
+      !singleSelect &&
+      !(eligibilityEnabled && showAssigned) &&
+      (!disableFilteredSelectAll || !hasUnsupportedAllSelectionFilter(filter));
     const shouldShowSelectionFooter =
       showSelectAllFooter &&
       totalMiners !== undefined &&

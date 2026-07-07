@@ -27,18 +27,18 @@ export type MinerEligibility = {
   buildingId?: bigint;
 };
 
-/** A placement is ineligible when it sits somewhere incompatible with the
- *  target rack. Any miner in a *different* rack is ineligible — including every
- *  racked miner when the target rack doesn't exist yet (rackId undefined), so a
- *  new rack still only pulls from unracked miners. Building/site only gate when
- *  the target rack is placed at that level. Unplaced miners stay eligible.
+/** A placement is ineligible when it sits somewhere the target rack isn't, at
+ *  any level — assigning it there moves it. SaveRack aligns members to the
+ *  rack's placement, and an unplaced/partly-placed rack strips the mismatched
+ *  levels to NULL, so a miner placed at a level the target *lacks* (target id
+ *  undefined) is also a reassignment. This makes a new/unplaced rack warn before
+ *  clearing a miner's existing rack/building/site. A miner unplaced at a level
+ *  (its own id undefined) is never moved there, so it stays eligible.
  *  Id-based to avoid label collisions (a same-named rack in another building). */
 export const isPlacementIneligible = (placement: MinerEligibility, eligibility: MinerEligibility): boolean =>
   (placement.rackId !== undefined && placement.rackId !== eligibility.rackId) ||
-  (eligibility.buildingId !== undefined &&
-    placement.buildingId !== undefined &&
-    placement.buildingId !== eligibility.buildingId) ||
-  (eligibility.siteId !== undefined && placement.siteId !== undefined && placement.siteId !== eligibility.siteId);
+  (placement.buildingId !== undefined && placement.buildingId !== eligibility.buildingId) ||
+  (placement.siteId !== undefined && placement.siteId !== eligibility.siteId);
 
 export const isMinerSnapshotIneligible = (miner: MinerStateSnapshot, eligibility: MinerEligibility): boolean =>
   isPlacementIneligible(
