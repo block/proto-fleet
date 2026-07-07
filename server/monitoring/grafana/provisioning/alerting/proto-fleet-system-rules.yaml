@@ -15,4 +15,6 @@ deleteRules:
   - orgId: 1
     uid: protofleet-system-disk-low
   - orgId: 1
+    uid: protofleet-system-disk-stale
+  - orgId: 1
     uid: protofleet-system-heartbeat-stale

@@ -17,8 +17,13 @@ const ruleFile = "../../../monitoring/grafana/provisioning/alerting/proto-fleet-
 
 // loadRuleSQL returns the live rawSql for the named rule from the provisioning file, asserting it contains mustContain so tests run the exact deployed query, not a copy that can drift.
 func loadRuleSQL(t *testing.T, title, mustContain string) string {
+	return loadRuleSQLFrom(t, ruleFile, title, mustContain)
+}
+
+// loadRuleSQLFrom is loadRuleSQL for rules provisioned from another file, such as the system-monitoring overlay.
+func loadRuleSQLFrom(t *testing.T, path, title, mustContain string) string {
 	t.Helper()
-	raw, err := os.ReadFile(ruleFile)
+	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
 
 	var doc struct {
@@ -45,7 +50,7 @@ func loadRuleSQL(t *testing.T, title, mustContain string) string {
 			}
 		}
 	}
-	t.Fatalf("rule %q not found in provisioning file", title)
+	t.Fatalf("rule %q not found in %s", title, path)
 	return ""
 }
 
