@@ -44,6 +44,7 @@ CREATE TABLE fleet_metric_rollup_90s (
 
 CREATE TABLE fleet_metric_rollup_progress (
     id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+    earliest_bucket TIMESTAMPTZ NOT NULL,
     latest_bucket TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

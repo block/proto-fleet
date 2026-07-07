@@ -570,6 +570,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getFilteredDeviceIdsStmt, err = db.PrepareContext(ctx, getFilteredDeviceIds); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFilteredDeviceIds: %w", err)
 	}
+	if q.getFleetMetricRollupCoverageStmt, err = db.PrepareContext(ctx, getFleetMetricRollupCoverage); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFleetMetricRollupCoverage: %w", err)
+	}
 	if q.getFleetNodeByIDStmt, err = db.PrepareContext(ctx, getFleetNodeByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodeByID: %w", err)
 	}
@@ -2352,6 +2355,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getFilteredDeviceIdsStmt: %w", cerr)
 		}
 	}
+	if q.getFleetMetricRollupCoverageStmt != nil {
+		if cerr := q.getFleetMetricRollupCoverageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFleetMetricRollupCoverageStmt: %w", cerr)
+		}
+	}
 	if q.getFleetNodeByIDStmt != nil {
 		if cerr := q.getFleetNodeByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFleetNodeByIDStmt: %w", cerr)
@@ -4018,6 +4026,7 @@ type Queries struct {
 	getErrorByIDStmt                                           *sql.Stmt
 	getFilteredDeviceIdentifiersStmt                           *sql.Stmt
 	getFilteredDeviceIdsStmt                                   *sql.Stmt
+	getFleetMetricRollupCoverageStmt                           *sql.Stmt
 	getFleetNodeByIDStmt                                       *sql.Stmt
 	getFleetNodeByIDUnscopedStmt                               *sql.Stmt
 	getFleetNodePairedDeviceIdentifierStmt                     *sql.Stmt
@@ -4495,6 +4504,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getErrorByIDStmt:                                           q.getErrorByIDStmt,
 		getFilteredDeviceIdentifiersStmt:                           q.getFilteredDeviceIdentifiersStmt,
 		getFilteredDeviceIdsStmt:                                   q.getFilteredDeviceIdsStmt,
+		getFleetMetricRollupCoverageStmt:                           q.getFleetMetricRollupCoverageStmt,
 		getFleetNodeByIDStmt:                                       q.getFleetNodeByIDStmt,
 		getFleetNodeByIDUnscopedStmt:                               q.getFleetNodeByIDUnscopedStmt,
 		getFleetNodePairedDeviceIdentifierStmt:                     q.getFleetNodePairedDeviceIdentifierStmt,

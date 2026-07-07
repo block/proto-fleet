@@ -192,9 +192,34 @@ SELECT COALESCE(
     'epoch'::timestamptz
 )::timestamptz AS bucket;
 
+-- name: GetFleetMetricRollupCoverage :one
+SELECT
+    COALESCE(
+        (
+            SELECT earliest_bucket
+            FROM fleet_metric_rollup_progress
+            WHERE id = TRUE
+        ),
+        'epoch'::timestamptz
+    )::timestamptz AS earliest_bucket,
+    COALESCE(
+        (
+            SELECT latest_bucket
+            FROM fleet_metric_rollup_progress
+            WHERE id = TRUE
+        ),
+        'epoch'::timestamptz
+    )::timestamptz AS latest_bucket;
+
 -- name: AdvanceFleetMetricRollupProgress :exec
-INSERT INTO fleet_metric_rollup_progress (id, latest_bucket, updated_at)
-VALUES (TRUE, sqlc.arg('latest_bucket')::timestamptz, NOW())
+INSERT INTO fleet_metric_rollup_progress (id, earliest_bucket, latest_bucket, updated_at)
+VALUES (
+    TRUE,
+    sqlc.arg('earliest_bucket')::timestamptz,
+    sqlc.arg('latest_bucket')::timestamptz,
+    NOW()
+)
 ON CONFLICT (id) DO UPDATE SET
+    earliest_bucket = LEAST(fleet_metric_rollup_progress.earliest_bucket, EXCLUDED.earliest_bucket),
     latest_bucket = GREATEST(fleet_metric_rollup_progress.latest_bucket, EXCLUDED.latest_bucket),
     updated_at = NOW();

@@ -739,7 +739,7 @@ func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Conte
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
 
-	completeThrough, err := s.queries.GetLatestFleetMetricRollupBucket(ctx)
+	coverage, err := s.queries.GetFleetMetricRollupCoverage(ctx)
 	if err != nil {
 		s.logger.Warn("fleet metric rollup coverage lookup failed, falling back to raw",
 			slog.Int64("org_id", query.OrganizationID),
@@ -749,13 +749,14 @@ func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Conte
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
 	requiredLatest := bodyEndExclusive.Add(-models.FleetMetricRollupBucketDuration)
-	if completeThrough.Before(requiredLatest) {
+	if coverage.EarliestBucket.After(bodyStart) || coverage.LatestBucket.Before(requiredLatest) {
 		s.logger.Warn("fleet metric rollup coverage incomplete, falling back to raw",
 			slog.Int64("org_id", query.OrganizationID),
 			slog.Bool("site_scoped", query.DeviceListFromSiteScope),
 			slog.Time("start_time", bodyStart),
 			slog.Time("end_time", bodyEndExclusive),
-			slog.Time("complete_through", completeThrough),
+			slog.Time("coverage_earliest_bucket", coverage.EarliestBucket),
+			slog.Time("coverage_latest_bucket", coverage.LatestBucket),
 			slog.Time("required_latest_bucket", requiredLatest))
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
@@ -1845,7 +1846,10 @@ func (s *TimescaleTelemetryStore) UpsertFleetMetricRollups(ctx context.Context, 
 	}); err != nil {
 		return fmt.Errorf("upsert fleet metric rollups: %w", err)
 	}
-	if err := qtx.AdvanceFleetMetricRollupProgress(ctx, models.TruncateToFleetRollupBucket(endTime.Add(-time.Nanosecond))); err != nil {
+	if err := qtx.AdvanceFleetMetricRollupProgress(ctx, sqlc.AdvanceFleetMetricRollupProgressParams{
+		EarliestBucket: models.TruncateToFleetRollupBucket(startTime),
+		LatestBucket:   models.TruncateToFleetRollupBucket(endTime.Add(-time.Nanosecond)),
+	}); err != nil {
 		return fmt.Errorf("advance fleet metric rollup progress: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

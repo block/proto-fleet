@@ -11,15 +11,26 @@ import (
 )
 
 const advanceFleetMetricRollupProgress = `-- name: AdvanceFleetMetricRollupProgress :exec
-INSERT INTO fleet_metric_rollup_progress (id, latest_bucket, updated_at)
-VALUES (TRUE, $1::timestamptz, NOW())
+INSERT INTO fleet_metric_rollup_progress (id, earliest_bucket, latest_bucket, updated_at)
+VALUES (
+    TRUE,
+    $1::timestamptz,
+    $2::timestamptz,
+    NOW()
+)
 ON CONFLICT (id) DO UPDATE SET
+    earliest_bucket = LEAST(fleet_metric_rollup_progress.earliest_bucket, EXCLUDED.earliest_bucket),
     latest_bucket = GREATEST(fleet_metric_rollup_progress.latest_bucket, EXCLUDED.latest_bucket),
     updated_at = NOW()
 `
 
-func (q *Queries) AdvanceFleetMetricRollupProgress(ctx context.Context, latestBucket time.Time) error {
-	_, err := q.exec(ctx, q.advanceFleetMetricRollupProgressStmt, advanceFleetMetricRollupProgress, latestBucket)
+type AdvanceFleetMetricRollupProgressParams struct {
+	EarliestBucket time.Time
+	LatestBucket   time.Time
+}
+
+func (q *Queries) AdvanceFleetMetricRollupProgress(ctx context.Context, arg AdvanceFleetMetricRollupProgressParams) error {
+	_, err := q.exec(ctx, q.advanceFleetMetricRollupProgressStmt, advanceFleetMetricRollupProgress, arg.EarliestBucket, arg.LatestBucket)
 	return err
 }
 
@@ -41,6 +52,38 @@ type DeleteFleetMetricRollupsForWindowParams struct {
 func (q *Queries) DeleteFleetMetricRollupsForWindow(ctx context.Context, arg DeleteFleetMetricRollupsForWindowParams) error {
 	_, err := q.exec(ctx, q.deleteFleetMetricRollupsForWindowStmt, deleteFleetMetricRollupsForWindow, arg.StartTime, arg.EndTime)
 	return err
+}
+
+const getFleetMetricRollupCoverage = `-- name: GetFleetMetricRollupCoverage :one
+SELECT
+    COALESCE(
+        (
+            SELECT earliest_bucket
+            FROM fleet_metric_rollup_progress
+            WHERE id = TRUE
+        ),
+        'epoch'::timestamptz
+    )::timestamptz AS earliest_bucket,
+    COALESCE(
+        (
+            SELECT latest_bucket
+            FROM fleet_metric_rollup_progress
+            WHERE id = TRUE
+        ),
+        'epoch'::timestamptz
+    )::timestamptz AS latest_bucket
+`
+
+type GetFleetMetricRollupCoverageRow struct {
+	EarliestBucket time.Time
+	LatestBucket   time.Time
+}
+
+func (q *Queries) GetFleetMetricRollupCoverage(ctx context.Context) (GetFleetMetricRollupCoverageRow, error) {
+	row := q.queryRow(ctx, q.getFleetMetricRollupCoverageStmt, getFleetMetricRollupCoverage)
+	var i GetFleetMetricRollupCoverageRow
+	err := row.Scan(&i.EarliestBucket, &i.LatestBucket)
+	return i, err
 }
 
 const getLatestFleetMetricRollupBucket = `-- name: GetLatestFleetMetricRollupBucket :one

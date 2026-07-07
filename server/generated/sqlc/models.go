@@ -857,9 +857,10 @@ type FleetMetricRollup90 struct {
 }
 
 type FleetMetricRollupProgress struct {
-	ID           bool
-	LatestBucket time.Time
-	UpdatedAt    time.Time
+	ID             bool
+	EarliestBucket time.Time
+	LatestBucket   time.Time
+	UpdatedAt      time.Time
 }
 
 type FleetNode struct {

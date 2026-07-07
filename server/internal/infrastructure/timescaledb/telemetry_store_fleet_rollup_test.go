@@ -159,6 +159,59 @@ func TestTelemetryStore_FleetMetricRollupServesSparseCompletedBody(t *testing.T)
 	assert.Equal(t, float64(123), result.Metrics[0].AggregatedValues[0].Value)
 }
 
+func TestTelemetryStore_FleetMetricRollupFallsBackBeforeCoverageStart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := NewTelemetryStore(db, DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	device := dbSvc.CreateDevice(orgID, "proto")
+	t.Cleanup(func() {
+		cleanupFleetMetricRollupTestRows(t, db, orgID, device.ID)
+	})
+
+	start := fleetRollupTestStartTime().Add(60 * time.Hour)
+	for i := range 5 {
+		require.NoError(t, store.StoreDeviceMetrics(ctx, modelsV2.DeviceMetrics{
+			DeviceIdentifier: device.ID,
+			Timestamp:        start.Add(time.Duration(i)*models.FleetMetricRollupBucketDuration + 10*time.Second),
+			HashrateHS:       &modelsV2.MetricValue{Value: 100 + float64(i)},
+		}))
+	}
+	coverageStart := start.Add(10 * models.FleetMetricRollupBucketDuration)
+	_, err = db.ExecContext(context.Background(), `
+		INSERT INTO fleet_metric_rollup_progress (id, earliest_bucket, latest_bucket)
+		VALUES (TRUE, $1, $2)
+		ON CONFLICT (id) DO UPDATE SET earliest_bucket = EXCLUDED.earliest_bucket, latest_bucket = EXCLUDED.latest_bucket
+	`, coverageStart, coverageStart.Add(10*models.FleetMetricRollupBucketDuration))
+	require.NoError(t, err)
+
+	end := start.Add(5*models.FleetMetricRollupBucketDuration - time.Nanosecond)
+	slide := models.FleetMetricRollupBucketDuration
+	result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+		OrganizationID:   orgID,
+		MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+		AggregationTypes: []models.AggregationType{models.AggregationTypeAverage},
+		TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+		SlideInterval:    &slide,
+	})
+	require.NoError(t, err)
+	require.Len(t, result.Metrics, 5)
+
+	for i, metric := range result.Metrics {
+		assert.True(t, start.Add(time.Duration(i)*models.FleetMetricRollupBucketDuration).Equal(metric.OpenTime))
+		require.Len(t, metric.AggregatedValues, 1)
+		assert.Equal(t, 100+float64(i), metric.AggregatedValues[0].Value)
+	}
+}
+
 func TestTelemetryStore_FleetMetricRollupRewriteDeletesStaleKeys(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
