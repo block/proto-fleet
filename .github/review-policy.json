@@ -27,11 +27,34 @@
       "LOW"
     ],
     "required_checks": [
-      "Gate",
-      "security-review",
-      "DCO Check",
-      "Semgrep OSS",
-      "zizmor"
+      {
+        "name": "PR Gate",
+        "type": "github_actions_workflow",
+        "workflow_path": ".github/workflows/pr-gate.yml",
+        "workflow_name": "PR Gate",
+        "event": "pull_request"
+      },
+      {
+        "name": "security-review",
+        "type": "github_actions",
+        "workflow_path": ".github/workflows/codex-security-review.yml",
+        "event": "pull_request"
+      },
+      {
+        "name": "DCO Check",
+        "type": "check_run",
+        "app_slug": "block-dco-check"
+      },
+      {
+        "name": "Semgrep OSS",
+        "type": "check_run",
+        "app_slug": "github-advanced-security"
+      },
+      {
+        "name": "zizmor",
+        "type": "check_run",
+        "app_slug": "github-advanced-security"
+      }
     ],
     "content_deny_added_patterns": [
       {

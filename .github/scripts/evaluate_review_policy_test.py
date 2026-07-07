@@ -225,36 +225,83 @@ class ReviewPolicyTest(unittest.TestCase):
     def test_check_statuses_requires_successful_completed_runs(self):
         original = policy.latest_check_runs
         original_statuses = policy.latest_commit_statuses
+        original_request = policy.github_request
+        original_workflow_runs = policy.latest_workflow_runs
         try:
             policy.latest_check_runs = lambda owner, repo, head_sha, token: {
-                "Gate": {"status": "completed", "conclusion": "success"},
-                "security-review": {"status": "completed", "conclusion": "failure"},
+                "security-review": {
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "app": {"slug": "github-actions"},
+                    "details_url": "https://github.com/block/proto-fleet/actions/runs/124/job/456",
+                },
             }
             policy.latest_commit_statuses = lambda owner, repo, head_sha, token: {}
+            policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
+                ".github/workflows/pr-gate.yml": {
+                    "name": "PR Gate",
+                    "status": "completed",
+                    "conclusion": "success",
+                },
+            }
+            policy.github_request = lambda method, path, token, body=None: {
+                "path": ".github/workflows/pr-gate.yml",
+                "head_sha": "abc123",
+                "event": "pull_request",
+            }
             ok, blockers = policy.check_statuses(
-                "block", "proto-fleet", "abc123", ["Gate", "security-review", "missing"], "token"
+                "block",
+                "proto-fleet",
+                "abc123",
+                [
+                    {
+                        "name": "PR Gate",
+                        "type": "github_actions_workflow",
+                        "workflow_path": ".github/workflows/pr-gate.yml",
+                        "workflow_name": "PR Gate",
+                        "event": "pull_request",
+                    },
+                    {
+                        "name": "security-review",
+                        "type": "github_actions",
+                        "workflow_path": ".github/workflows/codex-security-review.yml",
+                        "event": "pull_request",
+                    },
+                    {"name": "missing", "type": "check_run", "app_slug": "trusted-app"},
+                ],
+                "token",
             )
         finally:
             policy.latest_check_runs = original
             policy.latest_commit_statuses = original_statuses
+            policy.github_request = original_request
+            policy.latest_workflow_runs = original_workflow_runs
 
         self.assertFalse(ok)
         self.assertIn("required check 'security-review' is completed/failure", blockers)
         self.assertIn("required check 'missing' is missing", blockers)
 
-    def test_check_statuses_accepts_legacy_commit_statuses(self):
+    def test_check_statuses_accepts_typed_commit_statuses(self):
         original = policy.latest_check_runs
         original_statuses = policy.latest_commit_statuses
         try:
             policy.latest_check_runs = lambda owner, repo, head_sha, token: {
-                "Gate": {"status": "completed", "conclusion": "success"},
+                "DCO Check": {"status": "completed", "conclusion": "success", "app": {"slug": "block-dco-check"}},
             }
             policy.latest_commit_statuses = lambda owner, repo, head_sha, token: {
-                "DCO Check": {"state": "success"},
-                "External": {"state": "pending"},
+                "Legacy": {"state": "success", "creator": {"login": "trusted-bot"}},
+                "External": {"state": "pending", "creator": {"login": "external-ci"}},
             }
             ok, blockers = policy.check_statuses(
-                "block", "proto-fleet", "abc123", ["Gate", "DCO Check", "External"], "token"
+                "block",
+                "proto-fleet",
+                "abc123",
+                [
+                    {"name": "DCO Check", "type": "check_run", "app_slug": "block-dco-check"},
+                    {"name": "Legacy", "type": "commit_status", "creator": "trusted-bot"},
+                    {"name": "External", "type": "commit_status", "creator": "external-ci"},
+                ],
+                "token",
             )
         finally:
             policy.latest_check_runs = original
@@ -263,6 +310,160 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("required status 'External' is pending", blockers)
         self.assertNotIn("required check 'DCO Check' is missing", blockers)
+
+    def test_check_statuses_rejects_spoofed_github_actions_workflow(self):
+        original = policy.latest_check_runs
+        original_statuses = policy.latest_commit_statuses
+        original_request = policy.github_request
+        try:
+            policy.latest_check_runs = lambda owner, repo, head_sha, token: {
+                "Gate": {
+                    "status": "completed",
+                    "conclusion": "success",
+                    "app": {"slug": "github-actions"},
+                    "details_url": "https://github.com/block/proto-fleet/actions/runs/123/job/456",
+                },
+            }
+            policy.latest_commit_statuses = lambda owner, repo, head_sha, token: {}
+            policy.github_request = lambda method, path, token, body=None: {
+                "path": ".github/workflows/attacker.yml",
+                "head_sha": "abc123",
+                "event": "pull_request",
+            }
+            ok, blockers = policy.check_statuses(
+                "block",
+                "proto-fleet",
+                "abc123",
+                [
+                    {
+                        "name": "Gate",
+                        "type": "github_actions",
+                        "workflow_path": ".github/workflows/pr-gate.yml",
+                        "event": "pull_request",
+                    }
+                ],
+                "token",
+            )
+        finally:
+            policy.latest_check_runs = original
+            policy.latest_commit_statuses = original_statuses
+            policy.github_request = original_request
+
+        self.assertFalse(ok)
+        self.assertIn(
+            "required check 'Gate' workflow path is '.github/workflows/attacker.yml', expected '.github/workflows/pr-gate.yml'",
+            blockers,
+        )
+
+    def test_check_statuses_requires_successful_workflow_run(self):
+        original = policy.latest_check_runs
+        original_statuses = policy.latest_commit_statuses
+        original_workflow_runs = policy.latest_workflow_runs
+        try:
+            policy.latest_check_runs = lambda owner, repo, head_sha, token: {}
+            policy.latest_commit_statuses = lambda owner, repo, head_sha, token: {}
+            policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
+                ".github/workflows/pr-gate.yml": {
+                    "name": "Attacker Gate",
+                    "status": "completed",
+                    "conclusion": "success",
+                },
+            }
+            ok, blockers = policy.check_statuses(
+                "block",
+                "proto-fleet",
+                "abc123",
+                [
+                    {
+                        "name": "PR Gate",
+                        "type": "github_actions_workflow",
+                        "workflow_path": ".github/workflows/pr-gate.yml",
+                        "workflow_name": "PR Gate",
+                        "event": "pull_request",
+                    }
+                ],
+                "token",
+            )
+        finally:
+            policy.latest_check_runs = original
+            policy.latest_commit_statuses = original_statuses
+            policy.latest_workflow_runs = original_workflow_runs
+
+        self.assertFalse(ok)
+        self.assertIn("required workflow 'PR Gate' name is 'Attacker Gate', expected 'PR Gate'", blockers)
+
+    def test_latest_workflow_runs_tie_breaks_on_id(self):
+        original = policy.github_paginate_key
+        try:
+            policy.github_paginate_key = lambda path, token, key: [
+                {
+                    "path": ".github/workflows/pr-gate.yml",
+                    "head_sha": "abc123",
+                    "event": "pull_request",
+                    "run_started_at": "2026-01-01T00:00:00Z",
+                    "id": 1,
+                    "conclusion": "failure",
+                },
+                {
+                    "path": ".github/workflows/pr-gate.yml",
+                    "head_sha": "abc123",
+                    "event": "pull_request",
+                    "run_started_at": "2026-01-01T00:00:00Z",
+                    "id": 2,
+                    "conclusion": "success",
+                },
+                {
+                    "path": ".github/workflows/pr-gate.yml",
+                    "head_sha": "def456",
+                    "event": "pull_request",
+                    "run_started_at": "2026-01-02T00:00:00Z",
+                    "id": 3,
+                    "conclusion": "success",
+                },
+            ]
+            latest = policy.latest_workflow_runs("block", "proto-fleet", "abc123", "pull_request", "token")
+        finally:
+            policy.github_paginate_key = original
+
+        self.assertEqual(latest[".github/workflows/pr-gate.yml"]["id"], 2)
+
+    def test_check_statuses_requires_trusted_sources_in_config(self):
+        original = policy.latest_check_runs
+        original_statuses = policy.latest_commit_statuses
+        try:
+            policy.latest_check_runs = lambda owner, repo, head_sha, token: {
+                "DCO Check": {"status": "completed", "conclusion": "success", "app": {"slug": "block-dco-check"}},
+            }
+            policy.latest_commit_statuses = lambda owner, repo, head_sha, token: {
+                "Legacy": {"state": "success", "creator": {"login": "trusted-bot"}},
+            }
+            ok, blockers = policy.check_statuses(
+                "block",
+                "proto-fleet",
+                "abc123",
+                [
+                    "Gate",
+                    {"name": "DCO Check", "type": "check_run"},
+                    {"name": "security-review", "type": "github_actions", "event": "pull_request"},
+                    {
+                        "name": "PR Gate",
+                        "type": "github_actions_workflow",
+                        "workflow_path": ".github/workflows/pr-gate.yml",
+                    },
+                    {"name": "Legacy", "type": "commit_status"},
+                ],
+                "token",
+            )
+        finally:
+            policy.latest_check_runs = original
+            policy.latest_commit_statuses = original_statuses
+
+        self.assertFalse(ok)
+        self.assertIn("required check 'Gate' uses legacy unvalidated config", blockers)
+        self.assertIn("required check 'DCO Check' is missing trusted app_slug", blockers)
+        self.assertIn("required check 'security-review' is missing trusted workflow_path", blockers)
+        self.assertIn("required workflow 'PR Gate' is missing trusted event", blockers)
+        self.assertIn("required status 'Legacy' is missing trusted creator", blockers)
 
     def test_latest_commit_statuses_tie_breaks_on_id(self):
         original = policy.github_paginate

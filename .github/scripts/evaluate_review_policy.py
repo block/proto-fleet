@@ -456,26 +456,164 @@ def latest_check_runs(owner: str, repo: str, head_sha: str, token: str) -> dict[
     return latest_by_name
 
 
-def check_statuses(owner: str, repo: str, head_sha: str, required_checks: list[str], token: str) -> tuple[bool, list[str]]:
+def check_statuses(owner: str, repo: str, head_sha: str, required_checks: list[Any], token: str) -> tuple[bool, list[str]]:
     latest_by_name = latest_check_runs(owner, repo, head_sha, token)
     latest_by_context = latest_commit_statuses(owner, repo, head_sha, token)
     blockers: list[str] = []
-    for name in required_checks:
-        run = latest_by_name.get(name)
-        status_context = latest_by_context.get(name)
-        if run is None and status_context is None:
-            blockers.append(f"required check {name!r} is missing")
+    for requirement in required_checks:
+        if isinstance(requirement, str):
+            blockers.append(f"required check {requirement!r} uses legacy unvalidated config")
             continue
-        if run is not None:
-            status = run.get("status")
-            conclusion = run.get("conclusion")
-            if status != "completed" or conclusion != "success":
-                blockers.append(f"required check {name!r} is {status}/{conclusion}")
-        if status_context is not None:
-            state = status_context.get("state")
-            if state != "success":
-                blockers.append(f"required status {name!r} is {state}")
+        if not isinstance(requirement, dict):
+            blockers.append(f"required check config is invalid: {requirement!r}")
+            continue
+
+        name = requirement.get("name")
+        kind = requirement.get("type")
+        if not isinstance(name, str) or not name:
+            blockers.append(f"required check config is missing a valid name: {requirement!r}")
+            continue
+        if kind == "github_actions":
+            blocker = github_actions_check_blocker(owner, repo, head_sha, latest_by_name.get(name), requirement, token)
+            if blocker:
+                blockers.append(blocker)
+        elif kind == "github_actions_workflow":
+            blocker = github_actions_workflow_blocker(owner, repo, head_sha, requirement, token)
+            if blocker:
+                blockers.append(blocker)
+        elif kind == "check_run":
+            blocker = check_run_blocker(latest_by_name.get(name), requirement)
+            if blocker:
+                blockers.append(blocker)
+        elif kind == "commit_status":
+            blocker = commit_status_blocker(latest_by_context.get(name), requirement)
+            if blocker:
+                blockers.append(blocker)
+        else:
+            blockers.append(f"required check {name!r} has unsupported type {kind!r}")
     return not blockers, blockers
+
+
+def check_run_blocker(run: dict[str, Any] | None, requirement: dict[str, Any]) -> str | None:
+    name = str(requirement["name"])
+    expected_app_slug = requirement.get("app_slug")
+    if not isinstance(expected_app_slug, str) or not expected_app_slug:
+        return f"required check {name!r} is missing trusted app_slug"
+    if run is None:
+        return f"required check {name!r} is missing"
+    app = run.get("app") or {}
+    if app.get("slug") != expected_app_slug:
+        return f"required check {name!r} app is {app.get('slug')!r}, expected {expected_app_slug!r}"
+    status = run.get("status")
+    conclusion = run.get("conclusion")
+    if status != "completed" or conclusion != "success":
+        return f"required check {name!r} is {status}/{conclusion}"
+    return None
+
+
+def github_actions_check_blocker(
+    owner: str,
+    repo: str,
+    head_sha: str,
+    run: dict[str, Any] | None,
+    requirement: dict[str, Any],
+    token: str,
+) -> str | None:
+    name = str(requirement["name"])
+    expected_path = requirement.get("workflow_path")
+    if not isinstance(expected_path, str) or not expected_path:
+        return f"required check {name!r} is missing trusted workflow_path"
+    expected_event = requirement.get("event")
+    if not isinstance(expected_event, str) or not expected_event:
+        return f"required check {name!r} is missing trusted event"
+
+    base_blocker = check_run_blocker(run, {**requirement, "app_slug": "github-actions"})
+    if base_blocker:
+        return base_blocker
+
+    run_id = extract_run_id(run.get("details_url") or run.get("html_url"))
+    if not run_id:
+        return f"required check {name!r} workflow run id was not found"
+
+    workflow_run = github_request("GET", f"/repos/{owner}/{repo}/actions/runs/{run_id}", token)
+    if workflow_run.get("path") != expected_path:
+        return f"required check {name!r} workflow path is {workflow_run.get('path')!r}, expected {expected_path!r}"
+    if workflow_run.get("head_sha") != head_sha:
+        return f"required check {name!r} workflow run is stale for this PR head"
+    if workflow_run.get("event") != expected_event:
+        return f"required check {name!r} workflow event is {workflow_run.get('event')!r}, expected {expected_event!r}"
+    return None
+
+
+def github_actions_workflow_blocker(
+    owner: str,
+    repo: str,
+    head_sha: str,
+    requirement: dict[str, Any],
+    token: str,
+) -> str | None:
+    name = str(requirement["name"])
+    expected_path = requirement.get("workflow_path")
+    if not isinstance(expected_path, str) or not expected_path:
+        return f"required workflow {name!r} is missing trusted workflow_path"
+    expected_event = requirement.get("event")
+    if not isinstance(expected_event, str) or not expected_event:
+        return f"required workflow {name!r} is missing trusted event"
+    expected_name = requirement.get("workflow_name")
+    if not isinstance(expected_name, str) or not expected_name:
+        return f"required workflow {name!r} is missing trusted workflow_name"
+
+    workflow_run = latest_workflow_runs(owner, repo, head_sha, expected_event, token).get(expected_path)
+    if workflow_run is None:
+        return f"required workflow {name!r} is missing"
+    if workflow_run.get("name") != expected_name:
+        return f"required workflow {name!r} name is {workflow_run.get('name')!r}, expected {expected_name!r}"
+    status = workflow_run.get("status")
+    conclusion = workflow_run.get("conclusion")
+    if status != "completed" or conclusion != "success":
+        return f"required workflow {name!r} is {status}/{conclusion}"
+    return None
+
+
+def commit_status_blocker(status_context: dict[str, Any] | None, requirement: dict[str, Any]) -> str | None:
+    name = str(requirement["name"])
+    expected_creator = requirement.get("creator")
+    if not isinstance(expected_creator, str) or not expected_creator:
+        return f"required status {name!r} is missing trusted creator"
+    if status_context is None:
+        return f"required check {name!r} is missing"
+    state = status_context.get("state")
+    if state != "success":
+        return f"required status {name!r} is {state}"
+    creator = status_context.get("creator") or {}
+    if creator.get("login") != expected_creator:
+        return f"required status {name!r} creator is {creator.get('login')!r}, expected {expected_creator!r}"
+    return None
+
+
+def latest_workflow_runs(
+    owner: str, repo: str, head_sha: str, event: str | None, token: str
+) -> dict[str, dict[str, Any]]:
+    params = {"head_sha": head_sha}
+    if event:
+        params["event"] = event
+    query = urllib.parse.urlencode(params)
+    runs = github_paginate_key(f"/repos/{owner}/{repo}/actions/runs?{query}", token, "workflow_runs")
+    latest_by_path: dict[str, dict[str, Any]] = {}
+    for run in runs:
+        if run.get("head_sha") != head_sha:
+            continue
+        if event and run.get("event") != event:
+            continue
+        path = run.get("path")
+        if not path:
+            continue
+        current = latest_by_path.get(path)
+        run_key = (str(run.get("run_started_at") or ""), int(run.get("id", 0) or 0))
+        current_key = (str(current.get("run_started_at") or ""), int(current.get("id", 0) or 0)) if current else ("", 0)
+        if current is None or run_key > current_key:
+            latest_by_path[path] = run
+    return latest_by_path
 
 
 def latest_commit_statuses(owner: str, repo: str, head_sha: str, token: str) -> dict[str, dict[str, Any]]:
