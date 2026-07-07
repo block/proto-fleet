@@ -972,7 +972,7 @@ provision_grafana_db_role() {
     # parses regardless of what openssl rand produced.
     pw_escaped="${grafana_pass//\'/\'\'}"
 
-    # fleet_slow_statements() is SECURITY DEFINER (migration 000113), so the
+    # fleet_slow_statements() is SECURITY DEFINER (migration 000114), so the
     # Grafana role reads this database's normalized statement stats without
     # pg_read_all_stats (which would also expose cluster-wide query text).
     # The reuse path's REVOKE-ALL-ON-ALL-FUNCTIONS wipes the grant each run;
