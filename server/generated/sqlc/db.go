@@ -591,6 +591,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getLatestDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestDeviceMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query GetLatestDeviceMetrics: %w", err)
 	}
+	if q.getLatestFleetMetricRollupBucketStmt, err = db.PrepareContext(ctx, getLatestFleetMetricRollupBucket); err != nil {
+		return nil, fmt.Errorf("error preparing query GetLatestFleetMetricRollupBucket: %w", err)
+	}
 	if q.getMQTTSourceConfigByOrgStmt, err = db.PrepareContext(ctx, getMQTTSourceConfigByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMQTTSourceConfigByOrg: %w", err)
 	}
@@ -629,6 +632,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getOpenErrorByDedupKeyStmt, err = db.PrepareContext(ctx, getOpenErrorByDedupKey); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOpenErrorByDedupKey: %w", err)
+	}
+	if q.getOrgFleetMetricRollupsStmt, err = db.PrepareContext(ctx, getOrgFleetMetricRollups); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrgFleetMetricRollups: %w", err)
 	}
 	if q.getOrgScopeAssignmentForUserStmt, err = db.PrepareContext(ctx, getOrgScopeAssignmentForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgScopeAssignmentForUser: %w", err)
@@ -716,6 +722,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getSiteBySlugStmt, err = db.PrepareContext(ctx, getSiteBySlug); err != nil {
 		return nil, fmt.Errorf("error preparing query GetSiteBySlug: %w", err)
+	}
+	if q.getSiteFleetMetricRollupsStmt, err = db.PrepareContext(ctx, getSiteFleetMetricRollups); err != nil {
+		return nil, fmt.Errorf("error preparing query GetSiteFleetMetricRollups: %w", err)
 	}
 	if q.getTotalDevicesPendingAuthStmt, err = db.PrepareContext(ctx, getTotalDevicesPendingAuth); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalDevicesPendingAuth: %w", err)
@@ -1403,6 +1412,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertDiscoveredDeviceFromFleetNodeStmt, err = db.PrepareContext(ctx, upsertDiscoveredDeviceFromFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertDiscoveredDeviceFromFleetNode: %w", err)
+	}
+	if q.upsertFleetMetricRollupsStmt, err = db.PrepareContext(ctx, upsertFleetMetricRollups); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertFleetMetricRollups: %w", err)
 	}
 	if q.upsertFleetNodeAuthChallengeStmt, err = db.PrepareContext(ctx, upsertFleetNodeAuthChallenge); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertFleetNodeAuthChallenge: %w", err)
@@ -2369,6 +2381,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getLatestDeviceMetricsStmt: %w", cerr)
 		}
 	}
+	if q.getLatestFleetMetricRollupBucketStmt != nil {
+		if cerr := q.getLatestFleetMetricRollupBucketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getLatestFleetMetricRollupBucketStmt: %w", cerr)
+		}
+	}
 	if q.getMQTTSourceConfigByOrgStmt != nil {
 		if cerr := q.getMQTTSourceConfigByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMQTTSourceConfigByOrgStmt: %w", cerr)
@@ -2432,6 +2449,11 @@ func (q *Queries) Close() error {
 	if q.getOpenErrorByDedupKeyStmt != nil {
 		if cerr := q.getOpenErrorByDedupKeyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOpenErrorByDedupKeyStmt: %w", cerr)
+		}
+	}
+	if q.getOrgFleetMetricRollupsStmt != nil {
+		if cerr := q.getOrgFleetMetricRollupsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrgFleetMetricRollupsStmt: %w", cerr)
 		}
 	}
 	if q.getOrgScopeAssignmentForUserStmt != nil {
@@ -2577,6 +2599,11 @@ func (q *Queries) Close() error {
 	if q.getSiteBySlugStmt != nil {
 		if cerr := q.getSiteBySlugStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getSiteBySlugStmt: %w", cerr)
+		}
+	}
+	if q.getSiteFleetMetricRollupsStmt != nil {
+		if cerr := q.getSiteFleetMetricRollupsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getSiteFleetMetricRollupsStmt: %w", cerr)
 		}
 	}
 	if q.getTotalDevicesPendingAuthStmt != nil {
@@ -3724,6 +3751,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertDiscoveredDeviceFromFleetNodeStmt: %w", cerr)
 		}
 	}
+	if q.upsertFleetMetricRollupsStmt != nil {
+		if cerr := q.upsertFleetMetricRollupsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertFleetMetricRollupsStmt: %w", cerr)
+		}
+	}
 	if q.upsertFleetNodeAuthChallengeStmt != nil {
 		if cerr := q.upsertFleetNodeAuthChallengeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertFleetNodeAuthChallengeStmt: %w", cerr)
@@ -3977,6 +4009,7 @@ type Queries struct {
 	getKnownSubnetsStmt                                        *sql.Stmt
 	getLatestAllDeviceMetricsStmt                              *sql.Stmt
 	getLatestDeviceMetricsStmt                                 *sql.Stmt
+	getLatestFleetMetricRollupBucketStmt                       *sql.Stmt
 	getMQTTSourceConfigByOrgStmt                               *sql.Stmt
 	getMQTTSourceStateByIDStmt                                 *sql.Stmt
 	getMaxPriorityStmt                                         *sql.Stmt
@@ -3990,6 +4023,7 @@ type Queries struct {
 	getMinerStateSnapshotsStmt                                 *sql.Stmt
 	getOfflineDevicesStmt                                      *sql.Stmt
 	getOpenErrorByDedupKeyStmt                                 *sql.Stmt
+	getOrgFleetMetricRollupsStmt                               *sql.Stmt
 	getOrgScopeAssignmentForUserStmt                           *sql.Stmt
 	getOrganizationByIDStmt                                    *sql.Stmt
 	getOrganizationByNameStmt                                  *sql.Stmt
@@ -4019,6 +4053,7 @@ type Queries struct {
 	getSessionByIDStmt                                         *sql.Stmt
 	getSiteStmt                                                *sql.Stmt
 	getSiteBySlugStmt                                          *sql.Stmt
+	getSiteFleetMetricRollupsStmt                              *sql.Stmt
 	getTotalDevicesPendingAuthStmt                             *sql.Stmt
 	getTotalMinerStateSnapshotsStmt                            *sql.Stmt
 	getTotalPairedDevicesStmt                                  *sql.Stmt
@@ -4248,6 +4283,7 @@ type Queries struct {
 	upsertDeviceStatusStmt                                     *sql.Stmt
 	upsertDiscoveredDeviceStmt                                 *sql.Stmt
 	upsertDiscoveredDeviceFromFleetNodeStmt                    *sql.Stmt
+	upsertFleetMetricRollupsStmt                               *sql.Stmt
 	upsertFleetNodeAuthChallengeStmt                           *sql.Stmt
 	upsertFleetNodeSessionStmt                                 *sql.Stmt
 	upsertMQTTSourceStateStmt                                  *sql.Stmt
@@ -4448,6 +4484,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getKnownSubnetsStmt:                                        q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                              q.getLatestAllDeviceMetricsStmt,
 		getLatestDeviceMetricsStmt:                                 q.getLatestDeviceMetricsStmt,
+		getLatestFleetMetricRollupBucketStmt:                       q.getLatestFleetMetricRollupBucketStmt,
 		getMQTTSourceConfigByOrgStmt:                               q.getMQTTSourceConfigByOrgStmt,
 		getMQTTSourceStateByIDStmt:                                 q.getMQTTSourceStateByIDStmt,
 		getMaxPriorityStmt:                                         q.getMaxPriorityStmt,
@@ -4461,6 +4498,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMinerStateSnapshotsStmt:                                 q.getMinerStateSnapshotsStmt,
 		getOfflineDevicesStmt:                                      q.getOfflineDevicesStmt,
 		getOpenErrorByDedupKeyStmt:                                 q.getOpenErrorByDedupKeyStmt,
+		getOrgFleetMetricRollupsStmt:                               q.getOrgFleetMetricRollupsStmt,
 		getOrgScopeAssignmentForUserStmt:                           q.getOrgScopeAssignmentForUserStmt,
 		getOrganizationByIDStmt:                                    q.getOrganizationByIDStmt,
 		getOrganizationByNameStmt:                                  q.getOrganizationByNameStmt,
@@ -4490,6 +4528,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getSessionByIDStmt:                                         q.getSessionByIDStmt,
 		getSiteStmt:                                                q.getSiteStmt,
 		getSiteBySlugStmt:                                          q.getSiteBySlugStmt,
+		getSiteFleetMetricRollupsStmt:                              q.getSiteFleetMetricRollupsStmt,
 		getTotalDevicesPendingAuthStmt:                             q.getTotalDevicesPendingAuthStmt,
 		getTotalMinerStateSnapshotsStmt:                            q.getTotalMinerStateSnapshotsStmt,
 		getTotalPairedDevicesStmt:                                  q.getTotalPairedDevicesStmt,
@@ -4719,6 +4758,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertDeviceStatusStmt:                                     q.upsertDeviceStatusStmt,
 		upsertDiscoveredDeviceStmt:                                 q.upsertDiscoveredDeviceStmt,
 		upsertDiscoveredDeviceFromFleetNodeStmt:                    q.upsertDiscoveredDeviceFromFleetNodeStmt,
+		upsertFleetMetricRollupsStmt:                               q.upsertFleetMetricRollupsStmt,
 		upsertFleetNodeAuthChallengeStmt:                           q.upsertFleetNodeAuthChallengeStmt,
 		upsertFleetNodeSessionStmt:                                 q.upsertFleetNodeSessionStmt,
 		upsertMQTTSourceStateStmt:                                  q.upsertMQTTSourceStateStmt,

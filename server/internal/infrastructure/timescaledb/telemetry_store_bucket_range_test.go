@@ -138,6 +138,94 @@ func TestRawMetricBucketDuration_PreservesFractionalSeconds(t *testing.T) {
 	assert.Equal(t, slideInterval, got)
 }
 
+func TestFleetMetricRollupEligible(t *testing.T) {
+	start := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+	end := start.Add(time.Hour)
+
+	tests := []struct {
+		name           string
+		query          models.CombinedMetricsQuery
+		bucketDuration time.Duration
+		end            time.Time
+		want           bool
+	}{
+		{
+			name:           "org all-devices dashboard query uses rollup",
+			query:          models.CombinedMetricsQuery{OrganizationID: 42},
+			bucketDuration: models.FleetMetricRollupBucketDuration,
+			end:            end,
+			want:           true,
+		},
+		{
+			name: "site scope resolved by service uses rollup",
+			query: models.CombinedMetricsQuery{
+				OrganizationID:          42,
+				DeviceIDs:               []models.DeviceIdentifier{"device-a", "device-b"},
+				SiteIDs:                 []int64{7},
+				DeviceListFromSiteScope: true,
+			},
+			bucketDuration: models.FleetMetricRollupBucketDuration,
+			end:            end,
+			want:           true,
+		},
+		{
+			name: "explicit device list stays raw",
+			query: models.CombinedMetricsQuery{
+				OrganizationID: 42,
+				DeviceIDs:      []models.DeviceIdentifier{"device-a"},
+			},
+			bucketDuration: models.FleetMetricRollupBucketDuration,
+			end:            end,
+			want:           false,
+		},
+		{
+			name:           "legacy no-org query stays raw",
+			query:          models.CombinedMetricsQuery{},
+			bucketDuration: models.FleetMetricRollupBucketDuration,
+			end:            end,
+			want:           false,
+		},
+		{
+			name:           "non-dashboard bucket stays raw",
+			query:          models.CombinedMetricsQuery{OrganizationID: 42},
+			bucketDuration: time.Minute,
+			end:            end,
+			want:           false,
+		},
+		{
+			name:           "longer than raw window stays on hourly or daily path",
+			query:          models.CombinedMetricsQuery{OrganizationID: 42},
+			bucketDuration: models.FleetMetricRollupBucketDuration,
+			end:            start.Add(fleetMetricRollupReadMaxDuration + time.Second),
+			want:           false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := fleetMetricRollupEligible(tt.query, start, tt.end, tt.bucketDuration)
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFleetMetricRollupWindows(t *testing.T) {
+	aligned := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+	end := aligned.Add(4*models.FleetMetricRollupBucketDuration - time.Nanosecond)
+
+	bodyStart, bodyEndExclusive, tailStart, ok := fleetMetricRollupWindows(aligned, end)
+
+	require.True(t, ok)
+	assert.Equal(t, aligned, bodyStart)
+	assert.Equal(t, aligned.Add(2*models.FleetMetricRollupBucketDuration), bodyEndExclusive)
+	assert.Equal(t, aligned.Add(2*models.FleetMetricRollupBucketDuration), tailStart)
+	assert.Equal(t, int64(2), fleetRollupBucketCountExclusive(bodyStart, bodyEndExclusive))
+
+	_, _, _, ok = fleetMetricRollupWindows(aligned, aligned.Add(2*models.FleetMetricRollupBucketDuration-time.Nanosecond))
+	assert.False(t, ok, "two-bucket windows are served entirely from raw tail")
+}
+
 func TestCompleteRawBucketWindow(t *testing.T) {
 	// Arrange: grid-aligned reference on the 90s time_bucket grid
 	aligned := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)

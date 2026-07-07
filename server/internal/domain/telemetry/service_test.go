@@ -4114,6 +4114,102 @@ func TestWriteFleetStateSnapshot(t *testing.T) {
 	})
 }
 
+func TestWriteFleetMetricRollups(t *testing.T) {
+	now := time.Date(2026, 7, 1, 12, 5, 17, 0, time.UTC)
+	end := models.TruncateToFleetRollupBucket(now).Add(-time.Duration(models.FleetMetricRollupRawTailBuckets) * models.FleetMetricRollupBucketDuration)
+	start := end.Add(-fleetRollupBackfillFloor)
+
+	t.Run("upserts the next bounded window", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+		mockDataStore.EXPECT().
+			GetLatestFleetMetricRollupBucket(gomock.Any()).
+			Return(start.Add(-models.FleetMetricRollupBucketDuration), nil)
+		mockDataStore.EXPECT().
+			UpsertFleetMetricRollups(gomock.Any(), start, start.Add(time.Duration(fleetRollupMaxBucketsPerTick)*models.FleetMetricRollupBucketDuration)).
+			Return(nil)
+
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, mockDataStore, nil, nil, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+		service.writeFleetMetricRollups(t.Context(), now)
+	})
+
+	t.Run("skips when latest lookup fails", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+		mockDataStore.EXPECT().
+			GetLatestFleetMetricRollupBucket(gomock.Any()).
+			Return(time.Time{}, errors.New("db down"))
+		mockDataStore.EXPECT().
+			UpsertFleetMetricRollups(gomock.Any(), gomock.Any(), gomock.Any()).
+			Times(0)
+
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, mockDataStore, nil, nil, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+		service.writeFleetMetricRollups(t.Context(), now)
+	})
+}
+
+func TestFleetMetricRollupWriteWindow(t *testing.T) {
+	now := time.Date(2026, 7, 1, 12, 5, 17, 0, time.UTC)
+	end := models.TruncateToFleetRollupBucket(now).Add(-time.Duration(models.FleetMetricRollupRawTailBuckets) * models.FleetMetricRollupBucketDuration)
+	floor := end.Add(-fleetRollupBackfillFloor)
+
+	tests := []struct {
+		name      string
+		latest    time.Time
+		wantStart time.Time
+		wantEnd   time.Time
+		wantOK    bool
+	}{
+		{
+			name:      "empty table starts at the six hour floor and writes one tick of buckets",
+			latest:    time.Unix(0, 0).UTC(),
+			wantStart: floor,
+			wantEnd:   floor.Add(time.Duration(fleetRollupMaxBucketsPerTick) * models.FleetMetricRollupBucketDuration),
+			wantOK:    true,
+		},
+		{
+			name:      "continues after latest bucket",
+			latest:    floor.Add(10 * models.FleetMetricRollupBucketDuration),
+			wantStart: floor.Add(11 * models.FleetMetricRollupBucketDuration),
+			wantEnd:   floor.Add(51 * models.FleetMetricRollupBucketDuration),
+			wantOK:    true,
+		},
+		{
+			name:      "writes a single remaining bucket",
+			latest:    end.Add(-2 * models.FleetMetricRollupBucketDuration),
+			wantStart: end.Add(-models.FleetMetricRollupBucketDuration),
+			wantEnd:   end,
+			wantOK:    true,
+		},
+		{
+			name:   "skips when the latest bucket reaches the safe end",
+			latest: end.Add(-models.FleetMetricRollupBucketDuration),
+			wantOK: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotStart, gotEnd, gotOK := fleetMetricRollupWriteWindow(now, tc.latest)
+
+			assert.Equal(t, tc.wantOK, gotOK)
+			if !tc.wantOK {
+				return
+			}
+			assert.Equal(t, tc.wantStart, gotStart)
+			assert.Equal(t, tc.wantEnd, gotEnd)
+		})
+	}
+}
+
 // combinedMetricsQueryAt builds a dashboard-like query (90s granularity)
 // whose end time lands endOffset past a fixed quantum-aligned base, with a
 // 24h duration. Offsets within the same 15s quantum must quantize (and
@@ -4235,6 +4331,13 @@ func TestCombinedMetricsFlightKey(t *testing.T) {
 			"aggregation type order splits the key",
 			func(q *models.CombinedMetricsQuery) {
 				q.AggregationTypes = []models.AggregationType{models.AggregationTypeMax, models.AggregationTypeAverage}
+			},
+			false,
+		},
+		{
+			"site-derived device list splits the key",
+			func(q *models.CombinedMetricsQuery) {
+				q.DeviceListFromSiteScope = true
 			},
 			false,
 		},

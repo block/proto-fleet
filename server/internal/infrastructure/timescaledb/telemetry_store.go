@@ -56,6 +56,10 @@ const (
 	maxRawUptimeFallbackRange = 2 * time.Hour
 	maxRawUptimeFallbackRows  = 600_000
 
+	// fleetMetricRollupReadMaxDuration keeps the new 90s dashboard rollup on
+	// the raw-window paths. Longer ranges already use hourly/daily aggregates.
+	fleetMetricRollupReadMaxDuration = rawDataMaxDuration
+
 	// Energy estimation constants.
 	// Each telemetry data point represents one polling interval of device uptime.
 	pollingIntervalSeconds = 10.0
@@ -654,7 +658,7 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 	if !hasCompleteBucket {
 		return models.CombinedMetric{}, nil
 	}
-	buckets, err := s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
+	buckets, err := s.bucketAggregatesPreferRollup(ctx, query, startTime, endTime, bucketDuration)
 	if err != nil {
 		return models.CombinedMetric{}, err
 	}
@@ -700,6 +704,115 @@ func (s *TimescaleTelemetryStore) rawBucketAggregates(ctx context.Context, query
 	buckets := make([]rawMetricBucket, 0, len(rows))
 	for _, row := range rows {
 		buckets = append(buckets, rawMetricBucketFromDevices(row))
+	}
+	return buckets, nil
+}
+
+// bucketAggregatesPreferRollup serves dashboard-shaped org/site fleet requests
+// from the app-maintained 90s rollup, plus the two newest complete buckets
+// from raw telemetry. Explicit device-list queries keep the raw path because
+// the rollup is intentionally org/site scoped.
+func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) ([]rawMetricBucket, error) {
+	if !fleetMetricRollupEligible(query, startTime, endTime, bucketDuration) {
+		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
+	}
+
+	bodyStart, bodyEndExclusive, tailStart, ok := fleetMetricRollupWindows(startTime, endTime)
+	if !ok {
+		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
+	}
+
+	body, err := s.readFleetMetricRollupBuckets(ctx, query, bodyStart, bodyEndExclusive)
+	if err != nil {
+		s.logger.Warn("fleet metric rollup read failed, falling back to raw",
+			slog.Int64("org_id", query.OrganizationID),
+			slog.Bool("site_scoped", query.DeviceListFromSiteScope),
+			slog.Time("start_time", bodyStart),
+			slog.Time("end_time", bodyEndExclusive),
+			slog.String("error", err.Error()))
+		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
+	}
+
+	if expected := fleetRollupBucketCountExclusive(bodyStart, bodyEndExclusive); int64(len(body)) != expected {
+		s.logger.Warn("fleet metric rollup coverage incomplete, falling back to raw",
+			slog.Int64("org_id", query.OrganizationID),
+			slog.Bool("site_scoped", query.DeviceListFromSiteScope),
+			slog.Time("start_time", bodyStart),
+			slog.Time("end_time", bodyEndExclusive),
+			slog.Int64("expected_buckets", expected),
+			slog.Int("actual_buckets", len(body)))
+		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
+	}
+
+	tail, err := s.rawBucketAggregates(ctx, query, tailStart, endTime, bucketDuration)
+	if err != nil {
+		return nil, err
+	}
+	return append(body, tail...), nil
+}
+
+func fleetMetricRollupEligible(query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) bool {
+	if query.OrganizationID == 0 {
+		return false
+	}
+	if bucketDuration != models.FleetMetricRollupBucketDuration {
+		return false
+	}
+	if endTime.Sub(startTime) > fleetMetricRollupReadMaxDuration {
+		return false
+	}
+	return len(query.DeviceIDs) == 0 || query.DeviceListFromSiteScope
+}
+
+func fleetMetricRollupWindows(startTime, endTime time.Time) (bodyStart, bodyEndExclusive, tailStart time.Time, ok bool) {
+	lastBucketStart := models.TruncateToFleetRollupBucket(endTime)
+	tailStart = lastBucketStart.Add(-time.Duration(models.FleetMetricRollupRawTailBuckets-1) * models.FleetMetricRollupBucketDuration)
+	if !tailStart.After(startTime) {
+		return time.Time{}, time.Time{}, time.Time{}, false
+	}
+	return startTime, tailStart, tailStart, true
+}
+
+func fleetRollupBucketCountExclusive(startTime, endTime time.Time) int64 {
+	if !endTime.After(startTime) {
+		return 0
+	}
+	width := models.FleetMetricRollupBucketDuration.Nanoseconds()
+	firstBucket := floorDiv(startTime.Sub(timeBucketOrigin).Nanoseconds(), width)
+	endBucket := floorDiv(endTime.Sub(timeBucketOrigin).Nanoseconds(), width)
+	return endBucket - firstBucket
+}
+
+func (s *TimescaleTelemetryStore) readFleetMetricRollupBuckets(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) ([]rawMetricBucket, error) {
+	if query.DeviceListFromSiteScope {
+		rows, err := s.queries.GetSiteFleetMetricRollups(ctx, sqlc.GetSiteFleetMetricRollupsParams{
+			OrgID:             query.OrganizationID,
+			StartTime:         startTime,
+			EndTime:           endTime,
+			SiteIds:           query.SiteIDs,
+			IncludeUnassigned: query.IncludeUnassigned,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("query site fleet metric rollups: %w", err)
+		}
+		buckets := make([]rawMetricBucket, 0, len(rows))
+		for _, row := range rows {
+			buckets = append(buckets, rawMetricBucketFromSiteRollup(row))
+		}
+		return buckets, nil
+	}
+
+	rows, err := s.queries.GetOrgFleetMetricRollups(ctx, sqlc.GetOrgFleetMetricRollupsParams{
+		OrgID:     query.OrganizationID,
+		StartTime: startTime,
+		EndTime:   endTime,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query org fleet metric rollups: %w", err)
+	}
+	buckets := make([]rawMetricBucket, 0, len(rows))
+	for _, row := range rows {
+		buckets = append(buckets, rawMetricBucketFromOrgRollup(row))
 	}
 	return buckets, nil
 }
@@ -800,7 +913,7 @@ func (s *TimescaleTelemetryStore) appendHourlyRawTail(ctx context.Context, query
 	if !hasCompleteBucket {
 		return nil
 	}
-	buckets, err := s.rawBucketAggregates(ctx, query, tailStart, alignedEnd, bucketDuration)
+	buckets, err := s.bucketAggregatesPreferRollup(ctx, query, tailStart, alignedEnd, bucketDuration)
 	if err != nil {
 		return fmt.Errorf("failed to query raw tail for hourly combined metrics: %w", err)
 	}
@@ -1460,6 +1573,82 @@ func rawMetricBucketFromDevices(row sqlc.GetDeviceMetricsRawBucketAggregatesRow)
 	}
 }
 
+func rawMetricBucketFromOrgRollup(row sqlc.GetOrgFleetMetricRollupsRow) rawMetricBucket {
+	return rawMetricBucket{
+		bucket:                row.Bucket,
+		avgHashRate:           row.AvgHashRate,
+		minHashRate:           row.MinHashRate,
+		maxHashRate:           row.MaxHashRate,
+		latestHashRate:        row.LatestHashRate,
+		hashRateDeviceCount:   row.HashRateDeviceCount,
+		avgTemp:               row.AvgTemp,
+		minTemp:               row.MinTemp,
+		maxTemp:               row.MaxTemp,
+		sumTemp:               row.SumTemp,
+		tempPoints:            row.TempPoints,
+		tempDeviceCount:       row.TempDeviceCount,
+		tempColdCount:         row.TempColdCount,
+		tempOkCount:           row.TempOkCount,
+		tempHotCount:          row.TempHotCount,
+		tempCriticalCount:     row.TempCriticalCount,
+		avgFanRpm:             row.AvgFanRpm,
+		minFanRpm:             row.MinFanRpm,
+		maxFanRpm:             row.MaxFanRpm,
+		sumFanRpm:             row.SumFanRpm,
+		fanRpmPoints:          row.FanRpmPoints,
+		fanRpmDeviceCount:     row.FanRpmDeviceCount,
+		avgPower:              row.AvgPower,
+		minPower:              row.MinPower,
+		maxPower:              row.MaxPower,
+		latestPower:           row.LatestPower,
+		powerDeviceCount:      row.PowerDeviceCount,
+		avgEfficiency:         row.AvgEfficiency,
+		minEfficiency:         row.MinEfficiency,
+		maxEfficiency:         row.MaxEfficiency,
+		sumEfficiency:         row.SumEfficiency,
+		efficiencyPoints:      row.EfficiencyPoints,
+		efficiencyDeviceCount: row.EfficiencyDeviceCount,
+	}
+}
+
+func rawMetricBucketFromSiteRollup(row sqlc.GetSiteFleetMetricRollupsRow) rawMetricBucket {
+	return rawMetricBucket{
+		bucket:                row.Bucket,
+		avgHashRate:           row.AvgHashRate,
+		minHashRate:           row.MinHashRate,
+		maxHashRate:           row.MaxHashRate,
+		latestHashRate:        row.LatestHashRate,
+		hashRateDeviceCount:   row.HashRateDeviceCount,
+		avgTemp:               row.AvgTemp,
+		minTemp:               row.MinTemp,
+		maxTemp:               row.MaxTemp,
+		sumTemp:               row.SumTemp,
+		tempPoints:            row.TempPoints,
+		tempDeviceCount:       row.TempDeviceCount,
+		tempColdCount:         row.TempColdCount,
+		tempOkCount:           row.TempOkCount,
+		tempHotCount:          row.TempHotCount,
+		tempCriticalCount:     row.TempCriticalCount,
+		avgFanRpm:             row.AvgFanRpm,
+		minFanRpm:             row.MinFanRpm,
+		maxFanRpm:             row.MaxFanRpm,
+		sumFanRpm:             row.SumFanRpm,
+		fanRpmPoints:          row.FanRpmPoints,
+		fanRpmDeviceCount:     row.FanRpmDeviceCount,
+		avgPower:              row.AvgPower,
+		minPower:              row.MinPower,
+		maxPower:              row.MaxPower,
+		latestPower:           row.LatestPower,
+		powerDeviceCount:      row.PowerDeviceCount,
+		avgEfficiency:         row.AvgEfficiency,
+		minEfficiency:         row.MinEfficiency,
+		maxEfficiency:         row.MaxEfficiency,
+		sumEfficiency:         row.SumEfficiency,
+		efficiencyPoints:      row.EfficiencyPoints,
+		efficiencyDeviceCount: row.EfficiencyDeviceCount,
+	}
+}
+
 type rawMetricValues struct {
 	avg         float64
 	min         float64
@@ -1618,6 +1807,30 @@ func (s *TimescaleTelemetryStore) InsertMinerStateSnapshot(ctx context.Context, 
 		return fmt.Errorf("insert miner state snapshot: %w", err)
 	}
 	return nil
+}
+
+func (s *TimescaleTelemetryStore) UpsertFleetMetricRollups(ctx context.Context, startTime, endTime time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, s.config.WriteTimeout)
+	defer cancel()
+
+	if err := s.queries.UpsertFleetMetricRollups(ctx, sqlc.UpsertFleetMetricRollupsParams{
+		StartTime: startTime,
+		EndTime:   endTime,
+	}); err != nil {
+		return fmt.Errorf("upsert fleet metric rollups: %w", err)
+	}
+	return nil
+}
+
+func (s *TimescaleTelemetryStore) GetLatestFleetMetricRollupBucket(ctx context.Context) (time.Time, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	bucket, err := s.queries.GetLatestFleetMetricRollupBucket(ctx)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("get latest fleet metric rollup bucket: %w", err)
+	}
+	return bucket, nil
 }
 
 func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromDeviceRollups(

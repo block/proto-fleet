@@ -821,6 +821,41 @@ type Error struct {
 	SiteID            sql.NullInt64
 }
 
+type FleetMetricRollup90 struct {
+	Bucket                time.Time
+	OrgID                 int64
+	SiteID                int64
+	AvgHashRate           sql.NullFloat64
+	MinHashRate           sql.NullFloat64
+	MaxHashRate           sql.NullFloat64
+	LatestHashRate        sql.NullFloat64
+	HashRateDeviceCount   int64
+	MinTemp               sql.NullFloat64
+	MaxTemp               sql.NullFloat64
+	SumTemp               sql.NullFloat64
+	TempPoints            int64
+	TempDeviceCount       int64
+	TempColdCount         int32
+	TempOkCount           int32
+	TempHotCount          int32
+	TempCriticalCount     int32
+	MinFanRpm             sql.NullFloat64
+	MaxFanRpm             sql.NullFloat64
+	SumFanRpm             sql.NullFloat64
+	FanRpmPoints          int64
+	FanRpmDeviceCount     int64
+	AvgPower              sql.NullFloat64
+	MinPower              sql.NullFloat64
+	MaxPower              sql.NullFloat64
+	LatestPower           sql.NullFloat64
+	PowerDeviceCount      int64
+	MinEfficiency         sql.NullFloat64
+	MaxEfficiency         sql.NullFloat64
+	SumEfficiency         sql.NullFloat64
+	EfficiencyPoints      int64
+	EfficiencyDeviceCount int64
+}
+
 type FleetNode struct {
 	ID               int64
 	OrgID            int64
