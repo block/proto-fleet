@@ -94,6 +94,11 @@ class ReviewPolicyTest(unittest.TestCase):
                 "deletions": 0,
                 "patch": "@@\n+console.log('boring')",
             },
+            {
+                "filename": "client/src/opaque.bin",
+                "additions": 0,
+                "deletions": 0,
+            },
         ]
         blockers = policy.deterministic_content_blockers(
             files,
@@ -110,7 +115,8 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertIn("client/src/foo.ts has 81 changed lines, exceeds per-file limit 80", blockers)
         self.assertIn("client/src/foo.ts adds blocked content: adds process execution or shell-out code", blockers)
-        self.assertEqual(len(blockers), 2)
+        self.assertIn("client/src/opaque.bin diff content is unavailable for deterministic content checks", blockers)
+        self.assertEqual(len(blockers), 3)
 
     def test_low_risk_preflight_blocks_before_classifier(self):
         original_paginate = policy.github_paginate
@@ -592,6 +598,60 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertIsNone(risk)
         self.assertIn("Codex security-review result artifact is stale for this PR base/head range", blockers)
+
+    def test_extract_security_risk_rejects_non_string_risk(self):
+        original_paginate_key = policy.github_paginate_key
+        original_request = policy.github_request
+        original_download = policy.github_download
+        archive_bytes = io.BytesIO()
+        with zipfile.ZipFile(archive_bytes, "w") as archive:
+            archive.writestr(
+                "codex-security-review-result.json",
+                json.dumps({
+                    "head_sha": "abc123",
+                    "commit_range": "base123...abc123",
+                    "run_id": "123",
+                    "overall_risk": None,
+                }),
+            )
+        try:
+            def fake_paginate_key(path, token, key):
+                if "/commits/" in path:
+                    return [
+                        {
+                            "name": "security-review",
+                            "started_at": "2026-01-01T00:00:00Z",
+                            "details_url": "https://github.com/block/proto-fleet/actions/runs/123/job/456",
+                        }
+                    ]
+                if "/actions/runs/123/artifacts" in path:
+                    return [{"id": 999, "name": "codex-security-review-result", "expired": False}]
+                return []
+
+            policy.github_paginate_key = fake_paginate_key
+            policy.github_request = lambda method, path, token, body=None: {
+                "path": ".github/workflows/codex-security-review.yml",
+                "head_sha": "abc123",
+                "event": "pull_request",
+            }
+            policy.github_download = lambda path, token: archive_bytes.getvalue()
+            risk, blockers = policy.extract_security_risk(
+                "block",
+                "proto-fleet",
+                "base123",
+                "abc123",
+                "token",
+                "security-review",
+                ".github/workflows/codex-security-review.yml",
+                "codex-security-review-result",
+            )
+        finally:
+            policy.github_paginate_key = original_paginate_key
+            policy.github_request = original_request
+            policy.github_download = original_download
+
+        self.assertIsNone(risk)
+        self.assertIn("Codex security-review result artifact is missing or invalid overall_risk", blockers)
 
     def test_extract_security_risk_rejects_forged_workflow_run(self):
         original_paginate_key = policy.github_paginate_key

@@ -22,6 +22,7 @@ from typing import Any
 API_VERSION = "2022-11-28"
 BOT_SUFFIX = "[bot]"
 AUTHORIZED_REVIEW_PERMISSIONS = {"admin", "maintain", "write"}
+SECURITY_RISK_LEVELS = {"NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"}
 
 
 class PolicyError(RuntimeError):
@@ -171,7 +172,7 @@ def deterministic_content_blockers(files: list[dict[str, Any]], low_config: dict
             blockers.append(f"{path} has {changed_lines} changed lines, exceeds per-file limit {max_file_changes}")
 
         patch = item.get("patch")
-        if patch is None and changed_lines:
+        if patch is None:
             blockers.append(f"{path} diff content is unavailable for deterministic content checks")
             continue
 
@@ -713,9 +714,12 @@ def extract_security_risk(
         return None, ["Codex security-review result artifact is stale for this PR base/head range"]
     if str(result.get("run_id")) != str(run_id):
         return None, ["Codex security-review result artifact does not match the workflow run"]
-    risk = str(result.get("overall_risk", "")).upper()
-    if not risk:
-        return None, ["Codex security-review result artifact is missing overall_risk"]
+    risk_value = result.get("overall_risk")
+    if not isinstance(risk_value, str) or not risk_value:
+        return None, ["Codex security-review result artifact is missing or invalid overall_risk"]
+    risk = risk_value.upper()
+    if risk not in SECURITY_RISK_LEVELS:
+        return None, [f"Codex security-review result artifact has unknown overall_risk {risk!r}"]
     return risk, []
 
 
