@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import ManageMinersModal from "./ManageMinersModal";
 import MinersPane from "./MinersPane";
 import RackPane from "./RackPane";
+import ScanMinerQrModal from "./ScanMinerQrModal";
 import SearchMinersModal from "./SearchMinersModal";
 import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData, type SelectedSlot } from "./types";
 import { fetchAllMinerSnapshots } from "@/protoFleet/api/fetchAllMinerSnapshots";
@@ -117,6 +118,7 @@ export default function ManageRackModal({
   const [showRackSettings, setShowRackSettings] = useState(false);
   const [showManageMiners, setShowManageMiners] = useState(false);
   const [showSearchMiners, setShowSearchMiners] = useState(false);
+  const [showScanQr, setShowScanQr] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -285,6 +287,12 @@ export default function ManageRackModal({
     setShowSearchMiners(true);
   }, []);
 
+  // Popover: "Scan QR code" — open ScanMinerQrModal
+  const handleScanQr = useCallback(() => {
+    setShowSlotPopover(false);
+    setShowScanQr(true);
+  }, []);
+
   // Popover dismiss — deselect cell
   const handlePopoverDismiss = useCallback(() => {
     setSelectedSlot(null);
@@ -308,6 +316,26 @@ export default function ManageRackModal({
 
       setSelectedSlot(null);
       setShowSearchMiners(false);
+    },
+    [selectedSlot],
+  );
+
+  // ScanMinerQrModal confirm — identical placement to search, but keyed off
+  // the resolved device identifier from the scanned serial. Kept separate so
+  // it closes the scan modal (not the search modal).
+  const handleScanMinerConfirm = useCallback(
+    (minerId: string) => {
+      if (!selectedSlot) return;
+
+      setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
+      setSlotAssignments((prev) => {
+        const next = removeAssignmentByValue(prev, minerId);
+        next[selectedSlot.key] = minerId;
+        return next;
+      });
+
+      setSelectedSlot(null);
+      setShowScanQr(false);
     },
     [selectedSlot],
   );
@@ -550,6 +578,7 @@ export default function ManageRackModal({
             onCellClick={handleCellClick}
             onSelectFromList={handleSelectFromList}
             onSearchMiners={handleSearchMiners}
+            onScanQr={handleScanQr}
             onPopoverDismiss={handlePopoverDismiss}
             onHoverMiner={setHoveredMinerId}
           />
@@ -586,6 +615,18 @@ export default function ManageRackModal({
             setSelectedSlot(null);
           }}
           onConfirm={handleSearchMinerConfirm}
+        />
+      ) : null}
+
+      {showScanQr ? (
+        <ScanMinerQrModal
+          show={showScanQr}
+          currentRackLabel={initialRackSettings.label}
+          onDismiss={() => {
+            setShowScanQr(false);
+            setSelectedSlot(null);
+          }}
+          onConfirm={handleScanMinerConfirm}
         />
       ) : null}
 
