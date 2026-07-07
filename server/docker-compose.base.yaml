@@ -135,35 +135,6 @@ services:
     networks:
       - monitoring
 
-  # Rig telemetry metrics store: OTLP pushes from the rig-otlp-bridge
-  # sidecar, queried by Grafana. Overlays mount config + publish loopback 9090.
-  prometheus:
-    image: prom/prometheus:v3.10.0
-    restart: unless-stopped
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=15d
-      # Disk cap bounds series-churn blast radius from a hostile rig.
-      - --storage.tsdb.retention.size=20GB
-      - --web.enable-otlp-receiver
-    # Bound memory so runaway cardinality degrades only this feature.
-    mem_limit: 2g
-    expose:
-      - "9090"
-    volumes:
-      - prometheus-data:/prometheus
-    healthcheck:
-      test: [ "CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/healthy" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    networks:
-      # monitoring only: the unauthenticated OTLP receiver must not be
-      # reachable from fleet-network.
-      - monitoring
-
   grafana:
     image: grafana/grafana:13.0
     depends_on:
@@ -194,7 +165,6 @@ services:
 volumes:
   timescaledb-data:
   grafana-data:
-  prometheus-data:
 
 networks:
   fleet-network:

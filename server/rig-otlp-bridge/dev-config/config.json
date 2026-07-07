@@ -1,0 +1,8 @@
+{
+  "fleet_api_url": "http://fleet-api:4000",
+  "fleet_api_insecure_http": true,
+  "fleet_api_token": "fleet_deadbeef_localdev-rig-telemetry-bridge-key-not-for-production",
+  "api_scheme": "http",
+  "api_port": 8080,
+  "metrics_endpoint": "http://host.docker.internal:9090/api/v1/otlp/v1/metrics"
+}

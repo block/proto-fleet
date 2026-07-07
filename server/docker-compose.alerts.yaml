@@ -1,5 +1,8 @@
-# Dev alerts overlay (just dev-alerts / dev-monitoring): alerts-specific
-# pieces only; requires docker-compose.grafana.yaml layered in first.
+# Dev-mode alerts overlay used by `just dev-alerts`.
+#
+# Mirrors deployment-files/docker-compose.alerts.yaml but mounts
+# the in-tree provisioning bundle directly so edits to the YAML files
+# are picked up on container restart without a release rebuild.
 services:
   fleet-api:
     environment:
@@ -41,9 +44,24 @@ services:
 
   grafana:
     environment:
+      # db creds for dev only
+      GRAFANA_DB_NAME: "${DB_NAME:-fleet}"
+      GRAFANA_DB_USERNAME: "${GRAFANA_DB_USERNAME:-fleet}"
+      GRAFANA_DB_PASSWORD: "${GRAFANA_DB_PASSWORD:-fleet}"
+      GF_SECURITY_ADMIN_PASSWORD: localdev-grafana-admin-not-for-prod
+      GF_SECURITY_SECRET_KEY: localdev-grafana-secret-key-not-for-prod
       FLEET_ALERTS_WEBHOOK_TOKEN: localdev-webhook-token-not-for-prod
+    extends:
+      file: ./docker-compose.base.yaml
+      service: grafana
     volumes:
-      - ./monitoring/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
+      - ./monitoring/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "127.0.0.1:3030:3000"
+
+volumes:
+  grafana-data:
 
 networks:
   monitoring:

@@ -142,28 +142,13 @@ The script will auto-detect existing certificates and use HTTPS mode automatical
 - Private key file: `ssl/key.pem` (PEM format, unencrypted)
 - For LAN access, ensure the certificate includes the server's IP address(es) in the Subject Alternative Names (SANs)
 
-## Monitoring sidecars (Grafana, alerts, rig telemetry)
+## Alerts
 
-Grafana is a **shared sidecar** that runs only when a feature needing it is
-enabled. Two optional features layer onto it, each in its own compose file
-that `run-fleet.sh` adds via `-f` flags:
+The alerts deployment runs an extra grafana service:
 
-| Flag | Compose file(s) | Extra services | What Grafana gains |
-| --- | --- | --- | --- |
-| `--enable-beta-alerts` | `docker-compose.grafana.yaml` + `docker-compose.alerts.yaml` | `grafana` | Provisioned alert rules over `notification_metric_sample`, routed via the built-in Alertmanager. |
-| `--enable-rig-telemetry` | `docker-compose.grafana.yaml` + `docker-compose.rig-telemetry.yaml` | `grafana`, `prometheus`, `rig-otlp-bridge` | Prometheus datasource + rig telemetry dashboards (fleet / rig / hashboard). The bridge sidecar asks fleet-api which paired proto rigs to stream from (ListMinerStateSnapshots, authenticated by `RIG_TELEMETRY_BRIDGE_TOKEN`), opens their on-rig telemetry gRPC streams, and pushes fleet-context-enriched OTLP into Prometheus. Create an API key in the fleet UI (Settings → API Keys, a user with miner read access) and add it to `.env` as `RIG_TELEMETRY_BRIDGE_TOKEN` before enabling. |
-
-Both flags may be combined; the Grafana service definitions merge. With
-neither flag, no Grafana or Prometheus containers run at all.
-
-Optionally set `RIG_TELEMETRY_TARGET_CIDRS` in `.env` (comma-separated,
-e.g. `172.16.0.0/12`) to restrict which addresses the bridge will dial;
-unset, it defaults to the private ranges (RFC 1918 + IPv6 ULA), so
-sites with public-IP rigs must set it explicitly.
-
-```bash
-./run-fleet.sh --enable-beta-alerts --enable-rig-telemetry
-```
+| Service   | Image (pinned)                        | Purpose                                                                       |
+| --------- | ------------------------------------- | ----------------------------------------------------------------------------- |
+| `grafana` | `grafana/grafana:13.1.0-25771031703`  | Evaluates alert rules over `notification_metric_sample` and routes alerts via its built-in Alertmanager. |
 
 ### Network topology
 
@@ -172,22 +157,27 @@ The UI is bound to `127.0.0.1:3030` so operators on the box can reach
 it without exposing the dashboard to the LAN. Grafana reaches
 `fleet-api` (host-networked) via the docker host gateway for outbound
 webhook deliveries, and TimescaleDB on the standard fleet network for
-queries. Prometheus (rig telemetry) is likewise bound to
-`127.0.0.1:9090` only — its OTLP write endpoint is unauthenticated and
-must never be reachable from the site LAN; the host-networked
-rig-otlp-bridge sidecar pushes to it via that loopback port.
+queries.
 
-### First-run provisioning
+### Enabling the alerts stack
 
-On the first run with either flag enabled, `run-fleet.sh` rotates the
+The alerts sidecar is a beta feature and is **off by default**.
+It lives in a separate compose file,
+`docker-compose.alerts.yaml`, that `run-fleet.sh` layers in via
+a second `-f` flag when the `--enable-beta-alerts` flag is
+passed. To run a fleet with the beta alerts stack:
+
+```bash
+./run-fleet.sh --enable-beta-alerts
+```
+
+On the first run with alerts enabled, `run-fleet.sh` rotates the
 Grafana admin password and writes it into `.env` as
 `GRAFANA_ADMIN_PASSWORD`. It also creates a dedicated read-only
-PostgreSQL role for Grafana (`grafana_ro` by default) and persists
-those credentials to `.env` as `GRAFANA_DB_USERNAME` /
-`GRAFANA_DB_PASSWORD`. Grafana authenticates as this role rather than
-the broader fleet-api app role. The alertmanager webhook token
-(`FLEET_ALERTS_WEBHOOK_TOKEN`) is provisioned only when
-`--enable-beta-alerts` is passed.
+PostgreSQL role for Grafana (`grafana_ro` by default) with `SELECT`
+only on `notification_metric_sample`, and persists those credentials
+to `.env` as `GRAFANA_DB_USERNAME` / `GRAFANA_DB_PASSWORD`. Grafana
+authenticates as this role rather than the broader fleet-api app role.
 
 ### Configuration files
 
@@ -208,3 +198,42 @@ The configs live under `server/monitoring/grafana/`:
   `/internal/alertmanager-webhook` endpoint.
 - `provisioning/alerting/notification-policies.yaml` — root routing
   tree (grouping + repeat interval).
+
+## Rig telemetry
+
+The rig telemetry deployment runs a single extra sidecar,
+`rig-otlp-bridge` (in `docker-compose.rig-telemetry.yaml`, layered in by
+`run-fleet.sh --enable-rig-telemetry` or `ENABLE_RIG_TELEMETRY=true` in
+`.env`). The bridge asks fleet-api which paired proto rigs to stream
+from (`ListMinerStateSnapshots`), opens their on-rig telemetry gRPC
+streams, and pushes fleet-context-enriched OTLP metrics to an
+**external Prometheus that you set up and operate yourself** — nothing
+in this deployment stores or visualizes the metrics.
+
+### Configuration
+
+The bridge is configured by `rig-telemetry/config.json` next to the
+compose files. The file is mounted into the container and read once at
+container startup: edit it, then apply with
+
+```bash
+docker compose restart rig-otlp-bridge
+```
+
+On the first run with `--enable-rig-telemetry`, `run-fleet.sh` writes a
+template and exits so you can fill in:
+
+- `fleet_api_token` — an API key created in the fleet UI (Settings →
+  API Keys, a user with miner read access). The file holds a
+  credential, so it is created with mode `600`.
+- `metrics_endpoint` — your Prometheus OTLP receiver URL, e.g.
+  `http://prometheus.example:9090/api/v1/otlp/v1/metrics`. Prometheus
+  must run with `--web.enable-otlp-receiver`.
+- optionally `fleet_target_cidrs` (JSON array) to restrict which
+  addresses the bridge will dial; unset, it defaults to the private
+  ranges (RFC 1918 + IPv6 ULA), so sites with public-IP rigs must set
+  it explicitly.
+
+The bridge container uses host networking so it can reach rigs on the
+site LAN and fleet-api on `127.0.0.1:4000`; the Prometheus endpoint
+must be reachable from the host.

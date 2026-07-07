@@ -6,9 +6,9 @@
 
 PROJECT_ROOT="$(pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
-COMPOSE_GRAFANA_FILE="$PROJECT_ROOT/docker-compose.grafana.yaml"
 COMPOSE_ALERTS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
 COMPOSE_RIG_TELEMETRY_FILE="$PROJECT_ROOT/docker-compose.rig-telemetry.yaml"
+RIG_TELEMETRY_CONFIG_FILE="$PROJECT_ROOT/rig-telemetry/config.json"
 ENV_FILE="$PROJECT_ROOT/.env"
 
 ENABLE_BETA_ALERTS=false
@@ -25,15 +25,13 @@ Options:
                                 default. Can also be enabled by setting
                                 ENABLE_BETA_ALERTS=true in the .env file.
   --enable-rig-telemetry Layer in the rig OTLP telemetry sidecar
-                                (Prometheus storing metrics streamed from
-                                paired proto rigs, plus Grafana with the
-                                rig dashboards). Off by default. Can also
-                                be enabled by setting
-                                ENABLE_RIG_TELEMETRY=true in the .env file.
+                                (rig-otlp-bridge streaming metrics from
+                                paired proto rigs to the external
+                                Prometheus set in rig-telemetry/config.json).
+                                Off by default. Can also be enabled by
+                                setting ENABLE_RIG_TELEMETRY=true in the
+                                .env file.
   -h, --help                    Show this help and exit.
-
-Either flag brings up the shared Grafana sidecar; each feature contributes
-its own provisioning (alert rules vs. Prometheus datasource + dashboards).
 EOF
 }
 
@@ -71,17 +69,8 @@ if grep -Eqi "^ENABLE_RIG_TELEMETRY=true$" "$ENV_FILE" 2>/dev/null; then
     ENABLE_RIG_TELEMETRY=true
 fi
 
-# Grafana is a shared sidecar: enabled whenever any feature that needs it
-# (beta alerts, rig telemetry) is enabled.
-grafana_enabled() {
-    [ "$ENABLE_BETA_ALERTS" = "true" ] || [ "$ENABLE_RIG_TELEMETRY" = "true" ]
-}
-
 refresh_compose_files() {
     COMPOSE_FILES=(-f "$COMPOSE_FILE")
-    if grafana_enabled && [ -f "$COMPOSE_GRAFANA_FILE" ]; then
-        COMPOSE_FILES+=(-f "$COMPOSE_GRAFANA_FILE")
-    fi
     if [ "$ENABLE_BETA_ALERTS" = "true" ] && [ -f "$COMPOSE_ALERTS_FILE" ]; then
         COMPOSE_FILES+=(-f "$COMPOSE_ALERTS_FILE")
     fi
@@ -678,14 +667,15 @@ if [ ! -f "$COMPOSE_FILE" ]; then
     exit 1
 fi
 
-if grafana_enabled; then
-    if [ ! -f "$COMPOSE_GRAFANA_FILE" ]; then
-        echo "Error: a Grafana-backed feature was enabled but $COMPOSE_GRAFANA_FILE is missing."
+if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
+    if [ ! -f "$COMPOSE_ALERTS_FILE" ]; then
+        echo "Error: --enable-beta-alerts was passed but $COMPOSE_ALERTS_FILE is missing."
         exit 1
     fi
 
-    # Rotate the Grafana admin password on first boot so the default
-    # "admin / admin" never ships.
+    # The Grafana sidecar runs the alerting engine + UI; give it a
+    # rotated admin password the first time we boot the stack so the
+    # default "admin / admin" never ships.
     if ! env_has_nonempty_value GRAFANA_ADMIN_PASSWORD; then
         GRAFANA_ADMIN_PASSWORD=$(openssl rand -base64 24)
         echo "GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD" >> "$ENV_FILE"
@@ -703,6 +693,16 @@ if grafana_enabled; then
         echo "Generated Grafana DB password (stored in $ENV_FILE)."
     fi
 
+    # Shared secret the alertmanager webhook receiver requires on every
+    # delivery. Mounted on the same listener as the public Connect-RPC
+    # services, so without this token an unauthenticated caller on the
+    # api-proxy network could forge system alert activity rows.
+    if ! env_has_nonempty_value FLEET_ALERTS_WEBHOOK_TOKEN; then
+        FLEET_ALERTS_WEBHOOK_TOKEN=$(openssl rand -base64 32)
+        echo "FLEET_ALERTS_WEBHOOK_TOKEN=$FLEET_ALERTS_WEBHOOK_TOKEN" >> "$ENV_FILE"
+        echo "Generated alertmanager webhook token (stored in $ENV_FILE)."
+    fi
+
     # Grafana's secret_key encrypts secure settings persisted to the
     # grafana-data volume (datasource credentials, encrypted secrets).
     if ! env_has_nonempty_value GRAFANA_SECRET_KEY; then
@@ -714,24 +714,6 @@ if grafana_enabled; then
     # Re-tighten in case the env file was carried over from an older
     # deployment with permissive (e.g. 0644) permissions.
     chmod 600 "$ENV_FILE"
-fi
-
-if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
-    if [ ! -f "$COMPOSE_ALERTS_FILE" ]; then
-        echo "Error: --enable-beta-alerts was passed but $COMPOSE_ALERTS_FILE is missing."
-        exit 1
-    fi
-
-    # Shared secret the alertmanager webhook receiver requires on every
-    # delivery. Mounted on the same listener as the public Connect-RPC
-    # services, so without this token an unauthenticated caller on the
-    # api-proxy network could forge system alert activity rows.
-    if ! env_has_nonempty_value FLEET_ALERTS_WEBHOOK_TOKEN; then
-        FLEET_ALERTS_WEBHOOK_TOKEN=$(openssl rand -base64 32)
-        echo "FLEET_ALERTS_WEBHOOK_TOKEN=$FLEET_ALERTS_WEBHOOK_TOKEN" >> "$ENV_FILE"
-        echo "Generated alertmanager webhook token (stored in $ENV_FILE)."
-        chmod 600 "$ENV_FILE"
-    fi
 
     echo "Alerts stack: enabled (Grafana sidecar over TimescaleDB)"
 else
@@ -744,17 +726,35 @@ if [ "$ENABLE_RIG_TELEMETRY" = "true" ]; then
         exit 1
     fi
 
-    # The bridge authenticates with a normal fleet API key created in the
-    # UI (Settings -> API Keys, needs miner read access) and pasted here.
-    if ! env_has_nonempty_value RIG_TELEMETRY_BRIDGE_TOKEN; then
-        echo "Error: --enable-rig-telemetry requires RIG_TELEMETRY_BRIDGE_TOKEN in $ENV_FILE."
-        echo "Run the stack without the flag first, create an API key in the fleet UI"
-        echo "(Settings -> API Keys), add RIG_TELEMETRY_BRIDGE_TOKEN=<key> to $ENV_FILE,"
+    # The bridge is driven entirely by rig-telemetry/config.json, mounted
+    # into the container and read at startup (edit the file, then
+    # `docker compose restart rig-otlp-bridge` to apply). Seed a template
+    # on first enable and stop so the operator can fill it in.
+    if [ ! -f "$RIG_TELEMETRY_CONFIG_FILE" ]; then
+        mkdir -p "$(dirname "$RIG_TELEMETRY_CONFIG_FILE")"
+        cat > "$RIG_TELEMETRY_CONFIG_FILE" <<'EOF'
+{
+  "fleet_api_url": "http://127.0.0.1:4000",
+  "fleet_api_token": "",
+  "metrics_endpoint": "",
+  "api_scheme": "https",
+  "api_port": 443
+}
+EOF
+        # The fleet API token is a credential.
+        chmod 600 "$RIG_TELEMETRY_CONFIG_FILE"
+        echo "Error: wrote a template to $RIG_TELEMETRY_CONFIG_FILE."
+        echo "Fill in:"
+        echo "  fleet_api_token   - an API key created in the fleet UI (Settings -> API Keys,"
+        echo "                      a user with miner read access)"
+        echo "  metrics_endpoint  - your Prometheus OTLP receiver URL, e.g."
+        echo "                      http://prometheus.example:9090/api/v1/otlp/v1/metrics"
+        echo "                      (Prometheus must run with --web.enable-otlp-receiver)"
         echo "then re-run with --enable-rig-telemetry."
         exit 1
     fi
 
-    echo "Rig telemetry stack: enabled (bridge sidecar + Prometheus + Grafana rig dashboards)"
+    echo "Rig telemetry stack: enabled (rig-otlp-bridge -> external Prometheus)"
 else
     echo "Rig telemetry stack: disabled (pass --enable-rig-telemetry to turn on rig OTLP ingest)"
 fi
@@ -1185,14 +1185,12 @@ provision_grafana_service_account_token() {
     fi
 }
 
-if grafana_enabled; then
+if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
     if ! provision_grafana_db_role; then
-        echo "Error: Grafana DB role provisioning failed; Grafana cannot query TimescaleDB." >&2
+        echo "Error: Grafana DB role provisioning failed; Grafana alerting cannot query notification_metric_sample." >&2
         echo "       Fix the underlying cause (DB reachable, migrations complete) and re-run this script." >&2
         exit 1
     fi
-fi
-if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
     if ! provision_grafana_service_account_token; then
         echo "Warning: Grafana service-account token provisioning failed; fleet-api cannot authenticate to Grafana" >&2
         echo "         so alert channel/rule/silence management will 401 until this succeeds." >&2

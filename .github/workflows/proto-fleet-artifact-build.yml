@@ -452,7 +452,6 @@ jobs:
           cp deployment-files/server/Dockerfile deployment/server/
           cp deployment-files/server/Dockerfile.rig-otlp-bridge deployment/server/
           cp deployment-files/docker-compose.yaml deployment/
-          cp deployment-files/docker-compose.grafana.yaml deployment/
           cp deployment-files/docker-compose.alerts.yaml deployment/
           cp deployment-files/docker-compose.rig-telemetry.yaml deployment/
           cp -a server/monitoring deployment/server/

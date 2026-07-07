@@ -1,7 +1,8 @@
 # rig-otlp-bridge
 
 The rig telemetry sidecar: streams OTLP metrics from paired proto rigs'
-on-rig `telemetry-service` gRPC endpoints into the fleet Prometheus, with
+on-rig `telemetry-service` gRPC endpoints to an external Prometheus
+(OTLP receiver) named by `metrics_endpoint` in its config file, with
 fleet context stamped onto every series. Runs next to fleet-api under the
 rig telemetry compose overlay (see
 `docs/plans/2026-07-02-rig-otlp-telemetry-ingest-tdd.md`).
@@ -37,6 +38,10 @@ upstream, kept deliberately small so re-vendoring stays cheap:
   reconciliation entirely — it never tears down streaming workers.
 - **Config file optional** when a fleet API URL is provided via env/flag;
   fleet mode requires a non-empty token (fail-fast at startup).
+- **`metrics_endpoint` config field replaces upstream's bundled-Prometheus
+  default:** fleet ships no metrics store, so the OTLP receiver URL is
+  required (config file or `--otlp-endpoint` / `OTLP_BRIDGE_OTLP_ENDPOINT`)
+  and validated at startup.
 - **Rig REST client skips TLS verification** (`rigAPIHTTPClient` in
   discovery.go): fleet discovery records real rigs as https with
   self-signed certs, matching the proto plugin's intentional
@@ -87,5 +92,9 @@ GOWORK=off go test ./...
 ```
 
 The dev compose overlay (`just dev-rig-telemetry` / `just dev-monitoring`)
-builds this directory's Dockerfile; production ships a prebuilt binary
-packaged by `deployment-files/server/Dockerfile.rig-otlp-bridge`.
+builds this directory's Dockerfile and mounts `dev-config/config.json`,
+which points at a Prometheus you run on the host
+(`host.docker.internal:9090`, started with `--web.enable-otlp-receiver`);
+production ships a prebuilt binary packaged by
+`deployment-files/server/Dockerfile.rig-otlp-bridge` configured via
+`rig-telemetry/config.json` in the deployment directory.

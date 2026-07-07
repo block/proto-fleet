@@ -1,48 +1,25 @@
 # Dev rig telemetry overlay (just dev-rig-telemetry / dev-monitoring): the
-# bridge streams paired rigs' OTLP into Prometheus; needs the grafana overlay.
+# bridge streams fake rigs' OTLP to an external Prometheus you run yourself
+# (rig-otlp-bridge/dev-config/config.json points at host.docker.internal:9090;
+# start one with --web.enable-otlp-receiver). The dev-only API key in that
+# config is seeded once with `just dev-bridge-key`.
 services:
   rig-otlp-bridge:
     build:
       context: .
       dockerfile: rig-otlp-bridge/Dockerfile
     environment:
-      OTLP_BRIDGE_FLEET_API_URL: "http://fleet-api:4000"
-      # Dev-only: fleet-api is a container-network hostname, not loopback.
-      OTLP_BRIDGE_FLEET_API_INSECURE_HTTP: "true"
-      # Fake rigs serve their REST API on 8080 over plain http.
-      OTLP_BRIDGE_API_PORT: "8080"
-      # Dev-only API key; seed it once with `just dev-bridge-key`.
-      OTLP_BRIDGE_FLEET_API_TOKEN: fleet_deadbeef_localdev-rig-telemetry-bridge-key-not-for-production
-      OTLP_BRIDGE_OTLP_ENDPOINT: "http://prometheus:9090/api/v1/otlp/v1/metrics"
+      OTLP_BRIDGE_CONFIG: /etc/rig-otlp-bridge/config.json
+    volumes:
+      # Directory mount so in-tree config edits land on container restart.
+      - ./rig-otlp-bridge/dev-config:/etc/rig-otlp-bridge:ro
     depends_on:
-      prometheus:
-        condition: service_healthy
+      - fleet-api
+    extra_hosts:
+      # Reach a host-run Prometheus from inside the container on Linux too.
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     mem_limit: 512m
     networks:
-      # fleet-network: reaches fleet-api and the fake rigs' telemetry
-      # streams; monitoring: reaches prometheus.
+      # Reaches fleet-api and the fake rigs' telemetry streams.
       - fleet-network
-      - monitoring
-
-  prometheus:
-    extends:
-      file: ./docker-compose.base.yaml
-      service: prometheus
-    volumes:
-      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      # Loopback-only: the OTLP receiver is unauthenticated.
-      - "127.0.0.1:9090:9090"
-
-  grafana:
-    volumes:
-      - ./monitoring/grafana/provisioning/datasources/prometheus.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro
-      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-
-volumes:
-  prometheus-data:
-
-networks:
-  monitoring:
-    driver: bridge

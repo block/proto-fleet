@@ -14,6 +14,7 @@
 //	  "site": "lab-east",
 //	  "telemetry_port": 2123,
 //	  "api_port": 80,
+//	  "metrics_endpoint": "http://prometheus.example:9090/api/v1/otlp/v1/metrics",
 //	  "logs_endpoint": "http://loki:3100/otlp/v1/logs",
 //	  "log_severity": "warn",
 //	  "metrics_gzip": true,
@@ -59,7 +60,7 @@ type streamManager struct {
 	uploaderDone sync.WaitGroup
 }
 
-func newStreamManager(cfg *Config, metricsEndpoint string) *streamManager {
+func newStreamManager(cfg *Config) *streamManager {
 	queueCapacity := cfg.metricQueueCapacity()
 	log.Printf(
 		"telemetry queues: capacity=%d expected_rigs=%d estimated_services_per_rig=%d buffer_windows=%d publish_interval=%.1fs",
@@ -70,9 +71,9 @@ func newStreamManager(cfg *Config, metricsEndpoint string) *streamManager {
 		cfg.MetricQueuePublishIntervalS,
 	)
 	return &streamManager{
-		metricsEndpoint:  metricsEndpoint,
+		metricsEndpoint:  cfg.MetricsEndpoint,
 		logsEndpoint:     cfg.LogsEndpoint,
-		metricsUploader:  newMetricsUploader(metricsEndpoint, queueCapacity, cfg.metricsGzipEnabled()),
+		metricsUploader:  newMetricsUploader(cfg.MetricsEndpoint, queueCapacity, cfg.metricsGzipEnabled()),
 		logsUploader:     newLogsUploader(cfg.LogsEndpoint, queueCapacity, cfg.logsGzipEnabled()),
 		reconnectInitial: secondsToDuration(cfg.StreamReconnectInitialS),
 		reconnectMax:     secondsToDuration(cfg.StreamReconnectMaxS),
@@ -152,7 +153,7 @@ func main() {
 func runDaemon(args []string) {
 	fs := flag.NewFlagSet("otlp-bridge", flag.ExitOnError)
 	configPath := fs.String("config", envOrDefault("OTLP_BRIDGE_CONFIG", defaultConfigPath), "path to config JSON")
-	otlpEndpoint := fs.String("otlp-endpoint", envOrDefault("OTLP_BRIDGE_OTLP_ENDPOINT", defaultMetricsOTLPEndpoint), "OTLP HTTP metrics receiver URL")
+	otlpEndpoint := fs.String("otlp-endpoint", envOrDefault("OTLP_BRIDGE_OTLP_ENDPOINT", ""), "Override OTLP HTTP metrics receiver URL (empty = use config metrics_endpoint)")
 	telemetryPortOverride := fs.Int("telemetry-port", envOrDefaultInt("OTLP_BRIDGE_TELEMETRY_PORT", 0), "Override telemetry-service gRPC port (0 = use config)")
 	apiPortOverride := fs.Int("api-port", envOrDefaultInt("OTLP_BRIDGE_API_PORT", 0), "Override miner-api-server REST API port for identity/hostname lookup (0 = use config)")
 	apiSchemeOverride := fs.String("api-scheme", envOrDefault("OTLP_BRIDGE_API_SCHEME", ""), "Override miner-api-server REST API scheme, http or https (empty = use config / http)")
@@ -168,14 +169,17 @@ func runDaemon(args []string) {
 
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
-		// Fleet sidecar deployments are env-driven and ship no config
-		// file: fall back to defaults when a fleet API URL was given.
+		// A missing config file is tolerated in fully env-driven fleet
+		// mode (fleet API URL + endpoint via env/flags): use defaults.
 		if os.IsNotExist(err) && *fleetAPIURLOverride != "" {
 			cfg = &Config{}
 			cfg.applyDefaults()
 		} else {
 			log.Fatalf("load config %s: %v", *configPath, err)
 		}
+	}
+	if *otlpEndpoint != "" {
+		cfg.MetricsEndpoint = *otlpEndpoint
 	}
 	if *telemetryPortOverride != 0 {
 		cfg.TelemetryPort = *telemetryPortOverride
@@ -213,6 +217,9 @@ func runDaemon(args []string) {
 	if err := cfg.validate(); err != nil {
 		log.Fatalf("config invalid: %v", err)
 	}
+	if err := cfg.validateMetricsEndpoint(); err != nil {
+		log.Fatalf("config invalid: %v", err)
+	}
 	if err := cfg.validateTargetSource(); err != nil {
 		log.Fatalf("config invalid: %v", err)
 	}
@@ -224,7 +231,7 @@ func runDaemon(args []string) {
 		"config: fleet_api=%q subnets=%d targets=%d telemetry_port=%d api_port=%d scan=%.1fs reconnect=%.1f-%.1fs metrics=%s logs=%q log_severity=%s metrics_gzip=%t logs_gzip=%t",
 		cfg.FleetAPIURL, len(cfg.Subnets), len(cfg.Targets), cfg.TelemetryPort, cfg.APIPort, cfg.ScanIntervalS,
 		cfg.StreamReconnectInitialS, cfg.StreamReconnectMaxS,
-		*otlpEndpoint, cfg.LogsEndpoint, cfg.LogSeverity, cfg.metricsGzipEnabled(), cfg.logsGzipEnabled(),
+		cfg.MetricsEndpoint, cfg.LogsEndpoint, cfg.LogSeverity, cfg.metricsGzipEnabled(), cfg.logsGzipEnabled(),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -247,7 +254,7 @@ func runDaemon(args []string) {
 	}
 
 	reg := newRegistry()
-	streams := newStreamManager(cfg, *otlpEndpoint)
+	streams := newStreamManager(cfg)
 	streams.run(ctx)
 	scanLoop(ctx, cfg, reg, streams, fleetSrc)
 	streams.wait()

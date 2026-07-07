@@ -1,5 +1,5 @@
 ---
-title: Rig OTLP telemetry via rig-otlp-bridge sidecar (Prometheus store, shared Grafana)
+title: Rig OTLP telemetry via rig-otlp-bridge sidecar (external Prometheus)
 date: 2026-07-02
 status: draft
 type: tdd
@@ -16,16 +16,17 @@ Grafana) deployed and operated separately from proto-fleet.
 This TDD brings that pipeline into proto-fleet as a **sidecar**: the
 miner-firmware `otlp-bridge` is vendored into the repo as
 `server/rig-otlp-bridge` and runs as its own container next to fleet-api.
-Instead of subnet scanning and static site config, the bridge calls a new
-proto-fleet RPC — `rigtelemetry.v1.RigTelemetryService/ListRigTelemetryTargets`
-— to learn which paired proto rigs to stream from and what fleet context
+Instead of subnet scanning and static site config, the bridge calls the
+existing `fleetmanagement.v1/ListMinerStateSnapshots` RPC to learn which
+paired proto rigs to stream from and what fleet context
 (`device_identifier`, `site`, `building`, `rack`, `zone`) to stamp onto
-every OTLP resource. Metrics land in a **Prometheus instance added to the
-fleet compose stack** and are visualized in fleet's existing Grafana.
+every OTLP resource. Metrics land in an **external Prometheus that the
+operator sets up and runs themselves** (`metrics_endpoint` in the bridge's
+config file); the fleet stack bundles no metrics store and no dashboards.
 
-Everything is opt-in behind the rig telemetry feature flag, and Grafana is
-a shared sidecar enabled only when rig telemetry and/or the beta alerts
-feature is on.
+Everything is opt-in behind the rig telemetry feature flag, and the bridge
+is driven by a `config.json` mounted from the deployment directory and
+re-read whenever the container restarts.
 
 An earlier design that ran the ingest inside fleetd (a domain service with
 direct DB enrichment) is archived on the
@@ -62,15 +63,15 @@ direct DB enrichment) is archived on the
 
 ## Goals
 
-1. Ingest the full OTLP metrics stream of every directly-reachable paired
-   proto rig into a Prometheus that ships inside the fleet compose stack.
+1. Stream the full OTLP metrics of every directly-reachable paired proto
+   rig to an external, operator-managed Prometheus (OTLP receiver).
 2. Enrich every series with fleet context at ingest time, sourced from
    fleet RPCs rather than static config or direct DB access.
-3. Reuse fleet's existing Grafana (shared-sidecar overlay) with the miner
-   dashboards provisioned as code.
+3. Drive the bridge from a `config.json` on disk that is re-read whenever
+   the container restarts, so operators can repoint it without a rebuild.
 4. Preserve query compatibility with the miner-firmware PromQL tooling.
-5. Keep the pipeline fully feature-flagged: with the flag off, no bridge,
-   no Prometheus, and (unless alerts is on) no Grafana containers exist.
+5. Keep the pipeline fully feature-flagged: with the flag off, no bridge
+   container exists.
 6. Minimize divergence from the upstream otlp-bridge so re-vendoring stays
    cheap.
 
@@ -85,6 +86,10 @@ direct DB enrichment) is archived on the
   the subcommand is not vendored.
 - **Alert rules on the new metrics** (explicit decision): visualization and
   ad-hoc querying only.
+- **Bundled metrics storage/visualization.** An earlier revision shipped a
+  Prometheus container and provisioned Grafana rig dashboards inside the
+  fleet compose stack; that was cut — the bridge pushes to an external
+  Prometheus the operator sets up and points it at via `config.json`.
 
 ## Design overview
 
@@ -95,17 +100,15 @@ direct DB enrichment) is archived on the
 └──────────────────────────────┘ stream │    fleet RPC (30s scan interval)         │
                                         │  • hostname from rig REST (as upstream)  │
               ┌─────────────────────────┤  • label injection, merge, gzip POST     │
-   RPC: ListRigTelemetryTargets         └──────────────┬───────────────────────────┘
-   (bearer token, h2c gRPC)                            │ POST /api/v1/otlp/v1/metrics
-┌─────────────▼───────────────┐         ┌──────────────▼──────────────┐
-│ fleet-api                   │         │ prometheus (new container)  │
-│ rigtelemetry.v1 handler     │         │ OTLP receiver, 15d retention│
-│ (sqlc join: device→site→    │         └──────────────┬──────────────┘
-│  building→rack/zone)        │                        │ PromQL
-└─────────────────────────────┘         ┌──────────────▼──────────────┐
-                                        │ grafana (shared overlay)    │
-                                        │ + Prometheus datasource     │
-                                        │ + provisioned rig dashboards│
+   RPC: ListMinerStateSnapshots         │  • config.json mounted from the          │
+   (fleet API key, Connect)             │    deployment dir, read at startup       │
+┌─────────────▼───────────────┐         └──────────────┬───────────────────────────┘
+│ fleet-api                   │                        │ POST /api/v1/otlp/v1/metrics
+│ (existing operator RPC,     │         ┌──────────────▼──────────────┐
+│  models filter = proto rig) │         │ external Prometheus         │
+└─────────────────────────────┘         │ (operator-run, OTLP         │
+                                        │  receiver enabled; not part │
+                                        │  of the fleet stack)        │
                                         └─────────────────────────────┘
 ```
 
@@ -136,9 +139,12 @@ divergence:
   address whose labels changed as removed+added, and the scan loop stops
   before starting, so a re-sited/re-racked rig restarts its worker and new
   series carry the new context.
-- **Config-file-optional:** with a fleet API URL provided via env/flag and
-  no config file present, the bridge starts from defaults (sidecar
-  deployments are env-driven).
+- **Config-file-driven, `metrics_endpoint` required:** the fleet sidecar
+  mounts `config.json` from the deployment directory (re-read on container
+  restart); the OTLP receiver URL has no default since no Prometheus is
+  bundled. Env/flag overrides remain, and with a fleet API URL provided
+  via env/flag and no config file present the bridge still starts from
+  defaults (standalone use).
 
 The RPC client is the server's own generated Connect client (Connect
 protocol over fleet-api's HTTP listener, bearer token in the request
@@ -162,61 +168,54 @@ so fleet topology never lands in debug logs.
 Auth is a **normal fleet API key** on the standard Bearer path — no
 server-side auth changes at all. The operator creates the key in the
 fleet UI (Settings → API Keys, a user whose role grants `miner:read`)
-and pastes it into `.env` as `RIG_TELEMETRY_BRIDGE_TOKEN`; the bridge
-presents it on every call. Rotation and revocation use the existing
+and pastes it into `rig-telemetry/config.json` as `fleet_api_token`; the
+bridge presents it on every call. Rotation and revocation use the existing
 API-key lifecycle (UI/RPC). Dev stacks seed a static key with
 `just dev-bridge-key`. Trade-off (accepted per review — internal
 deployments): the key is bound to a human user, so deactivating that
 user disables telemetry, and scope is the user's role rather than a
 service-scoped permission set.
 
-### 3. Prometheus + Grafana (unchanged from the overlay design)
+### 3. External Prometheus
 
-Prometheus (v3.10.0, `--web.enable-otlp-receiver`, 15d retention) is
-defined in `server/docker-compose.base.yaml` with config at
-`server/monitoring/prometheus/prometheus.yml`
-(`otlp.promote_resource_attributes`: `service.name`,
-`service.instance.id`, `hostname`, `rig_ip`, `site`, `device_identifier`,
-`building`, `rack`, `zone`). Its OTLP receiver is unauthenticated and is
-therefore published on loopback only.
-
-Grafana is a shared sidecar: `docker-compose.grafana.yaml` (dev + prod)
-carries the service, credentials, and the TimescaleDB datasource; the
-rig-telemetry overlay contributes the Prometheus datasource and the three
-rig dashboards (vendored from miner-firmware with Loki panels stripped);
-the alerts overlay contributes alerting provisioning. Feature provisioning
-composes via file/subdir binds into the Grafana image's empty provisioning
-skeleton, so an alerts-only install has no dead Prometheus datasource and
-a rig-telemetry-only install has no alert rules.
+The bridge POSTs OTLP to whatever `metrics_endpoint` names — typically a
+Prometheus run with `--web.enable-otlp-receiver` at
+`<host>:9090/api/v1/otlp/v1/metrics`. Setting it up, securing it, and
+provisioning dashboards on top of it are the operator's responsibility
+and out of scope here; nothing in the fleet compose stack stores or
+visualizes the metrics.
 
 ### 4. Feature flag & wiring
 
 **Production** (`run-fleet.sh --enable-rig-telemetry`): layers
-`docker-compose.grafana.yaml` + `docker-compose.rig-telemetry.yaml`. The
-overlay adds the `rig-otlp-bridge` service (host networking — it must
-reach rigs on the site LAN like fleet-api; it reaches fleet-api at
-`127.0.0.1:4000` and Prometheus via the loopback-published `9090`) and
-sets `RIG_TELEMETRY_BRIDGE_TOKEN` on fleet-api. `run-fleet.sh` provisions
-the token into `.env` (like the webhook token) plus the shared Grafana
-secrets/`grafana_ro` role when either Grafana-backed feature is enabled.
-The artifact workflow builds the bridge binary (standalone module,
-`GOWORK=off`, CGO disabled), ships it in the server tarball, and packages
-it via `deployment-files/server/Dockerfile.rig-otlp-bridge`.
+`docker-compose.rig-telemetry.yaml`, which adds only the
+`rig-otlp-bridge` service (host networking — it must reach rigs on the
+site LAN like fleet-api; it reaches fleet-api at `127.0.0.1:4000`). The
+bridge is configured entirely by `rig-telemetry/config.json` in the
+deployment directory, mounted read-only into the container (as a
+directory mount so host edits are visible) and read once at startup —
+edit, then `docker compose restart rig-otlp-bridge` to apply. On first
+enable `run-fleet.sh` writes a `600`-mode template and exits so the
+operator can fill in `fleet_api_token` (an API key created in the fleet
+UI) and `metrics_endpoint`. The artifact workflow builds the bridge
+binary (standalone module, `GOWORK=off`, CGO disabled), ships it in the
+server tarball, and packages it via
+`deployment-files/server/Dockerfile.rig-otlp-bridge`.
 
 **Dev**: `just dev-rig-telemetry` / `just dev-monitoring` (or
 `ENABLE_RIG_TELEMETRY=true` through `dev.sh`); the dev overlay builds the
-bridge from source, uses a static dev token, and reaches fleet-api /
-prometheus / fake rigs over the compose networks. With no flag, `just dev`
-runs no monitoring services.
+bridge from source and mounts the committed
+`rig-otlp-bridge/dev-config/config.json` (static dev token, fake-rig REST
+port, `metrics_endpoint` at `host.docker.internal:9090` for a
+Prometheus the developer runs on the host). With no flag, `just dev`
+runs no bridge.
 
-**fleetd config:** only `RIG_TELEMETRY_BRIDGE_TOKEN`
-(`handlers/rigtelemetry.Config`). The handler is always mounted; without a
-token it refuses all calls.
-
-**Bridge env (sidecar):** `OTLP_BRIDGE_FLEET_API_URL`,
-`OTLP_BRIDGE_FLEET_API_TOKEN`, `OTLP_BRIDGE_OTLP_ENDPOINT` — everything
-else uses the upstream defaults (30 s scan, 1–30 s stream reconnect
-backoff, gzip on, logs disabled).
+**Bridge config (sidecar):** `fleet_api_url`, `fleet_api_token`,
+`metrics_endpoint`, rig REST `api_scheme`/`api_port`, optional
+`fleet_target_cidrs` — everything else uses the upstream defaults (30 s
+scan, 1–30 s stream reconnect backoff, gzip on, logs disabled). The
+`--otlp-endpoint`/`OTLP_BRIDGE_OTLP_ENDPOINT` and fleet API env/flag
+overrides remain for standalone use.
 
 ### 5. Security considerations
 
@@ -225,8 +224,10 @@ backoff, gzip on, logs disabled).
 - The enrichment RPC exposes device/site topology → shared bearer token,
   constant-time compare, refuse-when-unconfigured, single Unauthenticated
   code for missing/wrong token.
-- Prometheus's unauthenticated OTLP receiver: loopback-only in prod,
-  compose-internal in dev; never exposed via nginx.
+- The external Prometheus's OTLP receiver is typically unauthenticated;
+  keeping it off the untrusted network is the operator's responsibility
+  (it is no longer part of this stack). The bridge config file holds the
+  fleet API key and is written with mode `600`.
 - Malformed rig payloads fail that batch's decode and are logged and
   skipped (upstream behavior).
 
@@ -236,7 +237,8 @@ backoff, gzip on, logs disabled).
 |---|---|
 | fleet-api down / RPC failing | Scan logs the error and keeps current rigs streaming; targets refresh when the RPC recovers. |
 | Rig unreachable | Skipped at probe, retried next scan; established streams reconnect with backoff. |
-| Prometheus down | Bounded upload queue, drop-newest with logged drops (upstream behavior). |
+| External Prometheus down/unreachable | Bounded upload queue, drop-newest with logged drops (upstream behavior). |
+| Missing/blank `metrics_endpoint` | Bridge refuses to start (config validation). |
 | Bridge restart | Gap for the restart duration; no replay exists upstream. Streams re-established from the first scan. |
 | Device unpaired | Dropped from the RPC response → worker stopped next scan. |
 | Device re-sited/re-racked | Label change → worker restart → new series under new labels. |
@@ -245,10 +247,10 @@ backoff, gzip on, logs disabled).
 
 ### 7. Capacity
 
-Unchanged from the overlay design: ~150 series/rig × 500 rigs ≈ 75 k
-series / 7.5 k samples/s — small for a single Prometheus (≲2 GB RSS,
-~15–30 GB disk for 15 d). The bridge itself is the same binary already
-proven at site scale in the standalone deployments.
+~150 series/rig × 500 rigs ≈ 75 k series / 7.5 k samples/s — small for a
+single Prometheus (≲2 GB RSS, ~15–30 GB disk for 15 d), sizing guidance
+for whoever operates the external instance. The bridge itself is the
+same binary already proven at site scale in the standalone deployments.
 
 ## Testing
 
@@ -264,10 +266,12 @@ proven at site scale in the standalone deployments.
    (`TELEMETRY_GRPC_PORT`, default 2123) with jittered fixtures honoring
    `ERROR_TEMPERATURE`; its stub copy is generated by the same upstream
    script.
-4. **Dev-stack validation** (performed): `dev-monitoring` set with 5 fake
-   rigs — bridge discovers targets via the RPC, streams, and Prometheus
-   serves fresh series labeled with `device_identifier`/`hostname`/
-   `rig_ip`; grpcurl without the token is rejected Unauthenticated.
+4. **Dev-stack validation** (performed): `dev-rig-telemetry` set with 5
+   fake rigs and a host-run Prometheus (`--web.enable-otlp-receiver`) —
+   bridge discovers targets via the RPC, streams, and the external
+   Prometheus serves fresh series labeled with `device_identifier`/
+   `hostname`/`rig_ip`; a request without the token is rejected
+   Unauthenticated.
 5. **Sim/pilot validation**: as before — miner-firmware Docker sim, then a
    side-by-side site pilot gating decommission of the standalone stacks.
 

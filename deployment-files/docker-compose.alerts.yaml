@@ -1,5 +1,3 @@
-# Beta alerts overlay (run-fleet.sh --enable-beta-alerts): alerts-specific
-# pieces only; run-fleet.sh layers docker-compose.grafana.yaml in first.
 services:
   fleet-api:
     environment:
@@ -21,12 +19,37 @@ services:
       - "grafana:127.0.0.1"
 
   grafana:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: grafana
     environment:
+      GRAFANA_DB_PASSWORD: "${GRAFANA_DB_PASSWORD:?GRAFANA_DB_PASSWORD is required (run-fleet.sh provisions it)}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required (run-fleet.sh provisions it)}"
+      GF_SECURITY_SECRET_KEY: "${GRAFANA_SECRET_KEY:?GRAFANA_SECRET_KEY is required (run-fleet.sh provisions it)}"
       FLEET_ALERTS_WEBHOOK_TOKEN: "${FLEET_ALERTS_WEBHOOK_TOKEN:?FLEET_ALERTS_WEBHOOK_TOKEN is required (run-fleet.sh provisions it)}"
     volumes:
-      - ./server/monitoring/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
+      - ./server/monitoring/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./server/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      # Loopback-only so operators can hit the UI from the host without
+      # exposing it on the LAN. Grafana is otherwise reachable only
+      # from inside the monitoring network.
+      - "127.0.0.1:3030:3000"
     # Grafana's webhook contact point POSTs to
     # http://fleet-api:4000/internal/alertmanager-webhook. fleet-api
     # uses host networking, so we route via the docker host gateway.
     extra_hosts:
       - "fleet-api:host-gateway"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+volumes:
+  grafana-data:
+
+networks:
+  monitoring:
+    driver: bridge

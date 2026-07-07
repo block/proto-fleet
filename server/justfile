@@ -21,18 +21,17 @@ install:
 dev: _build-plugins-docker start
   docker compose up --watch fleet-api --remove-orphans --no-deps
 
-# Compose file sets for the monitoring overlays. Grafana is a shared
-# sidecar layered in whenever a feature that needs it is enabled.
-ALERTS_FILES := "-f docker-compose.yaml -f docker-compose.grafana.yaml -f docker-compose.alerts.yaml"
-RIG_TELEMETRY_FILES := "-f docker-compose.yaml -f docker-compose.grafana.yaml -f docker-compose.rig-telemetry.yaml"
-MONITORING_FILES := "-f docker-compose.yaml -f docker-compose.grafana.yaml -f docker-compose.alerts.yaml -f docker-compose.rig-telemetry.yaml"
+# Compose file sets for the optional feature overlays.
+ALERTS_FILES := "-f docker-compose.yaml -f docker-compose.alerts.yaml"
+RIG_TELEMETRY_FILES := "-f docker-compose.yaml -f docker-compose.rig-telemetry.yaml"
+MONITORING_FILES := "-f docker-compose.yaml -f docker-compose.alerts.yaml -f docker-compose.rig-telemetry.yaml"
 
 # run fleet with alerts stack turned on
 dev-alerts: _build-plugins-docker
   docker compose {{ ALERTS_FILES }} up --wait
   docker compose {{ ALERTS_FILES }} up --watch fleet-api --remove-orphans --no-deps
 
-# run fleet with rig OTLP telemetry turned on (Prometheus + Grafana rig dashboards)
+# run fleet with the rig OTLP telemetry bridge turned on (pushes to an external Prometheus)
 dev-rig-telemetry: _build-plugins-docker
   docker compose {{ RIG_TELEMETRY_FILES }} up --wait
   docker compose {{ RIG_TELEMETRY_FILES }} up --watch fleet-api --remove-orphans --no-deps

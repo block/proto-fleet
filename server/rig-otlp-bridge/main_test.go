@@ -60,6 +60,34 @@ func TestConfigDefaultsApply(t *testing.T) {
 	}
 }
 
+func TestMetricsEndpointFromConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cfg.json")
+	endpoint := "http://prometheus.example:9090/api/v1/otlp/v1/metrics"
+	if err := os.WriteFile(path, []byte(`{"targets":["host.docker.internal"],"metrics_endpoint":"`+endpoint+`"}`), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.MetricsEndpoint != endpoint {
+		t.Fatalf("MetricsEndpoint = %q, want %q", cfg.MetricsEndpoint, endpoint)
+	}
+	if err := cfg.validateMetricsEndpoint(); err != nil {
+		t.Fatalf("validateMetricsEndpoint: %v", err)
+	}
+}
+
+func TestValidateMetricsEndpointRejectsMissingOrMalformed(t *testing.T) {
+	for _, endpoint := range []string{"", "prometheus:9090", "ftp://prometheus:9090", "http://"} {
+		cfg := &Config{MetricsEndpoint: endpoint}
+		if err := cfg.validateMetricsEndpoint(); err == nil {
+			t.Errorf("validateMetricsEndpoint(%q) accepted, want error", endpoint)
+		}
+	}
+}
+
 func TestLogSeverityDefaultsToWarn(t *testing.T) {
 	cfg := &Config{Targets: []string{"rig"}}
 	cfg.applyDefaults()

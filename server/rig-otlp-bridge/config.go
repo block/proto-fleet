@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"os"
 	"strings"
 
@@ -12,7 +13,6 @@ import (
 
 const (
 	defaultConfigPath              = "config.json"
-	defaultMetricsOTLPEndpoint     = "http://prometheus:9090/api/v1/otlp/v1/metrics"
 	defaultTelemetryPort           = 2123
 	defaultAPIPort                 = 80
 	defaultLogSeverity             = "warn"
@@ -63,6 +63,11 @@ type Config struct {
 	// display metadata. Fixed per deployment: proto rigs do not vary them.
 	APIScheme string `json:"api_scheme"`
 	APIPort   int    `json:"api_port"`
+
+	// OTLP HTTP metrics receiver URL, e.g. a Prometheus with
+	// --web.enable-otlp-receiver at <host>:9090/api/v1/otlp/v1/metrics.
+	// Required: there is no bundled metrics store to default to.
+	MetricsEndpoint string `json:"metrics_endpoint"`
 
 	LogsEndpoint string `json:"logs_endpoint"`
 	// Minimum log severity forwarded to the logs endpoint: "info", "warn", or
@@ -216,6 +221,22 @@ func (c *Config) validateTargetSource() error {
 			return fmt.Errorf("invalid fleet_target_cidrs entry %q: %w", s, err)
 		}
 		c.fleetTargetPrefixes = append(c.fleetTargetPrefixes, p.Masked())
+	}
+	return nil
+}
+
+// validateMetricsEndpoint runs after env/flag overrides so either the
+// config file or --otlp-endpoint / OTLP_BRIDGE_OTLP_ENDPOINT can supply it.
+func (c *Config) validateMetricsEndpoint() error {
+	if c.MetricsEndpoint == "" {
+		return fmt.Errorf("config must include metrics_endpoint (an OTLP HTTP metrics receiver URL)")
+	}
+	u, err := url.Parse(c.MetricsEndpoint)
+	if err != nil {
+		return fmt.Errorf("invalid metrics_endpoint %q: %w", c.MetricsEndpoint, err)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("metrics_endpoint must be an http(s) URL: %q", c.MetricsEndpoint)
 	}
 	return nil
 }
