@@ -13,6 +13,14 @@ ENV_FILE="$PROJECT_ROOT/.env"
 ENABLE_BETA_ALERTS=false
 ENABLE_SYSTEM_MONITORING=false
 
+# How long the post-start steps wait for fleet-api to finish its migrations.
+# 300 x 2s = 10 minutes: a first boot on SD-card-class hardware (Raspberry Pi)
+# runs the full migration set plus image load, which comfortably exceeds the
+# old 2-4 minute caps and previously left grafana_ro unprovisioned. On a warm
+# database these polls return on the first attempt, so the high cap only costs
+# time when migrations are genuinely stuck.
+MIGRATION_WAIT_ATTEMPTS=300
+
 usage() {
     cat <<'EOF'
 Usage: run-fleet.sh [options]
@@ -119,10 +127,10 @@ compose() {
     docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" "$@"
 }
 
-# Poll psql (60 x 2s) until the query returns true; caller owns the warning
+# Poll psql until the query returns true; caller owns the warning.
 wait_for_psql_true() {
     local query="$1" attempt result
-    for attempt in $(seq 1 60); do
+    for attempt in $(seq 1 "$MIGRATION_WAIT_ATTEMPTS"); do
         result=$(compose exec -T timescaledb \
             bash -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"$query\"" \
             2>/dev/null | tr -d '[:space:]')
@@ -889,12 +897,12 @@ apply_database_tuning() {
     case "$api_port" in *[!0-9]*|"") api_port=4000 ;; esac
 
     echo "Waiting for fleet-api to finish database migrations before applying tuning…"
-    for attempt in $(seq 1 120); do
+    for attempt in $(seq 1 "$MIGRATION_WAIT_ATTEMPTS"); do
         if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:${api_port}/"; then
             break
         fi
-        if [ "$attempt" -eq 120 ]; then
-            echo "Warning: fleet-api did not come up within 240s; skipping database tuning." >&2
+        if [ "$attempt" -eq "$MIGRATION_WAIT_ATTEMPTS" ]; then
+            echo "Warning: fleet-api did not come up within $((MIGRATION_WAIT_ATTEMPTS * 2))s; skipping database tuning." >&2
             return 1
         fi
         sleep 2
