@@ -4,7 +4,7 @@
 -- Build replacement indexes before dropping the old constraints so the schema
 -- never has a uniqueness gap. The final index names match the old constraint
 -- names to keep PostgreSQL unique-violation metadata stable for callers.
-CREATE UNIQUE INDEX uq_user_username_live
+CREATE UNIQUE INDEX CONCURRENTLY uq_user_username_live
     ON "user" (username)
     WHERE deleted_at IS NULL;
 
@@ -14,7 +14,7 @@ ALTER TABLE "user"
 ALTER INDEX uq_user_username_live
     RENAME TO uq_user_username;
 
-CREATE UNIQUE INDEX uk_pool_org_url_username_live
+CREATE UNIQUE INDEX CONCURRENTLY uk_pool_org_url_username_live
     ON pool (org_id, url, username)
     WHERE deleted_at IS NULL;
 
