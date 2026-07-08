@@ -84,7 +84,7 @@ func newRootCommand() *cli.Command {
 			},
 			&cli.BoolFlag{
 				Name:    "insecure",
-				Usage:   "Allow insecure TLS certificates and use http:// when --server has no scheme",
+				Usage:   "Allow insecure TLS certificates and non-loopback http:// server URLs for testing",
 				Sources: cli.EnvVars(envFleetInsecure),
 			},
 			&cli.BoolFlag{

@@ -129,8 +129,8 @@ func TestFirmwareURLUsesBasePath(t *testing.T) {
 			want:     "http://fleet.example.com:4000/api/v1/firmware/config",
 		},
 		{
-			name:   "explicit path preserved while query and fragment ignored",
-			server: "https://fleet.example.com/custom?debug=true#section",
+			name:   "explicit path preserved",
+			server: "https://fleet.example.com/custom",
 			want:   "https://fleet.example.com/custom/api/v1/firmware/config",
 		},
 	}

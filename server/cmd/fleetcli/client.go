@@ -18,6 +18,7 @@ import (
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	fleetperformancev1 "github.com/block/proto-fleet/server/generated/grpc/fleetperformance/v1"
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
+	"github.com/block/proto-fleet/server/internal/transportguard"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -90,9 +91,10 @@ func New(_ context.Context, opts Options) (*Client, error) {
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Jar:       &loopbackSecureJar{inner: jar},
-			Transport: httpTransport,
-			Timeout:   30 * time.Second,
+			CheckRedirect: transportguard.RejectRedirect,
+			Jar:           &loopbackSecureJar{inner: jar},
+			Transport:     httpTransport,
+			Timeout:       30 * time.Second,
 		},
 		apiKey:   opts.APIKey,
 		username: strings.TrimSpace(opts.Username),
@@ -202,7 +204,11 @@ func (c *Client) applyBearerAuth(ctx context.Context, header http.Header, method
 // transport so session auth and TLS settings still apply; cancellation comes
 // from ctx.
 func (c *Client) transferClient() *http.Client {
-	return &http.Client{Jar: c.httpClient.Jar, Transport: c.httpClient.Transport}
+	return &http.Client{
+		CheckRedirect: transportguard.RejectRedirect,
+		Jar:           c.httpClient.Jar,
+		Transport:     c.httpClient.Transport,
+	}
 }
 
 func (c *Client) invoke(ctx context.Context, method string, req proto.Message, resp proto.Message, mode authMode) error {
@@ -352,5 +358,8 @@ func normalizeBaseURL(server string, insecureOverride bool) (*url.URL, error) {
 	}
 	u.Path = path
 	u.RawPath = ""
+	if err := transportguard.ValidateServerURL(u.String(), insecureOverride); err != nil {
+		return nil, err
+	}
 	return u, nil
 }
