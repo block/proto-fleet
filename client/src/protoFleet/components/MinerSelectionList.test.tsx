@@ -9,7 +9,7 @@ const { fleetArgsSpy, listPropsSpy, listRacksMock, listGroupsMock, hasPermMock }
   listPropsSpy: vi.fn(),
   listRacksMock: vi.fn(),
   listGroupsMock: vi.fn(),
-  hasPermMock: vi.fn(() => true),
+  hasPermMock: vi.fn((_perm: string) => true),
 }));
 
 vi.mock("@/protoFleet/api/useFleet", () => ({
@@ -234,7 +234,9 @@ describe("MinerSelectionList eligibility", () => {
 
   it("hides the Site/Building facets when the user lacks site:read", () => {
     hasPermMock.mockReturnValue(false);
-    render(<MinerSelectionList filterConfig={{ showTypeFilter: true, showSiteFilter: true, showBuildingFilter: true }} />);
+    render(
+      <MinerSelectionList filterConfig={{ showTypeFilter: true, showSiteFilter: true, showBuildingFilter: true }} />,
+    );
     const filters = lastListProps()?.filters as { children?: { title: string }[] }[] | undefined;
     const titles = filters?.[0]?.children?.map((c) => c.title) ?? [];
     expect(titles).toContain("Model");
