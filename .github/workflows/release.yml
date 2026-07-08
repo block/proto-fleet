@@ -23,16 +23,23 @@ jobs:
           fi
           echo "Tag '$TAG_NAME' is valid"
 
-      - name: Require tags to be on main
+      # Versioned releases (vX.Y.Z) and release candidates (vX.Y.Z-rc.N) must be
+      # cut from main so the release line can't silently diverge. Other
+      # prerelease suffixes (e.g. -alpha.N, -beta.N, -<label>) are intentionally
+      # left unrestricted so the team can cut throwaway test builds off feature
+      # branches — just not under the -rc. name, which is reserved for mainline
+      # release candidates.
+      - name: Require releases and release candidates to be on main
+        if: ${{ !contains(github.ref_name, '-') || contains(github.ref_name, '-rc.') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           AHEAD_BY=$(gh api "repos/${{ github.repository }}/compare/main...${{ github.sha }}" --jq '.ahead_by')
           if [[ "$AHEAD_BY" -ne 0 ]]; then
-            echo "::error::Release tags are only allowed from commits on the main branch. Tag '${{ github.ref_name }}' points to a commit not on main."
+            echo "::error::Versioned releases and -rc. tags must be cut from main. Tag '${{ github.ref_name }}' points to a commit not on main. For branch/test builds, use a different prerelease suffix (e.g. v1.2.3-<label>.1)."
             exit 1
           fi
-          echo "Release tag is on main — OK"
+          echo "Release/RC tag is on main — OK"
 
   build-artifacts:
     name: Build release artifacts
