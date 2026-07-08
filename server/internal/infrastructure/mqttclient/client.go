@@ -243,16 +243,21 @@ func (c *Client) addRoutes(client routeClient) {
 // v1.5.1 does in Subscribe. Staged routes must use the normalized form:
 // paho's router only strips $share (never $queue) when matching, and a route
 // staged under the original filter would duplicate the normalized route paho
-// adds on Subscribe, delivering each message twice.
+// adds on Subscribe, delivering each message twice. Degenerate filters with
+// an empty remainder ("$queue/", "$share/<group>/") are kept as-is rather
+// than registering an empty-topic route; Subscribe fails them normally.
 func normalizeTopicFilter(topic string) string {
 	if strings.HasPrefix(topic, "$share/") {
 		parts := strings.SplitN(topic, "/", 3)
-		if len(parts) == 3 {
+		if len(parts) == 3 && parts[2] != "" {
 			return parts[2]
 		}
 		return topic
 	}
-	return strings.TrimPrefix(topic, "$queue/")
+	if rest := strings.TrimPrefix(topic, "$queue/"); rest != "" {
+		return rest
+	}
+	return topic
 }
 
 func (c *Client) subscriptionSnapshot() map[string]paho.MessageHandler {

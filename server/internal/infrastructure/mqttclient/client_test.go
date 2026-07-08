@@ -366,6 +366,9 @@ func TestAddRoutesNormalizesSharedSubscriptionFilters(t *testing.T) {
 		{name: "share prefix stripped", topic: "$share/group/maestro/target", want: "maestro/target"},
 		{name: "queue prefix stripped", topic: "$queue/maestro/target", want: "maestro/target"},
 		{name: "plain topic unchanged", topic: "maestro/target", want: "maestro/target"},
+		{name: "queue prefix with empty remainder unchanged", topic: "$queue/", want: "$queue/"},
+		{name: "share prefix with empty remainder unchanged", topic: "$share/group/", want: "$share/group/"},
+		{name: "share prefix missing topic segment unchanged", topic: "$share/group", want: "$share/group"},
 	}
 
 	for _, tt := range tests {
