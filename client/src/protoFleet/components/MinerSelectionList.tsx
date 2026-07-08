@@ -212,6 +212,7 @@ const hasUnsupportedAllSelectionFilter = (filter: MinerListFilter): boolean =>
   filter.siteIds.length > 0 ||
   filter.buildingIds.length > 0 ||
   filter.ipCidrs.length > 0 ||
+  filter.ipRanges.length > 0 ||
   filter.includeUnassigned;
 
 const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({

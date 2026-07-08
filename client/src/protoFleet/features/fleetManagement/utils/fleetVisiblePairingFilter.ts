@@ -43,6 +43,7 @@ const applyAllowedPairingStatuses = (
     zoneKeys: filter?.zoneKeys ?? [],
     numericRanges: filter?.numericRanges ?? [],
     ipCidrs: filter?.ipCidrs ?? [],
+    ipRanges: filter?.ipRanges ?? [],
   });
 };
 
