@@ -148,18 +148,37 @@ jobs:
         id: policy_source
         if: steps.pr.outputs.found == 'true'
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          SAME_REPO: ${{ steps.pr.outputs.same_repo }}
           TRUSTED_BASE: ${{ steps.pr.outputs.trusted_base }}
         run: |
           if [ "$TRUSTED_BASE" != "true" ]; then
             echo "Review policy only evaluates PRs based on the repository default branch; got base ref ${BASE_REF}." >&2
             exit 1
           fi
-          if [ -f .github/scripts/evaluate_review_policy.py ] && [ -f .github/review-policy.json ]; then
-            echo "path=." >> "$GITHUB_OUTPUT"
-            echo "Using review policy code from the trusted base commit."
+          if [ ! -f .github/scripts/evaluate_review_policy.py ] || [ ! -f .github/review-policy.json ]; then
+            if [ "$SAME_REPO" != "true" ]; then
+              echo "Trusted base commit does not contain review policy code and config." >&2
+              exit 1
+            fi
+
+            echo "Trusted base commit does not contain review policy code and config; bootstrapping policy source from this same-repository PR head."
+            git -c protocol.version=2 \
+                -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" \
+                fetch --no-tags origin "$HEAD_SHA"
+            git checkout "$HEAD_SHA" -- .github/scripts/evaluate_review_policy.py .github/review-policy.json
+            source_description="this same-repository PR head"
           else
-            echo "Trusted base commit does not contain review policy code and config." >&2
+            source_description="the trusted base commit"
+          fi
+
+          if [ -f .github/scripts/evaluate_review_policy.py ] && [ -f .github/review-policy.json ]; then
+            echo "path=$(pwd)" >> "$GITHUB_OUTPUT"
+            echo "Using review policy code from ${source_description}."
+          else
+            echo "Review policy code and config are unavailable after selecting the policy source." >&2
             exit 1
           fi
 
@@ -291,7 +310,11 @@ jobs:
 
       - name: Select classifier output
         id: classifier_output
-        if: always() && steps.pr.outputs.found == 'true'
+        if: >-
+          !cancelled() &&
+          steps.pr.outputs.found == 'true' &&
+          steps.policy_source.outcome == 'success' &&
+          steps.preflight.outcome == 'success'
         env:
           AI_OUTCOME: ${{ steps.ai_classifier.outcome }}
           AI_OUTPUT: ${{ steps.ai_classifier.outputs.final-message }}
@@ -331,7 +354,12 @@ jobs:
 
       - name: Evaluate review policy
         id: evaluate_policy
-        if: always() && steps.pr.outputs.found == 'true'
+        if: >-
+          !cancelled() &&
+          steps.pr.outputs.found == 'true' &&
+          steps.policy_source.outcome == 'success' &&
+          steps.preflight.outcome == 'success' &&
+          steps.classifier_output.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CLASSIFIER_OUTPUT: ${{ steps.classifier_output.outputs.value }}
@@ -487,5 +515,9 @@ jobs:
                 });
               }
             } catch (error) {
-              core.warning(`Unable to sync review policy label: ${error.message}`);
+              if (error.status === 403) {
+                core.notice(`Unable to sync review policy label with this event token: ${error.message}`);
+              } else {
+                core.warning(`Unable to sync review policy label: ${error.message}`);
+              }
             }
