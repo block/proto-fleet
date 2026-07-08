@@ -66,10 +66,10 @@ groups:
           rule_group: proto-fleet-system
           template: system-cpu
         annotations:
-          summary: "Host CPU usage has been above 90% for at least ten minutes."
+          summary: "Host CPU usage has been above 90% for at least five minutes."
           description: |
             CPU on the machine running Proto Fleet has been above 90% for at
-            least ten minutes. Telemetry polling, command dispatch, and the
+            least five minutes. Telemetry polling, command dispatch, and the
             database all compete for that CPU; check for runaway processes on
             the host.
 
@@ -118,10 +118,10 @@ groups:
           rule_group: proto-fleet-system
           template: system-memory
         annotations:
-          summary: "Host memory usage has been above 90% for at least ten minutes."
+          summary: "Host memory usage has been above 90% for at least five minutes."
           description: |
             RAM on the machine running Proto Fleet has been above 90% for at
-            least ten minutes. If it keeps climbing, the kernel OOM killer may
+            least five minutes. If it keeps climbing, the kernel OOM killer may
             take out fleet-api or TimescaleDB.
 
       # Two-tier disk alerting: this warning at 75% gives lead time to plan
