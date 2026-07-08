@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
@@ -72,6 +73,55 @@ func seedAutomationEvent(
 	}
 	_, err := store.InsertEventWithTargets(ctx, params, targets)
 	require.NoError(t, err)
+}
+
+// Pins the nil-pointer window closed: a rule whose live automation event is
+// linked only by external reference (no rule-state row yet) cannot be
+// re-pointed to another source, disabled, or deleted, so the alert loop's
+// event-to-source attribution stays stable while an event is non-terminal.
+func TestSQLCurtailmentStore_RuleMutationGuardsCoverExternalReference(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	db := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(db)
+	orgID := user.OrganizationID
+
+	profileID := seedResponseProfile(t, db, orgID, "guard-profile")
+	sourceA := seedMQTTSourceConfig(t, db, orgID, user.DatabaseID, "guard-source-a", true)
+	sourceB := seedMQTTSourceConfig(t, db, orgID, user.DatabaseID, "guard-source-b", true)
+	ruleID := seedAutomationRule(t, db, orgID, sourceA, profileID, "guard-rule", true)
+	// The event exists but no curtailment_automation_rule_state row does —
+	// exactly the window between event start and the pointer write.
+	seedAutomationEvent(t, ctx, store, orgID, user.DatabaseID, ruleID, models.EventStateActive)
+
+	_, err := store.UpdateAutomationRule(ctx, models.AutomationRule{
+		ID:                ruleID,
+		OrgID:             orgID,
+		RuleName:          "guard-rule",
+		MQTTSourceID:      sourceB,
+		ResponseProfileID: profileID,
+	})
+	require.True(t, fleeterror.IsFailedPreconditionError(err), "re-pointing the rule must be blocked, got %v", err)
+
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, ruleID, false)
+	require.True(t, fleeterror.IsFailedPreconditionError(err), "disabling the rule must be blocked, got %v", err)
+
+	err = store.DeleteAutomationRule(ctx, orgID, ruleID)
+	require.True(t, fleeterror.IsFailedPreconditionError(err), "deleting the rule must be blocked, got %v", err)
+
+	rows, err := store.ListMQTTSourcesWithActiveCurtailment(ctx)
+	require.NoError(t, err)
+	bySourceID := make(map[int64]bool, len(rows))
+	for _, row := range rows {
+		bySourceID[row.SourceID] = true
+	}
+	require.True(t, bySourceID[sourceA], "the live event must stay attributed to its original source")
+	require.False(t, bySourceID[sourceB], "the live event must not migrate to another source")
 }
 
 // Pins the semantics the curtailment alert-metrics loop depends on: a

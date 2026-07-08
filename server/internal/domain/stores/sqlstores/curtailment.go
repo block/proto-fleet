@@ -415,10 +415,18 @@ func (s *SQLCurtailmentStore) automationRuleLifecycleNoRowsError(ctx context.Con
 }
 
 func (s *SQLCurtailmentStore) nonTerminalAutomationEventError(ctx context.Context, action string, rule *models.AutomationRule) error {
-	if rule == nil || rule.ActiveEventUUID == nil {
+	if rule == nil {
 		return nil
 	}
-	event, err := s.GetEventByUUID(ctx, rule.OrgID, *rule.ActiveEventUUID)
+	var event *models.Event
+	var err error
+	if rule.ActiveEventUUID != nil {
+		event, err = s.GetEventByUUID(ctx, rule.OrgID, *rule.ActiveEventUUID)
+	} else {
+		// The pointer is written after the event starts; the external
+		// reference finds the live event inside that window too.
+		event, err = s.GetEventByExternalReference(ctx, rule.OrgID, "curtailment_automation", strconv.FormatInt(rule.ID, 10))
+	}
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
 			return nil

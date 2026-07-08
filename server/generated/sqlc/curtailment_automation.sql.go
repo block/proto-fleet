@@ -89,12 +89,24 @@ DELETE FROM curtailment_automation_rule
 WHERE curtailment_automation_rule.id = $1
   AND curtailment_automation_rule.org_id = $2
   AND NOT EXISTS (
+      -- Same live-event pin as UpdateCurtailmentAutomationRule: pointer or
+      -- external reference, so the nil-pointer window cannot slip a delete.
       SELECT 1
-      FROM curtailment_automation_rule_state st
-      JOIN curtailment_event e
-          ON e.event_uuid = st.active_event_uuid
-      WHERE st.rule_id = curtailment_automation_rule.id
-        AND e.state IN ('pending', 'active', 'restoring')
+      FROM curtailment_event e
+      WHERE e.state IN ('pending', 'active', 'restoring')
+        AND (
+            EXISTS (
+                SELECT 1
+                FROM curtailment_automation_rule_state st
+                WHERE st.rule_id = curtailment_automation_rule.id
+                  AND st.active_event_uuid = e.event_uuid
+            )
+            OR (
+                e.org_id = curtailment_automation_rule.org_id
+                AND e.external_source = 'curtailment_automation'
+                AND e.external_reference = curtailment_automation_rule.id::text
+            )
+        )
   )
 `
 
@@ -723,13 +735,25 @@ WHERE curtailment_automation_rule.id = $2
   AND curtailment_automation_rule.org_id = $3
   AND (
       $1 = TRUE
+      -- Same live-event pin as UpdateCurtailmentAutomationRule: pointer or
+      -- external reference, so the nil-pointer window cannot slip a disable.
       OR NOT EXISTS (
           SELECT 1
-          FROM curtailment_automation_rule_state st
-          JOIN curtailment_event e
-              ON e.event_uuid = st.active_event_uuid
-          WHERE st.rule_id = curtailment_automation_rule.id
-            AND e.state IN ('pending', 'active', 'restoring')
+          FROM curtailment_event e
+          WHERE e.state IN ('pending', 'active', 'restoring')
+            AND (
+                EXISTS (
+                    SELECT 1
+                    FROM curtailment_automation_rule_state st
+                    WHERE st.rule_id = curtailment_automation_rule.id
+                      AND st.active_event_uuid = e.event_uuid
+                )
+                OR (
+                    e.org_id = curtailment_automation_rule.org_id
+                    AND e.external_source = 'curtailment_automation'
+                    AND e.external_reference = curtailment_automation_rule.id::text
+                )
+            )
       )
   )
 RETURNING id, org_id, rule_name, trigger_type, mqtt_source_id, response_profile_id, enabled, created_at, updated_at
@@ -767,12 +791,25 @@ SET
 WHERE curtailment_automation_rule.id = $4
   AND curtailment_automation_rule.org_id = $5
   AND NOT EXISTS (
+      -- A live automation event pins the rule via the rule-state pointer or
+      -- via the event's external reference, which also covers the window
+      -- before SetAutomationActiveEvent writes the pointer.
       SELECT 1
-      FROM curtailment_automation_rule_state st
-      JOIN curtailment_event e
-          ON e.event_uuid = st.active_event_uuid
-      WHERE st.rule_id = curtailment_automation_rule.id
-        AND e.state IN ('pending', 'active', 'restoring')
+      FROM curtailment_event e
+      WHERE e.state IN ('pending', 'active', 'restoring')
+        AND (
+            EXISTS (
+                SELECT 1
+                FROM curtailment_automation_rule_state st
+                WHERE st.rule_id = curtailment_automation_rule.id
+                  AND st.active_event_uuid = e.event_uuid
+            )
+            OR (
+                e.org_id = curtailment_automation_rule.org_id
+                AND e.external_source = 'curtailment_automation'
+                AND e.external_reference = curtailment_automation_rule.id::text
+            )
+        )
   )
 RETURNING id, org_id, rule_name, trigger_type, mqtt_source_id, response_profile_id, enabled, created_at, updated_at
 `
