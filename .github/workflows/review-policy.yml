@@ -21,7 +21,7 @@ on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflo
         type: number
 
 concurrency:
-  group: review-policy-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || inputs.pr || github.event.check_run.head_sha || github.event.check_suite.head_sha || github.event.sha || github.run_id }}
+  group: review-policy-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.check_run.head_sha || github.event.check_suite.head_sha || github.event.sha || github.sha || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -45,9 +45,9 @@ jobs:
       found: ${{ steps.pr.outputs.found }}
       number: ${{ steps.pr.outputs.number }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
-      decision: ${{ steps.evaluate_policy.outputs.decision || 'needs-human-review' }}
-      passed: ${{ steps.evaluate_policy.outputs.passed || 'false' }}
-      enforced: ${{ steps.evaluate_policy.outputs.enforced || 'true' }}
+      decision: ${{ steps.evaluate_policy.outputs.decision || steps.bootstrap_policy.outputs.decision || 'needs-human-review' }}
+      passed: ${{ steps.evaluate_policy.outputs.passed || steps.bootstrap_policy.outputs.passed || 'false' }}
+      enforced: ${{ steps.evaluate_policy.outputs.enforced || steps.bootstrap_policy.outputs.enforced || 'true' }}
     env:
       CODEX_MODEL: gpt-5.5
       CODEX_REASONING_EFFORT: high
@@ -148,10 +148,7 @@ jobs:
         id: policy_source
         if: steps.pr.outputs.found == 'true'
         env:
-          GITHUB_TOKEN: ${{ github.token }}
           BASE_REF: ${{ steps.pr.outputs.base_ref }}
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
-          SAME_REPO: ${{ steps.pr.outputs.same_repo }}
           TRUSTED_BASE: ${{ steps.pr.outputs.trusted_base }}
         run: |
           if [ "$TRUSTED_BASE" != "true" ]; then
@@ -159,32 +156,35 @@ jobs:
             exit 1
           fi
           if [ ! -f .github/scripts/evaluate_review_policy.py ] || [ ! -f .github/review-policy.json ]; then
-            if [ "$SAME_REPO" != "true" ]; then
-              echo "Trusted base commit does not contain review policy code and config." >&2
-              exit 1
-            fi
-
-            echo "Trusted base commit does not contain review policy code and config; bootstrapping policy source from this same-repository PR head."
-            git -c protocol.version=2 \
-                -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" \
-                fetch --no-tags origin "$HEAD_SHA"
-            git checkout "$HEAD_SHA" -- .github/scripts/evaluate_review_policy.py .github/review-policy.json
-            source_description="this same-repository PR head"
-          else
-            source_description="the trusted base commit"
+            echo "Trusted base commit does not contain review policy code and config; publishing a fail-closed bootstrap decision without executing PR-head policy code."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-          if [ -f .github/scripts/evaluate_review_policy.py ] && [ -f .github/review-policy.json ]; then
-            echo "path=$(pwd)" >> "$GITHUB_OUTPUT"
-            echo "Using review policy code from ${source_description}."
-          else
-            echo "Review policy code and config are unavailable after selecting the policy source." >&2
-            exit 1
-          fi
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "path=$(pwd)" >> "$GITHUB_OUTPUT"
+          echo "Using review policy code from the trusted base commit."
+
+      - name: Use bootstrap fallback decision
+        id: bootstrap_policy
+        if: steps.pr.outputs.found == 'true' && steps.policy_source.outputs.available != 'true'
+        run: |
+          echo "decision=needs-human-review" >> "$GITHUB_OUTPUT"
+          echo "passed=false" >> "$GITHUB_OUTPUT"
+          echo "enforced=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Review Policy"
+            echo
+            echo "**Decision:** \`needs-human-review\`"
+            echo "**Status:** fail"
+            echo "**Mode:** advisory"
+            echo
+            echo "Trusted base policy code is not available yet, so this bootstrap run did not execute PR-controlled policy code."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run deterministic low-risk preflight
         id: preflight
-        if: steps.pr.outputs.found == 'true'
+        if: steps.pr.outputs.found == 'true' && steps.policy_source.outputs.available == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PREFLIGHT_JSON: ${{ runner.temp }}/review-policy-preflight.json
@@ -313,6 +313,7 @@ jobs:
         if: >-
           !cancelled() &&
           steps.pr.outputs.found == 'true' &&
+          steps.policy_source.outputs.available == 'true' &&
           steps.policy_source.outcome == 'success' &&
           steps.preflight.outcome == 'success'
         env:
@@ -357,6 +358,7 @@ jobs:
         if: >-
           !cancelled() &&
           steps.pr.outputs.found == 'true' &&
+          steps.policy_source.outputs.available == 'true' &&
           steps.policy_source.outcome == 'success' &&
           steps.preflight.outcome == 'success' &&
           steps.classifier_output.outcome == 'success'
@@ -402,6 +404,9 @@ jobs:
     if: always() && needs.evaluate.outputs.found == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    concurrency:
+      group: review-policy-publish-${{ needs.evaluate.outputs.head_sha }}
+      cancel-in-progress: true
     permissions:
       statuses: write
     steps:
@@ -445,6 +450,9 @@ jobs:
     steps:
       - name: Sync review policy label
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          DECISION: ${{ needs.evaluate.outputs.decision || 'needs-human-review' }}
+          PR_NUMBER: ${{ needs.evaluate.outputs.number }}
         with:
           script: |
             const labels = {
@@ -453,9 +461,16 @@ jobs:
               'needs-human-review': 'review-policy: needs-review',
             };
             const managedLabels = Object.values(labels);
-            const decision = '${{ needs.evaluate.outputs.decision }}';
+            const rawDecision = process.env.DECISION || '';
+            const decision = Object.prototype.hasOwnProperty.call(labels, rawDecision)
+              ? rawDecision
+              : 'needs-human-review';
             const desired = labels[decision] || labels['needs-human-review'];
-            const issue_number = Number('${{ needs.evaluate.outputs.number }}');
+            const issue_number = Number(process.env.PR_NUMBER);
+            if (!Number.isInteger(issue_number) || issue_number <= 0) {
+              core.setFailed(`Invalid pull request number for review policy label sync: ${process.env.PR_NUMBER}`);
+              return;
+            }
             const colors = {
               'review-policy: low-risk': '0e8a16',
               'review-policy: human-approved': '1d76db',
