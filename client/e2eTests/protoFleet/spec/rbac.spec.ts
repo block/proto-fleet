@@ -135,7 +135,7 @@ test.describe("Proto Fleet - RBAC", () => {
 
     await provisionRoleAndLogin(commonSteps, {
       roleDescription: "Manage alerts for RBAC coverage.",
-      permissionKeys: ["alert:read", "alert:manage"],
+      permissionKeys: ["alert:read", "alert:manage", "miner:read"],
     });
 
     await alertsPage.navigateToAlertsSettings();
