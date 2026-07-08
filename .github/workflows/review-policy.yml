@@ -58,6 +58,34 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
+            async function getOpenPrByNumber(pullNumber) {
+              const { data } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pullNumber,
+              });
+              if (data.state !== 'open') {
+                core.notice(`Pull request #${pullNumber} is not open.`);
+                return undefined;
+              }
+              return data;
+            }
+
+            function isCurrentHeadForEvent(pr, headSha, eventLabel) {
+              if (!headSha) {
+                core.notice(`Ignoring ${eventLabel} event because it did not include a head SHA.`);
+                return false;
+              }
+              if (pr.head.sha !== headSha) {
+                core.notice(
+                  `Ignoring stale ${eventLabel} event for ${headSha}; ` +
+                  `pull request #${pr.number} now points at ${pr.head.sha}.`
+                );
+                return false;
+              }
+              return true;
+            }
+
             async function findOpenPrForSha(sha) {
               if (!sha) return undefined;
               const { data: candidates } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
@@ -70,22 +98,16 @@ jobs:
               );
               if (!candidate) return undefined;
 
-              const { data } = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: candidate.number,
-              });
+              const data = await getOpenPrByNumber(candidate.number);
+              if (!data || !isCurrentHeadForEvent(data, sha, 'commit SHA')) {
+                return undefined;
+              }
               return data;
             }
 
             let pr;
             if (context.eventName === 'workflow_dispatch') {
-              const { data } = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: Number(context.payload.inputs.pr),
-              });
-              pr = data;
+              pr = await getOpenPrByNumber(Number(context.payload.inputs.pr));
             } else if (context.payload.pull_request) {
               pr = context.payload.pull_request;
             } else if (context.eventName === 'status') {
@@ -111,12 +133,11 @@ jobs:
               pr = await findOpenPrForSha(context.payload.check_suite?.head_sha);
             } else if (context.payload.workflow_run?.pull_requests?.length) {
               const candidate = context.payload.workflow_run.pull_requests[0];
-              const { data } = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: candidate.number,
-              });
-              pr = data;
+              const workflowRunHeadSha = context.payload.workflow_run.head_sha;
+              const data = await getOpenPrByNumber(candidate.number);
+              if (data && isCurrentHeadForEvent(data, workflowRunHeadSha, 'workflow_run')) {
+                pr = data;
+              }
             }
 
             if (!pr) {
