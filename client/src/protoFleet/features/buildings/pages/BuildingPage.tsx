@@ -53,7 +53,9 @@ const ALL_AGGREGATION_TYPES: AggregationType[] = [AggregationType.AVERAGE, Aggre
 // honestly: NotFound (server confirmed the id doesn't exist), error (any
 // other failure — permission denied, network, 5xx), and success.
 type FetchOutcome =
-  { status: "found"; building: Building } | { status: "notFound" } | { status: "error"; message: string };
+  | { status: "found"; building: Building }
+  | { status: "notFound" }
+  | { status: "error"; message: string };
 
 const BuildingPage = () => {
   const { id } = useParams<{ id: string }>();
