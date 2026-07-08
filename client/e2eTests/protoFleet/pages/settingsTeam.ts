@@ -1,6 +1,8 @@
 import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export class SettingsTeamPage extends BasePage {
   private memberRow(username: string) {
     return this.page
@@ -202,7 +204,7 @@ export class SettingsTeamPage extends BasePage {
       const roleName = (
         await row
           .getByTestId("name")
-          .getByText(new RegExp(`^${rolePrefix}`))
+          .getByText(new RegExp(`^${escapeRegex(rolePrefix)}`))
           .textContent()
           .catch(() => null)
       )?.trim();

@@ -39,12 +39,34 @@ export const RBAC_RACK_ZONE = "RbacZone";
 
 const helpersDir = path.dirname(fileURLToPath(import.meta.url));
 const adminStorageStatePath = path.join(helpersDir, "..", "playwright", ".auth", "admin.json");
-const adminStorageState = JSON.parse(fs.readFileSync(adminStorageStatePath, "utf8")) as {
+type AdminStorageState = {
+  cookies?: Array<unknown>;
   origins?: Array<{
     localStorage?: Array<{ name: string; value: string }>;
   }>;
 };
-const adminLocalStorageEntries = adminStorageState.origins?.flatMap((origin) => origin.localStorage ?? []) ?? [];
+
+function loadAdminStorageState(): {
+  localStorageEntries: Array<{ name: string; value: string }>;
+  storageState: AdminStorageState;
+} {
+  try {
+    const storageState = JSON.parse(fs.readFileSync(adminStorageStatePath, "utf8")) as AdminStorageState;
+    return {
+      localStorageEntries: storageState.origins?.flatMap((origin) => origin.localStorage ?? []) ?? [],
+      storageState,
+    };
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT") {
+      throw new Error(
+        `Missing admin auth state at ${adminStorageStatePath}. Run 02-saveAuthState.spec.ts or the auth setup dependency before RBAC tests that need stored admin context.`,
+        { cause: error },
+      );
+    }
+
+    throw error;
+  }
+}
 
 type ProvisionedMember = {
   roleName: string;
@@ -76,7 +98,7 @@ export function useRbacHooks() {
   });
 
   test.afterEach("CLEANUP: delete RBAC fixtures", async ({ browser }, testInfo) => {
-    await cleanupRbacArtifacts(browser, testInfo).catch(() => undefined);
+    await cleanupRbacArtifacts(browser, testInfo);
   });
 }
 
@@ -227,6 +249,10 @@ export async function createRack(racksPage: RacksPage, rackLabel: string) {
 }
 
 export async function createCurtailment(energyPage: EnergyPage, reason: string) {
+  if (testConfig.target === "real") {
+    throw new Error("RBAC curtailment setup is only supported against fake targets.");
+  }
+
   await test.step(`Create curtailment "${reason}"`, async () => {
     await energyPage.navigateToEnergyPage();
     await energyPage.validateEnergyPageOpened();
@@ -379,9 +405,10 @@ async function withStoredAdminContext<T>(
   callback: (pages: CleanupPages) => Promise<T>,
 ): Promise<T> {
   const isMobile = testInfo.project.use?.isMobile ?? false;
+  const { localStorageEntries, storageState } = loadAdminStorageState();
   const context = await browser.newContext({
     baseURL: testConfig.baseUrl,
-    storageState: adminStorageStatePath,
+    storageState,
     viewport: testInfo.project.use?.viewport,
   });
 
@@ -391,7 +418,7 @@ async function withStoredAdminContext<T>(
       for (const entry of entries) {
         localStorage.setItem(entry.name, entry.value);
       }
-    }, adminLocalStorageEntries);
+    }, localStorageEntries);
     await installAllSitesInitScript(page);
     await page.goto("/");
 

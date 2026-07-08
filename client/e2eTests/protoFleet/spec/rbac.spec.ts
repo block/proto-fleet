@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { testConfig } from "../config/test.config";
 import { expect, test } from "../fixtures/pageFixtures";
 import {
   ALERTS_E2E_ENABLED,
@@ -54,6 +55,14 @@ function expectConnectError(result: { body: string; status: number }, code: "per
   }
 
   expect(result.status === 501 || normalizedBody.includes(code), summary).toBeTruthy();
+}
+
+function expectConnectNotPermissionDenied(result: { body: string; status: number }) {
+  const normalizedBody = result.body.toLowerCase();
+  const summary = JSON.stringify(result);
+
+  expect(result.status).not.toBe(403);
+  expect(normalizedBody.includes("permission_denied"), summary).toBeFalsy();
 }
 
 test.describe("Proto Fleet - RBAC", () => {
@@ -179,6 +188,12 @@ test.describe("Proto Fleet - RBAC", () => {
     commonSteps,
     energyPage,
   }) => {
+    // eslint-disable-next-line playwright/no-skipped-test
+    test.skip(
+      testConfig.target === "real",
+      "Curtailment RBAC E2E creates whole-fleet curtailments and is only supported against fake targets.",
+    );
+
     const reason = generateRandomText(RBAC_CURTAILMENT_REASON_PREFIX);
 
     await commonSteps.loginAsAdmin();
@@ -197,6 +212,12 @@ test.describe("Proto Fleet - RBAC", () => {
   });
 
   test("Curtailment manage role can preview, start, and stop a curtailment", async ({ commonSteps, energyPage }) => {
+    // eslint-disable-next-line playwright/no-skipped-test
+    test.skip(
+      testConfig.target === "real",
+      "Curtailment RBAC E2E creates whole-fleet curtailments and is only supported against fake targets.",
+    );
+
     const reason = generateRandomText(RBAC_CURTAILMENT_REASON_PREFIX);
 
     await provisionRoleAndLogin(commonSteps, {
@@ -240,7 +261,7 @@ test.describe("Proto Fleet - RBAC", () => {
     });
 
     const allowedResult = await invokeIngestCurtailmentSignal(page, allowedReference);
-    expectConnectError(allowedResult, "unimplemented");
+    expectConnectNotPermissionDenied(allowedResult);
   });
 
   test("Sites, buildings, and racks read-only role can view infrastructure without create actions", async ({
@@ -276,7 +297,7 @@ test.describe("Proto Fleet - RBAC", () => {
     });
     await racksPage.navigateToRacksPage();
     await racksPage.clickViewList();
-    await racksPage.waitForRackListToLoad({ allowEmpty: false });
+    await racksPage.waitForRackListToLoad({ allowEmpty: false, requireManageAccess: false });
     await racksPage.validateRackRow(rackLabel, RBAC_RACK_ZONE, 0);
     await fleetLocationsPage.validateAddSiteButtonHidden();
     await fleetLocationsPage.validateAddBuildingButtonHidden();
