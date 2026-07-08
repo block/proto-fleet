@@ -154,6 +154,86 @@ func TestAlertMetricsTickEmitsForDisabledSourceWithActiveEvent(t *testing.T) {
 	require.True(t, emitter.active[1].value, "a disabled source with a live event must keep the alert firing")
 }
 
+func TestAlertMetricsTickClearsDisabledSourceAfterRestore(t *testing.T) {
+	active := &fakeActiveLister{active: []*models.MQTTSourceActiveCurtailment{
+		activeSource(2, 20, "disabled-but-curtailed"),
+	}}
+	emitter := &recordingEmitter{}
+	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{
+		Sources:           &fakeSourcesLister{},
+		Runtime:           &fakeRuntime{},
+		ActiveCurtailment: active,
+		Emitter:           emitter,
+	})
+
+	loop.tick(context.Background())
+	require.Len(t, emitter.active, 1)
+	require.True(t, emitter.active[0].value)
+
+	// Event reaches a terminal state: one clearing 0 with the same labels.
+	active.active = nil
+	loop.tick(context.Background())
+	require.Len(t, emitter.active, 2)
+	require.Equal(t, emitter.active[0].labels, emitter.active[1].labels)
+	require.False(t, emitter.active[1].value)
+
+	// Steady state afterwards: nothing more is emitted for that source.
+	loop.tick(context.Background())
+	require.Len(t, emitter.active, 2)
+}
+
+func TestAlertMetricsTickNoClearingSampleWhenSourceReenabled(t *testing.T) {
+	sources := &fakeSourcesLister{}
+	active := &fakeActiveLister{active: []*models.MQTTSourceActiveCurtailment{
+		activeSource(1, 10, "maestro"),
+	}}
+	emitter := &recordingEmitter{}
+	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{
+		Sources:           sources,
+		Runtime:           &fakeRuntime{},
+		ActiveCurtailment: active,
+		Emitter:           emitter,
+	})
+
+	loop.tick(context.Background())
+	require.Len(t, emitter.active, 1)
+	require.True(t, emitter.active[0].value)
+
+	// Source re-enabled with the event still live: the enabled-path emission
+	// must not be followed by a spurious clearing 0.
+	sources.sources = []mqttingest.SourceConfig{testSource(1, 10, "maestro")}
+	loop.tick(context.Background())
+	require.Len(t, emitter.active, 2)
+	require.True(t, emitter.active[1].value)
+}
+
+func TestAlertMetricsTickClearingSampleSurvivesLookupError(t *testing.T) {
+	active := &fakeActiveLister{active: []*models.MQTTSourceActiveCurtailment{
+		activeSource(2, 20, "disabled-but-curtailed"),
+	}}
+	emitter := &recordingEmitter{}
+	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{
+		Sources:           &fakeSourcesLister{},
+		Runtime:           &fakeRuntime{},
+		ActiveCurtailment: active,
+		Emitter:           emitter,
+	})
+
+	loop.tick(context.Background())
+	require.Len(t, emitter.active, 1)
+
+	// A failed lookup must not drop the pending clearing state.
+	active.err = errors.New("db down")
+	loop.tick(context.Background())
+	require.Len(t, emitter.active, 1)
+
+	active.err = nil
+	active.active = nil
+	loop.tick(context.Background())
+	require.Len(t, emitter.active, 2)
+	require.False(t, emitter.active[1].value, "clearing 0 must land once the lookup recovers")
+}
+
 func TestAlertMetricsTickSkipsActiveEmitOnLookupError(t *testing.T) {
 	emitter := &recordingEmitter{}
 	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{

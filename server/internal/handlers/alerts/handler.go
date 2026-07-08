@@ -424,8 +424,9 @@ func protoToMaintenanceWindow(id string, scope *alertsv1.MaintenanceWindowScope,
 	return dom, nil
 }
 
-// includeDevice gates miner data behind miner:read: the structured device fields plus the free-text summary/template,
-// which are sourced from alert annotations and routinely name the device. Rule-level fields stay visible to any alert:read caller.
+// includeDevice gates miner data behind miner:read: the structured device fields plus the free-text summary,
+// which is sourced from alert annotations and routinely names the device. Rule-level fields — including the
+// template label, a rule-type slug the rules list already exposes — stay visible to any alert:read caller.
 func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice bool) *alertsv1.AlertHistoryEntry {
 	out := &alertsv1.AlertHistoryEntry{
 		Id:          strconv.FormatInt(n.ID, 10),
@@ -435,12 +436,12 @@ func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice
 		Severity:    n.Severity,
 		RuleGroup:   n.RuleGroup,
 		Fingerprint: n.Fingerprint,
+		Template:    n.Template,
 	}
 	if includeDevice {
 		out.DeviceId = n.DeviceID
 		out.DeviceName = n.DeviceName
 		out.DeviceMac = n.DeviceMAC
-		out.Template = n.Template
 		out.Summary = n.Summary
 	}
 	if n.StartsAt != nil {

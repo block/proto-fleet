@@ -63,6 +63,11 @@ type AlertMetricsLoop struct {
 
 	mu      sync.Mutex
 	running bool
+
+	// prevDisabledActive remembers disabled sources whose curtailment gauge
+	// was emitted last tick, so a final 0 can clear the alert promptly when
+	// their event ends. Touched only by the tick goroutine.
+	prevDisabledActive map[int64]metrics.MQTTSourceLabels
 }
 
 // NewAlertMetricsLoop validates dependencies and applies defaults.
@@ -172,6 +177,7 @@ func (l *AlertMetricsLoop) tick(ctx context.Context) {
 		}
 	}
 
+	emittedActive := make(map[int64]struct{}, len(sources))
 	for _, src := range sources {
 		labels := metrics.MQTTSourceLabels{
 			OrganizationID: metrics.OrgIDToLabel(src.OrganizationID),
@@ -182,19 +188,35 @@ func (l *AlertMetricsLoop) tick(ctx context.Context) {
 		if activeErr == nil {
 			_, isActive := activeBySourceID[src.ID]
 			l.cfg.Emitter.EmitMQTTCurtailmentActive(ctx, labels, isActive)
+			emittedActive[src.ID] = struct{}{}
 			delete(activeBySourceID, src.ID)
 		}
 	}
 
 	if activeErr != nil {
+		// State unknown: keep prevDisabledActive so the clearing 0 still
+		// lands once the lookup recovers.
 		return
 	}
 	// A source disabled mid-curtailment still has a live event; keep its
 	// gauge high so the alert cannot resolve while miners stay curtailed.
+	curDisabledActive := make(map[int64]metrics.MQTTSourceLabels, len(activeBySourceID))
 	for _, a := range activeBySourceID {
-		l.cfg.Emitter.EmitMQTTCurtailmentActive(ctx, metrics.MQTTSourceLabels{
+		labels := metrics.MQTTSourceLabels{
 			OrganizationID: metrics.OrgIDToLabel(a.OrganizationID),
 			SourceName:     a.SourceName,
-		}, true)
+		}
+		l.cfg.Emitter.EmitMQTTCurtailmentActive(ctx, labels, true)
+		curDisabledActive[a.SourceID] = labels
+		emittedActive[a.SourceID] = struct{}{}
 	}
+	// One clearing 0 for a disabled source whose event just ended, so the
+	// alert resolves promptly instead of aging out of the rule window. Best
+	// effort: a restart in between falls back to the age-out path.
+	for id, labels := range l.prevDisabledActive {
+		if _, emitted := emittedActive[id]; !emitted {
+			l.cfg.Emitter.EmitMQTTCurtailmentActive(ctx, labels, false)
+		}
+	}
+	l.prevDisabledActive = curDisabledActive
 }
