@@ -198,6 +198,56 @@ func TestIPCIDRFilter_MatchesIPv4Range(t *testing.T) {
 	assert.Equal(t, int64(1), total)
 }
 
+func TestIPRangeFilter_RangeOnlyFiltersRowsAndCounts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testContext.DatabaseService
+	db := testContext.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	devInRange := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	devOutOfRange := dbSvc.CreateDevice(user.OrganizationID, "proto")
+
+	setDeviceIP(t, db, devInRange.DatabaseID, "192.168.1.15")
+	setDeviceIP(t, db, devOutOfRange.DatabaseID, "192.168.1.50")
+
+	now := time.Now().UTC()
+	insertMetric(t, db, devInRange.ID, now, 95e12)
+	insertMetric(t, db, devOutOfRange.ID, now, 95e12)
+	setDeviceStatus(t, db, devInRange.DatabaseID, sqlc.DeviceStatusEnumACTIVE)
+	setDeviceStatus(t, db, devOutOfRange.DatabaseID, sqlc.DeviceStatusEnumACTIVE)
+
+	// Range-only filter (no ip_cidrs). Regression guard: the count/total paths
+	// previously routed to the dynamic builder only for ip_cidrs, so a
+	// range-only filter left totals and state counts computed fleet-wide while
+	// the listed rows were range-filtered.
+	filter := &stores.MinerFilter{
+		IPRanges: []stores.IPRange{
+			{Start: netip.MustParseAddr("192.168.1.10"), End: netip.MustParseAddr("192.168.1.20")},
+		},
+	}
+
+	rows, _, total, err := deviceStore.ListMinerStateSnapshots(ctx, user.OrganizationID, "", 100, filter, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{devInRange.ID}, identifiers(rows))
+	assert.Equal(t, int64(1), total, "total must be range-filtered, not fleet-wide")
+
+	counts, err := deviceStore.GetMinerStateCounts(ctx, user.OrganizationID, filter)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), counts.HashingCount)
+	assert.Equal(
+		t,
+		int64(1),
+		int64(counts.HashingCount+counts.BrokenCount+counts.OfflineCount+counts.SleepingCount),
+		"state counts must be range-filtered, not fleet-wide",
+	)
+}
+
 func TestIPCIDRFilter_MultipleCIDRsActAsOR(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

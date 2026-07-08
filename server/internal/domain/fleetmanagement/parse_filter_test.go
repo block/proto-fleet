@@ -869,6 +869,37 @@ func TestParseFilter_IPRanges_RejectsOversizedArray(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
+func TestParseFilter_IPRanges_RejectsIPv6(t *testing.T) {
+	// ip_ranges is documented IPv4-only; an IPv6 start/end pair must be rejected
+	// even though it parses as a valid same-family range.
+	pbFilter := &pb.MinerListFilter{
+		IpRanges: []*pb.IpRange{{StartIp: "2001:db8::1", EndIp: "2001:db8::ff"}},
+	}
+
+	_, err := callParseFilter(t, pbFilter)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestParseFilter_Subnet_RejectsCombinedOversize(t *testing.T) {
+	// ip_cidrs + ip_ranges are one subnet surface; their combined size is
+	// capped, so splitting entries across both fields can't bypass the limit.
+	cidrs := make([]string, maxFreeFormFilterValues)
+	for i := range cidrs {
+		cidrs[i] = "10.0.0.0/8"
+	}
+	pbFilter := &pb.MinerListFilter{
+		IpCidrs:  cidrs,
+		IpRanges: []*pb.IpRange{{StartIp: "10.0.0.10", EndIp: "10.0.0.20"}},
+	}
+
+	_, err := callParseFilter(t, pbFilter)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
 func TestParseFilter_NumericAndCIDR_CombineWithExistingFilters(t *testing.T) {
 	pbFilter := &pb.MinerListFilter{
 		Models:           []string{"S21 XP"},
