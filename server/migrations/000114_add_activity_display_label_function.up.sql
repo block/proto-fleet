@@ -122,6 +122,8 @@ base AS (
         WHEN event_type = 'site.updated' THEN CONCAT('Updated site', COALESCE(': ' || COALESCE(metadata->>'site_name', scope_label), ''))
         -- Mirrors formatDeletedSite: "Deleted site 42: 1 building, 4 racks
         -- unassigned, 9 miners unassigned, 2 response profiles deleted".
+        -- DeleteSite logs the site ID only in the description, so fall back
+        -- to parsing it there, matching the client.
         WHEN event_type = 'site.deleted' THEN
             CASE WHEN counts.deleted_building_count IS NULL
                       AND counts.unassigned_rack_count IS NULL
@@ -129,7 +131,9 @@ base AS (
                       AND counts.deleted_response_profile_count IS NULL
                  THEN 'Deleted site'
                  ELSE CONCAT(
-                     'Deleted site', COALESCE(' ' || counts.site_id, ''), ': ',
+                     'Deleted site',
+                     COALESCE(' ' || COALESCE(counts.site_id::text, substring(description from 'Deleted site (\d+)')), ''),
+                     ': ',
                      CONCAT_WS(', ',
                          CASE WHEN counts.deleted_building_count IS NOT NULL
                               THEN activity_count_label(counts.deleted_building_count, 'building', 'buildings') END,
@@ -149,7 +153,9 @@ base AS (
             CASE WHEN counts.unassigned_rack_count IS NULL
                  THEN 'Deleted building'
                  ELSE CONCAT(
-                     'Deleted building', COALESCE(' ' || counts.building_id, ''), ': ',
+                     'Deleted building',
+                     COALESCE(' ' || COALESCE(counts.building_id::text, substring(description from 'Deleted building (\d+)')), ''),
+                     ': ',
                      activity_count_label(counts.unassigned_rack_count, 'rack', 'racks'), ' unassigned'
                  )
             END

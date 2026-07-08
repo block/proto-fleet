@@ -89,12 +89,14 @@ func TestActivityLogs_SearchMatchesDisplayedLabels(t *testing.T) {
 			OrganizationID: &orgID,
 		},
 		{
+			// Mirrors production DeleteSite: the site ID appears only in the
+			// description, never in metadata (sites/service.go).
 			Category:       models.CategoryFleetManagement,
 			Type:           "site.deleted",
-			Description:    "Deleted site 42 (1 building(s), 4 rack(s) unassigned, 9 device(s) unassigned)",
+			Description:    "Deleted site 42 (1 buildings, 4 racks, 9 devices unassigned, 2 response profiles deleted)",
 			Result:         models.ResultSuccess,
 			ActorType:      models.ActorUser,
-			Metadata:       map[string]any{"site_id": 42, "deleted_building_count": 1, "unassigned_rack_count": 4, "unassigned_device_count": 9},
+			Metadata:       map[string]any{"deleted_building_count": 1, "unassigned_rack_count": 4, "unassigned_device_count": 9, "deleted_response_profile_count": 2},
 			OrganizationID: &orgID,
 		},
 		{
@@ -169,9 +171,9 @@ func TestActivityLogs_SearchMatchesDisplayedLabels(t *testing.T) {
 			want:   []string{"Reboot completed: 2 succeeded, 1 failed"},
 		},
 		{
-			name:   "site deletion label with unassignment counts",
+			name:   "site deletion label with description-parsed ID and counts",
 			search: "Deleted site 42: 1 building, 4 racks unassigned, 9 miners unassigned",
-			want:   []string{"Deleted site 42 (1 building(s), 4 rack(s) unassigned, 9 device(s) unassigned)"},
+			want:   []string{"Deleted site 42 (1 buildings, 4 racks, 9 devices unassigned, 2 response profiles deleted)"},
 		},
 		{
 			name:   "skipped command label with miner count",
