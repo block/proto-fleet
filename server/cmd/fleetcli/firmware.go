@@ -244,7 +244,7 @@ func firmwareDeployCommand() *cli.Command {
 			return generatedCallAndPrintWithClient(
 				ctx,
 				client,
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				"/minercommand.v1.MinerCommandService/FirmwareUpdate",
 				req,
 				resp,

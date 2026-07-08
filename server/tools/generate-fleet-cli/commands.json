@@ -10,7 +10,7 @@
       "group": "onboarding",
       "command": "create-admin",
       "usage": "Create the initial Fleet admin login",
-      "auth": "anonymous"
+      "auth": "unauthenticated"
     },
     {
       "method": "/pools.v1.PoolsService/CreatePool",

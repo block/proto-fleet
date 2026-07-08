@@ -1158,8 +1158,8 @@ func TestApiKeyCommandsRejectAPIKeyOnly(t *testing.T) {
 
 // TestPoolsValidateBearerWithLocalUsername covers the bug where the
 // subcommand-local --username flag hijacked Fleet auth and discarded the API
-// key: the pool username must reach the request body while auth stays bearer.
-func TestPoolsValidateBearerWithLocalUsername(t *testing.T) {
+// key: the pool username must reach the request body while auth stays authenticated.
+func TestPoolsValidateAuthenticatedWithLocalUsername(t *testing.T) {
 	pinFleetAuthEnv(t, map[string]string{envFleetAPIKey: "k"})
 
 	var gotAuth string

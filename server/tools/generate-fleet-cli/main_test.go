@@ -54,15 +54,51 @@ func TestGoPackageInfoInfersLocalGeneratedPath(t *testing.T) {
 	}
 }
 
-func TestAuthModeConstDefaultsToBearer(t *testing.T) {
-	if got := authModeConst(""); got != "generatedAuthBearer" {
-		t.Fatalf("authModeConst(\"\") = %q, want generatedAuthBearer", got)
+func TestAuthPolicyConstDefaultsToAuthenticated(t *testing.T) {
+	got, err := authPolicyConst("")
+	if err != nil {
+		t.Fatalf("authPolicyConst(\"\") error = %v", err)
+	}
+	if got != "generatedAuthAuthenticated" {
+		t.Fatalf("authPolicyConst(\"\") = %q, want generatedAuthAuthenticated", got)
 	}
 }
 
-func TestAuthModeConstSupportsAnonymousException(t *testing.T) {
-	if got := authModeConst("anonymous"); got != "generatedAuthAnonymous" {
-		t.Fatalf("authModeConst(\"anonymous\") = %q, want generatedAuthAnonymous", got)
+func TestAuthPolicyConstSupportsPolicyNames(t *testing.T) {
+	tests := []struct {
+		name string
+		auth string
+		want string
+	}{
+		{name: "unauthenticated", auth: "unauthenticated", want: "generatedAuthUnauthenticated"},
+		{name: "authenticated", auth: "authenticated", want: "generatedAuthAuthenticated"},
+		{name: "session only", auth: "session_only", want: "generatedAuthSessionOnly"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := authPolicyConst(tt.auth)
+			if err != nil {
+				t.Fatalf("authPolicyConst(%q) error = %v", tt.auth, err)
+			}
+			if got != tt.want {
+				t.Fatalf("authPolicyConst(%q) = %q, want %q", tt.auth, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAuthPolicyConstRejectsLegacyModeValues(t *testing.T) {
+	for _, auth := range []string{"anonymous", "bearer", "session"} {
+		t.Run(auth, func(t *testing.T) {
+			got, err := authPolicyConst(auth)
+			if err == nil {
+				t.Fatalf("authPolicyConst(%q) = %q, want error", auth, got)
+			}
+			if !strings.Contains(err.Error(), "invalid auth policy") {
+				t.Fatalf("authPolicyConst(%q) error = %v, want invalid auth policy", auth, err)
+			}
+		})
 	}
 }
 
@@ -82,6 +118,17 @@ func TestParseCommandsManifestRejectsDuplicateCommandNames(t *testing.T) {
 	}`))
 	if err == nil || !strings.Contains(err.Error(), `duplicate generated command "test ping"`) {
 		t.Fatalf("parseCommandsManifest error = %v, want duplicate command error", err)
+	}
+}
+
+func TestParseCommandsManifestRejectsLegacyAuthPolicy(t *testing.T) {
+	_, err := parseCommandsManifest([]byte(`{
+		"commands": [
+			{"method": "/test.v1.TestService/Ping", "group": "test", "command": "ping", "auth": "bearer"}
+		]
+	}`))
+	if err == nil || !strings.Contains(err.Error(), `invalid auth policy "bearer"`) {
+		t.Fatalf("parseCommandsManifest error = %v, want invalid bearer auth policy", err)
 	}
 }
 

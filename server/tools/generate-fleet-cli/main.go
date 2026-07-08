@@ -219,6 +219,9 @@ func validateCommandsManifest(manifest commandsManifest) error {
 			return fmt.Errorf("duplicate generated command %q", key)
 		}
 		seenCommands[key] = true
+		if _, err := authPolicyConst(command.Auth); err != nil {
+			return fmt.Errorf("command %q: %w", key, err)
+		}
 	}
 	return nil
 }
@@ -345,10 +348,14 @@ func buildGroups(
 		if !ok {
 			return nil, generationReport{}, fmt.Errorf("unknown command method %q", command.Method)
 		}
+		authPolicy, err := authPolicyConst(command.Auth)
+		if err != nil {
+			return nil, generationReport{}, fmt.Errorf("command %s %s: %w", command.Group, command.Command, err)
+		}
 		options := renderOptions{
 			CommandName:           command.Command,
 			Usage:                 command.Usage,
-			Auth:                  authModeConst(command.Auth),
+			Auth:                  authPolicy,
 			JSONOnly:              command.JSONOnly,
 			IgnoreFields:          sliceToSet(command.IgnoreFields),
 			RequiredFields:        sliceToSet(command.RequiredFields),
@@ -1374,16 +1381,16 @@ func sortedImports(imports map[string]string) []importSpec {
 	return result
 }
 
-func authModeConst(auth string) string {
+func authPolicyConst(auth string) (string, error) {
 	switch auth {
-	case "", "bearer":
-		return "generatedAuthBearer"
-	case "anonymous":
-		return "generatedAuthAnonymous"
-	case "session":
-		return "generatedAuthSession"
+	case "", "authenticated":
+		return "generatedAuthAuthenticated", nil
+	case "unauthenticated":
+		return "generatedAuthUnauthenticated", nil
+	case "session_only":
+		return "generatedAuthSessionOnly", nil
 	default:
-		return "generatedAuthBearer"
+		return "", fmt.Errorf("invalid auth policy %q; valid values are unauthenticated, authenticated, session_only", auth)
 	}
 }
 

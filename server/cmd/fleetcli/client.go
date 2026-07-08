@@ -58,12 +58,12 @@ type Client struct {
 	debug         bool
 }
 
-type authMode int
+type authPolicy int
 
 const (
-	authNone authMode = iota
-	authBearer
-	authSession
+	authUnauthenticated authPolicy = iota
+	authAuthenticated
+	authSessionOnly
 )
 
 func New(_ context.Context, opts Options) (*Client, error) {
@@ -112,16 +112,16 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) CallBearer(ctx context.Context, method string, req proto.Message, resp proto.Message) error {
-	return c.invoke(ctx, method, req, resp, authBearer)
+func (c *Client) CallAuthenticated(ctx context.Context, method string, req proto.Message, resp proto.Message) error {
+	return c.invoke(ctx, method, req, resp, authAuthenticated)
 }
 
-func (c *Client) CallSession(ctx context.Context, method string, req proto.Message, resp proto.Message) error {
-	return c.invoke(ctx, method, req, resp, authSession)
+func (c *Client) CallSessionOnly(ctx context.Context, method string, req proto.Message, resp proto.Message) error {
+	return c.invoke(ctx, method, req, resp, authSessionOnly)
 }
 
-func (c *Client) CallAnonymous(ctx context.Context, method string, req proto.Message, resp proto.Message) error {
-	return c.invoke(ctx, method, req, resp, authNone)
+func (c *Client) CallUnauthenticated(ctx context.Context, method string, req proto.Message, resp proto.Message) error {
+	return c.invoke(ctx, method, req, resp, authUnauthenticated)
 }
 
 func (c *Client) Authenticate(ctx context.Context, username, password string) (*authv1.AuthenticateResponse, error) {
@@ -130,7 +130,7 @@ func (c *Client) Authenticate(ctx context.Context, username, password string) (*
 		Password: password,
 	}
 	resp := &authv1.AuthenticateResponse{}
-	if err := c.invoke(ctx, "/auth.v1.AuthService/Authenticate", req, resp, authNone); err != nil {
+	if err := c.invoke(ctx, "/auth.v1.AuthService/Authenticate", req, resp, authUnauthenticated); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -138,7 +138,7 @@ func (c *Client) Authenticate(ctx context.Context, username, password string) (*
 
 func (c *Client) CreateAPIKey(ctx context.Context, req *apikeyv1.CreateApiKeyRequest) (*apikeyv1.CreateApiKeyResponse, error) {
 	resp := &apikeyv1.CreateApiKeyResponse{}
-	if err := c.invoke(ctx, "/apikey.v1.ApiKeyService/CreateApiKey", req, resp, authSession); err != nil {
+	if err := c.invoke(ctx, "/apikey.v1.ApiKeyService/CreateApiKey", req, resp, authSessionOnly); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -146,7 +146,7 @@ func (c *Client) CreateAPIKey(ctx context.Context, req *apikeyv1.CreateApiKeyReq
 
 func (c *Client) ListAPIKeys(ctx context.Context) (*apikeyv1.ListApiKeysResponse, error) {
 	resp := &apikeyv1.ListApiKeysResponse{}
-	if err := c.invoke(ctx, "/apikey.v1.ApiKeyService/ListApiKeys", &apikeyv1.ListApiKeysRequest{}, resp, authSession); err != nil {
+	if err := c.invoke(ctx, "/apikey.v1.ApiKeyService/ListApiKeys", &apikeyv1.ListApiKeysRequest{}, resp, authSessionOnly); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -155,7 +155,7 @@ func (c *Client) ListAPIKeys(ctx context.Context) (*apikeyv1.ListApiKeysResponse
 func (c *Client) RevokeAPIKey(ctx context.Context, keyID string) (*apikeyv1.RevokeApiKeyResponse, error) {
 	resp := &apikeyv1.RevokeApiKeyResponse{}
 	req := &apikeyv1.RevokeApiKeyRequest{KeyId: keyID}
-	if err := c.invoke(ctx, "/apikey.v1.ApiKeyService/RevokeApiKey", req, resp, authSession); err != nil {
+	if err := c.invoke(ctx, "/apikey.v1.ApiKeyService/RevokeApiKey", req, resp, authSessionOnly); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -167,7 +167,7 @@ func (c *Client) ListMiners(ctx context.Context, pageSize int32, cursor string) 
 		Cursor:   cursor,
 	}
 	resp := &fleetmanagementv1.ListMinerStateSnapshotsResponse{}
-	if err := c.invoke(ctx, "/fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots", req, resp, authBearer); err != nil {
+	if err := c.invoke(ctx, "/fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots", req, resp, authAuthenticated); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -175,7 +175,7 @@ func (c *Client) ListMiners(ctx context.Context, pageSize int32, cursor string) 
 
 func (c *Client) GetFleetPerformance(ctx context.Context) (*fleetperformancev1.GetFleetPerformanceResponse, error) {
 	resp := &fleetperformancev1.GetFleetPerformanceResponse{}
-	if err := c.invoke(ctx, "/fleetperformance.v1.FleetPerformanceService/GetFleetPerformance", &fleetperformancev1.GetFleetPerformanceRequest{}, resp, authBearer); err != nil {
+	if err := c.invoke(ctx, "/fleetperformance.v1.FleetPerformanceService/GetFleetPerformance", &fleetperformancev1.GetFleetPerformanceRequest{}, resp, authAuthenticated); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -183,16 +183,16 @@ func (c *Client) GetFleetPerformance(ctx context.Context) (*fleetperformancev1.G
 
 func (c *Client) GetCombinedMetrics(ctx context.Context, req *telemetryv1.GetCombinedMetricsRequest) (*telemetryv1.GetCombinedMetricsResponse, error) {
 	resp := &telemetryv1.GetCombinedMetricsResponse{}
-	if err := c.invoke(ctx, "/telemetry.v1.TelemetryService/GetCombinedMetrics", req, resp, authBearer); err != nil {
+	if err := c.invoke(ctx, "/telemetry.v1.TelemetryService/GetCombinedMetrics", req, resp, authAuthenticated); err != nil {
 		return nil, err
 	}
 	return resp, nil
 }
 
-// applyBearerAuth applies the same auth policy as bearer-mode JSON calls: the
-// API key when present, otherwise a cookie session established from the
-// global username/password.
-func (c *Client) applyBearerAuth(ctx context.Context, header http.Header, method string) error {
+// applyAuthenticatedAuth applies the normal user-authenticated policy: API key
+// when present, otherwise a cookie session established from the global
+// username/password.
+func (c *Client) applyAuthenticatedAuth(ctx context.Context, header http.Header, method string) error {
 	if c.apiKey != "" {
 		header.Set("Authorization", "Bearer "+c.apiKey)
 		return nil
@@ -216,7 +216,7 @@ func (c *Client) transferClient() *http.Client {
 	}
 }
 
-func (c *Client) invoke(ctx context.Context, method string, req proto.Message, resp proto.Message, mode authMode) error {
+func (c *Client) invoke(ctx context.Context, method string, req proto.Message, resp proto.Message, policy authPolicy) error {
 	body, err := protojson.MarshalOptions{
 		UseProtoNames:   true,
 		EmitUnpopulated: false,
@@ -233,14 +233,14 @@ func (c *Client) invoke(ctx context.Context, method string, req proto.Message, r
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
-	switch mode {
-	case authNone:
+	switch policy {
+	case authUnauthenticated:
 		// No credentials attached.
-	case authBearer:
-		if err := c.applyBearerAuth(ctx, httpReq.Header, method); err != nil {
+	case authAuthenticated:
+		if err := c.applyAuthenticatedAuth(ctx, httpReq.Header, method); err != nil {
 			return err
 		}
-	case authSession:
+	case authSessionOnly:
 		if err := c.ensureSession(ctx); err != nil {
 			return fmt.Errorf("session cookie or username/password is required for %s: %w", method, err)
 		}

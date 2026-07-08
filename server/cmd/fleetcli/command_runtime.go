@@ -13,19 +13,19 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type generatedAuthMode string
+type generatedAuthPolicy string
 
 const (
-	generatedAuthAnonymous generatedAuthMode = "anonymous"
-	generatedAuthBearer    generatedAuthMode = "bearer"
-	generatedAuthSession   generatedAuthMode = "session"
+	generatedAuthUnauthenticated generatedAuthPolicy = "unauthenticated"
+	generatedAuthAuthenticated   generatedAuthPolicy = "authenticated"
+	generatedAuthSessionOnly     generatedAuthPolicy = "session_only"
 )
 
 func generatedRequestCommand(
 	name string,
 	usage string,
 	method string,
-	auth generatedAuthMode,
+	auth generatedAuthPolicy,
 	flags []cli.Flag,
 	buildRequest func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error),
 	newResponse func() proto.Message,
@@ -54,19 +54,19 @@ func generatedRequestCommand(
 func generatedCallAndPrintWithClient(
 	ctx context.Context,
 	client *Client,
-	auth generatedAuthMode,
+	auth generatedAuthPolicy,
 	method string,
 	req proto.Message,
 	resp proto.Message,
 ) error {
 	var err error
 	switch auth {
-	case generatedAuthAnonymous:
-		err = client.CallAnonymous(ctx, method, req, resp)
-	case generatedAuthSession:
-		err = client.CallSession(ctx, method, req, resp)
+	case generatedAuthUnauthenticated:
+		err = client.CallUnauthenticated(ctx, method, req, resp)
+	case generatedAuthSessionOnly:
+		err = client.CallSessionOnly(ctx, method, req, resp)
 	default:
-		err = client.CallBearer(ctx, method, req, resp)
+		err = client.CallAuthenticated(ctx, method, req, resp)
 	}
 	if err != nil {
 		return err
@@ -258,7 +258,7 @@ func generatedCollectionMemberDeviceIDs(ctx context.Context, client *Client, col
 				PageToken:    pageToken,
 			}
 			resp := &collectionv1.ListCollectionMembersResponse{}
-			if err := client.CallBearer(ctx, "/collection.v1.DeviceCollectionService/ListCollectionMembers", req, resp); err != nil {
+			if err := client.CallAuthenticated(ctx, "/collection.v1.DeviceCollectionService/ListCollectionMembers", req, resp); err != nil {
 				return nil, fmt.Errorf("collection %d: %w", collectionID, err)
 			}
 			for _, member := range resp.GetMembers() {
@@ -302,7 +302,7 @@ func generatedResolveCollectionIDsByLabel(
 			PageToken: pageToken,
 		}
 		resp := &collectionv1.ListCollectionsResponse{}
-		if err := client.CallBearer(ctx, "/collection.v1.DeviceCollectionService/ListCollections", req, resp); err != nil {
+		if err := client.CallAuthenticated(ctx, "/collection.v1.DeviceCollectionService/ListCollections", req, resp); err != nil {
 			return nil, err
 		}
 		for _, collection := range resp.GetCollections() {
@@ -344,7 +344,7 @@ func generatedRequireCollectionType(
 	}
 	req := &collectionv1.GetCollectionRequest{CollectionId: collectionID}
 	resp := &collectionv1.GetCollectionResponse{}
-	if err := client.CallBearer(ctx, "/collection.v1.DeviceCollectionService/GetCollection", req, resp); err != nil {
+	if err := client.CallAuthenticated(ctx, "/collection.v1.DeviceCollectionService/GetCollection", req, resp); err != nil {
 		return fmt.Errorf("verify %s %d: %w", generatedCollectionTypeName(want), collectionID, err)
 	}
 	collection := resp.GetCollection()

@@ -94,7 +94,7 @@ do not encode cleanly, including:
 
 - command group names such as `miners`
 - subcommand names such as `create-admin`
-- exceptional auth modes such as `anonymous` or `session`
+- exceptional auth policies such as `unauthenticated` or `session_only`
 - command aliases that split one service across multiple CLI groups, such as
   `groups` and `racks`
 - fixed request fields and ignored request fields for generated commands
@@ -125,23 +125,26 @@ chooses one of three output modes:
 Responses containing `bytes` fields are not generated today because they
 require custom binary or file handling.
 
-### Auth handling
+### Auth policy handling
 
 Generated commands do not implement auth logic directly. Instead, each command
-is emitted with one auth mode:
+is emitted with one auth policy that mirrors the server interceptor categories:
 
-- `anonymous`
-- `bearer`
-- `session`
+- `unauthenticated`: bootstrap or login RPCs in `UnauthenticatedProcedures`
+- `authenticated`: normal user-authenticated RPCs that may use either API keys
+  or session cookies
+- `session_only`: credential, account-management, and other sensitive RPCs in
+  `SessionOnlyProcedures` that must reject API-key auth
 
 The runtime helper chooses the correct client call path:
 
-- `client.CallAnonymous(...)`
-- `client.CallBearer(...)`
-- `client.CallSession(...)`
+- `client.CallUnauthenticated(...)`
+- `client.CallAuthenticated(...)`
+- `client.CallSessionOnly(...)`
 
-Omitting `auth` in `commands.json` means the normal bearer-authenticated mode.
-The manifest only spells out auth for exceptions.
+Omitting `auth` in `commands.json` means the normal `authenticated` policy. The
+manifest only spells out auth for exceptions or for commands that need to make
+their policy explicit.
 
 ## Special-Case Runtime Helpers
 

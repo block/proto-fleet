@@ -18,7 +18,7 @@ func generatedMinersCommand() *cli.Command {
 				"list",
 				"List miner state snapshots",
 				"/fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 					&cli.IntFlag{Name: "page-size", Usage: "page size"},

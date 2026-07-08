@@ -19,7 +19,7 @@ func generatedPoolsCommand() *cli.Command {
 				"create",
 				"Create pool",
 				"/pools.v1.PoolsService/CreatePool",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 					&cli.StringFlag{Name: "pool-name", Usage: "pool name"},
@@ -59,7 +59,7 @@ func generatedPoolsCommand() *cli.Command {
 				"delete",
 				"Delete pool",
 				"/pools.v1.PoolsService/DeletePool",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.Int64Flag{Name: "pool-id", Usage: "pool id"},
 				},
@@ -76,7 +76,7 @@ func generatedPoolsCommand() *cli.Command {
 				"list",
 				"List pools",
 				"/pools.v1.PoolsService/ListPools",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
@@ -89,7 +89,7 @@ func generatedPoolsCommand() *cli.Command {
 				"update",
 				"Update pool",
 				"/pools.v1.PoolsService/UpdatePool",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 					&cli.Int64Flag{Name: "pool-id", Usage: "pool id"},
@@ -131,7 +131,7 @@ func generatedPoolsCommand() *cli.Command {
 				"validate",
 				"Validate pool",
 				"/pools.v1.PoolsService/ValidatePool",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 					&cli.StringFlag{Name: "url", Usage: "url"},

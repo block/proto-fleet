@@ -69,17 +69,17 @@ func newRootCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:    "api-key",
-				Usage:   "Fleet API key; preferred over username/password for bearer-auth commands when both are set",
+				Usage:   "Fleet API key; preferred over username/password for authenticated commands when both are set",
 				Sources: cli.EnvVars(envFleetAPIKey),
 			},
 			&cli.StringFlag{
 				Name:    "username",
-				Usage:   "Fleet username for session-authenticated commands",
+				Usage:   "Fleet username for commands that need a session",
 				Sources: cli.EnvVars(envFleetUsername),
 			},
 			&cli.BoolFlag{
 				Name:  "password-stdin",
-				Usage: "Read Fleet password for session-authenticated commands from stdin",
+				Usage: "Read Fleet password for commands that need a session from stdin",
 			},
 			&cli.BoolFlag{
 				Name:    "insecure",
@@ -594,7 +594,7 @@ func resolvedClientOptions(cmd *cli.Command) Options {
 // resolvedAuthInputs reads the global auth flags from the root command, so
 // subcommand-local flags that happen to be named "username" or "password"
 // (e.g. pool credentials) never leak into Fleet auth. All three values pass
-// through together: bearer-auth commands prefer the API key, session-auth
+// through together: authenticated commands prefer the API key, session-only
 // commands use username/password, and the Fleet password comes only from
 // FLEET_PASSWORD, --password-stdin, or a prompt.
 func resolvedAuthInputs(cmd *cli.Command) (string, string, string) {

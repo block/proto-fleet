@@ -19,7 +19,7 @@ func generatedGroupsCommand() *cli.Command {
 				"add-devices",
 				"Add devices to a group",
 				"/device_set.v1.DeviceSetService/AddDevicesToGroup",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				append([]cli.Flag{
 					&cli.Int64Flag{Name: "target-group-id", Usage: "target group id"},
 				}, generatedCommonSelectorFlags()...),
@@ -44,7 +44,7 @@ func generatedGroupsCommand() *cli.Command {
 				"create",
 				"Create a group",
 				"/collection.v1.DeviceCollectionService/CreateCollection",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				append([]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 					&cli.StringFlag{Name: "label", Usage: "label"},
@@ -79,7 +79,7 @@ func generatedGroupsCommand() *cli.Command {
 				"delete",
 				"Delete a group",
 				"/collection.v1.DeviceCollectionService/DeleteCollection",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
 				},
@@ -99,7 +99,7 @@ func generatedGroupsCommand() *cli.Command {
 				"device",
 				"List groups for a device identifier",
 				"/collection.v1.DeviceCollectionService/GetDeviceCollections",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier"},
 				},
@@ -117,7 +117,7 @@ func generatedGroupsCommand() *cli.Command {
 				"get",
 				"Get a group by id",
 				"/collection.v1.DeviceCollectionService/GetCollection",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
 				},
@@ -137,7 +137,7 @@ func generatedGroupsCommand() *cli.Command {
 				"list",
 				"List groups",
 				"/collection.v1.DeviceCollectionService/ListCollections",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 					&cli.IntFlag{Name: "page-size", Usage: "page size"},
@@ -165,7 +165,7 @@ func generatedGroupsCommand() *cli.Command {
 				"members",
 				"List group members",
 				"/collection.v1.DeviceCollectionService/ListCollectionMembers",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
 					&cli.IntFlag{Name: "page-size", Usage: "page size"},
@@ -193,7 +193,7 @@ func generatedGroupsCommand() *cli.Command {
 				"remove-devices",
 				"Remove devices from a group",
 				"/device_set.v1.DeviceSetService/RemoveDevicesFromGroup",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				append([]cli.Flag{
 					&cli.Int64Flag{Name: "target-group-id", Usage: "target group id"},
 				}, generatedCommonSelectorFlags()...),
@@ -218,7 +218,7 @@ func generatedGroupsCommand() *cli.Command {
 				"stats",
 				"Get aggregated stats for one or more groups",
 				"/collection.v1.DeviceCollectionService/GetCollectionStats",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringSliceFlag{Name: "collection-ids", Usage: "collection ids"},
 				},
@@ -242,7 +242,7 @@ func generatedGroupsCommand() *cli.Command {
 				"update",
 				"Update a group",
 				"/collection.v1.DeviceCollectionService/UpdateCollection",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				append([]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},

@@ -19,7 +19,7 @@ func generatedRacksCommand() *cli.Command {
 				"add-devices",
 				"Add devices to a rack",
 				"/device_set.v1.DeviceSetService/AssignDevicesToRack",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				append([]cli.Flag{
 					&cli.Int64Flag{Name: "target-rack-id", Usage: "target rack id", Required: true},
 					&cli.BoolFlag{Name: "force-clear-conflicting-site", Usage: "force clear conflicting site"},
@@ -52,7 +52,7 @@ func generatedRacksCommand() *cli.Command {
 				"delete",
 				"Delete a rack",
 				"/collection.v1.DeviceCollectionService/DeleteCollection",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
 				},
@@ -72,7 +72,7 @@ func generatedRacksCommand() *cli.Command {
 				"device",
 				"List racks for a device identifier",
 				"/collection.v1.DeviceCollectionService/GetDeviceCollections",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier"},
 				},
@@ -90,7 +90,7 @@ func generatedRacksCommand() *cli.Command {
 				"get",
 				"Get a rack by id",
 				"/collection.v1.DeviceCollectionService/GetCollection",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
 				},
@@ -110,7 +110,7 @@ func generatedRacksCommand() *cli.Command {
 				"list",
 				"List racks",
 				"/collection.v1.DeviceCollectionService/ListCollections",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 					&cli.IntFlag{Name: "page-size", Usage: "page size"},
@@ -142,7 +142,7 @@ func generatedRacksCommand() *cli.Command {
 				"members",
 				"List rack members",
 				"/collection.v1.DeviceCollectionService/ListCollectionMembers",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
 					&cli.IntFlag{Name: "page-size", Usage: "page size"},
@@ -170,7 +170,7 @@ func generatedRacksCommand() *cli.Command {
 				"save",
 				"Create or update a rack",
 				"/collection.v1.DeviceCollectionService/SaveRack",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin", Required: true},
 				},
@@ -192,7 +192,7 @@ func generatedRacksCommand() *cli.Command {
 				"slots",
 				"List occupied rack slots",
 				"/collection.v1.DeviceCollectionService/GetRackSlots",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
 				},
@@ -209,7 +209,7 @@ func generatedRacksCommand() *cli.Command {
 				"stats",
 				"Get aggregated stats for one or more racks",
 				"/collection.v1.DeviceCollectionService/GetCollectionStats",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringSliceFlag{Name: "collection-ids", Usage: "collection ids"},
 				},
@@ -233,7 +233,7 @@ func generatedRacksCommand() *cli.Command {
 				"types",
 				"List all rack layouts",
 				"/collection.v1.DeviceCollectionService/ListRackTypes",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
@@ -246,7 +246,7 @@ func generatedRacksCommand() *cli.Command {
 				"zones",
 				"List all rack zones",
 				"/collection.v1.DeviceCollectionService/ListRackZones",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {

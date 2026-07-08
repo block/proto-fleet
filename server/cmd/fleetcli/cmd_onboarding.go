@@ -18,7 +18,7 @@ func generatedOnboardingCommand() *cli.Command {
 				"create-admin",
 				"Create the initial Fleet admin login",
 				"/onboarding.v1.OnboardingService/CreateAdminLogin",
-				generatedAuthAnonymous,
+				generatedAuthUnauthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "username", Usage: "username"},
 					&cli.StringFlag{Name: "password", Usage: "password"},
