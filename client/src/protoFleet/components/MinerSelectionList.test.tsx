@@ -224,6 +224,32 @@ describe("MinerSelectionList eligibility", () => {
     expect(lastFleetFilter().includeNoRack).toBe(true);
   });
 
+  it("shows an empty result when a placement facet conflicts with the target rack (assignable-only)", async () => {
+    render(
+      <MinerSelectionList eligibility={{ rackId: 1n, buildingId: 3n }} filterConfig={{ showBuildingFilter: true }} />,
+    );
+
+    const listProps = lastListProps() as {
+      onServerFilter: (filters: {
+        buttonFilters: string[];
+        dropdownFilters: Record<string, string[]>;
+        numericFilters: Record<string, unknown>;
+        textareaListFilters: Record<string, string[]>;
+      }) => Promise<void>;
+    };
+    // Filter to a building the target rack isn't in — nothing assignable matches.
+    await act(async () => {
+      await listProps.onServerFilter({
+        buttonFilters: [],
+        dropdownFilters: { building: ["9"] },
+        numericFilters: {},
+        textareaListFilters: {},
+      });
+    });
+
+    expect(lastListProps()?.items).toEqual([]);
+  });
+
   it("hides Select all while 'Show assigned miners' is on (avoids silently dropping reparent picks)", () => {
     render(<MinerSelectionList eligibility={{ rackId: 1n }} />);
     expect(screen.getByText("Select all")).toBeInTheDocument();

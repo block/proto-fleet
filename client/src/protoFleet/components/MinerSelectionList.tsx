@@ -272,18 +272,15 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // to flag the existing placement.
     const [showAssigned, setShowAssigned] = useState(false);
 
-    // Placement facets (Site / Building / Rack) only make sense when browsing
-    // beyond the assignable set. In assignable-only mode (a target rack, toggle
-    // off) eligibility already pins those dimensions to the rack's, so offering
-    // the facets there would let a conflicting pick silently override eligibility
-    // — so they're offered only when there's no target rack or "Show assigned
-    // miners" is on. Site/Building additionally require site:read (their options
-    // come from ListSites/ListBuildings); the Site/Building *columns* still
-    // render, since their labels ride on the miner snapshot, not those RPCs.
-    const placementFacetsAllowed = !eligibilityEnabled || showAssigned;
-    const showRackFilter = showRackFilterProp && placementFacetsAllowed;
-    const showSiteFilter = showSiteFilterProp && canReadSiteCatalog && placementFacetsAllowed;
-    const showBuildingFilter = showBuildingFilterProp && canReadSiteCatalog && placementFacetsAllowed;
+    // Site/Building facet options come from ListSites/ListBuildings (guarded by
+    // site:read), so those two facets are hidden for rack-management roles
+    // without that permission; the Site/Building *columns* still render since
+    // their labels ride on the miner snapshot. The facets stay visible in both
+    // toggle states — a facet that conflicts with the target rack's placement is
+    // handled by the assignable-only empty state below, not by hiding.
+    const showRackFilter = showRackFilterProp;
+    const showSiteFilter = showSiteFilterProp && canReadSiteCatalog;
+    const showBuildingFilter = showBuildingFilterProp && canReadSiteCatalog;
 
     const { listGroups, listRacks } = useDeviceSets();
     const { listSites } = useSites();
@@ -383,6 +380,38 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         .map(toDeviceListItem);
     }, [minerIds, miners]);
 
+    // Assignable-only + a conflicting placement facet = provably no results.
+    //
+    // In assignable-only mode (a target rack, "Show assigned miners" off), the
+    // derived filter pins site/building/rack to the target rack's placement.
+    // A user-selected Site/Building/Rack facet targets the same dimension, but
+    // MinerListFilter carries one id-list per dimension with OR semantics, so it
+    // *can't* express "building = A (eligibility) AND building = B (facet)" — the
+    // request can only send one. Rather than silently override the facet (show
+    // the rack's building instead of the picked one) or drop eligibility (leak
+    // ineligible rows via the server's include_no_rack coupling — see #702), we
+    // recognize the case client-side: if a placement facet doesn't include the
+    // target's id — or the target is unplaced at that level (undefined), so any
+    // facet there is unsatisfiable — nothing assignable can match, and we render
+    // the empty state instead of the (misleading) pinned-dimension results the
+    // server would still return. The facets stay visible and clearable, so this
+    // is self-correcting once the operator changes or removes the facet.
+    const placementFacetConflict = useMemo(() => {
+      if (showAssigned || !eligibilityEnabled) return false;
+      const conflicts = (facetIds: bigint[], targetId: bigint | undefined) =>
+        facetIds.length > 0 && (targetId === undefined || !facetIds.includes(targetId));
+      return (
+        conflicts(userFilter.rackIds, eligRackId) ||
+        conflicts(userFilter.buildingIds, eligBuildingId) ||
+        conflicts(userFilter.siteIds, eligSiteId)
+      );
+    }, [showAssigned, eligibilityEnabled, userFilter, eligRackId, eligBuildingId, eligSiteId]);
+
+    // Rows shown to the operator. A placement-facet conflict has no assignable
+    // matches, so present it as empty even though the server (queried with the
+    // pinned dimension) may return the target rack's miners.
+    const displayItems = placementFacetConflict ? [] : currentPageItems;
+
     // Miners assigned to a different rack/building/site are still selectable
     // (reassigning moves them, behind a confirm), but are flagged in orange so
     // the operator sees the existing placement. Only meaningful when "Show
@@ -436,6 +465,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       totalMiners !== undefined &&
       totalMiners > 0 &&
       !singleSelect &&
+      !placementFacetConflict &&
       (canSelectAll || allSelected || selectedItems.length > 0);
 
     const handleSort = useCallback((field: ModalColumn, direction: SortDirection) => {
@@ -750,7 +780,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
                 </div>
               ) : undefined
             }
-            items={currentPageItems}
+            items={displayItems}
             itemKey="deviceIdentifier"
             itemSelectable
             selectionType={singleSelect ? "radio" : "checkbox"}
@@ -767,8 +797,11 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             containerClassName="min-h-0"
             overflowContainer
             stickyBgColor="bg-surface-elevated-base"
+            emptyStateRow={
+              <div className="py-10 text-center text-300 text-text-primary-70">No miners match these filters.</div>
+            }
             footerContent={
-              !isLoading && totalMiners !== undefined && totalMiners > 0 ? (
+              !placementFacetConflict && !isLoading && totalMiners !== undefined && totalMiners > 0 ? (
                 <div className="flex flex-col items-center gap-4 py-6">
                   <span className="text-300 text-text-primary">
                     Showing {currentPage * PAGE_SIZE + 1}–{currentPage * PAGE_SIZE + currentPageItems.length} of{" "}
