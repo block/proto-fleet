@@ -51,37 +51,6 @@ func generatedRequestCommand(
 	}
 }
 
-func generatedJSONRequestCommand(
-	name string,
-	usage string,
-	method string,
-	auth generatedAuthMode,
-	newRequest func() proto.Message,
-	newResponse func() proto.Message,
-) *cli.Command {
-	return generatedRequestCommand(
-		name,
-		usage,
-		method,
-		auth,
-		[]cli.Flag{
-			&cli.StringFlag{
-				Name:     "json",
-				Usage:    "Path to a request JSON file, or - for stdin",
-				Required: true,
-			},
-		},
-		func(_ context.Context, cmd *cli.Command, _ *Client) (proto.Message, error) {
-			req := newRequest()
-			if err := readProtoJSON(cmd.String("json"), req); err != nil {
-				return nil, err
-			}
-			return req, nil
-		},
-		newResponse,
-	)
-}
-
 func generatedCallAndPrintWithClient(
 	ctx context.Context,
 	client *Client,

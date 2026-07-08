@@ -430,10 +430,8 @@ func summarizePerformance(cmd *cli.Command, resp *telemetryv1.GetCombinedMetrics
 	}
 
 	latestMetrics := make(map[string]metricSummary, len(latest))
-	keys := make([]string, 0, len(latest))
 	for measurementType, metric := range latest {
 		name := compactMeasurementName(measurementType)
-		keys = append(keys, name)
 		summary := metricSummary{
 			Timestamp:   metric.GetOpenTime().AsTime().UTC().Format(time.RFC3339),
 			DeviceCount: metric.GetDeviceCount(),
@@ -451,11 +449,6 @@ func summarizePerformance(cmd *cli.Command, resp *telemetryv1.GetCombinedMetrics
 			summary.Median = float64Ptr(value)
 		}
 		latestMetrics[name] = summary
-	}
-	sort.Strings(keys)
-	orderedLatest := make(map[string]metricSummary, len(keys))
-	for _, key := range keys {
-		orderedLatest[key] = latestMetrics[key]
 	}
 
 	var latestTemperature *temperatureSummary
@@ -489,7 +482,7 @@ func summarizePerformance(cmd *cli.Command, resp *telemetryv1.GetCombinedMetrics
 		RequestedMetrics:  requestedPerformanceMetrics(cmd),
 		ReturnedRows:      len(resp.GetMetrics()),
 		NextPageToken:     resp.GetNextPageToken(),
-		Latest:            orderedLatest,
+		Latest:            latestMetrics,
 		LatestTemperature: latestTemperature,
 		LatestUptime:      latestUptime,
 	}
@@ -538,10 +531,6 @@ func writeAPIError(w io.Writer, apiErr *APIError) {
 	colorizeJSONTo(w, apiErr.Body)
 }
 
-func colorizeJSON(data []byte) {
-	colorizeJSONTo(os.Stdout, data)
-}
-
 func colorizeJSONTo(w io.Writer, data []byte) {
 	formatter := prettyjson.NewFormatter()
 	formatter.Indent = 2
@@ -569,7 +558,7 @@ func printProto(message proto.Message) error {
 	if err != nil {
 		return fmt.Errorf("marshal response: %w", err)
 	}
-	colorizeJSON(output)
+	colorizeJSONTo(os.Stdout, output)
 	return nil
 }
 
@@ -578,7 +567,7 @@ func printJSON(value any) error {
 	if err != nil {
 		return fmt.Errorf("marshal output: %w", err)
 	}
-	colorizeJSON(output)
+	colorizeJSONTo(os.Stdout, output)
 	return nil
 }
 

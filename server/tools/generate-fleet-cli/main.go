@@ -1459,14 +1459,6 @@ func toGoFieldNameString(name string) string {
 	return strings.Join(parts, "")
 }
 
-func toKebabCase(value string) string {
-	words := splitCamelWords(value)
-	for i := range words {
-		words[i] = strings.ToLower(words[i])
-	}
-	return strings.Join(words, "-")
-}
-
 func splitCamelWords(value string) []string {
 	if value == "" {
 		return nil
@@ -1484,28 +1476,6 @@ func splitCamelWords(value string) []string {
 		words = append(words, string(current))
 	}
 	return words
-}
-
-func splitVerbAndNoun(methodName string) (string, string) {
-	verbs := []string{"List", "Get", "Create", "Update", "Delete", "Validate", "Pause", "Resume", "Reorder", "Set", "Clear"}
-	for _, verb := range verbs {
-		if strings.HasPrefix(methodName, verb) {
-			return verb, strings.TrimPrefix(methodName, verb)
-		}
-	}
-	return methodName, ""
-}
-
-func sameEntity(left, right string) bool {
-	return singular(strings.ToLower(strings.Join(splitCamelWords(left), ""))) ==
-		singular(strings.ToLower(strings.Join(splitCamelWords(right), "")))
-}
-
-func singular(value string) string {
-	if strings.HasSuffix(value, "s") && len(value) > 1 {
-		return strings.TrimSuffix(value, "s")
-	}
-	return value
 }
 
 func humanizeMethod(methodName string) string {
