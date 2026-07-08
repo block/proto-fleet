@@ -516,7 +516,7 @@ jobs:
               }
             } catch (error) {
               if (error.status === 403) {
-                core.notice(`Unable to sync review policy label with this event token: ${error.message}`);
+                core.info(`Unable to sync review policy label with this event token: ${error.message}`);
               } else {
                 core.warning(`Unable to sync review policy label: ${error.message}`);
               }
