@@ -19,7 +19,7 @@ import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath, unscopedScopablePath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
-import { Pause } from "@/shared/assets/icons";
+import { Menu } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -182,7 +182,7 @@ function PageHeader({
             data-testid="page-header-location-area"
           >
             {isPhone || isTablet ? (
-              <Pause
+              <Menu
                 ariaExpanded={isMenuOpen}
                 ariaLabel="Open navigation menu"
                 className="mr-2 text-text-primary"

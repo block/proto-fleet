@@ -8,6 +8,11 @@ export type { NumericRangeBounds, NumericRangeValue };
 export type DropdownOption = {
   id: string;
   label: string;
+  /**
+   * Draws a thick divider AFTER this option in nested checkbox submenus so long
+   * option lists can be visually bucketed without adding extra category rows.
+   */
+  showGroupDivider?: boolean;
 };
 
 export type FilterType = "button" | "dropdown" | "nestedFilterDropdown" | "numericRange" | "textareaList";

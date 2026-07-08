@@ -17,6 +17,7 @@ const POPOVER_CHROME_BASE = 56;
 export type DropdownOption = {
   id: string;
   label: string;
+  showGroupDivider?: boolean;
 };
 
 type DropdownFilterProps = {

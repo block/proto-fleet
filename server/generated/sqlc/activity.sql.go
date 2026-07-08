@@ -23,7 +23,15 @@ WHERE a.organization_id = $1
     AND ($3::text[] IS NULL OR a.event_type = ANY($3::text[]))
     AND ($4::text[] IS NULL OR a.user_id = ANY($4::text[]))
     AND ($5::text[] IS NULL OR a.scope_type = ANY($5::text[]))
-    AND ($6::text IS NULL OR a.description ILIKE $6 ESCAPE '\')
+    AND (
+        $6::text IS NULL
+        -- activity_display_label (migration 000114) is the single source of
+        -- truth for the searchable display label; keep it in sync with the
+        -- client label maps in client/src/protoFleet/features/activity/utils/.
+        OR CONCAT_WS(' ', a.description,
+            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description)
+        ) ILIKE $6 ESCAPE '\'
+    )
     AND ($7::timestamptz IS NULL OR a.created_at >= $7)
     AND ($8::timestamptz IS NULL OR a.created_at <= $8)
     AND (
@@ -307,7 +315,15 @@ WHERE a.organization_id = $1
     AND ($3::text[] IS NULL OR a.event_type = ANY($3::text[]))
     AND ($4::text[] IS NULL OR a.user_id = ANY($4::text[]))
     AND ($5::text[] IS NULL OR a.scope_type = ANY($5::text[]))
-    AND ($6::text IS NULL OR a.description ILIKE $6 ESCAPE '\')
+    AND (
+        $6::text IS NULL
+        -- activity_display_label (migration 000114) is the single source of
+        -- truth for the searchable display label; keep it in sync with the
+        -- client label maps in client/src/protoFleet/features/activity/utils/.
+        OR CONCAT_WS(' ', a.description,
+            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description)
+        ) ILIKE $6 ESCAPE '\'
+    )
     AND ($7::timestamptz IS NULL OR a.created_at >= $7)
     AND ($8::timestamptz IS NULL OR a.created_at <= $8)
     AND ($9::timestamptz IS NULL OR (a.created_at, a.id) < ($9::timestamptz, $10::bigint))
