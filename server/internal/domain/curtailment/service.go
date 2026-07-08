@@ -1593,9 +1593,19 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 		case "NEEDS_MINING_POOL":
 			// Commandability admission (#663): a pool-less miner is reachable,
 			// authenticated, and draws idle power — a sleep command lands.
-			// Subject to the same freshness gates below; fixed-kW's
-			// dual-signal filter still excludes it (zero hash), so kW-sized
-			// selection stays sound.
+			// Subject to the freshness gates below, plus a positive-power
+			// requirement: power-vs-baseline is the only signal that can
+			// confirm curtail/restore for a never-hashing miner, so a
+			// zero-power sample is as good as stale. Its hash is forced to 0
+			// for selection (statusAuthoritativeHashRateHS): a pool-less
+			// miner cannot be mining, so a stale-positive hash sample must
+			// not let fixed-kW count it as curtailable mining load — the
+			// dual-signal filter excludes it there.
+			if !hasPositivePowerSample(c) {
+				skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
+				summary.ExcludedStale++
+				continue
+			}
 		}
 		if c.LatestMetricsAt == nil {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
@@ -1622,7 +1632,7 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 		eligible = append(eligible, CandidateInput{
 			DeviceIdentifier: c.DeviceIdentifier,
 			PowerW:           derefFloat(c.LatestPowerW),
-			HashRateHS:       derefFloat(c.LatestHashRateHS),
+			HashRateHS:       statusAuthoritativeHashRateHS(c),
 			AvgEfficiencyJH:  avgEff,
 		})
 	}

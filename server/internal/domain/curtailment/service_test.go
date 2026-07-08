@@ -1047,21 +1047,36 @@ func TestClassifyCandidates_PoolLessMinerAdmittedWhenTelemetryFresh(t *testing.T
 	t.Parallel()
 
 	// Commandability admission (#663): NEEDS_MINING_POOL passes status
-	// admission even with zero hash, but stays behind the freshness gates.
+	// admission even with zero hash, but stays behind the freshness gates
+	// plus a positive-power requirement (power is its only confirmable
+	// signal). A stale-positive hash sample is overridden by the status: the
+	// eligible candidate carries hash 0 so fixed-kW accounting and baseline
+	// persistence treat it as non-hashing.
 	fresh := miner("needs-pool-fresh", "NEEDS_MINING_POOL", "PAIRED", 2000, 0)
+	stalePositiveHash := miner("needs-pool-stale-hash", "NEEDS_MINING_POOL", "PAIRED", 2000, 100)
+	zeroPower := miner("needs-pool-zero-power", "NEEDS_MINING_POOL", "PAIRED", 0, 0)
 	stale := staleMiner("needs-pool-stale")
 	stale.DeviceStatus = "NEEDS_MINING_POOL"
 
 	eligible, skipped, _ := classifyCandidates(
-		[]*models.Candidate{fresh, stale},
+		[]*models.Candidate{fresh, stalePositiveHash, zeroPower, stale},
 		classifyOpts{CandidateMinPowerW: 1500},
 	)
 
-	require.Len(t, eligible, 1)
+	require.Len(t, eligible, 2)
 	assert.Equal(t, "needs-pool-fresh", eligible[0].DeviceIdentifier)
-	require.Len(t, skipped, 1)
-	assert.Equal(t, "needs-pool-stale", skipped[0].DeviceIdentifier)
-	assert.Equal(t, SkipStaleTelemetry, skipped[0].Reason)
+	assert.Equal(t, "needs-pool-stale-hash", eligible[1].DeviceIdentifier)
+	assert.Zero(t, eligible[1].HashRateHS,
+		"device status is authoritative: a pool-less miner cannot be mining, so a stale-positive hash sample must not count as mining load")
+
+	reasons := map[string]SkipReason{}
+	for _, s := range skipped {
+		reasons[s.DeviceIdentifier] = s.Reason
+	}
+	require.Len(t, skipped, 2)
+	assert.Equal(t, SkipStaleTelemetry, reasons["needs-pool-zero-power"],
+		"zero power is as good as stale for a miner whose only confirmable signal is power")
+	assert.Equal(t, SkipStaleTelemetry, reasons["needs-pool-stale"])
 }
 
 func TestService_Preview_PoolLessZeroHashMinerSkippedByDualSignalInFixedKw(t *testing.T) {

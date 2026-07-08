@@ -286,6 +286,75 @@ func TestDeviceStatusClassifierMatrix(t *testing.T) {
 	}
 }
 
+// A pool-less miner is commandable but only dispatchable with a positive
+// power sample: power-vs-baseline is the sole signal that can confirm
+// curtail/restore when hash never rises, so nil/zero power parks the row
+// (promoted by the readiness refresh once telemetry lands).
+func TestAllPairedPolicyTargetState_PoolLessRequiresPositivePowerSample(t *testing.T) {
+	t.Parallel()
+
+	driver := "antminer"
+	poolLess := func(power *float64) *models.Candidate {
+		return &models.Candidate{
+			DeviceIdentifier: "pool-less",
+			DriverName:       &driver,
+			DeviceStatus:     "NEEDS_MINING_POOL",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     power,
+			LatestHashRateHS: eff(0),
+		}
+	}
+
+	state, reason := AllPairedPolicyTargetState(poolLess(nil), false)
+	assert.Equal(t, models.TargetStateUnavailable, state, "missing power sample must park the row")
+	assert.Equal(t, "stale_telemetry", reason)
+
+	state, reason = AllPairedPolicyTargetState(poolLess(eff(0)), false)
+	assert.Equal(t, models.TargetStateUnavailable, state, "zero power sample must park the row")
+	assert.Equal(t, "stale_telemetry", reason)
+
+	state, reason = AllPairedPolicyTargetState(poolLess(eff(400)), false)
+	assert.Equal(t, models.TargetStatePending, state)
+	assert.Empty(t, reason)
+}
+
+// Device status is authoritative over a stale-positive hash sample: a
+// pool-less miner cannot be mining, so selection accounting and the baseline
+// min-power floor must treat it as non-hashing even when the latest hash
+// sample reads positive.
+func TestPoolLessStalePositiveHashTreatedAsNonHashing(t *testing.T) {
+	t.Parallel()
+
+	driver := "antminer"
+	poolLess := &models.Candidate{
+		DeviceIdentifier: "pool-less",
+		DriverName:       &driver,
+		DeviceStatus:     "NEEDS_MINING_POOL",
+		PairingStatus:    "PAIRED",
+		LatestPowerW:     eff(400), // below the 1500 W floor
+		LatestHashRateHS: eff(100), // stale-positive: contradicts the status
+	}
+
+	assert.Zero(t, statusAuthoritativeHashRateHS(poolLess))
+
+	// Baseline promotion must persist the below-floor idle baseline: the
+	// stale-positive hash must not mark the miner "hashing" and drop it.
+	baseline := AllPairedPromotionBaselinePowerW(poolLess, 1500)
+	require.NotNil(t, baseline)
+	assert.InDelta(t, 400.0, *baseline, 0.001)
+
+	// All-paired plan rows carry the status-authoritative hash so insert-time
+	// baseline persistence sees non-hashing too.
+	plan := BuildAllPairedPolicyPlan([]*models.Candidate{poolLess}, nil, false, 1500)
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, models.TargetStatePending, plan.Selected[0].TargetState)
+	assert.Zero(t, plan.Selected[0].HashRateHS)
+	targets := BuildInsertTargetParams(plan.Selected, models.ModeFullFleet, 1500)
+	require.Len(t, targets, 1)
+	require.NotNil(t, targets[0].BaselinePowerW)
+	assert.InDelta(t, 400.0, *targets[0].BaselinePowerW, 0.001)
+}
+
 func TestBuildAllPairedPolicyPlan_MaintenanceOverrideMakesMaintenancePending(t *testing.T) {
 	t.Parallel()
 

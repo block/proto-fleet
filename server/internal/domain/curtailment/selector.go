@@ -262,7 +262,37 @@ const (
 	allPairedUnavailableRebootRequired       = "reboot_required"
 	allPairedUnavailableNonActionableStatus  = "non_actionable_status"
 	allPairedUnavailableMaintenance          = "maintenance"
+	// allPairedUnavailableStaleTelemetry parks a pool-less miner whose power
+	// telemetry is missing or zero. Power-vs-baseline is the only signal that
+	// can confirm curtail/restore for a never-hashing miner, so dispatching
+	// without a positive power sample would confirm curtail vacuously and
+	// never confirm restore. Reuses the stale_telemetry vocabulary the normal
+	// classifier emits for the same condition.
+	allPairedUnavailableStaleTelemetry = "stale_telemetry"
 )
+
+// statusAuthoritativeHashRateHS returns the hash sample to use for selection
+// accounting and baseline-persistence decisions. Device status is
+// authoritative over the raw sample for NEEDS_MINING_POOL: a pool-less miner
+// cannot be mining, so a stale-positive or inconsistent hash sample must not
+// let it count as curtailable mining load in fixed-kW selection, nor mark it
+// "hashing" for the baseline min-power floor.
+func statusAuthoritativeHashRateHS(c *models.Candidate) float64 {
+	if c.DeviceStatus == "NEEDS_MINING_POOL" {
+		return 0
+	}
+	if hasNonNegativeFiniteFloat(c.LatestHashRateHS) {
+		return *c.LatestHashRateHS
+	}
+	return 0
+}
+
+// hasPositivePowerSample reports whether the candidate carries a usable
+// positive power reading — the admission requirement for miners whose only
+// confirmable signal is power.
+func hasPositivePowerSample(c *models.Candidate) bool {
+	return hasNonNegativeFiniteFloat(c.LatestPowerW) && *c.LatestPowerW > 0
+}
 
 // BuildAllPairedPolicyPlan creates a durable FULL_FLEET target list from every
 // paired-like miner in scope. It separates ownership from dispatch readiness:
@@ -305,14 +335,10 @@ func BuildAllPairedPolicyPlan(
 		if state == models.TargetStateUnavailable {
 			unavailableCount++
 		}
-		hashRateHS := 0.0
-		if hasNonNegativeFiniteFloat(c.LatestHashRateHS) {
-			hashRateHS = *c.LatestHashRateHS
-		}
 		selected = append(selected, SelectedDevice{
 			DeviceIdentifier: c.DeviceIdentifier,
 			PowerW:           powerW,
-			HashRateHS:       hashRateHS,
+			HashRateHS:       statusAuthoritativeHashRateHS(c),
 			EfficiencyJH:     derefFloat(avgEff),
 			TargetState:      state,
 			LastError:        reason,
@@ -361,6 +387,16 @@ func AllPairedPolicyTargetState(c *models.Candidate, includeMaintenance bool) (m
 		return models.TargetStateUnavailable, allPairedUnavailableRebootRequired
 	case "INACTIVE", "ERROR", "UNKNOWN":
 		return models.TargetStateUnavailable, allPairedUnavailableNonActionableStatus
+	case "NEEDS_MINING_POOL":
+		// Commandable (#663), but only dispatchable once a positive power
+		// sample exists: power-vs-baseline is the sole signal that can
+		// confirm curtail/restore for a never-hashing miner. Parked rows are
+		// re-evaluated every reconciler tick and promote (with a baseline
+		// backfill) once telemetry lands.
+		if !hasPositivePowerSample(c) {
+			return models.TargetStateUnavailable, allPairedUnavailableStaleTelemetry
+		}
+		return models.TargetStatePending, ""
 	case "MAINTENANCE":
 		if !includeMaintenance {
 			return models.TargetStateUnavailable, allPairedUnavailableMaintenance
@@ -391,7 +427,7 @@ func AllPairedPromotionBaselinePowerW(c *models.Candidate, minPowerW int32) *flo
 		return nil
 	}
 	power := *c.LatestPowerW
-	hashing := hasNonNegativeFiniteFloat(c.LatestHashRateHS) && *c.LatestHashRateHS > 0
+	hashing := statusAuthoritativeHashRateHS(c) > 0
 	if !shouldPersistBaselinePowerW(models.ModeFullFleet, power, minPowerW, hashing) {
 		return nil
 	}
