@@ -88,6 +88,24 @@ func TestActivityLogs_SearchMatchesDisplayedLabels(t *testing.T) {
 			Metadata:       map[string]any{"success_count": 2, "failure_count": 1},
 			OrganizationID: &orgID,
 		},
+		{
+			Category:       models.CategoryFleetManagement,
+			Type:           "site.deleted",
+			Description:    "Deleted site 42 (1 building(s), 4 rack(s) unassigned, 9 device(s) unassigned)",
+			Result:         models.ResultSuccess,
+			ActorType:      models.ActorUser,
+			Metadata:       map[string]any{"site_id": 42, "deleted_building_count": 1, "unassigned_rack_count": 4, "unassigned_device_count": 9},
+			OrganizationID: &orgID,
+		},
+		{
+			Category:       models.CategoryDeviceCommand,
+			Type:           "command_filter_skip",
+			Description:    "Command ran with 3 device(s) skipped",
+			Result:         models.ResultSuccess,
+			ActorType:      models.ActorSystem,
+			Metadata:       map[string]any{"skipped_count": 3},
+			OrganizationID: &orgID,
+		},
 	}
 
 	for _, event := range events {
@@ -133,6 +151,16 @@ func TestActivityLogs_SearchMatchesDisplayedLabels(t *testing.T) {
 			name:   "completed command label with count ratio",
 			search: "Rebooted miners: 2/3 miners completed",
 			want:   []string{"Reboot completed: 2 succeeded, 1 failed"},
+		},
+		{
+			name:   "site deletion label with unassignment counts",
+			search: "Deleted site 42: 1 building, 4 racks unassigned, 9 miners unassigned",
+			want:   []string{"Deleted site 42 (1 building(s), 4 rack(s) unassigned, 9 device(s) unassigned)"},
+		},
+		{
+			name:   "skipped command label with miner count",
+			search: "Command ran with 3 miners skipped",
+			want:   []string{"Command ran with 3 device(s) skipped"},
 		},
 	}
 

@@ -4,6 +4,20 @@
 -- visible text matches rows. Keep in sync with the client-side label maps in
 -- client/src/protoFleet/features/activity/utils/ (formatLabel.ts,
 -- formatActivityDescription.ts).
+
+-- Mirrors the client's countLabel(): "1 rack" / "4 racks".
+CREATE FUNCTION activity_count_label(
+    item_count BIGINT,
+    singular TEXT,
+    plural TEXT
+) RETURNS TEXT
+LANGUAGE SQL
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+SELECT item_count || ' ' || CASE WHEN item_count = 1 THEN singular ELSE plural END
+$$;
+
 CREATE FUNCTION activity_display_label(
     event_type TEXT,
     scope_type TEXT,
@@ -19,7 +33,21 @@ WITH counts AS (
         CASE WHEN jsonb_typeof(metadata->'success_count') = 'number'
              THEN floor((metadata->>'success_count')::numeric)::bigint END AS success_count,
         CASE WHEN jsonb_typeof(metadata->'failure_count') = 'number'
-             THEN floor((metadata->>'failure_count')::numeric)::bigint END AS failure_count
+             THEN floor((metadata->>'failure_count')::numeric)::bigint END AS failure_count,
+        CASE WHEN jsonb_typeof(metadata->'skipped_count') = 'number'
+             THEN floor((metadata->>'skipped_count')::numeric)::bigint END AS skipped_count,
+        CASE WHEN jsonb_typeof(metadata->'site_id') = 'number'
+             THEN floor((metadata->>'site_id')::numeric)::bigint END AS site_id,
+        CASE WHEN jsonb_typeof(metadata->'building_id') = 'number'
+             THEN floor((metadata->>'building_id')::numeric)::bigint END AS building_id,
+        CASE WHEN jsonb_typeof(metadata->'deleted_building_count') = 'number'
+             THEN floor((metadata->>'deleted_building_count')::numeric)::bigint END AS deleted_building_count,
+        CASE WHEN jsonb_typeof(metadata->'unassigned_rack_count') = 'number'
+             THEN floor((metadata->>'unassigned_rack_count')::numeric)::bigint END AS unassigned_rack_count,
+        CASE WHEN jsonb_typeof(metadata->'unassigned_device_count') = 'number'
+             THEN floor((metadata->>'unassigned_device_count')::numeric)::bigint END AS unassigned_device_count,
+        CASE WHEN jsonb_typeof(metadata->'deleted_response_profile_count') = 'number'
+             THEN floor((metadata->>'deleted_response_profile_count')::numeric)::bigint END AS deleted_response_profile_count
 ),
 base AS (
     SELECT CASE
@@ -84,10 +112,39 @@ base AS (
         WHEN event_type = 'delete_role' THEN CONCAT('Deleted role', COALESCE(': ' || COALESCE(metadata->>'role_name', scope_label), ''))
         WHEN event_type = 'site.created' THEN CONCAT('Created site', COALESCE(': ' || COALESCE(metadata->>'site_name', scope_label), ''))
         WHEN event_type = 'site.updated' THEN CONCAT('Updated site', COALESCE(': ' || COALESCE(metadata->>'site_name', scope_label), ''))
-        WHEN event_type = 'site.deleted' THEN 'Deleted site'
+        -- Mirrors formatDeletedSite: "Deleted site 42: 1 building, 4 racks
+        -- unassigned, 9 miners unassigned, 2 response profiles deleted".
+        WHEN event_type = 'site.deleted' THEN
+            CASE WHEN counts.deleted_building_count IS NULL
+                      AND counts.unassigned_rack_count IS NULL
+                      AND counts.unassigned_device_count IS NULL
+                      AND counts.deleted_response_profile_count IS NULL
+                 THEN 'Deleted site'
+                 ELSE CONCAT(
+                     'Deleted site', COALESCE(' ' || counts.site_id, ''), ': ',
+                     CONCAT_WS(', ',
+                         CASE WHEN counts.deleted_building_count IS NOT NULL
+                              THEN activity_count_label(counts.deleted_building_count, 'building', 'buildings') END,
+                         CASE WHEN counts.unassigned_rack_count IS NOT NULL
+                              THEN activity_count_label(counts.unassigned_rack_count, 'rack', 'racks') || ' unassigned' END,
+                         CASE WHEN counts.unassigned_device_count IS NOT NULL
+                              THEN activity_count_label(counts.unassigned_device_count, 'miner', 'miners') || ' unassigned' END,
+                         CASE WHEN counts.deleted_response_profile_count IS NOT NULL
+                              THEN activity_count_label(counts.deleted_response_profile_count, 'response profile', 'response profiles') || ' deleted' END
+                     )
+                 )
+            END
         WHEN event_type = 'building.created' THEN CONCAT('Created building', COALESCE(': ' || COALESCE(metadata->>'building_name', scope_label), ''))
         WHEN event_type = 'building.updated' THEN CONCAT('Updated building', COALESCE(': ' || COALESCE(metadata->>'building_name', scope_label), ''))
-        WHEN event_type = 'building.deleted' THEN 'Deleted building'
+        -- Mirrors formatDeletedBuilding: "Deleted building 7: 3 racks unassigned".
+        WHEN event_type = 'building.deleted' THEN
+            CASE WHEN counts.unassigned_rack_count IS NULL
+                 THEN 'Deleted building'
+                 ELSE CONCAT(
+                     'Deleted building', COALESCE(' ' || counts.building_id, ''), ': ',
+                     activity_count_label(counts.unassigned_rack_count, 'rack', 'racks'), ' unassigned'
+                 )
+            END
         WHEN event_type = 'building.assigned_to_site' THEN 'Assigned building to site'
         WHEN event_type = 'racks.assigned_to_site' THEN 'Assigned racks to site'
         WHEN event_type = 'building.rack_assigned' THEN 'Assigned racks to building'
@@ -104,9 +161,19 @@ base AS (
         WHEN event_type = 'curtailment_admin_terminated_replay' THEN 'Curtailment already stopped'
         WHEN event_type = 'curtailment_updated' THEN 'Updated curtailment'
         WHEN event_type = 'curtailment_force_released' THEN 'Released curtailment ownership'
-        WHEN event_type = 'command_preflight_blocked' THEN 'Command couldn''t run'
-        WHEN event_type = 'command_filter_skip' THEN 'Command ran with skipped miners'
+        -- Mirror the client's skipped-count suffixes.
+        WHEN event_type = 'command_preflight_blocked' THEN
+            CASE WHEN counts.skipped_count IS NULL
+                 THEN 'Command couldn''t run'
+                 ELSE CONCAT('Command couldn''t run: ', activity_count_label(counts.skipped_count, 'miner', 'miners'), ' excluded by filters')
+            END
+        WHEN event_type = 'command_filter_skip' THEN
+            CASE WHEN counts.skipped_count IS NULL
+                 THEN 'Command ran with skipped miners'
+                 ELSE CONCAT('Command ran with ', activity_count_label(counts.skipped_count, 'miner', 'miners'), ' skipped')
+            END
     END AS label
+    FROM counts
 )
 -- Completed commands render with a completion ratio in the client
 -- (formatCompletedCommand: "Rebooted miners: 2/3 miners completed"), so mirror
