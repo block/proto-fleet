@@ -32,7 +32,7 @@ import {
 } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { useHasPermission } from "@/protoFleet/store";
 
-import { ChevronDown, Info, Plus } from "@/shared/assets/icons";
+import { Alert, ChevronDown, Info, Plus } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import List from "@/shared/components/List";
@@ -110,6 +110,8 @@ export interface MinerSelectionListProps {
   // them, behind a caller confirm) and flagged in orange to show the existing
   // placement.
   eligibility?: MinerEligibility;
+  // Label of the target rack, shown in the assignment-conflict dialog.
+  targetRackLabel?: string;
   onSelectionChange?: (state: {
     selectedItems: string[];
     allSelected: boolean;
@@ -219,6 +221,25 @@ const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
   buildingId: getMinerBuildingId(miner),
 });
 
+/** Copy for the assignment-conflict dialog. Lists only the placement levels the
+ *  miner currently occupies, joined naturally, so it reads correctly whether it
+ *  has a site, a site + building, or a full site + building + rack placement. */
+const describeReassignment = (item: DeviceListItem, targetRackLabel?: string): string => {
+  const parts: string[] = [];
+  if (item.siteLabel) parts.push(`site ${item.siteLabel}`);
+  if (item.buildingLabel) parts.push(`building ${item.buildingLabel}`);
+  if (item.rackLabel) parts.push(`rack ${item.rackLabel}`);
+  const current =
+    parts.length === 0
+      ? "its current placement"
+      : parts.length === 1
+        ? parts[0]
+        : `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+  const name = item.name || item.deviceIdentifier;
+  const target = targetRackLabel ? `"${targetRackLabel}"` : "this rack";
+  return `Assigning ${name} to ${target} will unassign it from ${current}.`;
+};
+
 // --- Component ---
 
 const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionListProps>(
@@ -234,6 +255,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       showSelectAllFooter = true,
       scope,
       eligibility,
+      targetRackLabel,
       onSelectionChange,
     },
     ref,
@@ -265,6 +287,8 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     const eligSiteId = eligibility?.siteId;
     const eligBuildingId = eligibility?.buildingId;
     const [showAssignedInfo, setShowAssignedInfo] = useState(false);
+    // The reassignment row whose conflict dialog is open, or null.
+    const [conflictInfoItem, setConflictInfoItem] = useState<DeviceListItem | null>(null);
     // "Show assigned miners" — default off, so the list starts with only
     // assignable (unassigned + this-rack) miners. Turning it on also surfaces
     // miners currently assigned to another rack/building/site; they stay
@@ -434,23 +458,36 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // Wrap the base column renderers so a reassignment row's text is orange.
     // Wrapping (rather than editing each cell) keeps the placement flag in one
     // place and lets the inner cells inherit the color.
+    // Flag reassignment rows with a right-aligned orange warning icon in the
+    // Name cell (rows keep the normal text color); clicking it opens a dialog
+    // explaining the placement collision. Only the Name column is overridden —
+    // other columns render unchanged.
     const colConfig = useMemo<ColConfig<DeviceListItem, string, ModalColumn>>(() => {
-      const wrapped: ColConfig<DeviceListItem, string, ModalColumn> = {};
-      (Object.keys(modalColConfig) as ModalColumn[]).forEach((col) => {
-        const base = modalColConfig[col];
-        if (!base) return;
-        const baseComponent = base.component;
-        wrapped[col] = {
-          ...base,
-          component: (device: DeviceListItem, selectedItems: string[]) => (
-            <span className={isReassignment(device) ? "text-text-emphasis" : undefined}>
-              {baseComponent ? baseComponent(device, selectedItems) : null}
-            </span>
+      if (!eligibilityEnabled) return modalColConfig;
+      return {
+        ...modalColConfig,
+        [modalCols.name]: {
+          width: "min-w-28",
+          component: (device: DeviceListItem) => (
+            <div className="flex items-center justify-between gap-2">
+              <span>{device.name || device.deviceIdentifier}</span>
+              {isReassignment(device) ? (
+                <Button
+                  variant={variants.textOnly}
+                  textOnlyUnderlineOnHover={false}
+                  ariaLabel="Assignment conflict — view details"
+                  prefixIcon={<Alert className="text-text-emphasis" />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConflictInfoItem(device);
+                  }}
+                />
+              ) : null}
+            </div>
           ),
-        };
-      });
-      return wrapped;
-    }, [isReassignment]);
+        },
+      };
+    }, [eligibilityEnabled, isReassignment]);
     const displayedSelectedItems = allSelected && !singleSelect ? currentSelectableItemIds : selectedItems;
     // While "Show assigned miners" is on, the list mixes assignable and
     // assigned-elsewhere rows, so "select all" is ambiguous (and the assignable
@@ -867,6 +904,15 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             subtitle="Shows or hides miners that are already assigned to another rack, or to a building or site that this rack is not assigned to. Assigning these miners to this rack will unassign them from their current placement."
             onDismiss={() => setShowAssignedInfo(false)}
             buttons={[{ text: "Got it", variant: variants.primary, onClick: () => setShowAssignedInfo(false) }]}
+          />
+        ) : null}
+        {conflictInfoItem ? (
+          <Dialog
+            icon={<Alert className="text-text-emphasis" />}
+            title="Assignment conflict"
+            subtitle={describeReassignment(conflictInfoItem, targetRackLabel)}
+            onDismiss={() => setConflictInfoItem(null)}
+            buttons={[{ text: "Got it", variant: variants.primary, onClick: () => setConflictInfoItem(null) }]}
           />
         ) : null}
       </div>

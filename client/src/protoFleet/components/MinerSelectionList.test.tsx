@@ -303,7 +303,7 @@ describe("MinerSelectionList eligibility", () => {
     expect(lastListProps()?.isRowDisabled).toBeUndefined();
   });
 
-  it("flags reassignment rows with orange text via colConfig", () => {
+  it("adds a conflict icon-button to the name cell only for reassignment rows", () => {
     render(<MinerSelectionList eligibility={{ rackId: 1n, siteId: 2n, buildingId: 3n }} />);
     const colConfig = lastListProps()?.colConfig as Record<
       string,
@@ -318,17 +318,18 @@ describe("MinerSelectionList eligibility", () => {
       buildingLabel: "",
       groupLabels: [],
     };
+    const conflictButton = "button[aria-label*='Assignment conflict']";
 
-    // In the target rack — not a reassignment, no orange.
+    // In the target rack — not a reassignment, no conflict icon.
     const eligible = render(
       <>{colConfig.name.component({ deviceIdentifier: "a", rackId: 1n, siteId: 2n, buildingId: 3n, ...base }, [])}</>,
     );
-    expect(eligible.container.querySelector(".text-text-emphasis")).toBeNull();
+    expect(eligible.container.querySelector(conflictButton)).toBeNull();
 
-    // In another rack — reassignment, orange.
+    // In another rack — reassignment, conflict icon present.
     const ineligible = render(
       <>{colConfig.name.component({ deviceIdentifier: "b", rackId: 9n, siteId: 2n, buildingId: 3n, ...base }, [])}</>,
     );
-    expect(ineligible.container.querySelector(".text-text-emphasis")).not.toBeNull();
+    expect(ineligible.container.querySelector(conflictButton)).not.toBeNull();
   });
 });

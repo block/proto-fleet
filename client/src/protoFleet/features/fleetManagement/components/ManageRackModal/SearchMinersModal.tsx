@@ -11,13 +11,21 @@ interface SearchMinersModalProps {
    *  id-based eligibility filter (miners in another rack/building/site drop out
    *  or render disabled). */
   eligibility: MinerEligibility;
+  /** Target rack label, shown in the assignment-conflict dialog. */
+  targetRackLabel: string;
   onDismiss: () => void;
   /** `isReassignment` is true when the picked miner is currently assigned to a
    *  different rack/building/site, so the caller can confirm the reparent. */
   onConfirm: (selectedMinerId: string, isReassignment: boolean) => void;
 }
 
-export default function SearchMinersModal({ show, eligibility, onDismiss, onConfirm }: SearchMinersModalProps) {
+export default function SearchMinersModal({
+  show,
+  eligibility,
+  targetRackLabel,
+  onDismiss,
+  onConfirm,
+}: SearchMinersModalProps) {
   const selectionRef = useRef<MinerSelectionListHandle>(null);
   const [hasSelection, setHasSelection] = useState(false);
 
@@ -58,6 +66,7 @@ export default function SearchMinersModal({ show, eligibility, onDismiss, onConf
           showGroupFilter: true,
         }}
         eligibility={eligibility}
+        targetRackLabel={targetRackLabel}
         singleSelect
         onSelectionChange={({ selectedItems }) => setHasSelection(selectedItems.length > 0)}
       />

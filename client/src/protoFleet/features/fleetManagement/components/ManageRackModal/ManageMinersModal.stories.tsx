@@ -23,6 +23,7 @@ export const Default = () => {
         show={show}
         currentRackMiners={["miner-001", "miner-002"]}
         eligibility={{ rackId: 1n, siteId: 10n, buildingId: 100n }}
+        targetRackLabel="Rack 1"
         maxSlots={12}
         onDismiss={() => {
           action("onDismiss")();

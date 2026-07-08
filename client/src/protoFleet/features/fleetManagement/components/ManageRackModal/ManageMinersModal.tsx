@@ -16,6 +16,8 @@ interface ManageMinersModalProps {
   /** Target rack placement. Drives the "Show assignable only" toggle and the
    *  id-based eligibility filter. */
   eligibility: MinerEligibility;
+  /** Target rack label, shown in the assignment-conflict dialog. */
+  targetRackLabel: string;
   maxSlots: number;
   onDismiss: () => void;
   /** `reassignedItems` is the subset of the explicit selection that is currently
@@ -33,6 +35,7 @@ export default function ManageMinersModal({
   show,
   currentRackMiners,
   eligibility,
+  targetRackLabel,
   maxSlots,
   onDismiss,
   onConfirm,
@@ -96,6 +99,7 @@ export default function ManageMinersModal({
           }}
           initialSelectedItems={currentRackMiners}
           eligibility={eligibility}
+          targetRackLabel={targetRackLabel}
         />
       </div>
     </Modal>

@@ -555,6 +555,7 @@ const RackOverviewPage = () => {
             siteId: rack.placement?.site?.id || undefined,
             buildingId: rack.placement?.building?.id || undefined,
           }}
+          targetRackLabel={rack.label}
           onDismiss={() => setSearchMinerSlot(null)}
           onConfirm={(minerId, isReassignment) => {
             const slot = searchMinerSlot;

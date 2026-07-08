@@ -655,6 +655,7 @@ export default function ManageRackModal({
           show={showManageMiners}
           currentRackMiners={rackMiners}
           eligibility={eligibility}
+          targetRackLabel={rackSettings.label}
           maxSlots={totalSlots}
           onDismiss={() => setShowManageMiners(false)}
           onConfirm={handleManageMinersConfirm}
@@ -665,6 +666,7 @@ export default function ManageRackModal({
         <SearchMinersModal
           show={showSearchMiners}
           eligibility={eligibility}
+          targetRackLabel={rackSettings.label}
           onDismiss={() => {
             setShowSearchMiners(false);
             setSelectedSlot(null);

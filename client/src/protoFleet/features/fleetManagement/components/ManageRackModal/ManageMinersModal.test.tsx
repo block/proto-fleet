@@ -54,6 +54,7 @@ const defaultProps = {
   show: true,
   currentRackMiners: [] as string[],
   eligibility: { rackId: 1n, siteId: 10n, buildingId: 100n },
+  targetRackLabel: "Rack 1",
   maxSlots: 25,
   onDismiss: vi.fn(),
   onConfirm: vi.fn(),
