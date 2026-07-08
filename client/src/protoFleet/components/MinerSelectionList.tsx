@@ -357,17 +357,35 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         merged.includeUnassigned = scopeIncludeUnassigned;
       }
       if (!showAssigned && eligibilityEnabled) {
-        // Rack: admit unracked miners plus the target rack's own members.
-        // Override (not append) any user-selected Rack facet — while
-        // assignable-only is enforced, filtering to a *different* rack would
-        // otherwise pull that rack's members back in.
-        merged.includeNoRack = true;
-        merged.rackIds = eligRackId !== undefined ? [eligRackId] : [];
-        if (eligBuildingId !== undefined) {
+        // Each placement dimension is pinned to the target rack's value AND admits
+        // miners unassigned at that level (the assignable set = this rack's
+        // members + unplaced miners). When the operator has an explicit facet on a
+        // dimension, that facet *defines* it: intersect with the eligible value
+        // and drop the "include no ..." flag (they asked for specific
+        // racks/buildings/sites, not "unassigned"). A facet that excludes the
+        // target yields an empty intersection, surfaced as the
+        // placementFacetConflict empty state — so it never broadens the request.
+        if (userFilter.rackIds.length > 0) {
+          merged.rackIds = eligRackId !== undefined ? userFilter.rackIds.filter((id) => id === eligRackId) : [];
+          merged.includeNoRack = false;
+        } else {
+          merged.rackIds = eligRackId !== undefined ? [eligRackId] : [];
+          merged.includeNoRack = true;
+        }
+
+        if (userFilter.buildingIds.length > 0) {
+          merged.buildingIds =
+            eligBuildingId !== undefined ? userFilter.buildingIds.filter((id) => id === eligBuildingId) : [];
+          merged.includeNoBuilding = false;
+        } else if (eligBuildingId !== undefined) {
           merged.buildingIds = [eligBuildingId];
           merged.includeNoBuilding = true;
         }
-        if (eligSiteId !== undefined) {
+
+        if (userFilter.siteIds.length > 0) {
+          merged.siteIds = eligSiteId !== undefined ? userFilter.siteIds.filter((id) => id === eligSiteId) : [];
+          merged.includeUnassigned = false;
+        } else if (eligSiteId !== undefined) {
           merged.siteIds = [eligSiteId];
           merged.includeUnassigned = true;
         }

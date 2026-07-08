@@ -199,7 +199,7 @@ describe("MinerSelectionList eligibility", () => {
     expect(filter.siteIds).toEqual([]);
   });
 
-  it("overrides a user-selected Rack facet with the target rack while assignable-only is on", async () => {
+  it("respects a Rack facet that includes the target rack, dropping unracked, in assignable-only mode", async () => {
     render(<MinerSelectionList eligibility={{ rackId: 1n }} filterConfig={{ showRackFilter: true }} />);
 
     const listProps = lastListProps() as {
@@ -210,18 +210,19 @@ describe("MinerSelectionList eligibility", () => {
         textareaListFilters: Record<string, string[]>;
       }) => Promise<void>;
     };
+    // Facet the target rack itself: the facet now defines the dimension, so the
+    // request pins to it and stops OR-ing in unracked miners.
     await act(async () => {
       await listProps.onServerFilter({
         buttonFilters: [],
-        dropdownFilters: { rack: ["9"] },
+        dropdownFilters: { rack: ["1"] },
         numericFilters: {},
         textareaListFilters: {},
       });
     });
 
-    // The other rack (9) is dropped; only the target rack + unracked are admitted.
     expect(lastFleetFilter().rackIds).toEqual([1n]);
-    expect(lastFleetFilter().includeNoRack).toBe(true);
+    expect(lastFleetFilter().includeNoRack).toBe(false);
   });
 
   it("shows an empty result when a placement facet conflicts with the target rack (assignable-only)", async () => {
