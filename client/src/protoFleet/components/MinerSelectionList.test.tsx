@@ -4,11 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import MinerSelectionList from "./MinerSelectionList";
 
-const { fleetArgsSpy, listPropsSpy, listRacksMock, listGroupsMock } = vi.hoisted(() => ({
+const { fleetArgsSpy, listPropsSpy, listRacksMock, listGroupsMock, hasPermMock } = vi.hoisted(() => ({
   fleetArgsSpy: vi.fn(),
   listPropsSpy: vi.fn(),
   listRacksMock: vi.fn(),
   listGroupsMock: vi.fn(),
+  hasPermMock: vi.fn(() => true),
 }));
 
 vi.mock("@/protoFleet/api/useFleet", () => ({
@@ -50,6 +51,10 @@ vi.mock("@/protoFleet/api/sites", () => ({
 
 vi.mock("@/protoFleet/api/buildings", () => ({
   useBuildings: () => ({ listBuildings: vi.fn() }),
+}));
+
+vi.mock("@/protoFleet/store", () => ({
+  useHasPermission: (perm: string) => hasPermMock(perm),
 }));
 
 vi.mock("@/shared/components/List", () => ({
@@ -161,6 +166,7 @@ describe("MinerSelectionList eligibility", () => {
     listPropsSpy.mockReset();
     listRacksMock.mockReset();
     listGroupsMock.mockReset();
+    hasPermMock.mockReturnValue(true);
   });
 
   const lastFleetFilter = () => {
@@ -224,6 +230,16 @@ describe("MinerSelectionList eligibility", () => {
 
     fireEvent.click(screen.getByLabelText("Show assigned miners"));
     expect(screen.queryByText("Select all")).not.toBeInTheDocument();
+  });
+
+  it("hides the Site/Building facets when the user lacks site:read", () => {
+    hasPermMock.mockReturnValue(false);
+    render(<MinerSelectionList filterConfig={{ showTypeFilter: true, showSiteFilter: true, showBuildingFilter: true }} />);
+    const filters = lastListProps()?.filters as { children?: { title: string }[] }[] | undefined;
+    const titles = filters?.[0]?.children?.map((c) => c.title) ?? [];
+    expect(titles).toContain("Model");
+    expect(titles).not.toContain("Site");
+    expect(titles).not.toContain("Building");
   });
 
   it("renders the assignable-only toggle only when eligibility is provided", () => {

@@ -30,6 +30,7 @@ import {
   isPlacementIneligible,
   type MinerEligibility,
 } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
+import { useHasPermission } from "@/protoFleet/store";
 
 import { ChevronDown, Info, Plus } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -242,9 +243,19 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       showRackFilter = true,
       showGroupFilter = true,
       showSubnetFilter = false,
-      showSiteFilter = false,
-      showBuildingFilter = false,
+      showSiteFilter: showSiteFilterProp = false,
+      showBuildingFilter: showBuildingFilterProp = false,
     } = filterConfig ?? {};
+
+    // Site/Building facet options come from ListSites/ListBuildings, which are
+    // guarded by site:read. Roles that manage racks without it (e.g. FIELD_TECH)
+    // would otherwise fire permission-denied RPCs and get empty facets, so hide
+    // these facets when the site catalog isn't readable. The Site/Building
+    // columns still render — their labels come from the miner snapshot, not
+    // these RPCs.
+    const canReadSiteCatalog = useHasPermission("site:read");
+    const showSiteFilter = showSiteFilterProp && canReadSiteCatalog;
+    const showBuildingFilter = showBuildingFilterProp && canReadSiteCatalog;
 
     const scopeSiteIds = useMemo(() => scope?.siteIds ?? [], [scope]);
     const scopeIncludeUnassigned = scope?.includeUnassigned ?? false;
