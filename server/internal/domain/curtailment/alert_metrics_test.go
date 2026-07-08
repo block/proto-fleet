@@ -234,6 +234,46 @@ func TestAlertMetricsTickClearingSampleSurvivesLookupError(t *testing.T) {
 	require.False(t, emitter.active[1].value, "clearing 0 must land once the lookup recovers")
 }
 
+func TestAlertMetricsTickRetiresRenamedSourceSeries(t *testing.T) {
+	sources := &fakeSourcesLister{sources: []mqttingest.SourceConfig{testSource(1, 10, "old-name")}}
+	active := &fakeActiveLister{active: []*models.MQTTSourceActiveCurtailment{
+		activeSource(1, 10, "old-name"),
+	}}
+	emitter := &recordingEmitter{}
+	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{
+		Sources:           sources,
+		Runtime:           &fakeRuntime{statuses: map[int64]mqttingest.RuntimeStatus{1: {State: mqttingest.RuntimeStateError}}},
+		ActiveCurtailment: active,
+		Emitter:           emitter,
+	})
+
+	loop.tick(context.Background())
+	require.Len(t, emitter.connected, 1)
+	require.Len(t, emitter.active, 1)
+
+	sources.sources = []mqttingest.SourceConfig{testSource(1, 10, "new-name")}
+	active.active = []*models.MQTTSourceActiveCurtailment{activeSource(1, 10, "new-name")}
+	loop.tick(context.Background())
+
+	oldLabels := metrics.MQTTSourceLabels{OrganizationID: "10", SourceName: "old-name"}
+	newLabels := metrics.MQTTSourceLabels{OrganizationID: "10", SourceName: "new-name"}
+	// Fresh emissions under the new name plus one non-alerting tombstone per
+	// gauge under the old name, so neither alert keeps firing for a dead series.
+	require.Equal(t, []recordedGauge{
+		{labels: newLabels, value: false},
+		{labels: oldLabels, value: true},
+	}, emitter.connected[1:])
+	require.Equal(t, []recordedGauge{
+		{labels: newLabels, value: true},
+		{labels: oldLabels, value: false},
+	}, emitter.active[1:])
+
+	// Steady state under the new name: no further tombstones.
+	loop.tick(context.Background())
+	require.Len(t, emitter.connected, 4)
+	require.Len(t, emitter.active, 4)
+}
+
 func TestAlertMetricsTickSkipsActiveEmitOnLookupError(t *testing.T) {
 	emitter := &recordingEmitter{}
 	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{

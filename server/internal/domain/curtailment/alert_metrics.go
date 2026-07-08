@@ -64,10 +64,12 @@ type AlertMetricsLoop struct {
 	mu      sync.Mutex
 	running bool
 
-	// prevDisabledActive remembers disabled sources whose curtailment gauge
-	// was emitted last tick, so a final 0 can clear the alert promptly when
-	// their event ends. Touched only by the tick goroutine.
-	prevDisabledActive map[int64]metrics.MQTTSourceLabels
+	// prevConnected / prevActive remember the labels each gauge was emitted
+	// with last tick (touched only by the tick goroutine), so a renamed or
+	// retired series gets one clearing sample instead of keeping its alert
+	// firing until the last sample ages out of the rule window.
+	prevConnected map[int64]metrics.MQTTSourceLabels
+	prevActive    map[int64]metrics.MQTTSourceLabels
 }
 
 // NewAlertMetricsLoop validates dependencies and applies defaults.
@@ -177,7 +179,8 @@ func (l *AlertMetricsLoop) tick(ctx context.Context) {
 		}
 	}
 
-	emittedActive := make(map[int64]struct{}, len(sources))
+	curConnected := make(map[int64]metrics.MQTTSourceLabels, len(sources))
+	curActive := make(map[int64]metrics.MQTTSourceLabels, len(sources)+len(activeBySourceID))
 	for _, src := range sources {
 		labels := metrics.MQTTSourceLabels{
 			OrganizationID: metrics.OrgIDToLabel(src.OrganizationID),
@@ -185,38 +188,46 @@ func (l *AlertMetricsLoop) tick(ctx context.Context) {
 		}
 		status := l.cfg.Runtime.SourceRuntimeStatus(src.ID)
 		l.cfg.Emitter.EmitMQTTSourceConnected(ctx, labels, status.State == mqttingest.RuntimeStateRunning)
+		curConnected[src.ID] = labels
 		if activeErr == nil {
 			_, isActive := activeBySourceID[src.ID]
 			l.cfg.Emitter.EmitMQTTCurtailmentActive(ctx, labels, isActive)
-			emittedActive[src.ID] = struct{}{}
+			curActive[src.ID] = labels
 			delete(activeBySourceID, src.ID)
 		}
 	}
+	// A renamed source changes the series identity (kind label): retire the
+	// old-name series with one non-alerting sample so its alert resolves now
+	// instead of firing under a dead name until the window ages it out.
+	for id, old := range l.prevConnected {
+		if cur, ok := curConnected[id]; ok && cur != old {
+			l.cfg.Emitter.EmitMQTTSourceConnected(ctx, old, true)
+		}
+	}
+	l.prevConnected = curConnected
 
 	if activeErr != nil {
-		// State unknown: keep prevDisabledActive so the clearing 0 still
-		// lands once the lookup recovers.
+		// State unknown: keep prevActive so pending clearing samples still
+		// land once the lookup recovers.
 		return
 	}
 	// A source disabled mid-curtailment still has a live event; keep its
 	// gauge high so the alert cannot resolve while miners stay curtailed.
-	curDisabledActive := make(map[int64]metrics.MQTTSourceLabels, len(activeBySourceID))
 	for _, a := range activeBySourceID {
 		labels := metrics.MQTTSourceLabels{
 			OrganizationID: metrics.OrgIDToLabel(a.OrganizationID),
 			SourceName:     a.SourceName,
 		}
 		l.cfg.Emitter.EmitMQTTCurtailmentActive(ctx, labels, true)
-		curDisabledActive[a.SourceID] = labels
-		emittedActive[a.SourceID] = struct{}{}
+		curActive[a.SourceID] = labels
 	}
-	// One clearing 0 for a disabled source whose event just ended, so the
-	// alert resolves promptly instead of aging out of the rule window. Best
+	// One clearing 0 when a series is renamed or retires (a disabled source's
+	// event ended), so the alert resolves promptly instead of aging out. Best
 	// effort: a restart in between falls back to the age-out path.
-	for id, labels := range l.prevDisabledActive {
-		if _, emitted := emittedActive[id]; !emitted {
-			l.cfg.Emitter.EmitMQTTCurtailmentActive(ctx, labels, false)
+	for id, old := range l.prevActive {
+		if cur, ok := curActive[id]; !ok || cur != old {
+			l.cfg.Emitter.EmitMQTTCurtailmentActive(ctx, old, false)
 		}
 	}
-	l.prevDisabledActive = curDisabledActive
+	l.prevActive = curActive
 }
