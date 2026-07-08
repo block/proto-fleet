@@ -1590,7 +1590,7 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			// The all-paired policy holds these unavailable instead because it
 			// dispatches without the freshness gates below
 			// (AllPairedPolicyTargetState in selector.go).
-		case "NEEDS_MINING_POOL":
+		case deviceStatusNeedsMiningPool:
 			// Commandability admission (#663): a pool-less miner is reachable,
 			// authenticated, and draws idle power — a sleep command lands.
 			// Subject to the freshness gates below, plus a positive-power

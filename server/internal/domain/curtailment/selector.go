@@ -271,6 +271,11 @@ const (
 	allPairedUnavailableStaleTelemetry = "stale_telemetry"
 )
 
+// deviceStatusNeedsMiningPool is the device_status_enum value for a reachable
+// miner with no pool configured. Referenced by both admission classifiers and
+// the status-authoritative hash override below.
+const deviceStatusNeedsMiningPool = "NEEDS_MINING_POOL"
+
 // statusAuthoritativeHashRateHS returns the hash sample to use for selection
 // accounting and baseline-persistence decisions. Device status is
 // authoritative over the raw sample for NEEDS_MINING_POOL: a pool-less miner
@@ -278,7 +283,7 @@ const (
 // let it count as curtailable mining load in fixed-kW selection, nor mark it
 // "hashing" for the baseline min-power floor.
 func statusAuthoritativeHashRateHS(c *models.Candidate) float64 {
-	if c.DeviceStatus == "NEEDS_MINING_POOL" {
+	if c.DeviceStatus == deviceStatusNeedsMiningPool {
 		return 0
 	}
 	if hasNonNegativeFiniteFloat(c.LatestHashRateHS) {
@@ -387,7 +392,7 @@ func AllPairedPolicyTargetState(c *models.Candidate, includeMaintenance bool) (m
 		return models.TargetStateUnavailable, allPairedUnavailableRebootRequired
 	case "INACTIVE", "ERROR", "UNKNOWN":
 		return models.TargetStateUnavailable, allPairedUnavailableNonActionableStatus
-	case "NEEDS_MINING_POOL":
+	case deviceStatusNeedsMiningPool:
 		// Commandable (#663), but only dispatchable once a positive power
 		// sample exists: power-vs-baseline is the sole signal that can
 		// confirm curtail/restore for a never-hashing miner. Parked rows are
