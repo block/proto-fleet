@@ -229,6 +229,87 @@ func TestReplaySubscriptionsReportsSubackFailure(t *testing.T) {
 	}
 }
 
+func TestValidateSubscribeResult(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		topic   string
+		result  map[string]byte
+		wantErr string
+	}{
+		{
+			name:   "exact topic result succeeds",
+			topic:  "maestro/target",
+			result: map[string]byte{"maestro/target": 1},
+		},
+		{
+			name:   "shared group filter succeeds with paho-normalized result key",
+			topic:  "$share/group/maestro/target",
+			result: map[string]byte{"maestro/target": 1},
+		},
+		{
+			name:   "queue filter succeeds with paho-normalized result key",
+			topic:  "$queue/maestro/target",
+			result: map[string]byte{"maestro/target": 1},
+		},
+		{
+			name:    "rejected SUBACK code fails",
+			topic:   "maestro/target",
+			result:  map[string]byte{"maestro/target": subscribeFailureCode},
+			wantErr: "SUBACK rejected subscription",
+		},
+		{
+			name:    "rejected SUBACK code fails via sole-entry fallback",
+			topic:   "$share/group/maestro/target",
+			result:  map[string]byte{"maestro/target": subscribeFailureCode},
+			wantErr: "SUBACK rejected subscription",
+		},
+		{
+			name:    "invalid QoS fails",
+			topic:   "maestro/target",
+			result:  map[string]byte{"maestro/target": 3},
+			wantErr: "SUBACK returned invalid QoS",
+		},
+		{
+			name:    "empty result map fails",
+			topic:   "maestro/target",
+			result:  map[string]byte{},
+			wantErr: "SUBACK missing topic result",
+		},
+		{
+			name:  "multi-result map missing exact topic fails",
+			topic: "maestro/target",
+			result: map[string]byte{
+				"other/topic":   1,
+				"another/topic": 1,
+			},
+			wantErr: "SUBACK missing topic result",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateSubscribeResult(tt.topic, completedSubscribeToken{result: tt.result})
+
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateSubscribeResult returned error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validateSubscribeResult returned nil, want error containing %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("err = %v, want error containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestSubscribeBeforeConnectStagesRoute(t *testing.T) {
 	t.Parallel()
 
