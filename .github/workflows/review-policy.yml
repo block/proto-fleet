@@ -45,6 +45,7 @@ jobs:
       decision: ${{ steps.evaluate_policy.outputs.decision || steps.bootstrap_policy.outputs.decision || 'needs-human-review' }}
       passed: ${{ steps.evaluate_policy.outputs.passed || steps.bootstrap_policy.outputs.passed || 'false' }}
       enforced: ${{ steps.evaluate_policy.outputs.enforced || steps.bootstrap_policy.outputs.enforced || 'true' }}
+      publishable: ${{ steps.evaluate_policy.outputs.publishable || steps.bootstrap_policy.outputs.publishable || 'false' }}
     env:
       CODEX_MODEL: gpt-5.5
       CODEX_REASONING_EFFORT: high
@@ -190,6 +191,7 @@ jobs:
           echo "decision=needs-human-review" >> "$GITHUB_OUTPUT"
           echo "passed=false" >> "$GITHUB_OUTPUT"
           echo "enforced=false" >> "$GITHUB_OUTPUT"
+          echo "publishable=true" >> "$GITHUB_OUTPUT"
           {
             echo "## Review Policy"
             echo
@@ -410,6 +412,7 @@ jobs:
           echo "decision=${decision}" >> "$GITHUB_OUTPUT"
           echo "passed=${passed}" >> "$GITHUB_OUTPUT"
           echo "enforced=${enforced}" >> "$GITHUB_OUTPUT"
+          echo "publishable=true" >> "$GITHUB_OUTPUT"
           exit "$status"
 
       - name: Skip non-PR event
@@ -419,7 +422,11 @@ jobs:
   publish-status:
     name: Publish Review Policy Status
     needs: evaluate
-    if: always() && needs.evaluate.outputs.found == 'true'
+    if: >-
+      always() &&
+      needs.evaluate.outputs.found == 'true' &&
+      needs.evaluate.outputs.publishable == 'true' &&
+      needs.evaluate.result != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
@@ -506,12 +513,19 @@ jobs:
   sync-label:
     name: Sync Label
     needs: evaluate
-    if: always() && needs.evaluate.outputs.found == 'true'
+    if: >-
+      always() &&
+      needs.evaluate.outputs.found == 'true' &&
+      needs.evaluate.outputs.publishable == 'true' &&
+      needs.evaluate.result != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    concurrency:
+      group: review-policy-label-${{ needs.evaluate.outputs.head_sha }}
+      cancel-in-progress: true
     permissions:
       issues: write
-      pull-requests: read
+      pull-requests: write
     steps:
       - name: Sync review policy label
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -615,7 +629,7 @@ jobs:
               }
             } catch (error) {
               if (error.status === 403) {
-                core.info(`Unable to sync review policy label with this event token: ${error.message}`);
+                core.warning(`Unable to sync review policy label with this event token: ${error.message}`);
               } else {
                 core.warning(`Unable to sync review policy label: ${error.message}`);
               }

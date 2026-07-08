@@ -11,6 +11,32 @@ import evaluate_review_policy as policy
 
 
 class ReviewPolicyTest(unittest.TestCase):
+    def test_workflow_publishes_only_completed_policy_decisions(self):
+        workflow = (Path(__file__).resolve().parents[1] / "workflows" / "review-policy.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "publishable: ${{ steps.evaluate_policy.outputs.publishable || "
+            "steps.bootstrap_policy.outputs.publishable || 'false' }}",
+            workflow,
+        )
+        self.assertEqual(workflow.count("needs.evaluate.outputs.publishable == 'true'"), 2)
+        self.assertEqual(workflow.count("needs.evaluate.result != 'cancelled'"), 2)
+
+    def test_workflow_serializes_and_authorizes_label_sync(self):
+        workflow = (Path(__file__).resolve().parents[1] / "workflows" / "review-policy.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("group: review-policy-label-${{ needs.evaluate.outputs.head_sha }}", workflow)
+        self.assertIn(
+            "    permissions:\n"
+            "      issues: write\n"
+            "      pull-requests: write\n",
+            workflow,
+        )
+
     def test_path_matches_double_star_root_file(self):
         self.assertTrue(policy.path_matches("package.json", "**/package.json"))
         self.assertTrue(policy.path_matches("client/package.json", "**/package.json"))
