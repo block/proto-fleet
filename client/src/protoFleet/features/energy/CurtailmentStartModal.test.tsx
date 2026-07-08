@@ -134,6 +134,8 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal
 }));
 
 const configuredValues: Partial<CurtailmentFormValues> = {
+  // A configured fixed-kW plan; the modal itself defaults to full shutdown.
+  curtailmentMode: "fixedKwReduction",
   targetKw: "40",
   curtailBatchSize: "8",
   curtailBatchIntervalSec: "30",
@@ -280,10 +282,9 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Fleet will automatically curtail the least efficient miners first.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Curtailment mode" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "About curtailment mode" })).toBeInTheDocument();
-    expect(screen.getByText("Fixed kW reduction")).toBeInTheDocument();
-    expect(screen.getByLabelText("Fixed target reduction (kW)")).toBeInTheDocument();
-    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveAttribute("type", "text");
-    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveAttribute("inputmode", "decimal");
+    // Full shutdown is the default mode, so no fixed-target input renders.
+    expect(screen.getByText("Full shutdown")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Miner selection strategy" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
@@ -1572,6 +1573,11 @@ describe("CurtailmentStartModal", () => {
   it("submits the current form values without dismissing the modal", async () => {
     const user = userEvent.setup();
     const { onDismiss, onSubmit } = renderModal();
+
+    // Full shutdown is the default; switch to fixed-kW mode first.
+    await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
+    await user.click(await screen.findByText("Fixed kW reduction"));
+
     const targetInput = screen.getByLabelText("Fixed target reduction (kW)");
     const restoreBatchSizeInput = screen.getAllByLabelText("Batch size (miners)")[1];
     const restoreIntervalInput = screen.getAllByLabelText("Batch interval (sec)")[1];
@@ -1624,13 +1630,9 @@ describe("CurtailmentStartModal", () => {
     });
     const startButton = screen.getByRole("button", { name: "Run curtailment" });
 
-    expect(startButton).toBeEnabled();
-
-    await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
-    const fullShutdownOption = await screen.findByText("Full shutdown");
-    expect(document.body.querySelectorAll('input[type="radio"]')).toHaveLength(0);
-    await user.click(fullShutdownOption);
-
+    // Full shutdown is the default mode — no mode switch needed, and no
+    // fixed-target input is required to start.
+    expect(screen.getByRole("button", { name: "Curtailment mode" })).toHaveTextContent("Full shutdown");
     expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
     expect(screen.getByText("Fleet will automatically curtail the least efficient miners first.")).toBeInTheDocument();
     expect(startButton).toBeEnabled();
@@ -2009,7 +2011,7 @@ describe("CurtailmentStartModal", () => {
         open
         onDismiss={onDismiss}
         onSubmit={onSubmit}
-        initialValues={{ targetKw: "10", reason: "Initial reason" }}
+        initialValues={{ curtailmentMode: "fixedKwReduction", targetKw: "10", reason: "Initial reason" }}
       />,
     );
 
@@ -2023,7 +2025,7 @@ describe("CurtailmentStartModal", () => {
         open={false}
         onDismiss={onDismiss}
         onSubmit={onSubmit}
-        initialValues={{ targetKw: "10", reason: "Initial reason" }}
+        initialValues={{ curtailmentMode: "fixedKwReduction", targetKw: "10", reason: "Initial reason" }}
       />,
     );
     rerender(
@@ -2031,7 +2033,7 @@ describe("CurtailmentStartModal", () => {
         open
         onDismiss={onDismiss}
         onSubmit={onSubmit}
-        initialValues={{ targetKw: "25", reason: "Updated reason" }}
+        initialValues={{ curtailmentMode: "fixedKwReduction", targetKw: "25", reason: "Updated reason" }}
       />,
     );
 
@@ -2060,6 +2062,11 @@ describe("CurtailmentStartModal", () => {
   it("shows required start-field validation when the CTA is clicked or fields are edited", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal();
+
+    // Full shutdown is the default; switch to fixed-kW mode so the
+    // target-reduction requirement applies.
+    await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
+    await user.click(await screen.findByText("Fixed kW reduction"));
 
     const startButton = screen.getByRole("button", { name: "Run curtailment" });
     const targetInput = screen.getByLabelText("Fixed target reduction (kW)");

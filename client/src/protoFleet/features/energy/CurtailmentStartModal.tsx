@@ -202,7 +202,9 @@ const defaultValues: CurtailmentFormValues = {
   deviceIdentifiers: [],
   minerSelectionMode: "subset",
   responseProfileId: customResponseProfileId,
-  curtailmentMode: "fixedKwReduction",
+  // Whole-fleet shutdown is the primary operator flow; fixed-kW sizing is
+  // the opt-in refinement (matches the response-profile form default).
+  curtailmentMode: "fullFleet",
   minerSelectionStrategy: "leastEfficientFirst",
   targetKw: "",
   toleranceKw: "",
@@ -222,9 +224,11 @@ const defaultValues: CurtailmentFormValues = {
   forceIncludeAllPairedMiners: false,
 };
 const editableCurtailmentFields: EditableCurtailmentField[] = ["reason", "restoreIntervalSec"];
+// Full shutdown leads: whole-fleet curtailment is the primary operator flow
+// (matches the response-profile default and DeviceSettingsModal ordering).
 const curtailmentModeOptions = [
-  { value: "fixedKwReduction", label: "Fixed kW reduction" },
   { value: "fullFleet", label: "Full shutdown" },
+  { value: "fixedKwReduction", label: "Fixed kW reduction" },
 ];
 const getSiteScopeRowId = (siteId: string) => `site:${siteId}`;
 
