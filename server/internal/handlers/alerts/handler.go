@@ -462,11 +462,8 @@ func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice
 // MQTT curtailment source rather than a device. All rules are operator-
 // provisioned, so the template label is trustworthy.
 func isSourceLevelTemplate(t string) bool {
-	switch alerts.RuleTemplate(t) {
-	case alerts.RuleTemplateMQTTCurtailment, alerts.RuleTemplateMQTTDisconnected:
-		return true
-	}
-	return false
+	tmpl := alerts.RuleTemplate(t)
+	return tmpl == alerts.RuleTemplateMQTTCurtailment || tmpl == alerts.RuleTemplateMQTTDisconnected
 }
 
 func channelKindToProto(k alerts.ChannelKind) alertsv1.ChannelKind {
