@@ -174,27 +174,49 @@ export class GroupsPage extends BasePage {
     }
   }
 
-  async filterModalType(type: string) {
-    await this.clickLocator(this.page.getByTestId("modal").getByTestId("filter-dropdown-Model"));
-    const popover = this.page.getByTestId("dropdown-filter-popover");
+  // The modal's filters live in a nested "Add filter" popover (matching the
+  // fleet miner list). The trigger is scoped to the modal; the popover/submenu
+  // are portaled to the body.
+  private async openModalFilterSubmenu(categoryKey: string, clearFirst = false) {
+    const trigger = this.page.getByTestId("modal").getByTestId("filter-nested-filters-meta");
+    await this.clickLocator(trigger);
+    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
     await expect(popover).toBeVisible();
-    await expect(popover).toHaveCSS("opacity", "1");
-    await this.clickDropdownFilterOption(popover, [type]);
-    await this.clickLocator(popover.getByRole("button", { name: "Apply" }));
+
+    if (clearFirst) {
+      // Checkbox facets accumulate, so callers that expect one selection to
+      // replace the last must clear first. "Clear all" only renders when
+      // something is selected, and clicking it closes the popover.
+      const clearAll = popover.getByRole("button", { name: "Clear all" });
+      if (await clearAll.isVisible().catch(() => false)) {
+        await clearAll.click();
+        await expect(popover).toBeHidden();
+        await this.clickLocator(trigger);
+        await expect(popover).toBeVisible();
+      }
+    }
+
+    await popover.getByTestId(`nested-dropdown-filter-row-${categoryKey}`).click();
+    const desktopSubmenu = this.page.getByTestId(`nested-dropdown-filter-submenu-${categoryKey}`);
+    const mobileBack = popover.getByTestId("nested-dropdown-filter-back");
+    await expect(desktopSubmenu.or(mobileBack)).toBeVisible();
+    const submenu = (await desktopSubmenu.isVisible().catch(() => false)) ? desktopSubmenu : popover;
+    return { trigger, popover, submenu };
+  }
+
+  async filterModalType(type: string) {
+    const { trigger, popover, submenu } = await this.openModalFilterSubmenu("model");
+    await this.clickDropdownFilterOption(submenu, [type]);
+    await this.clickLocator(trigger);
     await expect(popover).toBeHidden();
   }
 
   async filterModalGroup(groupName: string) {
-    await this.page.getByTestId("modal").getByTestId("filter-dropdown-Group").click();
-    const popover = this.page.getByTestId("dropdown-filter-popover");
-    await expect(popover).toBeVisible();
-    await expect(popover).toHaveCSS("opacity", "1");
-
-    const resetButton = popover.getByRole("button", { name: "Reset" });
-    await resetButton.click();
-
-    await popover.getByText(groupName, { exact: true }).click();
-    await popover.getByRole("button", { name: "Apply" }).click();
+    // Each call replaces the previously-filtered group (see the group-filter
+    // validation spec), so clear the prior selection first.
+    const { trigger, popover, submenu } = await this.openModalFilterSubmenu("group", true);
+    await this.clickDropdownFilterOption(submenu, [groupName]);
+    await this.clickLocator(trigger);
     await expect(popover).toBeHidden();
   }
 

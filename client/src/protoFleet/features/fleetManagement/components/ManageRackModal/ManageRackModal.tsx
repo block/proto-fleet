@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import ManageMinersModal from "./ManageMinersModal";
 import MinersPane from "./MinersPane";
 import RackPane from "./RackPane";
+import ReparentWarningDialog from "./ReparentWarningDialog";
 import ScanMinerQrModal from "./ScanMinerQrModal";
 import SearchMinersModal from "./SearchMinersModal";
 import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData, type SelectedSlot } from "./types";
@@ -17,8 +18,9 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
+import type { MinerEligibility } from "@/protoFleet/components/MinerSelectionList";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
-import { getMinerRackLabel } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
+import { isMinerSnapshotIneligible } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { slotNumberToRowCol } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
 
 import { DismissCircle } from "@/shared/assets/icons";
@@ -30,17 +32,19 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 /** Fetch all miner IDs eligible for a rack by paginating through the fleet API.
  *  Applies the same filter the user had active in MinerSelectionList so "select all"
- *  respects model/type filters. Miners in other racks are excluded. */
-async function fetchAllSelectableMinerIds(rackLabel: string, listFilter?: MinerListFilter): Promise<string[]> {
+ *  respects model/subnet filters. Miners in a different rack/building/site are
+ *  excluded id-based (matches the list's eligibility predicate) so "select all"
+ *  can't pull in ineligible miners even if the assignable-only toggle was off. */
+async function fetchAllSelectableMinerIds(
+  eligibility: MinerEligibility,
+  listFilter?: MinerListFilter,
+): Promise<string[]> {
   const filter = listFilter
     ? { ...listFilter, pairingStatuses: [PairingStatus.PAIRED] }
     : { pairingStatuses: [PairingStatus.PAIRED] };
   const snapshots = await fetchAllMinerSnapshots(filter);
   return Object.values(snapshots)
-    .filter((m) => {
-      const currentRackLabel = getMinerRackLabel(m);
-      return !currentRackLabel || currentRackLabel === rackLabel;
-    })
+    .filter((m) => !isMinerSnapshotIneligible(m, eligibility))
     .map((m) => m.deviceIdentifier);
 }
 
@@ -100,6 +104,23 @@ export default function ManageRackModal({
   const totalSlots = rackSettings.rows * rackSettings.columns;
   const numberingOrigin = orderIndexToOrigin(rackSettings.orderIndex);
 
+  // Target-rack placement for the selection modals' eligibility filter. Read
+  // from the rack's own DeviceSet (id-based; site derives from building). A new
+  // rack has no id/placement yet, so eligibility only excludes already-racked
+  // miners. `|| undefined` collapses the proto default (0) to unassigned.
+  const currentRack = useMemo(
+    () => (existingRackId !== undefined ? existingRacks.find((r) => r.id === existingRackId) : undefined),
+    [existingRackId, existingRacks],
+  );
+  const eligibility = useMemo<MinerEligibility>(
+    () => ({
+      rackId: existingRackId,
+      siteId: currentRack?.placement?.site?.id || undefined,
+      buildingId: currentRack?.placement?.building?.id || undefined,
+    }),
+    [existingRackId, currentRack],
+  );
+
   // Core assignment state. A new rack (no existingRackId) can be seeded
   // with miners from a bulk "Add to rack → New rack" flow; edit mode
   // ignores the seed and loads the rack's real membership below.
@@ -121,6 +142,11 @@ export default function ManageRackModal({
   const [showScanQr, setShowScanQr] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Pending reparent confirmation. Set when a confirm action would pull miners
+  // out of a rack/building/site they're currently assigned to; `onConfirm`
+  // runs the deferred action once the operator accepts the warning (#672).
+  const [reparentConfirm, setReparentConfirm] = useState<{ count: number; onConfirm: () => void } | null>(null);
 
   // Loading / error state
   const [isLoading, setIsLoading] = useState(!!existingRackId);
@@ -299,45 +325,62 @@ export default function ManageRackModal({
     setShowSlotPopover(false);
   }, []);
 
-  // SearchMinersModal confirm — add miner to rack and assign to selected slot
+  // Show the reparent warning (#672) when `count` > 0, else run `proceed`
+  // directly. `proceed` runs once the operator accepts the warning. Callers pass
+  // the reassignment count from a reliable source (the selection list's
+  // per-row placement, or the scanned miner's snapshot) rather than the parent's
+  // first-page-only `allMiners` cache, so the warning isn't missed for miners
+  // outside that page.
+  const promptReparent = useCallback((count: number, proceed: () => void) => {
+    if (count === 0) {
+      proceed();
+      return;
+    }
+    setReparentConfirm({ count, onConfirm: proceed });
+  }, []);
+
+  // SearchMinersModal confirm — add miner to rack and assign to selected slot.
+  // The modal reports the reassignment flag from the row it selected (exact even
+  // for fleets larger than the display page).
   const handleSearchMinerConfirm = useCallback(
-    (minerId: string) => {
+    (minerId: string, isReassignment: boolean) => {
       if (!selectedSlot) return;
-
-      // Add miner to rack if not already present
-      setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
-
-      // Remove any existing assignment for this miner, then assign to selected slot
-      setSlotAssignments((prev) => {
-        const next = removeAssignmentByValue(prev, minerId);
-        next[selectedSlot.key] = minerId;
-        return next;
+      const slotKey = selectedSlot.key;
+      promptReparent(isReassignment ? 1 : 0, () => {
+        // Add miner to rack if not already present
+        setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
+        // Remove any existing assignment for this miner, then assign to selected slot
+        setSlotAssignments((prev) => {
+          const next = removeAssignmentByValue(prev, minerId);
+          next[slotKey] = minerId;
+          return next;
+        });
+        setSelectedSlot(null);
+        setShowSearchMiners(false);
       });
-
-      setSelectedSlot(null);
-      setShowSearchMiners(false);
     },
-    [selectedSlot],
+    [selectedSlot, promptReparent],
   );
 
   // ScanMinerQrModal confirm — identical placement to search, but keyed off
-  // the resolved device identifier from the scanned serial. Kept separate so
-  // it closes the scan modal (not the search modal).
+  // the resolved device identifier from the scanned serial. The scan modal
+  // computes the reassignment flag from the resolved snapshot's placement.
   const handleScanMinerConfirm = useCallback(
-    (minerId: string) => {
+    (minerId: string, isReassignment: boolean) => {
       if (!selectedSlot) return;
-
-      setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
-      setSlotAssignments((prev) => {
-        const next = removeAssignmentByValue(prev, minerId);
-        next[selectedSlot.key] = minerId;
-        return next;
+      const slotKey = selectedSlot.key;
+      promptReparent(isReassignment ? 1 : 0, () => {
+        setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
+        setSlotAssignments((prev) => {
+          const next = removeAssignmentByValue(prev, minerId);
+          next[slotKey] = minerId;
+          return next;
+        });
+        setSelectedSlot(null);
+        setShowScanQr(false);
       });
-
-      setSelectedSlot(null);
-      setShowScanQr(false);
     },
-    [selectedSlot],
+    [selectedSlot, promptReparent],
   );
 
   // Miner selection handler — when a slot is awaiting, assign miner to it
@@ -388,44 +431,55 @@ export default function ManageRackModal({
     [selectedMinerId],
   );
 
-  // ManageMinersModal confirm handler
+  // ManageMinersModal confirm handler. Returns an error string for the still-open
+  // modal to surface (or undefined on success) — the parent's own callout sits
+  // behind the modal, so select-all overflow/load errors must go back up.
   const handleManageMinersConfirm = useCallback(
-    async (selectedIds: string[], allSelected: boolean, listFilter?: MinerListFilter) => {
+    async (
+      selectedIds: string[],
+      allSelected: boolean,
+      listFilter: MinerListFilter | undefined,
+      reassignedItems: string[],
+    ): Promise<string | undefined> => {
       let finalIds = selectedIds;
+      // "Select all" resolves to the assignable set server-side (ineligible
+      // miners already excluded), so it can never reparent. An explicit
+      // selection can, and `reassignedItems` reports exactly which picks are
+      // assigned elsewhere.
+      let reassignedCount = reassignedItems.length;
 
       if (allSelected) {
         // When "select all" is active, selectedIds only contains the current page.
         // Paginate through all miners server-side to get the complete list, applying
-        // the same filters the user had active (e.g. model/type) and excluding miners
-        // in other racks. Use initialRackSettings.label because fleet data still
-        // carries the original label even if the user edited it locally.
+        // the same filters the user had active (e.g. model/subnet) and excluding
+        // miners in a different rack/building/site (id-based).
         try {
           setIsLoading(true);
-          finalIds = await fetchAllSelectableMinerIds(initialRackSettings.label, listFilter);
+          finalIds = await fetchAllSelectableMinerIds(eligibility, listFilter);
         } catch {
-          setErrorMsg("Failed to load all miners. Please try again.");
-          return;
+          return "Failed to load all miners. Please try again.";
         } finally {
           setIsLoading(false);
         }
+        reassignedCount = 0;
       }
 
       if (finalIds.length > totalSlots) {
-        setErrorMsg(
-          `Cannot add ${finalIds.length} miners with only ${totalSlots} available slots. Deselect some miners or update your rack settings.`,
-        );
-        return;
+        return `Cannot add ${finalIds.length} miners with only ${totalSlots} available slots. Deselect some miners or update your rack settings.`;
       }
 
-      setRackMiners(finalIds);
-      setShowManageMiners(false);
+      promptReparent(reassignedCount, () => {
+        setRackMiners(finalIds);
+        setShowManageMiners(false);
 
-      // Remove assignments for miners no longer in rack
-      const keepSet = new Set(finalIds);
-      setSlotAssignments((prev) => filterAssignmentsByValues(prev, keepSet));
-      setManualAssignmentCache((prev) => filterAssignmentsByValues(prev, keepSet));
+        // Remove assignments for miners no longer in rack
+        const keepSet = new Set(finalIds);
+        setSlotAssignments((prev) => filterAssignmentsByValues(prev, keepSet));
+        setManualAssignmentCache((prev) => filterAssignmentsByValues(prev, keepSet));
+      });
+      return undefined;
     },
-    [initialRackSettings.label, totalSlots],
+    [eligibility, totalSlots, promptReparent],
   );
 
   // RackSettingsModal edit handler
@@ -599,7 +653,8 @@ export default function ManageRackModal({
         <ManageMinersModal
           show={showManageMiners}
           currentRackMiners={rackMiners}
-          currentRackLabel={initialRackSettings.label}
+          eligibility={eligibility}
+          targetRackLabel={rackSettings.label}
           maxSlots={totalSlots}
           onDismiss={() => setShowManageMiners(false)}
           onConfirm={handleManageMinersConfirm}
@@ -609,7 +664,8 @@ export default function ManageRackModal({
       {showSearchMiners ? (
         <SearchMinersModal
           show={showSearchMiners}
-          currentRackLabel={initialRackSettings.label}
+          eligibility={eligibility}
+          targetRackLabel={rackSettings.label}
           onDismiss={() => {
             setShowSearchMiners(false);
             setSelectedSlot(null);
@@ -622,11 +678,25 @@ export default function ManageRackModal({
         <ScanMinerQrModal
           show={showScanQr}
           currentRackLabel={initialRackSettings.label}
+          eligibility={eligibility}
           onDismiss={() => {
             setShowScanQr(false);
             setSelectedSlot(null);
           }}
           onConfirm={handleScanMinerConfirm}
+        />
+      ) : null}
+
+      {reparentConfirm ? (
+        <ReparentWarningDialog
+          count={reparentConfirm.count}
+          rackLabel={rackSettings.label}
+          onCancel={() => setReparentConfirm(null)}
+          onConfirm={() => {
+            const proceed = reparentConfirm.onConfirm;
+            setReparentConfirm(null);
+            proceed();
+          }}
         />
       ) : null}
 

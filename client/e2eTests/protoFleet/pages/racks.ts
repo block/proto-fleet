@@ -90,11 +90,28 @@ export class RacksPage extends BasePage {
   }
 
   async filterModalType(type: string) {
-    await this.page.getByTestId("modal").getByTestId("filter-dropdown-Model").click();
-    const popover = this.page.getByTestId("dropdown-filter-popover");
+    // The modal's filters live in a nested "Add filter" popover (matching the
+    // fleet miner list). Scope the trigger to the modal so we don't hit the
+    // rack-overview page's own filter behind it; the popover/submenu are
+    // portaled to the body, so query them page-level.
+    const trigger = this.page.getByTestId("modal").getByTestId("filter-nested-filters-meta");
+    await trigger.click();
+    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
     await expect(popover).toBeVisible();
-    await this.clickDropdownFilterOption(popover, type);
-    await popover.getByRole("button", { name: "Apply" }).click();
+
+    await popover.getByTestId("nested-dropdown-filter-row-model").click();
+    // Desktop portals a side submenu; phone/tablet collapses the options into the
+    // popover with a "back" header.
+    const desktopSubmenu = this.page.getByTestId("nested-dropdown-filter-submenu-model");
+    const mobileBack = popover.getByTestId("nested-dropdown-filter-back");
+    await expect(desktopSubmenu.or(mobileBack)).toBeVisible();
+    const submenu = (await desktopSubmenu.isVisible().catch(() => false)) ? desktopSubmenu : popover;
+
+    await this.clickDropdownFilterOption(submenu, type);
+
+    // Checkbox selection applies immediately; toggle the trigger to close the
+    // popover so it doesn't overlay the list.
+    await trigger.click();
     await expect(popover).toBeHidden();
   }
 

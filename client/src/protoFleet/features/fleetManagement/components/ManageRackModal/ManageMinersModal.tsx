@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 
 import { type MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import MinerSelectionList, {
-  type DeviceListItem,
+  type MinerEligibility,
   type MinerSelectionListHandle,
 } from "@/protoFleet/components/MinerSelectionList";
 
@@ -13,16 +13,32 @@ import Modal from "@/shared/components/Modal";
 interface ManageMinersModalProps {
   show: boolean;
   currentRackMiners: string[];
-  currentRackLabel: string;
+  /** Target rack placement. Drives the "Show assignable only" toggle and the
+   *  id-based eligibility filter. */
+  eligibility: MinerEligibility;
+  /** Target rack label, shown in the assignment-conflict dialog. */
+  targetRackLabel: string;
   maxSlots: number;
   onDismiss: () => void;
-  onConfirm: (selectedIds: string[], allSelected: boolean, filter?: MinerListFilter) => void;
+  /** `reassignedItems` is the subset of the explicit selection that is currently
+   *  assigned elsewhere, so the caller can confirm the reparent (empty when
+   *  `allSelected`, since that path is pre-filtered to assignable miners).
+   *  Resolves to an error string to surface inside this (still-open) modal —
+   *  e.g. select-all overflow, which the parent only knows after resolving the
+   *  full id set — or undefined on success. */
+  onConfirm: (
+    selectedIds: string[],
+    allSelected: boolean,
+    filter: MinerListFilter | undefined,
+    reassignedItems: string[],
+  ) => Promise<string | undefined>;
 }
 
 export default function ManageMinersModal({
   show,
   currentRackMiners,
-  currentRackLabel,
+  eligibility,
+  targetRackLabel,
   maxSlots,
   onDismiss,
   onConfirm,
@@ -30,20 +46,25 @@ export default function ManageMinersModal({
   const selectionRef = useRef<MinerSelectionListHandle>(null);
   const [overflowError, setOverflowError] = useState("");
 
-  const isRowDisabled = useCallback(
-    (item: DeviceListItem) => !!(item.rackLabel && item.rackLabel !== currentRackLabel),
-    [currentRackLabel],
-  );
-
-  const handleContinue = useCallback(() => {
+  const handleContinue = useCallback(async () => {
     const selection = selectionRef.current?.getSelection();
     if (!selection) return;
 
-    const { selectedItems, allSelected, filter } = selection;
+    const { selectedItems, allSelected, filter, reassignedItems, blockedByFilter } = selection;
+    setOverflowError("");
+
+    // A conflicting placement facet shows "no results"; committing here would
+    // save a selection the operator can't see (or wipe membership). Prompt them
+    // to clear the filter first instead.
+    if (blockedByFilter) {
+      setOverflowError("Clear the Site, Building, or Rack filter to continue — it doesn't match this rack.");
+      return;
+    }
 
     // Only validate overflow for explicit selections. When allSelected is true,
-    // the parent resolves the full selectable list via server pagination and
-    // validates overflow after resolution.
+    // the parent resolves the full selectable list via server pagination, so it
+    // returns the overflow (or load) error for us to surface here — this modal
+    // is still mounted above the parent's callout.
     if (!allSelected && selectedItems.length > maxSlots) {
       setOverflowError(
         `Cannot add ${selectedItems.length} miners with only ${maxSlots} available slots. Deselect some miners or update your rack settings.`,
@@ -51,7 +72,8 @@ export default function ManageMinersModal({
       return;
     }
 
-    onConfirm(selectedItems, allSelected, allSelected ? filter : undefined);
+    const error = await onConfirm(selectedItems, allSelected, allSelected ? filter : undefined, reassignedItems);
+    if (error) setOverflowError(error);
   }, [maxSlots, onConfirm]);
 
   if (!show) return null;
@@ -81,9 +103,17 @@ export default function ManageMinersModal({
 
         <MinerSelectionList
           ref={selectionRef}
-          filterConfig={{ showTypeFilter: true, showRackFilter: false, showGroupFilter: false }}
+          filterConfig={{
+            showTypeFilter: true,
+            showSubnetFilter: true,
+            showSiteFilter: true,
+            showBuildingFilter: true,
+            showRackFilter: true,
+            showGroupFilter: true,
+          }}
           initialSelectedItems={currentRackMiners}
-          isRowDisabled={isRowDisabled}
+          eligibility={eligibility}
+          targetRackLabel={targetRackLabel}
         />
       </div>
     </Modal>

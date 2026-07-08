@@ -60,7 +60,9 @@ export default function ScanMinerQrModalView({
 }: ScanMinerQrModalViewProps) {
   if (!show) return null;
 
-  // A miner already assigned to a *different* rack cannot be moved here via scan.
+  // A miner already in a *different* rack can still be assigned here — it's a
+  // reparent, confirmed via the warning in ManageRackModal — so this only drives
+  // an informational note, not a block.
   const foundInOtherRack =
     phase.kind === "found" &&
     !!getMinerRackLabel(phase.snapshot) &&
@@ -93,7 +95,7 @@ export default function ScanMinerQrModalView({
               {
                 text: "Assign to slot",
                 variant: variants.primary,
-                disabled: foundInOtherRack || notPairedForAssignment,
+                disabled: notPairedForAssignment,
                 onClick: onConfirm,
                 dismissModalOnClick: false,
               },
@@ -265,8 +267,8 @@ function FoundMiner({
         <Callout
           intent="warning"
           prefixIcon={<Alert />}
-          title={`Already assigned to rack "${otherRackLabel}"`}
-          subtitle="Remove it from that rack before assigning it here."
+          title={`Currently assigned to rack "${otherRackLabel}"`}
+          subtitle="Assigning it here will move it from that rack."
         />
       ) : notPaired ? (
         <Callout

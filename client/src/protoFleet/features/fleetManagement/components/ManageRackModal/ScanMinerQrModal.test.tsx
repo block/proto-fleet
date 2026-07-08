@@ -70,7 +70,9 @@ describe("ScanMinerQrModal", () => {
     mockLookup.mockResolvedValueOnce({ status: "found", snapshot: snapshot() });
     const onConfirm = vi.fn();
 
-    render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={onConfirm} />);
+    render(
+      <ScanMinerQrModal show currentRackLabel="Rack A" eligibility={{}} onDismiss={vi.fn()} onConfirm={onConfirm} />,
+    );
 
     // Simulate the camera hook detecting a prefixed QR payload.
     await act(async () => {
@@ -82,7 +84,8 @@ describe("ScanMinerQrModal", () => {
     expect(mockLookup).toHaveBeenCalledWith("SN123", MinerIdentifierType.SERIAL_NUMBER, expect.any(AbortSignal));
 
     fireEvent.click(screen.getByText("Assign to slot"));
-    expect(onConfirm).toHaveBeenCalledWith("dev-1");
+    // Empty eligibility + placement-less snapshot → not a reassignment.
+    expect(onConfirm).toHaveBeenCalledWith("dev-1", false);
   });
 
   it("tries every decoded barcode until one resolves", async () => {
@@ -93,7 +96,9 @@ describe("ScanMinerQrModal", () => {
       .mockResolvedValueOnce({ status: "notFound" })
       .mockResolvedValueOnce({ status: "found", snapshot: snapshot() });
 
-    render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={vi.fn()} />);
+    render(
+      <ScanMinerQrModal show currentRackLabel="Rack A" eligibility={{}} onDismiss={vi.fn()} onConfirm={vi.fn()} />,
+    );
 
     await act(async () => {
       capturedOnDetected?.(["FIRSTMISS111", "SECONDHIT222"]);
@@ -107,7 +112,9 @@ describe("ScanMinerQrModal", () => {
     mockCanUseLiveCamera.mockReturnValue(true);
     mockLookup.mockResolvedValue({ status: "found", snapshot: snapshot() });
 
-    render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={vi.fn()} />);
+    render(
+      <ScanMinerQrModal show currentRackLabel="Rack A" eligibility={{}} onDismiss={vi.fn()} onConfirm={vi.fn()} />,
+    );
 
     // Model/asset code listed first, SN:-prefixed serial second — the serial
     // must be looked up first so a stray code can't out-race it.
@@ -123,7 +130,9 @@ describe("ScanMinerQrModal", () => {
     mockCanUseLiveCamera.mockReturnValue(true);
     mockLookup.mockResolvedValue({ status: "found", snapshot: snapshot() });
 
-    render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={vi.fn()} />);
+    render(
+      <ScanMinerQrModal show currentRackLabel="Rack A" eligibility={{}} onDismiss={vi.fn()} onConfirm={vi.fn()} />,
+    );
 
     await act(async () => {
       capturedOnDetected?.(["SN:DUP", "SN:DUP"]);
@@ -137,7 +146,9 @@ describe("ScanMinerQrModal", () => {
     mockCanUseLiveCamera.mockReturnValue(true);
     mockLookup.mockResolvedValueOnce({ status: "notFound" });
 
-    render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={vi.fn()} />);
+    render(
+      <ScanMinerQrModal show currentRackLabel="Rack A" eligibility={{}} onDismiss={vi.fn()} onConfirm={vi.fn()} />,
+    );
 
     await act(async () => {
       capturedOnDetected?.(["SN:NOPE"]);
@@ -146,7 +157,7 @@ describe("ScanMinerQrModal", () => {
     await waitFor(() => expect(screen.getByText(/No paired miner found/i)).toBeInTheDocument());
   });
 
-  it("blocks assigning a miner already in a different rack", async () => {
+  it("allows reassigning a miner already in a different rack and reports it as a reassignment", async () => {
     mockCanUseLiveCamera.mockReturnValue(true);
     mockLookup.mockResolvedValueOnce({
       status: "found",
@@ -154,15 +165,21 @@ describe("ScanMinerQrModal", () => {
     });
     const onConfirm = vi.fn();
 
-    render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={onConfirm} />);
+    render(
+      <ScanMinerQrModal show currentRackLabel="Rack A" eligibility={{}} onDismiss={vi.fn()} onConfirm={onConfirm} />,
+    );
 
     await act(async () => {
       capturedOnDetected?.(["SN123"]);
     });
 
-    await waitFor(() => expect(screen.getByText(/Already assigned to rack "Rack B"/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Currently assigned to rack "Rack B"/i)).toBeInTheDocument());
     const assignBtn = screen.getByText("Assign to slot") as HTMLButtonElement;
-    expect(assignBtn.disabled).toBe(true);
+    // Not blocked — the reparent is confirmed in ManageRackModal.
+    expect(assignBtn.disabled).toBe(false);
+
+    fireEvent.click(assignBtn);
+    expect(onConfirm).toHaveBeenCalledWith("dev-1", true);
   });
 
   it("blocks assigning a miner that isn't fully paired", async () => {
@@ -173,7 +190,9 @@ describe("ScanMinerQrModal", () => {
     });
     const onConfirm = vi.fn();
 
-    render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={onConfirm} />);
+    render(
+      <ScanMinerQrModal show currentRackLabel="Rack A" eligibility={{}} onDismiss={vi.fn()} onConfirm={onConfirm} />,
+    );
 
     await act(async () => {
       capturedOnDetected?.(["SN123"]);
@@ -187,7 +206,9 @@ describe("ScanMinerQrModal", () => {
   it("renders the photo-capture fallback when the live camera is unavailable (HTTP)", () => {
     mockCanUseLiveCamera.mockReturnValue(false);
 
-    render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={vi.fn()} />);
+    render(
+      <ScanMinerQrModal show currentRackLabel="Rack A" eligibility={{}} onDismiss={vi.fn()} onConfirm={vi.fn()} />,
+    );
 
     expect(screen.getByText(/Take a photo of the code/i)).toBeInTheDocument();
     expect(screen.getByText("Open camera")).toBeInTheDocument();
@@ -197,7 +218,9 @@ describe("ScanMinerQrModal", () => {
     mockCanUseLiveCamera.mockReturnValue(true);
     mockLookup.mockResolvedValueOnce({ status: "error", message: "server exploded" });
 
-    render(<ScanMinerQrModal show currentRackLabel="Rack A" onDismiss={vi.fn()} onConfirm={vi.fn()} />);
+    render(
+      <ScanMinerQrModal show currentRackLabel="Rack A" eligibility={{}} onDismiss={vi.fn()} onConfirm={vi.fn()} />,
+    );
 
     await act(async () => {
       capturedOnDetected?.(["SN123"]);
