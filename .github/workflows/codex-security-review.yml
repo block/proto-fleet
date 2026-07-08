@@ -15,7 +15,7 @@ jobs:
     permissions:
       contents: read
     env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
       CODEX_MODEL: gpt-5.5
       CODEX_REASONING_EFFORT: xhigh
       REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -53,10 +53,10 @@ jobs:
 
       - name: Run Codex Security Review
         id: run_codex
-        if: ${{ env.OPENAI_API_KEY != '' }}
+        if: ${{ env.OPENAI_API_KEY_PRESENT == 'true' }}
         uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
         with:
-          openai-api-key: ${{ env.OPENAI_API_KEY }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           model: ${{ env.CODEX_MODEL }}
           codex-args: '["-c","model_reasoning_effort=${{ env.CODEX_REASONING_EFFORT }}","-c","service_tier=fast"]'
 
@@ -167,9 +167,10 @@ jobs:
       - name: Require security review output
         if: always()
         env:
+          OPENAI_API_KEY_PRESENT: ${{ env.OPENAI_API_KEY_PRESENT }}
           REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
         run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
+          if [ "$OPENAI_API_KEY_PRESENT" != "true" ]; then
             echo "OPENAI_API_KEY is required for Codex Security Review." >&2
             exit 1
           fi
