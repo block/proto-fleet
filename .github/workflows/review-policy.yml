@@ -13,12 +13,6 @@ on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflo
   pull_request_review:
     types: [submitted, dismissed]
   status:
-  workflow_dispatch:
-    inputs:
-      pr:
-        description: Pull request number to evaluate
-        required: true
-        type: number
 
 concurrency:
   group: review-policy-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.check_run.head_sha || github.event.check_suite.head_sha || github.event.sha || github.sha || github.run_id }}
@@ -39,7 +33,7 @@ jobs:
       !(github.event_name == 'check_run' && github.event.action == 'rerequested') &&
       !(github.event_name == 'check_suite' && github.event.check_suite.app.slug == 'github-actions') &&
       !(github.event_name == 'check_suite' && github.event.action == 'rerequested') &&
-      !(github.event_name == 'status' && github.event.context == 'Review Policy') &&
+      !(github.event_name == 'status' && contains(fromJSON('["Review Policy","Review Policy Advisory"]'), github.event.context)) &&
       !(github.event_name == 'pull_request_review' && github.event.action == 'submitted' && github.event.review.state == 'commented')
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -107,14 +101,14 @@ jobs:
               return data;
             }
 
+            const managedStatusContexts = new Set(['Review Policy', 'Review Policy Advisory']);
+
             let pr;
-            if (context.eventName === 'workflow_dispatch') {
-              pr = await getOpenPrByNumber(Number(context.payload.inputs.pr));
-            } else if (context.payload.pull_request) {
+            if (context.payload.pull_request) {
               pr = context.payload.pull_request;
             } else if (context.eventName === 'status') {
-              if (context.payload.context === 'Review Policy') {
-                core.notice('Ignoring Review Policy status event to avoid self-triggering.');
+              if (managedStatusContexts.has(context.payload.context)) {
+                core.notice(`Ignoring managed ${context.payload.context} status event to avoid self-triggering.`);
                 core.setOutput('found', 'false');
                 return;
               }
