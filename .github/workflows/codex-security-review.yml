@@ -14,8 +14,6 @@ jobs:
       cancel-in-progress: true
     permissions:
       contents: read
-      issues: write
-      pull-requests: write
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       CODEX_MODEL: gpt-5.5
@@ -166,6 +164,20 @@ jobs:
             - Ground every finding in a concrete changed hunk and a plausible failure or abuse path
             - If the diff is malformed or cannot be reviewed safely, return `overall_risk: "HIGH"` with a concise finding explaining why
 
+      - name: Require security review output
+        if: always()
+        env:
+          REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY is required for Codex Security Review." >&2
+            exit 1
+          fi
+          if [ -z "$REVIEW_OUTPUT" ]; then
+            echo "Codex Security Review did not produce final-message output." >&2
+            exit 1
+          fi
+
       - name: Write security review result
         if: steps.run_codex.outputs.final-message != ''
         env:
@@ -207,8 +219,34 @@ jobs:
           path: codex-security-review-result.json
           if-no-files-found: error
 
-      - name: Post Codex security review
+      - name: Upload security review markdown
         if: steps.run_codex.outputs.final-message != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: codex-security-review-markdown
+          path: codex-security-review.md
+          if-no-files-found: error
+
+  post-review:
+    name: Post Codex Security Review
+    needs: security-review
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      issues: write
+    env:
+      CODEX_MODEL: gpt-5.5
+      REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
+    steps:
+      - name: Download security review markdown
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codex-security-review-markdown
+          path: .
+
+      - name: Post Codex security review
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           REVIEW_MARKDOWN_FILE: codex-security-review.md

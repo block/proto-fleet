@@ -21,7 +21,7 @@ on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflo
         type: number
 
 concurrency:
-  group: review-policy-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || inputs.pr || github.event.sha || github.run_id }}
+  group: review-policy-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || inputs.pr || github.event.check_run.head_sha || github.event.check_suite.head_sha || github.event.sha || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -29,7 +29,7 @@ permissions:
   checks: read
   contents: read
   pull-requests: read
-  statuses: write
+  statuses: read
 
 jobs:
   evaluate:
@@ -364,14 +364,26 @@ jobs:
           echo "enforced=${enforced}" >> "$GITHUB_OUTPUT"
           exit "$status"
 
+      - name: Skip non-PR event
+        if: steps.pr.outputs.found != 'true'
+        run: echo "No pull request to evaluate."
+
+  publish-status:
+    name: Publish Review Policy Status
+    needs: evaluate
+    if: always() && needs.evaluate.outputs.found == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      statuses: write
+    steps:
       - name: Publish review policy status
-        if: always() && steps.pr.outputs.found == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
-          DECISION: ${{ steps.evaluate_policy.outputs.decision || 'needs-human-review' }}
-          PASSED: ${{ steps.evaluate_policy.outputs.passed || 'false' }}
-          ENFORCED: ${{ steps.evaluate_policy.outputs.enforced || 'true' }}
+          HEAD_SHA: ${{ needs.evaluate.outputs.head_sha }}
+          DECISION: ${{ needs.evaluate.outputs.decision || 'needs-human-review' }}
+          PASSED: ${{ needs.evaluate.outputs.passed || 'false' }}
+          ENFORCED: ${{ needs.evaluate.outputs.enforced || 'true' }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           script: |
@@ -392,10 +404,6 @@ jobs:
               description: descriptions[decision] || `Review policy decision: ${decision}`,
               target_url: process.env.TARGET_URL,
             });
-
-      - name: Skip non-PR event
-        if: steps.pr.outputs.found != 'true'
-        run: echo "No pull request to evaluate."
 
   sync-label:
     name: Sync Label
