@@ -1054,20 +1054,26 @@ func TestClassifyCandidates_PoolLessMinerAdmittedWhenTelemetryFresh(t *testing.T
 	// persistence treat it as non-hashing.
 	fresh := miner("needs-pool-fresh", "NEEDS_MINING_POOL", "PAIRED", 2000, 0)
 	stalePositiveHash := miner("needs-pool-stale-hash", "NEEDS_MINING_POOL", "PAIRED", 2000, 100)
+	// Power-only telemetry: a pool-less miner may never have reported a hash
+	// sample at all; the hash-sample freshness requirement must not apply.
+	noHashSample := miner("needs-pool-no-hash-sample", "NEEDS_MINING_POOL", "PAIRED", 2000, 0)
+	noHashSample.LatestHashRateHS = nil
 	zeroPower := miner("needs-pool-zero-power", "NEEDS_MINING_POOL", "PAIRED", 0, 0)
 	stale := staleMiner("needs-pool-stale")
 	stale.DeviceStatus = "NEEDS_MINING_POOL"
 
 	eligible, skipped, _ := classifyCandidates(
-		[]*models.Candidate{fresh, stalePositiveHash, zeroPower, stale},
+		[]*models.Candidate{fresh, stalePositiveHash, noHashSample, zeroPower, stale},
 		classifyOpts{CandidateMinPowerW: 1500},
 	)
 
-	require.Len(t, eligible, 2)
+	require.Len(t, eligible, 3)
 	assert.Equal(t, "needs-pool-fresh", eligible[0].DeviceIdentifier)
 	assert.Equal(t, "needs-pool-stale-hash", eligible[1].DeviceIdentifier)
 	assert.Zero(t, eligible[1].HashRateHS,
 		"device status is authoritative: a pool-less miner cannot be mining, so a stale-positive hash sample must not count as mining load")
+	assert.Equal(t, "needs-pool-no-hash-sample", eligible[2].DeviceIdentifier)
+	assert.Zero(t, eligible[2].HashRateHS)
 
 	reasons := map[string]SkipReason{}
 	for _, s := range skipped {

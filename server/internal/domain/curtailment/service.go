@@ -1614,7 +1614,13 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 		}
 		// Missing, non-finite, or negative power/hash samples cannot prove the
 		// miner is observable after dispatch; treat them as stale telemetry.
-		if !hasNonNegativeFiniteFloat(c.LatestPowerW) || !hasNonNegativeFiniteFloat(c.LatestHashRateHS) {
+		// Pool-less miners are exempt from the hash-sample requirement: their
+		// hash is status-authoritatively 0 (a miner with no pool cannot be
+		// mining, and may never have reported a hash sample), and their
+		// positive-power requirement was already enforced above.
+		requiresHashSample := c.DeviceStatus != deviceStatusNeedsMiningPool
+		if !hasNonNegativeFiniteFloat(c.LatestPowerW) ||
+			(requiresHashSample && !hasNonNegativeFiniteFloat(c.LatestHashRateHS)) {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
 			summary.ExcludedStale++
 			continue
