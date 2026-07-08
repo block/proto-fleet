@@ -43,6 +43,10 @@ export class EnergyPage extends BasePage {
     const modal = this.page.getByTestId("full-screen-two-pane-modal");
 
     await modal.locator("#curtailment-reason").fill(reason);
+    // Full shutdown is the default mode; switch to fixed-kW so the target
+    // input renders.
+    await modal.locator("#curtailment-mode").click();
+    await this.page.getByRole("option", { name: "Fixed kW reduction", exact: true }).click();
     await modal.locator("#curtailment-target-kw").fill(targetKw);
     await modal.locator("#curtailment-restore-batch-interval").fill(restoreBatchIntervalSec);
   }
