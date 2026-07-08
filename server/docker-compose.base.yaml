@@ -8,10 +8,11 @@ services:
       DB_PASSWORD: "fleet"
       DB_SSL_MODE: "disable"
       HTTP_LISTEN_ADDRESS: "0.0.0.0:4000"
-      # Local dev is served over plain HTTP on a LAN IP (e.g. hitting the Vite
-      # dev server from a phone). A Secure cookie is silently dropped by the
-      # browser over http:// on a non-localhost origin, breaking login. HTTP
-      # deployments set this false too; production runs over HTTPS with it true.
+      # Base default for stacks that extend this file and serve over plain HTTP
+      # (local dev, the real-miners runner, etc.): browsers silently drop a
+      # Secure cookie over http:// on a non-localhost origin (e.g. a LAN IP),
+      # which breaks login. The production deployment compose overrides this to
+      # "${SESSION_COOKIE_SECURE:-true}" since it runs over HTTPS.
       SESSION_COOKIE_SECURE: "false"
       LOG_LEVEL: "INFO"
       FLEET_COMMAND_MAX_WORKERS: "500"
