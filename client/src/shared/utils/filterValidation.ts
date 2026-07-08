@@ -1,6 +1,4 @@
 import {
-  ipv4RangeToCidrs,
-  ipv4ToInt,
   isValidCidr,
   isValidHostname,
   isValidIpv4,
@@ -8,13 +6,6 @@ import {
   looksLikeIpRange,
   parseIpRange,
 } from "./networkDiscovery";
-
-// A subnet range expands to a covering CIDR set client-side (the fleet filter
-// has no native range field). Cap a single range's span so one line can't blow
-// past the server's ip_cidrs limit and turn into a failed request with no inline
-// feedback. This is a stopgap bound per line — the complete guard lands when the
-// server accepts ranges natively (#682).
-const MAX_RANGE_ADDRESSES = 1024;
 
 export type NumericRangeValue = {
   min?: number;
@@ -151,12 +142,7 @@ export const validateSubnetLine = (line: string): string | null => {
   const trimmed = line.trim();
   if (trimmed === "") return "Empty value";
   if (looksLikeIpRange(trimmed)) {
-    const range = parseIpRange(trimmed);
-    if (!range) return "Not a valid IP range (e.g. 10.0.0.10-10.0.0.20)";
-    if (ipv4ToInt(range.endIp) - ipv4ToInt(range.startIp) + 1 > MAX_RANGE_ADDRESSES) {
-      return `IP ranges are limited to ${MAX_RANGE_ADDRESSES} addresses`;
-    }
-    return null;
+    return parseIpRange(trimmed) ? null : "Not a valid IP range (e.g. 10.0.0.10-10.0.0.20)";
   }
   if (trimmed.includes("/")) {
     return isValidCidr(trimmed) || isValidIpv6Cidr(trimmed)
@@ -190,18 +176,20 @@ export const normalizeSubnetLine = (line: string): string => {
 };
 
 /**
- * Expands one subnet-filter line into the CIDR entries the server understands.
- * A range decomposes to the minimal covering CIDR set; a CIDR/IP yields itself
- * (normalized). The fleet filter (`ip_cidrs`) has no range field, so this is
- * where ranges become server-expressible.
+ * A normalized subnet-filter line resolves to either a CIDR/IP (canonical
+ * network form, → MinerListFilter.ip_cidrs) or an inclusive IPv4 range
+ * (→ MinerListFilter.ip_ranges). Ranges travel natively (no CIDR
+ * decomposition). Returns null for unrecognized input.
  */
-export const expandSubnetLineToCidrs = (line: string): string[] => {
+export type SubnetLineKind = { kind: "cidr"; cidr: string } | { kind: "range"; startIp: string; endIp: string };
+
+export const classifySubnetLine = (line: string): SubnetLineKind | null => {
   const trimmed = line.trim();
+  if (trimmed === "") return null;
   if (looksLikeIpRange(trimmed)) {
     const range = parseIpRange(trimmed);
-    if (range) return ipv4RangeToCidrs(range.startIp, range.endIp);
-    return [];
+    return range ? { kind: "range", startIp: range.startIp, endIp: range.endIp } : null;
   }
-  const normalized = normalizeCidrLine(trimmed);
-  return normalized ? [normalized] : [];
+  if (validateCidrLine(trimmed) !== null) return null;
+  return { kind: "cidr", cidr: normalizeCidrLine(trimmed) };
 };

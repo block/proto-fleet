@@ -12,13 +12,14 @@ import {
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
   DeviceStatus,
+  IpRangeSchema,
   type MinerListFilter,
   MinerListFilterSchema,
   NumericField,
   NumericRangeFilterSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { ActiveFilters, NumericRangeValue } from "@/shared/components/List/Filters/types";
-import { normalizeCidrLine, validateCidrLine } from "@/shared/utils/filterValidation";
+import { classifySubnetLine, normalizeSubnetLine, validateSubnetLine } from "@/shared/utils/filterValidation";
 
 const URL_PARAMS = {
   STATUS: "status",
@@ -284,8 +285,11 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
     if (range.max !== undefined) params.append(numericMaxParam(key), String(range.max));
   });
 
-  if (filter.ipCidrs.length > 0) {
-    setMulti(params, URL_PARAMS.SUBNET, [...filter.ipCidrs].sort());
+  // Ranges round-trip natively as "start-end" strings alongside CIDRs, so a
+  // shared/bookmarked range reloads as its range chip rather than a CIDR set.
+  const subnetValues = [...filter.ipCidrs, ...filter.ipRanges.map((r) => `${r.startIp}-${r.endIp}`)];
+  if (subnetValues.length > 0) {
+    setMulti(params, URL_PARAMS.SUBNET, subnetValues.sort());
   }
 
   return params;
@@ -376,8 +380,12 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
   });
 
   getMulti(params, URL_PARAMS.SUBNET).forEach((value) => {
-    if (validateCidrLine(value) === null) {
-      filter.ipCidrs.push(normalizeCidrLine(value));
+    const entry = classifySubnetLine(value);
+    if (!entry) return;
+    if (entry.kind === "range") {
+      filter.ipRanges.push(create(IpRangeSchema, { startIp: entry.startIp, endIp: entry.endIp }));
+    } else {
+      filter.ipCidrs.push(entry.cidr);
     }
   });
 
@@ -408,8 +416,8 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
   });
 
   const subnetValues = getMulti(params, URL_PARAMS.SUBNET)
-    .filter((value) => validateCidrLine(value) === null)
-    .map(normalizeCidrLine);
+    .filter((value) => validateSubnetLine(value) === null)
+    .map(normalizeSubnetLine);
   if (subnetValues.length > 0) {
     activeFilters.textareaListFilters.subnet = Array.from(new Set(subnetValues));
   }

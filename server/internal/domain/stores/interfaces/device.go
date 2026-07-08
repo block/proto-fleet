@@ -66,6 +66,7 @@ type MinerFilter struct {
 	FirmwareVersions    []string                          // Filter by firmware version strings (OR logic)
 	NumericRanges       []NumericRange                    // Range predicates on telemetry. Multiple entries AND'd; presence triggers an INNER JOIN to latest_metrics and excludes OFFLINE miners.
 	IPCIDRs             []netip.Prefix                    // CIDR membership filter (OR logic across entries). Already normalized via Prefix.Masked().
+	IPRanges            []IPRange                         // Inclusive IP range membership filter (OR logic across entries, and OR'd with IPCIDRs so all subnet-box lines match as one group).
 	SiteIDs             []int64                           // Filter by site (OR logic). Combined with IncludeUnassigned, OR also includes site_id IS NULL rows.
 	IncludeUnassigned   bool                              // When true, include devices with site_id IS NULL. Independent of SiteIDs; alone selects only the Unassigned bucket.
 	BuildingIDs         []int64                           // Filter by building (OR logic). Matches direct device.building_id and rack → building_id. Combined with IncludeNoBuilding OR also includes rack rows with NULL building_id.
@@ -78,6 +79,14 @@ type MinerFilter struct {
 	// identifier list. 0 (default) means no SQL-level limit; the caller
 	// gets every row matching the filter.
 	Limit int
+}
+
+// IPRange is an inclusive IP address range used by MinerFilter. Start and End
+// are validated to share an address family with End >= Start (see
+// netutil.ParseIPRange).
+type IPRange struct {
+	Start netip.Addr
+	End   netip.Addr
 }
 
 // MinerStateCounts holds fleet health state counts for a collection.

@@ -1262,6 +1262,23 @@ func parseFilter(
 		filter.IPCIDRs = prefixes
 	}
 
+	if len(pbFilter.IpRanges) > 0 {
+		if len(pbFilter.IpRanges) > maxFreeFormFilterValues {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"ip_ranges exceeds maximum of %d values", maxFreeFormFilterValues)
+		}
+		ranges := make([]interfaces.IPRange, 0, len(pbFilter.IpRanges))
+		for i, r := range pbFilter.IpRanges {
+			start, end, err := netutil.ParseIPRange(r.GetStartIp(), r.GetEndIp())
+			if err != nil {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"ip_ranges[%d]: %v", i, err)
+			}
+			ranges = append(ranges, interfaces.IPRange{Start: start, End: end})
+		}
+		filter.IPRanges = ranges
+	}
+
 	if len(pbFilter.SiteIds) > 0 {
 		if len(pbFilter.SiteIds) > maxFreeFormFilterValues {
 			return nil, fleeterror.NewInvalidArgumentErrorf(

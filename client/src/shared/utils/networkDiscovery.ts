@@ -57,41 +57,6 @@ export const ipv4ToInt = (value: string) =>
     .map((part) => Number(part))
     .reduce((acc, part) => ((acc << 8) + part) >>> 0, 0);
 
-// Unpack a 32-bit unsigned integer back to a dotted IPv4 string.
-export const intToIpv4 = (value: number): string =>
-  [(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255].join(".");
-
-const trailingZeroBits = (value: number): number => {
-  let count = 0;
-  let n = value >>> 0;
-  while ((n & 1) === 0 && count < 32) {
-    count++;
-    n >>>= 1;
-  }
-  return count;
-};
-
-// Decompose an inclusive IPv4 range into the minimal set of CIDR blocks that
-// exactly covers it. Lets a range be expressed as `ip_cidrs` filter entries,
-// since the fleet filter matches by CIDR containment and has no range field.
-export const ipv4RangeToCidrs = (startIp: string, endIp: string): string[] => {
-  let start = ipv4ToInt(startIp);
-  const end = ipv4ToInt(endIp);
-  if (end < start) return [];
-
-  const cidrs: string[] = [];
-  while (start <= end) {
-    // Largest aligned block anchored at `start`: bounded by its alignment (the
-    // number of trailing zero bits) and by how many addresses remain.
-    const maxByAlignment = start === 0 ? 32 : Math.min(32, trailingZeroBits(start));
-    const maxByCount = Math.floor(Math.log2(end - start + 1));
-    const hostBits = Math.min(maxByAlignment, maxByCount);
-    cidrs.push(`${intToIpv4(start)}/${32 - hostBits}`);
-    start += 2 ** hostBits;
-  }
-  return cidrs;
-};
-
 const SHORT_RANGE_REGEX = /^(\d{1,3}(?:\.\d{1,3}){3})\s*-\s*(\d{1,3})$/;
 const FULL_RANGE_REGEX = /^(\d{1,3}(?:\.\d{1,3}){3})\s*-\s*(\d{1,3}(?:\.\d{1,3}){3})$/;
 const CIDR_REGEX = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/;

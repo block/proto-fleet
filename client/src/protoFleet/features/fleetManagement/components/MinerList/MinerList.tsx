@@ -22,6 +22,7 @@ import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
+  IpRangeSchema,
   type MinerListFilter,
   MinerListFilterSchema,
   type MinerStateSnapshot,
@@ -72,7 +73,7 @@ import {
 import { type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Breakpoint } from "@/shared/constants/breakpoints";
-import { normalizeCidrLine, validateCidrLine } from "@/shared/utils/filterValidation";
+import { classifySubnetLine, normalizeSubnetLine, validateSubnetLine } from "@/shared/utils/filterValidation";
 
 type FleetCredentials = { username: string; password: string };
 
@@ -890,9 +891,9 @@ const MinerList = ({
       type: "textareaList",
       title: "Subnet",
       value: "subnet",
-      validate: validateCidrLine,
-      normalize: normalizeCidrLine,
-      placeholder: "255.255.255.0/24\n255.255.0.0/16",
+      validate: validateSubnetLine,
+      normalize: normalizeSubnetLine,
+      placeholder: "255.255.255.0/24\n10.0.0.10-10.0.0.20\n10.0.0.42",
       noun: "subnet",
     }),
     [],
@@ -1067,9 +1068,19 @@ const MinerList = ({
         minerFilter.numericRanges.push(range);
       });
 
-      const subnetCidrs = filters.textareaListFilters.subnet;
-      if (subnetCidrs && subnetCidrs.length > 0) {
-        minerFilter.ipCidrs.push(...subnetCidrs);
+      const subnetLines = filters.textareaListFilters.subnet;
+      if (subnetLines && subnetLines.length > 0) {
+        // Ranges travel natively on ip_ranges; CIDRs/IPs on ip_cidrs. The
+        // server OR's the two together, so all subnet lines match as one set.
+        subnetLines.forEach((line) => {
+          const entry = classifySubnetLine(line);
+          if (!entry) return;
+          if (entry.kind === "range") {
+            minerFilter.ipRanges.push(create(IpRangeSchema, { startIp: entry.startIp, endIp: entry.endIp }));
+          } else {
+            minerFilter.ipCidrs.push(entry.cidr);
+          }
+        });
       }
 
       // Navigate with URL params instead of calling parent callback.

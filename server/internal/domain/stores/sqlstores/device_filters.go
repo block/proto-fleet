@@ -62,6 +62,11 @@ type minerFilterParams struct {
 	// ipCIDRValues are pre-stringified prefixes (already normalized by
 	// parseFilter) suitable for pq.Array on a $N::cidr[] parameter.
 	ipCIDRValues []string
+	// ipRangeStarts/ipRangeEnds are pre-stringified inclusive range bounds
+	// (index-aligned), each pair emitting an `ip BETWEEN start AND end`
+	// branch OR'd into the same subnet group as ipCIDRValues.
+	ipRangeStarts []string
+	ipRangeEnds   []string
 	// limit, when > 0, becomes a SQL-level `LIMIT N` on the device-id
 	// query. Threaded through from MinerFilter.Limit so the stats RPCs
 	// can fail-fast on oversize fleets without first materializing every
@@ -189,6 +194,17 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 		fp.ipCIDRValues = make([]string, len(filter.IPCIDRs))
 		for i, p := range filter.IPCIDRs {
 			fp.ipCIDRValues[i] = p.String()
+		}
+	}
+
+	// IP range filter — pre-stringify bounds so each range emits a
+	// `ip BETWEEN $start::inet AND $end::inet` branch.
+	if len(filter.IPRanges) > 0 {
+		fp.ipRangeStarts = make([]string, len(filter.IPRanges))
+		fp.ipRangeEnds = make([]string, len(filter.IPRanges))
+		for i, r := range filter.IPRanges {
+			fp.ipRangeStarts[i] = r.Start.String()
+			fp.ipRangeEnds[i] = r.End.String()
 		}
 	}
 
@@ -380,12 +396,32 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		sb.WriteString(" AND (device_status.status IS NULL OR device_status.status != 'OFFLINE')")
 	}
 
-	if fp.ipCIDRsFilter.Valid {
-		fmt.Fprintf(sb,
-			" AND discovered_device.ip_address_inet <<= ANY($%d::cidr[])",
-			argNum)
-		args = append(args, pq.Array(fp.ipCIDRValues))
-		argNum++
+	// Subnet facet: CIDR containment and inclusive ranges are OR'd together
+	// into a single group (all subnet-box lines match as one OR set) which is
+	// then AND'd with the other facets.
+	if fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 {
+		sb.WriteString(" AND (")
+		first := true
+		if fp.ipCIDRsFilter.Valid {
+			fmt.Fprintf(sb,
+				"discovered_device.ip_address_inet <<= ANY($%d::cidr[])",
+				argNum)
+			args = append(args, pq.Array(fp.ipCIDRValues))
+			argNum++
+			first = false
+		}
+		for i := range fp.ipRangeStarts {
+			if !first {
+				sb.WriteString(" OR ")
+			}
+			fmt.Fprintf(sb,
+				"discovered_device.ip_address_inet BETWEEN $%d::inet AND $%d::inet",
+				argNum, argNum+1)
+			args = append(args, fp.ipRangeStarts[i], fp.ipRangeEnds[i])
+			argNum += 2
+			first = false
+		}
+		sb.WriteString(")")
 	}
 
 	if fp.siteIDsFilter.Valid || fp.includeUnassigned {

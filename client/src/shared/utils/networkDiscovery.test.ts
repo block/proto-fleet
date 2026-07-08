@@ -1,12 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  intToIpv4,
-  ipv4RangeToCidrs,
-  isValidCidr,
-  isValidIpv6,
-  looksLikeIpRange,
-  parseManualTargets,
-} from "@/shared/utils/networkDiscovery";
+import { isValidCidr, isValidIpv6, looksLikeIpRange, parseManualTargets } from "@/shared/utils/networkDiscovery";
 
 describe("parseManualTargets", () => {
   test("parses IPs, hostnames, CIDR subnets, and ranges", () => {
@@ -140,57 +133,6 @@ describe("looksLikeIpRange", () => {
   test("does not match CIDRs or bare IPs", () => {
     expect(looksLikeIpRange("10.0.0.0/24")).toBe(false);
     expect(looksLikeIpRange("10.0.0.10")).toBe(false);
-  });
-});
-
-describe("ipv4RangeToCidrs", () => {
-  test("aligned power-of-two range collapses to a single CIDR", () => {
-    expect(ipv4RangeToCidrs("192.168.1.0", "192.168.1.255")).toEqual(["192.168.1.0/24"]);
-    expect(ipv4RangeToCidrs("10.0.0.8", "10.0.0.15")).toEqual(["10.0.0.8/29"]);
-  });
-
-  test("arbitrary range decomposes into the minimal covering set", () => {
-    // The 8–12 miners case: 10.0.0.10 through 10.0.0.21 inclusive.
-    expect(ipv4RangeToCidrs("10.0.0.10", "10.0.0.21")).toEqual([
-      "10.0.0.10/31",
-      "10.0.0.12/30",
-      "10.0.0.16/30",
-      "10.0.0.20/31",
-    ]);
-  });
-
-  test("single address yields a /32", () => {
-    expect(ipv4RangeToCidrs("10.0.0.5", "10.0.0.5")).toEqual(["10.0.0.5/32"]);
-  });
-
-  test("covers the full IPv4 space without overflowing", () => {
-    expect(ipv4RangeToCidrs("0.0.0.0", "255.255.255.255")).toEqual(["0.0.0.0/0"]);
-  });
-
-  test("inverted range yields nothing", () => {
-    expect(ipv4RangeToCidrs("10.0.0.20", "10.0.0.10")).toEqual([]);
-  });
-
-  test("every address in the range is covered by exactly one emitted CIDR", () => {
-    const cidrs = ipv4RangeToCidrs("10.0.0.10", "10.0.0.21");
-    const contains = (cidr: string, ip: number) => {
-      const [net, bits] = cidr.split("/");
-      const netInt = net.split(".").reduce((a, p) => ((a << 8) + Number(p)) >>> 0, 0);
-      const mask = Number(bits) === 0 ? 0 : (0xffffffff << (32 - Number(bits))) >>> 0;
-      return (ip & mask) >>> 0 === netInt;
-    };
-    for (let octet = 10; octet <= 21; octet++) {
-      const ip = (10 << 24) + octet;
-      expect(cidrs.filter((c) => contains(c, ip >>> 0)).length).toBe(1);
-    }
-  });
-});
-
-describe("intToIpv4", () => {
-  test("round-trips with the documented octet packing", () => {
-    expect(intToIpv4(0)).toBe("0.0.0.0");
-    expect(intToIpv4(0xffffffff)).toBe("255.255.255.255");
-    expect(intToIpv4((192 << 24) | (168 << 16) | (1 << 8) | 42)).toBe("192.168.1.42");
   });
 });
 
