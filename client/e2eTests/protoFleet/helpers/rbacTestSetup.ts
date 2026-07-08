@@ -37,14 +37,18 @@ export const RBAC_CURTAILMENT_SOURCE_PREFIX = "rbac_curtailment_source";
 export const RBAC_CURTAILMENT_REASON_PREFIX = "rbac_curtailment_reason";
 export const RBAC_RACK_ZONE = "RbacZone";
 
+type PersistedAdminStorageState = Exclude<
+  NonNullable<Parameters<Browser["newContext"]>[0]>["storageState"],
+  string | undefined
+>;
+
+type AdminStorageState = {
+  cookies: PersistedAdminStorageState["cookies"];
+  origins: PersistedAdminStorageState["origins"];
+};
+
 const helpersDir = path.dirname(fileURLToPath(import.meta.url));
 const adminStorageStatePath = path.join(helpersDir, "..", "playwright", ".auth", "admin.json");
-type AdminStorageState = {
-  cookies?: Array<unknown>;
-  origins?: Array<{
-    localStorage?: Array<{ name: string; value: string }>;
-  }>;
-};
 
 function loadAdminStorageState(): {
   localStorageEntries: Array<{ name: string; value: string }>;
@@ -58,8 +62,10 @@ function loadAdminStorageState(): {
     };
   } catch (error) {
     if ((error as { code?: string }).code === "ENOENT") {
-      throw new Error(
-        `Missing admin auth state at ${adminStorageStatePath}. Run 02-saveAuthState.spec.ts or the auth setup dependency before RBAC tests that need stored admin context.`,
+      throw Object.assign(
+        new Error(
+          `Missing admin auth state at ${adminStorageStatePath}. Run 02-saveAuthState.spec.ts or the auth setup dependency before RBAC tests that need stored admin context.`,
+        ),
         { cause: error },
       );
     }
