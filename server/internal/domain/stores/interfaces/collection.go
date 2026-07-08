@@ -14,6 +14,7 @@ type DeviceRackDetails struct {
 	Position      string
 	BuildingID    *int64
 	BuildingLabel string
+	Zone          string
 }
 
 type DeviceGroupRef struct {

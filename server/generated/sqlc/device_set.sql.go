@@ -913,6 +913,7 @@ SELECT
   ds.label,
   b.id AS building_id,
   COALESCE(b.name, '') AS building_label,
+  COALESCE(dsr.zone, '') AS zone,
   CASE
     WHEN rs.row IS NULL OR rs.col IS NULL OR dsr.order_index NOT IN (1, 2, 3, 4) THEN ''
     ELSE (
@@ -968,6 +969,7 @@ type GetRackDetailsForDevicesRow struct {
 	Label            string
 	BuildingID       sql.NullInt64
 	BuildingLabel    string
+	Zone             string
 	Position         string
 }
 
@@ -988,6 +990,7 @@ func (q *Queries) GetRackDetailsForDevices(ctx context.Context, arg GetRackDetai
 			&i.Label,
 			&i.BuildingID,
 			&i.BuildingLabel,
+			&i.Zone,
 			&i.Position,
 		); err != nil {
 			return nil, err
