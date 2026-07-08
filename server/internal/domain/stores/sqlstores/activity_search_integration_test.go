@@ -79,6 +79,15 @@ func TestActivityLogs_SearchMatchesDisplayedLabels(t *testing.T) {
 			Metadata:       map[string]any{"target_username": "label-search-bob", "role_name": "Operator"},
 			OrganizationID: &orgID,
 		},
+		{
+			Category:       models.CategoryDeviceCommand,
+			Type:           "reboot.completed",
+			Description:    "Reboot completed: 2 succeeded, 1 failed",
+			Result:         models.ResultFailure,
+			ActorType:      models.ActorUser,
+			Metadata:       map[string]any{"success_count": 2, "failure_count": 1},
+			OrganizationID: &orgID,
+		},
 	}
 
 	for _, event := range events {
@@ -119,6 +128,11 @@ func TestActivityLogs_SearchMatchesDisplayedLabels(t *testing.T) {
 			name:   "metadata-backed role change label with target",
 			search: "Updated role for label-search-bob",
 			want:   []string{"Update user role"},
+		},
+		{
+			name:   "completed command label with count ratio",
+			search: "Rebooted miners: 2/3 miners completed",
+			want:   []string{"Reboot completed: 2 succeeded, 1 failed"},
 		},
 	}
 

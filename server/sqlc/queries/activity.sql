@@ -66,7 +66,7 @@ WHERE a.organization_id = sqlc.arg('org_id')
     AND (sqlc.narg('scope_types')::text[] IS NULL OR a.scope_type = ANY(sqlc.narg('scope_types')::text[]))
     AND (
         sqlc.narg('search_pattern')::text IS NULL
-        -- activity_display_label (migration 000113) is the single source of
+        -- activity_display_label (migration 000114) is the single source of
         -- truth for the searchable display label; keep it in sync with the
         -- client label maps in client/src/protoFleet/features/activity/utils/.
         OR CONCAT_WS(' ', a.description,
@@ -137,7 +137,7 @@ WHERE a.organization_id = sqlc.arg('org_id')
     AND (sqlc.narg('scope_types')::text[] IS NULL OR a.scope_type = ANY(sqlc.narg('scope_types')::text[]))
     AND (
         sqlc.narg('search_pattern')::text IS NULL
-        -- activity_display_label (migration 000113) is the single source of
+        -- activity_display_label (migration 000114) is the single source of
         -- truth for the searchable display label; keep it in sync with the
         -- client label maps in client/src/protoFleet/features/activity/utils/.
         OR CONCAT_WS(' ', a.description,
