@@ -1323,9 +1323,14 @@ describe("useMinerActions", () => {
       );
     });
 
-    it("should fall back to a client batch identifier when crypto.randomUUID is unavailable", async () => {
+    it("should use a local client batch identifier instead of crypto.randomUUID", async () => {
       const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
-      Object.defineProperty(globalThis, "crypto", { value: {}, writable: true, configurable: true });
+      const randomUUID = vi.fn(() => "crypto-generated-id");
+      Object.defineProperty(globalThis, "crypto", {
+        value: { randomUUID },
+        writable: true,
+        configurable: true,
+      });
       mockDeleteMiners.mockImplementation(({ onSuccess }: any) => {
         onSuccess({ deletedCount: 1 });
       });
@@ -1357,6 +1362,7 @@ describe("useMinerActions", () => {
             deviceIdentifiers: ["device-1"],
           }),
         );
+        expect(randomUUID).not.toHaveBeenCalled();
         expect(mockDeleteMiners).toHaveBeenCalled();
         expect(mockCompleteBatchOperation).toHaveBeenCalledWith(batch.batchIdentifier);
       } finally {

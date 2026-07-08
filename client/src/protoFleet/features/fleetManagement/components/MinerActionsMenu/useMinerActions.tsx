@@ -136,9 +136,6 @@ const actionCapabilityMetadata: Partial<Record<SupportedAction, { description: s
 };
 
 const generateUnpairBatchIdentifier = (): string => {
-  if (typeof globalThis.crypto?.randomUUID === "function") {
-    return globalThis.crypto.randomUUID();
-  }
   return `unpair-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 };
 
