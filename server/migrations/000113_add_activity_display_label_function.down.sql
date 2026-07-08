@@ -1,0 +1,1 @@
+DROP FUNCTION IF EXISTS activity_display_label(TEXT, TEXT, TEXT, JSONB);
