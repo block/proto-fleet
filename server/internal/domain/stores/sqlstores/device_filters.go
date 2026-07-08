@@ -495,6 +495,24 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			if !first {
 				sb.WriteString(" OR ")
 			}
+			// The no-rack branch keeps genuinely-unplaced miners in the
+			// building group (they own no device_set_rack row, so the
+			// building_ids / include_no_building branches above can never
+			// match them). When the caller also constrains building
+			// (explicit IDs or include_no_building — e.g. the assignable-only
+			// miner-selection filter), a rackless miner should only pass if
+			// it is ALSO unplaced at the building level: a rackless miner
+			// with a direct device.building_id in another building is
+			// placed elsewhere, not assignable. Without this, that miner
+			// leaks into the default assignable-only list (issue #702).
+			// When no building predicate is present (e.g. the fleet
+			// "Unassigned" rack bucket with no building facet), this branch
+			// is the sole no-rack predicate and must stay unqualified so
+			// rackless-but-building-placed miners still surface.
+			buildingConstrained := fp.buildingIDsFilter.Valid || fp.includeNoBuilding
+			if buildingConstrained {
+				sb.WriteString("(device.building_id IS NULL AND ")
+			}
 			fmt.Fprintf(sb,
 				"NOT EXISTS (SELECT 1 FROM device_set_membership dcm"+
 					" JOIN device_set ds ON ds.id = dcm.device_set_id"+
@@ -503,6 +521,9 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 					" AND dcm.device_set_type = 'rack'"+
 					" AND ds.deleted_at IS NULL)",
 				argNum)
+			if buildingConstrained {
+				sb.WriteString(")")
+			}
 			args = append(args, orgID)
 			argNum++
 		}

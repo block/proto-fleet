@@ -400,6 +400,51 @@ func TestAppendFilterSQL_RackAndBuildingUnassigned_IncludeNoRackWideningPreserve
 	assert.Contains(t, sql, "device_set_id = ANY")
 	assert.Contains(t, sql, "dsr.building_id IS NULL")
 	assert.Equal(t, 2, strings.Count(sql, "NOT EXISTS"))
+	// #702: with a building predicate present (include_no_building), the
+	// no-rack branch is intersected with "no direct building" so a rackless
+	// miner directly placed in another building can't leak through.
+	assert.Contains(t, sql, "(device.building_id IS NULL AND NOT EXISTS")
+}
+
+// The assignable-only miner-selection filter (issue #702) sends the target
+// rack (rack_ids + include_no_rack) AND its building (building_ids +
+// include_no_building). The no-rack branch must be gated on
+// device.building_id IS NULL so a rackless miner with a direct building_id in
+// a different building stays out of the default assignable list.
+func TestAppendFilterSQL_AssignableOnlyShape_NoRackBranchGatedOnNoBuilding(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		rackIDsFilter:     validNullString(),
+		rackIDValues:      []int64{5},
+		buildingIDsFilter: validNullString(),
+		buildingIDValues:  []int64{7},
+		includeNoBuilding: true,
+		includeNoRack:     true,
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "device.building_id = ANY")                   // branch A: direct/rack-derived building
+	assert.Contains(t, sql, "dsr.building_id IS NULL")                    // branch B: rack with no building
+	assert.Contains(t, sql, "(device.building_id IS NULL AND NOT EXISTS") // branch C: gated no-rack
+}
+
+// The fleet "Unassigned" rack bucket sends include_no_rack with no building
+// predicate at all. Here the no-rack branch is the SOLE building-group
+// predicate and must stay unqualified — otherwise a rackless miner directly
+// placed in a building would vanish from the Unassigned view.
+func TestAppendFilterSQL_UnassignedRackBucket_NoRackBranchNotGated(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		includeNoRack: true,
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "NOT EXISTS")
+	assert.NotContains(t, sql, "device.building_id IS NULL")
 }
 
 // TestBuildMinerFilterParams_SiteFilter exercises the four allowed combos

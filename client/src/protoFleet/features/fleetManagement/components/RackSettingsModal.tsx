@@ -1,12 +1,15 @@
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
+import { useBuildings } from "@/protoFleet/api/buildings";
+import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import {
   type DeviceSet,
   RackCoolingType,
   RackOrderIndex,
   type RackType,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal/types";
 
@@ -25,10 +28,25 @@ interface RackSettingsModalProps {
   existingRacks: DeviceSet[];
   rack?: DeviceSet;
   initialFormData?: RackFormData;
+  // Prepopulates the Site dropdown when creating a rack with no prior
+  // placement (e.g. the page-header site scope). Ignored when
+  // initialFormData already carries a siteId.
+  defaultSiteId?: bigint;
+  // True when editing an existing rack (which has a real, possibly-NULL
+  // placement). Drives the "Unassigned" placement option — see
+  // showUnassignedOption. The embedded modal inside ManageRackModal can't tell
+  // create from edit on its own (it always runs in onContinue mode), so the
+  // caller passes it.
+  existingRack?: boolean;
   onDismiss: () => void;
   onContinue?: (formData: RackFormData) => void;
   onSuccess?: () => void;
 }
+
+// Explicit "Unassigned" entry for the placement dropdowns. The shared Select
+// has no clear affordance, so without this a user who picks a site/building
+// could never revert to unassigned.
+const UNASSIGNED_OPTION: SelectOption = { value: "", label: "Unassigned" };
 
 const orderIndexOptions: SelectOption[] = [
   { value: String(RackOrderIndex.BOTTOM_LEFT), label: "Bottom left" },
@@ -47,6 +65,8 @@ const RackSettingsModal = ({
   existingRacks,
   rack,
   initialFormData,
+  defaultSiteId,
+  existingRack,
   onDismiss,
   onContinue,
   onSuccess,
@@ -55,6 +75,36 @@ const RackSettingsModal = ({
   const rackInfo = rack?.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
 
   const { updateRack, listRackZones, listRackTypes } = useDeviceSets();
+  const { sites } = useSitesContext();
+  const { listBuildingsBySite } = useBuildings();
+
+  // Editing an already-persisted rack surfaces an explicit "Unassigned" option
+  // seeded to the rack's real placement (a rack genuinely has a site/building
+  // or NULL). Creating a rack treats placement as an optional, unfilled field
+  // — no "Unassigned" entry, empty by default — so an empty select reads as
+  // "not chosen" (→ NULL) rather than a deliberate-looking default.
+  const showUnassignedOption = existingRack || isEditMode;
+
+  // Creating within a page-header site scope: the rack belongs to that site,
+  // so lock the field to it (defaultSiteId is only set for a single-site
+  // scope). An unscoped create leaves Site editable/optional; edit is never
+  // locked.
+  const siteLocked = !showUnassignedOption && defaultSiteId !== undefined;
+
+  // Placement. Site is retained even when a building is chosen (it's the
+  // building's site) so downstream eligibility filtering can pin the site;
+  // saveRack drops it from the wire RackInfo. Empty string = Unassigned.
+  const [siteIdText, setSiteIdText] = useState<string>(() => {
+    if (initialFormData?.siteId !== undefined) return initialFormData.siteId.toString();
+    // Create-only prefill — edit seeds solely from the rack's real placement,
+    // so an unplaced rack reads as Unassigned rather than the page scope.
+    if (!showUnassignedOption && defaultSiteId !== undefined) return defaultSiteId.toString();
+    return "";
+  });
+  const [buildingIdText, setBuildingIdText] = useState<string>(
+    initialFormData?.buildingId !== undefined ? initialFormData.buildingId.toString() : "",
+  );
+  const [buildings, setBuildings] = useState<BuildingWithCounts[]>([]);
 
   const [label, setLabel] = useState(initialFormData?.label ?? rack?.label ?? "");
   const [zone, setZone] = useState(() => {
@@ -120,6 +170,51 @@ const RackSettingsModal = ({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on mount; initialFormData and rackInfo are initial values
   }, [listRackZones, listRackTypes]);
+
+  // Load the selected site's buildings so the Building dropdown can scope its
+  // options. Runs on mount (edit: shows the rack's current building) and on
+  // every site change. Aborts in-flight fetches so a fast site switch can't
+  // land stale options. When no site is selected there's nothing to fetch —
+  // buildingOptions falls back to Unassigned-only.
+  useEffect(() => {
+    if (siteIdText === "") return;
+    const controller = new AbortController();
+    listBuildingsBySite({
+      siteId: BigInt(siteIdText),
+      signal: controller.signal,
+      onSuccess: setBuildings,
+    });
+    return () => controller.abort();
+  }, [siteIdText, listBuildingsBySite]);
+
+  // Changing the site clears the building selection (the old building lives in
+  // a different site) and drops its now-stale options until the new site's
+  // buildings load.
+  const handleSiteChange = useCallback((value: string) => {
+    setSiteIdText(value);
+    setBuildingIdText("");
+    setBuildings([]);
+  }, []);
+
+  const siteOptions = useMemo<SelectOption[]>(() => {
+    const real = (sites ?? [])
+      .filter((s) => s.site !== undefined)
+      .map((s) => ({ value: s.site!.id.toString(), label: s.site!.name }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return showUnassignedOption ? [UNASSIGNED_OPTION, ...real] : real;
+  }, [sites, showUnassignedOption]);
+
+  const buildingOptions = useMemo<SelectOption[]>(() => {
+    // No site selected → nothing to scope to. Edit still offers Unassigned so
+    // the current NULL building reads clearly; create shows an empty
+    // placeholder.
+    if (siteIdText === "") return showUnassignedOption ? [UNASSIGNED_OPTION] : [];
+    const real = buildings
+      .filter((b) => b.building !== undefined)
+      .map((b) => ({ value: b.building!.id.toString(), label: b.building!.name }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return showUnassignedOption ? [UNASSIGNED_OPTION, ...real] : real;
+  }, [siteIdText, buildings, showUnassignedOption]);
 
   const filteredSuggestions = useMemo(() => {
     if (!zone.trim()) return zoneSuggestions;
@@ -230,6 +325,8 @@ const RackSettingsModal = ({
       columns: colsNum,
       orderIndex,
       coolingType,
+      siteId: siteIdText !== "" ? BigInt(siteIdText) : undefined,
+      buildingId: buildingIdText !== "" ? BigInt(buildingIdText) : undefined,
     };
 
     if (!isEditMode) {
@@ -269,6 +366,8 @@ const RackSettingsModal = ({
     columns,
     orderIndex,
     coolingType,
+    siteIdText,
+    buildingIdText,
     isEditMode,
     rack,
     updateRack,
@@ -311,6 +410,30 @@ const RackSettingsModal = ({
             initValue={label}
             onChange={(value) => setLabel(value)}
             error={labelError}
+          />
+
+          <Select
+            id="rack-site-select"
+            label={siteLocked ? "Site" : "Site (optional)"}
+            options={siteOptions}
+            value={siteIdText}
+            onChange={handleSiteChange}
+            disabled={siteLocked}
+            forceBelow
+            testId="rack-site-select"
+          />
+
+          <Select
+            id="rack-building-select"
+            label="Building (optional)"
+            options={buildingOptions}
+            value={buildingIdText}
+            onChange={setBuildingIdText}
+            // A building can't be chosen without a site — it scopes the
+            // options and supplies the derived site_id.
+            disabled={siteIdText === ""}
+            forceBelow
+            testId="rack-building-select"
           />
 
           <div className="relative">

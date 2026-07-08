@@ -382,6 +382,16 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         } else if (eligBuildingId !== undefined) {
           merged.buildingIds = [eligBuildingId];
           merged.includeNoBuilding = true;
+        } else {
+          // The target rack isn't placed in a building (unplaced or
+          // directly-under-site): assigning a miner here strips its building,
+          // so only building-unplaced miners are assignable without a
+          // reparent. Pin to "no building" rather than leaving it
+          // unconstrained — otherwise a miner directly placed in some
+          // building leaks into the default assignable list (mirror of #702
+          // for the undefined-eligibility case).
+          merged.buildingIds = [];
+          merged.includeNoBuilding = true;
         }
 
         if (userFilter.siteIds.length > 0) {
@@ -389,6 +399,12 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
           merged.includeUnassigned = false;
         } else if (eligSiteId !== undefined) {
           merged.siteIds = [eligSiteId];
+          merged.includeUnassigned = true;
+        } else {
+          // Target rack isn't placed in a site: only site-unplaced miners are
+          // assignable without a reparent. Pin to "unassigned" so a
+          // directly-site-assigned miner doesn't leak into the default list.
+          merged.siteIds = [];
           merged.includeUnassigned = true;
         }
       }

@@ -105,6 +105,11 @@ const FleetCreateFlowProvider = ({
     bumpSitesRevision();
   }, [refetchSites, bumpEntities, bumpSitesRevision]);
 
+  // Prepopulate the new-rack Site dropdown from the page-header scope when a
+  // single site is selected (undefined for "All sites" / "Unassigned").
+  const activeSite = useFleetStore((state) => state.ui.activeSite);
+  const scopedSiteId = useMemo(() => (activeSite.kind === "site" ? BigInt(activeSite.id) : undefined), [activeSite]);
+
   // Rack create flow. rackSettings drives RackSettingsModal; once the
   // operator continues, rackFormData opens ManageRackModal seeded with the
   // selected miners. rackSeed survives the settings step so the miners reach
@@ -429,6 +434,7 @@ const FleetCreateFlowProvider = ({
         <RackSettingsModal
           show={rackSettingsOpen}
           existingRacks={[]}
+          defaultSiteId={scopedSiteId}
           onDismiss={closeRackFlow}
           onContinue={handleRackSettingsContinue}
         />
@@ -439,6 +445,7 @@ const FleetCreateFlowProvider = ({
           rackSettings={rackFormData}
           existingRacks={[]}
           seededMinerIds={rackSeed?.minerIds}
+          scopedSiteId={scopedSiteId}
           onDismiss={closeRackFlow}
           onSave={handleRackSaved}
         />
@@ -461,6 +468,8 @@ const FleetCreateFlowProvider = ({
           mode="create"
           initialValues={emptyBuildingFormValues()}
           sites={sites}
+          // Pre-fill (and lock to) the page-header site scope.
+          initialSiteId={scopedSiteId}
           onSave={handleBuildingCreate}
           onDismiss={closeBuildingSettings}
           saving={creatingBuilding || buildingModals.saving}

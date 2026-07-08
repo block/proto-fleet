@@ -78,6 +78,10 @@ interface ManageRackModalProps {
   // New rack" flow) so the selected miners land in the left pane ready
   // for slot assignment. Ignored in edit mode (existingRackId set).
   seededMinerIds?: string[];
+  // Page-header site scope (single-site only). Forwarded to the embedded
+  // RackSettingsModal so a new rack created within a site scope keeps its Site
+  // field locked to that scope. Ignored for an existing rack (edit).
+  scopedSiteId?: bigint;
   onDismiss: () => void;
   onSave: () => void;
   onDelete?: () => Promise<void> | void;
@@ -89,6 +93,7 @@ export default function ManageRackModal({
   existingRackId,
   existingRacks,
   seededMinerIds,
+  scopedSiteId,
   onDismiss,
   onSave,
   onDelete,
@@ -104,21 +109,19 @@ export default function ManageRackModal({
   const totalSlots = rackSettings.rows * rackSettings.columns;
   const numberingOrigin = orderIndexToOrigin(rackSettings.orderIndex);
 
-  // Target-rack placement for the selection modals' eligibility filter. Read
-  // from the rack's own DeviceSet (id-based; site derives from building). A new
-  // rack has no id/placement yet, so eligibility only excludes already-racked
-  // miners. `|| undefined` collapses the proto default (0) to unassigned.
-  const currentRack = useMemo(
-    () => (existingRackId !== undefined ? existingRacks.find((r) => r.id === existingRackId) : undefined),
-    [existingRackId, existingRacks],
-  );
+  // Target-rack placement for the selection modals' eligibility filter. Tracks
+  // the placement chosen in RackSettingsModal (rackSettings) so the assignable
+  // list reflects the site/building the rack will actually land in — including
+  // edits made in-session and a not-yet-saved new rack. `rackId` still keys off
+  // the persisted id (a new rack has none, so only rack membership is excluded
+  // until it's saved).
   const eligibility = useMemo<MinerEligibility>(
     () => ({
       rackId: existingRackId,
-      siteId: currentRack?.placement?.site?.id || undefined,
-      buildingId: currentRack?.placement?.building?.id || undefined,
+      siteId: rackSettings.siteId,
+      buildingId: rackSettings.buildingId,
     }),
-    [existingRackId, currentRack],
+    [existingRackId, rackSettings.siteId, rackSettings.buildingId],
   );
 
   // Core assignment state. A new rack (no existingRackId) can be seeded
@@ -522,6 +525,12 @@ export default function ManageRackModal({
           coolingType: rackSettings.coolingType,
           deviceIdentifiers: rackMiners,
           slotAssignments: slotAssignmentsList,
+          // Placement from the dropdowns. On edit, send an explicit 0 for an
+          // Unassigned selection so it actually clears (omitting would
+          // preserve the rack's current placement). On create there's nothing
+          // to preserve, so leave unfilled levels undefined → omitted → NULL.
+          siteId: existingRackId !== undefined ? (rackSettings.siteId ?? 0n) : rackSettings.siteId,
+          buildingId: existingRackId !== undefined ? (rackSettings.buildingId ?? 0n) : rackSettings.buildingId,
           onSuccess: () => resolve(),
           onError: (msg) => reject(new Error(msg)),
         });
@@ -644,6 +653,8 @@ export default function ManageRackModal({
           show={showRackSettings}
           existingRacks={existingRacks}
           initialFormData={rackSettings}
+          existingRack={existingRackId !== undefined}
+          defaultSiteId={scopedSiteId}
           onDismiss={() => setShowRackSettings(false)}
           onContinue={handleRackSettingsUpdate}
         />

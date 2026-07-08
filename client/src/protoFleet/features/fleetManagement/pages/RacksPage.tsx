@@ -188,6 +188,9 @@ const RacksPage = () => {
   const knownSiteIds = useMemo(() => (allSites ? new Set(allSites.map((s) => s.id)) : undefined), [allSites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
   const activeSiteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
+  // Prepopulate the new-rack Site dropdown when a single site is scoped in the
+  // page header (undefined for "All sites" / "Unassigned").
+  const scopedSiteId = useMemo(() => (activeSite.kind === "site" ? BigInt(activeSite.id) : undefined), [activeSite]);
 
   const selectedSiteFilter = useMemo(() => parseIdFilterValuesFromURL(searchParams, "site"), [searchParams]);
   const selectedSiteValues = selectedSiteFilter.values;
@@ -923,6 +926,11 @@ const RacksPage = () => {
       columns: rackInfo.columns,
       orderIndex: rackInfo.orderIndex,
       coolingType: rackInfo.coolingType,
+      // Seed the rack's current placement (`|| undefined` collapses the proto
+      // default 0 to unassigned) so the settings dropdowns and the miner
+      // eligibility filter reflect where the rack lives.
+      siteId: rack.placement?.site?.id || undefined,
+      buildingId: rack.placement?.building?.id || undefined,
     });
     setManageRackId(rack.id);
   }, []);
@@ -1117,6 +1125,7 @@ const RacksPage = () => {
           <RackSettingsModal
             show={showRackSettingsModal}
             existingRacks={racks}
+            defaultSiteId={scopedSiteId}
             onDismiss={() => setShowRackSettingsModal(false)}
             onContinue={handleRackSettingsContinue}
           />
@@ -1127,6 +1136,7 @@ const RacksPage = () => {
             rackSettings={manageRackFormData}
             existingRackId={manageRackId}
             existingRacks={racks}
+            scopedSiteId={scopedSiteId}
             onDismiss={handleManageRackDismiss}
             onSave={handleManageRackSave}
             onDelete={manageRackId ? handleDeleteRack : undefined}
@@ -1439,6 +1449,7 @@ const RacksPage = () => {
         <RackSettingsModal
           show={showRackSettingsModal}
           existingRacks={racks}
+          defaultSiteId={scopedSiteId}
           onDismiss={() => setShowRackSettingsModal(false)}
           onContinue={handleRackSettingsContinue}
         />
@@ -1449,6 +1460,7 @@ const RacksPage = () => {
           rackSettings={manageRackFormData}
           existingRackId={manageRackId}
           existingRacks={racks}
+          scopedSiteId={scopedSiteId}
           onDismiss={handleManageRackDismiss}
           onSave={handleManageRackSave}
         />

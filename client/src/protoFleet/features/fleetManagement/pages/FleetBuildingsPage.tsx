@@ -295,8 +295,12 @@ const FleetBuildingsPage = () => {
       createFlow.launchCreateBuilding({ rackIds: [], minerIds: [], conflictCount: 0 });
       return;
     }
-    buildingModals.openDetailsCreate();
-  }, [createFlow, buildingModals]);
+    // Pre-fill (and lock to) the page-header site scope so a new building
+    // belongs to the site the operator is viewing. Unscoped → editable, and
+    // the operator must pick a site.
+    const scopedSiteId = activeSite.kind === "site" ? BigInt(activeSite.id) : undefined;
+    buildingModals.openDetailsCreate(scopedSiteId);
+  }, [createFlow, buildingModals, activeSite]);
 
   const hasSites = (sites?.filter((s) => s.site !== undefined).length ?? 0) > 0;
   // CreateBuilding requires site:manage server-side.

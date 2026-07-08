@@ -213,14 +213,33 @@ describe("MinerSelectionList eligibility", () => {
     expect(filter.siteIds).toEqual([2n]);
   });
 
-  it("excludes all racked miners for a new rack (no rack id) but adds no rack/site/building ids", () => {
+  it("pins building to unplaced-only when the target rack has a site but no building", () => {
+    render(<MinerSelectionList eligibility={{ rackId: 1n, siteId: 2n }} />);
+
+    // Rack lives directly under a site: the site pins to that site, but the
+    // building dimension must pin to "no building" so a miner directly placed
+    // in some building (same site) doesn't leak into the assignable list.
+    const filter = lastFleetFilter();
+    expect(filter.siteIds).toEqual([2n]);
+    expect(filter.includeUnassigned).toBe(true);
+    expect(filter.buildingIds).toEqual([]);
+    expect(filter.includeNoBuilding).toBe(true);
+  });
+
+  it("pins every dimension to unplaced-only for a new/unplaced rack (no eligibility)", () => {
     render(<MinerSelectionList eligibility={{}} />);
 
+    // A rack that isn't placed at a level strips a miner's placement there on
+    // assign, so only miners unplaced at every level are assignable without a
+    // reparent. Each dimension pins to "no id + include unassigned" — leaving
+    // a dimension unconstrained would leak directly-placed miners into the
+    // default assignable list (see #702).
     const filter = lastFleetFilter();
     expect(filter.includeNoRack).toBe(true);
     expect(filter.rackIds).toEqual([]);
+    expect(filter.includeNoBuilding).toBe(true);
     expect(filter.buildingIds).toEqual([]);
-    expect(filter.includeNoBuilding).toBe(false);
+    expect(filter.includeUnassigned).toBe(true);
     expect(filter.siteIds).toEqual([]);
   });
 
