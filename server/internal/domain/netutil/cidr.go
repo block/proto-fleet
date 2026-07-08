@@ -39,3 +39,27 @@ func ParseCIDROrIP(raw string) (netip.Prefix, error) {
 	}
 	return prefix.Masked(), nil
 }
+
+// ParseIPRange parses an inclusive IP range from start/end address strings.
+// Both must be valid IPs of the same family, and end must be >= start.
+// Callers add their own context (field name, index) to the returned error.
+func ParseIPRange(start, end string) (netip.Addr, netip.Addr, error) {
+	if start == "" || end == "" {
+		return netip.Addr{}, netip.Addr{}, ErrEmptyCIDR
+	}
+	s, err := netip.ParseAddr(start)
+	if err != nil {
+		return netip.Addr{}, netip.Addr{}, fmt.Errorf("invalid start IP: %w", err)
+	}
+	e, err := netip.ParseAddr(end)
+	if err != nil {
+		return netip.Addr{}, netip.Addr{}, fmt.Errorf("invalid end IP: %w", err)
+	}
+	if s.Is4() != e.Is4() {
+		return netip.Addr{}, netip.Addr{}, errors.New("start and end IP must be the same family")
+	}
+	if e.Less(s) {
+		return netip.Addr{}, netip.Addr{}, errors.New("end IP must be >= start IP")
+	}
+	return s, e, nil
+}

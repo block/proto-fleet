@@ -1246,11 +1246,15 @@ func parseFilter(
 		filter.NumericRanges = ranges
 	}
 
+	// ip_cidrs and ip_ranges are two encodings of one subnet-filter surface, so
+	// cap their combined size — otherwise a client could bypass the limit by
+	// splitting entries across both fields.
+	if len(pbFilter.IpCidrs)+len(pbFilter.IpRanges) > maxFreeFormFilterValues {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"ip_cidrs + ip_ranges exceeds maximum of %d values", maxFreeFormFilterValues)
+	}
+
 	if len(pbFilter.IpCidrs) > 0 {
-		if len(pbFilter.IpCidrs) > maxFreeFormFilterValues {
-			return nil, fleeterror.NewInvalidArgumentErrorf(
-				"ip_cidrs exceeds maximum of %d values", maxFreeFormFilterValues)
-		}
 		prefixes := make([]netip.Prefix, 0, len(pbFilter.IpCidrs))
 		for i, c := range pbFilter.IpCidrs {
 			p, err := parseCIDR(i, c)
@@ -1260,6 +1264,25 @@ func parseFilter(
 			prefixes = append(prefixes, p)
 		}
 		filter.IPCIDRs = prefixes
+	}
+
+	if len(pbFilter.IpRanges) > 0 {
+		ranges := make([]interfaces.IPRange, 0, len(pbFilter.IpRanges))
+		for i, r := range pbFilter.IpRanges {
+			start, end, err := netutil.ParseIPRange(r.GetStartIp(), r.GetEndIp())
+			if err != nil {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"ip_ranges[%d]: %v", i, err)
+			}
+			// MinerListFilter.ip_ranges is documented IPv4-only (matching the
+			// client's range grammar); reject IPv6 to keep the contract honest.
+			if !start.Is4() {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"ip_ranges[%d]: only IPv4 ranges are supported", i)
+			}
+			ranges = append(ranges, interfaces.IPRange{Start: start, End: end})
+		}
+		filter.IPRanges = ranges
 	}
 
 	if len(pbFilter.SiteIds) > 0 {

@@ -14,7 +14,7 @@ import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import PageOverlay from "@/shared/components/PageOverlay";
 import Textarea from "@/shared/components/Textarea";
-import { CategorizedInvalidEntries, ManualDiscoveryTargets, parseManualTargets } from "@/shared/utils/networkDiscovery";
+import { CategorizedInvalidEntries, ManualDiscoveryTargets, parseManualTargets } from "@/shared/utils/ipParsing";
 
 interface MinersProps {
   scanDiscoveryPending: boolean;

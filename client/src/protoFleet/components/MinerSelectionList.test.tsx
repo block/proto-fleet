@@ -135,6 +135,31 @@ describe("MinerSelectionList site scope", () => {
     await waitFor(() => expect(screen.queryByText("Select all")).not.toBeInTheDocument());
   });
 
+  it("does not offer select-all for a range-only subnet filter (ip_ranges, no ip_cidrs)", async () => {
+    render(<MinerSelectionList disableFilteredSelectAll filterConfig={{ showSubnetFilter: true }} />);
+    expect(screen.getByText("Select all")).toBeInTheDocument();
+
+    const listProps = listPropsSpy.mock.calls[listPropsSpy.mock.calls.length - 1]?.[0] as {
+      onServerFilter: (filters: {
+        buttonFilters: string[];
+        dropdownFilters: Record<string, string[]>;
+        numericFilters: Record<string, unknown>;
+        textareaListFilters: Record<string, string[]>;
+      }) => Promise<void>;
+    };
+
+    await act(async () => {
+      await listProps.onServerFilter({
+        buttonFilters: [],
+        dropdownFilters: {},
+        numericFilters: {},
+        textareaListFilters: { subnet: ["10.0.0.10-10.0.0.20"] },
+      });
+    });
+
+    await waitFor(() => expect(screen.queryByText("Select all")).not.toBeInTheDocument());
+  });
+
   it("keeps filtered select-all available by default for callers that expand filters", async () => {
     render(<MinerSelectionList />);
 

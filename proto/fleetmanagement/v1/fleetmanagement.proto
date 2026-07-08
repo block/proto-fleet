@@ -356,6 +356,23 @@ message MinerListFilter {
   // without a building. Use this to triage unracked / newly-paired
   // devices.
   bool include_no_rack = 18;
+
+  // Filter miners whose IP address falls inside any of the supplied inclusive
+  // ranges (acts as OR condition across entries, and OR'd with ip_cidrs so all
+  // subnet-box lines match as a group). Mirrors network discovery's native
+  // start/end range shape (see pairing.v1.IPRangeModeRequest) so a range
+  // survives a round-trip through the filter without being decomposed into
+  // covering CIDRs. IPv4 only.
+  repeated IpRange ip_ranges = 19;
+}
+
+// An inclusive IPv4 address range (start and end are both matched).
+message IpRange {
+  // First address in the range, e.g. "10.0.0.10".
+  string start_ip = 1;
+
+  // Last address in the range, e.g. "10.0.0.20". Must be >= start_ip.
+  string end_ip = 2;
 }
 
 // Telemetry field selector for numeric range filters. Values are interpreted

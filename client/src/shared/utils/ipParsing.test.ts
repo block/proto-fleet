@@ -1,12 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
-  intToIpv4,
-  ipv4RangeToCidrs,
+  categorizeIpEntry,
   isValidCidr,
   isValidIpv6,
   looksLikeIpRange,
   parseManualTargets,
-} from "@/shared/utils/networkDiscovery";
+} from "@/shared/utils/ipParsing";
 
 describe("parseManualTargets", () => {
   test("parses IPs, hostnames, CIDR subnets, and ranges", () => {
@@ -143,57 +142,6 @@ describe("looksLikeIpRange", () => {
   });
 });
 
-describe("ipv4RangeToCidrs", () => {
-  test("aligned power-of-two range collapses to a single CIDR", () => {
-    expect(ipv4RangeToCidrs("192.168.1.0", "192.168.1.255")).toEqual(["192.168.1.0/24"]);
-    expect(ipv4RangeToCidrs("10.0.0.8", "10.0.0.15")).toEqual(["10.0.0.8/29"]);
-  });
-
-  test("arbitrary range decomposes into the minimal covering set", () => {
-    // The 8–12 miners case: 10.0.0.10 through 10.0.0.21 inclusive.
-    expect(ipv4RangeToCidrs("10.0.0.10", "10.0.0.21")).toEqual([
-      "10.0.0.10/31",
-      "10.0.0.12/30",
-      "10.0.0.16/30",
-      "10.0.0.20/31",
-    ]);
-  });
-
-  test("single address yields a /32", () => {
-    expect(ipv4RangeToCidrs("10.0.0.5", "10.0.0.5")).toEqual(["10.0.0.5/32"]);
-  });
-
-  test("covers the full IPv4 space without overflowing", () => {
-    expect(ipv4RangeToCidrs("0.0.0.0", "255.255.255.255")).toEqual(["0.0.0.0/0"]);
-  });
-
-  test("inverted range yields nothing", () => {
-    expect(ipv4RangeToCidrs("10.0.0.20", "10.0.0.10")).toEqual([]);
-  });
-
-  test("every address in the range is covered by exactly one emitted CIDR", () => {
-    const cidrs = ipv4RangeToCidrs("10.0.0.10", "10.0.0.21");
-    const contains = (cidr: string, ip: number) => {
-      const [net, bits] = cidr.split("/");
-      const netInt = net.split(".").reduce((a, p) => ((a << 8) + Number(p)) >>> 0, 0);
-      const mask = Number(bits) === 0 ? 0 : (0xffffffff << (32 - Number(bits))) >>> 0;
-      return (ip & mask) >>> 0 === netInt;
-    };
-    for (let octet = 10; octet <= 21; octet++) {
-      const ip = (10 << 24) + octet;
-      expect(cidrs.filter((c) => contains(c, ip >>> 0)).length).toBe(1);
-    }
-  });
-});
-
-describe("intToIpv4", () => {
-  test("round-trips with the documented octet packing", () => {
-    expect(intToIpv4(0)).toBe("0.0.0.0");
-    expect(intToIpv4(0xffffffff)).toBe("255.255.255.255");
-    expect(intToIpv4((192 << 24) | (168 << 16) | (1 << 8) | 42)).toBe("192.168.1.42");
-  });
-});
-
 describe("isValidCidr", () => {
   test("accepts valid IPv4 CIDRs", () => {
     expect(isValidCidr("192.168.1.0/24")).toBe(true);
@@ -206,5 +154,51 @@ describe("isValidCidr", () => {
     expect(isValidCidr("fd00::/120")).toBe(false);
     expect(isValidCidr("::1/128")).toBe(false);
     expect(isValidCidr("not-a-cidr/24")).toBe(false);
+  });
+});
+
+describe("categorizeIpEntry", () => {
+  test("classifies bare IPv4 and IPv6 (trailing dot stripped)", () => {
+    expect(categorizeIpEntry("10.0.0.5")).toEqual({ kind: "ipv4", value: "10.0.0.5" });
+    expect(categorizeIpEntry("10.0.0.5.")).toEqual({ kind: "ipv4", value: "10.0.0.5" });
+    expect(categorizeIpEntry("2001:db8::1")).toEqual({ kind: "ipv6", value: "2001:db8::1" });
+  });
+
+  test("classifies IPv4 and IPv6 CIDRs the same (family derivable from value)", () => {
+    expect(categorizeIpEntry("192.168.1.0/24")).toEqual({ kind: "cidr", value: "192.168.1.0/24" });
+    expect(categorizeIpEntry("2001:db8::/64")).toEqual({ kind: "cidr", value: "2001:db8::/64" });
+  });
+
+  test("classifies short and full ranges", () => {
+    expect(categorizeIpEntry("10.0.0.10-20")).toEqual({ kind: "range", startIp: "10.0.0.10", endIp: "10.0.0.20" });
+    expect(categorizeIpEntry("10.0.0.10 - 10.0.0.20")).toEqual({
+      kind: "range",
+      startIp: "10.0.0.10",
+      endIp: "10.0.0.20",
+    });
+  });
+
+  test("classifies hostnames", () => {
+    expect(categorizeIpEntry("miner-01")).toEqual({ kind: "hostname", value: "miner-01" });
+  });
+
+  test("marks invalid tokens with what they looked like", () => {
+    expect(categorizeIpEntry("")).toMatchObject({ kind: "invalid", looked: "unknown", reason: "Empty value" });
+    expect(categorizeIpEntry("10.0.0.20-10.0.0.10")).toMatchObject({ kind: "invalid", looked: "range" });
+    expect(categorizeIpEntry("192.168.1.0/33")).toMatchObject({ kind: "invalid", looked: "cidr" });
+    expect(categorizeIpEntry("999.1.1.1")).toMatchObject({ kind: "invalid", looked: "ipv4" });
+    expect(categorizeIpEntry("fd00::xyz")).toMatchObject({ kind: "invalid", looked: "ipv6" });
+  });
+
+  test("rejects leading-zero IPv4 octets (server netip.ParseAddr rejects them)", () => {
+    // Bare, CIDR, and range endpoints must all be rejected so the UI never
+    // accepts an address the server later fails to parse.
+    expect(categorizeIpEntry("010.0.0.1")).toMatchObject({ kind: "invalid", looked: "ipv4" });
+    expect(categorizeIpEntry("192.168.001.0/24")).toMatchObject({ kind: "invalid", looked: "cidr" });
+    expect(categorizeIpEntry("010.0.0.1-2")).toMatchObject({ kind: "invalid", looked: "range" });
+  });
+
+  test("trims surrounding whitespace", () => {
+    expect(categorizeIpEntry("  10.0.0.5  ")).toEqual({ kind: "ipv4", value: "10.0.0.5" });
   });
 });

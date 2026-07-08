@@ -10,6 +10,7 @@ import {
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { MinerStateSnapshot as ProtoMinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
+  IpRangeSchema,
   type MinerListFilter,
   MinerListFilterSchema,
   PairingStatus,
@@ -41,7 +42,7 @@ import type { ColConfig, ColTitles, SortDirection } from "@/shared/components/Li
 import { ModalSelectAllFooter } from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Switch from "@/shared/components/Switch";
-import { expandSubnetLineToCidrs, normalizeSubnetLine, validateSubnetLine } from "@/shared/utils/filterValidation";
+import { classifySubnetLine, normalizeSubnetLine, validateSubnetLine } from "@/shared/utils/filterValidation";
 
 // --- Exported types ---
 
@@ -211,6 +212,7 @@ const hasUnsupportedAllSelectionFilter = (filter: MinerListFilter): boolean =>
   filter.siteIds.length > 0 ||
   filter.buildingIds.length > 0 ||
   filter.ipCidrs.length > 0 ||
+  filter.ipRanges.length > 0 ||
   filter.includeUnassigned;
 
 const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
@@ -805,9 +807,17 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         if (showSubnetFilter) {
           const subnetFilters = activeFilters.textareaListFilters.subnet;
           if (subnetFilters && subnetFilters.length > 0) {
-            // Ranges expand to their covering CIDRs; CIDRs/IPs pass through. The
-            // server ORs all ip_cidrs and matches by containment.
-            next.ipCidrs.push(...subnetFilters.flatMap(expandSubnetLineToCidrs));
+            // Ranges travel natively on ip_ranges; CIDRs/IPs on ip_cidrs. The
+            // server ORs the two together and matches by containment/BETWEEN.
+            subnetFilters.forEach((line) => {
+              const entry = classifySubnetLine(line);
+              if (!entry) return;
+              if (entry.kind === "range") {
+                next.ipRanges.push(create(IpRangeSchema, { startIp: entry.startIp, endIp: entry.endIp }));
+              } else {
+                next.ipCidrs.push(entry.cidr);
+              }
+            });
           }
         }
 

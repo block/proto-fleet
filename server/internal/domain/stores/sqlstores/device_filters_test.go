@@ -902,6 +902,22 @@ func TestBuildMinerFilterParams_NoNumeric_NoIPCIDR(t *testing.T) {
 	assert.Empty(t, params.numericRanges)
 	assert.False(t, params.ipCIDRsFilter.Valid)
 	assert.Empty(t, params.ipCIDRValues)
+	assert.Empty(t, params.ipRangeStarts)
+	assert.Empty(t, params.ipRangeEnds)
+}
+
+func TestBuildMinerFilterParams_IPRanges(t *testing.T) {
+	filter := &stores.MinerFilter{
+		IPRanges: []stores.IPRange{
+			{Start: netip.MustParseAddr("10.0.0.10"), End: netip.MustParseAddr("10.0.0.20")},
+			{Start: netip.MustParseAddr("192.168.1.1"), End: netip.MustParseAddr("192.168.1.5")},
+		},
+	}
+
+	params := buildMinerFilterParams(filter)
+
+	assert.Equal(t, []string{"10.0.0.10", "192.168.1.1"}, params.ipRangeStarts)
+	assert.Equal(t, []string{"10.0.0.20", "192.168.1.5"}, params.ipRangeEnds)
 }
 
 func TestAppendFilterSQL_NumericRange_LowerBoundExclusive(t *testing.T) {
@@ -1029,6 +1045,45 @@ func TestAppendFilterSQL_IPCIDRs_UsesInetAnyPredicate(t *testing.T) {
 	// Single param regardless of CIDR count.
 	assert.Len(t, resultArgs, 2)
 	assert.Equal(t, 3, resultArgNum)
+}
+
+func TestAppendFilterSQL_IPRanges_UsesBetweenPredicate(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	fp := minerFilterParams{
+		ipRangeStarts: []string{"10.0.0.10", "192.168.1.1"},
+		ipRangeEnds:   []string{"10.0.0.20", "192.168.1.5"},
+	}
+
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, 2, 1, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "discovered_device.ip_address_inet BETWEEN $2::inet AND $3::inet")
+	assert.Contains(t, sql, "discovered_device.ip_address_inet BETWEEN $4::inet AND $5::inet")
+	assert.Contains(t, sql, " OR ", "multiple ranges must be OR'd within the subnet group")
+	// initial + 2 bounds per range.
+	assert.Len(t, resultArgs, 5)
+	assert.Equal(t, 6, resultArgNum)
+}
+
+func TestAppendFilterSQL_IPCIDRsAndRanges_OrGroupedTogether(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	fp := minerFilterParams{
+		ipCIDRsFilter: validNullString(),
+		ipCIDRValues:  []string{"192.168.1.0/24"},
+		ipRangeStarts: []string{"10.0.0.10"},
+		ipRangeEnds:   []string{"10.0.0.20"},
+	}
+
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, 2, 1, fp)
+
+	sql := sb.String()
+	// CIDR containment and range are OR'd inside one parenthesized group.
+	assert.Contains(t, sql, "(discovered_device.ip_address_inet <<= ANY($2::cidr[]) OR discovered_device.ip_address_inet BETWEEN $3::inet AND $4::inet)")
+	// initial + cidr array + 2 range bounds.
+	assert.Len(t, resultArgs, 4)
+	assert.Equal(t, 5, resultArgNum)
 }
 
 func TestAppendFilterSQL_IPCIDRs_NoRawSliceArgs(t *testing.T) {
