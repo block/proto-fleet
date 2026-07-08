@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	fleetperformancev1 "github.com/block/proto-fleet/server/generated/grpc/fleetperformance/v1"
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/internal/transportguard"
+	"golang.org/x/term"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -37,21 +39,23 @@ func (e *APIError) Error() string {
 }
 
 type Options struct {
-	Server   string
-	APIKey   string
-	Username string
-	Password string
-	Insecure bool
-	Debug    bool
+	Server        string
+	APIKey        string
+	Username      string
+	Password      string
+	PasswordStdin bool
+	Insecure      bool
+	Debug         bool
 }
 
 type Client struct {
-	baseURL    *url.URL
-	httpClient *http.Client
-	apiKey     string
-	username   string
-	password   string
-	debug      bool
+	baseURL       *url.URL
+	httpClient    *http.Client
+	apiKey        string
+	username      string
+	password      string
+	passwordStdin bool
+	debug         bool
 }
 
 type authMode int
@@ -96,10 +100,11 @@ func New(_ context.Context, opts Options) (*Client, error) {
 			Transport:     httpTransport,
 			Timeout:       30 * time.Second,
 		},
-		apiKey:   opts.APIKey,
-		username: strings.TrimSpace(opts.Username),
-		password: opts.Password,
-		debug:    opts.Debug,
+		apiKey:        opts.APIKey,
+		username:      strings.TrimSpace(opts.Username),
+		password:      opts.Password,
+		passwordStdin: opts.PasswordStdin,
+		debug:         opts.Debug,
 	}, nil
 }
 
@@ -274,16 +279,66 @@ func (c *Client) ensureSession(ctx context.Context) error {
 	if c.hasSession() {
 		return nil
 	}
-	if c.username == "" || c.password == "" {
-		return fmt.Errorf("username and password must both be provided")
+	username, password, err := c.sessionCredentials()
+	if err != nil {
+		return err
 	}
-	if _, err := c.Authenticate(ctx, c.username, c.password); err != nil {
+	if _, err := c.Authenticate(ctx, username, password); err != nil {
 		return err
 	}
 	if !c.hasSession() {
 		return fmt.Errorf("authenticate did not yield a reusable session")
 	}
 	return nil
+}
+
+func (c *Client) sessionCredentials() (string, string, error) {
+	if c.username == "" {
+		return "", "", fmt.Errorf("username is required")
+	}
+	if c.passwordStdin {
+		password, err := readFleetPasswordFromStdin()
+		if err != nil {
+			return "", "", err
+		}
+		c.password = password
+		c.passwordStdin = false
+	} else if c.password == "" {
+		password, err := promptFleetPassword()
+		if err != nil {
+			return "", "", err
+		}
+		c.password = password
+	}
+	if c.password == "" {
+		return "", "", fmt.Errorf("password is required; set %s, use --password-stdin, or run from a terminal to prompt", envFleetPassword)
+	}
+	return c.username, c.password, nil
+}
+
+var readFleetPasswordFromStdin = func() (string, error) {
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", fmt.Errorf("read password from stdin: %w", err)
+	}
+	password := strings.TrimRight(string(data), "\r\n")
+	if password == "" {
+		return "", fmt.Errorf("password from stdin is empty")
+	}
+	return password, nil
+}
+
+var promptFleetPassword = func() (string, error) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return "", fmt.Errorf("password is required; set %s, use --password-stdin, or run from a terminal to prompt", envFleetPassword)
+	}
+	fmt.Fprint(os.Stderr, "Fleet password: ")
+	password, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return "", fmt.Errorf("read password: %w", err)
+	}
+	return string(password), nil
 }
 
 func (c *Client) hasSession() bool {

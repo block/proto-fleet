@@ -965,16 +965,18 @@ func TestResolvedAuthInputs(t *testing.T) {
 			wantKey: "clik",
 		},
 		{
-			name:     "cli credentials before subcommand",
+			name:     "cli username before subcommand with env password",
+			env:      map[string]string{envFleetPassword: "p"},
 			path:     authLogin,
-			argv:     []string{"--username", "u", "--password", "p", "auth", "login"},
+			argv:     []string{"--username", "u", "auth", "login"},
 			wantUser: "u",
 			wantPass: "p",
 		},
 		{
-			name:     "auth flags after subcommand bind to root",
+			name:     "auth username flag after subcommand binds to root",
+			env:      map[string]string{envFleetPassword: "p"},
 			path:     authLogin,
-			argv:     []string{"auth", "login", "--username", "u", "--password", "p"},
+			argv:     []string{"auth", "login", "--username", "u"},
 			wantUser: "u",
 			wantPass: "p",
 		},
@@ -986,10 +988,10 @@ func TestResolvedAuthInputs(t *testing.T) {
 			wantUser: "cliu",
 		},
 		{
-			name:     "env api key kept alongside cli credentials",
-			env:      map[string]string{envFleetAPIKey: "k"},
+			name:     "env api key kept alongside cli username and env password",
+			env:      map[string]string{envFleetAPIKey: "k", envFleetPassword: "p"},
 			path:     authLogin,
-			argv:     []string{"--username", "u", "--password", "p", "auth", "login"},
+			argv:     []string{"--username", "u", "auth", "login"},
 			wantKey:  "k",
 			wantUser: "u",
 			wantPass: "p",
@@ -1081,6 +1083,36 @@ func TestApiKeyListAuthenticatesWithEnvCreds(t *testing.T) {
 	}
 }
 
+func TestAuthLoginReadsPasswordStdin(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	var authBody map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth.v1.AuthService/Authenticate", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&authBody); err != nil {
+			t.Errorf("decode authenticate request: %v", err)
+		}
+		http.SetCookie(w, &http.Cookie{Name: "fleet_session", Value: "sess", Path: "/", Secure: true})
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte("{}"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	withStdin(t, "stdin-secret\n", func() {
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--username", "admin", "--password-stdin", "auth", "login",
+		})
+		if err != nil {
+			t.Fatalf("auth login with --password-stdin error = %v", err)
+		}
+	})
+
+	if authBody["username"] != "admin" || authBody["password"] != "stdin-secret" {
+		t.Errorf("authenticate body = %v, want stdin password", authBody)
+	}
+}
+
 func TestApiKeyCommandsRejectAPIKeyOnly(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1108,7 +1140,7 @@ func TestApiKeyCommandsRejectAPIKeyOnly(t *testing.T) {
 			err := newRootCommand().Run(context.Background(), append([]string{
 				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
 			}, tt.args...))
-			if err == nil || !strings.Contains(err.Error(), "requires username/password") {
+			if err == nil || !strings.Contains(err.Error(), "requires username and password") {
 				t.Fatalf("fleetcli %s error = %v, want username/password requirement", strings.Join(tt.args, " "), err)
 			}
 			if !strings.Contains(err.Error(), "session-only") {

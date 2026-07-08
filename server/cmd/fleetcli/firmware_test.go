@@ -565,7 +565,7 @@ func TestConfirmFirmwareDeleteAllPrompt(t *testing.T) {
 }
 
 func TestFirmwareDeleteAllCommandCancelsBeforeRequest(t *testing.T) {
-	pinFleetAuthEnv(t, nil)
+	pinFleetAuthEnv(t, map[string]string{envFleetPassword: "proto"})
 
 	requestCount := 0
 	mux := http.NewServeMux()
@@ -579,7 +579,7 @@ func TestFirmwareDeleteAllCommandCancelsBeforeRequest(t *testing.T) {
 
 	withStdin(t, "n\n", func() {
 		err := newRootCommand().Run(context.Background(), []string{
-			"fleetcli", "--server", srv.URL + "/", "--username", "admin", "--password", "proto",
+			"fleetcli", "--server", srv.URL + "/", "--username", "admin",
 			"firmware", "delete-all",
 		})
 		if err == nil || !strings.Contains(err.Error(), "cancelled") {
@@ -592,7 +592,7 @@ func TestFirmwareDeleteAllCommandCancelsBeforeRequest(t *testing.T) {
 }
 
 func TestFirmwareDeleteAllCommandDeletesAfterYes(t *testing.T) {
-	pinFleetAuthEnv(t, nil)
+	pinFleetAuthEnv(t, map[string]string{envFleetPassword: "proto"})
 	oldNoColor := color.NoColor
 	color.NoColor = true
 	t.Cleanup(func() { color.NoColor = oldNoColor })
@@ -623,7 +623,7 @@ func TestFirmwareDeleteAllCommandDeletesAfterYes(t *testing.T) {
 
 			output := captureStdout(t, func() {
 				err := newRootCommand().Run(context.Background(), []string{
-					"fleetcli", "--server", srv.URL + "/", "--username", "admin", "--password", "proto",
+					"fleetcli", "--server", srv.URL + "/", "--username", "admin",
 					"firmware", "delete-all", tt.flag,
 				})
 				if err != nil {
@@ -937,7 +937,7 @@ func TestFirmwareRequiresSessionCredentials(t *testing.T) {
 	if err == nil {
 		t.Fatal("FirmwareList() error = nil, want missing credentials error")
 	}
-	for _, want := range []string{"--username/--password", envFleetUsername} {
+	for _, want := range []string{"--username", envFleetPassword, "--password-stdin"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("FirmwareList() error = %v, want containing %q", err, want)
 		}
@@ -960,7 +960,7 @@ func TestFirmwareSessionFailureWithCredentialsKeepsRealCause(t *testing.T) {
 	if !strings.Contains(err.Error(), "establish firmware session") {
 		t.Errorf("FirmwareList() error = %v, want containing %q", err, "establish firmware session")
 	}
-	if strings.Contains(err.Error(), "--username/--password") {
+	if strings.Contains(err.Error(), "password from") {
 		t.Errorf("FirmwareList() error = %v, must not suggest missing credentials when they were provided", err)
 	}
 }

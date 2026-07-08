@@ -108,6 +108,43 @@ func TestNewClientTransportPreservesDefaultProxyHook(t *testing.T) {
 	}
 }
 
+func TestSessionCredentialsReadsPasswordFromStdin(t *testing.T) {
+	oldRead := readFleetPasswordFromStdin
+	readFleetPasswordFromStdin = func() (string, error) {
+		return "stdin-pass", nil
+	}
+	t.Cleanup(func() { readFleetPasswordFromStdin = oldRead })
+
+	client := &Client{username: "admin", passwordStdin: true}
+	username, password, err := client.sessionCredentials()
+	if err != nil {
+		t.Fatalf("sessionCredentials() error = %v", err)
+	}
+	if username != "admin" || password != "stdin-pass" {
+		t.Fatalf("sessionCredentials() = (%q, %q), want (admin, stdin-pass)", username, password)
+	}
+	if client.passwordStdin {
+		t.Fatal("passwordStdin = true, want false after reading stdin once")
+	}
+}
+
+func TestSessionCredentialsPromptsForPassword(t *testing.T) {
+	oldPrompt := promptFleetPassword
+	promptFleetPassword = func() (string, error) {
+		return "prompt-pass", nil
+	}
+	t.Cleanup(func() { promptFleetPassword = oldPrompt })
+
+	client := &Client{username: "admin"}
+	username, password, err := client.sessionCredentials()
+	if err != nil {
+		t.Fatalf("sessionCredentials() error = %v", err)
+	}
+	if username != "admin" || password != "prompt-pass" {
+		t.Fatalf("sessionCredentials() = (%q, %q), want (admin, prompt-pass)", username, password)
+	}
+}
+
 func TestClientRejectsRedirects(t *testing.T) {
 	redirectTargetHit := false
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

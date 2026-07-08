@@ -77,10 +77,9 @@ func newRootCommand() *cli.Command {
 				Usage:   "Fleet username for session-authenticated commands",
 				Sources: cli.EnvVars(envFleetUsername),
 			},
-			&cli.StringFlag{
-				Name:    "password",
-				Usage:   "Fleet password for session-authenticated commands",
-				Sources: cli.EnvVars(envFleetPassword),
+			&cli.BoolFlag{
+				Name:  "password-stdin",
+				Usage: "Read Fleet password for session-authenticated commands from stdin",
 			},
 			&cli.BoolFlag{
 				Name:    "insecure",
@@ -113,7 +112,7 @@ func authCommand() *cli.Command {
 					}
 					defer func() { _ = client.Close() }()
 
-					username, password, err := usernamePassword(cmd)
+					username, password, err := client.sessionCredentials()
 					if err != nil {
 						return err
 					}
@@ -216,10 +215,10 @@ func apiKeyCommand() *cli.Command {
 	}
 }
 
-func authenticateAPIKeySession(ctx context.Context, cmd *cli.Command, client *Client, action string) error {
-	username, password, err := usernamePassword(cmd)
+func authenticateAPIKeySession(ctx context.Context, _ *cli.Command, client *Client, action string) error {
+	username, password, err := client.sessionCredentials()
 	if err != nil {
-		return fmt.Errorf("%s requires username/password because API key lifecycle commands are session-only: %w", action, err)
+		return fmt.Errorf("%s requires username and password because API key lifecycle commands are session-only: %w", action, err)
 	}
 	if _, err := client.Authenticate(ctx, username, password); err != nil {
 		return err
@@ -534,16 +533,6 @@ func openClient(ctx context.Context, cmd *cli.Command) (*Client, error) {
 	return New(ctx, resolvedClientOptions(cmd))
 }
 
-func usernamePassword(cmd *cli.Command) (string, string, error) {
-	root := cmd.Root()
-	username := root.String("username")
-	password := root.String("password")
-	if username == "" || password == "" {
-		return "", "", fmt.Errorf("username and password must both be provided")
-	}
-	return username, password, nil
-}
-
 func writeAPIError(w io.Writer, apiErr *APIError) {
 	fmt.Fprintf(w, "%s returned %s:\n", apiErr.Method, apiErr.Status)
 	colorizeJSONTo(w, apiErr.Body)
@@ -603,12 +592,13 @@ func resolvedClientOptions(cmd *cli.Command) Options {
 		server = defaultFleetServer
 	}
 	return Options{
-		Server:   server,
-		APIKey:   apiKey,
-		Username: username,
-		Password: password,
-		Insecure: root.Bool("insecure"),
-		Debug:    root.Bool("debug"),
+		Server:        server,
+		APIKey:        apiKey,
+		Username:      username,
+		Password:      password,
+		PasswordStdin: root.Bool("password-stdin"),
+		Insecure:      root.Bool("insecure"),
+		Debug:         root.Bool("debug"),
 	}
 }
 
@@ -616,9 +606,9 @@ func resolvedClientOptions(cmd *cli.Command) Options {
 // subcommand-local flags that happen to be named "username" or "password"
 // (e.g. pool credentials) never leak into Fleet auth. All three values pass
 // through together: bearer-auth commands prefer the API key, session-auth
-// commands use username/password, and urfave/cli already gives an explicit
-// CLI flag precedence over its environment variable.
+// commands use username/password, and the Fleet password comes only from
+// FLEET_PASSWORD, --password-stdin, or a prompt.
 func resolvedAuthInputs(cmd *cli.Command) (string, string, string) {
 	root := cmd.Root()
-	return root.String("api-key"), root.String("username"), root.String("password")
+	return root.String("api-key"), root.String("username"), os.Getenv(envFleetPassword)
 }

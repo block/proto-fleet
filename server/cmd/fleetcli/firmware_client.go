@@ -101,15 +101,16 @@ func (c *Client) firmwareURL(parts ...string) *url.URL {
 // ensureFirmwareSession wraps ensureSession with a firmware-specific message:
 // the firmware HTTP endpoints accept session cookies only, so an API key is
 // not a substitute for username/password here. The credential hint is added
-// only when credentials are actually missing, so login failures with other
-// causes (unreachable server, wrong password) report their real error.
+// only when a username or password source is actually missing, so login
+// failures with other causes (unreachable server, wrong password) report their
+// real error.
 func (c *Client) ensureFirmwareSession(ctx context.Context) error {
 	err := c.ensureSession(ctx)
 	if err == nil {
 		return nil
 	}
 	if c.username == "" || c.password == "" {
-		return fmt.Errorf("firmware commands require --username/--password (%s/%s) because the firmware API does not accept API keys: %w", envFleetUsername, envFleetPassword, err)
+		return fmt.Errorf("firmware commands require --username and a Fleet password from %s, --password-stdin, or prompt because the firmware API does not accept API keys: %w", envFleetPassword, err)
 	}
 	return fmt.Errorf("establish firmware session: %w", err)
 }
