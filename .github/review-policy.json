@@ -1,5 +1,5 @@
 {
-  "enforce": true,
+  "enforce": false,
   "trusted_authors": [
     "@block/proto-fleet-dev",
     "ankitgoswami",
