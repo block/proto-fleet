@@ -42,10 +42,10 @@ jobs:
       number: ${{ steps.pr.outputs.number }}
       base_sha: ${{ steps.pr.outputs.base_sha }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
-      decision: ${{ steps.evaluate_policy.outputs.decision || steps.bootstrap_policy.outputs.decision || 'needs-human-review' }}
-      passed: ${{ steps.evaluate_policy.outputs.passed || steps.bootstrap_policy.outputs.passed || 'false' }}
-      enforced: ${{ steps.evaluate_policy.outputs.enforced || steps.bootstrap_policy.outputs.enforced || 'true' }}
-      publishable: ${{ steps.evaluate_policy.outputs.publishable || steps.bootstrap_policy.outputs.publishable || 'false' }}
+      decision: ${{ steps.evaluate_policy.outputs.decision || steps.unsupported_base_policy.outputs.decision || steps.bootstrap_policy.outputs.decision || 'needs-human-review' }}
+      passed: ${{ steps.evaluate_policy.outputs.passed || steps.unsupported_base_policy.outputs.passed || steps.bootstrap_policy.outputs.passed || 'false' }}
+      enforced: ${{ steps.evaluate_policy.outputs.enforced || steps.unsupported_base_policy.outputs.enforced || steps.bootstrap_policy.outputs.enforced || 'true' }}
+      publishable: ${{ steps.evaluate_policy.outputs.publishable || steps.unsupported_base_policy.outputs.publishable || steps.bootstrap_policy.outputs.publishable || 'false' }}
     env:
       CODEX_MODEL: gpt-5.5
       CODEX_REASONING_EFFORT: high
@@ -171,8 +171,10 @@ jobs:
           TRUSTED_BASE: ${{ steps.pr.outputs.trusted_base }}
         run: |
           if [ "$TRUSTED_BASE" != "true" ]; then
-            echo "Review policy only evaluates PRs based on the repository default branch; got base ref ${BASE_REF}." >&2
-            exit 1
+            echo "Review policy only evaluates PRs based on the repository default branch; got base ref ${BASE_REF}."
+            echo "unsupported_base=true" >> "$GITHUB_OUTPUT"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           if [ ! -f .github/scripts/evaluate_review_policy.py ] || [ ! -f .github/review-policy.json ]; then
             echo "Trusted base commit does not contain review policy code and config; publishing a fail-closed bootstrap decision without executing PR-head policy code."
@@ -184,9 +186,32 @@ jobs:
           echo "path=$(pwd)" >> "$GITHUB_OUTPUT"
           echo "Using review policy code from the trusted base commit."
 
+      - name: Use unsupported base decision
+        id: unsupported_base_policy
+        if: steps.pr.outputs.found == 'true' && steps.policy_source.outputs.unsupported_base == 'true'
+        env:
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+        run: |
+          echo "decision=needs-human-review" >> "$GITHUB_OUTPUT"
+          echo "passed=false" >> "$GITHUB_OUTPUT"
+          echo "enforced=true" >> "$GITHUB_OUTPUT"
+          echo "publishable=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Review Policy"
+            echo
+            echo "**Decision:** \`needs-human-review\`"
+            echo "**Status:** fail"
+            echo "**Mode:** enforced"
+            echo
+            echo "Review Policy only evaluates PRs based on the repository default branch; got base ref \`${BASE_REF}\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Use bootstrap fallback decision
         id: bootstrap_policy
-        if: steps.pr.outputs.found == 'true' && steps.policy_source.outputs.available != 'true'
+        if: >-
+          steps.pr.outputs.found == 'true' &&
+          steps.policy_source.outputs.available != 'true' &&
+          steps.policy_source.outputs.unsupported_base != 'true'
         run: |
           echo "decision=needs-human-review" >> "$GITHUB_OUTPUT"
           echo "passed=false" >> "$GITHUB_OUTPUT"
