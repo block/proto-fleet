@@ -145,7 +145,12 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
   delete_collection: (entry) => withTarget(`Deleted ${collectionNoun(entry)}`, displayName(entry)),
   add_devices: (entry) => withTarget("Added miners to group", displayName(entry)),
   remove_devices: (entry) => withTarget("Removed miners from group", displayName(entry)),
-  assign_devices_to_rack: (entry) => withTarget("Assigned miners to rack", displayName(entry)),
+  // The server reuses assign_devices_to_rack for the clear-rack path with a
+  // "Cleared devices from rack" description; don't report the opposite action.
+  assign_devices_to_rack: (entry) =>
+    /^cleared\b/i.test(entry.description)
+      ? withTarget("Cleared miners from rack", displayName(entry))
+      : withTarget("Assigned miners to rack", displayName(entry)),
   set_rack_slot: (entry) => withTarget("Updated rack position", displayName(entry)),
   clear_rack_slot: (entry) => withTarget("Updated rack position", displayName(entry)),
   save_rack: (entry) => withTarget("Saved rack", displayName(entry)),

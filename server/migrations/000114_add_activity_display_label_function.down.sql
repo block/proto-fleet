@@ -1,2 +1,2 @@
-DROP FUNCTION IF EXISTS activity_display_label(TEXT, TEXT, TEXT, JSONB);
+DROP FUNCTION IF EXISTS activity_display_label(TEXT, TEXT, TEXT, JSONB, TEXT);
 DROP FUNCTION IF EXISTS activity_count_label(BIGINT, TEXT, TEXT);

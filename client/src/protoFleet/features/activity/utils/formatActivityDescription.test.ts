@@ -34,6 +34,20 @@ describe("formatActivityDescription", () => {
     expect(formatActivityDescription(buildingEntry)).toBe("Updated building: Building A");
   });
 
+  it("keeps rack-clearing wording for the shared assign event type", () => {
+    const clearEntry = create(ActivityEntrySchema, {
+      eventType: "assign_devices_to_rack",
+      description: "Cleared devices from rack",
+    });
+    const assignEntry = create(ActivityEntrySchema, {
+      eventType: "assign_devices_to_rack",
+      description: "Assigned devices to rack: Rack 7",
+    });
+
+    expect(formatActivityDescription(clearEntry)).toBe("Cleared miners from rack");
+    expect(formatActivityDescription(assignEntry)).toBe("Assigned miners to rack: Rack 7");
+  });
+
   it("uses readable action strings for rack position changes", () => {
     const entry = create(ActivityEntrySchema, {
       eventType: "set_rack_slot",

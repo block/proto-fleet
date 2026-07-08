@@ -106,6 +106,22 @@ func TestActivityLogs_SearchMatchesDisplayedLabels(t *testing.T) {
 			Metadata:       map[string]any{"skipped_count": 3},
 			OrganizationID: &orgID,
 		},
+		{
+			Category:       models.CategorySchedule,
+			Type:           "schedule_executed",
+			Description:    `Schedule "Night Shift" executed (curtail) on 12 devices`,
+			Result:         models.ResultSuccess,
+			ActorType:      models.ActorSystem,
+			OrganizationID: &orgID,
+		},
+		{
+			Category:       models.CategoryCollection,
+			Type:           "assign_devices_to_rack",
+			Description:    "Cleared devices from rack",
+			Result:         models.ResultSuccess,
+			ActorType:      models.ActorUser,
+			OrganizationID: &orgID,
+		},
 	}
 
 	for _, event := range events {
@@ -161,6 +177,16 @@ func TestActivityLogs_SearchMatchesDisplayedLabels(t *testing.T) {
 			name:   "skipped command label with miner count",
 			search: "Command ran with 3 miners skipped",
 			want:   []string{"Command ran with 3 device(s) skipped"},
+		},
+		{
+			name:   "schedule label with quoted name",
+			search: "Ran schedule: Night Shift",
+			want:   []string{`Schedule "Night Shift" executed (curtail) on 12 devices`},
+		},
+		{
+			name:   "rack clearing keeps clearing wording",
+			search: "Cleared miners from rack",
+			want:   []string{"Cleared devices from rack"},
 		},
 	}
 

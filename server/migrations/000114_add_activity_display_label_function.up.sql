@@ -22,7 +22,8 @@ CREATE FUNCTION activity_display_label(
     event_type TEXT,
     scope_type TEXT,
     scope_label TEXT,
-    metadata JSONB
+    metadata JSONB,
+    description TEXT
 ) RETURNS TEXT
 LANGUAGE SQL
 IMMUTABLE
@@ -98,7 +99,14 @@ base AS (
         WHEN event_type = 'delete_collection' THEN CONCAT('Deleted ', COALESCE(scope_type, 'collection'), COALESCE(': ' || scope_label, ''))
         WHEN event_type = 'add_devices' THEN CONCAT('Added miners to group', COALESCE(': ' || scope_label, ''))
         WHEN event_type = 'remove_devices' THEN CONCAT('Removed miners from group', COALESCE(': ' || scope_label, ''))
-        WHEN event_type = 'assign_devices_to_rack' THEN CONCAT('Assigned miners to rack', COALESCE(': ' || scope_label, ''))
+        -- The server reuses assign_devices_to_rack for the clear-rack path
+        -- ("Cleared devices from rack"); mirror the client and don't report
+        -- the opposite action.
+        WHEN event_type = 'assign_devices_to_rack' THEN
+            CASE WHEN description ~* '^cleared\y'
+                 THEN CONCAT('Cleared miners from rack', COALESCE(': ' || COALESCE(scope_label, TRIM(substring(description from ':\s*(.+)$'))), ''))
+                 ELSE CONCAT('Assigned miners to rack', COALESCE(': ' || COALESCE(scope_label, TRIM(substring(description from ':\s*(.+)$'))), ''))
+            END
         WHEN event_type IN ('set_rack_slot', 'clear_rack_slot') THEN CONCAT('Updated rack position', COALESCE(': ' || scope_label, ''))
         WHEN event_type = 'save_rack' THEN CONCAT('Saved rack', COALESCE(': ' || scope_label, ''))
         WHEN event_type = 'unpair_miners' THEN 'Unpaired miners'
@@ -151,11 +159,13 @@ base AS (
         WHEN event_type = 'devices.reassigned_to_site' THEN 'Reassigned miners to site'
         WHEN event_type = 'devices.reassigned_to_building' THEN 'Reassigned miners to building'
 
-        WHEN event_type = 'schedule_executed' THEN 'Ran schedule'
-        WHEN event_type = 'schedule_window_ended' THEN 'Ended schedule window'
-        WHEN event_type = 'schedule_completed' THEN 'Completed schedule'
-        WHEN event_type = 'schedule_conflict_skip' THEN 'Skipped schedule conflict'
-        WHEN event_type = 'schedule_skipped_due_to_curtailment' THEN 'Skipped schedule during curtailment'
+        -- Schedule descriptions carry the name in quotes ('Schedule "Night
+        -- Shift" executed ...'); the client appends it via quotedTarget().
+        WHEN event_type = 'schedule_executed' THEN CONCAT('Ran schedule', COALESCE(': ' || substring(description from '"([^"]+)"'), ''))
+        WHEN event_type = 'schedule_window_ended' THEN CONCAT('Ended schedule window', COALESCE(': ' || substring(description from '"([^"]+)"'), ''))
+        WHEN event_type = 'schedule_completed' THEN CONCAT('Completed schedule', COALESCE(': ' || substring(description from '"([^"]+)"'), ''))
+        WHEN event_type = 'schedule_conflict_skip' THEN CONCAT('Skipped schedule conflict', COALESCE(': ' || substring(description from '"([^"]+)"'), ''))
+        WHEN event_type = 'schedule_skipped_due_to_curtailment' THEN CONCAT('Skipped schedule during curtailment', COALESCE(': ' || substring(description from '"([^"]+)"'), ''))
         WHEN event_type = 'curtailment_started' THEN 'Started curtailment'
         WHEN event_type = 'curtailment_admin_terminated' THEN 'Stopped curtailment'
         WHEN event_type = 'curtailment_admin_terminated_replay' THEN 'Curtailment already stopped'
