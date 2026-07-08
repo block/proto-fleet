@@ -84,6 +84,12 @@ export interface MinerSelectionListHandle {
     // tracked for every item seen across pages, and a miner can only be selected
     // from a page it appeared on.
     reassignedItems: string[];
+    // True when a placement facet conflicts with the target rack, so the list is
+    // showing an empty "no results" state. The selection is preserved (clearing
+    // the facet restores it), but callers must not act on it — committing would
+    // save a selection the operator can't see. Restored to false once the facet
+    // is cleared or changed.
+    blockedByFilter: boolean;
   };
 }
 
@@ -537,10 +543,17 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       }
     }, [initialSelectedItems, hasInitialSynced]);
 
-    // Notify parent of selection changes
+    // Notify parent of selection changes. While a placement facet conflicts, the
+    // list shows no results, so report an empty selection — this keeps callers
+    // that gate on selection (e.g. Search's Assign button) consistent with the
+    // empty view without discarding the underlying selection state.
     useEffect(() => {
+      if (placementFacetConflict) {
+        onSelectionChange?.({ selectedItems: [], allSelected: false, totalMiners });
+        return;
+      }
       onSelectionChange?.({ selectedItems, allSelected, totalMiners });
-    }, [selectedItems, allSelected, totalMiners, onSelectionChange]);
+    }, [selectedItems, allSelected, totalMiners, onSelectionChange, placementFacetConflict]);
 
     useEffect(() => {
       if (!allSelected || canSelectAll) {
@@ -559,10 +572,17 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             const item = seenItemsRef.current.get(id);
             return item !== undefined && isReassignment(item);
           });
-          return { selectedItems, allSelected, totalMiners, filter, reassignedItems };
+          return {
+            selectedItems,
+            allSelected,
+            totalMiners,
+            filter,
+            reassignedItems,
+            blockedByFilter: placementFacetConflict,
+          };
         },
       }),
-      [selectedItems, allSelected, totalMiners, filter, isReassignment],
+      [selectedItems, allSelected, totalMiners, filter, isReassignment, placementFacetConflict],
     );
 
     const handleSetSelectedItems = useCallback(

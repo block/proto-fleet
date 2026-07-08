@@ -47,7 +47,15 @@ export default function ManageMinersModal({
     const selection = selectionRef.current?.getSelection();
     if (!selection) return;
 
-    const { selectedItems, allSelected, filter, reassignedItems } = selection;
+    const { selectedItems, allSelected, filter, reassignedItems, blockedByFilter } = selection;
+
+    // A conflicting placement facet shows "no results"; committing here would
+    // save a selection the operator can't see (or wipe membership). Prompt them
+    // to clear the filter first instead.
+    if (blockedByFilter) {
+      setOverflowError("Clear the Site, Building, or Rack filter to continue — it doesn't match this rack.");
+      return;
+    }
 
     // Only validate overflow for explicit selections. When allSelected is true,
     // the parent resolves the full selectable list via server pagination and

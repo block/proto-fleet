@@ -31,7 +31,9 @@ export default function SearchMinersModal({
 
   const handleConfirm = useCallback(() => {
     const selection = selectionRef.current?.getSelection();
-    if (!selection || selection.selectedItems.length === 0) return;
+    // blockedByFilter: a conflicting placement facet is showing no results, so
+    // the (hidden) selection must not be acted on.
+    if (!selection || selection.blockedByFilter || selection.selectedItems.length === 0) return;
     const minerId = selection.selectedItems[0];
     onConfirm(minerId, selection.reassignedItems.includes(minerId));
   }, [onConfirm]);

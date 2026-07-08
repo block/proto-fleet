@@ -10,6 +10,7 @@ const mockGetSelection = vi.fn(() => ({
   allSelected: false,
   totalMiners: 0,
   reassignedItems: [] as string[],
+  blockedByFilter: false,
 }));
 
 vi.mock("@/protoFleet/components/MinerSelectionList", () => ({
@@ -102,6 +103,7 @@ describe("ManageMinersModal", () => {
       allSelected: false,
       totalMiners: 10,
       reassignedItems: [],
+      blockedByFilter: false,
     });
 
     render(<ManageMinersModal {...defaultProps} onConfirm={onConfirm} />);
@@ -116,6 +118,7 @@ describe("ManageMinersModal", () => {
       allSelected: false,
       totalMiners: 10,
       reassignedItems: [],
+      blockedByFilter: false,
     });
 
     render(<ManageMinersModal {...defaultProps} maxSlots={2} />);
@@ -131,11 +134,30 @@ describe("ManageMinersModal", () => {
       allSelected: false,
       totalMiners: 10,
       reassignedItems: [],
+      blockedByFilter: false,
     });
 
     render(<ManageMinersModal {...defaultProps} maxSlots={2} onConfirm={onConfirm} />);
     fireEvent.click(screen.getByText(/Continue/));
 
     expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("blocks Continue and prompts to clear the filter when a placement facet conflicts", () => {
+    const onConfirm = vi.fn();
+    mockGetSelection.mockReturnValue({
+      selectedItems: ["m1", "m2"],
+      allSelected: true,
+      totalMiners: 10,
+      reassignedItems: [],
+      blockedByFilter: true,
+    });
+
+    render(<ManageMinersModal {...defaultProps} onConfirm={onConfirm} />);
+    fireEvent.click(screen.getByText(/Continue/));
+
+    // No save (which would otherwise resolve/commit a hidden selection).
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(screen.getByText(/Clear the Site, Building, or Rack filter/i)).toBeInTheDocument();
   });
 });
