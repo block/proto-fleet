@@ -40,6 +40,7 @@ jobs:
     outputs:
       found: ${{ steps.pr.outputs.found }}
       number: ${{ steps.pr.outputs.number }}
+      base_sha: ${{ steps.pr.outputs.base_sha }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
       decision: ${{ steps.evaluate_policy.outputs.decision || steps.bootstrap_policy.outputs.decision || 'needs-human-review' }}
       passed: ${{ steps.evaluate_policy.outputs.passed || steps.bootstrap_policy.outputs.passed || 'false' }}
@@ -432,6 +433,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR_NUMBER: ${{ needs.evaluate.outputs.number }}
+          BASE_SHA: ${{ needs.evaluate.outputs.base_sha }}
           HEAD_SHA: ${{ needs.evaluate.outputs.head_sha }}
           DECISION: ${{ needs.evaluate.outputs.decision || 'needs-human-review' }}
           PASSED: ${{ needs.evaluate.outputs.passed || 'false' }}
@@ -443,6 +445,7 @@ jobs:
             const passed = process.env.PASSED === 'true';
             const enforced = process.env.ENFORCED !== 'false';
             const issue_number = Number(process.env.PR_NUMBER);
+            const baseSha = process.env.BASE_SHA;
             const headSha = process.env.HEAD_SHA;
             const statusContext = enforced ? 'Review Policy' : 'Review Policy Advisory';
             const descriptions = {
@@ -460,10 +463,10 @@ jobs:
               repo: context.repo.repo,
               pull_number: issue_number,
             });
-            if (pr.state !== 'open' || pr.head.sha !== headSha) {
+            if (pr.state !== 'open' || pr.head.sha !== headSha || pr.base.sha !== baseSha) {
               core.notice(
-                `Skipping stale Review Policy status publish for ${headSha}; ` +
-                `pull request #${issue_number} now points at ${pr.head.sha}.`
+                `Skipping stale Review Policy status publish for ${baseSha}...${headSha}; ` +
+                `pull request #${issue_number} now points at ${pr.base.sha}...${pr.head.sha}.`
               );
               return;
             }
@@ -515,6 +518,7 @@ jobs:
         env:
           DECISION: ${{ needs.evaluate.outputs.decision || 'needs-human-review' }}
           PR_NUMBER: ${{ needs.evaluate.outputs.number }}
+          HEAD_SHA: ${{ needs.evaluate.outputs.head_sha }}
         with:
           script: |
             const labels = {
@@ -529,8 +533,13 @@ jobs:
               : 'needs-human-review';
             const desired = labels[decision] || labels['needs-human-review'];
             const issue_number = Number(process.env.PR_NUMBER);
+            const headSha = process.env.HEAD_SHA;
             if (!Number.isInteger(issue_number) || issue_number <= 0) {
               core.setFailed(`Invalid pull request number for review policy label sync: ${process.env.PR_NUMBER}`);
+              return;
+            }
+            if (!headSha) {
+              core.setFailed('Missing evaluated head SHA for review policy label sync.');
               return;
             }
             const colors = {
@@ -559,6 +568,19 @@ jobs:
             }
 
             try {
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: issue_number,
+              });
+              if (pr.state !== 'open' || pr.head.sha !== headSha) {
+                core.notice(
+                  `Skipping stale Review Policy label sync for ${headSha}; ` +
+                  `pull request #${issue_number} now points at ${pr.head.sha}.`
+                );
+                return;
+              }
+
               for (const label of managedLabels) {
                 await ensureLabel(label);
               }
