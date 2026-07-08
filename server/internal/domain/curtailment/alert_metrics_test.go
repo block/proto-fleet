@@ -234,6 +234,33 @@ func TestAlertMetricsTickClearingSampleSurvivesLookupError(t *testing.T) {
 	require.False(t, emitter.active[1].value, "clearing 0 must land once the lookup recovers")
 }
 
+func TestAlertMetricsTickRetiresConnectedSeriesWhenSourceDisabled(t *testing.T) {
+	sources := &fakeSourcesLister{sources: []mqttingest.SourceConfig{testSource(1, 10, "maestro")}}
+	emitter := &recordingEmitter{}
+	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{
+		Sources:           sources,
+		Runtime:           &fakeRuntime{statuses: map[int64]mqttingest.RuntimeStatus{1: {State: mqttingest.RuntimeStateError}}},
+		ActiveCurtailment: &fakeActiveLister{},
+		Emitter:           emitter,
+	})
+
+	loop.tick(context.Background())
+	require.Len(t, emitter.connected, 1)
+	require.False(t, emitter.connected[0].value, "source starts disconnected")
+
+	// Operator disables the disconnected source: one non-alerting tombstone
+	// resolves the critical alert instead of letting it fire for ~10 more min.
+	sources.sources = nil
+	loop.tick(context.Background())
+	require.Len(t, emitter.connected, 2)
+	require.Equal(t, emitter.connected[0].labels, emitter.connected[1].labels)
+	require.True(t, emitter.connected[1].value)
+
+	// Steady state afterwards: nothing more is emitted for that source.
+	loop.tick(context.Background())
+	require.Len(t, emitter.connected, 2)
+}
+
 func TestAlertMetricsTickRetiresRenamedSourceSeries(t *testing.T) {
 	sources := &fakeSourcesLister{sources: []mqttingest.SourceConfig{testSource(1, 10, "old-name")}}
 	active := &fakeActiveLister{active: []*models.MQTTSourceActiveCurtailment{

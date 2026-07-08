@@ -85,9 +85,9 @@ const (
 	// MetricMQTTSourceConnected is a per-source gauge: 1 when the MQTT
 	// curtailment source has at least one broker connection subscribed to its
 	// signal topic, 0 when it cannot receive curtailment signals. Labelled
-	// with kind (the source name). Emission stops when the source is disabled
-	// or removed; a rule built on this series resolves once the last sample
-	// ages out of its freshness window.
+	// with kind (the source name). A source that is disabled, removed, or
+	// renamed gets one final non-alerting sample so rules on the retired
+	// series resolve promptly; then emission stops.
 	MetricMQTTSourceConnected = "fleet_mqtt_source_connected"
 
 	// MetricMQTTCurtailmentActive is a per-source gauge: 1 while a curtailment

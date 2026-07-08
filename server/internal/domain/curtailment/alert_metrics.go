@@ -196,11 +196,12 @@ func (l *AlertMetricsLoop) tick(ctx context.Context) {
 			delete(activeBySourceID, src.ID)
 		}
 	}
-	// A renamed source changes the series identity (kind label): retire the
-	// old-name series with one non-alerting sample so its alert resolves now
-	// instead of firing under a dead name until the window ages it out.
+	// A renamed source changes the series identity (kind label) and a
+	// disabled/removed source stops being monitored: either way, retire the
+	// old series with one non-alerting sample so its alert resolves now
+	// instead of firing for a dead series until the window ages it out.
 	for id, old := range l.prevConnected {
-		if cur, ok := curConnected[id]; ok && cur != old {
+		if cur, ok := curConnected[id]; !ok || cur != old {
 			l.cfg.Emitter.EmitMQTTSourceConnected(ctx, old, true)
 		}
 	}

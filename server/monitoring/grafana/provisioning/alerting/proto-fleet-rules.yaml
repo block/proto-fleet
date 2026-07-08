@@ -278,9 +278,9 @@ groups:
               format: table
               rawSql: |
                 -- fleet_mqtt_source_connected is 0 while an enabled source has no
-                -- subscribed broker connection. Emission stops when the source is
-                -- disabled or removed; the rule then resolves once the last sample
-                -- ages out of the 10-minute window below.
+                -- subscribed broker connection. Disabling, removing, or renaming a
+                -- source retires its series with one non-alerting sample (age-out
+                -- of the 10-minute window below is the fallback after a restart).
                 SELECT
                     organization_id,
                     kind,
