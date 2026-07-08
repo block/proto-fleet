@@ -1323,6 +1323,49 @@ describe("useMinerActions", () => {
       );
     });
 
+    it("should fall back to a client batch identifier when crypto.randomUUID is unavailable", async () => {
+      const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+      Object.defineProperty(globalThis, "crypto", { value: {}, writable: true, configurable: true });
+      mockDeleteMiners.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ deletedCount: 1 });
+      });
+
+      try {
+        const { result } = renderHook(() =>
+          useMinerActions({
+            ...batchOpsParams(),
+            selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+            selectionMode: "subset",
+          }),
+        );
+
+        const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
+
+        act(() => {
+          deleteAction?.actionHandler();
+        });
+
+        await act(async () => {
+          await result.current.handleConfirmation();
+        });
+
+        const batch = mockStartBatchOperation.mock.calls[0][0];
+        expect(batch).toEqual(
+          expect.objectContaining({
+            batchIdentifier: expect.stringMatching(/^unpair-/),
+            action: deviceActions.unpair,
+            deviceIdentifiers: ["device-1"],
+          }),
+        );
+        expect(mockDeleteMiners).toHaveBeenCalled();
+        expect(mockCompleteBatchOperation).toHaveBeenCalledWith(batch.batchIdentifier);
+      } finally {
+        if (originalCryptoDescriptor) {
+          Object.defineProperty(globalThis, "crypto", originalCryptoDescriptor);
+        }
+      }
+    });
+
     it("should complete batch operation on deleteMiners error", async () => {
       mockDeleteMiners.mockImplementation(({ onError }: any) => {
         onError("delete failed");
