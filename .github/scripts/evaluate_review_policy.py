@@ -23,10 +23,13 @@ API_VERSION = "2022-11-28"
 BOT_SUFFIX = "[bot]"
 AUTHORIZED_REVIEW_PERMISSIONS = {"admin", "maintain", "write"}
 SECURITY_RISK_LEVELS = {"NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"}
+INACCESSIBLE_HTTP_STATUSES = {403, 404}
 
 
 class PolicyError(RuntimeError):
-    pass
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def normalize_login(login: str) -> str:
@@ -64,7 +67,7 @@ def github_request(method: str, path: str, token: str, body: dict[str, Any] | No
             return json.loads(content)
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")
-        raise PolicyError(f"GitHub API {method} {path} failed: {error.code} {detail}") from error
+        raise PolicyError(f"GitHub API {method} {path} failed: {error.code} {detail}", error.code) from error
 
 
 def github_download(path: str, token: str) -> bytes:
@@ -94,7 +97,7 @@ def github_download(path: str, token: str) -> bytes:
             return response.read()
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")
-        raise PolicyError(f"GitHub API download {path} failed: {error.code} {detail}") from error
+        raise PolicyError(f"GitHub API download {path} failed: {error.code} {detail}", error.code) from error
 
 
 def github_paginate(path: str, token: str) -> list[Any]:
@@ -259,10 +262,10 @@ def human_review_state(
     ineligible_approvers = {normalize_login(author)}
     ineligible_approvers.update(normalize_login(login) for login in (ineligible_reviewers or set()))
 
-    def has_authority(login: str, association: str | None) -> bool:
+    def has_authority(login: str) -> bool:
         key = normalize_login(login)
         if key not in authority_cache:
-            authority_cache[key] = reviewer_has_authority(owner, repo, login, association, token)
+            authority_cache[key] = reviewer_has_authority(owner, repo, login, token)
         return authority_cache[key]
 
     sorted_reviews = sorted(reviews, key=lambda item: str(item.get("submitted_at") or ""))
@@ -277,7 +280,7 @@ def human_review_state(
         if is_bot:
             continue
 
-        if state in {"APPROVED", "CHANGES_REQUESTED"} and not has_authority(login, review.get("author_association")):
+        if state in {"APPROVED", "CHANGES_REQUESTED"} and not has_authority(login):
             ignored.append(login)
             continue
 
@@ -316,12 +319,12 @@ def human_review_state(
     return not blockers, reasons, blockers
 
 
-def reviewer_has_authority(owner: str, repo: str, username: str, association: str | None, token: str) -> bool:
+def reviewer_has_authority(owner: str, repo: str, username: str, token: str) -> bool:
     quoted_user = urllib.parse.quote(username, safe="")
     try:
         permission = github_request("GET", f"/repos/{owner}/{repo}/collaborators/{quoted_user}/permission", token)
     except PolicyError as error:
-        if " 403 " in str(error) or " 404 " in str(error):
+        if error.status_code in INACCESSIBLE_HTTP_STATUSES:
             return False
         raise
     return permission.get("permission") in AUTHORIZED_REVIEW_PERMISSIONS
@@ -333,7 +336,7 @@ def is_team_member(owner: str, team_slug: str, username: str, token: str) -> boo
     try:
         membership = github_request("GET", f"/orgs/{owner}/teams/{quoted_team}/memberships/{quoted_user}", token)
     except PolicyError as error:
-        if " 403 " in str(error) or " 404 " in str(error):
+        if error.status_code in INACCESSIBLE_HTTP_STATUSES:
             return False
         raise
     return membership.get("state") == "active"
@@ -586,9 +589,20 @@ def latest_check_runs(owner: str, repo: str, head_sha: str, token: str) -> dict[
     return latest_by_name
 
 
-def check_statuses(owner: str, repo: str, head_sha: str, required_checks: list[Any], token: str) -> tuple[bool, list[str]]:
-    latest_by_name = latest_check_runs(owner, repo, head_sha, token)
-    latest_by_context = latest_commit_statuses(owner, repo, head_sha, token)
+def check_statuses(
+    owner: str,
+    repo: str,
+    head_sha: str,
+    required_checks: list[Any],
+    token: str,
+    latest_by_name: dict[str, dict[str, Any]] | None = None,
+) -> tuple[bool, list[str]]:
+    if latest_by_name is None:
+        latest_by_name = latest_check_runs(owner, repo, head_sha, token)
+    needs_commit_statuses = any(
+        isinstance(requirement, dict) and requirement.get("type") == "commit_status" for requirement in required_checks
+    )
+    latest_by_context = latest_commit_statuses(owner, repo, head_sha, token) if needs_commit_statuses else {}
     blockers: list[str] = []
     for requirement in required_checks:
         if isinstance(requirement, str):
@@ -781,8 +795,11 @@ def extract_security_risk(
     check_name: str,
     workflow_path: str,
     artifact_name: str,
+    latest_by_name: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[str | None, list[str]]:
-    security_run = latest_check_runs(owner, repo, head_sha, token).get(check_name)
+    if latest_by_name is None:
+        latest_by_name = latest_check_runs(owner, repo, head_sha, token)
+    security_run = latest_by_name.get(check_name)
     if not security_run:
         return None, [f"Codex security-review check {check_name!r} is missing"]
 
@@ -944,7 +961,15 @@ def evaluate_policy(
     else:
         low_reasons.append("deterministic content checks passed")
 
-    checks_ok, check_blockers = check_statuses(owner, repo, head_sha, low_config.get("required_checks", []), token)
+    latest_by_name = latest_check_runs(owner, repo, head_sha, token)
+    checks_ok, check_blockers = check_statuses(
+        owner,
+        repo,
+        head_sha,
+        low_config.get("required_checks", []),
+        token,
+        latest_by_name,
+    )
     if checks_ok:
         low_reasons.append("required checks are successful")
     else:
@@ -959,6 +984,7 @@ def evaluate_policy(
         str(config.get("security_review_check", "security-review")),
         str(config.get("security_review_workflow_path", ".github/workflows/codex-security-review.yml")),
         str(config.get("security_review_artifact", "codex-security-review-result")),
+        latest_by_name,
     )
     allowed_security_risks = {risk.upper() for risk in low_config.get("allowed_security_risks", [])}
     if security_blockers:

@@ -739,6 +739,7 @@ class ReviewPolicyTest(unittest.TestCase):
         original_trusted_author_reasons = policy.trusted_author_reasons
         original_check_statuses = policy.check_statuses
         original_extract_security_risk = policy.extract_security_risk
+        original_latest_check_runs = policy.latest_check_runs
         original_workflow_runs = policy.latest_workflow_runs
         try:
             def fake_paginate(path, token):
@@ -769,11 +770,12 @@ class ReviewPolicyTest(unittest.TestCase):
                 True,
                 [f"author @{author} is explicitly trusted"],
             )
-            policy.check_statuses = lambda owner, repo, head_sha, required_checks, token: (True, [])
-            policy.extract_security_risk = lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name: (
+            policy.check_statuses = lambda owner, repo, head_sha, required_checks, token, latest_by_name=None: (True, [])
+            policy.extract_security_risk = lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name, latest_by_name=None: (
                 "LOW",
                 [],
             )
+            policy.latest_check_runs = lambda owner, repo, head_sha, token: {}
             policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
                 ".github/workflows/pr-gate.yml": {"actor": {"login": "author"}},
             }
@@ -814,6 +816,7 @@ class ReviewPolicyTest(unittest.TestCase):
             policy.trusted_author_reasons = original_trusted_author_reasons
             policy.check_statuses = original_check_statuses
             policy.extract_security_risk = original_extract_security_risk
+            policy.latest_check_runs = original_latest_check_runs
             policy.latest_workflow_runs = original_workflow_runs
 
         self.assertTrue(result.passed)
@@ -827,6 +830,7 @@ class ReviewPolicyTest(unittest.TestCase):
         original_trusted_author_reasons = policy.trusted_author_reasons
         original_check_statuses = policy.check_statuses
         original_extract_security_risk = policy.extract_security_risk
+        original_latest_check_runs = policy.latest_check_runs
         original_workflow_runs = policy.latest_workflow_runs
         try:
             def fake_paginate(path, token):
@@ -854,16 +858,17 @@ class ReviewPolicyTest(unittest.TestCase):
                 "head": {"sha": "abc123"},
                 "base": {"sha": "base123"},
             }
-            policy.reviewer_has_authority = lambda owner, repo, username, association, token: True
+            policy.reviewer_has_authority = lambda owner, repo, username, token: True
             policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
                 True,
                 [f"author @{author} is explicitly trusted"],
             )
-            policy.check_statuses = lambda owner, repo, head_sha, required_checks, token: (True, [])
-            policy.extract_security_risk = lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name: (
+            policy.check_statuses = lambda owner, repo, head_sha, required_checks, token, latest_by_name=None: (True, [])
+            policy.extract_security_risk = lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name, latest_by_name=None: (
                 "LOW",
                 [],
             )
+            policy.latest_check_runs = lambda owner, repo, head_sha, token: {}
             policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
                 ".github/workflows/pr-gate.yml": {"actor": {"login": "author"}},
             }
@@ -905,6 +910,7 @@ class ReviewPolicyTest(unittest.TestCase):
             policy.trusted_author_reasons = original_trusted_author_reasons
             policy.check_statuses = original_check_statuses
             policy.extract_security_risk = original_extract_security_risk
+            policy.latest_check_runs = original_latest_check_runs
             policy.latest_workflow_runs = original_workflow_runs
 
         self.assertFalse(result.passed)
@@ -961,6 +967,7 @@ class ReviewPolicyTest(unittest.TestCase):
         original_trusted_author_reasons = policy.trusted_author_reasons
         original_check_statuses = policy.check_statuses
         original_extract_security_risk = policy.extract_security_risk
+        original_latest_check_runs = policy.latest_check_runs
         original_workflow_runs = policy.latest_workflow_runs
         try:
             def fake_paginate(path, token):
@@ -988,16 +995,17 @@ class ReviewPolicyTest(unittest.TestCase):
                 "head": {"sha": "abc123"},
                 "base": {"sha": "base123"},
             }
-            policy.reviewer_has_authority = lambda owner, repo, username, association, token: True
+            policy.reviewer_has_authority = lambda owner, repo, username, token: True
             policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
                 True,
                 [f"author @{author} is explicitly trusted"],
             )
-            policy.check_statuses = lambda owner, repo, head_sha, required_checks, token: (True, [])
-            policy.extract_security_risk = lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name: (
+            policy.check_statuses = lambda owner, repo, head_sha, required_checks, token, latest_by_name=None: (True, [])
+            policy.extract_security_risk = lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name, latest_by_name=None: (
                 "LOW",
                 [],
             )
+            policy.latest_check_runs = lambda owner, repo, head_sha, token: {}
             policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
                 ".github/workflows/pr-gate.yml": {"actor": {"login": "pusher"}},
             }
@@ -1039,6 +1047,7 @@ class ReviewPolicyTest(unittest.TestCase):
             policy.trusted_author_reasons = original_trusted_author_reasons
             policy.check_statuses = original_check_statuses
             policy.extract_security_risk = original_extract_security_risk
+            policy.latest_check_runs = original_latest_check_runs
             policy.latest_workflow_runs = original_workflow_runs
 
         self.assertFalse(result.passed)
@@ -1049,7 +1058,7 @@ class ReviewPolicyTest(unittest.TestCase):
     def test_human_review_state_ignores_unauthorized_approvals(self):
         original = policy.reviewer_has_authority
         try:
-            policy.reviewer_has_authority = lambda owner, repo, username, association, token: username == "member"
+            policy.reviewer_has_authority = lambda owner, repo, username, token: username == "member"
             reviews = [
                 {
                     "user": {"login": "outsider", "type": "User"},
@@ -1086,7 +1095,7 @@ class ReviewPolicyTest(unittest.TestCase):
     def test_human_review_state_ignores_head_contributor_approvals(self):
         original = policy.reviewer_has_authority
         try:
-            policy.reviewer_has_authority = lambda owner, repo, username, association, token: True
+            policy.reviewer_has_authority = lambda owner, repo, username, token: True
             reviews = [
                 {
                     "user": {"login": "contributor", "type": "User"},
@@ -1124,7 +1133,7 @@ class ReviewPolicyTest(unittest.TestCase):
     def test_human_review_state_keeps_change_request_after_comment(self):
         original = policy.reviewer_has_authority
         try:
-            policy.reviewer_has_authority = lambda owner, repo, username, association, token: True
+            policy.reviewer_has_authority = lambda owner, repo, username, token: True
             reviews = [
                 {
                     "user": {"login": "reviewer", "type": "User"},
@@ -1152,7 +1161,7 @@ class ReviewPolicyTest(unittest.TestCase):
         original = policy.reviewer_has_authority
         calls = []
         try:
-            def fake_reviewer_has_authority(owner, repo, username, association, token):
+            def fake_reviewer_has_authority(owner, repo, username, token):
                 calls.append(username)
                 return True
 
@@ -1185,7 +1194,7 @@ class ReviewPolicyTest(unittest.TestCase):
     def test_human_review_state_clears_change_request_on_approval_or_dismissal(self):
         original = policy.reviewer_has_authority
         try:
-            policy.reviewer_has_authority = lambda owner, repo, username, association, token: True
+            policy.reviewer_has_authority = lambda owner, repo, username, token: True
             approved_reviews = [
                 {
                     "user": {"login": "reviewer", "type": "User"},
