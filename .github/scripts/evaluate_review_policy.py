@@ -378,6 +378,30 @@ def trusted_head_contributor_reasons(
     return not blockers, reasons, blockers
 
 
+def workflow_actor_for_head(
+    owner: str,
+    repo: str,
+    head_sha: str,
+    actor_config: dict[str, Any],
+    token: str,
+) -> tuple[str | None, list[str]]:
+    workflow_path = actor_config.get("workflow_path") if isinstance(actor_config, dict) else None
+    event = actor_config.get("event") if isinstance(actor_config, dict) else None
+    if not isinstance(workflow_path, str) or not workflow_path:
+        return None, ["trusted actor workflow config is missing workflow_path"]
+    if not isinstance(event, str) or not event:
+        return None, ["trusted actor workflow config is missing event"]
+
+    workflow_run = latest_workflow_runs(owner, repo, head_sha, event, token).get(workflow_path)
+    if workflow_run is None:
+        return None, [f"trusted actor workflow {workflow_path!r} is missing for this PR head"]
+    actor = workflow_run.get("actor") or {}
+    login = actor.get("login") if isinstance(actor, dict) else None
+    if not login:
+        return None, [f"trusted actor workflow {workflow_path!r} is missing an authenticated actor"]
+    return login, []
+
+
 def trusted_workflow_actor_reasons(
     owner: str,
     repo: str,
@@ -386,20 +410,9 @@ def trusted_workflow_actor_reasons(
     actor_config: dict[str, Any],
     token: str,
 ) -> tuple[bool, list[str], list[str]]:
-    workflow_path = actor_config.get("workflow_path") if isinstance(actor_config, dict) else None
-    event = actor_config.get("event") if isinstance(actor_config, dict) else None
-    if not isinstance(workflow_path, str) or not workflow_path:
-        return False, [], ["trusted actor workflow config is missing workflow_path"]
-    if not isinstance(event, str) or not event:
-        return False, [], ["trusted actor workflow config is missing event"]
-
-    workflow_run = latest_workflow_runs(owner, repo, head_sha, event, token).get(workflow_path)
-    if workflow_run is None:
-        return False, [], [f"trusted actor workflow {workflow_path!r} is missing for this PR head"]
-    actor = workflow_run.get("actor") or {}
-    login = actor.get("login") if isinstance(actor, dict) else None
-    if not login:
-        return False, [], [f"trusted actor workflow {workflow_path!r} is missing an authenticated actor"]
+    login, blockers = workflow_actor_for_head(owner, repo, head_sha, actor_config, token)
+    if blockers or not login:
+        return False, [], blockers
 
     trusted, _trust_reasons = trusted_author_reasons(login, trusted_authors, owner, token)
     if trusted:
@@ -445,6 +458,32 @@ def shared_head_pr_blockers(owner: str, repo: str, pr_number: int, head_sha: str
     ]
 
 
+def current_pr_head_blockers(
+    owner: str,
+    repo: str,
+    pr_number: int,
+    head_sha: str,
+    token: str,
+    base_sha: str | None = None,
+) -> list[str]:
+    pull = github_request("GET", f"/repos/{owner}/{repo}/pulls/{pr_number}", token)
+    if not isinstance(pull, dict):
+        return [f"pull request #{pr_number} could not be loaded"]
+    if pull.get("state") != "open":
+        return [f"pull request #{pr_number} is not open"]
+
+    current_head = ((pull.get("head") or {}).get("sha"))
+    if current_head != head_sha:
+        return [f"pull request #{pr_number} head is {current_head}, expected {head_sha}"]
+
+    if base_sha is not None:
+        current_base = ((pull.get("base") or {}).get("sha"))
+        if current_base != base_sha:
+            return [f"pull request #{pr_number} base is {current_base}, expected {base_sha}"]
+
+    return []
+
+
 def evaluate_low_risk_preflight(
     *,
     config: dict[str, Any],
@@ -455,11 +494,27 @@ def evaluate_low_risk_preflight(
     head_sha: str,
     token: str,
 ) -> dict[str, Any]:
-    files = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/files", token)
-    commits = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/commits", token)
     low_config = config["low_risk"]
     reasons: list[str] = []
     blockers: list[str] = []
+
+    blockers.extend(current_pr_head_blockers(owner, repo, pr_number, head_sha, token))
+    if blockers:
+        return {
+            "eligible": False,
+            "reasons": reasons,
+            "blockers": blockers,
+        }
+
+    files = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/files", token)
+    commits = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/commits", token)
+    blockers.extend(current_pr_head_blockers(owner, repo, pr_number, head_sha, token))
+    if blockers:
+        return {
+            "eligible": False,
+            "reasons": reasons,
+            "blockers": blockers,
+        }
 
     blockers.extend(shared_head_pr_blockers(owner, repo, pr_number, head_sha, token))
 
@@ -472,15 +527,19 @@ def evaluate_low_risk_preflight(
         token,
     )
     (reasons if head_trusted else blockers).extend(head_trust_reasons if head_trusted else head_trust_blockers)
-    actor_trusted, actor_reasons, actor_blockers = trusted_workflow_actor_reasons(
-        owner,
-        repo,
-        head_sha,
-        config.get("trusted_authors", []),
-        low_config.get("trusted_actor_workflow", {}),
-        token,
+    actor_login, actor_blockers = workflow_actor_for_head(
+        owner, repo, head_sha, low_config.get("trusted_actor_workflow", {}), token
     )
-    (reasons if actor_trusted else blockers).extend(actor_reasons if actor_trusted else actor_blockers)
+    if actor_login:
+        actor_trusted, _trust_reasons = trusted_author_reasons(
+            actor_login, config.get("trusted_authors", []), owner, token
+        )
+        if actor_trusted:
+            reasons.append(f"authenticated workflow actor @{actor_login} is trusted")
+        else:
+            blockers.append(f"authenticated workflow actor @{actor_login} is not in trusted_authors")
+    else:
+        blockers.extend(actor_blockers)
 
     changed_files = len(files)
     total_changes = sum(int(item.get("additions", 0)) + int(item.get("deletions", 0)) for item in files)
@@ -790,10 +849,33 @@ def evaluate_policy(
     token: str,
     classifier_output: str,
 ) -> PolicyResult:
+    stale_blockers = current_pr_head_blockers(owner, repo, pr_number, head_sha, token, base_sha)
+    if stale_blockers:
+        return PolicyResult(
+            passed=False,
+            decision="needs-human-review",
+            reasons=stale_blockers,
+        )
+
     files = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/files", token)
     commits = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/commits", token)
     reviews = github_paginate(f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews", token)
+    stale_blockers = current_pr_head_blockers(owner, repo, pr_number, head_sha, token, base_sha)
+    if stale_blockers:
+        return PolicyResult(
+            passed=False,
+            decision="needs-human-review",
+            reasons=stale_blockers,
+        )
+
     contributors, unknown_commits = head_contributors(commits)
+    low_config = config["low_risk"]
+    actor_login, actor_lookup_blockers = workflow_actor_for_head(
+        owner, repo, head_sha, low_config.get("trusted_actor_workflow", {}), token
+    )
+    ineligible_reviewers = set(contributors)
+    if actor_login:
+        ineligible_reviewers.add(actor_login)
 
     human_ok, human_reasons, human_blockers = human_review_state(
         reviews,
@@ -803,15 +885,17 @@ def evaluate_policy(
         owner,
         repo,
         token,
-        contributors,
+        ineligible_reviewers,
     )
     if unknown_commits:
         human_ok = False
         human_blockers.append(
             "current head has commits without GitHub-linked authors or committers: " + ", ".join(unknown_commits)
         )
+    if not actor_login:
+        human_ok = False
+        human_blockers.extend(actor_lookup_blockers)
 
-    low_config = config["low_risk"]
     low_reasons: list[str] = []
     low_blockers: list[str] = []
     shared_head_blockers = shared_head_pr_blockers(owner, repo, pr_number, head_sha, token)
@@ -826,15 +910,16 @@ def evaluate_policy(
         token,
     )
     (low_reasons if head_trusted else low_blockers).extend(head_trust_reasons if head_trusted else head_trust_blockers)
-    actor_trusted, actor_reasons, actor_blockers = trusted_workflow_actor_reasons(
-        owner,
-        repo,
-        head_sha,
-        config.get("trusted_authors", []),
-        low_config.get("trusted_actor_workflow", {}),
-        token,
-    )
-    (low_reasons if actor_trusted else low_blockers).extend(actor_reasons if actor_trusted else actor_blockers)
+    if actor_login:
+        actor_trusted, _trust_reasons = trusted_author_reasons(
+            actor_login, config.get("trusted_authors", []), owner, token
+        )
+        if actor_trusted:
+            low_reasons.append(f"authenticated workflow actor @{actor_login} is trusted")
+        else:
+            low_blockers.append(f"authenticated workflow actor @{actor_login} is not in trusted_authors")
+    else:
+        low_blockers.extend(actor_lookup_blockers)
 
     changed_files = len(files)
     total_changes = sum(int(item.get("additions", 0)) + int(item.get("deletions", 0)) for item in files)

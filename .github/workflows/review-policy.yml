@@ -436,6 +436,7 @@ jobs:
       - name: Publish review policy status
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          PR_NUMBER: ${{ needs.evaluate.outputs.number }}
           HEAD_SHA: ${{ needs.evaluate.outputs.head_sha }}
           DECISION: ${{ needs.evaluate.outputs.decision || 'needs-human-review' }}
           PASSED: ${{ needs.evaluate.outputs.passed || 'false' }}
@@ -446,17 +447,60 @@ jobs:
             const decision = process.env.DECISION || 'needs-human-review';
             const passed = process.env.PASSED === 'true';
             const enforced = process.env.ENFORCED !== 'false';
+            const issue_number = Number(process.env.PR_NUMBER);
+            const headSha = process.env.HEAD_SHA;
+            const statusContext = enforced ? 'Review Policy' : 'Review Policy Advisory';
             const descriptions = {
               'trusted-author-low-risk': 'Trusted author and low-risk gates passed.',
               'human-approved': 'Current authorized human approval satisfies policy.',
               'needs-human-review': 'Human review is required before merge.',
             };
+            if (!Number.isInteger(issue_number) || issue_number <= 0) {
+              core.setFailed(`Invalid pull request number for review policy status: ${process.env.PR_NUMBER}`);
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: issue_number,
+            });
+            if (pr.state !== 'open' || pr.head.sha !== headSha) {
+              core.notice(
+                `Skipping stale Review Policy status publish for ${headSha}; ` +
+                `pull request #${issue_number} now points at ${pr.head.sha}.`
+              );
+              return;
+            }
+
+            function runIdFromUrl(url) {
+              const match = String(url || '').match(/\/actions\/runs\/(\d+)/);
+              return match ? Number(match[1]) : 0;
+            }
+
+            const currentRunId = Number(process.env.GITHUB_RUN_ID || 0);
+            const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: headSha,
+              per_page: 100,
+            });
+            const existing = statuses.find((status) => status.context === statusContext);
+            const existingRunId = runIdFromUrl(existing?.target_url);
+            if (existingRunId > currentRunId) {
+              core.notice(
+                `Skipping stale Review Policy status publish from run ${currentRunId}; ` +
+                `${statusContext} already points at newer run ${existingRunId}.`
+              );
+              return;
+            }
+
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              sha: process.env.HEAD_SHA,
+              sha: headSha,
               state: passed || !enforced ? 'success' : 'failure',
-              context: 'Review Policy',
+              context: statusContext,
               description: descriptions[decision] || `Review policy decision: ${decision}`,
               target_url: process.env.TARGET_URL,
             });
