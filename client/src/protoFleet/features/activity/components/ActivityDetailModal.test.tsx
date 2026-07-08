@@ -98,6 +98,44 @@ describe("ActivityDetailModal", () => {
     );
   });
 
+  it("shows In progress instead of completion counts while a batch is still running", async () => {
+    const batchData = create(GetCommandBatchDeviceResultsResponseSchema, {
+      batchIdentifier: "batch-1",
+      commandType: "reboot",
+      status: "processing",
+      totalCount: 10,
+      successCount: 3,
+      failureCount: 0,
+      deviceResults: [],
+    });
+    getBatchResultMock.mockReturnValue({
+      data: batchData,
+      isLoading: false,
+      error: null,
+    });
+
+    const entry = create(ActivityEntrySchema, {
+      eventId: "activity-1",
+      eventType: "reboot",
+      eventCategory: "device_command",
+      scopeType: "miner",
+      scopeCount: 10,
+      username: "scheduler",
+      result: "success",
+      batchId: "batch-1",
+      createdAt: { seconds: 1_781_000_000n },
+    });
+
+    render(<ActivityDetailModal entry={entry} onDismiss={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(fetchBatchResultsMock).toHaveBeenCalledWith("batch-1");
+    });
+
+    expect(screen.getByText("In progress")).toBeInTheDocument();
+    expect(screen.queryByText("3/10 miners completed")).not.toBeInTheDocument();
+  });
+
   it("shows hidden issue and truncation messaging when failures are outside the returned slice", async () => {
     const batchData = create(GetCommandBatchDeviceResultsResponseSchema, {
       batchIdentifier: "batch-1",

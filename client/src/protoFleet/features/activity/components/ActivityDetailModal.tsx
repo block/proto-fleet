@@ -84,14 +84,13 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
 
   const showBatchCounts = batchData != null && !batchData.detailsPruned;
   const hasErrorMessage = Boolean(entry.errorMessage);
-  const resultLabel =
-    showBatchCounts && batchData
+  const resultLabel = batchInProgress
+    ? "In progress"
+    : showBatchCounts && batchData
       ? formatBatchResult(batchData)
-      : batchInProgress
-        ? "In progress"
-        : isFailed
-          ? "Couldn't complete"
-          : "Completed";
+      : isFailed
+        ? "Couldn't complete"
+        : "Completed";
 
   return (
     <Modal title={formatActivityDescription(entry)} onDismiss={onDismiss}>

@@ -162,8 +162,10 @@ const filterLabelMap: Record<string, string> = {
   "devices.reassigned_to_site": "Reassign miners to site",
   "devices.reassigned_to_building": "Reassign miners to building",
 
-  curtailment_started: "Start curtailment",
-  curtailment_admin_terminated: "Stop curtailment",
+  // Distinct from the `curtail` device command's "Start curtailment" so the
+  // type filter doesn't render two identical options for different events.
+  curtailment_started: "Curtailment started",
+  curtailment_admin_terminated: "Curtailment stopped",
   curtailment_admin_terminated_replay: "Curtailment already stopped",
   curtailment_updated: "Update curtailment",
   curtailment_force_released: "Release curtailment ownership",

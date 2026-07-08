@@ -140,7 +140,7 @@ export class ActivityPage extends BasePage {
   }
 
   private async selectDropdownFilter(title: string, optionLabel: string) {
-    const filterKey = title === "Users" ? "users" : title.toLowerCase();
+    const filterKey = title.toLowerCase();
     const trigger = this.page.getByTestId("filter-nested-add-filter");
     const popover = this.page.getByTestId("nested-dropdown-filter-popover");
 

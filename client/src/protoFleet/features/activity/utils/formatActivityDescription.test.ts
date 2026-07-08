@@ -44,6 +44,25 @@ describe("formatActivityDescription", () => {
     expect(formatActivityDescription(entry)).toBe("Updated rack position: Rack 7");
   });
 
+  it("uses in-progress wording for batch commands that are still running", () => {
+    const entry = create(ActivityEntrySchema, {
+      eventType: "reboot",
+      description: "Reboot",
+      batchId: "batch-1",
+    });
+
+    expect(formatActivityDescription(entry)).toBe("Rebooting miners");
+  });
+
+  it("falls back to the cleaned raw description for command events without a batch", () => {
+    const entry = create(ActivityEntrySchema, {
+      eventType: "reboot",
+      description: "Reboot 3 device(s)",
+    });
+
+    expect(formatActivityDescription(entry)).toBe("Reboot 3 miners");
+  });
+
   it("summarizes completed command counts as a ratio", () => {
     const entry = create(ActivityEntrySchema, {
       eventType: "reboot.completed",

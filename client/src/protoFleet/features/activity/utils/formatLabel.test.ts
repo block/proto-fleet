@@ -25,4 +25,10 @@ describe("formatLabel", () => {
     expect(formatActivityFilterLabel("site.created")).toBe("Create site");
     expect(formatActivityFilterLabel("set_power_target.completed")).toBe("Update power target");
   });
+
+  it("keeps curtailment lifecycle filter labels distinct from curtail commands", () => {
+    expect(formatActivityFilterLabel("curtailment_started")).toBe("Curtailment started");
+    expect(formatActivityFilterLabel("curtailment_started")).not.toBe(formatActivityFilterLabel("curtail"));
+    expect(formatActivityFilterLabel("curtailment_admin_terminated")).toBe("Curtailment stopped");
+  });
 });

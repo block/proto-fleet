@@ -52,6 +52,33 @@ func TestActivityLogs_SearchMatchesDisplayedLabels(t *testing.T) {
 			ActorType:      models.ActorSystem,
 			OrganizationID: &orgID,
 		},
+		{
+			Category:       models.CategoryPool,
+			Type:           "create_pool",
+			Description:    "Create pool",
+			Result:         models.ResultSuccess,
+			ActorType:      models.ActorUser,
+			Metadata:       map[string]any{"pool_name": "Label Search Pool"},
+			OrganizationID: &orgID,
+		},
+		{
+			Category:       models.CategoryAuth,
+			Type:           "create_user",
+			Description:    "Create user",
+			Result:         models.ResultSuccess,
+			ActorType:      models.ActorUser,
+			Metadata:       map[string]any{"target_username": "label-search-alice"},
+			OrganizationID: &orgID,
+		},
+		{
+			Category:       models.CategoryAuth,
+			Type:           "update_user_role",
+			Description:    "Update user role",
+			Result:         models.ResultSuccess,
+			ActorType:      models.ActorUser,
+			Metadata:       map[string]any{"target_username": "label-search-bob", "role_name": "Operator"},
+			OrganizationID: &orgID,
+		},
 	}
 
 	for _, event := range events {
@@ -77,6 +104,21 @@ func TestActivityLogs_SearchMatchesDisplayedLabels(t *testing.T) {
 			name:   "raw description still works",
 			search: "Raw search marker",
 			want:   []string{"Raw search marker"},
+		},
+		{
+			name:   "metadata-backed pool label with target",
+			search: "Created pool: Label Search Pool",
+			want:   []string{"Create pool"},
+		},
+		{
+			name:   "metadata-backed user label with target",
+			search: "Created user: label-search-alice",
+			want:   []string{"Create user"},
+		},
+		{
+			name:   "metadata-backed role change label with target",
+			search: "Updated role for label-search-bob",
+			want:   []string{"Update user role"},
 		},
 	}
 
