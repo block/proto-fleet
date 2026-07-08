@@ -32,12 +32,17 @@ RETURNS TABLE (
 )
 LANGUAGE sql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+-- pg_temp is listed LAST on purpose: when it is omitted, PostgreSQL searches
+-- it FIRST (even before pg_catalog) for relation names, so a caller with temp
+-- privileges could shadow an unqualified reference below and run their SQL
+-- under the definer's rights (CVE-2018-1058 class). Every relation here is
+-- schema-qualified as a second layer of the same defense.
+SET search_path = pg_catalog, pg_temp
 AS $$
     SELECT s.query, s.calls, s.total_exec_time, s.mean_exec_time,
            s.max_exec_time, s.rows
-    FROM pg_stat_statements s
-    WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+    FROM public.pg_stat_statements s
+    WHERE s.dbid = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database())
 $$;
 
 REVOKE EXECUTE ON FUNCTION fleet_slow_statements() FROM PUBLIC;
