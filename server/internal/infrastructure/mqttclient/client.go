@@ -254,7 +254,7 @@ func normalizeTopicFilter(topic string) string {
 		}
 		return topic
 	}
-	if rest := strings.TrimPrefix(topic, "$queue/"); rest != "" {
+	if rest, ok := strings.CutPrefix(topic, "$queue/"); ok && rest != "" {
 		return rest
 	}
 	return topic
