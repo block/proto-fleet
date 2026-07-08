@@ -42,10 +42,10 @@ jobs:
       number: ${{ steps.pr.outputs.number }}
       base_sha: ${{ steps.pr.outputs.base_sha }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
-      decision: ${{ steps.evaluate_policy.outputs.decision || steps.unsupported_base_policy.outputs.decision || steps.bootstrap_policy.outputs.decision || 'needs-human-review' }}
-      passed: ${{ steps.evaluate_policy.outputs.passed || steps.unsupported_base_policy.outputs.passed || steps.bootstrap_policy.outputs.passed || 'false' }}
-      enforced: ${{ steps.evaluate_policy.outputs.enforced || steps.unsupported_base_policy.outputs.enforced || steps.bootstrap_policy.outputs.enforced || 'true' }}
-      publishable: ${{ steps.evaluate_policy.outputs.publishable || steps.unsupported_base_policy.outputs.publishable || steps.bootstrap_policy.outputs.publishable || 'false' }}
+      decision: ${{ steps.evaluate_policy.outputs.decision || steps.fallback_policy.outputs.decision || 'needs-human-review' }}
+      passed: ${{ steps.evaluate_policy.outputs.passed || steps.fallback_policy.outputs.passed || 'false' }}
+      enforced: ${{ steps.evaluate_policy.outputs.enforced || steps.fallback_policy.outputs.enforced || 'true' }}
+      publishable: ${{ steps.evaluate_policy.outputs.publishable || steps.fallback_policy.outputs.publishable || 'false' }}
     env:
       CODEX_MODEL: gpt-5.5
       CODEX_REASONING_EFFORT: high
@@ -186,45 +186,35 @@ jobs:
           echo "path=$(pwd)" >> "$GITHUB_OUTPUT"
           echo "Using review policy code from the trusted base commit."
 
-      - name: Use unsupported base decision
-        id: unsupported_base_policy
-        if: steps.pr.outputs.found == 'true' && steps.policy_source.outputs.unsupported_base == 'true'
+      - name: Use fallback decision
+        id: fallback_policy
+        if: steps.pr.outputs.found == 'true' && steps.policy_source.outputs.available != 'true'
         env:
           BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          UNSUPPORTED_BASE: ${{ steps.policy_source.outputs.unsupported_base }}
         run: |
-          echo "decision=needs-human-review" >> "$GITHUB_OUTPUT"
-          echo "passed=false" >> "$GITHUB_OUTPUT"
-          echo "enforced=true" >> "$GITHUB_OUTPUT"
-          echo "publishable=true" >> "$GITHUB_OUTPUT"
-          {
-            echo "## Review Policy"
-            echo
-            echo "**Decision:** \`needs-human-review\`"
-            echo "**Status:** fail"
-            echo "**Mode:** enforced"
-            echo
-            echo "Review Policy only evaluates PRs based on the repository default branch; got base ref \`${BASE_REF}\`."
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$UNSUPPORTED_BASE" = "true" ]; then
+            enforced=true
+            mode=enforced
+            detail="Review Policy only evaluates PRs based on the repository default branch; got base ref \`${BASE_REF}\`."
+          else
+            enforced=false
+            mode=advisory
+            detail="Trusted base policy code is not available yet, so this bootstrap run did not execute PR-controlled policy code."
+          fi
 
-      - name: Use bootstrap fallback decision
-        id: bootstrap_policy
-        if: >-
-          steps.pr.outputs.found == 'true' &&
-          steps.policy_source.outputs.available != 'true' &&
-          steps.policy_source.outputs.unsupported_base != 'true'
-        run: |
           echo "decision=needs-human-review" >> "$GITHUB_OUTPUT"
           echo "passed=false" >> "$GITHUB_OUTPUT"
-          echo "enforced=false" >> "$GITHUB_OUTPUT"
+          echo "enforced=${enforced}" >> "$GITHUB_OUTPUT"
           echo "publishable=true" >> "$GITHUB_OUTPUT"
           {
             echo "## Review Policy"
             echo
             echo "**Decision:** \`needs-human-review\`"
             echo "**Status:** fail"
-            echo "**Mode:** advisory"
+            echo "**Mode:** ${mode}"
             echo
-            echo "Trusted base policy code is not available yet, so this bootstrap run did not execute PR-controlled policy code."
+            echo "${detail}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run deterministic low-risk preflight

@@ -18,8 +18,7 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertIn(
             "publishable: ${{ steps.evaluate_policy.outputs.publishable || "
-            "steps.unsupported_base_policy.outputs.publishable || "
-            "steps.bootstrap_policy.outputs.publishable || 'false' }}",
+            "steps.fallback_policy.outputs.publishable || 'false' }}",
             workflow,
         )
         self.assertEqual(workflow.count("needs.evaluate.outputs.publishable == 'true'"), 2)
@@ -31,10 +30,10 @@ class ReviewPolicyTest(unittest.TestCase):
         )
 
         self.assertIn('echo "unsupported_base=true" >> "$GITHUB_OUTPUT"', workflow)
-        self.assertIn("id: unsupported_base_policy", workflow)
-        self.assertIn("steps.unsupported_base_policy.outputs.enforced", workflow)
-        self.assertIn('echo "enforced=true" >> "$GITHUB_OUTPUT"', workflow)
-        self.assertIn("steps.policy_source.outputs.unsupported_base != 'true'", workflow)
+        self.assertIn("id: fallback_policy", workflow)
+        self.assertIn('if [ "$UNSUPPORTED_BASE" = "true" ]; then', workflow)
+        self.assertIn("enforced=true", workflow)
+        self.assertIn('echo "enforced=${enforced}" >> "$GITHUB_OUTPUT"', workflow)
 
     def test_workflow_serializes_and_authorizes_label_sync(self):
         workflow = (Path(__file__).resolve().parents[1] / "workflows" / "review-policy.yml").read_text(
