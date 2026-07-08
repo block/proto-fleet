@@ -19,7 +19,7 @@ proto/
       .cache/fleet-cli/fleet-descriptor-set.bin       │
                                                       │
 .cache/fleet-cli/fleet-descriptor-set.bin
-+ server/tools/generate-fleet-cli/overrides.json
++ server/tools/generate-fleet-cli/commands.json
   └─[server/tools/generate-fleet-cli]─────────────────┐
                                                       │
       server/cmd/fleetcli/cmd_<group>.go              │
@@ -85,37 +85,28 @@ It imports the existing generated Go types from
 `github.com/block/proto-fleet/server/generated/grpc/...`. It does not create or
 use a duplicate protobuf Go tree.
 
-### Input 2: Fleet CLI overrides
+### Input 2: Fleet CLI command manifest
 
-`server/tools/generate-fleet-cli/overrides.json` supplies the CLI behavior that
-descriptors do not encode cleanly, including:
+`server/tools/generate-fleet-cli/commands.json` is the complete manifest for
+protobuf-backed generated fleetcli commands. If a generated command is exposed,
+it appears in this file. The manifest supplies the CLI behavior that descriptors
+do not encode cleanly, including:
 
-- generated service selection via `all_methods`
-- custom group names such as `miners`
-- custom subcommand names such as `create-admin`
-- auth mode overrides: `anonymous`, `bearer`, `session`
+- command group names such as `miners`
+- subcommand names such as `create-admin`
+- exceptional auth modes such as `anonymous` or `session`
 - command aliases that split one service across multiple CLI groups, such as
   `groups` and `racks`
 - fixed request fields and ignored request fields for generated commands
-- `json_only` overrides for commands that should be request-file driven
+- `json_only` settings for commands that should be request-file driven
 
 ## Generated Command Rules
 
 ### Grouping and naming
 
-By default, the generator:
-
-- strips a trailing `Service` suffix from the protobuf service name
-- lowercases the result for the command group
-- derives subcommand names from the RPC method verb and noun
-
-Examples:
-
-- `NetworkInfoService` -> `networkinfo`
-- `ListSchedules` -> `list`
-- `PauseSchedule` -> `pause`
-
-Overrides are used when the default CLI name would be awkward or misleading.
+The generator does not infer exposed command groups or subcommand names. It only
+renders entries listed in `commands.json`, so the command manifest is the
+source of truth for the generated CLI surface.
 
 ### Request handling
 
@@ -148,6 +139,9 @@ The runtime helper chooses the correct client call path:
 - `client.CallAnonymous(...)`
 - `client.CallBearer(...)`
 - `client.CallSession(...)`
+
+Omitting `auth` in `commands.json` means the normal bearer-authenticated mode.
+The manifest only spells out auth for exceptions.
 
 ## Special-Case Runtime Helpers
 
@@ -215,7 +209,7 @@ reusing the bounded miner selector resolver.
 
 This V0 surface deliberately omits several services the generator can otherwise
 emit, including `minercommand`, `networkinfo`, and `schedule`, plus the
-streaming `pairing`/discovery flow. They are left out of `overrides.json` while
+streaming `pairing`/discovery flow. They are left out of `commands.json` while
 the fleet-node command model settles, and appear in the coverage report as
 `deferred_*` or `deferred_unselected` rather than as commands.
 
@@ -231,19 +225,17 @@ generator can currently emit these statuses:
 - `generated_json_only`
 - `deferred_streaming`
 - `deferred_binary_response`
-- `deferred_service_skipped`
-- `deferred_method_skipped`
 - `deferred_unselected`
 
 This makes the generator boundary explicit and helps track what is covered,
 what is intentionally deferred, and what still depends on handwritten CLI code
-or future overrides.
+or future manifest entries.
 
 ## Development Workflow
 
 Typical Fleet CLI regeneration flow:
 
-1. Update protobufs in `proto/` or CLI behavior in `server/tools/generate-fleet-cli/overrides.json`
+1. Update protobufs in `proto/` or CLI behavior in `server/tools/generate-fleet-cli/commands.json`
 1. Run `just gen-fleet-cli`
 1. Build with `just build-fleet-cli`
 1. Inspect `.cache/fleet-cli/fleet-cli-report.json` for unexpected status changes

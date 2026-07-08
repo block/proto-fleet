@@ -1,27 +1,41 @@
 {
-  "services": {
-    "fleetmanagement.v1.FleetManagementService": {
-      "group": "miners",
-      "auth": "bearer"
-    },
-    "pools.v1.PoolsService": {
-      "group": "pools",
-      "auth": "bearer",
-      "all_methods": true
-    }
-  },
-  "methods": {
-    "fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots": {
-      "command": "list"
-    }
-  },
   "commands": [
+    {
+      "method": "/fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots",
+      "group": "miners",
+      "command": "list"
+    },
     {
       "method": "/onboarding.v1.OnboardingService/CreateAdminLogin",
       "group": "onboarding",
       "command": "create-admin",
       "usage": "Create the initial Fleet admin login",
       "auth": "anonymous"
+    },
+    {
+      "method": "/pools.v1.PoolsService/CreatePool",
+      "group": "pools",
+      "command": "create"
+    },
+    {
+      "method": "/pools.v1.PoolsService/DeletePool",
+      "group": "pools",
+      "command": "delete"
+    },
+    {
+      "method": "/pools.v1.PoolsService/ListPools",
+      "group": "pools",
+      "command": "list"
+    },
+    {
+      "method": "/pools.v1.PoolsService/UpdatePool",
+      "group": "pools",
+      "command": "update"
+    },
+    {
+      "method": "/pools.v1.PoolsService/ValidatePool",
+      "group": "pools",
+      "command": "validate"
     },
     {
       "method": "/collection.v1.DeviceCollectionService/ListCollections",

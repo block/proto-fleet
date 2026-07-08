@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,35 +23,17 @@ const (
 	generatedProtoRoot   = "generated/grpc"
 	descriptorSetPath    = ".cache/fleet-cli/fleet-descriptor-set.bin"
 	reportPath           = ".cache/fleet-cli/fleet-cli-report.json"
-	overridesPath        = "server/tools/generate-fleet-cli/overrides.json"
+	commandsPath         = "server/tools/generate-fleet-cli/commands.json"
 	outputDir            = "server/cmd/fleetcli"
 	groupTemplatePath    = "server/tools/generate-fleet-cli/templates/fleet-group.gotmpl"
 	commandsTemplatePath = "server/tools/generate-fleet-cli/templates/fleet-commands.gotmpl"
 )
 
-type overridesFile struct {
-	Services map[string]serviceOverride `json:"services"`
-	Methods  map[string]methodOverride  `json:"methods"`
-	Commands []commandOverride          `json:"commands"`
+type commandsManifest struct {
+	Commands []commandSpec `json:"commands"`
 }
 
-type serviceOverride struct {
-	Group      string `json:"group,omitempty"`
-	Auth       string `json:"auth,omitempty"`
-	Skip       bool   `json:"skip,omitempty"`
-	AllMethods bool   `json:"all_methods,omitempty"`
-}
-
-type methodOverride struct {
-	Group    string `json:"group,omitempty"`
-	Command  string `json:"command,omitempty"`
-	Usage    string `json:"usage,omitempty"`
-	Auth     string `json:"auth,omitempty"`
-	Skip     bool   `json:"skip,omitempty"`
-	JSONOnly bool   `json:"json_only,omitempty"`
-}
-
-type commandOverride struct {
+type commandSpec struct {
 	Method                string            `json:"method"`
 	Group                 string            `json:"group"`
 	Command               string            `json:"command"`
@@ -90,10 +73,9 @@ type groupSpec struct {
 }
 
 type methodRef struct {
-	ServiceKey      string
-	ServiceName     protoreflect.Name
-	ServiceOverride serviceOverride
-	Method          protoreflect.MethodDescriptor
+	ServiceKey  string
+	ServiceName protoreflect.Name
+	Method      protoreflect.MethodDescriptor
 }
 
 type renderOptions struct {
@@ -150,7 +132,7 @@ func main() {
 }
 
 func run() error {
-	overrides, err := loadOverrides()
+	manifest, err := loadCommandsManifest()
 	if err != nil {
 		return err
 	}
@@ -165,7 +147,7 @@ func run() error {
 		return err
 	}
 
-	groups, report, err := buildGroups(files, messages, enums, overrides)
+	groups, report, err := buildGroups(files, messages, enums, manifest)
 	if err != nil {
 		return err
 	}
@@ -194,25 +176,51 @@ func run() error {
 	return nil
 }
 
-func loadOverrides() (overridesFile, error) {
-	var overrides overridesFile
-	data, err := os.ReadFile(overridesPath)
+func loadCommandsManifest() (commandsManifest, error) {
+	var manifest commandsManifest
+	data, err := os.ReadFile(commandsPath)
 	if err != nil {
-		return overrides, fmt.Errorf("read overrides: %w", err)
+		return manifest, fmt.Errorf("read commands manifest: %w", err)
 	}
-	if err := json.Unmarshal(data, &overrides); err != nil {
-		return overrides, fmt.Errorf("parse overrides: %w", err)
+	manifest, err = parseCommandsManifest(data)
+	if err != nil {
+		return manifest, err
 	}
-	if overrides.Services == nil {
-		overrides.Services = map[string]serviceOverride{}
+	return manifest, nil
+}
+
+func parseCommandsManifest(data []byte) (commandsManifest, error) {
+	var manifest commandsManifest
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&manifest); err != nil {
+		return manifest, fmt.Errorf("parse commands manifest: %w", err)
 	}
-	if overrides.Methods == nil {
-		overrides.Methods = map[string]methodOverride{}
+	var trailing any
+	if err := decoder.Decode(&trailing); err == nil {
+		return manifest, fmt.Errorf("parse commands manifest: trailing JSON data")
+	} else if err != io.EOF {
+		return manifest, fmt.Errorf("parse commands manifest: %w", err)
 	}
-	if overrides.Commands == nil {
-		overrides.Commands = []commandOverride{}
+	if manifest.Commands == nil {
+		manifest.Commands = []commandSpec{}
 	}
-	return overrides, nil
+	if err := validateCommandsManifest(manifest); err != nil {
+		return manifest, err
+	}
+	return manifest, nil
+}
+
+func validateCommandsManifest(manifest commandsManifest) error {
+	seenCommands := map[string]bool{}
+	for _, command := range manifest.Commands {
+		key := command.Group + " " + command.Command
+		if seenCommands[key] {
+			return fmt.Errorf("duplicate generated command %q", key)
+		}
+		seenCommands[key] = true
+	}
+	return nil
 }
 
 func loadDescriptorFiles() ([]protoreflect.FileDescriptor, error) {
@@ -309,20 +317,14 @@ func buildGroups(
 	files []protoreflect.FileDescriptor,
 	messages map[protoreflect.FullName]messageInfo,
 	enums map[protoreflect.FullName]enumInfo,
-	overrides overridesFile,
+	manifest commandsManifest,
 ) ([]groupSpec, generationReport, error) {
 	groupMap := make(map[string]*groupSpec)
-	methodIndex := indexMethods(files, overrides.Services)
+	methodIndex := indexMethods(files)
 	methodKeys := sortedMethodKeys(methodIndex)
 	var reports []methodReport
 	generatedMethods := map[string]bool{}
 	deferredMethods := map[string]bool{}
-
-	// Methods listed in commands overrides are handled exclusively in the second loop.
-	commandsMethodKeys := make(map[string]bool, len(overrides.Commands))
-	for _, override := range overrides.Commands {
-		commandsMethodKeys[strings.TrimPrefix(override.Method, "/")] = true
-	}
 
 	for _, methodKey := range methodKeys {
 		ref := methodIndex[methodKey]
@@ -335,74 +337,29 @@ func buildGroups(
 			deferredMethods[methodKey] = true
 			continue
 		}
-		if ref.ServiceOverride.Skip {
-			reports = append(reports, methodReport{
-				Method: "/" + methodKey,
-				Status: "deferred_service_skipped",
-				Reason: "service is explicitly skipped in server/tools/generate-fleet-cli/overrides.json",
-			})
-			deferredMethods[methodKey] = true
-			continue
-		}
-		if commandsMethodKeys[methodKey] {
-			continue
-		}
-		methodOverride, hasMethodOverride := overrides.Methods[methodKey]
-		if hasMethodOverride && methodOverride.Skip {
-			reports = append(reports, methodReport{
-				Method: "/" + methodKey,
-				Status: "deferred_method_skipped",
-				Reason: "method is explicitly skipped in server/tools/generate-fleet-cli/overrides.json",
-			})
-			deferredMethods[methodKey] = true
-			continue
-		}
-		if !ref.ServiceOverride.AllMethods && !hasMethodOverride {
-			continue
-		}
-
-		options := renderOptions{
-			CommandName:  chooseCommandName(ref.ServiceName, ref.Method.Name(), methodOverride),
-			Usage:        chooseUsage(ref.Method.Name(), methodOverride),
-			Auth:         chooseOverrideAuth(ref.ServiceOverride, methodOverride.Auth),
-			JSONOnly:     methodOverride.JSONOnly,
-			IgnoreFields: map[string]bool{},
-			FixedFields:  map[string]string{},
-		}
-		groupName := chooseGroupName(ref.ServiceName, ref.ServiceOverride, methodOverride)
-		report, err := addGeneratedCommand(groupMap, groupName, ref, options, messages, enums)
-		if err != nil {
-			return nil, generationReport{}, err
-		}
-		reports = append(reports, report)
-		if isDeferredStatus(report.Status) {
-			deferredMethods[methodKey] = true
-			continue
-		}
-		generatedMethods[methodKey] = true
 	}
 
-	for _, override := range overrides.Commands {
-		methodKey := strings.TrimPrefix(override.Method, "/")
+	for _, command := range manifest.Commands {
+		methodKey := strings.TrimPrefix(command.Method, "/")
 		ref, ok := methodIndex[methodKey]
 		if !ok {
-			return nil, generationReport{}, fmt.Errorf("unknown override method %q", override.Method)
+			return nil, generationReport{}, fmt.Errorf("unknown command method %q", command.Method)
 		}
 		options := renderOptions{
-			CommandName:           override.Command,
-			Usage:                 override.Usage,
-			Auth:                  chooseOverrideAuth(ref.ServiceOverride, override.Auth),
-			JSONOnly:              override.JSONOnly,
-			IgnoreFields:          sliceToSet(override.IgnoreFields),
-			RequiredFields:        sliceToSet(override.RequiredFields),
-			FixedFields:           override.FixedFields,
-			RequireCollectionType: override.RequireCollectionType,
-			CommonSelector:        override.CommonSelector,
+			CommandName:           command.Command,
+			Usage:                 command.Usage,
+			Auth:                  authModeConst(command.Auth),
+			JSONOnly:              command.JSONOnly,
+			IgnoreFields:          sliceToSet(command.IgnoreFields),
+			RequiredFields:        sliceToSet(command.RequiredFields),
+			FixedFields:           command.FixedFields,
+			RequireCollectionType: command.RequireCollectionType,
+			CommonSelector:        command.CommonSelector,
 		}
 		if options.Usage == "" {
 			options.Usage = humanizeMethod(string(ref.Method.Name()))
 		}
-		report, err := addGeneratedCommand(groupMap, override.Group, ref, options, messages, enums)
+		report, err := addGeneratedCommand(groupMap, command.Group, ref, options, messages, enums)
 		if err != nil {
 			return nil, generationReport{}, err
 		}
@@ -421,7 +378,7 @@ func buildGroups(
 		reports = append(reports, methodReport{
 			Method: "/" + methodKey,
 			Status: "deferred_unselected",
-			Reason: "method was not generated; mark the service skip:true in server/tools/generate-fleet-cli/overrides.json to suppress it",
+			Reason: "method was not generated because it is not listed in server/tools/generate-fleet-cli/commands.json",
 		})
 	}
 
@@ -455,21 +412,19 @@ func buildGroups(
 	return groups, generationReport{Summary: summary, Methods: reports}, nil
 }
 
-func indexMethods(files []protoreflect.FileDescriptor, services map[string]serviceOverride) map[string]methodRef {
+func indexMethods(files []protoreflect.FileDescriptor) map[string]methodRef {
 	result := make(map[string]methodRef)
 	for _, file := range files {
 		for i := range file.Services().Len() {
 			service := file.Services().Get(i)
 			serviceKey := string(file.Package()) + "." + string(service.Name())
-			serviceOverride := services[serviceKey]
 			for j := range service.Methods().Len() {
 				method := service.Methods().Get(j)
 				methodKey := serviceKey + "/" + string(method.Name())
 				result[methodKey] = methodRef{
-					ServiceKey:      serviceKey,
-					ServiceName:     service.Name(),
-					ServiceOverride: serviceOverride,
-					Method:          method,
+					ServiceKey:  serviceKey,
+					ServiceName: service.Name(),
+					Method:      method,
 				}
 			}
 		}
@@ -646,7 +601,7 @@ func analyzeRequest(
 	var analysis requestAnalysis
 	if options.JSONOnly {
 		analysis.jsonOnly = true
-		analysis.Reason = "request is intentionally generated as JSON-only via overrides"
+		analysis.Reason = "request is intentionally generated as JSON-only via commands.json"
 		return analysis, nil
 	}
 	hasUnsupported := false
@@ -1417,48 +1372,6 @@ func sortedImports(imports map[string]string) []importSpec {
 		return result[i].Path < result[j].Path
 	})
 	return result
-}
-
-func chooseGroupName(serviceName protoreflect.Name, serviceOverride serviceOverride, methodOverride methodOverride) string {
-	if methodOverride.Group != "" {
-		return methodOverride.Group
-	}
-	if serviceOverride.Group != "" {
-		return serviceOverride.Group
-	}
-	name := strings.TrimSuffix(string(serviceName), "Service")
-	return strings.ToLower(strings.Join(splitCamelWords(name), ""))
-}
-
-func chooseCommandName(serviceName protoreflect.Name, methodName protoreflect.Name, override methodOverride) string {
-	if override.Command != "" {
-		return override.Command
-	}
-
-	verb, noun := splitVerbAndNoun(string(methodName))
-	if noun == "" {
-		return toKebabCase(verb)
-	}
-
-	serviceBase := strings.TrimSuffix(string(serviceName), "Service")
-	if sameEntity(noun, serviceBase) {
-		return strings.ToLower(verb)
-	}
-	return strings.ToLower(verb) + "-" + toKebabCase(noun)
-}
-
-func chooseUsage(methodName protoreflect.Name, override methodOverride) string {
-	if override.Usage != "" {
-		return override.Usage
-	}
-	return humanizeMethod(string(methodName))
-}
-
-func chooseOverrideAuth(serviceOverride serviceOverride, auth string) string {
-	if auth == "" {
-		auth = serviceOverride.Auth
-	}
-	return authModeConst(auth)
 }
 
 func authModeConst(auth string) string {

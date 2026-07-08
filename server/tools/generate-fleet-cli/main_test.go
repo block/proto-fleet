@@ -1,9 +1,11 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
@@ -50,6 +52,94 @@ func TestGoPackageInfoInfersLocalGeneratedPath(t *testing.T) {
 	if alias != "fleetmanagementv1" {
 		t.Fatalf("alias = %q", alias)
 	}
+}
+
+func TestAuthModeConstDefaultsToBearer(t *testing.T) {
+	if got := authModeConst(""); got != "generatedAuthBearer" {
+		t.Fatalf("authModeConst(\"\") = %q, want generatedAuthBearer", got)
+	}
+}
+
+func TestAuthModeConstSupportsAnonymousException(t *testing.T) {
+	if got := authModeConst("anonymous"); got != "generatedAuthAnonymous" {
+		t.Fatalf("authModeConst(\"anonymous\") = %q, want generatedAuthAnonymous", got)
+	}
+}
+
+func TestParseCommandsManifestRejectsUnknownFields(t *testing.T) {
+	_, err := parseCommandsManifest([]byte(`{"services": {}}`))
+	if err == nil || !strings.Contains(err.Error(), `unknown field "services"`) {
+		t.Fatalf("parseCommandsManifest error = %v, want unknown services field", err)
+	}
+}
+
+func TestParseCommandsManifestRejectsDuplicateCommandNames(t *testing.T) {
+	_, err := parseCommandsManifest([]byte(`{
+		"commands": [
+			{"method": "/test.v1.TestService/Ping", "group": "test", "command": "ping"},
+			{"method": "/test.v1.TestService/Pong", "group": "test", "command": "ping"}
+		]
+	}`))
+	if err == nil || !strings.Contains(err.Error(), `duplicate generated command "test ping"`) {
+		t.Fatalf("parseCommandsManifest error = %v, want duplicate command error", err)
+	}
+}
+
+func TestBuildGroupsAllowsRepeatedMethodForDifferentCommands(t *testing.T) {
+	file := testServiceFile(t)
+	files := []protoreflect.FileDescriptor{file}
+	messages, enums, err := buildTypeIndexes(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	groups, report, err := buildGroups(files, messages, enums, commandsManifest{
+		Commands: []commandSpec{
+			{Method: "/test.v1.TestService/Ping", Group: "alpha", Command: "ping"},
+			{Method: "/test.v1.TestService/Ping", Group: "beta", Command: "ping"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildGroups error = %v, want success", err)
+	}
+	if len(groups) != 2 {
+		t.Fatalf("groups = %d, want 2", len(groups))
+	}
+	if report.Summary["generated"] != 2 {
+		t.Fatalf("generated count = %d, want 2", report.Summary["generated"])
+	}
+}
+
+func testServiceFile(t *testing.T) protoreflect.FileDescriptor {
+	t.Helper()
+	file, err := protodesc.NewFile(&descriptorpb.FileDescriptorProto{
+		Name:    stringPtr("test/v1/test.proto"),
+		Syntax:  stringPtr("proto3"),
+		Package: stringPtr("test.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: stringPtr("github.com/block/proto-fleet/server/generated/grpc/test/v1;testv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{Name: stringPtr("PingRequest")},
+			{Name: stringPtr("PingResponse")},
+		},
+		Service: []*descriptorpb.ServiceDescriptorProto{
+			{
+				Name: stringPtr("TestService"),
+				Method: []*descriptorpb.MethodDescriptorProto{
+					{
+						Name:       stringPtr("Ping"),
+						InputType:  stringPtr(".test.v1.PingRequest"),
+						OutputType: stringPtr(".test.v1.PingResponse"),
+					},
+				},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
 }
 
 func stringPtr(value string) *string {
