@@ -442,6 +442,11 @@ func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice
 		out.DeviceId = n.DeviceID
 		out.DeviceName = n.DeviceName
 		out.DeviceMac = n.DeviceMAC
+	}
+	// Summary follows the template's scope: on device templates it names the
+	// miner, on source-level templates only the MQTT source, which is not
+	// miner identity and stays visible to any alert:read caller.
+	if includeDevice || isSourceLevelTemplate(n.Template) {
 		out.Summary = n.Summary
 	}
 	if n.StartsAt != nil {
@@ -451,6 +456,17 @@ func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice
 		out.EndsAt = timestamppb.New(*n.EndsAt)
 	}
 	return out
+}
+
+// isSourceLevelTemplate reports whether the template scopes the alert to an
+// MQTT curtailment source rather than a device. All rules are operator-
+// provisioned, so the template label is trustworthy.
+func isSourceLevelTemplate(t string) bool {
+	switch alerts.RuleTemplate(t) {
+	case alerts.RuleTemplateMQTTCurtailment, alerts.RuleTemplateMQTTDisconnected:
+		return true
+	}
+	return false
 }
 
 func channelKindToProto(k alerts.ChannelKind) alertsv1.ChannelKind {
