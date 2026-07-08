@@ -23,17 +23,16 @@ jobs:
           fi
           echo "Tag '$TAG_NAME' is valid"
 
-      - name: Require full releases to be on main
-        if: ${{ !contains(github.ref_name, '-') }}
+      - name: Require tags to be on main
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           AHEAD_BY=$(gh api "repos/${{ github.repository }}/compare/main...${{ github.sha }}" --jq '.ahead_by')
           if [[ "$AHEAD_BY" -ne 0 ]]; then
-            echo "::error::Full releases are only allowed from commits on the main branch. Tag '${{ github.ref_name }}' points to a commit not on main."
+            echo "::error::Release tags are only allowed from commits on the main branch. Tag '${{ github.ref_name }}' points to a commit not on main."
             exit 1
           fi
-          echo "Full release tag is on main — OK"
+          echo "Release tag is on main — OK"
 
   build-artifacts:
     name: Build release artifacts
