@@ -35,11 +35,13 @@ jobs:
 
       - name: Fetch exact PR base and head commits
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           GIT_TERMINAL_PROMPT: 0
           REVIEW_BASE_SHA: ${{ env.REVIEW_BASE_SHA }}
           REVIEW_HEAD_SHA: ${{ env.REVIEW_HEAD_SHA }}
         run: |
           git -c protocol.version=2 \
+              -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" \
               fetch --no-tags origin \
               "$REVIEW_BASE_SHA" \
               "$REVIEW_HEAD_SHA"

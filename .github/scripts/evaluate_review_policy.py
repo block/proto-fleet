@@ -29,6 +29,10 @@ class PolicyError(RuntimeError):
     pass
 
 
+def normalize_login(login: str) -> str:
+    return login.removeprefix("@").casefold()
+
+
 @dataclass
 class PolicyResult:
     passed: bool
@@ -248,10 +252,18 @@ def human_review_state(
     ineligible_reviewers: set[str] | None = None,
 ) -> tuple[bool, list[str], list[str]]:
     reviewer_states: dict[str, dict[str, bool]] = {}
+    reviewer_display_names: dict[str, str] = {}
+    authority_cache: dict[str, bool] = {}
     ignored = []
     ignored_contributors = []
-    ineligible_approvers = {author.lower()}
-    ineligible_approvers.update(login.lower() for login in (ineligible_reviewers or set()))
+    ineligible_approvers = {normalize_login(author)}
+    ineligible_approvers.update(normalize_login(login) for login in (ineligible_reviewers or set()))
+
+    def has_authority(login: str, association: str | None) -> bool:
+        key = normalize_login(login)
+        if key not in authority_cache:
+            authority_cache[key] = reviewer_has_authority(owner, repo, login, association, token)
+        return authority_cache[key]
 
     sorted_reviews = sorted(reviews, key=lambda item: str(item.get("submitted_at") or ""))
     for review in sorted_reviews:
@@ -261,16 +273,17 @@ def human_review_state(
             continue
         state = review.get("state")
         user_type = user.get("type")
-        is_bot = login.endswith(BOT_SUFFIX) or user_type == "Bot"
+        is_bot = login.casefold().endswith(BOT_SUFFIX) or user_type == "Bot"
         if is_bot:
             continue
 
-        authorized = reviewer_has_authority(owner, repo, login, review.get("author_association"), token)
-        if state in {"APPROVED", "CHANGES_REQUESTED"} and not authorized:
+        if state in {"APPROVED", "CHANGES_REQUESTED"} and not has_authority(login, review.get("author_association")):
             ignored.append(login)
             continue
 
-        reviewer_state = reviewer_states.setdefault(login, {"approved": False, "changes_requested": False})
+        reviewer_key = normalize_login(login)
+        reviewer_display_names.setdefault(reviewer_key, login)
+        reviewer_state = reviewer_states.setdefault(reviewer_key, {"approved": False, "changes_requested": False})
         if state == "DISMISSED":
             reviewer_state["approved"] = False
             reviewer_state["changes_requested"] = False
@@ -278,14 +291,16 @@ def human_review_state(
             reviewer_state["approved"] = False
             reviewer_state["changes_requested"] = True
         elif state == "APPROVED" and review.get("commit_id") == head_sha:
-            if login.lower() in ineligible_approvers:
+            if reviewer_key in ineligible_approvers:
                 ignored_contributors.append(login)
                 continue
             reviewer_state["approved"] = True
             reviewer_state["changes_requested"] = False
 
-    requested_changes = sorted(login for login, state in reviewer_states.items() if state["changes_requested"])
-    approvals = sorted(login for login, state in reviewer_states.items() if state["approved"])
+    requested_changes = sorted(
+        reviewer_display_names[login] for login, state in reviewer_states.items() if state["changes_requested"]
+    )
+    approvals = sorted(reviewer_display_names[login] for login, state in reviewer_states.items() if state["approved"])
 
     blockers: list[str] = []
     if requested_changes:
@@ -325,13 +340,15 @@ def is_team_member(owner: str, team_slug: str, username: str, token: str) -> boo
 
 
 def trusted_author_reasons(author: str, trusted_authors: list[str], owner: str, token: str) -> tuple[bool, list[str]]:
+    normalized_author = normalize_login(author)
+    normalized_owner = normalize_login(owner)
     for entry in trusted_authors:
         normalized = entry.removeprefix("@")
         if "/" in normalized:
             org, team_slug = normalized.split("/", 1)
-            if org == owner and is_team_member(owner, team_slug, author, token):
+            if normalize_login(org) == normalized_owner and is_team_member(owner, team_slug, author, token):
                 return True, [f"author @{author} is a member of @{entry.removeprefix('@')}"]
-        elif normalized == author:
+        elif normalize_login(normalized) == normalized_author:
             return True, [f"author @{author} is explicitly trusted"]
     return False, [f"author @{author} is not in trusted_authors"]
 

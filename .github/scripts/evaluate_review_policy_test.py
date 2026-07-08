@@ -191,6 +191,12 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertTrue(trusted)
         self.assertEqual(reasons, ["author @member is a member of @block/proto-fleet-dev"])
 
+    def test_trusted_author_reasons_accepts_case_insensitive_login(self):
+        trusted, reasons = policy.trusted_author_reasons("AnkitGoswami", ["ankitgoswami"], "block", "token")
+
+        self.assertTrue(trusted)
+        self.assertEqual(reasons, ["author @AnkitGoswami is explicitly trusted"])
+
     def test_trusted_head_contributor_reasons_blocks_untrusted_committers(self):
         original = policy.trusted_author_reasons
         try:
@@ -986,6 +992,40 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertIn("changes requested by reviewer", blockers)
+
+    def test_human_review_state_caches_reviewer_authority_by_login(self):
+        original = policy.reviewer_has_authority
+        calls = []
+        try:
+            def fake_reviewer_has_authority(owner, repo, username, association, token):
+                calls.append(username)
+                return True
+
+            policy.reviewer_has_authority = fake_reviewer_has_authority
+            reviews = [
+                {
+                    "user": {"login": "Reviewer", "type": "User"},
+                    "state": "CHANGES_REQUESTED",
+                    "commit_id": "abc123",
+                    "submitted_at": "2026-01-01T00:00:00Z",
+                },
+                {
+                    "user": {"login": "reviewer", "type": "User"},
+                    "state": "APPROVED",
+                    "commit_id": "abc123",
+                    "submitted_at": "2026-01-01T00:00:01Z",
+                },
+            ]
+            ok, reasons, blockers = policy.human_review_state(
+                reviews, "abc123", "author", 1, "block", "proto-fleet", "token"
+            )
+        finally:
+            policy.reviewer_has_authority = original
+
+        self.assertTrue(ok)
+        self.assertEqual(blockers, [])
+        self.assertEqual(calls, ["Reviewer"])
+        self.assertIn("current authorized human approvals: Reviewer", reasons)
 
     def test_human_review_state_clears_change_request_on_approval_or_dismissal(self):
         original = policy.reviewer_has_authority

@@ -29,14 +29,16 @@ permissions:
   checks: read
   contents: read
   pull-requests: read
-  statuses: read
+  statuses: write
 
 jobs:
   evaluate:
     name: Review Policy
     if: >-
       !(github.event_name == 'check_run' && github.event.check_run.app.slug == 'github-actions') &&
-      !(github.event_name == 'check_suite' && github.event.check_suite.app.slug == 'github-actions')
+      !(github.event_name == 'check_suite' && github.event.check_suite.app.slug == 'github-actions') &&
+      !(github.event_name == 'status' && github.event.context == 'Review Policy') &&
+      !(github.event_name == 'pull_request_review' && github.event.action == 'submitted' && github.event.review.state == 'commented')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -153,7 +155,7 @@ jobs:
             echo "Review policy only evaluates PRs based on the repository default branch; got base ref ${BASE_REF}." >&2
             exit 1
           fi
-          if [ -x .github/scripts/evaluate_review_policy.py ] && [ -f .github/review-policy.json ]; then
+          if [ -f .github/scripts/evaluate_review_policy.py ] && [ -f .github/review-policy.json ]; then
             echo "path=." >> "$GITHUB_OUTPUT"
             echo "Using review policy code from the trusted base commit."
           else
@@ -175,7 +177,7 @@ jobs:
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           SAME_REPO: ${{ steps.pr.outputs.same_repo }}
         run: |
-          "$POLICY_ROOT/.github/scripts/evaluate_review_policy.py" \
+          python3 "$POLICY_ROOT/.github/scripts/evaluate_review_policy.py" \
             --config "$POLICY_ROOT/.github/review-policy.json" \
             --preflight-json "$PREFLIGHT_JSON" \
             --owner "$OWNER" \
@@ -217,9 +219,14 @@ jobs:
           REVIEW_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           REVIEW_HEAD_REPO: ${{ steps.pr.outputs.head_repo }}
           REVIEW_POLICY_DIFF_FILE: ${{ env.REVIEW_POLICY_DIFF_FILE }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          git -c protocol.version=2 fetch --no-tags origin "$REVIEW_BASE_SHA"
-          git -c protocol.version=2 fetch --no-tags "https://github.com/${REVIEW_HEAD_REPO}.git" "$REVIEW_HEAD_SHA"
+          git -c protocol.version=2 \
+              -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" \
+              fetch --no-tags origin "$REVIEW_BASE_SHA"
+          git -c protocol.version=2 \
+              -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" \
+              fetch --no-tags "https://github.com/${REVIEW_HEAD_REPO}.git" "$REVIEW_HEAD_SHA"
           git diff --find-renames --submodule=diff --unified=40 "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA" > "$REVIEW_POLICY_DIFF_FILE"
 
       - name: Run low-risk AI classifier
@@ -227,8 +234,7 @@ jobs:
         if: >-
           steps.pr.outputs.found == 'true' &&
           steps.pr.outputs.same_repo == 'true' &&
-          steps.preflight.outputs.eligible == 'true' &&
-          github.event_name != 'pull_request_review'
+          steps.preflight.outputs.eligible == 'true'
         continue-on-error: true
         uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
         with:
@@ -339,7 +345,7 @@ jobs:
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           set +e
-          "$POLICY_ROOT/.github/scripts/evaluate_review_policy.py" \
+          python3 "$POLICY_ROOT/.github/scripts/evaluate_review_policy.py" \
             --config "$POLICY_ROOT/.github/review-policy.json" \
             --result-json "$RESULT_JSON" \
             --classifier-output "$CLASSIFIER_OUTPUT" \
@@ -357,6 +363,35 @@ jobs:
           echo "passed=${passed}" >> "$GITHUB_OUTPUT"
           echo "enforced=${enforced}" >> "$GITHUB_OUTPUT"
           exit "$status"
+
+      - name: Publish review policy status
+        if: always() && steps.pr.outputs.found == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          DECISION: ${{ steps.evaluate_policy.outputs.decision || 'needs-human-review' }}
+          PASSED: ${{ steps.evaluate_policy.outputs.passed || 'false' }}
+          ENFORCED: ${{ steps.evaluate_policy.outputs.enforced || 'true' }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const decision = process.env.DECISION || 'needs-human-review';
+            const passed = process.env.PASSED === 'true';
+            const enforced = process.env.ENFORCED !== 'false';
+            const descriptions = {
+              'trusted-author-low-risk': 'Trusted author and low-risk gates passed.',
+              'human-approved': 'Current authorized human approval satisfies policy.',
+              'needs-human-review': 'Human review is required before merge.',
+            };
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: process.env.HEAD_SHA,
+              state: passed || !enforced ? 'success' : 'failure',
+              context: 'Review Policy',
+              description: descriptions[decision] || `Review policy decision: ${decision}`,
+              target_url: process.env.TARGET_URL,
+            });
 
       - name: Skip non-PR event
         if: steps.pr.outputs.found != 'true'
