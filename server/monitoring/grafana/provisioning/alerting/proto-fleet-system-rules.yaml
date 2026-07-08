@@ -13,6 +13,8 @@ deleteRules:
   - orgId: 1
     uid: protofleet-system-memory-high
   - orgId: 1
+    uid: protofleet-system-disk-warning
+  - orgId: 1
     uid: protofleet-system-disk-low
   - orgId: 1
     uid: protofleet-system-disk-stale

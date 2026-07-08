@@ -54,7 +54,10 @@ groups:
         noDataState: OK
         # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
         execErrState: Error
-        for: 10m
+        # 5m, not 10m: each sample is a 30s average and one dip resets the timer,
+        # so 5m of sustained >90% is already a strong "genuinely pegged" signal
+        # on a small host without waiting out a self-resolving spike for ten.
+        for: 5m
         labels:
           # Shared: visible to every org (a pause stays org-scoped). Instances
           # always carry organization_id via the SQL fan-out.
@@ -105,7 +108,10 @@ groups:
         noDataState: OK
         # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
         execErrState: Error
-        for: 10m
+        # 5m, not 10m: sustained high memory is real pressure (it does not
+        # self-release the way a CPU spike does), so the shorter window trades
+        # little noise for earlier warning of OOM risk.
+        for: 5m
         labels:
           proto_fleet_scope: shared
           severity: warning
@@ -117,6 +123,60 @@ groups:
             RAM on the machine running Proto Fleet has been above 90% for at
             least ten minutes. If it keeps climbing, the kernel OOM killer may
             take out fleet-api or TimescaleDB.
+
+      # Two-tier disk alerting: this warning at 75% gives lead time to plan
+      # capacity, while the critical below stays at 85% ("act now"). A DB host
+      # plateaus under retention somewhere below 75% when healthy, so this
+      # should be quiet in steady state rather than firing on a normal level.
+      - uid: protofleet-system-disk-warning
+        title: Host Disk Space Warning
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                SELECT
+                    o.organization_id,
+                    s.value
+                FROM fleet_active_organization o
+                CROSS JOIN (
+                    SELECT value
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_system_disk_used_percent'
+                      AND time > NOW() - INTERVAL '15 minutes'
+                    ORDER BY time DESC
+                    LIMIT 1
+                ) s
+                WHERE s.value > 75
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        # Disk moves slowly; the wider window avoids flapping on temp files.
+        for: 15m
+        labels:
+          proto_fleet_scope: shared
+          severity: warning
+          rule_group: proto-fleet-system
+          template: system-disk
+        annotations:
+          summary: "Host disk usage has been above 75% for at least fifteen minutes."
+          description: |
+            The filesystem Proto Fleet monitors is more than 75% full. This is
+            early notice to plan more space before it reaches the critical
+            threshold; TimescaleDB stops ingesting and alerting once the disk
+            fills.
 
       - uid: protofleet-system-disk-low
         title: Host Disk Space Low

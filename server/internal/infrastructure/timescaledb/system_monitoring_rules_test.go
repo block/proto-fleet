@@ -108,6 +108,62 @@ func TestSystemMonitoringHostCPUHighRule(t *testing.T) {
 	})
 }
 
+// TestSystemMonitoringHostDiskTiers proves the two-tier disk alerting: a usage
+// level between the warning and critical thresholds trips only the warning,
+// and a level above both trips each.
+func TestSystemMonitoringHostDiskTiers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+	db := testutil.GetTestDB(t)
+	warnSQL := loadRuleSQLFrom(t, systemRuleFile, "Host Disk Space Warning", diskMetric)
+	critSQL := loadRuleSQLFrom(t, systemRuleFile, "Host Disk Space Low", diskMetric)
+
+	orgA := seedActiveOrg(t, db, 0)
+
+	t.Run("usage between the tiers trips only the warning", func(t *testing.T) {
+		// Arrange
+		clearSystemSamples(t, db)
+		writeSystemSample(t, db, diskMetric, 80, time.Minute)
+
+		// Act
+		warn := runRule(t, db, warnSQL)
+		crit := runRule(t, db, critSQL)
+
+		// Assert
+		require.Equal(t, map[string]float64{orgA: 80}, warn, "80% must breach the 75% warning")
+		require.Empty(t, crit, "80% must stay under the 85% critical")
+	})
+
+	t.Run("usage above both tiers trips each", func(t *testing.T) {
+		// Arrange
+		clearSystemSamples(t, db)
+		writeSystemSample(t, db, diskMetric, 90, time.Minute)
+
+		// Act
+		warn := runRule(t, db, warnSQL)
+		crit := runRule(t, db, critSQL)
+
+		// Assert
+		require.Equal(t, map[string]float64{orgA: 90}, warn)
+		require.Equal(t, map[string]float64{orgA: 90}, crit)
+	})
+
+	t.Run("usage below both tiers is silent", func(t *testing.T) {
+		// Arrange
+		clearSystemSamples(t, db)
+		writeSystemSample(t, db, diskMetric, 60, time.Minute)
+
+		// Act
+		warn := runRule(t, db, warnSQL)
+		crit := runRule(t, db, critSQL)
+
+		// Assert
+		require.Empty(t, warn, "a healthy 60% must not page either tier")
+		require.Empty(t, crit)
+	})
+}
+
 // TestSystemMonitoringActiveOrganizationView pins the fan-out contract: live orgs appear with text ids matching the notification_metric_sample organization_id label, soft-deleted orgs do not.
 func TestSystemMonitoringActiveOrganizationView(t *testing.T) {
 	if testing.Short() {
