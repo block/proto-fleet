@@ -184,8 +184,12 @@ describe("normalizeSubnetLine", () => {
     expect(normalizeSubnetLine("10.0.0.10-10.0.0.20")).toBe("10.0.0.10-10.0.0.20");
   });
 
-  it("defers to normalizeCidrLine for non-ranges", () => {
-    expect(normalizeSubnetLine("10.0.0.5")).toBe("10.0.0.5/32");
+  it("echoes a bare IP back as typed (no /32 or /128 suffix)", () => {
+    expect(normalizeSubnetLine("10.0.0.5")).toBe("10.0.0.5");
+    expect(normalizeSubnetLine("2001:db8::1")).toBe("2001:db8::1");
+  });
+
+  it("canonicalizes a CIDR's network address", () => {
     expect(normalizeSubnetLine("192.168.1.5/24")).toBe("192.168.1.0/24");
   });
 
@@ -215,8 +219,9 @@ describe("classifySubnetLine", () => {
     expect(classifySubnetLine("192.168.1.5/24")).toEqual({ kind: "cidr", cidr: "192.168.1.0/24" });
   });
 
-  it("classifies a bare IP as a /32 CIDR", () => {
-    expect(classifySubnetLine("10.0.0.5")).toEqual({ kind: "cidr", cidr: "10.0.0.5/32" });
+  it("classifies a bare IP as a prefix-less cidr entry (server treats it as /32 or /128)", () => {
+    expect(classifySubnetLine("10.0.0.5")).toEqual({ kind: "cidr", cidr: "10.0.0.5" });
+    expect(classifySubnetLine("2001:db8::1")).toEqual({ kind: "cidr", cidr: "2001:db8::1" });
   });
 
   it("returns null for invalid input", () => {

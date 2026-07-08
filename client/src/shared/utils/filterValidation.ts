@@ -131,22 +131,33 @@ export const validateSubnetLine = (line: string): string | null => {
 
 /**
  * Normalizes a subnet-filter line for display/dedup. Ranges canonicalize to
- * their full `start-end` form (so short and full inputs dedup together);
- * CIDRs/IPs defer to {@link normalizeCidrLine}. Assumes the line already passed
+ * their full `start-end` form (so short and full inputs dedup together); a bare
+ * IP is echoed back as typed (no /32 or /128 suffix); a CIDR is masked to its
+ * canonical network address. Assumes the line already passed
  * {@link validateSubnetLine}.
  */
 export const normalizeSubnetLine = (line: string): string => {
   const entry = categorizeIpEntry(line);
-  if (entry.kind === "range") return `${entry.startIp}-${entry.endIp}`;
-  return normalizeCidrLine(line);
+  switch (entry.kind) {
+    case "range":
+      return `${entry.startIp}-${entry.endIp}`;
+    case "ipv4":
+    case "ipv6":
+      return entry.value;
+    case "cidr":
+      return normalizeCidrLine(entry.value);
+    default:
+      return line.trim();
+  }
 };
 
 /**
- * A normalized subnet-filter line resolves to either a CIDR/IP (canonical
- * network form, → MinerListFilter.ip_cidrs) or an inclusive IPv4 range
+ * A normalized subnet-filter line resolves to either a CIDR/IP
+ * (→ MinerListFilter.ip_cidrs) or an inclusive IPv4 range
  * (→ MinerListFilter.ip_ranges). Ranges travel natively (no CIDR
- * decomposition). Bare IPs fold into ip_cidrs as /32 or /128. Returns null for
- * anything the filter can't match on (hostnames, invalid input).
+ * decomposition). A bare IP is sent prefix-less — the server treats it as /32
+ * (IPv4) or /128 (IPv6) — so what the user typed is what the chip shows.
+ * Returns null for anything the filter can't match on (hostnames, invalid input).
  */
 export type SubnetLineKind = { kind: "cidr"; cidr: string } | { kind: "range"; startIp: string; endIp: string };
 
@@ -157,6 +168,7 @@ export const classifySubnetLine = (line: string): SubnetLineKind | null => {
       return { kind: "range", startIp: entry.startIp, endIp: entry.endIp };
     case "ipv4":
     case "ipv6":
+      return { kind: "cidr", cidr: entry.value };
     case "cidr":
       return { kind: "cidr", cidr: normalizeCidrLine(entry.value) };
     default:
