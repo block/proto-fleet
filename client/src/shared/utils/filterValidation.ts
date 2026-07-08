@@ -1,11 +1,4 @@
-import {
-  isValidCidr,
-  isValidHostname,
-  isValidIpv4,
-  isValidIpv6,
-  looksLikeIpRange,
-  parseIpRange,
-} from "./networkDiscovery";
+import { categorizeIpEntry, isValidCidr, isValidIpv4, isValidIpv6, isValidIpv6Cidr } from "./ipParsing";
 
 export type NumericRangeValue = {
   min?: number;
@@ -59,24 +52,6 @@ export const validateNumericRange = (value: NumericRangeValue, bounds: NumericRa
   }
 
   return errors;
-};
-
-const parseCidrLine = (line: string): { ip: string; mask: number } | null => {
-  const slashIndex = line.lastIndexOf("/");
-  if (slashIndex <= 0 || slashIndex === line.length - 1) return null;
-
-  const ip = line.slice(0, slashIndex);
-  const maskStr = line.slice(slashIndex + 1);
-  if (!/^\d+$/.test(maskStr)) return null;
-
-  return { ip, mask: Number(maskStr) };
-};
-
-const isValidIpv6Cidr = (value: string): boolean => {
-  const parsed = parseCidrLine(value);
-  if (!parsed) return false;
-
-  return isValidIpv6(parsed.ip) && parsed.mask >= 0 && parsed.mask <= 128;
 };
 
 /**
@@ -135,29 +110,23 @@ export const normalizeCidrLine = (line: string): string => {
  * Validates a subnet-filter line. Superset of {@link validateCidrLine}: also
  * accepts an IPv4 range in the same syntax the onboarding discovery flow uses —
  * short (`10.0.0.10-20`) or full (`10.0.0.10-10.0.0.20`), optional spaces around
- * the dash. Hostnames are intentionally not accepted here (the fleet filter
- * matches by IP, not name). Returns null when valid, else an error string.
+ * the dash. Hostnames are intentionally rejected here (the fleet filter matches
+ * by IP, not name). Returns null when valid, else an error string. Built on the
+ * shared {@link categorizeIpEntry}, so it accepts exactly what discovery parses.
  */
 export const validateSubnetLine = (line: string): string | null => {
-  const trimmed = line.trim();
-  if (trimmed === "") return "Empty value";
-  if (looksLikeIpRange(trimmed)) {
-    return parseIpRange(trimmed) ? null : "Not a valid IP range (e.g. 10.0.0.10-10.0.0.20)";
+  const entry = categorizeIpEntry(line);
+  switch (entry.kind) {
+    case "ipv4":
+    case "ipv6":
+    case "cidr":
+    case "range":
+      return null;
+    case "hostname":
+      return "Hostnames aren't supported here — use an IP, CIDR, or range";
+    case "invalid":
+      return entry.reason;
   }
-  if (trimmed.includes("/")) {
-    return isValidCidr(trimmed) || isValidIpv6Cidr(trimmed)
-      ? null
-      : "Not a valid CIDR (e.g. 255.255.255.0/24 or 2001:db8::/64)";
-  }
-  if (isValidIpv4(trimmed) || isValidIpv6(trimmed)) return null;
-  // Hostnames are valid discovery targets but can't be filtered on (the fleet
-  // list matches by IP, not name). Give a targeted hint. Gate on an alphabetic
-  // char so an all-numeric malformed IP like "999.1.1.1" — which isValidHostname
-  // would also accept — still gets the generic error.
-  if (/[a-z]/i.test(trimmed) && isValidHostname(trimmed)) {
-    return "Hostnames aren't supported here — use an IP, CIDR, or range";
-  }
-  return "Not a valid IP address, range, or CIDR";
 };
 
 /**
@@ -167,29 +136,30 @@ export const validateSubnetLine = (line: string): string | null => {
  * {@link validateSubnetLine}.
  */
 export const normalizeSubnetLine = (line: string): string => {
-  const trimmed = line.trim();
-  if (looksLikeIpRange(trimmed)) {
-    const range = parseIpRange(trimmed);
-    if (range) return `${range.startIp}-${range.endIp}`;
-  }
-  return normalizeCidrLine(trimmed);
+  const entry = categorizeIpEntry(line);
+  if (entry.kind === "range") return `${entry.startIp}-${entry.endIp}`;
+  return normalizeCidrLine(line);
 };
 
 /**
  * A normalized subnet-filter line resolves to either a CIDR/IP (canonical
  * network form, → MinerListFilter.ip_cidrs) or an inclusive IPv4 range
  * (→ MinerListFilter.ip_ranges). Ranges travel natively (no CIDR
- * decomposition). Returns null for unrecognized input.
+ * decomposition). Bare IPs fold into ip_cidrs as /32 or /128. Returns null for
+ * anything the filter can't match on (hostnames, invalid input).
  */
 export type SubnetLineKind = { kind: "cidr"; cidr: string } | { kind: "range"; startIp: string; endIp: string };
 
 export const classifySubnetLine = (line: string): SubnetLineKind | null => {
-  const trimmed = line.trim();
-  if (trimmed === "") return null;
-  if (looksLikeIpRange(trimmed)) {
-    const range = parseIpRange(trimmed);
-    return range ? { kind: "range", startIp: range.startIp, endIp: range.endIp } : null;
+  const entry = categorizeIpEntry(line);
+  switch (entry.kind) {
+    case "range":
+      return { kind: "range", startIp: entry.startIp, endIp: entry.endIp };
+    case "ipv4":
+    case "ipv6":
+    case "cidr":
+      return { kind: "cidr", cidr: normalizeCidrLine(entry.value) };
+    default:
+      return null;
   }
-  if (validateCidrLine(trimmed) !== null) return null;
-  return { kind: "cidr", cidr: normalizeCidrLine(trimmed) };
 };

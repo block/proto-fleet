@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { isValidCidr, isValidIpv6, looksLikeIpRange, parseManualTargets } from "@/shared/utils/networkDiscovery";
+import {
+  categorizeIpEntry,
+  isValidCidr,
+  isValidIpv6,
+  looksLikeIpRange,
+  parseManualTargets,
+} from "@/shared/utils/ipParsing";
 
 describe("parseManualTargets", () => {
   test("parses IPs, hostnames, CIDR subnets, and ranges", () => {
@@ -148,5 +154,43 @@ describe("isValidCidr", () => {
     expect(isValidCidr("fd00::/120")).toBe(false);
     expect(isValidCidr("::1/128")).toBe(false);
     expect(isValidCidr("not-a-cidr/24")).toBe(false);
+  });
+});
+
+describe("categorizeIpEntry", () => {
+  test("classifies bare IPv4 and IPv6 (trailing dot stripped)", () => {
+    expect(categorizeIpEntry("10.0.0.5")).toEqual({ kind: "ipv4", value: "10.0.0.5" });
+    expect(categorizeIpEntry("10.0.0.5.")).toEqual({ kind: "ipv4", value: "10.0.0.5" });
+    expect(categorizeIpEntry("2001:db8::1")).toEqual({ kind: "ipv6", value: "2001:db8::1" });
+  });
+
+  test("classifies IPv4 and IPv6 CIDRs the same (family derivable from value)", () => {
+    expect(categorizeIpEntry("192.168.1.0/24")).toEqual({ kind: "cidr", value: "192.168.1.0/24" });
+    expect(categorizeIpEntry("2001:db8::/64")).toEqual({ kind: "cidr", value: "2001:db8::/64" });
+  });
+
+  test("classifies short and full ranges", () => {
+    expect(categorizeIpEntry("10.0.0.10-20")).toEqual({ kind: "range", startIp: "10.0.0.10", endIp: "10.0.0.20" });
+    expect(categorizeIpEntry("10.0.0.10 - 10.0.0.20")).toEqual({
+      kind: "range",
+      startIp: "10.0.0.10",
+      endIp: "10.0.0.20",
+    });
+  });
+
+  test("classifies hostnames", () => {
+    expect(categorizeIpEntry("miner-01")).toEqual({ kind: "hostname", value: "miner-01" });
+  });
+
+  test("marks invalid tokens with what they looked like", () => {
+    expect(categorizeIpEntry("")).toMatchObject({ kind: "invalid", looked: "unknown", reason: "Empty value" });
+    expect(categorizeIpEntry("10.0.0.20-10.0.0.10")).toMatchObject({ kind: "invalid", looked: "range" });
+    expect(categorizeIpEntry("192.168.1.0/33")).toMatchObject({ kind: "invalid", looked: "cidr" });
+    expect(categorizeIpEntry("999.1.1.1")).toMatchObject({ kind: "invalid", looked: "ipv4" });
+    expect(categorizeIpEntry("fd00::xyz")).toMatchObject({ kind: "invalid", looked: "ipv6" });
+  });
+
+  test("trims surrounding whitespace", () => {
+    expect(categorizeIpEntry("  10.0.0.5  ")).toEqual({ kind: "ipv4", value: "10.0.0.5" });
   });
 });
