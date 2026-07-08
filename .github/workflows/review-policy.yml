@@ -2,9 +2,9 @@ name: Review Policy
 
 on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflow/review events instead of PR-head code
   check_run:
-    types: [completed, rerequested]
+    types: [completed]
   check_suite:
-    types: [completed, rerequested]
+    types: [completed]
   workflow_run:
     workflows: ["PR Gate", "Codex Security Review", "Semgrep OSS", "zizmor"]
     types: [completed]
@@ -36,7 +36,9 @@ jobs:
     name: Review Policy
     if: >-
       !(github.event_name == 'check_run' && github.event.check_run.app.slug == 'github-actions') &&
+      !(github.event_name == 'check_run' && github.event.action == 'rerequested') &&
       !(github.event_name == 'check_suite' && github.event.check_suite.app.slug == 'github-actions') &&
+      !(github.event_name == 'check_suite' && github.event.action == 'rerequested') &&
       !(github.event_name == 'status' && github.event.context == 'Review Policy') &&
       !(github.event_name == 'pull_request_review' && github.event.action == 'submitted' && github.event.review.state == 'commented')
     runs-on: ubuntu-latest
