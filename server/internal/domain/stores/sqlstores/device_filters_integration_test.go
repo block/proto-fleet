@@ -222,6 +222,12 @@ func TestIPRangeFilter_RangeOnlyFiltersRowsAndCounts(t *testing.T) {
 	setDeviceStatus(t, db, devInRange.DatabaseID, sqlc.DeviceStatusEnumACTIVE)
 	setDeviceStatus(t, db, devOutOfRange.DatabaseID, sqlc.DeviceStatusEnumACTIVE)
 
+	// GetMinerStateCounts only counts devices with an actionable pairing status,
+	// so pair both; the range filter is then the only reason devOutOfRange is
+	// excluded.
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devInRange.ID)
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devOutOfRange.ID)
+
 	// Range-only filter (no ip_cidrs). Regression guard: the count/total paths
 	// previously routed to the dynamic builder only for ip_cidrs, so a
 	// range-only filter left totals and state counts computed fleet-wide while
