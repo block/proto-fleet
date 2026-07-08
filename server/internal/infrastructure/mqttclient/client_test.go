@@ -272,6 +272,20 @@ func TestValidateSubscribeResult(t *testing.T) {
 			wantErr: "SUBACK returned invalid QoS",
 		},
 		{
+			name:    "invalid QoS fails via sole-entry fallback",
+			topic:   "$share/group/maestro/target",
+			result:  map[string]byte{"maestro/target": 3},
+			wantErr: "SUBACK returned invalid QoS",
+		},
+		{
+			// Pins the deliberate leniency: the wrapper subscribes one topic
+			// at a time, so a sole result entry is trusted even when its key
+			// does not textually match the subscribed filter.
+			name:   "sole entry accepted for non-shared topic mismatch",
+			topic:  "maestro/target",
+			result: map[string]byte{"other/topic": 1},
+		},
+		{
 			name:    "empty result map fails",
 			topic:   "maestro/target",
 			result:  map[string]byte{},
@@ -310,6 +324,14 @@ func TestValidateSubscribeResult(t *testing.T) {
 	}
 }
 
+func TestValidateSubscribeResultIgnoresTokenWithoutResult(t *testing.T) {
+	t.Parallel()
+
+	if err := validateSubscribeResult("maestro/target", completedToken{}); err != nil {
+		t.Fatalf("validateSubscribeResult returned error for plain token: %v", err)
+	}
+}
+
 func TestSubscribeBeforeConnectStagesRoute(t *testing.T) {
 	t.Parallel()
 
@@ -330,6 +352,41 @@ func TestSubscribeBeforeConnectStagesRoute(t *testing.T) {
 	}
 	if recorder.calls[0].callback == nil {
 		t.Fatal("callback was not staged")
+	}
+}
+
+func TestAddRoutesNormalizesSharedSubscriptionFilters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		topic string
+		want  string
+	}{
+		{name: "share prefix stripped", topic: "$share/group/maestro/target", want: "maestro/target"},
+		{name: "queue prefix stripped", topic: "$queue/maestro/target", want: "maestro/target"},
+		{name: "plain topic unchanged", topic: "maestro/target", want: "maestro/target"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := New()
+			if err := client.Subscribe(t.Context(), tt.topic, func(_ []byte, _ time.Time) {}); err != nil {
+				t.Fatalf("Subscribe returned error: %v", err)
+			}
+
+			recorder := &routeRecorder{}
+			client.addRoutes(recorder)
+
+			if len(recorder.calls) != 1 {
+				t.Fatalf("routes added = %d, want 1", len(recorder.calls))
+			}
+			if recorder.calls[0].topic != tt.want {
+				t.Fatalf("route topic = %q, want %q", recorder.calls[0].topic, tt.want)
+			}
+		})
 	}
 }
 

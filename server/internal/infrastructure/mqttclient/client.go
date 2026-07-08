@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -234,8 +235,24 @@ func (c *Client) replaySubscriptions(ctx context.Context, client subscriptionCli
 
 func (c *Client) addRoutes(client routeClient) {
 	for topic, handler := range c.subscriptionSnapshot() {
-		client.AddRoute(topic, handler)
+		client.AddRoute(normalizeTopicFilter(topic), handler)
 	}
+}
+
+// normalizeTopicFilter strips shared-subscription prefixes the same way paho
+// v1.5.1 does in Subscribe. Staged routes must use the normalized form:
+// paho's router only strips $share (never $queue) when matching, and a route
+// staged under the original filter would duplicate the normalized route paho
+// adds on Subscribe, delivering each message twice.
+func normalizeTopicFilter(topic string) string {
+	if strings.HasPrefix(topic, "$share/") {
+		parts := strings.SplitN(topic, "/", 3)
+		if len(parts) == 3 {
+			return parts[2]
+		}
+		return topic
+	}
+	return strings.TrimPrefix(topic, "$queue/")
 }
 
 func (c *Client) subscriptionSnapshot() map[string]paho.MessageHandler {
