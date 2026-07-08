@@ -126,7 +126,7 @@ describe("MinerSelectionList site scope", () => {
     await act(async () => {
       await listProps.onServerFilter({
         buttonFilters: [],
-        dropdownFilters: { type: ["S21"] },
+        dropdownFilters: { model: ["S21"] },
         numericFilters: {},
         textareaListFilters: {},
       });
@@ -150,7 +150,7 @@ describe("MinerSelectionList site scope", () => {
     await act(async () => {
       await listProps.onServerFilter({
         buttonFilters: [],
-        dropdownFilters: { type: ["S21"] },
+        dropdownFilters: { model: ["S21"] },
         numericFilters: {},
         textareaListFilters: {},
       });

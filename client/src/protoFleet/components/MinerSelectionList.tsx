@@ -662,7 +662,9 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         children.push({
           type: "dropdown",
           title: "Model",
-          value: "type",
+          // Keyed "model" to match the fleet miner list's nested filter (shared
+          // testids / category key), not the legacy "type".
+          value: "model",
           options: availableModels.map((model) => ({ id: model, label: model })),
           defaultOptionIds: [],
           showGroupDivider: true,
@@ -749,7 +751,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       async (activeFilters: ActiveFilters) => {
         const next = create(MinerListFilterSchema, { errorComponentTypes: [] });
 
-        const typeFilters = activeFilters.dropdownFilters.type;
+        const typeFilters = activeFilters.dropdownFilters.model;
         if (typeFilters && typeFilters.length > 0) {
           next.models.push(...typeFilters);
         }
