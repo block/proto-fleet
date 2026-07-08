@@ -179,7 +179,9 @@ const historyFromProto = (n: ProtoHistoryEntry): AlertHistoryEntry => ({
 });
 
 const webhookToProto = (w?: WebhookConfig | null) =>
-  w ? { url: w.url, bearerHeader: w.bearer_header ?? "" } : undefined;
+  w
+    ? { url: w.url, bearerHeader: w.bearer_header ?? "", clearBearerHeader: w.clear_bearer_header ?? false }
+    : undefined;
 
 const slackToProto = (s?: SlackConfig | null) => (s ? { webhookUrl: s.webhook_url ?? "" } : undefined);
 

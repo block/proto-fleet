@@ -12,6 +12,7 @@ vi.mock("@/protoFleet/constants/featureFlags", () => ({
 
 import FleetLayout from "./FleetLayout";
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { SitesProvider } from "@/protoFleet/api/SitesProvider";
 import { type ActiveSite } from "@/protoFleet/store/types/activeSite";
 
 // Mock listSites at the hook level so the test stays focused on FleetLayout's
@@ -76,19 +77,24 @@ const LocationProbe = () => {
 
 const renderAt = (initialPath: string) =>
   render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <Routes>
-        <Route path="/fleet" element={<FleetLayout />}>
-          <Route index element={null} />
-          <Route path="sites" element={<div data-testid="tab-content-sites">sites</div>} />
-          <Route path="buildings" element={<div data-testid="tab-content-buildings">buildings</div>} />
-          <Route path="racks" element={<div data-testid="tab-content-racks">racks</div>} />
-          <Route path="miners" element={<div data-testid="tab-content-miners">miners</div>} />
-          <Route path="infrastructure" element={<div data-testid="tab-content-infrastructure">infrastructure</div>} />
-        </Route>
-      </Routes>
-      <LocationProbe />
-    </MemoryRouter>,
+    // FleetLayout reads the site catalog from the shell-level SitesProvider,
+    // which drives the (mocked) listSites + permission gating these tests
+    // exercise. Wrapping here keeps the redirect/permission assertions intact.
+    <SitesProvider>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route path="/fleet" element={<FleetLayout />}>
+            <Route index element={null} />
+            <Route path="sites" element={<div data-testid="tab-content-sites">sites</div>} />
+            <Route path="buildings" element={<div data-testid="tab-content-buildings">buildings</div>} />
+            <Route path="racks" element={<div data-testid="tab-content-racks">racks</div>} />
+            <Route path="miners" element={<div data-testid="tab-content-miners">miners</div>} />
+            <Route path="infrastructure" element={<div data-testid="tab-content-infrastructure">infrastructure</div>} />
+          </Route>
+        </Routes>
+        <LocationProbe />
+      </MemoryRouter>
+    </SitesProvider>,
   );
 
 beforeEach(() => {
@@ -314,6 +320,20 @@ describe("FleetLayout scoped-permission fallback", () => {
 
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
     expect(screen.getByTestId("tab-content-miners")).toBeInTheDocument();
+  });
+
+  test("mounts Miners for a Fleet+Miner role without rack:read", async () => {
+    // Regression: a role with all Fleet + Miner permissions but no rack:read
+    // (Sites/Buildings/Racks category) must still reach its miner list. The
+    // miner list only needs miner:read + fleet:read; rack-backed filters
+    // degrade rather than gate the tab.
+    hasPermissionMock.current = (key: string) => key === "miner:read" || key === "fleet:read";
+
+    renderAt("/fleet/miners");
+
+    await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/miners"));
+    expect(screen.getByTestId("tab-content-miners")).toBeInTheDocument();
+    expect(screen.queryByText("You do not have permission to view Fleet sections.")).not.toBeInTheDocument();
   });
 });
 

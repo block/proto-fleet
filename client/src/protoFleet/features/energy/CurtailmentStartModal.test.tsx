@@ -134,6 +134,8 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal
 }));
 
 const configuredValues: Partial<CurtailmentFormValues> = {
+  // A configured fixed-kW plan; the modal itself defaults to full shutdown.
+  curtailmentMode: "fixedKwReduction",
   targetKw: "40",
   curtailBatchSize: "8",
   curtailBatchIntervalSec: "30",
@@ -243,10 +245,10 @@ function renderModal(props: Partial<ComponentProps<typeof CurtailmentStartModal>
   };
 }
 
-function getMaintenanceCheckbox(): HTMLInputElement {
-  const checkbox = screen.getByText("Include miners in maintenance").closest("label")?.querySelector("input");
+function getAllPairedCheckbox(): HTMLInputElement {
+  const checkbox = screen.getByText("Target all paired miners").closest("label")?.querySelector("input");
   if (!checkbox) {
-    throw new Error("Maintenance checkbox was not rendered");
+    throw new Error("All paired miners checkbox was not rendered");
   }
   return checkbox;
 }
@@ -280,10 +282,9 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Fleet will automatically curtail the least efficient miners first.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Curtailment mode" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "About curtailment mode" })).toBeInTheDocument();
-    expect(screen.getByText("Fixed kW reduction")).toBeInTheDocument();
-    expect(screen.getByLabelText("Fixed target reduction (kW)")).toBeInTheDocument();
-    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveAttribute("type", "text");
-    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveAttribute("inputmode", "decimal");
+    // Full shutdown is the default mode, so no fixed-target input renders.
+    expect(screen.getByText("Full shutdown")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Miner selection strategy" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
@@ -364,10 +365,16 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Seconds to wait between each curtailment wave.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "About restore batch size" }));
-    expect(screen.getByText("Number of miners to bring back online in each wave.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Number of miners to bring back online in each wave. 0 or blank restores pending miners up to the safety limit.",
+      ),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "About restore batch interval" }));
-    expect(screen.getByText("Seconds to wait between each restore wave.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Seconds to wait between each restore wave. 0 or blank means no wait."),
+    ).toBeInTheDocument();
   });
 
   it("applies response profile values and switches back to custom plan after edits", async () => {
@@ -704,9 +711,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
-    expect(screen.getByText("Force include maintenance miners?")).toBeInTheDocument();
     expect(onTestCurtailment).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Force include" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -1131,10 +1136,16 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Seconds to wait between each curtailment wave.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "About restore batch size" }));
-    expect(screen.getByText("Number of miners to bring back online in each wave.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Number of miners to bring back online in each wave. 0 or blank restores pending miners up to the safety limit.",
+      ),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "About restore batch interval" }));
-    expect(screen.getByText("Seconds to wait between each restore wave.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Seconds to wait between each restore wave. 0 or blank means no wait."),
+    ).toBeInTheDocument();
   });
 
   it("renders the response profile edit variant with prefilled fields and delete action", async () => {
@@ -1157,7 +1168,7 @@ describe("CurtailmentStartModal", () => {
         targetKw: "500",
         curtailBatchSize: "50",
         curtailBatchIntervalSec: "30",
-        restoreBatchSize: "10000",
+        restoreBatchSize: "0",
         restoreIntervalSec: "0",
         includeMaintenance: false,
       },
@@ -1176,7 +1187,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByTestId("response-profile-curtail-batch-size")).toHaveValue("50");
     expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("30");
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
-    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
+    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("0");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
     expect(screen.queryByTestId("response-profile-post-event-cooldown")).not.toBeInTheDocument();
     expect(screen.getByText("Apply to")).toBeInTheDocument();
@@ -1208,7 +1219,7 @@ describe("CurtailmentStartModal", () => {
         targetKw: "750",
         curtailBatchSize: "50",
         curtailBatchIntervalSec: "30",
-        restoreBatchSize: "10000",
+        restoreBatchSize: "0",
         restoreIntervalSec: "0",
       }),
     );
@@ -1224,7 +1235,7 @@ describe("CurtailmentStartModal", () => {
         targetKw: "750",
         curtailBatchSize: "50",
         curtailBatchIntervalSec: "30",
-        restoreBatchSize: "10000",
+        restoreBatchSize: "0",
         restoreIntervalSec: "0",
       }),
     );
@@ -1284,7 +1295,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByTestId("curtailment-curtail-batch-size")).toBeDisabled();
     expect(screen.getByTestId("curtailment-curtail-batch-interval")).toBeDisabled();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeDisabled();
-    expect(screen.getByText("Include miners in maintenance").closest("label")).toHaveClass("cursor-not-allowed");
+    expect(screen.queryByText("Include miners in maintenance")).not.toBeInTheDocument();
 
     const saveButton = screen.getByRole("button", { name: "Save" });
     expect(saveButton).toBeDisabled();
@@ -1357,7 +1368,7 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("blocks zero restore interval in edit mode", async () => {
+  it("allows zero restore interval in edit mode", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       mode: "edit",
@@ -1372,11 +1383,11 @@ describe("CurtailmentStartModal", () => {
     await user.clear(screen.getByTestId("curtailment-restore-batch-interval"));
     await user.type(screen.getByTestId("curtailment-restore-batch-interval"), "0");
 
-    expect(screen.getByText("Enter batch interval greater than 0.")).toBeInTheDocument();
+    expect(screen.queryByText("Enter batch interval greater than 0.")).not.toBeInTheDocument();
     expect(saveButton).toBeEnabled();
 
     await user.click(saveButton);
-    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ restoreIntervalSec: "0" }));
   });
 
   it("submits edit mode without maintenance confirmation", async () => {
@@ -1562,6 +1573,11 @@ describe("CurtailmentStartModal", () => {
   it("submits the current form values without dismissing the modal", async () => {
     const user = userEvent.setup();
     const { onDismiss, onSubmit } = renderModal();
+
+    // Full shutdown is the default; switch to fixed-kW mode first.
+    await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
+    await user.click(await screen.findByText("Fixed kW reduction"));
+
     const targetInput = screen.getByLabelText("Fixed target reduction (kW)");
     const restoreBatchSizeInput = screen.getAllByLabelText("Batch size (miners)")[1];
     const restoreIntervalInput = screen.getAllByLabelText("Batch interval (sec)")[1];
@@ -1572,10 +1588,7 @@ describe("CurtailmentStartModal", () => {
     await user.type(screen.getByLabelText("Reason"), "Grid response");
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
-    expect(screen.getByText("Force include maintenance miners?")).toBeInTheDocument();
     expect(onSubmit).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "Force include" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -1600,7 +1613,7 @@ describe("CurtailmentStartModal", () => {
       curtailBatchIntervalSec: "",
       restoreBatchSize: "10",
       restoreIntervalSec: "120",
-      includeMaintenance: true,
+      includeMaintenance: false,
     });
     expect(onDismiss).not.toHaveBeenCalled();
   });
@@ -1617,13 +1630,9 @@ describe("CurtailmentStartModal", () => {
     });
     const startButton = screen.getByRole("button", { name: "Run curtailment" });
 
-    expect(startButton).toBeEnabled();
-
-    await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
-    const fullShutdownOption = await screen.findByText("Full shutdown");
-    expect(document.body.querySelectorAll('input[type="radio"]')).toHaveLength(0);
-    await user.click(fullShutdownOption);
-
+    // Full shutdown is the default mode — no mode switch needed, and no
+    // fixed-target input is required to start.
+    expect(screen.getByRole("button", { name: "Curtailment mode" })).toHaveTextContent("Full shutdown");
     expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
     expect(screen.getByText("Fleet will automatically curtail the least efficient miners first.")).toBeInTheDocument();
     expect(startButton).toBeEnabled();
@@ -1694,39 +1703,70 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("includes maintenance miners by default and confirms re-inclusion", async () => {
+  it("hides the maintenance option and excludes maintenance miners by default", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({ initialValues: configuredValues });
 
-    expect(getMaintenanceCheckbox()).toBeChecked();
-    expect(screen.queryByText("Requires explicit force acknowledgement")).not.toBeInTheDocument();
+    expect(screen.queryByText("Include miners in maintenance")).not.toBeInTheDocument();
 
-    await user.click(screen.getByText("Include miners in maintenance"));
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.queryByText("Force include all paired miners?")).not.toBeInTheDocument();
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    await confirmCurtailment(user);
+    // force_include_maintenance is admin-gated server-side; defaulting it off
+    // keeps non-admin operators with curtailment:manage able to start.
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ includeMaintenance: false }));
+  });
 
-    expect(getMaintenanceCheckbox()).not.toBeChecked();
-    expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument();
+  it("confirms targeting all paired miners in full-shutdown mode", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, curtailmentMode: "fullFleet", targetKw: "" },
+    });
 
-    await user.click(screen.getByText("Include miners in maintenance"));
+    expect(getAllPairedCheckbox()).not.toBeChecked();
 
-    expect(screen.getByText("Force include maintenance miners?")).toBeInTheDocument();
+    await user.click(screen.getByText("Target all paired miners"));
+    expect(screen.getByText("Force include all paired miners?")).toBeInTheDocument();
     expect(
-      screen.getByText("This will run Curtail on miners that are currently flagged for maintenance work."),
+      screen.getByText(
+        "This will keep targeting paired miners even when they are offline, sleeping, or waiting for authentication, and includes miners flagged for maintenance.",
+      ),
     ).toBeInTheDocument();
-    expect(getMaintenanceCheckbox()).not.toBeChecked();
+    expect(getAllPairedCheckbox()).not.toBeChecked();
 
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument());
-    expect(getMaintenanceCheckbox()).not.toBeChecked();
-
-    await user.click(screen.getByText("Include miners in maintenance"));
     await user.click(screen.getByRole("button", { name: "Force include" }));
-    await waitFor(() => expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument());
-    expect(getMaintenanceCheckbox()).toBeChecked();
+    await waitFor(() => expect(screen.queryByText("Force include all paired miners?")).not.toBeInTheDocument());
+    expect(getAllPairedCheckbox()).toBeChecked();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     await confirmCurtailment(user);
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ includeMaintenance: true }));
+    // The maintenance opt-in coupling happens in the request builders, not
+    // the form values: submitted values carry the raw checkbox state.
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        curtailmentMode: "fullFleet",
+        forceIncludeAllPairedMiners: true,
+        includeMaintenance: false,
+      }),
+    );
+  });
+
+  it("hides the all-paired option for explicit miner selections", () => {
+    renderModal({
+      initialValues: {
+        ...configuredValues,
+        curtailmentMode: "fullFleet",
+        targetKw: "",
+        scopeType: "explicitMiners",
+        deviceIdentifiers: ["miner-1"],
+      },
+    });
+
+    // Explicit miner selections map to an open-loop device-list scope, which
+    // the all-paired policy does not support (the server rejects it).
+    expect(screen.queryByText("Target all paired miners")).not.toBeInTheDocument();
   });
 
   it("opens target selectors and submits the selected target scope", async () => {
@@ -1971,7 +2011,7 @@ describe("CurtailmentStartModal", () => {
         open
         onDismiss={onDismiss}
         onSubmit={onSubmit}
-        initialValues={{ targetKw: "10", reason: "Initial reason" }}
+        initialValues={{ curtailmentMode: "fixedKwReduction", targetKw: "10", reason: "Initial reason" }}
       />,
     );
 
@@ -1985,7 +2025,7 @@ describe("CurtailmentStartModal", () => {
         open={false}
         onDismiss={onDismiss}
         onSubmit={onSubmit}
-        initialValues={{ targetKw: "10", reason: "Initial reason" }}
+        initialValues={{ curtailmentMode: "fixedKwReduction", targetKw: "10", reason: "Initial reason" }}
       />,
     );
     rerender(
@@ -1993,7 +2033,7 @@ describe("CurtailmentStartModal", () => {
         open
         onDismiss={onDismiss}
         onSubmit={onSubmit}
-        initialValues={{ targetKw: "25", reason: "Updated reason" }}
+        initialValues={{ curtailmentMode: "fixedKwReduction", targetKw: "25", reason: "Updated reason" }}
       />,
     );
 
@@ -2022,6 +2062,11 @@ describe("CurtailmentStartModal", () => {
   it("shows required start-field validation when the CTA is clicked or fields are edited", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal();
+
+    // Full shutdown is the default; switch to fixed-kW mode so the
+    // target-reduction requirement applies.
+    await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
+    await user.click(await screen.findByText("Fixed kW reduction"));
 
     const startButton = screen.getByRole("button", { name: "Run curtailment" });
     const targetInput = screen.getByLabelText("Fixed target reduction (kW)");

@@ -100,6 +100,23 @@ describe("CurtailmentPill", () => {
     expect(screen.queryByText(getPlannedReductionText(0, 0))).not.toBeInTheDocument();
   });
 
+  it("shows the live miner count without a fabricated estimate when only counts are available", () => {
+    renderCurtailmentPill({
+      event: {
+        ...activeCurtailmentEvent,
+        selectedMiners: 5000,
+        estimatedReductionKw: 0,
+        targetMetricsAvailable: true,
+        estimatedReductionAvailable: false,
+      },
+    });
+
+    openCurtailmentPopover();
+
+    expect(screen.getByText("5,000 selected miners")).toBeInTheDocument();
+    expect(screen.queryByText(getPlannedReductionText(5000, 0))).not.toBeInTheDocument();
+  });
+
   it("does not render the details link without a details path", () => {
     renderCurtailmentPill();
 

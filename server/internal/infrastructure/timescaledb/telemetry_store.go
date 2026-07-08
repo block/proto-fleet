@@ -30,6 +30,35 @@ const (
 	// Queries > 10 days use daily aggregates
 	hourlyBucketDuration = time.Hour
 	dailyBucketDuration  = 24 * time.Hour
+	maxRawMetricBuckets  = 10000
+
+	// Wide selectors scan one raw row per device per poll interval, so an
+	// org-wide 24h request at a 5k fleet reads ~43M rows; past these exact
+	// limits (no estimates) such requests serve from the hourly aggregates.
+	rawAllDevicesMaxDuration = 5 * time.Hour
+	maxRawDeviceList         = 500
+
+	// hourlyRawTailCoverage is how much of a raw-window request's right edge
+	// the hourly path serves from raw data instead of the aggregate. The
+	// hourly CAGG refresh policy (migration 000006) materializes on a
+	// 30 minute schedule with a 1 hour end_offset, so hour buckets starting
+	// within the last ~2.5h can be unmaterialized. A 2h tail whose start is
+	// truncated to the hour keeps the body at buckets starting >=3h before
+	// the request end, clear of that worst case. Must track those policy
+	// values.
+	hourlyRawTailCoverage = 2 * time.Hour
+
+	// Raw snapshot scans cost one row per device per minute, and rollup gaps
+	// come from the same writer outages as raw gaps, so an oversized raw
+	// fallback pays a huge scan to recover nothing. All-devices requests are
+	// bounded by range alone (fleet size is unknown here); device lists by
+	// estimated scanned rows (600k ~ the 2h cap at a 5k-device fleet).
+	maxRawUptimeFallbackRange = 2 * time.Hour
+	maxRawUptimeFallbackRows  = 600_000
+
+	// fleetMetricRollupReadMaxDuration keeps the new 90s dashboard rollup on
+	// the raw-window paths. Longer ranges already use hourly/daily aggregates.
+	fleetMetricRollupReadMaxDuration = rawDataMaxDuration
 
 	// Energy estimation constants.
 	// Each telemetry data point represents one polling interval of device uptime.
@@ -74,13 +103,14 @@ func (ds dataSource) String() string {
 	}
 }
 
-// selectDataSource determines which table to query based on time range duration.
-func selectDataSource(startTime, endTime *time.Time) dataSource {
-	if startTime == nil || endTime == nil {
-		return dataSourceRaw
-	}
-	duration := endTime.Sub(*startTime)
-	if duration <= rawDataMaxDuration {
+// selectDataSource routes by resolved duration and selector width. Raw scan
+// cost grows with devices x duration, so wide selectors (all devices, or
+// device lists past maxRawDeviceList) serve raw only up to
+// rawAllDevicesMaxDuration and fall to the continuous aggregates beyond it.
+func selectDataSource(startTime, endTime time.Time, deviceCount int) dataSource {
+	duration := endTime.Sub(startTime)
+	narrow := deviceCount > 0 && deviceCount <= maxRawDeviceList
+	if duration <= rawDataMaxDuration && (narrow || duration <= rawAllDevicesMaxDuration) {
 		return dataSourceRaw
 	}
 	if duration <= hourlyMaxDuration {
@@ -98,6 +128,75 @@ func normalizeCompleteBucketRange(startTime, endTime time.Time, bucketDuration t
 		return time.Time{}, time.Time{}, false
 	}
 	return startTime, completeEndTime, true
+}
+
+func rawMetricBucketDuration(slideInterval *time.Duration, allDevices bool) time.Duration {
+	bucketDuration := DefaultBucketDuration
+	if slideInterval != nil && *slideInterval > 0 {
+		bucketDuration = *slideInterval
+	}
+	if bucketDuration < time.Second {
+		return DefaultBucketDuration
+	}
+	if allDevices && bucketDuration < DefaultBucketDuration {
+		return DefaultBucketDuration
+	}
+	return bucketDuration
+}
+
+// timeBucketOrigin is TimescaleDB's default time_bucket origin for
+// sub-month intervals. Bucket counting must use the same grid: an unaligned
+// window straddles one more boundary than its duration implies, so counting
+// duration/width+1 undercounts and can let a request past the bucket cap.
+var timeBucketOrigin = time.Date(2000, time.January, 3, 0, 0, 0, 0, time.UTC)
+
+func rawMetricBucketCount(startTime, endTime time.Time, bucketDuration time.Duration) int64 {
+	if bucketDuration <= 0 || endTime.Before(startTime) {
+		return 0
+	}
+	width := bucketDuration.Nanoseconds()
+	firstBucket := floorDiv(startTime.Sub(timeBucketOrigin).Nanoseconds(), width)
+	lastBucket := floorDiv(endTime.Sub(timeBucketOrigin).Nanoseconds(), width)
+	return lastBucket - firstBucket + 1
+}
+
+// floorDiv floors instead of truncating toward zero so pre-origin timestamps
+// still map to the correct bucket index.
+func floorDiv(a, b int64) int64 {
+	q := a / b
+	if a%b != 0 && (a < 0) != (b < 0) {
+		q--
+	}
+	return q
+}
+
+// completeRawBucketWindow shrinks a window to whole time_bucket cells: the
+// start rounds up and the end rounds down to the grid. Partial edge buckets
+// only contain devices sampled inside the clipped fragment, so fleet sums sag
+// at both window edges and the newest point rewrites itself as the bucket
+// fills. ok is false when no complete bucket fits.
+func completeRawBucketWindow(startTime, endTime time.Time, bucketDuration time.Duration) (time.Time, time.Time, bool) {
+	if bucketDuration <= 0 || endTime.Before(startTime) {
+		return time.Time{}, time.Time{}, false
+	}
+	width := bucketDuration.Nanoseconds()
+	startOffset := startTime.Sub(timeBucketOrigin).Nanoseconds()
+	firstBucket := floorDiv(startOffset, width)
+	if startOffset%width != 0 {
+		firstBucket++
+	}
+	// The queries filter time <= end, so a cell is fully covered once end
+	// reaches its last representable instant, one nanosecond short of the
+	// next boundary
+	lastBucket := floorDiv(endTime.Sub(timeBucketOrigin).Nanoseconds()+1, width) - 1
+	if lastBucket < firstBucket {
+		return time.Time{}, time.Time{}, false
+	}
+	alignedStart := timeBucketOrigin.Add(time.Duration(firstBucket * width))
+	// The queries filter time <= end, so the end lands just inside the last
+	// complete bucket
+	alignedEnd := timeBucketOrigin.Add(time.Duration((lastBucket+1)*width) - time.Nanosecond)
+	return alignedStart, alignedEnd, true
 }
 
 // statusData holds a per-device temperature histogram for one bucket.
@@ -119,7 +218,7 @@ type statusData struct {
 
 // toStatusCounts converts temperature histogram data to status counts.
 // Maps histogram buckets to status categories using the same thresholds as
-// calculateTemperatureStatusCount (tempThresholdCold=0, tempThresholdHot=70, tempThresholdCritical=90):
+// tempThresholdCold=0, tempThresholdHot=70, tempThresholdCritical=90:
 //   - Cold: temp < 0 → tempBelow0 bucket
 //   - Ok: 0 <= temp < 70 → buckets 0-10 through 60-70
 //   - Hot: 70 <= temp < 90 → buckets 70-80 and 80-90
@@ -282,6 +381,12 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 	}()
 
 	qtx := s.queries.WithTx(tx)
+
+	if s.config.AsyncMetricCommit {
+		if err := qtx.DisableSyncCommit(ctx); err != nil {
+			return fmt.Errorf("failed to set async commit: %w", err)
+		}
+	}
 
 	for _, metrics := range data {
 		params := sqlc.InsertDeviceMetricsParams{
@@ -513,107 +618,338 @@ func (s *TimescaleTelemetryStore) StreamTelemetryUpdates(ctx context.Context, qu
 // - Hourly aggregates (device_metrics_hourly) for queries 24h-10d
 // - Daily aggregates (device_metrics_daily) for queries > 10d
 func (s *TimescaleTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
-	ds := selectDataSource(query.TimeRange.StartTime, query.TimeRange.EndTime)
+	startTime, endTime := s.getTimeRange(query.TimeRange)
+	ds := selectDataSource(startTime, endTime, len(query.DeviceIDs))
 
 	s.logger.Debug("selected data source for combined metrics",
 		slog.String("source", ds.String()),
-		slog.Any("start_time", query.TimeRange.StartTime),
-		slog.Any("end_time", query.TimeRange.EndTime))
+		slog.Time("start_time", startTime),
+		slog.Time("end_time", endTime),
+		slog.Int("device_count", len(query.DeviceIDs)))
 
 	switch ds {
 	case dataSourceRaw:
-		return s.getCombinedMetricsFromRaw(ctx, query)
+		return s.getCombinedMetricsFromRaw(ctx, query, startTime, endTime)
 	case dataSourceHourly:
-		return s.getCombinedMetricsFromHourly(ctx, query)
+		return s.getCombinedMetricsFromHourly(ctx, query, startTime, endTime)
 	case dataSourceDaily:
-		return s.getCombinedMetricsFromDaily(ctx, query)
+		return s.getCombinedMetricsFromDaily(ctx, query, startTime, endTime)
 	}
-	return s.getCombinedMetricsFromRaw(ctx, query)
+	return s.getCombinedMetricsFromRaw(ctx, query, startTime, endTime)
 }
 
 // getCombinedMetricsFromRaw queries raw device_metrics table (for short time ranges).
-func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
-	tsQuery := models.TimeSeriesTelemetryQuery{
-		DeviceIDs:        query.DeviceIDs,
-		MeasurementTypes: query.MeasurementTypes,
-		TimeRange:        query.TimeRange,
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) (models.CombinedMetric, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	if endTime.Before(startTime) {
+		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics end time must be after start time")
+	}
+	if endTime.Sub(startTime) > rawDataMaxDuration {
+		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics range exceeds %s", rawDataMaxDuration)
 	}
 
-	data, err := s.GetTimeSeriesTelemetry(ctx, tsQuery)
+	bucketDuration := rawMetricBucketDuration(query.SlideInterval, len(query.DeviceIDs) == 0)
+	if rawMetricBucketCount(startTime, endTime, bucketDuration) > maxRawMetricBuckets {
+		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics bucket count exceeds %d", maxRawMetricBuckets)
+	}
+	startTime, endTime, hasCompleteBucket := completeRawBucketWindow(startTime, endTime, bucketDuration)
+	if !hasCompleteBucket {
+		return models.CombinedMetric{}, nil
+	}
+	buckets, err := s.bucketAggregatesPreferRollup(ctx, query, startTime, endTime, bucketDuration)
 	if err != nil {
 		return models.CombinedMetric{}, err
 	}
 
-	if len(data) == 0 {
-		return models.CombinedMetric{}, nil
+	includeUptimeCounts := models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes)
+	result := aggregateRawMetricBuckets(buckets, query.MeasurementTypes, query.AggregationTypes)
+	if includeUptimeCounts {
+		result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration, dataSourceRaw)
 	}
-
-	bucketDuration := DefaultBucketDuration
-	if query.SlideInterval != nil {
-		bucketDuration = *query.SlideInterval
-	}
-
-	result := s.aggregateMetrics(data, query.MeasurementTypes, query.AggregationTypes, bucketDuration)
-	startTime, endTime := s.getTimeRange(query.TimeRange)
-	result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration)
 
 	return result, nil
 }
 
+// rawBucketAggregates runs the bucketed raw device_metrics query for the
+// selector in the query and returns the rows ordered by bucket ascending.
+func (s *TimescaleTelemetryStore) rawBucketAggregates(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) ([]rawMetricBucket, error) {
+	bucketSeconds := bucketDuration.Seconds()
+	if len(query.DeviceIDs) == 0 {
+		if query.OrganizationID != 0 {
+			rows, err := s.queries.GetOrgDeviceMetricsRawBucketAggregates(ctx, sqlc.GetOrgDeviceMetricsRawBucketAggregatesParams{
+				BucketSeconds: bucketSeconds,
+				StartTime:     startTime,
+				EndTime:       endTime,
+				OrgID:         query.OrganizationID,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to query org raw bucket aggregates: %w", err)
+			}
+			buckets := make([]rawMetricBucket, 0, len(rows))
+			for _, row := range rows {
+				buckets = append(buckets, rawMetricBucketFromOrgRaw(row))
+			}
+			return buckets, nil
+		}
+
+		rows, err := s.queries.GetAllDeviceMetricsRawBucketAggregates(ctx, sqlc.GetAllDeviceMetricsRawBucketAggregatesParams{
+			BucketSeconds: bucketSeconds,
+			StartTime:     startTime,
+			EndTime:       endTime,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to query raw bucket aggregates: %w", err)
+		}
+		buckets := make([]rawMetricBucket, 0, len(rows))
+		for _, row := range rows {
+			buckets = append(buckets, rawMetricBucketFromAllDevices(row))
+		}
+		return buckets, nil
+	}
+
+	rows, err := s.queries.GetDeviceMetricsRawBucketAggregates(ctx, sqlc.GetDeviceMetricsRawBucketAggregatesParams{
+		BucketSeconds:     bucketSeconds,
+		DeviceIdentifiers: deviceIDsToStrings(query.DeviceIDs),
+		StartTime:         startTime,
+		EndTime:           endTime,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query raw bucket aggregates: %w", err)
+	}
+	buckets := make([]rawMetricBucket, 0, len(rows))
+	for _, row := range rows {
+		buckets = append(buckets, rawMetricBucketFromDevices(row))
+	}
+	return buckets, nil
+}
+
+// bucketAggregatesPreferRollup serves dashboard-shaped org-wide fleet requests
+// from the app-maintained 90s rollup, plus the two newest complete buckets
+// from raw telemetry. Device-list and site-scoped queries keep the raw path
+// because the rollup cannot enforce the service-resolved device predicate.
+func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) ([]rawMetricBucket, error) {
+	if !fleetMetricRollupEligible(query, startTime, endTime, bucketDuration) {
+		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
+	}
+
+	bodyStart, bodyEndExclusive, ok := fleetMetricRollupWindows(startTime, endTime)
+	if !ok {
+		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
+	}
+
+	coverage, err := s.queries.GetFleetMetricRollupCoverage(ctx)
+	if err != nil {
+		s.logger.Warn("fleet metric rollup coverage lookup failed, falling back to raw",
+			slog.Int64("org_id", query.OrganizationID),
+			slog.Time("start_time", bodyStart),
+			slog.Time("end_time", bodyEndExclusive),
+			slog.String("error", err.Error()))
+		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
+	}
+	requiredLatest := bodyEndExclusive.Add(-models.FleetMetricRollupBucketDuration)
+	if coverage.EarliestBucket.After(bodyStart) || coverage.LatestBucket.Before(requiredLatest) {
+		s.logger.Warn("fleet metric rollup coverage incomplete, falling back to raw",
+			slog.Int64("org_id", query.OrganizationID),
+			slog.Bool("site_scoped", query.DeviceListFromSiteScope),
+			slog.Time("start_time", bodyStart),
+			slog.Time("end_time", bodyEndExclusive),
+			slog.Time("coverage_earliest_bucket", coverage.EarliestBucket),
+			slog.Time("coverage_latest_bucket", coverage.LatestBucket),
+			slog.Time("required_latest_bucket", requiredLatest))
+		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
+	}
+
+	body, err := s.readFleetMetricRollupBuckets(ctx, query, bodyStart, bodyEndExclusive)
+	if err != nil {
+		s.logger.Warn("fleet metric rollup read failed, falling back to raw",
+			slog.Int64("org_id", query.OrganizationID),
+			slog.Bool("site_scoped", query.DeviceListFromSiteScope),
+			slog.Time("start_time", bodyStart),
+			slog.Time("end_time", bodyEndExclusive),
+			slog.String("error", err.Error()))
+		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
+	}
+
+	tail, err := s.rawBucketAggregates(ctx, query, bodyEndExclusive, endTime, bucketDuration)
+	if err != nil {
+		return nil, err
+	}
+	return append(body, tail...), nil
+}
+
+func fleetMetricRollupEligible(query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) bool {
+	if query.OrganizationID == 0 {
+		return false
+	}
+	if bucketDuration != models.FleetMetricRollupBucketDuration {
+		return false
+	}
+	if endTime.Sub(startTime) > fleetMetricRollupReadMaxDuration {
+		return false
+	}
+	if query.DeviceListFromSiteScope {
+		return false
+	}
+	return len(query.DeviceIDs) == 0
+}
+
+func fleetMetricRollupWindows(startTime, endTime time.Time) (bodyStart, bodyEndExclusive time.Time, ok bool) {
+	lastBucketStart := models.TruncateToFleetRollupBucket(endTime)
+	bodyEndExclusive = lastBucketStart.Add(-time.Duration(models.FleetMetricRollupRawTailBuckets-1) * models.FleetMetricRollupBucketDuration)
+	if !bodyEndExclusive.After(startTime) {
+		return time.Time{}, time.Time{}, false
+	}
+	return startTime, bodyEndExclusive, true
+}
+
+func fleetRollupBucketCountExclusive(startTime, endTime time.Time) int64 {
+	if !endTime.After(startTime) {
+		return 0
+	}
+	return rawMetricBucketCount(startTime, endTime.Add(-time.Nanosecond), models.FleetMetricRollupBucketDuration)
+}
+
+func (s *TimescaleTelemetryStore) readFleetMetricRollupBuckets(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) ([]rawMetricBucket, error) {
+	rows, err := s.queries.GetOrgFleetMetricRollups(ctx, sqlc.GetOrgFleetMetricRollupsParams{
+		OrgID:     query.OrganizationID,
+		StartTime: startTime,
+		EndTime:   endTime,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query org fleet metric rollups: %w", err)
+	}
+	buckets := make([]rawMetricBucket, 0, len(rows))
+	for _, row := range rows {
+		buckets = append(buckets, rawMetricBucketFromOrgRollup(row))
+	}
+	return buckets, nil
+}
+
 // getCombinedMetricsFromHourly queries device_metrics_hourly continuous aggregate.
-func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) (models.CombinedMetric, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
-	startTime, endTime := s.getTimeRange(query.TimeRange)
-	startTime, endTime, hasCompleteBucket := normalizeCompleteBucketRange(startTime, endTime, hourlyBucketDuration)
+	// Requests inside the raw window get their right edge served from raw
+	// data because the CAGG materializes on a delay (see
+	// hourlyRawTailCoverage). The body is normalized against the tail start
+	// so body buckets end exactly where the tail begins. Longer ranges keep
+	// the long-standing complete-bucket behavior with no tail.
+	bodyWindowEnd := endTime
+	var tailStart time.Time
+	hasTail := endTime.After(startTime) && endTime.Sub(startTime) <= rawDataMaxDuration
+	if hasTail {
+		tailStart = endTime.Add(-hourlyRawTailCoverage).Truncate(time.Hour)
+		if tailStart.Before(startTime) {
+			tailStart = startTime
+		}
+		bodyWindowEnd = tailStart
+	}
+
+	var result models.CombinedMetric
+	bodyStart, bodyEnd, hasCompleteBucket := normalizeCompleteBucketRange(startTime, bodyWindowEnd, hourlyBucketDuration)
+	if hasCompleteBucket {
+		var rows []sqlc.DeviceMetricsHourly
+		var err error
+
+		if len(query.DeviceIDs) == 0 {
+			if query.OrganizationID != 0 {
+				rows, err = s.queries.GetOrgDeviceMetricsHourlyAggregates(ctx, sqlc.GetOrgDeviceMetricsHourlyAggregatesParams{
+					OrgID:     query.OrganizationID,
+					StartTime: bodyStart,
+					EndTime:   bodyEnd,
+				})
+			} else {
+				rows, err = s.queries.GetAllDeviceMetricsHourlyAggregates(ctx, sqlc.GetAllDeviceMetricsHourlyAggregatesParams{
+					Bucket:   bodyStart,
+					Bucket_2: bodyEnd,
+				})
+			}
+		} else {
+			identifiers := deviceIDsToStrings(query.DeviceIDs)
+			rows, err = s.queries.GetDeviceMetricsHourlyAggregates(ctx, sqlc.GetDeviceMetricsHourlyAggregatesParams{
+				DeviceIdentifiers: identifiers,
+				Bucket:            bodyStart,
+				Bucket_2:          bodyEnd,
+			})
+		}
+
+		if err != nil {
+			return models.CombinedMetric{}, fmt.Errorf("failed to query hourly aggregates: %w", err)
+		}
+
+		if len(rows) > 0 {
+			result.Metrics = s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
+		}
+		result.TemperatureStatusCounts = s.getTemperatureCountsFromHourlyAggregates(ctx, query.OrganizationID, query.DeviceIDs, bodyStart, bodyEnd)
+	}
+
+	if hasTail {
+		if err := s.appendHourlyRawTail(ctx, query, &result, tailStart, endTime); err != nil {
+			return models.CombinedMetric{}, err
+		}
+	}
+
+	// Uptime is computed independently of the metric body: a lagging CAGG can
+	// leave the body empty while the raw tail still returns recent metrics.
+	// It has its own rollup and raw tail merge, so tail-enabled requests pass
+	// the true request end and the uptime series covers the same right edge
+	// as the metric series.
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+		uptimeEnd := endTime.Add(-hourlyBucketDuration)
+		if hasTail {
+			uptimeEnd = endTime
+		}
+		result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, uptimeEnd, hourlyBucketDuration, dataSourceHourly)
+	}
+
+	return result, nil
+}
+
+// appendHourlyRawTail merges raw-granularity buckets over [tailStart, endTime]
+// onto the hourly aggregate body. The tail spans at most hourlyRawTailCoverage
+// plus one hour of alignment slack, so it is bounded by construction and skips
+// the maxRawMetricBuckets check. UptimeStatusCounts stay untouched:
+// uptimeCountsForQuery does its own raw tail merge. Tail failures propagate:
+// the tail covers hours the materialized-only CAGG may not carry yet, so a
+// body-only success would present incomplete recent data as fresh.
+func (s *TimescaleTelemetryStore) appendHourlyRawTail(ctx context.Context, query models.CombinedMetricsQuery, body *models.CombinedMetric, tailStart, endTime time.Time) error {
+	bucketDuration := rawMetricBucketDuration(query.SlideInterval, len(query.DeviceIDs) == 0)
+	// Buckets wider than an hour get time_bucket grid labels that can precede
+	// the hour-truncated tailStart, colliding with or preceding the hourly
+	// body labels. Cap at the body granularity so OpenTime stays ascending
+	// across the seam.
+	if bucketDuration > hourlyBucketDuration {
+		bucketDuration = hourlyBucketDuration
+	}
+	// Drop the in-progress final bucket (keep the seam start so the tail
+	// stays contiguous with the body): a partial bucket undercounts the fleet
+	// and rewrites itself on the next poll.
+	_, alignedEnd, hasCompleteBucket := completeRawBucketWindow(tailStart, endTime, bucketDuration)
 	if !hasCompleteBucket {
-		return models.CombinedMetric{}, nil
+		return nil
 	}
-
-	var rows []sqlc.DeviceMetricsHourly
-	var err error
-
-	if len(query.DeviceIDs) == 0 {
-		rows, err = s.queries.GetAllDeviceMetricsHourlyAggregates(ctx, sqlc.GetAllDeviceMetricsHourlyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
-		})
-	} else {
-		identifiers := deviceIDsToStrings(query.DeviceIDs)
-		rows, err = s.queries.GetDeviceMetricsHourlyAggregates(ctx, sqlc.GetDeviceMetricsHourlyAggregatesParams{
-			DeviceIdentifiers: identifiers,
-			Bucket:            startTime,
-			Bucket_2:          endTime,
-		})
-	}
-
+	buckets, err := s.bucketAggregatesPreferRollup(ctx, query, tailStart, alignedEnd, bucketDuration)
 	if err != nil {
-		return models.CombinedMetric{}, fmt.Errorf("failed to query hourly aggregates: %w", err)
+		return fmt.Errorf("failed to query raw tail for hourly combined metrics: %w", err)
 	}
 
-	if len(rows) == 0 {
-		return models.CombinedMetric{}, nil
-	}
-
-	metrics := s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
-
-	tempCounts := s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration)
-
-	return models.CombinedMetric{
-		Metrics:                 metrics,
-		TemperatureStatusCounts: tempCounts,
-		UptimeStatusCounts:      uptimeCounts,
-	}, nil
+	tail := aggregateRawMetricBuckets(buckets, query.MeasurementTypes, query.AggregationTypes)
+	// Body buckets end at tailStart while tail buckets start at it, and both
+	// sides are bucket-ascending, so appending keeps the response ordered by
+	// OpenTime.
+	body.Metrics = append(body.Metrics, tail.Metrics...)
+	body.TemperatureStatusCounts = append(body.TemperatureStatusCounts, tail.TemperatureStatusCounts...)
+	return nil
 }
 
 // getCombinedMetricsFromDaily queries device_metrics_daily continuous aggregate.
-func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) (models.CombinedMetric, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
-	startTime, endTime := s.getTimeRange(query.TimeRange)
 	startTime, endTime, hasCompleteBucket := normalizeCompleteBucketRange(startTime, endTime, dailyBucketDuration)
 	if !hasCompleteBucket {
 		return models.CombinedMetric{}, nil
@@ -647,7 +983,10 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 	metrics := s.aggregateDailyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
 	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration)
+	var uptimeCounts []models.UptimeStatusCount
+	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+		uptimeCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration, dataSourceDaily)
+	}
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -661,11 +1000,38 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 // same start/end used for the surrounding metric query so uptime bars line up
 // with metric bars (notably: hourly/daily callers pass a range normalized to
 // complete buckets, not the raw request range).
-func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) []models.UptimeStatusCount {
+func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration, ds dataSource) []models.UptimeStatusCount {
 	if query.OrganizationID == 0 {
 		return nil
 	}
-	return s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration)
+	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
+
+	rollupCounts := s.getUptimeStatusCountsFromDeviceRollups(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration, ds)
+	complete, rawTailStart, canMergeTail := uptimeRollupCoverage(rollupCounts, startTime, endTime, bucketDuration)
+	if complete {
+		return rollupCounts
+	}
+	rawStart := startTime
+	if canMergeTail {
+		rawStart = rawTailStart
+	}
+	if rawUptimeFallbackTooLarge(len(query.DeviceIDs), rawStart, endTime) {
+		s.logger.Warn("uptime rollup coverage gap exceeds raw fallback budget, returning partial rollup counts",
+			slog.Int64("org_id", query.OrganizationID),
+			slog.Int("device_count", len(query.DeviceIDs)),
+			slog.Time("start_time", rawStart),
+			slog.Time("end_time", endTime),
+			slog.Int("rollup_bucket_count", len(rollupCounts)))
+		return rollupCounts
+	}
+	rawCounts := s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, rawStart, endTime, bucketDuration)
+	if canMergeTail {
+		if len(rawCounts) == 0 {
+			return rollupCounts
+		}
+		return mergeUptimeStatusCounts(rollupCounts, rawCounts)
+	}
+	return rawCounts
 }
 
 // getTimeRange extracts start and end times from the query, using defaults if not set.
@@ -693,6 +1059,7 @@ func deviceIDsToStrings(ids []models.DeviceIdentifier) []string {
 
 func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
 	ctx context.Context,
+	orgID int64,
 	deviceIDs []models.DeviceIdentifier,
 	startTime, endTime time.Time,
 ) []models.TemperatureStatusCount {
@@ -700,10 +1067,18 @@ func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
 	var err error
 
 	if len(deviceIDs) == 0 {
-		rows, err = s.queries.GetAllDeviceStatusHourlyAggregates(ctx, sqlc.GetAllDeviceStatusHourlyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
-		})
+		if orgID != 0 {
+			rows, err = s.queries.GetOrgDeviceStatusHourlyAggregates(ctx, sqlc.GetOrgDeviceStatusHourlyAggregatesParams{
+				OrgID:     orgID,
+				StartTime: startTime,
+				EndTime:   endTime,
+			})
+		} else {
+			rows, err = s.queries.GetAllDeviceStatusHourlyAggregates(ctx, sqlc.GetAllDeviceStatusHourlyAggregatesParams{
+				Bucket:   startTime,
+				Bucket_2: endTime,
+			})
+		}
 	} else {
 		identifiers := deviceIDsToStrings(deviceIDs)
 		rows, err = s.queries.GetDeviceStatusHourlyAggregates(ctx, sqlc.GetDeviceStatusHourlyAggregatesParams{
@@ -1113,101 +1488,334 @@ func extractDailyValues(row sqlc.DeviceMetricsDaily, mt models.MeasurementType) 
 	return 0, 0, 0, false, false
 }
 
-// aggregateMetrics performs aggregations on the metrics data.
-func (s *TimescaleTelemetryStore) aggregateMetrics(
-	data []modelsV2.DeviceMetrics,
-	measurementTypes []models.MeasurementType,
-	aggregationTypes []models.AggregationType,
-	windowDuration time.Duration,
-) models.CombinedMetric {
-	if len(data) == 0 {
+type rawMetricBucket struct {
+	bucket                time.Time
+	avgHashRate           float64
+	minHashRate           float64
+	maxHashRate           float64
+	latestHashRate        float64
+	hashRateDeviceCount   int64
+	avgTemp               float64
+	minTemp               float64
+	maxTemp               float64
+	sumTemp               float64
+	tempPoints            int64
+	tempDeviceCount       int64
+	tempColdCount         int32
+	tempOkCount           int32
+	tempHotCount          int32
+	tempCriticalCount     int32
+	avgFanRpm             float64
+	minFanRpm             float64
+	maxFanRpm             float64
+	sumFanRpm             float64
+	fanRpmPoints          int64
+	fanRpmDeviceCount     int64
+	avgPower              float64
+	minPower              float64
+	maxPower              float64
+	latestPower           float64
+	powerDeviceCount      int64
+	avgEfficiency         float64
+	minEfficiency         float64
+	maxEfficiency         float64
+	sumEfficiency         float64
+	efficiencyPoints      int64
+	efficiencyDeviceCount int64
+}
+
+func rawMetricBucketFromAllDevices(row sqlc.GetAllDeviceMetricsRawBucketAggregatesRow) rawMetricBucket {
+	return rawMetricBucket{
+		bucket:                row.Bucket,
+		avgHashRate:           row.AvgHashRate,
+		minHashRate:           row.MinHashRate,
+		maxHashRate:           row.MaxHashRate,
+		latestHashRate:        row.LatestHashRate,
+		hashRateDeviceCount:   row.HashRateDeviceCount,
+		avgTemp:               row.AvgTemp,
+		minTemp:               row.MinTemp,
+		maxTemp:               row.MaxTemp,
+		sumTemp:               row.SumTemp,
+		tempPoints:            row.TempPoints,
+		tempDeviceCount:       row.TempDeviceCount,
+		tempColdCount:         row.TempColdCount,
+		tempOkCount:           row.TempOkCount,
+		tempHotCount:          row.TempHotCount,
+		tempCriticalCount:     row.TempCriticalCount,
+		avgFanRpm:             row.AvgFanRpm,
+		minFanRpm:             row.MinFanRpm,
+		maxFanRpm:             row.MaxFanRpm,
+		sumFanRpm:             row.SumFanRpm,
+		fanRpmPoints:          row.FanRpmPoints,
+		fanRpmDeviceCount:     row.FanRpmDeviceCount,
+		avgPower:              row.AvgPower,
+		minPower:              row.MinPower,
+		maxPower:              row.MaxPower,
+		latestPower:           row.LatestPower,
+		powerDeviceCount:      row.PowerDeviceCount,
+		avgEfficiency:         row.AvgEfficiency,
+		minEfficiency:         row.MinEfficiency,
+		maxEfficiency:         row.MaxEfficiency,
+		sumEfficiency:         row.SumEfficiency,
+		efficiencyPoints:      row.EfficiencyPoints,
+		efficiencyDeviceCount: row.EfficiencyDeviceCount,
+	}
+}
+
+func rawMetricBucketFromOrgRaw(row sqlc.GetOrgDeviceMetricsRawBucketAggregatesRow) rawMetricBucket {
+	return rawMetricBucket{
+		bucket:                row.Bucket,
+		avgHashRate:           row.AvgHashRate,
+		minHashRate:           row.MinHashRate,
+		maxHashRate:           row.MaxHashRate,
+		latestHashRate:        row.LatestHashRate,
+		hashRateDeviceCount:   row.HashRateDeviceCount,
+		avgTemp:               row.AvgTemp,
+		minTemp:               row.MinTemp,
+		maxTemp:               row.MaxTemp,
+		sumTemp:               row.SumTemp,
+		tempPoints:            row.TempPoints,
+		tempDeviceCount:       row.TempDeviceCount,
+		tempColdCount:         row.TempColdCount,
+		tempOkCount:           row.TempOkCount,
+		tempHotCount:          row.TempHotCount,
+		tempCriticalCount:     row.TempCriticalCount,
+		avgFanRpm:             row.AvgFanRpm,
+		minFanRpm:             row.MinFanRpm,
+		maxFanRpm:             row.MaxFanRpm,
+		sumFanRpm:             row.SumFanRpm,
+		fanRpmPoints:          row.FanRpmPoints,
+		fanRpmDeviceCount:     row.FanRpmDeviceCount,
+		avgPower:              row.AvgPower,
+		minPower:              row.MinPower,
+		maxPower:              row.MaxPower,
+		latestPower:           row.LatestPower,
+		powerDeviceCount:      row.PowerDeviceCount,
+		avgEfficiency:         row.AvgEfficiency,
+		minEfficiency:         row.MinEfficiency,
+		maxEfficiency:         row.MaxEfficiency,
+		sumEfficiency:         row.SumEfficiency,
+		efficiencyPoints:      row.EfficiencyPoints,
+		efficiencyDeviceCount: row.EfficiencyDeviceCount,
+	}
+}
+
+func rawMetricBucketFromDevices(row sqlc.GetDeviceMetricsRawBucketAggregatesRow) rawMetricBucket {
+	return rawMetricBucket{
+		bucket:                row.Bucket,
+		avgHashRate:           row.AvgHashRate,
+		minHashRate:           row.MinHashRate,
+		maxHashRate:           row.MaxHashRate,
+		latestHashRate:        row.LatestHashRate,
+		hashRateDeviceCount:   row.HashRateDeviceCount,
+		avgTemp:               row.AvgTemp,
+		minTemp:               row.MinTemp,
+		maxTemp:               row.MaxTemp,
+		sumTemp:               row.SumTemp,
+		tempPoints:            row.TempPoints,
+		tempDeviceCount:       row.TempDeviceCount,
+		tempColdCount:         row.TempColdCount,
+		tempOkCount:           row.TempOkCount,
+		tempHotCount:          row.TempHotCount,
+		tempCriticalCount:     row.TempCriticalCount,
+		avgFanRpm:             row.AvgFanRpm,
+		minFanRpm:             row.MinFanRpm,
+		maxFanRpm:             row.MaxFanRpm,
+		sumFanRpm:             row.SumFanRpm,
+		fanRpmPoints:          row.FanRpmPoints,
+		fanRpmDeviceCount:     row.FanRpmDeviceCount,
+		avgPower:              row.AvgPower,
+		minPower:              row.MinPower,
+		maxPower:              row.MaxPower,
+		latestPower:           row.LatestPower,
+		powerDeviceCount:      row.PowerDeviceCount,
+		avgEfficiency:         row.AvgEfficiency,
+		minEfficiency:         row.MinEfficiency,
+		maxEfficiency:         row.MaxEfficiency,
+		sumEfficiency:         row.SumEfficiency,
+		efficiencyPoints:      row.EfficiencyPoints,
+		efficiencyDeviceCount: row.EfficiencyDeviceCount,
+	}
+}
+
+func rawMetricBucketFromOrgRollup(row sqlc.GetOrgFleetMetricRollupsRow) rawMetricBucket {
+	return rawMetricBucket{
+		bucket:                row.Bucket,
+		avgHashRate:           row.AvgHashRate,
+		minHashRate:           row.MinHashRate,
+		maxHashRate:           row.MaxHashRate,
+		latestHashRate:        row.LatestHashRate,
+		hashRateDeviceCount:   row.HashRateDeviceCount,
+		avgTemp:               row.AvgTemp,
+		minTemp:               row.MinTemp,
+		maxTemp:               row.MaxTemp,
+		sumTemp:               row.SumTemp,
+		tempPoints:            row.TempPoints,
+		tempDeviceCount:       row.TempDeviceCount,
+		tempColdCount:         row.TempColdCount,
+		tempOkCount:           row.TempOkCount,
+		tempHotCount:          row.TempHotCount,
+		tempCriticalCount:     row.TempCriticalCount,
+		avgFanRpm:             row.AvgFanRpm,
+		minFanRpm:             row.MinFanRpm,
+		maxFanRpm:             row.MaxFanRpm,
+		sumFanRpm:             row.SumFanRpm,
+		fanRpmPoints:          row.FanRpmPoints,
+		fanRpmDeviceCount:     row.FanRpmDeviceCount,
+		avgPower:              row.AvgPower,
+		minPower:              row.MinPower,
+		maxPower:              row.MaxPower,
+		latestPower:           row.LatestPower,
+		powerDeviceCount:      row.PowerDeviceCount,
+		avgEfficiency:         row.AvgEfficiency,
+		minEfficiency:         row.MinEfficiency,
+		maxEfficiency:         row.MaxEfficiency,
+		sumEfficiency:         row.SumEfficiency,
+		efficiencyPoints:      row.EfficiencyPoints,
+		efficiencyDeviceCount: row.EfficiencyDeviceCount,
+	}
+}
+
+type rawMetricValues struct {
+	avg         float64
+	min         float64
+	max         float64
+	sum         float64
+	count       int64
+	deviceCount int64
+}
+
+func aggregateRawMetricBuckets(rows []rawMetricBucket, measurementTypes []models.MeasurementType, aggregationTypes []models.AggregationType) models.CombinedMetric {
+	if len(rows) == 0 {
 		return models.CombinedMetric{}
 	}
-
-	sort.Slice(data, func(i, j int) bool {
-		return data[i].Timestamp.Before(data[j].Timestamp)
-	})
-
-	buckets := make(map[time.Time][]modelsV2.DeviceMetrics)
-	for _, m := range data {
-		bucket := m.Timestamp.Truncate(windowDuration)
-		buckets[bucket] = append(buckets[bucket], m)
-	}
-
-	bucketTimes := make([]time.Time, 0, len(buckets))
-	for t := range buckets {
-		bucketTimes = append(bucketTimes, t)
-	}
-	sort.Slice(bucketTimes, func(i, j int) bool {
-		return bucketTimes[i].Before(bucketTimes[j])
-	})
-
 	if len(measurementTypes) == 0 {
 		measurementTypes = modelsV2.DefaultMeasurementTypes
 	}
-
 	if len(aggregationTypes) == 0 {
 		aggregationTypes = []models.AggregationType{models.AggregationTypeAverage}
 	}
 
-	allMetrics := make([]models.Metric, 0, len(buckets)*len(measurementTypes))
-	tempCounts := make([]models.TemperatureStatusCount, 0, len(buckets))
-	uptimeCounts := make([]models.UptimeStatusCount, 0, len(buckets))
+	metrics := make([]models.Metric, 0, len(rows)*len(measurementTypes))
+	tempCounts := make([]models.TemperatureStatusCount, 0, len(rows))
 
-	for _, bucketTime := range bucketTimes {
-		bucketData := buckets[bucketTime]
-
-		// Dedupe once per bucket — both status-count functions need a
-		// per-device latest sample, with temperature using the latest
-		// sample that actually has TempC populated.
-		uptimeLatest, tempLatest := latestSamplesForStatusCounts(bucketData)
-
-		tempCount := temperatureStatusCountFromLatest(tempLatest, bucketTime)
-		tempCounts = append(tempCounts, tempCount)
-
-		uptimeCount := uptimeStatusCountFromLatest(uptimeLatest, bucketTime)
-		uptimeCounts = append(uptimeCounts, uptimeCount)
+	for _, row := range rows {
+		tempCounts = append(tempCounts, models.TemperatureStatusCount{
+			Timestamp:     row.bucket,
+			ColdCount:     row.tempColdCount,
+			OkCount:       row.tempOkCount,
+			HotCount:      row.tempHotCount,
+			CriticalCount: row.tempCriticalCount,
+		})
 
 		for _, measurementType := range measurementTypes {
-			var aggregatedValues []models.AggregatedValue
-			var metricDeviceCount int
-
-			if isCumulativeMetric(measurementType) {
-				aggregatedValues, metricDeviceCount = calculateCumulativeAggregations(bucketData, measurementType, aggregationTypes)
-			} else {
-				values := extractValues(bucketData, measurementType)
-				if len(values) == 0 {
-					continue
-				}
-				metricDeviceCount = countUniqueDevicesWithMeasurement(bucketData, measurementType)
-				aggregatedValues = make([]models.AggregatedValue, 0, len(aggregationTypes))
-				for _, aggType := range aggregationTypes {
-					aggValue := calculateAggregation(values, aggType)
-					aggregatedValues = append(aggregatedValues, models.AggregatedValue{
-						Type:  aggType,
-						Value: aggValue,
-					})
-				}
-			}
-
-			if len(aggregatedValues) == 0 {
+			values, ok := rawMetricValuesForMeasurement(row, measurementType)
+			if !ok {
 				continue
 			}
 
-			allMetrics = append(allMetrics, models.Metric{
+			aggregatedValues := make([]models.AggregatedValue, 0, len(aggregationTypes))
+			for _, aggType := range aggregationTypes {
+				value, ok := rawMetricAggregationValue(values, aggType)
+				if !ok {
+					continue
+				}
+				aggregatedValues = append(aggregatedValues, models.AggregatedValue{
+					Type:  aggType,
+					Value: value,
+				})
+			}
+			if len(aggregatedValues) == 0 {
+				continue
+			}
+			metrics = append(metrics, models.Metric{
 				MeasurementType:  measurementType,
 				AggregatedValues: aggregatedValues,
-				OpenTime:         bucketTime,
-				DeviceCount:      safeIntToInt32(metricDeviceCount),
+				OpenTime:         row.bucket,
+				DeviceCount:      safeInt64ToInt32(values.deviceCount),
 			})
 		}
 	}
 
 	return models.CombinedMetric{
-		Metrics:                 allMetrics,
+		Metrics:                 metrics,
 		TemperatureStatusCounts: tempCounts,
-		UptimeStatusCounts:      uptimeCounts,
 	}
+}
+
+func rawMetricValuesForMeasurement(row rawMetricBucket, mt models.MeasurementType) (rawMetricValues, bool) {
+	switch mt {
+	case models.MeasurementTypeHashrate:
+		return rawMetricValues{
+			avg:         row.avgHashRate,
+			min:         row.minHashRate,
+			max:         row.maxHashRate,
+			sum:         row.latestHashRate,
+			count:       row.hashRateDeviceCount,
+			deviceCount: row.hashRateDeviceCount,
+		}, row.hashRateDeviceCount > 0
+	case models.MeasurementTypeTemperature:
+		return rawMetricValues{
+			avg:         row.avgTemp,
+			min:         row.minTemp,
+			max:         row.maxTemp,
+			sum:         row.sumTemp,
+			count:       row.tempPoints,
+			deviceCount: row.tempDeviceCount,
+		}, row.tempPoints > 0
+	case models.MeasurementTypePower:
+		return rawMetricValues{
+			avg:         row.avgPower,
+			min:         row.minPower,
+			max:         row.maxPower,
+			sum:         row.latestPower,
+			count:       row.powerDeviceCount,
+			deviceCount: row.powerDeviceCount,
+		}, row.powerDeviceCount > 0
+	case models.MeasurementTypeEfficiency:
+		return rawMetricValues{
+			avg:         row.avgEfficiency,
+			min:         row.minEfficiency,
+			max:         row.maxEfficiency,
+			sum:         row.sumEfficiency,
+			count:       row.efficiencyPoints,
+			deviceCount: row.efficiencyDeviceCount,
+		}, row.efficiencyPoints > 0
+	case models.MeasurementTypeFanSpeed:
+		return rawMetricValues{
+			avg:         row.avgFanRpm,
+			min:         row.minFanRpm,
+			max:         row.maxFanRpm,
+			sum:         row.sumFanRpm,
+			count:       row.fanRpmPoints,
+			deviceCount: row.fanRpmDeviceCount,
+		}, row.fanRpmPoints > 0
+	case models.MeasurementTypeUnknown,
+		models.MeasurementTypeVoltage,
+		models.MeasurementTypeCurrent,
+		models.MeasurementTypeUptime,
+		models.MeasurementTypeErrorRate:
+		return rawMetricValues{}, false
+	}
+	return rawMetricValues{}, false
+}
+
+func rawMetricAggregationValue(values rawMetricValues, aggType models.AggregationType) (float64, bool) {
+	switch aggType {
+	case models.AggregationTypeAverage:
+		return values.avg, true
+	case models.AggregationTypeMin:
+		return values.min, true
+	case models.AggregationTypeMax:
+		return values.max, true
+	case models.AggregationTypeSum:
+		return values.sum, true
+	case models.AggregationTypeCount:
+		return float64(values.count), true
+	case models.AggregationTypeUnknown, models.AggregationTypeTotal, models.AggregationTypeMeanChange:
+		return 0, false
+	}
+	return 0, false
 }
 
 // Ping checks if the database connection is alive.
@@ -1228,6 +1836,271 @@ func (s *TimescaleTelemetryStore) InsertMinerStateSnapshot(ctx context.Context, 
 	return nil
 }
 
+func (s *TimescaleTelemetryStore) UpsertFleetMetricRollups(ctx context.Context, startTime, endTime time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, s.config.WriteTimeout)
+	defer cancel()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin fleet metric rollup tx: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			s.logger.Warn("failed to rollback fleet metric rollup tx", "error", err)
+		}
+	}()
+
+	qtx := s.queries.WithTx(tx)
+	if err := qtx.DeleteFleetMetricRollupsForWindow(ctx, sqlc.DeleteFleetMetricRollupsForWindowParams{
+		StartTime: startTime,
+		EndTime:   endTime,
+	}); err != nil {
+		return fmt.Errorf("delete fleet metric rollups for window: %w", err)
+	}
+	if err := qtx.UpsertFleetMetricRollups(ctx, sqlc.UpsertFleetMetricRollupsParams{
+		StartTime: startTime,
+		EndTime:   endTime,
+	}); err != nil {
+		return fmt.Errorf("upsert fleet metric rollups: %w", err)
+	}
+	if err := qtx.AdvanceFleetMetricRollupProgress(ctx, sqlc.AdvanceFleetMetricRollupProgressParams{
+		EarliestBucket: models.TruncateToFleetRollupBucket(startTime),
+		LatestBucket:   models.TruncateToFleetRollupBucket(endTime.Add(-time.Nanosecond)),
+	}); err != nil {
+		return fmt.Errorf("advance fleet metric rollup progress: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit fleet metric rollup tx: %w", err)
+	}
+	return nil
+}
+
+func (s *TimescaleTelemetryStore) GetLatestFleetMetricRollupBucket(ctx context.Context) (time.Time, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	bucket, err := s.queries.GetLatestFleetMetricRollupBucket(ctx)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("get latest fleet metric rollup bucket: %w", err)
+	}
+	return bucket, nil
+}
+
+func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromDeviceRollups(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []models.DeviceIdentifier,
+	startTime, endTime time.Time,
+	bucketDuration time.Duration,
+	ds dataSource,
+) []models.UptimeStatusCount {
+	if orgID == 0 {
+		return nil
+	}
+	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
+
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	switch ds {
+	case dataSourceRaw:
+		bucketInterval := fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds()))
+		if len(deviceIDs) == 0 {
+			rows, err := s.queries.GetAllMinerStateSnapshotDeviceRollups1m(ctx, sqlc.GetAllMinerStateSnapshotDeviceRollups1mParams{
+				BucketInterval: bucketInterval,
+				OrgID:          orgID,
+				StartTime:      startTime,
+				EndTime:        endTime,
+			})
+			if err != nil {
+				s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+				return nil
+			}
+			result := make([]models.UptimeStatusCount, 0, len(rows))
+			for _, row := range rows {
+				result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+			}
+			return result
+		}
+		rows, err := s.queries.GetMinerStateSnapshotDeviceRollups1m(ctx, sqlc.GetMinerStateSnapshotDeviceRollups1mParams{
+			BucketInterval:         bucketInterval,
+			DeviceIdentifierValues: deviceIDsToStrings(deviceIDs),
+			OrgID:                  orgID,
+			StartTime:              startTime,
+			EndTime:                endTime,
+		})
+		if err != nil {
+			s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+			return nil
+		}
+		result := make([]models.UptimeStatusCount, 0, len(rows))
+		for _, row := range rows {
+			result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+		}
+		return result
+
+	case dataSourceHourly:
+		if len(deviceIDs) == 0 {
+			rows, err := s.queries.GetAllMinerStateSnapshotDeviceRollupsHourly(ctx, sqlc.GetAllMinerStateSnapshotDeviceRollupsHourlyParams{
+				OrgID:     orgID,
+				StartTime: startTime,
+				EndTime:   endTime,
+			})
+			if err != nil {
+				s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+				return nil
+			}
+			result := make([]models.UptimeStatusCount, 0, len(rows))
+			for _, row := range rows {
+				result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+			}
+			return result
+		}
+		rows, err := s.queries.GetMinerStateSnapshotDeviceRollupsHourly(ctx, sqlc.GetMinerStateSnapshotDeviceRollupsHourlyParams{
+			DeviceIdentifierValues: deviceIDsToStrings(deviceIDs),
+			OrgID:                  orgID,
+			StartTime:              startTime,
+			EndTime:                endTime,
+		})
+		if err != nil {
+			s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+			return nil
+		}
+		result := make([]models.UptimeStatusCount, 0, len(rows))
+		for _, row := range rows {
+			result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+		}
+		return result
+
+	case dataSourceDaily:
+		if len(deviceIDs) == 0 {
+			rows, err := s.queries.GetAllMinerStateSnapshotDeviceRollupsDaily(ctx, sqlc.GetAllMinerStateSnapshotDeviceRollupsDailyParams{
+				OrgID:     orgID,
+				StartTime: startTime,
+				EndTime:   endTime,
+			})
+			if err != nil {
+				s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+				return nil
+			}
+			result := make([]models.UptimeStatusCount, 0, len(rows))
+			for _, row := range rows {
+				result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+			}
+			return result
+		}
+		rows, err := s.queries.GetMinerStateSnapshotDeviceRollupsDaily(ctx, sqlc.GetMinerStateSnapshotDeviceRollupsDailyParams{
+			DeviceIdentifierValues: deviceIDsToStrings(deviceIDs),
+			OrgID:                  orgID,
+			StartTime:              startTime,
+			EndTime:                endTime,
+		})
+		if err != nil {
+			s.logUptimeRollupQueryError(orgID, len(deviceIDs), ds, err)
+			return nil
+		}
+		result := make([]models.UptimeStatusCount, 0, len(rows))
+		for _, row := range rows {
+			result = appendUptimeStatusCount(result, row.Bucket, row.HashingCount, row.BrokenCount, row.OfflineCount, row.SleepingCount)
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func (s *TimescaleTelemetryStore) logUptimeRollupQueryError(orgID int64, deviceCount int, ds dataSource, err error) {
+	s.logger.Error("failed to query miner state snapshot device rollups",
+		slog.Int64("org_id", orgID),
+		slog.Int("device_count", deviceCount),
+		slog.String("source", ds.String()),
+		slog.String("error", err.Error()))
+}
+
+func appendUptimeStatusCount(result []models.UptimeStatusCount, bucket time.Time, hashing, broken, offline, sleeping int32) []models.UptimeStatusCount {
+	return append(result, models.UptimeStatusCount{
+		Timestamp:       bucket,
+		HashingCount:    hashing,
+		BrokenCount:     broken,
+		NotHashingCount: offline + sleeping,
+	})
+}
+
+func normalizedUptimeBucketDuration(bucketDuration time.Duration) time.Duration {
+	// Snapshot cadence is ~60s, so finer buckets would yield empty slots.
+	if bucketDuration < time.Minute {
+		return time.Minute
+	}
+	return bucketDuration
+}
+
+func rawUptimeFallbackTooLarge(deviceCount int, startTime, endTime time.Time) bool {
+	timeRange := endTime.Sub(startTime)
+	if deviceCount == 0 {
+		return timeRange > maxRawUptimeFallbackRange
+	}
+	estimatedRows := int64(deviceCount) * int64(timeRange/time.Minute)
+	return estimatedRows > maxRawUptimeFallbackRows
+}
+
+func uptimeRollupCoverage(counts []models.UptimeStatusCount, startTime, endTime time.Time, bucketDuration time.Duration) (complete bool, rawTailStart time.Time, canMergeTail bool) {
+	if len(counts) == 0 {
+		return false, time.Time{}, false
+	}
+
+	ordered := append([]models.UptimeStatusCount(nil), counts...)
+	sort.Slice(ordered, func(i, j int) bool {
+		return ordered[i].Timestamp.Before(ordered[j].Timestamp)
+	})
+
+	first := ordered[0].Timestamp
+	last := first
+	for i, count := range ordered {
+		if i > 0 && count.Timestamp.Sub(last) > bucketDuration {
+			return false, time.Time{}, false
+		}
+		last = count.Timestamp
+	}
+
+	if first.After(startTime) && first.Sub(startTime) >= bucketDuration {
+		return false, time.Time{}, false
+	}
+	if endTime.After(last) && endTime.Sub(last) >= bucketDuration {
+		// The tail starts AT the last rollup bucket, not after it: with chart
+		// buckets wider than the 1m rollup cadence, refresh lag can leave that
+		// bucket built from only its first minute, so the raw merge must
+		// recompute it (the merge overwrites base entries by timestamp).
+		return false, last, true
+	}
+	return true, time.Time{}, false
+}
+
+func mergeUptimeStatusCounts(base, tail []models.UptimeStatusCount) []models.UptimeStatusCount {
+	if len(base) == 0 {
+		return tail
+	}
+	if len(tail) == 0 {
+		return base
+	}
+
+	byTimestamp := make(map[time.Time]models.UptimeStatusCount, len(base)+len(tail))
+	for _, count := range base {
+		byTimestamp[count.Timestamp] = count
+	}
+	for _, count := range tail {
+		byTimestamp[count.Timestamp] = count
+	}
+
+	result := make([]models.UptimeStatusCount, 0, len(byTimestamp))
+	for _, count := range byTimestamp {
+		result = append(result, count)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp.Before(result[j].Timestamp)
+	})
+	return result
+}
+
 func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	ctx context.Context,
 	orgID int64,
@@ -1238,10 +2111,7 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	if orgID == 0 {
 		return nil
 	}
-	// Snapshot cadence is ~60s, so finer buckets would yield empty slots.
-	if bucketDuration < time.Minute {
-		bucketDuration = time.Minute
-	}
+	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
 
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
@@ -1348,277 +2218,15 @@ func parseMetricKindOrDefault(s string) modelsV2.MetricKind {
 	return kind
 }
 
-// latestSamplePerDevice returns one DeviceMetrics per device — the sample with
-// the latest Timestamp. Raw buckets contain many samples per device (~10s
-// polling cadence), so callers that classify devices into status categories
-// must dedupe first to avoid counting one device multiple times.
-func latestSamplePerDevice(data []modelsV2.DeviceMetrics) []modelsV2.DeviceMetrics {
-	if len(data) == 0 {
-		return nil
-	}
-	latest := make(map[string]modelsV2.DeviceMetrics, len(data))
-	for _, m := range data {
-		existing, ok := latest[m.DeviceIdentifier]
-		if !ok || m.Timestamp.After(existing.Timestamp) {
-			latest[m.DeviceIdentifier] = m
-		}
-	}
-	out := make([]modelsV2.DeviceMetrics, 0, len(latest))
-	for _, m := range latest {
-		out = append(out, m)
-	}
-	return out
-}
-
-// latestSamplesForStatusCounts walks the bucket once and returns two deduped
-// views: the latest sample per device (for uptime), and the latest sample per
-// device that has a TempC reading (for temperature). The TempC-aware view
-// avoids dropping a device just because its very latest sample happens to be
-// missing a temperature — TempC reporting can be intermittent, while Health
-// is set on every sample.
-func latestSamplesForStatusCounts(data []modelsV2.DeviceMetrics) (uptime, temperature []modelsV2.DeviceMetrics) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-	allLatest := make(map[string]modelsV2.DeviceMetrics, len(data))
-	tempLatest := make(map[string]modelsV2.DeviceMetrics, len(data))
-	for _, m := range data {
-		if existing, ok := allLatest[m.DeviceIdentifier]; !ok || m.Timestamp.After(existing.Timestamp) {
-			allLatest[m.DeviceIdentifier] = m
-		}
-		if m.TempC == nil {
-			continue
-		}
-		if existing, ok := tempLatest[m.DeviceIdentifier]; !ok || m.Timestamp.After(existing.Timestamp) {
-			tempLatest[m.DeviceIdentifier] = m
-		}
-	}
-	uptime = make([]modelsV2.DeviceMetrics, 0, len(allLatest))
-	for _, m := range allLatest {
-		uptime = append(uptime, m)
-	}
-	temperature = make([]modelsV2.DeviceMetrics, 0, len(tempLatest))
-	for _, m := range tempLatest {
-		temperature = append(temperature, m)
-	}
-	return uptime, temperature
-}
-
-// calculateTemperatureStatusCount dedupes the bucket and counts each device
-// once, using its latest sample that has a TempC reading. Prefer
-// temperatureStatusCountFromLatest in hot loops where the caller has already
-// deduped.
-func calculateTemperatureStatusCount(data []modelsV2.DeviceMetrics, timestamp time.Time) models.TemperatureStatusCount {
-	_, temp := latestSamplesForStatusCounts(data)
-	return temperatureStatusCountFromLatest(temp, timestamp)
-}
-
-// temperatureStatusCountFromLatest classifies an already-deduped slice (one
-// DeviceMetrics per device, latest sample with TempC populated).
-func temperatureStatusCountFromLatest(latestPerDevice []modelsV2.DeviceMetrics, timestamp time.Time) models.TemperatureStatusCount {
-	var cold, ok, hot, critical int32
-
-	for _, m := range latestPerDevice {
-		if m.TempC == nil {
-			continue
-		}
-		temp := m.TempC.Value
-		switch {
-		case temp < tempThresholdCold:
-			cold++
-		case temp < tempThresholdHot:
-			ok++
-		case temp < tempThresholdCritical:
-			hot++
-		default:
-			critical++
-		}
-	}
-
-	return models.TemperatureStatusCount{
-		Timestamp:     timestamp,
-		ColdCount:     cold,
-		OkCount:       ok,
-		HotCount:      hot,
-		CriticalCount: critical,
-	}
-}
-
-// calculateUptimeStatusCount dedupes the bucket and counts each device once.
-// Prefer uptimeStatusCountFromLatest in hot loops where the caller has
-// already deduped.
-func calculateUptimeStatusCount(data []modelsV2.DeviceMetrics, timestamp time.Time) models.UptimeStatusCount {
-	return uptimeStatusCountFromLatest(latestSamplePerDevice(data), timestamp)
-}
-
-// uptimeStatusCountFromLatest classifies an already-deduped slice (one
-// DeviceMetrics per device, latest sample in the bucket).
-func uptimeStatusCountFromLatest(latestPerDevice []modelsV2.DeviceMetrics, timestamp time.Time) models.UptimeStatusCount {
-	var hashing, notHashing int32
-
-	for _, m := range latestPerDevice {
-		if m.Health == modelsV2.HealthHealthyActive {
-			hashing++
-		} else {
-			notHashing++
-		}
-	}
-
-	return models.UptimeStatusCount{
-		Timestamp:       timestamp,
-		HashingCount:    hashing,
-		NotHashingCount: notHashing,
-	}
-}
-
-func extractValues(data []modelsV2.DeviceMetrics, measurementType models.MeasurementType) []float64 {
-	var values []float64
-	for _, m := range data {
-		if value, _, ok := m.ExtractRawMeasurement(measurementType); ok {
-			values = append(values, value)
-		}
-	}
-	return values
-}
-
-// countUniqueDevicesWithMeasurement returns the number of distinct devices that
-// have data for the given measurement type. Raw data may contain multiple
-// readings per device per bucket, so a simple len(extractValues) overcounts.
-func countUniqueDevicesWithMeasurement(data []modelsV2.DeviceMetrics, mt models.MeasurementType) int {
-	seen := make(map[string]struct{})
-	for _, m := range data {
-		if _, _, ok := m.ExtractRawMeasurement(mt); ok {
-			seen[m.DeviceIdentifier] = struct{}{}
-		}
-	}
-	return len(seen)
-}
-
-// calculateCumulativeAggregations handles cumulative metrics (hashrate, power) by:
-// 1. Grouping values by device
-// 2. Calculating per-device aggregates (avg, min, max, latest)
-// 3. Summing across all devices for fleet totals
-func calculateCumulativeAggregations(
-	data []modelsV2.DeviceMetrics,
-	measurementType models.MeasurementType,
-	aggregationTypes []models.AggregationType,
-) ([]models.AggregatedValue, int) {
-	deviceValues := make(map[string][]float64)
-	for _, m := range data {
-		if value, _, ok := m.ExtractRawMeasurement(measurementType); ok {
-			deviceValues[m.DeviceIdentifier] = append(deviceValues[m.DeviceIdentifier], value)
-		}
-	}
-
-	if len(deviceValues) == 0 {
-		return nil, 0
-	}
-
-	type perDeviceAggs struct {
-		avg, min, max, latest float64
-	}
-	deviceAggs := make([]perDeviceAggs, 0, len(deviceValues))
-
-	for _, values := range deviceValues {
-		if len(values) == 0 {
-			continue
-		}
-
-		var sum float64
-		minVal := values[0]
-		maxVal := values[0]
-		for _, v := range values {
-			sum += v
-			if v < minVal {
-				minVal = v
-			}
-			if v > maxVal {
-				maxVal = v
-			}
-		}
-
-		deviceAggs = append(deviceAggs, perDeviceAggs{
-			avg:    sum / float64(len(values)),
-			min:    minVal,
-			max:    maxVal,
-			latest: values[len(values)-1],
-		})
-	}
-
-	// Sum across all devices for fleet totals
-	var totalAvg, totalMin, totalMax, totalSum float64
-	for _, agg := range deviceAggs {
-		totalAvg += agg.avg
-		totalMin += agg.min
-		totalMax += agg.max
-		totalSum += agg.latest
-	}
-
-	result := make([]models.AggregatedValue, 0, len(aggregationTypes))
-	for _, aggType := range aggregationTypes {
-		var value float64
-		switch aggType {
-		case models.AggregationTypeAverage:
-			value = totalAvg
-		case models.AggregationTypeMin:
-			value = totalMin
-		case models.AggregationTypeMax:
-			value = totalMax
-		case models.AggregationTypeSum:
-			value = totalSum
-		case models.AggregationTypeCount:
-			value = float64(len(deviceAggs))
-		case models.AggregationTypeUnknown, models.AggregationTypeTotal, models.AggregationTypeMeanChange:
-			continue
-		}
-		result = append(result, models.AggregatedValue{
-			Type:  aggType,
-			Value: value,
-		})
-	}
-
-	return result, len(deviceAggs)
-}
-
-func calculateAggregation(values []float64, aggType models.AggregationType) float64 {
-	if len(values) == 0 {
-		return 0
-	}
-
-	// Pre-calculate all aggregates in a single pass for efficiency
-	sum := values[0]
-	minVal := values[0]
-	maxVal := values[0]
-	for _, v := range values[1:] {
-		sum += v
-		if v < minVal {
-			minVal = v
-		}
-		if v > maxVal {
-			maxVal = v
-		}
-	}
-
-	switch aggType {
-	case models.AggregationTypeAverage:
-		return sum / float64(len(values))
-	case models.AggregationTypeSum:
-		return sum
-	case models.AggregationTypeMin:
-		return minVal
-	case models.AggregationTypeMax:
-		return maxVal
-	case models.AggregationTypeCount:
-		return float64(len(values))
-	case models.AggregationTypeUnknown, models.AggregationTypeTotal, models.AggregationTypeMeanChange:
-		return 0
-	default:
-		return 0
-	}
-}
-
 // safeIntToInt32 converts an int to int32, clamping to math.MaxInt32 if needed.
 func safeIntToInt32(n int) int32 {
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(n) // #nosec G115 -- bounds checked above
+}
+
+func safeInt64ToInt32(n int64) int32 {
 	if n > math.MaxInt32 {
 		return math.MaxInt32
 	}

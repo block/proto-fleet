@@ -98,6 +98,170 @@ func TestService_Start_FullFleet_CurtailsLowPowerAndZeroHashrateMiners(t *testin
 		"closed-loop full_fleet claims per-miner rows at dispatch time")
 }
 
+func TestService_Start_FullFleet_AllPairedPersistsPolicyTargetsImmediately(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		miner("online", "ACTIVE", "PAIRED", 6000, 100),
+		miner("auth-needed", "ACTIVE", "AUTHENTICATION_NEEDED", 0, 0),
+		miner("offline", "OFFLINE", "PAIRED", 0, 0),
+		miner("unpaired", "ACTIVE", "UNPAIRED", 6000, 100),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	assert.True(t, store.lastInsertEvent.ForceIncludeAllPairedMiners)
+	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State,
+		"a dispatchable target exists, so enforcement starts immediately")
+	assert.NotNil(t, store.lastInsertEvent.StartedAt)
+	assert.Equal(t, 3, plan.PolicyTargetCount)
+	assert.Equal(t, 2, plan.UnavailableTargetCount)
+	require.Len(t, store.lastInsertTargets, 3)
+	assert.Equal(t, models.TargetStatePending, store.lastInsertTargets[0].State)
+	assert.Nil(t, store.lastInsertTargets[0].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, store.lastInsertTargets[1].State)
+	require.NotNil(t, store.lastInsertTargets[1].LastError)
+	assert.Equal(t, "authentication_needed", *store.lastInsertTargets[1].LastError)
+	assert.Equal(t, models.TargetStateUnavailable, store.lastInsertTargets[2].State)
+	require.NotNil(t, store.lastInsertTargets[2].LastError)
+	assert.Equal(t, "offline", *store.lastInsertTargets[2].LastError)
+
+	var snapshot struct {
+		ForceIncludeAllPairedMiners bool `json:"force_include_all_paired_miners"`
+		PolicyTargetCount           int  `json:"policy_target_count"`
+		UnavailableTargetCount      int  `json:"unavailable_target_count"`
+	}
+	require.NoError(t, json.Unmarshal(store.lastInsertEvent.DecisionSnapshotJSON, &snapshot))
+	assert.True(t, snapshot.ForceIncludeAllPairedMiners)
+	assert.Equal(t, 3, snapshot.PolicyTargetCount)
+	assert.Equal(t, 2, snapshot.UnavailableTargetCount)
+}
+
+// An all-paired start whose every paired miner is currently unavailable
+// holds in pending with no started_at: inserting it ACTIVE would start
+// enforceMaxDuration's clock before a single Curtail could dispatch, and the
+// forced restore would then release the never-dispatched policy rows —
+// dropping durable ownership having curtailed nothing. The reconciler
+// promotes the event to active once a target confirms.
+func TestService_Start_FullFleet_AllPairedAllUnavailableHoldsPending(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		miner("offline", "OFFLINE", "PAIRED", 0, 0),
+		miner("auth-needed", "ACTIVE", "AUTHENTICATION_NEEDED", 0, 0),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, models.EventStatePending, store.lastInsertEvent.State,
+		"nothing dispatchable yet: the max-duration clock must not start")
+	assert.Nil(t, store.lastInsertEvent.StartedAt)
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	assert.Equal(t, 2, plan.UnavailableTargetCount)
+	require.Len(t, store.lastInsertTargets, 2)
+	assert.Equal(t, models.TargetStateUnavailable, store.lastInsertTargets[0].State)
+	assert.Equal(t, models.TargetStateUnavailable, store.lastInsertTargets[1].State)
+}
+
+// The maintenance coupling is a client convention, not a server rule: an API
+// caller may set force_include_all_paired_miners without the maintenance
+// pair. The decoupled combination is valid and means "own maintenance-flagged
+// miners durably but hold them unavailable (not curtailed) until maintenance
+// clears" — pinned here so the API semantics cannot drift silently. The
+// ProtoFleet UI always couples the flags; see buildForceInclusionFields.
+func TestService_Start_FullFleet_AllPairedWithoutMaintenancePairParksMaintenanceUnavailable(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		miner("online", "ACTIVE", "PAIRED", 6000, 100),
+		miner("in-maintenance", "MAINTENANCE", "PAIRED", 5000, 100),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+	// Decoupled: the maintenance pair stays unset.
+	req.IncludeMaintenance = false
+	req.ForceIncludeMaintenance = false
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err, "all-paired without the maintenance pair is a valid API combination")
+
+	assert.Equal(t, 2, plan.PolicyTargetCount, "maintenance miner is owned, not skipped")
+	assert.Equal(t, 1, plan.UnavailableTargetCount)
+	require.Len(t, store.lastInsertTargets, 2)
+	assert.Equal(t, "online", store.lastInsertTargets[0].DeviceIdentifier)
+	assert.Equal(t, models.TargetStatePending, store.lastInsertTargets[0].State)
+	assert.Equal(t, "in-maintenance", store.lastInsertTargets[1].DeviceIdentifier)
+	assert.Equal(t, models.TargetStateUnavailable, store.lastInsertTargets[1].State,
+		"without the maintenance pair, maintenance miners are held unavailable until the flag clears")
+	require.NotNil(t, store.lastInsertTargets[1].LastError)
+	assert.Equal(t, "maintenance", *store.lastInsertTargets[1].LastError)
+}
+
+func TestService_Start_FullFleet_AllPairedBypassesPostEventCooldown(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.cooldownDevicesByOrg[orgID] = []string{"recent"}
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		miner("recent", "ACTIVE", "PAIRED", 6000, 100),
+		miner("fresh", "ACTIVE", "PAIRED", 5000, 100),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
+	req.Mode = models.ModeFullFleet
+	req.TargetKW = 0
+	req.PostEventCooldownSec = 600
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, store.cooldownCalls, "all-paired policies intentionally bypass post-event cooldown")
+	require.Len(t, plan.Selected, 2)
+	assert.Equal(t, 2, plan.PolicyTargetCount)
+	require.Len(t, store.lastInsertTargets, 2)
+	assert.Equal(t, "recent", store.lastInsertTargets[0].DeviceIdentifier)
+
+	var snapshot struct {
+		PostEventCooldownSec        int32 `json:"post_event_cooldown_sec"`
+		ForceIncludeAllPairedMiners bool  `json:"force_include_all_paired_miners"`
+	}
+	require.NoError(t, json.Unmarshal(store.lastInsertEvent.DecisionSnapshotJSON, &snapshot))
+	assert.Equal(t, int32(600), snapshot.PostEventCooldownSec)
+	assert.True(t, snapshot.ForceIncludeAllPairedMiners)
+}
+
 func TestService_Preview_FullFleet_SkipsMissingTelemetrySamples(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
@@ -149,6 +313,7 @@ func TestService_Start_FullFleet_NoEligibleMinersPersistsActiveWatcher(t *testin
 	req.Scope = Scope{Type: models.ScopeTypeWholeOrg}
 	req.Mode = models.ModeFullFleet
 	req.TargetKW = 0
+	req.RestoreBatchSize = 0
 
 	plan, err := svc.Start(t.Context(), req)
 	require.NoError(t, err, "empty full_fleet is valid, not an insufficient-load rejection")
@@ -159,6 +324,10 @@ func TestService_Start_FullFleet_NoEligibleMinersPersistsActiveWatcher(t *testin
 		"nothing currently eligible still needs an active enforcement window")
 	assert.NotNil(t, store.lastInsertEvent.StartedAt, "active watcher records when enforcement began")
 	assert.Empty(t, store.lastInsertTargets, "an empty watcher starts with no targets")
+	require.NotNil(t, store.lastInsertEvent.CurtailBatchSize)
+	assert.Equal(t, defaultManualCurtailBatchSizeFloor, *store.lastInsertEvent.CurtailBatchSize,
+		"empty immediate watchers must keep a positive curtail admission throttle")
+	assert.Equal(t, int32(0), store.lastInsertEvent.EffectiveBatchSize)
 }
 
 func TestService_Preview_FullFleet_AllSkippedReturnsTargetReachedWithSkips(t *testing.T) {

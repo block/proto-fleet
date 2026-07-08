@@ -22,6 +22,9 @@ export interface CurtailmentPillEvent {
   selectedMiners: number;
   estimatedReductionKw: number;
   targetMetricsAvailable: boolean;
+  // Live rollups prove counts without proving a kW estimate; summary-only
+  // rows show the miner count alone instead of a fabricated 0.0 kW.
+  estimatedReductionAvailable?: boolean;
 }
 
 export interface CurtailmentPillProps {

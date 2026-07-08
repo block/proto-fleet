@@ -88,6 +88,30 @@ describe("List", () => {
     expect(screen.getAllByRole("row")).toHaveLength(testItems.length + 1);
   });
 
+  it("renders standalone dash table values in muted text", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={[testCols.name, testCols.status] as (keyof TestItem)[]}
+        colTitles={testColTitles}
+        colConfig={{
+          ...testColConfig,
+          [testCols.status]: {
+            component: () => <span className="text-text-primary">—</span>,
+          },
+        }}
+        items={[{ ...testItems[0], id: "dash-item", name: "—" }]}
+        itemKey="id"
+      />,
+    );
+
+    const placeholders = screen.getAllByText("—");
+
+    expect(placeholders).toHaveLength(2);
+    placeholders.forEach((placeholder) => {
+      expect(placeholder.closest(".text-text-primary-50")).toBeInTheDocument();
+    });
+  });
+
   it("does not apply trailing padding classes when the last column is already reachable", () => {
     render(
       <List<TestItem, TestItemKey>

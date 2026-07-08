@@ -358,6 +358,23 @@ const ManageBuildingModal = ({
   // bucket. Layout writes live in BuildingSettingsModal.
   const handleSave = useCallback(async () => {
     if (savingRef.current) return;
+
+    // Capacity guard — mirrors ManageRackModal's slot check and the
+    // server's AssignRacksToBuilding cap. A building holds at most
+    // aisles×racks_per_aisle racks (placed or unplaced); reject before
+    // dispatch so an over-capacity working set never reaches the RPC.
+    // `entries` is the racks staying in this building (removed ones are
+    // already filtered out). Skipped when the grid is unconfigured
+    // (capacity 0): racks can be staged before a layout is set.
+    const capacity = aislesNum * racksPerAisleNum;
+    if (capacity > 0 && entries.length > capacity) {
+      setErrorMsg(
+        `This building has ${capacity} rack positions (${aislesNum} aisles × ${racksPerAisleNum} per aisle), ` +
+          `but ${entries.length} racks are assigned. Remove some racks or increase the layout.`,
+      );
+      return;
+    }
+
     savingRef.current = true;
     setErrorMsg("");
     setIsSaving(true);
@@ -517,7 +534,7 @@ const ManageBuildingModal = ({
       savingRef.current = false;
       setIsSaving(false);
     }
-  }, [building, rackToCell, entries, assignRacksToBuilding, onSaved, onDismiss]);
+  }, [building, rackToCell, entries, aislesNum, racksPerAisleNum, assignRacksToBuilding, onSaved, onDismiss]);
 
   if (!open) return null;
 

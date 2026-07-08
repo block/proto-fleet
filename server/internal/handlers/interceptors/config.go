@@ -164,6 +164,9 @@ var FleetNodeAuthenticatedProcedures = []string{
 // For streaming RPCs, this also suppresses individual message bodies in
 // loggingStreamingHandlerConn.
 var SensitiveBodyProcedures = map[string]bool{
+	// Fleet topology (device IPs, site/rack placement) must not land in
+	// debug logs on every bridge poll.
+	fleetmanagementv1connect.FleetManagementServiceListMinerStateSnapshotsProcedure:   true,
 	foremanimportv1connect.ForemanImportServiceImportFromForemanProcedure:             true,
 	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:                true,
 	authv1connect.AuthServiceAuthenticateProcedure:                                    true,

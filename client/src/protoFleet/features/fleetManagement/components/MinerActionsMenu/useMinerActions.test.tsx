@@ -10,7 +10,10 @@ import {
   MinerStateSnapshotSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { PerformanceMode } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
+import {
+  CommandBatchUpdateStatus_CommandBatchUpdateStatusType,
+  PerformanceMode,
+} from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { Settings } from "@/shared/assets/icons";
 import * as toaster from "@/shared/features/toaster";
@@ -535,11 +538,15 @@ describe("useMinerActions", () => {
     const readSubsetIdsFromDirectSelector = (mockCall: any) =>
       mockCall[0].deviceSelector.selectionType.value.deviceIdentifiers;
 
-    const runConfirmFlow = (action: SupportedAction) => async (result: RenderHookResult) => {
+    const runPopoverAction = async (result: RenderHookResult, action: SupportedAction) => {
       const popoverAction = result.current.popoverActions.find((a) => a.action === action);
       await act(async () => {
         await popoverAction?.actionHandler();
       });
+    };
+
+    const runConfirmFlow = (action: SupportedAction) => async (result: RenderHookResult) => {
+      await runPopoverAction(result, action);
       await act(async () => {
         await result.current.handleConfirmation();
       });
@@ -586,12 +593,7 @@ describe("useMinerActions", () => {
         batchId: "batch-blink",
         deviceStatus: DeviceStatus.ONLINE,
         mock: mockBlinkLED,
-        dispatch: async (result) => {
-          const popoverAction = result.current.popoverActions.find((a) => a.action === deviceActions.blinkLEDs);
-          await act(async () => {
-            popoverAction?.actionHandler();
-          });
-        },
+        dispatch: (result) => runPopoverAction(result, deviceActions.blinkLEDs),
         getRetryDeviceIdentifiers: readSubsetIdsFromRequestArg("blinkLEDRequest"),
       },
       {
@@ -620,6 +622,7 @@ describe("useMinerActions", () => {
       mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
         onStreamData({
           status: {
+            commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType.FINISHED,
             commandBatchDeviceCount: {
               total: BigInt(successIds.length + failureIds.length),
               success: BigInt(successIds.length),
@@ -714,9 +717,76 @@ describe("useMinerActions", () => {
       expect(findRetryCall()).toBeUndefined();
     });
 
-    // L3: all-fail path goes through removeToast(originalToastId) (not update)
-    // before attaching Retry. This exercises that branch and confirms Retry is
-    // still offered (streamCompletedNormally is true when 0 + N === N).
+    it("keeps completed counts in progress until the stream reports FINISHED", async () => {
+      let capturedOnStreamData: ((resp: any) => void) | undefined;
+      let capturedAbortController: AbortController | undefined;
+      let streamSettled: Promise<void> | undefined;
+
+      stubActionSuccess(mockBlinkLED, "batch-blink");
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData, streamAbortController }: any) => {
+        capturedOnStreamData = onStreamData;
+        capturedAbortController = streamAbortController;
+        streamSettled = new Promise<void>((resolve) => {
+          streamAbortController.signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return streamSettled;
+      });
+
+      const { result } = renderFor(DeviceStatus.ONLINE);
+      await runPopoverAction(result, deviceActions.blinkLEDs);
+
+      const completeProgressUpdate = {
+        status: {
+          commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType.PROCESSING,
+          commandBatchDeviceCount: {
+            total: BigInt(2),
+            success: BigInt(2),
+            failure: BigInt(0),
+            successDeviceIdentifiers: ["device-1", "device-2"],
+            failureDeviceIdentifiers: [],
+          },
+        },
+      };
+
+      act(() => {
+        capturedOnStreamData?.(completeProgressUpdate);
+        capturedOnStreamData?.(completeProgressUpdate);
+      });
+
+      expect(capturedAbortController?.signal.aborted).toBe(false);
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: "Blinked LEDs 2 out of 2 miners",
+          status: toaster.STATUSES.loading,
+        }),
+      );
+      const loadingProgressCalls = (toaster.updateToast as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (call) => call[1]?.message === "Blinked LEDs 2 out of 2 miners" && call[1]?.status === toaster.STATUSES.loading,
+      );
+      expect(loadingProgressCalls).toHaveLength(1);
+      expect(mockCompleteBatchOperation).not.toHaveBeenCalledWith("batch-blink");
+
+      act(() => {
+        capturedOnStreamData?.({
+          status: {
+            commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType.FINISHED,
+            commandBatchDeviceCount: {
+              total: BigInt(2),
+              success: BigInt(2),
+              failure: BigInt(0),
+              successDeviceIdentifiers: ["device-1", "device-2"],
+              failureDeviceIdentifiers: [],
+            },
+          },
+        });
+      });
+
+      await act(async () => {
+        await streamSettled;
+      });
+    });
+
     it("attaches Retry when all devices fail", async () => {
       stubActionSuccess(mockReboot, "batch-reboot");
       stubPartialFailureStream([], ["device-1", "device-2"]);
@@ -727,9 +797,6 @@ describe("useMinerActions", () => {
       expect(findRetryCall()).toBeDefined();
     });
 
-    // L2: verify the error toast is still pushed on premature termination,
-    // even though Retry is suppressed. A regression that accidentally
-    // suppressed the error toast would be caught here.
     it("does not attach Retry but still shows error toast when the batch stream ends prematurely", async () => {
       stubActionSuccess(mockReboot, "batch-reboot");
       mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
@@ -762,6 +829,41 @@ describe("useMinerActions", () => {
 
       expect(findRetryCall()).toBeUndefined();
       expect(toaster.pushToast).toHaveBeenCalledWith(expect.objectContaining({ status: toaster.STATUSES.error }));
+      expect(toaster.removeToast).toHaveBeenCalledWith(expect.any(Number));
+      expect(mockRemoveDevicesFromBatch).toHaveBeenCalledWith("batch-reboot", ["device-1"]);
+      expect(mockCompleteBatchOperation).not.toHaveBeenCalledWith("batch-reboot");
+    });
+
+    it("cleans up non-status-changing batches when the stream ends before FINISHED", async () => {
+      stubActionSuccess(mockBlinkLED, "batch-blink");
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({
+          status: {
+            commandBatchUpdateStatus: CommandBatchUpdateStatus_CommandBatchUpdateStatusType.PROCESSING,
+            commandBatchDeviceCount: {
+              total: BigInt(2),
+              success: BigInt(1),
+              failure: BigInt(0),
+              successDeviceIdentifiers: ["device-1"],
+              failureDeviceIdentifiers: [],
+            },
+          },
+        });
+        return Promise.resolve();
+      });
+
+      const { result } = renderFor(DeviceStatus.ONLINE);
+      await runPopoverAction(result, deviceActions.blinkLEDs);
+
+      expect(findRetryCall()).toBeUndefined();
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({
+          message: "Unable to confirm bulk action completion. Check miner status and try again.",
+          status: toaster.STATUSES.error,
+        }),
+      );
+      expect(mockCompleteBatchOperation).toHaveBeenCalledWith("batch-blink");
     });
   });
 
@@ -787,6 +889,91 @@ describe("useMinerActions", () => {
       expect(result.current.showManagePowerModal).toBe(true);
       expect(result.current.currentAction).toBe(performanceActions.managePower);
       expect(onActionStart).toHaveBeenCalled();
+    });
+
+    it("ignores manage power capability continuations after cancel", async () => {
+      // Arrange
+      let resolveCapabilityCheck: (() => void) | undefined;
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        resolveCapabilityCheck = () =>
+          onSuccess({
+            allSupported: true,
+            noneSupported: false,
+            supportedCount: 1,
+            unsupportedCount: 0,
+            totalCount: 1,
+            unsupportedGroups: [],
+            supportedDeviceIdentifiers: [],
+          });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const managePowerAction = result.current.popoverActions.find((a) => a.action === performanceActions.managePower);
+
+      // Act
+      act(() => {
+        managePowerAction?.actionHandler();
+      });
+      act(() => {
+        result.current.handleCancel();
+      });
+      await act(async () => {
+        resolveCapabilityCheck?.();
+      });
+
+      // Assert
+      expect(result.current.showManagePowerModal).toBe(false);
+      expect(result.current.currentAction).toBeNull();
+    });
+
+    it("ignores manage power capability continuations after another action starts", async () => {
+      // Arrange
+      let resolveCapabilityCheck: (() => void) | undefined;
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        resolveCapabilityCheck = () =>
+          onSuccess({
+            allSupported: true,
+            noneSupported: false,
+            supportedCount: 1,
+            unsupportedCount: 0,
+            totalCount: 1,
+            unsupportedGroups: [],
+            supportedDeviceIdentifiers: [],
+          });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+        }),
+      );
+
+      const managePowerAction = result.current.popoverActions.find((a) => a.action === performanceActions.managePower);
+      const blinkAction = result.current.popoverActions.find((a) => a.action === deviceActions.blinkLEDs);
+
+      // Act
+      act(() => {
+        managePowerAction?.actionHandler();
+      });
+      act(() => {
+        blinkAction?.actionHandler();
+      });
+      await act(async () => {
+        resolveCapabilityCheck?.();
+      });
+
+      // Assert
+      expect(result.current.showManagePowerModal).toBe(false);
+      expect(result.current.currentAction).toBe(deviceActions.blinkLEDs);
     });
 
     it("should handle manage power confirm and call API", async () => {

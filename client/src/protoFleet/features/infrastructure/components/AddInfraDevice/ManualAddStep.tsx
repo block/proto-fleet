@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { infraDeviceConnectionTypeOptions } from "@/protoFleet/features/infrastructure/connectionTypes";
+import InfraLocationFields from "@/protoFleet/features/infrastructure/components/InfraLocationFields";
+import {
+  MODBUS_TCP_CONNECTION_TYPE,
+  MODBUS_TCP_CONNECTION_TYPE_LABEL,
+} from "@/protoFleet/features/infrastructure/connectionTypes";
 import { FieldHelpPopover } from "@/protoFleet/features/infrastructure/fieldHelp";
 import { infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelpContent";
 import type {
-  InfraDeviceConnectionType,
+  InfraBuildingOption,
   InfraDeviceDraft,
   InfraDeviceEndpointKind,
 } from "@/protoFleet/features/infrastructure/types";
@@ -15,6 +19,8 @@ const endpointKindOptions: { value: InfraDeviceEndpointKind; label: string }[] =
   { value: "single_fan", label: "Single fan" },
   { value: "fan_group", label: "Fan group" },
 ];
+const MIN_MODBUS_UNIT_ID = 1;
+const MAX_MODBUS_UNIT_ID = 247;
 
 export interface ManualAddStepState {
   canAdd: boolean;
@@ -22,32 +28,45 @@ export interface ManualAddStepState {
 }
 
 interface ManualAddStepProps {
+  siteOptions?: string[];
+  buildingOptions?: InfraBuildingOption[];
+  initialSiteName?: string;
   onSuccess: (device: InfraDeviceDraft) => void;
   onStateChange: (state: ManualAddStepState) => void;
 }
 
-const ManualAddStep = ({ onSuccess, onStateChange }: ManualAddStepProps) => {
+const ManualAddStep = ({
+  siteOptions = [],
+  buildingOptions = [],
+  initialSiteName,
+  onSuccess,
+  onStateChange,
+}: ManualAddStepProps) => {
   const [name, setName] = useState("");
-  const [site, setSite] = useState("");
+  const [unitId, setUnitId] = useState("");
+  const [site, setSite] = useState(initialSiteName ?? "");
   const [building, setBuilding] = useState("");
   const [endpointKind, setEndpointKind] = useState<InfraDeviceEndpointKind>("single_fan");
   const [fanCount, setFanCount] = useState("1");
-  const [connectionType, setConnectionType] = useState<InfraDeviceConnectionType | "">("");
   const [endpoint, setEndpoint] = useState("");
   const [port, setPort] = useState("");
 
+  const unitIdValue = unitId.trim();
+  const unitIdNumber = Number(unitIdValue);
   const portNumber = Number(port);
   const fanCountNumber = endpointKind === "single_fan" ? 1 : Number(fanCount);
+  const isUnitIdValid =
+    /^\d+$/.test(unitIdValue) &&
+    Number.isSafeInteger(unitIdNumber) &&
+    unitIdNumber >= MIN_MODBUS_UNIT_ID &&
+    unitIdNumber <= MAX_MODBUS_UNIT_ID;
   const isPortValid = Number.isInteger(portNumber) && portNumber > 0 && portNumber <= 65535;
   const isFanCountValid = endpointKind === "single_fan" || (Number.isInteger(fanCountNumber) && fanCountNumber > 1);
   const isValid =
-    [name, site, building, connectionType, endpoint].every((value) => value.trim().length > 0) &&
+    [name, unitIdValue, site, building, endpoint].every((value) => value.trim().length > 0) &&
+    isUnitIdValid &&
     isPortValid &&
     isFanCountValid;
-
-  const handleSiteChange = useCallback((value: string) => {
-    setSite(value);
-  }, []);
 
   const handleEndpointKindChange = useCallback((value: string) => {
     const nextEndpointKind = value as InfraDeviceEndpointKind;
@@ -58,18 +77,19 @@ const ManualAddStep = ({ onSuccess, onStateChange }: ManualAddStepProps) => {
   }, []);
 
   const handleAdd = useCallback(() => {
-    if (!isValid || !connectionType) return;
+    if (!isValid) return;
     onSuccess({
+      unitId: unitIdNumber,
       name: name.trim(),
       siteName: site.trim(),
       buildingName: building.trim(),
       endpointKind,
       fanCount: fanCountNumber,
-      connectionType,
+      connectionType: MODBUS_TCP_CONNECTION_TYPE,
       endpoint: endpoint.trim(),
       port: portNumber,
     });
-  }, [building, connectionType, endpoint, endpointKind, fanCountNumber, isValid, name, onSuccess, portNumber, site]);
+  }, [building, endpoint, endpointKind, fanCountNumber, isValid, name, onSuccess, portNumber, site, unitIdNumber]);
 
   useEffect(() => {
     onStateChange({ canAdd: isValid, addHandler: handleAdd });
@@ -78,14 +98,18 @@ const ManualAddStep = ({ onSuccess, onStateChange }: ManualAddStepProps) => {
   return (
     <div className="flex flex-col gap-4 pb-2">
       <Input id="manual-name" label="Name" onChange={(v) => setName(v)} />
-      <div className="grid grid-cols-2 gap-3">
-        <Input id="manual-site" label="Site" onChange={handleSiteChange} />
-        <Input id="manual-building" label="Building" onChange={setBuilding} />
-      </div>
+      <InfraLocationFields
+        site={site}
+        building={building}
+        siteOptions={siteOptions}
+        buildingOptions={buildingOptions}
+        onSiteChange={setSite}
+        onBuildingChange={setBuilding}
+      />
       <div className="grid grid-cols-2 gap-3">
         <Select
           id="manual-endpoint-kind"
-          label="Device type"
+          label="Target type"
           options={endpointKindOptions}
           value={endpointKind}
           onChange={handleEndpointKindChange}
@@ -101,14 +125,19 @@ const ManualAddStep = ({ onSuccess, onStateChange }: ManualAddStepProps) => {
           onChange={(v) => setFanCount(v)}
         />
       </div>
-      <Select
+      <Input
+        id="manual-unit-id"
+        label="Unit ID"
+        type="number"
+        inputMode="numeric"
+        suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.unitId} />}
+        onChange={(v) => setUnitId(v)}
+      />
+      <Input
         id="manual-connection-type"
         label="Connection type"
-        options={infraDeviceConnectionTypeOptions}
-        value={connectionType}
-        onChange={(value) => setConnectionType(value as InfraDeviceConnectionType)}
-        suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.connectionType} />}
-        forceBelow
+        initValue={MODBUS_TCP_CONNECTION_TYPE_LABEL}
+        readOnly
       />
       <div className="grid grid-cols-2 gap-3">
         <Input

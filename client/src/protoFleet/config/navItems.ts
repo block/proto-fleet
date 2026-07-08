@@ -16,7 +16,9 @@ export interface NavItem {
   // filter via UserInfo.permissions. Entries without a requiredPermission
   // are visible to every authenticated user.
   requiredPermission?: string;
-  requiredAnyPermission?: string[];
+  // OR-union: the entry shows if ANY element is satisfied. A string is one
+  // permission; a nested string[] is an AND-group (all its keys required).
+  requiredAnyPermission?: (string | string[])[];
   scopable?: boolean;
 }
 
@@ -26,7 +28,7 @@ export interface SecondaryNavItem {
   parent: string;
   section?: "Fleet" | "Automation" | "Admin" | "Account";
   requiredPermission?: string;
-  requiredAnyPermission?: string[];
+  requiredAnyPermission?: (string | string[])[];
   // When set, the entry is shown only if the server reports this feature enabled.
   requiredFeature?: NavFeature;
   // Whether the page honors the topbar SitePicker selection as a soft default
@@ -43,7 +45,12 @@ export const isNavItemAllowedByPermissions = (
 ) => {
   const hasRequiredPermission = !item.requiredPermission || permissions.includes(item.requiredPermission);
   const hasAnyPermission =
-    !item.requiredAnyPermission || item.requiredAnyPermission.some((permission) => permissions.includes(permission));
+    !item.requiredAnyPermission ||
+    item.requiredAnyPermission.some((requirement) =>
+      Array.isArray(requirement)
+        ? requirement.every((permission) => permissions.includes(permission))
+        : permissions.includes(requirement),
+    );
 
   return hasRequiredPermission && hasAnyPermission;
 };
@@ -60,12 +67,24 @@ export const primaryNavItems: NavItem[] = [
     path: "/fleet",
     label: "Fleet",
     icon: Fleet,
+    // Show Fleet when at least one tab is reachable (see FleetLayout's
+    // isTabReachable): racks needs rack:read, sites/buildings need site:read,
+    // miners needs miner:read AND fleet:read. The miners AND-group matters
+    // because read-pairing does NOT force fleet:read onto miner:read, so either
+    // key alone would advertise a page that lands on the empty shell.
+    requiredAnyPermission: ["rack:read", "site:read", ["miner:read", "fleet:read"]],
     scopable: true,
   },
   {
     path: "/groups",
     label: "Groups",
     icon: Groups,
+    // The Groups page's list + stats flow (ListDeviceSets, GetDeviceSetStats)
+    // is gated server-side on rack:read (see deviceset handler's
+    // requireDeviceSetReadPermission), so gate the nav on rack:read to match.
+    // fleet:read would wrongly hide it from rack readers/managers who can use
+    // the page.
+    requiredPermission: "rack:read",
     scopable: true,
   },
   {

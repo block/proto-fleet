@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -23,6 +24,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/health"
 
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/infrastructure/sysmon"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 
 	"connectrpc.com/connect"
@@ -109,6 +111,7 @@ import (
 	foremanImportHandler "github.com/block/proto-fleet/server/internal/handlers/foremanimport"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
+	minerProxyHandler "github.com/block/proto-fleet/server/internal/handlers/minerproxy"
 	"github.com/block/proto-fleet/server/internal/handlers/networkinfo"
 	"github.com/block/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/block/proto-fleet/server/internal/handlers/pairing"
@@ -122,9 +125,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/server"
 )
 
-const (
-	shutdownTimeout = 10 * time.Second
-)
+const shutdownTimeout = 10 * time.Second
 
 // version is overwritten at release build time via -ldflags "-X main.version=<tag>".
 var version = "dev"
@@ -193,6 +194,14 @@ func start(config *Config) error {
 			slog.Error("Failed to shutdown metrics provider", "error", err)
 		}
 	}()
+
+	// Fail fast rather than warn: this state is only reachable through
+	// contradictory hand-edited env (run-fleet.sh already couples the flags),
+	// and continuing would leave provisioned heartbeat rules firing forever
+	// with no collector and no webhook receiver to deliver them.
+	if config.SystemMonitoring.Enabled && !metricsProvider.Enabled() {
+		return errors.New("FLEET_SYSTEM_MONITORING_ENABLED requires FLEET_ALERTS_ENABLED (the metrics writer feeds the system-monitoring rules)")
+	}
 
 	// Cap the reconcile at 60s. The advisory lock inside Reconcile makes
 	// concurrent boots serialize, so a non-winner during a rolling
@@ -577,7 +586,11 @@ func start(config *Config) error {
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
 	grafanaClient := alertsDomain.NewGrafana(config.Metrics.Grafana)
-	alertsSvc := alertsDomain.NewService(grafanaClient, config.Metrics.AlertDestinations)
+	// fleet-api owns org channel storage + delivery; Grafana keeps only rule evaluation,
+	// silences (rule pause / maintenance windows), and the internal history webhook.
+	alertChannelStore := sqlstores.NewSQLAlertChannelStore(conn)
+	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
+	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
@@ -598,12 +611,13 @@ func start(config *Config) error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", health.NewHandler())
+	mux.HandleFunc("/health/ready", health.NewReadyHandler(conn))
 	if config.Metrics.Enabled {
 		if config.Metrics.WebhookToken == "" {
 			slog.Warn("FLEET_ALERTS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
 		}
 		orgQueries := sqlc.New(db.NewRetryDB(conn))
-		mux.Handle("POST "+alertmanagerwebhook.Path, alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries))
+		mux.Handle("POST "+alertmanagerwebhook.Path, alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries, alertsDeliverer))
 	}
 	mux.Handle("/api/v1/firmware/upload", firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, filesService.MaxFirmwareFileSize()))
 	mux.Handle("/api/v1/firmware/check", firmwareHandler.NewCheckHandler(filesService, sessionSvc, userStore))
@@ -616,6 +630,7 @@ func start(config *Config) error {
 	mux.Handle("GET /api/v1/firmware/files", firmwareHandler.NewListFilesHandler(filesService, sessionSvc, userStore))
 	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", firmwareHandler.NewDeleteFileHandler(filesService, sessionSvc, userStore))
 	mux.Handle("DELETE /api/v1/firmware/files", firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore))
+	mux.Handle("/miners/{deviceIdentifier}/api/v1/{rest...}", minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc))
 
 	chunkedCleanupCtx, chunkedCleanupCancel := context.WithCancel(context.Background())
 	go chunkedMgr.StartCleanup(chunkedCleanupCtx, config.Files.ChunkedUploadSessionTTL)
@@ -652,7 +667,7 @@ func start(config *Config) error {
 	mux.Handle(foremanimportv1connect.NewForemanImportServiceHandler(foremanImportHandler.NewHandler(foremanImportSvc), li))
 	mux.Handle(activityv1connect.NewActivityServiceHandler(activityHandler.NewHandler(activitySvc), li))
 	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apikeyHandler.NewHandler(apiKeySvc), li))
-	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn)), li))
+	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn, activitySvc)), li))
 	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))
 
 	alertHandler := alertsHandler.NewHandler(alertsSvc, notificationHistoryStore)
@@ -699,7 +714,21 @@ func start(config *Config) error {
 		Handler:           handler,
 		ReadHeaderTimeout: config.HTTP.ReadHeaderTimeout,
 	}
-	err = httpServer.ListenAndServe()
+	listener, err := net.Listen("tcp", config.HTTP.Address)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", config.HTTP.Address, err)
+	}
+
+	// Started only once the listener is accepting: the first heartbeat is what
+	// clears the Fleet Heartbeat Stale alert, so a crash-looping boot must not
+	// keep refreshing it and mask a down fleet-api.
+	if config.SystemMonitoring.Enabled {
+		sysmonCtx, sysmonCancel := context.WithCancel(context.Background())
+		defer sysmonCancel()
+		go sysmon.New(config.SystemMonitoring, metricsProvider).Run(sysmonCtx)
+	}
+
+	err = httpServer.Serve(listener)
 	if err != nil {
 		return fmt.Errorf("server shutting down: %+v", err)
 	}

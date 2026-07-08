@@ -22,15 +22,17 @@ export const Default = () => {
       <ManageMinersModal
         show={show}
         currentRackMiners={["miner-001", "miner-002"]}
-        currentRackLabel="Rack A-01"
+        eligibility={{ rackId: 1n, siteId: 10n, buildingId: 100n }}
+        targetRackLabel="Rack 1"
         maxSlots={12}
         onDismiss={() => {
           action("onDismiss")();
           setShow(false);
         }}
-        onConfirm={(selectedIds, allSelected, filter) => {
-          action("onConfirm")({ selectedIds, allSelected, filter });
+        onConfirm={async (selectedIds, allSelected, filter, reassignedItems) => {
+          action("onConfirm")({ selectedIds, allSelected, filter, reassignedItems });
           setShow(false);
+          return undefined;
         }}
       />
     </>

@@ -11,7 +11,11 @@ import {
   type PreviewCurtailmentPlanResponse,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { buildCurtailmentScopes } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import { curtailmentNumericFieldLimits } from "@/protoFleet/features/energy/curtailmentNumericFields";
+import {
+  buildCurtailmentScopes,
+  buildForceInclusionFields,
+} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -38,6 +42,7 @@ type CurtailmentPlanPreviewRequestValues = Pick<
   | "toleranceKw"
   | "priority"
   | "includeMaintenance"
+  | "forceIncludeAllPairedMiners"
 >;
 
 interface CurtailmentPlanPreviewResult {
@@ -72,6 +77,7 @@ const emptyPreviewState: CurtailmentPlanPreviewState = {
 
 interface CurtailmentPlanPreviewSource {
   selectedMinerCount: number;
+  unavailableMinerCount?: number;
   targetKw?: number;
   estimatedReductionKw: number;
 }
@@ -117,6 +123,10 @@ function cloneRequestValues(values: CurtailmentPlanPreviewRequestValues): Curtai
   };
 }
 
+function hasPreviewTargets(response: PreviewCurtailmentPlanResponse): boolean {
+  return response.candidates.length > 0 || response.policyTargetCount > 0;
+}
+
 export function buildPreviewCurtailmentPlanRequest(
   values: CurtailmentPlanPreviewRequestValues,
 ): PreviewCurtailmentPlanRequest | undefined {
@@ -126,12 +136,13 @@ export function buildPreviewCurtailmentPlanRequest(
     return undefined;
   }
   if (values.curtailmentMode === "fullFleet") {
+    // Mirror the Start request builder so preview counts match what a
+    // subsequent Start will actually target.
     return create(PreviewCurtailmentPlanRequestSchema, {
       scopes,
       mode: CurtailmentMode.FULL_FLEET,
       priority: toApiPriority(values.priority),
-      includeMaintenance: values.includeMaintenance,
-      forceIncludeMaintenance: values.includeMaintenance,
+      ...buildForceInclusionFields(values),
     });
   }
 
@@ -154,6 +165,7 @@ export function buildPreviewCurtailmentPlanRequest(
     },
     includeMaintenance: values.includeMaintenance,
     forceIncludeMaintenance: values.includeMaintenance,
+    forceIncludeAllPairedMiners: false,
   });
 }
 
@@ -269,7 +281,14 @@ function estimateCurtailDuration(values: CurtailmentFormValues, selectedMinerCou
 }
 
 function estimateRestoreDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
-  return estimateBatchDuration(values.restoreBatchSize, values.restoreIntervalSec, selectedMinerCount);
+  const batchSize = parseNonNegativeInteger(values.restoreBatchSize) ?? 0;
+  const intervalSec = parseNonNegativeInteger(values.restoreIntervalSec) ?? 0;
+  if (intervalSec === 0) {
+    return "Immediately";
+  }
+  const effectiveBatchSize = batchSize === 0 ? curtailmentNumericFieldLimits.restoreBatchSize : batchSize;
+  const batchCount = Math.ceil(selectedMinerCount / effectiveBatchSize);
+  return formatDurationEstimate(Math.max(batchCount - 1, 0) * intervalSec);
 }
 
 export function createCurtailmentPlanPreview(
@@ -287,6 +306,10 @@ export function createCurtailmentPlanPreview(
 
   return {
     selectedMinerCount,
+    unavailableMinerCount:
+      source.unavailableMinerCount !== undefined && Number.isFinite(source.unavailableMinerCount)
+        ? source.unavailableMinerCount
+        : undefined,
     targetKw,
     estimatedReductionKw,
     curtailEstimate: estimateCurtailDuration(values, selectedMinerCount),
@@ -307,7 +330,8 @@ function toCurtailmentPlanPreview(
       : undefined);
 
   return createCurtailmentPlanPreview(values, {
-    selectedMinerCount: response.candidates.length,
+    selectedMinerCount: response.policyTargetCount > 0 ? response.policyTargetCount : response.candidates.length,
+    unavailableMinerCount: response.unavailableTargetCount,
     targetKw,
     estimatedReductionKw: response.estimatedReductionKw,
   });
@@ -338,6 +362,7 @@ export function useCurtailmentPlanPreview({
       toleranceKw: values.toleranceKw,
       priority: values.priority,
       includeMaintenance: values.includeMaintenance,
+      forceIncludeAllPairedMiners: values.forceIncludeAllPairedMiners,
     }),
     [
       values.deviceSetIds,
@@ -345,6 +370,7 @@ export function useCurtailmentPlanPreview({
       values.minerSelectionMode,
       values.curtailmentMode,
       values.includeMaintenance,
+      values.forceIncludeAllPairedMiners,
       values.priority,
       values.scopeId,
       values.siteSelection,
@@ -395,7 +421,7 @@ export function useCurtailmentPlanPreview({
             return;
           }
 
-          if (response.candidates.length === 0) {
+          if (!hasPreviewTargets(response)) {
             setState({
               response: undefined,
               responseRequestKey: undefined,
@@ -474,7 +500,7 @@ export function useCurtailmentPlanPreview({
             return;
           }
 
-          if (response.candidates.length === 0) {
+          if (!hasPreviewTargets(response)) {
             setState({
               response: undefined,
               responseRequestKey: undefined,

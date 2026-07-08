@@ -12,6 +12,7 @@ import {
 import type { CurtailmentFormValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import {
   buildPreviewCurtailmentPlanRequest,
+  createCurtailmentPlanPreview,
   useCurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
 
@@ -52,6 +53,7 @@ const baseValues: CurtailmentFormValues = {
   restoreIntervalSec: "120",
   reason: "Grid peak",
   includeMaintenance: true,
+  forceIncludeAllPairedMiners: false,
 };
 
 function previewResponse(candidateCount = 3) {
@@ -192,8 +194,54 @@ describe("useCurtailmentPlanPreview", () => {
     expect(request?.scopes[0]?.scope.case).toBe("wholeOrg");
     expect(request?.mode).toBe(CurtailmentMode.FULL_FLEET);
     expect(request?.modeParams.case).toBeUndefined();
-    expect(request?.includeMaintenance).toBe(true);
-    expect(request?.forceIncludeMaintenance).toBe(true);
+    // baseValues carries a stale includeMaintenance: true (as hydrated from a
+    // pre-change profile/event); the maintenance pair derives solely from the
+    // all-paired flag, so it must not leak into the preview request.
+    expect(request?.includeMaintenance).toBe(false);
+    expect(request?.forceIncludeMaintenance).toBe(false);
+    expect(request?.forceIncludeAllPairedMiners).toBe(false);
+  });
+
+  it("sends all-paired targeting only for full-fleet preview requests", () => {
+    const fixedKwRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(fixedKwRequest?.forceIncludeAllPairedMiners).toBe(false);
+
+    const fullFleetRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(fullFleetRequest?.forceIncludeAllPairedMiners).toBe(true);
+  });
+
+  it("mirrors the start builder's all-paired scope gate and maintenance opt-in", () => {
+    const allPairedRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      includeMaintenance: false,
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(allPairedRequest?.forceIncludeAllPairedMiners).toBe(true);
+    expect(allPairedRequest?.includeMaintenance).toBe(true);
+    expect(allPairedRequest?.forceIncludeMaintenance).toBe(true);
+
+    const minerScopedRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      scopeType: "explicitMiners",
+      deviceIdentifiers: ["miner-1"],
+      includeMaintenance: false,
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(minerScopedRequest?.forceIncludeAllPairedMiners).toBe(false);
+    expect(minerScopedRequest?.includeMaintenance).toBe(false);
+    expect(minerScopedRequest?.forceIncludeMaintenance).toBe(false);
   });
 
   it("does not build a request until target and scope are valid", () => {
@@ -395,6 +443,72 @@ describe("useCurtailmentPlanPreview", () => {
         signal: expect.any(AbortSignal),
       }),
     );
+  });
+
+  it("uses policy target counts when unavailable all-paired targets exist", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(
+      create(PreviewCurtailmentPlanResponseSchema, {
+        candidates: [],
+        estimatedReductionKw: 45,
+        mode: CurtailmentMode.FULL_FLEET,
+        policyTargetCount: 4,
+        unavailableTargetCount: 3,
+      }),
+    );
+
+    const { result } = renderPreviewHook({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      toleranceKw: "",
+      forceIncludeAllPairedMiners: true,
+    });
+
+    await waitFor(() => {
+      expect(result.current.preview).toEqual(
+        expect.objectContaining({
+          selectedMinerCount: 4,
+          unavailableMinerCount: 3,
+          targetKw: 45,
+          estimatedReductionKw: 45,
+        }),
+      );
+    });
+    expect(result.current.previewError).toBeUndefined();
+  });
+
+  it("treats blank restore fields as immediate in the local preview", () => {
+    const preview = createCurtailmentPlanPreview(
+      {
+        ...baseValues,
+        restoreBatchSize: "",
+        restoreIntervalSec: "",
+      },
+      {
+        selectedMinerCount: 25,
+        targetKw: 40,
+        estimatedReductionKw: 45,
+      },
+    );
+
+    expect(preview.restoreEstimate).toBe("Immediately");
+  });
+
+  it("estimates zero-sized restore waves with the safety limit when an interval is set", () => {
+    const preview = createCurtailmentPlanPreview(
+      {
+        ...baseValues,
+        restoreBatchSize: "0",
+        restoreIntervalSec: "3600",
+      },
+      {
+        selectedMinerCount: 20_001,
+        targetKw: 40,
+        estimatedReductionKw: 45,
+      },
+    );
+
+    expect(preview.restoreEstimate).toBe("~2 hours");
   });
 
   it("surfaces empty preview candidates as a preview error", async () => {

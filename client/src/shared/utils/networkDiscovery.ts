@@ -57,10 +57,51 @@ export const ipv4ToInt = (value: string) =>
     .map((part) => Number(part))
     .reduce((acc, part) => ((acc << 8) + part) >>> 0, 0);
 
+// Unpack a 32-bit unsigned integer back to a dotted IPv4 string.
+export const intToIpv4 = (value: number): string =>
+  [(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255].join(".");
+
+const trailingZeroBits = (value: number): number => {
+  let count = 0;
+  let n = value >>> 0;
+  while ((n & 1) === 0 && count < 32) {
+    count++;
+    n >>>= 1;
+  }
+  return count;
+};
+
+// Decompose an inclusive IPv4 range into the minimal set of CIDR blocks that
+// exactly covers it. Lets a range be expressed as `ip_cidrs` filter entries,
+// since the fleet filter matches by CIDR containment and has no range field.
+export const ipv4RangeToCidrs = (startIp: string, endIp: string): string[] => {
+  let start = ipv4ToInt(startIp);
+  const end = ipv4ToInt(endIp);
+  if (end < start) return [];
+
+  const cidrs: string[] = [];
+  while (start <= end) {
+    // Largest aligned block anchored at `start`: bounded by its alignment (the
+    // number of trailing zero bits) and by how many addresses remain.
+    const maxByAlignment = start === 0 ? 32 : Math.min(32, trailingZeroBits(start));
+    const maxByCount = Math.floor(Math.log2(end - start + 1));
+    const hostBits = Math.min(maxByAlignment, maxByCount);
+    cidrs.push(`${intToIpv4(start)}/${32 - hostBits}`);
+    start += 2 ** hostBits;
+  }
+  return cidrs;
+};
+
 const SHORT_RANGE_REGEX = /^(\d{1,3}(?:\.\d{1,3}){3})\s*-\s*(\d{1,3})$/;
 const FULL_RANGE_REGEX = /^(\d{1,3}(?:\.\d{1,3}){3})\s*-\s*(\d{1,3}(?:\.\d{1,3}){3})$/;
 const CIDR_REGEX = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/;
 const IPV4_LIKE_REGEX = /^\d{1,3}(?:\.\d{1,3}){3}\.?$/;
+
+// True when a token uses the discovery IP-range syntax (short `.10-21` or full
+// `.10-.20`), regardless of whether the endpoints are valid. Callers use this
+// to route a token to parseIpRange before other IP/CIDR checks.
+export const looksLikeIpRange = (value: string): boolean =>
+  SHORT_RANGE_REGEX.test(value) || FULL_RANGE_REGEX.test(value);
 
 export const parseIpRange = (value: string) => {
   const shortRangeMatch = value.match(SHORT_RANGE_REGEX);
@@ -102,8 +143,7 @@ export const parseManualTargets = (input: string) => {
   const categorizedInvalidEntries: CategorizedInvalidEntries = { ipAddresses: [], ipRanges: [], subnets: [] };
 
   entries.forEach((entry) => {
-    const looksLikeIpRange = SHORT_RANGE_REGEX.test(entry) || FULL_RANGE_REGEX.test(entry);
-    if (looksLikeIpRange) {
+    if (looksLikeIpRange(entry)) {
       const range = parseIpRange(entry);
       if (range) {
         targets.ipRanges.push(range);

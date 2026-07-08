@@ -81,6 +81,83 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 	return i, err
 }
 
+const getDirectProtoMinerProxyTarget = `-- name: GetDirectProtoMinerProxyTarget :one
+SELECT
+    d.id,
+    d.device_identifier,
+    d.org_id,
+    d.site_id,
+    d.serial_number,
+    d.mac_address,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    dd.driver_name,
+    mc.username_enc,
+    mc.password_enc
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+WHERE d.device_identifier = $1
+    AND d.org_id = $2
+    AND d.deleted_at IS NULL
+    -- Match the miner-list eligibility: a soft-deleted or inactive discovery
+    -- row must not be proxyable via a bookmarked /miners/:id URL, or the proxy
+    -- could keep dialing a stale/reassigned address with stored credentials.
+    AND dd.is_active = TRUE
+    AND dd.deleted_at IS NULL
+    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND dd.driver_name = 'proto'
+    -- This HTTP proxy dials the miner from fleet-api. Fleet-node-owned
+    -- devices need a result-capable typed control command instead.
+    AND NOT EXISTS (
+        SELECT 1 FROM fleet_node_device fnd
+        WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
+    )
+LIMIT 1
+`
+
+type GetDirectProtoMinerProxyTargetParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+type GetDirectProtoMinerProxyTargetRow struct {
+	ID               int64
+	DeviceIdentifier string
+	OrgID            int64
+	SiteID           sql.NullInt64
+	SerialNumber     sql.NullString
+	MacAddress       string
+	IpAddress        string
+	Port             string
+	UrlScheme        string
+	DriverName       string
+	UsernameEnc      sql.NullString
+	PasswordEnc      sql.NullString
+}
+
+func (q *Queries) GetDirectProtoMinerProxyTarget(ctx context.Context, arg GetDirectProtoMinerProxyTargetParams) (GetDirectProtoMinerProxyTargetRow, error) {
+	row := q.queryRow(ctx, q.getDirectProtoMinerProxyTargetStmt, getDirectProtoMinerProxyTarget, arg.DeviceIdentifier, arg.OrgID)
+	var i GetDirectProtoMinerProxyTargetRow
+	err := row.Scan(
+		&i.ID,
+		&i.DeviceIdentifier,
+		&i.OrgID,
+		&i.SiteID,
+		&i.SerialNumber,
+		&i.MacAddress,
+		&i.IpAddress,
+		&i.Port,
+		&i.UrlScheme,
+		&i.DriverName,
+		&i.UsernameEnc,
+		&i.PasswordEnc,
+	)
+	return i, err
+}
+
 const getFleetNodeTelemetryRouteByDeviceIdentifier = `-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier :one
 SELECT
     fnd.fleet_node_id,

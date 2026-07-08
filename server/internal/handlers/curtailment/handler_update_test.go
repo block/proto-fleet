@@ -149,6 +149,21 @@ func (s *updateStubStore) ClaimClosedLoopFullFleetTargets(
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by Update handler tests")
 }
+func (s *updateStubStore) ClaimAllPairedPolicyTargets(
+	context.Context,
+	int64,
+	[]models.InsertTargetParams,
+) (int64, error) {
+	panic("ClaimAllPairedPolicyTargets not exercised by Update handler tests")
+}
+func (s *updateStubStore) BulkRefreshAllPairedTargetReadiness(
+	context.Context,
+	int64,
+	models.EventState,
+	[]interfaces.AllPairedReadinessUpdate,
+) ([]string, error) {
+	panic("BulkRefreshAllPairedTargetReadiness not exercised by Update handler tests")
+}
 func (s *updateStubStore) ListActiveEvents(context.Context, int64) ([]*models.Event, error) {
 	panic("ListActiveEvents not exercised by Update handler tests")
 }
@@ -158,8 +173,11 @@ func (s *updateStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) 
 func (s *updateStubStore) ListTargetsByEventPage(context.Context, interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
 	panic("ListTargetsByEventPage not exercised by Update handler tests")
 }
-func (s *updateStubStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, bool, error) {
-	panic("ListTargetSiteIDsByEvent not exercised by Update handler tests")
+func (s *updateStubStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.UUID) (models.TargetSiteCoverage, error) {
+	panic("ListTargetSiteCoverageByEvent not exercised by Update handler tests")
+}
+func (s *updateStubStore) ListTargetSiteCoverageByEvents(context.Context, int64, []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	panic("ListTargetSiteCoverageByEvents not exercised by Update handler tests")
 }
 func (s *updateStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by Update handler tests")

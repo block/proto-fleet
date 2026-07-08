@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import { Link } from "react-router-dom";
 
-import type { CurtailmentPillProps, CurtailmentPillState } from "./curtailmentPillTypes";
+import type { CurtailmentPillEvent, CurtailmentPillProps, CurtailmentPillState } from "./curtailmentPillTypes";
 import PageHeaderPopoverPill from "./PageHeaderPopoverPill";
 import {
   activeCurtailmentDisplayStateConfigs,
@@ -26,14 +26,25 @@ function getLegacyCurtailmentPillHeaderState(state: CurtailmentPillState): Curta
   }
 }
 
+function getPlannedReductionDetail(event: CurtailmentPillEvent): string {
+  if (!event.targetMetricsAvailable) {
+    return unavailableTargetMetricsLabel;
+  }
+
+  const minerCountLabel = formatCurtailmentSelectedMinerCount(event.selectedMiners);
+  // Summary-only rows carry a live count but no kW estimate; showing
+  // "0.0 kW planned" would fabricate a zero estimate.
+  if (event.estimatedReductionAvailable === false) {
+    return minerCountLabel;
+  }
+
+  return `${minerCountLabel} - ${formatCurtailmentKw(event.estimatedReductionKw)} planned`;
+}
+
 function CurtailmentPill({ event, detailsPath }: CurtailmentPillProps): ReactElement {
   const stateConfig = activeCurtailmentDisplayStateConfigs[event.state];
   const headerStateConfig = curtailmentEventStateConfigs[getLegacyCurtailmentPillHeaderState(event.state)];
-  const plannedReductionDetail = event.targetMetricsAvailable
-    ? `${formatCurtailmentSelectedMinerCount(event.selectedMiners)} - ${formatCurtailmentKw(
-        event.estimatedReductionKw,
-      )} planned`
-    : unavailableTargetMetricsLabel;
+  const plannedReductionDetail = getPlannedReductionDetail(event);
   const detailRows = [
     { id: "state", value: stateConfig.label },
     { id: "scope", value: event.scopeLabel },

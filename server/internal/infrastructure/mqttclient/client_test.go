@@ -1,6 +1,8 @@
 package mqttclient
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +17,11 @@ type subscribeCall struct {
 }
 
 type replayClient struct {
-	calls []subscribeCall
+	calls             []subscribeCall
+	token             paho.Token
+	tokenErr          error
+	connectionOpen    bool
+	connectionOpenSet bool
 }
 
 func (r *replayClient) Subscribe(topic string, qos byte, callback paho.MessageHandler) paho.Token {
@@ -24,6 +30,84 @@ func (r *replayClient) Subscribe(topic string, qos byte, callback paho.MessageHa
 		qos:      qos,
 		callback: callback,
 	})
+	if r.token != nil {
+		return r.token
+	}
+	return completedToken{err: r.tokenErr}
+}
+
+func (r *replayClient) IsConnectionOpen() bool {
+	if !r.connectionOpenSet {
+		return true
+	}
+	return r.connectionOpen
+}
+
+func (r *replayClient) setConnectionOpen(open bool) {
+	r.connectionOpen = open
+	r.connectionOpenSet = true
+}
+
+type completedToken struct {
+	err error
+}
+
+func (t completedToken) Wait() bool {
+	return true
+}
+
+func (t completedToken) WaitTimeout(time.Duration) bool {
+	return true
+}
+
+func (t completedToken) Done() <-chan struct{} {
+	done := make(chan struct{})
+	close(done)
+	return done
+}
+
+func (t completedToken) Error() error {
+	return t.err
+}
+
+type completedSubscribeToken struct {
+	completedToken
+	result map[string]byte
+}
+
+func (t completedSubscribeToken) Result() map[string]byte {
+	return t.result
+}
+
+type pendingToken struct {
+	done chan struct{}
+}
+
+func newPendingToken() pendingToken {
+	return pendingToken{done: make(chan struct{})}
+}
+
+func (t pendingToken) Wait() bool {
+	<-t.done
+	return true
+}
+
+func (t pendingToken) WaitTimeout(timeout time.Duration) bool {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-t.done:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+func (t pendingToken) Done() <-chan struct{} {
+	return t.done
+}
+
+func (t pendingToken) Error() error {
 	return nil
 }
 
@@ -105,7 +189,9 @@ func TestReplaySubscriptionsResubscribesStoredTopics(t *testing.T) {
 	client.subscriptions["curtailment/source"] = handler
 
 	replay := &replayClient{}
-	client.replaySubscriptions(replay)
+	if err := client.replaySubscriptions(t.Context(), replay); err != nil {
+		t.Fatalf("replaySubscriptions returned error: %v", err)
+	}
 
 	if len(replay.calls) != 1 {
 		t.Fatalf("replayed %d subscriptions, want 1", len(replay.calls))
@@ -119,6 +205,27 @@ func TestReplaySubscriptionsResubscribesStoredTopics(t *testing.T) {
 	}
 	if call.callback == nil {
 		t.Fatal("callback was not replayed")
+	}
+}
+
+func TestReplaySubscriptionsReportsSubackFailure(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	client.subscriptions["curtailment/source"] = func(_ paho.Client, _ paho.Message) {}
+
+	replay := &replayClient{
+		token: completedSubscribeToken{
+			result: map[string]byte{"curtailment/source": subscribeFailureCode},
+		},
+	}
+	err := client.replaySubscriptions(t.Context(), replay)
+
+	if err == nil {
+		t.Fatal("replaySubscriptions returned nil, want SUBACK failure")
+	}
+	if !strings.Contains(err.Error(), "SUBACK rejected subscription") {
+		t.Fatalf("err = %v, want SUBACK rejected subscription", err)
 	}
 }
 
@@ -148,7 +255,7 @@ func TestSubscribeBeforeConnectStagesRoute(t *testing.T) {
 func TestClientOptions_DurableOrderedSession(t *testing.T) {
 	t.Parallel()
 
-	opts := clientOptions("tcp://10.0.0.1:1883", nil, "user", "pass", "source|broker|topic", nil)
+	opts := clientOptions("tcp://10.0.0.1:1883", nil, "user", "pass", "source|broker|topic", nil, nil)
 
 	if opts.CleanSession {
 		t.Fatal("CleanSession must be false so broker QoS1 queues survive fleetd restarts")
@@ -164,6 +271,312 @@ func TestClientOptions_DurableOrderedSession(t *testing.T) {
 	}
 	if opts.ClientID != clientID("source|broker|topic") {
 		t.Fatalf("ClientID = %q, want deterministic clientID helper output", opts.ClientID)
+	}
+}
+
+func TestClientOptions_RuntimeStatusCallbacks(t *testing.T) {
+	t.Parallel()
+
+	var connected bool
+	var lostErr error
+	opts := clientOptions(
+		"tcp://10.0.0.1:1883",
+		nil,
+		"user",
+		"pass",
+		"source|broker|topic",
+		func(paho.Client) {
+			connected = true
+		},
+		func(_ paho.Client, err error) {
+			lostErr = err
+		},
+	)
+
+	if opts.OnConnect == nil {
+		t.Fatal("OnConnect handler was not installed")
+	}
+	if opts.OnConnectionLost == nil {
+		t.Fatal("OnConnectionLost handler was not installed")
+	}
+
+	opts.OnConnect(nil)
+	if !connected {
+		t.Fatal("OnConnect handler did not run")
+	}
+
+	wantErr := errors.New("broker lost")
+	opts.OnConnectionLost(nil, wantErr)
+	if !errors.Is(lostErr, wantErr) {
+		t.Fatalf("lostErr = %v, want %v", lostErr, wantErr)
+	}
+}
+
+type runtimeStatusCapture struct {
+	reports    int
+	connected  bool
+	subscribed bool
+	err        error
+}
+
+type runtimeStatusReport struct {
+	connected  bool
+	subscribed bool
+	err        error
+}
+
+func captureRuntimeStatus(client *Client) *runtimeStatusCapture {
+	capture := &runtimeStatusCapture{}
+	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
+		capture.reports++
+		capture.connected = connected
+		capture.subscribed = subscribed
+		capture.err = err
+	})
+	return capture
+}
+
+func reportReconnectStatusWithTestTimeout(t *testing.T, client *Client, replay reconnectClient, timeout time.Duration) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+	defer cancel()
+	sequence := client.nextStatusSequence()
+	client.reportReconnectStatusForSequence(ctx, replay, sequence)
+}
+
+func TestClientRuntimeStatusReporter(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	status := captureRuntimeStatus(client)
+
+	wantErr := errors.New("connection lost")
+	client.reportRuntimeStatus(false, false, wantErr)
+
+	if status.connected {
+		t.Fatal("connected = true, want false")
+	}
+	if status.subscribed {
+		t.Fatal("subscribed = true, want false")
+	}
+	if !errors.Is(status.err, wantErr) {
+		t.Fatalf("err = %v, want %v", status.err, wantErr)
+	}
+}
+
+func TestReportConnectionLostStatusSkipsAlreadyOpenClient(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	status := captureRuntimeStatus(client)
+
+	openClient := &replayClient{}
+	openClient.setConnectionOpen(true)
+	client.reportConnectionLostStatus(openClient, errors.New("stale connection loss"))
+
+	if status.reports != 0 {
+		t.Fatalf("runtime status reports = %d, want 0", status.reports)
+	}
+}
+
+func TestReportReconnectStatusReportsSubscribedAfterReplaySuccess(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	client.subscriptions["curtailment/source"] = func(_ paho.Client, _ paho.Message) {}
+	status := captureRuntimeStatus(client)
+
+	client.reportReconnectStatus(t.Context(), &replayClient{})
+
+	if !status.connected {
+		t.Fatal("connected = false, want true")
+	}
+	if !status.subscribed {
+		t.Fatal("subscribed = false, want true")
+	}
+	if status.err != nil {
+		t.Fatalf("err = %v, want nil", status.err)
+	}
+}
+
+func TestReportReconnectStatusSuppressesStaleReplayReport(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	client.subscriptions["curtailment/source"] = func(_ paho.Client, _ paho.Message) {}
+	status := captureRuntimeStatus(client)
+
+	staleSequence := client.nextStatusSequence()
+	closedClient := &replayClient{}
+	closedClient.setConnectionOpen(false)
+	wantErr := errors.New("broker lost")
+	client.reportConnectionLostStatus(closedClient, wantErr)
+	if status.reports != 1 {
+		t.Fatalf("runtime status reports = %d, want 1", status.reports)
+	}
+	if status.connected || status.subscribed {
+		t.Fatalf("connected=%v subscribed=%v, want both false", status.connected, status.subscribed)
+	}
+	if !errors.Is(status.err, wantErr) {
+		t.Fatalf("err = %v, want %v", status.err, wantErr)
+	}
+
+	client.reportReconnectStatusForSequence(t.Context(), &replayClient{}, staleSequence)
+	if status.reports != 1 {
+		t.Fatalf("stale replay report was not suppressed; reports = %d, want 1", status.reports)
+	}
+}
+
+func TestReportRuntimeStatusForSequenceDoesNotOverwriteNewerDisconnect(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	healthyReportEntered := make(chan struct{})
+	allowHealthyReport := make(chan struct{})
+	disconnectedReported := make(chan struct{})
+	reports := make(chan runtimeStatusReport, 2)
+	wantErr := errors.New("broker lost")
+
+	client.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
+		if connected && subscribed {
+			close(healthyReportEntered)
+			<-allowHealthyReport
+		}
+		reports <- runtimeStatusReport{
+			connected:  connected,
+			subscribed: subscribed,
+			err:        err,
+		}
+		if !connected && !subscribed {
+			close(disconnectedReported)
+		}
+	})
+
+	healthyReleased := false
+	defer func() {
+		if !healthyReleased {
+			close(allowHealthyReport)
+		}
+	}()
+
+	sequence := client.nextStatusSequence()
+	healthyDone := make(chan struct{})
+	go func() {
+		defer close(healthyDone)
+		client.reportRuntimeStatusForSequence(sequence, true, true, nil)
+	}()
+
+	select {
+	case <-healthyReportEntered:
+	case <-time.After(time.Second):
+		t.Fatal("healthy report did not enter reporter")
+	}
+
+	closedClient := &replayClient{}
+	closedClient.setConnectionOpen(false)
+	disconnectDone := make(chan struct{})
+	go func() {
+		defer close(disconnectDone)
+		client.reportConnectionLostStatus(closedClient, wantErr)
+	}()
+
+	select {
+	case <-disconnectedReported:
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(allowHealthyReport)
+	healthyReleased = true
+
+	select {
+	case <-healthyDone:
+	case <-time.After(time.Second):
+		t.Fatal("healthy report did not complete")
+	}
+	select {
+	case <-disconnectDone:
+	case <-time.After(time.Second):
+		t.Fatal("disconnect report did not complete")
+	}
+	close(reports)
+
+	var last runtimeStatusReport
+	for report := range reports {
+		last = report
+	}
+	if last.connected || last.subscribed {
+		t.Fatalf("last report connected=%v subscribed=%v, want both false", last.connected, last.subscribed)
+	}
+	if !errors.Is(last.err, wantErr) {
+		t.Fatalf("last err = %v, want %v", last.err, wantErr)
+	}
+}
+
+func TestReportReconnectStatusReportsSubscribeReplayFailure(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	client.subscriptions["curtailment/source"] = func(_ paho.Client, _ paho.Message) {}
+
+	wantErr := errors.New("subscription rejected")
+	replay := &replayClient{tokenErr: wantErr}
+	status := captureRuntimeStatus(client)
+
+	client.reportReconnectStatus(t.Context(), replay)
+
+	if !status.connected {
+		t.Fatal("connected = false, want true")
+	}
+	if status.subscribed {
+		t.Fatal("subscribed = true, want false")
+	}
+	if !errors.Is(status.err, wantErr) {
+		t.Fatalf("err = %v, want %v", status.err, wantErr)
+	}
+}
+
+func TestReportReconnectStatusReportsDisconnectedWhenReplayTimeoutFindsClosedClient(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	client.subscriptions["curtailment/source"] = func(_ paho.Client, _ paho.Message) {}
+
+	replay := &replayClient{token: newPendingToken()}
+	replay.setConnectionOpen(false)
+	status := captureRuntimeStatus(client)
+
+	reportReconnectStatusWithTestTimeout(t, client, replay, time.Millisecond)
+
+	if status.connected {
+		t.Fatal("connected = true, want false")
+	}
+	if status.subscribed {
+		t.Fatal("subscribed = true, want false")
+	}
+	if !errors.Is(status.err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context deadline exceeded", status.err)
+	}
+}
+
+func TestReportReconnectStatusReportsSubscribeReplayTimeout(t *testing.T) {
+	t.Parallel()
+
+	client := New()
+	client.subscriptions["curtailment/source"] = func(_ paho.Client, _ paho.Message) {}
+
+	replay := &replayClient{token: newPendingToken()}
+	status := captureRuntimeStatus(client)
+
+	reportReconnectStatusWithTestTimeout(t, client, replay, time.Millisecond)
+
+	if !status.connected {
+		t.Fatal("connected = false, want true")
+	}
+	if status.subscribed {
+		t.Fatal("subscribed = true, want false")
+	}
+	if !errors.Is(status.err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context deadline exceeded", status.err)
 	}
 }
 

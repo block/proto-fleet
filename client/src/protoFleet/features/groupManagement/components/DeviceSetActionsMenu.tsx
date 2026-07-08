@@ -31,12 +31,26 @@ import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
 import { PopoverProvider, usePopover } from "@/shared/components/Popover";
-import ProgressCircular from "@/shared/components/ProgressCircular";
 import { positions } from "@/shared/constants";
+import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 type DeviceSetActionType = SupportedAction | "edit-group" | "view-group";
 type DeviceSetType = "group" | "rack";
+
+/**
+ * Member IDs and miner snapshots fetched when an action was chosen, frozen so
+ * later prop or membership changes cannot retarget an in-progress flow. The id
+ * identifies one prepare→run flow; completions carrying an older id are ignored.
+ */
+type PreparedAction = {
+  id: number;
+  action: DeviceSetActionType;
+  memberDeviceIds: string[];
+  miners: Record<string, MinerStateSnapshot>;
+};
+
+const noMiners: Record<string, MinerStateSnapshot> = {};
 
 interface DeviceSetActionsMenuProps {
   memberDeviceIds?: string[];
@@ -68,9 +82,24 @@ interface DeviceSetActionsMenuProps {
 }
 
 const DeviceSetActionsMenu = (props: DeviceSetActionsMenuProps) => {
+  const { deviceSetId, deviceSetType = "group", activeSite } = props;
+  const isScopedGroupAction = deviceSetType === "group" && activeSite !== undefined && activeSite.kind !== "all";
+  const siteScopeFilter =
+    isScopedGroupAction && activeSite ? siteFilterFromActive(activeSite) : { siteIds: [], includeUnassigned: false };
+  // Remount on target change: every dialog, fetch, and in-flight continuation
+  // belongs to one group/rack + site scope, so switching targets resets them
+  // wholesale instead of guarding each async path individually.
+  const targetKey = [
+    deviceSetType,
+    deviceSetId?.toString() ?? "",
+    isScopedGroupAction ? "scoped" : "unscoped",
+    siteScopeFilter.includeUnassigned ? "unassigned" : "assigned",
+    siteScopeFilter.siteIds.join(","),
+  ].join(":");
+
   return (
     <PopoverProvider>
-      <DeviceSetActionsMenuInner {...props} />
+      <DeviceSetActionsMenuInner key={targetKey} {...props} />
     </PopoverProvider>
   );
 };
@@ -107,28 +136,15 @@ const DeviceSetActionsMenuInner = ({
     return activeSite.kind === "unassigned" ? "unassigned miners" : (activeSiteLabel ?? `site ${activeSite.id}`);
   }, [activeSite, activeSiteLabel, isScopedGroupAction]);
 
-  // Lazy-fetched member IDs for table context (when deviceSetId is provided but memberDeviceIds aren't)
-  const [fetchedMemberIds, setFetchedMemberIds] = useState<string[] | null>(null);
-  const [fetchingMembers, setFetchingMembers] = useState(false);
   const { listGroupMembers } = useDeviceSets();
 
-  // Lazy-fetched miner snapshots for firmware model checks
-  const [fetchedMiners, setFetchedMiners] = useState<Record<string, MinerStateSnapshot>>({});
-  const [fetchingMiners, setFetchingMiners] = useState(false);
-
-  const fetchVersionRef = useRef(0);
   const propMemberDeviceIdsRef = useRef(propMemberDeviceIds);
-  // Keep the ref in sync with the latest prop without re-running the fetch
-  // effect when only this prop changes (parents sometimes pass a new array
+  // Keep the ref in sync with the latest prop without re-creating the fetch
+  // callbacks when only this prop changes (parents sometimes pass a new array
   // reference on every render).
   useEffect(() => {
     propMemberDeviceIdsRef.current = propMemberDeviceIds;
   }, [propMemberDeviceIds]);
-
-  const memberDeviceIds = useMemo(
-    () => propMemberDeviceIds ?? fetchedMemberIds ?? [],
-    [propMemberDeviceIds, fetchedMemberIds],
-  );
 
   useEffect(() => {
     setPopoverRenderMode("portal-fixed");
@@ -145,121 +161,60 @@ const DeviceSetActionsMenuInner = ({
   });
 
   const handleOpen = useCallback(() => {
-    const opening = !isOpen;
+    setIsOpen((open) => !open);
+  }, []);
 
-    if (opening) {
-      if (deviceSetId) {
-        setFetchedMiners({});
-        setFetchingMiners(true);
-
-        if (!propMemberDeviceIds) {
-          setFetchedMemberIds(null);
-          setFetchingMembers(true);
-        } else {
-          setFetchingMembers(false);
-        }
-      } else {
-        // No deviceSetId: the fetch effect will bail out, so clear any stale
-        // data from a prior open so the menu does not show a previous group's
-        // members/snapshots.
-        setFetchedMemberIds(null);
-        setFetchedMiners({});
-      }
-    }
-
-    setIsOpen(opening);
-  }, [isOpen, deviceSetId, propMemberDeviceIds]);
-
-  // Fetch member IDs and miner snapshots when the menu opens.
-  // Always refetch on open so membership changes are picked up.
-  // A version counter prevents stale callbacks from updating state after
-  // the effect re-fires (e.g. close/re-open, deviceSetId change).
-  useEffect(() => {
-    if (!isOpen || !deviceSetId) return;
-
-    const version = ++fetchVersionRef.current;
-    const controller = new AbortController();
-    const isCurrent = () => version === fetchVersionRef.current;
-
-    /* eslint-disable react-hooks/set-state-in-effect -- fetch members + miners on open; setState inside async callbacks is the external-sync pattern */
-    if (!propMemberDeviceIdsRef.current) {
-      setFetchedMemberIds(null);
-      setFetchingMembers(true);
-      listGroupMembers({
-        deviceSetId,
-        siteIds: siteScopeFilter.siteIds,
-        includeUnassigned: siteScopeFilter.includeUnassigned,
-        signal: controller.signal,
-        onSuccess: (ids) => {
-          if (isCurrent()) setFetchedMemberIds(ids);
-        },
-        onFinally: () => {
-          if (isCurrent()) setFetchingMembers(false);
-        },
-      });
-    } else {
-      setFetchingMembers(false);
-    }
-
-    const filter = (() => {
-      if (deviceSetType === "rack") {
-        return { rackIds: [deviceSetId] };
-      }
-      if (!isScopedGroupAction) {
-        return { groupIds: [deviceSetId] };
-      }
-      return {
-        groupIds: [deviceSetId],
-        siteIds: siteScopeFilter.siteIds,
-        includeUnassigned: siteScopeFilter.includeUnassigned,
-      };
-    })();
-    setFetchedMiners({});
-    setFetchingMiners(true);
-    /* eslint-enable react-hooks/set-state-in-effect */
-    fetchAllMinerSnapshots(filter, controller.signal)
-      .then((map) => {
-        if (isCurrent()) setFetchedMiners(map);
-      })
-      .catch(() => {
-        // Non-critical — firmware update will show a warning instead
-      })
-      .finally(() => {
-        if (isCurrent()) setFetchingMiners(false);
-      });
-
-    return () => {
-      // Invalidate version so stale callbacks are rejected.
-      // Data state (fetchedMemberIds/fetchedMiners) is deliberately preserved
-      // here so that programmatic closes during confirmation/modal flows do
-      // not empty the selection that downstream handlers rely on. Stale data
-      // is cleared in handleOpen when reopening without a deviceSetId.
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional ref mutation in cleanup
-      ++fetchVersionRef.current;
-      controller.abort();
-      setFetchingMembers(false);
-      setFetchingMiners(false);
-    };
-  }, [
-    isOpen,
-    deviceSetId,
-    deviceSetType,
-    isScopedGroupAction,
-    listGroupMembers,
-    siteScopeFilter.includeUnassigned,
-    siteScopeFilter.siteIds,
-  ]);
-
-  const selectedMinersWithStatus = useMemo(
-    () => memberDeviceIds.map((id) => ({ deviceIdentifier: id })),
-    [memberDeviceIds],
-  );
   const scopedActionsRef = useRef<BulkAction<DeviceSetActionType>[]>([]);
   const [showWarnDialog, setShowWarnDialog] = useState(false);
   const [pendingScopedAction, setPendingScopedAction] = useState<BulkAction<DeviceSetActionType> | null>(null);
   const [pendingUnsupportedContinuation, setPendingUnsupportedContinuation] = useState<{
     continueAction: () => void;
   } | null>(null);
+
+  // Member data is fetched when an action is chosen, not when the menu opens,
+  // so the popover renders instantly and the data is fresh at the moment it
+  // matters.
+  const [preparedAction, setPreparedAction] = useState<PreparedAction | null>(null);
+  const [isPreparing, setIsPreparing] = useState(false);
+  const prepareIdRef = useRef(0);
+  const prepareAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => prepareAbortRef.current?.abort(), []);
+
+  const actionMemberDeviceIds = useMemo(
+    () => preparedAction?.memberDeviceIds ?? propMemberDeviceIds ?? [],
+    [preparedAction, propMemberDeviceIds],
+  );
+  const actionMemberDeviceIdsLoaded = preparedAction !== null || propMemberDeviceIds !== undefined;
+  const selectedMinersWithStatus = useMemo(
+    () => actionMemberDeviceIds.map((id) => ({ deviceIdentifier: id })),
+    [actionMemberDeviceIds],
+  );
+
+  const clearPreparedActionState = useCallback(() => {
+    ++prepareIdRef.current;
+    prepareAbortRef.current?.abort();
+    prepareAbortRef.current = null;
+    setIsPreparing(false);
+    setPreparedAction(null);
+  }, []);
+
+  const resetActionFlowState = useCallback(() => {
+    setPendingScopedAction(null);
+    setPendingUnsupportedContinuation(null);
+    setShowWarnDialog(false);
+    clearPreparedActionState();
+  }, [clearPreparedActionState]);
+
+  // Toast onClose callbacks capture this at registration, so a completion from
+  // an earlier flow clears only its own prepared action, never a newer one.
+  const preparedActionId = preparedAction?.id;
+  const handleActionComplete = useCallback(() => {
+    if (preparedActionId !== undefined) {
+      setPreparedAction((current) => (current?.id === preparedActionId ? null : current));
+    }
+    onActionComplete?.();
+  }, [onActionComplete, preparedActionId]);
 
   const {
     currentAction,
@@ -301,8 +256,8 @@ const DeviceSetActionsMenuInner = ({
     startBatchOperation: batchOps.startBatchOperation,
     completeBatchOperation: batchOps.completeBatchOperation,
     removeDevicesFromBatch: batchOps.removeDevicesFromBatch,
-    miners: fetchedMiners,
-    onActionComplete,
+    miners: preparedAction?.miners ?? noMiners,
+    onActionComplete: handleActionComplete,
     onUnsupportedMinersContinue: ({ action, continueAction }) => {
       if (!isScopedGroupAction) return false;
       const scopedAction = scopedActionsRef.current.find((candidate) => candidate.action === action);
@@ -318,9 +273,33 @@ const DeviceSetActionsMenuInner = ({
   // Keep actionActiveRef in sync so the parent can pause polling during action flows
   useEffect(() => {
     if (actionActiveRef) {
-      actionActiveRef.current = currentAction !== null;
+      actionActiveRef.current =
+        isPreparing ||
+        preparedAction !== null ||
+        currentAction !== null ||
+        showWarnDialog ||
+        unsupportedMinersInfo.visible ||
+        showPoolSelectionPage ||
+        showManagePowerModal ||
+        showCoolingModeModal ||
+        showAuthenticateFleetModal ||
+        showUpdatePasswordModal ||
+        showManageSecurityModal;
     }
-  }, [actionActiveRef, currentAction]);
+  }, [
+    actionActiveRef,
+    currentAction,
+    isPreparing,
+    preparedAction,
+    showAuthenticateFleetModal,
+    showCoolingModeModal,
+    showManagePowerModal,
+    showManageSecurityModal,
+    showPoolSelectionPage,
+    showUpdatePasswordModal,
+    showWarnDialog,
+    unsupportedMinersInfo.visible,
+  ]);
 
   // Customize actions for group context:
   // 1. Filter out "Add to group" (already in a group)
@@ -378,7 +357,7 @@ const DeviceSetActionsMenuInner = ({
 
   const scopedActionSummary = useMemo(() => {
     if (!isScopedGroupAction) return "";
-    const scopedCount = memberDeviceIds.length;
+    const scopedCount = actionMemberDeviceIds.length;
     const totalCount = totalMemberCount ?? scopedCount;
     const groupLabel = deviceSetLabel ?? "this group";
     const scopeLabel = activeSite?.kind === "unassigned" ? "unassigned miners" : `miners in ${siteScopeLabel}`;
@@ -387,7 +366,14 @@ const DeviceSetActionsMenuInner = ({
         ? `all ${scopedCount} ${scopedCount === 1 ? "miner" : "miners"} in ${groupLabel}`
         : `${scopedCount} of the ${totalCount} miners in ${groupLabel}`;
     return `This action only applies to ${scopeLabel}, ${countSummary}`;
-  }, [activeSite?.kind, deviceSetLabel, isScopedGroupAction, memberDeviceIds.length, siteScopeLabel, totalMemberCount]);
+  }, [
+    actionMemberDeviceIds.length,
+    activeSite?.kind,
+    deviceSetLabel,
+    isScopedGroupAction,
+    siteScopeLabel,
+    totalMemberCount,
+  ]);
 
   const scopedActionSubtitle = useCallback(
     (subtitle?: string) => {
@@ -399,6 +385,84 @@ const DeviceSetActionsMenuInner = ({
     [scopedActionSummary],
   );
 
+  const getSnapshotFilter = useCallback(() => {
+    if (!deviceSetId) return undefined;
+    if (deviceSetType === "rack") {
+      return { rackIds: [deviceSetId] };
+    }
+    if (!isScopedGroupAction) {
+      return { groupIds: [deviceSetId] };
+    }
+    return {
+      groupIds: [deviceSetId],
+      siteIds: siteScopeFilter.siteIds,
+      includeUnassigned: siteScopeFilter.includeUnassigned,
+    };
+  }, [deviceSetId, deviceSetType, isScopedGroupAction, siteScopeFilter.includeUnassigned, siteScopeFilter.siteIds]);
+
+  const fetchMemberIdsForAction = useCallback(
+    (deviceSetId: bigint, signal: AbortSignal) => {
+      const propIds = propMemberDeviceIdsRef.current;
+      if (propIds) return Promise.resolve(propIds);
+
+      return new Promise<string[]>((resolve) => {
+        let resolved = false;
+        const resolveOnce = (ids: string[]) => {
+          if (resolved) return;
+          resolved = true;
+          resolve(ids);
+        };
+
+        listGroupMembers({
+          deviceSetId,
+          siteIds: siteScopeFilter.siteIds,
+          includeUnassigned: siteScopeFilter.includeUnassigned,
+          signal,
+          onSuccess: resolveOnce,
+          onError: () => resolveOnce([]),
+          onFinally: () => resolveOnce([]),
+        });
+      });
+    },
+    [listGroupMembers, siteScopeFilter.includeUnassigned, siteScopeFilter.siteIds],
+  );
+
+  const prepareAndRunAction = useCallback(
+    async (action: DeviceSetActionType) => {
+      if (action === "edit-group" || action === "view-group") return;
+
+      const id = ++prepareIdRef.current;
+
+      const filter = getSnapshotFilter();
+      if (!deviceSetId || !filter) {
+        setPreparedAction({ id, action, memberDeviceIds: propMemberDeviceIdsRef.current ?? [], miners: noMiners });
+        return;
+      }
+
+      setIsPreparing(true);
+      prepareAbortRef.current?.abort();
+      const controller = new AbortController();
+      prepareAbortRef.current = controller;
+
+      const [ids, miners] = await Promise.all([
+        fetchMemberIdsForAction(deviceSetId, controller.signal),
+        fetchAllMinerSnapshots(filter, controller.signal).catch(() => ({})),
+      ]);
+
+      // A newer prepare or a cancel superseded this fetch; whoever did now owns the state.
+      if (id !== prepareIdRef.current || controller.signal.aborted) return;
+
+      setIsPreparing(false);
+      if (isScopedGroupAction && ids.length === 0) {
+        setShowWarnDialog(false);
+        pushToast({ message: `No miners in ${siteScopeLabel}.`, status: TOAST_STATUSES.error });
+        return;
+      }
+      setPreparedAction({ id, action, memberDeviceIds: ids, miners });
+    },
+    [deviceSetId, fetchMemberIdsForAction, getSnapshotFilter, isScopedGroupAction, siteScopeLabel],
+  );
+
   // Expose the sleep action handler to the parent via ref
   useEffect(() => {
     if (!sleepActionRef) return;
@@ -406,17 +470,19 @@ const DeviceSetActionsMenuInner = ({
     if (sleepAction) {
       sleepActionRef.current = () => {
         setShowWarnDialog(sleepAction.requiresConfirmation);
-        sleepAction.actionHandler();
+        void prepareAndRunAction(deviceActions.shutdown);
       };
     } else {
       sleepActionRef.current = null;
     }
-  }, [sleepActionRef, popoverActions]);
+  }, [sleepActionRef, popoverActions, prepareAndRunAction]);
 
   const handlePopoverAction = useCallback((requiresConfirmation: boolean) => {
     setIsOpen(false);
-    if (requiresConfirmation) {
-      setShowWarnDialog(true);
+    setShowWarnDialog(requiresConfirmation);
+    if (!requiresConfirmation) {
+      setPendingScopedAction(null);
+      setPendingUnsupportedContinuation(null);
     }
   }, []);
 
@@ -445,7 +511,8 @@ const DeviceSetActionsMenuInner = ({
     setPendingScopedAction(null);
     setShowWarnDialog(false);
     handleCancel();
-  }, [handleCancel]);
+    clearPreparedActionState();
+  }, [handleCancel, clearPreparedActionState]);
 
   const scopedGroupPopoverActions = useMemo(() => {
     if (!isScopedGroupAction) return groupPopoverActions;
@@ -455,7 +522,7 @@ const DeviceSetActionsMenuInner = ({
         return action;
       }
 
-      if (memberDeviceIds.length === 0) {
+      if (actionMemberDeviceIdsLoaded && actionMemberDeviceIds.length === 0) {
         return {
           ...action,
           disabled: true,
@@ -477,7 +544,7 @@ const DeviceSetActionsMenuInner = ({
         ...action,
         requiresConfirmation: true,
         confirmation: {
-          title: `${action.title} ${memberDeviceIds.length} ${memberDeviceIds.length === 1 ? "miner" : "miners"}?`,
+          title: `${action.title} ${actionMemberDeviceIds.length} ${actionMemberDeviceIds.length === 1 ? "miner" : "miners"}?`,
           subtitle: scopedActionSubtitle(),
           confirmAction: {
             title: action.title,
@@ -487,14 +554,53 @@ const DeviceSetActionsMenuInner = ({
         },
         actionHandler: () => {
           setPendingScopedAction(action);
+          setShowWarnDialog(true);
         },
       };
     });
-  }, [groupPopoverActions, isScopedGroupAction, memberDeviceIds.length, scopedActionSubtitle, siteScopeLabel]);
+  }, [
+    groupPopoverActions,
+    actionMemberDeviceIds.length,
+    actionMemberDeviceIdsLoaded,
+    isScopedGroupAction,
+    scopedActionSubtitle,
+    siteScopeLabel,
+  ]);
 
   useEffect(() => {
     scopedActionsRef.current = scopedGroupPopoverActions;
   }, [scopedGroupPopoverActions]);
+
+  // Run the chosen action once its frozen member IDs/snapshots have rendered
+  // into useMinerActions. Runs at most once per prepared action.
+  const replayedIdRef = useRef(0);
+  useEffect(() => {
+    if (!preparedAction || replayedIdRef.current === preparedAction.id) return;
+    replayedIdRef.current = preparedAction.id;
+    const action = scopedGroupPopoverActions.find((candidate) => candidate.action === preparedAction.action);
+    if (!action || action.disabled) {
+      queueMicrotask(() => {
+        setPreparedAction((current) => (current?.id === preparedAction.id ? null : current));
+      });
+      return;
+    }
+    action.actionHandler();
+  }, [preparedAction, scopedGroupPopoverActions]);
+
+  const displayedGroupPopoverActions = useMemo(
+    () =>
+      scopedGroupPopoverActions.map((action) => {
+        if (action.action === "edit-group" || action.action === "view-group") return action;
+        if (action.disabled) return action;
+        return {
+          ...action,
+          actionHandler: () => {
+            void prepareAndRunAction(action.action);
+          },
+        };
+      }),
+    [prepareAndRunAction, scopedGroupPopoverActions],
+  );
 
   // Keep the base confirmation hidden while the unsupported-miners modal is active.
   // Scoped unsupported continuations can re-open the scoped confirmation after Continue.
@@ -502,6 +608,11 @@ const DeviceSetActionsMenuInner = ({
     setShowWarnDialog(false);
     handleUnsupportedMinersContinue();
   }, [handleUnsupportedMinersContinue]);
+
+  const handleUnsupportedMinersDismissWithReset = useCallback(() => {
+    resetActionFlowState();
+    handleUnsupportedMinersDismiss();
+  }, [handleUnsupportedMinersDismiss, resetActionFlowState]);
 
   return (
     <>
@@ -514,21 +625,13 @@ const DeviceSetActionsMenuInner = ({
           onClick={handleOpen}
         />
         {isOpen ? (
-          fetchingMembers || fetchingMiners ? (
-            <div
-              className={`popover-content absolute right-0 z-10 flex items-center justify-center rounded-2xl bg-surface-overlay p-6 shadow-elevation-200 ${popoverClassName ?? ""}`}
-            >
-              <ProgressCircular indeterminate />
-            </div>
-          ) : (
-            <BulkActionsPopover<DeviceSetActionType>
-              actions={scopedGroupPopoverActions}
-              beforeEach={handlePopoverAction}
-              testId="group-actions-popover"
-              position={positions["bottom right"]}
-              className={popoverClassName ?? "!space-y-0 !rounded-2xl px-0 pt-2 pb-1"}
-            />
-          )
+          <BulkActionsPopover<DeviceSetActionType>
+            actions={displayedGroupPopoverActions}
+            beforeEach={handlePopoverAction}
+            testId="group-actions-popover"
+            position={positions["bottom right"]}
+            className={popoverClassName ?? "!space-y-0 !rounded-2xl px-0 pt-2 pb-1"}
+          />
         ) : null}
       </div>
 
@@ -538,7 +641,7 @@ const DeviceSetActionsMenuInner = ({
         totalUnsupportedCount={unsupportedMinersInfo.totalUnsupportedCount}
         noneSupported={unsupportedMinersInfo.noneSupported}
         onContinue={handleUnsupportedMinersContinueWithReset}
-        onDismiss={handleUnsupportedMinersDismiss}
+        onDismiss={handleUnsupportedMinersDismissWithReset}
       />
       {/* Confirmation dialogs */}
       {scopedGroupPopoverActions
@@ -565,7 +668,7 @@ const DeviceSetActionsMenuInner = ({
         open={showPoolSelectionPage ? !!fleetCredentials : false}
         selectedMiners={poolMiners}
         selectionMode={"subset" as SelectionMode}
-        poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : memberDeviceIds.length}
+        poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : actionMemberDeviceIds.length}
         userUsername={fleetCredentials?.username}
         userPassword={fleetCredentials?.password}
         onSuccess={handleMiningPoolSuccess}

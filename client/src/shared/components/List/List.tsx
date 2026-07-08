@@ -1,6 +1,8 @@
 import {
   ChangeEvent,
+  cloneElement,
   type CSSProperties,
+  isValidElement,
   type MouseEvent,
   type MutableRefObject,
   ReactNode,
@@ -50,11 +52,36 @@ import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Radio from "@/shared/components/Radio";
 import SortIndicator from "@/shared/components/SortIndicator";
+import { INACTIVE_PLACEHOLDER } from "@/shared/constants";
 import { Breakpoint, breakpoints } from "@/shared/constants/breakpoints";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
 const INTERACTIVE_ELEMENT_SELECTOR =
   'button, a, input, select, textarea, [role="button"], [role="link"], [data-interactive]';
+
+const isStandaloneInactivePlaceholder = (content: ReactNode): boolean => {
+  if (content === INACTIVE_PLACEHOLDER) return true;
+
+  if (!isValidElement<{ children?: ReactNode }>(content)) return false;
+
+  return content.props.children === INACTIVE_PLACEHOLDER;
+};
+
+const renderTableCellContent = (content: ReactNode): ReactNode => {
+  if (content === INACTIVE_PLACEHOLDER) {
+    return <span className="text-text-primary-50">{INACTIVE_PLACEHOLDER}</span>;
+  }
+
+  if (isValidElement<{ children?: ReactNode; className?: string }>(content)) {
+    if (content.props.children === INACTIVE_PLACEHOLDER) {
+      return cloneElement(content, {
+        className: clsx(content.props.className, "text-text-primary-50"),
+      });
+    }
+  }
+
+  return content;
+};
 
 const getCssPixelValue = (variable: string) => {
   const value = window.getComputedStyle(document.body).getPropertyValue(variable);
@@ -522,6 +549,8 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
           : typeof item === "object" && item !== null && row in item
             ? ((item as Record<string, unknown>)[row as string] as ReactNode)
             : null;
+        const isInactivePlaceholder = isStandaloneInactivePlaceholder(content);
+        const cellContent = renderTableCellContent(content);
         const isDragHandleColumn = rowDragHandleColumn === row && dragHandleProps !== undefined;
 
         return (
@@ -551,6 +580,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
                 },
                 {
                   "text-core-primary-50": disabled,
+                  "text-text-primary-50": isInactivePlaceholder,
                 },
               )}
             >
@@ -564,10 +594,10 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
                   className="cursor-grab touch-none active:cursor-grabbing"
                   data-testid="reorder-handle"
                 >
-                  {content}
+                  {cellContent}
                 </div>
               ) : (
-                content
+                cellContent
               )}
             </div>
             {columnIndex === activeCols.length - 1 && shouldExtendDividerForDataCell ? (

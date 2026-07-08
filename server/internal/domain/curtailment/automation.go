@@ -511,16 +511,17 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 	reason := fmt.Sprintf("Automation %q from MaestroOS source %q", rule.RuleName, signal.Source.SourceName)
 	return StartRequest{
 		PreviewRequest: PreviewRequest{
-			OrgID:                   rule.OrgID,
-			Scope:                   scope,
-			Mode:                    profile.Mode,
-			Strategy:                profile.Strategy,
-			Level:                   profile.Level,
-			Priority:                profile.Priority,
-			TargetKW:                targetKW,
-			ToleranceKW:             toleranceKW,
-			IncludeMaintenance:      profile.IncludeMaintenance,
-			ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
+			OrgID:                       rule.OrgID,
+			Scope:                       scope,
+			Mode:                        profile.Mode,
+			Strategy:                    profile.Strategy,
+			Level:                       profile.Level,
+			Priority:                    profile.Priority,
+			TargetKW:                    targetKW,
+			ToleranceKW:                 toleranceKW,
+			IncludeMaintenance:          profile.IncludeMaintenance,
+			ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
+			ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
 			// MQTT demand-response signals must execute immediately; profile
 			// cooldown applies only to non-emergency user-driven starts.
 			PostEventCooldownSec: 0,

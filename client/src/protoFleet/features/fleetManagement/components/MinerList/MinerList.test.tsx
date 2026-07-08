@@ -14,6 +14,7 @@ import {
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import type { SingleMinerRouteState } from "@/protoFleet/components/SingleMinerWrapper/routeState";
 import { useFleetStore } from "@/protoFleet/store";
 
 const { mockMinerListActionBar } = vi.hoisted(() => ({
@@ -96,6 +97,7 @@ const createMinerSnapshot = (deviceIdentifier: string, pairingStatus = PairingSt
     url: "",
     model: "",
     firmwareVersion: "",
+    embeddedWebViewAvailable: false,
   });
 
 /** Auto-generates miners map from minerIds when miners prop is not provided. */
@@ -120,6 +122,8 @@ const renderMinerList = (
   return render(
     <Router {...routerProps}>
       <MinerList {...fullProps} />
+      <PathDisplay />
+      <RouteStateDisplay />
     </Router>,
   );
 };
@@ -128,6 +132,26 @@ const LocationDisplay = () => {
   const location = useLocation();
 
   return <div data-testid="location-display">{location.search}</div>;
+};
+
+const PathDisplay = () => {
+  const location = useLocation();
+
+  return <div data-testid="path-display">{`${location.pathname}${location.search}`}</div>;
+};
+
+const RouteStateDisplay = () => {
+  const location = useLocation();
+  const metadata = (location.state as SingleMinerRouteState | undefined)?.singleMinerMetadata;
+
+  return (
+    <div>
+      <div data-testid="route-state-miner-name">{metadata?.minerName ?? ""}</div>
+      <div data-testid="route-state-ip-address">{metadata?.ipAddress ?? ""}</div>
+      <div data-testid="route-state-mac-address">{metadata?.macAddress ?? ""}</div>
+      <div data-testid="route-state-firmware-version">{metadata?.firmwareVersion ?? ""}</div>
+    </div>
+  );
 };
 
 const isModelColumnVisible = (preferences: { columns: { id: string; visible: boolean }[] }) =>
@@ -1112,45 +1136,88 @@ describe("MinerList", () => {
   });
 
   describe("row click navigation", () => {
-    it("opens miner URL in a new tab when miner has a URL", async () => {
+    it("navigates to the embedded single miner route when the embedded web view is available", async () => {
+      const user = userEvent.setup();
+
+      const snapshot = createMinerSnapshot("m1");
+      snapshot.url = "https://192.168.1.100";
+      snapshot.name = "Rig Alpha";
+      snapshot.model = "Antminer S21";
+      snapshot.ipAddress = "10.0.0.42";
+      snapshot.macAddress = "AA:BB:CC:DD:EE:FF";
+      snapshot.firmwareVersion = "2026.1";
+      snapshot.embeddedWebViewAvailable = true;
+
+      renderMinerList(
+        {
+          title: "Miners",
+          minerIds: ["m1"],
+          miners: { m1: snapshot },
+          totalMiners: 1,
+          onAddMiners: vi.fn(),
+          loading: false,
+        },
+        ["/fleet/miners"],
+      );
+
+      const row = screen.getByTestId("list-row");
+      await user.click(row);
+
+      expect(screen.getByTestId("path-display")).toHaveTextContent("/miners/m1/hashrate");
+      // Matches the list name column (miner.name), not the model.
+      expect(screen.getByTestId("route-state-miner-name")).toHaveTextContent("Rig Alpha");
+      expect(screen.getByTestId("route-state-ip-address")).toHaveTextContent("10.0.0.42");
+      expect(screen.getByTestId("route-state-mac-address")).toHaveTextContent("AA:BB:CC:DD:EE:FF");
+      expect(screen.getByTestId("route-state-firmware-version")).toHaveTextContent("2026.1");
+    });
+
+    it("opens the miner URL when the embedded web view is unavailable", async () => {
       const user = userEvent.setup();
       const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
 
       const snapshot = createMinerSnapshot("m1");
       snapshot.url = "https://192.168.1.100";
 
-      renderMinerList({
-        title: "Miners",
-        minerIds: ["m1"],
-        miners: { m1: snapshot },
-        totalMiners: 1,
-        onAddMiners: vi.fn(),
-        loading: false,
-      });
+      renderMinerList(
+        {
+          title: "Miners",
+          minerIds: ["m1"],
+          miners: { m1: snapshot },
+          totalMiners: 1,
+          onAddMiners: vi.fn(),
+          loading: false,
+        },
+        ["/fleet/miners"],
+      );
 
       const row = screen.getByTestId("list-row");
       await user.click(row);
 
+      expect(screen.getByTestId("path-display")).toHaveTextContent("/fleet/miners");
       expect(openSpy).toHaveBeenCalledWith("https://192.168.1.100", "_blank", "noopener,noreferrer");
       openSpy.mockRestore();
     });
 
-    it("does not open a new tab when miner has no URL", async () => {
+    it("does nothing when the embedded web view is unavailable and the row has no URL", async () => {
       const user = userEvent.setup();
       const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
 
-      renderMinerList({
-        title: "Miners",
-        minerIds: ["m1"],
-        miners: { m1: createMinerSnapshot("m1") },
-        totalMiners: 1,
-        onAddMiners: vi.fn(),
-        loading: false,
-      });
+      renderMinerList(
+        {
+          title: "Miners",
+          minerIds: ["m1"],
+          miners: { m1: createMinerSnapshot("m1") },
+          totalMiners: 1,
+          onAddMiners: vi.fn(),
+          loading: false,
+        },
+        ["/fleet/miners"],
+      );
 
       const row = screen.getByTestId("list-row");
       await user.click(row);
 
+      expect(screen.getByTestId("path-display")).toHaveTextContent("/fleet/miners");
       expect(openSpy).not.toHaveBeenCalled();
       openSpy.mockRestore();
     });

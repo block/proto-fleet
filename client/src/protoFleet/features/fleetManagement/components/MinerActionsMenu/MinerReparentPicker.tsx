@@ -14,6 +14,7 @@ import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
+import { applyFleetVisiblePairingStatuses } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import {
   getMinerBuildingLabel,
   getMinerRackLabel,
@@ -620,7 +621,7 @@ const MinerReparentPicker = ({
     snapshots: Record<string, MinerStateSnapshot> | undefined;
   } | null> => {
     if (selectionMode === "all") {
-      const effectiveFilter = currentFilter ?? create(MinerListFilterSchema);
+      const effectiveFilter = applyFleetVisiblePairingStatuses(currentFilter);
       const loadingToast = pushToast({
         message: "Loading selected miners…",
         status: STATUSES.loading,
@@ -748,8 +749,9 @@ const MinerReparentPicker = ({
           let ids: string[];
           let snapshots: Record<string, MinerStateSnapshot> | undefined;
           if (selectionMode === "all") {
-            // Undefined filter = no URL filter params = full fleet.
-            const effectiveFilter = currentFilter ?? create(MinerListFilterSchema);
+            // Mirror the miner table's default pairing-status scope so
+            // "select all" stays aligned with the visible fleet rows.
+            const effectiveFilter = applyFleetVisiblePairingStatuses(currentFilter);
             const loadingToast = pushToast({
               message: "Loading selected miners…",
               status: STATUSES.loading,

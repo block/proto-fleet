@@ -1,0 +1,22 @@
+# Tombstone for the system-monitoring alert rules. Grafana never removes
+# file-provisioned rules whose YAML disappears, so this deleteRules stanza —
+# mounted with the rest of provisioning/alerting/ on every alerts-enabled
+# stack — cleans the rules up when system monitoring is turned off (a no-op
+# for uids that were never created). The system-monitoring overlays bind-mount
+# monitoring/grafana/system-monitoring/proto-fleet-system-rules.yaml over this
+# exact container path, shadowing the tombstone with the real rules.
+apiVersion: 1
+
+deleteRules:
+  - orgId: 1
+    uid: protofleet-system-cpu-high
+  - orgId: 1
+    uid: protofleet-system-memory-high
+  - orgId: 1
+    uid: protofleet-system-disk-warning
+  - orgId: 1
+    uid: protofleet-system-disk-low
+  - orgId: 1
+    uid: protofleet-system-disk-stale
+  - orgId: 1
+    uid: protofleet-system-heartbeat-stale

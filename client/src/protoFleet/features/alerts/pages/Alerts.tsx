@@ -30,9 +30,9 @@ const Alerts = () => {
         <SettingsPageHeader title="Alerts" description={ALERTS_PAGE_DESCRIPTION} />
         <div className="flex flex-col gap-4">
           <RulesSection />
-          <HistorySection />
-          <ChannelsSection />
           <MaintenanceWindowsSection />
+          <ChannelsSection />
+          <HistorySection />
         </div>
       </div>
     </AlertsContext.Provider>

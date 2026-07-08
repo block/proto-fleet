@@ -6,7 +6,7 @@ import Row from "@/shared/components/Row";
 
 interface PoolRowProps {
   poolIndex: PoolIndex;
-  onClick: () => void;
+  onClick?: () => void;
   pools: PoolInfo[];
   testId?: string;
   /** Override the auto-generated title. Without this prop, displays pool.name > username > URL > "—" */
@@ -19,6 +19,8 @@ interface PoolRowProps {
   prefixElement?: ReactNode;
   /** Suffix element to show after Update button (e.g., menu) */
   suffixElement?: ReactNode;
+  /** Hide the Update action and render the row as a static, non-interactive entry. */
+  readOnly?: boolean;
 }
 
 const PoolRow = ({
@@ -31,6 +33,7 @@ const PoolRow = ({
   priorityNumber,
   prefixElement,
   suffixElement,
+  readOnly = false,
 }: PoolRowProps) => {
   const pool = pools[poolIndex];
   const poolName = pool?.name;
@@ -82,10 +85,12 @@ const PoolRow = ({
           ) : null}
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <Button variant={variants.secondary} size={sizes.compact} text="Update" onClick={onClick} testId={testId} />
-        {suffixElement}
-      </div>
+      {readOnly ? null : (
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant={variants.secondary} size={sizes.compact} text="Update" onClick={onClick} testId={testId} />
+          {suffixElement}
+        </div>
+      )}
     </Row>
   );
 };

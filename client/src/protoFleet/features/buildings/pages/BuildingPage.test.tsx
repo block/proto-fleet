@@ -12,6 +12,7 @@ import {
   BuildingWithCountsSchema,
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
@@ -19,6 +20,7 @@ const getBuildingMock = vi.hoisted(() => vi.fn());
 const listAllBuildingsMock = vi.hoisted(() => vi.fn());
 const listBuildingRacksMock = vi.hoisted(() => vi.fn());
 const listSitesMock = vi.hoisted(() => vi.fn());
+const mockUseTelemetryMetrics = vi.hoisted(() => vi.fn());
 
 vi.mock("@/protoFleet/api/buildings", () => ({
   useBuildings: () => ({
@@ -37,6 +39,23 @@ vi.mock("@/protoFleet/api/sites", async (importOriginal) => {
     }),
   };
 });
+
+// BuildingPage reads the site catalog (for the breadcrumb site label) from the
+// shell-level SitesProvider. Drive it directly here.
+const sitesCtx = vi.hoisted(() => ({
+  current: {
+    sites: undefined as SiteWithCounts[] | undefined,
+    sitesError: null as string | null,
+    sitesLoaded: false,
+    sitesSettled: false,
+    sitesPermissionDenied: false,
+    siteCatalogAccessGranted: false,
+    refetchSites: vi.fn(),
+  },
+}));
+vi.mock("@/protoFleet/api/SitesContext", () => ({
+  useSitesContext: () => sitesCtx.current,
+}));
 
 vi.mock("@/protoFleet/api/useBuildingStats", () => ({
   useBuildingStats: () => ({
@@ -94,7 +113,7 @@ vi.mock("@/protoFleet/api/useComponentErrors", () => ({
 }));
 
 vi.mock("@/protoFleet/api/useTelemetryMetrics", () => ({
-  useTelemetryMetrics: () => ({ data: { metrics: [] } }),
+  useTelemetryMetrics: (options: unknown) => mockUseTelemetryMetrics(options),
 }));
 
 vi.mock("@/protoFleet/features/buildings/components/BuildingModals", () => ({
@@ -141,6 +160,7 @@ const renderPage = (initialEntry = "/buildings/123") =>
 describe("BuildingPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseTelemetryMetrics.mockReturnValue({ data: { metrics: [] } });
     useFleetStore.setState((state) => {
       state.ui.activeSite = DEFAULT_ACTIVE_SITE;
     });
@@ -169,16 +189,22 @@ describe("BuildingPage", () => {
     listBuildingRacksMock.mockImplementation(({ onSuccess }: { onSuccess: (racks: BuildingRack[]) => void }) =>
       onSuccess([]),
     );
-    listSitesMock.mockImplementation(({ onSuccess }: { onSuccess: (sites: SiteWithCounts[]) => void }) =>
-      onSuccess([
+    sitesCtx.current = {
+      sites: [
         create(SiteWithCountsSchema, {
           site: create(SiteSchema, {
             id: 8n,
             name: "Austin",
           }),
         }),
-      ]),
-    );
+      ],
+      sitesError: null,
+      sitesLoaded: true,
+      sitesSettled: true,
+      sitesPermissionDenied: false,
+      siteCatalogAccessGranted: true,
+      refetchSites: vi.fn(),
+    };
   });
 
   it("preserves the selected site when leaving building detail for miners", async () => {
@@ -223,5 +249,17 @@ describe("BuildingPage", () => {
     fireEvent.click(screen.getByTestId("building-page-view-miners"));
 
     expect(screen.getByTestId("location-probe")).toHaveTextContent("/fleet/miners?building=123");
+  });
+
+  it("does not request uptime telemetry for building performance charts", async () => {
+    renderPage();
+
+    await waitFor(() =>
+      expect(mockUseTelemetryMetrics).toHaveBeenCalledWith(
+        expect.objectContaining({
+          measurementTypes: expect.not.arrayContaining([MeasurementType.UPTIME]),
+        }),
+      ),
+    );
   });
 });

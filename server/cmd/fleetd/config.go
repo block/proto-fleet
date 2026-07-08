@@ -20,6 +20,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/infrastructure/sysmon"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 )
 
@@ -32,6 +33,9 @@ type HTTPConfig struct {
 }
 type Config struct {
 	Mode string `help:"Execution mode" enum:"server,agent,combined" default:"combined" env:"MODE"`
+
+	// Operator-facing base URL of this instance, used in outbound alert notification links.
+	PublicURL string `help:"Base URL of the proto-fleet instance, used in alert notification links (e.g. https://fleet.example.com)" default:"" env:"FLEET_PUBLIC_URL"`
 
 	DB             db.Config                    `embed:"" prefix:"db-" envprefix:"DB_"`
 	Log            logging.Config               `embed:"" prefix:"logging-" envprefix:"LOG_"`
@@ -52,4 +56,6 @@ type Config struct {
 	Files          files.Config                 `embed:"" prefix:"files-" envprefix:"FILES_"`
 	FleetTelemetry fleet_telemetry.Config       `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
 	Metrics        metrics.Config               `embed:"" prefix:"metrics-" envprefix:"FLEET_ALERTS_"`
+
+	SystemMonitoring sysmon.Config `embed:"" prefix:"system-monitoring-" envprefix:"FLEET_SYSTEM_MONITORING_"`
 }

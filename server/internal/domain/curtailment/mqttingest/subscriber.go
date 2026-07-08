@@ -36,6 +36,10 @@ type RuntimeStatusUpdate struct {
 
 type RuntimeStatusReporter func(RuntimeStatusUpdate)
 
+type runtimeStatusReportingMQTTClient interface {
+	SetRuntimeStatusReporter(reporter func(connected bool, subscribed bool, err error))
+}
+
 const (
 	brokerTransportTCP = "tcp"
 	brokerTransportTLS = "tls"
@@ -601,7 +605,7 @@ func (s *Subscriber) recordRuntimeStatus(update RuntimeStatusUpdate) {
 		}
 	}
 	state := RuntimeStateRunning
-	if running == 0 {
+	if subscribed == 0 {
 		state = RuntimeStateStarting
 		if lastError != "" {
 			state = RuntimeStateError

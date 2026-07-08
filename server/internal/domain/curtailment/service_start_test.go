@@ -94,6 +94,66 @@ func TestService_Start_RejectsNonAdminForceIncludeMaintenance(t *testing.T) {
 	assert.Contains(t, err.Error(), "force_include_maintenance")
 }
 
+func TestService_Start_RejectsNonAdminForceIncludeAllPairedMiners(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.Mode = models.ModeFullFleet
+	req.ForceIncludeAllPairedMiners = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err))
+	assert.Contains(t, err.Error(), "force_include_all_paired_miners")
+}
+
+func TestService_Start_RejectsForceIncludeAllPairedMinersOutsideFullFleet(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.Mode = models.ModeFixedKw
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "force_include_all_paired_miners")
+}
+
+// Open-loop scopes (explicit miners / device sets) never run the policy's
+// release/reopen admission loop, so an all-paired event there would release
+// unpaired miners and never reclaim them. The service rejects the combination.
+func TestService_Start_RejectsForceIncludeAllPairedMinersForOpenLoopScopes(t *testing.T) {
+	t.Parallel()
+
+	scopes := map[string]Scope{
+		"device list": {Type: models.ScopeTypeDeviceList, DeviceIdentifiers: []string{"miner-1"}},
+		"device sets": {Type: models.ScopeTypeDeviceSets, DeviceSetIDs: []string{"set-1"}},
+		"mixed sites and miners": {
+			Type:              models.ScopeTypeMixed,
+			SiteIDs:           []int64{7},
+			DeviceIdentifiers: []string{"miner-1"},
+		},
+	}
+	for name, scope := range scopes {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			svc := NewService(newFakeStore())
+			req := validStartRequest(1)
+			req.Mode = models.ModeFullFleet
+			req.Scope = scope
+			req.ForceIncludeAllPairedMiners = true
+			req.CanUseAdminControls = true
+
+			_, err := svc.Start(t.Context(), req)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "whole-org or site scope")
+		})
+	}
+}
+
 func TestService_Start_RejectsCurtailIntervalWithoutBatchSize(t *testing.T) {
 	t.Parallel()
 
@@ -214,7 +274,18 @@ func TestService_Start_RejectsNegativeRestoreBatchSize(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-func TestService_Start_NormalizesZeroRestoreBatchInterval(t *testing.T) {
+func TestService_Start_RejectsOversizedRestoreBatchSize(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.RestoreBatchSize = RestoreBatchSizeMax + 1
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "restore_batch_size")
+}
+
+func TestService_Start_PersistsZeroRestoreBatchInterval(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
@@ -228,8 +299,8 @@ func TestService_Start_NormalizesZeroRestoreBatchInterval(t *testing.T) {
 
 	plan, err := svc.Start(t.Context(), req)
 	require.NoError(t, err)
-	assert.Equal(t, defaultRestoreBatchIntervalSec, store.lastInsertEvent.RestoreBatchIntervalSec)
-	assert.Equal(t, defaultRestoreBatchIntervalSec, plan.EffectiveRestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), store.lastInsertEvent.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), plan.EffectiveRestoreBatchIntervalSec)
 }
 
 func TestService_Start_RejectsNonAdminLargeRestoreBatchInterval(t *testing.T) {
@@ -768,10 +839,11 @@ func TestService_Start_StampsEffectiveBatchSize(t *testing.T) {
 		candidateCount   int
 		want             int32
 	}{
-		{"small_fleet_floors_to_10", 0, 5, 10},
-		{"restore_batch_size_floors_formula", 60, 5, 60},
-		{"five_thousand_picks_50", 10, 5000, 50},
-		{"ten_thousand_ceilings_at_100", 10, 10_000, 100},
+		{"immediate_restore_claims_all_selected", 0, 5, 5},
+		{"immediate_restore_is_safety_limited", 0, int(RestoreBatchSizeMax) + 1, RestoreBatchSizeMax},
+		{"positive_restore_batch_size_used_verbatim", 60, 5, 60},
+		{"positive_restore_batch_size_not_increased_by_large_fleet", 10, 5000, 10},
+		{"positive_restore_batch_size_not_clamped_at_100", 250, 10_000, 250},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -796,6 +868,57 @@ func TestService_Start_StampsEffectiveBatchSize(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, store.lastInsertEvent.EffectiveBatchSize,
 				"effective_batch_size is stamped from the selected-target count at Start")
+		})
+	}
+}
+
+func TestService_Start_DecouplesRestoreBatchFromManualCurtailBatch(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name             string
+		restoreBatchSize int32
+		candidateCount   int
+		wantRestoreBatch int32
+		wantCurtailBatch int32
+	}{
+		{
+			name:             "immediate_restore_uses_adaptive_manual_curtail_batch",
+			restoreBatchSize: 0,
+			candidateCount:   5_000,
+			wantRestoreBatch: 5_000,
+			wantCurtailBatch: 50,
+		},
+		{
+			name:             "positive_restore_batch_uses_adaptive_manual_curtail_batch",
+			restoreBatchSize: 250,
+			candidateCount:   10_000,
+			wantRestoreBatch: 250,
+			wantCurtailBatch: 100,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			const orgID = int64(1)
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			cands := make([]*models.Candidate, tc.candidateCount)
+			for i := range cands {
+				cands[i] = minerWithEff(fmt.Sprintf("m%d", i), 1500, 100, 40)
+			}
+			store.candidatesByOrg[orgID] = cands
+			svc := NewService(store)
+			req := validStartRequest(orgID)
+			req.RestoreBatchSize = tc.restoreBatchSize
+			req.TargetKW = float64(tc.candidateCount) * 10
+			req.ToleranceKW = req.TargetKW - 1
+
+			_, err := svc.Start(t.Context(), req)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantRestoreBatch, store.lastInsertEvent.EffectiveBatchSize)
+			require.NotNil(t, store.lastInsertEvent.CurtailBatchSize)
+			assert.Equal(t, tc.wantCurtailBatch, *store.lastInsertEvent.CurtailBatchSize)
 		})
 	}
 }

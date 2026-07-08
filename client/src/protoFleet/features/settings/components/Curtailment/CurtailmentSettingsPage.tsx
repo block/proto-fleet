@@ -11,6 +11,7 @@ import useCurtailmentResponseProfiles, {
 } from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { immediateRestoreBatchSizeInputValue } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import { getDefaultCurtailmentSiteScope } from "@/protoFleet/features/energy/curtailmentSiteScopeDefaults";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
@@ -149,7 +150,6 @@ const emptyUpdatingSourceIds = new Set<string>();
 const emptyUpdatingResponseProfileIds = new Set<string>();
 const emptyUpdatingAutomationRuleIds = new Set<string>();
 const savedPasswordPlaceholder = "......";
-const immediateRestoreBatchSize = "10000";
 
 type SourceModalMode = "create" | "edit";
 
@@ -173,7 +173,12 @@ const emptyResponseProfileFormValues: ResponseProfileFormValues = {
   restoreBatchSize: "",
   restoreIntervalSec: "",
   responseDeadlineMinutes: "15",
-  includeMaintenance: true,
+  // Maintenance-flagged miners are excluded by default: force_include_maintenance
+  // is admin-gated server-side, so defaulting it on would block non-admin
+  // operators with curtailment:manage from saving any profile. "Target all
+  // paired miners" opts the maintenance population in (admin-gated anyway).
+  includeMaintenance: false,
+  forceIncludeAllPairedMiners: false,
 };
 
 const sourceInputIds = {
@@ -444,12 +449,13 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     curtailBatchIntervalSec: emptyResponseProfileFormValues.curtailBatchIntervalSec,
     restoreBatchSize:
       profile.restoreBehavior === responseProfileRestoreBehaviorLabel.automaticImmediateRestore
-        ? immediateRestoreBatchSize
+        ? immediateRestoreBatchSizeInputValue
         : emptyResponseProfileFormValues.restoreBatchSize,
     restoreIntervalSec: emptyResponseProfileFormValues.restoreIntervalSec,
     responseDeadlineMinutes:
       profile.deadlineSummary.match(/(\d+)/)?.[1] ?? emptyResponseProfileFormValues.responseDeadlineMinutes,
     includeMaintenance: emptyResponseProfileFormValues.includeMaintenance,
+    forceIncludeAllPairedMiners: emptyResponseProfileFormValues.forceIncludeAllPairedMiners,
   };
 }
 
@@ -458,7 +464,7 @@ function createCurtailmentFormValuesFromResponseProfile(
 ): Partial<CurtailmentFormValues> {
   const restoreBatchSize =
     values.restoreBatchSize ||
-    (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
+    (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSizeInputValue : "");
   const hasAllMinersSelected = values.minerSelectionMode === "all";
   const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
   const siteId = siteIds[0] ?? "";
@@ -509,6 +515,7 @@ function createCurtailmentFormValuesFromResponseProfile(
     restoreIntervalSec: values.restoreIntervalSec,
     reason: values.name,
     includeMaintenance: values.includeMaintenance,
+    forceIncludeAllPairedMiners: values.actionType === "fullFleet" && Boolean(values.forceIncludeAllPairedMiners),
   };
 }
 
@@ -519,7 +526,7 @@ function getResponseProfileRestoreBehavior(
   const restoreIntervalSec = Number(values.restoreIntervalSec || "0");
 
   return Number.isFinite(restoreBatchSize) &&
-    restoreBatchSize >= Number(immediateRestoreBatchSize) &&
+    restoreBatchSize === Number(immediateRestoreBatchSizeInputValue) &&
     Number.isFinite(restoreIntervalSec) &&
     restoreIntervalSec === 0
     ? "automaticImmediateRestore"
@@ -567,6 +574,7 @@ function createResponseProfileFormValuesFromCurtailmentValues(
     restoreIntervalSec: values.restoreIntervalSec,
     responseDeadlineMinutes: secondsToDeadlineMinutes(values.maxDurationSec),
     includeMaintenance: values.includeMaintenance,
+    forceIncludeAllPairedMiners: values.curtailmentMode === "fullFleet" && Boolean(values.forceIncludeAllPairedMiners),
   };
 }
 

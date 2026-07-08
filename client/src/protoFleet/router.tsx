@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- lazy() route components colocated with route config; not HMR-relevant */
-import { createElement, lazy, ReactNode } from "react";
+import { lazy, ReactNode } from "react";
 import { createBrowserRouter, LoaderFunction, LoaderFunctionArgs, Navigate, Outlet, redirect } from "react-router-dom";
 
 import App from "./components/App";
@@ -216,18 +216,6 @@ const createScopableRoutes = (absolute: boolean) => [
   createRoute(absolute ? "/activity" : "activity", <ActivityPage />),
 ];
 
-// Wrap protoOS routes with SingleMinerWrapper for /miners/:id/* paths
-const wrappedMinerRoutes = singleMinerRoutes.map((route) => {
-  if (!route.element) return route;
-
-  const wrappedElement = createElement(SingleMinerWrapper, null, route.element);
-
-  return {
-    ...route,
-    element: wrappedElement,
-  };
-});
-
 /**
  * Router configuration - defines actual route tree with React elements
  */
@@ -262,10 +250,19 @@ const router = createBrowserRouter([
   createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5" }),
   createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
 
-  // Single miner (fullscreen - protoOS routes handle layout)
+  // Single miner (fullscreen - protoOS routes handle layout). SingleMinerWrapper
+  // wraps the parent Outlet so it stays mounted across tab navigations — the
+  // protoOS tabs redirect via loaders, which would otherwise remount it (and
+  // replay its open animation) on every tab.
   {
-    ...createRoute("/miners/:id", <Outlet />, { fullscreen: true }),
-    children: wrappedMinerRoutes,
+    ...createRoute(
+      "/miners/:id",
+      <SingleMinerWrapper>
+        <Outlet />
+      </SingleMinerWrapper>,
+      { fullscreen: true },
+    ),
+    children: singleMinerRoutes,
   },
 
   // Settings routes

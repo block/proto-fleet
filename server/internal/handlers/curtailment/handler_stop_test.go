@@ -70,6 +70,21 @@ func (s *stopStubStore) ClaimClosedLoopFullFleetTargets(
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by Stop handler tests")
 }
+func (s *stopStubStore) ClaimAllPairedPolicyTargets(
+	context.Context,
+	int64,
+	[]models.InsertTargetParams,
+) (int64, error) {
+	panic("ClaimAllPairedPolicyTargets not exercised by Stop handler tests")
+}
+func (s *stopStubStore) BulkRefreshAllPairedTargetReadiness(
+	context.Context,
+	int64,
+	models.EventState,
+	[]interfaces.AllPairedReadinessUpdate,
+) ([]string, error) {
+	panic("BulkRefreshAllPairedTargetReadiness not exercised by Stop handler tests")
+}
 func (s *stopStubStore) GetEventByUUID(_ context.Context, _ int64, _ uuid.UUID) (*models.Event, error) {
 	if s.getEventErr != nil {
 		return nil, s.getEventErr
@@ -91,8 +106,22 @@ func (s *stopStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([
 func (s *stopStubStore) ListTargetsByEventPage(context.Context, interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
 	panic("ListTargetsByEventPage not exercised by Stop handler tests")
 }
-func (s *stopStubStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, bool, error) {
-	return s.targetSiteIDs, s.targetSiteIDsComplete, nil
+func (s *stopStubStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.UUID) (models.TargetSiteCoverage, error) {
+	siteIDs := append([]int64(nil), s.targetSiteIDs...)
+	mappedTargetCount := int64(len(siteIDs))
+	targetCount := mappedTargetCount
+	if !s.targetSiteIDsComplete {
+		targetCount++
+	}
+	return models.TargetSiteCoverage{
+		SiteIDs:           siteIDs,
+		Complete:          s.targetSiteIDsComplete,
+		TargetCount:       targetCount,
+		MappedTargetCount: mappedTargetCount,
+	}, nil
+}
+func (s *stopStubStore) ListTargetSiteCoverageByEvents(context.Context, int64, []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	panic("ListTargetSiteCoverageByEvents not exercised by Stop handler tests")
 }
 func (s *stopStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by Stop handler tests")

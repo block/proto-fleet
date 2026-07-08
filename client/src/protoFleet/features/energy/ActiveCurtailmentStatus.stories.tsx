@@ -70,7 +70,7 @@ function ActiveCurtailmentStatusStory(props: ComponentProps<typeof ActiveCurtail
         onDismissRestored={() => undefined}
         onRequestEdit={() => undefined}
         onRequestRestore={() => setDialogAction("restore")}
-        onRequestStop={() => setDialogAction("stopCurtailment")}
+        onRequestStop={() => setDialogAction("restore")}
       />
       <CurtailmentStopConfirmationDialog
         open={dialogAction !== undefined}
@@ -220,7 +220,7 @@ function AnimatedCurtailmentLifecycleStory(): ReactElement {
         onDismissRestored={resetAnimation}
         onRequestEdit={() => undefined}
         onRequestRestore={() => setDialogAction("restore")}
-        onRequestStop={() => setDialogAction("stopCurtailment")}
+        onRequestStop={() => setDialogAction("restore")}
       />
       <CurtailmentStopConfirmationDialog
         open={dialogAction !== undefined}
@@ -235,6 +235,33 @@ function AnimatedCurtailmentLifecycleStory(): ReactElement {
 export const Curtailing: Story = {
   args: {
     event: curtailingCurtailmentEvent,
+  },
+  render: (args) => <ActiveCurtailmentStatusStory {...args} />,
+};
+
+export const CurtailingLargeFleet: Story = {
+  name: "Curtailing large fleet (progress + ETA)",
+  args: {
+    event: {
+      ...curtailingCurtailmentEvent,
+      scopeLabel: "Whole fleet",
+      selectedMiners: 5005,
+      startedAt: new Date(Date.now() - 95_000).toISOString(),
+      curtailBatchSize: 500,
+      curtailBatchIntervalSec: 30,
+      rollups: [
+        { state: "confirmed", count: 3000 },
+        { state: "dispatched", count: 1000 },
+        { state: "drifted", count: 200 },
+        { state: "pending", count: 800 },
+        { state: "unavailable", count: 5 },
+      ],
+      unavailableReasonCounts: [
+        { label: "offline", count: 3 },
+        { label: "needs authentication", count: 1 },
+        { label: "in maintenance", count: 1 },
+      ],
+    },
   },
   render: (args) => <ActiveCurtailmentStatusStory {...args} />,
 };

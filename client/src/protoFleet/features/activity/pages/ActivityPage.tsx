@@ -10,9 +10,8 @@ import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEm
 import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import ActivityFilters from "@/protoFleet/features/activity/components/ActivityFilters";
 import ActivityTable from "@/protoFleet/features/activity/components/ActivityTable";
-import { formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
 import { useHasPermission } from "@/protoFleet/store";
-import { Alert, DismissTiny } from "@/shared/assets/icons";
+import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
@@ -101,31 +100,6 @@ const ActivityPageContent = () => {
     setSelectedUsers([]);
   }, [debouncedSetSearch]);
 
-  const handleRemoveType = useCallback((id: string) => setSelectedTypes((prev) => prev.filter((t) => t !== id)), []);
-
-  const handleRemoveScope = useCallback((id: string) => setSelectedScopes((prev) => prev.filter((s) => s !== id)), []);
-
-  const handleRemoveUser = useCallback((id: string) => setSelectedUsers((prev) => prev.filter((u) => u !== id)), []);
-
-  const activeFilterPills = useMemo(() => {
-    const pills: { key: string; label: string; onRemove: () => void }[] = [];
-    for (const id of selectedTypes) {
-      pills.push({ key: `type-${id}`, label: formatLabel(id), onRemove: () => handleRemoveType(id) });
-    }
-    for (const id of selectedScopes) {
-      pills.push({ key: `scope-${id}`, label: formatLabel(id), onRemove: () => handleRemoveScope(id) });
-    }
-    for (const id of selectedUsers) {
-      const user = users.find((u) => u.userId === id);
-      pills.push({
-        key: `user-${id}`,
-        label: user?.username ?? id,
-        onRemove: () => handleRemoveUser(id),
-      });
-    }
-    return pills;
-  }, [selectedTypes, selectedScopes, selectedUsers, users, handleRemoveType, handleRemoveScope, handleRemoveUser]);
-
   if (isInitialLoad) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -137,8 +111,25 @@ const ActivityPageContent = () => {
   return (
     <>
       <div className="sticky left-0 z-3 px-6 pt-6 laptop:px-10 laptop:pt-10">
-        <div className="flex items-center justify-between pb-4">
+        <div className="pb-4">
           <Header title="Activity" titleSize="text-heading-300" />
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-6">
+          <div className="min-w-0 flex-1">
+            <ActivityFilters
+              searchValue={searchText}
+              onSearchChange={handleSearchChange}
+              eventTypes={eventTypes}
+              scopeTypes={scopeTypes}
+              users={users}
+              selectedTypes={selectedTypes}
+              selectedScopes={selectedScopes}
+              selectedUsers={selectedUsers}
+              onTypesChange={setSelectedTypes}
+              onScopesChange={setSelectedScopes}
+              onUsersChange={setSelectedUsers}
+            />
+          </div>
           <Button
             variant={variants.secondary}
             size={sizes.compact}
@@ -148,37 +139,6 @@ const ActivityPageContent = () => {
           >
             Export CSV
           </Button>
-        </div>
-        <div className="flex flex-col gap-2 pb-6">
-          <ActivityFilters
-            searchValue={searchText}
-            onSearchChange={handleSearchChange}
-            eventTypes={eventTypes}
-            scopeTypes={scopeTypes}
-            users={users}
-            selectedTypes={selectedTypes}
-            selectedScopes={selectedScopes}
-            selectedUsers={selectedUsers}
-            onTypesChange={setSelectedTypes}
-            onScopesChange={setSelectedScopes}
-            onUsersChange={setSelectedUsers}
-          />
-          {activeFilterPills.length > 0 ? (
-            <div className="flex flex-wrap gap-2" data-testid="activity-filter-pills">
-              {activeFilterPills.map((pill) => (
-                <Button
-                  key={pill.key}
-                  size={sizes.compact}
-                  variant={variants.accent}
-                  prefixIcon={<DismissTiny />}
-                  onClick={pill.onRemove}
-                  testId={`activity-filter-pill-${pill.key}`}
-                >
-                  {pill.label}
-                </Button>
-              ))}
-            </div>
-          ) : null}
         </div>
       </div>
 

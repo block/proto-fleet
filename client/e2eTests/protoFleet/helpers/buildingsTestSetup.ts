@@ -6,6 +6,7 @@ import { FleetLocationsPage } from "../pages/fleetLocations";
 import { MinersPage } from "../pages/miners";
 import { RacksPage } from "../pages/racks";
 import { CommonSteps } from "./commonSteps";
+import { installAllSitesInitScript } from "./fleetLocationsSetup";
 import { addSelectableMinersToSlots } from "./racksHelpers";
 import { generateRandomText } from "./testDataHelper";
 
@@ -13,11 +14,9 @@ const ASSIGN_RACKS_TO_BUILDING = "AssignRacksToBuilding";
 const AUTOMATION_SITE_PREFIX = "automation_buildings_site";
 const AUTOMATION_BUILDING_PREFIX = "automation_buildings_building";
 const AUTOMATION_RACK_PREFIX = "automation_buildings_rack";
-const TEMP_ZONE = "AutomationBuildingsZone";
+export const AUTOMATION_BUILDINGS_ZONE = "AutomationBuildingsZone";
 const RACK_COLUMNS = 2;
 const RACK_ROWS = 2;
-const ACTIVE_SITE_STORAGE_KEY = "proto-fleet-multi-site";
-
 type BuildingsCleanupFleetLocationsPage = Pick<
   FleetLocationsPage,
   "deleteBuildingByNameIfVisible" | "deleteSiteByNameIfVisible" | "listBuildingNames" | "listSiteNames"
@@ -45,25 +44,6 @@ export function createBuildingsScenarioData(): BuildingsScenarioData {
     buildingName: generateRandomText(AUTOMATION_BUILDING_PREFIX),
     rackLabel: generateRandomText(AUTOMATION_RACK_PREFIX),
   };
-}
-
-async function installAllSitesInitScript(page: Page) {
-  await page.addInitScript(
-    ({ storageKey }) => {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({
-          state: {
-            ui: {
-              activeSite: { kind: "all" },
-            },
-          },
-          version: 0,
-        }),
-      );
-    },
-    { storageKey: ACTIVE_SITE_STORAGE_KEY },
-  );
 }
 
 async function cleanupAutomationFixtures(
@@ -149,7 +129,7 @@ export async function createRackWithAssignedMiners(
   return await test.step("Create a rack with two miners assigned", async () => {
     await racksPage.navigateToRacksPage();
     await racksPage.clickAddRackButton();
-    await racksPage.inputZone(TEMP_ZONE);
+    await racksPage.inputZone(AUTOMATION_BUILDINGS_ZONE);
     await racksPage.inputRackLabel(rackLabel);
     await racksPage.enableCustomRackLayout();
     await racksPage.inputColumns(RACK_COLUMNS);
@@ -197,6 +177,20 @@ export async function assignRackToBuilding(
     test.expect(String(body.racks[0]?.rackId)).toBe(rackId.toString());
     test.expect(response.status()).toBe(200);
   });
+}
+
+export async function setupRackAssignedToBuilding(
+  page: Page,
+  fleetLocationsPage: FleetLocationsPage,
+  racksPage: RacksPage,
+  scenario: BuildingsScenarioData,
+) {
+  const buildingId = await createSiteAndBuilding(fleetLocationsPage, scenario);
+  const { rackId, selectedMinerIps } = await createRackWithAssignedMiners(racksPage, scenario.rackLabel);
+
+  await assignRackToBuilding(page, racksPage, scenario.rackLabel, rackId, scenario.buildingName, buildingId);
+
+  return { buildingId, rackId, selectedMinerIps };
 }
 
 export async function removeRackFromBuilding(

@@ -39,6 +39,7 @@ vi.mock("@/shared/components/Select", () => ({
 
 const device: InfraDeviceItem = {
   id: "aus-b1-roof-exhaust",
+  unitId: 17,
   name: "Roof exhaust",
   buildingName: "Building 1",
   siteName: "Austin",
@@ -58,10 +59,10 @@ const buildingOptions: InfraBuildingOption[] = [
   { siteName: "Denver", buildingName: "Denver Plant" },
 ];
 
-const renderModal = (onSave = vi.fn()) =>
+const renderModal = (onSave = vi.fn(), targetDevice = device) =>
   render(
     <InfraDeviceDetailModal
-      device={device}
+      device={targetDevice}
       siteOptions={["Austin", "Denver"]}
       buildingOptions={buildingOptions}
       onSave={onSave}
@@ -101,6 +102,27 @@ describe("InfraDeviceDetailModal", () => {
       expect.objectContaining({
         siteName: "Denver",
         buildingName: "Denver Plant",
+      }),
+    );
+  });
+
+  test("preserves the existing connection type when saving edits", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const legacyConnectionDevice: InfraDeviceItem = {
+      ...device,
+      connectionType: "mqtt_bridge" as InfraDeviceItem["connectionType"],
+    };
+
+    renderModal(onSave, legacyConnectionDevice);
+
+    expect(screen.getByLabelText("Connection type")).toHaveValue("mqtt_bridge");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionType: "mqtt_bridge",
       }),
     );
   });

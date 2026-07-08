@@ -51,6 +51,8 @@ type listStubStore struct {
 	lastTargetPageParams interfaces.ListTargetsByEventPageParams
 	lastGetOrgID         int64
 	lastGetUUID          uuid.UUID
+	coverageBatchCalls   int
+	lastCoverageBatch    []uuid.UUID
 }
 
 func (s *listStubStore) ListEvents(_ context.Context, params interfaces.ListEventsParams) ([]*models.Event, string, error) {
@@ -98,6 +100,21 @@ func (s *listStubStore) ClaimClosedLoopFullFleetTargets(
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by List handler tests")
 }
+func (s *listStubStore) ClaimAllPairedPolicyTargets(
+	context.Context,
+	int64,
+	[]models.InsertTargetParams,
+) (int64, error) {
+	panic("ClaimAllPairedPolicyTargets not exercised by List handler tests")
+}
+func (s *listStubStore) BulkRefreshAllPairedTargetReadiness(
+	context.Context,
+	int64,
+	models.EventState,
+	[]interfaces.AllPairedReadinessUpdate,
+) ([]string, error) {
+	panic("BulkRefreshAllPairedTargetReadiness not exercised by List handler tests")
+}
 func (s *listStubStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
 	s.lastGetOrgID = orgID
 	s.lastGetUUID = eventUUID
@@ -138,11 +155,39 @@ func (s *listStubStore) ListTargetsByEventPage(_ context.Context, params interfa
 	}
 	return s.targetsByUUID[params.EventUUID], s.targetNextPageToken, nil
 }
-func (s *listStubStore) ListTargetSiteIDsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]int64, bool, error) {
+func (s *listStubStore) ListTargetSiteCoverageByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) (models.TargetSiteCoverage, error) {
 	if s.targetSiteIDsByUUID == nil {
-		panic("ListTargetSiteIDsByEvent not exercised by List handler tests")
+		panic("ListTargetSiteCoverageByEvent not exercised by List handler tests")
 	}
-	return s.targetSiteIDsByUUID[eventUUID], !s.incompleteTargetSite[eventUUID], nil
+	siteIDs := append([]int64(nil), s.targetSiteIDsByUUID[eventUUID]...)
+	complete := !s.incompleteTargetSite[eventUUID]
+	mappedTargetCount := int64(len(siteIDs))
+	targetCount := mappedTargetCount
+	if !complete {
+		targetCount++
+	}
+	return models.TargetSiteCoverage{
+		SiteIDs:           siteIDs,
+		Complete:          complete,
+		TargetCount:       targetCount,
+		MappedTargetCount: mappedTargetCount,
+	}, nil
+}
+func (s *listStubStore) ListTargetSiteCoverageByEvents(_ context.Context, _ int64, eventUUIDs []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	if s.targetSiteIDsByUUID == nil {
+		panic("ListTargetSiteCoverageByEvents not exercised by List handler tests")
+	}
+	s.coverageBatchCalls++
+	s.lastCoverageBatch = append([]uuid.UUID(nil), eventUUIDs...)
+	coverageByEvent := make(map[uuid.UUID]models.TargetSiteCoverage, len(eventUUIDs))
+	for _, eventUUID := range eventUUIDs {
+		coverage, err := s.ListTargetSiteCoverageByEvent(context.Background(), 0, eventUUID)
+		if err != nil {
+			return nil, err
+		}
+		coverageByEvent[eventUUID] = coverage
+	}
+	return coverageByEvent, nil
 }
 func (s *listStubStore) GetTargetRollupByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.TargetRollup, error) {
 	if s.targetRollupByUUID != nil {
@@ -164,6 +209,8 @@ func (s *listStubStore) GetTargetRollupByEvent(_ context.Context, _ int64, event
 			rollup.Confirmed++
 		case models.TargetStateDrifted:
 			rollup.Drifted++
+		case models.TargetStateUnavailable:
+			rollup.Unavailable++
 		case models.TargetStateResolved:
 			rollup.Resolved++
 		case models.TargetStateReleased:
@@ -275,8 +322,9 @@ func TestHandler_ListCurtailmentEvents_HappyPath(t *testing.T) {
 }
 
 // TestHandler_ListActiveCurtailments_ReturnsActiveEvents: multiple concurrent
-// non-terminal events round-trip through the handler, and the per-target heavy
-// payload is intentionally absent (use GetCurtailmentEvent for detail).
+// non-terminal events round-trip through the handler with their live target
+// rollups, and the per-target heavy payload and decision snapshot are
+// intentionally absent (use GetCurtailmentEvent for detail).
 func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 	t.Parallel()
 	source, reference, key := "opensearch", "alert-1", "retry-key"
@@ -297,6 +345,22 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 				ExternalSource:          &source,
 				ExternalReference:       &reference,
 				IdempotencyKey:          &key,
+				DecisionSnapshotJSON:    []byte(`{"selected_count":10}`),
+				TargetRollup: &models.TargetRollup{
+					Pending:       1,
+					Dispatched:    2,
+					Confirmed:     4990,
+					Drifted:       1,
+					Resolved:      2,
+					Released:      1,
+					RestoreFailed: 1,
+					Unavailable:   2,
+					Total:         5000,
+					UnavailableReasons: []models.TargetUnavailableReasonCount{
+						{Reason: "offline", Count: 1},
+						{Reason: "authentication_needed", Count: 1},
+					},
+				},
 			},
 			{
 				ID:                      2,
@@ -310,6 +374,7 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 				RestoreBatchSize:        10,
 				RestoreBatchIntervalSec: 120,
 				Reason:                  "site-b",
+				TargetRollup:            &models.TargetRollup{},
 			},
 		},
 	}
@@ -321,10 +386,111 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 	assert.Equal(t, store.activeEvents[0].EventUUID.String(), resp.Msg.Events[0].EventUuid)
 	assert.Equal(t, store.activeEvents[1].EventUUID.String(), resp.Msg.Events[1].EventUuid)
 	assert.Empty(t, resp.Msg.Events[0].Targets, "list-active response must not include per-target rows")
+	assert.Nil(t, resp.Msg.Events[0].DecisionSnapshot, "list-active response must not include the decision snapshot")
+	// Live rollups ride along so active displays can show the event's current
+	// target set instead of the event-start snapshot count.
+	require.NotNil(t, resp.Msg.Events[0].TargetRollup)
+	assert.Equal(t, int32(5000), resp.Msg.Events[0].TargetRollup.Total)
+	assert.Equal(t, int32(4990), resp.Msg.Events[0].TargetRollup.Confirmed)
+	assert.Equal(t, int32(2), resp.Msg.Events[0].TargetRollup.Unavailable)
+	assert.Equal(t, int32(1), resp.Msg.Events[0].TargetRollup.RestoreFailed)
+	assert.Equal(t, []*pb.CurtailmentUnavailableReason{
+		{Reason: "offline", Count: 1},
+		{Reason: "authentication_needed", Count: 1},
+	}, resp.Msg.Events[0].TargetRollup.UnavailableReasons)
+	require.NotNil(t, resp.Msg.Events[1].TargetRollup, "target-less events carry a zeroed rollup")
+	assert.Equal(t, int32(0), resp.Msg.Events[1].TargetRollup.Total)
 	// Replay handles are scrubbed from the list view, like the history list.
 	assert.Empty(t, resp.Msg.Events[0].ExternalSource)
 	assert.Empty(t, resp.Msg.Events[0].ExternalReference)
 	assert.Empty(t, resp.Msg.Events[0].IdempotencyKey)
+}
+
+// TestHandler_ListActiveCurtailments_OmitsWholeOrgRollupForNarrowedRead: a
+// whole-org event stays visible on the plain org grant, but its live rollup
+// aggregates target counts across every site — including sites the caller's
+// read grant is narrowed away from — so the rollup requires unnarrowed
+// org-wide read. Site-scoped events at permitted sites keep their rollups.
+func TestHandler_ListActiveCurtailments_OmitsWholeOrgRollupForNarrowedRead(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+		narrowSite  = int64(8)
+	)
+	wholeOrgUUID := uuid.New()
+	allowedSiteUUID := uuid.New()
+	store := &listStubStore{
+		activeEvents: []*models.Event{
+			{
+				ID:                      1,
+				EventUUID:               wholeOrgUUID,
+				OrgID:                   orgID,
+				State:                   models.EventStateActive,
+				Mode:                    models.ModeFullFleet,
+				Strategy:                models.StrategyLeastEfficientFirst,
+				Level:                   models.LevelFull,
+				Priority:                models.PriorityNormal,
+				RestoreBatchSize:        10,
+				RestoreBatchIntervalSec: 120,
+				Reason:                  "whole-org",
+				ScopeType:               models.ScopeTypeWholeOrg,
+				TargetRollup:            &models.TargetRollup{Confirmed: 4990, Pending: 10, Total: 5000},
+			},
+			{
+				ID:                      2,
+				EventUUID:               allowedSiteUUID,
+				OrgID:                   orgID,
+				State:                   models.EventStateActive,
+				Mode:                    models.ModeFixedKw,
+				Strategy:                models.StrategyLeastEfficientFirst,
+				Level:                   models.LevelFull,
+				Priority:                models.PriorityNormal,
+				RestoreBatchSize:        10,
+				RestoreBatchIntervalSec: 120,
+				Reason:                  "allowed-site",
+				ScopeType:               models.ScopeTypeSite,
+				ScopeJSON:               siteScopeJSON(t, allowedSite),
+				TargetRollup:            &models.TargetRollup{Confirmed: 3, Total: 3},
+			},
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+	narrowedCtx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+	}, testOrgAssignment(authz.PermCurtailmentRead),
+		testSiteAssignment(allowedSite, authz.PermCurtailmentRead),
+		testSiteAssignment(narrowSite))
+
+	resp, err := h.ListActiveCurtailments(narrowedCtx, connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Events, 2)
+	assert.Equal(t, wholeOrgUUID.String(), resp.Msg.Events[0].EventUuid,
+		"whole-org events stay visible so narrowed operators learn their sites are curtailed")
+	assert.Nil(t, resp.Msg.Events[0].TargetRollup,
+		"whole-org rollup aggregates narrowed sites; it must not ship without org-wide read")
+	require.NotNil(t, resp.Msg.Events[1].TargetRollup,
+		"site-scoped rollups at permitted sites are unaffected by narrowing elsewhere")
+	assert.Equal(t, int32(3), resp.Msg.Events[1].TargetRollup.Total)
+
+	orgWideCtx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+	}, testOrgAssignment(authz.PermCurtailmentRead),
+		testSiteAssignment(allowedSite, authz.PermCurtailmentRead),
+		testSiteAssignment(narrowSite, authz.PermCurtailmentRead))
+
+	resp, err = h.ListActiveCurtailments(orgWideCtx, connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Events, 2)
+	require.NotNil(t, resp.Msg.Events[0].TargetRollup,
+		"matching narrowed grants keep org read effective everywhere, so the rollup ships")
+	assert.Equal(t, int32(5000), resp.Msg.Events[0].TargetRollup.Total)
 }
 
 func TestHandler_ListActiveCurtailments_FiltersSiteScopedEvents(t *testing.T) {
@@ -543,6 +709,53 @@ func TestHandler_ListActiveCurtailments_FiltersDeviceListEventsByTargetSite(t *t
 	assert.Equal(t, allowedUUID.String(), resp.Msg.Events[0].EventUuid)
 }
 
+func TestHandler_ListActiveCurtailments_BatchesDeviceListTargetSiteCoverage(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID     = int64(42)
+		firstSite = int64(7)
+	)
+	firstUUID := uuid.New()
+	secondUUID := uuid.New()
+	store := &listStubStore{
+		activeEvents: []*models.Event{
+			{
+				ID:        1,
+				EventUUID: firstUUID,
+				OrgID:     orgID,
+				State:     models.EventStateActive,
+				ScopeType: models.ScopeTypeDeviceList,
+				Reason:    "first-device",
+			},
+			{
+				ID:        2,
+				EventUUID: secondUUID,
+				OrgID:     orgID,
+				State:     models.EventStateActive,
+				ScopeType: models.ScopeTypeDeviceList,
+				Reason:    "second-device",
+			},
+		},
+		targetSiteIDsByUUID: map[uuid.UUID][]int64{
+			firstUUID:  {firstSite},
+			secondUUID: {},
+		},
+		incompleteTargetSite: map[uuid.UUID]bool{
+			secondUUID: true,
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	resp, err := h.ListActiveCurtailments(sessionCtx(orgID), connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
+	require.NoError(t, err)
+
+	require.Len(t, resp.Msg.Events, 2)
+	assert.Equal(t, 1, store.coverageBatchCalls)
+	assert.ElementsMatch(t, []uuid.UUID{firstUUID, secondUUID}, store.lastCoverageBatch)
+	assert.True(t, resp.Msg.Events[0].GetTargetSiteCoverage().GetComplete())
+	assert.False(t, resp.Msg.Events[1].GetTargetSiteCoverage().GetComplete())
+}
+
 func TestHandler_ListActiveCurtailments_AllowsDeviceListEventsWithIncompleteTargetSitesForOrgWideRead(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(42)
@@ -570,6 +783,12 @@ func TestHandler_ListActiveCurtailments_AllowsDeviceListEventsWithIncompleteTarg
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.Events, 1)
 	assert.Equal(t, eventUUID.String(), resp.Msg.Events[0].EventUuid)
+	coverage := resp.Msg.Events[0].GetTargetSiteCoverage()
+	require.NotNil(t, coverage)
+	assert.False(t, coverage.GetComplete())
+	assert.Equal(t, uint32(1), coverage.GetTargetCount())
+	assert.Equal(t, uint32(0), coverage.GetMappedTargetCount())
+	assert.Equal(t, uint32(1), coverage.GetUnknownTargetCount())
 }
 
 func TestHandler_ListActiveCurtailments_FiltersDeviceListEventsWithIncompleteTargetSitesWhenOrgReadIsNarrowed(t *testing.T) {
@@ -735,11 +954,13 @@ func TestHandler_GetCurtailmentEvent_AllowsTargetlessDeviceListScope(t *testing.
 	}
 	h := NewHandler(domainCurtailment.NewService(store))
 
-	_, err := h.GetCurtailmentEvent(sessionCtx(orgID), connect.NewRequest(&pb.GetCurtailmentEventRequest{
+	resp, err := h.GetCurtailmentEvent(sessionCtx(orgID), connect.NewRequest(&pb.GetCurtailmentEventRequest{
 		EventUuid: eventUUID.String(),
 	}))
 
 	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, eventUUID.String(), resp.Msg.Event.EventUuid)
 	assert.Equal(t, eventUUID, store.lastTargetPageParams.EventUUID)
 }
 
@@ -1041,12 +1262,16 @@ func TestHandler_GetCurtailmentEvent_AllowsIncompleteTargetSitesForOrgWideRead(t
 	}
 	h := NewHandler(domainCurtailment.NewService(store))
 
-	_, err := h.GetCurtailmentEvent(sessionCtx(orgID), connect.NewRequest(&pb.GetCurtailmentEventRequest{
+	resp, err := h.GetCurtailmentEvent(sessionCtx(orgID), connect.NewRequest(&pb.GetCurtailmentEventRequest{
 		EventUuid: eventUUID.String(),
 	}))
 
 	require.NoError(t, err)
 	assert.Equal(t, eventUUID, store.lastTargetPageParams.EventUUID)
+	coverage := resp.Msg.Event.GetTargetSiteCoverage()
+	require.NotNil(t, coverage)
+	assert.False(t, coverage.GetComplete())
+	assert.Equal(t, uint32(1), coverage.GetUnknownTargetCount())
 }
 
 func TestHandler_GetCurtailmentEvent_UsesBoundedSnapshotAndFullTargetRollup(t *testing.T) {

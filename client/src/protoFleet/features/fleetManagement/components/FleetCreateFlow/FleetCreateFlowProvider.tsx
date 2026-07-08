@@ -38,6 +38,17 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 const MAX_PARENT_BATCH = 1000;
 const MAX_DEVICE_BATCH = 10000;
 
+// Absolute upper bound on a rack's miner capacity: 12×12, the largest
+// layout RackSettingsModal allows (rows/columns each clamp 1–12, matching
+// the server's maxRackDimension). The rack create flow seeds the new rack
+// with the operator's current miner selection, which in all-selection mode
+// resolves to the full fleet (capped only at MAX_DEVICE_BATCH). Without a
+// gate here, an oversized seed renders one MinersPane row per miner and
+// freezes the browser long before the save-time capacity guard fires. Cap
+// at the absolute max before ManageRackModal mounts — the exact
+// chosen-capacity check still runs at save once rows×columns are picked.
+const MAX_RACK_CAPACITY = 12 * 12;
+
 // A seed that moves racked miners into a new building/site sends
 // forceClearConflictingRackMembership, which the server gates on rack:manage.
 // "Add to building/site" is reachable with only site:manage, so without this
@@ -113,6 +124,13 @@ const FleetCreateFlowProvider = ({
 
   const launchCreateRack = useCallback(
     (seed: RackCreateSeed) => {
+      if ((seed.minerIds?.length ?? 0) > MAX_RACK_CAPACITY) {
+        pushToast({
+          message: `A rack holds at most ${MAX_RACK_CAPACITY} miners. Filter the selection and try again.`,
+          status: STATUSES.error,
+        });
+        return;
+      }
       if (seed.conflictCount && seed.conflictCount > 0) {
         setRackConflictSeed(seed);
         return;
@@ -199,6 +217,22 @@ const FleetCreateFlowProvider = ({
       // Synchronous re-entry guard: a double-click reaches here twice before
       // the `saving` prop re-renders, which would create duplicate buildings.
       if (creatingBuildingRef.current) return;
+
+      // Preflight seeded racks against the chosen layout BEFORE creating the
+      // building. The server's AssignRacksToBuilding now rejects an
+      // over-capacity assign; without this guard the building is created and
+      // then stranded with its racks unassigned (the assign failure only
+      // toasts). Net-new == every seeded rack since the building is brand
+      // new. Skipped at capacity 0 (unconfigured layout) — staging is allowed.
+      const rackCapacity = values.aisles * values.racksPerAisle;
+      if (buildingSeed && rackCapacity > 0 && buildingSeed.rackIds.length > rackCapacity) {
+        pushToast({
+          message: `This ${values.aisles}×${values.racksPerAisle} layout holds ${rackCapacity} rack(s), but ${buildingSeed.rackIds.length} are selected. Reduce the selection or increase the layout.`,
+          status: STATUSES.error,
+        });
+        return;
+      }
+
       creatingBuildingRef.current = true;
       setCreatingBuilding(true);
       try {

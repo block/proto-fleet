@@ -107,6 +107,10 @@ var remoteGetErrorsCommandTimeout = 30 * time.Second
 // the per-node command gate for the full firmware update worker budget.
 var remoteFirmwareStatusCommandTimeout = 30 * time.Second
 
+// Keep each cooling-mode read short so UI prefill does not hold a per-node
+// command slot behind a hung node/plugin until the caller context expires.
+var remoteGetCoolingModeCommandTimeout = 30 * time.Second
+
 const maxErrorColumnStringLen = 255
 
 // New builds a remote-node miner. It returns an error only if the connection
@@ -613,8 +617,25 @@ func (m *Miner) GetErrors(ctx context.Context) (models.DeviceErrors, error) {
 	return deviceErrors, nil
 }
 
-func (m *Miner) GetCoolingMode(_ context.Context) (commonpb.CoolingMode, error) {
-	return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, errUnsupported("GetCoolingMode")
+func (m *Miner) GetCoolingMode(ctx context.Context) (commonpb.CoolingMode, error) {
+	ack, err := m.sendWithCommandTimeout(ctx, remoteGetCoolingModeCommandTimeout, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetCoolingMode{
+		GetCoolingMode: &gatewaypb.GetCoolingModeAction{},
+	}})
+	if err != nil {
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, err
+	}
+	if err := ackToError(ack); err != nil {
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, err
+	}
+
+	var result gatewaypb.GetCoolingModeResult
+	if err := proto.Unmarshal(ack.GetPayload(), &result); err != nil {
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, fleeterror.NewInternalErrorf("unmarshal get cooling mode result: %v", err)
+	}
+	if err := protovalidate.Validate(&result); err != nil {
+		return commonpb.CoolingMode_COOLING_MODE_UNSPECIFIED, fleeterror.NewInternalErrorf("invalid get cooling mode result: %v", err)
+	}
+	return result.GetMode(), nil
 }
 
 func (m *Miner) GetMiningPools(ctx context.Context) ([]interfaces.MinerConfiguredPool, error) {

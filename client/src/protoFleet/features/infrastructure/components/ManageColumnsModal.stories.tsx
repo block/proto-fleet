@@ -12,11 +12,11 @@ const defaultColumns: InfraColumnPreference[] = [
   { id: "lastSeen", label: "Last seen", visible: true },
   { id: "site", label: "Site", visible: true },
   { id: "building", label: "Building", visible: true },
-  { id: "type", label: "Type", visible: true },
+  { id: "type", label: "Target type", visible: true },
   { id: "enabled", label: "Enabled", visible: true },
   { id: "endpoint", label: "Endpoint", visible: true },
   { id: "port", label: "Port", visible: true },
-  { id: "id", label: "ID", visible: true },
+  { id: "id", label: "Unit ID", visible: true },
 ];
 
 export const Default = () => {

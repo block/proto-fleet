@@ -1,4 +1,4 @@
-import { type ReactElement, useCallback, useEffect, useState } from "react";
+import { type ReactElement } from "react";
 import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
@@ -14,13 +14,12 @@ import {
 import SchedulePill from "./SchedulePill";
 import SitePicker from "./SitePicker";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
-import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { useSites } from "@/protoFleet/api/sites";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath, unscopedScopablePath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
-import { Pause } from "@/shared/assets/icons";
+import { Menu } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -126,39 +125,16 @@ function PageHeader({
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
+  // ListSites is server-gated on org-scoped site:read; without it we skip the
+  // fetch and hide the picker so non-site readers keep a clean header.
+  const canReadSites = useHasPermission("site:read");
 
-  // Sites are fetched once on mount and held here so the SitePicker doesn't
-  // re-fire ListSites on every route change. `undefined` means "still
-  // loading" (the picker renders a skeleton); `[]` means "no sites" (the
-  // picker hides itself unless `sitesError` is non-null, in which case it
-  // shows the retry affordance).
-  const { listSites } = useSites();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
-  const [sitesError, setSitesError] = useState<string | null>(null);
-  // Bumped by the site create / rename / delete flows on pages and modals
-  // below this header. Watching it lets the picker pick up a just-created
-  // site without a full page reload.
-  const sitesRevision = useFleetStore((state) => state.ui.sitesRevision);
-
-  const fetchSites = useCallback(() => {
-    const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: (rows) => {
-        setSites(rows);
-        setSitesError(null);
-      },
-      onError: (msg) => {
-        setSitesError(msg);
-        setSites([]);
-      },
-    });
-    return () => controller.abort();
-  }, [listSites]);
-
-  useEffect(() => {
-    return fetchSites();
-  }, [fetchSites, sitesRevision]);
+  // The site catalog is owned by the shell-level SitesProvider (one fetch +
+  // poll shared with the routed pages), so the picker just reads it here.
+  // `undefined` means "still loading" (the picker renders a skeleton); `[]`
+  // means "no sites" (the picker hides itself unless `sitesError` is non-null,
+  // in which case it shows the retry affordance).
+  const { sites, sitesError, refetchSites } = useSitesContext();
 
   const handleCompleteSetup = () => {
     setDismissedSetup(false);
@@ -206,7 +182,7 @@ function PageHeader({
             data-testid="page-header-location-area"
           >
             {isPhone || isTablet ? (
-              <Pause
+              <Menu
                 ariaExpanded={isMenuOpen}
                 ariaLabel="Open navigation menu"
                 className="mr-2 text-text-primary"
@@ -215,7 +191,9 @@ function PageHeader({
               />
             ) : null}
             <div className="min-w-0 flex-1" data-testid="page-header-selector-area">
-              {isDashboard ? null : <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} />}
+              {isDashboard || !canReadSites ? null : (
+                <SitePicker sites={sites} error={sitesError} onRetry={refetchSites} />
+              )}
             </div>
           </div>
           {!isPhone && headerWidgetEnabled ? (

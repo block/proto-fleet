@@ -54,6 +54,19 @@ type UpdateCurtailmentTargetStateParams struct {
 	ExpectedDesiredState *string
 }
 
+// AllPairedReadinessUpdate is one pending/unavailable readiness flip in the
+// bulk all-paired refresh. Reason is the unavailable reason; empty clears
+// last_error (the pending-promotion sentinel, matching the per-row query).
+// BaselinePowerW, when set on a promotion, backfills a NULL baseline from
+// current telemetry (targets inserted while unavailable have none); the SQL
+// never overwrites an existing baseline.
+type AllPairedReadinessUpdate struct {
+	DeviceIdentifier string
+	State            models.TargetState
+	Reason           string
+	BaselinePowerW   *float64
+}
+
 // UpsertCurtailmentHeartbeatParams describes the singleton liveness row
 // upserted at the end of every successful reconciler tick.
 type UpsertCurtailmentHeartbeatParams struct {
@@ -213,10 +226,12 @@ type CurtailmentStore interface {
 
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 	ListTargetsByEventPage(ctx context.Context, params ListTargetsByEventPageParams) ([]*models.Target, string, error)
-	// ListTargetSiteIDsByEvent returns distinct mapped target sites and whether
-	// site coverage is complete. Events with zero target rows are complete; callers
-	// can then derive any required site context from the persisted event scope.
-	ListTargetSiteIDsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]int64, bool, error)
+	// ListTargetSiteCoverageByEvent returns distinct mapped target sites and
+	// whether site coverage is complete. Events with zero target rows are
+	// complete; callers can then derive any required site context from the
+	// persisted event scope.
+	ListTargetSiteCoverageByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (models.TargetSiteCoverage, error)
+	ListTargetSiteCoverageByEvents(ctx context.Context, orgID int64, eventUUIDs []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error)
 	GetTargetRollupByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.TargetRollup, error)
 
 	// InsertEventWithTargets writes the event + every target row in one
@@ -239,6 +254,29 @@ type CurtailmentStore interface {
 		cooldownSec int32,
 		targets []models.InsertTargetParams,
 	) ([]*models.Target, error)
+
+	// ClaimAllPairedPolicyTargets inserts or reopens durable all-paired
+	// FULL_FLEET policy targets in their computed state. Unlike closed-loop
+	// dispatch claims, this does not pre-claim rows as DISPATCHING.
+	ClaimAllPairedPolicyTargets(
+		ctx context.Context,
+		eventID int64,
+		targets []models.InsertTargetParams,
+	) (int64, error)
+
+	// BulkRefreshAllPairedTargetReadiness applies pending/unavailable
+	// readiness flips for all-paired policy rows in one statement. Rows
+	// whose state or desired_state advanced concurrently — and every row
+	// when the parent event left expectedEventState — are skipped, not
+	// clobbered; the reconciler re-reads them next tick. Returns the
+	// device identifiers of the rows actually updated so callers mirror
+	// only applied flips.
+	BulkRefreshAllPairedTargetReadiness(
+		ctx context.Context,
+		eventID int64,
+		expectedEventState models.EventState,
+		updates []AllPairedReadinessUpdate,
+	) ([]string, error)
 
 	// Heartbeat singleton row used by liveness alerts.
 	GetHeartbeat(ctx context.Context) (*models.Heartbeat, error)

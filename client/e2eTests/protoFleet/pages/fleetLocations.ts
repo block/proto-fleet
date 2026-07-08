@@ -7,10 +7,7 @@ export class FleetLocationsPage extends BasePage {
   async navigateToSitesPage() {
     await this.navigateToFleetPage();
     await this.page.getByTestId("fleet-tab-sites-activate").click();
-    await expect(this.page).toHaveURL(/\/fleet\/sites(?:[?#].*)?$/);
-    await expect(this.page.getByTestId("fleet-sites-redirecting")).toHaveCount(0);
-    await expect(this.page.getByTestId("fleet-sites-page")).toBeVisible();
-    await this.selectAllSitesIfNeeded();
+    await this.validateSitesPageOpened();
   }
 
   async navigateToBuildingsPage() {
@@ -48,16 +45,237 @@ export class FleetLocationsPage extends BasePage {
     await this.page.getByTestId("building-settings-modal-save").click();
 
     await expect(this.page.getByTestId("building-settings-modal")).toHaveCount(0);
-
-    const fullScreenModal = this.page.getByTestId("full-screen-two-pane-modal");
-    if (await fullScreenModal.isVisible().catch(() => false)) {
-      await fullScreenModal.getByTestId("header-icon-button").click();
-      await expect(fullScreenModal).toHaveCount(0);
-    }
+    await this.closeFullScreenModalIfVisible();
 
     const row = this.getListRowByName(buildingName);
     await expect(row).toBeVisible();
     return await this.getScopeIdFromRowName(buildingName, "building");
+  }
+
+  async openSiteDetail(name: string): Promise<bigint> {
+    await this.navigateToSitesPage();
+    const siteId = await this.getScopeIdFromRowName(name, "site");
+    const row = this.getListRowByName(name);
+    await expect(row).toBeVisible();
+    await row.getByTestId("name").click();
+    await expect(this.page).toHaveURL(new RegExp(`/sites/${siteId.toString()}(?:[?#].*)?$`));
+    await expect(this.page.getByTestId("site-detail-page")).toBeVisible();
+    return siteId;
+  }
+
+  async openBuildingDetail(name: string): Promise<bigint> {
+    await this.navigateToBuildingsPage();
+    const buildingId = await this.getScopeIdFromRowName(name, "building");
+    const row = this.getListRowByName(name);
+    await expect(row).toBeVisible();
+    await row.getByTestId("name").click();
+    await expect(this.page).toHaveURL(new RegExp(`/buildings/${buildingId.toString()}(?:[?#].*)?$`));
+    await expect(this.page.getByTestId("building-page")).toBeVisible();
+    return buildingId;
+  }
+
+  async validateSitesPageOpened() {
+    await expect(this.page).toHaveURL(/\/fleet\/sites(?:[?#].*)?$/);
+    await this.validateSitesListVisible();
+  }
+
+  async validateSitesListVisible() {
+    await expect(this.page.getByTestId("fleet-sites-redirecting")).toHaveCount(0);
+    await expect(this.page.getByTestId("fleet-sites-page")).toBeVisible();
+    await this.selectAllSitesIfNeeded();
+  }
+
+  async validateSiteDetailOpened(siteName: string) {
+    await expect(this.page.getByTestId("site-detail-page")).toBeVisible();
+    await expect(this.page.getByTestId("site-detail-title")).toHaveText(siteName);
+  }
+
+  async validateBuildingDetailOpened(buildingName: string) {
+    await expect(this.page.getByTestId("building-page")).toBeVisible();
+    await expect(this.page.getByTestId("building-page-title")).toHaveText(buildingName);
+  }
+
+  async validateSiteDetailMetrics(expected: { location?: string; buildings?: number }) {
+    const metricsRow = this.page.getByTestId("site-detail-metrics-row");
+    await expect(metricsRow).toBeVisible();
+
+    if (expected.location !== undefined) {
+      await expect(metricsRow.getByTestId("site-metric-location-value")).toHaveText(expected.location);
+    }
+
+    if (expected.buildings !== undefined) {
+      await expect(metricsRow.getByTestId("site-metric-buildings-value")).toHaveText(String(expected.buildings));
+    }
+  }
+
+  async validateBuildingDetailMetrics(expected: { minersOnline?: string; totalMiners?: number }) {
+    const metricsRow = this.page.getByTestId("building-metrics-row");
+    await expect(metricsRow).toBeVisible();
+
+    if (expected.minersOnline !== undefined) {
+      await expect(metricsRow.getByTestId("building-metric-online-value")).toHaveText(expected.minersOnline);
+    }
+
+    if (expected.totalMiners !== undefined) {
+      const formattedTotal = expected.totalMiners.toLocaleString();
+      await expect(metricsRow.getByTestId("building-metric-online-value")).toHaveText(
+        new RegExp(`^[\\d,]+\\s/\\s${formattedTotal}$`),
+      );
+    }
+  }
+
+  async editSiteDetailsFromDetail(updates: { name?: string; city?: string; powerCapacityMw?: string }) {
+    await expect(this.page.getByTestId("site-detail-edit")).toBeVisible();
+    await this.page.getByTestId("site-detail-edit").click();
+    const fullScreenModal = this.page.getByTestId("full-screen-two-pane-modal");
+    await expect(fullScreenModal).toBeVisible();
+    await this.clickManageSiteEditDetails(fullScreenModal);
+
+    const settingsModal = this.page.getByTestId("site-settings-modal");
+    await expect(settingsModal).toBeVisible();
+
+    if (updates.name !== undefined) {
+      await settingsModal.getByTestId("site-settings-name-input").fill(updates.name);
+    }
+
+    if (updates.city !== undefined) {
+      await settingsModal.getByTestId("site-settings-city-input").fill(updates.city);
+    }
+
+    if (updates.powerCapacityMw !== undefined) {
+      await settingsModal.getByTestId("site-settings-capacity-input").fill(updates.powerCapacityMw);
+    }
+
+    await settingsModal.getByTestId("site-settings-modal-save").click();
+    await this.waitForModalToClose("site-settings-modal");
+    await this.closeFullScreenModalIfVisible();
+  }
+
+  async editBuildingDetailsFromDetail(updates: { name?: string; powerCapacityMw?: string }) {
+    await expect(this.page.getByTestId("building-page-edit")).toBeVisible();
+    await this.page.getByTestId("building-page-edit").click();
+    const fullScreenModal = this.page.getByTestId("full-screen-two-pane-modal");
+    await expect(fullScreenModal).toBeVisible();
+    await this.clickManageBuildingEditDetails(fullScreenModal);
+
+    const settingsModal = this.page.getByTestId("building-settings-modal");
+    await expect(settingsModal).toBeVisible();
+
+    if (updates.name !== undefined) {
+      await settingsModal.getByTestId("building-settings-name-input").fill(updates.name);
+    }
+
+    if (updates.powerCapacityMw !== undefined) {
+      await settingsModal.getByTestId("building-settings-power-input").fill(updates.powerCapacityMw);
+    }
+
+    await settingsModal.getByTestId("building-settings-modal-save").click();
+    await this.waitForModalToClose("building-settings-modal");
+    await this.closeFullScreenModalIfVisible();
+  }
+
+  async addBuildingFromSiteDetail(buildingName: string) {
+    await expect(this.page.getByTestId("site-detail-add-building")).toBeVisible();
+    await this.page.getByTestId("site-detail-add-building").click();
+
+    const settingsModal = this.page.getByTestId("building-settings-modal");
+    await expect(settingsModal).toBeVisible();
+    await settingsModal.getByTestId("building-settings-name-input").fill(buildingName);
+    await settingsModal.getByTestId("building-settings-modal-save").click();
+    await this.waitForModalToClose("building-settings-modal");
+  }
+
+  async validateSiteDetailBuildingVisible(buildingName: string) {
+    await expect(this.page.getByTestId("site-detail-page").getByText(buildingName, { exact: true })).toBeVisible();
+  }
+
+  async switchSiteDetailBreadcrumbTo(siteName: string) {
+    const switcher = this.page.getByTestId("site-detail-breadcrumb-switcher");
+    await expect(switcher).toBeVisible();
+    await switcher.click();
+    await this.page.getByTestId(`site-detail-breadcrumb-menu-item-${siteName}`).click();
+    await expect(this.page.getByTestId("site-detail-breadcrumb-switcher")).toContainText(siteName);
+    await expect(this.page.getByTestId("site-detail-title")).toHaveText(siteName);
+  }
+
+  async switchBuildingDetailBreadcrumbTo(buildingName: string) {
+    const switcher = this.page.getByTestId("building-page-breadcrumb-switcher");
+    await expect(switcher).toBeVisible();
+    await switcher.click();
+    await this.page.getByTestId(`building-page-breadcrumb-menu-item-${buildingName}`).click();
+    await expect(this.page.getByTestId("building-page-breadcrumb-switcher")).toContainText(buildingName);
+    await expect(this.page.getByTestId("building-page-title")).toHaveText(buildingName);
+  }
+
+  async deleteSiteFromDetail() {
+    await expect(this.page.getByTestId("site-detail-edit")).toBeVisible();
+    await this.page.getByTestId("site-detail-edit").click();
+    await this.clickManageSiteDelete();
+
+    const deleteDialog = this.page.getByTestId("site-delete-dialog");
+    const confirmDeleteButton = this.page.getByTestId("site-delete-dialog-confirm");
+    await expect(confirmDeleteButton).toBeVisible();
+    await confirmDeleteButton.click({ trial: true });
+    await confirmDeleteButton.click();
+    await expect(deleteDialog).toHaveCount(0);
+    await expect(this.page.getByTestId("full-screen-two-pane-modal")).toHaveCount(0);
+  }
+
+  async openRacksFromBuildingDetail() {
+    await expect(this.page.getByTestId("building-page-view-racks")).toBeVisible();
+    await this.page.getByTestId("building-page-view-racks").click();
+    await expect(this.page).toHaveURL(/\/fleet\/racks\?building=\d+/);
+  }
+
+  async openMinersFromBuildingDetail() {
+    await expect(this.page.getByTestId("building-page-view-miners")).toBeVisible();
+    await this.page.getByTestId("building-page-view-miners").click();
+    await expect(this.page).toHaveURL(/\/fleet\/miners\?building=\d+/);
+  }
+
+  async deleteBuildingFromDetail() {
+    await expect(this.page.getByTestId("building-page-edit")).toBeVisible();
+    await this.page.getByTestId("building-page-edit").click();
+    await this.clickManageBuildingDelete();
+
+    const confirmDeleteButton = this.page.getByTestId("building-delete-dialog-confirm");
+    await expect(confirmDeleteButton).toBeVisible();
+    await confirmDeleteButton.click({ trial: true });
+    await confirmDeleteButton.click();
+    await expect(this.page.getByTestId("building-delete-dialog")).toHaveCount(0);
+    await this.validateSitesPageOpened();
+  }
+
+  async validateSiteNotVisible(name: string) {
+    await this.navigateToSitesPage();
+    await expect(this.getListRowByName(name)).toHaveCount(0);
+  }
+
+  async validateBuildingNotVisible(name: string) {
+    await this.navigateToBuildingsPage();
+    await expect(this.getListRowByName(name)).toHaveCount(0);
+  }
+
+  async getSiteIdByName(name: string): Promise<bigint> {
+    await this.navigateToSitesPage();
+    return await this.getScopeIdFromRowName(name, "site");
+  }
+
+  async getBuildingIdByName(name: string): Promise<bigint> {
+    await this.navigateToBuildingsPage();
+    return await this.getScopeIdFromRowName(name, "building");
+  }
+
+  async applySiteFilter(siteNames: string[]) {
+    await this.setNestedCheckboxFilterSelection("site", siteNames);
+  }
+
+  async validateCurrentBuildingVisible(name: string) {
+    await expect(this.getListRowByName(name)).toBeVisible();
+  }
+
+  async validateCurrentBuildingNotVisible(name: string) {
+    await expect(this.getListRowByName(name)).toHaveCount(0);
   }
 
   async deleteSite(name: string) {
@@ -170,11 +388,41 @@ export class FleetLocationsPage extends BasePage {
     },
   ) {
     await this.navigateToBuildingsPage();
+    await this.validateCurrentBuildingRowCounts(buildingName, expected);
+  }
+
+  async validateCurrentBuildingRowCounts(
+    buildingName: string,
+    expected: {
+      siteName: string;
+      racks: number;
+      miners: number;
+    },
+  ) {
     const row = this.getListRowByName(buildingName);
     await expect(row).toBeVisible();
     await expect(row.getByTestId("site")).toHaveText(expected.siteName);
     await expect(row.getByTestId("racks")).toHaveText(String(expected.racks));
     await expect(row.getByTestId("miners")).toHaveText(String(expected.miners));
+  }
+
+  async openBuildingsForSite(siteName: string): Promise<bigint> {
+    await this.navigateToSitesPage();
+    const siteId = await this.getScopeIdFromRowName(siteName, "site");
+    await this.openRowActions(siteName);
+    await this.clickRowAction("View buildings");
+    await expect(this.page).toHaveURL(new RegExp(`/fleet/buildings\\?site=${siteId.toString()}(?:[&#].*)?$`));
+    await expect(this.page.getByTestId("fleet-buildings-page")).toBeVisible();
+    return siteId;
+  }
+
+  async openRacksForBuilding(buildingName: string): Promise<bigint> {
+    await this.navigateToBuildingsPage();
+    const buildingId = await this.getScopeIdFromRowName(buildingName, "building");
+    await this.openRowActions(buildingName);
+    await this.clickRowAction("View racks");
+    await expect(this.page).toHaveURL(new RegExp(`/fleet/racks\\?building=${buildingId.toString()}(?:[&#].*)?$`));
+    return buildingId;
   }
 
   private getListRowByName(name: string) {
@@ -249,6 +497,16 @@ export class FleetLocationsPage extends BasePage {
     await overflowMenu.getByTestId("manage-site-modal-delete-overflow-item").click();
   }
 
+  private async clickManageSiteEditDetails(scope = this.page.getByTestId("full-screen-two-pane-modal")) {
+    if (!this.isMobile) {
+      await scope.getByTestId("manage-site-modal-edit-details").click();
+      return;
+    }
+
+    const overflowMenu = await this.openFullScreenOverflowMenu();
+    await overflowMenu.getByTestId("manage-site-modal-edit-details-overflow-item").click();
+  }
+
   private async clickManageBuildingDelete() {
     if (!this.isMobile) {
       await this.page.getByTestId("manage-building-delete").click();
@@ -284,7 +542,7 @@ export class FleetLocationsPage extends BasePage {
       return;
     }
 
-    await fullScreenModal.getByTestId("header-icon-button").click();
+    await this.tryAction(() => fullScreenModal.getByTestId("header-icon-button").click());
     await expect(fullScreenModal).toHaveCount(0);
   }
 

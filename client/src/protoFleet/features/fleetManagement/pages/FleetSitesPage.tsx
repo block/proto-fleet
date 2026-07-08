@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import clsx from "clsx";
 
 import FilterRow from "../components/FilterRow";
 import FleetGroupListActionBar from "../components/FleetGroupActionsMenu/FleetGroupListActionBar";
@@ -10,6 +11,7 @@ import { issueOptions } from "@/protoFleet/components/DeviceSetList";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import {
   FILTER_URL_PARAM_KEYS,
@@ -43,7 +45,7 @@ const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_K
 }));
 
 const FleetSitesPage = () => {
-  const { sites, sitesError, sitesLoaded, refetchSites } = useFleetOutletContext();
+  const { sites, sitesError, sitesLoaded, siteCatalogAccessGranted, refetchSites } = useFleetOutletContext();
   const { listSites } = useSites();
   const [searchParams, setSearchParams] = useSearchParams();
   const errorComponentTypes = useMemo(() => issueComponentTypesFromURL(searchParams), [searchParams]);
@@ -68,7 +70,13 @@ const FleetSitesPage = () => {
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
   const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
 
-  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
+  // Scope validation keys off catalog access (authoritative now), not
+  // sitesLoaded — which stays true after a mid-session PermissionDenied clears
+  // `sites` to []. (sitesLoaded still drives the table loading state below.)
+  const knownSiteIds = useMemo(
+    () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
+    [siteCatalogAccessGranted, sites],
+  );
   const { activeSite } = useActiveSite({ knownSiteIds });
   // Filtered sites use the same site:read gate as FleetLayout's unfiltered
   // cache, but keep their own cache because the request shape is URL-driven.
@@ -340,6 +348,7 @@ const FleetSitesPage = () => {
       <>
         {inlineError}
         <NullState
+          className={clsx("sticky left-0", PAGE_SCROLL_CHROME_WIDTH)}
           icon={<Site width="w-5" />}
           title="No sites yet"
           description="Create your first site to organize miners by location."

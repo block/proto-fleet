@@ -4,8 +4,8 @@ import clsx from "clsx";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 // `default` is the large standalone metric (text-heading-300, roomy gap).
-// `compact` is the tighter, smaller-value variant for dense cards: a
-// text-300 value sitting close under its label.
+// `compact` is the tighter variant for dense cards and metric rows: a
+// text-emphasis-400 value sitting close under its label.
 type MetricVariant = "default" | "compact";
 
 interface MetricProps {
@@ -24,12 +24,17 @@ interface MetricProps {
 
 const Metric = ({ label, value, valueSize, variant = "default", testId, className }: MetricProps) => {
   const compact = variant === "compact";
-  const resolvedValueSize = valueSize ?? (compact ? "text-300" : "text-heading-300");
+  const resolvedValueSize = valueSize ?? (compact ? "text-emphasis-400" : "text-heading-300");
 
   return (
     <div className={clsx("flex flex-col", compact ? "gap-0.5" : "gap-1", className)} data-testid={testId}>
-      <div className="text-300 text-text-primary-50">{label}</div>
-      <div className={clsx(resolvedValueSize, "text-text-primary")}>
+      <div className="text-300 text-text-primary-50" data-testid={testId ? `${testId}-label` : undefined}>
+        {label}
+      </div>
+      <div
+        className={clsx(resolvedValueSize, "text-text-primary")}
+        data-testid={testId ? `${testId}-value` : undefined}
+      >
         {value === undefined ? (
           <SkeletonBar className={clsx("w-24", compact ? "h-4" : "h-7")} />
         ) : value === null ? (

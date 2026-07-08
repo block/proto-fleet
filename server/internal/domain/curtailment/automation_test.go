@@ -340,6 +340,31 @@ func TestAutomationService_HandleMQTTSignal_OffBypassesResponseProfileCooldown(t
 		"closed-loop full_fleet claims per-miner targets at dispatch time")
 }
 
+// TestAutomationService_HandleMQTTSignal_OffForwardsAllPairedPolicyFlag pins
+// the automation execution plumbing: a response profile with the all-paired
+// policy flag must stamp force_include_all_paired_miners on the persisted
+// event and claim its policy targets at insert (the profile-level admin gate
+// does not protect against a broken pass-through here).
+func TestAutomationService_HandleMQTTSignal_OffForwardsAllPairedPolicyFlag(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.profile.ForceIncludeAllPairedMiners = true
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.True(t, h.curtailments.lastInsertEvent.ForceIncludeAllPairedMiners,
+		"automation execution must forward the profile's all-paired flag onto the persisted event")
+	assert.Len(t, h.curtailments.lastInsertTargets, 2,
+		"all-paired automation starts persist policy target rows at insert instead of deferring to dispatch-time claims")
+}
+
 func TestAutomationService_HandleMQTTSignal_RepeatedOffNoopsWhenEventIsActive(t *testing.T) {
 	t.Parallel()
 

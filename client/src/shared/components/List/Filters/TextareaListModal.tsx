@@ -57,14 +57,30 @@ const TextareaListModalContent = ({
   onClose,
 }: TextareaListModalProps) => {
   const [draft, setDraft] = useState(initialValue.join("\n"));
+  // Validate on blur, not on every keystroke, so errors don't flash while a
+  // line is still being typed. `validated` is the text snapshot taken at the
+  // last blur; `null` means "no validation shown" (initial state, and after
+  // focus) so a fixed line's stale error clears until the field is blurred
+  // again. `draft` tracks live input.
+  const [validated, setValidated] = useState<string | null>(null);
 
-  const { parsed, truncated } = useMemo(() => parseLines(draft, validate, maxLines), [draft, validate, maxLines]);
+  const { parsed, truncated } = useMemo(
+    () => (validated === null ? { parsed: [], truncated: false } : parseLines(validated, validate, maxLines)),
+    [validated, validate, maxLines],
+  );
 
   const errorEntries = parsed.filter((p) => p.error !== null);
   const isValid = errorEntries.length === 0;
 
   const handleApply = () => {
-    const acceptedRaw = parsed
+    // Re-validate the live draft in case Apply is clicked without blurring the
+    // textarea first; surface any errors instead of silently dropping lines.
+    const result = parseLines(draft, validate, maxLines);
+    if (result.parsed.some((p) => p.error !== null)) {
+      setValidated(draft);
+      return;
+    }
+    const acceptedRaw = result.parsed
       .filter((p) => p.trimmed !== "" && p.error === null)
       .map((p) => (normalize ? normalize(p.trimmed) : p.trimmed));
     const seen = new Set<string>();
@@ -94,13 +110,17 @@ const TextareaListModalContent = ({
           onClick: handleApply,
           variant: variants.primary,
           disabled: !isValid,
+          // handleApply closes the modal itself on success; keep it open so an
+          // invalid draft (validated only on click) surfaces errors instead of
+          // dismissing and dropping the user's edits.
+          dismissModalOnClick: false,
         },
       ]}
     >
       <div className="mt-4 flex flex-col gap-3">
         {placeholder ? (
           <div className="text-200 text-text-primary-70" data-testid={`textarea-list-${categoryKey}-hint`}>
-            One per line. Example: <span className="font-mono">{placeholder.split("\n")[0]}</span>
+            One per line. Examples: <span className="font-mono">{placeholder.split("\n").join(", ")}</span>
           </div>
         ) : null}
         <Textarea
@@ -108,6 +128,8 @@ const TextareaListModalContent = ({
           label={label}
           initValue={draft}
           onChange={(value) => setDraft(value)}
+          onFocus={() => setValidated(null)}
+          onBlur={() => setValidated(draft)}
           rows={8}
           // Boolean error tints the border red; per-line messages render below
           // (they're easier to scan as a list than as one joined string).

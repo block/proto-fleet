@@ -32,6 +32,7 @@ type startStubStore struct {
 	candidates         []*models.Candidate
 	replayByKey        map[string]*models.Event
 	targetsByEventUUID map[uuid.UUID][]*models.Target
+	rollupByEventUUID  map[uuid.UUID]*models.TargetRollup
 
 	// Captures.
 	lastEvent   models.InsertEventParams
@@ -97,6 +98,22 @@ func (s *startStubStore) ClaimClosedLoopFullFleetTargets(
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by handler Start tests")
 }
+func (s *startStubStore) ClaimAllPairedPolicyTargets(
+	context.Context,
+	int64,
+	[]models.InsertTargetParams,
+) (int64, error) {
+	panic("ClaimAllPairedPolicyTargets not exercised by handler Start tests")
+}
+
+func (s *startStubStore) BulkRefreshAllPairedTargetReadiness(
+	context.Context,
+	int64,
+	models.EventState,
+	[]interfaces.AllPairedReadinessUpdate,
+) ([]string, error) {
+	panic("BulkRefreshAllPairedTargetReadiness not exercised by handler Start tests")
+}
 
 // --- panic stubs for surface the handler-level tests don't reach ---
 
@@ -147,12 +164,19 @@ func (s *startStubStore) ListTargetsByEventPage(context.Context, interfaces.List
 	panic("ListTargetsByEventPage not exercised by handler Start tests")
 }
 
-func (s *startStubStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, bool, error) {
-	panic("ListTargetSiteIDsByEvent not exercised by handler Start tests")
+func (s *startStubStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.UUID) (models.TargetSiteCoverage, error) {
+	panic("ListTargetSiteCoverageByEvent not exercised by handler Start tests")
+}
+func (s *startStubStore) ListTargetSiteCoverageByEvents(context.Context, int64, []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	panic("ListTargetSiteCoverageByEvents not exercised by handler Start tests")
 }
 
-func (s *startStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
-	panic("GetTargetRollupByEvent not exercised by handler Start tests")
+func (s *startStubStore) GetTargetRollupByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.TargetRollup, error) {
+	rollup, ok := s.rollupByEventUUID[eventUUID]
+	if !ok {
+		panic("GetTargetRollupByEvent not seeded for this handler Start test")
+	}
+	return rollup, nil
 }
 
 func (s *startStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
@@ -299,8 +323,106 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 
 	// effective_batch_size is stamped from the selected-target count and
 	// echoed in the Start response. Two selected candidates with no caller
-	// preference clamps to the minimum floor (10).
-	assert.Equal(t, uint32(10), ev.EffectiveBatchSize)
+	// preference means immediate restore of the full pending set.
+	assert.Equal(t, uint32(2), ev.EffectiveBatchSize)
+}
+
+func TestHandler_StartCurtailment_AllPairedPolicyReturnsBoundedTargetRollup(t *testing.T) {
+	t.Parallel()
+
+	store := newStartStubStore()
+	store.candidates = []*models.Candidate{
+		miner("online", "ACTIVE", "PAIRED", 3000, 100, 40),
+		miner("offline", "OFFLINE", "PAIRED", 0, 0, 0),
+	}
+	h := NewHandler(curtailment.NewService(store))
+
+	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "ADMIN",
+		SessionID:      "sess-admin",
+	}, authz.PermCurtailmentManage)
+
+	req := validStartRequestBuilder()
+	req.Mode = pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET
+	req.ModeParams = nil
+	req.ForceIncludeAllPairedMiners = true
+
+	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+
+	ev := resp.Msg.Event
+	assert.True(t, ev.GetForceIncludeAllPairedMiners())
+	assert.True(t, store.lastEvent.ForceIncludeAllPairedMiners)
+	assert.Empty(t, ev.Targets, "all-paired starts use rollups instead of returning one target per miner")
+	assert.Equal(t, int32(1), ev.TargetRollup.Pending)
+	assert.Equal(t, int32(1), ev.TargetRollup.Unavailable)
+	assert.Equal(t, int32(2), ev.TargetRollup.Total)
+}
+
+// TestHandler_StartCurtailment_AllPairedReplayStaysCountOnly pins the
+// idempotent-replay response shape for all-paired events: the retry must
+// return the persisted rollup with no per-target rows, matching the
+// count-only contract of the first-time response (all-paired starts persist
+// one row per paired-like miner, so hydrating targets would serialize a
+// fleet-sized payload on the retry path).
+func TestHandler_StartCurtailment_AllPairedReplayStaysCountOnly(t *testing.T) {
+	t.Parallel()
+
+	eventUUID := uuid.New()
+	store := newStartStubStore()
+	store.replayByKey = map[string]*models.Event{
+		"all-paired-retry": {
+			ID:                          11,
+			EventUUID:                   eventUUID,
+			OrgID:                       42,
+			State:                       models.EventStateActive,
+			Mode:                        models.ModeFullFleet,
+			Strategy:                    models.StrategyLeastEfficientFirst,
+			Level:                       models.LevelFull,
+			Priority:                    models.PriorityNormal,
+			RestoreBatchSize:            10,
+			RestoreBatchIntervalSec:     60,
+			ForceIncludeAllPairedMiners: true,
+			Reason:                      "all-paired replay",
+			CreatedAt:                   time.Date(2026, 7, 1, 1, 0, 0, 0, time.UTC),
+			UpdatedAt:                   time.Date(2026, 7, 1, 1, 0, 0, 0, time.UTC),
+			CreatedByUserID:             9,
+		},
+	}
+	store.rollupByEventUUID = map[uuid.UUID]*models.TargetRollup{
+		eventUUID: {Pending: 4, Unavailable: 2, Total: 6},
+	}
+	h := NewHandler(curtailment.NewService(store))
+
+	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "ADMIN",
+		SessionID:      "sess-replay-admin",
+	}, authz.PermCurtailmentManage)
+	req := validStartRequestBuilder()
+	req.Mode = pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET
+	req.ModeParams = nil
+	req.ForceIncludeAllPairedMiners = true
+	req.IdempotencyKey = "all-paired-retry"
+
+	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+
+	ev := resp.Msg.Event
+	assert.Equal(t, eventUUID.String(), ev.EventUuid)
+	assert.Empty(t, ev.Targets, "all-paired replay must not hydrate per-target rows")
+	require.NotNil(t, ev.TargetRollup)
+	assert.Equal(t, int32(4), ev.TargetRollup.Pending)
+	assert.Equal(t, int32(2), ev.TargetRollup.Unavailable)
+	assert.Equal(t, int32(6), ev.TargetRollup.Total)
+	assert.Empty(t, store.lastTargets, "replay must not persist a second event")
 }
 
 func TestHandler_StartCurtailment_PersistsCurtailBatchControls(t *testing.T) {

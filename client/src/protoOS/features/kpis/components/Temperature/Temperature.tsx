@@ -59,20 +59,20 @@ const Temperature = () => {
   const aggregates = miner?.temperature?.timeSeries?.aggregates;
 
   const lowestPerformer = useMemo(() => {
-    if (!hashboards) return undefined;
+    if (hashboards.length === 0) return undefined;
 
     let hottestSlot: number | undefined;
     let hottestTemp = -Infinity;
 
     hashboards.forEach((hashboard) => {
       const hashboardMax = hashboard.temperature?.timeSeries?.aggregates?.max?.value;
-      if (!!hashboardMax && hashboardMax > hottestTemp) {
+      if (typeof hashboardMax === "number" && hashboardMax > hottestTemp) {
         hottestTemp = hashboardMax;
         hottestSlot = useMinerStore.getState().hardware.getSlotByHbSn(hashboard.serial);
       }
     });
 
-    return hottestSlot ? "Hashboard " + hottestSlot : undefined;
+    return hottestSlot === undefined ? undefined : "Hashboard " + hottestSlot;
   }, [hashboards]);
 
   return (

@@ -6,10 +6,15 @@ import {
   CurtailmentPriority as ProtoCurtailmentPriority,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
-import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
+import type {
+  ActiveCurtailmentEvent,
+  ActiveCurtailmentTargetSiteCoverage,
+  ActiveCurtailmentUnavailableReasonCount,
+} from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
   getActiveCurtailmentDisplayState,
   getCurtailmentEventEstimatedReductionKw,
+  getCurtailmentEventLiveTargetCount,
   getCurtailmentEventObservedReductionKw,
   getCurtailmentEventScopeLabel,
   getCurtailmentEventSelectedMinerCount,
@@ -25,6 +30,25 @@ const automationExternalSource = "curtailment_automation";
 const automationSourceLabel = "Curtailment automation";
 const estimatedReductionKwSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
 const selectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
+const unavailableReasonLabels: Record<string, string> = {
+  active_event: "in another event",
+  authentication_needed: "needs authentication",
+  below_candidate_min_power_w: "below power threshold",
+  cooldown: "in cooldown",
+  curtail_full_unsupported: "full curtailment unsupported",
+  maintenance: "in maintenance",
+  missing_status: "missing status",
+  non_actionable_status: "not ready",
+  offline: "offline",
+  pairing: "not paired",
+  phantom_load_no_hash: "not hashing",
+  power_telemetry_unreliable: "unreliable power telemetry",
+  reboot_required: "reboot required",
+  stale_telemetry: "stale telemetry",
+  unreachable_residual_load: "offline",
+  unknown: "reason unknown",
+  updating: "updating",
+};
 
 interface ObservedPowerSummary {
   observedReductionKw: number;
@@ -214,6 +238,7 @@ export function mapCurtailmentEventToFormValues(
     restoreIntervalSec: formatPositiveNumberField(event.restoreBatchIntervalSec),
     reason: event.reason || "Curtailment",
     includeMaintenance: event.includeMaintenance,
+    forceIncludeAllPairedMiners: event.forceIncludeAllPairedMiners,
   };
 }
 
@@ -242,6 +267,20 @@ function getSourceLabel(externalSource: string): string {
   return externalSource || "Manual";
 }
 
+function mapTargetSiteCoverage(event: ProtoCurtailmentEvent): ActiveCurtailmentTargetSiteCoverage | undefined {
+  const coverage = event.targetSiteCoverage;
+  if (!coverage) {
+    return undefined;
+  }
+
+  return {
+    complete: coverage.complete,
+    targetCount: coverage.targetCount,
+    mappedTargetCount: coverage.mappedTargetCount,
+    unknownTargetCount: coverage.unknownTargetCount,
+  };
+}
+
 function hasSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]): boolean {
   return keys.some((key) => typeof event.decisionSnapshot?.[key] === "number");
 }
@@ -252,6 +291,18 @@ export function hasCurtailmentTargetMetrics(event: ProtoCurtailmentEvent): boole
     event.targets.length > 0 ||
     hasSnapshotNumber(event, estimatedReductionKwSnapshotKeys) ||
     hasSnapshotNumber(event, selectedCountSnapshotKeys)
+  );
+}
+
+// A live rollup proves target counts but not estimated kW: active-list rows
+// carry rollups while their decision snapshot stays scrubbed, so kW estimates
+// need a snapshot number or hydrated target baselines. Target rows alone are
+// not enough — baseline_power_w is optional (telemetry gaps at selection), so
+// baseline-less targets would sum to a fabricated 0.0 kW estimate.
+export function hasCurtailmentEstimatedReductionKw(event: ProtoCurtailmentEvent): boolean {
+  return (
+    hasSnapshotNumber(event, estimatedReductionKwSnapshotKeys) ||
+    event.targets.some((target) => target.baselinePowerW !== undefined)
   );
 }
 
@@ -272,6 +323,32 @@ function getObservedPowerSummary(event: ProtoCurtailmentEvent, estimatedReductio
   };
 }
 
+function getUnavailableReasonLabel(reason: string): string {
+  const normalizedReason = reason.trim().toLowerCase();
+  if (!normalizedReason) {
+    return "reason unknown";
+  }
+
+  return unavailableReasonLabels[normalizedReason] ?? normalizedReason.replace(/[_-]+/g, " ");
+}
+
+function getUnavailableReasonCounts(
+  event: ProtoCurtailmentEvent,
+): ActiveCurtailmentUnavailableReasonCount[] | undefined {
+  const unavailableReasons = event.targetRollup?.unavailableReasons;
+  if (!unavailableReasons?.length) {
+    return undefined;
+  }
+
+  return unavailableReasons
+    .filter((reason) => reason.count > 0)
+    .map(({ reason, count }) => ({
+      label: getUnavailableReasonLabel(reason),
+      count,
+    }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+}
+
 export function mapActiveCurtailmentEvent(
   event: ProtoCurtailmentEvent,
   options: CurtailmentMapperOptions = {},
@@ -286,15 +363,27 @@ export function mapActiveCurtailmentEvent(
     scopeLabel: getCurtailmentEventScopeLabel(event, options.siteNameById),
     sourceLabel: getSourceLabel(externalSource),
     isAutomationOwned: isAutomationExternalSource(externalSource),
+    targetSiteCoverage: mapTargetSiteCoverage(event),
+    createdAt: timestampToIsoString(event.createdAt),
+    scheduledStartAt: timestampToIsoString(event.scheduledStartAt),
+    startedAt: timestampToIsoString(event.startedAt),
     endedAt: timestampToIsoString(event.endedAt),
-    selectedMiners: getCurtailmentEventSelectedMinerCount(event),
+    selectedMiners: getCurtailmentEventLiveTargetCount(event),
     estimatedReductionKw,
     targetKw: getFixedKwTarget(event),
     observedReductionKw: observedPowerSummary.observedReductionKw,
     remainingPowerKw: observedPowerSummary.remainingPowerKw,
-    restoreBatchSize: event.effectiveBatchSize || event.restoreBatchSize,
+    curtailBatchSize: event.curtailBatchSize,
+    curtailBatchIntervalSec: event.curtailBatchIntervalSec,
+    // Restore displays follow the configured restore_batch_size, which is
+    // what the reconciler's restore claims obey (0 = up to the safety limit
+    // per wave). effective_batch_size is a start-time stamp of the selected
+    // count; all-paired and closed-loop growth leaves it stale, so it must
+    // not masquerade as the restore wave size.
+    restoreBatchSize: event.restoreBatchSize,
     restoreBatchIntervalSec: event.restoreBatchIntervalSec,
     rollups: getCurtailmentTargetRollups(event),
+    unavailableReasonCounts: getUnavailableReasonCounts(event),
   };
 }
 
@@ -313,6 +402,7 @@ export function mapCurtailmentHistoryEvent(
     selectedMiners: getCurtailmentEventSelectedMinerCount(event),
     estimatedReductionKw: getCurtailmentEventEstimatedReductionKw(event),
     targetMetricsAvailable: hasCurtailmentTargetMetrics(event),
+    estimatedReductionAvailable: hasCurtailmentEstimatedReductionKw(event),
     targetKw: getFixedKwTarget(event),
     sourceLabel: getSourceLabel(externalSource),
     startedAt: timestampToIsoString(event.startedAt),
@@ -332,9 +422,13 @@ export function mapActiveCurtailmentHistoryEvent(
     return historyEvent;
   }
 
+  // Injected active rows represent live events, so they share the active
+  // card's live target count instead of the snapshot count.
+  const activeEvent = mapActiveCurtailmentEvent(event, options);
   return {
     ...historyEvent,
-    displayState: getActiveCurtailmentDisplayState(mapActiveCurtailmentEvent(event, options), {
+    selectedMiners: activeEvent.selectedMiners,
+    displayState: getActiveCurtailmentDisplayState(activeEvent, {
       dispatchStartedAsCurtailing: true,
     }),
   };

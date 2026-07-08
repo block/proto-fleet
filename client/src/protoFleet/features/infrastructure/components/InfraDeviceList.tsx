@@ -41,12 +41,12 @@ type InfraColumn = (typeof infraCols)[keyof typeof infraCols];
 
 const infraColTitles: ColTitles<InfraColumn> = {
   name: "Name",
-  id: "ID",
+  id: "Unit ID",
   endpoint: "Endpoint",
   port: "Port",
   site: "Site",
   building: "Building",
-  type: "Type",
+  type: "Target type",
   enabled: "Enabled",
   status: "Status",
   lastSeen: "Last seen",
@@ -78,7 +78,7 @@ const CONFIGURABLE_COLS: InfraColumn[] = [
 
 const SORT_FIELD_TO_DEVICE_KEY: Partial<Record<InfraColumn, keyof InfraDeviceItem>> = {
   name: "name",
-  id: "id",
+  id: "unitId",
   site: "siteName",
   building: "buildingName",
   endpoint: "endpoint",
@@ -172,6 +172,8 @@ const formatDeviceType = (device: InfraDeviceItem) => {
   return "";
 };
 
+const formatUnitId = (device: InfraDeviceItem) => String(device.unitId);
+
 const getSortValue = (device: InfraDeviceItem, field: InfraColumn) => {
   if (field === "lastSeen") return getLastSeenSortValue(device.lastSeen);
   if (field === "type") return formatDeviceType(device);
@@ -203,6 +205,7 @@ interface InfraDeviceListProps {
   canManage?: boolean;
   siteOptions?: string[];
   buildingOptions?: InfraBuildingOption[];
+  initialSiteName?: string;
 }
 
 const buildDefaultColumnPrefs = () =>
@@ -240,6 +243,7 @@ const InfraDeviceList = ({
   canManage = true,
   siteOptions,
   buildingOptions,
+  initialSiteName,
 }: InfraDeviceListProps) => {
   const [devicesPropSnapshot, setDevicesPropSnapshot] = useState(devices);
   const [localDevices, setLocalDevices] = useState<InfraDeviceItem[]>(() => devices);
@@ -346,7 +350,7 @@ const InfraDeviceList = ({
         width: "w-[260px]",
       },
       [infraCols.id]: {
-        component: (device) => <span className="text-300 text-text-primary">{device.id}</span>,
+        component: (device) => <span className="text-300 text-text-primary">{formatUnitId(device)}</span>,
         width: "w-[180px]",
       },
       [infraCols.type]: {
@@ -428,7 +432,7 @@ const InfraDeviceList = ({
           },
           {
             type: "dropdown",
-            title: "Type",
+            title: "Target type",
             value: "type",
             options: TYPE_OPTIONS,
             defaultOptionIds: [],
@@ -615,7 +619,15 @@ const InfraDeviceList = ({
         />
       ) : null}
 
-      {showAddModal ? <AddInfraDeviceModal onDismiss={() => setShowAddModal(false)} onSuccess={addDevice} /> : null}
+      {showAddModal ? (
+        <AddInfraDeviceModal
+          siteOptions={resolvedSiteOptions}
+          buildingOptions={resolvedBuildingOptions}
+          initialSiteName={initialSiteName}
+          onDismiss={() => setShowAddModal(false)}
+          onSuccess={addDevice}
+        />
+      ) : null}
 
       {showManageColumns ? (
         <ManageColumnsModal

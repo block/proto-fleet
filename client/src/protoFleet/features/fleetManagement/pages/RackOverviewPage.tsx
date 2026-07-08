@@ -11,15 +11,15 @@ import {
   type RackOrderIndex,
   RackSlotPositionSchema,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
-import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useSites } from "@/protoFleet/api/sites";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { useDeviceSetStateCounts } from "@/protoFleet/api/useDeviceSetStateCounts";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { ManageRackModal, type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal";
+import ReparentWarningDialog from "@/protoFleet/features/fleetManagement/components/ManageRackModal/ReparentWarningDialog";
 import SearchMinersModal from "@/protoFleet/features/fleetManagement/components/ManageRackModal/SearchMinersModal";
 import { orderIndexToOrigin } from "@/protoFleet/features/fleetManagement/components/ManageRackModal/types";
 import type { SlotHealthState } from "@/protoFleet/features/fleetManagement/components/RackDetailGrid/types";
@@ -45,7 +45,6 @@ const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
   MeasurementType.POWER,
   MeasurementType.TEMPERATURE,
   MeasurementType.EFFICIENCY,
-  MeasurementType.UPTIME,
 ];
 
 const ALL_AGGREGATION_TYPES: AggregationType[] = [AggregationType.AVERAGE, AggregationType.MIN, AggregationType.MAX];
@@ -58,7 +57,6 @@ const RackOverviewPage = () => {
   // Rack resolution state
   const [rack, setRack] = useState<DeviceSet | null>(null);
   const [memberDeviceIds, setMemberDeviceIds] = useState<string[] | null>(null);
-  const [sites, setSites] = useState<SiteWithCounts[]>([]);
   const [allBuildings, setAllBuildings] = useState<BuildingWithCounts[]>([]);
   const [rackSiblingState, setRackSiblingState] = useState<{ key: string; siblings: BreadcrumbSibling[] } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,13 +64,18 @@ const RackOverviewPage = () => {
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [searchMinerSlot, setSearchMinerSlot] = useState<{ row: number; col: number } | null>(null);
+  // Pending reparent confirmation for the quick slot-assign flow (#672).
+  const [reparentPrompt, setReparentPrompt] = useState<{ count: number; onConfirm: () => void } | null>(null);
   const sleepActionRef = useRef<(() => void) | null>(null);
   const actionActiveRef = useRef(false);
 
   const { getDeviceSet, listGroupMembers, assignDevicesToRack, setRackSlotPosition, deleteGroup, listRacks } =
     useDeviceSets();
   const { listAllBuildings } = useBuildings();
-  const { listSites } = useSites();
+  // Site catalog comes from the shared shell-level provider (used here only to
+  // label the rack's parent site in breadcrumbs), so this page no longer fires
+  // its own ListSites.
+  const { sites } = useSitesContext();
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);
@@ -153,18 +156,13 @@ const RackOverviewPage = () => {
 
   useEffect(() => {
     const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: setSites,
-      onError: () => setSites([]),
-    });
     void listAllBuildings({
       signal: controller.signal,
       onSuccess: setAllBuildings,
       onError: () => setAllBuildings([]),
     });
     return () => controller.abort();
-  }, [listAllBuildings, listSites]);
+  }, [listAllBuildings]);
 
   // Initial resolution from URL param
   useEffect(() => {
@@ -203,7 +201,9 @@ const RackOverviewPage = () => {
   const numberingOrigin = orderIndex !== undefined ? orderIndexToOrigin(orderIndex) : "bottom-left";
   const siteNameById = useMemo(
     () =>
-      new Map(sites.filter((row) => row.site !== undefined).map((row) => [row.site!.id.toString(), row.site!.name])),
+      new Map(
+        (sites ?? []).filter((row) => row.site !== undefined).map((row) => [row.site!.id.toString(), row.site!.name]),
+      ),
     [sites],
   );
   const buildingById = useMemo(
@@ -550,9 +550,14 @@ const RackOverviewPage = () => {
       {searchMinerSlot && rack ? (
         <SearchMinersModal
           show
-          currentRackLabel={rack.label}
+          eligibility={{
+            rackId: rack.id,
+            siteId: rack.placement?.site?.id || undefined,
+            buildingId: rack.placement?.building?.id || undefined,
+          }}
+          targetRackLabel={rack.label}
           onDismiss={() => setSearchMinerSlot(null)}
-          onConfirm={(minerId) => {
+          onConfirm={(minerId, isReassignment) => {
             const slot = searchMinerSlot;
             setSearchMinerSlot(null);
 
@@ -562,33 +567,68 @@ const RackOverviewPage = () => {
             // without resending the full rack state. On partial
             // success (assigned but slot failed), we still refresh so
             // the UI stays consistent.
-            assignDevicesToRack({
-              targetRackId: rack.id,
-              deviceIdentifiers: [minerId],
-              onSuccess: () => {
-                setRackSlotPosition({
-                  deviceSetId: rack.id,
-                  deviceIdentifier: minerId,
-                  position: create(RackSlotPositionSchema, { row: slot.row, column: slot.col }),
-                  onSuccess: () => {
-                    pushToast({ message: "Miner assigned to slot", status: STATUSES.success });
-                    resolveRack(rack.id);
-                    void refetchStats();
-                  },
-                  onError: (msg) => {
-                    pushToast({
-                      message: `Miner added to rack but slot assignment failed: ${msg}`,
-                      status: STATUSES.error,
-                    });
-                    resolveRack(rack.id);
-                    void refetchStats();
-                  },
-                });
-              },
-              onError: (msg) => {
-                pushToast({ message: msg, status: STATUSES.error });
-              },
-            });
+            // `force` clears a conflicting site when the target rack has no
+            // site of its own; without it the server returns conflicts and
+            // writes nothing. We force only after the operator has confirmed the
+            // reparent below.
+            const assign = (force: boolean) =>
+              assignDevicesToRack({
+                targetRackId: rack.id,
+                deviceIdentifiers: [minerId],
+                forceClearConflictingSite: force,
+                onSuccess: () => {
+                  setRackSlotPosition({
+                    deviceSetId: rack.id,
+                    deviceIdentifier: minerId,
+                    position: create(RackSlotPositionSchema, { row: slot.row, column: slot.col }),
+                    onSuccess: () => {
+                      pushToast({ message: "Miner assigned to slot", status: STATUSES.success });
+                      resolveRack(rack.id);
+                      void refetchStats();
+                    },
+                    onError: (msg) => {
+                      pushToast({
+                        message: `Miner added to rack but slot assignment failed: ${msg}`,
+                        status: STATUSES.error,
+                      });
+                      resolveRack(rack.id);
+                      void refetchStats();
+                    },
+                  });
+                },
+                // Defensive: a placement conflict without a preceding warning
+                // shouldn't be a silent no-op.
+                onConflicts: () => {
+                  pushToast({
+                    message: "This miner is assigned to another site. Confirm the move and try again.",
+                    status: STATUSES.error,
+                  });
+                },
+                onError: (msg) => {
+                  pushToast({ message: msg, status: STATUSES.error });
+                },
+              });
+
+            // Reparenting a miner from another rack/building/site warns first (#672);
+            // confirming forces the site strip so a site-less target rack still writes.
+            if (isReassignment) {
+              setReparentPrompt({ count: 1, onConfirm: () => assign(true) });
+            } else {
+              assign(false);
+            }
+          }}
+        />
+      ) : null}
+
+      {reparentPrompt && rack ? (
+        <ReparentWarningDialog
+          count={reparentPrompt.count}
+          rackLabel={rack.label}
+          onCancel={() => setReparentPrompt(null)}
+          onConfirm={() => {
+            const proceed = reparentPrompt.onConfirm;
+            setReparentPrompt(null);
+            proceed();
           }}
         />
       ) : null}

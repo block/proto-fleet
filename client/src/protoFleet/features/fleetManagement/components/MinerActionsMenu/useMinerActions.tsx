@@ -57,6 +57,7 @@ import {
   type UnsupportedMinersInfo,
 } from "@/protoFleet/features/fleetManagement/components/BulkActions/types";
 import type { BatchOperationInput } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { isStatusChangingBatchAction } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
 import {
   Fan,
@@ -74,7 +75,13 @@ import {
 } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import { type SelectionMode } from "@/shared/components/List";
-import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
+import {
+  pushToast,
+  removeToast,
+  STATUSES as TOAST_STATUSES,
+  type ToastStatusType,
+  updateToast,
+} from "@/shared/features/toaster";
 import { downloadBlob } from "@/shared/utils/utility";
 
 export interface MinerSelection {
@@ -268,6 +275,8 @@ const buildUnpairConfirmationSubtitle = (
 
 const noop = () => {};
 
+const bulkActionUnconfirmedMessage = "Unable to confirm bulk action completion. Check miner status and try again.";
+
 export const useMinerActions = ({
   selectedMiners,
   selectionMode,
@@ -301,6 +310,11 @@ export const useMinerActions = ({
   const { fetchCoolingMode } = useMinerCoolingMode();
   const { getMinerModelGroups } = useMinerModelGroups();
   const { renameSingleMiner } = useRenameMiners();
+  // Incremented whenever a new action starts or the current one is cancelled.
+  // Async continuations (capability checks, cooling-mode fetches) capture the
+  // epoch when their action starts and bail if it has moved on, so a
+  // superseded action cannot mutate state that belongs to a newer one.
+  const actionEpochRef = useRef(0);
 
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
@@ -365,11 +379,17 @@ export const useMinerActions = ({
         return false;
       }
 
+      const epoch = actionEpochRef.current;
       return new Promise((resolve) => {
         checkCommandCapabilities({
           deviceSelector,
           commandType: metadata.commandType,
           onSuccess: (result) => {
+            if (epoch !== actionEpochRef.current) {
+              resolve(true);
+              return;
+            }
+
             if (result.allSupported) {
               resolve(false);
               return;
@@ -388,6 +408,11 @@ export const useMinerActions = ({
             resolve(true);
           },
           onError: () => {
+            if (epoch !== actionEpochRef.current) {
+              resolve(true);
+              return;
+            }
+
             if (action === deviceActions.firmwareUpdate) {
               pushToast({
                 message: "Unable to verify firmware update support for the selected miners. Please try again.",
@@ -418,9 +443,15 @@ export const useMinerActions = ({
       action: SupportedAction,
       onProceed: (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[]) => void,
     ): Promise<void> => {
-      const modalShown = await checkAndShowUnsupportedMinersModal(action, onProceed);
+      const epoch = actionEpochRef.current;
+      const guardedOnProceed = (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[]) => {
+        if (epoch !== actionEpochRef.current) return;
+        onProceed(filteredSelector, filteredDeviceIds);
+      };
+      const modalShown = await checkAndShowUnsupportedMinersModal(action, guardedOnProceed);
+      if (epoch !== actionEpochRef.current) return;
       if (!modalShown) {
-        onProceed(undefined, undefined);
+        guardedOnProceed(undefined, undefined);
       }
     },
     [checkAndShowUnsupportedMinersModal],
@@ -473,10 +504,27 @@ export const useMinerActions = ({
       let totalCount = 0;
       let successDeviceIds: string[] = [];
       let failureDeviceIds: string[] = [];
-      // Only true when we've received results for every expected device. Guards
-      // the Retry action below so a premature stream termination (network/auth
-      // failure, unmount) cannot offer a retry against a still-in-flight batch.
-      let streamCompletedNormally = false;
+      let finishedReceived = false;
+      let lastOriginalToast: { message: string; status: ToastStatusType } | null = null;
+      let lastErrorMessage: string | null = null;
+
+      const updateOriginalToast = (message: string, status: ToastStatusType) => {
+        if (lastOriginalToast?.message === message && lastOriginalToast.status === status) return;
+        lastOriginalToast = { message, status };
+        updateToast(originalToastId, { message, status });
+      };
+
+      const removeReportedFailedDevices = () => {
+        if (failureDeviceIds.length > 0) {
+          removeDevicesFromBatch(batchIdentifier, failureDeviceIds);
+        }
+      };
+
+      const completeNonStatusChangingBatch = () => {
+        if (!isStatusChangingBatchAction(action)) {
+          completeBatchOperation(batchIdentifier);
+        }
+      };
 
       streamCommandBatchUpdates({
         streamRequest: create(StreamCommandBatchUpdatesRequestSchema, {
@@ -489,23 +537,28 @@ export const useMinerActions = ({
 
           successDeviceIds = response.status?.commandBatchDeviceCount?.successDeviceIdentifiers || [];
           failureDeviceIds = response.status?.commandBatchDeviceCount?.failureDeviceIdentifiers || [];
+          const isFinished =
+            response.status?.commandBatchUpdateStatus ===
+            CommandBatchUpdateStatus_CommandBatchUpdateStatusType.FINISHED;
 
           if (successCount > 0) {
-            updateToast(originalToastId, {
-              message: getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
-              status: TOAST_STATUSES.success,
-            });
+            updateOriginalToast(
+              getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
+              isFinished ? TOAST_STATUSES.success : TOAST_STATUSES.loading,
+            );
           }
 
           if (failureCount > 0) {
             const failureMsg = getFailureMessage(action, `${failureCount} out of ${totalCount} ${minersMessage}`);
             if (!errorToastId) {
+              lastErrorMessage = failureMsg;
               errorToastId = pushToast({
                 message: failureMsg,
                 status: TOAST_STATUSES.error,
                 longRunning: true,
               });
-            } else {
+            } else if (lastErrorMessage !== failureMsg) {
+              lastErrorMessage = failureMsg;
               updateToast(errorToastId, {
                 message: failureMsg,
                 status: TOAST_STATUSES.error,
@@ -513,25 +566,38 @@ export const useMinerActions = ({
             }
           }
 
-          // Close the stream when we've received results for all devices
-          // This triggers .finally() to clear loading states immediately
-          if (successCount + failureCount === totalCount && totalCount > 0) {
-            streamCompletedNormally = true;
+          // Counts can reach the selected total before the server has finished
+          // the whole batch. Only the explicit terminal stream status is final.
+          if (isFinished) {
+            finishedReceived = true;
             streamAbortController.abort();
           }
         },
         streamAbortController: streamAbortController,
       }).finally(() => {
+        if (!finishedReceived) {
+          if (successCount > 0 || !errorToastId) {
+            updateOriginalToast(bulkActionUnconfirmedMessage, TOAST_STATUSES.error);
+          } else {
+            removeToast(originalToastId);
+          }
+
+          onBatchComplete?.(successDeviceIds, failureDeviceIds);
+          removeReportedFailedDevices();
+          completeNonStatusChangingBatch();
+          return;
+        }
+
         if (successCount > 0) {
-          updateToast(originalToastId, {
-            message: getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
-            status: TOAST_STATUSES.success,
-          });
+          updateOriginalToast(
+            getSuccessMessage(action, `${successCount} out of ${totalCount} ${minersMessage}`),
+            TOAST_STATUSES.success,
+          );
         } else {
           removeToast(originalToastId);
         }
 
-        if (streamCompletedNormally && errorToastId && retryAction && failureDeviceIds.length > 0) {
+        if (errorToastId && retryAction && failureDeviceIds.length > 0) {
           const capturedToastId = errorToastId;
           const capturedFailureIds = [...failureDeviceIds];
           // Guard against rapid double-clicks on the Retry button: the toast
@@ -557,9 +623,7 @@ export const useMinerActions = ({
         onBatchComplete?.(successDeviceIds, failureDeviceIds);
 
         // Remove failed devices from batch (revert to their original status)
-        if (failureDeviceIds.length > 0) {
-          removeDevicesFromBatch(batchIdentifier, failureDeviceIds);
-        }
+        removeReportedFailedDevices();
 
         // Actions that change device status (reboot, shutdown, wake-up, pool, firmware)
         // are handled by hasReachedExpectedStatus — keep the batch active so the
@@ -567,16 +631,7 @@ export const useMinerActions = ({
         // (5 min) is the safety net. For actions that don't change status
         // (blink LEDs, cooling, security, etc.), complete the batch immediately
         // so the transient state clears.
-        const statusChangingActions = new Set<SupportedAction>([
-          settingsActions.miningPool,
-          deviceActions.shutdown,
-          deviceActions.wakeUp,
-          deviceActions.reboot,
-          deviceActions.firmwareUpdate,
-        ]);
-        if (!statusChangingActions.has(action)) {
-          completeBatchOperation(batchIdentifier);
-        }
+        completeNonStatusChangingBatch();
       });
     },
     [streamCommandBatchUpdates, removeDevicesFromBatch, completeBatchOperation],
@@ -625,8 +680,12 @@ export const useMinerActions = ({
             handleSuccess(action, toastId, batchIdentifier, undefined, (failedIds) => {
               execute(createDeviceSelector("subset", failedIds), failedIds, pushLoadingToast());
             });
+            onActionComplete?.();
           },
-          onError: (error) => handleError(toastId, error),
+          onError: (error) => {
+            handleError(toastId, error);
+            onActionComplete?.();
+          },
         });
       };
 
@@ -1168,8 +1227,23 @@ export const useMinerActions = ({
   );
 
   const handleCancel = useCallback(() => {
+    ++actionEpochRef.current;
     setCurrentAction(null);
     setShowPoolSelectionPage(false);
+    setPoolFilteredDeviceIds(undefined);
+    setShowManagePowerModal(false);
+    setFilteredSelectorForPowerModal(undefined);
+    setManagePowerFilteredDeviceIds(undefined);
+    setShowCoolingModeModal(false);
+    setCoolingModeFilteredSelector(undefined);
+    setCoolingModeFilteredDeviceIds(undefined);
+    setCurrentCoolingMode(undefined);
+    setShowFirmwareUpdateModal(false);
+    setFirmwareUpdateFilteredSelector(undefined);
+    setFirmwareUpdateFilteredDeviceIds(undefined);
+    setShowAddToGroupModal(false);
+    setShowRenameDialog(false);
+    setUnsupportedMinersInfo(initialUnsupportedMinersState);
     resetAuthState();
     onActionComplete?.();
   }, [resetAuthState, onActionComplete]);
@@ -1288,6 +1362,7 @@ export const useMinerActions = ({
     };
 
     const handleReboot = async () => {
+      const epoch = actionEpochRef.current;
       onActionStart?.();
       // Check for unsupported miners first - only show confirmation dialog if all supported
       const modalShown = await checkAndShowUnsupportedMinersModal(
@@ -1298,6 +1373,7 @@ export const useMinerActions = ({
           handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.reboot);
         },
       );
+      if (epoch !== actionEpochRef.current) return;
       // Only show confirmation dialog if capability modal was not shown
       if (!modalShown) {
         setCurrentAction(deviceActions.reboot);
@@ -1305,6 +1381,7 @@ export const useMinerActions = ({
     };
 
     const handleShutDown = async () => {
+      const epoch = actionEpochRef.current;
       onActionStart?.();
       const modalShown = await checkAndShowUnsupportedMinersModal(
         deviceActions.shutdown,
@@ -1312,12 +1389,14 @@ export const useMinerActions = ({
           handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.shutdown);
         },
       );
+      if (epoch !== actionEpochRef.current) return;
       if (!modalShown) {
         setCurrentAction(deviceActions.shutdown);
       }
     };
 
     const handleWakeUp = async () => {
+      const epoch = actionEpochRef.current;
       onActionStart?.();
       const modalShown = await checkAndShowUnsupportedMinersModal(
         deviceActions.wakeUp,
@@ -1325,6 +1404,7 @@ export const useMinerActions = ({
           handleConfirmation(filteredSelector, filteredDeviceIds, deviceActions.wakeUp);
         },
       );
+      if (epoch !== actionEpochRef.current) return;
       if (!modalShown) {
         setCurrentAction(deviceActions.wakeUp);
       }
@@ -1357,11 +1437,13 @@ export const useMinerActions = ({
     };
 
     const handleCoolingMode = async () => {
+      const epoch = actionEpochRef.current;
       onActionStart?.();
 
       // For single miner, fetch current cooling mode for prepopulation
       if (selectedMiners.length === 1) {
         const mode = await fetchCoolingMode(selectedMiners[0].deviceIdentifier);
+        if (epoch !== actionEpochRef.current) return;
         setCurrentCoolingMode(mode);
       } else {
         setCurrentCoolingMode(undefined);
@@ -1482,7 +1564,7 @@ export const useMinerActions = ({
           ? [wakeUpAction] // Single miner asleep: show wake up only
           : [sleepAction]; // Single miner active: show sleep only
 
-    return [
+    const actions: BulkAction<SupportedAction>[] = [
       // Device actions - ordered per design specifications
       ...powerStateActions, // Sleep/Wake up at top
       {
@@ -1583,7 +1665,17 @@ export const useMinerActions = ({
           testId: "unpair-confirm-button",
         },
       },
-    ] as BulkAction<SupportedAction>[];
+    ];
+
+    // Every action starts a new epoch so async continuations of a superseded
+    // action bail instead of mutating the newer flow's state.
+    return actions.map((action) => ({
+      ...action,
+      actionHandler: () => {
+        ++actionEpochRef.current;
+        action.actionHandler();
+      },
+    }));
   }, [
     blinkLED,
     downloadLogs,

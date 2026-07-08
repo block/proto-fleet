@@ -31,6 +31,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetryModels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 
 	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -192,6 +193,28 @@ func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
 	if s.activitySvc != nil {
 		s.activitySvc.Log(ctx, event)
 	}
+}
+
+// resolveDeviceSetSiteScope derives the (site_id, multi_site) scope of a
+// multi-device fleet event (#538) from the touched identifiers: a single
+// shared site is stamped so the event surfaces under /{site}/activity; a
+// set spanning sites (or mixing sited + site-less devices) is marked
+// multi_site so it stays out of the unassigned bucket. Best-effort — a
+// resolution error leaves the event org-scoped (nil/false) rather than
+// failing the action's fire-and-forget audit log. DeleteMiners must call
+// this BEFORE soft-deleting, since the query excludes deleted devices.
+func (s *Service) resolveDeviceSetSiteScope(ctx context.Context, orgID int64, identifiers []string) activitymodels.SiteScope {
+	if s.activitySvc == nil {
+		// No activity sink — the scope would only feed an event we never
+		// write, so skip the query entirely.
+		return activitymodels.SiteScope{}
+	}
+	sites, err := s.deviceStore.GetDistinctDeviceSiteIDs(ctx, orgID, identifiers)
+	if err != nil {
+		slog.Warn("failed to resolve device-set site scope for activity log", "error", err)
+		return activitymodels.SiteScope{}
+	}
+	return activitymodels.ResolveSiteScope(sites)
 }
 
 // WaitForPendingUnpairs blocks until all background Unpair goroutines
@@ -467,6 +490,75 @@ func refreshMinersRequestTimeout(deviceCount int, refreshDeviceTimeout time.Dura
 	return time.Duration(waves) * perWaveTimeout
 }
 
+// LookupMinerByIdentifier resolves a single paired miner from a scanned
+// identifier — a MAC address or a manufacturer serial number — and returns a
+// fully hydrated snapshot. Backs the rack QR scan flow. The caller strips any
+// scanned-label prefix (e.g. "SN:"/"MAC:") and whitespace before invoking.
+//
+// Routing: when identifier_type is MAC or SERIAL the matching store lookup is
+// used directly. When UNSPECIFIED the kind is inferred from the value shape
+// (a normalizable MAC pattern → MAC, else serial). Returns NotFound when no
+// paired device in the caller's organization matches.
+func (s *Service) LookupMinerByIdentifier(ctx context.Context, req *pb.LookupMinerByIdentifierRequest) (*pb.LookupMinerByIdentifierResponse, error) {
+	identifier := strings.TrimSpace(req.GetIdentifier())
+	if identifier == "" {
+		return nil, fleeterror.NewInvalidArgumentError("identifier must not be empty")
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// The store lookups return a NotFound fleeterror when nothing matches,
+	// which surfaces to the client as connect.CodeNotFound.
+	device, err := s.resolvePairedDeviceByIdentifier(ctx, identifier, req.GetIdentifierType(), info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reuse the shared hydration path so the returned snapshot matches
+	// ListMinerStateSnapshots entries (telemetry + group/rack refs).
+	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, []string{device.DeviceIdentifier})
+	if err != nil {
+		return nil, err
+	}
+	if len(snapshots) == 0 {
+		// The device row resolved but the unified snapshot query returned
+		// nothing (e.g. the device was soft-deleted between the two reads).
+		return nil, fleeterror.NewNotFoundErrorf("no paired miner found for identifier %q", identifier)
+	}
+
+	return &pb.LookupMinerByIdentifierResponse{Snapshot: snapshots[0]}, nil
+}
+
+// resolvePairedDeviceByIdentifier dispatches to the MAC or serial store lookup
+// based on the requested type, inferring the type from the value shape when
+// UNSPECIFIED.
+func (s *Service) resolvePairedDeviceByIdentifier(
+	ctx context.Context,
+	identifier string,
+	idType pb.MinerIdentifierType,
+	orgID int64,
+) (*interfaces.PairedDeviceInfo, error) {
+	switch idType {
+	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_MAC_ADDRESS:
+		return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID)
+	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER:
+		return s.deviceStore.GetPairedDeviceBySerialNumber(ctx, identifier, orgID)
+	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_UNSPECIFIED:
+		fallthrough
+	default:
+		// UNSPECIFIED: infer from shape. NormalizeMAC returns a 17-char
+		// AA:BB:.. string only for valid MAC input; anything else is treated
+		// as a serial.
+		if len(networking.NormalizeMAC(identifier)) == 17 {
+			return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID)
+		}
+		return s.deviceStore.GetPairedDeviceBySerialNumber(ctx, identifier, orgID)
+	}
+}
+
 // GetMinerStateCounts returns counts of miners in different states without fetching miner data
 func (s *Service) GetMinerStateCounts(ctx context.Context, req *pb.GetMinerStateCountsRequest) (*pb.GetMinerStateCountsResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -701,8 +793,9 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 	snapshots := make([]*pb.MinerStateSnapshot, 0, len(rows))
 	for _, row := range rows {
 		snapshot := &pb.MinerStateSnapshot{
-			DeviceIdentifier: row.DeviceIdentifier,
-			DriverName:       row.DriverName,
+			DeviceIdentifier:         row.DeviceIdentifier,
+			DriverName:               row.DriverName,
+			EmbeddedWebViewAvailable: row.EmbeddedWebViewAvailable,
 		}
 
 		if row.SiteID.Valid {
@@ -912,6 +1005,7 @@ func (s *Service) populateRackDetails(ctx context.Context, orgID int64, snapshot
 				Label: details.Label,
 			}
 			snapshot.RackPosition = details.Position
+			placement.Zone = details.Zone
 			if details.BuildingID != nil {
 				placement.Building = &commonpb.ResourceRef{
 					Id:    *details.BuildingID,
@@ -1454,6 +1548,11 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 	// Collect Proto miner objects BEFORE soft-delete (lookups filter deleted_at IS NULL)
 	miners := s.collectProtoMinersForUnpair(ctx, deviceIdentifiers)
 
+	// Resolve the site scope BEFORE the soft-delete — GetDistinctDeviceSiteIDs
+	// filters deleted_at IS NULL, so post-delete it would return nothing and
+	// the audit row would fall into the unassigned bucket (#538).
+	siteScope := s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, deviceIdentifiers)
+
 	// SoftDeleteDevices verifies ownership and deletes in a single transaction
 	// to prevent TOCTOU races between the check and the delete.
 	deletedCount, err := s.deviceStore.SoftDeleteDevices(ctx, deviceIdentifiers, info.OrganizationID)
@@ -1470,7 +1569,7 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 	}
 
 	count := int(deletedCount)
-	s.logActivity(ctx, activitymodels.Event{
+	unpairEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
 		Type:           "unpair_miners",
 		Description:    "Unpaired miners",
@@ -1478,7 +1577,9 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-	})
+	}
+	unpairEvent.ApplySiteScope(siteScope)
+	s.logActivity(ctx, unpairEvent)
 
 	// Best-effort background Unpair for Proto rigs using a bounded worker pool.
 	// Workers are tracked by s.backgroundWg so the server can await completion

@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
@@ -19,6 +19,11 @@ function expectProgressHidden(): void {
   expect(screen.queryByTestId("active-curtailment-progress")).not.toBeInTheDocument();
 }
 
+function expectProgressSummary(summary: string): void {
+  const progress = within(screen.getByTestId("active-curtailment-progress"));
+  expect(progress.getByText(summary)).toBeVisible();
+}
+
 function expectPrimaryLockup(value: string): void {
   const lockup = within(screen.getByTestId("active-curtailment-primary-lockup"));
 
@@ -36,7 +41,7 @@ function formatExpectedDateTime(value: string): string {
 }
 
 describe("ActiveCurtailmentStatus", () => {
-  it("renders a curtailing event with stop available and no manage action", async () => {
+  it("renders a curtailing event with restore-now available and no manage action", async () => {
     const user = userEvent.setup();
     const onRequestStop = vi.fn();
 
@@ -49,16 +54,50 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("60.0 kW")).toBeVisible();
     expect(screen.getAllByText("Curtailing")[0]).toBeVisible();
     expect(screen.getByText("10 miners every 120s")).toBeVisible();
-    expectProgressHidden();
+    // 16 confirmed of 18 dispatchable; dispatched and drifted miners are still
+    // in the curtailing bucket until telemetry confirms curtailment.
+    expectProgressSummary("16 of 18 miners curtailed (88%)");
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Restore");
 
-    await user.click(screen.getByRole("button", { name: "Stop" }));
+    const restoreNowButton = screen.getByRole("button", { name: "Restore now" });
+    expect(restoreNowButton).toHaveClass("bg-core-primary-5");
+    expect(restoreNowButton).not.toHaveClass("bg-intent-critical-fill");
+
+    await user.click(restoreNowButton);
 
     expect(onRequestStop).toHaveBeenCalledOnce();
   });
 
-  it("renders a pending event with stop available", async () => {
+  it("renders immediate restore profile for zero restore batch size", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          restoreBatchSize: 0,
+          restoreBatchIntervalSec: 0,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Up to safety limit immediately")).toBeVisible();
+  });
+
+  it("renders paced safety-limited restore profile for zero restore batch size with interval", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          restoreBatchSize: 0,
+          restoreBatchIntervalSec: 3600,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Up to safety limit every 3,600s")).toBeVisible();
+  });
+
+  it("renders a pending event with restore-now available", async () => {
     const user = userEvent.setup();
     const onRequestStop = vi.fn();
 
@@ -78,11 +117,10 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("Power to shed")).toBeVisible();
     expect(screen.getByText("60.0 kW")).toBeVisible();
     expect(screen.getAllByText("Pending")[0]).toBeVisible();
-    expect(screen.queryByText("Curtailing")).not.toBeInTheDocument();
-    expectProgressHidden();
+    expectProgressSummary("0 of 18 miners curtailed (0%)");
     expectActionButtonHidden("Restore");
 
-    await user.click(screen.getByRole("button", { name: "Stop" }));
+    await user.click(screen.getByRole("button", { name: "Restore now" }));
 
     expect(onRequestStop).toHaveBeenCalledOnce();
   });
@@ -124,7 +162,7 @@ describe("ActiveCurtailmentStatus", () => {
 
     expect(onRequestEdit).toHaveBeenCalledOnce();
     expect(onRequestStop).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Stop" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Restore now" })).toBeVisible();
   });
 
   it("does not show manage while restoring", () => {
@@ -133,7 +171,7 @@ describe("ActiveCurtailmentStatus", () => {
     render(<ActiveCurtailmentStatus event={restoringCurtailmentEvent} onRequestEdit={onRequestEdit} />);
 
     expectActionButtonHidden("Manage");
-    expectActionButtonHidden("Stop");
+    expectActionButtonHidden("Restore now");
     expectActionButtonHidden("Restore");
     expect(onRequestEdit).not.toHaveBeenCalled();
   });
@@ -148,9 +186,9 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("Power to shed")).toBeVisible();
     expect(screen.getByText("60.0 kW")).toBeVisible();
     expect(screen.getAllByText("Curtailed")[0]).toBeVisible();
-    expectProgressHidden();
+    expectProgressSummary("18 miners curtailed (100%)");
     expectActionButtonHidden("Manage");
-    expectActionButtonHidden("Stop");
+    expectActionButtonHidden("Restore now");
 
     await user.click(screen.getByRole("button", { name: "Restore" }));
 
@@ -173,6 +211,27 @@ describe("ActiveCurtailmentStatus", () => {
     expectActionButtonHidden("Restore");
   });
 
+  it("renders incomplete target site coverage warning", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailedCurtailmentEvent,
+          targetSiteCoverage: {
+            complete: false,
+            targetCount: 52,
+            mappedTargetCount: 50,
+            unknownTargetCount: 2,
+          },
+        }}
+        onRequestForceRelease={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Target site coverage incomplete")).toBeVisible();
+    expect(screen.getByText(/2 targets no longer map to a known site/)).toBeVisible();
+    expect(screen.getByText(/Org admins can still restore or abort this event/)).toBeVisible();
+  });
+
   it("renders a restoring event without stop, restore, or manage actions", () => {
     render(<ActiveCurtailmentStatus event={restoringCurtailmentEvent} />);
 
@@ -184,15 +243,17 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("Estimated time to restore")).toBeVisible();
     expect(screen.getByText("Immediate")).toBeVisible();
     expect(screen.queryByText("Estimated completion")).not.toBeInTheDocument();
-    expectProgressHidden();
+    // 8 resolved of 18 restorable (9 confirmed awaiting + 1 restore-failed).
+    expectProgressSummary("8 of 18 miners restored (44%)");
     expectActionButtonHidden("Manage");
-    expectActionButtonHidden("Stop");
+    expectActionButtonHidden("Restore now");
     expectActionButtonHidden("Restore");
   });
 
-  it("renders terminate recovery while restoring when recovery is available", async () => {
+  it("renders stop restore while restoring when recovery is available", async () => {
     const user = userEvent.setup();
     const onRequestTerminateRecovery = vi.fn();
+    const onRequestForceRelease = vi.fn();
 
     render(
       <ActiveCurtailmentStatus
@@ -201,14 +262,17 @@ describe("ActiveCurtailmentStatus", () => {
           isAutomationOwned: true,
           sourceLabel: "Curtailment automation",
         }}
+        onRequestForceRelease={onRequestForceRelease}
         onRequestTerminateRecovery={onRequestTerminateRecovery}
       />,
     );
 
     expect(screen.getByText("Curtailment automation recovery")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Terminate recovery" }));
+    expectActionButtonHidden("Abort restore");
+    await user.click(screen.getByRole("button", { name: "Stop restore" }));
 
     expect(onRequestTerminateRecovery).toHaveBeenCalledOnce();
+    expect(onRequestForceRelease).not.toHaveBeenCalled();
   });
 
   it("labels abort action for restoring events", async () => {
@@ -258,7 +322,8 @@ describe("ActiveCurtailmentStatus", () => {
 
     expect(screen.getByText("Power to restore")).toBeVisible();
     expect(screen.getByText("60.0 kW")).toBeVisible();
-    expectProgressHidden();
+    // 8 resolved + 2 released of 18 restorable.
+    expectProgressSummary("10 of 18 miners restored (55%)");
   });
 
   it("estimates restoring completion from the current time", () => {
@@ -304,7 +369,7 @@ describe("ActiveCurtailmentStatus", () => {
       );
 
       expect(screen.getByText(formatExpectedDateTime("2026-05-01T10:02:00-04:00"))).toBeVisible();
-      expectProgressHidden();
+      expectProgressSummary("10 of 25 miners restored (40%)");
     } finally {
       vi.useRealTimers();
     }
@@ -361,8 +426,19 @@ describe("ActiveCurtailmentStatus", () => {
   it("renders a restored event with dismiss available", async () => {
     const user = userEvent.setup();
     const onDismissRestored = vi.fn();
+    const onRequestForceRelease = vi.fn();
 
-    render(<ActiveCurtailmentStatus event={restoredCurtailmentEvent} onDismissRestored={onDismissRestored} />);
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...restoredCurtailmentEvent,
+          startedAt: "2026-04-30T14:07:37-04:00",
+          endedAt: "2026-04-30T14:08:00-04:00",
+        }}
+        onDismissRestored={onDismissRestored}
+        onRequestForceRelease={onRequestForceRelease}
+      />,
+    );
 
     expectPrimaryLockup("Restored");
     expect(screen.getByText("Power restored")).toBeVisible();
@@ -370,14 +446,17 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getAllByText("Restored")[0]).toBeVisible();
     expect(screen.getByText("Time to restore")).toBeVisible();
     expect(screen.getByText("2 minutes")).toBeVisible();
-    expectProgressHidden();
+    expectProgressSummary("18 miners restored (100%)");
+    expect(within(screen.getByTestId("active-curtailment-progress")).getByText("23s elapsed")).toBeVisible();
     expectActionButtonHidden("Manage");
-    expectActionButtonHidden("Stop");
+    expectActionButtonHidden("Abort curtailment");
+    expectActionButtonHidden("Restore now");
     expectActionButtonHidden("Restore");
 
     await user.click(screen.getByRole("button", { name: "Dismiss" }));
 
     expect(onDismissRestored).toHaveBeenCalledOnce();
+    expect(onRequestForceRelease).not.toHaveBeenCalled();
   });
 
   it("shows an unavailable completed time when a restored event has no end time", () => {
@@ -405,8 +484,15 @@ describe("ActiveCurtailmentStatus", () => {
   it("renders a completed-with-failures event as an incomplete restore", async () => {
     const user = userEvent.setup();
     const onDismissRestored = vi.fn();
+    const onRequestForceRelease = vi.fn();
 
-    render(<ActiveCurtailmentStatus event={restoreIncompleteCurtailmentEvent} onDismissRestored={onDismissRestored} />);
+    render(
+      <ActiveCurtailmentStatus
+        event={restoreIncompleteCurtailmentEvent}
+        onDismissRestored={onDismissRestored}
+        onRequestForceRelease={onRequestForceRelease}
+      />,
+    );
 
     expectPrimaryLockup("Restore incomplete");
     expect(screen.getByText("Power to restore")).toBeVisible();
@@ -415,13 +501,391 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("Failed to restore")).toBeVisible();
     expect(screen.getByText("1 miner")).toBeVisible();
     expect(screen.queryByText("60.0 kW restored")).not.toBeInTheDocument();
-    expectProgressHidden();
-    expectActionButtonHidden("Stop");
+    expectProgressSummary("17 of 18 miners restored (94%)");
+    expectActionButtonHidden("Abort curtailment");
+    expectActionButtonHidden("Restore now");
     expectActionButtonHidden("Restore");
 
     await user.click(screen.getByRole("button", { name: "Dismiss" }));
 
     expect(onDismissRestored).toHaveBeenCalledOnce();
+    expect(onRequestForceRelease).not.toHaveBeenCalled();
+  });
+
+  it("renders curtail progress with segment legend and unavailable annotation", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          selectedMiners: 505,
+          rollups: [
+            { state: "confirmed", count: 300 },
+            { state: "dispatched", count: 100 },
+            { state: "drifted", count: 20 },
+            { state: "pending", count: 80 },
+            { state: "unavailable", count: 5 },
+          ],
+          unavailableReasonCounts: [
+            { label: "offline", count: 3 },
+            { label: "needs authentication", count: 1 },
+            { label: "in maintenance", count: 1 },
+          ],
+        }}
+      />,
+    );
+
+    expectProgressSummary("300 of 500 miners curtailed (60%)");
+    const progress = within(screen.getByTestId("active-curtailment-progress"));
+    expect(progress.queryByText("Curtail progress")).not.toBeInTheDocument();
+    expect(progress.getByText("Curtailed (300)")).toBeVisible();
+    expect(progress.getByText("Curtailing (200)")).toBeVisible();
+    expect(progress.queryByText("80 pending, 20 retrying, 100 awaiting confirmation")).not.toBeInTheDocument();
+    expect(progress.queryByText("Needs redispatch (20)")).not.toBeInTheDocument();
+    expect(progress.queryByText("Retrying (20)")).not.toBeInTheDocument();
+    expect(progress.queryByText("In progress (180)")).not.toBeInTheDocument();
+    expect(progress.queryByText("Awaiting confirmation (100)")).not.toBeInTheDocument();
+    expect(progress.queryByText("Pending (80)")).not.toBeInTheDocument();
+    const unavailableAnnotation = progress.getByText(
+      "5 unavailable (3 offline, 1 needs authentication, 1 in maintenance)",
+    );
+    expect(unavailableAnnotation).toBeVisible();
+    expect(unavailableAnnotation).toHaveClass("ml-auto");
+    expect(unavailableAnnotation).toHaveClass("text-right");
+  });
+
+  it("falls back when unavailable reason totals do not match the live rollup", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          rollups: [
+            { state: "confirmed", count: 9 },
+            { state: "unavailable", count: 5 },
+          ],
+          unavailableReasonCounts: [{ label: "offline", count: 3 }],
+        }}
+      />,
+    );
+
+    const progress = within(screen.getByTestId("active-curtailment-progress"));
+    expect(progress.getByText("5 unavailable (details unavailable)")).toBeVisible();
+    expect(progress.queryByText("5 unavailable (3 offline)")).not.toBeInTheDocument();
+  });
+
+  it("reaches full curtailment progress when only unavailable targets remain uncurtailed", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          rollups: [
+            { state: "confirmed", count: 10 },
+            { state: "unavailable", count: 40 },
+          ],
+        }}
+      />,
+    );
+
+    expectProgressSummary("10 miners curtailed (100%)");
+  });
+
+  it("renders unavailable reasons when no targets are dispatchable", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          selectedMiners: 18,
+          rollups: [{ state: "unavailable", count: 18 }],
+          unavailableReasonCounts: [
+            { label: "offline", count: 10 },
+            { label: "needs authentication", count: 8 },
+          ],
+        }}
+      />,
+    );
+
+    const progress = within(screen.getByTestId("active-curtailment-progress"));
+    expect(progress.getByText("No dispatchable miners")).toBeVisible();
+    expect(progress.getByText("18 unavailable (10 offline, 8 needs authentication)")).toBeVisible();
+    expect(progress.queryByText(/Curtailed \(/)).not.toBeInTheDocument();
+    expect(progress.queryByText(/Curtailing \(/)).not.toBeInTheDocument();
+    expect(progress.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("hides curtail progress when no live rollup data exists", () => {
+    // startedAt is set so the absent elapsed readout proves the live-data gate,
+    // not just a missing timestamp.
+    render(
+      <ActiveCurtailmentStatus
+        event={{ ...curtailingCurtailmentEvent, rollups: [], startedAt: "2026-05-01T10:00:00-04:00" }}
+      />,
+    );
+
+    expectProgressHidden();
+    expect(screen.queryByText(/elapsed/)).not.toBeInTheDocument();
+  });
+
+  it("uses the singular miner label when one target is dispatchable", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          rollups: [{ state: "confirmed", count: 1 }],
+        }}
+      />,
+    );
+
+    expectProgressSummary("1 miner curtailed (100%)");
+  });
+
+  it("floors the curtailed percentage so completion is never overstated", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          rollups: [
+            { state: "confirmed", count: 997 },
+            { state: "pending", count: 3 },
+          ],
+        }}
+      />,
+    );
+
+    // 997/1000 = 99.7% must not round up to 100% while targets are pending.
+    expectProgressSummary("997 of 1,000 miners curtailed (99%)");
+  });
+
+  it("shows elapsed time from the event start and ticks it forward", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-01T10:03:12-04:00"));
+
+    try {
+      render(
+        <ActiveCurtailmentStatus
+          event={{
+            ...curtailingCurtailmentEvent,
+            startedAt: "2026-05-01T10:00:00-04:00",
+          }}
+        />,
+      );
+
+      const progress = within(screen.getByTestId("active-curtailment-progress"));
+      expect(progress.getByText("3m 12s elapsed")).toBeVisible();
+      expect(screen.queryByText("Elapsed")).not.toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(3_000);
+      });
+
+      expect(progress.getByText("3m 15s elapsed")).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("anchors elapsed time on creation when started_at is not yet stamped", () => {
+    // Open-loop events only stamp started_at at the pending -> active
+    // transition, after targets confirm — too late for a dispatch-window
+    // timer. The clock falls back to when the operator started the event.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-01T10:01:30-04:00"));
+
+    try {
+      render(
+        <ActiveCurtailmentStatus
+          event={{
+            ...curtailingCurtailmentEvent,
+            startedAt: undefined,
+            createdAt: "2026-05-01T10:00:00-04:00",
+            rollups: [
+              { state: "dispatched", count: 6 },
+              { state: "pending", count: 12 },
+            ],
+            state: "pending",
+          }}
+        />,
+      );
+
+      const progress = within(screen.getByTestId("active-curtailment-progress"));
+      expect(progress.getByText("1m 30s elapsed")).toBeVisible();
+      expect(screen.queryByText("Elapsed")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("omits elapsed time when no clock anchor exists", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          startedAt: undefined,
+          rollups: [{ state: "pending", count: 18 }],
+          state: "pending",
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("active-curtailment-progress")).toBeInTheDocument();
+    expect(screen.queryByText(/elapsed/)).not.toBeInTheDocument();
+  });
+
+  it("estimates remaining time to curtail from pending targets and batch pacing", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          curtailBatchSize: 10,
+          curtailBatchIntervalSec: 60,
+          rollups: [
+            { state: "confirmed", count: 10 },
+            { state: "pending", count: 25 },
+          ],
+        }}
+      />,
+    );
+
+    // 10 confirmed already reached, so a wave is in flight: all 3 pending
+    // waves (ceil(25 / 10)) wait on the 60s interval clock.
+    expect(screen.getByText("Estimated time to curtail")).toBeVisible();
+    expect(screen.getByText("3 minutes")).toBeVisible();
+  });
+
+  it("does not charge an interval for the immediately dispatchable first wave", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          curtailBatchSize: 10,
+          curtailBatchIntervalSec: 60,
+          state: "pending",
+          rollups: [{ state: "pending", count: 25 }],
+        }}
+      />,
+    );
+
+    // Nothing dispatched yet: the reconciler sends the first wave without
+    // waiting on the interval clock, so only 2 of the 3 waves cost 60s.
+    expect(screen.getByText("Estimated time to curtail")).toBeVisible();
+    expect(screen.getByText("2 minutes")).toBeVisible();
+  });
+
+  it("charges every pending wave when drifted targets prove a wave already dispatched", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          curtailBatchSize: 10,
+          curtailBatchIntervalSec: 60,
+          rollups: [
+            { state: "drifted", count: 2 },
+            { state: "pending", count: 25 },
+          ],
+        }}
+      />,
+    );
+
+    // Drifted targets carry a prior dispatch, so the reconciler's interval
+    // gate makes even the next pending wave wait: all 3 waves cost 60s.
+    expect(screen.getByText("Estimated time to curtail")).toBeVisible();
+    expect(screen.getByText("3 minutes")).toBeVisible();
+  });
+
+  it.each([
+    ["absent", undefined, undefined],
+    ["zero-valued (proto3 unset)", 0, 0],
+    ["partial (no interval)", 10, 0],
+  ])("hides the curtail estimate when batch pacing is %s", (_label, curtailBatchSize, curtailBatchIntervalSec) => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          curtailBatchSize,
+          curtailBatchIntervalSec,
+          rollups: [
+            { state: "confirmed", count: 10 },
+            { state: "pending", count: 25 },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("Estimated time to curtail")).not.toBeInTheDocument();
+  });
+
+  it("hides the curtail estimate once every target has been reached", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          curtailBatchSize: 10,
+          curtailBatchIntervalSec: 60,
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("Estimated time to curtail")).not.toBeInTheDocument();
+  });
+
+  it("renders restore progress with segment legend and unavailable annotation", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...restoringCurtailmentEvent,
+          rollups: [
+            { state: "resolved", count: 300 },
+            { state: "released", count: 100 },
+            { state: "restoreFailed", count: 20 },
+            { state: "dispatched", count: 30 },
+            { state: "confirmed", count: 50 },
+            { state: "unavailable", count: 5 },
+          ],
+        }}
+      />,
+    );
+
+    expectProgressSummary("400 of 500 miners restored (80%)");
+    const progress = within(screen.getByTestId("active-curtailment-progress"));
+    const restoredLegend = progress.getByText("Restored (400)");
+    const curtailedLegend = progress.getByText("Curtailed (80)");
+    const failedLegend = progress.getByText("Failed to restore (20)");
+    expect(restoredLegend).toBeVisible();
+    expect(restoredLegend.firstElementChild).toHaveClass("bg-intent-success-fill");
+    expect(curtailedLegend).toBeVisible();
+    expect(curtailedLegend.firstElementChild).toHaveClass("bg-core-primary-fill");
+    expect(failedLegend).toBeVisible();
+    expect(restoredLegend.compareDocumentPosition(curtailedLegend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(curtailedLegend.compareDocumentPosition(failedLegend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(progress.queryByText("Restoring (80)")).not.toBeInTheDocument();
+    expect(progress.queryByText("Awaiting restore (80)")).not.toBeInTheDocument();
+    expect(progress.getByText("5 unavailable (details unavailable)")).toBeVisible();
+    expect(progress.queryByText("Restore progress")).not.toBeInTheDocument();
+  });
+
+  it("hides the failed restore legend entry when no restore failures exist", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...restoringCurtailmentEvent,
+          rollups: [
+            { state: "resolved", count: 300 },
+            { state: "released", count: 100 },
+            { state: "dispatched", count: 30 },
+            { state: "confirmed", count: 50 },
+          ],
+        }}
+      />,
+    );
+
+    const progress = within(screen.getByTestId("active-curtailment-progress"));
+    expect(progress.getByText("Restored (400)")).toBeVisible();
+    expect(progress.getByText("Curtailed (80)")).toBeVisible();
+    expect(progress.queryByText(/Failed to restore/)).not.toBeInTheDocument();
+  });
+
+  it("hides restore progress when no live rollup data exists", () => {
+    render(<ActiveCurtailmentStatus event={{ ...restoringCurtailmentEvent, rollups: [] }} />);
+
+    expectProgressHidden();
   });
 
   it("renders failed and cancelled events without active controls", () => {
@@ -439,8 +903,9 @@ describe("ActiveCurtailmentStatus", () => {
     );
 
     expect(screen.getByText("Failed")).toBeVisible();
+    expectProgressHidden();
     expectActionButtonHidden("Dismiss");
-    expectActionButtonHidden("Stop");
+    expectActionButtonHidden("Restore now");
     expectActionButtonHidden("Restore");
 
     rerender(
@@ -453,8 +918,9 @@ describe("ActiveCurtailmentStatus", () => {
     );
 
     expect(screen.getByText("Cancelled")).toBeVisible();
+    expectProgressHidden();
     expectActionButtonHidden("Dismiss");
-    expectActionButtonHidden("Stop");
+    expectActionButtonHidden("Restore now");
     expectActionButtonHidden("Restore");
   });
 });

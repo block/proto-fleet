@@ -161,6 +161,21 @@ func (mr *MockBuildingStoreMockRecorder) ClearDeviceBuildingsOnSiteMismatch(ctx,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearDeviceBuildingsOnSiteMismatch", reflect.TypeOf((*MockBuildingStore)(nil).ClearDeviceBuildingsOnSiteMismatch), ctx, orgID, deviceIdentifiers, targetSiteID)
 }
 
+// CountRacksInBuilding mocks base method.
+func (m *MockBuildingStore) CountRacksInBuilding(ctx context.Context, orgID, buildingID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountRacksInBuilding", ctx, orgID, buildingID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountRacksInBuilding indicates an expected call of CountRacksInBuilding.
+func (mr *MockBuildingStoreMockRecorder) CountRacksInBuilding(ctx, orgID, buildingID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountRacksInBuilding", reflect.TypeOf((*MockBuildingStore)(nil).CountRacksInBuilding), ctx, orgID, buildingID)
+}
+
 // CreateBuilding mocks base method.
 func (m *MockBuildingStore) CreateBuilding(ctx context.Context, params models.CreateParams) (*models.Building, error) {
 	m.ctrl.T.Helper()

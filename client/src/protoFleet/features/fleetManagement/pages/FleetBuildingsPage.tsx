@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import clsx from "clsx";
 
 import BuildingList from "../components/BuildingList";
 import FilterRow from "../components/FilterRow";
@@ -18,6 +19,7 @@ import {
   useActiveSite,
 } from "@/protoFleet/components/PageHeader/SitePicker";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
@@ -56,7 +58,7 @@ const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_K
 }));
 
 const FleetBuildingsPage = () => {
-  const { sites, sitesError, sitesLoaded, refetchSites } = useFleetOutletContext();
+  const { sites, sitesError, siteCatalogAccessGranted, refetchSites } = useFleetOutletContext();
 
   const { listBuildings } = useBuildings();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -80,7 +82,13 @@ const FleetBuildingsPage = () => {
   const [selectedBuildingIds, setSelectedBuildingIds] = useState<string[]>([]);
   const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
 
-  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
+  // Validate scope against catalog access (authoritative now), not sitesLoaded:
+  // a mid-session PermissionDenied clears `sites` to [] with sitesLoaded still
+  // true, which would otherwise strip a reachable scoped route.
+  const knownSiteIds = useMemo(
+    () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
+    [siteCatalogAccessGranted, sites],
+  );
   const { activeSite } = useActiveSite({ knownSiteIds });
 
   // `?site=<id>` deep links filter the list without changing the path
@@ -540,6 +548,7 @@ const FleetBuildingsPage = () => {
       <>
         {inlineErrors}
         <NullState
+          className={clsx("sticky left-0", PAGE_SCROLL_CHROME_WIDTH)}
           icon={<Building width="w-5" />}
           title="No buildings yet"
           description={

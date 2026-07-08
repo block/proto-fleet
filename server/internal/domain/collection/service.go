@@ -3,6 +3,7 @@ package collection
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -93,6 +94,30 @@ func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
 	}
 }
 
+// resolveDeviceSetSiteScope derives the (site_id, multi_site) scope of a
+// multi-device group event (#538) from the touched identifiers: a single
+// shared site is stamped so the event surfaces under /{site}/activity; a
+// set spanning sites (or mixing sited + site-less devices) is marked
+// multi_site so it stays out of the unassigned bucket. Best-effort — a
+// resolution error leaves the event org-scoped (nil/false) rather than
+// failing the action's fire-and-forget audit log.
+func (s *Service) resolveDeviceSetSiteScope(ctx context.Context, orgID int64, identifiers []string) activitymodels.SiteScope {
+	// No activity sink, or a group-only service constructed without a
+	// siteStore (NewService documents it as optional): the scope would only
+	// feed an event we never write, AND this runs AFTER the membership tx has
+	// committed — so degrade to an org-scoped event rather than panicking on a
+	// nil siteStore for an operation that already succeeded.
+	if s.activitySvc == nil || s.siteStore == nil {
+		return activitymodels.SiteScope{}
+	}
+	sites, err := s.siteStore.GetDistinctDeviceSiteIDs(ctx, orgID, identifiers)
+	if err != nil {
+		slog.Warn("failed to resolve device-set site scope for activity log", "error", err)
+		return activitymodels.SiteScope{}
+	}
+	return activitymodels.ResolveSiteScope(sites)
+}
+
 func collectionScopeType(collType pb.CollectionType) string {
 	if collType == pb.CollectionType_COLLECTION_TYPE_RACK {
 		return "rack"
@@ -166,6 +191,43 @@ func (s *Service) resolveAndLockRackPlacement(ctx context.Context, orgID int64, 
 	}
 	siteID = &sID
 	return siteID, buildingID, nil
+}
+
+// enforceBuildingRackCapacity rejects placing a rack into buildingID when
+// the building's grid (aisles×racks_per_aisle) is already full. netNew is
+// the count of racks newly joining the building: 1 for a create or a
+// move-in, 0 for a re-save that keeps the rack in the same building.
+//
+// A building has no "floating beyond capacity" state, so SaveRack — which
+// also writes device_set_rack.building_id via rack_info.building_id — must
+// honor the same cap that buildings.AssignRacksToBuilding enforces;
+// otherwise the assign-side guard is bypassable through the rack save path.
+// Skipped when buildingStore is unwired (placement-less test harnesses) or
+// the grid is unconfigured (capacity 0). Must run in-tx after the building
+// is locked (resolveAndLockRackPlacement) so the count can't race.
+func (s *Service) enforceBuildingRackCapacity(ctx context.Context, orgID, buildingID int64, netNew int) error {
+	if s.buildingStore == nil || netNew <= 0 {
+		return nil
+	}
+	b, err := s.buildingStore.GetBuilding(ctx, orgID, buildingID)
+	if err != nil {
+		return err
+	}
+	capacity := int64(b.Aisles) * int64(b.RacksPerAisle)
+	if capacity <= 0 {
+		return nil
+	}
+	existing, err := s.buildingStore.CountRacksInBuilding(ctx, orgID, buildingID)
+	if err != nil {
+		return err
+	}
+	if resulting := existing + int64(netNew); resulting > capacity {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"cannot assign racks: building has %d positions (%d aisles × %d racks per aisle) but %d racks would be assigned",
+			capacity, b.Aisles, b.RacksPerAisle, resulting,
+		)
+	}
+	return nil
 }
 
 // rackPlacementOmitted reports whether the caller omitted placement intent
@@ -807,7 +869,7 @@ func (s *Service) AddDevicesToGroup(ctx context.Context, params AddDevicesToGrou
 	}
 
 	type txOut struct {
-		added int64
+		added []string
 		label string
 	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
@@ -819,12 +881,12 @@ func (s *Service) AddDevicesToGroup(ctx context.Context, params AddDevicesToGrou
 			return nil, fleeterror.NewInvalidArgumentErrorf("target_group_id %d is not a group", params.TargetGroupID)
 		}
 
-		addedCount, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, params.TargetGroupID, deviceIdentifiers)
+		added, err := s.collectionStore.AddDevicesToCollectionReturningAdded(ctx, info.OrganizationID, params.TargetGroupID, deviceIdentifiers)
 		if err != nil {
 			return nil, err
 		}
 
-		return &txOut{added: addedCount, label: coll.Label}, nil
+		return &txOut{added: added, label: coll.Label}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -834,9 +896,9 @@ func (s *Service) AddDevicesToGroup(ctx context.Context, params AddDevicesToGrou
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
-	addedCountInt := int(out.added)
+	addedCountInt := len(out.added)
 	scopeType := collectionScopeType(pb.CollectionType_COLLECTION_TYPE_GROUP)
-	s.logActivity(ctx, activitymodels.Event{
+	addEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "add_devices",
 		Description:    fmt.Sprintf("Add devices to %s: %s", scopeType, out.label),
@@ -846,9 +908,14 @@ func (s *Service) AddDevicesToGroup(ctx context.Context, params AddDevicesToGrou
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-	})
+	}
+	// Scope to the devices whose membership actually changed (not the full
+	// requested set): a no-op identifier in another site must not pull the
+	// event into that site's feed (#538).
+	addEvent.ApplySiteScope(s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, out.added))
+	s.logActivity(ctx, addEvent)
 
-	return &AddDevicesToGroupResult{AddedCount: out.added}, nil
+	return &AddDevicesToGroupResult{AddedCount: int64(len(out.added))}, nil
 }
 
 // RemoveDevicesFromGroupParams is the domain-layer input shape for
@@ -879,7 +946,7 @@ func (s *Service) RemoveDevicesFromGroup(ctx context.Context, params RemoveDevic
 	}
 
 	type txOut struct {
-		removed int64
+		removed []string
 		label   string
 	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
@@ -891,12 +958,12 @@ func (s *Service) RemoveDevicesFromGroup(ctx context.Context, params RemoveDevic
 			return nil, fleeterror.NewInvalidArgumentErrorf("target_group_id %d is not a group", params.TargetGroupID)
 		}
 
-		removedCount, err := s.collectionStore.RemoveDevicesFromCollection(ctx, info.OrganizationID, params.TargetGroupID, deviceIdentifiers)
+		removed, err := s.collectionStore.RemoveDevicesFromCollectionReturningRemoved(ctx, info.OrganizationID, params.TargetGroupID, deviceIdentifiers)
 		if err != nil {
 			return nil, err
 		}
 
-		return &txOut{removed: removedCount, label: coll.Label}, nil
+		return &txOut{removed: removed, label: coll.Label}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -906,9 +973,9 @@ func (s *Service) RemoveDevicesFromGroup(ctx context.Context, params RemoveDevic
 		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
-	removedCountInt := int(out.removed)
+	removedCountInt := len(out.removed)
 	scopeType := collectionScopeType(pb.CollectionType_COLLECTION_TYPE_GROUP)
-	s.logActivity(ctx, activitymodels.Event{
+	removeEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "remove_devices",
 		Description:    fmt.Sprintf("Remove devices from %s: %s", scopeType, out.label),
@@ -918,9 +985,13 @@ func (s *Service) RemoveDevicesFromGroup(ctx context.Context, params RemoveDevic
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-	})
+	}
+	// Scope to the devices whose membership actually changed: identifiers that
+	// were not members must not pull the event into their sites' feeds (#538).
+	removeEvent.ApplySiteScope(s.resolveDeviceSetSiteScope(ctx, info.OrganizationID, out.removed))
+	s.logActivity(ctx, removeEvent)
 
-	return &RemoveDevicesFromGroupResult{RemovedCount: out.removed}, nil
+	return &RemoveDevicesFromGroupResult{RemovedCount: int64(len(out.removed))}, nil
 }
 
 // uniqueIdentifiers returns the unique entries of ids, preserving no
@@ -1719,6 +1790,19 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 		return nil, err
 	}
 
+	// Capacity guard. A rack has no "floating" members — every miner is
+	// expected to occupy a slot — so membership is bounded by the grid
+	// (rows×columns, each 1..maxRackDimension, validated above). Reject an
+	// over-capacity selection here, after the selector resolves (an
+	// all-mode selector can resolve to the full fleet), so the membership
+	// write never persists more miners than the rack can ever hold.
+	if capacity := int(rackInfo.Rows) * int(rackInfo.Columns); len(deviceIdentifiers) > capacity {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"cannot assign %d miners to a rack with %d slot(s) (%d×%d)",
+			len(deviceIdentifiers), capacity, rackInfo.Rows, rackInfo.Columns,
+		)
+	}
+
 	// Build a set of resolved device IDs for slot assignment validation.
 	deviceSet := make(map[string]struct{}, len(deviceIdentifiers))
 	for _, id := range deviceIdentifiers {
@@ -1956,6 +2040,13 @@ func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *p
 		return nil, err
 	}
 
+	// A brand-new rack placed into a building is always a net-new member.
+	if newBuildingID != nil {
+		if err := s.enforceBuildingRackCapacity(ctx, info.OrganizationID, *newBuildingID, 1); err != nil {
+			return nil, err
+		}
+	}
+
 	// targetRackID 0: the rack doesn't exist yet, so the pre-pass locks only
 	// the source racks the members currently sit in. Runs after placement
 	// resolution above and before the membership writes below.
@@ -2057,6 +2148,17 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 		}
 		current, err = s.collectionStore.LockRackPlacementForWrite(ctx, collectionID, info.OrganizationID)
 		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Capacity guard: only a move INTO a different building is a net-new
+	// member. A re-save that keeps the rack in its current building (or the
+	// omitted-placement branch, where newBuildingID == current.BuildingID)
+	// is net-zero and must not be rejected just because the building is
+	// already at capacity.
+	if newBuildingID != nil && !int64PtrEqual(current.BuildingID, newBuildingID) {
+		if err := s.enforceBuildingRackCapacity(ctx, info.OrganizationID, *newBuildingID, 1); err != nil {
 			return nil, err
 		}
 	}

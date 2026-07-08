@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Code, ConnectError } from "@connectrpc/connect";
 import userEvent from "@testing-library/user-event";
 
 import type { UseCurtailmentApiResult } from "@/protoFleet/api/useCurtailmentApi";
@@ -98,12 +99,12 @@ vi.mock("@/protoFleet/features/energy/ActiveCurtailmentStatus", () => ({
       ) : null}
       {onRequestStop ? (
         <button type="button" onClick={onRequestStop}>
-          Request stop
+          Request restore now
         </button>
       ) : null}
       {onRequestTerminateRecovery ? (
         <button type="button" onClick={onRequestTerminateRecovery}>
-          Request terminate recovery
+          Request stop restore
         </button>
       ) : null}
     </div>
@@ -291,6 +292,7 @@ const activeEventFormValues = {
   restoreBatchSize: "1",
   restoreIntervalSec: "60",
   includeMaintenance: true,
+  forceIncludeAllPairedMiners: false,
 } satisfies CurtailmentSubmitValues;
 const historyEvent = { id: "curt-1" } as CurtailmentHistoryEvent;
 
@@ -391,8 +393,7 @@ describe("CurtailmentManagementPanel", () => {
         mocks.useCurtailmentResponseProfiles.mock.calls[mocks.useCurtailmentResponseProfiles.mock.calls.length - 1];
       const apiOptions = latestApiCall?.[0] as { siteNameById?: Map<string, string> } | undefined;
       const responseProfileOptions = latestResponseProfileCall?.[1] as
-        | { siteNameById?: Map<string, string> }
-        | undefined;
+        { siteNameById?: Map<string, string> } | undefined;
 
       expect(apiOptions?.siteNameById?.get("101")).toBe("Austin, TX");
       expect(responseProfileOptions?.siteNameById?.get("101")).toBe("Austin, TX");
@@ -612,8 +613,8 @@ describe("CurtailmentManagementPanel", () => {
     await waitFor(() => expect(mocks.stopCurtailment).toHaveBeenCalledWith("curt-1"));
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "restore confirmation" })).not.toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "Request stop" }));
-    expect(screen.getByRole("dialog", { name: "stopCurtailment confirmation" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Request restore now" }));
+    expect(screen.getByRole("dialog", { name: "restore confirmation" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Confirm confirmation" }));
     await waitFor(() => expect(mocks.stopCurtailment).toHaveBeenCalledTimes(2));
 
@@ -634,7 +635,7 @@ describe("CurtailmentManagementPanel", () => {
     render(<CurtailmentManagementPanel enableRecover />);
 
     expect(screen.getByRole("button", { name: "Request restore" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request restore now" })).not.toBeInTheDocument();
   });
 
   it("aborts restoring curtailment ownership for admin recovery users", async () => {
@@ -686,7 +687,7 @@ describe("CurtailmentManagementPanel", () => {
     render(<CurtailmentManagementPanel enableManage enableRecover />);
 
     expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Request stop" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request restore now" })).toBeInTheDocument();
   });
 
   it("shows abort for automation-owned active curtailments", async () => {
@@ -704,7 +705,7 @@ describe("CurtailmentManagementPanel", () => {
 
     render(<CurtailmentManagementPanel enableManage enableRecover />);
 
-    expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request restore now" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Request restore" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Request abort" }));
@@ -732,13 +733,31 @@ describe("CurtailmentManagementPanel", () => {
 
     render(<CurtailmentManagementPanel enableRecover={false} />);
 
-    expect(screen.queryByRole("button", { name: "Request terminate recovery" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request stop restore" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Request restore" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request restore now" })).not.toBeInTheDocument();
   });
 
-  it("hides terminate recovery when abort restore is available", () => {
+  it("does not offer abort for restored curtailments", () => {
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "completed" },
+        activeEvents: [{ ...historyEvent, state: "completed" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableManage enableRecover />);
+
+    expect(screen.getByRole("button", { name: "Dismiss restored" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request stop restore" })).not.toBeInTheDocument();
+  });
+
+  it("shows stop restore before abort restore for automation restoring events", async () => {
+    const user = userEvent.setup();
+    mocks.adminTerminateCurtailment.mockRejectedValueOnce(new Error("terminate failed"));
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
@@ -749,12 +768,157 @@ describe("CurtailmentManagementPanel", () => {
 
     render(<CurtailmentManagementPanel enableRecover />);
 
-    expect(screen.queryByRole("button", { name: "Request terminate recovery" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request stop restore" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Request stop restore" }));
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Recovery cannot complete");
+    await user.click(screen.getByRole("button", { name: "Stop restore" }));
+
+    await waitFor(() =>
+      expect(mocks.adminTerminateCurtailment).toHaveBeenCalledWith("curt-1", {
+        reason: "Recovery cannot complete",
+        targetState: "cancelled",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("button", { name: "Request stop restore" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Request abort" })).toBeInTheDocument();
-    expect(mocks.adminTerminateCurtailment).not.toHaveBeenCalled();
   });
 
-  it("hides terminate recovery for non-automation restoring events", () => {
+  it("requires a fresh stop restore failure to re-offer abort in a new restore cycle", async () => {
+    const user = userEvent.setup();
+    mocks.adminTerminateCurtailment.mockRejectedValueOnce(new Error("terminate failed"));
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    const { rerender } = render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request stop restore" }));
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Recovery cannot complete");
+    await user.click(screen.getByRole("button", { name: "Stop restore" }));
+    await waitFor(() => expect(mocks.adminTerminateCurtailment).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("button", { name: "Request abort" })).toBeInTheDocument();
+
+    // Recurtail cycle: the same event leaves restoring and later re-enters it.
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "active" },
+        activeEvents: [{ ...historyEvent, state: "active" }],
+        activeEventId: "curt-1",
+      }),
+    );
+    rerender(<CurtailmentManagementPanel enableRecover />);
+
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+    rerender(<CurtailmentManagementPanel enableRecover />);
+
+    expect(screen.getByRole("button", { name: "Request stop restore" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
+  });
+
+  it("keeps stop restore available after terminate recovery validation failures", async () => {
+    const user = userEvent.setup();
+    mocks.adminTerminateCurtailment.mockRejectedValueOnce(new Error("Enter a reason before terminating the event."));
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request stop restore" }));
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Recovery cannot complete");
+    await user.click(screen.getByRole("button", { name: "Stop restore" }));
+
+    await waitFor(() => expect(mocks.adminTerminateCurtailment).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("button", { name: "Request stop restore" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
+  });
+
+  it("keeps stop restore available after transient terminate recovery failures", async () => {
+    const user = userEvent.setup();
+    // Match the production error shape: useCurtailmentApi's handleFailure/toError
+    // wraps the ConnectError in a plain Error carrying it as `cause`, so this
+    // exercises the cause-unwrapping branch of the panel's transient detection.
+    mocks.adminTerminateCurtailment.mockRejectedValueOnce(
+      Object.assign(new Error("temporarily unavailable"), {
+        cause: new ConnectError("temporarily unavailable", Code.Unavailable),
+      }),
+    );
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request stop restore" }));
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Recovery cannot complete");
+    await user.click(screen.getByRole("button", { name: "Stop restore" }));
+
+    await waitFor(() => expect(mocks.adminTerminateCurtailment).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("button", { name: "Request stop restore" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
+  });
+
+  it("treats unclassified network failures as transient and keeps stop restore available", async () => {
+    const user = userEvent.setup();
+    // connect-web wraps raw transport failures (fetch TypeError, connection
+    // reset) as ConnectError with Code.Unknown; a network blip must not swap
+    // Stop restore for the destructive Abort restore escalation.
+    mocks.adminTerminateCurtailment.mockRejectedValueOnce(
+      Object.assign(new Error("network error"), {
+        cause: new ConnectError("network error", Code.Unknown),
+      }),
+    );
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, state: "restoring" },
+        activeEvents: [{ ...historyEvent, state: "restoring" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request stop restore" }));
+    await user.type(screen.getByRole("textbox", { name: "Reason" }), "Recovery cannot complete");
+    await user.click(screen.getByRole("button", { name: "Stop restore" }));
+
+    await waitFor(() => expect(mocks.adminTerminateCurtailment).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("button", { name: "Request stop restore" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request abort" })).not.toBeInTheDocument();
+  });
+
+  it("hides stop restore for non-automation restoring events", () => {
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
         activeEvent: { ...activeEvent, isAutomationOwned: false, state: "restoring" },
@@ -765,7 +929,7 @@ describe("CurtailmentManagementPanel", () => {
 
     render(<CurtailmentManagementPanel enableRecover />);
 
-    expect(screen.queryByRole("button", { name: "Request terminate recovery" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request stop restore" })).not.toBeInTheDocument();
   });
 
   it("selects non-selected restoring history events for recovery", async () => {
@@ -809,8 +973,8 @@ describe("CurtailmentManagementPanel", () => {
 
     const { rerender } = render(<CurtailmentManagementPanel />);
 
-    await user.click(screen.getByRole("button", { name: "Request stop" }));
-    expect(screen.getByRole("dialog", { name: "stopCurtailment confirmation" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Request restore now" }));
+    expect(screen.getByRole("dialog", { name: "restore confirmation" })).toBeInTheDocument();
 
     mocks.useCurtailmentApi.mockReturnValue(
       createApiResult({
@@ -825,7 +989,7 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Confirm confirmation" }));
 
     expect(mocks.stopCurtailment).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog", { name: "stopCurtailment confirmation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "restore confirmation" })).not.toBeInTheDocument();
   });
 
   it("dismisses terminal active curtailments from the active status card", async () => {
@@ -1240,10 +1404,10 @@ describe("CurtailmentManagementPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Manage history event" }));
     const selectionSignal = mocks.selectActiveCurtailment.mock.calls[0][1].signal as AbortSignal;
-    await user.click(screen.getByRole("button", { name: "Request stop" }));
+    await user.click(screen.getByRole("button", { name: "Request restore now" }));
 
     expect(selectionSignal.aborted).toBe(true);
-    expect(screen.getByRole("dialog", { name: "stopCurtailment confirmation" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "restore confirmation" })).toBeInTheDocument();
 
     resolveSelection({
       activeEvent: secondaryActiveEvent,
@@ -1251,9 +1415,7 @@ describe("CurtailmentManagementPanel", () => {
       activeEventFormValues: secondaryFormValues,
     });
 
-    await waitFor(() =>
-      expect(screen.getByRole("dialog", { name: "stopCurtailment confirmation" })).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "restore confirmation" })).toBeInTheDocument());
     expect(screen.queryByRole("dialog", { name: "Manage curtailment" })).not.toBeInTheDocument();
   });
 
@@ -1350,7 +1512,7 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByTestId("active-curtailment-status")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request restore" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Request stop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request restore now" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop history event" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit settings" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Run curtailment" })).not.toBeInTheDocument();

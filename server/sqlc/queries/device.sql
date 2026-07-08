@@ -616,7 +616,8 @@ SELECT
     d.site_id,
     COALESCE(s.name, '') as site_label,
     d.building_id,
-    COALESCE(b.name, '') as building_label
+    COALESCE(b.name, '') as building_label,
+    FALSE as embedded_web_view_available
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
@@ -1021,3 +1022,17 @@ WHERE d.org_id = sqlc.arg('org_id')
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD');
+
+-- name: GetDistinctDeviceSiteIDs :many
+-- Returns the DISTINCT site_id values (NULL included) across the given
+-- device identifiers, for resolving the site scope of a multi-device
+-- activity event (#538). A NULL row means at least one touched device is
+-- site-less. Callers reduce the set: exactly one non-NULL value (and no
+-- NULL) → stamp that site; otherwise the event spans sites and is marked
+-- multi_site. DeleteMiners must call this BEFORE soft-deleting, since the
+-- deleted_at filter would otherwise drop the just-removed rows.
+SELECT DISTINCT d.site_id
+FROM device d
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.deleted_at IS NULL;

@@ -13,7 +13,18 @@ export const Default = () => {
   return (
     <>
       <Button variant={variants.primary} text="Open Modal" onClick={() => setOpen(true)} />
-      {open ? <AddInfraDeviceModal onDismiss={() => setOpen(false)} onSuccess={() => setOpen(false)} /> : null}
+      {open ? (
+        <AddInfraDeviceModal
+          siteOptions={["Austin", "Denver"]}
+          buildingOptions={[
+            { siteName: "Austin", buildingName: "Building 1" },
+            { siteName: "Austin", buildingName: "Building 2" },
+            { siteName: "Denver", buildingName: "Denver Plant" },
+          ]}
+          onDismiss={() => setOpen(false)}
+          onSuccess={() => setOpen(false)}
+        />
+      ) : null}
     </>
   );
 };

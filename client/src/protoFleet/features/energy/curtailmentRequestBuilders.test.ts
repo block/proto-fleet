@@ -27,6 +27,7 @@ const baseValues: CurtailmentSubmitValues = {
   restoreIntervalSec: "",
   reason: "Grid peak",
   includeMaintenance: false,
+  forceIncludeAllPairedMiners: false,
 };
 
 describe("curtailmentRequestBuilders", () => {
@@ -51,6 +52,76 @@ describe("curtailmentRequestBuilders", () => {
 
     expect(request.mode).toBe(CurtailmentMode.FULL_FLEET);
     expect(request.modeParams.case).toBeUndefined();
+    expect(request.forceIncludeAllPairedMiners).toBe(false);
+  });
+
+  it("sends all-paired targeting only for full-fleet start requests", () => {
+    const fixedKwRequest = buildStartCurtailmentRequest({
+      ...baseValues,
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(fixedKwRequest.forceIncludeAllPairedMiners).toBe(false);
+
+    const fullFleetRequest = buildStartCurtailmentRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(fullFleetRequest.forceIncludeAllPairedMiners).toBe(true);
+  });
+
+  it("excludes maintenance miners by default and opts them in with all-paired targeting", () => {
+    const defaultRequest = buildStartCurtailmentRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+    });
+    expect(defaultRequest.includeMaintenance).toBe(false);
+    expect(defaultRequest.forceIncludeMaintenance).toBe(false);
+
+    const allPairedRequest = buildStartCurtailmentRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(allPairedRequest.forceIncludeAllPairedMiners).toBe(true);
+    expect(allPairedRequest.includeMaintenance).toBe(true);
+    expect(allPairedRequest.forceIncludeMaintenance).toBe(true);
+  });
+
+  it("strips all-paired targeting for explicit miner scopes", () => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      scopeType: "explicitMiners",
+      deviceIdentifiers: ["miner-1"],
+      forceIncludeAllPairedMiners: true,
+    });
+
+    expect(request.forceIncludeAllPairedMiners).toBe(false);
+    expect(request.includeMaintenance).toBe(false);
+    expect(request.forceIncludeMaintenance).toBe(false);
+  });
+
+  it("drops stale maintenance inclusion when all-paired targeting is unchecked", () => {
+    // A profile or past event saved while all-paired was enabled hydrates
+    // includeMaintenance: true into the form. With the maintenance toggle
+    // gone from the UI, unchecking all-paired must drop the admin-gated
+    // maintenance pair too — it must not ride along invisibly.
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      includeMaintenance: true,
+      forceIncludeAllPairedMiners: false,
+    });
+
+    expect(request.forceIncludeAllPairedMiners).toBe(false);
+    expect(request.includeMaintenance).toBe(false);
+    expect(request.forceIncludeMaintenance).toBe(false);
   });
 
   it("builds optional uint32-backed settings from valid whole-number inputs", () => {
@@ -368,19 +439,19 @@ describe("curtailmentRequestBuilders", () => {
     ).toThrow("Enter max duration greater than 0.");
   });
 
-  it("rejects zero restore interval updates", () => {
-    expect(() =>
-      buildUpdateCurtailmentEventRequest(
-        "curt-1",
-        {
-          ...baseValues,
-          restoreIntervalSec: "0",
-        },
-        {
-          ...baseValues,
-          restoreIntervalSec: "60",
-        },
-      ),
-    ).toThrow("Enter restore batch interval greater than 0.");
+  it("sends zero restore interval updates", () => {
+    const request = buildUpdateCurtailmentEventRequest(
+      "curt-1",
+      {
+        ...baseValues,
+        restoreIntervalSec: "0",
+      },
+      {
+        ...baseValues,
+        restoreIntervalSec: "60",
+      },
+    );
+
+    expect(request.restoreBatchIntervalSec).toBe(0);
   });
 });

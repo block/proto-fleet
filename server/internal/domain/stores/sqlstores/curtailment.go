@@ -766,38 +766,39 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			}
 		}
 		row, err := q.InsertCurtailmentEvent(ctx, sqlc.InsertCurtailmentEventParams{
-			EventUuid:               event.EventUUID,
-			OrgID:                   event.OrgID,
-			State:                   string(event.State),
-			Mode:                    string(event.Mode),
-			Strategy:                string(event.Strategy),
-			Level:                   string(event.Level),
-			Priority:                string(event.Priority),
-			LoopType:                string(event.LoopType),
-			ScopeType:               string(event.ScopeType),
-			ScopeJsonb:              event.ScopeJSON,
-			ModeParamsJsonb:         event.ModeParamsJSON,
-			CurtailBatchSize:        ptrToNullInt32(event.CurtailBatchSize),
-			CurtailBatchIntervalSec: event.CurtailBatchIntervalSec,
-			RestoreBatchSize:        event.RestoreBatchSize,
-			RestoreBatchIntervalSec: event.RestoreBatchIntervalSec,
-			MinCurtailedDurationSec: event.MinCurtailedDurationSec,
-			MaxDurationSeconds:      ptrToNullInt32(event.MaxDurationSeconds),
-			AllowUnbounded:          event.AllowUnbounded,
-			IncludeMaintenance:      event.IncludeMaintenance,
-			ForceIncludeMaintenance: event.ForceIncludeMaintenance,
-			DecisionSnapshotJsonb:   event.DecisionSnapshotJSON,
-			SourceActorType:         string(event.SourceActorType),
-			SourceActorID:           ptrToNullString(event.SourceActorID),
-			ExternalSource:          ptrToNullString(event.ExternalSource),
-			ExternalReference:       ptrToNullString(event.ExternalReference),
-			IdempotencyKey:          ptrToNullString(event.IdempotencyKey),
-			Reason:                  event.Reason,
-			ScheduledStartAt:        ptrToNullTime(event.ScheduledStartAt),
-			StartedAt:               ptrToNullTime(event.StartedAt),
-			EndedAt:                 ptrToNullTime(event.EndedAt),
-			CreatedByUserID:         event.CreatedByUserID,
-			EffectiveBatchSize:      sql.NullInt32{Int32: event.EffectiveBatchSize, Valid: true},
+			EventUuid:                   event.EventUUID,
+			OrgID:                       event.OrgID,
+			State:                       string(event.State),
+			Mode:                        string(event.Mode),
+			Strategy:                    string(event.Strategy),
+			Level:                       string(event.Level),
+			Priority:                    string(event.Priority),
+			LoopType:                    string(event.LoopType),
+			ScopeType:                   string(event.ScopeType),
+			ScopeJsonb:                  event.ScopeJSON,
+			ModeParamsJsonb:             event.ModeParamsJSON,
+			CurtailBatchSize:            ptrToNullInt32(event.CurtailBatchSize),
+			CurtailBatchIntervalSec:     event.CurtailBatchIntervalSec,
+			RestoreBatchSize:            event.RestoreBatchSize,
+			RestoreBatchIntervalSec:     event.RestoreBatchIntervalSec,
+			MinCurtailedDurationSec:     event.MinCurtailedDurationSec,
+			MaxDurationSeconds:          ptrToNullInt32(event.MaxDurationSeconds),
+			AllowUnbounded:              event.AllowUnbounded,
+			IncludeMaintenance:          event.IncludeMaintenance,
+			ForceIncludeMaintenance:     event.ForceIncludeMaintenance,
+			ForceIncludeAllPairedMiners: event.ForceIncludeAllPairedMiners,
+			DecisionSnapshotJsonb:       event.DecisionSnapshotJSON,
+			SourceActorType:             string(event.SourceActorType),
+			SourceActorID:               ptrToNullString(event.SourceActorID),
+			ExternalSource:              ptrToNullString(event.ExternalSource),
+			ExternalReference:           ptrToNullString(event.ExternalReference),
+			IdempotencyKey:              ptrToNullString(event.IdempotencyKey),
+			Reason:                      event.Reason,
+			ScheduledStartAt:            ptrToNullTime(event.ScheduledStartAt),
+			StartedAt:                   ptrToNullTime(event.StartedAt),
+			EndedAt:                     ptrToNullTime(event.EndedAt),
+			CreatedByUserID:             event.CreatedByUserID,
+			EffectiveBatchSize:          sql.NullInt32{Int32: event.EffectiveBatchSize, Valid: true},
 		})
 		if err != nil {
 			var pgErr *pgconn.PgError
@@ -827,7 +828,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				CurtailmentEventID: row.ID,
 				TargetsJsonb:       payload,
 				OrgID:              event.OrgID,
-				CooldownSec:        cooldownSecFromDecisionSnapshot(event.DecisionSnapshotJSON),
+				CooldownSec:        cooldownSecForInsert(event),
 			})
 			if err != nil {
 				var pgErr *pgconn.PgError
@@ -854,7 +855,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				ctx,
 				q,
 				event.OrgID,
-				cooldownSecFromDecisionSnapshot(event.DecisionSnapshotJSON),
+				cooldownSecForInsert(event),
 				insertTargetDeviceIdentifiers(targets),
 			); err != nil {
 				return nil, err
@@ -877,14 +878,22 @@ func isClosedLoopFullFleetInsert(event models.InsertEventParams) bool {
 	return event.Mode == models.ModeFullFleet && event.LoopType == models.LoopTypeClosed
 }
 
-func cooldownSecFromDecisionSnapshot(snapshotJSON []byte) int32 {
-	if len(snapshotJSON) == 0 {
+func cooldownSecForInsert(event models.InsertEventParams) int32 {
+	// All-paired policies intentionally own recently-restored miners, so
+	// cooldown filtering is disabled at insert. Read the flag from the typed
+	// field rather than re-deriving it from the decision snapshot: the JSON
+	// key is written independently by marshalDecisionSnapshot (service.go),
+	// and a silent key drift here would re-enable cooldown for policy starts.
+	if event.ForceIncludeAllPairedMiners {
+		return 0
+	}
+	if len(event.DecisionSnapshotJSON) == 0 {
 		return 0
 	}
 	var snapshot struct {
 		PostEventCooldownSec int32 `json:"post_event_cooldown_sec"`
 	}
-	if err := json.Unmarshal(snapshotJSON, &snapshot); err != nil || snapshot.PostEventCooldownSec <= 0 {
+	if err := json.Unmarshal(event.DecisionSnapshotJSON, &snapshot); err != nil || snapshot.PostEventCooldownSec <= 0 {
 		return 0
 	}
 	return snapshot.PostEventCooldownSec
@@ -1368,30 +1377,90 @@ func (s *SQLCurtailmentStore) ListTargetsByEventPage(ctx context.Context, params
 	return targets, nextToken, nil
 }
 
-func (s *SQLCurtailmentStore) ListTargetSiteIDsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]int64, bool, error) {
+func (s *SQLCurtailmentStore) ListTargetSiteCoverageByEvent(
+	ctx context.Context,
+	orgID int64,
+	eventUUID uuid.UUID,
+) (models.TargetSiteCoverage, error) {
 	rows, err := s.GetQueries(ctx).ListCurtailmentTargetSiteCoverageByEvent(ctx, sqlc.ListCurtailmentTargetSiteCoverageByEventParams{
 		OrgID:     orgID,
 		EventUuid: eventUUID,
 	})
 	if err != nil {
-		return nil, false, fleeterror.NewInternalErrorf("failed to list curtailment target site coverage: %v", err)
+		return models.TargetSiteCoverage{}, fleeterror.NewInternalErrorf("failed to list curtailment target site coverage: %v", err)
 	}
+	coverageRows := make([]targetSiteCoverageRow, 0, len(rows))
+	for _, row := range rows {
+		coverageRows = append(coverageRows, targetSiteCoverageRow{
+			siteID:            row.SiteID,
+			targetCount:       row.TargetCount,
+			mappedTargetCount: row.MappedTargetCount,
+		})
+	}
+	return targetSiteCoverageFromRows(coverageRows), nil
+}
+
+func (s *SQLCurtailmentStore) ListTargetSiteCoverageByEvents(
+	ctx context.Context,
+	orgID int64,
+	eventUUIDs []uuid.UUID,
+) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	coverageByEvent := make(map[uuid.UUID]models.TargetSiteCoverage, len(eventUUIDs))
+	if len(eventUUIDs) == 0 {
+		return coverageByEvent, nil
+	}
+	for _, eventUUID := range eventUUIDs {
+		coverageByEvent[eventUUID] = models.TargetSiteCoverage{Complete: true}
+	}
+	rows, err := s.GetQueries(ctx).ListCurtailmentTargetSiteCoverageByEvents(ctx, sqlc.ListCurtailmentTargetSiteCoverageByEventsParams{
+		OrgID:      orgID,
+		EventUuids: eventUUIDs,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list curtailment target site coverage: %v", err)
+	}
+	rowsByEvent := make(map[uuid.UUID][]targetSiteCoverageRow, len(eventUUIDs))
+	for _, row := range rows {
+		rowsByEvent[row.EventUuid] = append(rowsByEvent[row.EventUuid], targetSiteCoverageRow{
+			siteID:            row.SiteID,
+			targetCount:       row.TargetCount,
+			mappedTargetCount: row.MappedTargetCount,
+		})
+	}
+	for eventUUID, rows := range rowsByEvent {
+		coverageByEvent[eventUUID] = targetSiteCoverageFromRows(rows)
+	}
+	return coverageByEvent, nil
+}
+
+type targetSiteCoverageRow struct {
+	siteID            int64
+	targetCount       int64
+	mappedTargetCount int64
+}
+
+func targetSiteCoverageFromRows(rows []targetSiteCoverageRow) models.TargetSiteCoverage {
 	if len(rows) == 0 {
-		return nil, true, nil
+		return models.TargetSiteCoverage{Complete: true}
 	}
 	siteIDs := make([]int64, 0, len(rows))
-	complete := rows[0].TargetCount > 0 && rows[0].TargetCount == rows[0].MappedTargetCount
+	complete := rows[0].targetCount == rows[0].mappedTargetCount
 	for _, row := range rows {
-		if row.SiteID <= 0 {
+		if row.siteID <= 0 {
 			complete = false
 			continue
 		}
-		siteIDs = append(siteIDs, row.SiteID)
-		if row.TargetCount != rows[0].TargetCount || row.MappedTargetCount != rows[0].MappedTargetCount {
+		siteIDs = append(siteIDs, row.siteID)
+		if row.targetCount != rows[0].targetCount || row.mappedTargetCount != rows[0].mappedTargetCount {
 			complete = false
 		}
 	}
-	return siteIDs, complete, nil
+	return models.TargetSiteCoverage{
+		SiteIDs:           siteIDs,
+		Complete:          complete,
+		TargetCount:       rows[0].targetCount,
+		MappedTargetCount: rows[0].mappedTargetCount,
+	}
 }
 
 func (s *SQLCurtailmentStore) GetTargetRollupByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.TargetRollup, error) {
@@ -1406,14 +1475,16 @@ func (s *SQLCurtailmentStore) GetTargetRollupByEvent(ctx context.Context, orgID 
 		return nil, fleeterror.NewInternalErrorf("failed to get curtailment target rollup: %v", err)
 	}
 	return &models.TargetRollup{
-		Pending:       row.Pending,
-		Dispatched:    row.Dispatched,
-		Confirmed:     row.Confirmed,
-		Drifted:       row.Drifted,
-		Resolved:      row.Resolved,
-		Released:      row.Released,
-		RestoreFailed: row.RestoreFailed,
-		Total:         row.Total,
+		Pending:            row.Pending,
+		Dispatched:         row.Dispatched,
+		Confirmed:          row.Confirmed,
+		Drifted:            row.Drifted,
+		Resolved:           row.Resolved,
+		Released:           row.Released,
+		RestoreFailed:      row.RestoreFailed,
+		Unavailable:        row.Unavailable,
+		Total:              row.Total,
+		UnavailableReasons: parseTargetUnavailableReasonCounts(row.UnavailableReasons),
 	}, nil
 }
 
@@ -1627,6 +1698,12 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 			return convertEventRow(updated), nil
 		}
 
+		if current.ForceIncludeAllPairedMiners {
+			if _, err := q.ReleaseUndispatchedAllPairedTargetsForRestore(ctx, current.ID); err != nil {
+				return nil, fleeterror.NewInternalErrorf("failed to release undispatched all-paired targets for restore: %v", err)
+			}
+		}
+
 		if err := q.ResetCurtailmentTargetsForRestore(ctx, current.ID); err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to reset curtailment targets for restore: %v", err)
 		}
@@ -1782,6 +1859,70 @@ func (s *SQLCurtailmentStore) ClaimClosedLoopFullFleetTargets(
 	return claimed, nil
 }
 
+func (s *SQLCurtailmentStore) ClaimAllPairedPolicyTargets(
+	ctx context.Context,
+	eventID int64,
+	targets []models.InsertTargetParams,
+) (int64, error) {
+	if len(targets) == 0 {
+		return 0, nil
+	}
+	payload, err := buildBulkTargetPayload(targets)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to encode curtailment target payload: %v", err)
+	}
+	claimed, err := s.GetQueries(ctx).ClaimAllPairedPolicyTargets(ctx, sqlc.ClaimAllPairedPolicyTargetsParams{
+		CurtailmentEventID: eventID,
+		TargetsJsonb:       payload,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to claim all-paired policy targets: %v", err)
+	}
+	return claimed, nil
+}
+
+// bulkReadinessUpdateRow mirrors BulkRefreshAllPairedTargetReadiness's
+// jsonb_to_recordset column list.
+type bulkReadinessUpdateRow struct {
+	DeviceIdentifier string   `json:"device_identifier"`
+	State            string   `json:"state"`
+	LastError        string   `json:"last_error"`
+	BaselinePowerW   *float64 `json:"baseline_power_w"`
+}
+
+func (s *SQLCurtailmentStore) BulkRefreshAllPairedTargetReadiness(
+	ctx context.Context,
+	eventID int64,
+	expectedEventState models.EventState,
+	updates []interfaces.AllPairedReadinessUpdate,
+) ([]string, error) {
+	if len(updates) == 0 {
+		return nil, nil
+	}
+	rows := make([]bulkReadinessUpdateRow, len(updates))
+	for i, u := range updates {
+		rows[i] = bulkReadinessUpdateRow{
+			DeviceIdentifier: u.DeviceIdentifier,
+			State:            string(u.State),
+			LastError:        u.Reason,
+			BaselinePowerW:   u.BaselinePowerW,
+		}
+	}
+	payload, err := json.Marshal(rows)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("encode all-paired readiness payload: %v", err)
+	}
+	applied, err := s.GetQueries(ctx).BulkRefreshAllPairedTargetReadiness(ctx, sqlc.BulkRefreshAllPairedTargetReadinessParams{
+		CurtailmentEventID: eventID,
+		ExpectedEventState: string(expectedEventState),
+		UpdatesJsonb:       payload,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to bulk refresh all-paired target readiness: %v", err)
+	}
+	return applied, nil
+}
+
 func ensureTargetsOutsideCooldown(
 	ctx context.Context,
 	q *sqlc.Queries,
@@ -1868,6 +2009,7 @@ func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
 		row.AllowUnbounded,
 		row.IncludeMaintenance,
 		row.ForceIncludeMaintenance,
+		row.ForceIncludeAllPairedMiners,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
 		row.SourceActorID,
@@ -1909,6 +2051,7 @@ func convertEventDetailRow(row sqlc.GetCurtailmentEventDetailByUUIDRow) *models.
 		row.AllowUnbounded,
 		row.IncludeMaintenance,
 		row.ForceIncludeMaintenance,
+		row.ForceIncludeAllPairedMiners,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
 		row.SourceActorID,
@@ -1950,6 +2093,7 @@ func convertEventListRow(row sqlc.ListCurtailmentEventsForOrgRow) *models.Event 
 		row.AllowUnbounded,
 		row.IncludeMaintenance,
 		row.ForceIncludeMaintenance,
+		row.ForceIncludeAllPairedMiners,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
 		row.SourceActorID,
@@ -1968,7 +2112,7 @@ func convertEventListRow(row sqlc.ListCurtailmentEventsForOrgRow) *models.Event 
 }
 
 func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Event {
-	return convertEventFields(
+	event := convertEventFields(
 		row.ID,
 		row.EventUuid,
 		row.OrgID,
@@ -1991,6 +2135,7 @@ func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Even
 		row.AllowUnbounded,
 		row.IncludeMaintenance,
 		row.ForceIncludeMaintenance,
+		row.ForceIncludeAllPairedMiners,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
 		row.SourceActorID,
@@ -2006,6 +2151,59 @@ func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Even
 		row.CreatedAt,
 		row.UpdatedAt,
 	)
+	// The active-list query aggregates target counts per row; events with no
+	// target rows carry a zeroed (non-nil) rollup so active displays can trust
+	// it as the live target set.
+	event.TargetRollup = &models.TargetRollup{
+		Pending:            row.RollupPending,
+		Dispatched:         row.RollupDispatched,
+		Confirmed:          row.RollupConfirmed,
+		Drifted:            row.RollupDrifted,
+		Resolved:           row.RollupResolved,
+		Released:           row.RollupReleased,
+		RestoreFailed:      row.RollupRestoreFailed,
+		Unavailable:        row.RollupUnavailable,
+		Total:              row.RollupTotal,
+		UnavailableReasons: parseTargetUnavailableReasonCounts(row.RollupUnavailableReasons),
+	}
+	return event
+}
+
+func parseTargetUnavailableReasonCounts(raw json.RawMessage) []models.TargetUnavailableReasonCount {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+
+	var countsByReason map[string]int64
+	if err := json.Unmarshal(raw, &countsByReason); err != nil {
+		// Fail open (the client renders "details unavailable"), but leave a
+		// signal so a broken aggregation pipeline is distinguishable from
+		// normal rollup lag.
+		slog.Error("failed to parse curtailment unavailable reason rollup", "error", err, "raw_len", len(raw))
+		return nil
+	}
+	if len(countsByReason) == 0 {
+		return nil
+	}
+
+	counts := make([]models.TargetUnavailableReasonCount, 0, len(countsByReason))
+	for reason, count := range countsByReason {
+		if count <= 0 {
+			continue
+		}
+		counts = append(counts, models.TargetUnavailableReasonCount{
+			Reason: reason,
+			Count:  count,
+		})
+	}
+
+	sort.Slice(counts, func(i, j int) bool {
+		if counts[i].Count != counts[j].Count {
+			return counts[i].Count > counts[j].Count
+		}
+		return counts[i].Reason < counts[j].Reason
+	})
+	return counts
 }
 
 func convertEventFields(
@@ -2031,6 +2229,7 @@ func convertEventFields(
 	allowUnbounded bool,
 	includeMaintenance bool,
 	forceIncludeMaintenance bool,
+	forceIncludeAllPairedMiners bool,
 	decisionSnapshotJSON []byte,
 	sourceActorType string,
 	sourceActorID sql.NullString,
@@ -2047,42 +2246,43 @@ func convertEventFields(
 	updatedAt time.Time,
 ) *models.Event {
 	return &models.Event{
-		ID:                      id,
-		EventUUID:               eventUUID,
-		OrgID:                   orgID,
-		State:                   models.EventState(state),
-		Mode:                    models.Mode(mode),
-		Strategy:                models.Strategy(strategy),
-		Level:                   models.Level(level),
-		Priority:                models.Priority(priority),
-		LoopType:                models.LoopType(loopType),
-		ScopeType:               models.ScopeType(scopeType),
-		ScopeJSON:               scopeJSON,
-		ModeParamsJSON:          modeParamsJSON,
-		CurtailBatchSize:        nullInt32ToPtr(curtailBatchSize),
-		CurtailBatchIntervalSec: curtailBatchIntervalSec,
-		RestoreBatchSize:        restoreBatchSize,
-		RestoreBatchIntervalSec: restoreBatchIntervalSec,
-		EffectiveBatchSize:      nullInt32ToPtr(effectiveBatchSize),
-		MinCurtailedDurationSec: minCurtailedDurationSec,
-		MaxDurationSeconds:      nullInt32ToPtr(maxDurationSeconds),
-		AllowUnbounded:          allowUnbounded,
-		IncludeMaintenance:      includeMaintenance,
-		ForceIncludeMaintenance: forceIncludeMaintenance,
-		DecisionSnapshotJSON:    decisionSnapshotJSON,
-		SourceActorType:         models.SourceActorType(sourceActorType),
-		SourceActorID:           nullStringToPtr(sourceActorID),
-		ExternalSource:          nullStringToPtr(externalSource),
-		ExternalReference:       nullStringToPtr(externalReference),
-		IdempotencyKey:          nullStringToPtr(idempotencyKey),
-		SupersedesEventID:       nullInt64ToPtr(supersedesEventID),
-		Reason:                  reason,
-		ScheduledStartAt:        nullTimeToPtr(scheduledStartAt),
-		StartedAt:               nullTimeToPtr(startedAt),
-		EndedAt:                 nullTimeToPtr(endedAt),
-		CreatedByUserID:         createdByUserID,
-		CreatedAt:               createdAt,
-		UpdatedAt:               updatedAt,
+		ID:                          id,
+		EventUUID:                   eventUUID,
+		OrgID:                       orgID,
+		State:                       models.EventState(state),
+		Mode:                        models.Mode(mode),
+		Strategy:                    models.Strategy(strategy),
+		Level:                       models.Level(level),
+		Priority:                    models.Priority(priority),
+		LoopType:                    models.LoopType(loopType),
+		ScopeType:                   models.ScopeType(scopeType),
+		ScopeJSON:                   scopeJSON,
+		ModeParamsJSON:              modeParamsJSON,
+		CurtailBatchSize:            nullInt32ToPtr(curtailBatchSize),
+		CurtailBatchIntervalSec:     curtailBatchIntervalSec,
+		RestoreBatchSize:            restoreBatchSize,
+		RestoreBatchIntervalSec:     restoreBatchIntervalSec,
+		EffectiveBatchSize:          nullInt32ToPtr(effectiveBatchSize),
+		MinCurtailedDurationSec:     minCurtailedDurationSec,
+		MaxDurationSeconds:          nullInt32ToPtr(maxDurationSeconds),
+		AllowUnbounded:              allowUnbounded,
+		IncludeMaintenance:          includeMaintenance,
+		ForceIncludeMaintenance:     forceIncludeMaintenance,
+		ForceIncludeAllPairedMiners: forceIncludeAllPairedMiners,
+		DecisionSnapshotJSON:        decisionSnapshotJSON,
+		SourceActorType:             models.SourceActorType(sourceActorType),
+		SourceActorID:               nullStringToPtr(sourceActorID),
+		ExternalSource:              nullStringToPtr(externalSource),
+		ExternalReference:           nullStringToPtr(externalReference),
+		IdempotencyKey:              nullStringToPtr(idempotencyKey),
+		SupersedesEventID:           nullInt64ToPtr(supersedesEventID),
+		Reason:                      reason,
+		ScheduledStartAt:            nullTimeToPtr(scheduledStartAt),
+		StartedAt:                   nullTimeToPtr(startedAt),
+		EndedAt:                     nullTimeToPtr(endedAt),
+		CreatedByUserID:             createdByUserID,
+		CreatedAt:                   createdAt,
+		UpdatedAt:                   updatedAt,
 	}
 }
 
@@ -2193,48 +2393,50 @@ func nullStringToFloat64Ptr(n sql.NullString) *float64 {
 
 func responseProfileFromRow(row sqlc.CurtailmentResponseProfile) *models.ResponseProfile {
 	return &models.ResponseProfile{
-		ID:                      row.ID,
-		OrgID:                   row.OrgID,
-		ProfileName:             row.ProfileName,
-		SiteID:                  nullInt64ToPtr(row.SiteID),
-		ScopeJSON:               row.ScopeJson,
-		Mode:                    models.Mode(row.Mode),
-		Strategy:                models.Strategy(row.Strategy),
-		Level:                   models.Level(row.Level),
-		Priority:                models.Priority(row.Priority),
-		TargetKW:                nullStringToFloat64Ptr(row.TargetKw),
-		ToleranceKW:             nullStringToFloat64Ptr(row.ToleranceKw),
-		CurtailBatchSize:        nullInt32ToPtr(row.CurtailBatchSize),
-		CurtailBatchIntervalSec: row.CurtailBatchIntervalSec,
-		RestoreBatchSize:        row.RestoreBatchSize,
-		RestoreBatchIntervalSec: row.RestoreBatchIntervalSec,
-		IncludeMaintenance:      row.IncludeMaintenance,
-		ForceIncludeMaintenance: row.ForceIncludeMaintenance,
-		PostEventCooldownSec:    row.PostEventCooldownSec,
-		CreatedAt:               row.CreatedAt,
-		UpdatedAt:               row.UpdatedAt,
+		ID:                          row.ID,
+		OrgID:                       row.OrgID,
+		ProfileName:                 row.ProfileName,
+		SiteID:                      nullInt64ToPtr(row.SiteID),
+		ScopeJSON:                   row.ScopeJson,
+		Mode:                        models.Mode(row.Mode),
+		Strategy:                    models.Strategy(row.Strategy),
+		Level:                       models.Level(row.Level),
+		Priority:                    models.Priority(row.Priority),
+		TargetKW:                    nullStringToFloat64Ptr(row.TargetKw),
+		ToleranceKW:                 nullStringToFloat64Ptr(row.ToleranceKw),
+		CurtailBatchSize:            nullInt32ToPtr(row.CurtailBatchSize),
+		CurtailBatchIntervalSec:     row.CurtailBatchIntervalSec,
+		RestoreBatchSize:            row.RestoreBatchSize,
+		RestoreBatchIntervalSec:     row.RestoreBatchIntervalSec,
+		IncludeMaintenance:          row.IncludeMaintenance,
+		ForceIncludeMaintenance:     row.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners: row.ForceIncludeAllPairedMiners,
+		PostEventCooldownSec:        row.PostEventCooldownSec,
+		CreatedAt:                   row.CreatedAt,
+		UpdatedAt:                   row.UpdatedAt,
 	}
 }
 
 func insertResponseProfileParams(profile models.ResponseProfile) sqlc.InsertCurtailmentResponseProfileParams {
 	return sqlc.InsertCurtailmentResponseProfileParams{
-		OrgID:                   profile.OrgID,
-		ProfileName:             profile.ProfileName,
-		SiteID:                  ptrToNullInt64(profile.SiteID),
-		ScopeJson:               responseProfileScopeJSON(profile),
-		Mode:                    string(profile.Mode),
-		Strategy:                string(profile.Strategy),
-		Level:                   string(profile.Level),
-		Priority:                string(profile.Priority),
-		TargetKw:                ptrFloat64ToNullString(profile.TargetKW),
-		ToleranceKw:             ptrFloat64ToNullString(profile.ToleranceKW),
-		CurtailBatchSize:        ptrToNullInt32(profile.CurtailBatchSize),
-		CurtailBatchIntervalSec: profile.CurtailBatchIntervalSec,
-		RestoreBatchSize:        profile.RestoreBatchSize,
-		RestoreBatchIntervalSec: profile.RestoreBatchIntervalSec,
-		IncludeMaintenance:      profile.IncludeMaintenance,
-		ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
-		PostEventCooldownSec:    profile.PostEventCooldownSec,
+		OrgID:                       profile.OrgID,
+		ProfileName:                 profile.ProfileName,
+		SiteID:                      ptrToNullInt64(profile.SiteID),
+		ScopeJson:                   responseProfileScopeJSON(profile),
+		Mode:                        string(profile.Mode),
+		Strategy:                    string(profile.Strategy),
+		Level:                       string(profile.Level),
+		Priority:                    string(profile.Priority),
+		TargetKw:                    ptrFloat64ToNullString(profile.TargetKW),
+		ToleranceKw:                 ptrFloat64ToNullString(profile.ToleranceKW),
+		CurtailBatchSize:            ptrToNullInt32(profile.CurtailBatchSize),
+		CurtailBatchIntervalSec:     profile.CurtailBatchIntervalSec,
+		RestoreBatchSize:            profile.RestoreBatchSize,
+		RestoreBatchIntervalSec:     profile.RestoreBatchIntervalSec,
+		IncludeMaintenance:          profile.IncludeMaintenance,
+		ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
+		PostEventCooldownSec:        profile.PostEventCooldownSec,
 	}
 }
 
@@ -2244,26 +2446,27 @@ func updateResponseProfileParams(
 	expectedScopeJSON []byte,
 ) sqlc.UpdateCurtailmentResponseProfileParams {
 	return sqlc.UpdateCurtailmentResponseProfileParams{
-		ID:                      profile.ID,
-		OrgID:                   profile.OrgID,
-		ExpectedSiteID:          ptrToNullInt64(expectedSiteID),
-		ExpectedScopeJson:       normalizedResponseProfileScopeJSON(expectedScopeJSON),
-		ProfileName:             profile.ProfileName,
-		SiteID:                  ptrToNullInt64(profile.SiteID),
-		ScopeJson:               responseProfileScopeJSON(profile),
-		Mode:                    string(profile.Mode),
-		Strategy:                string(profile.Strategy),
-		Level:                   string(profile.Level),
-		Priority:                string(profile.Priority),
-		TargetKw:                ptrFloat64ToNullString(profile.TargetKW),
-		ToleranceKw:             ptrFloat64ToNullString(profile.ToleranceKW),
-		CurtailBatchSize:        ptrToNullInt32(profile.CurtailBatchSize),
-		CurtailBatchIntervalSec: profile.CurtailBatchIntervalSec,
-		RestoreBatchSize:        profile.RestoreBatchSize,
-		RestoreBatchIntervalSec: profile.RestoreBatchIntervalSec,
-		IncludeMaintenance:      profile.IncludeMaintenance,
-		ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
-		PostEventCooldownSec:    profile.PostEventCooldownSec,
+		ID:                          profile.ID,
+		OrgID:                       profile.OrgID,
+		ExpectedSiteID:              ptrToNullInt64(expectedSiteID),
+		ExpectedScopeJson:           normalizedResponseProfileScopeJSON(expectedScopeJSON),
+		ProfileName:                 profile.ProfileName,
+		SiteID:                      ptrToNullInt64(profile.SiteID),
+		ScopeJson:                   responseProfileScopeJSON(profile),
+		Mode:                        string(profile.Mode),
+		Strategy:                    string(profile.Strategy),
+		Level:                       string(profile.Level),
+		Priority:                    string(profile.Priority),
+		TargetKw:                    ptrFloat64ToNullString(profile.TargetKW),
+		ToleranceKw:                 ptrFloat64ToNullString(profile.ToleranceKW),
+		CurtailBatchSize:            ptrToNullInt32(profile.CurtailBatchSize),
+		CurtailBatchIntervalSec:     profile.CurtailBatchIntervalSec,
+		RestoreBatchSize:            profile.RestoreBatchSize,
+		RestoreBatchIntervalSec:     profile.RestoreBatchIntervalSec,
+		IncludeMaintenance:          profile.IncludeMaintenance,
+		ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
+		PostEventCooldownSec:        profile.PostEventCooldownSec,
 	}
 }
 
@@ -2306,6 +2509,7 @@ type bulkInsertTargetRow struct {
 	TargetType             string          `json:"target_type"`
 	State                  string          `json:"state"`
 	DesiredState           string          `json:"desired_state"`
+	LastError              *string         `json:"last_error,omitempty"`
 	BaselinePowerW         *float64        `json:"baseline_power_w"`
 	SelectorRationaleJsonb json.RawMessage `json:"selector_rationale_jsonb,omitempty"`
 }
@@ -2325,6 +2529,7 @@ func buildBulkTargetPayload(targets []models.InsertTargetParams) ([]byte, error)
 			TargetType:             t.TargetType,
 			State:                  string(t.State),
 			DesiredState:           t.DesiredState,
+			LastError:              t.LastError,
 			BaselinePowerW:         t.BaselinePowerW,
 			SelectorRationaleJsonb: rationale,
 		}

@@ -185,6 +185,19 @@ WHERE dsr.org_id = sqlc.arg('org_id')
 ORDER BY ds.label, dsr.device_set_id
 LIMIT sqlc.arg('limit_n')::int;
 
+-- name: CountRacksInBuilding :one
+-- Total live racks currently assigned to a building (placed or
+-- unplaced — membership, not grid occupancy). Used by
+-- AssignRacksToBuilding's capacity guard to reject a batch that would
+-- push the building over its aisles×racks_per_aisle grid. Matches
+-- ListBuildingRacks' filter so the count and the list agree.
+SELECT COUNT(*)::bigint AS rack_count
+FROM device_set_rack dsr
+JOIN device_set ds ON ds.id = dsr.device_set_id
+WHERE dsr.org_id = sqlc.arg('org_id')
+  AND dsr.building_id = sqlc.arg('building_id')
+  AND ds.deleted_at IS NULL;
+
 -- name: ListRacksOutsideBuildingBounds :many
 -- Returns the first rack row whose (aisle_index, position_in_aisle)
 -- would fall outside the proposed (aisles, racks_per_aisle) layout.

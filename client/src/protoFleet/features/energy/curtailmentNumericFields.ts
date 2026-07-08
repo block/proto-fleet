@@ -14,6 +14,9 @@ export const curtailmentNumericFieldLimits = {
   minDurationSec: 2147483647,
 } as const;
 
+export const immediateRestoreBatchSize = 0;
+export const immediateRestoreBatchSizeInputValue = String(immediateRestoreBatchSize);
+
 export function parseOptionalUint32Field(value: string, options: OptionalUint32FieldOptions): ParsedNumericField {
   const trimmed = value.trim();
   if (trimmed === "") {

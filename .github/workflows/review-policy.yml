@@ -33,7 +33,7 @@ permissions:
 
 jobs:
   evaluate:
-    name: Review Policy
+    name: Evaluate Review Policy
     if: >-
       !(github.event_name == 'check_run' && github.event.check_run.app.slug == 'github-actions') &&
       !(github.event_name == 'check_run' && github.event.action == 'rerequested') &&

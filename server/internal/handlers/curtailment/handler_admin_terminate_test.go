@@ -119,6 +119,21 @@ func (s *adminTerminateStubStore) ClaimClosedLoopFullFleetTargets(
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by AdminTerminate handler tests")
 }
+func (s *adminTerminateStubStore) ClaimAllPairedPolicyTargets(
+	context.Context,
+	int64,
+	[]models.InsertTargetParams,
+) (int64, error) {
+	panic("ClaimAllPairedPolicyTargets not exercised by AdminTerminate handler tests")
+}
+func (s *adminTerminateStubStore) BulkRefreshAllPairedTargetReadiness(
+	context.Context,
+	int64,
+	models.EventState,
+	[]interfaces.AllPairedReadinessUpdate,
+) ([]string, error) {
+	panic("BulkRefreshAllPairedTargetReadiness not exercised by AdminTerminate handler tests")
+}
 func (s *adminTerminateStubStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	if s.authEvent != nil {
 		return s.authEvent, nil
@@ -141,8 +156,22 @@ func (s *adminTerminateStubStore) ListTargetsByEvent(context.Context, int64, uui
 func (s *adminTerminateStubStore) ListTargetsByEventPage(context.Context, interfaces.ListTargetsByEventPageParams) ([]*models.Target, string, error) {
 	panic("ListTargetsByEventPage not exercised by AdminTerminate handler tests")
 }
-func (s *adminTerminateStubStore) ListTargetSiteIDsByEvent(context.Context, int64, uuid.UUID) ([]int64, bool, error) {
-	return append([]int64(nil), s.targetSiteIDs...), s.targetSitesComplete, nil
+func (s *adminTerminateStubStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.UUID) (models.TargetSiteCoverage, error) {
+	siteIDs := append([]int64(nil), s.targetSiteIDs...)
+	mappedTargetCount := int64(len(siteIDs))
+	targetCount := mappedTargetCount
+	if !s.targetSitesComplete {
+		targetCount++
+	}
+	return models.TargetSiteCoverage{
+		SiteIDs:           siteIDs,
+		Complete:          s.targetSitesComplete,
+		TargetCount:       targetCount,
+		MappedTargetCount: mappedTargetCount,
+	}, nil
+}
+func (s *adminTerminateStubStore) ListTargetSiteCoverageByEvents(context.Context, int64, []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error) {
+	panic("ListTargetSiteCoverageByEvents not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*models.TargetRollup, error) {
 	panic("GetTargetRollupByEvent not exercised by AdminTerminate handler tests")

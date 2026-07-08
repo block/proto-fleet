@@ -1,10 +1,11 @@
 export type InfraDeviceStatus = "online" | "offline";
 export type InfraDeviceEnabledMode = "off" | "auto";
-export type InfraDeviceConnectionType = "modbus_tcp" | "mqtt_bridge" | "http_api";
+export type InfraDeviceConnectionType = "modbus_tcp";
 export type InfraDeviceEndpointKind = "single_fan" | "fan_group";
 
 export interface InfraDeviceItem {
   id: string;
+  unitId: number;
   name: string;
   buildingName: string;
   siteName: string;
@@ -25,7 +26,7 @@ export interface InfraBuildingOption {
 
 export type InfraDeviceDraft = Pick<
   InfraDeviceItem,
-  "name" | "buildingName" | "siteName" | "connectionType" | "endpoint" | "port"
+  "unitId" | "name" | "buildingName" | "siteName" | "connectionType" | "endpoint" | "port"
 > & {
   endpointKind: InfraDeviceEndpointKind;
   fanCount?: number;

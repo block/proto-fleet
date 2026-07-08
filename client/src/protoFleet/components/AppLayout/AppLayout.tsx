@@ -3,6 +3,7 @@ import clsx from "clsx";
 
 import NavigationMenu from "../NavigationMenu";
 import { ScheduleApiProvider } from "@/protoFleet/api/ScheduleApiProvider";
+import { SitesProvider } from "@/protoFleet/api/SitesProvider";
 import PageHeader from "@/protoFleet/components/PageHeader";
 import {
   getPhoneHeaderWidgetOffsetClass,
@@ -98,7 +99,9 @@ const AppLayoutContent = ({ children }: Props) => {
 
 const AppLayout = (props: Props) => (
   <ScheduleApiProvider>
-    <AppLayoutContent {...props} />
+    <SitesProvider>
+      <AppLayoutContent {...props} />
+    </SitesProvider>
   </ScheduleApiProvider>
 );
 

@@ -205,6 +205,21 @@ func (mr *MockTelemetryDataStoreMockRecorder) GetLatestDeviceMetricsBatch(ctx, d
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestDeviceMetricsBatch", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetLatestDeviceMetricsBatch), ctx, deviceIDs)
 }
 
+// GetLatestFleetMetricRollupBucket mocks base method.
+func (m *MockTelemetryDataStore) GetLatestFleetMetricRollupBucket(ctx context.Context) (time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestFleetMetricRollupBucket", ctx)
+	ret0, _ := ret[0].(time.Time)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLatestFleetMetricRollupBucket indicates an expected call of GetLatestFleetMetricRollupBucket.
+func (mr *MockTelemetryDataStoreMockRecorder) GetLatestFleetMetricRollupBucket(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestFleetMetricRollupBucket", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetLatestFleetMetricRollupBucket), ctx)
+}
+
 // GetTimeSeriesTelemetry mocks base method.
 func (m *MockTelemetryDataStore) GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]models0.DeviceMetrics, error) {
 	m.ctrl.T.Helper()
@@ -280,6 +295,20 @@ func (m *MockTelemetryDataStore) StreamTelemetryUpdates(ctx context.Context, que
 func (mr *MockTelemetryDataStoreMockRecorder) StreamTelemetryUpdates(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamTelemetryUpdates", reflect.TypeOf((*MockTelemetryDataStore)(nil).StreamTelemetryUpdates), ctx, query)
+}
+
+// UpsertFleetMetricRollups mocks base method.
+func (m *MockTelemetryDataStore) UpsertFleetMetricRollups(ctx context.Context, startTime, endTime time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertFleetMetricRollups", ctx, startTime, endTime)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertFleetMetricRollups indicates an expected call of UpsertFleetMetricRollups.
+func (mr *MockTelemetryDataStoreMockRecorder) UpsertFleetMetricRollups(ctx, startTime, endTime any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertFleetMetricRollups", reflect.TypeOf((*MockTelemetryDataStore)(nil).UpsertFleetMetricRollups), ctx, startTime, endTime)
 }
 
 // MockMinerGetter is a mock of MinerGetter interface.

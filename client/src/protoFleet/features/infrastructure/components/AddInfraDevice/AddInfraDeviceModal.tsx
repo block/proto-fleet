@@ -1,16 +1,25 @@
 import { useCallback, useState } from "react";
 
 import ManualAddStep, { type ManualAddStepState } from "./ManualAddStep";
-import type { InfraDeviceDraft } from "@/protoFleet/features/infrastructure/types";
+import type { InfraBuildingOption, InfraDeviceDraft } from "@/protoFleet/features/infrastructure/types";
 import { variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 
 interface AddInfraDeviceModalProps {
+  siteOptions?: string[];
+  buildingOptions?: InfraBuildingOption[];
+  initialSiteName?: string;
   onDismiss: () => void;
   onSuccess: (device: InfraDeviceDraft) => void;
 }
 
-const AddInfraDeviceModal = ({ onDismiss, onSuccess }: AddInfraDeviceModalProps) => {
+const AddInfraDeviceModal = ({
+  siteOptions = [],
+  buildingOptions = [],
+  initialSiteName,
+  onDismiss,
+  onSuccess,
+}: AddInfraDeviceModalProps) => {
   const [canAdd, setCanAdd] = useState(false);
   const [addHandler, setAddHandler] = useState<(() => void) | null>(null);
 
@@ -24,7 +33,7 @@ const AddInfraDeviceModal = ({ onDismiss, onSuccess }: AddInfraDeviceModalProps)
       open
       onDismiss={onDismiss}
       title="Add infrastructure device"
-      description="Add a single fan or fan group controlled through a bridge or PLC."
+      description="Add a single fan or fan group controlled through a drive, bridge, or PLC."
       buttons={[
         {
           text: "Add device",
@@ -35,7 +44,13 @@ const AddInfraDeviceModal = ({ onDismiss, onSuccess }: AddInfraDeviceModalProps)
         },
       ]}
     >
-      <ManualAddStep onSuccess={onSuccess} onStateChange={handleManualStateChange} />
+      <ManualAddStep
+        siteOptions={siteOptions}
+        buildingOptions={buildingOptions}
+        initialSiteName={initialSiteName}
+        onSuccess={onSuccess}
+        onStateChange={handleManualStateChange}
+      />
     </Modal>
   );
 };

@@ -144,7 +144,7 @@ func TestResponseProfileService_CreateAppliesBackendBatchDefaultsWithoutOverwrit
 	require.NotNil(t, profile)
 	assert.Nil(t, profile.CurtailBatchSize)
 	assert.Equal(t, DefaultResponseProfileCurtailBatchIntervalSec, profile.CurtailBatchIntervalSec)
-	assert.Equal(t, DefaultResponseProfileRestoreBatchSize, profile.RestoreBatchSize)
+	assert.Equal(t, int32(0), profile.RestoreBatchSize)
 	assert.Equal(t, int32(0), profile.RestoreBatchIntervalSec)
 	assert.Equal(t, int32(0), profile.PostEventCooldownSec)
 }
@@ -163,7 +163,7 @@ func TestResponseProfileService_UpdatePreservesImmediateRestoreInterval(t *testi
 			ProfileName:             "Standard shed",
 			Mode:                    models.ModeFixedKw,
 			TargetKW:                &targetKW,
-			RestoreBatchSize:        DefaultResponseProfileRestoreBatchSize,
+			RestoreBatchSize:        0,
 			RestoreBatchIntervalSec: 0,
 		},
 	})
@@ -171,8 +171,10 @@ func TestResponseProfileService_UpdatePreservesImmediateRestoreInterval(t *testi
 	require.NoError(t, err)
 	require.NotNil(t, profile)
 	assert.Equal(t, int32(0), profile.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), profile.RestoreBatchSize)
 	require.NotNil(t, store.updated)
 	assert.Equal(t, int32(0), store.updated.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), store.updated.RestoreBatchSize)
 }
 
 func TestResponseProfileService_CreateRejectsUnknownSite(t *testing.T) {
@@ -309,6 +311,14 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 			},
 		},
 		{
+			name: "all paired policy",
+			mutate: func(profile *models.ResponseProfile) {
+				profile.Mode = models.ModeFullFleet
+				profile.TargetKW = nil
+				profile.ForceIncludeAllPairedMiners = true
+			},
+		},
+		{
 			name: "full fleet mode",
 			mutate: func(profile *models.ResponseProfile) {
 				profile.Mode = models.ModeFullFleet
@@ -337,6 +347,26 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 			assert.True(t, fleeterror.IsForbiddenError(err))
 		})
 	}
+}
+
+func TestResponseProfileService_CreateRejectsAllPairedPolicyOutsideFullFleet(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 1000.0
+	_, err := NewResponseProfileService(newResponseProfileFakeStore()).Create(t.Context(), SaveResponseProfileRequest{
+		CanUseAdminControls: true,
+		Profile: models.ResponseProfile{
+			OrgID:                       42,
+			ProfileName:                 "Standard shed",
+			Mode:                        models.ModeFixedKw,
+			TargetKW:                    &targetKW,
+			ForceIncludeAllPairedMiners: true,
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "force_include_all_paired_miners")
 }
 
 func TestResponseProfileService_CreateRejectsCurtailIntervalWithoutBatchSize(t *testing.T) {

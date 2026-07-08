@@ -231,6 +231,7 @@ func jitterRetryDelay(base time.Duration, rng *rand.Rand) time.Duration {
 }
 
 func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClient, host string, messages chan<- observation, subscriptions chan<- struct{}) {
+	w.attachRuntimeStatusReporter(ctx, client, host)
 	retryEvery := w.startupRetryEvery()
 	rng := rand.New(rand.NewSource(time.Now().UnixNano())) //nolint:gosec // jitter only; not security-sensitive
 	for {
@@ -274,6 +275,29 @@ func (w *sourceWorker) connectAndSubscribe(ctx context.Context, client MQTTClien
 		}
 		return
 	}
+}
+
+func (w *sourceWorker) attachRuntimeStatusReporter(ctx context.Context, client MQTTClient, host string) {
+	reportingClient, ok := client.(runtimeStatusReportingMQTTClient)
+	if !ok {
+		return
+	}
+	reportingClient.SetRuntimeStatusReporter(func(connected bool, subscribed bool, err error) {
+		if ctx.Err() != nil {
+			return
+		}
+		errorMessage := ""
+		if err != nil {
+			errorMessage = err.Error()
+		}
+		w.reportRuntimeStatus(RuntimeStatusUpdate{
+			SourceID:   w.source.ID,
+			Broker:     host,
+			Connected:  connected,
+			Subscribed: subscribed,
+			Error:      errorMessage,
+		})
+	})
 }
 
 func (w *sourceWorker) connectAndSubscribeOnce(ctx context.Context, client MQTTClient, host string, messages chan<- observation) error {

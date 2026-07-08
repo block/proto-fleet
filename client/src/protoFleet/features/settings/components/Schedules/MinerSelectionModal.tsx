@@ -1,7 +1,10 @@
 import { useRef, useState } from "react";
 
 import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import MinerSelectionList, { type MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
+import MinerSelectionList, {
+  type FilterConfig,
+  type MinerSelectionListHandle,
+} from "@/protoFleet/components/MinerSelectionList";
 import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import Modal from "@/shared/components/Modal";
 
@@ -18,6 +21,9 @@ interface MinerSelectionModalProps {
   selectedMinerIds: string[];
   // Soft default from the topbar SitePicker; forwarded to MinerSelectionList.
   scope?: SiteFilterFields;
+  // Forwarded to MinerSelectionList to hide facets whose list RPCs the caller
+  // can't call (e.g. rack/group filters need rack:read).
+  filterConfig?: FilterConfig;
   onDismiss: () => void;
   onSave: (selection: MinerSelectionValue) => void;
 }
@@ -27,6 +33,7 @@ const MinerSelectionModal = ({
   allMinersSelected = false,
   selectedMinerIds,
   scope,
+  filterConfig,
   onDismiss,
   onSave,
 }: MinerSelectionModalProps) => {
@@ -81,6 +88,7 @@ const MinerSelectionModal = ({
           initialSelectedItems={selectedMinerIds}
           disableFilteredSelectAll
           scope={scope}
+          filterConfig={filterConfig}
           onSelectionChange={({ selectedItems, allSelected, totalMiners }) =>
             setDraftSelection({ selectedMinerIds: selectedItems, allSelected, totalMiners })
           }

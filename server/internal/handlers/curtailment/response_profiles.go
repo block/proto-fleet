@@ -381,6 +381,7 @@ func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResp
 		msg.GetIncludeMaintenance(),
 		msg.GetForceIncludeMaintenance(),
 		msg.GetPostEventCooldownSec(),
+		msg.GetForceIncludeAllPairedMiners(),
 	)
 	if err != nil {
 		return models.ResponseProfile{}, err
@@ -408,6 +409,7 @@ func responseProfileFromUpdateRequest(orgID int64, msg *pb.UpdateCurtailmentResp
 		msg.GetIncludeMaintenance(),
 		msg.GetForceIncludeMaintenance(),
 		msg.GetPostEventCooldownSec(),
+		msg.GetForceIncludeAllPairedMiners(),
 	)
 }
 
@@ -430,6 +432,7 @@ func responseProfileFromPayload(
 	includeMaintenance bool,
 	forceIncludeMaintenance bool,
 	postEventCooldownSec uint32,
+	forceIncludeAllPairedMiners bool,
 ) (models.ResponseProfile, error) {
 	mode, fixedKw, err := toRequestMode(modeProto, fixedKw, hasModeParams)
 	if err != nil {
@@ -450,7 +453,7 @@ func responseProfileFromPayload(
 	restoreBatchSizeInt, err := optionalUint32ToInt32Default(
 		"restore_batch_size",
 		restoreBatchSize,
-		domainCurtailment.DefaultResponseProfileRestoreBatchSize,
+		0,
 	)
 	if err != nil {
 		return models.ResponseProfile{}, err
@@ -458,7 +461,7 @@ func responseProfileFromPayload(
 	restoreBatchIntervalInt, err := optionalUint32ToInt32Default(
 		"restore_batch_interval_sec",
 		restoreBatchIntervalSec,
-		domainCurtailment.DefaultResponseProfileRestoreBatchIntervalSec,
+		0,
 	)
 	if err != nil {
 		return models.ResponseProfile{}, err
@@ -478,22 +481,23 @@ func responseProfileFromPayload(
 		}
 	}
 	profile := models.ResponseProfile{
-		ID:                      profileID,
-		OrgID:                   orgID,
-		ProfileName:             name,
-		Mode:                    mode,
-		Strategy:                strategyName(strategyProto),
-		Level:                   levelName(levelProto),
-		Priority:                priorityName(priorityProto),
-		TargetKW:                targetKW,
-		ToleranceKW:             toleranceKW,
-		CurtailBatchSize:        curtailBatchSizeInt,
-		CurtailBatchIntervalSec: curtailBatchIntervalInt,
-		RestoreBatchSize:        restoreBatchSizeInt,
-		RestoreBatchIntervalSec: restoreBatchIntervalInt,
-		IncludeMaintenance:      includeMaintenance,
-		ForceIncludeMaintenance: forceIncludeMaintenance,
-		PostEventCooldownSec:    postEventCooldownInt,
+		ID:                          profileID,
+		OrgID:                       orgID,
+		ProfileName:                 name,
+		Mode:                        mode,
+		Strategy:                    strategyName(strategyProto),
+		Level:                       levelName(levelProto),
+		Priority:                    priorityName(priorityProto),
+		TargetKW:                    targetKW,
+		ToleranceKW:                 toleranceKW,
+		CurtailBatchSize:            curtailBatchSizeInt,
+		CurtailBatchIntervalSec:     curtailBatchIntervalInt,
+		RestoreBatchSize:            restoreBatchSizeInt,
+		RestoreBatchIntervalSec:     restoreBatchIntervalInt,
+		IncludeMaintenance:          includeMaintenance,
+		ForceIncludeMaintenance:     forceIncludeMaintenance,
+		ForceIncludeAllPairedMiners: forceIncludeAllPairedMiners,
+		PostEventCooldownSec:        postEventCooldownInt,
 	}
 	if site != nil {
 		siteID := site.GetSiteId()
@@ -522,21 +526,22 @@ func toResponseProfileProto(profile *models.ResponseProfile) *pb.CurtailmentResp
 		return nil
 	}
 	out := &pb.CurtailmentResponseProfile{
-		ProfileId:               profile.ID,
-		ProfileName:             profile.ProfileName,
-		Mode:                    modeProto(profile.Mode),
-		Strategy:                strategyProto(profile.Strategy),
-		Level:                   levelProto(profile.Level),
-		Priority:                priorityProto(profile.Priority),
-		CurtailBatchSize:        uint32PtrSaturating(profile.CurtailBatchSize),
-		CurtailBatchIntervalSec: uint32Saturating(profile.CurtailBatchIntervalSec),
-		RestoreBatchSize:        uint32Saturating(profile.RestoreBatchSize),
-		RestoreBatchIntervalSec: uint32Saturating(profile.RestoreBatchIntervalSec),
-		IncludeMaintenance:      profile.IncludeMaintenance,
-		ForceIncludeMaintenance: profile.ForceIncludeMaintenance,
-		PostEventCooldownSec:    uint32Saturating(profile.PostEventCooldownSec),
-		CreatedAt:               profileTimeProto(profile.CreatedAt),
-		UpdatedAt:               profileTimeProto(profile.UpdatedAt),
+		ProfileId:                   profile.ID,
+		ProfileName:                 profile.ProfileName,
+		Mode:                        modeProto(profile.Mode),
+		Strategy:                    strategyProto(profile.Strategy),
+		Level:                       levelProto(profile.Level),
+		Priority:                    priorityProto(profile.Priority),
+		CurtailBatchSize:            uint32PtrSaturating(profile.CurtailBatchSize),
+		CurtailBatchIntervalSec:     uint32Saturating(profile.CurtailBatchIntervalSec),
+		RestoreBatchSize:            uint32Saturating(profile.RestoreBatchSize),
+		RestoreBatchIntervalSec:     uint32Saturating(profile.RestoreBatchIntervalSec),
+		IncludeMaintenance:          profile.IncludeMaintenance,
+		ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
+		PostEventCooldownSec:        uint32Saturating(profile.PostEventCooldownSec),
+		CreatedAt:                   profileTimeProto(profile.CreatedAt),
+		UpdatedAt:                   profileTimeProto(profile.UpdatedAt),
 	}
 	if profile.SiteID != nil {
 		out.Site = &pb.ScopeSite{SiteId: *profile.SiteID}

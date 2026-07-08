@@ -25,11 +25,14 @@ interface SiteMetricsRowProps {
   buildingCount: number;
   // `undefined` while metrics are still loading; the children render skeletons.
   metrics: SiteMetricsRowMetrics | undefined;
+  // Tile size. Defaults to the large `default` Metric scale used on the Sites
+  // list; the site detail page passes `compact` for its tighter header strip.
+  variant?: "default" | "compact";
   testId?: string;
 }
 
-// Five metrics in the per-site header: Location, Hashrate, Power (used /
-// capacity MW), Efficiency, Buildings. The shared Metric primitive
+// Five metrics in the per-site header: Location, Buildings, Hashrate, Power
+// (used / capacity MW), Efficiency. The shared Metric primitive
 // handles the skeleton vs em-dash vs value rendering so all five tiles
 // stay aligned during loading.
 const SiteMetricsRow = ({
@@ -38,6 +41,7 @@ const SiteMetricsRow = ({
   powerCapacityMw,
   buildingCount,
   metrics,
+  variant = "default",
   testId,
 }: SiteMetricsRowProps) => {
   const location = formatLocation(locationCity, locationState);
@@ -57,11 +61,11 @@ const SiteMetricsRow = ({
       className="grid grid-cols-2 gap-6 tablet:grid-cols-3 laptop:grid-cols-5"
       data-testid={testId ?? "site-metrics-row"}
     >
-      <Metric label="Location" value={location} testId="site-metric-location" />
-      <Metric label="Hashrate" value={hashrate} testId="site-metric-hashrate" />
-      <Metric label="Power" value={power} testId="site-metric-power" />
-      <Metric label="Efficiency" value={efficiency} testId="site-metric-efficiency" />
-      <Metric label="Buildings" value={String(buildingCount)} testId="site-metric-buildings" />
+      <Metric label="Location" value={location} variant={variant} testId="site-metric-location" />
+      <Metric label="Buildings" value={String(buildingCount)} variant={variant} testId="site-metric-buildings" />
+      <Metric label="Hashrate" value={hashrate} variant={variant} testId="site-metric-hashrate" />
+      <Metric label="Power" value={power} variant={variant} testId="site-metric-power" />
+      <Metric label="Efficiency" value={efficiency} variant={variant} testId="site-metric-efficiency" />
     </div>
   );
 };

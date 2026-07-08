@@ -12,6 +12,9 @@ dist-ssr
 *.local
 .env
 
+# Local HTTPS dev certificates (generated via mkcert)
+certs
+
 # build directories
 dist
 

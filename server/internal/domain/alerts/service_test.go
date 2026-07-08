@@ -2,7 +2,6 @@ package alerts
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -55,7 +54,7 @@ func TestValidateMaintenanceWindowScope(t *testing.T) {
 }
 
 func TestCreateMaintenanceWindowRejectsTargetlessScope(t *testing.T) {
-	svc := NewService(nil, DestinationPolicy{})
+	svc := NewService(nil, nil, nil, nil, DestinationPolicy{})
 	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
 		Scope: MaintenanceWindowScope{Kind: MaintenanceWindowScopeGroup},
 	})
@@ -184,7 +183,7 @@ func TestValidateDestination(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := NewService(nil, tc.policy)
+			svc := NewService(nil, nil, nil, nil, tc.policy)
 			err := svc.validateDestination(context.Background(), &tc.channel)
 			if tc.wantErr {
 				require.Error(t, err)
@@ -196,330 +195,13 @@ func TestValidateDestination(t *testing.T) {
 	}
 }
 
-func TestCreateChannelRejectsDuplicateName(t *testing.T) {
-	listed := []GrafanaContactPoint{{
-		UID:      "cp-1",
-		Name:     "org-7-pager",
-		Type:     "webhook",
-		Settings: json.RawMessage(`{"url": "https://hooks.example.com/x"}`),
-	}}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/provisioning/contact-points", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(listed))
-	})
-	mux.HandleFunc("POST /api/v1/provisioning/contact-points", func(_ http.ResponseWriter, _ *http.Request) {
-		t.Fatal("must not create a contact point when the name already exists")
-	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{AllowPrivateDestinations: true})
+func TestValidateChannelNameRejectsTransientPattern(t *testing.T) {
+	require.NoError(t, validateChannelName("ops"))
+	require.NoError(t, validateChannelName("test-pager"), "a test-* name that isn't a transient UUID is user-allowed")
 
-	_, err := svc.CreateChannel(context.Background(), 7, Channel{
-		Name:    "pager",
-		Kind:    ChannelKindWebhook,
-		Webhook: &WebhookConfig{URL: "https://hooks.example.com/y"},
-	})
+	err := validateChannelName("test-550e8400-e29b-41d4-a716-446655440000")
 	require.Error(t, err)
-	assert.True(t, fleeterror.IsAlreadyExistsError(err), "duplicate channel name must be rejected as already-exists")
-}
-
-func TestCreateChannelAllowsDuplicateNameInDifferentOrg(t *testing.T) {
-	// org 8 owns "pager"; org 7 creating "pager" is a different org-prefixed name.
-	listed := []GrafanaContactPoint{{UID: "cp-1", Name: "org-8-pager", Type: "webhook", Settings: json.RawMessage(`{"url":"https://x"}`)}}
-	var created bool
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/provisioning/contact-points", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(listed))
-	})
-	mux.HandleFunc("POST /api/v1/provisioning/contact-points", func(w http.ResponseWriter, r *http.Request) {
-		created = true
-		var cp GrafanaContactPoint
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&cp))
-		assert.Equal(t, "org-7-pager", cp.Name)
-		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(cp))
-	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{AllowPrivateDestinations: true})
-
-	_, err := svc.CreateChannel(context.Background(), 7, Channel{
-		Name:    "pager",
-		Kind:    ChannelKindWebhook,
-		Webhook: &WebhookConfig{URL: "https://hooks.example.com/y"},
-	})
-	require.NoError(t, err)
-	assert.True(t, created, "a name owned only by another org must not block creation")
-}
-
-func TestReceiverTestErrorScrubsDestinationURL(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /apis/notifications.alerting.grafana.app/v1beta1/namespaces/default/receivers/{name}/test",
-		func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			// Grafana can echo the outbound URL in the error string.
-			_, _ = w.Write([]byte(`{"status":"failure","error":"Post \"https://hooks.slack.com/services/T1/B2/SECRET\": i/o timeout"}`))
-		})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	g := NewGrafana(GrafanaConfig{URL: srv.URL})
-
-	res, err := g.TestReceiverIntegration(context.Background(), "org-1-x", "slack", json.RawMessage(`{}`))
-	require.NoError(t, err)
-	assert.False(t, res.OK)
-	assert.NotContains(t, res.Error, "hooks.slack.com", "the destination URL must be scrubbed from the test error")
-	assert.Contains(t, res.Error, "[REDACTED-URL]")
-}
-
-func fakeGrafana(t *testing.T, listed []GrafanaContactPoint, putBody *[]byte) *Grafana {
-	t.Helper()
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/provisioning/contact-points", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(listed))
-	})
-	mux.HandleFunc("PUT /api/v1/provisioning/contact-points/{uid}", func(w http.ResponseWriter, r *http.Request) {
-		b, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		*putBody = b
-		w.Header().Set("Content-Type", "application/json")
-		var cp GrafanaContactPoint
-		require.NoError(t, json.Unmarshal(b, &cp))
-		require.NoError(t, json.NewEncoder(w).Encode(cp))
-	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return NewGrafana(GrafanaConfig{URL: srv.URL})
-}
-
-func TestUpdateChannelRejectsRenameToExistingName(t *testing.T) {
-	listed := []GrafanaContactPoint{
-		{UID: "cp-1", Name: "org-7-pager", Type: "webhook", Settings: json.RawMessage(`{"url":"https://a.example.com"}`)},
-		{UID: "cp-2", Name: "org-7-oncall", Type: "webhook", Settings: json.RawMessage(`{"url":"https://b.example.com"}`)},
-	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/provisioning/contact-points", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(listed))
-	})
-	mux.HandleFunc("PUT /api/v1/provisioning/contact-points/{uid}", func(_ http.ResponseWriter, _ *http.Request) {
-		t.Fatal("must not update when the renamed channel collides with another")
-	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{AllowPrivateDestinations: true})
-
-	// Rename "oncall" (cp-2) to "pager", already owned by cp-1.
-	_, err := svc.UpdateChannel(context.Background(), 7, Channel{
-		ID: "cp-2", Name: "pager", Kind: ChannelKindWebhook, Webhook: &WebhookConfig{URL: "https://b.example.com"},
-	})
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsAlreadyExistsError(err), "renaming onto another channel's name must be rejected")
-}
-
-func TestUpdateChannelPreservesWebhookSecret(t *testing.T) {
-	existing := []GrafanaContactPoint{{
-		UID:  "cp-1",
-		Name: "org-7-pager",
-		Type: "webhook",
-		Settings: json.RawMessage(`{
-			"url": "https://hooks.example.com/old",
-			"authorization_scheme": "Bearer",
-			"authorization_credentials": "[REDACTED]"
-		}`),
-	}}
-	var putBody []byte
-	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{AllowPrivateDestinations: true})
-
-	updated, err := svc.UpdateChannel(context.Background(), 7, Channel{
-		ID:      "cp-1",
-		Name:    "pager",
-		Kind:    ChannelKindWebhook,
-		Webhook: &WebhookConfig{URL: "https://hooks.example.com/old"},
-	})
-	require.NoError(t, err)
-	assert.True(t, updated.HasSecret)
-
-	var sent struct {
-		Settings map[string]any `json:"settings"`
-	}
-	require.NoError(t, json.Unmarshal(putBody, &sent))
-	assert.Equal(t, "[REDACTED]", sent.Settings["authorization_credentials"],
-		"update without a new secret must carry the redacted placeholder so Grafana keeps the stored credential")
-	assert.Equal(t, "https://hooks.example.com/old", sent.Settings["url"])
-}
-
-func TestUpdateChannelDropsSecretOnDestinationChange(t *testing.T) {
-	existing := []GrafanaContactPoint{{
-		UID:  "cp-1",
-		Name: "org-7-pager",
-		Type: "webhook",
-		Settings: json.RawMessage(`{
-			"url": "https://hooks.example.com/old",
-			"authorization_scheme": "Bearer",
-			"authorization_credentials": "[REDACTED]"
-		}`),
-	}}
-	var putBody []byte
-	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{AllowPrivateDestinations: true})
-
-	updated, err := svc.UpdateChannel(context.Background(), 7, Channel{
-		ID:      "cp-1",
-		Name:    "pager",
-		Kind:    ChannelKindWebhook,
-		Webhook: &WebhookConfig{URL: "https://hooks.example.com/new"},
-	})
-	require.NoError(t, err)
-	assert.False(t, updated.HasSecret)
-
-	var sent struct {
-		Settings map[string]any `json:"settings"`
-	}
-	require.NoError(t, json.Unmarshal(putBody, &sent))
-	assert.Empty(t, sent.Settings["authorization_credentials"],
-		"a destination change without a fresh secret must wipe the stored credential, not carry the placeholder")
-	assert.Equal(t, "https://hooks.example.com/new", sent.Settings["url"])
-}
-
-func TestTestChannelReplaysStoredIntegrationForSavedChannel(t *testing.T) {
-	// A read redacts the Slack url secret, so the saved-channel test can't rebuild
-	// the body from it — it must replay the stored integration (uid + secureFields)
-	// so Grafana reuses the secret. Sending the redacted value back fails delivery.
-	// Name chosen so std base64 yields a '/' ("b3JnLTctYWE/") — URL-safe encoding
-	// (which Grafana uses) must be applied so the receiver stays one path segment.
-	const grafanaName = "org-7-aa?"
-	// The contact-point uid the caller owns equals the integration uid.
-	listed := []GrafanaContactPoint{{
-		UID:      "int-1",
-		Name:     grafanaName,
-		Type:     "slack",
-		Settings: json.RawMessage(`{"url": "[REDACTED]"}`),
-	}}
-	// Two integrations share this receiver (same display name); the requested one
-	// ("int-1") is not first, so testing Integrations[0] would hit the wrong target.
-	const storedIntegrations = `{"type":"webhook","version":"v1","uid":"int-2","settings":{"url":"http://other.example.com"},"secureFields":{}},` +
-		`{"type":"slack","version":"v1","uid":"int-1","settings":{},"secureFields":{"url":true}}`
-	name := base64.RawURLEncoding.EncodeToString([]byte(grafanaName))
-	require.NotContains(t, name, "/", "receiver path segment must be URL-safe")
-
-	var testedBody []byte
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/provisioning/contact-points", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(listed))
-	})
-	mux.HandleFunc("GET /apis/notifications.alerting.grafana.app/v1beta1/namespaces/default/receivers/{name}",
-		func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, name, r.PathValue("name"), "saved-channel test must address the receiver by base64(name)")
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"spec":{"integrations":[` + storedIntegrations + `]}}`))
-		})
-	mux.HandleFunc("POST /apis/notifications.alerting.grafana.app/v1beta1/namespaces/default/receivers/{name}/test",
-		func(w http.ResponseWriter, r *http.Request) {
-			testedBody, _ = io.ReadAll(r.Body)
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"status":"success"}`))
-		})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{})
-
-	ok, _, _, err := svc.TestChannel(context.Background(), 7, Channel{ID: "int-1", Name: "pager", Kind: ChannelKindSlack})
-	require.NoError(t, err)
-	assert.True(t, ok)
-
-	var sent struct {
-		Integration struct {
-			UID          string          `json:"uid"`
-			SecureFields map[string]bool `json:"secureFields"`
-			Settings     map[string]any  `json:"settings"`
-		} `json:"integration"`
-	}
-	require.NoError(t, json.Unmarshal(testedBody, &sent))
-	assert.Equal(t, "int-1", sent.Integration.UID, "must test the requested integration, not the first under the receiver")
-	assert.True(t, sent.Integration.SecureFields["url"], "the secret must be reused via secureFields, not sent as a redacted value")
-	assert.NotContains(t, sent.Integration.Settings, "url", "a redacted url must never be sent as the destination")
-}
-
-func TestTestChannelBeforeSaveUsesTransientReceiver(t *testing.T) {
-	var createdName, testedName, deletedUID string
-	var testedBody []byte
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/provisioning/contact-points", func(w http.ResponseWriter, r *http.Request) {
-		var cp GrafanaContactPoint
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&cp))
-		createdName = cp.Name
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"uid":"tmp-uid","name":"` + cp.Name + `"}`))
-	})
-	mux.HandleFunc("POST /apis/notifications.alerting.grafana.app/v1beta1/namespaces/default/receivers/{name}/test",
-		func(w http.ResponseWriter, r *http.Request) {
-			testedName = r.PathValue("name")
-			testedBody, _ = io.ReadAll(r.Body)
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"status":"success"}`))
-		})
-	mux.HandleFunc("DELETE /api/v1/provisioning/contact-points/{uid}", func(w http.ResponseWriter, r *http.Request) {
-		deletedUID = r.PathValue("uid")
-		w.WriteHeader(http.StatusAccepted)
-	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	// Allow the loopback destination so the SSRF pre-flight doesn't reject the test URL.
-	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{AllowPrivateDestinations: true})
-
-	ok, code, _, err := svc.TestChannel(context.Background(), 7, Channel{
-		Name:    "pager",
-		Kind:    ChannelKindWebhook,
-		Webhook: &WebhookConfig{URL: "http://127.0.0.1/hook"},
-	})
-	require.NoError(t, err)
-	assert.True(t, ok)
-	assert.Equal(t, 200, code)
-
-	assert.True(t, strings.HasPrefix(createdName, "org-7-test-"),
-		"transient receiver must keep the org prefix so isolation holds, got %q", createdName)
-	assert.Equal(t, base64.RawURLEncoding.EncodeToString([]byte(createdName)), testedName,
-		"test must address the transient receiver by base64(name)")
-	assert.Equal(t, "tmp-uid", deletedUID, "the transient receiver must be torn down after the test")
-
-	var sent struct {
-		Integration struct {
-			Settings map[string]any `json:"settings"`
-		} `json:"integration"`
-	}
-	require.NoError(t, json.Unmarshal(testedBody, &sent))
-	assert.Equal(t, "http://127.0.0.1/hook", sent.Integration.Settings["url"])
-}
-
-func TestTestChannelRejectsForeignSavedChannel(t *testing.T) {
-	listed := []GrafanaContactPoint{{
-		UID:      "cp-1",
-		Name:     "org-8-pager",
-		Type:     "webhook",
-		Settings: json.RawMessage(`{"url": "https://hooks.example.com/x"}`),
-	}}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/provisioning/contact-points", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(listed))
-	})
-	mux.HandleFunc("POST /apis/notifications.alerting.grafana.app/v1beta1/namespaces/default/receivers/{name}/test",
-		func(_ http.ResponseWriter, _ *http.Request) {
-			t.Fatal("test endpoint must not be called for a foreign channel")
-		})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{})
-
-	_, _, _, err := svc.TestChannel(context.Background(), 7, Channel{
-		ID: "cp-1", Name: "pager", Kind: ChannelKindWebhook,
-		Webhook: &WebhookConfig{URL: "https://hooks.example.com"},
-	})
-	require.ErrorIs(t, err, ErrNotFound)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
 func TestRedactWebhookURL(t *testing.T) {
@@ -535,191 +217,6 @@ func TestRedactWebhookURL(t *testing.T) {
 	for in, want := range cases {
 		assert.Equalf(t, want, redactWebhookURL(in), "redactWebhookURL(%q)", in)
 	}
-}
-
-func TestListChannelsRedactsWebhookURL(t *testing.T) {
-	existing := []GrafanaContactPoint{{
-		UID:      "cp-1",
-		Name:     "org-7-pager",
-		Type:     "webhook",
-		Settings: json.RawMessage(`{"url": "https://hooks.slack.com/services/T1/B2/SECRET"}`),
-	}}
-	var putBody []byte
-	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{})
-
-	channels, err := svc.ListChannels(context.Background(), 7)
-	require.NoError(t, err)
-	require.Len(t, channels, 1)
-	assert.Equal(t, "https://hooks.slack.com", channels[0].Webhook.URL)
-}
-
-func TestUpdateChannelPreservesWebhookURLOnRename(t *testing.T) {
-	const fullURL = "https://hooks.slack.com/services/T1/B2/SECRET"
-	existing := []GrafanaContactPoint{{
-		UID:      "cp-1",
-		Name:     "org-7-pager",
-		Type:     "webhook",
-		Settings: json.RawMessage(`{"url": "` + fullURL + `", "authorization_credentials": "[REDACTED]"}`),
-	}}
-	var putBody []byte
-	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{})
-
-	_, err := svc.UpdateChannel(context.Background(), 7, Channel{
-		ID:      "cp-1",
-		Name:    "renamed-pager",
-		Kind:    ChannelKindWebhook,
-		Webhook: &WebhookConfig{URL: "https://hooks.slack.com"},
-	})
-	require.NoError(t, err)
-
-	var sent struct {
-		Settings map[string]any `json:"settings"`
-	}
-	require.NoError(t, json.Unmarshal(putBody, &sent))
-	assert.Equal(t, fullURL, sent.Settings["url"], "rename must keep the stored full URL, not the redacted host")
-}
-
-func TestListChannelsHidesSlackURL(t *testing.T) {
-	existing := []GrafanaContactPoint{{
-		UID:      "cp-3",
-		Name:     "org-7-oncall-slack",
-		Type:     "slack",
-		Settings: json.RawMessage(`{"url": "[REDACTED]"}`),
-	}}
-	var putBody []byte
-	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{})
-
-	channels, err := svc.ListChannels(context.Background(), 7)
-	require.NoError(t, err)
-	require.Len(t, channels, 1)
-	assert.Equal(t, ChannelKindSlack, channels[0].Kind)
-	require.NotNil(t, channels[0].Slack)
-	assert.Empty(t, channels[0].Slack.WebhookURL)
-	assert.True(t, channels[0].HasSecret)
-}
-
-func TestUpdateChannelPreservesSlackURLOnRename(t *testing.T) {
-	existing := []GrafanaContactPoint{{
-		UID:      "cp-3",
-		Name:     "org-7-oncall-slack",
-		Type:     "slack",
-		Settings: json.RawMessage(`{"url": "[REDACTED]"}`),
-	}}
-	var putBody []byte
-	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{})
-
-	updated, err := svc.UpdateChannel(context.Background(), 7, Channel{
-		ID:    "cp-3",
-		Name:  "renamed-slack",
-		Kind:  ChannelKindSlack,
-		Slack: &SlackConfig{},
-	})
-	require.NoError(t, err)
-	assert.True(t, updated.HasSecret)
-
-	var sent struct {
-		Settings map[string]any `json:"settings"`
-	}
-	require.NoError(t, json.Unmarshal(putBody, &sent))
-	assert.Equal(t, "[REDACTED]", sent.Settings["url"],
-		"rename must carry the redacted placeholder so Grafana keeps the stored URL")
-}
-
-func TestUpdateChannelReplacesSlackURL(t *testing.T) {
-	existing := []GrafanaContactPoint{{
-		UID:      "cp-3",
-		Name:     "org-7-oncall-slack",
-		Type:     "slack",
-		Settings: json.RawMessage(`{"url": "[REDACTED]"}`),
-	}}
-	var putBody []byte
-	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{AllowPrivateDestinations: true})
-
-	updated, err := svc.UpdateChannel(context.Background(), 7, Channel{
-		ID:    "cp-3",
-		Name:  "oncall-slack",
-		Kind:  ChannelKindSlack,
-		Slack: &SlackConfig{WebhookURL: "https://hooks.example.com/services/T1/B2/fresh"},
-	})
-	require.NoError(t, err)
-	assert.True(t, updated.HasSecret)
-
-	var sent struct {
-		Settings map[string]any `json:"settings"`
-	}
-	require.NoError(t, json.Unmarshal(putBody, &sent))
-	assert.Equal(t, "https://hooks.example.com/services/T1/B2/fresh", sent.Settings["url"])
-}
-
-func TestUpdateChannelChangingToWebhookRequiresFreshURL(t *testing.T) {
-	existing := []GrafanaContactPoint{{
-		UID:      "cp-3",
-		Name:     "org-7-oncall-slack",
-		Type:     "slack",
-		Settings: json.RawMessage(`{"url": "https://hooks.slack.com/services/secret"}`),
-	}}
-	var putBody []byte
-	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{AllowPrivateDestinations: true})
-
-	_, err := svc.UpdateChannel(context.Background(), 7, Channel{
-		ID:      "cp-3",
-		Name:    "oncall-webhook",
-		Kind:    ChannelKindWebhook,
-		Webhook: &WebhookConfig{},
-	})
-	require.Error(t, err, "changing kind to webhook with no URL must not reuse the stored Slack URL")
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Nil(t, putBody, "no contact point should be written")
-}
-
-func TestUpdateChannelReplacesSecretWhenProvided(t *testing.T) {
-	existing := []GrafanaContactPoint{{
-		UID:  "cp-1",
-		Name: "org-7-pager",
-		Type: "webhook",
-		Settings: json.RawMessage(`{
-			"url": "https://hooks.example.com/old",
-			"authorization_scheme": "Bearer",
-			"authorization_credentials": "[REDACTED]"
-		}`),
-	}}
-	var putBody []byte
-	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{AllowPrivateDestinations: true})
-
-	updated, err := svc.UpdateChannel(context.Background(), 7, Channel{
-		ID:      "cp-1",
-		Name:    "pager",
-		Kind:    ChannelKindWebhook,
-		Webhook: &WebhookConfig{URL: "https://hooks.example.com/old", BearerHeader: "fresh-token"},
-	})
-	require.NoError(t, err)
-	assert.True(t, updated.HasSecret)
-
-	var sent struct {
-		Settings map[string]any `json:"settings"`
-	}
-	require.NoError(t, json.Unmarshal(putBody, &sent))
-	assert.Equal(t, "fresh-token", sent.Settings["authorization_credentials"])
-}
-
-func TestUpdateChannelRejectsForeignOrg(t *testing.T) {
-	existing := []GrafanaContactPoint{{
-		UID:      "cp-1",
-		Name:     "org-8-pager",
-		Type:     "webhook",
-		Settings: json.RawMessage(`{"url": "https://hooks.example.com/hook"}`),
-	}}
-	var putBody []byte
-	svc := NewService(fakeGrafana(t, existing, &putBody), DestinationPolicy{AllowPrivateDestinations: true})
-
-	_, err := svc.UpdateChannel(context.Background(), 7, Channel{
-		ID:      "cp-1",
-		Name:    "pager",
-		Kind:    ChannelKindWebhook,
-		Webhook: &WebhookConfig{URL: "https://hooks.example.com/hook"},
-	})
-	require.ErrorIs(t, err, ErrNotFound)
-	assert.Nil(t, putBody, "no PUT should reach Grafana for a foreign org's channel")
 }
 
 func fakeGrafanaSilences(t *testing.T, listed []GrafanaSilence, postBody *[]byte) *Grafana {
@@ -760,7 +257,7 @@ func TestUpdateMaintenanceWindowPreservesCreator(t *testing.T) {
 		},
 	}}
 	var postBody []byte
-	svc := NewService(fakeGrafanaSilences(t, existing, &postBody), DestinationPolicy{})
+	svc := NewService(fakeGrafanaSilences(t, existing, &postBody), nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
 		ID:       "sil-1",
@@ -803,7 +300,7 @@ func TestListMaintenanceWindowsIgnoresUnmarkedSilences(t *testing.T) {
 		},
 	}
 	var postBody []byte
-	svc := NewService(fakeGrafanaSilences(t, listed, &postBody), DestinationPolicy{})
+	svc := NewService(fakeGrafanaSilences(t, listed, &postBody), nil, nil, nil, DestinationPolicy{})
 
 	out, err := svc.ListMaintenanceWindows(context.Background(), 7)
 	require.NoError(t, err)
@@ -837,7 +334,7 @@ func TestListRulesFailsClosedWhenSilencesUnavailable(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{})
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.ListRules(context.Background(), 7)
 	require.Error(t, err, "ListRules must fail closed when pause-silence state can't be loaded")
@@ -872,7 +369,7 @@ func TestListRulesIgnoresExpiredPauseSilence(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), DestinationPolicy{})
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), nil, nil, nil, DestinationPolicy{})
 
 	out, err := svc.ListRules(context.Background(), 7)
 	require.NoError(t, err)
@@ -909,7 +406,7 @@ func TestPauseSilenceRecordsActor(t *testing.T) {
 // check as PauseRule, so a manage user can't silence a rule they can't list.
 func TestMaintenanceWindowRequiresVisibleRule(t *testing.T) {
 	var postBody []byte
-	svc := NewService(fakeGrafanaSilences(t, nil, &postBody), DestinationPolicy{})
+	svc := NewService(fakeGrafanaSilences(t, nil, &postBody), nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
 		Scope:    MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-does-not-exist"},
@@ -932,7 +429,7 @@ func TestMaintenanceWindowRejectsInvalidTimes(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			var postBody []byte
-			svc := NewService(fakeGrafanaSilences(t, nil, &postBody), DestinationPolicy{})
+			svc := NewService(fakeGrafanaSilences(t, nil, &postBody), nil, nil, nil, DestinationPolicy{})
 			tc.Scope = MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-9"}
 			_, err := svc.CreateMaintenanceWindow(context.Background(), 7, tc)
 			require.Error(t, err)
@@ -947,7 +444,7 @@ func TestMaintenanceWindowRejectsInvalidTimes(t *testing.T) {
 // window hidden from the list / overlaid as a paused rule.
 func TestMaintenanceWindowRejectsPauseMarkerComment(t *testing.T) {
 	var postBody []byte
-	svc := NewService(fakeGrafanaSilences(t, nil, &postBody), DestinationPolicy{})
+	svc := NewService(fakeGrafanaSilences(t, nil, &postBody), nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
 		Comment: pauseSilenceCommentMarker + " sneaky",

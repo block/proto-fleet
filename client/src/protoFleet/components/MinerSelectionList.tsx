@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { clone, create } from "@bufbuild/protobuf";
 
+import { useBuildings } from "@/protoFleet/api/buildings";
 import {
   SortConfigSchema,
   SortDirection as SortDirectionProto,
@@ -13,19 +14,34 @@ import {
   MinerListFilterSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import { INACTIVE_PLACEHOLDER } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
-import { getMinerGroupLabels, getMinerRackLabel } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
+import {
+  getMinerBuildingId,
+  getMinerBuildingLabel,
+  getMinerGroupLabels,
+  getMinerRackId,
+  getMinerRackLabel,
+  getMinerSiteId,
+  getMinerSiteLabel,
+  isPlacementIneligible,
+  type MinerEligibility,
+} from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
+import { useHasPermission } from "@/protoFleet/store";
 
-import { ChevronDown } from "@/shared/assets/icons";
+import { Alert, ChevronDown, Info, Plus } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Dialog from "@/shared/components/Dialog";
 import List from "@/shared/components/List";
-import type { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
+import type { ActiveFilters, FilterItem, NestedFilterChildItem } from "@/shared/components/List/Filters/types";
 import type { ColConfig, ColTitles, SortDirection } from "@/shared/components/List/types";
 import { ModalSelectAllFooter } from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import Switch from "@/shared/components/Switch";
+import { expandSubnetLineToCidrs, normalizeSubnetLine, validateSubnetLine } from "@/shared/utils/filterValidation";
 
 // --- Exported types ---
 
@@ -35,14 +51,27 @@ export type DeviceListItem = {
   model: string;
   ipAddress: string;
   rackLabel: string;
+  siteLabel: string;
+  buildingLabel: string;
   groupLabels: string[];
+  // Placement identity (id-based), undefined when the miner is unassigned at
+  // that level. Drives eligibility checks that can't rely on labels (a
+  // same-named rack in another building would otherwise slip past).
+  rackId?: bigint;
+  siteId?: bigint;
+  buildingId?: bigint;
 };
 
 export type FilterConfig = {
   showTypeFilter?: boolean;
   showRackFilter?: boolean;
   showGroupFilter?: boolean;
+  showSubnetFilter?: boolean;
+  showSiteFilter?: boolean;
+  showBuildingFilter?: boolean;
 };
+
+export type { MinerEligibility };
 
 export interface MinerSelectionListHandle {
   getSelection: () => {
@@ -50,6 +79,17 @@ export interface MinerSelectionListHandle {
     allSelected: boolean;
     totalMiners: number | undefined;
     filter: MinerListFilter;
+    // Selected ids that are currently assigned to a different rack/building/site
+    // (reassigning them moves them). Covers off-page selections — placement is
+    // tracked for every item seen across pages, and a miner can only be selected
+    // from a page it appeared on.
+    reassignedItems: string[];
+    // True when a placement facet conflicts with the target rack, so the list is
+    // showing an empty "no results" state. The selection is preserved (clearing
+    // the facet restores it), but callers must not act on it — committing would
+    // save a selection the operator can't see. Restored to false once the facet
+    // is cleared or changed.
+    blockedByFilter: boolean;
   };
 }
 
@@ -69,6 +109,15 @@ export interface MinerSelectionListProps {
   // MinerListFilter (AND with the user's model/rack/group facets) so applying a
   // facet never drops the site scope.
   scope?: SiteFilterFields;
+  // Target rack placement. When set, renders a "Show assigned miners" toggle
+  // (default off) that folds rack/building/site eligibility into the server
+  // filter, so miners already assigned to another rack/building/site drop out.
+  // Turning it on surfaces those miners — still selectable (reassigning moves
+  // them, behind a caller confirm) and flagged in orange to show the existing
+  // placement.
+  eligibility?: MinerEligibility;
+  // Label of the target rack, shown in the assignment-conflict dialog.
+  targetRackLabel?: string;
   onSelectionChange?: (state: {
     selectedItems: string[];
     allSelected: boolean;
@@ -81,8 +130,10 @@ export interface MinerSelectionListProps {
 const modalCols = {
   name: "name",
   type: "type",
-  rack: "rack",
   ipAddress: "ipAddress",
+  site: "site",
+  building: "building",
+  rack: "rack",
   group: "group",
 } as const;
 
@@ -91,16 +142,20 @@ type ModalColumn = (typeof modalCols)[keyof typeof modalCols];
 const modalColTitles: ColTitles<ModalColumn> = {
   name: "Name",
   type: "Model",
-  rack: "Rack",
   ipAddress: "IP address",
+  site: "Site",
+  building: "Building",
+  rack: "Rack",
   group: "Group",
 };
 
 const activeCols: ModalColumn[] = [
   modalCols.name,
   modalCols.type,
-  modalCols.rack,
   modalCols.ipAddress,
+  modalCols.site,
+  modalCols.building,
+  modalCols.rack,
   modalCols.group,
 ];
 
@@ -113,13 +168,21 @@ const modalColConfig: ColConfig<DeviceListItem, string, ModalColumn> = {
     component: (device: DeviceListItem) => <span>{device.model || INACTIVE_PLACEHOLDER}</span>,
     width: "min-w-20",
   },
-  [modalCols.rack]: {
-    component: (device: DeviceListItem) => <span>{device.rackLabel || INACTIVE_PLACEHOLDER}</span>,
-    width: "min-w-28",
-  },
   [modalCols.ipAddress]: {
     component: (device: DeviceListItem) => <span>{device.ipAddress || INACTIVE_PLACEHOLDER}</span>,
     width: "min-w-24",
+  },
+  [modalCols.site]: {
+    component: (device: DeviceListItem) => <span>{device.siteLabel || INACTIVE_PLACEHOLDER}</span>,
+    width: "min-w-24",
+  },
+  [modalCols.building]: {
+    component: (device: DeviceListItem) => <span>{device.buildingLabel || INACTIVE_PLACEHOLDER}</span>,
+    width: "min-w-24",
+  },
+  [modalCols.rack]: {
+    component: (device: DeviceListItem) => <span>{device.rackLabel || INACTIVE_PLACEHOLDER}</span>,
+    width: "min-w-28",
   },
   [modalCols.group]: {
     component: (device: DeviceListItem) => {
@@ -146,6 +209,8 @@ const hasUnsupportedAllSelectionFilter = (filter: MinerListFilter): boolean =>
   filter.rackIds.length > 0 ||
   filter.groupIds.length > 0 ||
   filter.siteIds.length > 0 ||
+  filter.buildingIds.length > 0 ||
+  filter.ipCidrs.length > 0 ||
   filter.includeUnassigned;
 
 const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
@@ -154,8 +219,32 @@ const toDeviceListItem = (miner: ProtoMinerStateSnapshot): DeviceListItem => ({
   model: miner.model,
   ipAddress: miner.ipAddress,
   rackLabel: getMinerRackLabel(miner),
+  siteLabel: getMinerSiteLabel(miner),
+  buildingLabel: getMinerBuildingLabel(miner),
   groupLabels: getMinerGroupLabels(miner),
+  rackId: getMinerRackId(miner),
+  siteId: getMinerSiteId(miner),
+  buildingId: getMinerBuildingId(miner),
 });
+
+/** Copy for the assignment-conflict dialog. Lists only the placement levels the
+ *  miner currently occupies, joined naturally, so it reads correctly whether it
+ *  has a site, a site + building, or a full site + building + rack placement. */
+const describeReassignment = (item: DeviceListItem, targetRackLabel?: string): string => {
+  const parts: string[] = [];
+  if (item.siteLabel) parts.push(`site ${item.siteLabel}`);
+  if (item.buildingLabel) parts.push(`building ${item.buildingLabel}`);
+  if (item.rackLabel) parts.push(`rack ${item.rackLabel}`);
+  const current =
+    parts.length === 0
+      ? "its current placement"
+      : parts.length === 1
+        ? parts[0]
+        : `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+  const name = item.name || item.deviceIdentifier;
+  const target = targetRackLabel ? `"${targetRackLabel}"` : "this rack";
+  return `Assigning ${name} to ${target} will unassign it from ${current}.`;
+};
 
 // --- Component ---
 
@@ -171,11 +260,22 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       disableFilteredSelectAll = false,
       showSelectAllFooter = true,
       scope,
+      eligibility,
+      targetRackLabel,
       onSelectionChange,
     },
     ref,
   ) => {
-    const { showTypeFilter = true, showRackFilter = true, showGroupFilter = true } = filterConfig ?? {};
+    const {
+      showTypeFilter = true,
+      showRackFilter: showRackFilterProp = true,
+      showGroupFilter = true,
+      showSubnetFilter = false,
+      showSiteFilter: showSiteFilterProp = false,
+      showBuildingFilter: showBuildingFilterProp = false,
+    } = filterConfig ?? {};
+
+    const canReadSiteCatalog = useHasPermission("site:read");
 
     const scopeSiteIds = useMemo(() => scope?.siteIds ?? [], [scope]);
     const scopeIncludeUnassigned = scope?.includeUnassigned ?? false;
@@ -183,14 +283,48 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // actually changes (siteIds is a fresh bigint[] each render otherwise).
     const scopeKey = `${scopeSiteIds.map(String).join(",")}|${scopeIncludeUnassigned}`;
 
+    // Eligibility ids destructured to primitives so the derived filter memo has
+    // stable deps (the object prop is a fresh reference each render). Presence of
+    // the prop — not whether any id is set — enables the toggle and the rack
+    // exclusion, so a not-yet-placed new rack still filters out already-racked
+    // miners.
+    const eligibilityEnabled = eligibility !== undefined;
+    const eligRackId = eligibility?.rackId;
+    const eligSiteId = eligibility?.siteId;
+    const eligBuildingId = eligibility?.buildingId;
+    const [showAssignedInfo, setShowAssignedInfo] = useState(false);
+    // The reassignment row whose conflict dialog is open, or null.
+    const [conflictInfoItem, setConflictInfoItem] = useState<DeviceListItem | null>(null);
+    // "Show assigned miners" — default off, so the list starts with only
+    // assignable (unassigned + this-rack) miners. Turning it on also surfaces
+    // miners currently assigned to another rack/building/site; they stay
+    // selectable (reassigning moves them, behind a confirm) and render in orange
+    // to flag the existing placement.
+    const [showAssigned, setShowAssigned] = useState(false);
+
+    // Site/Building facet options come from ListSites/ListBuildings (guarded by
+    // site:read), so those two facets are hidden for rack-management roles
+    // without that permission; the Site/Building *columns* still render since
+    // their labels ride on the miner snapshot. The facets stay visible in both
+    // toggle states — a facet that conflicts with the target rack's placement is
+    // handled by the assignable-only empty state below, not by hiding.
+    const showRackFilter = showRackFilterProp;
+    const showSiteFilter = showSiteFilterProp && canReadSiteCatalog;
+    const showBuildingFilter = showBuildingFilterProp && canReadSiteCatalog;
+
     const { listGroups, listRacks } = useDeviceSets();
-    const [filter, setFilter] = useState(() =>
-      create(MinerListFilterSchema, { siteIds: scopeSiteIds, includeUnassigned: scopeIncludeUnassigned }),
-    );
+    const { listSites } = useSites();
+    const { listBuildings } = useBuildings();
+    // The user's facet selections (model / subnet / site / building / rack /
+    // group). Site scope and eligibility are layered on top in the derived
+    // `filter` below so applying a facet never drops those constraints.
+    const [userFilter, setUserFilter] = useState(() => create(MinerListFilterSchema, {}));
     const [selectedItems, setSelectedItems] = useState<string[]>(initialSelectedItems ?? []);
     const [allSelected, setAllSelected] = useState(initialAllSelected && !singleSelect);
     const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
     const [availableRacks, setAvailableRacks] = useState<DeviceSet[]>([]);
+    const [availableSites, setAvailableSites] = useState<{ id: string; label: string }[]>([]);
+    const [availableBuildings, setAvailableBuildings] = useState<{ id: string; label: string }[]>([]);
     const [hasInitialSynced, setHasInitialSynced] = useState(!initialSelectedItems || initialSelectedItems.length > 0);
     const [currentSort, setCurrentSort] = useState<{ field: ModalColumn; direction: SortDirection } | undefined>(
       undefined,
@@ -206,6 +340,67 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         direction: currentSort.direction === "asc" ? SortDirectionProto.ASC : SortDirectionProto.DESC,
       });
     }, [currentSort]);
+
+    // Effective server filter: the user's facets + the active site scope +,
+    // when "assignable only" is on, the target rack's eligibility. Each
+    // eligibility dimension is null-permissive (in-rack-or-none, in-building-or
+    // -none, in-site-or-none), so the result excludes miners in a *different*
+    // rack/building/site while keeping unplaced and current-rack miners.
+    // useFleet dedupes by protobuf value equality, so a fresh object per render
+    // only triggers a refetch when the contents actually change.
+    const filter = useMemo(() => {
+      const merged = clone(MinerListFilterSchema, userFilter);
+      // Site scope is the soft baseline; a user-selected Site facet
+      // (userFilter.siteIds) is more specific and takes precedence.
+      if (merged.siteIds.length === 0) {
+        merged.siteIds = scopeSiteIds;
+        merged.includeUnassigned = scopeIncludeUnassigned;
+      }
+      if (!showAssigned && eligibilityEnabled) {
+        // Each placement dimension is pinned to the target rack's value AND admits
+        // miners unassigned at that level (the assignable set = this rack's
+        // members + unplaced miners). When the operator has an explicit facet on a
+        // dimension, that facet *defines* it: intersect with the eligible value
+        // and drop the "include no ..." flag (they asked for specific
+        // racks/buildings/sites, not "unassigned"). A facet that excludes the
+        // target yields an empty intersection, surfaced as the
+        // placementFacetConflict empty state — so it never broadens the request.
+        if (userFilter.rackIds.length > 0) {
+          merged.rackIds = eligRackId !== undefined ? userFilter.rackIds.filter((id) => id === eligRackId) : [];
+          merged.includeNoRack = false;
+        } else {
+          merged.rackIds = eligRackId !== undefined ? [eligRackId] : [];
+          merged.includeNoRack = true;
+        }
+
+        if (userFilter.buildingIds.length > 0) {
+          merged.buildingIds =
+            eligBuildingId !== undefined ? userFilter.buildingIds.filter((id) => id === eligBuildingId) : [];
+          merged.includeNoBuilding = false;
+        } else if (eligBuildingId !== undefined) {
+          merged.buildingIds = [eligBuildingId];
+          merged.includeNoBuilding = true;
+        }
+
+        if (userFilter.siteIds.length > 0) {
+          merged.siteIds = eligSiteId !== undefined ? userFilter.siteIds.filter((id) => id === eligSiteId) : [];
+          merged.includeUnassigned = false;
+        } else if (eligSiteId !== undefined) {
+          merged.siteIds = [eligSiteId];
+          merged.includeUnassigned = true;
+        }
+      }
+      return merged;
+    }, [
+      userFilter,
+      scopeSiteIds,
+      scopeIncludeUnassigned,
+      showAssigned,
+      eligibilityEnabled,
+      eligRackId,
+      eligBuildingId,
+      eligSiteId,
+    ]);
 
     const {
       minerIds,
@@ -232,6 +427,50 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         .filter((snapshot): snapshot is ProtoMinerStateSnapshot => Boolean(snapshot))
         .map(toDeviceListItem);
     }, [minerIds, miners]);
+
+    // Assignable-only + a conflicting placement facet = provably no results.
+    //
+    // In assignable-only mode (a target rack, "Show assigned miners" off), the
+    // derived filter pins site/building/rack to the target rack's placement.
+    // A user-selected Site/Building/Rack facet targets the same dimension, but
+    // MinerListFilter carries one id-list per dimension with OR semantics, so it
+    // *can't* express "building = A (eligibility) AND building = B (facet)" — the
+    // request can only send one. Rather than silently override the facet (show
+    // the rack's building instead of the picked one) or drop eligibility (leak
+    // ineligible rows via the server's include_no_rack coupling — see #702), we
+    // recognize the case client-side: if a placement facet doesn't include the
+    // target's id — or the target is unplaced at that level (undefined), so any
+    // facet there is unsatisfiable — nothing assignable can match, and we render
+    // the empty state instead of the (misleading) pinned-dimension results the
+    // server would still return. The facets stay visible and clearable, so this
+    // is self-correcting once the operator changes or removes the facet.
+    const placementFacetConflict = useMemo(() => {
+      if (showAssigned || !eligibilityEnabled) return false;
+      const conflicts = (facetIds: bigint[], targetId: bigint | undefined) =>
+        facetIds.length > 0 && (targetId === undefined || !facetIds.includes(targetId));
+      return (
+        conflicts(userFilter.rackIds, eligRackId) ||
+        conflicts(userFilter.buildingIds, eligBuildingId) ||
+        conflicts(userFilter.siteIds, eligSiteId)
+      );
+    }, [showAssigned, eligibilityEnabled, userFilter, eligRackId, eligBuildingId, eligSiteId]);
+
+    // Rows shown to the operator. A placement-facet conflict has no assignable
+    // matches, so present it as empty even though the server (queried with the
+    // pinned dimension) may return the target rack's miners.
+    const displayItems = placementFacetConflict ? [] : currentPageItems;
+
+    // Miners assigned to a different rack/building/site are still selectable
+    // (reassigning moves them, behind a confirm), but are flagged in orange so
+    // the operator sees the existing placement. Only meaningful when "Show
+    // assigned miners" is on; otherwise they're filtered out server-side.
+    const isReassignment = useCallback(
+      (item: DeviceListItem) =>
+        eligibilityEnabled &&
+        isPlacementIneligible(item, { rackId: eligRackId, siteId: eligSiteId, buildingId: eligBuildingId }),
+      [eligibilityEnabled, eligRackId, eligSiteId, eligBuildingId],
+    );
+
     const currentSelectableItemIds = useMemo(
       () =>
         (isRowDisabled ? currentPageItems.filter((device) => !isRowDisabled(device)) : currentPageItems).map(
@@ -239,13 +478,55 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         ),
       [currentPageItems, isRowDisabled],
     );
+
+    // Wrap the base column renderers so a reassignment row's text is orange.
+    // Wrapping (rather than editing each cell) keeps the placement flag in one
+    // place and lets the inner cells inherit the color.
+    // Flag reassignment rows with a right-aligned orange warning icon in the
+    // Name cell (rows keep the normal text color); clicking it opens a dialog
+    // explaining the placement collision. Only the Name column is overridden —
+    // other columns render unchanged.
+    const colConfig = useMemo<ColConfig<DeviceListItem, string, ModalColumn>>(() => {
+      if (!eligibilityEnabled) return modalColConfig;
+      return {
+        ...modalColConfig,
+        [modalCols.name]: {
+          width: "min-w-28",
+          component: (device: DeviceListItem) => (
+            <div className="flex items-center justify-between gap-2">
+              <span>{device.name || device.deviceIdentifier}</span>
+              {isReassignment(device) ? (
+                <Button
+                  variant={variants.textOnly}
+                  textOnlyUnderlineOnHover={false}
+                  ariaLabel="Assignment conflict — view details"
+                  prefixIcon={<Alert className="text-text-emphasis" />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConflictInfoItem(device);
+                  }}
+                />
+              ) : null}
+            </div>
+          ),
+        },
+      };
+    }, [eligibilityEnabled, isReassignment]);
     const displayedSelectedItems = allSelected && !singleSelect ? currentSelectableItemIds : selectedItems;
-    const canSelectAll = !singleSelect && (!disableFilteredSelectAll || !hasUnsupportedAllSelectionFilter(filter));
+    // While "Show assigned miners" is on, the list mixes assignable and
+    // assigned-elsewhere rows, so "select all" is ambiguous (and the assignable
+    // resolver would silently drop the reassignment picks). Only offer it in the
+    // assignable-only view.
+    const canSelectAll =
+      !singleSelect &&
+      !(eligibilityEnabled && showAssigned) &&
+      (!disableFilteredSelectAll || !hasUnsupportedAllSelectionFilter(filter));
     const shouldShowSelectionFooter =
       showSelectAllFooter &&
       totalMiners !== undefined &&
       totalMiners > 0 &&
       !singleSelect &&
+      !placementFacetConflict &&
       (canSelectAll || allSelected || selectedItems.length > 0);
 
     const handleSort = useCallback((field: ModalColumn, direction: SortDirection) => {
@@ -254,8 +535,14 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const currentPageItemsRef = useRef(currentPageItems);
+    // Accumulates every item seen across pages so reassignment detection covers
+    // off-page selections. A miner can only be selected from a page it appeared
+    // on, so this map holds placement for every selectable id — unlike the
+    // parent's first-page-only snapshot cache.
+    const seenItemsRef = useRef<Map<string, DeviceListItem>>(new Map());
     useEffect(() => {
       currentPageItemsRef.current = currentPageItems;
+      for (const item of currentPageItems) seenItemsRef.current.set(item.deviceIdentifier, item);
     }, [currentPageItems]);
 
     const scrollToTop = useCallback(() => {
@@ -274,10 +561,17 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       }
     }, [initialSelectedItems, hasInitialSynced]);
 
-    // Notify parent of selection changes
+    // Notify parent of selection changes. While a placement facet conflicts, the
+    // list shows no results, so report an empty selection — this keeps callers
+    // that gate on selection (e.g. Search's Assign button) consistent with the
+    // empty view without discarding the underlying selection state.
     useEffect(() => {
+      if (placementFacetConflict) {
+        onSelectionChange?.({ selectedItems: [], allSelected: false, totalMiners });
+        return;
+      }
       onSelectionChange?.({ selectedItems, allSelected, totalMiners });
-    }, [selectedItems, allSelected, totalMiners, onSelectionChange]);
+    }, [selectedItems, allSelected, totalMiners, onSelectionChange, placementFacetConflict]);
 
     useEffect(() => {
       if (!allSelected || canSelectAll) {
@@ -291,9 +585,22 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     useImperativeHandle(
       ref,
       () => ({
-        getSelection: () => ({ selectedItems, allSelected, totalMiners, filter }),
+        getSelection: () => {
+          const reassignedItems = selectedItems.filter((id) => {
+            const item = seenItemsRef.current.get(id);
+            return item !== undefined && isReassignment(item);
+          });
+          return {
+            selectedItems,
+            allSelected,
+            totalMiners,
+            filter,
+            reassignedItems,
+            blockedByFilter: placementFacetConflict,
+          };
+        },
       }),
-      [selectedItems, allSelected, totalMiners, filter],
+      [selectedItems, allSelected, totalMiners, filter, isReassignment, placementFacetConflict],
     );
 
     const handleSetSelectedItems = useCallback(
@@ -323,50 +630,84 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       goToPrevPage();
     }, [scrollToTop, goToPrevPage]);
 
-    // Keep the active site scope folded into the filter when the selection
-    // changes mid-modal. Preserves the user's model/rack/group facets and only
-    // swaps the site fields.
-    useEffect(() => {
-      setFilter((current) => {
-        if (
-          current.siteIds.map(String).join(",") === scopeSiteIds.map(String).join(",") &&
-          current.includeUnassigned === scopeIncludeUnassigned
-        ) {
-          return current;
-        }
-        // Clone to preserve the user's model/rack/group facets, swapping only
-        // the site fields.
-        const next = clone(MinerListFilterSchema, current);
-        next.siteIds = scopeSiteIds;
-        next.includeUnassigned = scopeIncludeUnassigned;
-        return next;
-      });
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [scopeKey]);
-
-    // Fetch filter options only for enabled filters. Rack facet options scope
-    // to the active site so the dropdown lists only the site's racks; group
-    // options stay org-wide until ListGroups gains site filtering (issue #520).
+    // Fetch filter options only for enabled filters. Rack/building facet options
+    // scope to the active site so the dropdowns list only the site's members;
+    // group and site options stay org-wide until ListGroups gains site filtering
+    // (issue #520).
     useEffect(() => {
       if (showGroupFilter) listGroups({ onSuccess: setAvailableGroups });
       if (showRackFilter)
         listRacks({ siteIds: scopeSiteIds, includeUnassigned: scopeIncludeUnassigned, onSuccess: setAvailableRacks });
+      if (showSiteFilter)
+        listSites({
+          onSuccess: (sites) =>
+            setAvailableSites(
+              sites.filter((s) => s.site !== undefined).map((s) => ({ id: String(s.site!.id), label: s.site!.name })),
+            ),
+        });
+      if (showBuildingFilter)
+        listBuildings({
+          siteIds: scopeSiteIds,
+          includeUnassigned: scopeIncludeUnassigned,
+          onSuccess: (buildings) =>
+            setAvailableBuildings(
+              buildings
+                .filter((b) => b.building !== undefined)
+                .map((b) => ({ id: String(b.building!.id), label: b.building!.name })),
+            ),
+        });
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showGroupFilter, showRackFilter, listGroups, listRacks, scopeKey]);
+    }, [
+      showGroupFilter,
+      showRackFilter,
+      showSiteFilter,
+      showBuildingFilter,
+      listGroups,
+      listRacks,
+      listSites,
+      listBuildings,
+      scopeKey,
+    ]);
 
+    // A single "Add filter" popover (matching the fleet miner list) whose
+    // children mirror the displayed columns: Model, Subnet (IP), Site, Building,
+    // Rack, Group. Only enabled facets are offered.
+    // Order and grouping mirror the fleet miner list:
+    // Model | Site, Building, Rack, Group | Subnet.
     const filters = useMemo((): FilterItem[] => {
-      const items: FilterItem[] = [];
+      const children: NestedFilterChildItem[] = [];
       if (showTypeFilter) {
-        items.push({
+        children.push({
           type: "dropdown",
           title: "Model",
-          value: "type",
+          // Keyed "model" to match the fleet miner list's nested filter (shared
+          // testids / category key), not the legacy "type".
+          value: "model",
           options: availableModels.map((model) => ({ id: model, label: model })),
+          defaultOptionIds: [],
+          showGroupDivider: true,
+        });
+      }
+      if (showSiteFilter) {
+        children.push({
+          type: "dropdown",
+          title: "Site",
+          value: "site",
+          options: availableSites,
+          defaultOptionIds: [],
+        });
+      }
+      if (showBuildingFilter) {
+        children.push({
+          type: "dropdown",
+          title: "Building",
+          value: "building",
+          options: availableBuildings,
           defaultOptionIds: [],
         });
       }
       if (showRackFilter) {
-        items.push({
+        children.push({
           type: "dropdown",
           title: "Rack",
           value: "rack",
@@ -375,48 +716,104 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         });
       }
       if (showGroupFilter) {
-        items.push({
+        children.push({
           type: "dropdown",
           title: "Group",
           value: "group",
           options: availableGroups.map((g) => ({ id: String(g.id), label: g.label })),
           defaultOptionIds: [],
+          showGroupDivider: true,
         });
       }
-      return items;
-    }, [showTypeFilter, showRackFilter, showGroupFilter, availableModels, availableRacks, availableGroups]);
+      if (showSubnetFilter) {
+        children.push({
+          type: "textareaList",
+          title: "Subnet",
+          value: "subnet",
+          validate: validateSubnetLine,
+          normalize: normalizeSubnetLine,
+          // Mirrors the onboarding discovery input, one example per accepted
+          // form: explicit IP, IP range (short or full), and CIDR.
+          placeholder: "10.0.0.42\n10.0.0.10-10.0.0.20\n192.168.1.0/24",
+          noun: "subnet",
+        });
+      }
+      if (children.length === 0) return [];
+      return [
+        {
+          type: "nestedFilterDropdown",
+          title: "Add filter",
+          value: "filters-meta",
+          prefixIcon: <Plus width="w-3" />,
+          children,
+        },
+      ];
+    }, [
+      showTypeFilter,
+      showSubnetFilter,
+      showSiteFilter,
+      showBuildingFilter,
+      showRackFilter,
+      showGroupFilter,
+      availableModels,
+      availableSites,
+      availableBuildings,
+      availableRacks,
+      availableGroups,
+    ]);
 
+    // Build the user's facet filter (model / rack / group / subnet). Site scope
+    // and eligibility are layered on in the derived `filter` memo, so they're
+    // deliberately omitted here.
     const handleServerFilter = useCallback(
       async (activeFilters: ActiveFilters) => {
-        const minerFilter = create(MinerListFilterSchema, {
-          errorComponentTypes: [],
-          siteIds: scopeSiteIds,
-          includeUnassigned: scopeIncludeUnassigned,
-        });
+        const next = create(MinerListFilterSchema, { errorComponentTypes: [] });
 
-        const typeFilters = activeFilters.dropdownFilters.type;
+        const typeFilters = activeFilters.dropdownFilters.model;
         if (typeFilters && typeFilters.length > 0) {
-          minerFilter.models.push(...typeFilters);
+          next.models.push(...typeFilters);
         }
 
         if (showRackFilter) {
           const rackFilters = activeFilters.dropdownFilters.rack;
           if (rackFilters && rackFilters.length > 0) {
-            minerFilter.rackIds.push(...rackFilters.map((id) => BigInt(id)));
+            next.rackIds.push(...rackFilters.map((id) => BigInt(id)));
           }
         }
 
         if (showGroupFilter) {
           const groupFilters = activeFilters.dropdownFilters.group;
           if (groupFilters && groupFilters.length > 0) {
-            minerFilter.groupIds.push(...groupFilters.map((id) => BigInt(id)));
+            next.groupIds.push(...groupFilters.map((id) => BigInt(id)));
           }
         }
 
-        setFilter(minerFilter);
+        if (showSiteFilter) {
+          const siteFilters = activeFilters.dropdownFilters.site;
+          if (siteFilters && siteFilters.length > 0) {
+            next.siteIds.push(...siteFilters.map((id) => BigInt(id)));
+          }
+        }
+
+        if (showBuildingFilter) {
+          const buildingFilters = activeFilters.dropdownFilters.building;
+          if (buildingFilters && buildingFilters.length > 0) {
+            next.buildingIds.push(...buildingFilters.map((id) => BigInt(id)));
+          }
+        }
+
+        if (showSubnetFilter) {
+          const subnetFilters = activeFilters.textareaListFilters.subnet;
+          if (subnetFilters && subnetFilters.length > 0) {
+            // Ranges expand to their covering CIDRs; CIDRs/IPs pass through. The
+            // server ORs all ip_cidrs and matches by containment.
+            next.ipCidrs.push(...subnetFilters.flatMap(expandSubnetLineToCidrs));
+          }
+        }
+
+        setUserFilter(next);
       },
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      [showRackFilter, showGroupFilter, scopeSiteIds, scopeIncludeUnassigned],
+      [showRackFilter, showGroupFilter, showSiteFilter, showBuildingFilter, showSubnetFilter],
     );
 
     const showSpinner = (isLoading || isMembersLoading) && currentPageItems.length === 0;
@@ -435,10 +832,32 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
           <List<DeviceListItem, string, ModalColumn>
             activeCols={activeCols}
             colTitles={modalColTitles}
-            colConfig={modalColConfig}
+            colConfig={colConfig}
             filters={filters}
             onServerFilter={handleServerFilter}
-            items={currentPageItems}
+            headerControls={
+              eligibilityEnabled ? (
+                // px-1 gives the toggle's hover scale-up room so it doesn't
+                // paint past the filter row's right edge and trigger horizontal
+                // scroll in the modal.
+                <div className="flex items-center gap-1 px-1">
+                  <Button
+                    variant={variants.textOnly}
+                    textOnlyUnderlineOnHover={false}
+                    ariaLabel="About “Show assigned miners”"
+                    prefixIcon={<Info className="text-text-primary-70" />}
+                    onClick={() => setShowAssignedInfo(true)}
+                  />
+                  <Switch
+                    label="Show assigned miners"
+                    ariaLabel="Show assigned miners"
+                    checked={showAssigned}
+                    setChecked={setShowAssigned}
+                  />
+                </div>
+              ) : undefined
+            }
+            items={displayItems}
             itemKey="deviceIdentifier"
             itemSelectable
             selectionType={singleSelect ? "radio" : "checkbox"}
@@ -455,8 +874,11 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             containerClassName="min-h-0"
             overflowContainer
             stickyBgColor="bg-surface-elevated-base"
+            emptyStateRow={
+              <div className="py-10 text-center text-300 text-text-primary-70">No miners match these filters.</div>
+            }
             footerContent={
-              !isLoading && totalMiners !== undefined && totalMiners > 0 ? (
+              !placementFacetConflict && !isLoading && totalMiners !== undefined && totalMiners > 0 ? (
                 <div className="flex flex-col items-center gap-4 py-6">
                   <span className="text-300 text-text-primary">
                     Showing {currentPage * PAGE_SIZE + 1}–{currentPage * PAGE_SIZE + currentPageItems.length} of{" "}
@@ -514,6 +936,24 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
               }
             />
           </div>
+        ) : null}
+        {showAssignedInfo ? (
+          <Dialog
+            icon={<Info />}
+            title="Show assigned miners"
+            subtitle="Shows or hides miners that are already assigned to another rack, or to a building or site that this rack is not assigned to. Assigning these miners to this rack will unassign them from their current placement."
+            onDismiss={() => setShowAssignedInfo(false)}
+            buttons={[{ text: "Got it", variant: variants.primary, onClick: () => setShowAssignedInfo(false) }]}
+          />
+        ) : null}
+        {conflictInfoItem ? (
+          <Dialog
+            icon={<Alert className="text-text-emphasis" />}
+            title="Assignment conflict"
+            subtitle={describeReassignment(conflictInfoItem, targetRackLabel)}
+            onDismiss={() => setConflictInfoItem(null)}
+            buttons={[{ text: "Got it", variant: variants.primary, onClick: () => setConflictInfoItem(null) }]}
+          />
         ) : null}
       </div>
     );

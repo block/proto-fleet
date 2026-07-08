@@ -32,6 +32,10 @@ export interface CurtailmentHistoryEvent {
   selectedMiners: number;
   estimatedReductionKw: number;
   targetMetricsAvailable: boolean;
+  // Distinct from targetMetricsAvailable: live rollups prove counts without
+  // proving a kW estimate (active-list rows scrub the decision snapshot).
+  // Optional so fixture-driven surfaces default to the count signal.
+  estimatedReductionAvailable?: boolean;
   targetKw?: number;
   sourceLabel: string;
   startedAt?: string;
@@ -176,7 +180,17 @@ function formatHistoryMinerCount(event: CurtailmentHistoryEvent): string {
 }
 
 function formatHistoryTargetVsActual(event: CurtailmentHistoryEvent): string {
-  return event.targetMetricsAvailable ? formatTargetVsActual(event) : unavailableTargetMetricsLabel;
+  if (!event.targetMetricsAvailable) {
+    return unavailableTargetMetricsLabel;
+  }
+
+  // Summary-only active rows carry live counts but no kW estimate; showing
+  // "target / 0.0 kW" would fabricate a zero estimate.
+  if (event.estimatedReductionAvailable === false) {
+    return unavailableTargetMetricsLabel;
+  }
+
+  return formatTargetVsActual(event);
 }
 
 function getDateTime(value?: string): Date | undefined {

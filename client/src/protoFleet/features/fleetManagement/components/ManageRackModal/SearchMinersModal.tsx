@@ -1,30 +1,41 @@
 import { useCallback, useRef, useState } from "react";
 
-import type { DeviceListItem, MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
+import type { MinerEligibility, MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
 import MinerSelectionList from "@/protoFleet/components/MinerSelectionList";
 
 import Modal from "@/shared/components/Modal";
 
 interface SearchMinersModalProps {
   show: boolean;
-  currentRackLabel: string;
+  /** Target rack placement. Drives the "Show assignable only" toggle and the
+   *  id-based eligibility filter (miners in another rack/building/site drop out
+   *  or render disabled). */
+  eligibility: MinerEligibility;
+  /** Target rack label, shown in the assignment-conflict dialog. */
+  targetRackLabel: string;
   onDismiss: () => void;
-  onConfirm: (selectedMinerId: string) => void;
+  /** `isReassignment` is true when the picked miner is currently assigned to a
+   *  different rack/building/site, so the caller can confirm the reparent. */
+  onConfirm: (selectedMinerId: string, isReassignment: boolean) => void;
 }
 
-export default function SearchMinersModal({ show, currentRackLabel, onDismiss, onConfirm }: SearchMinersModalProps) {
+export default function SearchMinersModal({
+  show,
+  eligibility,
+  targetRackLabel,
+  onDismiss,
+  onConfirm,
+}: SearchMinersModalProps) {
   const selectionRef = useRef<MinerSelectionListHandle>(null);
   const [hasSelection, setHasSelection] = useState(false);
 
-  const isRowDisabled = useCallback(
-    (item: DeviceListItem) => !!(item.rackLabel && item.rackLabel !== currentRackLabel),
-    [currentRackLabel],
-  );
-
   const handleConfirm = useCallback(() => {
     const selection = selectionRef.current?.getSelection();
-    if (!selection || selection.selectedItems.length === 0) return;
-    onConfirm(selection.selectedItems[0]);
+    // blockedByFilter: a conflicting placement facet is showing no results, so
+    // the (hidden) selection must not be acted on.
+    if (!selection || selection.blockedByFilter || selection.selectedItems.length === 0) return;
+    const minerId = selection.selectedItems[0];
+    onConfirm(minerId, selection.reassignedItems.includes(minerId));
   }, [onConfirm]);
 
   if (!show) return null;
@@ -48,8 +59,16 @@ export default function SearchMinersModal({ show, currentRackLabel, onDismiss, o
     >
       <MinerSelectionList
         ref={selectionRef}
-        filterConfig={{ showTypeFilter: true, showRackFilter: false, showGroupFilter: false }}
-        isRowDisabled={isRowDisabled}
+        filterConfig={{
+          showTypeFilter: true,
+          showSubnetFilter: true,
+          showSiteFilter: true,
+          showBuildingFilter: true,
+          showRackFilter: true,
+          showGroupFilter: true,
+        }}
+        eligibility={eligibility}
+        targetRackLabel={targetRackLabel}
         singleSelect
         onSelectionChange={({ selectedItems }) => setHasSelection(selectedItems.length > 0)}
       />

@@ -1,18 +1,24 @@
-import { type ReactElement, type ReactNode } from "react";
+import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 import clsx from "clsx";
 
 import {
+  type ActiveCurtailmentCurtailProgress,
   type ActiveCurtailmentDisplayState,
+  type ActiveCurtailmentRestoreProgress,
   type CurtailmentEventState,
   type CurtailmentTargetRollup,
+  formatCurtailmentElapsedDuration,
   formatCurtailmentKw as formatKw,
   formatCurtailmentMinerCount as formatMinerCount,
+  getActiveCurtailmentCurtailProgress,
   getActiveCurtailmentDisplayState,
   getActiveCurtailmentMinerCompliance,
+  getActiveCurtailmentRestoreProgress,
   getCurtailmentTargetKw as getTargetKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
@@ -22,15 +28,38 @@ export interface ActiveCurtailmentEvent {
   scopeLabel: string;
   sourceLabel: string;
   isAutomationOwned: boolean;
+  targetSiteCoverage?: ActiveCurtailmentTargetSiteCoverage;
+  createdAt?: string;
+  scheduledStartAt?: string;
+  startedAt?: string;
   endedAt?: string;
   selectedMiners: number;
   estimatedReductionKw: number;
   targetKw?: number;
   observedReductionKw: number;
   remainingPowerKw?: number;
+  // Curtail dispatch pacing for the rough time-to-curtail estimate; absent
+  // when the event has no explicit batch size (reconciler-side defaults).
+  curtailBatchSize?: number;
+  curtailBatchIntervalSec?: number;
+  // Configured restore wave size; 0 means "up to the safety limit" per wave,
+  // matching the reconciler's restore claim sizing.
   restoreBatchSize: number;
   restoreBatchIntervalSec: number;
   rollups: CurtailmentTargetRollup[];
+  unavailableReasonCounts?: ActiveCurtailmentUnavailableReasonCount[];
+}
+
+export interface ActiveCurtailmentTargetSiteCoverage {
+  complete: boolean;
+  targetCount: number;
+  mappedTargetCount: number;
+  unknownTargetCount: number;
+}
+
+export interface ActiveCurtailmentUnavailableReasonCount {
+  label: string;
+  count: number;
 }
 
 interface ActiveCurtailmentStatusProps {
@@ -120,6 +149,12 @@ const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
 };
 
 const manageableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
+const forceReleaseDisplayStates = new Set<ActiveCurtailmentDisplayState>([
+  "curtailed",
+  "curtailing",
+  "pending",
+  "restoring",
+]);
 function SectionHeader({ title, children }: SectionHeaderProps): ReactElement {
   return (
     <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
@@ -290,14 +325,257 @@ function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCur
   };
 }
 
+const curtailProgressDisplayStates = new Set<ActiveCurtailmentDisplayState>(["pending", "curtailing", "curtailed"]);
+const restoreProgressDisplayStates = new Set<ActiveCurtailmentDisplayState>([
+  "restoring",
+  "restored",
+  "restoreIncomplete",
+]);
+const curtailProgressColorMap: Record<Segment["status"], string> = {
+  OK: "bg-core-primary-fill",
+  WARNING: "bg-core-accent-fill",
+  CRITICAL: "bg-intent-critical-fill",
+  NA: "bg-core-primary-10",
+};
+const restoreProgressColorMap: Record<Segment["status"], string> = {
+  ...curtailProgressColorMap,
+  OK: "bg-intent-success-fill",
+  NA: "bg-core-primary-fill",
+};
+
+// Ticks once per second so the SLA-facing elapsed readout moves even when
+// polling snapshots are unchanged (equal snapshots skip re-renders). Lives in
+// its own component so the per-second tick re-renders only this progress
+// header value, not the whole card.
+function ElapsedProgressValue({ since, until }: { since: string; until?: string }): ReactElement | null {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (until) {
+      return undefined;
+    }
+
+    const intervalId = setInterval(() => setNowMs(Date.now()), millisecondsPerSecond);
+    return () => clearInterval(intervalId);
+  }, [until]);
+
+  const sinceDate = getDateTime(since);
+  if (!sinceDate) {
+    return null;
+  }
+
+  const untilDate = until ? getDateTime(until) : undefined;
+  const endMs = untilDate?.getTime() ?? nowMs;
+  const elapsedSeconds = Math.max((endMs - sinceDate.getTime()) / millisecondsPerSecond, 0);
+  return (
+    <div className="text-right text-200 text-text-primary">
+      {formatCurtailmentElapsedDuration(elapsedSeconds)} elapsed
+    </div>
+  );
+}
+
+// SLA clock anchor. started_at is only stamped at the pending -> active
+// transition — after targets confirm for open-loop events — which is too
+// late for a timer covering the dispatch window. Fall back to the scheduled
+// window start, then creation time ("when the operator pressed go"). The
+// progress gate keeps this from rendering before any targets exist, so a
+// scheduled event's pre-window wait never shows as elapsed time.
+function getElapsedAnchor(
+  event: Pick<ActiveCurtailmentEvent, "startedAt" | "scheduledStartAt" | "createdAt">,
+): string | undefined {
+  return event.startedAt ?? event.scheduledStartAt ?? event.createdAt;
+}
+
+function shouldShowCurtailProgress(
+  displayState: ActiveCurtailmentDisplayState,
+  progress: ActiveCurtailmentCurtailProgress,
+): boolean {
+  // dispatchableCount keeps rollup-less events hidden, while unavailableCount
+  // lets all-unavailable live rollups still explain why no targets can move.
+  return (
+    curtailProgressDisplayStates.has(displayState) && (progress.dispatchableCount > 0 || progress.unavailableCount > 0)
+  );
+}
+
+function shouldShowRestoreProgress(
+  displayState: ActiveCurtailmentDisplayState,
+  progress: ActiveCurtailmentRestoreProgress,
+): boolean {
+  // Same live-data gate as the curtail bar, keyed on the restorable total.
+  return restoreProgressDisplayStates.has(displayState) && progress.restorableCount > 0;
+}
+
+// Rough time to finish dispatching sleep commands: remaining pending targets
+// paced by the event's curtail batch settings. Before anything has been
+// dispatched, the reconciler sends the first wave without waiting on the
+// interval clock (curtailBatchIntervalElapsed is vacuously true), so that
+// wave is free — matching the plan preview's (batches - 1) x interval math.
+// Once any wave is out, every pending wave waits on the interval from the
+// previous dispatch, so all of them are charged. Drifted targets count as
+// prior-dispatch evidence too: they necessarily carry a CurtailPhase
+// DispatchedAt, which is what the reconciler's interval gate checks.
+function getCurtailRemainingSeconds(
+  event: Pick<ActiveCurtailmentEvent, "curtailBatchSize" | "curtailBatchIntervalSec">,
+  progress: ActiveCurtailmentCurtailProgress,
+): number {
+  const batchSize = event.curtailBatchSize ?? 0;
+  const intervalSec = event.curtailBatchIntervalSec ?? 0;
+  if (progress.pendingCount <= 0 || batchSize <= 0 || intervalSec <= 0) {
+    return 0;
+  }
+  const hasPriorDispatch = progress.reachedCount > 0 || progress.driftedCount > 0;
+  const pendingWaves = Math.ceil(progress.pendingCount / batchSize);
+  const chargedWaves = hasPriorDispatch ? pendingWaves : pendingWaves - 1;
+  return Math.max(chargedWaves, 0) * intervalSec;
+}
+
+function getCurtailProgressSegments(progress: ActiveCurtailmentCurtailProgress): Segment[] {
+  if (progress.dispatchableCount <= 0) {
+    return [];
+  }
+
+  return [
+    { name: "Curtailed", status: "OK", count: progress.confirmedCount },
+    {
+      name: "Curtailing",
+      status: "WARNING",
+      count: progress.sentCount + progress.pendingCount + progress.driftedCount,
+    },
+  ];
+}
+
+function getCurtailProgressSummary(progress: ActiveCurtailmentCurtailProgress): string {
+  if (progress.dispatchableCount <= 0 && progress.unavailableCount > 0) {
+    return "No dispatchable miners";
+  }
+
+  if (progress.percent >= 100) {
+    return `${formatMinerCount(progress.confirmedCount)} curtailed (${progress.percent}%)`;
+  }
+
+  return `${progress.confirmedCount.toLocaleString()} of ${formatMinerCount(
+    progress.dispatchableCount,
+  )} curtailed (${progress.percent}%)`;
+}
+
+function getRestoreProgressSummary(progress: ActiveCurtailmentRestoreProgress): string {
+  if (progress.percent >= 100) {
+    return `${formatMinerCount(progress.restoredCount)} restored (${progress.percent}%)`;
+  }
+
+  return `${progress.restoredCount.toLocaleString()} of ${formatMinerCount(
+    progress.restorableCount,
+  )} restored (${progress.percent}%)`;
+}
+
+function getRestoreProgressSegments(progress: ActiveCurtailmentRestoreProgress): Segment[] {
+  const segments: Segment[] = [
+    { name: "Restored", status: "OK", count: progress.restoredCount },
+    { name: "Curtailed", status: "NA", count: progress.awaitingCount },
+  ];
+
+  if (progress.failedCount > 0) {
+    segments.push({ name: "Failed to restore", status: "CRITICAL", count: progress.failedCount });
+  }
+
+  return segments;
+}
+
+interface ProgressSectionProps {
+  summary: string;
+  segments: Segment[];
+  colorMap: Record<Segment["status"], string>;
+  elapsedAnchor?: string;
+  elapsedUntil?: string;
+  unavailableCount: number;
+  unavailableReasonCounts?: ActiveCurtailmentUnavailableReasonCount[];
+}
+
+function formatUnavailableAnnotation(
+  unavailableCount: number,
+  unavailableReasonCounts?: ActiveCurtailmentUnavailableReasonCount[],
+): string | null {
+  if (unavailableCount <= 0) {
+    return null;
+  }
+
+  const reasonTotal = unavailableReasonCounts?.reduce((total, reason) => total + reason.count, 0) ?? 0;
+  if (unavailableReasonCounts?.length && reasonTotal === unavailableCount) {
+    const reasonSummary = unavailableReasonCounts
+      .map((reason) => `${reason.count.toLocaleString()} ${reason.label}`)
+      .join(", ");
+    return `${unavailableCount.toLocaleString()} unavailable (${reasonSummary})`;
+  }
+
+  return `${unavailableCount.toLocaleString()} unavailable (details unavailable)`;
+}
+
+function ProgressSection({
+  summary,
+  segments,
+  colorMap,
+  elapsedAnchor,
+  elapsedUntil,
+  unavailableCount,
+  unavailableReasonCounts,
+}: ProgressSectionProps): ReactElement {
+  const unavailableAnnotation = formatUnavailableAnnotation(unavailableCount, unavailableReasonCounts);
+  const hasPositiveSegments = segments.some((segment) => (segment.count ?? 0) > 0);
+
+  return (
+    <div className="mt-8 grid gap-3" data-testid="active-curtailment-progress">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+        <div className="text-200 text-text-primary-50">{summary}</div>
+        {elapsedAnchor ? <ElapsedProgressValue since={elapsedAnchor} until={elapsedUntil} /> : null}
+      </div>
+      {hasPositiveSegments ? <CompositionBar segments={segments} height={12} colorMap={colorMap} /> : null}
+      <div className="flex flex-wrap items-start gap-x-5 gap-y-1 text-200 text-text-primary-70">
+        {segments.map((segment) => (
+          <span key={segment.name} className="flex items-start gap-2">
+            <span className={clsx("mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full", colorMap[segment.status])} />
+            {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
+          </span>
+        ))}
+        {unavailableAnnotation ? (
+          <span className="ml-auto text-right text-text-primary-50">{unavailableAnnotation}</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function formatRestoreProfile(
   event: Pick<ActiveCurtailmentEvent, "restoreBatchSize" | "restoreBatchIntervalSec">,
 ): string {
+  if (event.restoreBatchIntervalSec === 0) {
+    if (event.restoreBatchSize === 0) {
+      return "Up to safety limit immediately";
+    }
+    return `${formatMinerCount(event.restoreBatchSize)} with no wait`;
+  }
+  if (event.restoreBatchSize === 0) {
+    return `Up to safety limit every ${event.restoreBatchIntervalSec.toLocaleString()}s`;
+  }
   return `${formatMinerCount(event.restoreBatchSize)} every ${event.restoreBatchIntervalSec.toLocaleString()}s`;
 }
 
 function formatActiveCurtailmentHeaderDetail(event: ActiveCurtailmentEvent): string {
   return `${event.reason} (Applies to ${event.scopeLabel})`;
+}
+
+function formatIncompleteSiteCoverageWarning(coverage?: ActiveCurtailmentTargetSiteCoverage): string | null {
+  if (!coverage || coverage.complete) {
+    return null;
+  }
+
+  const unknownCount = coverage.unknownTargetCount;
+  const targetLabel = unknownCount === 1 ? "target" : "targets";
+  const verb = unknownCount === 1 ? "maps" : "map";
+  if (unknownCount > 0) {
+    return `${unknownCount.toLocaleString()} ${targetLabel} no longer ${verb} to a known site. Org admins can still restore or abort this event.`;
+  }
+
+  return "Some targets no longer map to a known site. Org admins can still restore or abort this event.";
 }
 
 function getForceReleaseButton(
@@ -333,14 +611,14 @@ function getActiveCurtailmentActionButton({
     case "pending":
     case "curtailing":
       return onRequestStop ? (
-        <Button variant={variants.danger} size={sizes.compact} text="Stop" onClick={onRequestStop} />
+        <Button variant={variants.secondary} size={sizes.compact} text="Restore now" onClick={onRequestStop} />
       ) : null;
     case "restoring":
       return onRequestTerminateRecovery ? (
         <Button
           variant={variants.secondaryDanger}
           size={sizes.compact}
-          text="Terminate recovery"
+          text="Stop restore"
           onClick={onRequestTerminateRecovery}
         />
       ) : null;
@@ -364,7 +642,10 @@ function ActiveCurtailmentActionButtons({
     onRequestTerminateRecovery,
   });
   const showManageButton = Boolean(onRequestEdit && manageableDisplayStates.has(displayState));
-  const forceReleaseButton = getForceReleaseButton(displayState, onRequestForceRelease);
+  const forceReleaseButton =
+    !forceReleaseDisplayStates.has(displayState) || (displayState === "restoring" && onRequestTerminateRecovery)
+      ? null
+      : getForceReleaseButton(displayState, onRequestForceRelease);
 
   if (!actionButton && !forceReleaseButton && !showManageButton) {
     return null;
@@ -416,6 +697,15 @@ export default function ActiveCurtailmentStatus({
   const compliance = getActiveCurtailmentMinerCompliance(event);
   const displayState = getActiveCurtailmentDisplayState(event, { dispatchStartedAsCurtailing: true });
   const displayFlags = getDisplayFlags(displayState);
+  const curtailProgress = getActiveCurtailmentCurtailProgress(event);
+  const showCurtailProgress = shouldShowCurtailProgress(displayState, curtailProgress);
+  const restoreProgress = getActiveCurtailmentRestoreProgress(event);
+  const showRestoreProgress = shouldShowRestoreProgress(displayState, restoreProgress);
+  const elapsedAnchor = showCurtailProgress || showRestoreProgress ? getElapsedAnchor(event) : undefined;
+  // "Curtailed" means the shed goal is met, so pairing it with a time-to-
+  // curtail estimate would contradict the headline state.
+  const curtailRemainingSeconds =
+    showCurtailProgress && displayState !== "curtailed" ? getCurtailRemainingSeconds(event, curtailProgress) : 0;
   const remainingRestoreSeconds = getRestoreRemainingSeconds(
     event,
     compliance.restoredCount,
@@ -456,6 +746,7 @@ export default function ActiveCurtailmentStatus({
     isRestoreIncomplete: displayFlags.isRestoreIncomplete,
     isCurtailmentComplete: displayFlags.isCurtailmentComplete,
   });
+  const incompleteSiteCoverageWarning = formatIncompleteSiteCoverageWarning(event.targetSiteCoverage);
 
   return (
     <section className={clsx("grid gap-3", className)}>
@@ -500,9 +791,36 @@ export default function ActiveCurtailmentStatus({
             <>
               <StatBlock label="Applies to" value={formatMinerCount(event.selectedMiners)} />
               <StatBlock label="Restore" value={formatRestoreProfile(event)} />
+              {curtailRemainingSeconds > 0 ? (
+                <StatBlock label="Estimated time to curtail" value={formatDurationLong(curtailRemainingSeconds)} />
+              ) : null}
             </>
           )}
         </div>
+
+        {showCurtailProgress ? (
+          <ProgressSection
+            summary={getCurtailProgressSummary(curtailProgress)}
+            segments={getCurtailProgressSegments(curtailProgress)}
+            colorMap={curtailProgressColorMap}
+            elapsedAnchor={elapsedAnchor}
+            elapsedUntil={event.endedAt}
+            unavailableCount={curtailProgress.unavailableCount}
+            unavailableReasonCounts={event.unavailableReasonCounts}
+          />
+        ) : null}
+
+        {showRestoreProgress ? (
+          <ProgressSection
+            summary={getRestoreProgressSummary(restoreProgress)}
+            segments={getRestoreProgressSegments(restoreProgress)}
+            colorMap={restoreProgressColorMap}
+            elapsedAnchor={elapsedAnchor}
+            elapsedUntil={event.endedAt}
+            unavailableCount={restoreProgress.unavailableCount}
+            unavailableReasonCounts={event.unavailableReasonCounts}
+          />
+        ) : null}
 
         {event.isAutomationOwned ? (
           <div className="mt-6 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">
@@ -510,6 +828,18 @@ export default function ActiveCurtailmentStatus({
             <div className="mt-1 text-text-primary-70">
               {event.sourceLabel} owns this event. Abort cancels this event and disables the owning automation rule so
               it cannot immediately curtail miners again.
+            </div>
+          </div>
+        ) : null}
+
+        {incompleteSiteCoverageWarning ? (
+          <div className="mt-6 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">
+            <div className="flex items-start gap-3">
+              <Alert className="mt-0.5 shrink-0" />
+              <div>
+                <div className="text-emphasis-300">Target site coverage incomplete</div>
+                <div className="mt-1 text-text-primary-70">{incompleteSiteCoverageWarning}</div>
+              </div>
             </div>
           </div>
         ) : null}

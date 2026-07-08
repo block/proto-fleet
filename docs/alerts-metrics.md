@@ -41,6 +41,38 @@ underlying data is unavailable. The hypertable stores the empty string
 in those cases (the columns are `TEXT NOT NULL DEFAULT ''`), so Grafana
 queries can filter on labels with simple equality.
 
+## Host system metrics
+
+The optional system-monitoring feature (`--enable-system-monitoring`,
+`just dev-system-monitoring`) adds an in-process collector to fleet-api
+that samples the host every `FLEET_SYSTEM_MONITORING_INTERVAL`
+(default 30s):
+
+| Metric | Type | Unit | Labels | Description |
+| --- | --- | --- | --- | --- |
+| `fleet_system_cpu_used_percent` | gauge | `%` | *(none)* | Host CPU utilization over the collector's poll interval. |
+| `fleet_system_memory_used_percent` | gauge | `%` | *(none)* | Host RAM used percent. |
+| `fleet_system_disk_used_percent` | gauge | `%` | *(none)* | Used percent of the filesystem at `FLEET_SYSTEM_MONITORING_DISK_PATH` (production mounts a sentinel volume on the docker-volumes filesystem, where the TimescaleDB data lives, read-only at `/hostfs`). |
+| `fleet_system_heartbeat` | gauge (1) | `1` | *(none)* | Always 1. Emitted every collector tick even when stat reads fail — a fresh sample means "fleet-api and its metrics writer are alive", so staleness is the alert signal. |
+
+These samples are host-scoped: every label column stays empty, like the
+ingest-stalled sentinel. The `proto-fleet-system` Grafana rules fan a
+host condition out to one alert instance per live organization by
+joining the `fleet_active_organization` view in SQL, so delivery,
+per-org pause, and history all stay org-scoped. Because the samples
+carry no `organization_id`, user-authored PromQL rules (which get an
+injected `organization_id="<caller-org>"` matcher) match nothing on
+these series — they are alertable only through the provisioned rules.
+
+The `Fleet Heartbeat Stale` rule pages after roughly five minutes of
+silence: it fires once the newest `fleet_system_heartbeat` sample has
+been older than two minutes for three minutes straight (Grafana's
+pending period stacks on top of the staleness threshold). If
+fleet-api itself is down, Grafana cannot deliver through the fleet-api
+webhook until it recovers — the notification arrives retroactively, and
+the Grafana UI plus the operator-only ingest-stalled rule are the
+in-outage fallback.
+
 ## Closed enums
 
 Two label values are constrained to a closed set:

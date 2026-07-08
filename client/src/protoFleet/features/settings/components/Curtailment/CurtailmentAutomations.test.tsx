@@ -172,6 +172,9 @@ describe("CurtailmentAutomationsContent", () => {
     fireEvent.click(saveButton);
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
+    // The row list re-renders with the new name a tick after the modal closes;
+    // wait for it before the synchronous row lookup to avoid a load-dependent race.
+    await screen.findByText("ERCOT ERS updated");
     const updatedRow = getAutomationRow("ERCOT ERS updated");
     expect(within(updatedRow).getByText("ERCOT ERS (Emergency Response Service)")).toBeVisible();
     expect(screen.queryByText("ERCOT ERS obligation")).not.toBeInTheDocument();

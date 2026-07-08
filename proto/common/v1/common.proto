@@ -15,6 +15,9 @@ message PlacementRefs {
   ResourceRef building = 2;
   ResourceRef rack = 3;
   repeated ResourceRef groups = 4;
+  // Rack zone label; empty when the rack has no zone or the device is
+  // not in a rack. Populated where the producing RPC documents it.
+  string zone = 5;
 }
 
 message FleetErrorDetails {

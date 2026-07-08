@@ -6,6 +6,8 @@ import {
   CurtailmentEventSchema,
   CurtailmentEventState,
   CurtailmentTargetRollupSchema,
+  CurtailmentTargetSchema,
+  CurtailmentTargetState,
   FixedKwParamsSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
@@ -48,6 +50,156 @@ describe("mapCurtailmentPillEvent", () => {
       expect.objectContaining({
         state,
         targetMetricsAvailable: true,
+      }),
+    );
+  });
+
+  it("prefers the live rollup total over the snapshot count", () => {
+    expect(
+      mapCurtailmentPillEvent(
+        curtailmentEvent({
+          state: CurtailmentEventState.ACTIVE,
+          decisionSnapshot: {
+            estimated_reduction_kw: 23.4,
+            selected_count: 10,
+          },
+          targetRollup: targetRollup({ confirmed: 4000, pending: 1000, total: 5000 }),
+        }),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        selectedMiners: 5000,
+        estimatedReductionAvailable: true,
+      }),
+    );
+  });
+
+  it("treats a zeroed live rollup as zero targets even when a snapshot count exists", () => {
+    expect(
+      mapCurtailmentPillEvent(
+        curtailmentEvent({
+          state: CurtailmentEventState.ACTIVE,
+          decisionSnapshot: {
+            estimated_reduction_kw: 23.4,
+            selected_count: 10,
+          },
+          targetRollup: create(CurtailmentTargetRollupSchema, {}),
+        }),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        selectedMiners: 0,
+        targetMetricsAvailable: true,
+      }),
+    );
+  });
+
+  it("falls back to hydrated targets, then the snapshot count, when no rollup exists", () => {
+    expect(
+      mapCurtailmentPillEvent(
+        curtailmentEvent({
+          state: CurtailmentEventState.ACTIVE,
+          decisionSnapshot: {
+            estimated_reduction_kw: 23.4,
+            selected_count: 10,
+          },
+          targetRollup: undefined,
+          targets: [
+            create(CurtailmentTargetSchema, { deviceIdentifier: "miner-1", state: CurtailmentTargetState.CONFIRMED }),
+            create(CurtailmentTargetSchema, { deviceIdentifier: "miner-2", state: CurtailmentTargetState.CONFIRMED }),
+            create(CurtailmentTargetSchema, { deviceIdentifier: "miner-3", state: CurtailmentTargetState.PENDING }),
+          ],
+        }),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        selectedMiners: 3,
+      }),
+    );
+
+    expect(
+      mapCurtailmentPillEvent(
+        curtailmentEvent({
+          state: CurtailmentEventState.ACTIVE,
+          decisionSnapshot: {
+            estimated_reduction_kw: 23.4,
+            selected_count: 10,
+          },
+          targetRollup: undefined,
+          targets: [],
+        }),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        selectedMiners: 10,
+      }),
+    );
+  });
+
+  it("does not treat baseline-less targets as proof of a kW estimate", () => {
+    // baseline_power_w is optional (telemetry gap at selection); without a
+    // snapshot estimate, baseline-less targets would sum to a fabricated
+    // 0.0 kW, so the estimate must report unavailable.
+    const baselessTargets = [
+      create(CurtailmentTargetSchema, { deviceIdentifier: "miner-1", state: CurtailmentTargetState.CONFIRMED }),
+      create(CurtailmentTargetSchema, { deviceIdentifier: "miner-2", state: CurtailmentTargetState.PENDING }),
+    ];
+    expect(
+      mapCurtailmentPillEvent(
+        curtailmentEvent({
+          state: CurtailmentEventState.ACTIVE,
+          decisionSnapshot: {},
+          targetRollup: undefined,
+          targets: baselessTargets,
+        }),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        selectedMiners: 2,
+        estimatedReductionAvailable: false,
+      }),
+    );
+
+    expect(
+      mapCurtailmentPillEvent(
+        curtailmentEvent({
+          state: CurtailmentEventState.ACTIVE,
+          decisionSnapshot: {},
+          targetRollup: undefined,
+          targets: [
+            ...baselessTargets,
+            create(CurtailmentTargetSchema, {
+              deviceIdentifier: "miner-3",
+              state: CurtailmentTargetState.CONFIRMED,
+              baselinePowerW: 3000,
+            }),
+          ],
+        }),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        selectedMiners: 3,
+        estimatedReductionAvailable: true,
+      }),
+    );
+  });
+
+  it("marks rollup-only summary rows as counts-only so no zero estimate renders", () => {
+    expect(
+      mapCurtailmentPillEvent(
+        curtailmentEvent({
+          state: CurtailmentEventState.ACTIVE,
+          decisionSnapshot: {},
+          targetRollup: targetRollup({ confirmed: 4000, pending: 1000, total: 5000 }),
+          targets: [],
+        }),
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        selectedMiners: 5000,
+        targetMetricsAvailable: true,
+        estimatedReductionAvailable: false,
+        estimatedReductionKw: 0,
       }),
     );
   });

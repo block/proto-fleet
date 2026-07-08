@@ -29,6 +29,53 @@ INSERT INTO notification_history (
     sqlc.arg('annotations')
 );
 
+-- name: BulkInsertNotificationHistory :execrows
+-- Multi-row insert via jsonb_to_recordset (per-row AFTER-INSERT trigger still fires); :execrows lets the caller verify the row count.
+INSERT INTO notification_history (
+    alert_name,
+    status,
+    severity,
+    rule_group,
+    fingerprint,
+    organization_id,
+    device_id,
+    template,
+    summary,
+    starts_at,
+    ends_at,
+    labels,
+    annotations
+)
+SELECT
+    r.alert_name,
+    r.status,
+    r.severity,
+    r.rule_group,
+    r.fingerprint,
+    r.organization_id,
+    r.device_id,
+    r.template,
+    r.summary,
+    r.starts_at,
+    r.ends_at,
+    COALESCE(r.labels, '{}'::jsonb),
+    COALESCE(r.annotations, '{}'::jsonb)
+FROM jsonb_to_recordset(sqlc.arg('rows_jsonb')::JSONB) AS r(
+    alert_name      TEXT,
+    status          TEXT,
+    severity        TEXT,
+    rule_group      TEXT,
+    fingerprint     TEXT,
+    organization_id BIGINT,
+    device_id       TEXT,
+    template        TEXT,
+    summary         TEXT,
+    starts_at       TIMESTAMPTZ,
+    ends_at         TIMESTAMPTZ,
+    labels          JSONB,
+    annotations     JSONB
+);
+
 -- name: ListNotificationHistory :many
 SELECT
     nh.id,

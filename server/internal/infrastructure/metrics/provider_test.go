@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -76,6 +77,10 @@ func TestEmitsPersistContractMetrics(t *testing.T) {
 		DeviceID:       labels.DeviceID,
 		Result:         ResultSuccess,
 	})
+	provider.EmitSystemCPUUsedPercent(ctx, 12.5)
+	provider.EmitSystemMemoryUsedPercent(ctx, 40.0)
+	provider.EmitSystemDiskUsedPercent(ctx, 63.0)
+	provider.EmitSystemHeartbeat(ctx)
 
 	// Shutdown flushes the buffer. Don't rely on a tick — we want the
 	// test to fail loudly if the drain path regresses.
@@ -96,10 +101,71 @@ func TestEmitsPersistContractMetrics(t *testing.T) {
 		MetricDevicePoolConnected,
 		MetricCommandTotal,
 		MetricTelemetryPollTotal,
+		MetricSystemCPUUsedPercent,
+		MetricSystemMemoryUsedPercent,
+		MetricSystemDiskUsedPercent,
+		MetricSystemHeartbeat,
 	}
 	for _, name := range want {
 		require.GreaterOrEqual(t, got[name], 1, "expected at least one sample for %q", name)
 	}
+}
+
+// system samples are host-scoped: every label column stays empty so the
+// Grafana rules' per-org fan-out happens in SQL, not here.
+func TestSystemEmitsAreHostScoped(t *testing.T) {
+	// Arrange
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	store := NewInMemoryStore()
+	provider := SetupWithStore(ctx, "test", Config{
+		Enabled:       true,
+		FlushInterval: 25 * time.Millisecond,
+		BufferSize:    16,
+		BatchSize:     8,
+	}, store)
+
+	// Act
+	provider.EmitSystemCPUUsedPercent(ctx, 55.5)
+	provider.EmitSystemHeartbeat(ctx)
+	require.NoError(t, provider.Shutdown(ctx))
+
+	// Assert
+	samples := store.Snapshot()
+	require.Len(t, samples, 2)
+	byMetric := map[string]Sample{}
+	for _, sample := range samples {
+		byMetric[sample.Metric] = sample
+		require.Equal(t, Labels{}, sample.Labels)
+	}
+	require.Equal(t, 55.5, byMetric[MetricSystemCPUUsedPercent].Value)
+	require.Equal(t, 1.0, byMetric[MetricSystemHeartbeat].Value)
+}
+
+func TestSystemEmitSanitizesPercent(t *testing.T) {
+	// Arrange
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	store := NewInMemoryStore()
+	provider := SetupWithStore(ctx, "test", Config{
+		Enabled:       true,
+		FlushInterval: 25 * time.Millisecond,
+		BufferSize:    16,
+		BatchSize:     8,
+	}, store)
+
+	// Act
+	provider.EmitSystemCPUUsedPercent(ctx, math.NaN())
+	provider.EmitSystemMemoryUsedPercent(ctx, math.Inf(1))
+	provider.EmitSystemDiskUsedPercent(ctx, -1)
+	provider.EmitSystemCPUUsedPercent(ctx, 130) // clamped, not dropped
+	require.NoError(t, provider.Shutdown(ctx))
+
+	// Assert
+	samples := store.Snapshot()
+	require.Len(t, samples, 1)
+	require.Equal(t, MetricSystemCPUUsedPercent, samples[0].Metric)
+	require.Equal(t, 100.0, samples[0].Value)
 }
 
 // labels and the recorded value match what callers passed in.

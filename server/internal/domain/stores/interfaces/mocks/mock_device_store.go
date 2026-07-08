@@ -245,6 +245,21 @@ func (mr *MockDeviceStoreMockRecorder) GetDeviceWithIPAssignment(ctx, deviceIden
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceWithIPAssignment", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceWithIPAssignment), ctx, deviceIdentifier, orgID)
 }
 
+// GetDistinctDeviceSiteIDs mocks base method.
+func (m *MockDeviceStore) GetDistinctDeviceSiteIDs(ctx context.Context, orgID int64, identifiers []string) ([]*int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDistinctDeviceSiteIDs", ctx, orgID, identifiers)
+	ret0, _ := ret[0].([]*int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDistinctDeviceSiteIDs indicates an expected call of GetDistinctDeviceSiteIDs.
+func (mr *MockDeviceStoreMockRecorder) GetDistinctDeviceSiteIDs(ctx, orgID, identifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDistinctDeviceSiteIDs", reflect.TypeOf((*MockDeviceStore)(nil).GetDistinctDeviceSiteIDs), ctx, orgID, identifiers)
+}
+
 // GetKnownSubnets mocks base method.
 func (m *MockDeviceStore) GetKnownSubnets(ctx context.Context, orgID int64, maskBits int, isIPv4 bool) ([]string, error) {
 	m.ctrl.T.Helper()

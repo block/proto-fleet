@@ -46,15 +46,15 @@ describe("minerTableColumnPreferences", () => {
       normalizeMinerTableColumnPreferences({
         columns: configurableMinerColumns.map((columnId) => ({ id: columnId, visible: true })),
       }),
-      minerCols.workerName,
       minerCols.groups,
+      minerCols.model,
     );
 
     expect(buildActiveMinerColumns(reordered).slice(0, 4)).toEqual([
       minerCols.name,
-      minerCols.workerName,
       minerCols.groups,
-      minerCols.site,
+      minerCols.model,
+      minerCols.macAddress,
     ]);
   });
 });

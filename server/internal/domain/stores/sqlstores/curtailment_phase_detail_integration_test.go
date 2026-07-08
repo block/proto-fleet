@@ -11,6 +11,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -243,6 +244,57 @@ func TestSQLCurtailmentStore_ListTargetsByEventPageBoundaries(t *testing.T) {
 	rollup, err := store.GetTargetRollupByEvent(ctx, user.OrganizationID, emptyEventUUID)
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), rollup.Total)
+}
+
+func TestSQLCurtailmentStore_ListTargetSiteCoverageCountsTargetRows(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	siteStore := sqlstores.NewSQLSiteStore(testContext.DatabaseService.DB)
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(user.OrganizationID, 2, "https://172.17.0.1:80")
+	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: user.OrganizationID, Name: "coverage-site"})
+	require.NoError(t, err)
+	_, err = siteStore.AssignDevicesToSite(ctx, user.OrganizationID, &site.ID, deviceIDs)
+	require.NoError(t, err)
+
+	eventUUID := uuid.New()
+	_, err = store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateActive, "target-site-coverage"),
+		[]models.InsertTargetParams{
+			curtailmentStoreTestTarget(deviceIDs[0], models.TargetStatePending, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget(deviceIDs[1], models.TargetStatePending, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget("missing-target-site-coverage", models.TargetStatePending, models.DesiredStateCurtailed),
+		},
+	)
+	require.NoError(t, err)
+
+	coverage, err := store.ListTargetSiteCoverageByEvent(ctx, user.OrganizationID, eventUUID)
+	require.NoError(t, err)
+	assert.False(t, coverage.Complete)
+	assert.Equal(t, []int64{site.ID}, coverage.SiteIDs)
+	assert.Equal(t, int64(3), coverage.TargetCount)
+	assert.Equal(t, int64(2), coverage.MappedTargetCount)
+	assert.Equal(t, int64(1), coverage.UnknownTargetCount())
+
+	emptyEventUUID := uuid.New()
+	_, err = store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, emptyEventUUID, models.EventStateCompleted, "empty-target-site-coverage"),
+		nil,
+	)
+	require.NoError(t, err)
+
+	coverageByEvent, err := store.ListTargetSiteCoverageByEvents(ctx, user.OrganizationID, []uuid.UUID{eventUUID, emptyEventUUID})
+	require.NoError(t, err)
+	assert.Equal(t, coverage, coverageByEvent[eventUUID])
+	assert.Equal(t, models.TargetSiteCoverage{Complete: true}, coverageByEvent[emptyEventUUID])
 }
 
 func assertTimeEqual(t *testing.T, expected time.Time, actual *time.Time) {

@@ -31,7 +31,7 @@ jobs:
         working-directory: server
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
@@ -53,7 +53,7 @@ jobs:
         working-directory: server
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
@@ -69,7 +69,7 @@ jobs:
       # the step). Cache the built image (same approach as the E2E build job)
       # and load it first so `docker compose up` finds it and skips the build.
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       # Rotate the cache weekly (ISO year-week) so a cache hit still rebuilds
       # against fresh upstream base images and packages (ubuntu, PostgreSQL,
@@ -81,7 +81,7 @@ jobs:
 
       - name: Restore TimescaleDB image cache
         id: tsdb-image-cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images
           key: ${{ runner.os }}-server-timescaledb-${{ steps.cache-week.outputs.week }}-${{ hashFiles('server/timescaledb/**') }}
@@ -97,7 +97,7 @@ jobs:
 
       - name: Save TimescaleDB image cache
         if: steps.tsdb-image-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images
           key: ${{ runner.os }}-server-timescaledb-${{ steps.cache-week.outputs.week }}-${{ hashFiles('server/timescaledb/**') }}

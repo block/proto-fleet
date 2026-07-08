@@ -25,6 +25,15 @@ service FleetManagementService {
   // Force an immediate telemetry/status collection for explicit devices and return fresh snapshots.
   rpc RefreshMiners(RefreshMinersRequest) returns (RefreshMinersResponse);
 
+  // Resolve a single paired miner from a scanned identifier — either a MAC
+  // address or a manufacturer serial number. Backs the rack-assignment QR
+  // scan flow: an operator scans a miner's sticker and the client uses the
+  // returned snapshot to confirm the device before dropping it into a rack
+  // slot. Returns NotFound when no paired device in the caller's
+  // organization matches. MAC values are normalized (separators/case)
+  // before matching; serials match device.serial_number verbatim.
+  rpc LookupMinerByIdentifier(LookupMinerByIdentifierRequest) returns (LookupMinerByIdentifierResponse);
+
   // Export the paired miner list as a CSV snapshot using the provided filter.
   // Rows are always emitted in default name-ascending order for cross-page consistency.
   // The server paginates internally and streams CSV data in chunks.
@@ -155,6 +164,12 @@ message MinerStateSnapshot {
   // device is not assigned at that level; groups is empty when the device is
   // not a member of any group.
   common.v1.PlacementRefs placement = 28;
+
+  // True when Fleet can open an embedded web management view for this miner.
+  // Availability is computed from driver support, pairing state, and routing
+  // ownership; unsupported or fleet-node-owned devices should use their external
+  // URL or typed control-stream commands instead.
+  bool embedded_web_view_available = 29;
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering
@@ -413,6 +428,43 @@ message RefreshMinersResponse {
 
   // Per-device failures. Devices that succeeded do not appear here.
   map<string, string> errors = 2;
+}
+
+// How to interpret a scanned lookup identifier.
+enum MinerIdentifierType {
+  // Let the server infer the kind from the value's shape (MAC pattern vs.
+  // anything else falls back to serial). Used when a QR payload carries no
+  // discriminating prefix.
+  MINER_IDENTIFIER_TYPE_UNSPECIFIED   = 0;
+  // Match against device.mac_address (normalized: separators + case).
+  MINER_IDENTIFIER_TYPE_MAC_ADDRESS   = 1;
+  // Match against device.serial_number verbatim.
+  MINER_IDENTIFIER_TYPE_SERIAL_NUMBER = 2;
+}
+
+// Request to resolve a paired miner by a scanned identifier.
+message LookupMinerByIdentifierRequest {
+  // The scanned value. The client strips any label prefix (e.g. "SN:",
+  // "MAC:") and surrounding whitespace before sending. For MAC lookups the
+  // server normalizes separators and case; serials are matched verbatim.
+  string identifier = 1 [(buf.validate.field) = {
+    string: { min_len: 1, max_len: 255 }
+    required: true
+  }];
+
+  // How to interpret `identifier`. When UNSPECIFIED the server infers the
+  // kind from the value shape. Clients that read a discriminating sticker
+  // prefix (SN:/MAC:) should set this explicitly.
+  MinerIdentifierType identifier_type = 2 [(buf.validate.field).enum.defined_only = true];
+}
+
+// Response carrying the resolved miner.
+message LookupMinerByIdentifierResponse {
+  // Snapshot of the matched paired miner, hydrated the same way as
+  // ListMinerStateSnapshots entries (telemetry, group, and rack refs)
+  // so the client can render name/model/status and current placement
+  // for operator confirmation.
+  MinerStateSnapshot snapshot = 1;
 }
 
 enum CsvTemperatureUnit {

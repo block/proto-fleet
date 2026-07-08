@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 type TimeRange struct {
 	StartTime *time.Time `json:"start_time,omitempty"`
@@ -33,6 +36,11 @@ type CombinedMetricsQuery struct {
 	PageSize         int                `json:"page_size,omitempty"`
 	SlideInterval    *time.Duration     `json:"slide_interval,omitempty"`
 	OrganizationID   int64              `json:"organization_id,omitempty"`
+	// DeviceListFromSiteScope is true when the service populated DeviceIDs
+	// from SiteIDs/IncludeUnassigned rather than from an explicit device
+	// selector. It lets storage preserve site-scope semantics even when other
+	// dashboard queries are eligible for org-wide rollups. Internal only.
+	DeviceListFromSiteScope bool `json:"-"`
 	// SiteIDs scopes metrics to devices assigned to ANY of these sites (OR),
 	// AND'd with DeviceIDs. Empty + IncludeUnassigned=false applies no site
 	// restriction. Scope is by current site membership: the service resolves
@@ -41,6 +49,16 @@ type CombinedMetricsQuery struct {
 	SiteIDs []int64 `json:"site_ids,omitempty"`
 	// IncludeUnassigned adds devices currently assigned to no site.
 	IncludeUnassigned bool `json:"include_unassigned,omitempty"`
+}
+
+// ShouldIncludeUptimeStatusCounts reports whether a CombinedMetrics response
+// should include uptime status counts. Empty measurement filters preserve the
+// historical default response shape.
+func ShouldIncludeUptimeStatusCounts(measurementTypes []MeasurementType) bool {
+	if len(measurementTypes) == 0 {
+		return true
+	}
+	return slices.Contains(measurementTypes, MeasurementTypeUptime)
 }
 
 type StreamCombinedMetricsQuery struct {

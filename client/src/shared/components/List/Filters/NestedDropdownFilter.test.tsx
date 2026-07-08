@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import NestedDropdownFilter, { type FilterCategory } from "./NestedDropdownFilter";
+import type { DropdownOption } from "./types";
 import { computeNestedPosition } from "./useFilterDropdownPosition";
 
 const mockedDimensions = {
@@ -40,7 +41,7 @@ const rect = (overrides: Partial<DOMRect>): DOMRect => {
 const checkbox = (
   key: string,
   label: string,
-  optionList: { id: string; label: string }[],
+  optionList: DropdownOption[],
   selectedValues: string[] = [],
 ): FilterCategory => ({
   kind: "checkbox",
@@ -117,6 +118,10 @@ describe("NestedDropdownFilter", () => {
 
     const statusRow = screen.getByTestId("nested-dropdown-filter-row-status");
     expect(statusRow).toHaveTextContent("2");
+    const statusCount = screen.getByTestId("nested-dropdown-filter-row-status-count");
+    expect(statusRow.children[1]).toContainElement(statusCount);
+    expect(statusRow.children[1]).toHaveClass("gap-2");
+
     const firmwareRow = screen.getByTestId("nested-dropdown-filter-row-firmware");
     expect(firmwareRow).toHaveTextContent("1");
   });
@@ -158,6 +163,29 @@ describe("NestedDropdownFilter", () => {
     expect(onCheckboxChange).toHaveBeenCalledWith("firmware", ["v3.5.1"]);
   });
 
+  it("renders thick dividers between option groups in nested submenus", async () => {
+    const categories: FilterCategory[] = [
+      checkbox("type", "Type", [
+        { id: "login", label: "Log in", showGroupDivider: true },
+        { id: "reboot", label: "Reboot miners" },
+      ]),
+    ];
+
+    render(<NestedDropdownFilter label="Filters" categories={categories} {...noopCallbacks()} onClearAll={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter-row-type"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("filter-option-login")).toBeInTheDocument();
+    });
+
+    const optionWrapper = screen.getByTestId("filter-option-login").parentElement;
+    expect(optionWrapper).toHaveClass("px-2");
+    expect(optionWrapper?.nextElementSibling).toHaveClass("border-border-10");
+    expect(optionWrapper?.nextElementSibling).not.toHaveClass("-mx-2");
+  });
+
   it("calls onClearAll only when the footer button fires", () => {
     const onClearAll = vi.fn();
     const categories: FilterCategory[] = [
@@ -195,7 +223,9 @@ describe("NestedDropdownFilter", () => {
 
     const clearAllButton = screen.getByText("Clear all").closest("button");
     expect(clearAllButton).not.toBeNull();
-    expect(clearAllButton?.className).toContain("mx-2");
+    expect(clearAllButton).toHaveClass("w-full");
+    expect(clearAllButton?.className).not.toContain("mx-2");
+    expect(clearAllButton?.parentElement).toHaveClass("px-2", "pt-2");
   });
 });
 
@@ -277,6 +307,27 @@ describe("NestedDropdownFilter on small viewports", () => {
 
     // The portaled side panel testId is reserved for the desktop hover layout.
     expect(screen.queryByTestId("nested-dropdown-filter-submenu-firmware")).not.toBeInTheDocument();
+  });
+
+  it("uses thick option dividers in mobile drilldowns when an option ends a group", async () => {
+    setViewport({ isPhone: true, isDesktop: false, width: 375 });
+    const categories: FilterCategory[] = [
+      checkbox("type", "Type", [
+        { id: "login", label: "Log in", showGroupDivider: true },
+        { id: "reboot", label: "Reboot miners" },
+      ]),
+    ];
+
+    render(<NestedDropdownFilter label="Filters" categories={categories} {...noopCallbacks()} onClearAll={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter-row-type"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("filter-option-login")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("filter-option-login").nextElementSibling).toHaveClass("border-border-10");
   });
 });
 

@@ -84,8 +84,10 @@ func TestHandler_CreateCurtailmentResponseProfilePreservesExplicitZeroRestoreInt
 
 	require.NoError(t, err)
 	assert.Equal(t, uint32(0), resp.Msg.GetProfile().GetRestoreBatchIntervalSec())
+	assert.Equal(t, uint32(0), resp.Msg.GetProfile().GetRestoreBatchSize())
 	require.NotNil(t, store.created)
 	assert.Equal(t, int32(0), store.created.RestoreBatchIntervalSec)
+	assert.Equal(t, int32(0), store.created.RestoreBatchSize)
 }
 
 func TestHandler_CreateCurtailmentResponseProfileWithoutSite(t *testing.T) {
@@ -682,6 +684,28 @@ func TestHandler_ResponseProfileAdminCanUseAdminControls(t *testing.T) {
 	require.NotNil(t, resp.Msg.GetProfile())
 	require.NotNil(t, store.created)
 	assert.True(t, store.created.ForceIncludeMaintenance)
+}
+
+func TestHandler_ResponseProfileAdminCanCreateAllPairedPolicy(t *testing.T) {
+	t.Parallel()
+
+	store := newHandlerResponseProfileStore()
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	resp, err := h.CreateCurtailmentResponseProfile(
+		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+			ProfileName:                 "All paired shed",
+			Mode:                        pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
+			ForceIncludeAllPairedMiners: true,
+		}),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.GetProfile())
+	require.NotNil(t, store.created)
+	assert.True(t, store.created.ForceIncludeAllPairedMiners)
+	assert.True(t, resp.Msg.GetProfile().GetForceIncludeAllPairedMiners())
 }
 
 type handlerResponseProfileStore struct {

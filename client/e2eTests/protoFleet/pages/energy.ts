@@ -43,6 +43,10 @@ export class EnergyPage extends BasePage {
     const modal = this.page.getByTestId("full-screen-two-pane-modal");
 
     await modal.locator("#curtailment-reason").fill(reason);
+    // Full shutdown is the default mode; switch to fixed-kW so the target
+    // input renders.
+    await modal.locator("#curtailment-mode").click();
+    await this.page.getByRole("option", { name: "Fixed kW reduction", exact: true }).click();
     await modal.locator("#curtailment-target-kw").fill(targetKw);
     await modal.locator("#curtailment-restore-batch-interval").fill(restoreBatchIntervalSec);
   }
@@ -75,12 +79,12 @@ export class EnergyPage extends BasePage {
 
   async startCurtailment() {
     await this.page.getByTestId("full-screen-two-pane-modal").getByRole("button", { name: "Run curtailment" }).click();
-    const maintenanceConfirmation = this.page.getByTestId("curtailment-maintenance-confirmation");
+    const forceInclusionConfirmation = this.page.getByTestId("curtailment-force-inclusion-confirmation");
     const runConfirmation = this.page.getByTestId("curtailment-run-confirmation");
 
-    await expect(maintenanceConfirmation.or(runConfirmation)).toBeVisible();
-    if (await maintenanceConfirmation.isVisible()) {
-      await maintenanceConfirmation.getByRole("button", { name: "Force include" }).click();
+    await expect(forceInclusionConfirmation.or(runConfirmation)).toBeVisible();
+    if (await forceInclusionConfirmation.isVisible()) {
+      await forceInclusionConfirmation.getByRole("button", { name: "Force include" }).click();
     }
     await expect(runConfirmation).toBeVisible();
     await runConfirmation.getByRole("button", { name: "Run curtailment" }).click();

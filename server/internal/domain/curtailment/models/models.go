@@ -18,26 +18,27 @@ type OrgConfig struct {
 // ResponseProfile is reusable curtailment response behavior. Automation rules
 // bind source triggers to these profiles; profiles themselves do not execute.
 type ResponseProfile struct {
-	ID                      int64
-	OrgID                   int64
-	ProfileName             string
-	SiteID                  *int64
-	ScopeJSON               []byte
-	Mode                    Mode
-	Strategy                Strategy
-	Level                   Level
-	Priority                Priority
-	TargetKW                *float64
-	ToleranceKW             *float64
-	CurtailBatchSize        *int32
-	CurtailBatchIntervalSec int32
-	RestoreBatchSize        int32
-	RestoreBatchIntervalSec int32
-	IncludeMaintenance      bool
-	ForceIncludeMaintenance bool
-	PostEventCooldownSec    int32
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	ID                          int64
+	OrgID                       int64
+	ProfileName                 string
+	SiteID                      *int64
+	ScopeJSON                   []byte
+	Mode                        Mode
+	Strategy                    Strategy
+	Level                       Level
+	Priority                    Priority
+	TargetKW                    *float64
+	ToleranceKW                 *float64
+	CurtailBatchSize            *int32
+	CurtailBatchIntervalSec     int32
+	RestoreBatchSize            int32
+	RestoreBatchIntervalSec     int32
+	IncludeMaintenance          bool
+	ForceIncludeMaintenance     bool
+	ForceIncludeAllPairedMiners bool
+	PostEventCooldownSec        int32
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
 }
 
 // AutomationTriggerType identifies the kind of signal an automation rule
@@ -127,6 +128,7 @@ const (
 	TargetStateDispatched    TargetState = "dispatched"
 	TargetStateConfirmed     TargetState = "confirmed"
 	TargetStateDrifted       TargetState = "drifted"
+	TargetStateUnavailable   TargetState = "unavailable"
 	TargetStateResolved      TargetState = "resolved"
 	TargetStateReleased      TargetState = "released"
 	TargetStateRestoreFailed TargetState = "restore_failed"
@@ -201,92 +203,121 @@ const (
 
 // Event represents a `curtailment_event` row; JSON columns are raw bytes.
 type Event struct {
-	ID                      int64
-	EventUUID               uuid.UUID
-	OrgID                   int64
-	State                   EventState
-	Mode                    Mode
-	Strategy                Strategy
-	Level                   Level
-	Priority                Priority
-	LoopType                LoopType
-	ScopeType               ScopeType
-	ScopeJSON               []byte
-	ModeParamsJSON          []byte
-	CurtailBatchSize        *int32
-	CurtailBatchIntervalSec int32
-	RestoreBatchSize        int32
-	RestoreBatchIntervalSec int32
-	EffectiveBatchSize      *int32
-	MinCurtailedDurationSec int32
-	MaxDurationSeconds      *int32
-	AllowUnbounded          bool
-	IncludeMaintenance      bool
-	ForceIncludeMaintenance bool
-	DecisionSnapshotJSON    []byte
-	SourceActorType         SourceActorType
-	SourceActorID           *string
-	ExternalSource          *string
-	ExternalReference       *string
-	IdempotencyKey          *string
-	SupersedesEventID       *int64
-	Reason                  string
-	ScheduledStartAt        *time.Time
-	StartedAt               *time.Time
-	EndedAt                 *time.Time
-	CreatedByUserID         int64
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
-	TargetRollup            *TargetRollup
+	ID                          int64
+	EventUUID                   uuid.UUID
+	OrgID                       int64
+	State                       EventState
+	Mode                        Mode
+	Strategy                    Strategy
+	Level                       Level
+	Priority                    Priority
+	LoopType                    LoopType
+	ScopeType                   ScopeType
+	ScopeJSON                   []byte
+	ModeParamsJSON              []byte
+	CurtailBatchSize            *int32
+	CurtailBatchIntervalSec     int32
+	RestoreBatchSize            int32
+	RestoreBatchIntervalSec     int32
+	EffectiveBatchSize          *int32
+	MinCurtailedDurationSec     int32
+	MaxDurationSeconds          *int32
+	AllowUnbounded              bool
+	IncludeMaintenance          bool
+	ForceIncludeMaintenance     bool
+	ForceIncludeAllPairedMiners bool
+	DecisionSnapshotJSON        []byte
+	SourceActorType             SourceActorType
+	SourceActorID               *string
+	ExternalSource              *string
+	ExternalReference           *string
+	IdempotencyKey              *string
+	SupersedesEventID           *int64
+	Reason                      string
+	ScheduledStartAt            *time.Time
+	StartedAt                   *time.Time
+	EndedAt                     *time.Time
+	CreatedByUserID             int64
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+	TargetRollup                *TargetRollup
+	TargetSiteCoverage          *TargetSiteCoverage
 }
 
 // TargetRollup summarizes all target rows for an event. Counts stay int64 at
 // the domain boundary because SQL COUNT returns int64; handlers clamp to the
 // proto int32 fields when rendering.
 type TargetRollup struct {
-	Pending       int64
-	Dispatched    int64
-	Confirmed     int64
-	Drifted       int64
-	Resolved      int64
-	Released      int64
-	RestoreFailed int64
-	Total         int64
+	Pending            int64
+	Dispatched         int64
+	Confirmed          int64
+	Drifted            int64
+	Resolved           int64
+	Released           int64
+	RestoreFailed      int64
+	Unavailable        int64
+	Total              int64
+	UnavailableReasons []TargetUnavailableReasonCount
+}
+
+// TargetUnavailableReasonCount summarizes unavailable target reasons.
+type TargetUnavailableReasonCount struct {
+	Reason string
+	Count  int64
+}
+
+// TargetSiteCoverage summarizes how persisted target rows map back to current
+// device site assignments. Incomplete coverage means at least one target no
+// longer resolves to a live device with a site.
+type TargetSiteCoverage struct {
+	SiteIDs           []int64
+	Complete          bool
+	TargetCount       int64
+	MappedTargetCount int64
+}
+
+func (c TargetSiteCoverage) UnknownTargetCount() int64 {
+	unknown := c.TargetCount - c.MappedTargetCount
+	if unknown < 0 {
+		return 0
+	}
+	return unknown
 }
 
 // InsertEventParams is the caller-supplied fields; id / created_at /
 // updated_at come from the DB. EffectiveBatchSize is computed at Start
 // from the selected-target count and stamped here.
 type InsertEventParams struct {
-	EventUUID               uuid.UUID
-	OrgID                   int64
-	State                   EventState
-	Mode                    Mode
-	Strategy                Strategy
-	Level                   Level
-	Priority                Priority
-	LoopType                LoopType
-	ScopeType               ScopeType
-	ScopeJSON               []byte
-	ModeParamsJSON          []byte
-	CurtailBatchSize        *int32
-	CurtailBatchIntervalSec int32
-	RestoreBatchSize        int32
-	RestoreBatchIntervalSec int32
-	MinCurtailedDurationSec int32
-	MaxDurationSeconds      *int32
-	AllowUnbounded          bool
-	IncludeMaintenance      bool
-	ForceIncludeMaintenance bool
-	DecisionSnapshotJSON    []byte
-	SourceActorType         SourceActorType
-	SourceActorID           *string
-	ExternalSource          *string
-	ExternalReference       *string
-	IdempotencyKey          *string
-	Reason                  string
-	ScheduledStartAt        *time.Time
-	StartedAt               *time.Time
+	EventUUID                   uuid.UUID
+	OrgID                       int64
+	State                       EventState
+	Mode                        Mode
+	Strategy                    Strategy
+	Level                       Level
+	Priority                    Priority
+	LoopType                    LoopType
+	ScopeType                   ScopeType
+	ScopeJSON                   []byte
+	ModeParamsJSON              []byte
+	CurtailBatchSize            *int32
+	CurtailBatchIntervalSec     int32
+	RestoreBatchSize            int32
+	RestoreBatchIntervalSec     int32
+	MinCurtailedDurationSec     int32
+	MaxDurationSeconds          *int32
+	AllowUnbounded              bool
+	IncludeMaintenance          bool
+	ForceIncludeMaintenance     bool
+	ForceIncludeAllPairedMiners bool
+	DecisionSnapshotJSON        []byte
+	SourceActorType             SourceActorType
+	SourceActorID               *string
+	ExternalSource              *string
+	ExternalReference           *string
+	IdempotencyKey              *string
+	Reason                      string
+	ScheduledStartAt            *time.Time
+	StartedAt                   *time.Time
 	// EndedAt is set only when an event is inserted already terminal — a
 	// vacuously-COMPLETED FULL_FLEET start with no eligible targets — so the
 	// completion time is recorded; the reconciler/restorer set it otherwise.
@@ -358,6 +389,7 @@ type InsertTargetParams struct {
 	State                 TargetState
 	DesiredState          string
 	BaselinePowerW        *float64
+	LastError             *string
 	SelectorRationaleJSON []byte
 }
 

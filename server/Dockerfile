@@ -1,9 +1,9 @@
 # Use the official Go image as a base image
-FROM golang:1.25.4-alpine AS builder
+FROM golang:1.26.4-alpine AS builder
 
 RUN apk add git
 
-RUN go install github.com/go-delve/delve/cmd/dlv@v1.25.2
+RUN go install github.com/go-delve/delve/cmd/dlv@v1.27.0
 
 # Set the working directory inside the container
 WORKDIR /app

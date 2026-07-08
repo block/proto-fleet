@@ -76,6 +76,18 @@ func (h *Handler) ExportMinerListCsv(ctx context.Context, r *connect.Request[pb.
 	})
 }
 
+func (h *Handler) LookupMinerByIdentifier(ctx context.Context, r *connect.Request[pb.LookupMinerByIdentifierRequest]) (*connect.Response[pb.LookupMinerByIdentifierResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRead, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
+	result, err := h.fleetMgmtSvc.LookupMinerByIdentifier(ctx, r.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(result), nil
+}
+
 func (h *Handler) GetMinerStateCounts(ctx context.Context, r *connect.Request[pb.GetMinerStateCountsRequest]) (*connect.Response[pb.GetMinerStateCountsResponse], error) {
 	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
 		return nil, err

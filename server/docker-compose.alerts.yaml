@@ -14,6 +14,7 @@ services:
       FLEET_ALERTS_GRAFANA_PASSWORD: localdev-grafana-admin-not-for-prod
       FLEET_ALERTS_WEBHOOK_TOKEN: localdev-webhook-token-not-for-prod
       FLEET_ALERTS_ALLOW_PRIVATE_DESTINATIONS: "${FLEET_ALERTS_ALLOW_PRIVATE_DESTINATIONS:-true}"
+      FLEET_PUBLIC_URL: "${FLEET_PUBLIC_URL:-http://localhost:8080}"
     depends_on:
       otel-collector:
         condition: service_started

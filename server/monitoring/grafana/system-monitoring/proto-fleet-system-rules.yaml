@@ -1,0 +1,370 @@
+# Proto Fleet system-monitoring alert rules — provisioned only by the
+# system-monitoring overlays, which bind-mount this file over the deleteRules
+# tombstone at provisioning/alerting/proto-fleet-system-rules.yaml. Host
+# metrics carry no org label (see docs/alerts-metrics.md), so every rule
+# CROSS JOINs fleet_active_organization to fan one host condition out to
+# per-org instances: delivery, pause, and history stay org-scoped.
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: proto-fleet-system
+    folder: Proto Fleet
+    interval: 30s
+    rules:
+      - uid: protofleet-system-cpu-high
+        title: Host CPU High
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                -- Threshold lives here so it can be retuned without redeploying fleet-api.
+                -- Plain ORDER BY/LIMIT instead of last(value, time): TimescaleDB's custom
+                -- aggregate trips "Aggref found in non-Agg plan node" when the planner pushes
+                -- the join filter into this subquery.
+                SELECT
+                    o.organization_id,
+                    s.value
+                FROM fleet_active_organization o
+                CROSS JOIN (
+                    SELECT value
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_system_cpu_used_percent'
+                      AND time > NOW() - INTERVAL '10 minutes'
+                    ORDER BY time DESC
+                    LIMIT 1
+                ) s
+                WHERE s.value > 90
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        # Collector off or stale means no rows: the Fleet Heartbeat Stale rule
+        # owns that case, so noData must not page.
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        # 5m, not 10m: each sample is a 30s average and one dip resets the timer,
+        # so 5m of sustained >90% is already a strong "genuinely pegged" signal
+        # on a small host without waiting out a self-resolving spike for ten.
+        for: 5m
+        labels:
+          # Shared: visible to every org (a pause stays org-scoped). Instances
+          # always carry organization_id via the SQL fan-out.
+          proto_fleet_scope: shared
+          severity: warning
+          rule_group: proto-fleet-system
+          template: system-cpu
+        annotations:
+          summary: "Host CPU usage has been above 90% for at least ten minutes."
+          description: |
+            CPU on the machine running Proto Fleet has been above 90% for at
+            least ten minutes. Telemetry polling, command dispatch, and the
+            database all compete for that CPU; check for runaway processes on
+            the host.
+
+      - uid: protofleet-system-memory-high
+        title: Host Memory High
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                SELECT
+                    o.organization_id,
+                    s.value
+                FROM fleet_active_organization o
+                CROSS JOIN (
+                    SELECT value
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_system_memory_used_percent'
+                      AND time > NOW() - INTERVAL '10 minutes'
+                    ORDER BY time DESC
+                    LIMIT 1
+                ) s
+                WHERE s.value > 90
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        # 5m, not 10m: sustained high memory is real pressure (it does not
+        # self-release the way a CPU spike does), so the shorter window trades
+        # little noise for earlier warning of OOM risk.
+        for: 5m
+        labels:
+          proto_fleet_scope: shared
+          severity: warning
+          rule_group: proto-fleet-system
+          template: system-memory
+        annotations:
+          summary: "Host memory usage has been above 90% for at least ten minutes."
+          description: |
+            RAM on the machine running Proto Fleet has been above 90% for at
+            least ten minutes. If it keeps climbing, the kernel OOM killer may
+            take out fleet-api or TimescaleDB.
+
+      # Two-tier disk alerting: this warning at 75% gives lead time to plan
+      # capacity, while the critical below stays at 85% ("act now"). A DB host
+      # plateaus under retention somewhere below 75% when healthy, so this
+      # should be quiet in steady state rather than firing on a normal level.
+      - uid: protofleet-system-disk-warning
+        title: Host Disk Space Warning
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                SELECT
+                    o.organization_id,
+                    s.value
+                FROM fleet_active_organization o
+                CROSS JOIN (
+                    SELECT value
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_system_disk_used_percent'
+                      AND time > NOW() - INTERVAL '15 minutes'
+                    ORDER BY time DESC
+                    LIMIT 1
+                ) s
+                WHERE s.value > 75
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        # Disk moves slowly; the wider window avoids flapping on temp files.
+        for: 15m
+        labels:
+          proto_fleet_scope: shared
+          severity: warning
+          rule_group: proto-fleet-system
+          template: system-disk
+        annotations:
+          summary: "Host disk usage has been above 75% for at least fifteen minutes."
+          description: |
+            The filesystem Proto Fleet monitors is more than 75% full. This is
+            early notice to plan more space before it reaches the critical
+            threshold; TimescaleDB stops ingesting and alerting once the disk
+            fills.
+
+      - uid: protofleet-system-disk-low
+        title: Host Disk Space Low
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                SELECT
+                    o.organization_id,
+                    s.value
+                FROM fleet_active_organization o
+                CROSS JOIN (
+                    SELECT value
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_system_disk_used_percent'
+                      AND time > NOW() - INTERVAL '15 minutes'
+                    ORDER BY time DESC
+                    LIMIT 1
+                ) s
+                WHERE s.value > 85
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        # Disk moves slowly; the wider window avoids flapping on temp files.
+        for: 15m
+        labels:
+          proto_fleet_scope: shared
+          # Critical, not warning: a full disk stops TimescaleDB and with it
+          # every other alert in this file.
+          severity: critical
+          rule_group: proto-fleet-system
+          template: system-disk
+        annotations:
+          summary: "Host disk usage has been above 85% for at least fifteen minutes."
+          description: |
+            The filesystem Proto Fleet monitors is more than 85% full. A full
+            disk halts TimescaleDB, which stops telemetry ingest and all
+            alerting. Free up space or grow the volume soon.
+
+      - uid: protofleet-system-disk-stale
+        title: Host Disk Monitoring Stalled
+        condition: B
+        # Disk is the one gauge with a config knob (DISK_PATH): a bad path
+        # fails statfs forever while CPU/memory keep flowing, and the disk
+        # rule above would sit silently at noData. This fires only while the
+        # heartbeat is FRESH — a dead collector or down fleet-api is the
+        # Fleet Heartbeat Stale rule's job, and double-paging helps nobody.
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                -- The no-disk-samples fallback is the heartbeat-history age, not a
+                -- huge sentinel: a DISK_PATH that is broken from first boot then
+                -- accrues staleness at the same rate as a path that stops working,
+                -- so both reach the threshold on the documented schedule instead
+                -- of the sentinel firing the pending timer immediately.
+                SELECT
+                    o.organization_id,
+                    COALESCE(EXTRACT(EPOCH FROM (NOW() - s.last_disk))::float8,
+                             EXTRACT(EPOCH FROM (NOW() - h.first_beat))::float8) AS value
+                FROM fleet_active_organization o
+                CROSS JOIN (
+                    -- 1h, not the heartbeat rule's 24h: wide enough to show real
+                    -- staleness while firing, tight enough that the stalled-state
+                    -- index scan stays small on every 30s evaluation.
+                    SELECT max(time) AS last_disk
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_system_disk_used_percent'
+                      AND time > NOW() - INTERVAL '1 hour'
+                ) s
+                CROSS JOIN (
+                    SELECT max(time) AS last_beat, min(time) AS first_beat
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_system_heartbeat'
+                      AND time > NOW() - INTERVAL '15 minutes'
+                ) h
+                WHERE h.last_beat > NOW() - INTERVAL '5 minutes'
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              # 720s staleness + the 3m pending period pages at the documented
+              # ~15 minutes; like the heartbeat rule, `for` stacks ON TOP of the
+              # threshold and must not double the advertised delay.
+              expression: $A > 720
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        for: 3m
+        labels:
+          proto_fleet_scope: shared
+          severity: warning
+          rule_group: proto-fleet-system
+          template: system-disk-stale
+        annotations:
+          summary: "Host disk usage has not been reported for over fifteen minutes while the collector is otherwise healthy."
+          description: |
+            The system-monitoring collector is heartbeating but has not
+            produced a disk reading for over fifteen minutes — the Host Disk
+            Space Low alert is effectively blind. The usual cause is a
+            FLEET_SYSTEM_MONITORING_DISK_PATH that does not resolve inside
+            the fleet-api container; check fleet-api logs for
+            "sysmon: disk read failed".
+
+      - uid: protofleet-system-heartbeat-stale
+        title: Fleet Heartbeat Stale
+        condition: B
+        # Unlike protofleet-ingest-stalled (operator-only: its noData path
+        # emits an unscoped instance no org pause can match), this rule never
+        # relies on noData to fire: the org CROSS JOIN returns a staleness row
+        # per live org on every evaluation, with COALESCE covering the
+        # no-samples case, so instances always carry organization_id and can
+        # be shared. noData is reachable only with zero live orgs — nobody to
+        # notify — so noDataState: OK is safe. It also covers the empty fleet
+        # that ingest-stalled's no-miners sentinel intentionally reads as
+        # healthy.
+        #
+        # Delivery paradox, documented honestly: if fleet-api itself is down,
+        # Grafana cannot POST the webhook; its Alertmanager retries and the
+        # notification lands when fleet-api recovers. During the outage the
+        # Grafana UI and the operator-only ingest-stalled rule are the
+        # fallback.
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                SELECT
+                    o.organization_id,
+                    COALESCE(EXTRACT(EPOCH FROM (NOW() - s.last_beat))::float8, 1e9) AS value
+                FROM fleet_active_organization o
+                CROSS JOIN (
+                    SELECT max(time) AS last_beat
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_system_heartbeat'
+                      AND time > NOW() - INTERVAL '24 hours'
+                ) s
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              # The collector heartbeats every 30s; 120s of silence means
+              # fleet-api is down or its metrics writer is wedged. The `for`
+              # pending period stacks ON TOP of this threshold, so 120s + 3m
+              # delivers the documented ~5-minute page; a 300s threshold with
+              # for: 5m would silently double it to ten.
+              expression: $A > 120
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        # Also the cold-start grace: a fresh enable starts at 1e9 staleness and
+        # must not page before fleet-api's first boot heartbeat lands.
+        for: 3m
+        labels:
+          proto_fleet_scope: shared
+          severity: critical
+          rule_group: proto-fleet-system
+          template: system-heartbeat
+        annotations:
+          summary: "Proto Fleet has not reported a system heartbeat for over five minutes."
+          description: |
+            The fleet server's system-monitoring heartbeat has gone stale.
+            Either fleet-api is down, or its metrics writer is wedged. Device
+            alerts cannot be evaluated or delivered until it recovers — check
+            the host and `docker compose ps` on the fleet server.

@@ -224,7 +224,7 @@ const testResponseProfiles: ResponseProfile[] = [
       maxDurationSec: "900",
       curtailBatchSize: "50",
       curtailBatchIntervalSec: "30",
-      restoreBatchSize: "10000",
+      restoreBatchSize: "0",
       restoreIntervalSec: "0",
       responseDeadlineMinutes: "15",
       includeMaintenance: false,
@@ -281,7 +281,7 @@ const siteScopedResponseProfile: ResponseProfile = {
     maxDurationSec: "900",
     curtailBatchSize: "40",
     curtailBatchIntervalSec: "30",
-    restoreBatchSize: "10000",
+    restoreBatchSize: "0",
     restoreIntervalSec: "0",
     responseDeadlineMinutes: "15",
     includeMaintenance: false,
@@ -724,7 +724,8 @@ describe("CurtailmentSettingsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create profile" }));
     expect(screen.getByText("Create response profile")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Emergency full shed" } });
-    expect(screen.getByRole("checkbox", { name: "Include miners in maintenance" })).toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: "Include miners in maintenance" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Target all paired miners" })).not.toBeChecked();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
@@ -750,7 +751,7 @@ describe("CurtailmentSettingsPage", () => {
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
         responseDeadlineMinutes: "15",
-        includeMaintenance: true,
+        includeMaintenance: false,
       }),
     );
     expect(pushToast).toHaveBeenCalledWith({
@@ -889,8 +890,6 @@ describe("CurtailmentSettingsPage", () => {
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "10" } });
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
     fireEvent.click(getEnabledButton("Run curtailment"));
-    expect(screen.getByText("Force include maintenance miners?")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Force include" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -922,7 +921,7 @@ describe("CurtailmentSettingsPage", () => {
           curtailBatchIntervalSec: "60",
           restoreBatchSize: "10",
           restoreIntervalSec: "120",
-          includeMaintenance: true,
+          includeMaintenance: false,
         }),
       ),
     );
@@ -957,7 +956,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getAllByLabelText("Batch interval (sec)")).toHaveLength(2);
     expect(screen.getByTestId("response-profile-curtail-batch-size")).toHaveValue("50");
     expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("30");
-    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
+    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("0");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
     expect(screen.queryByTestId("response-profile-post-event-cooldown")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
@@ -999,6 +998,44 @@ describe("CurtailmentSettingsPage", () => {
       message: "Response profile deleted",
       status: "success",
     });
+  });
+
+  it("preserves the all-paired flag when editing and saving a profile", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    const allPairedProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "all-paired-shed",
+      name: "All-paired shed",
+      formValues: {
+        ...testResponseProfiles[0].formValues!,
+        name: "All-paired shed",
+        forceIncludeAllPairedMiners: true,
+      },
+    };
+    mockResponseProfilesApi({ responseProfiles: [allPairedProfile] });
+    updateResponseProfileMock.mockResolvedValue(allPairedProfile);
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(within(getResponseProfileCard("All-paired shed")).getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Edit response profile")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Target all paired miners" })).toBeChecked();
+
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "All-paired shed v2" } });
+    fireEvent.click(getEnabledButton("Save profile"));
+
+    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
+    expect(updateResponseProfileMock).toHaveBeenCalledWith(
+      "all-paired-shed",
+      expect.objectContaining({
+        name: "All-paired shed v2",
+        forceIncludeAllPairedMiners: true,
+      }),
+    );
   });
 
   it("preserves site scope when saving an API response profile", async () => {
@@ -1201,7 +1238,8 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Include miners in maintenance" })).toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: "Include miners in maintenance" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Target all paired miners" })).not.toBeChecked();
     expect(screen.getAllByLabelText("Batch size (miners)")).toHaveLength(2);
     expect(screen.getAllByLabelText("Batch interval (sec)")).toHaveLength(2);
     expect(screen.getByTestId("response-profile-curtail-batch-size")).toHaveValue("");
@@ -1243,7 +1281,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
     expect(screen.getByTestId("response-profile-curtail-batch-size")).toHaveValue("50");
     expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("30");
-    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10000");
+    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("0");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();

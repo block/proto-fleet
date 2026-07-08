@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 
 import RackOverviewPage from "./RackOverviewPage";
 import { DeviceSetSchema } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
@@ -42,12 +43,19 @@ vi.mock("@/protoFleet/api/sites", () => ({
   useSites: () => mockUseSites(),
 }));
 
+// RackOverviewPage reads the site catalog (for the breadcrumb site label) from
+// the shell-level SitesProvider. Drive it directly here.
+const sitesCtx = vi.hoisted(() => ({ current: { sites: [] as unknown[] } }));
+vi.mock("@/protoFleet/api/SitesContext", () => ({
+  useSitesContext: () => sitesCtx.current,
+}));
+
 vi.mock("@/protoFleet/api/useDeviceSetStateCounts", () => ({
   useDeviceSetStateCounts: () => mockUseDeviceSetStateCounts(),
 }));
 
 vi.mock("@/protoFleet/api/useTelemetryMetrics", () => ({
-  useTelemetryMetrics: () => mockUseTelemetryMetrics(),
+  useTelemetryMetrics: (options: unknown) => mockUseTelemetryMetrics(options),
 }));
 
 vi.mock("@/protoFleet/api/useComponentErrors", () => ({
@@ -135,6 +143,7 @@ function mockResolvedRackPageData(
     allBuildings?: unknown[];
     sites?: unknown[];
     allRacks?: unknown[];
+    memberDeviceIds?: string[];
   } = {},
 ): void {
   mockUseParams.mockReturnValue({ rackId: "7" });
@@ -147,7 +156,8 @@ function mockResolvedRackPageData(
   });
   mockUseDeviceSets.mockReturnValue({
     getDeviceSet: ({ onSuccess }: { onSuccess: (resolvedDeviceSet: typeof rack) => void }) => onSuccess(deviceSet),
-    listGroupMembers: ({ onSuccess }: { onSuccess: (deviceIds: string[]) => void }) => onSuccess([]),
+    listGroupMembers: ({ onSuccess }: { onSuccess: (deviceIds: string[]) => void }) =>
+      onSuccess(options.memberDeviceIds ?? []),
     assignDevicesToRack: vi.fn(),
     listRacks: listRacksMock,
     setRackSlotPosition: vi.fn(),
@@ -156,6 +166,7 @@ function mockResolvedRackPageData(
   mockUseSites.mockReturnValue({
     listSites: ({ onSuccess }: { onSuccess: (sites: unknown[]) => void }) => onSuccess(options.sites ?? []),
   });
+  sitesCtx.current = { sites: options.sites ?? [] };
   mockUseDeviceSetStateCounts.mockReturnValue({
     stateCounts: {
       hashingCount: 0,
@@ -303,5 +314,20 @@ describe("RackOverviewPage", () => {
     renderRackOverviewPage();
 
     expect(await screen.findByTestId("rack-page-breadcrumb-link-0")).toHaveAttribute("href", "/unassigned/fleet/racks");
+  });
+
+  it("does not request uptime telemetry for rack performance charts", async () => {
+    mockResolvedRackPageData(rack, { memberDeviceIds: ["miner-a"] });
+
+    renderRackOverviewPage();
+
+    await waitFor(() =>
+      expect(mockUseTelemetryMetrics).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: true,
+          measurementTypes: expect.not.arrayContaining([MeasurementType.UPTIME]),
+        }),
+      ),
+    );
   });
 });

@@ -1,11 +1,11 @@
 import type { FieldHelpPopoverProps } from "@/protoFleet/features/infrastructure/fieldHelp";
 
-export const infraDeviceFieldHelp: Record<"connectionType" | "endpoint" | "port", FieldHelpPopoverProps> = {
-  connectionType: {
-    ariaLabel: "About connection type",
-    header: "Connection type",
-    body: "Choose how Fleet reaches this device: Modbus TCP, MQTT bridge, or HTTP/API.",
-    testId: "infra-device-connection-type-help",
+export const infraDeviceFieldHelp: Record<"unitId" | "endpoint" | "port", FieldHelpPopoverProps> = {
+  unitId: {
+    ariaLabel: "About Unit ID",
+    header: "Unit ID",
+    body: "Numeric Modbus unit/slave address from 1 to 247 for this device at the configured endpoint.",
+    testId: "infra-device-unit-id-help",
   },
   endpoint: {
     ariaLabel: "About endpoint",
@@ -16,7 +16,7 @@ export const infraDeviceFieldHelp: Record<"connectionType" | "endpoint" | "port"
   port: {
     ariaLabel: "About port",
     header: "Port",
-    body: "Use the TCP port for the selected connection type, such as 502 for Modbus TCP.",
+    body: "Use the Modbus TCP port, such as 502.",
     testId: "infra-device-port-help",
   },
 };

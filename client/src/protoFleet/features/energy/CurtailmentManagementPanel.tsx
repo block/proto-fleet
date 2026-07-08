@@ -1,8 +1,10 @@
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { getErrorCause } from "@/protoFleet/api/requestErrors";
 import { buildSiteNameById } from "@/protoFleet/api/siteNames";
 import { useSites } from "@/protoFleet/api/sites";
 import {
@@ -19,6 +21,7 @@ import ActiveCurtailmentStatus, {
 } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import type { CurtailmentEventState } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import CurtailmentHistory, { type CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
+import { immediateRestoreBatchSizeInputValue } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import { getDefaultCurtailmentSiteScope } from "@/protoFleet/features/energy/curtailmentSiteScopeDefaults";
 import CurtailmentStartModal, {
   type CurtailmentPlanPreview,
@@ -88,13 +91,41 @@ const updateableCurtailmentEventStates = new Set<CurtailmentEventState>(["pendin
 const forceRestorableCurtailmentEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
 const defaultResponseDeadlineMinutes = "15";
 const defaultMaxDurationSec = "900";
-const immediateRestoreBatchSize = "10000";
 
 const terminateRecoveryStateOptions: { label: string; value: TerminateRecoveryState }[] = [
   { label: "Cancelled", value: "cancelled" },
   { label: "Failed", value: "failed" },
 ];
 const automationRestoreBlockedErrorPrefix = "cannot restore automation-owned curtailment event";
+const transientTerminateRecoveryErrorCodes = new Set<Code>([
+  Code.Aborted,
+  Code.Canceled,
+  Code.DeadlineExceeded,
+  Code.Unavailable,
+  // connect-web assigns Code.Unknown to raw transport failures it cannot
+  // classify (ConnectError.from's default code), so a network blip must not
+  // unlock the destructive Abort escalation. Server-side rejections arrive
+  // with definitive codes via the fleeterror mapping interceptor.
+  Code.Unknown,
+]);
+
+function getConnectError(error: unknown): ConnectError | null {
+  if (error instanceof ConnectError) {
+    return error;
+  }
+
+  const cause = getErrorCause(error);
+  return cause instanceof ConnectError ? cause : null;
+}
+
+function shouldOfferForceReleaseAfterTerminateRecoveryError(error: unknown): boolean {
+  if (error instanceof Error && error.message === adminTerminateReasonRequiredMessage) {
+    return false;
+  }
+
+  const connectError = getConnectError(error);
+  return !connectError || !transientTerminateRecoveryErrorCodes.has(connectError.code);
+}
 
 function getRecoveryStopErrorMessage(
   stopError: string | null,
@@ -214,10 +245,13 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     maxDurationSec: minutesToSeconds(responseDeadlineMinutes),
     curtailBatchSize: "",
     curtailBatchIntervalSec: "",
-    restoreBatchSize: profile.restoreBehavior.toLowerCase().includes("immediate") ? immediateRestoreBatchSize : "",
+    restoreBatchSize: profile.restoreBehavior.toLowerCase().includes("immediate")
+      ? immediateRestoreBatchSizeInputValue
+      : "",
     restoreIntervalSec: "",
     responseDeadlineMinutes,
-    includeMaintenance: true,
+    includeMaintenance: false,
+    forceIncludeAllPairedMiners: false,
   };
 }
 
@@ -225,7 +259,7 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
   const values = createResponseProfileFormValuesFromProfile(profile);
   const restoreBatchSize =
     values.restoreBatchSize ||
-    (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSize : "");
+    (values.restoreBehavior === "automaticImmediateRestore" ? immediateRestoreBatchSizeInputValue : "");
   const hasAllMinersSelected = values.minerSelectionMode === "all";
   const siteIds = hasAllMinersSelected ? [] : getSelectedResponseProfileSiteIds(values);
   const siteId = siteIds[0] ?? "";
@@ -275,6 +309,7 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
       restoreBatchSize,
       restoreIntervalSec: values.restoreIntervalSec,
       includeMaintenance: values.includeMaintenance,
+      forceIncludeAllPairedMiners: values.actionType === "fullFleet" && Boolean(values.forceIncludeAllPairedMiners),
     },
   };
 }
@@ -315,7 +350,7 @@ function CurtailmentRecoveryTerminateDialog({
   return (
     <Dialog
       open={open}
-      title="Terminate recovery event?"
+      title="Stop restore?"
       onDismiss={dismissDialog}
       icon={
         <DialogIcon intent="critical">
@@ -330,7 +365,7 @@ function CurtailmentRecoveryTerminateDialog({
           disabled: isSubmitting,
         },
         {
-          text: "Terminate event",
+          text: "Stop restore",
           variant: variants.danger,
           onClick: confirmTerminate,
           loading: isSubmitting,
@@ -339,7 +374,7 @@ function CurtailmentRecoveryTerminateDialog({
     >
       <div className="grid gap-4 text-300 text-text-primary">
         <p className="text-text-primary-70">
-          Only terminate after restore has started. This closes the event audit trail as cancelled or failed.
+          Use this after restore has started. This closes the event audit trail as cancelled or failed.
         </p>
         <fieldset className="grid gap-2">
           <legend className="text-emphasis-300">Target state</legend>
@@ -578,6 +613,19 @@ function CurtailmentManagementPanel({
   const [pendingStopConfirmation, setPendingStopConfirmation] = useState<PendingStopConfirmation | null>(null);
   const [pendingTerminateRecoveryEventId, setPendingTerminateRecoveryEventId] = useState<string | null>(null);
   const [pendingForceReleaseEventId, setPendingForceReleaseEventId] = useState<string | null>(null);
+  const [failedTerminateRecoveryEventId, setFailedTerminateRecoveryEventId] = useState<string | null>(null);
+  // Abort restore is unlocked per restore cycle: once the active event leaves
+  // the restoring state (restore completed, or a recurtail cycle flipped it
+  // back to pending/active), a fresh Stop-restore failure is required before
+  // the destructive escalation is offered again. Render-time adjustment per
+  // react.dev's "adjusting state when a prop changes" pattern.
+  const [prevActiveEventState, setPrevActiveEventState] = useState(activeEvent?.state);
+  if (activeEvent?.state !== prevActiveEventState) {
+    setPrevActiveEventState(activeEvent?.state);
+    if (activeEvent && activeEvent.state !== "restoring" && failedTerminateRecoveryEventId === activeEventId) {
+      setFailedTerminateRecoveryEventId(null);
+    }
+  }
   const refreshAbortControllerRef = useRef<AbortController | null>(null);
   const activeRefreshAbortControllerRef = useRef<AbortController | null>(null);
   const manageSelectionAbortControllerRef = useRef<AbortController | null>(null);
@@ -605,6 +653,22 @@ function CurtailmentManagementPanel({
         ? activeEvent
         : activeEvents.find((event) => event.id === pendingForceReleaseEventId);
   const pendingForceReleaseMode = pendingForceReleaseEvent?.state === "restoring" ? "restore" : "curtailment";
+  const canTerminateActiveRecovery = Boolean(
+    canUseRecovery && activeEvent && canTerminateRecoveryCurtailmentEvent(activeEvent),
+  );
+  const didActiveTerminateRecoveryFail = Boolean(
+    activeEventId &&
+    activeEvent &&
+    failedTerminateRecoveryEventId === activeEventId &&
+    canTerminateRecoveryCurtailmentEvent(activeEvent),
+  );
+  const canForceReleaseActiveEvent = Boolean(
+    canUseRecovery &&
+    activeEventId &&
+    activeEvent &&
+    canAbortCurtailmentOwnership(activeEvent) &&
+    (!canTerminateActiveRecovery || didActiveTerminateRecoveryFail),
+  );
 
   const runAbortableRefresh = useCallback(<T,>(operation: (signal: AbortSignal) => Promise<T>) => {
     activeRefreshAbortControllerRef.current?.abort();
@@ -885,18 +949,22 @@ function CurtailmentManagementPanel({
         return;
       }
 
-      if (
-        pendingTerminateRecoveryEventId !== activeEventId ||
-        !activeEvent ||
-        !canTerminateRecoveryCurtailmentEvent(activeEvent)
-      ) {
+      const eventId = pendingTerminateRecoveryEventId;
+      if (eventId !== activeEventId || !activeEvent || !canTerminateRecoveryCurtailmentEvent(activeEvent)) {
         setPendingTerminateRecoveryEventId(null);
         return;
       }
 
-      void adminTerminateCurtailment(pendingTerminateRecoveryEventId, options)
-        .then(() => setPendingTerminateRecoveryEventId(null))
-        .catch(() => {});
+      void adminTerminateCurtailment(eventId, options)
+        .then(() => {
+          setPendingTerminateRecoveryEventId(null);
+          setFailedTerminateRecoveryEventId((currentEventId) => (currentEventId === eventId ? null : currentEventId));
+        })
+        .catch((error: unknown) => {
+          if (shouldOfferForceReleaseAfterTerminateRecoveryError(error)) {
+            setFailedTerminateRecoveryEventId(eventId);
+          }
+        });
     },
     [activeEvent, activeEventId, adminTerminateCurtailment, canUseRecovery, pendingTerminateRecoveryEventId],
   );
@@ -907,13 +975,17 @@ function CurtailmentManagementPanel({
         return;
       }
 
-      if (pendingForceReleaseEventId !== activeEventId || !activeEvent || !canAbortCurtailmentOwnership(activeEvent)) {
+      const eventId = pendingForceReleaseEventId;
+      if (eventId !== activeEventId || !activeEvent || !canAbortCurtailmentOwnership(activeEvent)) {
         setPendingForceReleaseEventId(null);
         return;
       }
 
-      void forceReleaseCurtailment(pendingForceReleaseEventId, options)
-        .then(() => setPendingForceReleaseEventId(null))
+      void forceReleaseCurtailment(eventId, options)
+        .then(() => {
+          setPendingForceReleaseEventId(null);
+          setFailedTerminateRecoveryEventId((currentEventId) => (currentEventId === eventId ? null : currentEventId));
+        })
         .catch(() => {});
     },
     [activeEvent, activeEventId, canUseRecovery, forceReleaseCurtailment, pendingForceReleaseEventId],
@@ -967,23 +1039,17 @@ function CurtailmentManagementPanel({
               event={activeEvent}
               onDismissRestored={dismissTerminalCurtailment}
               onRequestTerminateRecovery={
-                canUseRecovery &&
-                canTerminateRecoveryCurtailmentEvent(activeEvent) &&
-                !canAbortCurtailmentOwnership(activeEvent)
+                canTerminateActiveRecovery && !didActiveTerminateRecoveryFail
                   ? openTerminateRecoveryConfirmation
                   : undefined
               }
               onRequestForceRelease={
-                canUseRecovery && activeEventId && canAbortCurtailmentOwnership(activeEvent)
-                  ? () => setPendingForceReleaseEventId(activeEventId)
-                  : undefined
+                canForceReleaseActiveEvent ? () => setPendingForceReleaseEventId(activeEventId) : undefined
               }
               onRequestEdit={enableManage ? openEditModal : undefined}
               onRequestRestore={enableManage ? () => openStopConfirmation("restore") : undefined}
               onRequestStop={
-                enableManage && !activeEvent.isAutomationOwned
-                  ? () => openStopConfirmation("stopCurtailment")
-                  : undefined
+                enableManage && !activeEvent.isAutomationOwned ? () => openStopConfirmation("restore") : undefined
               }
             />
           ) : null}

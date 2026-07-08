@@ -25,6 +25,13 @@ type Metrics interface {
 	// Audit emits never roll back the curtailment action; this counter
 	// is the only signal that a row was silently dropped.
 	IncAuditWriteFailure(activityType string)
+	// IncAllPairedPendingStall counts reconciler ticks that observed an
+	// all-paired policy event held in pending past the stall threshold with
+	// nothing confirmed. The hold is deliberate and open-ended — the event
+	// owns its scope and blocks other curtailment starts until something
+	// confirms or an operator stops it — so a sustained stall must be
+	// visible on dashboards. Operator-actionable.
+	IncAllPairedPendingStall()
 }
 
 // NoOpMetrics is the default until the platform observability path lands.
@@ -37,3 +44,4 @@ func (NoOpMetrics) IncMaintenanceOverride()           {}
 func (NoOpMetrics) IncEventStateRaceLoss()            {}
 func (NoOpMetrics) IncTargetWriteFailure()            {}
 func (NoOpMetrics) IncAuditWriteFailure(string)       {}
+func (NoOpMetrics) IncAllPairedPendingStall()         {}
