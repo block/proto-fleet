@@ -183,7 +183,7 @@ const BuildingRackGrid = ({
   return (
     <div
       ref={containerRef}
-      className="flex flex-col gap-4 rounded-2xl border border-border-5 bg-surface-base p-10 shadow-100 phone:p-6"
+      className="flex flex-col gap-4 rounded-xl bg-surface-elevated-base p-10 shadow-100 phone:p-6"
       data-testid={testId}
     >
       {/* Sort control */}
@@ -247,7 +247,7 @@ const BuildingRackGrid = ({
             {unplacedRacks.map((rack) => (
               <div
                 key={rack.rackId}
-                className="cursor-pointer rounded-lg border border-border-5 p-3 transition-colors hover:bg-surface-5"
+                className="cursor-pointer rounded-xl bg-surface-overlay p-4 transition-opacity duration-[120ms] hover:opacity-[0.82]"
                 onClick={() => navigate(`/racks/${rack.rackId}`)}
                 data-testid={`${testId}-unplaced-${rack.rackLabel}`}
               >

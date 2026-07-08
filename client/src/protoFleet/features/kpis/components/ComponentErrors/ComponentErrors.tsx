@@ -50,9 +50,8 @@ const ComponentErrors = ({ icon, heading, errorCount, href, className }: Compone
   const isClickable = href && errorCount && errorCount > 0;
 
   const baseClassName = clsx(
-    // Contrasting card surface, matching the rack grid cards.
-    "flex items-center gap-3 rounded-xl bg-surface-overlay p-4",
-    isClickable && "hover:bg-core-primary-10",
+    "flex items-center gap-3 rounded-xl bg-surface-elevated-base p-4 shadow-100",
+    isClickable && "hover:bg-surface-base-hover",
     className,
   );
 

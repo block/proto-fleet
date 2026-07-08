@@ -25,8 +25,7 @@ interface SiteMetricsRowProps {
   buildingCount: number;
   // `undefined` while metrics are still loading; the children render skeletons.
   metrics: SiteMetricsRowMetrics | undefined;
-  // Tile size. Defaults to the large `default` Metric scale used on the Sites
-  // list; the site detail page passes `compact` for its tighter header strip.
+  // Tile size. Defaults to the large `default` Metric scale used by top metric rows.
   variant?: "default" | "compact";
   testId?: string;
 }

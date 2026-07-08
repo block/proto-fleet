@@ -130,7 +130,7 @@ export const RackHealthModule = ({
   }, [hashingCount, sleepingCount, needsAttentionCount, offlineCount, rackFilterParam, activeSite, navigate]);
 
   return (
-    <div className="flex w-full flex-col overflow-hidden rounded-xl bg-surface-base laptop:flex-row dark:bg-core-primary-5">
+    <div className="flex w-full flex-col overflow-hidden rounded-xl bg-surface-elevated-base shadow-100 laptop:flex-row">
       {/* Left Panel: Rack Grid */}
       <div className="flex w-full items-center justify-center p-6 laptop:w-1/2 laptop:p-10">
         <RackDetailGrid

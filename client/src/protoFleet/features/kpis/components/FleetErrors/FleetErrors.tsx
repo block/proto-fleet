@@ -29,7 +29,7 @@ const FleetErrors = ({
   const minerIssuesHref = (issue: string) => scopedPath(`/fleet/miners?issues=${issue}${suffix}`, activeSite);
   return (
     <div className={className}>
-      <div className="grid grid-cols-1 gap-1 tablet:grid-cols-2 laptop:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 tablet:grid-cols-2 laptop:grid-cols-4">
         <ComponentErrors
           icon={<ControlBoard />}
           heading="Control Boards"

@@ -20,6 +20,7 @@ import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/Tem
 import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePanel";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
+import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useDuration, useHasPermission, useSetDuration } from "@/protoFleet/store";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
@@ -54,6 +55,7 @@ const Dashboard = () => {
   const canViewAlerts = hasAlertRead && alertsEnabled;
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
+  const { bgClass } = usePageBackground();
 
   // The org's site catalog is owned by the shell-level SitesProvider (one
   // shared fetch). useActiveSite uses it to validate the route scope: a
@@ -193,7 +195,7 @@ const Dashboard = () => {
               )}
             </div>
             {canViewAlerts ? (
-              <div className="mt-6 flex flex-col gap-1">
+              <div className="mt-6 flex flex-col gap-4">
                 <ActiveAlertsCard />
               </div>
             ) : null}
@@ -205,18 +207,18 @@ const Dashboard = () => {
           {/* Performance Section */}
           <section className="pb-6">
             <div ref={refs.vertical.start} />
-            <div className="sticky top-0 z-2 bg-surface-5 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10 dark:bg-surface-base">
+            <div className={`${bgClass} sticky top-0 z-2 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10`}>
               <SectionHeading heading="Performance">
                 <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
               </SectionHeading>
             </div>
 
-            <div className="flex flex-col gap-1 px-6 laptop:px-10">
+            <div className="flex flex-col gap-4 px-6 pt-4 laptop:px-10">
               <HashratePanel duration={duration} metrics={hashrateMetrics} />
               <UptimePanel duration={duration} uptimeStatusCounts={uptimeStatusCounts} />
               <TemperaturePanel duration={duration} temperatureStatusCounts={temperatureStatusCounts} />
 
-              <div className="grid grid-cols-1 gap-1 laptop:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2">
                 <PowerPanel duration={duration} metrics={powerMetrics} totalMiners={totalMiners} />
                 <EfficiencyPanel duration={duration} metrics={efficiencyMetrics} totalMiners={totalMiners} />
               </div>

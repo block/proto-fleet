@@ -6,7 +6,6 @@ import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { isNavItemAllowedByPermissions, NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
-import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { usePermissions } from "@/protoFleet/store";
 import { Logo, LogoAlt } from "@/shared/assets/icons";
@@ -27,7 +26,6 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone, isTablet } = useWindowDimensions();
   const logout = useLogoutAction();
-  const { bg } = usePageBackground();
   const permissions = usePermissions();
   const featureEnabled = useNavFeatureEnabled();
   const { activeSite } = useActiveSite({});
@@ -108,9 +106,9 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
       className={clsx(
         "group/nav absolute top-0 left-0 z-30 flex min-h-screen w-60 flex-col justify-between bg-surface-base text-text-primary-70",
         "laptop:absolute laptop:top-0 laptop:left-0 laptop:z-50 laptop:w-16 laptop:overflow-hidden laptop:hover:w-50 laptop:hover:border-r laptop:hover:border-core-primary-10 laptop:hover:bg-surface-base laptop:hover:shadow-lg",
-        bg === "surface-5" ? "laptop:bg-surface-5 laptop:dark:bg-surface-base" : "laptop:bg-surface-base",
+        "laptop:bg-surface-base",
         "desktop:w-50 desktop:overflow-hidden desktop:border-r desktop:border-core-primary-10",
-        bg === "surface-5" ? "desktop:bg-surface-5 desktop:dark:bg-surface-base" : "desktop:bg-surface-base",
+        "desktop:bg-surface-base",
         className,
       )}
     >

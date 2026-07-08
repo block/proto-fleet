@@ -127,7 +127,7 @@ const ActiveAlertsCard = () => {
   const isEmpty = groups.length === 0 && fleetWideAlerts.length === 0;
 
   return (
-    <section className="flex flex-col gap-4 rounded-xl bg-surface-base p-6 dark:bg-core-primary-5">
+    <section className="flex flex-col gap-4 rounded-xl bg-surface-elevated-base p-6 shadow-100">
       <h3 className="text-heading-200">Active alerts</h3>
 
       {error ? <Callout intent="danger" prefixIcon={<Alert />} title={error} /> : null}

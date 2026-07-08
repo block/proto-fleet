@@ -7,9 +7,9 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
-// Track gap between cards (Tailwind gap-1 = 4px). Drives both the card width
+// Track gap between cards (Tailwind gap-4 = 16px). Drives both the card width
 // and the per-step translate so they can't drift.
-const GAP_PX = 4;
+const GAP_PX = 16;
 
 interface SitesSectionProps {
   // `undefined` while ListSites is still loading; `[]` once loaded with no
@@ -86,9 +86,9 @@ const SitesSection = ({ sites }: SitesSectionProps) => {
           stays at content width (mx matches the page padding) so the cards
           overflow into the right gutter instead of being cut at the content
           boundary, while the clamp still right-aligns the last card. */}
-      <div className="mt-6 overflow-hidden">
+      <div className="-mx-4 mt-2 overflow-hidden px-4 py-4">
         <div
-          className="mx-6 flex gap-1 transition-transform duration-300 ease-out laptop:mx-10"
+          className="mx-6 flex gap-4 transition-transform duration-300 ease-out laptop:mx-10"
           style={trackStyle}
           data-testid="dashboard-sites-track"
         >

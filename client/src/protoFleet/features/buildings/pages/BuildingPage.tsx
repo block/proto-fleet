@@ -22,6 +22,7 @@ import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
+import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
@@ -161,6 +162,7 @@ const BuildingPage = () => {
   const duration = useDuration();
   const setDuration = useSetDuration();
   const { refs } = useStickyState();
+  const { bgClass } = usePageBackground();
 
   // Component errors scoped to the building's devices. While stats are
   // still loading (memberDeviceIds === null) we pass enabled=false so the
@@ -299,26 +301,26 @@ const BuildingPage = () => {
             metrics row, diagnostics, and performance section don't sit
             indefinitely in skeleton state with no recovery affordance. */}
         {statsError && !statsHasLoaded ? (
-          <div className="px-6 pt-6 laptop:px-10 laptop:pt-10">
+          <div className="px-6 pt-6 laptop:px-10">
             <div
               className="flex items-center justify-between gap-3 rounded-xl border border-intent-critical-20 bg-intent-critical-10 px-4 py-3 text-200 text-intent-critical-text"
               data-testid="building-page-stats-error"
             >
               <span>Couldn&apos;t load building metrics: {statsError}</span>
-              <button
-                type="button"
+              <Button
+                variant={variants.secondary}
+                size={sizes.compact}
+                text="Retry"
                 onClick={() => refetchStats()}
-                className="shrink-0 underline hover:opacity-80"
-                data-testid="building-page-stats-retry"
-              >
-                Retry
-              </button>
+                className="shrink-0"
+                testId="building-page-stats-retry"
+              />
             </div>
           </div>
         ) : null}
 
         {/* Metrics row */}
-        <section className="px-6 pt-6 laptop:px-10 laptop:pt-10">
+        <section className="px-6 pt-6 laptop:px-10">
           <BuildingMetricsRow powerCapacityKw={effectiveBuilding.powerKw} stats={stats} />
         </section>
 
@@ -351,7 +353,7 @@ const BuildingPage = () => {
         {/* Performance section — identical wiring to RackOverviewPage */}
         <section className="pb-6">
           <div ref={refs.vertical.start} />
-          <div className="sticky top-0 z-2 bg-surface-5 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10 dark:bg-surface-base">
+          <div className={`${bgClass} sticky top-0 z-2 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10`}>
             <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
               <div className="text-heading-200 text-text-primary">Performance</div>
               <div className="flex items-center gap-6 text-200 text-core-primary-50">
@@ -408,7 +410,7 @@ const BuildingPage = () => {
             </div>
           </div>
 
-          <div className="px-6 laptop:px-10">
+          <div className="px-6 pt-4 laptop:px-10">
             <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
           </div>
           {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}

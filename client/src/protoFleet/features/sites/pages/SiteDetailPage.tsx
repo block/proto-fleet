@@ -244,24 +244,27 @@ const SiteDetailPage = () => {
             testId="site-detail-inline-error"
           />
         ) : null}
-        <Breadcrumb
-          segments={[
-            { label: "Sites", to: "/fleet/sites" },
-            { label: site.site.name, siblings: siteSiblings.length > 1 ? siteSiblings : undefined },
-          ]}
-          testId="site-detail-breadcrumb"
-        />
-        <div className="flex items-start justify-between gap-4">
-          <Header title={site.site.name} titleSize="text-heading-300" testId="site-detail-title" />
-          {canManageSites ? (
-            <Button
-              variant={variants.primary}
-              size={sizes.compact}
-              text="Edit site"
-              onClick={() => modals.openManageEdit(site.site!)}
-              testId="site-detail-edit"
-            />
-          ) : null}
+        <div className="flex flex-col gap-3">
+          <Breadcrumb
+            segments={[
+              { label: "Sites", to: "/fleet/sites" },
+              { label: site.site.name, siblings: siteSiblings.length > 1 ? siteSiblings : undefined },
+            ]}
+            testId="site-detail-breadcrumb"
+          />
+          <Header title={site.site.name} titleSize="text-heading-300" inline testId="site-detail-title">
+            {canManageSites ? (
+              <div className="ml-3 flex items-center gap-3">
+                <Button
+                  variant={variants.primary}
+                  size={sizes.compact}
+                  text="Edit site"
+                  onClick={() => modals.openManageEdit(site.site!)}
+                  testId="site-detail-edit"
+                />
+              </div>
+            ) : null}
+          </Header>
         </div>
         <div className="flex flex-col gap-4">
           {siteStatsError ? (
@@ -281,7 +284,6 @@ const SiteDetailPage = () => {
             powerCapacityMw={site.site.powerCapacityMw}
             buildingCount={detailBuildingCount}
             metrics={siteStats}
-            variant="compact"
             testId="site-detail-metrics-row"
           />
         </div>
@@ -311,7 +313,7 @@ const SiteDetailPage = () => {
               testId="site-detail-buildings-error"
             />
           ) : null}
-          <div className="rounded-xl bg-surface-base p-10 dark:bg-core-primary-5 phone:p-6">
+          <div className="rounded-xl bg-surface-elevated-base p-10 shadow-100 phone:p-6">
             {visibleBuildings === undefined ? (
               <div className="text-200 text-text-primary-50">Loading buildings…</div>
             ) : visibleBuildings.length === 0 ? (

@@ -58,7 +58,7 @@ describe("SitesSection", () => {
     setBreakpoint("desktop");
     const { rerender } = renderWithRouter([makeSite(1, "Alpha")]);
     expect(screen.getByTestId("dashboard-sites-track").style.getPropertyValue("--site-card-w")).toBe(
-      "calc((100% - 8px) / 3)",
+      "calc((100% - 32px) / 3)",
     );
 
     const withWin = (sites: SiteWithCounts[]) => (
@@ -70,7 +70,7 @@ describe("SitesSection", () => {
     setBreakpoint("laptop");
     rerender(withWin([makeSite(1, "Alpha")]));
     expect(screen.getByTestId("dashboard-sites-track").style.getPropertyValue("--site-card-w")).toBe(
-      "calc((100% - 4px) / 2)",
+      "calc((100% - 16px) / 2)",
     );
 
     setBreakpoint("phone");

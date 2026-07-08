@@ -13,6 +13,7 @@ import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManageme
 import FleetHealth from "@/protoFleet/features/groupManagement/components/FleetHealth";
 import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
+import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
@@ -122,6 +123,7 @@ const GroupOverviewPage = () => {
   const duration = useDuration();
   const setDuration = useSetDuration();
   const { refs } = useStickyState();
+  const { bgClass } = usePageBackground();
 
   // Component errors scoped to group's devices
   // Pass undefined when no members yet (loading); pass empty array for truly empty groups
@@ -232,7 +234,7 @@ const GroupOverviewPage = () => {
 
         {/* Overview Section */}
         <section className="p-6 laptop:p-10">
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-4">
             <FleetHealth
               title="Miners"
               fleetSize={stateCounts ? totalMiners : memberDeviceIds ? groupSize : undefined}
@@ -258,7 +260,7 @@ const GroupOverviewPage = () => {
         {/* Performance Section */}
         <section className="pb-6">
           <div ref={refs.vertical.start} />
-          <div className="sticky top-0 z-2 bg-surface-5 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10 dark:bg-surface-base">
+          <div className={`${bgClass} sticky top-0 z-2 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10`}>
             <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
               <div className="text-heading-200 text-text-primary">Performance</div>
               <div className="flex items-center gap-6 text-200 text-core-primary-50">
@@ -315,7 +317,7 @@ const GroupOverviewPage = () => {
             </div>
           </div>
 
-          <div className="px-6 laptop:px-10">
+          <div className="px-6 pt-4 laptop:px-10">
             <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
           </div>
           {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}

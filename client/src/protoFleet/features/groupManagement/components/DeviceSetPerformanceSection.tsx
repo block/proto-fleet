@@ -312,7 +312,7 @@ export function DeviceSetPerformanceSection({ duration, metrics: allMetrics }: D
   );
 
   return (
-    <div className="grid grid-cols-2 gap-1 phone:grid-cols-1">
+    <div className="grid grid-cols-2 gap-4 phone:grid-cols-1">
       <ChartPanel
         label="Hashrate"
         metrics={hashrateMetrics}

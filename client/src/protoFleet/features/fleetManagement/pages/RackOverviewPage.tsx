@@ -28,11 +28,12 @@ import { SLOT_STATUS_MAP } from "@/protoFleet/features/fleetManagement/utils/rac
 import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/components/DeviceSetActionsMenu";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
+import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import Breadcrumb, { type BreadcrumbSegment, type BreadcrumbSibling } from "@/shared/components/Breadcrumb";
-import Button, { variants } from "@/shared/components/Button";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -259,6 +260,7 @@ const RackOverviewPage = () => {
   const duration = useDuration();
   const setDuration = useSetDuration();
   const { refs } = useStickyState();
+  const { bgClass } = usePageBackground();
 
   // Component errors scoped to rack's devices
   const componentErrorsOptions = useMemo(
@@ -375,55 +377,58 @@ const RackOverviewPage = () => {
       <div className="flex flex-col">
         {/* Header */}
         <div className="p-6 pb-0 laptop:p-10 laptop:pb-0">
-          <Breadcrumb segments={rackBreadcrumbSegments} testId="rack-page-breadcrumb" />
-          <Header
-            title={rack?.label ?? ""}
-            titleSize="text-heading-300"
-            subtitle={rackInfo?.zone || undefined}
-            subtitleSize="text-300"
-            subtitleClassName="text-text-primary"
-            inline
-            className="mt-3"
-          >
-            <div className="ml-3 flex items-center gap-3">
-              <Button
-                variant={variants.secondary}
-                onClick={() => navigate(scopedPath(`/fleet/miners?rack=${rack?.id}`, activeSite))}
-              >
-                View miners
-              </Button>
-              <Button
-                variant={variants.secondary}
-                onClick={() => sleepActionRef.current?.()}
-                disabled={!memberDeviceIds || memberDeviceIds.length === 0}
-              >
-                Sleep all miners
-              </Button>
-              <Button variant={variants.secondary} onClick={() => setShowEditModal(true)}>
-                Edit rack
-              </Button>
-              <DeviceSetActionsMenu
-                memberDeviceIds={memberDeviceIds ?? []}
-                deviceSetId={rack?.id}
-                deviceSetType="rack"
-                onEdit={() => setShowEditModal(true)}
-                editLabel="Edit rack"
-                onActionComplete={() => {
-                  if (rack) {
-                    resolveRack(rack.id);
-                    void refetchStats();
-                  }
-                }}
-                sleepActionRef={sleepActionRef}
-                actionActiveRef={actionActiveRef}
-              />
-            </div>
-          </Header>
+          <div className="flex flex-col gap-3">
+            <Breadcrumb segments={rackBreadcrumbSegments} testId="rack-page-breadcrumb" />
+            <Header
+              title={rack?.label ?? ""}
+              titleSize="text-heading-300"
+              subtitle={rackInfo?.zone || undefined}
+              subtitleSize="text-300"
+              subtitleClassName="text-text-primary"
+              inline
+            >
+              <div className="ml-3 flex items-center gap-3">
+                <Button
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  onClick={() => navigate(scopedPath(`/fleet/miners?rack=${rack?.id}`, activeSite))}
+                >
+                  View miners
+                </Button>
+                <Button
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  onClick={() => sleepActionRef.current?.()}
+                  disabled={!memberDeviceIds || memberDeviceIds.length === 0}
+                >
+                  Sleep all miners
+                </Button>
+                <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowEditModal(true)}>
+                  Edit rack
+                </Button>
+                <DeviceSetActionsMenu
+                  memberDeviceIds={memberDeviceIds ?? []}
+                  deviceSetId={rack?.id}
+                  deviceSetType="rack"
+                  onEdit={() => setShowEditModal(true)}
+                  editLabel="Edit rack"
+                  onActionComplete={() => {
+                    if (rack) {
+                      resolveRack(rack.id);
+                      void refetchStats();
+                    }
+                  }}
+                  sleepActionRef={sleepActionRef}
+                  actionActiveRef={actionActiveRef}
+                />
+              </div>
+            </Header>
+          </div>
         </div>
 
         {/* Health Overview Section */}
-        <section className="p-6 laptop:p-10">
-          <div className="flex flex-col gap-1">
+        <section className="px-6 pt-6 pb-6 laptop:px-10 laptop:pt-6 laptop:pb-10">
+          <div className="flex flex-col gap-4">
             <RackHealthModule
               rows={rows}
               cols={cols}
@@ -451,7 +456,7 @@ const RackOverviewPage = () => {
         {/* Performance Section */}
         <section className="pb-6">
           <div ref={refs.vertical.start} />
-          <div className="sticky top-0 z-2 bg-surface-5 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10 dark:bg-surface-base">
+          <div className={`${bgClass} sticky top-0 z-2 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10`}>
             <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
               <div className="text-heading-200 text-text-primary">Performance</div>
               <div className="flex items-center gap-6 text-200 text-core-primary-50">
@@ -508,7 +513,7 @@ const RackOverviewPage = () => {
             </div>
           </div>
 
-          <div className="px-6 laptop:px-10">
+          <div className="px-6 pt-4 laptop:px-10">
             <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
           </div>
           {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}

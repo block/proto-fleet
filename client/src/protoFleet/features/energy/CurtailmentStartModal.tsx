@@ -762,7 +762,7 @@ function SiteScopeOption({
       className={`flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left text-300 ${
         disabled
           ? "cursor-not-allowed text-text-primary-50"
-          : "hover:bg-surface-base-hover focus-visible:bg-surface-base-hover text-text-primary"
+          : "text-text-primary hover:bg-surface-base-hover focus-visible:bg-surface-base-hover"
       }`}
       data-testid={testId}
     >
