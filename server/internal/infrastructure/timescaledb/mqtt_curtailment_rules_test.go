@@ -37,13 +37,13 @@ func runMQTTRule(t *testing.T, db *sql.DB, rawSQL string) map[[2]string]bool {
 	return out
 }
 
-// TestMinersCurtailedRule fires per source while the latest gauge sample is 1 and resolves once it flips to 0 or the series ages out of the window.
-func TestMinersCurtailedRule(t *testing.T) {
+// TestCurtailmentActiveRule fires per source while the latest gauge sample is 1 and resolves once it flips to 0 or the series ages out of the window.
+func TestCurtailmentActiveRule(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
 	db := testutil.GetTestDB(t)
-	rawSQL := loadRuleSQL(t, "Miners Curtailed by Curtailment Source", "fleet_mqtt_curtailment_active")
+	rawSQL := loadRuleSQL(t, "Curtailment Active", "fleet_mqtt_curtailment_active")
 
 	const org = "mqtt-curtail-org"
 	const metric = "fleet_mqtt_curtailment_active"
@@ -64,13 +64,13 @@ func TestMinersCurtailedRule(t *testing.T) {
 	require.NotContains(t, got, [2]string{org, "aged-out"}, "samples outside the window must not fire")
 }
 
-// TestCurtailmentSourceDisconnectedRule fires per source while the latest connectivity sample is 0.
-func TestCurtailmentSourceDisconnectedRule(t *testing.T) {
+// TestCurtailmentSourceUnreachableRule fires per source while the latest connectivity sample is 0.
+func TestCurtailmentSourceUnreachableRule(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
 	db := testutil.GetTestDB(t)
-	rawSQL := loadRuleSQL(t, "Curtailment Source Disconnected", "fleet_mqtt_source_connected")
+	rawSQL := loadRuleSQL(t, "Curtailment Source Unreachable", "fleet_mqtt_source_connected")
 
 	const org = "mqtt-conn-org"
 	const metric = "fleet_mqtt_source_connected"

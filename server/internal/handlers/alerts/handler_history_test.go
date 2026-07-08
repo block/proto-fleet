@@ -84,7 +84,7 @@ func TestListAlerts_SourceTemplateSummaryVisibleWithoutMinerRead(t *testing.T) {
 		ID:         2,
 		ReceivedAt: time.Unix(1_700_000_000, 0),
 		Notification: notificationhistory.Notification{
-			AlertName: "Curtailment Source Disconnected",
+			AlertName: "Curtailment Source Unreachable",
 			Status:    "firing",
 			Severity:  "critical",
 			Template:  "mqtt-disconnected",

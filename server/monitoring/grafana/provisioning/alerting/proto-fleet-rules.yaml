@@ -212,7 +212,7 @@ groups:
             connectivity or credential problem.
 
       - uid: protofleet-mqtt-curtailment-active
-        title: Miners Curtailed by Curtailment Source
+        title: Curtailment Active
         condition: B
         data:
           - refId: A
@@ -265,7 +265,7 @@ groups:
             once the miners are restored.
 
       - uid: protofleet-mqtt-source-disconnected
-        title: Curtailment Source Disconnected
+        title: Curtailment Source Unreachable
         condition: B
         data:
           - refId: A
@@ -311,7 +311,7 @@ groups:
           rule_group: proto-fleet-defaults
           template: mqtt-disconnected
         annotations:
-          summary: "Curtailment source {{ $labels.kind }} is disconnected; automatic curtailment is unavailable."
+          summary: "Curtailment source {{ $labels.kind }} is unreachable; automatic curtailment is unavailable."
           description: |
             Curtailment source {{ $labels.kind }} (org {{ $labels.organization_id }})
             has no subscribed MQTT broker connection, so curtailment signals

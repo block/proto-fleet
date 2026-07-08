@@ -1,7 +1,7 @@
 // Package curtailment: alert_metrics.go periodically translates MQTT
 // curtailment-source state into emissions on the metrics contract declared in
 // server/internal/infrastructure/metrics, feeding the default Grafana rules
-// "Miners Curtailed by Curtailment Source" and "Curtailment Source Disconnected".
+// "Curtailment Active" and "Curtailment Source Unreachable".
 package curtailment
 
 import (
