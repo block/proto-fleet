@@ -240,22 +240,14 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
   ) => {
     const {
       showTypeFilter = true,
-      showRackFilter = true,
+      showRackFilter: showRackFilterProp = true,
       showGroupFilter = true,
       showSubnetFilter = false,
       showSiteFilter: showSiteFilterProp = false,
       showBuildingFilter: showBuildingFilterProp = false,
     } = filterConfig ?? {};
 
-    // Site/Building facet options come from ListSites/ListBuildings, which are
-    // guarded by site:read. Roles that manage racks without it (e.g. FIELD_TECH)
-    // would otherwise fire permission-denied RPCs and get empty facets, so hide
-    // these facets when the site catalog isn't readable. The Site/Building
-    // columns still render — their labels come from the miner snapshot, not
-    // these RPCs.
     const canReadSiteCatalog = useHasPermission("site:read");
-    const showSiteFilter = showSiteFilterProp && canReadSiteCatalog;
-    const showBuildingFilter = showBuildingFilterProp && canReadSiteCatalog;
 
     const scopeSiteIds = useMemo(() => scope?.siteIds ?? [], [scope]);
     const scopeIncludeUnassigned = scope?.includeUnassigned ?? false;
@@ -279,6 +271,19 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // selectable (reassigning moves them, behind a confirm) and render in orange
     // to flag the existing placement.
     const [showAssigned, setShowAssigned] = useState(false);
+
+    // Placement facets (Site / Building / Rack) only make sense when browsing
+    // beyond the assignable set. In assignable-only mode (a target rack, toggle
+    // off) eligibility already pins those dimensions to the rack's, so offering
+    // the facets there would let a conflicting pick silently override eligibility
+    // — so they're offered only when there's no target rack or "Show assigned
+    // miners" is on. Site/Building additionally require site:read (their options
+    // come from ListSites/ListBuildings); the Site/Building *columns* still
+    // render, since their labels ride on the miner snapshot, not those RPCs.
+    const placementFacetsAllowed = !eligibilityEnabled || showAssigned;
+    const showRackFilter = showRackFilterProp && placementFacetsAllowed;
+    const showSiteFilter = showSiteFilterProp && canReadSiteCatalog && placementFacetsAllowed;
+    const showBuildingFilter = showBuildingFilterProp && canReadSiteCatalog && placementFacetsAllowed;
 
     const { listGroups, listRacks } = useDeviceSets();
     const { listSites } = useSites();
