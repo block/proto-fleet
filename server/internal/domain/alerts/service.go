@@ -991,6 +991,10 @@ func templateFromLabel(label string) RuleTemplate {
 		return RuleTemplateCommandFailure
 	case "telemetry-poll":
 		return RuleTemplateTelemetryPoll
+	case "mqtt-curtailment":
+		return RuleTemplateMQTTCurtailment
+	case "mqtt-disconnected":
+		return RuleTemplateMQTTDisconnected
 	}
 	return ""
 }

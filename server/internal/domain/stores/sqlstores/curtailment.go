@@ -320,6 +320,22 @@ func (s *SQLCurtailmentStore) ListEnabledAutomationRulesByMQTTSource(ctx context
 	return out, nil
 }
 
+func (s *SQLCurtailmentStore) ListMQTTSourcesWithActiveCurtailment(ctx context.Context) ([]*models.MQTTSourceActiveCurtailment, error) {
+	rows, err := s.GetQueries(ctx).ListMQTTSourcesWithActiveCurtailment(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list MQTT sources with active curtailment: %v", err)
+	}
+	out := make([]*models.MQTTSourceActiveCurtailment, len(rows))
+	for i, row := range rows {
+		out[i] = &models.MQTTSourceActiveCurtailment{
+			SourceID:       row.SourceID,
+			OrganizationID: row.OrganizationID,
+			SourceName:     row.SourceName,
+		}
+	}
+	return out, nil
+}
+
 func (s *SQLCurtailmentStore) CreateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
 	inserted, err := s.GetQueries(ctx).InsertCurtailmentAutomationRule(ctx, sqlc.InsertCurtailmentAutomationRuleParams{
 		OrgID:             rule.OrgID,

@@ -85,6 +85,10 @@ const ruleTemplateFromProto = (t: ProtoRuleTemplate): RuleTemplate => {
       return "command_failure";
     case ProtoRuleTemplate.TELEMETRY_POLL:
       return "telemetry-poll";
+    case ProtoRuleTemplate.MQTT_CURTAILMENT:
+      return "mqtt-curtailment";
+    case ProtoRuleTemplate.MQTT_DISCONNECTED:
+      return "mqtt-disconnected";
     default:
       return "";
   }

@@ -28,7 +28,16 @@ export interface Channel {
   has_secret?: boolean;
 }
 
-export type RuleTemplate = "offline" | "temperature" | "hashrate" | "pool" | "command_failure" | "telemetry-poll" | "";
+export type RuleTemplate =
+  | "offline"
+  | "temperature"
+  | "hashrate"
+  | "pool"
+  | "command_failure"
+  | "telemetry-poll"
+  | "mqtt-curtailment"
+  | "mqtt-disconnected"
+  | "";
 
 export interface Rule {
   id: string;

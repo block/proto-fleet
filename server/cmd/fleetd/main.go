@@ -581,6 +581,24 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to initialize curtailment mqtt settings service: %w", err)
 	}
 
+	// Feeds the MQTT curtailment default alert rules; skipped when the
+	// metrics pipeline is off so its periodic queries aren't wasted work.
+	if metricsProvider.Enabled() {
+		curtailmentAlertMetrics, err := curtailmentDomain.NewAlertMetricsLoop(curtailmentDomain.AlertMetricsConfig{
+			Sources:           mqttingest.NewSQLCStore(mqttQueries),
+			Runtime:           mqttSubscriber,
+			ActiveCurtailment: curtailmentStore,
+			Emitter:           metricsProvider,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to initialize curtailment alert metrics loop: %w", err)
+		}
+		if err := curtailmentAlertMetrics.Start(context.Background()); err != nil {
+			return fmt.Errorf("failed to start curtailment alert metrics loop: %w", err)
+		}
+		defer curtailmentAlertMetrics.Stop()
+	}
+
 	deviceResolver := deviceresolver.New(deviceStore)
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)

@@ -318,3 +318,22 @@ ON CONFLICT (rule_id) DO UPDATE
 SET
     last_error = EXCLUDED.last_error,
     last_error_at = EXCLUDED.last_error_at;
+
+-- name: ListMQTTSourcesWithActiveCurtailment :many
+-- Sources (enabled or not) whose automation started a curtailment event that
+-- is still non-terminal. Matched via the event's external reference rather
+-- than rule state, so a source or rule disabled after the event started, or
+-- a crash before the active-event pointer was written, cannot hide it.
+SELECT DISTINCT
+    src.id AS source_id,
+    src.organization_id,
+    src.source_name
+FROM curtailment_event e
+JOIN curtailment_automation_rule r
+    ON r.org_id = e.org_id
+    AND r.id::text = e.external_reference
+JOIN curtailment_mqtt_source_config src
+    ON src.id = r.mqtt_source_id
+    AND src.organization_id = r.org_id
+WHERE e.external_source = 'curtailment_automation'
+  AND e.state IN ('pending', 'active', 'restoring');

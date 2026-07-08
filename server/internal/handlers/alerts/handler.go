@@ -510,6 +510,10 @@ func ruleTemplateToProto(t alerts.RuleTemplate) alertsv1.RuleTemplate {
 		return alertsv1.RuleTemplate_RULE_TEMPLATE_COMMAND_FAILURE
 	case alerts.RuleTemplateTelemetryPoll:
 		return alertsv1.RuleTemplate_RULE_TEMPLATE_TELEMETRY_POLL
+	case alerts.RuleTemplateMQTTCurtailment:
+		return alertsv1.RuleTemplate_RULE_TEMPLATE_MQTT_CURTAILMENT
+	case alerts.RuleTemplateMQTTDisconnected:
+		return alertsv1.RuleTemplate_RULE_TEMPLATE_MQTT_DISCONNECTED
 	}
 	return alertsv1.RuleTemplate_RULE_TEMPLATE_UNSPECIFIED
 }

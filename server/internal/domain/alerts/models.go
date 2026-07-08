@@ -55,6 +55,12 @@ const (
 	RuleTemplatePool           RuleTemplate = "pool"
 	RuleTemplateCommandFailure RuleTemplate = "command_failure"
 	RuleTemplateTelemetryPoll  RuleTemplate = "telemetry-poll"
+
+	// The MQTT curtailment templates: "curtailment engaged" and "signal
+	// source disconnected". Values must match the template labels in
+	// proto-fleet-rules.yaml.
+	RuleTemplateMQTTCurtailment  RuleTemplate = "mqtt-curtailment"
+	RuleTemplateMQTTDisconnected RuleTemplate = "mqtt-disconnected"
 )
 
 type Rule struct {

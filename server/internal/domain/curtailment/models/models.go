@@ -81,6 +81,14 @@ type AutomationRule struct {
 	UpdatedAt                time.Time
 }
 
+// MQTTSourceActiveCurtailment identifies an MQTT source (enabled or not)
+// whose automation has a non-terminal curtailment event.
+type MQTTSourceActiveCurtailment struct {
+	SourceID       int64
+	OrganizationID int64
+	SourceName     string
+}
+
 // EventState is a typed wrapper for `curtailment_event.state` to keep the
 // pending/active/restoring/terminal lifecycle visible in Go.
 type EventState string
