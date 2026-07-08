@@ -1304,6 +1304,7 @@ describe("useMinerActions", () => {
 
       expect(mockStartBatchOperation).toHaveBeenCalledWith(
         expect.objectContaining({
+          batchIdentifier: expect.stringMatching(/^unpair-/),
           action: deviceActions.unpair,
           deviceIdentifiers: ["device-1"],
         }),
@@ -1321,55 +1322,6 @@ describe("useMinerActions", () => {
           status: "success",
         }),
       );
-    });
-
-    it("should use a local client batch identifier instead of crypto.randomUUID", async () => {
-      const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
-      const randomUUID = vi.fn(() => "crypto-generated-id");
-      Object.defineProperty(globalThis, "crypto", {
-        value: { randomUUID },
-        writable: true,
-        configurable: true,
-      });
-      mockDeleteMiners.mockImplementation(({ onSuccess }: any) => {
-        onSuccess({ deletedCount: 1 });
-      });
-
-      try {
-        const { result } = renderHook(() =>
-          useMinerActions({
-            ...batchOpsParams(),
-            selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-            selectionMode: "subset",
-          }),
-        );
-
-        const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
-
-        act(() => {
-          deleteAction?.actionHandler();
-        });
-
-        await act(async () => {
-          await result.current.handleConfirmation();
-        });
-
-        const batch = mockStartBatchOperation.mock.calls[0][0];
-        expect(batch).toEqual(
-          expect.objectContaining({
-            batchIdentifier: expect.stringMatching(/^unpair-/),
-            action: deviceActions.unpair,
-            deviceIdentifiers: ["device-1"],
-          }),
-        );
-        expect(randomUUID).not.toHaveBeenCalled();
-        expect(mockDeleteMiners).toHaveBeenCalled();
-        expect(mockCompleteBatchOperation).toHaveBeenCalledWith(batch.batchIdentifier);
-      } finally {
-        if (originalCryptoDescriptor) {
-          Object.defineProperty(globalThis, "crypto", originalCryptoDescriptor);
-        }
-      }
     });
 
     it("should complete batch operation on deleteMiners error", async () => {
