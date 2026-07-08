@@ -279,6 +279,10 @@ WITH enabled_rule AS (
     FROM curtailment_automation_rule
     WHERE id = sqlc.arg('rule_id')
       AND enabled = TRUE
+      -- The rule must still be bound to the source whose signal started the
+      -- event; a re-point between signal read and event start fails here and
+      -- the caller force-releases the orphaned event.
+      AND mqtt_source_id = sqlc.arg('mqtt_source_id')
     FOR UPDATE
 )
 INSERT INTO curtailment_automation_rule_state (

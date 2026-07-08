@@ -152,7 +152,7 @@ func (*handlerAutomationStore) RecordAutomationSignal(context.Context, int64, mo
 	panic("not used")
 }
 
-func (*handlerAutomationStore) SetAutomationActiveEvent(context.Context, int64, uuid.UUID, time.Time) error {
+func (*handlerAutomationStore) SetAutomationActiveEvent(context.Context, int64, int64, uuid.UUID, time.Time) error {
 	panic("not used")
 }
 

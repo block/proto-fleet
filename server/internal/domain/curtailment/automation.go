@@ -297,7 +297,7 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 			if err != nil {
 				return err
 			}
-			return s.store.SetAutomationActiveEvent(ctx, rule.ID, recurtailed.EventUUID, at)
+			return s.store.SetAutomationActiveEvent(ctx, rule.ID, signal.Source.ID, recurtailed.EventUUID, at)
 		default:
 			return nil
 		}
@@ -325,7 +325,7 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 	if plan.EventUUID == nil {
 		return fleeterror.NewInternalError("automation response profile start did not return an event UUID")
 	}
-	if err := s.store.SetAutomationActiveEvent(ctx, rule.ID, *plan.EventUUID, at); err != nil {
+	if err := s.store.SetAutomationActiveEvent(ctx, rule.ID, signal.Source.ID, *plan.EventUUID, at); err != nil {
 		if fleeterror.IsFailedPreconditionError(err) {
 			if _, releaseErr := s.curtailment.ForceRelease(ctx, ForceReleaseRequest{
 				OrgID:     rule.OrgID,

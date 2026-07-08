@@ -466,9 +466,10 @@ func (s *SQLCurtailmentStore) RecordAutomationSignal(ctx context.Context, ruleID
 	return nil
 }
 
-func (s *SQLCurtailmentStore) SetAutomationActiveEvent(ctx context.Context, ruleID int64, eventUUID uuid.UUID, at time.Time) error {
+func (s *SQLCurtailmentStore) SetAutomationActiveEvent(ctx context.Context, ruleID, mqttSourceID int64, eventUUID uuid.UUID, at time.Time) error {
 	rows, err := s.GetQueries(ctx).SetCurtailmentAutomationActiveEvent(ctx, sqlc.SetCurtailmentAutomationActiveEventParams{
 		RuleID:          ruleID,
+		MqttSourceID:    mqttSourceID,
 		ActiveEventUuid: uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
 		LastStartedAt:   sql.NullTime{Time: at, Valid: !at.IsZero()},
 	})
@@ -476,7 +477,8 @@ func (s *SQLCurtailmentStore) SetAutomationActiveEvent(ctx context.Context, rule
 		return fleeterror.NewInternalErrorf("failed to set curtailment automation active event: %v", err)
 	}
 	if rows == 0 {
-		return fleeterror.NewFailedPreconditionErrorf("curtailment automation rule %d is disabled", ruleID)
+		return fleeterror.NewFailedPreconditionErrorf(
+			"curtailment automation rule %d is disabled or no longer bound to MQTT source %d", ruleID, mqttSourceID)
 	}
 	return nil
 }

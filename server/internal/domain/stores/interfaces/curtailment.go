@@ -130,7 +130,10 @@ type AutomationStore interface {
 	DeleteAutomationRule(ctx context.Context, orgID, ruleID int64) error
 	CountAutomationRulesByMQTTSource(ctx context.Context, orgID, sourceID int64) (int64, error)
 	RecordAutomationSignal(ctx context.Context, ruleID int64, signal models.AutomationSignal, at time.Time) error
-	SetAutomationActiveEvent(ctx context.Context, ruleID int64, eventUUID uuid.UUID, at time.Time) error
+	// SetAutomationActiveEvent records the rule's live event; it fails if the
+	// rule is disabled or no longer bound to mqttSourceID (the source whose
+	// signal started the event), so a mid-signal re-point cannot mis-attribute it.
+	SetAutomationActiveEvent(ctx context.Context, ruleID, mqttSourceID int64, eventUUID uuid.UUID, at time.Time) error
 	ClearAutomationActiveEvent(ctx context.Context, ruleID int64, at time.Time) error
 	RecordAutomationRestoreStarted(ctx context.Context, ruleID int64, at time.Time) error
 	RecordAutomationExecutionError(ctx context.Context, ruleID int64, message string, at time.Time) error

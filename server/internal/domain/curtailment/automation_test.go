@@ -958,7 +958,7 @@ func (f *automationFakeStore) RecordAutomationSignal(_ context.Context, ruleID i
 	return fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
 }
 
-func (f *automationFakeStore) SetAutomationActiveEvent(_ context.Context, ruleID int64, eventUUID uuid.UUID, at time.Time) error {
+func (f *automationFakeStore) SetAutomationActiveEvent(_ context.Context, ruleID, mqttSourceID int64, eventUUID uuid.UUID, at time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.setActiveCalls++
@@ -969,8 +969,9 @@ func (f *automationFakeStore) SetAutomationActiveEvent(_ context.Context, ruleID
 	}
 	for _, rule := range f.rules {
 		if rule.ID == ruleID {
-			if !rule.Enabled {
-				return fleeterror.NewFailedPreconditionErrorf("curtailment automation rule %d is disabled", ruleID)
+			if !rule.Enabled || rule.MQTTSourceID != mqttSourceID {
+				return fleeterror.NewFailedPreconditionErrorf(
+					"curtailment automation rule %d is disabled or no longer bound to MQTT source %d", ruleID, mqttSourceID)
 			}
 			rule.ActiveEventUUID = &eventUUID
 			rule.LastStartedAt = &at

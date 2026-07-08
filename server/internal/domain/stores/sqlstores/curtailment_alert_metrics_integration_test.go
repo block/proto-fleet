@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -57,10 +58,11 @@ func seedAutomationEvent(
 	store *sqlstores.SQLCurtailmentStore,
 	orgID, userID, ruleID int64,
 	state models.EventState,
-) {
+) uuid.UUID {
 	t.Helper()
 	actor := "alert-metrics-" + strconv.FormatInt(ruleID, 10)
-	params := curtailmentStoreTestEvent(orgID, userID, uuid.New(), state, actor)
+	eventUUID := uuid.New()
+	params := curtailmentStoreTestEvent(orgID, userID, eventUUID, state, actor)
 	externalSource := "curtailment_automation"
 	externalReference := strconv.FormatInt(ruleID, 10)
 	params.ExternalSource = &externalSource
@@ -73,6 +75,7 @@ func seedAutomationEvent(
 	}
 	_, err := store.InsertEventWithTargets(ctx, params, targets)
 	require.NoError(t, err)
+	return eventUUID
 }
 
 // Pins the nil-pointer window closed: a rule whose live automation event is
@@ -97,9 +100,15 @@ func TestSQLCurtailmentStore_RuleMutationGuardsCoverExternalReference(t *testing
 	ruleID := seedAutomationRule(t, db, orgID, sourceA, profileID, "guard-rule", true)
 	// The event exists but no curtailment_automation_rule_state row does —
 	// exactly the window between event start and the pointer write.
-	seedAutomationEvent(t, ctx, store, orgID, user.DatabaseID, ruleID, models.EventStateActive)
+	eventUUID := seedAutomationEvent(t, ctx, store, orgID, user.DatabaseID, ruleID, models.EventStateActive)
 
-	_, err := store.UpdateAutomationRule(ctx, models.AutomationRule{
+	// The pointer write is pinned to the source whose signal started the
+	// event: a mismatched source fails, the original source succeeds.
+	err := store.SetAutomationActiveEvent(ctx, ruleID, sourceB, eventUUID, time.Now())
+	require.True(t, fleeterror.IsFailedPreconditionError(err), "recording under another source must be blocked, got %v", err)
+	require.NoError(t, store.SetAutomationActiveEvent(ctx, ruleID, sourceA, eventUUID, time.Now()))
+
+	_, err = store.UpdateAutomationRule(ctx, models.AutomationRule{
 		ID:                ruleID,
 		OrgID:             orgID,
 		RuleName:          "guard-rule",

@@ -634,6 +634,10 @@ WITH enabled_rule AS (
     FROM curtailment_automation_rule
     WHERE id = $3
       AND enabled = TRUE
+      -- The rule must still be bound to the source whose signal started the
+      -- event; a re-point between signal read and event start fails here and
+      -- the caller force-releases the orphaned event.
+      AND mqtt_source_id = $4
     FOR UPDATE
 )
 INSERT INTO curtailment_automation_rule_state (
@@ -662,10 +666,16 @@ type SetCurtailmentAutomationActiveEventParams struct {
 	ActiveEventUuid uuid.NullUUID
 	LastStartedAt   sql.NullTime
 	RuleID          int64
+	MqttSourceID    int64
 }
 
 func (q *Queries) SetCurtailmentAutomationActiveEvent(ctx context.Context, arg SetCurtailmentAutomationActiveEventParams) (int64, error) {
-	result, err := q.exec(ctx, q.setCurtailmentAutomationActiveEventStmt, setCurtailmentAutomationActiveEvent, arg.ActiveEventUuid, arg.LastStartedAt, arg.RuleID)
+	result, err := q.exec(ctx, q.setCurtailmentAutomationActiveEventStmt, setCurtailmentAutomationActiveEvent,
+		arg.ActiveEventUuid,
+		arg.LastStartedAt,
+		arg.RuleID,
+		arg.MqttSourceID,
+	)
 	if err != nil {
 		return 0, err
 	}
