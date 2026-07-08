@@ -278,6 +278,18 @@ export class FleetLocationsPage extends BasePage {
     await expect(this.getListRowByName(name)).toHaveCount(0);
   }
 
+  async validateAddSiteButtonHidden() {
+    await this.navigateToSitesPage();
+    await expect(this.page.getByTestId("fleet-sites-add")).toHaveCount(0);
+    await expect(this.page.getByRole("button", { name: "Add a site", exact: true })).toHaveCount(0);
+  }
+
+  async validateAddBuildingButtonHidden() {
+    await this.navigateToBuildingsPage();
+    await expect(this.page.getByTestId("fleet-buildings-add")).toHaveCount(0);
+    await expect(this.page.getByRole("button", { name: "Add building", exact: true })).toHaveCount(0);
+  }
+
   async deleteSite(name: string) {
     await this.navigateToSitesPage();
     await this.openRowActions(name);

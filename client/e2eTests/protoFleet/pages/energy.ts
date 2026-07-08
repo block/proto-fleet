@@ -26,6 +26,10 @@ export class EnergyPage extends BasePage {
     await this.validateTitle("Curtailment history");
   }
 
+  async validateRunCurtailmentButtonHidden() {
+    await expect(this.page.getByRole("button", { name: "Run curtailment", exact: true })).toHaveCount(0);
+  }
+
   async openCurtailmentPlanner() {
     await this.clickButton("Run curtailment");
     await expect(this.page.getByTestId("full-screen-two-pane-modal").getByText("New curtailment")).toBeVisible();
@@ -95,6 +99,15 @@ export class EnergyPage extends BasePage {
     await expect(activeCurtailmentSection.getByTestId("active-curtailment-primary-lockup")).toContainText(
       /Pending|Curtailing|Curtailed/,
     );
+  }
+
+  async validateActiveCurtailmentManageActionsHidden(reason: string) {
+    const activeCurtailmentSection = this.activeCurtailmentSection(reason);
+    await expect(activeCurtailmentSection).toBeVisible();
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Restore", exact: true })).toHaveCount(0);
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Restore now", exact: true })).toHaveCount(0);
   }
 
   async validateCurtailmentHistoryRow(reason: string) {
@@ -179,6 +192,31 @@ export class EnergyPage extends BasePage {
 
     if (await this.hasMatchingActiveCurtailment(target.reason)) {
       await this.waitForCurtailmentToRestore(target);
+    }
+  }
+
+  async cleanupStartedCurtailmentsByReasonPrefix(prefix: string) {
+    await this.page.goto("/energy");
+    await expect(this.page).toHaveURL(/.*\/energy/);
+
+    const reasons = await this.page
+      .locator('[data-testid="active-curtailment-primary-lockup"], [data-testid^="curtailment-history-row-"]')
+      .evaluateAll((elements, expectedPrefix) => {
+        const matches = new Set<string>();
+        for (const element of elements) {
+          const text = element.textContent ?? "";
+          for (const line of text.split("\n")) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith(expectedPrefix)) {
+              matches.add(trimmed);
+            }
+          }
+        }
+        return [...matches];
+      }, prefix);
+
+    for (const reason of reasons) {
+      await this.cleanupStartedCurtailment({ reason });
     }
   }
 

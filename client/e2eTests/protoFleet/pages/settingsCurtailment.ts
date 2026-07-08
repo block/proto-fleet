@@ -21,6 +21,10 @@ export type CurtailmentSourceFormInput = {
 };
 
 export class SettingsCurtailmentPage extends BasePage {
+  async validateCurtailmentSubmenuHidden() {
+    await expect(this.page.getByTestId("secondary-nav").locator('a[href="/settings/curtailment"]')).toBeHidden();
+  }
+
   async validateCurtailmentPageOpened() {
     await expect(this.page).toHaveURL(/.*\/settings\/curtailment/);
     await expect(this.page.getByTestId("settings-curtailment-page")).toBeVisible();

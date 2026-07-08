@@ -6,6 +6,10 @@ import { ModalMinerSelectionList } from "./components/modalMinerSelectionList";
 export class SettingsSchedulesPage extends BasePage {
   private readonly modalMinerList = new ModalMinerSelectionList(this.page.getByTestId("modal"));
 
+  async validateSchedulesSubmenuHidden() {
+    await expect(this.page.getByTestId("secondary-nav").locator('a[href="/settings/schedules"]')).toBeHidden();
+  }
+
   async validateSchedulesPageOpened() {
     await expect(this.page).toHaveURL(/.*\/settings\/schedules/);
     await this.validateTitle("Schedules");

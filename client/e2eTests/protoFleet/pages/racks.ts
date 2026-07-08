@@ -17,6 +17,10 @@ export class RacksPage extends BasePage {
     await this.validateTitle("Fleet");
   }
 
+  async validateAddRackButtonHidden() {
+    await expect(this.page.getByRole("button", { name: "Add rack", exact: true })).toHaveCount(0);
+  }
+
   async clickAddRackButton() {
     await this.clickButton("Add rack");
     await this.validateTitleInModal("Rack settings");
