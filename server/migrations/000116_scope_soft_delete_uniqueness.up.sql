@@ -1,25 +1,8 @@
 -- Scope legacy uniqueness checks to live rows so soft-deleted pools and users
--- do not reserve their old keys forever.
+-- do not reserve their old keys forever. This first migration builds the user
+-- replacement index before 000117 swaps out the old full-table constraint.
 --
--- Build replacement indexes before dropping the old constraints so the schema
--- never has a uniqueness gap. The final index names match the old constraint
--- names to keep PostgreSQL unique-violation metadata stable for callers.
+-- CONCURRENTLY must be the sole statement and cannot run in a transaction.
 CREATE UNIQUE INDEX CONCURRENTLY uq_user_username_live
     ON "user" (username)
     WHERE deleted_at IS NULL;
-
-ALTER TABLE "user"
-    DROP CONSTRAINT uq_user_username;
-
-ALTER INDEX uq_user_username_live
-    RENAME TO uq_user_username;
-
-CREATE UNIQUE INDEX CONCURRENTLY uk_pool_org_url_username_live
-    ON pool (org_id, url, username)
-    WHERE deleted_at IS NULL;
-
-ALTER TABLE pool
-    DROP CONSTRAINT uk_pool_org_url_username;
-
-ALTER INDEX uk_pool_org_url_username_live
-    RENAME TO uk_pool_org_url_username;
