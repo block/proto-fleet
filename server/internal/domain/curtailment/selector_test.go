@@ -196,8 +196,8 @@ func TestBuildAllPairedPolicyPlan_TargetsPairedLikeMinersByDispatchReadiness(t *
 
 	require.Len(t, plan.Selected, 9)
 	assert.Equal(t, 9, plan.PolicyTargetCount)
-	assert.Equal(t, 7, plan.UnavailableTargetCount)
-	assert.InDelta(t, 5.0, plan.EstimatedReductionKW, 0.001)
+	assert.Equal(t, 6, plan.UnavailableTargetCount)
+	assert.InDelta(t, 7.0, plan.EstimatedReductionKW, 0.001)
 	assert.Equal(t, models.TargetStatePending, plan.Selected[0].TargetState)
 	assert.Equal(t, models.TargetStatePending, plan.Selected[1].TargetState)
 	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[2].TargetState)
@@ -206,8 +206,9 @@ func TestBuildAllPairedPolicyPlan_TargetsPairedLikeMinersByDispatchReadiness(t *
 	assert.Equal(t, "offline", plan.Selected[3].LastError)
 	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[4].TargetState)
 	assert.Equal(t, "non_actionable_status", plan.Selected[4].LastError)
-	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[5].TargetState)
-	assert.Equal(t, "non_actionable_status", plan.Selected[5].LastError)
+	// Pool-less miner is dispatchable (#663): pending, idle power counted.
+	assert.Equal(t, models.TargetStatePending, plan.Selected[5].TargetState)
+	assert.Empty(t, plan.Selected[5].LastError)
 	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[6].TargetState)
 	assert.Equal(t, "maintenance", plan.Selected[6].LastError)
 	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[7].TargetState)
@@ -223,7 +224,9 @@ func TestBuildAllPairedPolicyPlan_TargetsPairedLikeMinersByDispatchReadiness(t *
 // status added to one switch cannot silently diverge in the other. The
 // ERROR/UNKNOWN rows differ on purpose: normal selection trusts fresh
 // telemetry over the coarse status, while the all-paired policy dispatches
-// without telemetry gates and holds them unavailable.
+// without telemetry gates and holds them unavailable. NEEDS_MINING_POOL is
+// admitted by both (#663, commandability admission); INACTIVE stays excluded
+// because the miner is already sleeping.
 func TestDeviceStatusClassifierMatrix(t *testing.T) {
 	t.Parallel()
 
@@ -242,7 +245,7 @@ func TestDeviceStatusClassifierMatrix(t *testing.T) {
 		{"MAINTENANCE", false, SkipMaintenance, false, "maintenance"},
 		{"ERROR", true, "", false, "non_actionable_status"},   // intentional divergence
 		{"UNKNOWN", true, "", false, "non_actionable_status"}, // intentional divergence
-		{"NEEDS_MINING_POOL", false, SkipNonActionableStatus, false, "non_actionable_status"},
+		{"NEEDS_MINING_POOL", true, "", true, ""},             // commandability admission (#663)
 		{"UPDATING", false, SkipUpdating, false, "updating"},
 		{"REBOOT_REQUIRED", false, SkipRebootRequired, false, "reboot_required"},
 		{"", false, SkipStaleTelemetry, false, "missing_status"}, // no device_status row

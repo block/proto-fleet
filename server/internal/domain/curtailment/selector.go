@@ -316,8 +316,12 @@ func BuildAllPairedPolicyPlan(
 // policy target state. It deliberately diverges from classifyCandidates
 // (service.go) on ERROR/UNKNOWN: normal selection admits them when telemetry
 // is fresh, while this policy dispatches without telemetry gates and so holds
-// every non-commandable status unavailable until it clears. When adding a
-// device status, update both switches and the pinned matrix in
+// every non-commandable status unavailable until it clears.
+// NEEDS_MINING_POOL is pending in both (#663): the miner is reachable and
+// draws idle power, so a sleep command lands regardless of mining status.
+// INACTIVE stays parked: it means the miner is already sleeping, and
+// restoring it would wake a miner someone deliberately put to sleep. When
+// adding a device status, update both switches and the pinned matrix in
 // TestDeviceStatusClassifierMatrix.
 func AllPairedPolicyTargetState(c *models.Candidate, includeMaintenance bool) (models.TargetState, string) {
 	if c == nil {
@@ -338,7 +342,7 @@ func AllPairedPolicyTargetState(c *models.Candidate, includeMaintenance bool) (m
 		return models.TargetStateUnavailable, allPairedUnavailableUpdating
 	case "REBOOT_REQUIRED":
 		return models.TargetStateUnavailable, allPairedUnavailableRebootRequired
-	case "INACTIVE", "NEEDS_MINING_POOL", "ERROR", "UNKNOWN":
+	case "INACTIVE", "ERROR", "UNKNOWN":
 		return models.TargetStateUnavailable, allPairedUnavailableNonActionableStatus
 	case "MAINTENANCE":
 		if !includeMaintenance {

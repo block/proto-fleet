@@ -1569,7 +1569,11 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipUnreachableResidualLoad})
 			summary.ExcludedOffline++
 			continue
-		case "INACTIVE", "NEEDS_MINING_POOL":
+		case "INACTIVE":
+			// Excluded by design: INACTIVE means the miner is sleeping
+			// (operator- or curtailment-initiated). Curtailing it is a no-op
+			// and restoring it would wake a miner someone deliberately put
+			// to sleep.
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipNonActionableStatus})
 			summary.ExcludedNonActionable++
 			continue
@@ -1586,6 +1590,12 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			// The all-paired policy holds these unavailable instead because it
 			// dispatches without the freshness gates below
 			// (AllPairedPolicyTargetState in selector.go).
+		case "NEEDS_MINING_POOL":
+			// Commandability admission (#663): a pool-less miner is reachable,
+			// authenticated, and draws idle power — a sleep command lands.
+			// Subject to the same freshness gates below; fixed-kW's
+			// dual-signal filter still excludes it (zero hash), so kW-sized
+			// selection stays sound.
 		}
 		if c.LatestMetricsAt == nil {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})

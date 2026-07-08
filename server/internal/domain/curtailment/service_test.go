@@ -1035,9 +1035,62 @@ func TestService_Preview_FiltersByPairingDeviceStatusAndStaleness(t *testing.T) 
 	assert.Equal(t, SkipRebootRequired, reasons["rebooting"])
 	assert.Equal(t, SkipUnreachableResidualLoad, reasons["offline"])
 	assert.Equal(t, SkipNonActionableStatus, reasons["inactive"])
-	assert.Equal(t, SkipNonActionableStatus, reasons["needs-pool"])
+	// Pool-less miner passes status admission (#663) but is hashing here
+	// (100 H/s), so it competes as a normal candidate; with the 2.5 kW target
+	// already met by the eligible miner, it is simply not selected.
+	assert.NotContains(t, reasons, "needs-pool")
 	assert.Equal(t, SkipMaintenance, reasons["maintenance"])
 	assert.Equal(t, SkipStaleTelemetry, reasons["stale"])
+}
+
+func TestClassifyCandidates_PoolLessMinerAdmittedWhenTelemetryFresh(t *testing.T) {
+	t.Parallel()
+
+	// Commandability admission (#663): NEEDS_MINING_POOL passes status
+	// admission even with zero hash, but stays behind the freshness gates.
+	fresh := miner("needs-pool-fresh", "NEEDS_MINING_POOL", "PAIRED", 2000, 0)
+	stale := staleMiner("needs-pool-stale")
+	stale.DeviceStatus = "NEEDS_MINING_POOL"
+
+	eligible, skipped, _ := classifyCandidates(
+		[]*models.Candidate{fresh, stale},
+		classifyOpts{CandidateMinPowerW: 1500},
+	)
+
+	require.Len(t, eligible, 1)
+	assert.Equal(t, "needs-pool-fresh", eligible[0].DeviceIdentifier)
+	require.Len(t, skipped, 1)
+	assert.Equal(t, "needs-pool-stale", skipped[0].DeviceIdentifier)
+	assert.Equal(t, SkipStaleTelemetry, skipped[0].Reason)
+}
+
+func TestService_Preview_PoolLessZeroHashMinerSkippedByDualSignalInFixedKw(t *testing.T) {
+	t.Parallel()
+
+	// A pool-less miner passes status admission (#663) but fixed-kW's
+	// dual-signal filter still excludes it: idle draw with zero hash is
+	// phantom load for kW-sized selection.
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		miner("needs-pool", "NEEDS_MINING_POOL", "PAIRED", 3000, 0),
+		minerWithEff("eligible", 3000, 100, 40),
+	}
+
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.TargetKW = 2.5
+	plan, err := svc.Preview(t.Context(), req)
+	require.NoError(t, err)
+
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, "eligible", plan.Selected[0].DeviceIdentifier)
+	reasons := map[string]SkipReason{}
+	for _, s := range plan.Skipped {
+		reasons[s.DeviceIdentifier] = s.Reason
+	}
+	assert.Equal(t, SkipPhantomLoadNoHash, reasons["needs-pool"])
 }
 
 func TestService_Preview_MaintenancePairAdmitsMiners(t *testing.T) {
