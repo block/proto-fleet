@@ -22,13 +22,16 @@ interface ManageMinersModalProps {
   onDismiss: () => void;
   /** `reassignedItems` is the subset of the explicit selection that is currently
    *  assigned elsewhere, so the caller can confirm the reparent (empty when
-   *  `allSelected`, since that path is pre-filtered to assignable miners). */
+   *  `allSelected`, since that path is pre-filtered to assignable miners).
+   *  Resolves to an error string to surface inside this (still-open) modal —
+   *  e.g. select-all overflow, which the parent only knows after resolving the
+   *  full id set — or undefined on success. */
   onConfirm: (
     selectedIds: string[],
     allSelected: boolean,
     filter: MinerListFilter | undefined,
     reassignedItems: string[],
-  ) => void;
+  ) => Promise<string | undefined>;
 }
 
 export default function ManageMinersModal({
@@ -43,11 +46,12 @@ export default function ManageMinersModal({
   const selectionRef = useRef<MinerSelectionListHandle>(null);
   const [overflowError, setOverflowError] = useState("");
 
-  const handleContinue = useCallback(() => {
+  const handleContinue = useCallback(async () => {
     const selection = selectionRef.current?.getSelection();
     if (!selection) return;
 
     const { selectedItems, allSelected, filter, reassignedItems, blockedByFilter } = selection;
+    setOverflowError("");
 
     // A conflicting placement facet shows "no results"; committing here would
     // save a selection the operator can't see (or wipe membership). Prompt them
@@ -58,8 +62,9 @@ export default function ManageMinersModal({
     }
 
     // Only validate overflow for explicit selections. When allSelected is true,
-    // the parent resolves the full selectable list via server pagination and
-    // validates overflow after resolution.
+    // the parent resolves the full selectable list via server pagination, so it
+    // returns the overflow (or load) error for us to surface here — this modal
+    // is still mounted above the parent's callout.
     if (!allSelected && selectedItems.length > maxSlots) {
       setOverflowError(
         `Cannot add ${selectedItems.length} miners with only ${maxSlots} available slots. Deselect some miners or update your rack settings.`,
@@ -67,7 +72,8 @@ export default function ManageMinersModal({
       return;
     }
 
-    onConfirm(selectedItems, allSelected, allSelected ? filter : undefined, reassignedItems);
+    const error = await onConfirm(selectedItems, allSelected, allSelected ? filter : undefined, reassignedItems);
+    if (error) setOverflowError(error);
   }, [maxSlots, onConfirm]);
 
   if (!show) return null;

@@ -431,14 +431,16 @@ export default function ManageRackModal({
     [selectedMinerId],
   );
 
-  // ManageMinersModal confirm handler
+  // ManageMinersModal confirm handler. Returns an error string for the still-open
+  // modal to surface (or undefined on success) — the parent's own callout sits
+  // behind the modal, so select-all overflow/load errors must go back up.
   const handleManageMinersConfirm = useCallback(
     async (
       selectedIds: string[],
       allSelected: boolean,
       listFilter: MinerListFilter | undefined,
       reassignedItems: string[],
-    ) => {
+    ): Promise<string | undefined> => {
       let finalIds = selectedIds;
       // "Select all" resolves to the assignable set server-side (ineligible
       // miners already excluded), so it can never reparent. An explicit
@@ -455,8 +457,7 @@ export default function ManageRackModal({
           setIsLoading(true);
           finalIds = await fetchAllSelectableMinerIds(eligibility, listFilter);
         } catch {
-          setErrorMsg("Failed to load all miners. Please try again.");
-          return;
+          return "Failed to load all miners. Please try again.";
         } finally {
           setIsLoading(false);
         }
@@ -464,10 +465,7 @@ export default function ManageRackModal({
       }
 
       if (finalIds.length > totalSlots) {
-        setErrorMsg(
-          `Cannot add ${finalIds.length} miners with only ${totalSlots} available slots. Deselect some miners or update your rack settings.`,
-        );
-        return;
+        return `Cannot add ${finalIds.length} miners with only ${totalSlots} available slots. Deselect some miners or update your rack settings.`;
       }
 
       promptReparent(reassignedCount, () => {
@@ -479,6 +477,7 @@ export default function ManageRackModal({
         setSlotAssignments((prev) => filterAssignmentsByValues(prev, keepSet));
         setManualAssignmentCache((prev) => filterAssignmentsByValues(prev, keepSet));
       });
+      return undefined;
     },
     [eligibility, totalSlots, promptReparent],
   );

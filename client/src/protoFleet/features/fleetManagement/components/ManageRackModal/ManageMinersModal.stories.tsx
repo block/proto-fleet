@@ -29,9 +29,10 @@ export const Default = () => {
           action("onDismiss")();
           setShow(false);
         }}
-        onConfirm={(selectedIds, allSelected, filter) => {
-          action("onConfirm")({ selectedIds, allSelected, filter });
+        onConfirm={async (selectedIds, allSelected, filter, reassignedItems) => {
+          action("onConfirm")({ selectedIds, allSelected, filter, reassignedItems });
           setShow(false);
+          return undefined;
         }}
       />
     </>
