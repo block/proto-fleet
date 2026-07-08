@@ -42,10 +42,9 @@ jobs:
       number: ${{ steps.pr.outputs.number }}
       base_sha: ${{ steps.pr.outputs.base_sha }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
-      decision: ${{ steps.evaluate_policy.outputs.decision || steps.fallback_policy.outputs.decision || 'needs-human-review' }}
-      passed: ${{ steps.evaluate_policy.outputs.passed || steps.fallback_policy.outputs.passed || 'false' }}
-      enforced: ${{ steps.evaluate_policy.outputs.enforced || steps.fallback_policy.outputs.enforced || 'true' }}
-      publishable: ${{ steps.evaluate_policy.outputs.publishable || steps.fallback_policy.outputs.publishable || 'false' }}
+      decision: ${{ steps.evaluate_policy.outputs.decision || steps.bootstrap_policy.outputs.decision || 'needs-human-review' }}
+      passed: ${{ steps.evaluate_policy.outputs.passed || steps.bootstrap_policy.outputs.passed || 'false' }}
+      enforced: ${{ steps.evaluate_policy.outputs.enforced || steps.bootstrap_policy.outputs.enforced || 'true' }}
     env:
       CODEX_MODEL: gpt-5.5
       CODEX_REASONING_EFFORT: high
@@ -171,10 +170,8 @@ jobs:
           TRUSTED_BASE: ${{ steps.pr.outputs.trusted_base }}
         run: |
           if [ "$TRUSTED_BASE" != "true" ]; then
-            echo "Review policy only evaluates PRs based on the repository default branch; got base ref ${BASE_REF}."
-            echo "unsupported_base=true" >> "$GITHUB_OUTPUT"
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "Review policy only evaluates PRs based on the repository default branch; got base ref ${BASE_REF}." >&2
+            exit 1
           fi
           if [ ! -f .github/scripts/evaluate_review_policy.py ] || [ ! -f .github/review-policy.json ]; then
             echo "Trusted base commit does not contain review policy code and config; publishing a fail-closed bootstrap decision without executing PR-head policy code."
@@ -186,35 +183,21 @@ jobs:
           echo "path=$(pwd)" >> "$GITHUB_OUTPUT"
           echo "Using review policy code from the trusted base commit."
 
-      - name: Use fallback decision
-        id: fallback_policy
+      - name: Use bootstrap fallback decision
+        id: bootstrap_policy
         if: steps.pr.outputs.found == 'true' && steps.policy_source.outputs.available != 'true'
-        env:
-          BASE_REF: ${{ steps.pr.outputs.base_ref }}
-          UNSUPPORTED_BASE: ${{ steps.policy_source.outputs.unsupported_base }}
         run: |
-          if [ "$UNSUPPORTED_BASE" = "true" ]; then
-            enforced=true
-            mode=enforced
-            detail="Review Policy only evaluates PRs based on the repository default branch; got base ref \`${BASE_REF}\`."
-          else
-            enforced=false
-            mode=advisory
-            detail="Trusted base policy code is not available yet, so this bootstrap run did not execute PR-controlled policy code."
-          fi
-
           echo "decision=needs-human-review" >> "$GITHUB_OUTPUT"
           echo "passed=false" >> "$GITHUB_OUTPUT"
-          echo "enforced=${enforced}" >> "$GITHUB_OUTPUT"
-          echo "publishable=true" >> "$GITHUB_OUTPUT"
+          echo "enforced=false" >> "$GITHUB_OUTPUT"
           {
             echo "## Review Policy"
             echo
             echo "**Decision:** \`needs-human-review\`"
             echo "**Status:** fail"
-            echo "**Mode:** ${mode}"
+            echo "**Mode:** advisory"
             echo
-            echo "${detail}"
+            echo "Trusted base policy code is not available yet, so this bootstrap run did not execute PR-controlled policy code."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run deterministic low-risk preflight
@@ -427,7 +410,6 @@ jobs:
           echo "decision=${decision}" >> "$GITHUB_OUTPUT"
           echo "passed=${passed}" >> "$GITHUB_OUTPUT"
           echo "enforced=${enforced}" >> "$GITHUB_OUTPUT"
-          echo "publishable=true" >> "$GITHUB_OUTPUT"
           exit "$status"
 
       - name: Skip non-PR event
@@ -440,7 +422,6 @@ jobs:
     if: >-
       always() &&
       needs.evaluate.outputs.found == 'true' &&
-      needs.evaluate.outputs.publishable == 'true' &&
       needs.evaluate.result != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -531,7 +512,6 @@ jobs:
     if: >-
       always() &&
       needs.evaluate.outputs.found == 'true' &&
-      needs.evaluate.outputs.publishable == 'true' &&
       needs.evaluate.result != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 10

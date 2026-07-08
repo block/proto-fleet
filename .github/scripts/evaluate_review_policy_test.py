@@ -11,29 +11,24 @@ import evaluate_review_policy as policy
 
 
 class ReviewPolicyTest(unittest.TestCase):
-    def test_workflow_publishes_only_completed_policy_decisions(self):
+    def test_workflow_skips_cancelled_publish_side_effects(self):
         workflow = (Path(__file__).resolve().parents[1] / "workflows" / "review-policy.yml").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn(
-            "publishable: ${{ steps.evaluate_policy.outputs.publishable || "
-            "steps.fallback_policy.outputs.publishable || 'false' }}",
-            workflow,
-        )
-        self.assertEqual(workflow.count("needs.evaluate.outputs.publishable == 'true'"), 2)
         self.assertEqual(workflow.count("needs.evaluate.result != 'cancelled'"), 2)
+        self.assertNotIn("needs.evaluate.outputs.publishable", workflow)
+        self.assertNotIn("publishable:", workflow)
+        self.assertNotIn('echo "publishable=true"', workflow)
 
-    def test_workflow_publishes_unsupported_base_decisions(self):
+    def test_workflow_keeps_fail_closed_non_cancelled_failures(self):
         workflow = (Path(__file__).resolve().parents[1] / "workflows" / "review-policy.yml").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn('echo "unsupported_base=true" >> "$GITHUB_OUTPUT"', workflow)
-        self.assertIn("id: fallback_policy", workflow)
-        self.assertIn('if [ "$UNSUPPORTED_BASE" = "true" ]; then', workflow)
-        self.assertIn("enforced=true", workflow)
-        self.assertIn('echo "enforced=${enforced}" >> "$GITHUB_OUTPUT"', workflow)
+        self.assertIn('exit 1', workflow)
+        self.assertIn("got base ref ${BASE_REF}.", workflow)
+        self.assertIn("ENFORCED: ${{ needs.evaluate.outputs.enforced || 'true' }}", workflow)
 
     def test_workflow_serializes_and_authorizes_label_sync(self):
         workflow = (Path(__file__).resolve().parents[1] / "workflows" / "review-policy.yml").read_text(
