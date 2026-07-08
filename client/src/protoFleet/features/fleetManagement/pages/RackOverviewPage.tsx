@@ -566,10 +566,15 @@ const RackOverviewPage = () => {
             // without resending the full rack state. On partial
             // success (assigned but slot failed), we still refresh so
             // the UI stays consistent.
-            const assign = () =>
+            // `force` clears a conflicting site when the target rack has no
+            // site of its own; without it the server returns conflicts and
+            // writes nothing. We force only after the operator has confirmed the
+            // reparent below.
+            const assign = (force: boolean) =>
               assignDevicesToRack({
                 targetRackId: rack.id,
                 deviceIdentifiers: [minerId],
+                forceClearConflictingSite: force,
                 onSuccess: () => {
                   setRackSlotPosition({
                     deviceSetId: rack.id,
@@ -590,16 +595,25 @@ const RackOverviewPage = () => {
                     },
                   });
                 },
+                // Defensive: a placement conflict without a preceding warning
+                // shouldn't be a silent no-op.
+                onConflicts: () => {
+                  pushToast({
+                    message: "This miner is assigned to another site. Confirm the move and try again.",
+                    status: STATUSES.error,
+                  });
+                },
                 onError: (msg) => {
                   pushToast({ message: msg, status: STATUSES.error });
                 },
               });
 
-            // Reparenting a miner from another rack/building/site warns first (#672).
+            // Reparenting a miner from another rack/building/site warns first (#672);
+            // confirming forces the site strip so a site-less target rack still writes.
             if (isReassignment) {
-              setReparentPrompt({ count: 1, onConfirm: assign });
+              setReparentPrompt({ count: 1, onConfirm: () => assign(true) });
             } else {
-              assign();
+              assign(false);
             }
           }}
         />
