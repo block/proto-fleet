@@ -1787,7 +1787,7 @@ func BuildInsertTargetParams(selected []SelectedDevice, mode models.Mode, minPow
 	targets := make([]models.InsertTargetParams, len(selected))
 	for i, sel := range selected {
 		var baseline *float64
-		if shouldPersistBaselinePowerW(mode, sel.PowerW, minPowerW) {
+		if shouldPersistBaselinePowerW(mode, sel.PowerW, minPowerW, sel.HashRateHS > 0) {
 			v := sel.PowerW
 			baseline = &v
 		}
@@ -1826,11 +1826,18 @@ func BuildFullFleetAdmissionTargets(
 	return BuildInsertTargetParams(plan.Selected, models.ModeFullFleet, minPowerW), plan.Skipped
 }
 
-func shouldPersistBaselinePowerW(mode models.Mode, powerW float64, minPowerW int32) bool {
+// shouldPersistBaselinePowerW gates baseline capture. Full-fleet selection
+// runs without the dual-signal filter, so a below-floor power reading from a
+// hashing miner is suspect (dead power monitor) and the hash-only
+// confirm/restore fallback is the better signal. For a non-hashing miner the
+// hash-only fallback is provably broken (hash is already 0: curtail confirms
+// instantly, restore never confirms), so any positive idle-draw baseline is
+// strictly better and the floor does not apply.
+func shouldPersistBaselinePowerW(mode models.Mode, powerW float64, minPowerW int32, hashing bool) bool {
 	if powerW <= 0 {
 		return false
 	}
-	if mode == models.ModeFullFleet && powerW < float64(minPowerW) {
+	if mode == models.ModeFullFleet && hashing && powerW < float64(minPowerW) {
 		return false
 	}
 	return true

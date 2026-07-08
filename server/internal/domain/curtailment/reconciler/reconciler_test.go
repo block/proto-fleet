@@ -1152,6 +1152,60 @@ func TestReconciler_AllPairedPolicyParkedPoolLessTargetPromotedAndDispatched(t *
 	assert.InDelta(t, 2000.0, *final.BaselinePowerW, 0.001)
 }
 
+// A never-hashing miner's idle draw is usually below candidate_min_power_w,
+// but its baseline must still be persisted: the hash-only fallback the floor
+// relies on cannot confirm curtail (hash is already 0 → instant false
+// positive) or restore (hash never rises → ages out to restore_failed) for a
+// miner that never hashes. The floor applies only to hashing miners.
+func TestReconciler_AllPairedPolicyPoolLessPromotionPersistsBelowFloorBaseline(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	nonActionableReason := "non_actionable_status"
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStateActive,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			// Real events stamp the floor into the decision snapshot; the
+			// readiness-refresh path reads it back from here.
+			DecisionSnapshotJSON: []byte(`{"candidate_min_power_w":1500}`),
+			CreatedByUserID:      99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pool-less",
+			State:              models.TargetStateUnavailable,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &nonActionableReason,
+		},
+	}
+	driver := "antminer"
+	// 400 W idle draw: below the 1500 W candidate_min_power_w floor.
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "pool-less", DriverName: &driver, DeviceStatus: "NEEDS_MINING_POOL", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(400), LatestHashRateHS: ptrFloat64(0)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	require.Equal(t, 1, disp.curtailCalls)
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatched, final.State)
+	require.NotNil(t, final.BaselinePowerW,
+		"non-hashing miners must persist any positive baseline; the min-power floor only makes sense where the hash-only fallback works")
+	assert.InDelta(t, 400.0, *final.BaselinePowerW, 0.001)
+}
+
 // A readiness flip the bulk UPDATE skips (row advanced concurrently, so it is
 // absent from RETURNING) must not be mirrored in memory: an optimistic mirror
 // would feed the same-tick dispatch pass and re-issue a duplicate Curtail

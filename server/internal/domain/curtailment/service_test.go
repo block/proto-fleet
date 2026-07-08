@@ -1093,6 +1093,29 @@ func TestService_Preview_PoolLessZeroHashMinerSkippedByDualSignalInFixedKw(t *te
 	assert.Equal(t, SkipPhantomLoadNoHash, reasons["needs-pool"])
 }
 
+func TestBuildInsertTargetParams_BaselineFloorAppliesOnlyToHashingMiners(t *testing.T) {
+	t.Parallel()
+
+	selected := []SelectedDevice{
+		// Hashing below the floor: suspect power reading (dead monitor);
+		// hash-only fallback works, so no baseline is persisted.
+		{DeviceIdentifier: "hashing-below-floor", PowerW: 400, HashRateHS: 100},
+		// Never-hashing below the floor: hash-only fallback is broken, so
+		// the idle-draw baseline must be persisted (#663).
+		{DeviceIdentifier: "idle-below-floor", PowerW: 400, HashRateHS: 0},
+		// Zero power never persists a baseline regardless of hash.
+		{DeviceIdentifier: "no-power", PowerW: 0, HashRateHS: 0},
+	}
+
+	targets := BuildInsertTargetParams(selected, models.ModeFullFleet, 1500)
+
+	require.Len(t, targets, 3)
+	assert.Nil(t, targets[0].BaselinePowerW)
+	require.NotNil(t, targets[1].BaselinePowerW)
+	assert.InDelta(t, 400.0, *targets[1].BaselinePowerW, 0.001)
+	assert.Nil(t, targets[2].BaselinePowerW)
+}
+
 func TestService_Preview_MaintenancePairAdmitsMiners(t *testing.T) {
 	t.Parallel()
 

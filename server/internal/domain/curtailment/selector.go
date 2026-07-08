@@ -109,9 +109,13 @@ type Plan struct {
 type SelectedDevice struct {
 	DeviceIdentifier string
 	PowerW           float64
-	EfficiencyJH     float64
-	TargetState      models.TargetState
-	LastError        string
+	// HashRateHS is the latest hash sample at selection time. Baseline
+	// persistence reads it: the min-power floor only applies to hashing
+	// miners, where the hash-only confirm/restore fallback works.
+	HashRateHS   float64
+	EfficiencyJH float64
+	TargetState  models.TargetState
+	LastError    string
 }
 
 // BuildPlan runs the selection pipeline (mode-specific eligibility filter, rank
@@ -215,11 +219,19 @@ func BuildPlan(
 		res.InsufficientDetail.ExcludedDeadMonitor += dualSignalCounts.deadMonitor
 	}
 
+	// modes.Candidate doesn't carry hash; recover it for the selected set so
+	// baseline persistence can tell hashing miners from idle ones.
+	hashByDevice := make(map[string]float64, len(inputs))
+	for _, c := range inputs {
+		hashByDevice[c.DeviceIdentifier] = c.HashRateHS
+	}
+
 	selected := make([]SelectedDevice, len(res.Selected))
 	for i, c := range res.Selected {
 		selected[i] = SelectedDevice{
 			DeviceIdentifier: c.DeviceIdentifier,
 			PowerW:           c.PowerW,
+			HashRateHS:       hashByDevice[c.DeviceIdentifier],
 			EfficiencyJH:     c.EfficiencyJH,
 		}
 	}
@@ -293,9 +305,14 @@ func BuildAllPairedPolicyPlan(
 		if state == models.TargetStateUnavailable {
 			unavailableCount++
 		}
+		hashRateHS := 0.0
+		if hasNonNegativeFiniteFloat(c.LatestHashRateHS) {
+			hashRateHS = *c.LatestHashRateHS
+		}
 		selected = append(selected, SelectedDevice{
 			DeviceIdentifier: c.DeviceIdentifier,
 			PowerW:           powerW,
+			HashRateHS:       hashRateHS,
 			EfficiencyJH:     derefFloat(avgEff),
 			TargetState:      state,
 			LastError:        reason,
@@ -374,7 +391,8 @@ func AllPairedPromotionBaselinePowerW(c *models.Candidate, minPowerW int32) *flo
 		return nil
 	}
 	power := *c.LatestPowerW
-	if !shouldPersistBaselinePowerW(models.ModeFullFleet, power, minPowerW) {
+	hashing := hasNonNegativeFiniteFloat(c.LatestHashRateHS) && *c.LatestHashRateHS > 0
+	if !shouldPersistBaselinePowerW(models.ModeFullFleet, power, minPowerW, hashing) {
 		return nil
 	}
 	return &power
