@@ -1,5 +1,6 @@
 import {
   ipv4RangeToCidrs,
+  ipv4ToInt,
   isValidCidr,
   isValidHostname,
   isValidIpv4,
@@ -7,6 +8,13 @@ import {
   looksLikeIpRange,
   parseIpRange,
 } from "./networkDiscovery";
+
+// A subnet range expands to a covering CIDR set client-side (the fleet filter
+// has no native range field). Cap a single range's span so one line can't blow
+// past the server's ip_cidrs limit and turn into a failed request with no inline
+// feedback. This is a stopgap bound per line — the complete guard lands when the
+// server accepts ranges natively (#682).
+const MAX_RANGE_ADDRESSES = 1024;
 
 export type NumericRangeValue = {
   min?: number;
@@ -143,7 +151,12 @@ export const validateSubnetLine = (line: string): string | null => {
   const trimmed = line.trim();
   if (trimmed === "") return "Empty value";
   if (looksLikeIpRange(trimmed)) {
-    return parseIpRange(trimmed) ? null : "Not a valid IP range (e.g. 10.0.0.10-10.0.0.20)";
+    const range = parseIpRange(trimmed);
+    if (!range) return "Not a valid IP range (e.g. 10.0.0.10-10.0.0.20)";
+    if (ipv4ToInt(range.endIp) - ipv4ToInt(range.startIp) + 1 > MAX_RANGE_ADDRESSES) {
+      return `IP ranges are limited to ${MAX_RANGE_ADDRESSES} addresses`;
+    }
+    return null;
   }
   if (trimmed.includes("/")) {
     return isValidCidr(trimmed) || isValidIpv6Cidr(trimmed)

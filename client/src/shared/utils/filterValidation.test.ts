@@ -151,6 +151,11 @@ describe("validateSubnetLine", () => {
     expect(validateSubnetLine("10.0.0.10-999")).not.toBeNull();
   });
 
+  it("caps an IP range at 1024 addresses (stopgap for the client CIDR expansion)", () => {
+    expect(validateSubnetLine("10.0.0.0-10.0.3.255")).toBeNull(); // exactly 1024 addresses
+    expect(validateSubnetLine("10.0.0.0-10.0.4.0")).toBe("IP ranges are limited to 1024 addresses"); // 1025
+  });
+
   it("rejects hostnames with a targeted message (filter matches by IP, not name)", () => {
     expect(validateSubnetLine("miner01")).toBe("Hostnames aren't supported here — use an IP, CIDR, or range");
     expect(validateSubnetLine("rack3-unit.local")).toBe("Hostnames aren't supported here — use an IP, CIDR, or range");
