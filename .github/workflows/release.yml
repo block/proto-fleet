@@ -17,20 +17,14 @@ jobs:
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          # General shape: vX.Y.Z with an optional prerelease suffix
-          # (e.g. v1.2.3, v1.2.3-rc.1, v1.2.3-alpha.4, v1.2.3-<label>.1).
+          # vX.Y.Z with an optional prerelease suffix (e.g. v1.2.3-alpha.4).
           if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?$ ]]; then
             echo "::error::Tag '$TAG_NAME' does not match expected format (e.g., v1.2.3, v1.2.3-rc.1, or v1.2.3-<label>.1)"
             exit 1
           fi
-          # Reserve release-candidate naming: any tag that looks like an RC must be
-          # exactly vX.Y.Z-rc.N. This covers both a leading "rc" token (a typo like
-          # v1.2.3-rc1 or v1.2.3-RC.1) and an "-rc." appearing anywhere in the tag
-          # (e.g. v1.2.3-hostmon-rc.1). The on-main gate below keys on the literal
-          # "-rc." (matched case-insensitively by contains()), so both layers must
-          # agree on what counts as an RC — otherwise such a tag would pass here and
-          # then fail confusingly at the gate. Rejecting now keeps "-rc." fully
-          # reserved for canonical RCs.
+          # Reserve RC naming: any RC-looking tag must be canonical vX.Y.Z-rc.N.
+          # Matches the on-main gate below (which keys on "-rc." anywhere,
+          # case-insensitively) so a near-miss can't slip past it as a test build.
           if [[ "$TAG_NAME" == *-* ]]; then
             prerelease="${TAG_NAME#*-}"
             first_token="${prerelease%%[.-]*}"
@@ -44,21 +38,16 @@ jobs:
           fi
           echo "Tag '$TAG_NAME' is valid"
 
-      # Versioned releases (vX.Y.Z) and release candidates (vX.Y.Z-rc.N) must be
-      # cut from main so the release line can't silently diverge. Other
-      # prerelease suffixes (e.g. -alpha.N, -beta.N, -<label>) are intentionally
-      # left unrestricted so the team can cut throwaway test builds off feature
-      # branches — just not under the -rc. name, which is reserved for mainline
-      # release candidates.
+      # Releases and RCs must come from main; other prerelease suffixes stay
+      # unrestricted so test builds can be cut off feature branches.
       - name: Require releases and release candidates to be on main
         if: ${{ !contains(github.ref_name, '-') || contains(github.ref_name, '-rc.') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           AHEAD_BY=$(gh api "repos/${{ github.repository }}/compare/main...${{ github.sha }}" --jq '.ahead_by')
-          # String compare, not -ne: a non-numeric ahead_by (e.g. "null" from a
-          # failed/unexpected API response) would coerce to 0 and silently pass.
-          # This is the enforcement point, so fail closed on anything but "0".
+          # String compare (not -ne): a non-numeric ahead_by like "null" would
+          # coerce to 0 and pass. Fail closed on anything but "0".
           if [[ "$AHEAD_BY" != "0" ]]; then
             echo "::error::Versioned releases and -rc. tags must be cut from main. Tag '${{ github.ref_name }}' points to a commit not on main (compare ahead_by=${AHEAD_BY:-unknown}). For branch/test builds, use a different prerelease suffix (e.g. v1.2.3-<label>.1)."
             exit 1
