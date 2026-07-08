@@ -1122,6 +1122,7 @@ func TestReconciler_AllPairedPolicyParkedPoolLessTargetPromotedAndDispatched(t *
 			LoopType:                    models.LoopTypeClosed,
 			ScopeType:                   models.ScopeTypeWholeOrg,
 			ForceIncludeAllPairedMiners: true,
+			DecisionSnapshotJSON:        []byte(`{"candidate_min_power_w":1500}`),
 			CreatedByUserID:             99,
 		},
 	}
@@ -3886,6 +3887,19 @@ func TestReconciler_ConfigDefaultsDispatchTimeouts(t *testing.T) {
 // --- isCurtailed unit tests ---
 // requirePositiveEvidence=false (drift): missing samples preserve
 // curtailed; =true (confirm): missing samples return false.
+
+// A pool-less miner's persisted idle baseline (#663) makes power-vs-baseline
+// the confirm signal; hash is 0 through the whole lifecycle so the hash-only
+// fallback would confirm vacuously.
+func TestIsCurtailed_ConfirmPath_IdleBaselinePoolLessMiner(t *testing.T) {
+	t.Parallel()
+	baseline := 400.0
+	// Sleep draw well under half the idle draw: confirmed.
+	assert.True(t, isCurtailed(ptrFloat64(30), &baseline, ptrFloat64(0), 0.5, true))
+	// Draw still above half the idle baseline: not confirmed — the sleep
+	// command has not (yet) taken effect.
+	assert.False(t, isCurtailed(ptrFloat64(210), &baseline, ptrFloat64(0), 0.5, true))
+}
 
 func TestIsCurtailed_DriftPath_BaselineRelativeThreshold(t *testing.T) {
 	baseline := 3000.0

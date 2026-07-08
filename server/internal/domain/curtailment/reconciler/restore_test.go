@@ -1052,6 +1052,10 @@ func TestIsRestored(t *testing.T) {
 		{"no_telemetry_not_restored", nil, ptrFloat64(3000), nil, 0.5, false},
 		{"baseline_zero_falls_back_to_hash", ptrFloat64(2000), ptrFloat64(0), ptrFloat64(100), 0.5, true},
 		{"power_present_baseline_nil_hash_nil_not_restored", ptrFloat64(2000), nil, nil, 0.5, false},
+		// Pool-less miner at an idle-draw baseline (#663): power is the only
+		// usable signal because hash stays 0 through the whole lifecycle.
+		{"idle_baseline_wake_draw_restored", ptrFloat64(400), ptrFloat64(400), ptrFloat64(0), 0.5, true},
+		{"idle_baseline_sleep_draw_not_restored", ptrFloat64(30), ptrFloat64(400), ptrFloat64(0), 0.5, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

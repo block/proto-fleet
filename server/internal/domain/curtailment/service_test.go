@@ -1009,7 +1009,7 @@ func TestService_Preview_FiltersByPairingDeviceStatusAndStaleness(t *testing.T) 
 		miner("rebooting", "REBOOT_REQUIRED", "PAIRED", 3000, 100),
 		miner("offline", "OFFLINE", "PAIRED", 3000, 100),
 		miner("inactive", "INACTIVE", "PAIRED", 3000, 100),
-		miner("needs-pool", "NEEDS_MINING_POOL", "PAIRED", 3000, 100),
+		miner("needs-pool", "NEEDS_MINING_POOL", "PAIRED", 3000, 0),
 		miner("maintenance", "MAINTENANCE", "PAIRED", 3000, 100),
 		staleMiner("stale"),
 		minerWithEff("eligible", 3000, 100, 40),
@@ -1035,10 +1035,10 @@ func TestService_Preview_FiltersByPairingDeviceStatusAndStaleness(t *testing.T) 
 	assert.Equal(t, SkipRebootRequired, reasons["rebooting"])
 	assert.Equal(t, SkipUnreachableResidualLoad, reasons["offline"])
 	assert.Equal(t, SkipNonActionableStatus, reasons["inactive"])
-	// Pool-less miner passes status admission (#663) but is hashing here
-	// (100 H/s), so it competes as a normal candidate; with the 2.5 kW target
-	// already met by the eligible miner, it is simply not selected.
-	assert.NotContains(t, reasons, "needs-pool")
+	// Pool-less miner passes status admission (#663); in fixed-kW mode the
+	// dual-signal filter then skips it with the sharper diagnostic — idle
+	// draw with zero hash is phantom load for kW-sized selection.
+	assert.Equal(t, SkipPhantomLoadNoHash, reasons["needs-pool"])
 	assert.Equal(t, SkipMaintenance, reasons["maintenance"])
 	assert.Equal(t, SkipStaleTelemetry, reasons["stale"])
 }
