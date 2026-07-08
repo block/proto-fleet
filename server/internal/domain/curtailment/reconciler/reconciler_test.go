@@ -1101,6 +1101,57 @@ func TestReconciler_AllPairedPolicyUnavailableTargetBecomesPendingAndDispatches(
 	assert.InDelta(t, 3000.0, *final.BaselinePowerW, 0.001)
 }
 
+// A pool-less miner parked unavailable by the pre-#663 classifier (or by a
+// transient non-actionable status) is promoted, baseline-backfilled, and
+// dispatched once the classifier sees NEEDS_MINING_POOL as commandable —
+// existing all-paired events self-heal without migration.
+func TestReconciler_AllPairedPolicyParkedPoolLessTargetPromotedAndDispatched(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	nonActionableReason := "non_actionable_status"
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStateActive,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			CreatedByUserID:             99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pool-less",
+			State:              models.TargetStateUnavailable,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &nonActionableReason,
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "pool-less", DriverName: &driver, DeviceStatus: "NEEDS_MINING_POOL", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(2000), LatestHashRateHS: ptrFloat64(0)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	require.Equal(t, 1, disp.curtailCalls)
+	assert.ElementsMatch(t, []string{"pool-less"}, disp.curtailLastIDs)
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatched, final.State)
+	assert.Nil(t, final.LastError)
+	require.NotNil(t, final.BaselinePowerW,
+		"promotion must backfill the idle-draw baseline; hash-only fallback cannot confirm curtail/restore for a never-hashing miner")
+	assert.InDelta(t, 2000.0, *final.BaselinePowerW, 0.001)
+}
+
 // A readiness flip the bulk UPDATE skips (row advanced concurrently, so it is
 // absent from RETURNING) must not be mirrored in memory: an optimistic mirror
 // would feed the same-tick dispatch pass and re-issue a duplicate Curtail
