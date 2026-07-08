@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -175,7 +176,18 @@ func firmwareDeleteAllCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "delete-all",
 		Usage: "Delete every firmware file stored on the server",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:    "yes",
+				Aliases: []string{"y"},
+				Usage:   "Confirm deletion of every firmware file",
+			},
+		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
+			if err := confirmFirmwareDeleteAll(cmd.Bool("yes"), os.Stdin, os.Stderr); err != nil {
+				return err
+			}
+
 			client, err := openClient(ctx, cmd)
 			if err != nil {
 				return err
@@ -189,6 +201,25 @@ func firmwareDeleteAllCommand() *cli.Command {
 			return printJSON(resp)
 		},
 	}
+}
+
+func confirmFirmwareDeleteAll(yes bool, in io.Reader, out io.Writer) error {
+	if yes {
+		return nil
+	}
+	fmt.Fprint(out, "Delete every firmware file stored on the server? [y/N] ")
+	scanner := bufio.NewScanner(in)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("read delete-all confirmation: %w", err)
+		}
+		return fmt.Errorf("delete-all cancelled")
+	}
+	answer := strings.ToLower(strings.TrimSpace(scanner.Text()))
+	if answer == "y" || answer == "yes" {
+		return nil
+	}
+	return fmt.Errorf("delete-all cancelled")
 }
 
 func firmwareDeployCommand() *cli.Command {

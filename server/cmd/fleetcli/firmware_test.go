@@ -534,6 +534,140 @@ func TestFirmwareDeleteAllReturnsCount(t *testing.T) {
 	}
 }
 
+func TestConfirmFirmwareDeleteAllPrompt(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr string
+	}{
+		{name: "y confirms", input: "y\n"},
+		{name: "yes confirms", input: "yes\n"},
+		{name: "default cancels", input: "\n", wantErr: "cancelled"},
+		{name: "n cancels", input: "n\n", wantErr: "cancelled"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var prompt bytes.Buffer
+			err := confirmFirmwareDeleteAll(false, strings.NewReader(tt.input), &prompt)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("confirmFirmwareDeleteAll() error = %v, want nil", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("confirmFirmwareDeleteAll() error = %v, want containing %q", err, tt.wantErr)
+			}
+			if !strings.Contains(prompt.String(), "[y/N]") {
+				t.Fatalf("prompt = %q, want y/N prompt", prompt.String())
+			}
+		})
+	}
+}
+
+func TestFirmwareDeleteAllCommandCancelsBeforeRequest(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	requestCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		http.Error(w, "unexpected request", http.StatusTeapot)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	withStdin(t, "n\n", func() {
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--username", "admin", "--password", "proto",
+			"firmware", "delete-all",
+		})
+		if err == nil || !strings.Contains(err.Error(), "cancelled") {
+			t.Fatalf("firmware delete-all error = %v, want cancellation", err)
+		}
+	})
+	if requestCount != 0 {
+		t.Fatalf("request count = %d, want 0", requestCount)
+	}
+}
+
+func TestFirmwareDeleteAllCommandDeletesAfterYes(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+	oldNoColor := color.NoColor
+	color.NoColor = true
+	t.Cleanup(func() { color.NoColor = oldNoColor })
+
+	tests := []struct {
+		name string
+		flag string
+	}{
+		{name: "long flag", flag: "--yes"},
+		{name: "short flag", flag: "-y"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deleteCount := 0
+			mux := http.NewServeMux()
+			mux.HandleFunc("POST /auth.v1.AuthService/Authenticate", func(w http.ResponseWriter, _ *http.Request) {
+				http.SetCookie(w, &http.Cookie{Name: "fleet_session", Value: "test-session", Path: "/", Secure: true})
+				w.Header().Set("Content-Type", contentTypeJSON)
+				_, _ = w.Write([]byte(`{}`))
+			})
+			mux.HandleFunc("DELETE /api/v1/firmware/files", func(w http.ResponseWriter, _ *http.Request) {
+				deleteCount++
+				writeFirmwareJSON(t, w, firmwareDeleteAllResponse{DeletedCount: 3})
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+
+			output := captureStdout(t, func() {
+				err := newRootCommand().Run(context.Background(), []string{
+					"fleetcli", "--server", srv.URL + "/", "--username", "admin", "--password", "proto",
+					"firmware", "delete-all", tt.flag,
+				})
+				if err != nil {
+					t.Fatalf("firmware delete-all error = %v", err)
+				}
+			})
+
+			if deleteCount != 1 {
+				t.Fatalf("delete count = %d, want 1", deleteCount)
+			}
+			var decoded firmwareDeleteAllResponse
+			if err := json.Unmarshal([]byte(output), &decoded); err != nil {
+				t.Fatalf("output is not JSON: %s", output)
+			}
+			if decoded.DeletedCount != 3 {
+				t.Fatalf("deleted_count = %d, want 3", decoded.DeletedCount)
+			}
+		})
+	}
+}
+
+func withStdin(t *testing.T, input string, fn func()) {
+	t.Helper()
+
+	oldStdin := os.Stdin
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdin pipe: %v", err)
+	}
+	if _, err := write.WriteString(input); err != nil {
+		t.Fatalf("write stdin pipe: %v", err)
+	}
+	if err := write.Close(); err != nil {
+		t.Fatalf("close stdin writer: %v", err)
+	}
+	os.Stdin = read
+	defer func() {
+		os.Stdin = oldStdin
+		_ = read.Close()
+	}()
+
+	fn()
+}
+
 func buildFirmwareDeployRequestFromArgs(t *testing.T, args ...string) (*minercommandv1.FirmwareUpdateRequest, error) {
 	t.Helper()
 
