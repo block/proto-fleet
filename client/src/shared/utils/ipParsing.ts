@@ -21,6 +21,10 @@ export const isValidIpv4 = (value: string) => {
   if (parts.length !== 4) return false;
   return parts.every((part) => {
     if (!/^\d{1,3}$/.test(part)) return false;
+    // Reject leading-zero octets ("010"): ambiguous, and Go's netip.ParseAddr
+    // (used server-side for ip_cidrs / ip_ranges) rejects them — so the client
+    // must too, or it accepts inputs the server later fails.
+    if (part.length > 1 && part[0] === "0") return false;
     const num = Number(part);
     return num >= 0 && num <= 255;
   });

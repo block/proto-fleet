@@ -190,6 +190,14 @@ describe("categorizeIpEntry", () => {
     expect(categorizeIpEntry("fd00::xyz")).toMatchObject({ kind: "invalid", looked: "ipv6" });
   });
 
+  test("rejects leading-zero IPv4 octets (server netip.ParseAddr rejects them)", () => {
+    // Bare, CIDR, and range endpoints must all be rejected so the UI never
+    // accepts an address the server later fails to parse.
+    expect(categorizeIpEntry("010.0.0.1")).toMatchObject({ kind: "invalid", looked: "ipv4" });
+    expect(categorizeIpEntry("192.168.001.0/24")).toMatchObject({ kind: "invalid", looked: "cidr" });
+    expect(categorizeIpEntry("010.0.0.1-2")).toMatchObject({ kind: "invalid", looked: "range" });
+  });
+
   test("trims surrounding whitespace", () => {
     expect(categorizeIpEntry("  10.0.0.5  ")).toEqual({ kind: "ipv4", value: "10.0.0.5" });
   });
