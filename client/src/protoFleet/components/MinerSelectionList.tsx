@@ -382,17 +382,13 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         } else if (eligBuildingId !== undefined) {
           merged.buildingIds = [eligBuildingId];
           merged.includeNoBuilding = true;
-        } else {
-          // The target rack isn't placed in a building (unplaced or
-          // directly-under-site): assigning a miner here strips its building,
-          // so only building-unplaced miners are assignable without a
-          // reparent. Pin to "no building" rather than leaving it
-          // unconstrained — otherwise a miner directly placed in some
-          // building leaks into the default assignable list (mirror of #702
-          // for the undefined-eligibility case).
-          merged.buildingIds = [];
-          merged.includeNoBuilding = true;
         }
+        // When the target rack has no building we deliberately do NOT pin
+        // includeNoBuilding: server-side that flag means "the miner's RACK has
+        // no building", which matches miners already sitting in another
+        // building-less rack and would leak them into a new rack's assignable
+        // list. The site pin below is sufficient — a building requires a site,
+        // so "site IS NULL" already excludes any building-placed miner.
 
         if (userFilter.siteIds.length > 0) {
           merged.siteIds = eligSiteId !== undefined ? userFilter.siteIds.filter((id) => id === eligSiteId) : [];
