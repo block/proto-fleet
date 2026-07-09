@@ -16,7 +16,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
 )
 
-const defaultAlertMetricsInterval = 30 * time.Second
+// 10s keeps alert latency close to the source signal: curtailment engages
+// immediately, and the Grafana curtailment rule group also evaluates at 10s.
+const defaultAlertMetricsInterval = 10 * time.Second
 
 // AlertMetricsEmitter is the subset of metrics.Provider the loop depends on.
 type AlertMetricsEmitter interface {
