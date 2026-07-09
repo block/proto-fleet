@@ -4,7 +4,7 @@ import { _resetConfigCache, useFirmwareApi, validateFirmwareFile } from "./useFi
 
 const mockLogout = vi.fn();
 const mockUpload = vi.fn();
-const firmwareTarget = { targetManufacturer: "Proto", targetModel: "S21" };
+const firmwareTarget = { targetManufacturer: "Proto", targetModel: "S21", firmwareVersion: "v2.0.0" };
 
 vi.mock("@/protoFleet/store", () => ({
   useLogout: () => mockLogout,
@@ -99,7 +99,12 @@ describe("useFirmwareApi", () => {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sha256: "abc123", target_manufacturer: "Proto", target_model: "S21" }),
+          body: JSON.stringify({
+            sha256: "abc123",
+            target_manufacturer: "Proto",
+            target_model: "S21",
+            firmware_version: "v2.0.0",
+          }),
         }),
       );
     });
@@ -218,6 +223,7 @@ describe("useFirmwareApi", () => {
           formFields: {
             target_manufacturer: "Proto",
             target_model: "S21",
+            firmware_version: "v2.0.0",
           },
         }),
       );
@@ -250,6 +256,7 @@ describe("useFirmwareApi", () => {
           initiateFields: {
             target_manufacturer: "Proto",
             target_model: "S21",
+            firmware_version: "v2.0.0",
           },
           chunked: expect.objectContaining({
             enabled: true,
@@ -257,6 +264,54 @@ describe("useFirmwareApi", () => {
           }),
         }),
       );
+    });
+
+    it("requires metadata for swu upload", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              allowed_extensions: [".swu"],
+              max_file_size_bytes: 500 * 1024 * 1024,
+              chunk_size_bytes: 1 * 1024 * 1024,
+            }),
+        }),
+      );
+
+      const file = new File(["data"], "proto-rig.swu");
+      const { result } = renderHook(() => useFirmwareApi());
+
+      await expect(result.current.uploadFirmwareFile(file)).rejects.toThrow(
+        "Manufacturer, model, and firmware version are required.",
+      );
+      expect(mockUpload).not.toHaveBeenCalled();
+    });
+
+    it("requires metadata for non-swu upload", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              allowed_extensions: [".zip"],
+              max_file_size_bytes: 500 * 1024 * 1024,
+              chunk_size_bytes: 1 * 1024 * 1024,
+            }),
+        }),
+      );
+
+      const file = new File(["data"], "firmware.zip");
+      const { result } = renderHook(() => useFirmwareApi());
+
+      await expect(result.current.uploadFirmwareFile(file)).rejects.toThrow(
+        "Manufacturer, model, and firmware version are required.",
+      );
+      expect(mockUpload).not.toHaveBeenCalled();
     });
 
     it("throws when upload response is missing firmware_file_id", async () => {
@@ -323,6 +378,7 @@ describe("useFirmwareApi", () => {
           uploaded_at: "2025-01-01T00:00:00Z",
           target_manufacturer: "Proto",
           target_model: "S21",
+          firmware_version: "v2.0.0",
         },
       ];
       const mockFetch = vi.fn().mockResolvedValue({

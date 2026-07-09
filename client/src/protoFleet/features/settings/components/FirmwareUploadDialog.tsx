@@ -13,6 +13,7 @@ import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Modal from "@/shared/components/Modal/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular/ProgressCircular";
+import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 
 interface FirmwareUploadDialogProps {
@@ -27,6 +28,7 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
   const { getMinerModelGroups } = useMinerModelGroups();
   const [targetManufacturer, setTargetManufacturer] = useState("");
   const [targetModel, setTargetModel] = useState("");
+  const [firmwareVersion, setFirmwareVersion] = useState("");
   const [modelGroups, setModelGroups] = useState<MinerModelGroup[] | null>(null);
   const [modelsError, setModelsError] = useState<string | null>(null);
 
@@ -84,16 +86,20 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
 
   const selectedTargetModel = modelOptions.some((option) => option.value === targetModel) ? targetModel : "";
   const target = useMemo(
-    () => ({ targetManufacturer: targetManufacturer.trim(), targetModel: selectedTargetModel.trim() }),
-    [targetManufacturer, selectedTargetModel],
+    () => ({
+      targetManufacturer: targetManufacturer.trim(),
+      targetModel: selectedTargetModel.trim(),
+      firmwareVersion: firmwareVersion.trim(),
+    }),
+    [firmwareVersion, targetManufacturer, selectedTargetModel],
   );
-  const hasTarget = target.targetManufacturer !== "" && target.targetModel !== "";
 
   const handleDismiss = useCallback(() => {
     const uploaded = state === "ready";
     reset();
     setTargetManufacturer("");
     setTargetModel("");
+    setFirmwareVersion("");
     setModelGroups(null);
     setModelsError(null);
     if (uploaded) {
@@ -107,6 +113,7 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
     reset();
     setTargetManufacturer("");
     setTargetModel("");
+    setFirmwareVersion("");
     setModelGroups(null);
     setModelsError(null);
     onSuccess();
@@ -153,10 +160,15 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
                 forceBelow
               />
             </div>
+            <Input
+              id="firmware-version"
+              label="Firmware version"
+              initValue={firmwareVersion}
+              onChange={setFirmwareVersion}
+            />
             <FileDropZone
               extensions={serverConfig.allowedExtensions}
               onFileSelect={(selectedFile) => processFile(selectedFile, target)}
-              disabled={!hasTarget}
             />
           </>
         ) : null}

@@ -66,8 +66,9 @@ async function fetchFirmwareConfig(logout: () => void): Promise<FirmwareConfig> 
 }
 
 export interface FirmwareUploadOptions {
-  targetManufacturer: string;
-  targetModel: string;
+  targetManufacturer?: string;
+  targetModel?: string;
+  firmwareVersion?: string;
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
 }
@@ -100,11 +101,31 @@ export interface FirmwareFileInfo {
   uploaded_at: string;
   target_manufacturer: string;
   target_model: string;
+  firmware_version?: string;
 }
 
 interface CheckFirmwareResponse {
   exists: boolean;
   firmware_file_id?: string;
+}
+
+function hasCompleteFirmwareTarget(target: {
+  targetManufacturer?: string;
+  targetModel?: string;
+  firmwareVersion?: string;
+}): boolean {
+  return Boolean(target.targetManufacturer?.trim() && target.targetModel?.trim() && target.firmwareVersion?.trim());
+}
+
+function firmwareMetadataFields(options?: FirmwareUploadOptions): Record<string, string> {
+  const fields: Record<string, string> = {};
+  const targetManufacturer = options?.targetManufacturer?.trim();
+  const targetModel = options?.targetModel?.trim();
+  const firmwareVersion = options?.firmwareVersion?.trim();
+  if (targetManufacturer) fields.target_manufacturer = targetManufacturer;
+  if (targetModel) fields.target_model = targetModel;
+  if (firmwareVersion) fields.firmware_version = firmwareVersion;
+  return fields;
 }
 
 export const useFirmwareApi = () => {
@@ -118,7 +139,7 @@ export const useFirmwareApi = () => {
   const checkFirmwareFile = useCallback(
     async (
       sha256: string,
-      target: { targetManufacturer: string; targetModel: string },
+      target: { targetManufacturer: string; targetModel: string; firmwareVersion: string },
       signal?: AbortSignal,
     ): Promise<{ exists: boolean; firmwareFileId?: string }> => {
       const response = await fetch(`${API_BASE}/check`, {
@@ -129,6 +150,7 @@ export const useFirmwareApi = () => {
           sha256,
           target_manufacturer: target.targetManufacturer,
           target_model: target.targetModel,
+          firmware_version: target.firmwareVersion,
         }),
         signal,
       });
@@ -158,14 +180,10 @@ export const useFirmwareApi = () => {
   const uploadFirmwareFile = useCallback(
     async (file: File, options?: FirmwareUploadOptions): Promise<string> => {
       const config = await fetchFirmwareConfig(logout);
-      const targetManufacturer = options?.targetManufacturer.trim();
-      const targetModel = options?.targetModel.trim();
-      if (!targetManufacturer) {
-        throw new Error("Product is required.");
+      if (!hasCompleteFirmwareTarget(options ?? {})) {
+        throw new Error("Manufacturer, model, and firmware version are required.");
       }
-      if (!targetModel) {
-        throw new Error("Model is required.");
-      }
+      const metadataFields = firmwareMetadataFields(options);
 
       let data: unknown;
       const useChunked = file.size > config.chunkSizeBytes;
@@ -173,10 +191,7 @@ export const useFirmwareApi = () => {
         data = await upload(`${API_BASE}/upload`, file, {
           onProgress: options?.onProgress,
           signal: options?.signal,
-          initiateFields: {
-            target_manufacturer: targetManufacturer,
-            target_model: targetModel,
-          },
+          initiateFields: metadataFields,
           chunked: {
             enabled: true,
             chunkSize: config.chunkSizeBytes,
@@ -189,10 +204,7 @@ export const useFirmwareApi = () => {
         data = await upload(`${API_BASE}/upload`, file, {
           onProgress: options?.onProgress,
           signal: options?.signal,
-          formFields: {
-            target_manufacturer: targetManufacturer,
-            target_model: targetModel,
-          },
+          formFields: metadataFields,
         });
       }
 

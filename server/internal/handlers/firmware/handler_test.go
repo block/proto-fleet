@@ -151,6 +151,7 @@ func createMultipartRequest(t *testing.T, filename string, content []byte, cooki
 	writer := multipart.NewWriter(&buf)
 	require.NoError(t, writer.WriteField("target_manufacturer", "Proto"))
 	require.NoError(t, writer.WriteField("target_model", "S21"))
+	require.NoError(t, writer.WriteField("firmware_version", "v2.0.0"))
 	part, err := writer.CreateFormFile("file", filename)
 	require.NoError(t, err)
 	_, err = part.Write(content)
@@ -185,11 +186,11 @@ func createMultipartRequestWithoutMetadata(t *testing.T, filename string, conten
 }
 
 func testFirmwareMetadata() files.FirmwareMetadata {
-	return files.FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "S21"}
+	return files.FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "S21", FirmwareVersion: "v2.0.0"}
 }
 
 func firmwareCheckBody(checksum string) string {
-	return fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"S21"}`, checksum)
+	return fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"S21","firmware_version":"v2.0.0"}`, checksum)
 }
 
 func createCheckRequest(t *testing.T, body string, cookie *http.Cookie) *http.Request {
@@ -421,7 +422,7 @@ func TestCheckHandler_RequiresMatchingTargetMetadata(t *testing.T) {
 	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
 	require.NoError(t, err)
 
-	body := fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"S19"}`, sha256Hex(content))
+	body := fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"S19","firmware_version":"v2.0.0"}`, sha256Hex(content))
 	req := createCheckRequest(t, body, validSessionCookie(env.sessionID))
 	rr := httptest.NewRecorder()
 

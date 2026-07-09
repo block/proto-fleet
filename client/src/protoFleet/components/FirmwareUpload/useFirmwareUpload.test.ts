@@ -16,7 +16,7 @@ vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
   validateFirmwareFile: vi.fn().mockReturnValue(null),
 }));
 
-const firmwareTarget = { targetManufacturer: "Proto", targetModel: "S21" };
+const firmwareTarget = { targetManufacturer: "Proto", targetModel: "S21", firmwareVersion: "v2.0.0" };
 
 const defaultConfig = {
   allowedExtensions: [".swu", ".tar.gz", ".zip"],
@@ -138,6 +138,27 @@ describe("useFirmwareUpload", () => {
         expect(result.current.state).toBe("ready");
       });
       expect(result.current.firmwareFileId).toBe("fw-existing");
+      expect(mockUploadFirmwareFile).not.toHaveBeenCalled();
+    });
+
+    it("sets error state when target metadata is incomplete", async () => {
+      const { result } = renderHook(() => useFirmwareUpload(true));
+
+      await vi.waitFor(() => {
+        expect(result.current.serverConfig).not.toBeNull();
+      });
+
+      const file = new File(["data"], "proto-rig.swu");
+
+      act(() => {
+        result.current.processFile(file, { targetManufacturer: "", targetModel: "", firmwareVersion: "" });
+      });
+
+      await vi.waitFor(() => {
+        expect(result.current.state).toBe("error");
+      });
+      expect(result.current.errorMessage).toBe("Manufacturer, model, and firmware version are required.");
+      expect(mockCheckFirmwareFile).not.toHaveBeenCalled();
       expect(mockUploadFirmwareFile).not.toHaveBeenCalled();
     });
 
