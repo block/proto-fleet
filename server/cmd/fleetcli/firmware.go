@@ -67,7 +67,7 @@ func firmwareCheckCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			target, err := firmwareTargetFromCommand(cmd)
+			target, err := firmwareTargetFromCommandStrict(cmd)
 			if err != nil {
 				return err
 			}
@@ -96,12 +96,10 @@ func firmwareUploadCommand() *cli.Command {
 		Name:      "upload",
 		Usage:     "Upload a firmware file, reusing the server copy when checksums match",
 		ArgsUsage: "<path>",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "target-manufacturer", Usage: "Firmware target manufacturer/product"},
-			&cli.StringFlag{Name: "target-model", Usage: "Firmware target miner model"},
+		Flags: append(firmwareTargetFlags(),
 			&cli.BoolFlag{Name: "force", Usage: "Upload even when a file with the same checksum already exists on the server"},
 			&cli.BoolFlag{Name: "quiet", Usage: "Suppress progress output on stderr"},
-		},
+		),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			path, err := singleArg(cmd, "<path>")
 			if err != nil {
@@ -118,8 +116,8 @@ func firmwareUploadCommand() *cli.Command {
 			if !cmd.Bool("quiet") {
 				progress = os.Stderr
 			}
-			target, err := firmwareTargetFromCommand(cmd)
-			if err != nil {
+			target := firmwareTargetFromCommand(cmd)
+			if err := validateFirmwareUploadTarget(path, target); err != nil {
 				return err
 			}
 			result, reused, err := runFirmwareUpload(ctx, client, path, target, cmd.Bool("force"), progress)
@@ -294,32 +292,64 @@ func buildFirmwareDeployRequest(ctx context.Context, cmd *cli.Command, client *C
 
 type firmwareUploadResult struct {
 	FirmwareFileID string `json:"firmware_file_id"`
+	Reused         bool   `json:"reused,omitempty"`
 }
 
 type firmwareTarget struct {
 	Manufacturer string
 	Model        string
+	Version      string
 }
 
 func firmwareTargetFlags() []cli.Flag {
 	return []cli.Flag{
 		&cli.StringFlag{Name: "target-manufacturer", Usage: "Firmware target manufacturer/product"},
 		&cli.StringFlag{Name: "target-model", Usage: "Firmware target miner model"},
+		&cli.StringFlag{Name: "firmware-version", Usage: "Firmware version reported after a successful install"},
 	}
 }
 
-func firmwareTargetFromCommand(cmd *cli.Command) (firmwareTarget, error) {
-	target := firmwareTarget{
-		Manufacturer: strings.TrimSpace(cmd.String("target-manufacturer")),
-		Model:        strings.TrimSpace(cmd.String("target-model")),
-	}
-	if target.Manufacturer == "" {
-		return firmwareTarget{}, fmt.Errorf("--target-manufacturer is required")
-	}
-	if target.Model == "" {
-		return firmwareTarget{}, fmt.Errorf("--target-model is required")
+func firmwareTargetFromCommandStrict(cmd *cli.Command) (firmwareTarget, error) {
+	target := firmwareTargetFromCommand(cmd)
+	if err := target.validate(); err != nil {
+		return firmwareTarget{}, err
 	}
 	return target, nil
+}
+
+func firmwareTargetFromCommand(cmd *cli.Command) firmwareTarget {
+	return firmwareTarget{
+		Manufacturer: strings.TrimSpace(cmd.String("target-manufacturer")),
+		Model:        strings.TrimSpace(cmd.String("target-model")),
+		Version:      strings.TrimSpace(cmd.String("firmware-version")),
+	}
+}
+
+func (t firmwareTarget) complete() bool {
+	return t.Manufacturer != "" && t.Model != "" && t.Version != ""
+}
+
+// validate reports the first missing required firmware target field.
+func (t firmwareTarget) validate() error {
+	if t.Manufacturer == "" {
+		return fmt.Errorf("--target-manufacturer is required")
+	}
+	if t.Model == "" {
+		return fmt.Errorf("--target-model is required")
+	}
+	if t.Version == "" {
+		return fmt.Errorf("--firmware-version is required")
+	}
+	return nil
+}
+
+// validateFirmwareUploadTarget requires full target metadata for non-.swu
+// uploads; .swu images carry their target inside the file itself.
+func validateFirmwareUploadTarget(path string, target firmwareTarget) error {
+	if strings.HasSuffix(strings.ToLower(filepath.Base(path)), ".swu") {
+		return nil
+	}
+	return target.validate()
 }
 
 // runFirmwareUpload drives the full upload flow: fetch config, validate the
@@ -364,21 +394,24 @@ func runFirmwareUpload(ctx context.Context, client *Client, path string, target 
 		return result, false, fmt.Errorf("rewind %s: %w", path, err)
 	}
 
-	check, err := client.FirmwareCheck(ctx, digest, target)
-	if err != nil {
-		return result, false, err
-	}
-	if check.Exists && check.FirmwareFileID != "" && !force {
-		result.FirmwareFileID = check.FirmwareFileID
-		return result, true, nil
+	if target.complete() {
+		check, err := client.FirmwareCheck(ctx, digest, target)
+		if err != nil {
+			return result, false, err
+		}
+		if check.Exists && check.FirmwareFileID != "" && !force {
+			result.FirmwareFileID = check.FirmwareFileID
+			result.Reused = true
+			return result, true, nil
+		}
 	}
 
 	reporter := newProgressPrinter(progress, size)
-	var fileID string
+	var uploadResp *firmwareUploadResponse
 	if size <= cfg.ChunkSizeBytes {
-		fileID, err = client.FirmwareUploadDirect(ctx, filename, f, target, reporter)
+		uploadResp, err = client.FirmwareUploadDirect(ctx, filename, f, target, force, reporter)
 	} else {
-		fileID, err = client.FirmwareUploadChunked(ctx, filename, f, size, cfg.ChunkSizeBytes, target, reporter)
+		uploadResp, err = client.FirmwareUploadChunked(ctx, filename, f, size, cfg.ChunkSizeBytes, target, force, reporter)
 	}
 	if reporter != nil {
 		_, _ = fmt.Fprintln(progress)
@@ -386,8 +419,9 @@ func runFirmwareUpload(ctx context.Context, client *Client, path string, target 
 	if err != nil {
 		return result, false, err
 	}
-	result.FirmwareFileID = fileID
-	return result, false, nil
+	result.FirmwareFileID = uploadResp.FirmwareFileID
+	result.Reused = uploadResp.Reused
+	return result, uploadResp.Reused, nil
 }
 
 // validateFirmwareFile applies the same local checks as the web client before

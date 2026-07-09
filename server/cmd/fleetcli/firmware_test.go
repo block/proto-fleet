@@ -90,7 +90,7 @@ func writeTempFirmwareFile(t *testing.T, name string, content []byte) string {
 }
 
 func testFirmwareTarget() firmwareTarget {
-	return firmwareTarget{Manufacturer: "Proto", Model: "S21"}
+	return firmwareTarget{Manufacturer: "Proto", Model: "S21", Version: "v2.0.0"}
 }
 
 func TestFileSHA256(t *testing.T) {
@@ -199,7 +199,7 @@ func TestFirmwareCheckSendsSHA256(t *testing.T) {
 	if gotContentType != contentTypeJSON {
 		t.Errorf("check Content-Type = %q, want %q", gotContentType, contentTypeJSON)
 	}
-	wantBody := fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"S21"}`, digest)
+	wantBody := fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"S21","firmware_version":"v2.0.0"}`, digest)
 	if string(gotBody) != wantBody {
 		t.Errorf("check body = %s, want %s", gotBody, wantBody)
 	}
@@ -256,6 +256,9 @@ func TestFirmwareUploadReusesExistingFile(t *testing.T) {
 	}
 	if result.FirmwareFileID != "existing-id" {
 		t.Errorf("FirmwareFileID = %q, want %q", result.FirmwareFileID, "existing-id")
+	}
+	if !result.Reused {
+		t.Error("result.Reused = false, want true")
 	}
 }
 
@@ -324,6 +327,12 @@ func TestFirmwareUploadDirectUsesMultipart(t *testing.T) {
 				}
 				if got := r.FormValue("target_model"); got != "S21" {
 					t.Errorf("target_model = %q, want S21", got)
+				}
+				if got := r.FormValue("firmware_version"); got != "v2.0.0" {
+					t.Errorf("firmware_version = %q, want v2.0.0", got)
+				}
+				if got := r.FormValue("force"); got != "" {
+					t.Errorf("force = %q, want empty", got)
 				}
 				gotBytes, err = io.ReadAll(file)
 				if err != nil {
@@ -408,6 +417,9 @@ func TestFirmwareUploadChunkedSequence(t *testing.T) {
 	if initiateBody.TargetManufacturer != "Proto" || initiateBody.TargetModel != "S21" {
 		t.Errorf("initiate target = %s %s, want Proto S21", initiateBody.TargetManufacturer, initiateBody.TargetModel)
 	}
+	if initiateBody.Force {
+		t.Error("initiate force = true, want false")
+	}
 	wantRanges := []string{"bytes 0-7/20", "bytes 8-15/20", "bytes 16-19/20"}
 	if len(gotRanges) != len(wantRanges) {
 		t.Fatalf("chunk count = %d (%v), want %d", len(gotRanges), gotRanges, len(wantRanges))
@@ -422,6 +434,45 @@ func TestFirmwareUploadChunkedSequence(t *testing.T) {
 	}
 	if !bytes.Equal(reassembled, content) {
 		t.Errorf("reassembled chunks do not match the source file (got %q, want %q)", reassembled, content)
+	}
+}
+
+func TestFirmwareUploadSWUWithoutMetadataSkipsPrecheck(t *testing.T) {
+	path := writeTempFirmwareFile(t, "proto-rig.swu", []byte("firmware"))
+
+	mux := http.NewServeMux()
+	serveFirmwareConfig(t, mux, firmwareConfig{AllowedExtensions: []string{".swu"}, MaxFileSizeBytes: 1 << 20, ChunkSizeBytes: 1024})
+	forbidFirmwareEndpoint(t, mux, "POST /api/v1/firmware/check")
+	mux.HandleFunc("POST /api/v1/firmware/upload", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.FormValue("target_manufacturer"); got != "" {
+			t.Errorf("target_manufacturer = %q, want empty", got)
+		}
+		if got := r.FormValue("target_model"); got != "" {
+			t.Errorf("target_model = %q, want empty", got)
+		}
+		if got := r.FormValue("firmware_version"); got != "" {
+			t.Errorf("firmware_version = %q, want empty", got)
+		}
+		writeFirmwareJSON(t, w, firmwareUploadResponse{FirmwareFileID: "parsed-id", Reused: true})
+	})
+	client := newFirmwareTestServer(t, mux)
+
+	result, reused, err := runFirmwareUpload(context.Background(), client, path, firmwareTarget{}, false, nil)
+	if err != nil {
+		t.Fatalf("runFirmwareUpload() error = %v", err)
+	}
+	if !reused || !result.Reused {
+		t.Fatalf("reused = %v result.Reused = %v, want true/true", reused, result.Reused)
+	}
+	if result.FirmwareFileID != "parsed-id" {
+		t.Errorf("FirmwareFileID = %q, want parsed-id", result.FirmwareFileID)
+	}
+}
+
+func TestValidateFirmwareUploadTargetRequiresMetadataForNonSWU(t *testing.T) {
+	err := validateFirmwareUploadTarget("firmware.zip", firmwareTarget{})
+	if err == nil || !strings.Contains(err.Error(), "--target-manufacturer is required") {
+		t.Fatalf("validateFirmwareUploadTarget() error = %v, want target-manufacturer requirement", err)
 	}
 }
 

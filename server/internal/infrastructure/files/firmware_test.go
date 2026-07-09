@@ -20,7 +20,7 @@ func checksumOf(content string) string {
 }
 
 func testFirmwareMetadata() FirmwareMetadata {
-	return FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "S21"}
+	return FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "S21", FirmwareVersion: "v2.0.0"}
 }
 
 func storageDirEntries(t *testing.T, dir string) []os.DirEntry {
@@ -623,6 +623,60 @@ func TestSaveFirmwareFileFromPath_MovesAndRegistersChecksum(t *testing.T) {
 
 	_, statErr := os.Stat(srcPath)
 	assert.True(t, os.IsNotExist(statErr), "source file should be removed after rename")
+}
+
+func TestSaveFirmwareUpload_UsesManualMetadata(t *testing.T) {
+	svc := setupService(t)
+	content := "firmware content"
+
+	result, err := svc.SaveFirmwareUpload("proto-rig.swu", strings.NewReader(content), testFirmwareMetadata(), false)
+
+	require.NoError(t, err)
+	assert.False(t, result.Reused)
+	assert.Equal(t, testFirmwareMetadata(), result.Metadata)
+
+	metadata, err := svc.GetFirmwareMetadata(result.FirmwareFileID)
+	require.NoError(t, err)
+	assert.Equal(t, result.Metadata, metadata)
+}
+
+func TestSaveFirmwareUpload_RejectsMissingMetadata(t *testing.T) {
+	svc := setupService(t)
+
+	_, err := svc.SaveFirmwareUpload("vendor.swu", strings.NewReader("firmware content"), FirmwareMetadata{}, false)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "target_manufacturer")
+}
+
+func TestSaveFirmwareUpload_ReusesExistingWithSameMetadata(t *testing.T) {
+	svc := setupService(t)
+	content := "firmware content"
+
+	first, err := svc.SaveFirmwareUpload("proto-rig.swu", strings.NewReader(content), testFirmwareMetadata(), false)
+	require.NoError(t, err)
+
+	second, err := svc.SaveFirmwareUpload("proto-rig.swu", strings.NewReader(content), testFirmwareMetadata(), false)
+	require.NoError(t, err)
+
+	assert.True(t, second.Reused)
+	assert.Equal(t, first.FirmwareFileID, second.FirmwareFileID)
+	assert.Len(t, firmwareFileEntries(t), 1)
+}
+
+func TestSaveFirmwareUpload_ForceBypassesDedupe(t *testing.T) {
+	svc := setupService(t)
+	content := "firmware content"
+
+	first, err := svc.SaveFirmwareUpload("proto-rig.swu", strings.NewReader(content), testFirmwareMetadata(), false)
+	require.NoError(t, err)
+
+	second, err := svc.SaveFirmwareUpload("proto-rig.swu", strings.NewReader(content), testFirmwareMetadata(), true)
+	require.NoError(t, err)
+
+	assert.False(t, second.Reused)
+	assert.NotEqual(t, first.FirmwareFileID, second.FirmwareFileID)
+	assert.Len(t, firmwareFileEntries(t), 2)
 }
 
 func TestSaveFirmwareFileFromPath_RejectsEmptyFile(t *testing.T) {
