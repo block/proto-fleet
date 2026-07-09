@@ -54,6 +54,16 @@ func (h *Handler) UpdateCollection(ctx context.Context, r *connect.Request[pb.Up
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
+	// UpdateCollection now persists a rack's placement (site/building) when
+	// rack_info carries it — the same reparent + cascade the DeviceSet handler
+	// exposes — so mirror its gate: require site:manage when placement intent is
+	// present (explicit site_id/building_id, incl. 0 to unassign). Metadata-only
+	// edits (label/zone/dims, membership) stay rack:manage.
+	if ri := r.Msg.GetRackInfo(); ri != nil && (ri.SiteId != nil || ri.BuildingId != nil) {
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
 	result, err := h.collectionSvc.UpdateCollection(ctx, r.Msg)
 	if err != nil {
 		return nil, err

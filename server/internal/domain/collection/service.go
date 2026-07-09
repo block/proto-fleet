@@ -531,6 +531,17 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 			rackBuildingID   *int64
 		)
 		if isRack && rackInfo != nil {
+			// A settings save persists dimensions without replacing membership,
+			// so reject a shrink that no longer fits the rack's current members
+			// or their slot positions — otherwise Continue would leave the DB
+			// with a grid too small for the miners it holds (#718). Skipped when
+			// this call also replaces membership; the new set governs capacity
+			// then (and SaveRack owns that path).
+			if !hasDeviceSelector {
+				if err := s.enforceRackDimensionsFitCurrentMembers(ctx, info.OrganizationID, req.CollectionId, rackInfo.Rows, rackInfo.Columns); err != nil {
+					return nil, err
+				}
+			}
 			// preserveZoneOnEmpty=false: this settings save's form always
 			// submits the rack's current zone, so an empty zone is an explicit
 			// clear — even for a rack:manage operator who omits placement.
@@ -2173,6 +2184,40 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 		return nil, err
 	}
 	return res, nil
+}
+
+// enforceRackDimensionsFitCurrentMembers rejects a settings save that shrinks
+// the grid below the rack's current membership or below an occupied slot
+// position. UpdateCollection persists dimensions without touching membership,
+// so without this guard an operator could leave the DB holding more miners
+// than the new layout has slots (or slots addressed outside it). Uses plain
+// reads (no row locks) so it does not perturb the site->building->rack lock
+// order taken by resolveAndApplyRackPlacement.
+func (s *Service) enforceRackDimensionsFitCurrentMembers(ctx context.Context, orgID, collectionID int64, rows, columns int32) error {
+	slots, err := s.collectionStore.GetRackSlots(ctx, collectionID, orgID)
+	if err != nil {
+		return err
+	}
+	for _, slot := range slots {
+		if slot.Position == nil {
+			continue
+		}
+		if slot.Position.Row >= rows || slot.Position.Column >= columns {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"cannot resize rack to %d×%d: an assigned miner's slot falls outside the smaller grid; remove miners or choose a larger size",
+				rows, columns)
+		}
+	}
+	coll, err := s.collectionStore.GetCollection(ctx, orgID, collectionID)
+	if err != nil {
+		return err
+	}
+	if capacity := int64(rows) * int64(columns); int64(coll.DeviceCount) > capacity {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"cannot resize rack to %d slot(s): %d miner(s) are currently assigned; remove miners or choose a larger size",
+			capacity, coll.DeviceCount)
+	}
+	return nil
 }
 
 // resolveAndApplyRackPlacement locks site/building/rack in canonical order,

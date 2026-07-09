@@ -2053,8 +2053,10 @@ func TestService_UpdateCollection_RackSettingsClearsZoneOmittedPlacement(t *test
 	// Settings save cascades current members onto the (unchanged) placement.
 	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Eq(&existingSite)).Return(int64(0), nil)
 	mockStore.EXPECT().CascadeRackDeviceBuildings(gomock.Any(), collectionID, testOrgID, gomock.Eq(&existingBuilding)).Return(int64(0), nil)
+	// Dimension guard reads the current slots + member count; empty rack fits.
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
-		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil).Times(2)
 	mockStore.EXPECT().GetRackInfo(gomock.Any(), collectionID, testOrgID).
 		Return(&pb.RackInfo{Rows: 4, Columns: 8, Zone: "", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR}, nil)
 
@@ -2105,8 +2107,10 @@ func TestService_UpdateCollection_RackSettingsPersistsPlacementAndCascades(t *te
 	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), gomock.Any()).Return(nil)
 	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Eq(&site)).Return(int64(2), nil)
 	mockStore.EXPECT().CascadeRackDeviceBuildings(gomock.Any(), collectionID, testOrgID, gomock.Eq(&building)).Return(int64(2), nil)
+	// Dimension guard reads the current slots + member count; empty rack fits.
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
-		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil).Times(2)
 	mockStore.EXPECT().GetRackInfo(gomock.Any(), collectionID, testOrgID).
 		Return(&pb.RackInfo{Rows: 4, Columns: 8, Zone: "Floor 2", SiteId: &site, BuildingId: &building, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR}, nil)
 
@@ -2128,6 +2132,43 @@ func TestService_UpdateCollection_RackSettingsPersistsPlacementAndCascades(t *te
 	require.NoError(t, err)
 	assert.Equal(t, "Floor 2", resp.Collection.GetRackInfo().Zone)
 	assert.Equal(t, building, *resp.Collection.GetRackInfo().BuildingId)
+	_ = mockSiteStore
+}
+
+// TestService_UpdateCollection_RackSettingsRejectsShrinkBelowMembers guards the
+// #718 regression: Continue persists dimensions without touching membership, so
+// a settings save that shrinks the grid below the current member count must be
+// rejected before any write, leaving the rack untouched.
+func TestService_UpdateCollection_RackSettingsRejectsShrinkBelowMembers(t *testing.T) {
+	svc, mockStore, mockSiteStore := newTestServiceWithSites(t, func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, nil
+	})
+	ctx := testCtx(t)
+
+	collectionID := int64(43)
+
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	// Guard runs first: no out-of-bounds slots, but 5 members exceed the new
+	// 2×2 = 4 capacity → reject. No UpdateRackInfo / placement writes follow.
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK, DeviceCount: 5}, nil)
+
+	label := "Rack"
+	_, err := svc.UpdateCollection(ctx, &pb.UpdateCollectionRequest{
+		CollectionId: collectionID,
+		Label:        &label,
+		TypeDetails: &pb.UpdateCollectionRequest_RackInfo{
+			RackInfo: &pb.RackInfo{
+				Rows:        2,
+				Columns:     2,
+				OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+				CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+			},
+		},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot resize rack")
 	_ = mockSiteStore
 }
 
