@@ -49,8 +49,11 @@ class ReviewPolicyTest(unittest.TestCase):
 
     def test_workflow_ignored_events_do_not_cancel_active_evaluations(self):
         workflow = load_workflow("review-policy.yml")
+        group_expression = workflow["concurrency"]["group"]
         cancel_expression = workflow["concurrency"]["cancel-in-progress"]
 
+        self.assertIn("format('ignored-{0}', github.run_id)", group_expression)
+        self.assertIn("github.event.pull_request.head.sha || github.event.workflow_run.head_sha", group_expression)
         self.assertIn("github.event.check_run.app.slug == 'github-actions'", cancel_expression)
         self.assertIn("github.event.action == 'rerequested'", cancel_expression)
         self.assertIn("github.event.check_suite.app.slug == 'github-actions'", cancel_expression)

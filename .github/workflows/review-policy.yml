@@ -15,7 +15,19 @@ on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflo
   status:
 
 concurrency:
-  group: review-policy-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.check_run.head_sha || github.event.check_suite.head_sha || github.event.sha || github.sha || github.run_id }}
+  group: >-
+    review-policy-${{
+      (
+        (github.event_name == 'check_run' && github.event.check_run.app.slug == 'github-actions') ||
+        (github.event_name == 'check_run' && github.event.action == 'rerequested') ||
+        (github.event_name == 'check_suite' && github.event.check_suite.app.slug == 'github-actions') ||
+        (github.event_name == 'check_suite' && github.event.action == 'rerequested') ||
+        (github.event_name == 'status' && (github.event.context == 'Review Policy' || github.event.context == 'Review Policy Advisory')) ||
+        (github.event_name == 'pull_request_review' && github.event.action == 'submitted' && github.event.review.state == 'commented')
+      ) &&
+      format('ignored-{0}', github.run_id) ||
+      (github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.check_run.head_sha || github.event.check_suite.head_sha || github.event.sha || github.sha || github.run_id)
+    }}
   cancel-in-progress: >-
     ${{
       !(
