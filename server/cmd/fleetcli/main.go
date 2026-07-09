@@ -86,11 +86,6 @@ func newRootCommand() *cli.Command {
 				Usage:   "Allow insecure TLS certificates and non-loopback http:// server URLs for testing",
 				Sources: cli.EnvVars(envFleetInsecure),
 			},
-			&cli.BoolFlag{
-				Name:    "debug",
-				Usage:   "Show debug output",
-				Sources: cli.EnvVars("FLEET_DEBUG"),
-			},
 		},
 		Commands:              allCommands(),
 		EnableShellCompletion: true,
@@ -587,7 +582,6 @@ func resolvedClientOptions(cmd *cli.Command) Options {
 		Password:      password,
 		PasswordStdin: root.Bool("password-stdin"),
 		Insecure:      root.Bool("insecure"),
-		Debug:         root.Bool("debug"),
 	}
 }
 

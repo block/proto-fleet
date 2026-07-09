@@ -45,7 +45,6 @@ type Options struct {
 	Password      string
 	PasswordStdin bool
 	Insecure      bool
-	Debug         bool
 }
 
 type Client struct {
@@ -55,7 +54,6 @@ type Client struct {
 	username      string
 	password      string
 	passwordStdin bool
-	debug         bool
 }
 
 type authPolicy int
@@ -104,7 +102,6 @@ func New(_ context.Context, opts Options) (*Client, error) {
 		username:      strings.TrimSpace(opts.Username),
 		password:      opts.Password,
 		passwordStdin: opts.PasswordStdin,
-		debug:         opts.Debug,
 	}, nil
 }
 
